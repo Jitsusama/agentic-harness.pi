@@ -10,15 +10,17 @@
  */
 
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	answerTreeClaims,
 	forgetSweptTrees,
@@ -29,6 +31,12 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../../../lib/core/work/index.ts";
+import {
+	clearDiscoveryCache,
+	discoverQuests,
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 
 /** Just enough of pi's bus for a listener to be reached over it. */
 function bus() {
@@ -53,7 +61,17 @@ function questsRootHolding(...paths: string[]): string {
 /** A quests root holding one quest of `status` that lists the given trees. */
 function questsRootWith(status: string, ...paths: string[]): string {
 	const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
-	const id = "QEST-20260731-AAAAAA";
+	questListing(root, "QEST-20260731-AAAAAA", status, ...paths);
+	return root;
+}
+
+/** Write quest `id` into `root`, of `status`, listing the given trees. */
+function questListing(
+	root: string,
+	id: string,
+	status: string,
+	...paths: string[]
+): string {
 	mkdirSync(join(root, id), { recursive: true });
 	const trees = paths
 		.map(
@@ -69,7 +87,7 @@ function questsRootWith(status: string, ...paths: string[]): string {
 			(paths.length > 0 ? `trees:\n${trees}` : "") +
 			"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
 	);
-	return root;
+	return join(root, id, "README.md");
 }
 
 describe("answering who holds a tree", () => {
@@ -200,10 +218,22 @@ describe("answering who holds a tree", () => {
 			"/src/repo/.worktrees/mine",
 		]);
 	});
-});
 
-describe("hearing that a sweep took a tree", () => {
-	it("drops a tree the sweep took from the quest that listed it", () => {
+	it("gives an asker that waits nothing more to wait on, since its walk is fresh", () => {
+		const pi = bus();
+		answerTreeClaims(
+			pi as never,
+			questsRootHolding("/src/repo/.worktrees/mine"),
+		);
+
+		const claims: TreeClaims = { paths: [], answering: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths).toEqual(["/src/repo/.worktrees/mine"]);
+		expect(claims.answering, "answers still to come").toEqual([]);
+	});
+
+	it("drops a tree a sweep took from the quest that listed it", async () => {
 		const root = questsRootHolding(
 			"/src/repo/.worktrees/spent",
 			"/src/repo/.worktrees/working",
@@ -215,26 +245,188 @@ describe("hearing that a sweep took a tree", () => {
 		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
 
-		const claims: TreeClaims = { paths: [] };
-		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.paths, "what the quest lists after the sweep").toEqual([
-			"/src/repo/.worktrees/working",
-		]);
+		await vi.waitFor(() => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			expect(claims.paths, "what the quest lists after the sweep").toEqual([
+				"/src/repo/.worktrees/working",
+			]);
+		});
+	});
+});
+
+describe("answering who holds a tree on a host", () => {
+	let host: ReturnType<typeof installTestHost>;
+
+	beforeEach(() => {
+		clearDiscoveryCache();
+		host = installTestHost();
 	});
 
-	it("leaves a quest's trees alone when the sweep took others", () => {
+	afterEach(() => {
+		host.dispose();
+		clearDiscoveryCache();
+	});
+
+	it("answers an asker that waits with a tree listed since the last walk", async () => {
 		const root = questsRootHolding("/src/repo/.worktrees/mine");
+		const readme = join(root, "QEST-20260731-AAAAAA", "README.md");
+		settle(readme);
+		settle(join(root, "QEST-20260731-AAAAAA"));
+		settle(root);
+		discoverQuests(root);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// Another process lists a second tree, which the last walk predates.
+		const text = readFileSync(readme, "utf8");
+		writeFileSync(
+			readme,
+			text.replace(
+				"trees:\n",
+				"trees:\n  - path: /src/repo/.worktrees/new\n" +
+					"    providerId: git-worktree\n" +
+					"    repoRoot: /src/repo/.worktrees/new\n    origin: cut\n",
+			),
+		);
+		settle(readme);
+		const claims: TreeClaims = { paths: [], answering: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		await Promise.all(claims.answering ?? []);
+
+		expect(claims.paths).toContain("/src/repo/.worktrees/new");
+	});
+});
+
+describe("hearing that a sweep took a tree", () => {
+	let host: ReturnType<typeof installTestHost>;
+
+	beforeEach(() => {
+		clearDiscoveryCache();
+		host = installTestHost();
+	});
+
+	afterEach(() => {
+		host.dispose();
+		clearDiscoveryCache();
+	});
+
+	/**
+	 * What the quests under `root` list, once the forgetting settles. A
+	 * host answers no claims before its first walk, so an empty answer is
+	 * one from before the forgetting read the tree.
+	 */
+	function listedOnceGone(
+		pi: ReturnType<typeof bus>,
+		gone: string,
+	): Promise<string[]> {
+		return vi.waitFor(() => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			expect(claims.paths, "the tree the sweep took").not.toContain(gone);
+			expect(claims.paths, "read since the sweep").not.toEqual([]);
+			return claims.paths;
+		});
+	}
+
+	it("drops a tree the sweep took from the quest that listed it", async () => {
+		const root = questsRootHolding(
+			"/src/repo/.worktrees/spent",
+			"/src/repo/.worktrees/working",
+		);
 		const pi = bus();
 		answerTreeClaims(pi as never, root);
 		forgetSweptTrees(pi as never, root);
 
-		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/nobodys"] };
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
 
-		const claims: TreeClaims = { paths: [] };
-		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.paths, "what the quest lists after the sweep").toEqual([
+		// It reads the tree afresh before it writes, so it ends a moment on.
+		await vi.waitFor(() => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			expect(claims.paths, "what the quest lists after the sweep").toEqual([
+				"/src/repo/.worktrees/working",
+			]);
+		});
+	});
+
+	it("leaves a quest's trees alone when the sweep took others", async () => {
+		const root = questsRootHolding(
+			"/src/repo/.worktrees/mine",
+			"/src/repo/.worktrees/spent",
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = {
+			paths: ["/src/repo/.worktrees/nobodys", "/src/repo/.worktrees/spent"],
+		};
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		// Read once the tree it did take is gone, so the forgetting has run.
+		const listed = await listedOnceGone(pi, "/src/repo/.worktrees/spent");
+		expect(listed, "what the quest lists after the sweep").toEqual([
 			"/src/repo/.worktrees/mine",
 		]);
 	});
+
+	it("keeps listing a tree cut again at the path the sweep took", async () => {
+		const recut = mkdtempSync(join(tmpdir(), "claims-recut-"));
+		try {
+			const root = questsRootHolding(recut, "/src/repo/.worktrees/spent");
+			const pi = bus();
+			answerTreeClaims(pi as never, root);
+			forgetSweptTrees(pi as never, root);
+
+			const swept: SweptTrees = {
+				paths: [recut, "/src/repo/.worktrees/spent"],
+			};
+			pi.events.emit(WORK_TREES_SWEPT, swept);
+
+			const listed = await listedOnceGone(pi, "/src/repo/.worktrees/spent");
+			expect(listed, "a folder that is there again").toEqual([recut]);
+		} finally {
+			rmSync(recut, { recursive: true, force: true });
+		}
+	});
+
+	// Root writes a folder whatever its mode, so the locked quest isn't.
+	it.skipIf(process.getuid?.() === 0)(
+		"forgets in every other quest when one quest's write fails, and throws nothing",
+		async () => {
+			const root = questsRootHolding("/src/repo/.worktrees/spent");
+			const locked = questListing(
+				root,
+				"QEST-20260731-BBBBBB",
+				"active",
+				"/src/repo/.worktrees/spent",
+			);
+			const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const lockedDir = join(locked, "..");
+			chmodSync(lockedDir, 0o500);
+			try {
+				const pi = bus();
+				answerTreeClaims(pi as never, root);
+				forgetSweptTrees(pi as never, root);
+
+				const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
+				pi.events.emit(WORK_TREES_SWEPT, swept);
+
+				await vi.waitFor(() => {
+					const text = readFileSync(
+						join(root, "QEST-20260731-AAAAAA", "README.md"),
+						"utf8",
+					);
+					expect(text, "the quest it could write").not.toContain("spent");
+					const lines = said.mock.calls.map(([line]) => String(line));
+					expect(lines.join("")).toContain("QEST-20260731-BBBBBB");
+				});
+			} finally {
+				chmodSync(lockedDir, 0o700);
+				said.mockRestore();
+			}
+		},
+	);
 });

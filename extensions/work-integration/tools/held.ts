@@ -34,29 +34,62 @@ export const CLAIMED_PROVIDER = "claimed";
  * checkout in `src/`, and git run in the folder answered "not a git
  * repository" to every branch and commit (seen 2026-10-14 and again on
  * 2026-10-25).
+ *
+ * The claims' first answer is each holder's last read, which on a host
+ * can predate a tree another process just cut; only when that holds no
+ * claim on a path that is there does it ask again for the holders'
+ * fresh answers and wait on them, until `signal` stops it. A path that
+ * isn't there is no tree, however fresh the claims.
  */
-export function claimedTree(
+export async function claimedTree(
 	pi: ExtensionAPI,
 	name: string,
-): HeldTree | undefined {
+	signal?: AbortSignal,
+): Promise<HeldTree | undefined> {
 	const expanded =
 		name === "~" || name.startsWith("~/")
 			? join(homedir(), name.slice(1))
 			: name;
 	if (!isAbsolute(expanded)) return undefined;
-	const claims: TreeClaims = { paths: [], untilSpent: [] };
-	pi.events.emit(WORK_TREE_CLAIMS, claims);
 	const asked = resolved(expanded);
-	const holder = [...claims.paths, ...(claims.untilSpent ?? [])]
-		.map(resolved)
-		.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
-		.sort((a, b) => b.length - a.length)[0];
+	const quick: TreeClaims = { paths: [], untilSpent: [] };
+	pi.events.emit(WORK_TREE_CLAIMS, quick);
+	let holder = holding(quick, asked);
+	if (holder === undefined && existsSync(expanded)) {
+		const fresh: TreeClaims = { paths: [], untilSpent: [], answering: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, fresh);
+		await untilStopped(Promise.allSettled(fresh.answering ?? []), signal);
+		holder = holding(fresh, asked);
+	}
 	if (holder === undefined || !existsSync(holder)) return undefined;
 	return {
 		identity: { key: holder, shareable: false },
 		path: checkoutWithin(asked, holder) ?? holder,
 		providerId: CLAIMED_PROVIDER,
 	};
+}
+
+/** The nearest claim in `claims` holding the resolved path `asked`. */
+function holding(claims: TreeClaims, asked: string): string | undefined {
+	return [...claims.paths, ...(claims.untilSpent ?? [])]
+		.map(resolved)
+		.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
+		.sort((a, b) => b.length - a.length)[0];
+}
+
+/** `work` once it ends, or `signal`'s reason once that fires first. */
+function untilStopped<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+	if (!signal) return work;
+	// A wait nobody hears ends unheard, rather than end pi.
+	work.catch(() => undefined);
+	if (signal.aborted) return Promise.reject(signal.reason);
+	return new Promise<T>((resolve, reject) => {
+		const stop = (): void => reject(signal.reason);
+		signal.addEventListener("abort", stop, { once: true });
+		work
+			.then(resolve, reject)
+			.finally(() => signal.removeEventListener("abort", stop));
+	});
 }
 
 /**

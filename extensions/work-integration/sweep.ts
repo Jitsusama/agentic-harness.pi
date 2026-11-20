@@ -129,10 +129,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// counted as in use, one sweep so took 154 trees, among them the
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
-		// Asked only by a sweep that runs, as the sweep says why.
-		const claimed = () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [] };
+		// Asked only by a sweep that runs, as the sweep says why, and
+		// waited on, so a quest answers from its tree as it stands now.
+		const claimed = async () => {
+			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			await Promise.all(claims.answering ?? []);
 			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
 		};
 		const outcome = await sweepEndedTrees({

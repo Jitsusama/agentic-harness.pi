@@ -19,13 +19,20 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createMutex } from "../../lib/internal/process/async-mutex.ts";
-import { signQuestsNow } from "../../lib/internal/quest/discovery/discovery.ts";
+import {
+	type AsyncMutex,
+	createMutex,
+} from "../../lib/internal/process/async-mutex.ts";
+import {
+	questsWalked,
+	readyQuests,
+	signingGaveUp,
+} from "../../lib/internal/quest/discovery/discovery.ts";
 import { sayConcluded } from "../../lib/internal/quest/fields/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/fields/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
-import { suggestAction } from "./actions.ts";
+import { isQuestAction, suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
@@ -103,32 +110,181 @@ export type { QuestResult, QuestToolParams };
 // for quest calls and serialize every other tool in the batch too.
 const turns = createMutex();
 
+// Each conversation's calls in the order it issued them: a call readies
+// what it reads and takes its turn behind its own earlier calls, so a
+// `journal` after a `create` in one message writes into the new quest,
+// while a wait on the tree holds no other conversation's calls.
+const issued = new WeakMap<QuestState, AsyncMutex>();
+
+/** The order `state`'s conversation issued its calls in. */
+function issueOrder(state: QuestState): AsyncMutex {
+	const known = issued.get(state);
+	if (known) return known;
+	const made = createMutex();
+	issued.set(state, made);
+	return made;
+}
+
 /**
  * Dispatch the action to its handler, one call at a time. A call
- * stopped while it waits for its turn rejects with an `AbortError`
- * and never runs.
+ * stopped while it waits for the tree or its turn rejects with an
+ * `AbortError` and never runs.
  */
-export function handle(
+export async function handle(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
-	return turns.runExclusive(
+	// Readied before the shared turn, so one conversation's wait on the
+	// tree holds no other's quest calls: a signing that ends is the tree
+	// as it stands, and this process's own writes after it are read with
+	// it. Readied after this conversation's earlier calls have run, so it
+	// reads what they wrote and names the quest they left loaded.
+	return issueOrder(state).runExclusive(
 		async () => {
-			// What an action reads decides what it writes, so on a host it
-			// reads the tree as it stands, not a walk a few seconds old.
-			signQuestsNow(state.questsRoot);
-			const actedOn = targetsOf(state, params);
-			const result = await dispatch(state, pi, ctx, params, signal);
-			tellConcluded(pi, params, actedOn, result);
-			tellLanded(pi, params, result);
-			return result;
+			const unready = await ready(state, params, signal);
+			if (unready) return refuse(unready);
+			return turns.runExclusive(
+				async () => {
+					const actedOn = targetsOf(state, params);
+					const result = await dispatch(state, pi, ctx, params, signal);
+					tellConcluded(pi, params, actedOn, result);
+					tellLanded(pi, params, result);
+					return result;
+				},
+				{ signal },
+			);
 		},
 		{ signal },
 	);
 }
+
+/**
+ * On a host, what an action reads decides what it writes, so it reads
+ * the quests it names as they stand, not as a walk a few seconds old
+ * found them, and waits on the whole tree signed afresh when what it
+ * writes rests on others too. An action that writes nothing answers
+ * the last walk when the disk gives no answer in time; one that writes
+ * is refused, and this says why.
+ */
+async function ready(
+	state: QuestState,
+	params: QuestToolParams,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	// An action no verb takes is answered with what it might have meant.
+	if (!isQuestAction(params.action)) return undefined;
+	const named = [
+		...targetsOf(state, params),
+		state.questId,
+		...idsNamed(params.parent),
+		...idsNamed(params.target),
+	];
+	try {
+		await readyQuests(state.questsRoot, named, readsAcross(params), signal);
+	} catch (error) {
+		if (!signingGaveUp(error)) throw error;
+		// Never signed whole on the thread, which would hold every
+		// conversation on the disk that just gave no answer.
+		if (!questsWalked(state.questsRoot)) return `Nothing read: ${NEVER_READ}`;
+		if (writesNothing(params)) return undefined;
+		return `Nothing changed: ${QUESTS_UNREAD} Try again in a moment; a listing still answers from the last read.`;
+	}
+	return undefined;
+}
+
+/** Why an action that writes can't go ahead while the disk is slow. */
+const QUESTS_UNREAD =
+	"the quest folders didn't answer a read in time, and what this writes rests on them.";
+
+/** Why nothing can answer while the disk has never given a walk. */
+const NEVER_READ =
+	"the quest folders haven't answered a first read yet. Try again in a moment.";
+
+/** Whether a call writes nothing: a listing, or a dry run of any action. */
+function writesNothing(params: QuestToolParams): boolean {
+	return params.dryRun === true || WRITES_NOTHING.has(params.action);
+}
+
+/**
+ * Whether an action decides what it writes from quests it doesn't name:
+ * each action not {@link NAMED_ONLY}, and a `load` naming no quest,
+ * which finds one by whose trees hold its folder.
+ */
+function readsAcross(params: QuestToolParams): boolean {
+	if (params.action === "load") return idsNamed(params.id).length === 0;
+	return !NAMED_ONLY.has(params.action);
+}
+
+/** The actions that write nothing, so a walk the disk can't renew answers them. */
+const WRITES_NOTHING: ReadonlySet<string> = new Set([
+	"expand",
+	"show",
+	"status",
+	"tree-list",
+	"list",
+	"tree",
+	"find",
+	"who",
+	"links",
+	"locate",
+	"ancestors",
+	"sessions",
+	"recent",
+]);
+
+/**
+ * The actions that write only the quests and documents they name, or
+ * write nothing: each other reads quests it doesn't name to decide what
+ * it writes, as a rank among siblings, a parent's cycle check, a
+ * quest's children before it is sealed, an alias another quest carries
+ * or a checkout another quest adopted. A listing writes nothing, so it
+ * answers the last walk, at most a minute old, with the quests it names
+ * read again.
+ */
+const NAMED_ONLY: ReadonlySet<string> = new Set([
+	"load",
+	"unload",
+	"show",
+	"status",
+	"config",
+	"focus",
+	"unfocus",
+	"journal",
+	"tick",
+	"untick",
+	"section",
+	"retitle",
+	"need-add",
+	"need-remove",
+	"budget",
+	"think",
+	"draft",
+	"build",
+	"alias-remove",
+	"tree-add",
+	"tree-list",
+	"tree-release",
+	"expand",
+	"session-attach",
+	"session-detach",
+	"session-rename",
+	"spawn",
+	"spawn-tab",
+	"spawn-pane",
+	"spawn-window",
+	"list",
+	"tree",
+	"find",
+	"who",
+	"links",
+	"locate",
+	"ancestors",
+	"sessions",
+	"recent",
+]);
 
 /** What a call acts on: the ids it names, else the focused document or quest. */
 function targetsOf(state: QuestState, params: QuestToolParams): string[] {
