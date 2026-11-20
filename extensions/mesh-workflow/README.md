@@ -280,8 +280,8 @@ and can answer a question or a gate left open on screen.
   field counts as asking. Each names its `cell`, its session's own
   address, which no other session on its quest shares, so the launcher
   reads the cell it leads to rather than searching every session; it
-  stays once that session ends, and the launcher's agents daemon leads
-  an ended cell to its quest's own session. Pointing again at the same
+  stays once that session ends, and the launcher's agents daemon is to
+  lead an ended cell to its quest's own session. Pointing again at the same
   thing, from the session or another on its quest, replaces the look
   in its place, naming the cell of the session that pointed last,
   the older one's id and time kept: a pull request's tabs, a diff of

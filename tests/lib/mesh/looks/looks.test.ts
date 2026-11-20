@@ -158,6 +158,16 @@ describe("the person's look list", () => {
 		expect(looksIn(dir)[0]?.id).toBe(look.id);
 	});
 
+	it("reads a look whose cell isn't a string as one with none", () => {
+		const look = pointAt(dir, pr, who);
+		const file = join(dir, `${look.id}.json`);
+		const kept = JSON.parse(readFileSync(file, "utf8"));
+		writeFileSync(file, JSON.stringify({ ...kept, cell: { to: "OWL01" } }));
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]).not.toHaveProperty("cell");
+	});
+
 	it("keeps a look pointed at again in its place rather than adding it twice", () => {
 		pointAt(dir, pr, who, new Date("2026-11-08T09:00:00Z"));
 		pointAt(

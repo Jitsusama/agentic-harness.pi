@@ -124,8 +124,9 @@ export interface Look {
 	 * session on its quest shares, so the launcher reads it rather than
 	 * searching every session (Y2YBTS and 85PKB2, 20 November). It names
 	 * the session as it pointed, and stays so once that session ends: the
-	 * launcher's agents daemon leads an ended cell to its quest's own
-	 * session. A look kept before looks carried one has none.
+	 * launcher's agents daemon is to lead an ended cell to its quest's own
+	 * session (its half of G, due 20 November). A look kept before looks
+	 * carried one has none.
 	 */
 	readonly cell?: string;
 	/** The quest it has loaded. */
@@ -603,11 +604,20 @@ export async function looksListed(dir: string): Promise<Look[]> {
 	return newestFirst(read);
 }
 
-/** The look a file's `raw` text holds, or none when it holds none. */
+/**
+ * The look a file's `raw` text holds, or none when it holds none. A cell
+ * that isn't a string is let go, so the launcher leads the look as one
+ * kept before looks named their cell.
+ */
 function lookFrom(raw: string): Look | undefined {
 	try {
 		const value: unknown = JSON.parse(raw);
-		return isLook(value) ? value : undefined;
+		if (!isLook(value)) return undefined;
+		if (value.cell === undefined || typeof value.cell === "string") {
+			return value;
+		}
+		const { cell: _unread, ...kept } = value;
+		return kept;
 	} catch {
 		// Torn as it was replaced: it is read whole on the next look.
 		return undefined;
