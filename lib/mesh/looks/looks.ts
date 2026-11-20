@@ -47,6 +47,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeWhole } from "../../internal/write-whole.ts";
+import { sessionAddress } from "../address.ts";
 
 /** The kinds of thing a look opens, each in its own place. */
 export const LOOK_KINDS = ["pr", "page", "file", "diff", "terminal"] as const;
@@ -118,6 +119,13 @@ export interface Look {
 	/** The session pointing, and the address it signs with. */
 	readonly session: string;
 	readonly address?: string;
+	/**
+	 * The cell it leads to: its session's own address, which no other
+	 * session on its quest shares, so the launcher reads it rather than
+	 * searching every session (Y2YBTS and 85PKB2, 20 November). A look
+	 * kept before looks carried one has none.
+	 */
+	readonly cell?: string;
 	/** The quest it has loaded. */
 	readonly quest?: string;
 	readonly kind: LookKind;
@@ -335,6 +343,7 @@ export function pointAt(
 		at: place?.at ?? now.toISOString(),
 		session: pointer.session,
 		...(pointer.address ? { address: pointer.address } : {}),
+		cell: sessionAddress(pointer.session),
 		...(pointer.quest ? { quest: pointer.quest } : {}),
 		kind: pointing.kind,
 		target: pointing.target.trim(),

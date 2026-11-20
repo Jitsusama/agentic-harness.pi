@@ -82,6 +82,39 @@ describe("the person's look list", () => {
 		});
 	});
 
+	// Y2YBTS and 85PKB2, 20 November: the launcher reads a look's cell
+	// from its file rather than searching every session for it, so the
+	// file names the session's own address, which no other session on its
+	// quest shares, as its signing address can.
+	it("names its cell by its session's own address, never its quest's", () => {
+		const session = "0194a1b2-7c3d-7e4f-a5b6-c7d8eac01c97";
+		pointAt(dir, pr, { ...who, session }, new Date("2026-11-20T09:00:00Z"));
+
+		expect(looksIn(dir)[0]).toMatchObject({
+			session,
+			address: "85PKB2",
+			cell: "EAC01C97",
+		});
+	});
+
+	it("names the cell of the session that pointed at it last, once another on its quest does", () => {
+		pointAt(
+			dir,
+			pr,
+			{ ...who, session: "0194a1b2-0000-0000-0000-0000000000a1" },
+			new Date("2026-11-20T09:00:00Z"),
+		);
+		pointAt(
+			dir,
+			pr,
+			{ ...who, session: "0194a1b2-0000-0000-0000-0000000000b2" },
+			new Date("2026-11-20T09:30:00Z"),
+		);
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]).toMatchObject({ cell: "000000B2" });
+	});
+
 	it("keeps a look pointed at again in its place rather than adding it twice", () => {
 		pointAt(dir, pr, who, new Date("2026-11-08T09:00:00Z"));
 		pointAt(
