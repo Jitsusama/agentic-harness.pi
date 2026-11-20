@@ -13,7 +13,8 @@
  *
  * Where a machine sweeps outside its hosts, as scripts/pi-sweep.ts does
  * from a timer, a host's sweeps stand down for two hours after each of
- * its runs, so a host's one thread never carries a sweep's work.
+ * its runs that judged every provider the host has, so a host's one
+ * thread never carries a sweep's work.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -119,11 +120,17 @@ function stopSweeps(own: Sweeps): void {
 }
 
 /**
- * One sweep in a host, unless a sweep outside every host has run lately,
- * which stands it down before it reads anything.
+ * One sweep in a host, unless a sweep outside every host has lately
+ * judged the trees of every provider this host has, which stands it down
+ * before it reads anything.
  */
 async function sweepOnce(pi: ExtensionAPI): Promise<void> {
-	if (sweptOutsideSince(sweepLockPath(), Date.now()) !== undefined) return;
+	const outside = sweptOutsideSince(
+		sweepLockPath(),
+		Date.now(),
+		judgedProviders(),
+	);
+	if (outside !== undefined) return;
 	await sweepAndLog({
 		// Asked only by a sweep that runs, as the sweep says why.
 		claimed: () => {
@@ -146,6 +153,25 @@ export function sweepLockPath(): string {
 	return join(stateDir("work"), "sweep.lock");
 }
 
+/**
+ * The providers whose trees a sweep here judges: git's, which the sweep
+ * judges itself, and each loaded provider that says whether a tree is
+ * spent. Another provider's trees are kept whatever their state.
+ */
+export function judgedProviders(): string[] {
+	const judged = new Set(["git-worktree"]);
+	for (const provider of listTreeProviders()) {
+		if (provider.whyKept !== undefined) judged.add(provider.id);
+	}
+	return [...judged].sort();
+}
+
+/**
+ * How a sweep ended: run to its end, rested after another, turned away
+ * by another holding the lock, or failed.
+ */
+export type SweepEnd = "ran" | "rested" | "skipped" | "failed";
+
 /** What a sweep asks of whoever runs it. */
 export interface SweepAsks {
 	/** The trees held for good, and those held only until spent. */
@@ -161,15 +187,12 @@ export interface SweepAsks {
 	fencedGit?: boolean;
 }
 
-/**
- * One sweep, logged, which never throws: whether it ran to its end,
- * rather than resting, finding another sweep running, or failing.
- */
-export async function sweepAndLog(asks: SweepAsks): Promise<boolean> {
+/** One sweep, logged, which never throws, saying how it ended. */
+export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
-	let ran = false;
+	let end: SweepEnd = "failed";
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
 		// when asked, as it does for reclaim. A live quest's trees are held
@@ -181,7 +204,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<boolean> {
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
 		const outcome = await sweepEndedTrees({
-			exec: unattendedExec(undefined, asks.fencedGit === true),
+			exec: unattendedExec(undefined, { fenced: asks.fencedGit === true }),
 			memory: createTreeMemory(treeRecordDir()),
 			claims: () => asks.claimed(),
 			lockPath: sweepLockPath(),
@@ -194,16 +217,29 @@ export async function sweepAndLog(asks: SweepAsks): Promise<boolean> {
 		// it did: a line for each filled the log at one every 3 seconds on
 		// 18 November. One that found another running still says so, as
 		// the only sign of a sweep that holds the lock and never ends.
-		if (outcome.rested !== undefined) return false;
+		if (outcome.rested !== undefined) return "rested";
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
-		ran = outcome.skipped === undefined;
+		end = outcome.skipped === undefined ? "ran" : "skipped";
 	} catch (error) {
-		line = { failed: error instanceof Error ? error.message : String(error) };
+		line = { failed: messageOf(error) };
 	}
 	logSweep({ ms: Date.now() - started, ...line }, started);
-	if (taken.length > 0) asks.swept(taken);
-	return ran;
+	if (taken.length > 0) {
+		try {
+			asks.swept(taken);
+		} catch (error) {
+			// The trees are gone either way; a holder that still lists one
+			// is told again by the next sweep that finds it missing.
+			logSweep({ unforgotten: taken.length, why: messageOf(error) });
+		}
+	}
+	return end;
+}
+
+/** What an error says, whatever was thrown. */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /**

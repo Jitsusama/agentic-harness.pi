@@ -107,7 +107,7 @@ describe("unattendedExec", () => {
 
 		// Not `rev-parse --git-dir`, which reads as naming the git folder
 		// outright and so goes as asked.
-		const said = await unattendedExec(undefined, true)("git", [
+		const said = await unattendedExec(undefined, { fenced: true })("git", [
 			"-C",
 			repository,
 			"status",

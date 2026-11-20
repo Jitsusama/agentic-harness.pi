@@ -25,6 +25,7 @@ import {
 } from "../../lib/core/work/events.ts";
 import {
 	clearTreeProviders,
+	isTreeProvider,
 	listTreeProviders,
 	registerTreeProvider,
 } from "../../lib/core/work/register.ts";
@@ -38,23 +39,6 @@ import {
 } from "./broker.ts";
 import { registerTreeSweeps } from "./sweep.ts";
 import { registerWorkTool } from "./tools.ts";
-
-/**
- * Whether a bus payload is a usable tree provider. The bus is
- * untyped, and a malformed registration should be ignored rather
- * than corrupting the registry.
- */
-function isTreeProvider(data: unknown): data is TreeProvider {
-	if (typeof data !== "object" || data === null) return false;
-	const candidate = data as Partial<TreeProvider>;
-	return (
-		typeof candidate.id === "string" &&
-		typeof candidate.specificity === "number" &&
-		typeof candidate.appliesTo === "function" &&
-		typeof candidate.ensure === "function" &&
-		typeof candidate.release === "function"
-	);
-}
 
 export default function workIntegration(pi: ExtensionAPI) {
 	registerBuiltinTreeProviders(pi);

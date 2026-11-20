@@ -32,6 +32,23 @@ export function registerTreeProvider(provider: TreeProvider): void {
 	registry.register(provider);
 }
 
+/**
+ * Whether `data` is a usable tree provider, for one that arrives over an
+ * untyped seam, a bus or a module loaded by name: a malformed one is
+ * passed over rather than corrupting the registry.
+ */
+export function isTreeProvider(data: unknown): data is TreeProvider {
+	if (typeof data !== "object" || data === null) return false;
+	const candidate = data as Partial<TreeProvider>;
+	return (
+		typeof candidate.id === "string" &&
+		typeof candidate.specificity === "number" &&
+		typeof candidate.appliesTo === "function" &&
+		typeof candidate.ensure === "function" &&
+		typeof candidate.release === "function"
+	);
+}
+
 /** Remove a provider from the registry. Idempotent. */
 export function unregisterTreeProvider(id: string): void {
 	registry.unregister(id);

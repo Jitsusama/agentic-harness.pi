@@ -1,9 +1,19 @@
 /**
  * The rest the machine takes between sweeps, told by a stamp beside the
- * sweep's lock that says when the last one ended.
+ * sweep's lock that says when the last one ended, and the stamp a sweep
+ * outside every pi host leaves for the hosts' own sweeps to stand down by.
  */
 
-import { mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import {
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 /** The stamp beside a sweep's lock that says when the last sweep ended. */
@@ -54,20 +64,34 @@ function outsideStamp(lockPath: string): string {
 
 /**
  * Why a host's own sweep should stand down: a sweep outside every host
- * ran to its end within {@link OUTSIDE_SWEEP_HOLDS_MS} of `now`. A host runs
- * every conversation on one thread, and its sweeps' git calls and folder
- * listings held that thread for up to 262 s on 19 November, freezing
- * every conversation in it; a sweep in a process of its own holds none.
+ * ran to its end within {@link OUTSIDE_SWEEP_HOLDS_MS} of `now`, judging
+ * the trees of every provider in `judged`, which are the ones this host
+ * would judge. A host runs every conversation on one thread, and its
+ * sweeps' git calls and folder listings held that thread for up to 262 s
+ * on 19 November, freezing every conversation in it; a sweep in a
+ * process of its own holds none. A host with a provider the sweep outside
+ * didn't load sweeps as before, or that provider's trees would stay for
+ * good.
  */
 export function sweptOutsideSince(
 	lockPath: string,
 	now: number,
+	judged: readonly string[],
 ): string | undefined {
+	const stamp = outsideStamp(lockPath);
 	let stamped: number;
+	let judgedThere: unknown;
 	try {
-		stamped = statSync(outsideStamp(lockPath)).mtimeMs;
+		stamped = statSync(stamp).mtimeMs;
+		judgedThere = (
+			JSON.parse(readFileSync(stamp, "utf8")) as { judged?: unknown }
+		).judged;
 	} catch {
 		// No stamp, or none to read: no sweep outside, so the hosts sweep.
+		return undefined;
+	}
+	if (!Array.isArray(judgedThere)) return undefined;
+	if (judged.some((provider) => !judgedThere.includes(provider))) {
 		return undefined;
 	}
 	const ago = now - stamped;
@@ -78,18 +102,28 @@ export function sweptOutsideSince(
 }
 
 /**
- * Stamp that a sweep outside every host has run to its end, for
- * {@link sweptOutsideSince}, dated `at` by the sweep's own clock.
+ * Stamp that a sweep outside every host has run to its end, judging the
+ * trees of every provider in `judged`, for {@link sweptOutsideSince},
+ * dated `at` by the sweep's own clock. It is written beside and renamed
+ * into place, so a link planted where it goes is replaced rather than
+ * followed.
  */
-export function markSweptOutside(lockPath: string, at: number): void {
+export function markSweptOutside(
+	lockPath: string,
+	at: number,
+	judged: readonly string[],
+): void {
 	const stamp = outsideStamp(lockPath);
+	const written = `${stamp}.${randomBytes(4).toString("hex")}`;
 	try {
 		// A machine whose first sweep this is has no work state folder yet.
 		mkdirSync(dirname(stamp), { recursive: true });
-		writeFileSync(stamp, "");
-		utimesSync(stamp, at / 1000, at / 1000);
+		writeFileSync(written, JSON.stringify({ judged }), { flag: "wx" });
+		utimesSync(written, at / 1000, at / 1000);
+		renameSync(written, stamp);
 	} catch {
 		// Unwritten, the hosts go on sweeping as before, one at a time.
+		rmSync(written, { force: true });
 	}
 }
 

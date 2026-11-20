@@ -45,7 +45,10 @@ export const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
  * does, whatever this process's own sandbox: for a process that runs git
  * in every session's repositories with no session's sandbox of its own.
  */
-export function unattendedExec(signal?: AbortSignal, fenced = false): Exec {
+export function unattendedExec(
+	signal?: AbortSignal,
+	{ fenced = false }: { fenced?: boolean } = {},
+): Exec {
 	return guardedExec(
 		spawnExec({
 			...(signal ? { signal } : {}),
