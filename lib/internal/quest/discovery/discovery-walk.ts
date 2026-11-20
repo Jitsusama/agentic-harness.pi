@@ -23,6 +23,12 @@ import {
 	parseDocumentFrontMatter,
 } from "../documents/frontmatter.ts";
 import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
+import type {
+	DiscoveryError,
+	DiscoveryResult,
+	QuestDocumentEntry,
+	QuestEntry,
+} from "./discovery.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
 	forgetUnparsed,
@@ -36,12 +42,6 @@ import {
 	readEntries,
 	vouchQuestFiles,
 } from "./discovery-reads.ts";
-import type {
-	DiscoveryError,
-	DiscoveryResult,
-	QuestDocumentEntry,
-	QuestEntry,
-} from "./discovery.ts";
 import { pendingStampOf } from "./off-thread.ts";
 
 /** What a walk says of a quest folder with no README, as one being made. */
