@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { machineFacts, releaseFacts } from "../../../host/cutover/machine.ts";
+import { hostSocketPath } from "../../../host/service/address.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { waitingSteers } from "../../../lib/mesh/steer.ts";
@@ -266,6 +268,36 @@ describe("releaseFacts", () => {
 			expect(facts.takenUp(HOPPING), "a live pi of its own").toBe(true);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("reads no host listening as holding nothing, and one that refuses its list as unknown", async () => {
+		const { root, places: deep } = releasePlaces("taken");
+		// A socket's path can't pass 103 bytes, so its folder sits just under TMPDIR.
+		const places = { ...deep, runtimeDir: mkdtempSync(join(tmpdir(), "r-")) };
+		const socket = hostSocketPath("work", "attended", places.runtimeDir);
+		const refusing = createServer((client) => {
+			client.on("data", (chunk) => {
+				const { id } = JSON.parse(chunk.toString().split("\n")[0] ?? "{}");
+				client.end(
+					`${JSON.stringify({ v: 1, id, ok: false, error: { code: "busy", message: "busy" } })}\n`,
+				);
+			});
+		});
+		try {
+			const facts = releaseFacts(places);
+			expect(await facts.held(), "no host listening").toEqual([]);
+			mkdirSync(join(places.runtimeDir, "pi-host"), { recursive: true });
+			await new Promise<void>((listening) =>
+				refusing.listen(socket, listening),
+			);
+			await expect(facts.held()).rejects.toThrow(
+				"the attended host refused its list",
+			);
+		} finally {
+			await new Promise((closed) => refusing.close(closed));
+			rmSync(root, { recursive: true, force: true });
+			rmSync(places.runtimeDir, { recursive: true, force: true });
 		}
 	});
 

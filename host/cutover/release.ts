@@ -41,7 +41,10 @@ export interface HeldConversation {
 
 /** What a release asks of the machine; tests give their own. */
 export interface ReleaseFacts {
-	/** Every conversation the realm's two hosts hold now. */
+	/**
+	 * Every conversation the realm's two hosts hold now; rejects when a
+	 * host listening didn't answer, since what it holds is then unknown.
+	 */
 	held(): Promise<HeldConversation[]>;
 	/** The addresses a conversation answers to, its signature first. */
 	addressesOf(session: string): readonly string[];
@@ -270,8 +273,22 @@ export async function releaseBack(
 			`${address} released from the ${base.from} host; ${SAID_OPENED[opened]}`,
 		);
 	};
+	let unread: string | undefined;
 	for (;;) {
-		const still = new Set((await facts.held()).map((one) => one.session));
+		// A look no host answered counts none as gone: read as empty, one
+		// still held would be settled with no note, and lost.
+		const still = await facts.held().then(
+			(held) => {
+				unread = undefined;
+				return new Set(held.map((one) => one.session));
+			},
+			(error: unknown) => {
+				const why = error instanceof Error ? error.message : String(error);
+				if (why !== unread) facts.say(`looking again, as ${why}`);
+				unread = why;
+				return new Set(left.keys());
+			},
+		);
 		let leaving = false;
 		for (const [session, one] of left) {
 			if (still.has(session)) {

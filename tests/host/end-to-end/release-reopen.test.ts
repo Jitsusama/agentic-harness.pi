@@ -36,6 +36,7 @@ import {
 	chmodSync,
 	cpSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
@@ -107,6 +108,25 @@ const presences = () =>
 			"presence",
 		),
 	);
+
+/** What the seal's moves folder holds, each file with its text, for a failure. */
+function movesSaid(): string {
+	const folder = join(
+		sealed.env.XDG_STATE_HOME ?? "",
+		"pi",
+		"agentic-harness.pi",
+		"moves",
+	);
+	try {
+		const names = readdirSync(folder);
+		if (names.length === 0) return "The moves folder is empty.";
+		return names
+			.map((name) => `${name}: ${readFileSync(join(folder, name), "utf8")}`)
+			.join("\n");
+	} catch (error) {
+		return `No moves folder to read: ${String(error)}`;
+	}
+}
 
 /** The address a conversation signs with, its first. */
 function signature(sessionId: string): string {
@@ -377,7 +397,10 @@ it(
 			// The install moves under the run, and the release asks it to go.
 			moveTo(install, "two");
 			const released = await release([busy.sessionId], { offer: true });
-			expect(released.code, `${released.out}\n${textOf(busy.file)}`).toBe(0);
+			expect(
+				released.code,
+				`${released.out}\n${movesSaid()}\n${textOf(busy.file)}`,
+			).toBe(0);
 			expect(released.out).toContain("1 released");
 			expect(await host.list(), "the host ends empty").toEqual([]);
 			expect(offered().get(busy.sessionId), "it is offered").toMatchObject({

@@ -122,26 +122,68 @@ function holdsSaid(presence: Presence | undefined): string | undefined {
 		: undefined;
 }
 
-/** Every conversation the realm's two hosts hold; one not listening holds none. */
-async function listHeld(
+/**
+ * Every conversation the realm's two hosts hold, and the kinds of host
+ * that are listening but didn't answer the list, whose holdings are
+ * unknown rather than none.
+ */
+async function heldBy(
 	realm: string,
 	runtimeDir: string | undefined,
-): Promise<HeldConversation[]> {
+): Promise<{ held: HeldConversation[]; unanswered: string[] }> {
 	const held: HeldConversation[] = [];
+	const unanswered: string[] = [];
 	for (const kind of ["attended", "background"] as const) {
 		try {
 			const reply = await controlRequest(
 				hostSocketPath(realm, kind, runtimeDir),
 				{ v: 1, id: randomUUID(), op: "list" },
 			);
-			if (!reply.ok) continue;
+			if (!reply.ok) {
+				unanswered.push(`the ${kind} host refused its list`);
+				continue;
+			}
 			const { sessions, host } = parseListResult(reply.result);
 			for (const one of sessions)
 				held.push({ session: one.sessionId, host: host.key, kind });
-		} catch {
+		} catch (error) {
 			// A host not listening holds nothing; adopting into it says so.
+			if (!notListening(error))
+				unanswered.push(`the ${kind} host didn't answer: ${messageOf(error)}`);
 		}
 	}
+	return { held, unanswered };
+}
+
+/** Whether a request failed because no host listens at its socket at all. */
+function notListening(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		"code" in error &&
+		(error.code === "ENOENT" || error.code === "ECONNREFUSED")
+	);
+}
+
+/** Every conversation the realm's two hosts hold; one not answering holds none. */
+async function listHeld(
+	realm: string,
+	runtimeDir: string | undefined,
+): Promise<HeldConversation[]> {
+	return (await heldBy(realm, runtimeDir)).held;
+}
+
+/**
+ * Every conversation the realm's two hosts hold, refused while a host
+ * listening doesn't answer: a release reading that as empty would count
+ * a conversation still held as gone with no note, as a loaded host's
+ * slow list did in E30.
+ */
+async function answeredHeld(
+	realm: string,
+	runtimeDir: string | undefined,
+): Promise<HeldConversation[]> {
+	const { held, unanswered } = await heldBy(realm, runtimeDir);
+	if (unanswered.length > 0) throw new Error(unanswered.join("; "));
 	return held;
 }
 
@@ -208,7 +250,7 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 	const moves = places.moves ?? moveFolder();
 	const quests = places.quests ?? join(dataDir("quest-workflow"), "quests");
 	return {
-		held: () => listHeld(places.realm, places.runtimeDir),
+		held: () => answeredHeld(places.realm, places.runtimeDir),
 		addressesOf: (session) => presences.of(session)?.addresses ?? [],
 		tell: (address) => {
 			giveSteer(steer, address, {

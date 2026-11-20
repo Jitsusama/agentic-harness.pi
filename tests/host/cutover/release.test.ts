@@ -268,6 +268,33 @@ describe("releaseBack", () => {
 		expect(realm.journals).toEqual([]);
 	});
 
+	// A host that didn't answer one look read as holding nothing, so one
+	// still held and not yet noted was counted lost (release-reopen E30).
+	it("reads a look no host answered as still held, and releases it once one does", async () => {
+		const realm = fakeRealm({ s1: { after: 3 } });
+		const held = realm.facts.held;
+		let looked = 0;
+		realm.facts.held = async () => {
+			looked += 1;
+			if (looked === 2 || looked === 3) {
+				throw new Error("work-attended didn't answer: timed out");
+			}
+			return held();
+		};
+		const note = realm.facts.note;
+		// Its note lands only as it truly leaves, after the looks that failed.
+		realm.facts.note = (session) => (looked > 3 ? note(session) : undefined);
+
+		const report = await releaseBack("all", realm.facts, 60_000);
+
+		expect(report.lost, "none lost while no host answered").toEqual([]);
+		expect(report.released.map((one) => one.address)).toEqual(["AAAAAA"]);
+		expect(
+			realm.said.filter((line) => line.startsWith("looking again")),
+			"said once for the same reason",
+		).toEqual(["looking again, as work-attended didn't answer: timed out"]);
+	});
+
 	it("counts one whose window took it up, its note settled, as released", async () => {
 		const realm = fakeRealm({ s1: { after: 0, note: false, viewed: true } });
 		const report = await releaseBack("all", realm.facts, 60_000);
