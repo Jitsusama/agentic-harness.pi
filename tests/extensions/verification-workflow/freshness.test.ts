@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -235,11 +236,15 @@ function failingGit(only: string): void {
  * A git that, when its arguments hold `only`, says so in `gitWaiting()`
  * and waits for `gitReleased()` before answering.
  */
-function heldGit(only: string): void {
+function heldGit(only: string, except?: string): void {
 	const waiting = shQuoted(gitWaiting());
 	const released = shQuoted(gitReleased());
+	const hold = `: > ${waiting}; while [ ! -e ${released} ]; do sleep 0.05; done`;
+	const there = except === undefined ? "" : shQuoted(realpathSync(except));
 	gitThat(
-		`: > ${waiting}; while [ ! -e ${released} ]; do sleep 0.05; done`,
+		except === undefined
+			? hold
+			: `case "$(pwd -P)" in ${there}) ;; *) ${hold} ;; esac`,
 		only,
 	);
 }
@@ -263,7 +268,8 @@ async function verifyEndsMeanwhile(
 	other: string,
 	then: string,
 ): Promise<void> {
-	heldGit(" status ");
+	// The other's git answers at once, so the repository's ends last.
+	heldGit(" status ", other);
 	h.questVerify = "exit 1";
 	const failing = h.verify.execute("call", { path: repo }, undefined);
 	await vi.waitFor(() =>
