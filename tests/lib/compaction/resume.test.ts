@@ -79,7 +79,10 @@ describe("whether a compaction left a run owed", () => {
 			compaction(500),
 		];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a turn cut by its own ask is owed",
+		).toBe(true);
 	});
 
 	it("is owed when a run begun after the ask was cut", () => {
@@ -93,7 +96,10 @@ describe("whether a compaction left a run owed", () => {
 			compaction(8000),
 		];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a run the compaction cut is owed",
+		).toBe(true);
 	});
 
 	it("owes nothing to a run stopped before an idle compaction was asked", () => {
@@ -103,52 +109,76 @@ describe("whether a compaction left a run owed", () => {
 			compaction(5000),
 		];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a run stopped before the ask owes nothing",
+		).toBe(false);
 	});
 
 	it("owes nothing once a message follows the compaction", () => {
 		const branch = [asked(0, true), compaction(500), user(600)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a message after the landing owes nothing",
+		).toBe(false);
 	});
 
 	it("is still owed past messages shown but never run", () => {
 		const branch = [asked(0, true), compaction(500), mesh(2000)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a message shown but never run leaves it owed",
+		).toBe(true);
 	});
 
 	it("owes nothing to a compaction nobody recorded asking for", () => {
 		const branch = [answer(-2000, "toolUse"), toolResult(-1000), compaction(0)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a compaction with no recorded ask owes nothing",
+		).toBe(false);
 	});
 
 	it("owes nothing on an ask from before an earlier compaction", () => {
 		const branch = [asked(0, true), compaction(500), compaction(9000)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"an earlier compaction's ask is not the later one's",
+		).toBe(false);
 	});
 
 	it("owes nothing once the compaction is older than the window", () => {
 		const branch = [asked(0, true), compaction(500)];
 
-		expect(owesResume(branch, T0 + 500 + OWED_WITHIN_MS + 1)).toBe(false);
-		expect(owesResume(branch, T0 + 500 + OWED_WITHIN_MS)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 500 + OWED_WITHIN_MS + 1),
+			"past the window, nothing is owed",
+		).toBe(false);
+		expect(
+			owesResume(branch, T0 + 500 + OWED_WITHIN_MS),
+			"at the window's edge, it is owed",
+		).toBe(true);
 	});
 
 	it("owes nothing once the ask is settled after the compaction", () => {
 		// The runtime that asked answered it, or one after it resumed.
 		const branch = [asked(0, true), compaction(500), settled(600)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(owesResume(branch, T0 + 10_000), "settling ends it").toBe(false);
 	});
 
 	it("credits no later compaction with an ask its runtime settled", () => {
 		// An ask whose compaction failed, then a /compact typed later.
 		const branch = [asked(0, true), settled(4000), compaction(60_000)];
 
-		expect(owesResume(branch, T0 + 70_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 70_000),
+			"a settled ask is no later compaction's",
+		).toBe(false);
 	});
 
 	it("credits no compaction landing long after an unsettled ask", () => {
@@ -158,15 +188,21 @@ describe("whether a compaction left a run owed", () => {
 		const onTime = [asked(0, true), compaction(ASK_LANDS_WITHIN_MS)];
 		const now = T0 + ASK_LANDS_WITHIN_MS + 10_000;
 
-		expect(owesResume(late, now)).toBe(false);
-		expect(owesResume(onTime, now)).toBe(true);
+		expect(owesResume(late, now), "a late landing isn't the ask's").toBe(false);
+		expect(owesResume(onTime, now), "a timely landing is the ask's").toBe(true);
 	});
 
 	it("owes nothing to a compaction stamped ahead of the clock", () => {
 		const branch = [asked(0, true), compaction(5 * 60_000)];
 
-		expect(owesResume(branch, T0)).toBe(false);
-		expect(owesResume(branch, T0 + 5 * 60_000 - 30_000)).toBe(true);
+		expect(
+			owesResume(branch, T0),
+			"a landing ahead of the clock owes nothing",
+		).toBe(false);
+		expect(
+			owesResume(branch, T0 + 5 * 60_000 - 30_000),
+			"within the clock's leeway, it is owed",
+		).toBe(true);
 	});
 
 	it("owes nothing to a run stopped after the compaction landed", () => {
@@ -178,13 +214,19 @@ describe("whether a compaction left a run owed", () => {
 			answer(2000, "aborted"),
 		];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a run stopped after the landing owes nothing",
+		).toBe(false);
 	});
 
 	it("is owed when a run begun after the ask was cut before its first answer", () => {
 		const branch = [asked(0, false), user(1000), compaction(8000)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a run cut before its first answer is owed",
+		).toBe(true);
 	});
 
 	it("is still owed past a tool's result logged after the landing", () => {
@@ -196,7 +238,10 @@ describe("whether a compaction left a run owed", () => {
 			toolResult(600),
 		];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a tool's late result leaves it owed",
+		).toBe(true);
 	});
 
 	it("owes nothing on an ask it can't read", () => {
@@ -205,13 +250,19 @@ describe("whether a compaction left a run owed", () => {
 			data: { resume: true },
 		};
 
-		expect(owesResume([malformed, compaction(500)], T0 + 10_000)).toBe(false);
+		expect(
+			owesResume([malformed, compaction(500)], T0 + 10_000),
+			"an unreadable ask owes nothing",
+		).toBe(false);
 	});
 
 	it("owes nothing when an earlier settle lies between the ask and the landing", () => {
 		const branch = [asked(0, true), settled(200), compaction(500)];
 
-		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a landing owes nothing to an ask settled before it",
+		).toBe(false);
 	});
 
 	it("credits no compaction with an ask whose run has since finished", () => {
@@ -231,14 +282,21 @@ describe("whether a compaction left a run owed", () => {
 			compaction(120_000),
 		];
 
-		expect(owesResume(going, T0 + 130_000), "its own word").toBe(false);
-		expect(owesResume(idle, T0 + 130_000), "a run since").toBe(false);
+		expect(
+			owesResume(going, T0 + 130_000),
+			"an ask whose run has since finished owes nothing",
+		).toBe(false);
+		expect(
+			owesResume(idle, T0 + 130_000),
+			"an idle ask with a finished run since owes nothing",
+		).toBe(false);
 	});
 
 	it("owes nothing with no compaction at all", () => {
-		expect(owesResume([asked(0, true), answer(100, "aborted")], T0)).toBe(
-			false,
-		);
+		expect(
+			owesResume([asked(0, true), answer(100, "aborted")], T0),
+			"with no compaction, nothing is owed",
+		).toBe(false);
 	});
 });
 
@@ -295,27 +353,43 @@ describe("the ask nothing has answered", () => {
 
 describe("whether a run was cut since a moment", () => {
 	it("counts a prompt with no answer after it as cut", () => {
-		expect(cutSince([user(10)], T0)).toBe(true);
-		expect(cutSince([user(10), answer(20, "stop")], T0)).toBe(false);
+		expect(cutSince([user(10)], T0), "an unanswered prompt is cut").toBe(true);
+		expect(
+			cutSince([user(10), answer(20, "stop")], T0),
+			"an answered prompt is not cut",
+		).toBe(false);
 	});
 
 	it("counts a tool's result or a call for tools as cut", () => {
-		expect(cutSince([toolResult(10)], T0)).toBe(true);
-		expect(cutSince([answer(10, "toolUse")], T0)).toBe(true);
+		expect(cutSince([toolResult(10)], T0), "a tool's result is cut").toBe(true);
+		expect(
+			cutSince([answer(10, "toolUse")], T0),
+			"a call for tools is cut",
+		).toBe(true);
 	});
 
 	it("counts an answer that ended on its own as finished", () => {
-		expect(cutSince([answer(10, "stop")], T0)).toBe(false);
-		expect(cutSince([answer(10, "length")], T0)).toBe(false);
+		expect(
+			cutSince([answer(10, "stop")], T0),
+			"an answer that stopped is not cut",
+		).toBe(false);
+		expect(
+			cutSince([answer(10, "length")], T0),
+			"an answer that ran to length is not cut",
+		).toBe(false);
 	});
 
 	it("counts nothing written before the moment", () => {
-		expect(cutSince([answer(-10, "aborted")], T0)).toBe(false);
+		expect(
+			cutSince([answer(-10, "aborted")], T0),
+			"a cut from before the moment is not counted",
+		).toBe(false);
 	});
 
 	it("looks past entries that hold no message", () => {
 		expect(
 			cutSince([answer(10, "aborted"), mesh(20), compaction(30)], T0),
+			"a cut behind entries with no message is counted",
 		).toBe(true);
 	});
 });
