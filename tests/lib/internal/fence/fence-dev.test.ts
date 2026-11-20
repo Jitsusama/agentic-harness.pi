@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
+	linkSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -66,7 +67,11 @@ describe("the session's copies of dev's and git's settings", () => {
 	let pi: DevMaker;
 	const copiesOf = (
 		session: string | undefined,
-		env: { XDG_RUNTIME_DIR?: string; XDG_CONFIG_HOME?: string } = {
+		env: {
+			XDG_RUNTIME_DIR?: string;
+			XDG_CONFIG_HOME?: string;
+			GIT_CONFIG_GLOBAL?: string;
+		} = {
 			XDG_RUNTIME_DIR: runtime,
 		},
 	) => fenceDevCopies(home, env, session, pi);
@@ -173,6 +178,23 @@ describe("the session's copies of dev's and git's settings", () => {
 			readdirSync(sessions).sort(),
 			"every set of the ended pi goes",
 		).toEqual(["s-1.200"]);
+	});
+
+	it("tells a fresh set's failure once for each change of the person's files, not at every command", () => {
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		chmodSync(runtime, 0o755);
+		try {
+			writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = nano\n");
+			expect(copiesOf("s-1"), "the set before").toEqual(copies);
+			expect(copiesOf("s-1"), "still the set before").toEqual(copies);
+			expect(told, "told once for the one change").toHaveLength(1);
+			writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = vi\n");
+			copiesOf("s-1");
+			expect(told, "told again once they change").toHaveLength(2);
+		} finally {
+			chmodSync(runtime, 0o700);
+		}
 	});
 
 	it("makes the copies again where this pi's were removed, beside a folder under its id it doesn't know", () => {
@@ -362,12 +384,48 @@ describe("the session's copies of dev's and git's settings", () => {
 		);
 	});
 
-	it("writes out no global file the fence hides, through a link or not", () => {
+	it("reads a global file through a link or a second name only by its path, as the fence shows it", () => {
+		// A key the fence hides by a rule of its own, not by the home list.
 		mkdirSync(join(home, ".ssh"));
-		writeFileSync(join(home, ".ssh", "config"), "[secret]\n");
-		rmSync(join(home, ".gitconfig"));
-		symlinkSync(join(home, ".ssh", "config"), join(home, ".gitconfig"));
-		pi = maker(100, [], "pid:[1]", [".ssh/"]);
+		writeFileSync(join(home, ".ssh", "id_ed25519"), "PRIVATE KEY\n");
+		const gitconfig = join(home, ".gitconfig");
+		const byPath = `[include]\n\tpath = "${gitconfig}"\n`;
+		rmSync(gitconfig);
+		symlinkSync(join(home, ".ssh", "id_ed25519"), gitconfig);
+		const linked = copiesOf("s-1");
+		if (!linked) throw new Error("no copies were made");
+		expect(readFileSync(gitGlobalIn(linked.git), "utf8"), "a link").toBe(
+			byPath,
+		);
+
+		rmSync(gitconfig);
+		linkSync(join(home, ".ssh", "id_ed25519"), gitconfig);
+		pi = maker(200);
+		const named = copiesOf("s-1");
+		if (!named) throw new Error("no copies were made");
+		expect(
+			readFileSync(gitGlobalIn(named.git), "utf8"),
+			"a second name for the key",
+		).toBe(byPath);
+	});
+
+	it("copies the global file the person names in GIT_CONFIG_GLOBAL alone, as git reads it", () => {
+		const named = join(base, "mine.gitconfig");
+		writeFileSync(named, "[user]\n\tname = named\n");
+		writeFileSync(join(home, ".gitconfig"), "[user]\n\tname = unread\n");
+		const copies = copiesOf("s-1", {
+			XDG_RUNTIME_DIR: runtime,
+			GIT_CONFIG_GLOBAL: named,
+		});
+		if (!copies) throw new Error("no copies were made");
+		expect(readFileSync(gitGlobalIn(copies.git), "utf8")).toBe(
+			"[user]\n\tname = named\n",
+		);
+	});
+
+	it("writes out no global file the fence hides at its own path", () => {
+		writeFileSync(join(home, ".gitconfig"), "[secret]\n");
+		pi = maker(100, [], "pid:[1]", [".gitconfig"]);
 		const copies = copiesOf("s-1");
 		if (!copies) throw new Error("no copies were made");
 		expect(readFileSync(gitGlobalIn(copies.git), "utf8")).toBe("");

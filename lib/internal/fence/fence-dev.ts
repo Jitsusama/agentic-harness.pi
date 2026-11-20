@@ -41,10 +41,13 @@
 
 import {
 	chmodSync,
+	closeSync,
 	cpSync,
 	existsSync,
+	fstatSync,
 	lstatSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
 	readFileSync,
 	readlinkSync,
@@ -95,11 +98,14 @@ export interface DevCopies {
 /**
  * What a pi process has made for a session: its copies, or `null` where
  * they couldn't be made; what the person's files were when it made them;
- * and which set they are.
+ * which set they are; and what the files were when a fresh set last
+ * couldn't be made, so the next command tries again but a failure is
+ * told once, not at every command, until they change.
  */
 export interface DevMade {
 	readonly copies: DevCopies | null;
 	readonly source: string;
+	readonly failed?: string;
 	readonly generation: number;
 }
 
@@ -144,11 +150,17 @@ export function gitGlobalIn(folder: string): string {
  * where a fresh one can't be made; or nothing without a runtime folder, a
  * session id naming one folder, or dev's settings, or when the first
  * can't be made, which isn't tried again, so the command runs as it did
- * before, with both read-only.
+ * before, with both read-only. git's copy is of the global files git
+ * reads: the one `GIT_CONFIG_GLOBAL` names, where the person sets it, or
+ * else both of git's own.
  */
 export function fenceDevCopies(
 	home: string,
-	env: { readonly XDG_RUNTIME_DIR?: string; readonly XDG_CONFIG_HOME?: string },
+	env: {
+		readonly XDG_RUNTIME_DIR?: string;
+		readonly XDG_CONFIG_HOME?: string;
+		readonly GIT_CONFIG_GLOBAL?: string;
+	},
 	session: string | undefined,
 	pi: DevMaker = THIS_PI,
 ): DevCopies | undefined {
@@ -158,7 +170,10 @@ export function fenceDevCopies(
 	const kept = pi.made.get(session);
 	if (kept && kept.copies === null) return undefined;
 	const configHome = env.XDG_CONFIG_HOME || join(home, ".config");
-	const source = sourceOf(home, configHome);
+	const globals = env.GIT_CONFIG_GLOBAL
+		? [env.GIT_CONFIG_GLOBAL]
+		: [join(configHome, "git", "config"), join(home, GIT_GLOBAL)];
+	const source = sourceOf(home, globals);
 	if (
 		kept?.copies &&
 		kept.source === source &&
@@ -178,13 +193,11 @@ export function fenceDevCopies(
 	// before a reload, which a running command may hold, so it's left be.
 	while (existsSync(folderOf(generation)) || isLink(folderOf(generation)))
 		generation++;
-	const copies = freshCopies(
-		home,
-		configHome,
-		runtimeDir,
-		folderOf(generation),
-		pi,
-	);
+	const told = kept?.failed === source;
+	const copies = freshCopies(home, globals, runtimeDir, folderOf(generation), {
+		...pi,
+		tell: (why) => told || pi.tell(why),
+	});
 	if (
 		!copies &&
 		kept?.copies &&
@@ -192,8 +205,8 @@ export function fenceDevCopies(
 		isFolder(kept.copies.git)
 	) {
 		// The set before still works, so commands keep it, and the next one
-		// tries a fresh set again.
-		pi.made.set(session, { ...kept, generation });
+		// tries a fresh set again, saying nothing more of the same failure.
+		pi.made.set(session, { ...kept, generation, failed: source });
 		return kept.copies;
 	}
 	pi.made.set(session, { copies: copies ?? null, source, generation });
@@ -205,7 +218,7 @@ export function fenceDevCopies(
  * times: git's two global files and everything in dev's folder, so a
  * change to any of them reads differently.
  */
-function sourceOf(home: string, configHome: string): string {
+function sourceOf(home: string, globals: readonly string[]): string {
 	const dev = join(home, DEV_SETTINGS);
 	let inDev: string[] = [];
 	try {
@@ -213,11 +226,7 @@ function sourceOf(home: string, configHome: string): string {
 	} catch {
 		// Read as gone: the copy then fails and says nothing is made.
 	}
-	return [
-		join(home, GIT_GLOBAL),
-		join(configHome, "git", "config"),
-		...inDev.map((entry) => join(dev, entry)),
-	]
+	return [...globals, ...inDev.map((entry) => join(dev, entry))]
 		.map(
 			(path) =>
 				`${path}\0${statOf(path, lstatSync)}\0${statOf(path, statSync)}`,
@@ -243,7 +252,7 @@ function statOf(path: string, stat: typeof lstatSync): string {
  */
 function freshCopies(
 	home: string,
-	configHome: string,
+	globals: readonly string[],
 	runtimeDir: string,
 	folder: string,
 	pi: DevMaker,
@@ -291,7 +300,7 @@ function freshCopies(
 		});
 		chmodSync(dev, 0o700);
 		mkdirSync(git, { mode: 0o700 });
-		writeFileSync(gitGlobalIn(git), globalSettings(home, configHome, hidden), {
+		writeFileSync(gitGlobalIn(git), globalSettings(home, globals, hidden), {
 			mode: 0o600,
 		});
 		return { dev, git };
@@ -418,29 +427,64 @@ function pidNamespace(): string {
 }
 
 /**
- * git's global settings for the copy: the XDG file's in `configHome`,
- * then `~/.gitconfig`'s, as git reads both, each with its includes'
- * relative paths named from its own folder. Both are written out, not
- * included, since `git config --global` reads no includes; one the fence
- * hides, as `hidden` says, through a link or not, is left out.
+ * git's global settings for the copy: each of `globals`, in the order
+ * git reads them, with its includes'
+ * relative paths named from its own folder. Each is written out, not
+ * included, since `git config --global` reads no includes, but only
+ * where its text is one a fenced command could read anyway
+ * ([`readableText`]); any other is included by its path, so git inside
+ * reads it through the fence, which empties it where it's hidden. One
+ * the fence hides at its own path, as `hidden` says, is left out.
  */
 function globalSettings(
 	home: string,
-	configHome: string,
+	globals: readonly string[],
 	hidden: (path: string, folder: boolean) => boolean,
 ): string {
-	return [join(configHome, "git", "config"), join(home, GIT_GLOBAL)]
+	return globals
 		.map((file) => {
-			if (!existsSync(file)) return "";
-			const real = realpathSync(file);
-			const fromHomeFolder = relative(realpathSync(home), real);
-			const inHome =
-				!fromHomeFolder.startsWith("..") && !isAbsolute(fromHomeFolder);
-			if (inHome && hidden(fromHomeFolder, false)) return "";
-			const text = fromFolder(readFileSync(file, "utf8"), dirname(file));
+			if (!existsSync(file) && !isLink(file)) return "";
+			if (hidden(relative(home, file), false)) return "";
+			const read = readableText(file);
+			if (read === undefined)
+				return `[include]\n\tpath = ${quotedValue(file)}\n`;
+			const text = fromFolder(read, dirname(file));
 			return text === "" || text.endsWith("\n") ? text : `${text}\n`;
 		})
 		.join("");
+}
+
+/**
+ * `file`'s text where it's one a fenced command could read anyway: a
+ * file of its own at that path, with no other name, or one a link leads
+ * to in the Nix store, which every process reads; or nothing for any
+ * other, since a link may lead to a key or a token the fence hides, and
+ * no list of what it hides is whole enough to check against. The file is
+ * opened once and judged as opened, so a link swapped between the check
+ * and the read is read as nothing.
+ */
+function readableText(file: string): string | undefined {
+	let opened: number;
+	try {
+		opened = openSync(file, "r");
+	} catch {
+		return undefined;
+	}
+	try {
+		const it = fstatSync(opened);
+		const same = (other: { dev: number; ino: number }) =>
+			other.dev === it.dev && other.ino === it.ino;
+		if (!it.isFile()) return undefined;
+		const at = lstatSync(file);
+		const own = at.isFile() && same(at) && it.nlink === 1;
+		const real = realpathSync(file);
+		const stored = real.startsWith("/nix/store/") && same(statSync(real));
+		return own || stored ? readFileSync(opened, "utf8") : undefined;
+	} catch {
+		return undefined;
+	} finally {
+		closeSync(opened);
+	}
 }
 
 /**
