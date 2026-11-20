@@ -159,37 +159,52 @@ const GATE = {
 	came: "world-push-gate: its turn came after 1 s",
 	gaveUp:
 		"world-push-gate: waited 30 minutes for another push; this one goes on",
+	couldNot: "world-push-gate: couldn't take a turn; this push goes on",
 } as const;
 
 /**
- * A push that says `lines` on stderr a second apart, a wait the clock
- * of 600 ms outlasts only if it holds, then sends at once.
+ * A push on a clock of 600 ms that says `waits` on stderr, a second on
+ * `goes`, then `back` on stdout, and a second on sends. Held through the
+ * wait and run again after it, its clock ends it once `back` is said and
+ * before `sent`; held too long, the signal ends it at four seconds.
  */
-function gatedPush(...lines: string[]): Promise<{ code: number }> {
-	const said = lines.map((line) => `echo '${line}' >&2`).join("; sleep 1; ");
+function gatedPush(waits: string, goes: string) {
 	return spawnExec({
 		timeoutMs: 600,
 		signal: AbortSignal.timeout(4_000),
 		turn: WORLD_PUSH_TURN,
-	})("sh", ["-c", `${said}; echo sent`]);
+	})("sh", [
+		"-c",
+		`echo "${waits}" >&2; sleep 1; echo "${goes}" >&2; echo back; sleep 1; echo sent`,
+	]);
 }
 
 describe("World's push gate's turn", () => {
-	it("holds a push's clock from the gate's wait to its turn", async () => {
-		const result = await gatedPush(GATE.waits, GATE.came);
-		expect(result.code, "the gate's wait is not run time").toBe(0);
+	it.each([
+		["its turn came", GATE.came],
+		["it gave up waiting", GATE.gaveUp],
+		["it couldn't take a turn", GATE.couldNot],
+	])("holds a push's clock from the gate's wait until %s", async (_, goes) => {
+		const result = await gatedPush(GATE.waits, goes);
+		expect(result.stdout, "the gate's wait is not run time").toContain("back");
+		expect(result.code, "the clock runs again after the wait").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stderr).toContain("timed out after 600 ms");
+		expect(result.stdout).not.toContain("sent");
 	});
 
-	it("holds it until the gate gives up waiting", async () => {
-		const result = await gatedPush(GATE.waits, GATE.gaveUp);
-		expect(result.code, "the gate going on ends the wait").toBe(0);
-	});
-
-	it("holds nothing for the words without the gate's name", async () => {
+	it.each([
+		["without the gate's name", "remote: "],
+		["another program passed on", "remote: world-push-gate: "],
+	])("holds nothing for the gate's words %s", async (_, prefix) => {
 		const result = await gatedPush(
-			GATE.waits.replace("world-push-gate: ", "remote: "),
+			GATE.waits.replace("world-push-gate: ", prefix),
 			GATE.came,
 		);
-		expect(result.code, "only the gate stops the clock").toBe(EXIT_TIMED_OUT);
+		expect(result.stdout, "only the gate stops the clock").not.toContain(
+			"back",
+		);
+		expect(result.code).toBe(EXIT_TIMED_OUT);
 	});
 });

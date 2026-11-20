@@ -43,7 +43,7 @@ const GONE_WITHIN_MS = 3_000;
  * pinned beside the queue (`queued-exec.test.ts`).
  */
 const TURN = {
-	waits: "this one waits its turn",
+	waits: "gate: this one waits its turn",
 	goes: ["its turn came after", "this one goes on"],
 	longestMs: 10_000,
 } as const;
@@ -207,10 +207,10 @@ describe("a command that will not finish", () => {
 
 	it("holds its clock while it says it waits its turn", async () => {
 		// The wait alone outlasts the clock twice over; only the time either
-		// side of it counts.
+		// side of it counts. The wait is said on a line after another.
 		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
 			"-c",
-			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 1.6; echo 'gate: its turn came after 1 s' >&2; echo sent",
+			"printf 'gate: another push is running\\ngate: this one waits its turn.\\n' >&2; sleep 1.6; echo 'gate: its turn came after 1 s' >&2; echo sent",
 		]);
 
 		expect(result.code, "a wait for its turn is not run time").toBe(0);
@@ -226,22 +226,49 @@ describe("a command that will not finish", () => {
 		expect(result.code, "a mark split between chunks is still a wait").toBe(0);
 	});
 
-	it("hears a wait and its end in one piece, and a wait after it", async () => {
+	it("hears a wait and its end in one piece", async () => {
+		const result = await spawnExec({
+			timeoutMs: 800,
+			signal: AbortSignal.timeout(4_000),
+			turn: TURN,
+		})("sh", [
+			"-c",
+			"printf 'gate: this one waits its turn\\nits turn came after 0 s\\n' >&2; sleep 1.6; echo sent",
+		]);
+
+		expect(result.code, "the wait ended in the piece it began").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stderr).toContain("timed out after 800 ms");
+	});
+
+	it("hears a second wait said in the piece the first ends in", async () => {
 		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
 			"-c",
-			"printf 'this one waits its turn\\nits turn came after 0 s\\nthis one waits its turn\\n' >&2; sleep 1.6; echo 'its turn came after 1 s' >&2; echo sent",
+			"printf 'gate: this one waits its turn\\nits turn came after 0 s\\ngate: this one waits its turn\\n' >&2; sleep 1.6; echo 'its turn came after 1 s' >&2; echo sent",
 		]);
 
 		expect(result.code, "the second wait holds the clock too").toBe(0);
 		expect(result.stdout).toBe("sent\n");
 	});
 
+	it("hears a wait only at a line's start", async () => {
+		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
+			"-c",
+			"echo 'remote: gate: this one waits its turn' >&2; sleep 1.6; echo 'its turn came after 1 s' >&2; echo sent",
+		]);
+
+		expect(result.code, "a line passed on holds nothing").toBe(EXIT_TIMED_OUT);
+		expect(result.stdout).not.toContain("sent");
+	});
+
 	it("carries only the time left before a wait across it", async () => {
 		// 1.2 s before the wait and 1.2 s after it outrun a clock of 2 s
-		// between them, though neither does alone.
+		// between them, though neither does alone; a wait of 1 s outruns
+		// what is left of it, unless it holds.
 		const result = await spawnExec({ timeoutMs: 2_000, turn: TURN })("sh", [
 			"-c",
-			"sleep 1.2; echo 'this one waits its turn' >&2; sleep 0.3; echo 'its turn came after 0 s' >&2; echo back; sleep 1.2; echo sent",
+			"sleep 1.2; echo 'gate: this one waits its turn' >&2; sleep 1; echo 'its turn came after 1 s' >&2; echo back; sleep 1.2; echo sent",
 		]);
 
 		expect(result.stdout, "it ran on past the wait").toContain("back");
@@ -253,11 +280,18 @@ describe("a command that will not finish", () => {
 
 	it("runs its clock again once its turn comes", async () => {
 		const started = Date.now();
-		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+		const result = await spawnExec({
+			timeoutMs: 400,
+			signal: AbortSignal.timeout(3_000),
+			turn: TURN,
+		})("sh", [
 			"-c",
-			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 0.5; echo 'gate: its turn came after 0 s' >&2; sleep 30",
+			"echo 'gate: this one waits its turn.' >&2; sleep 0.8; echo 'gate: its turn came after 0 s' >&2; echo back; sleep 30",
 		]);
 
+		expect(result.stdout, "the wait outlasting the clock held it").toContain(
+			"back",
+		);
 		expect(result.code, "what runs after the wait is on the clock").toBe(
 			EXIT_TIMED_OUT,
 		);
@@ -273,10 +307,7 @@ describe("a command that will not finish", () => {
 			timeoutMs: 2_000,
 			signal: AbortSignal.timeout(3_000),
 			turn: { ...TURN, longestMs: 300 },
-		})("sh", [
-			"-c",
-			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 30",
-		]);
+		})("sh", ["-c", "echo 'gate: this one waits its turn.' >&2; sleep 30"]);
 
 		expect(result.code, "a wait has a clock of its own").toBe(EXIT_TIMED_OUT);
 		expect(result.stderr).toContain("waited its turn for over 300 ms");
@@ -292,7 +323,7 @@ describe("a command that will not finish", () => {
 			turn: { ...TURN, longestMs: 1_000 },
 		})("sh", [
 			"-c",
-			"for i in 1 2 3 4; do echo 'this one waits its turn' >&2; sleep 0.4; echo 'its turn came after 0 s' >&2; done; echo sent",
+			"for i in 1 2 3 4; do echo 'gate: this one waits its turn' >&2; sleep 0.4; echo 'its turn came after 0 s' >&2; done; echo sent",
 		]);
 
 		expect(result.code, "saying it waits again earns no more").toBe(
