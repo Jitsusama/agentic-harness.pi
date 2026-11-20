@@ -35,6 +35,12 @@
  * spend-workflow's footer item, which tells it with its standing. Nothing of it goes
  * into the prompt: what a session bills is the person's to see, not
  * the model's to reason about.
+ *
+ * Long because the keeper is one closure whose state (the name wanted,
+ * when it was missed, a capped key's hour, what a session on no quest
+ * judged) every path through it reads and writes, and the helpers below
+ * it serve only that closure; the folder this sits in holds as many
+ * entries as it may, so a split would only move the length elsewhere.
  */
 
 import { resolve } from "node:path";
