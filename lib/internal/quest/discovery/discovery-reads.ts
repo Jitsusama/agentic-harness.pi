@@ -155,7 +155,11 @@ export function kept<D extends QuestDoc | QuestDocumentDoc>(
  * what a host needs to answer from it without signing again: when the
  * signing began, the writes this process had made by then, and the
  * settled stats of the root and of each quest folder it found with no
- * README, undefined for one changed too lately to vouch.
+ * README, undefined for one changed too lately to vouch. A host reads
+ * quests one by one into it between signings, so it keeps what the
+ * root listed, to see what a change to the root made or removed, and
+ * when each quest read so was read, so a signing begun before then
+ * reads that quest again rather than answering an older copy.
  */
 export interface CacheSlot {
 	signature: string;
@@ -164,6 +168,18 @@ export interface CacheSlot {
 	writes: number;
 	rootStamp: string | undefined;
 	pending: ReadonlyMap<string, string | undefined>;
+	/** Each name the root listed, with its kind (`kindOf`). */
+	rootNames: ReadonlyMap<string, string> | undefined;
+	/** Each quest folder read on its own since the signing, and when. */
+	read: ReadonlyMap<string, number>;
+}
+
+/** A root entry's kind, as a slot keeps it: link, folder or file. */
+export function kindOf(
+	entry: Pick<Dirent, "isDirectory" | "isSymbolicLink">,
+): string {
+	if (entry.isSymbolicLink()) return "l";
+	return entry.isDirectory() ? "d" : "f";
 }
 
 /** A file's content hash, and the stat it was taken under. */

@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	answerTreeClaims,
 	forgetSweptTrees,
@@ -203,7 +203,7 @@ describe("answering who holds a tree", () => {
 });
 
 describe("hearing that a sweep took a tree", () => {
-	it("drops a tree the sweep took from the quest that listed it", () => {
+	it("drops a tree the sweep took from the quest that listed it", async () => {
 		const root = questsRootHolding(
 			"/src/repo/.worktrees/spent",
 			"/src/repo/.worktrees/working",
@@ -215,14 +215,17 @@ describe("hearing that a sweep took a tree", () => {
 		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
 
-		const claims: TreeClaims = { paths: [] };
-		pi.events.emit(WORK_TREE_CLAIMS, claims);
-		expect(claims.paths, "what the quest lists after the sweep").toEqual([
-			"/src/repo/.worktrees/working",
-		]);
+		// It reads the tree afresh before it writes, so it ends a moment on.
+		await vi.waitFor(() => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			expect(claims.paths, "what the quest lists after the sweep").toEqual([
+				"/src/repo/.worktrees/working",
+			]);
+		});
 	});
 
-	it("leaves a quest's trees alone when the sweep took others", () => {
+	it("leaves a quest's trees alone when the sweep took others", async () => {
 		const root = questsRootHolding("/src/repo/.worktrees/mine");
 		const pi = bus();
 		answerTreeClaims(pi as never, root);
@@ -230,6 +233,7 @@ describe("hearing that a sweep took a tree", () => {
 
 		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/nobodys"] };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
+		await new Promise((resolve) => setImmediate(resolve));
 
 		const claims: TreeClaims = { paths: [] };
 		pi.events.emit(WORK_TREE_CLAIMS, claims);

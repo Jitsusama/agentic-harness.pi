@@ -20,7 +20,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/process/async-mutex.ts";
-import { signQuestsNow } from "../../lib/internal/quest/discovery/discovery.ts";
+import { refreshQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import { sayConcluded } from "../../lib/internal/quest/fields/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/fields/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
@@ -117,10 +117,16 @@ export function handle(
 ): Promise<QuestResult> {
 	return turns.runExclusive(
 		async () => {
-			// What an action reads decides what it writes, so on a host it
-			// reads the tree as it stands, not a walk a few seconds old.
-			signQuestsNow(state.questsRoot);
 			const actedOn = targetsOf(state, params);
+			// What an action reads decides what it writes, so on a host it
+			// reads the quests it names as they stand, not as a walk a few
+			// seconds old found them; the rest of the tree, as that walk did.
+			refreshQuests(state.questsRoot, [
+				...actedOn,
+				state.questId,
+				...idsNamed(params.parent),
+				...idsNamed(params.target),
+			]);
 			const result = await dispatch(state, pi, ctx, params, signal);
 			tellConcluded(pi, params, actedOn, result);
 			tellLanded(pi, params, result);

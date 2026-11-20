@@ -10,7 +10,7 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-	signQuestsNow,
+	refreshQuests,
 	withDiscoveryHeld,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
@@ -89,8 +89,8 @@ export function followSessionLife(
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
 	pi.on("session_start", async (event, ctx) =>
 		withDiscoveryHeld(() => {
-			// What a start restores and records rests on the tree as it is.
-			signQuestsNow(state.questsRoot);
+			// What a start restores and records rests on its quest as it is.
+			refreshQuests(state.questsRoot, [state.questId]);
 			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 			stayedBecause = undefined;
 			// What this session journals is its own, for its own undo.
