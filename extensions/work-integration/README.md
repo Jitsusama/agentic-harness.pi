@@ -159,7 +159,13 @@ at the gate behind one that hung for 25 minutes timed out before
 their turn came. A push the queue doesn't take now runs on a clock
 that stands still from the gate's line saying it waits its turn to
 the line saying its turn came, with 35 minutes for all its waits
-together (`lib/core/exec/clock.ts`).
+together (`lib/core/exec/clock.ts`). Only a line that starts with
+the gate's name holds it, so a remote's `remote: ` line holds none.
+
+This git is held to the folders it may run in (`tree-git.ts`)
+before the queue takes it, since the queue runs it as a shell line
+the guard would let by: a queued push of a tree whose `.git` a
+sandboxed command pointed elsewhere is refused, not run.
 
 A branch, push, rebase, resume, restack or sync still running after a
 minute moves to a job of kind `work`, as a long bash command does,

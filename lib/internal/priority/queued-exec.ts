@@ -39,9 +39,12 @@ export const QUEUED_LIMIT_MS = 5 * 60 * 60 * 1000;
  * this module already says how long a push of World may take.
  *
  * The words are the gate's own, read from its program: each line it says
- * starts with its name, so the wait's mark does too, and only the gate
- * stops the clock. The marks that start it again may be looser, since
- * hearing one early only counts more of the wait.
+ * starts with its name, so the wait's mark does too, and since a wait is
+ * heard only at a line's start, a remote's `remote: ` line stops no
+ * clock. The marks that start it again may be looser, since hearing one
+ * early only counts more of the wait. A gate that changes its words
+ * stops holding the clock, and its pushes end at ten minutes again: the
+ * tests pin these words, not the gate's.
  */
 export const WORLD_PUSH_TURN: Turn = {
 	waits:

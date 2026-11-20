@@ -12,6 +12,11 @@
  * still ended. The wait's clock counts every wait together, so a command
  * saying it waits over and over still ends.
  *
+ * A wait is heard only from a line that starts with its mark, as a
+ * program's own words do, so a line another program passed on, as git's
+ * `remote: ` lines, holds nothing. The end of a wait may be heard
+ * anywhere in a line, since hearing one only starts the clock again.
+ *
  * Both clocks read `performance.now()`, which a change to the wall
  * clock doesn't move.
  */
@@ -20,7 +25,7 @@ import { performance } from "node:perf_hooks";
 
 /** How a command says it waits its turn, and how long it may wait. */
 export interface Turn {
-	/** What it says on stderr when a wait starts. */
+	/** What a line of its stderr starts with when a wait starts. */
 	waits: string;
 	/** What it says when the wait ends: any one of these. */
 	goes: readonly string[];
@@ -53,8 +58,9 @@ export function startClock(
 	let since = performance.now();
 	let timer: NodeJS.Timeout | undefined;
 	let waiting = false;
-	// How far into stderr has been read for a mark, so each mark is
-	// found once, including one split across two chunks.
+	// How far into stderr, read after a line's end so its first line
+	// starts as every other does, has been read for a mark, so each
+	// mark is found once, including one split across two chunks.
 	let read = 0;
 
 	// Each clock keeps what it has left when the other takes over.
@@ -85,12 +91,13 @@ export function startClock(
 	return {
 		heard(stderr) {
 			if (turn === undefined) return;
+			const text = `\n${stderr}`;
 			for (;;) {
-				const marks = waiting ? turn.goes : [turn.waits];
-				const found = firstOf(stderr, marks, read);
+				const marks = waiting ? turn.goes : [`\n${turn.waits}`];
+				const found = firstOf(text, marks, read);
 				if (found === undefined) {
 					const longest = Math.max(...marks.map((mark) => mark.length));
-					read = Math.max(read, stderr.length - longest + 1);
+					read = Math.max(read, text.length - longest + 1);
 					return;
 				}
 				read = found;
