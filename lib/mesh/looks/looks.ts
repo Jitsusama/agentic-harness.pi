@@ -47,6 +47,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeWhole } from "../../internal/write-whole.ts";
+import { sessionAddress } from "../address.ts";
 
 /** The kinds of thing a look opens, each in its own place. */
 export const LOOK_KINDS = ["pr", "page", "file", "diff", "terminal"] as const;
@@ -118,6 +119,16 @@ export interface Look {
 	/** The session pointing, and the address it signs with. */
 	readonly session: string;
 	readonly address?: string;
+	/**
+	 * The cell it leads to: its session's own address, which no other
+	 * session on its quest shares, so the launcher reads it rather than
+	 * searching every session (Y2YBTS and 85PKB2, 20 November). It names
+	 * the session as it pointed, and stays so once that session ends: the
+	 * launcher's agents daemon is to lead an ended cell to its quest's own
+	 * session (its half of G, due 20 November). A look kept before looks
+	 * carried one has none.
+	 */
+	readonly cell?: string;
 	/** The quest it has loaded. */
 	readonly quest?: string;
 	readonly kind: LookKind;
@@ -335,6 +346,7 @@ export function pointAt(
 		at: place?.at ?? now.toISOString(),
 		session: pointer.session,
 		...(pointer.address ? { address: pointer.address } : {}),
+		cell: sessionAddress(pointer.session),
 		...(pointer.quest ? { quest: pointer.quest } : {}),
 		kind: pointing.kind,
 		target: pointing.target.trim(),
@@ -592,11 +604,22 @@ export async function looksListed(dir: string): Promise<Look[]> {
 	return newestFirst(read);
 }
 
-/** The look a file's `raw` text holds, or none when it holds none. */
+/**
+ * The look a file's `raw` text holds, or none when it holds none. A cell
+ * that isn't a string is let go, so this package reads the look as one
+ * kept before looks named their cell, and writes it back so; until then
+ * the file keeps it, so the launcher, which reads the file, is to check
+ * its own.
+ */
 function lookFrom(raw: string): Look | undefined {
 	try {
 		const value: unknown = JSON.parse(raw);
-		return isLook(value) ? value : undefined;
+		if (!isLook(value)) return undefined;
+		if (value.cell === undefined || typeof value.cell === "string") {
+			return value;
+		}
+		const { cell: _unread, ...kept } = value;
+		return kept;
 	} catch {
 		// Torn as it was replaced: it is read whole on the next look.
 		return undefined;

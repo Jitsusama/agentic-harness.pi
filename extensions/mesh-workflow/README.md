@@ -277,8 +277,14 @@ and can answer a question or a gate left open on screen.
   without the agents' context. Nothing here removes one. A look says
   whether it `asks` for something back: it does when it has choices
   or an ask other than only to see, and a look kept without the
-  field counts as asking. Pointing again at the same thing, from the
-  session or another on its quest, replaces the look in its place,
+  field counts as asking. Each names its `cell`, its session's own
+  address, which no other session on its quest shares, for the
+  launcher to read the cell it leads to rather than search every
+  session, which it doesn't yet; the cell stays once that session
+  ends, and the launcher's agents daemon is to lead an ended cell to
+  its quest's own session. Pointing again at the same
+  thing, from the session or another on its quest, replaces the look
+  in its place, naming the cell of the session that pointed last,
   the older one's id and time kept: a pull request's tabs, a diff of
   it and a fragment fold to the pull request, a page's fragment to
   the page, and looks given the same `thread` fold whatever they

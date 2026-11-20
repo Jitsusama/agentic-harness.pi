@@ -82,6 +82,92 @@ describe("the person's look list", () => {
 		});
 	});
 
+	// Y2YBTS and 85PKB2, 20 November: the launcher reads a look's cell
+	// from its file rather than searching every session for it, so the
+	// file names the session's own address, which no other session on its
+	// quest shares, as its signing address can.
+	it("names its cell by its session's own address, never its quest's", () => {
+		const session = "0194a1b2-7c3d-7e4f-a5b6-c7d8eac01c97";
+		pointAt(dir, pr, { ...who, session }, new Date("2026-11-20T09:00:00Z"));
+
+		expect(looksIn(dir)[0]).toMatchObject({
+			session,
+			address: "85PKB2",
+			cell: "EAC01C97",
+		});
+	});
+
+	it("names the cell of the session that pointed at it last, once another on its quest does", () => {
+		pointAt(
+			dir,
+			pr,
+			{ ...who, session: "0194a1b2-0000-0000-0000-0000000000a1" },
+			new Date("2026-11-20T09:00:00Z"),
+		);
+		pointAt(
+			dir,
+			pr,
+			{ ...who, session: "0194a1b2-0000-0000-0000-0000000000b2" },
+			new Date("2026-11-20T09:30:00Z"),
+		);
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]).toMatchObject({
+			at: "2026-11-20T09:00:00.000Z",
+			cell: "000000B2",
+		});
+	});
+
+	it("keeps its cell once it's answered, resolved or expired", () => {
+		const session = "0194a1b2-0000-0000-0000-0000000000c3";
+		const asking = { ...pr, ask: "Say whether.", choices: ["Yes", "No"] };
+		const answered = pointAt(dir, asking, { ...who, session });
+		const merged = pointAt(
+			dir,
+			{ ...pr, target: "https://github.com/Jitsusama/core.nix/pull/1" },
+			{ ...who, session },
+		);
+		const lapsed = pointAt(
+			dir,
+			{ ...pr, target: "https://example.com/page", kind: "page" as const },
+			{ ...who, session },
+			new Date("2026-11-01T09:00:00Z"),
+		);
+
+		answerLook(dir, answered.id, "Yes");
+		resolveLooks(dir, "https://github.com/Jitsusama/core.nix/pull/1", "merged");
+		expect(expireLooks(dir, () => true).map((look) => look.id)).toEqual([
+			lapsed.id,
+		]);
+
+		const byId = new Map(looksIn(dir).map((look) => [look.id, look]));
+		for (const look of [answered, merged, lapsed]) {
+			expect(byId.get(look.id)?.state, look.title).not.toBe("waiting");
+			expect(byId.get(look.id)?.cell, look.title).toBe("000000C3");
+		}
+	});
+
+	it("still reads a look kept before looks named their cell", () => {
+		const look = pointAt(dir, pr, who);
+		const file = join(dir, `${look.id}.json`);
+		const { cell: _cell, ...kept } = JSON.parse(readFileSync(file, "utf8"));
+		writeFileSync(file, JSON.stringify(kept));
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]?.cell).toBeUndefined();
+		expect(looksIn(dir)[0]?.id).toBe(look.id);
+	});
+
+	it("reads a look whose cell isn't a string as one with none", () => {
+		const look = pointAt(dir, pr, who);
+		const file = join(dir, `${look.id}.json`);
+		const kept = JSON.parse(readFileSync(file, "utf8"));
+		writeFileSync(file, JSON.stringify({ ...kept, cell: { to: "OWL01" } }));
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]).not.toHaveProperty("cell");
+	});
+
 	it("keeps a look pointed at again in its place rather than adding it twice", () => {
 		pointAt(dir, pr, who, new Date("2026-11-08T09:00:00Z"));
 		pointAt(
