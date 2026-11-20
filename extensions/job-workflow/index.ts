@@ -40,15 +40,15 @@ import { showJobs } from "./command.ts";
 import {
 	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
+	carriedRunFailedText,
 	carriedRunIn,
-	carriedRunShowed,
+	carriedRunWent,
 	cutOffIn,
 	type EndWatch,
 	endedRecord,
 	leftDead,
 	resumeText,
 	type SignalSource,
-	typedSince,
 	watchSignals,
 	watchStamps,
 } from "./cut-off.ts";
@@ -212,13 +212,16 @@ function resumeIfCutOff(
  * tell the session it was cut off if it never does: on 14 November the
  * next host failed a carried run, and with nothing said the session sat
  * until a mesh message came. The run settling says whether it showed;
- * a run that never starts is told once `CARRIED_RUN_WAIT_MS` is up.
+ * a run that never starts is told once `CARRIED_RUN_WAIT_MS`, half an
+ * hour, is up, as is a log the host had nothing to carry on for, since
+ * no extension hears that. `told` ends the wait once the clock tells.
  * Answers the wait, or nothing when no carried run is owed.
  */
 function awaitCarriedRun(
 	opened: JobSession,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
+	told: (wait: CarriedWait) => void,
 ): CarriedWait | undefined {
 	if (hosted() === undefined) return undefined;
 	const branch = branchOf(ctx);
@@ -234,8 +237,9 @@ function awaitCarriedRun(
 		() =>
 			withSession(key, () => {
 				// A run under way says how it went as it settles.
-				if (!wait.started && idle(ctx))
-					tellIfCarriedRunLost(wait, ctx, current);
+				if (wait.started || !idle(ctx)) return;
+				told(wait);
+				tellIfCarriedRunLost(wait, ctx, current);
 			}),
 		CARRIED_RUN_WAIT_MS,
 	);
@@ -253,12 +257,18 @@ interface CarriedWait {
 	readonly since: number;
 	/** Whether a run has started since the return. */
 	started?: boolean;
+	/**
+	 * Whether the person has typed since the return: a prompt an
+	 * extension gives, as a mesh message or a job's report is, isn't them.
+	 */
+	typed?: boolean;
 	timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
- * Tell a session its carried run never showed, if no answer but an
- * error has come since `wait` began and nothing has been typed since.
+ * Tell a session its carried run never showed, or ended in an error,
+ * if no other answer has come since `wait` began and the person has
+ * typed nothing since.
  */
 function tellIfCarriedRunLost(
 	wait: CarriedWait,
@@ -266,17 +276,19 @@ function tellIfCarriedRunLost(
 	current: () => JobSession | undefined,
 ): void {
 	const { opened, cut, since } = wait;
-	if (current() !== opened) return;
+	if (current() !== opened || wait.typed) return;
 	const branch = branchOf(ctx);
 	if (branch === undefined) return;
-	if (carriedRunShowed(branch, since) || typedSince(branch, since)) return;
+	const went = carriedRunWent(branch, since);
+	if (went === "answered") return;
+	const told = { at: cut.at, running: cut.running, jobs: cut.jobs };
 	opened.outbox.post({
 		jobId: "cut-off",
 		label: "the machine ended this session",
-		text: resumeText(
-			{ at: cut.at, running: cut.running, jobs: cut.jobs },
-			clockTime,
-		),
+		text:
+			went === "failed"
+				? carriedRunFailedText(told, clockTime)
+				: resumeText(told, clockTime),
 	});
 }
 
@@ -470,7 +482,14 @@ export default function jobWorkflow(
 		if (RETURNS.has(event.reason)) {
 			takeUpIfCarried(pi, session, ctx);
 			resumeIfCutOff(session, ctx, ended);
-			carriedWait = awaitCarriedRun(session, ctx, () => session);
+			carriedWait = awaitCarriedRun(
+				session,
+				ctx,
+				() => session,
+				(wait) => {
+					if (carriedWait === wait) endCarriedWait();
+				},
+			);
 		}
 	});
 
@@ -527,6 +546,7 @@ export default function jobWorkflow(
 		// (see shown.ts): dropped, so it costs no turn.
 		if (shown.again(event.text)) return { action: "handled" as const };
 		session?.outbox.promptSubmitted();
+		if (carriedWait && event.source !== "extension") carriedWait.typed = true;
 		if (steersTheRun(event)) {
 			line.typed();
 			showWaiting(line, ctx);
@@ -556,7 +576,9 @@ export default function jobWorkflow(
 		lineRead(line, ctx);
 		// The first run to settle since a return decides: one that answered,
 		// carried or not, leaves a session that runs on, and one the person
-		// stopped has them there to say what comes next.
+		// stopped has them there to say what comes next. A settle with no
+		// run started, as a compaction's, leaves the carried run to come.
+		if (!carriedWait?.started) return;
 		const wait = endCarriedWait();
 		if (wait && !event.aborted) tellIfCarriedRunLost(wait, ctx, () => session);
 	});
