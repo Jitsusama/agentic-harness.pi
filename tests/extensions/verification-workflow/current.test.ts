@@ -20,10 +20,13 @@ import {
 
 /** Each fingerprint asked for, answered when the test says. */
 const asked: ((print: string | undefined) => void)[] = [];
+/** Whether the run's root is still on disk. */
+const disk = { there: true };
 
 vi.mock("../../../extensions/verification-workflow/tree.ts", () => ({
 	gitRoot: async () => "/src/repo",
 	within: (root: string, path: string) => path.startsWith(root),
+	present: async () => disk.there,
 	treeFingerprint: () =>
 		new Promise<string | undefined>((answer) => asked.push(answer)),
 }));
@@ -48,8 +51,15 @@ const NEXT: FailedRun = { ...RUN, command: "pnpm test", fingerprint: "now" };
 
 let state: VerificationState;
 
+/** Let whatever is ready run, before counting what it asked. */
+async function settled(): Promise<void> {
+	// One macrotask: every promise already answered has run by then.
+	await new Promise((done) => setTimeout(done, 0));
+}
+
 beforeEach(() => {
 	asked.length = 0;
+	disk.there = true;
 	state = createVerificationState();
 	state.failedRun = RUN;
 });
@@ -62,14 +72,29 @@ describe("a commit's check", () => {
 		expect(failure?.problems[0]).toContain("pnpm check failed");
 	});
 
-	it("keeps a run recorded while git answered for the last", async () => {
+	it("asks again for a run recorded while git answered for the last", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		await gitAsked();
 		state.failedRun = NEXT;
 		await gitSays("moved on");
-		const { failure } = await checking;
-		expect(failure, "the new run, never asked about").toBeUndefined();
+		await gitSays("now");
+		const { failure, judged } = await checking;
+		expect(failure?.problems[0]).toContain("pnpm test failed");
+		expect(judged?.run).toBe(NEXT);
 		expect(state.failedRun).toBe(NEXT);
+	});
+
+	it("neither holds back nor retires a run git said nothing of, asking nothing", async () => {
+		const unsaid: FailedRun = { ...RUN, fingerprint: null };
+		state.failedRun = unsaid;
+		const { failure } = await failureNow(
+			state,
+			{ dir: "/src/repo" },
+			undefined,
+		);
+		expect(failure).toBeUndefined();
+		expect(state.failedRun).toBe(unsaid);
+		expect(asked, "fingerprints asked").toHaveLength(0);
 	});
 
 	it("holds nothing back for a run cleared while git answered", async () => {
@@ -93,8 +118,13 @@ describe("a commit's check", () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		await gitSays("judged");
 		const { judged } = await checking;
-		expect(await settle(state, judged)).toBe("failing");
-		expect(asked, "fingerprints asked after the check").toHaveLength(0);
+		const settling = settle(state, judged);
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("judged");
+		expect(await settling).toBe("failing");
+		expect(after, "fingerprints asked after the check").toBe(0);
 	});
 });
 
@@ -111,6 +141,14 @@ describe("settling the outcome", () => {
 	it("retires a run whose tree git says moved on", async () => {
 		const settling = settle(state);
 		await gitSays("moved on");
+		expect(await settling).toBe("clean");
+		expect(state.failedRun).toBeUndefined();
+	});
+
+	it("retires a run whose root is gone", async () => {
+		disk.there = false;
+		const settling = settle(state);
+		await gitSays(undefined);
 		expect(await settling).toBe("clean");
 		expect(state.failedRun).toBeUndefined();
 	});
