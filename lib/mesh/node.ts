@@ -902,8 +902,10 @@ export function realmOf(
 	// The session's own first: the node's kept realm is the machine's
 	// first, and a session in its second realm would ask the wrong node.
 	// A session naming one no folder carries finds no node by its name.
-	const own = env.MYCELIUM_REALM?.trim();
-	if (own) return isRealmName(own) ? own : undefined;
+	if (env.MYCELIUM_REALM) {
+		const own = env.MYCELIUM_REALM.trim();
+		return isRealmName(own) ? own : undefined;
+	}
 	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
 	try {
 		const kept = readFileSync(join(state, "mycelium", "realm"), "utf8").trim();
@@ -921,7 +923,7 @@ export function realmOf(
  * finds no node and refuses, rather than reading as no mesh.
  */
 export function realmNamed(env: NodeJS.ProcessEnv = process.env): boolean {
-	if (env.MYCELIUM_REALM?.trim()) return true;
+	if (env.MYCELIUM_REALM) return true;
 	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
 	try {
 		return readFileSync(join(state, "mycelium", "realm"), "utf8").trim() !== "";
