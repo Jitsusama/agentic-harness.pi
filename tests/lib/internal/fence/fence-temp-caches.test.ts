@@ -40,10 +40,18 @@ describe("setting aside what was planted where a cache belongs", () => {
 		const link = join(temp, "node-compile-cache");
 		symlinkSync(join(temp, "elsewhere"), link);
 		makeCachesFirst([missing, link]);
-		expect(lstatSync(missing).isDirectory()).toBe(true);
+		expect(
+			lstatSync(missing).isDirectory(),
+			"the missing cache is made a folder",
+		).toBe(true);
 		expect(lstatSync(missing).mode & 0o777).toBe(0o700);
-		expect(lstatSync(link).isSymbolicLink()).toBe(true);
-		expect(existsSync(join(temp, "elsewhere"))).toBe(false);
+		expect(lstatSync(link).isSymbolicLink(), "the link stays a link").toBe(
+			true,
+		);
+		expect(
+			existsSync(join(temp, "elsewhere")),
+			"nothing is made where the link leads",
+		).toBe(false);
 	});
 
 	it("moves a link and a file aside, named for when they were found", () => {
@@ -53,7 +61,7 @@ describe("setting aside what was planted where a cache belongs", () => {
 		writeFileSync(file, "");
 		setAsidePlanted([link, file], () => 42);
 		expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined();
-		expect(existsSync(file)).toBe(false);
+		expect(existsSync(file), "the planted file is moved aside").toBe(false);
 		const aside = readdirSync(temp).sort();
 		expect(aside).toHaveLength(2);
 		expect(aside[0]).toMatch(/^jiti\.set-aside-42-[0-9a-f]{8}$/);
