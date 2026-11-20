@@ -34,6 +34,7 @@ import {
 	ended,
 	killedLog,
 	message,
+	noticeSeen,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
@@ -247,6 +248,8 @@ describe("the job workflow, at a session's end and its return", () => {
 			await pi.fire("session_start", { reason: "startup" });
 			expect(pi.said).toHaveLength(1);
 			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			// Seen, so a second notice would go out at once.
+			await noticeSeen(pi);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(pi.said, "told once").toHaveLength(1);
 		} finally {
