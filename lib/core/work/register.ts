@@ -45,7 +45,8 @@ export function isTreeProvider(data: unknown): data is TreeProvider {
 		typeof candidate.specificity === "number" &&
 		typeof candidate.appliesTo === "function" &&
 		typeof candidate.ensure === "function" &&
-		typeof candidate.release === "function"
+		typeof candidate.release === "function" &&
+		(candidate.whyKept === undefined || typeof candidate.whyKept === "function")
 	);
 }
 

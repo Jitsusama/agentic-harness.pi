@@ -161,7 +161,7 @@ export function sweepLockPath(): string {
 export function judgedProviders(): string[] {
 	const judged = new Set(["git-worktree"]);
 	for (const provider of listTreeProviders()) {
-		if (provider.whyKept !== undefined) judged.add(provider.id);
+		if (typeof provider.whyKept === "function") judged.add(provider.id);
 	}
 	return [...judged].sort();
 }

@@ -280,6 +280,11 @@ it("sweeps in a host with a provider the sweep outside didn't judge", async () =
 it("names git's provider and each that says whether a tree is spent", () => {
 	registerTreeProvider(providerJudging("world-dev-tree"));
 	registerTreeProvider({ ...providerJudging("mute"), whyKept: undefined });
+	// As a provider from another package, whose types nothing checked, may.
+	registerTreeProvider({
+		...providerJudging("garbled"),
+		whyKept: "yes" as never,
+	});
 
 	expect(judgedProviders(), "the providers a sweep here judges").toEqual([
 		"git-worktree",

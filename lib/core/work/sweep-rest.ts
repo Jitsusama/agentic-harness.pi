@@ -6,8 +6,12 @@
 
 import { randomBytes } from "node:crypto";
 import {
+	closeSync,
+	constants,
+	fstatSync,
 	mkdirSync,
-	readFileSync,
+	openSync,
+	readSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -78,18 +82,9 @@ export function sweptOutsideSince(
 	now: number,
 	judged: readonly string[],
 ): string | undefined {
-	const stamp = outsideStamp(lockPath);
-	let stamped: number;
-	let judgedThere: unknown;
-	try {
-		stamped = statSync(stamp).mtimeMs;
-		judgedThere = (
-			JSON.parse(readFileSync(stamp, "utf8")) as { judged?: unknown }
-		).judged;
-	} catch {
-		// No stamp, or none to read: no sweep outside, so the hosts sweep.
-		return undefined;
-	}
+	const read = readStamp(outsideStamp(lockPath));
+	if (read === undefined) return undefined;
+	const { stamped, judgedThere } = read;
 	if (!Array.isArray(judgedThere)) return undefined;
 	if (judged.some((provider) => !judgedThere.includes(provider))) {
 		return undefined;
@@ -101,18 +96,56 @@ export function sweptOutsideSince(
 		: undefined;
 }
 
+/** The most a stamp holds: a list of a few providers' names. */
+const STAMP_MOST_BYTES = 4096;
+
+/**
+ * When the stamp at `stamp` was dated and what it says was judged, or
+ * nothing when there is no plain file there to read. A host reads it on
+ * its one thread, so it follows no link and waits on no pipe.
+ */
+function readStamp(
+	stamp: string,
+): { stamped: number; judgedThere: unknown } | undefined {
+	let fd: number;
+	try {
+		fd = openSync(
+			stamp,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+	} catch {
+		// No stamp, or a link where it goes: no sweep outside to stand for.
+		return undefined;
+	}
+	try {
+		const stat = fstatSync(fd);
+		if (!stat.isFile() || stat.size > STAMP_MOST_BYTES) return undefined;
+		const bytes = Buffer.alloc(stat.size);
+		const got = readSync(fd, bytes, 0, stat.size, 0);
+		const said = JSON.parse(bytes.subarray(0, got).toString("utf8")) as {
+			judged?: unknown;
+		};
+		return { stamped: stat.mtimeMs, judgedThere: said.judged };
+	} catch {
+		// A stamp that won't read or parse stands for no sweep outside.
+		return undefined;
+	} finally {
+		closeSync(fd);
+	}
+}
+
 /**
  * Stamp that a sweep outside every host has run to its end, judging the
  * trees of every provider in `judged`, for {@link sweptOutsideSince},
- * dated `at` by the sweep's own clock. It is written beside and renamed
- * into place, so a link planted where it goes is replaced rather than
- * followed.
+ * dated `at` by the sweep's own clock, and say why when it couldn't. It
+ * is written beside and renamed into place, so a link planted where it
+ * goes is replaced rather than followed.
  */
 export function markSweptOutside(
 	lockPath: string,
 	at: number,
 	judged: readonly string[],
-): void {
+): string | undefined {
 	const stamp = outsideStamp(lockPath);
 	const written = `${stamp}.${randomBytes(4).toString("hex")}`;
 	try {
@@ -121,9 +154,11 @@ export function markSweptOutside(
 		writeFileSync(written, JSON.stringify({ judged }), { flag: "wx" });
 		utimesSync(written, at / 1000, at / 1000);
 		renameSync(written, stamp);
-	} catch {
+		return undefined;
+	} catch (error) {
 		// Unwritten, the hosts go on sweeping as before, one at a time.
 		rmSync(written, { force: true });
+		return error instanceof Error ? error.message : String(error);
 	}
 }
 

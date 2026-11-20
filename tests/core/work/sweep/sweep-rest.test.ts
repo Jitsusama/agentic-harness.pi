@@ -3,9 +3,11 @@
  * and which hosts' own sweeps it stands down, and for how long.
  */
 
+import { execFileSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -108,8 +110,40 @@ it("stands nobody down for a stamp that names no providers it can read", () => {
 
 	expect(
 		sweptOutsideSince(lock, NOW, GIT),
-		"a stamp with no list in it, as a sweep on older code wrote",
+		"an empty stamp, as a sweep on older code wrote",
 	).toBeUndefined();
+
+	writeFileSync(`${lock}.outside`, JSON.stringify({ judged: "git-worktree" }));
+
+	expect(
+		sweptOutsideSince(lock, NOW, GIT),
+		"a stamp whose providers are no list",
+	).toBeUndefined();
+});
+
+it("stands nobody down, and waits on nothing, for a pipe where the stamp goes", () => {
+	const lock = lockInNewFolder();
+	mkdirSync(dirname(lock), { recursive: true });
+	execFileSync("mkfifo", [`${lock}.outside`]);
+
+	expect(
+		sweptOutsideSince(lock, NOW, GIT),
+		"a pipe nobody writes, which a blocking read would wait on for good",
+	).toBeUndefined();
+});
+
+it("says why when it can't write the stamp", () => {
+	const lock = lockInNewFolder();
+	// A folder where the stamp goes, which no file can be renamed over.
+	mkdirSync(`${lock}.outside`, { recursive: true });
+
+	expect(
+		markSweptOutside(lock, NOW, GIT),
+		"what it said of the stamp it couldn't write",
+	).toBeDefined();
+	expect(readdirSync(dirname(lock)), "what it left beside the lock").toEqual([
+		"sweep.lock.outside",
+	]);
 });
 
 it("replaces a link planted where the stamp goes rather than writing through it", () => {
@@ -119,7 +153,9 @@ it("replaces a link planted where the stamp goes rather than writing through it"
 	writeFileSync(elsewhere, "theirs");
 	symlinkSync(elsewhere, `${lock}.outside`);
 
-	markSweptOutside(lock, NOW, GIT);
+	expect(markSweptOutside(lock, NOW, GIT), "why it couldn't stamp").toBe(
+		undefined,
+	);
 
 	expect(readFileSync(elsewhere, "utf8"), "the file the link named").toBe(
 		"theirs",

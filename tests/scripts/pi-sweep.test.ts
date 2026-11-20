@@ -124,7 +124,9 @@ it(
 
 		expect(await sweepIn(home), "the code it exited with").toBe(1);
 
-		expect(logLines(work)[0], "the line it logged").toHaveProperty("failed");
+		expect(logLines(work)[0]?.failed, "the line it logged").toContain(
+			"ENOTDIR",
+		);
 		expect(
 			existsSync(join(work, "sweep.lock.outside")),
 			"a stamp standing the hosts down after a sweep that failed",
@@ -140,9 +142,11 @@ it(
 		// A lock it can't take or read, as one another sweep is making.
 		mkdirSync(join(work, "sweep.lock"), { recursive: true });
 
-		await sweepIn(home);
+		expect(await sweepIn(home), "the code it exited with").toBe(0);
 
-		expect(logLines(work)[0], "the line it logged").toHaveProperty("skipped");
+		expect(logLines(work)[0]?.skipped, "the line it logged").toBe(
+			"another sweep is starting",
+		);
 		expect(
 			existsSync(join(work, "sweep.lock.outside")),
 			"a stamp standing the hosts down after a sweep that never ran",
