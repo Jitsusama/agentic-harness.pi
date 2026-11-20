@@ -4,9 +4,12 @@
  *
  * A write is anything that reaches other people or lands for good:
  * pushing a branch, opening, editing, commenting on or merging a pull
- * request, and switching or deploying a machine. Reads, builds and
- * commits stay on this machine and are never writes here, so a stop
- * leaves a session free to keep working in its own tree.
+ * request, and switching or deploying a machine. Starting more agents
+ * counts too: a pi host cut or restarted, a session spawned, a council
+ * or fleet run, since a stop that parks every session means nothing if
+ * a parked one can start more. Reads, builds and commits stay on this
+ * machine and are never writes here, so a stop leaves a session free to
+ * keep working in its own tree.
  *
  * This only reads the call. What it names but doesn't say, such as the
  * repository a bare `git push` goes to, is left for {@link settle} to ask
@@ -20,9 +23,16 @@ import { unquote } from "../../shell/index.ts";
 
 /**
  * What a write lands on: one change (a push, a comment, a merge), a
- * repository (a new pull request), or the machine (a switch, a deploy).
+ * repository (a new pull request), the machine (a switch, a deploy), or
+ * its agents (a start: a pi host cut or restarted, a session spawned, a
+ * council or fleet run).
  */
-export type WriteKind = "change" | "repo" | "machine";
+export type WriteKind = "change" | "repo" | "machine" | "start";
+
+/** Whether a write lands on the machine as a whole, not on a repository. */
+export function machineWide(kind: WriteKind): boolean {
+	return kind === "machine" || kind === "start";
+}
 
 /** A write as the call states it, before git fills in what it left out. */
 export interface WriteCall {
@@ -51,7 +61,7 @@ export interface GitFacts {
 
 /** Fill in the repository and branch a call leaves to its checkout. */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
-	if (call.kind === "machine" || call.dir === undefined) return call;
+	if (machineWide(call.kind) || call.dir === undefined) return call;
 	const repo =
 		call.repo ?? (await git.repoOf(call.dir, call.remote ?? "origin"));
 	const branch =
@@ -104,6 +114,12 @@ const REVIEW_READS = new Set(["capabilities"]);
 /** review_offer's actions that open a new change rather than touch one. */
 const OPENS = new Set(["propose", "propose-stack"]);
 
+/** The quest tool's actions that start a pi session. */
+const SPAWNS = new Set(["spawn", "spawn-tab", "spawn-pane", "spawn-window"]);
+
+/** review_ask's actions that only read the rounds already run. */
+const ASK_READS = new Set(["runs", "roster", "collect", "stop", "release"]);
+
 /**
  * The write a call to one of the harness's own tools makes, or undefined
  * when it makes none. `trees` is where the work tool keeps its trees, so
@@ -128,6 +144,13 @@ export function writeInTool(
 			return action === "publish"
 				? reviewWrite(tool, action, args, cwd)
 				: undefined;
+		case "quest":
+			return questStart(action, args);
+		case "subagent":
+			return { action: "subagent", kind: "start" };
+		case "review_ask":
+			if (ASK_READS.has(action ?? "runs")) return undefined;
+			return { action: `review_ask ${action}`, kind: "start" };
 		case "work":
 			if (action !== "push") return undefined;
 			return {
@@ -138,6 +161,17 @@ export function writeInTool(
 		default:
 			return undefined;
 	}
+}
+
+/** A quest spawn, or a reopening of lost sessions that isn't a dry run. */
+function questStart(
+	action: string | undefined,
+	args: Record<string, unknown>,
+): WriteCall | undefined {
+	if (args.dryRun === true || action === undefined) return undefined;
+	const starts =
+		SPAWNS.has(action) || (action === "reopen-sessions" && args.force === true);
+	return starts ? { action: `quest ${action}`, kind: "start" } : undefined;
 }
 
 function reviewWrite(
@@ -238,7 +272,11 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
 
 /** A command's words, unquoted, from the program it runs past any wrapper. */
 export function words(simple: SimpleCommand): string[] {
-	const argv = simple.argv.map((word) => unquote(word.text));
+	return unwrapped(simple.argv.map((word) => unquote(word.text)));
+}
+
+/** Words from the program they run, past any wrapper. */
+function unwrapped(argv: string[]): string[] {
 	let at = 0;
 	while (at < argv.length) {
 		const word = argv[at] ?? "";
@@ -274,6 +312,10 @@ function writeIn(
 	if (name === "git") return gitPush(rest, dir);
 	if (name === "gh") return ghWrite(rest, dir);
 	if (name === "dt") return dtWrite(rest, dir);
+	const launched = launchedBy(name, rest);
+	if (launched !== undefined) return launched(dir);
+	const start = startIn(name, rest);
+	if (start) return start;
 	for (const [machine, verbs] of MACHINE) {
 		if (name !== machine) continue;
 		const verb = rest.find((word) => !word.startsWith("-"));
@@ -285,6 +327,191 @@ function writeIn(
 		}
 	}
 	return undefined;
+}
+
+/** Shells whose `-c` runs a line of its own. */
+const SHELLS = new Set(["sh", "bash", "zsh", "dash"]);
+
+/**
+ * Programs that run another command after their own options, and those
+ * of their options that take a value, so the command they run is found.
+ */
+const LAUNCHERS = new Map<string, ReadonlySet<string>>([
+	[
+		"systemd-run",
+		new Set([
+			"-u",
+			"--unit",
+			"-p",
+			"--property",
+			"--slice",
+			"-E",
+			"--setenv",
+			"--description",
+			"--working-directory",
+			"-M",
+			"--machine",
+			"-H",
+			"--host",
+			"--uid",
+			"--gid",
+			"--nice",
+		]),
+	],
+	["setsid", new Set()],
+	["nice", new Set(["-n", "--adjustment"])],
+]);
+
+/**
+ * What a command that runs another command writes: a shell's `-c` line,
+ * whatever a launcher runs, or what follows `--` in a `mycelium` call,
+ * which runs it on a machine of the mycelium.
+ */
+function launchedBy(
+	name: string,
+	args: string[],
+): ((dir: string | undefined) => WriteCall | undefined) | undefined {
+	if (SHELLS.has(name)) {
+		const line = args.at(args.indexOf("-c") + 1);
+		if (!args.includes("-c") || line === undefined) return undefined;
+		return (dir) => writesInBash(line, dir ?? ".")[0];
+	}
+	if (name === "mycelium") {
+		const after = args.indexOf("--");
+		if (after < 0) return undefined;
+		return (dir) => writeIn(unwrapped(args.slice(after + 1)), dir);
+	}
+	const valued = LAUNCHERS.get(name);
+	if (valued === undefined) return undefined;
+	let at = 0;
+	while (at < args.length) {
+		const word = args[at] ?? "";
+		if (word === "--") {
+			at += 1;
+			break;
+		}
+		if (!word.startsWith("-")) break;
+		at += valued.has(word) ? 2 : 1;
+	}
+	return (dir) => writeIn(unwrapped(args.slice(at)), dir);
+}
+
+/**
+ * systemctl's verbs that start a unit or make it start. Stopping, killing
+ * or disabling one only takes agents away, which a stop never holds back.
+ */
+const START_VERBS = new Set([
+	"start",
+	"restart",
+	"try-restart",
+	"reload-or-restart",
+	"try-reload-or-restart",
+	"enable",
+	"reenable",
+]);
+
+/** systemctl's options that take a value, so it isn't read as the verb. */
+const SYSTEMCTL_VALUED = new Set([
+	"-H",
+	"--host",
+	"-M",
+	"--machine",
+	"-p",
+	"--property",
+	"-t",
+	"--type",
+	"--state",
+	"-s",
+	"--signal",
+	"--kill-whom",
+	"-n",
+	"--lines",
+	"-o",
+	"--output",
+	"--root",
+	"--job-mode",
+]);
+
+/** The units a pi host or a hosted conversation runs as, globs included. */
+const HOST_UNIT = /^(?:pi-host|pi-conversation|mycelium-pi)[-*@]|^pi-\*/;
+
+/** The harness's scripts that start a host or move conversations into one. */
+const HOST_SCRIPT =
+	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts$/;
+
+/** Programs that start pi, a host of conversations, or a carried session. */
+const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
+
+/** What a pi program is asked that starts nothing. */
+const PI_ASKS = new Set(["--version", "-v", "--help", "-h"]);
+
+/** Programs that run a script named after their options. */
+const RUNNERS = new Set(["node", "tsx", "bun", "deno"]);
+
+/**
+ * mycelium's verbs that start a session: carrying a quest's sessions to
+ * another machine, starting a program held there, or sprouting one.
+ */
+const MYCELIUM_STARTS = new Set(["carry", "start", "sprout"]);
+
+/**
+ * A command that starts agents: pi itself, a host or a carried session;
+ * systemctl starting or restarting a host's unit; a script that starts a
+ * host or moves conversations, run as the program; or `pi-packages
+ * update`, which restarts every host onto the install it moves; or a
+ * mycelium verb that starts a session. A script only named, as `cat` or
+ * `git diff` name one, starts nothing.
+ */
+function startIn(name: string, args: string[]): WriteCall | undefined {
+	if (name === "systemctl") return unitStart(args);
+	if (name === "mycelium") return myceliumStart(args);
+	if (name === "pi-packages" && args.includes("update")) {
+		return { action: "pi-packages update", kind: "start" };
+	}
+	if (PI_PROGRAMS.has(name)) {
+		if (args.length > 0 && args.every((word) => PI_ASKS.has(word))) {
+			return undefined;
+		}
+		return { action: name, kind: "start" };
+	}
+	const script = RUNNERS.has(name) ? scriptRun(args) : name;
+	if (script === undefined || !HOST_SCRIPT.test(script)) return undefined;
+	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
+	return { action: `pi ${moves}`, kind: "start" };
+}
+
+/**
+ * The script a runner runs: its first word named as a script, so an
+ * option's value (`--env-file x`) isn't taken for it.
+ */
+function scriptRun(args: string[]): string | undefined {
+	return args.find(
+		(word) => !word.startsWith("-") && /\.[cm]?[jt]s$/.test(word),
+	);
+}
+
+/** `mycelium [--realm name] <verb>` starting a session somewhere. */
+function myceliumStart(args: string[]): WriteCall | undefined {
+	const words = args.filter(
+		(word, at) => !word.startsWith("-") && args[at - 1] !== "--realm",
+	);
+	const verb = words[0];
+	if (verb === undefined || !MYCELIUM_STARTS.has(verb)) return undefined;
+	return { action: `mycelium ${verb}`, kind: "start" };
+}
+
+/** `systemctl [options] <verb> <unit...>` starting a host's unit. */
+function unitStart(args: string[]): WriteCall | undefined {
+	const found: string[] = [];
+	for (let at = 0; at < args.length; at += 1) {
+		const word = args[at] ?? "";
+		if (SYSTEMCTL_VALUED.has(word)) at += 1;
+		else if (!word.startsWith("-")) found.push(word);
+	}
+	const [verb, ...units] = found;
+	if (verb === undefined || !START_VERBS.has(verb)) return undefined;
+	if (!units.some((unit) => HOST_UNIT.test(unit))) return undefined;
+	return { action: `pi host ${verb}`, kind: "start" };
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */
@@ -519,6 +746,18 @@ function patternWrites(command: string): WriteCall[] {
 			"switch",
 			"machine",
 		],
+		[
+			/\bsystemctl\b[^;&|\n]*\b(?:re)?(?:start|enable)\b[^;&|\n]*\b(?:pi-host|pi-conversation|mycelium-pi)[-*@]/,
+			"pi host start",
+			"start",
+		],
+		[
+			/\b(?:node|tsx|bun|deno)\s+(?:\S*\/)?(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts\b/,
+			"pi host move",
+			"start",
+		],
+		[/\bpi-packages\s+update\b/, "pi-packages update", "start"],
+		[/\bmycelium\s+(?:carry|start|sprout)\b/, "mycelium start", "start"],
 	];
 	for (const [pattern, action, kind] of patterns) {
 		const found = pattern.exec(command);

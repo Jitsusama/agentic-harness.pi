@@ -23,7 +23,17 @@ writes it reaches:
   that change a pull request or issue, and the review tools'
   `review_offer`, `review_say` and a published `review_draft`;
 - switches and deploys (`switch-system`, `nixos-rebuild switch` and
-  the like), for a stop on a realm or everything only.
+  the like), for a stop on a quest, a realm or everything only;
+- starts of more agents, for the same stops: `systemctl` starting,
+  stopping or restarting a `pi-host-*`, `pi-conversation-*` or
+  `mycelium-pi-*` unit, the scripts that move conversations into or
+  out of a host (`host-cutover.ts`, `host-drain.ts`,
+  `host-release.ts`, `host-take-up.ts`, `host-join.ts`),
+  `pi-packages update`, which restarts every host onto the install it
+  moves, the quest tool's spawns and a forced `reopen-sessions`, a
+  `subagent` fleet, and a `review_ask` round. Joel's
+  `pineapple stop all`, before a demo, is a stop on everything, so a
+  parked session can't start more agents to carry on for it.
 
 What a stop reaches, by its record's `reaches`:
 
@@ -69,9 +79,16 @@ the stop reaches. This is the session parking itself rather than a
 steer's pause, because a pause ends when the person talks to it and a
 stop must not.
 
-Once the stops parking a session are resumed, it carries on within a
-minute, told to check what changed where the stop stood before it
-writes.
+An idle session the stop reaches is parked as it stands, within the
+ten-second clock, and noted with the others, so Joel's `pineapple stop
+all`, which waits a minute for every session to park, counts it.
+
+Once the stops parking a session are resumed, a session whose run the
+stop ended carries on within ten seconds, told to check what changed
+where the stop stood before it writes. One the stop found idle stays
+idle, unless something woke it while parked, a peer's question say,
+since that run was ended too and the resume carries it on. Which run the stop ended is kept in memory, so a session reloaded
+or restarted while parked is left idle by the resume too.
 
 ## Holds
 
@@ -83,7 +100,7 @@ what it was doing there. It is renewed every 100 minutes, inside the
 mesh's two hours, and ended with a note once Joel resumes the stop.
 A stop on another realm is left to that realm's sessions.
 
-Every session tends the holds on a one-minute clock, one at a time
+Every session tends the holds on a ten-second clock, one at a time
 by a claim file under the mesh's state, so they go out while any
 session runs.
 
@@ -114,7 +131,7 @@ wait on Joel's resume.
 
 With no stop standing, a call that writes looks once at an empty
 folder and a call that doesn't write looks at nothing; a run's start
-and each turn's end look once more, and so does the one-minute clock.
+and each turn's end look once more, and so does the ten-second clock.
 Only a stop on a repository or a name asks git for the session's
 repositories, at each of those looks. A stop on one
 pull request asks GitHub (then Delta) once a session for that change's

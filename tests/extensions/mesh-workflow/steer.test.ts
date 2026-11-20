@@ -24,6 +24,7 @@ import {
 	steerText,
 } from "../../../extensions/mesh-workflow/steer.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { isPersonText } from "../../../lib/internal/session/driven.ts";
 import {
 	forgetWants,
 	type GivenAnswer,
@@ -235,9 +236,38 @@ describe("a steer as the session reads it", () => {
 			{ busy: true },
 		);
 		expect(said).toMatch(
-			/^\[Said by this machine's mycelium node, not by the person/,
+			/^\[Automated message, no human input: said by this machine's mycelium node, not by the person/,
 		);
 		expect(said).toMatch(/this machine leaves at 17:00$/);
+		expect(
+			isPersonText(said),
+			"a machine's steer is read as the person's, so a stop lets its run go",
+		).toBe(false);
+	});
+
+	it("says a peer's ask isn't the person's, and still asks for an answer first", () => {
+		const said = steerText(
+			{ text: "where does it stand?", from: "wcjqsg", file: "f" },
+			{ busy: true },
+		);
+		expect(said).toMatch(
+			/^\[Automated message, no human input: asked by wcjqsg, not by the person/,
+		);
+		expect(said).toMatch(/answer first, in a line or two, then carry on\./);
+		expect(said).toMatch(/where does it stand\?$/);
+		expect(
+			isPersonText(said),
+			"a peer's steer is read as the person's, so a stop lets its run go",
+		).toBe(false);
+	});
+
+	it("reads a machine's steer from before the header as not the person's", () => {
+		expect(
+			isPersonText(
+				"[Said by this machine's mycelium node, not by the person, through this session's steer inbox.]\n\nhi",
+			),
+			"an old log's machine steer is read as the person's",
+		).toBe(false);
 	});
 
 	it("names the machine's program that wrote it, when it says", () => {
@@ -251,7 +281,7 @@ describe("a steer as the session reads it", () => {
 			{ busy: false },
 		);
 		expect(said).toMatch(
-			/^\[Said by this machine's nix-offload, not by the person/,
+			/^\[Automated message, no human input: said by this machine's nix-offload, not by the person/,
 		);
 	});
 });

@@ -72,13 +72,29 @@ export function createParking(deps: ParkingDeps): Parking {
 	let personNext = false;
 	let personRun = false;
 	let parked = false;
+	/** Whether the stop ended a run, which the resume then carries on. */
+	let cut = false;
 	const shadowTold = new Set<string>();
 	const liveTold = new Set<string>();
+	/**
+	 * Where the session was found, for the stops that asked, kept between
+	 * runs: nothing moves an idle session, and the clock asks every ten
+	 * seconds, which would rerun its git lookups each time.
+	 */
+	let known: { readonly stops: string; readonly session: Session } | undefined;
+
+	async function whereabouts(stops: readonly Stop[]): Promise<Session> {
+		const key = stops.map((stop) => stop.id).join(" ");
+		if (known?.stops === key) return known.session;
+		const session = await deps.session(stops);
+		known = { stops: key, session };
+		return session;
+	}
 
 	async function parkers(): Promise<Parked[]> {
 		const stops = deps.stops();
 		if (stops.length === 0) return [];
-		const found = parking(stops, await deps.session(stops));
+		const found = parking(stops, await whereabouts(stops));
 		for (const one of found.filter((each) => each.stop.shadow)) {
 			// Once a session: the log says which sessions, not how often.
 			if (shadowTold.has(one.stop.id)) continue;
@@ -88,19 +104,31 @@ export function createParking(deps: ParkingDeps): Parking {
 		return found.filter((one) => !one.stop.shadow);
 	}
 
-	async function park(): Promise<void> {
+	/** Park the session, ending the run under way when `running`. */
+	async function park(running = true): Promise<void> {
 		const live = await parkers();
 		if (live.length === 0) return;
 		const first = !parked;
 		parked = true;
-		deps.abort();
+		if (running) {
+			cut = true;
+			deps.abort();
+		}
+		note(live);
+		if (first) deps.notify(parkedText(live));
+	}
+
+	/**
+	 * Note each stop parking the session, once a session, as in shadow:
+	 * the launcher and `stop all` count the sessions each stop parked, so
+	 * one already parked by an earlier stop is noted for a later one too.
+	 */
+	function note(live: readonly Parked[]): void {
 		for (const one of live) {
-			// Once a session, as in shadow: the launcher counts sessions.
 			if (liveTold.has(one.stop.id)) continue;
 			liveTold.add(one.stop.id);
 			deps.parked(one);
 		}
-		if (first) deps.notify(parkedText(live));
 	}
 
 	return {
@@ -108,19 +136,29 @@ export function createParking(deps: ParkingDeps): Parking {
 			if (byPerson) personNext = true;
 		},
 		async started() {
+			// A run may move the session, so where it is is asked afresh.
+			known = undefined;
 			personRun = personNext;
 			personNext = false;
 			if (personRun) return;
 			await park();
 		},
 		async turnEnded() {
+			known = undefined;
 			if (personRun) return;
 			await park();
 		},
 		async tick() {
-			if (!parked || !deps.idle()) return;
-			if ((await parkers()).length > 0) return;
+			if (!deps.idle()) return;
+			// An idle session a stop reaches is parked as it stands, so the
+			// stop's count of parked sessions holds it without a run; one the
+			// stop never cut is left idle by the resume, as it was found.
+			if (!parked) return park(false);
+			const live = await parkers();
+			if (live.length > 0) return note(live);
 			parked = false;
+			if (!cut) return;
+			cut = false;
 			deps.carryOn(RESUMED_TEXT);
 		},
 		get parked() {

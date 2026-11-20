@@ -131,6 +131,93 @@ describe("writesInBash", () => {
 		expect(writesInBash("nixos-rebuild build", HERE)).toEqual([]);
 	});
 
+	it("reads pi started, however it is wrapped, as a start of agents", () => {
+		const start = (command: string) =>
+			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
+		const held = (command: string, action: string) =>
+			expect(start(command), command).toEqual([{ action, kind: "start" }]);
+		held("pi", "pi");
+		held("pi -p 'go on'", "pi");
+		held("pi-host --attended", "pi-host");
+		held("pi-carry ab12", "pi-carry");
+		held("node scripts/pi-host.ts", "pi pi-host");
+		held("tsx --env-file x scripts/pi-carry.ts", "pi pi-carry");
+		held("./scripts/host-take-up.ts", "pi host-take-up");
+		held("systemd-run --user --unit=x -p RuntimeMaxSec=60 -- pi", "pi");
+		held("systemd-run --user --unit x --slice app.slice pi", "pi");
+		held("setsid nohup pi", "pi");
+		held("mycelium run --need machine=mac -- pi", "pi");
+		held("bash -c 'pi -p hi'", "pi");
+		held("mycelium carry QEST-X --to mac", "mycelium carry");
+		held("mycelium --realm personal sprout QEST-X", "mycelium sprout");
+		held("mycelium start --need machine=mac", "mycelium start");
+		held(
+			"systemctl --user -H mac restart pi-host-work-background",
+			"pi host restart",
+		);
+		held("systemctl --user start 'pi-host-*'", "pi host start");
+		held("systemctl --user enable pi-conversation@x", "pi host enable");
+		expect(start("pi --version")).toEqual([]);
+		expect(start("pip install x")).toEqual([]);
+	});
+
+	it("lets what takes agents away, or only names a host, go", () => {
+		const start = (command: string) => writesInBash(command, HERE);
+		for (const command of [
+			"systemctl --user stop pi-host-work-background",
+			"systemctl --user kill pi-conversation-ab12@x",
+			"systemctl --user disable pi-host-work-attended",
+			"systemctl --user -p ActiveState show pi-host-work-attended",
+			"systemctl --user --state running list-units 'pi-host-*'",
+			"cat scripts/host-cutover.ts",
+			"git diff scripts/pi-host.ts",
+			"rg cutover scripts/host-cutover.ts",
+			"systemd-run --user --unit=x -- cat scripts/host-cutover.ts",
+			"mycelium sessions",
+			"mycelium starts list",
+			"mycelium sessions --realm start",
+		]) {
+			expect(start(command), command).toEqual([]);
+		}
+	});
+
+	it("finds a start by pattern in a line the command model can't read", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		expect(
+			actions("for u in a b; do systemctl --user restart pi-host-$u; done"),
+		).toContain("pi host start");
+		expect(actions("for q in a b; do mycelium carry $q; done")).toContain(
+			"mycelium start",
+		);
+		expect(actions("for i in 1; do pi-packages update; done")).toContain(
+			"pi-packages update",
+		);
+		expect(
+			actions("for u in a b; do systemctl --user status pi-host-$u; done"),
+		).toEqual([]);
+	});
+
+	it("reads a pi host started, stopped or moved as a start of agents", () => {
+		const start = (command: string) =>
+			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
+		expect(start("systemctl --user restart pi-host-work-background")).toEqual([
+			{ action: "pi host restart", kind: "start" },
+		]);
+		expect(start("systemctl --user start pi-conversation-ab12@x")).toEqual([
+			{ action: "pi host start", kind: "start" },
+		]);
+		expect(start("node scripts/host-cutover.ts --only P9R1KI")).toEqual([
+			{ action: "pi host-cutover", kind: "start" },
+		]);
+		expect(start("pi-packages update")).toEqual([
+			{ action: "pi-packages update", kind: "start" },
+		]);
+		expect(start("systemctl --user status pi-host-work-attended")).toEqual([]);
+		expect(start("systemctl --user restart pineapple")).toEqual([]);
+		expect(start("node scripts/host-cutover.test.ts")).toEqual([]);
+	});
+
 	it("finds a write by pattern in a line the command model can't read", () => {
 		const writes = writesInBash(
 			"for b in a c; do git push origin $b; done",
@@ -192,6 +279,32 @@ describe("writeInTool", () => {
 			action: "work push",
 			kind: "change",
 			dir: "/trees/shop-fix",
+		});
+	});
+
+	it("reads a spawn, a council or a fleet as a start of agents", () => {
+		const start = (tool: string, input: unknown) =>
+			writeInTool(tool, input, HERE, TREES);
+		expect(start("quest", { action: "spawn-tab" })).toEqual({
+			action: "quest spawn-tab",
+			kind: "start",
+		});
+		expect(start("quest", { action: "reopen-sessions", force: true })).toEqual({
+			action: "quest reopen-sessions",
+			kind: "start",
+		});
+		expect(start("quest", { action: "reopen-sessions" })).toBeUndefined();
+		expect(start("quest", { action: "spawn", dryRun: true })).toBeUndefined();
+		expect(start("quest", { action: "journal" })).toBeUndefined();
+		expect(start("review_ask", { action: "council" })).toEqual({
+			action: "review_ask council",
+			kind: "start",
+		});
+		expect(start("review_ask", {})).toBeUndefined();
+		expect(start("review_ask", { action: "collect" })).toBeUndefined();
+		expect(start("subagent", { jobs: [] })).toEqual({
+			action: "subagent",
+			kind: "start",
 		});
 	});
 
