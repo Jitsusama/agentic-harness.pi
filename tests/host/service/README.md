@@ -38,11 +38,16 @@ left unread while its window reads nothing.
 child-supervisor.test.ts runs the supervisor against children in this
 process, started by fake units a little after their unit starts: a
 resume's slot naming its roster entry, one child for two resumes, a
-child ending before it listens given up within a few seconds, state,
-a new id and an ending each kept in the routes, an unreadable line
-and a silent exit as failed, an open asked of the child without the
-host's identity, a refusal stopping its child, and a host starting
-again taking up the children left running.
+child ending before it listens or never listening given up, a host's
+stop at each step of a start, a child running another conversation
+refused, state, a new id and an ending each kept in the routes, what a
+newer child adds passed over, an unreadable line and a silent exit as
+failed, and a slot kept in use while its unit may still run.
+child-opens.test.ts runs the same children for opens and adopts: an
+open asked of the child without the host's identity, a refusal
+stopping its child, an open answered late named rather than stopped,
+and a host starting again taking up the children left running, under
+the ids they now run.
 child-units.test.ts checks a slot's paths and unit, and that a name
 reaching another path or unit is refused.
 own-threads.test.ts runs the host and two children as node processes
@@ -88,3 +93,6 @@ without closing, lock refusal and takeover races, launch environments
 written only when they hold something, and refusal to start over an
 unreadable roster, in a private temporary folder. They do not
 start a production host, copy credential files or use Joel's screen.
+
+- `support/`: helpers these tests share, such as the fake units,
+  roster and children the supervisor's tests run.
