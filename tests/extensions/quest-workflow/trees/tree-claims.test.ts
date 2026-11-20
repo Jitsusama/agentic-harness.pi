@@ -218,6 +218,41 @@ describe("answering who holds a tree", () => {
 			"/src/repo/.worktrees/mine",
 		]);
 	});
+
+	it("gives an asker that waits nothing more to wait on, since its walk is fresh", () => {
+		const pi = bus();
+		answerTreeClaims(
+			pi as never,
+			questsRootHolding("/src/repo/.worktrees/mine"),
+		);
+
+		const claims: TreeClaims = { paths: [], answering: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths).toEqual(["/src/repo/.worktrees/mine"]);
+		expect(claims.answering, "answers still to come").toEqual([]);
+	});
+
+	it("drops a tree a sweep took from the quest that listed it", async () => {
+		const root = questsRootHolding(
+			"/src/repo/.worktrees/spent",
+			"/src/repo/.worktrees/working",
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		await vi.waitFor(() => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			expect(claims.paths, "what the quest lists after the sweep").toEqual([
+				"/src/repo/.worktrees/working",
+			]);
+		});
+	});
 });
 
 describe("answering who holds a tree on a host", () => {
@@ -352,7 +387,8 @@ describe("hearing that a sweep took a tree", () => {
 		}
 	});
 
-	it("forgets in every other quest when one quest's write fails, and throws nothing", async () => {
+	// Root writes a folder whatever its mode, so the locked quest isn't.
+	it.skipIf(process.getuid?.() === 0)("forgets in every other quest when one quest's write fails, and throws nothing", async () => {
 		const root = questsRootHolding("/src/repo/.worktrees/spent");
 		const locked = questListing(
 			root,

@@ -18,8 +18,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { followSessionLife } from "../../../../extensions/quest-workflow/wiring/session.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
 import {
 	clearDiscoveryCache,
@@ -93,6 +95,19 @@ function parentedElsewhere(readmePath: string, parent: string): void {
 	settle(readmePath);
 }
 
+/**
+ * Add `yaml`, whole lines, to a quest's frontmatter as another process
+ * would: on disk, uncounted, in place of an empty list of the same key.
+ */
+function frontMatterElsewhere(readmePath: string, yaml: string): void {
+	const key = yaml.slice(0, yaml.indexOf(":"));
+	const text = readFileSync(readmePath, "utf8")
+		.replace(new RegExp(`^${key}: \\[\\]\\n`, "m"), "")
+		.replace(/\n---\n/, `\n${yaml}---\n`);
+	writeFileSync(readmePath, text);
+	settle(readmePath);
+}
+
 /** Move the clock past how old a walk an action acts on may be. */
 function aMinuteOn(): void {
 	const now = Date.now();
@@ -122,6 +137,77 @@ it("refuses a cycle through a quest the action doesn't name, made elsewhere sinc
 	expect(result.ok, "Alpha under Beta, under Gamma, under Alpha").toBe(false);
 	expect(readFileSync(alpha.readme, "utf8")).not.toContain(beta.id);
 });
+
+it("refuses an alias another process put on another quest since the last walk", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	const alpha = await made(questsRoot, "Alpha");
+	const beta = await made(questsRoot, "Beta");
+	settleAll(questsRoot);
+	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(
+		beta.id,
+	);
+
+	frontMatterElsewhere(
+		beta.readme,
+		"aliases:\n  - type: github-pr\n    value: shop/world#1\n",
+	);
+	const before = readFileSync(alpha.readme, "utf8");
+	const state = createQuestState({ questsRoot });
+	const result = await withSession("a", () =>
+		handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
+			action: "alias-add",
+			id: alpha.id,
+			ref: "github-pr:shop/world#1",
+		}),
+	);
+
+	expect(result.ok ? "added" : result.guidance).toContain(beta.id);
+	expect(readFileSync(alpha.readme, "utf8")).toBe(before);
+});
+
+it("starts a session in a tree another process gave a quest since the last walk", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	await made(questsRoot, "Alpha");
+	const beta = await made(questsRoot, "Beta");
+	const tree = join(tmpRoot, "tree");
+	mkdirSync(tree);
+	settleAll(questsRoot);
+	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(
+		beta.id,
+	);
+
+	frontMatterElsewhere(
+		beta.readme,
+		`trees:\n  - path: ${tree}\n    providerId: git-worktree\n` +
+			`    repoRoot: ${tree}\n    origin: scaffolded\n`,
+	);
+	const state = createQuestState({ questsRoot });
+	const pi = fakePi();
+	const budgets = { keep: async () => undefined, forget: () => undefined };
+	followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
+	const [start] = pi.recorded.handlers.get("session_start") ?? [];
+	await withSession("a", async () =>
+		start?.({ type: "session_start", reason: "startup" }, startIn(tree)),
+	);
+
+	expect(state.questId).toBe(beta.id);
+});
+
+/** A session's context at its start in `cwd`, kept in no file. */
+function startIn(cwd: string): unknown {
+	return {
+		cwd,
+		hasUI: false,
+		isIdle: () => true,
+		ui: { notify: () => undefined, setStatus: () => undefined },
+		sessionManager: {
+			getSessionId: () => "a",
+			isPersisted: () => false,
+			getEntries: () => [],
+			getBranch: () => [],
+		},
+	};
+}
 
 it("finds a document another process made in another quest since the last walk", async () => {
 	const questsRoot = join(tmpRoot, "quests");
