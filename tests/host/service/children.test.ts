@@ -461,6 +461,8 @@ describe("a host with conversations in children", () => {
 		window.write(attaching(b));
 		expect((await seen.next()).value).toMatchObject({ ok: true });
 		window.pause();
+		// Time for a host that kept reading to drain the child: what is
+		// measured is that nothing drains while the window reads nothing.
 		await new Promise((resolve) => setTimeout(resolve, 300));
 
 		expect(
