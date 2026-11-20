@@ -24,9 +24,6 @@ import {
 import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
 import { type ConversationIdentity, SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
-import { type HostedChildren, hostChildren } from "./child-hosting.ts";
-import type { ChildPolicy } from "./child-policy.ts";
-import { slotFolder, type Units } from "./child-units.ts";
 import {
 	type ConversationEngine,
 	conversationEvents,
@@ -39,6 +36,9 @@ import {
 	resumeHeld,
 	type Unresumed,
 } from "./backend.ts";
+import { type HostedChildren, hostChildren } from "./child-hosting.ts";
+import type { ChildPolicy } from "./child-policy.ts";
+import { slotFolder, type Units } from "./child-units.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster, type RosterWait } from "./roster.ts";

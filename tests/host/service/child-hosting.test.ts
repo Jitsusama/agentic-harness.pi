@@ -10,11 +10,7 @@ import {
 import type { ChildPolicy } from "../../../host/service/child-policy.ts";
 import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
-import {
-	entryIn,
-	type FakeUnits,
-	fakeUnits,
-} from "./support/fake-children.ts";
+import { entryIn, type FakeUnits, fakeUnits } from "./support/fake-children.ts";
 
 const key = "work-background";
 const a = "a0000000-0000-4000-8000-000000000001";
@@ -115,7 +111,10 @@ describe("a host's children", () => {
 		await vi.waitFor(() =>
 			expect(rested.map(({ sessionId }) => sessionId)).toEqual([a]),
 		);
-		expect(held.map(({ sessionId }) => sessionId), "still held").toEqual([a]);
+		expect(
+			held.map(({ sessionId }) => sessionId),
+			"still held",
+		).toEqual([a]);
 	});
 
 	it("rests one whose child failed, since it is still held", async () => {

@@ -68,9 +68,7 @@ export function hostChildren(options: {
 	// watches its wake again so a message or a window brings it back.
 	function rest(sessionId: string, why: ChildEnding): void {
 		if (why !== "parked" && why !== "failed") return;
-		const entry = roster
-			.entries()
-			.find((held) => held.sessionId === sessionId);
+		const entry = roster.entries().find((held) => held.sessionId === sessionId);
 		if (!entry) return;
 		try {
 			if (!options.restsParked?.(entry))
