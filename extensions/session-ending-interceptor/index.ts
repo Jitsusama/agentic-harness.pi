@@ -8,7 +8,11 @@
  * `ask`, a `show_person` look or a reply asking for one is refused while
  * the machine's mycelium node says any session other than the asker's
  * is there in any state but ended, and refused when the node can't be
- * read, under the no-session-ending-ask-while-live guard. Every realm's
+ * read, under the no-session-ending-ask-while-live guard. A session a
+ * log-out leaves running, hosted or held where the user's services
+ * outlive it, doesn't count for a log-out, and none on this machine
+ * counts for the ask of a session holding it with a standing #machine
+ * hold, which is how a disruption is scheduled. Every realm's
  * node on the machine is read, since a reboot ends the sessions of all
  * of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
@@ -30,10 +34,12 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { userInfo } from "node:os";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
@@ -41,6 +47,10 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
+import {
+	holdsMachine,
+	logOutSpares,
+} from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
 	type NodeSession,
@@ -105,6 +115,9 @@ interface Told {
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
+/** How long logind or the node has to say what spares a session. */
+const SPARES_PATIENCE_MS = 2000;
+
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
@@ -151,6 +164,14 @@ export function nodeDeps(
 			return rememberMachines(rememberedMachinesFile(env), read);
 		},
 		here: () => thisMachine(),
+		spares: async (address) => {
+			const exec = spawnExec({ timeoutMs: SPARES_PATIENCE_MS });
+			const [lingers, holds] = await Promise.all([
+				logOutSpares(exec, String(userInfo().uid)),
+				holdsMachine(exec, nodeSockets(env), address, Date.now()),
+			]);
+			return { lingers, holds };
+		},
 	};
 }
 

@@ -14,6 +14,16 @@
  * for the name. A session in a state this reader doesn't know counts as
  * live, and one the node names no machine for counts as on every
  * machine: a guess either way would be the one that ends a run.
+ *
+ * Two things this machine knows of itself spare its own sessions. A
+ * log-out or a switch of users leaves the user's services running when
+ * the user lingers and logind kills no user processes, so a session a
+ * pi host runs or a holder holds outlives it; one in a terminal alone
+ * does not. And a session that holds the machine with a standing
+ * #machine hold has parked its sessions to ask this, so their sessions
+ * don't count for its ask. Neither reaches another machine, or a
+ * session the node names no machine for, since nothing here says what
+ * lingers or is held there.
  */
 
 import type { NodeSession } from "../../mesh/node.ts";
@@ -55,18 +65,35 @@ export interface Refusal {
 	readonly key: string;
 }
 
+/** What this machine knows of itself that spares its own sessions. */
+export interface Here {
+	/** This machine's name. */
+	readonly machine: string;
+	/** Whether a log-out here leaves the user's services running. */
+	readonly lingers: boolean;
+	/** Whether the asker holds this machine with a standing #machine hold. */
+	readonly holds: boolean;
+}
+
+/** The acts that end a log-in but not the user's services. */
+const ENDS_A_LOG_IN: ReadonlySet<SessionEndingAsk["act"]> = new Set([
+	"log out",
+	"switch users",
+]);
+
 /** The guard a person sets off to let such an ask through. */
 const GUARD_NAME = GUARDS.noSessionEndingAskWhileLive.name;
 
 /**
  * Why `asks` may not go to the person, or nothing when they may: the
- * sessions each would end, other than `self`, or that the node, whose
- * answer is `sessions`, couldn't be read.
+ * sessions each would end, other than `self` and those `here` spares,
+ * or that the node, whose answer is `sessions`, couldn't be read.
  */
 export function refusalOf(
 	asks: readonly SessionEndingAsk[],
 	sessions: readonly NodeSession[] | undefined,
 	self: string | undefined,
+	here?: Here,
 ): Refusal | undefined {
 	const [first] = asks;
 	if (!first) return undefined;
@@ -75,7 +102,7 @@ export function refusalOf(
 		return { reason, key: keyOf(asks, "unread") };
 	}
 	const refused = asks.flatMap((ask) => {
-		const live = liveFor(ask, sessions, self);
+		const live = liveFor(ask, sessions, self, here);
 		return live.length === 0 ? [] : [{ ask, live }];
 	});
 	const [worst] = refused;
@@ -101,6 +128,7 @@ function liveFor(
 	ask: SessionEndingAsk,
 	sessions: readonly NodeSession[],
 	self: string | undefined,
+	here: Here | undefined,
 ): NodeSession[] {
 	const unnamed = ask.machines.length === 0;
 	const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
@@ -110,7 +138,25 @@ function liveFor(
 				one.machine === undefined ||
 				reach.has(one.machine.toLowerCase())) &&
 			one.state !== "ended" &&
-			one.id !== self,
+			one.id !== self &&
+			!spares(here, ask, one),
+	);
+}
+
+/** Whether what `here` knows of itself says `ask` leaves `one` running. */
+function spares(
+	here: Here | undefined,
+	ask: SessionEndingAsk,
+	one: NodeSession,
+): boolean {
+	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
+		return false;
+	}
+	if (here.holds) return true;
+	return (
+		here.lingers &&
+		ENDS_A_LOG_IN.has(ask.act) &&
+		(one.host !== undefined || one.held !== undefined)
 	);
 }
 

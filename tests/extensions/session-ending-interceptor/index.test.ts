@@ -603,3 +603,74 @@ describe("a reply", () => {
 		expect(answer).toBeUndefined();
 	});
 });
+
+describe("what spares this machine's sessions", () => {
+	const hostedHere = [
+		{
+			id: "hosted",
+			address: "H00001",
+			machine: "optimus",
+			state: "busy",
+			host: "work-background",
+		},
+		{ id: SELF, address: "0IM95G", machine: "optimus", state: "busy" },
+	];
+	let askedOf: (string | undefined)[];
+
+	/** The interceptor again, its spares answering `lingers` and `holds`. */
+	const sparing = (lingers: boolean, holds: boolean) => {
+		askedOf = [];
+		pi = fakePi();
+		sessionEndingInterceptor({
+			onMesh: () => true,
+			sessions: async () => node,
+			machines: async () => listed,
+			here: () => "optimus",
+			spares: async (address) => {
+				askedOf.push(address);
+				return { lingers, holds };
+			},
+		})(pi);
+	};
+
+	it("lets a log-out through that ends no session, all being hosted", async () => {
+		node = hostedHere;
+		sparing(true, false);
+
+		expect(
+			await reply(text("Please log out of niri on optimus.")),
+		).toBeUndefined();
+		expect(askedOf).toEqual(["0IM95G"]);
+	});
+
+	it("still withholds a reboot of hosted sessions", async () => {
+		node = hostedHere;
+		sparing(true, false);
+
+		expect(await reply(text("Please reboot optimus."))).toBeDefined();
+	});
+
+	it("lets the holder's own reboot through, its hold standing", async () => {
+		node = hostedHere;
+		sparing(false, true);
+
+		expect(
+			await call("show_person", {
+				kind: "page",
+				target: "https://example.org/bios",
+				title: "BIOS 1.13.0",
+				ask: "Reboot optimus to install it",
+			}),
+		).toBeUndefined();
+	});
+
+	it("asks nothing of what spares when the ask would go ahead anyway", async () => {
+		node = [{ id: SELF, address: "0IM95G", machine: "optimus", state: "busy" }];
+		sparing(false, false);
+
+		await reply(text("Please reboot optimus."));
+		await reply(text("All done here."));
+
+		expect(askedOf).toEqual([]);
+	});
+});

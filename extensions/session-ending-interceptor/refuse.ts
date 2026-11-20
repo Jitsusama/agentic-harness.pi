@@ -13,6 +13,7 @@ import {
 	type SessionEndingAsk,
 } from "../../lib/internal/session-ending/asks.ts";
 import {
+	type Here,
 	machinesKnown,
 	type Refusal,
 	refusalOf,
@@ -37,6 +38,15 @@ export interface SessionEndingDeps {
 	readonly machines: () => Promise<readonly string[] | undefined>;
 	/** This machine's name, for an ask read while the node can't be. */
 	readonly here: () => string;
+	/**
+	 * What spares this machine's sessions from an ask by the session the
+	 * node knows by `address`: a log-out that leaves the user's services
+	 * running, and a standing #machine hold of its own. Asked only of an
+	 * ask that would be refused without it; without it, nothing is.
+	 */
+	readonly spares?: (
+		address: string | undefined,
+	) => Promise<Omit<Here, "machine">>;
 }
 
 /**
@@ -185,7 +195,11 @@ export async function refusalFor(
 		),
 		...commands.flatMap((line) => asksInCommand(line, machines)),
 	];
-	return refusalOf(asks, sessions, self);
+	const refusal = refusalOf(asks, sessions, self);
+	if (!refusal || !sessions || !deps.spares) return refusal;
+	const address = sessions.find((one) => one.id === self)?.address;
+	const here = { machine: deps.here(), ...(await deps.spares(address)) };
+	return refusalOf(asks, sessions, self, here);
 }
 
 /**
