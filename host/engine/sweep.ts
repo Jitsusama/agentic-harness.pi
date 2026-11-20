@@ -22,7 +22,7 @@
 
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import {
@@ -91,6 +91,10 @@ export async function sweepUnheld(
 			`Ended what a host's tools left running under ${key}: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
 		);
 	folders.forEach((folder, index) => {
+		// A held conversation's own folder is its child's to keep: a look
+		// drops what a conversation holds from the file it reads, and the
+		// child would lose its record of what it carries.
+		if (index > 0 && held(basename(folder))) return;
 		try {
 			carriedShells({
 				...options.shells,

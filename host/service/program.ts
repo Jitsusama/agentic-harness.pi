@@ -23,18 +23,9 @@ import {
 	type HostPiModules,
 	lackingSeams,
 	loadHostPi,
-	type SessionHost,
 } from "../engine/index.ts";
 import { CHILD_FLAG, hostRealm } from "./address.ts";
-import {
-	type ChildLife,
-	type ChildSlot,
-	childLife,
-	childSlot,
-	type Ending,
-	scrubSystemd,
-	seedChildRoster,
-} from "./child.ts";
+import { type ChildHost, childHost, type Ending } from "./child.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
 import { followWhatStarts } from "./restart.ts";
@@ -174,8 +165,6 @@ export async function startHostProgram(
 ): Promise<ProgramRun> {
 	const { argv, env } = options;
 	const report = options.report ?? reportToJournal;
-	// Before anything reads them: a child answers nothing to systemd.
-	if (argv[0] === CHILD_FLAG) scrubSystemd(env);
 	const configured = await configuration(options);
 	const settings = await hostSettings(report, packageConfigPath(env));
 	// A runtime built before a wanted seam still hosts; the host says what it goes without.
@@ -197,8 +186,7 @@ export async function startHostProgram(
 		report,
 	});
 	let engine: HostEngine | undefined;
-	const { slot } = configured;
-	const child = slot ? childOf(slot) : undefined;
+	const { child } = configured;
 	const run = await runHost({
 		argv,
 		env,
@@ -269,41 +257,13 @@ export interface ProgramRun extends HostRun {
 	readonly ending?: Promise<Ending>;
 }
 
-/**
- * A child's slot, its roster seeded, and the life that follows its one
- * conversation over the host runHost builds.
- */
-function childOf(slot: ChildSlot): {
-	readonly slot: ChildSlot;
-	readonly life: ChildLife;
-	/** The host it runs, once runHost has built it. */
-	hosts(host: SessionHost): void;
-	/** The conversation whose kept commands it keeps: its own, or the slot's. */
-	conversation(): string;
-} {
-	seedChildRoster(slot);
-	let hosted: SessionHost | undefined;
-	const life = childLife({
-		version: hostRoot(),
-		identity: () =>
-			hosted ? { key: hosted.key, owner: hosted.owner } : undefined,
-		conversations: () => hosted?.list() ?? [],
-	});
-	return {
-		slot,
-		life,
-		hosts(host) {
-			hosted = host;
-		},
-		conversation: () =>
-			life.conversation() ?? slot.held?.sessionId ?? slot.slot,
-	};
-}
-
 /** Everything a restart can't change, judged before the host starts. */
 async function configuration(options: HostProgramOptions): Promise<{
-	/** The slot a child was started for; none for a realm-kind host. */
-	slot: ChildSlot | undefined;
+	/**
+	 * The child, its slot read and systemd's variables taken out before
+	 * anything else reads the environment; none for a realm-kind host.
+	 */
+	child: ChildHost | undefined;
 	packageDir: string;
 	interactiveMode: unknown;
 	startupQuestions: StartupQuestions;
@@ -312,10 +272,10 @@ async function configuration(options: HostProgramOptions): Promise<{
 	lacking: string | undefined;
 }> {
 	try {
-		const slot = childArgv(options.argv)
-			? childSlot(options.env)
+		const child = childArgv(options.argv)
+			? childHost(options.env, hostRoot())
 			: undefined;
-		if (!slot) {
+		if (!child) {
 			hostKind(options.argv);
 			hostRealm(options.env);
 		}
@@ -323,7 +283,7 @@ async function configuration(options: HostProgramOptions): Promise<{
 		hostProof(options.env, packageDir);
 		const pi = await loadHostPi(packageDir);
 		return {
-			slot,
+			child,
 			packageDir,
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
 			startupQuestions: startupQuestions(pi.modules),

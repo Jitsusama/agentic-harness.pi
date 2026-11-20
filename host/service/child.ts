@@ -18,10 +18,12 @@
  * start does, and an open or adopt answers its caller as a host would.
  *
  * The supervisor follows it with a watch (server.ts): answered once the
- * child holds its conversation with the child's version, its identity
- * and the conversation, then a line each time the conversation turns
- * busy or idle (with the heap, and again every HEAP_EVERY_MS), one when
- * it becomes another inside pi, and last one saying why the child ends:
+ * child holds its conversation with the child's version, its identity,
+ * the conversation and its roster entry (an open's launch is the
+ * child's to derive, and the supervisor's shared roster must replay it),
+ * then a line each time the conversation turns busy or idle (with the
+ * heap, and again every HEAP_EVERY_MS), one with the new entry when it
+ * becomes another inside pi, and last one saying why the child ends:
  * parked, closed, released or failed. The child then exits, 0 but for a
  * failure. It never restarts itself, never tells systemd anything, and
  * keeps no shared roster: the supervisor owns those, and clears the
@@ -37,6 +39,7 @@ import {
 	rosterPath,
 } from "../../lib/core/session/roster.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
+import type { SessionHost } from "../engine/index.ts";
 import {
 	childFolder,
 	type HostKind,
@@ -95,6 +98,11 @@ export interface ChildSlot {
 	readonly folder: string;
 	/** The conversation to resume; none for an open or adopt. */
 	readonly held?: RosterEntry;
+	/**
+	 * Whether the supervisor woke `held` from a rest it kept, so the child
+	 * resumes it as woken rather than resting it again.
+	 */
+	readonly woken?: boolean;
 }
 
 /** The rollout gate a child keeps: it runs one conversation, and a second is refused. */
@@ -144,10 +152,9 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 			cause: error,
 		});
 	}
-	const session =
-		typeof given === "object" && given !== null
-			? Reflect.get(given, "session")
-			: undefined;
+	const record =
+		typeof given === "object" && given !== null ? given : undefined;
+	const session = record ? Reflect.get(record, "session") : undefined;
 	const folder = join(children, `${slot}.d`);
 	if (session === undefined) return { key, realm, kind, socket, slot, folder };
 	const roster = parseRoster(
@@ -157,7 +164,57 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 	const [held] = roster?.sessions ?? [];
 	if (!held)
 		throw new Error(`The child's slot ${slotFile} holds no roster entry`);
-	return { key, realm, kind, socket, slot, folder, held };
+	const woken = record ? Reflect.get(record, "woken") === true : false;
+	return {
+		key,
+		realm,
+		kind,
+		socket,
+		slot,
+		folder,
+		held,
+		...(woken ? { woken } : {}),
+	};
+}
+
+/** A child as its program runs it: its slot, its life, and what it holds. */
+export interface ChildHost {
+	readonly slot: ChildSlot;
+	readonly life: ChildLife;
+	/** Give it the host it runs, once runHost has built it. */
+	hosts(host: SessionHost): void;
+	/** The conversation whose kept commands it keeps: its own, or the slot's. */
+	conversation(): string;
+}
+
+/**
+ * A child from its environment, as its program starts one: systemd's
+ * variables taken out before anything reads them, its slot read, its
+ * roster seeded, and the life that follows its one conversation over
+ * the host runHost builds, saying `version` as the child's version.
+ * Refuses as childSlot does.
+ */
+export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
+	scrubSystemd(env);
+	const slot = childSlot(env);
+	seedChildRoster(slot);
+	let hosted: SessionHost | undefined;
+	const life = childLife({
+		version,
+		identity: () =>
+			hosted ? { key: hosted.key, owner: hosted.owner } : undefined,
+		conversations: () => hosted?.list() ?? [],
+		entry: childEntry(slot),
+	});
+	return {
+		slot,
+		life,
+		hosts(host) {
+			hosted = host;
+		},
+		conversation: () =>
+			life.conversation() ?? slot.held?.sessionId ?? slot.slot,
+	};
 }
 
 /**
@@ -180,6 +237,30 @@ export function childRegistry(slot: ChildSlot): string {
 	return join(slot.folder, "registry");
 }
 
+/**
+ * The entry the child's own roster holds for a conversation, read from
+ * its file, or none while it holds none: the host writes an open's
+ * entry before it registers the conversation, and a became's before it
+ * registers the new one, so a held conversation has one.
+ */
+export function childEntry(
+	slot: ChildSlot,
+): (sessionId: string) => RosterEntry | undefined {
+	const path = rosterPath(slot.key, slot.folder);
+	return (sessionId) => {
+		let text: string;
+		try {
+			text = readFileSync(path, "utf8");
+		} catch {
+			// Not written yet, or mid-replacement: no entry this time.
+			return undefined;
+		}
+		return parseRoster(text, slot.key)?.sessions.find(
+			(held) => held.sessionId === sessionId,
+		);
+	};
+}
+
 /** What a child's life follows of its host. */
 export interface ChildLifeOptions {
 	/** The harness the child runs, as its watch's answer names it. */
@@ -188,6 +269,8 @@ export interface ChildLifeOptions {
 	readonly identity: () => WatchAnswer["host"] | undefined;
 	/** Each conversation the host runs now, as its registry holds them. */
 	readonly conversations: () => readonly HostedConversation[];
+	/** The child's roster entry for a conversation, or none yet. */
+	readonly entry: (sessionId: string) => RosterEntry | undefined;
 	/** How much heap is used, and its limit, in bytes; v8's own by default. */
 	readonly heap?: () => { used: number; limit: number };
 	/** Starts a repeating timer; setInterval, unref'd, by default. */
@@ -344,10 +427,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			const host = options.identity();
 			if (!held || !host) return;
 			if (!answered) {
+				const entry = options.entry(held.id);
+				if (!entry) return;
 				answered = {
 					version: options.version,
 					host,
 					conversation: identityOf(held),
+					entry,
 				};
 				stopFirst();
 				for (const { resolve } of answers.splice(0)) resolve(answered);
@@ -355,10 +441,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 				return;
 			}
 			if (pending && held.id === pending.nextId) {
+				const entry = options.entry(held.id);
+				if (!entry) return;
 				send({
 					type: "became",
 					previousId: pending.previousId,
 					conversation: identityOf(held),
+					entry,
 				});
 				pending = undefined;
 				sent = { id: held.id, state: held.state };

@@ -15,6 +15,7 @@
  */
 
 import { join } from "node:path";
+import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	type Standing,
@@ -126,6 +127,11 @@ export async function serveHost(options: {
 	 * default the rollout gate over the install this host runs from.
 	 */
 	rollout?: AdmitAnother;
+	/**
+	 * Whether a held conversation was woken from a rest someone else kept,
+	 * so the start resumes it as woken rather than resting it again.
+	 */
+	woken?: (entry: RosterEntry) => boolean;
 	/**
 	 * Hears each step of the start before it begins; a few resumes run at
 	 * once, so a resume's step may begin before the last has finished.
@@ -241,6 +247,7 @@ export async function serveHost(options: {
 			mark: options.mark,
 			finished: options.finished,
 			order,
+			...(options.woken ? { woken: options.woken } : {}),
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const running = host;

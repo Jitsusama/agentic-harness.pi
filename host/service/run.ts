@@ -306,8 +306,9 @@ const ENDED_AS: Record<ResumeEnd, string> = {
 
 /**
  * What serveHost is given for a child: the slot's socket and folder, the
- * life that hears its changes and becomings and answers its watch, and a
- * gate that keeps it to one conversation.
+ * life that hears its changes and becomings and answers its watch, a
+ * gate that keeps it to one conversation, and whether its supervisor
+ * woke the conversation it resumes.
  */
 function childPlaces(
 	slot: ChildSlot,
@@ -321,6 +322,8 @@ function childPlaces(
 		changes: life,
 		watch: life.watch,
 		becoming: life.becoming,
+		woken: (entry) =>
+			slot.woken === true && entry.sessionId === slot.held?.sessionId,
 	};
 }
 
@@ -552,7 +555,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 				stop().then(resolve, reject);
 			});
 		// A child stops once its conversation ends, as a signal would stop it.
-		void child?.life.ending.then(() => stop().then(resolve, reject));
+		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
 			const failure = uncontained(error, options.contain);
 			if (!failure) return;

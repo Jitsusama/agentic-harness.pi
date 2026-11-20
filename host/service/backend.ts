@@ -684,11 +684,14 @@ export const RESUME_AT_ONCE = 4;
  * order is the one they asked in, roughly the order held, since a few
  * resume at once.
  * One no longer held when its turn comes, closed while the start ran,
- * is passed over.
+ * is passed over. One `woken` names was woken from a rest kept outside
+ * this process, by a child's supervisor, so it is resumed as woken
+ * rather than asked whether it rests parked, which would rest it again.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
 	engine: ConversationEngine;
+	woken?: (entry: RosterEntry) => boolean;
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (step: Resuming, phase: ResumePhase) => void;
@@ -729,14 +732,15 @@ export async function resumeHeld(options: {
 			began = true;
 			await options.starting?.(step);
 			mark("ask");
-			if (options.engine.restsParked?.(entry)) {
+			const woken = options.woken?.(entry) ?? false;
+			if (!woken && options.engine.restsParked?.(entry)) {
 				parked.push(sessionId);
 				end = "parked";
 				return;
 			}
 			if (resumed.length > 0) await options.admitAnother?.();
 			mark("gate");
-			await options.engine.resume(entry, false, mark);
+			await options.engine.resume(entry, woken, mark);
 			resumed.push(sessionId);
 			end = "resumed";
 		} catch (reason) {

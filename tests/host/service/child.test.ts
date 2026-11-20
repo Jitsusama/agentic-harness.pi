@@ -28,6 +28,11 @@ const KEY = "work-background";
 const A = "a0000000-0000-4000-8000-000000000001";
 const B = "b0000000-0000-4000-8000-000000000002";
 const OWNER = { pid: process.pid, startedAt: 1 };
+const SINCE = "2026-11-19T21:00:00.000Z";
+// A resume's slot is its conversation's id, but any name serves, and a
+// short one keeps a test's socket within a Unix address however deep
+// its temporary folder.
+const SLOT = "r1";
 
 let runtime: string;
 beforeEach(async () => {
@@ -66,17 +71,30 @@ describe("a child's slot", () => {
 	it("resumes the roster entry its slot file holds", async () => {
 		const folder = await children();
 		await writeFile(
-			join(folder, `${A}.json`),
+			join(folder, `${SLOT}.json`),
 			JSON.stringify({ session: entry() }),
 		);
-		const slot = childSlot(env(join(folder, `${A}.sock`)));
+		const slot = childSlot(env(join(folder, `${SLOT}.sock`)));
 		expect(slot).toMatchObject({
 			key: KEY,
 			realm: "work",
 			kind: "background",
-			slot: A,
-			folder: join(folder, `${A}.d`),
+			slot: SLOT,
+			folder: join(folder, `${SLOT}.d`),
 			held: entry(),
+		});
+		expect(slot.woken, "not woken unless the slot says so").toBeUndefined();
+	});
+
+	it("says a resume its supervisor woke is woken", async () => {
+		const folder = await children();
+		await writeFile(
+			join(folder, `${SLOT}.json`),
+			JSON.stringify({ session: entry(), woken: true }),
+		);
+		expect(childSlot(env(join(folder, `${SLOT}.sock`)))).toMatchObject({
+			held: entry(),
+			woken: true,
 		});
 	});
 
@@ -124,10 +142,10 @@ describe("a child's slot", () => {
 	it("seeds its own roster with the slot's one entry, over what was there", async () => {
 		const folder = await children();
 		await writeFile(
-			join(folder, `${A}.json`),
+			join(folder, `${SLOT}.json`),
 			JSON.stringify({ session: entry() }),
 		);
-		const slot = childSlot(env(join(folder, `${A}.sock`)));
+		const slot = childSlot(env(join(folder, `${SLOT}.sock`)));
 		await mkdir(slot.folder, { recursive: true });
 		await writeFile(rosterPath(KEY, slot.folder), "stale");
 		seedChildRoster(slot);
@@ -161,12 +179,14 @@ describe("what a child answers systemd", () => {
 /** A life over conversations a case sets, with timers it fires by hand. */
 function following(more: Partial<ChildLifeOptions> = {}) {
 	let held: HostedConversation[] = [];
+	let known = true;
 	const timers = new Map<number, () => void>();
 	const lines: WatchLine[] = [];
 	const life = childLife({
 		version: "/harness",
 		identity: () => ({ key: KEY, owner: OWNER }),
 		conversations: () => held,
+		entry: (id) => (known ? entry(id) : undefined),
 		heap: () => ({ used: 10, limit: 100 }),
 		every: (ms, run) => {
 			timers.set(ms, run);
@@ -188,6 +208,10 @@ function following(more: Partial<ChildLifeOptions> = {}) {
 			held = now;
 			life.changed();
 		},
+		/** Whether the child's roster holds an entry for what it runs. */
+		rostered(now: boolean) {
+			known = now;
+		},
 	};
 }
 
@@ -195,7 +219,7 @@ function conversation(
 	id: string,
 	state: HostedConversation["state"] = "idle",
 ): HostedConversation {
-	return { id, file: `/s/${id}`, cwd: "/", state, since: "now" };
+	return { id, file: `/s/${id}`, cwd: "/", state, since: SINCE };
 }
 
 describe("a child's life", () => {
@@ -211,9 +235,20 @@ describe("a child's life", () => {
 				file: `/s/${A}`,
 				cwd: "/",
 				state: "idle",
-				since: "now",
+				since: SINCE,
 			},
+			entry: entry(A),
 		});
+	});
+
+	it("waits to answer until its roster holds the conversation's entry", async () => {
+		const { life, hold, rostered } = following();
+		const answer = life.watch.answer();
+		rostered(false);
+		hold(conversation(A));
+		rostered(true);
+		hold(conversation(A, "busy"));
+		expect(parseWatchResult(await answer).conversation.state).toBe("busy");
 	});
 
 	it("says each turn busy or idle once, with the heap, and the heap on its timer", () => {
@@ -243,6 +278,7 @@ describe("a child's life", () => {
 				type: "became",
 				previousId: A,
 				conversation: expect.objectContaining({ sessionId: B }),
+				entry: entry(B),
 			},
 		]);
 	});
@@ -251,14 +287,17 @@ describe("a child's life", () => {
 		["signalled", "host stopped", "parked"],
 		["closed", "closed, asked by the launcher", "closed"],
 		["closed", "released, asked by the launcher", "released"],
-	] as const)("ends %s (%s) as %s once its conversation has gone", async (how, why, ending) => {
-		const { life, lines, hold } = following();
-		hold(conversation(A));
-		hold();
-		life.left(how, why);
-		expect(await life.ending).toBe(ending);
-		expect(lines.at(-1)).toEqual({ type: "ending", why: ending });
-	});
+	] as const)(
+		"ends %s (%s) as %s once its conversation has gone",
+		async (how, why, ending) => {
+			const { life, lines, hold } = following();
+			hold(conversation(A));
+			hold();
+			life.left(how, why);
+			expect(await life.ending).toBe(ending);
+			expect(lines.at(-1)).toEqual({ type: "ending", why: ending });
+		},
+	);
 
 	it("ends failed when nothing comes within its first wait, refusing its watch", async () => {
 		const { life, timers } = following();
@@ -305,10 +344,13 @@ async function* messages(socket: Socket) {
 describe("a child's watch over its socket", () => {
 	it("answers once its host holds the conversation, then streams its lines to its ending", async () => {
 		const registry = join(runtime, "registry");
+		// The host tells its life of a change as it is made, before it is set.
+		let made: SessionHost | undefined;
 		const life = childLife({
 			version: "/harness",
-			identity: () => ({ key: host.key, owner: host.owner }),
-			conversations: () => host.list(),
+			identity: () => made && { key: made.key, owner: made.owner },
+			conversations: () => made?.list() ?? [],
+			entry,
 			heap: () => ({ used: 1, limit: 2 }),
 		});
 		const host: SessionHost = new SessionHost({
@@ -317,6 +359,7 @@ describe("a child's watch over its socket", () => {
 			registryDir: registry,
 			changes: life,
 		});
+		made = host;
 		const path = join(runtime, "child.sock");
 		const listener = await listenControl({
 			path,

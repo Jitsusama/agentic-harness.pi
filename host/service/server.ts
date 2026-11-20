@@ -194,6 +194,10 @@ export async function listenControl(options: {
 	// Each connection a watch follows, which a close ends only once what
 	// was written to it, such as a child's ending line, has gone.
 	const watching = new Set<Socket>();
+	// Each connection with a request being answered, and when its answer
+	// has been sent: a close lets it go first, since a child's close of its
+	// conversation ends the child before it is answered.
+	const answering = new Map<Socket, Promise<void>>();
 	let ready = false;
 	const server = createServer((socket) => {
 		if (!ready) {
@@ -516,8 +520,21 @@ export async function listenControl(options: {
 				return;
 			}
 			const asked = Date.now();
-			const reply = await dispatchControl(request, backend, options.report);
-			send(reply);
+			let answered = (): void => undefined;
+			answering.set(
+				socket,
+				new Promise<void>((resolve) => {
+					answered = resolve;
+				}),
+			);
+			let reply: Awaited<ReturnType<typeof dispatchControl>>;
+			try {
+				reply = await dispatchControl(request, backend, options.report);
+				send(reply);
+			} finally {
+				answering.delete(socket);
+				answered();
+			}
 			const gone = socket.destroyed || ended;
 			const slow =
 				Date.now() - asked >= (options.attachSlowMs ?? ATTACH_SLOW_MS);
@@ -653,7 +670,21 @@ export async function listenControl(options: {
 		},
 		async close(): Promise<void> {
 			const closed = stopListening();
-			await Promise.all([...watching].map(endWhenWritten));
+			const answers = [...answering].map(([socket, sent]) =>
+				sent.then(() => endWhenWritten(socket)),
+			);
+			let timer: NodeJS.Timeout | undefined;
+			await Promise.all([
+				...[...watching].map(endWhenWritten),
+				Promise.race([
+					Promise.all(answers),
+					new Promise<void>((resolve) => {
+						// An answer that never comes holds a close no longer than a watcher's.
+						timer = setTimeout(resolve, RESTART_FLUSH_MS);
+					}),
+				]),
+			]);
+			clearTimeout(timer);
 			for (const socket of sockets) socket.destroy();
 			await closed;
 		},

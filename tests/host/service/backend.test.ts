@@ -572,6 +572,35 @@ describe("hostBackend", () => {
 				["resumed", "parked", "unresumed"],
 			);
 		});
+
+		it("resumes one woken elsewhere as woken, without asking whether it rests", async () => {
+			const [woke, resting] = await holding(2);
+			const restsParked = vi.fn((_entry: { sessionId: string }) => true);
+			const wokenAs = new Map<string, boolean>();
+			const restart = engine({
+				restsParked,
+				resume: vi.fn(async (entry, woken) => {
+					wokenAs.set(entry.sessionId, woken === true);
+					register(entry);
+				}),
+			});
+			const ends = new Map<string, string>();
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				woken: (entry) => entry.sessionId === woke,
+				finished: (step, end) => ends.set(step.sessionId, end),
+			});
+			expect(
+				[woke, resting].map((id) => ends.get(id ?? "")),
+				"the woken one resumed and the other still rests",
+			).toEqual(["resumed", "parked"]);
+			expect([...wokenAs], "resumed as woken").toEqual([[woke, true]]);
+			expect(
+				restsParked.mock.calls.map(([entry]) => entry.sessionId),
+				"asked only of the one not woken",
+			).toEqual([resting]);
+		});
 	});
 
 	it("resumes every hold at start and lists one that would not resume as parked", async () => {

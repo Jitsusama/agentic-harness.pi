@@ -131,6 +131,7 @@ const PROCESS_TESTS = [
 	"tests/host/end-to-end/restart-notice.test.ts",
 	"tests/host/end-to-end/launcher-verbs.test.ts",
 	"tests/host/end-to-end/steer-wake.test.ts",
+	"tests/host/end-to-end/child.test.ts",
 	"tests/host/fenced/fence-stage.test.ts",
 ];
 

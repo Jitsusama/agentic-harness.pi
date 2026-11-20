@@ -1,6 +1,10 @@
 /** Versioned control requests and viewer frames for a realm's host socket. */
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import {
+	isRosterEntry,
+	type RosterEntry,
+} from "../../lib/core/session/roster.ts";
 import { asCarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 
 const text = z.string().min(1);
@@ -140,10 +144,15 @@ export type SessionIdentity = z.infer<typeof identity>;
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
 
+// The child's roster entry for its conversation, launch and all, which
+// the supervisor holds in the shared roster so a later resume replays it.
+const entry = z.custom<RosterEntry>(isRosterEntry, "Invalid roster entry");
+
 const watched = z.strictObject({
 	version: text,
 	host: expectedHost,
 	conversation: identity,
+	entry,
 });
 
 /** Why a child host ends, as the last line its watch sends says. */
@@ -160,6 +169,7 @@ const watchLine = z.discriminatedUnion("type", [
 		type: z.literal("became"),
 		previousId: sessionId,
 		conversation: identity,
+		entry,
 	}),
 	z.strictObject({ type: z.literal("ending"), why: z.enum(ENDINGS) }),
 ]);
