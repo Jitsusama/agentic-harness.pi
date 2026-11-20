@@ -29,6 +29,7 @@ import {
 	removeKept,
 	rollIfFull,
 } from "../../lib/internal/shell/kept.ts";
+import { forgetKeptJob } from "../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { MAX_TIMEOUT_MS } from "../../lib/internal/shell/spawner.ts";
 import type { JobCarry } from "../../lib/jobs/index.ts";
@@ -104,7 +105,9 @@ export function keepsOnDisk(
 					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);
 				}
-				const path = options.folder ? makeKept(options.folder()) : makeKept();
+				const path = await (options.folder
+					? makeKept(options.folder())
+					: makeKept());
 				const startedAt = now();
 				// Stops the call on pi's abort, or at its limit while it is still
 				// this pi's.
@@ -154,7 +157,20 @@ export function keepsOnDisk(
 				} finally {
 					clearTimeout(timer);
 					call.signal?.removeEventListener("abort", stop);
-					if (!kept.handed) removeKept(path);
+					if (!kept.handed) {
+						// Ended here, so nothing may carry or hand it on while its files
+						// go, which takes turns of the loop.
+						if (call.signal) calls.delete(call.signal);
+						// Its job's record goes before it settles, on the loop, so a pi
+						// gone just after never leaves one for its next start to take up
+						// and say the end of again. Most calls have none, and removing a
+						// name that isn't there is answered from the kernel's cache.
+						forgetKeptJob(path);
+						// Not waited for: the call settles as it ends, so its job is
+						// said ended rather than met by a move or a shutdown as neither
+						// carriable nor ended, and its files go just after.
+						void removeKept(path);
+					}
 				}
 			},
 		},

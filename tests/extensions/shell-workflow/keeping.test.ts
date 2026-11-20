@@ -23,10 +23,11 @@ import {
 	type BashOperations,
 	createLocalBashOperations,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	COMMAND_STUB,
 	COMMAND_VARIABLE,
+	KEEP_VARIABLE,
 } from "../../../extensions/shell-workflow/command-line.ts";
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
@@ -134,7 +135,9 @@ describe("a kept call", () => {
 		);
 		expect(code).toBe(3);
 		expect(read.split("\n").sort()).toEqual(["", "err", "out"]);
-		expect(readdirSync(kept.folder), "its files went with it").toEqual([]);
+		await vi.waitFor(() =>
+			expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+		);
 	});
 
 	it("ends only once its tee has written what it said", async () => {
@@ -243,7 +246,9 @@ describe("a kept call", () => {
 			run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
 		).rejects.toThrow("timeout:0.3");
 		expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
-		expect(readdirSync(kept.folder), "its files went with it").toEqual([]);
+		await vi.waitFor(() =>
+			expect(readdirSync(kept.folder), "its files go just after").toEqual([]),
+		);
 	});
 
 	it("writes all it says once what read it has gone, as a spawner leaving it does", async () => {
@@ -280,5 +285,76 @@ describe("a kept call", () => {
 			outputOf(work.keep),
 			"every line, those after its reader went too",
 		).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
+	});
+
+	// A job is said ended only once its call settles, and a move or a
+	// shutdown meeting one neither carriable nor ended would drop it.
+	it("is said ended at once, and can't be carried or handed on while its files go", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+		made.push(dir);
+		const folder = join(dir, "kept");
+		const signal = new AbortController().signal;
+		let ended = false;
+		const seen: unknown[] = [];
+		// Asks after the call each turn of the loop from the moment its shell
+		// ends, as a move arriving then would.
+		const ask = () => {
+			if (!ended) return;
+			const carry = kept.carryOf(signal);
+			const work = carry?.what();
+			if (work !== undefined) {
+				seen.push(work);
+				carry?.handed();
+			}
+			setImmediate(ask);
+		};
+		const kept = keepsOnDisk(
+			{
+				async exec(_command, _cwd, call) {
+					const keep = call.env?.[KEEP_VARIABLE];
+					writeFileSync(`${keep}.pid`, String(process.pid));
+					writeFileSync(`${keep}.end`, "0");
+					ended = true;
+					setImmediate(ask);
+					return { exitCode: 0 };
+				},
+			},
+			{ can: () => true, folder: () => folder },
+		);
+		await run(kept.operations, "true", signal);
+		expect(
+			readdirSync(folder).length,
+			"said ended before its files go",
+		).toBeGreaterThan(0);
+		await vi.waitFor(() =>
+			expect(readdirSync(folder), "its files go just after").toEqual([]),
+		);
+		ended = false;
+		expect(seen, "nothing to carry once it ended here").toEqual([]);
+	});
+
+	// A pi gone between the settle and the record's removal would leave a
+	// job its next start takes up and says the end of a second time.
+	it("takes back its job's record before it settles", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+		made.push(dir);
+		const folder = join(dir, "kept");
+		let keep: string | undefined;
+		const kept = keepsOnDisk(
+			{
+				async exec(_command, _cwd, call) {
+					keep = call.env?.[KEEP_VARIABLE];
+					writeFileSync(`${keep}.job`, "{}");
+					writeFileSync(`${keep}.end`, "0");
+					return { exitCode: 0 };
+				},
+			},
+			{ can: () => true, folder: () => folder },
+		);
+		await run(kept.operations, "true", new AbortController().signal);
+		expect(existsSync(`${keep}.job`), "its record, as it settles").toBe(false);
+		await vi.waitFor(() =>
+			expect(readdirSync(folder), "its files go just after").toEqual([]),
+		);
 	});
 });

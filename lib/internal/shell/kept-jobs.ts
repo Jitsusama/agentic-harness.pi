@@ -77,7 +77,14 @@ export function recordKeptJob(job: KeptJob): void {
 
 /** Take back the record of the call kept at `keep`, leaving it unspared. */
 export function forgetKeptJob(keep: string): void {
-	rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
+	try {
+		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
+	} catch {
+		// Only something other than a file holds the name (force answers a
+		// missing one), which nothing here writes. It runs in a call's
+		// finally, where a throw would stand in for the call's own outcome;
+		// left there, it reads as no record, so nothing takes the call up.
+	}
 }
 
 /** Whether a record read back is one this code wrote. */
@@ -150,7 +157,8 @@ export function keptJobsOf(
 		if (job.session !== session || !unheld(job, owner)) continue;
 		const { keep, pid, mark } = job.work;
 		if (endOf(keep) !== undefined || there(pid, mark)) found.push(job);
-		else removeKept(keep);
+		// Left to run: nothing waits on files nobody will take up.
+		else void removeKept(keep);
 	}
 	return found;
 }

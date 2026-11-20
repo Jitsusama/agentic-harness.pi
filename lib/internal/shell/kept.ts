@@ -17,7 +17,19 @@
  * tail moves to `.old` and `.out` starts again, so at most twice that is
  * on disk. Bytes written in the instant of that move can be lost. The
  * files go when the call ends in its pi, or once a carried call's end is
- * said; any left a week are swept.
+ * said; any left a week are swept as a session starts, at most once an
+ * hour for a process.
+ *
+ * Making, removing and sweeping them go through libuv's pool rather than
+ * pi's loop, which in a host every conversation shares: a busy disk held
+ * it in these files' openat and unlink 24 times in 287 hold samples on
+ * 17 November. Reading a call's status, pid and output, marking it
+ * carried and rolling its output stay on the loop: they come when a move
+ * or a job's record asks after a running call, at its hand-off, and each
+ * 64 KB of its output, none of which the samples caught. A removal takes
+ * turns of the loop, so it removes the marks that would have a call taken
+ * up again before its status, and a pi ended partway through leaves no
+ * call that reads as running.
  *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
@@ -32,18 +44,17 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
-	chmodSync,
 	existsSync,
-	mkdirSync,
 	readdirSync,
 	readFileSync,
-	rmSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
+import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../paths.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** The variable a bash call's command travels in (shell-workflow's command-line.ts). */
 export const COMMAND_VARIABLE = "PI_BASH_COMMAND";
@@ -92,8 +103,16 @@ export const KEPT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
-/** The files a kept call writes, by the suffix each adds to its path. */
-const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried", ".job"] as const;
+/**
+ * Every file a call keeps, in the order they are removed: the marks that
+ * have it taken up again first, then its status, so a removal cut short
+ * leaves no call that reads as running. A carried call taken up has both
+ * marks, and one cut between them can still have its end said again.
+ */
+const SUFFIXES = [".job", ".carried", ".end", ".pid", ".out", ".old"] as const;
+
+/** The suffixes that have a call taken up again. */
+const MARKS: ReadonlySet<string> = new Set([".job", ".carried"]);
 
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
@@ -111,12 +130,12 @@ export function keptFolder(): string {
  * empty and private, so nothing the stub writes is made with the
  * command's own umask.
  */
-export function makeKept(folder: string = keptFolder()): string {
-	mkdirSync(folder, { recursive: true, mode: FOLDER_MODE });
-	chmodSync(folder, FOLDER_MODE);
+export async function makeKept(folder: string = keptFolder()): Promise<string> {
+	await mkdir(folder, { recursive: true, mode: FOLDER_MODE });
+	await chmod(folder, FOLDER_MODE);
 	const path = join(folder, randomUUID());
 	for (const suffix of [".out", ".end", ".pid"]) {
-		writeFileSync(`${path}${suffix}`, "", { mode: FILE_MODE, flag: "wx" });
+		await writeFile(`${path}${suffix}`, "", { mode: FILE_MODE, flag: "wx" });
 	}
 	return path;
 }
@@ -317,20 +336,35 @@ function textOf(file: string): string {
 	}
 }
 
-/** Remove everything a call kept. */
-export function removeKept(path: string): void {
-	for (const suffix of SUFFIXES) rmSync(`${path}${suffix}`, { force: true });
+/**
+ * Remove everything a call kept. It never fails, so a caller that has
+ * nothing to wait for can leave it to run. A mark it can't remove stops
+ * it there, leaving the call's status beside the mark so whatever finds
+ * it reads the call as ended; any other file it can't remove it passes.
+ */
+export async function removeKept(path: string): Promise<void> {
+	for (const suffix of SUFFIXES) {
+		try {
+			await rm(`${path}${suffix}`, { force: true });
+		} catch {
+			// A folder in its place, or one that refuses it: no call leaves
+			// either, and its callers between processes have no one to tell;
+			// the week's sweep, which says nothing of one it can't remove
+			// either, tries it again.
+			if (MARKS.has(suffix)) return;
+		}
+	}
 }
 
 /** Remove the files in `folder` nothing has touched for `olderThanMs`. */
-export function sweepKept(
+export async function sweepKept(
 	folder: string = keptFolder(),
 	now: number = Date.now(),
 	olderThanMs: number = KEPT_FOR_MS,
-): void {
+): Promise<void> {
 	let names: string[];
 	try {
-		names = readdirSync(folder);
+		names = await readdir(folder);
 	} catch {
 		// No folder yet: nothing was ever kept.
 		return;
@@ -338,11 +372,39 @@ export function sweepKept(
 	for (const name of names) {
 		const file = join(folder, name);
 		try {
-			if (now - statSync(file).mtimeMs > olderThanMs) rmSync(file);
+			if (now - (await stat(file)).mtimeMs > olderThanMs) await rm(file);
 		} catch {
 			// Removed meanwhile by the call it belonged to.
 		}
 	}
+}
+
+/** How often at most a process sweeps the kept folder, however many sessions start. */
+export const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+// When each folder was last swept, for the whole process and every copy
+// of this module: a host starts every conversation in one process, and
+// a sweep for each would read the whole folder each time.
+const sweptAt = processGlobal(
+	"agentic-harness.internal/shell/kept-swept-at.v1",
+	() => new Map<string, number>(),
+);
+
+/**
+ * Sweep `folder` as {@link sweepKept} does, unless this process began a
+ * sweep of it within the hour. Marked as it begins, so starts that come
+ * while it runs don't begin another; a clock stepped back before the
+ * mark sweeps at once rather than waiting out however far it stepped.
+ */
+export function sweepKeptNowAndThen(
+	folder: string = keptFolder(),
+	now: number = Date.now(),
+): Promise<void> {
+	const last = sweptAt.get(folder);
+	if (last !== undefined && now >= last && now - last < SWEEP_EVERY_MS)
+		return Promise.resolve();
+	sweptAt.set(folder, now);
+	return sweepKept(folder, now);
 }
 
 /** What {@link teePersists} found, or is finding, by the PATH it was asked with. */

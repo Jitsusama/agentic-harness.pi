@@ -7,6 +7,7 @@
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
@@ -15,7 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
@@ -63,14 +64,14 @@ function listed(where: string): string[] {
 }
 
 /** A call kept in `where`, its shell's pid written, recorded for `session`. */
-function recorded(
+async function recorded(
 	where: string,
 	session: string,
 	id: string,
 	pid: number,
 	extra: { owner?: number; deadline?: number } = {},
-): KeptJob {
-	const keep = makeKept(where);
+): Promise<KeptJob> {
+	const keep = await makeKept(where);
 	writeFileSync(`${keep}.pid`, `${pid}\n`);
 	const work: CarriedShell = {
 		kind: "shell",
@@ -93,18 +94,18 @@ function recorded(
 }
 
 describe("a recorded job", () => {
-	it("is written for its owner alone, beside the call's files", () => {
+	it("is written for its owner alone, beside the call's files", async () => {
 		const where = folder();
-		const job = recorded(where, "s1", "j1", HERE);
+		const job = await recorded(where, "s1", "j1", HERE);
 		expect(
 			statSync(`${job.work.keep}.job`).mode & PERMISSIONS,
 			"the record is the owner's alone",
 		).toBe(PRIVATE);
 	});
 
-	it("spares a running call from every reaper, by its group and its mark", () => {
+	it("spares a running call from every reaper, by its group and its mark", async () => {
 		const where = folder();
-		recorded(where, "s1", "j1", HERE);
+		await recorded(where, "s1", "j1", HERE);
 		const found = carriedCalls(where, SOON);
 		expect([...found.groups], "its shell's group").toEqual([HERE]);
 		expect([...found.marks], "its call's mark").toEqual(["mark-j1"]);
@@ -114,9 +115,9 @@ describe("a recorded job", () => {
 		["once its shell wrote how it ended", {}, HERE, true],
 		["once its shell is gone", {}, GONE, false],
 		["once its time limit passed", { deadline: SOON - 1 }, HERE, false],
-	])("spares nothing %s", (_case, extra, pid, ended) => {
+	])("spares nothing %s", async (_case, extra, pid, ended) => {
 		const where = folder();
-		const job = recorded(where, "s1", "j1", pid, extra);
+		const job = await recorded(where, "s1", "j1", pid, extra);
 		if (ended) writeFileSync(`${job.work.keep}.end`, "0\n");
 		const found = carriedCalls(where, SOON);
 		expect(found.groups.size + found.marks.size, "nothing left to spare").toBe(
@@ -124,20 +125,20 @@ describe("a recorded job", () => {
 		);
 	});
 
-	it("spares nothing a day after its call started", () => {
+	it("spares nothing a day after its call started", async () => {
 		const where = folder();
-		recorded(where, "s1", "j1", HERE);
+		await recorded(where, "s1", "j1", HERE);
 		const found = carriedCalls(where, STARTED + RECORD_SPARED_FOR_MS);
 		expect(found.groups.size + found.marks.size, "nothing left to spare").toBe(
 			0,
 		);
 	});
 
-	it("is read back for its own session, running or ended", () => {
+	it("is read back for its own session, running or ended", async () => {
 		const where = folder();
-		const running = recorded(where, "s1", "j1", 4242);
-		const ended = recorded(where, "s1", "j2", 4343);
-		recorded(where, "s2", "j3", 4444);
+		const running = await recorded(where, "s1", "j1", 4242);
+		const ended = await recorded(where, "s1", "j2", 4343);
+		await recorded(where, "s2", "j3", 4444);
 		writeFileSync(`${ended.work.keep}.end`, "1\n");
 		const found = keptJobsOf("s1", where, (pid) => pid === 4242);
 		expect(
@@ -146,10 +147,10 @@ describe("a recorded job", () => {
 		).toEqual([running.id, ended.id]);
 	});
 
-	it("is left to the pi that recorded it while that pi runs", () => {
+	it("is left to the pi that recorded it while that pi runs", async () => {
 		const where = folder();
-		recorded(where, "s1", "j1", 4242, { owner: 77 });
-		recorded(where, "s1", "j2", 4242, { owner: 88 });
+		await recorded(where, "s1", "j1", 4242, { owner: 77 });
+		await recorded(where, "s1", "j2", 4242, { owner: 88 });
 		const found = keptJobsOf(
 			"s1",
 			where,
@@ -165,26 +166,28 @@ describe("a recorded job", () => {
 		);
 	});
 
-	it("goes with its call's files when its shell is gone with no status", () => {
+	it("goes with its call's files when its shell is gone with no status", async () => {
 		const where = folder();
-		recorded(where, "s1", "j1", 4242);
+		await recorded(where, "s1", "j1", 4242);
 		expect(
 			keptJobsOf("s1", where, () => false),
 			"none to take up",
 		).toEqual([]);
-		expect(listed(where), "its files removed").toEqual([]);
+		await vi.waitFor(() =>
+			expect(listed(where), "its files removed").toEqual([]),
+		);
 	});
 
-	it("goes when its call's files are removed", () => {
+	it("goes when its call's files are removed", async () => {
 		const where = folder();
-		const job = recorded(where, "s1", "j1", 4242);
-		removeKept(job.work.keep);
+		const job = await recorded(where, "s1", "j1", 4242);
+		await removeKept(job.work.keep);
 		expect(listed(where)).toEqual([]);
 	});
 
-	it("spares nothing once taken back, leaving the call's other files", () => {
+	it("spares nothing once taken back, leaving the call's other files", async () => {
 		const where = folder();
-		const job = recorded(where, "s1", "j1", HERE);
+		const job = await recorded(where, "s1", "j1", HERE);
 		forgetKeptJob(job.work.keep);
 		const found = carriedCalls(where, SOON);
 		expect(found.groups.size + found.marks.size, "nothing spared").toBe(0);
@@ -193,9 +196,15 @@ describe("a recorded job", () => {
 		);
 	});
 
-	it("is passed over when it isn't one this code wrote", () => {
+	it("never throws when what holds its name won't go", () => {
+		const keep = join(folder(), "k1");
+		mkdirSync(`${keep}.job`, { recursive: true });
+		expect(() => forgetKeptJob(keep)).not.toThrow();
+	});
+
+	it("is passed over when it isn't one this code wrote", async () => {
 		const where = folder();
-		const job = recorded(where, "s1", "j1", 4242);
+		const job = await recorded(where, "s1", "j1", 4242);
 		writeFileSync(`${job.work.keep}.job`, '{"session":"s1"}');
 		expect(keptJobsOf("s1", where, () => true)).toEqual([]);
 	});
@@ -206,11 +215,11 @@ describe("a recorded job", () => {
 });
 
 describe("a stray recorded job", () => {
-	it("is one whose pi has gone and whose end isn't said", () => {
+	it("is one whose pi has gone and whose end isn't said", async () => {
 		const where = folder();
-		recorded(where, "s1", "held", 4242, { owner: 77 });
-		recorded(where, "s1", "stray", 4242, { owner: 88 });
-		const ended = recorded(where, "s2", "ended", 4242, { owner: 88 });
+		await recorded(where, "s1", "held", 4242, { owner: 77 });
+		await recorded(where, "s1", "stray", 4242, { owner: 88 });
+		const ended = await recorded(where, "s2", "ended", 4242, { owner: 88 });
 		writeFileSync(`${ended.work.keep}.end`, "0\n");
 		expect(
 			strayKeptJobs(where, (pid) => pid === 77).map((job) => job.id),
