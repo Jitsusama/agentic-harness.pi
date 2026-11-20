@@ -9,9 +9,13 @@
  * itself once the thread has answered.
  */
 
+import { execFileSync } from "node:child_process";
 import {
+	closeSync,
+	constants,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -19,7 +23,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -223,6 +227,29 @@ describe("readTreeOffThread", () => {
 		expect(second.pass.bytes.has(inPlans), "second read skips it").toBe(false);
 	});
 
+	it("doesn't read again a document a walk parsed from what its stamp vouches for", async () => {
+		const { root, planPath } = settledTree();
+		roots.push(root);
+		discoverQuests(root);
+		const record = memo().documents.get(planPath);
+		expect(record, "the walk parsed it").toBeDefined();
+		const { pass } = await readOf(root);
+		expect(pass.bytes.has(planPath), "not read again").toBe(false);
+		expect(pass.hashes.get(planPath)).toBe(record?.hash);
+	});
+
+	it("reads again a file the walk parses once its record is gone", async () => {
+		// Its stamp alone would leave the walk nothing to answer it from.
+		const { root, readmePath, planPath } = settledTree();
+		roots.push(root);
+		discoverQuests(root);
+		memo().documents.delete(planPath);
+		memo().readmes.delete(readmePath);
+		const { pass } = await readOf(root);
+		expect(pass.bytes.has(planPath), "the plan is read").toBe(true);
+		expect(pass.bytes.has(readmePath), "the README is read").toBe(true);
+	});
+
 	it("reads a file again once it changes", async () => {
 		const root = treeOf(1);
 		const notes = join(root, questId(0), "plans", "notes.txt");
@@ -350,11 +377,25 @@ describe("answerInThread", () => {
 		await expect(answerInThread(program, beats.buffer, 1_000)).rejects.toThrow(
 			"no answer within 1000 ms",
 		);
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		const ended = Atomics.load(beats, 0);
-		expect(ended, "the thread had begun to beat").toBeGreaterThan(0);
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		expect(Atomics.load(beats, 0), "the thread beats no more").toBe(ended);
+		expect(
+			Atomics.load(beats, 0),
+			"the thread had begun to beat",
+		).toBeGreaterThan(0);
+		// A thread's ending has no event here, and a loaded machine ends it
+		// late, so the test watches until its beats hold still for twenty
+		// beats' time: a thread left running never does.
+		let last = Atomics.load(beats, 0);
+		await vi.waitFor(
+			async () => {
+				// A real pause is the point: the beats it lets pass, or not.
+				await new Promise((resolve) => setTimeout(resolve, 200));
+				const now = Atomics.load(beats, 0);
+				const still = now === last;
+				last = now;
+				expect(still, "the thread beats no more").toBe(true);
+			},
+			{ timeout: 4_000, interval: 0 },
+		);
 	});
 
 	it("is refused when its program ends without answering", async () => {
@@ -368,6 +409,39 @@ describe("answerInThread", () => {
 		const program = programOf('throw new Error("the disk is on fire");\n');
 		await expect(answerInThread(program, null, HANGS_AFTER_MS)).rejects.toThrow(
 			"the disk is on fire",
+		);
+	});
+
+	it("starts no thread while one is held in a read past its wall", async () => {
+		// A FIFO with no writer holds its reader in the kernel, as a hung
+		// disk does, where ending the thread can't reach it.
+		const fifo = join(scratch(), "hung");
+		execFileSync("mkfifo", [fifo]);
+		const hangs = programOf(
+			'import { readFileSync } from "node:fs";\nimport { parentPort, workerData } from "node:worker_threads";\nparentPort.postMessage(String(readFileSync(workerData)));\n',
+		);
+		await expect(answerInThread(hangs, fifo, 1_000)).rejects.toThrow(
+			"no answer within 1000 ms",
+		);
+		const answers = programOf(
+			'import { parentPort } from "node:worker_threads";\nparentPort.postMessage("here");\n',
+		);
+		await expect(
+			answerInThread(answers, null, HANGS_AFTER_MS),
+			"refused while the first is held",
+		).rejects.toThrow("held in a read past its wall");
+
+		// Open without waiting, so a reader not there fails rather than
+		// holding this thread too.
+		// Closing it unwritten lets the read return at its end.
+		closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+		await vi.waitFor(
+			async () =>
+				expect(
+					await answerInThread(answers, null, HANGS_AFTER_MS),
+					"one starts once the read returns",
+				).toBe("here"),
+			{ timeout: 4_000 },
 		);
 	});
 });

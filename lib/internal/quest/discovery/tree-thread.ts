@@ -55,6 +55,19 @@ export interface TreeRead {
 	readonly files: readonly [string, StatRead | null, Uint8Array | null][];
 }
 
+/**
+ * The exits of the threads ended at their wall that haven't exited yet.
+ * A thread held in a synchronous read can't end until the read returns,
+ * so on a disk that stays hung each signing would leave one more behind.
+ */
+const heldInRead = new Set<Promise<unknown>>();
+
+/** How many threads may be held in a read before no more start. */
+const HELD_AT_MOST = 1;
+
+/** How long a thread being ended has to exit before it counts as held. */
+const ENDS_WITHIN_MS = 1_000;
+
 /** The program the thread runs, beside this file. */
 const TREE_READ = fileURLToPath(new URL("./tree-read.mjs", import.meta.url));
 
@@ -87,17 +100,28 @@ export async function readTreeInThread(
  * The first message `program` sends, run on a thread of its own with
  * `data`. Rejects when the thread errs or exits unanswered, and after
  * `wallMs` without an answer, ending the thread. A disk that hangs in a
+
  * synchronous read then holds that thread until the read returns, but
- * never the host's own.
+ * never the host's own; while one is held so, past `ENDS_WITHIN_MS`
+ * after its wall, no other starts, and each is refused.
  */
-export function answerInThread(
+export async function answerInThread(
 	program: string,
 	data: unknown,
 	wallMs: number,
 ): Promise<unknown> {
+	if (heldInRead.size >= HELD_AT_MOST) await anyHeldEnds(ENDS_WITHIN_MS);
+	if (heldInRead.size >= HELD_AT_MOST) {
+		throw new Error(
+			`${heldInRead.size} thread still held in a read past its wall, so none starts`,
+		);
+	}
 	return new Promise((resolve, reject) => {
 		let done = false;
-		const thread = new Worker(program, { workerData: data });
+		// The program needs none of the host's flags, and some refuse a
+		// file: a process run with --input-type, as a test's child is,
+		// fails every thread that inherits it.
+		const thread = new Worker(program, { workerData: data, execArgv: [] });
 		const finish = (end: () => void): void => {
 			// The exit that follows an answer, or its ending, is not news.
 			if (done) return;
@@ -108,10 +132,13 @@ export function answerInThread(
 			thread.terminate().catch(() => undefined);
 		};
 		// Not a wait for something to happen: a ceiling on a disk that hangs.
-		const wall = setTimeout(
-			() => finish(() => reject(new Error(`no answer within ${wallMs} ms`))),
-			wallMs,
-		);
+		const wall = setTimeout(() => {
+			// A wall passes only before the thread answers, errs or exits.
+			const exited = new Promise((ended) => thread.once("exit", ended));
+			heldInRead.add(exited);
+			void exited.then(() => heldInRead.delete(exited));
+			finish(() => reject(new Error(`no answer within ${wallMs} ms`)));
+		}, wallMs);
 		wall.unref();
 		thread.unref();
 		thread.once("message", (answer: unknown) => finish(() => resolve(answer)));
@@ -119,6 +146,19 @@ export function answerInThread(
 		thread.once("exit", (code) =>
 			finish(() => reject(new Error(`the thread ended (${code}) unanswered`))),
 		);
+	});
+}
+
+/** Resolves once a held thread exits, or after `ms`, whichever is first. */
+function anyHeldEnds(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		// Not a wait for something to happen: how long an ending may take.
+		const within = setTimeout(resolve, ms);
+		within.unref();
+		void Promise.race(heldInRead).then(() => {
+			clearTimeout(within);
+			resolve();
+		});
 	});
 }
 
