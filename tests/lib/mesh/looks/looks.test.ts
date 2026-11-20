@@ -112,7 +112,50 @@ describe("the person's look list", () => {
 		);
 
 		expect(looksIn(dir)).toHaveLength(1);
-		expect(looksIn(dir)[0]).toMatchObject({ cell: "000000B2" });
+		expect(looksIn(dir)[0]).toMatchObject({
+			at: "2026-11-20T09:00:00.000Z",
+			cell: "000000B2",
+		});
+	});
+
+	it("keeps its cell once it's answered, resolved or expired", () => {
+		const session = "0194a1b2-0000-0000-0000-0000000000c3";
+		const asking = { ...pr, ask: "Say whether.", choices: ["Yes", "No"] };
+		const answered = pointAt(dir, asking, { ...who, session });
+		const merged = pointAt(
+			dir,
+			{ ...pr, target: "https://github.com/Jitsusama/core.nix/pull/1" },
+			{ ...who, session },
+		);
+		const lapsed = pointAt(
+			dir,
+			{ ...pr, target: "https://example.com/page", kind: "page" as const },
+			{ ...who, session },
+			new Date("2026-11-01T09:00:00Z"),
+		);
+
+		answerLook(dir, answered.id, "Yes");
+		resolveLooks(dir, "https://github.com/Jitsusama/core.nix/pull/1", "merged");
+		expect(expireLooks(dir, () => true).map((look) => look.id)).toEqual([
+			lapsed.id,
+		]);
+
+		const byId = new Map(looksIn(dir).map((look) => [look.id, look]));
+		for (const look of [answered, merged, lapsed]) {
+			expect(byId.get(look.id)?.state, look.title).not.toBe("waiting");
+			expect(byId.get(look.id)?.cell, look.title).toBe("000000C3");
+		}
+	});
+
+	it("still reads a look kept before looks named their cell", () => {
+		const look = pointAt(dir, pr, who);
+		const file = join(dir, `${look.id}.json`);
+		const { cell: _cell, ...kept } = JSON.parse(readFileSync(file, "utf8"));
+		writeFileSync(file, JSON.stringify(kept));
+
+		expect(looksIn(dir)).toHaveLength(1);
+		expect(looksIn(dir)[0]?.cell).toBeUndefined();
+		expect(looksIn(dir)[0]?.id).toBe(look.id);
 	});
 
 	it("keeps a look pointed at again in its place rather than adding it twice", () => {

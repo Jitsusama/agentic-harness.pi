@@ -122,8 +122,10 @@ export interface Look {
 	/**
 	 * The cell it leads to: its session's own address, which no other
 	 * session on its quest shares, so the launcher reads it rather than
-	 * searching every session (Y2YBTS and 85PKB2, 20 November). A look
-	 * kept before looks carried one has none.
+	 * searching every session (Y2YBTS and 85PKB2, 20 November). It names
+	 * the session as it pointed, and stays so once that session ends: the
+	 * launcher's agents daemon leads an ended cell to its quest's own
+	 * session. A look kept before looks carried one has none.
 	 */
 	readonly cell?: string;
 	/** The quest it has loaded. */
