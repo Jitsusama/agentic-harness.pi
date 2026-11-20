@@ -39,7 +39,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { onBudgetCapped } from "../../lib/budget/capped.ts";
+import { CAP_MOVE_LASTS_MS, onBudgetCapped } from "../../lib/budget/capped.ts";
 import {
 	layBudget,
 	liftBudget,
@@ -128,13 +128,8 @@ export interface BudgetKeeperOptions {
 	readonly whenCapped?: () => Promise<{ name?: string; unreadable?: string }>;
 }
 
-/**
- * How long a session the cap moved stays on the budget named for it
- * before its own key is drawn on again: the cap lifts when its week
- * turns or the person claims more, and a call refused once more costs
- * nothing but the move back.
- */
-export const CAPPED_HOLD_MS = 60 * 60_000;
+/** How long a session the cap moved stays on its budget (capped.ts). */
+export const CAPPED_HOLD_MS = CAP_MOVE_LASTS_MS;
 
 /**
  * How long a budget that couldn't be drawn on waits, once a retry has
@@ -234,7 +229,9 @@ export function keepQuestBudget(
 		wanted = name;
 		missedAt = undefined;
 		const ask = ++asking;
-		pending = settle(ctx, name, ask, retrying);
+		// The hour out changes what calls draw on, so it is recorded even
+		// when the miss is the same as before.
+		pending = settle(ctx, name, ask, retrying, cappedOut);
 		return pending;
 	};
 
@@ -243,6 +240,7 @@ export function keepQuestBudget(
 		name: string | null,
 		ask: number,
 		retrying = false,
+		changed = false,
 	) => {
 		if (name === null) {
 			liftBudget(sessionEnv(ctx), processOverlay(ctx));
@@ -283,7 +281,11 @@ export function keepQuestBudget(
 		// A retry that misses again says nothing new, even when the
 		// provider's words differ, so a provider that stays down writes no
 		// line a minute.
-		if (retrying && lastRecordOn(branchOf(ctx))?.unresolved?.budget === name) {
+		if (
+			retrying &&
+			!changed &&
+			lastRecordOn(branchOf(ctx))?.unresolved?.budget === name
+		) {
 			pi.events.emit(BUDGET_SETTLED, {
 				name: budgetDrawnOn(sessionEnv(ctx).snapshot()),
 			} satisfies BudgetSettled);

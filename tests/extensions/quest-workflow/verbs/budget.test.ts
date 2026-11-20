@@ -723,7 +723,9 @@ describe("the session's budget", () => {
 			const made = await quests();
 			if (quest) await made.run({ action: "budget", id: made.top, ref: quest });
 			const events = bus();
-			const clock = { at: 0 };
+			// The wall clock apart from the one that only runs while the machine
+			// is awake, as a suspend leaves them.
+			const clock = { at: 0, wall: 0 };
 			const lines: string[] = [];
 			const keeper = keepQuestBudget(
 				fakePi({ ...intoTheBranch, events }),
@@ -731,7 +733,7 @@ describe("the session's budget", () => {
 				{
 					journal: (line) => lines.push(line),
 					now: () => clock.at,
-					wallNow: () => clock.at,
+					wallNow: () => clock.at + clock.wall,
 					...(named === undefined
 						? {}
 						: {
@@ -857,6 +859,32 @@ describe("the session's budget", () => {
 			await keeper.keep(seen.ctx, { again: true });
 
 			expect(process.env[KEY]).toBe("worldtree");
+		});
+
+		it("counts the hour by the wall clock, so a suspend through it ends the move", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+
+			clock.wall += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(process.env[KEY]).toBe("personal");
+		});
+
+		it("says the move is over once the hour is out, though its quest's budget is still missed", async () => {
+			const { ask, keeper, clock, seen, name } = await capped("worldtree");
+			await ask();
+			await name("nowhere");
+			await keeper.keep(seen.ctx, { again: true });
+
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(process.env[KEY]).toBe("personal");
+			expect(
+				JSON.stringify(recorded().at(-1)),
+				"the log still says calls draw on the cap's budget",
+			).not.toContain("worldtree");
 		});
 
 		it("puts it back on the person's key once the hour is out", async () => {

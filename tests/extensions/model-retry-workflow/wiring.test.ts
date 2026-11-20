@@ -321,7 +321,7 @@ describe("a call refused because the person's own key is over its cap", () => {
 		expect(held.tries).toEqual([]);
 	});
 
-	it("ends the turn when the keeper has no budget to move to", async () => {
+	it("ends the turn, saying so, when the keeper has no budget to move to", async () => {
 		const held = session();
 		const pi = loaded(held, { capped: async () => null });
 		await pi.started();
@@ -329,6 +329,27 @@ describe("a call refused because the person's own key is over its cap", () => {
 		await passes(HOUR_MS);
 
 		expect(held.tries).toEqual([]);
+		expect(held.notices.at(-1)?.text).toContain("no budget took over");
+	});
+
+	it("asks to move again once the move's hour is out, with no good turn between", async () => {
+		const held = session();
+		let asked = 0;
+		const pi = loaded(held, {
+			capped: async () => {
+				asked++;
+				return "worldtree";
+			},
+		});
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await passes(0);
+		await pi.ran(reply("error", CAPPED));
+		await passes(HOUR_MS);
+		await pi.ran(reply("error", CAPPED));
+		await passes(0);
+
+		expect(asked, "it sat on the refusal past the hour").toBe(2);
 	});
 
 	it("tries nothing once the person typed while the budget was laid", async () => {

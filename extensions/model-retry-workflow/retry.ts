@@ -13,7 +13,11 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
-import { askBudgetWhenCapped, isCapRefusal } from "../../lib/budget/capped.ts";
+import {
+	askBudgetWhenCapped,
+	CAP_MOVE_LASTS_MS,
+	isCapRefusal,
+} from "../../lib/budget/capped.ts";
 import {
 	FIRST_WAIT_MS,
 	failedForAMoment,
@@ -77,9 +81,14 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	// Bumped whenever the wait is stopped, so a budget laid for a capped
 	// key after the person or another run took over tries nothing.
 	let movingOn = 0;
-	// Whether the session moved off a capped key since a turn last ended
-	// well, so a second refusal for the cap doesn't ask to move again.
-	let movedOffCap = false;
+	// When, by the wall clock, the session moved off a capped key, so a
+	// second refusal for the cap before a turn ends well doesn't ask to
+	// move again. It lasts as long as the move, as the keeper's refusal
+	// of a second move does, so once both end a refusal moves again.
+	let movedOffCapAt: number | undefined;
+	const movedOffCap = () =>
+		movedOffCapAt !== undefined &&
+		Date.now() - movedOffCapAt < CAP_MOVE_LASTS_MS;
 
 	// The mark goes in the session's branch, so the load after a reload or
 	// a restart knows what this one was waiting on (record.ts).
@@ -144,7 +153,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		// Refused for the cap again before any turn ended well: the move
 		// didn't help, so it isn't asked for again until one does, whatever
 		// the keeper would answer.
-		if (movedOffCap) {
+		if (movedOffCap()) {
 			ctx.ui.notify(
 				`The model call was refused for the cap again after moving to a budget: ${line}. Type to try again.`,
 				"warning",
@@ -154,8 +163,16 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		const asked = movingOn;
 		askBudgetWhenCapped(pi.events, line).then(
 			whileCurrent((drawn: string | null) => {
-				if (drawn === null || asked !== movingOn) return;
-				movedOffCap = true;
+				if (asked !== movingOn) return;
+				// Never left on the refusal unsaid: the keeper's journal says why.
+				if (drawn === null) {
+					ctx.ui.notify(
+						`Your own key is over its cap, and no budget took over: ${line}. Name one in quest-workflow's budgetWhenCapped, or type to try again.`,
+						"warning",
+					);
+					return;
+				}
+				movedOffCapAt = Date.now();
 				sayTry(ctx, cappedText(drawn, line));
 			}),
 		);
@@ -257,7 +274,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			}
 			if (!reply || !failed) {
 				countAfresh();
-				if (reply && !reply.errorMessage) movedOffCap = false;
+				if (reply && !reply.errorMessage) movedOffCapAt = undefined;
 				return;
 			}
 			// A failure the provider billed may fail so every try, at full

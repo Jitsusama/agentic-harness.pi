@@ -17,6 +17,15 @@ import { isRecord } from "../internal/record.ts";
 /** The bus event a session asks on for a budget, its own key being capped. */
 export const BUDGET_CAPPED = "budget:capped:v1";
 
+/**
+ * How long, by the wall clock, a session the cap moved stays on the
+ * budget named for it before its own key is drawn on again: the cap
+ * lifts when its week turns or the person claims more, and a call
+ * refused once more costs nothing but the move back. A refusal after
+ * it may ask to move again.
+ */
+export const CAP_MOVE_LASTS_MS = 60 * 60_000;
+
 /** What {@link BUDGET_CAPPED} carries. */
 export interface BudgetCappedAsk {
 	/** Why the session's own key can't be drawn on, in a line. */
