@@ -1118,6 +1118,120 @@ describe("the session's budget", () => {
 			});
 		});
 
+		it("draws on it once a provider late for its deadline answers, with no keep and no wait", async () => {
+			// A host too busy to read a file in time, as every hosted session
+			// reloading at once makes it: each answer comes past the deadline.
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			provide(events, "plane", async () => {
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+			});
+			await made.run({ action: "load", id: made.top });
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			expect(process.env[KEY], "the deadline passed first").toBe("personal");
+
+			await vi.waitFor(
+				() =>
+					expect(process.env[KEY], "the late answer is drawn on").toBe("team"),
+				{ timeout: 5_000, interval: 10 },
+			);
+			const last = recorded().at(-1);
+			expect(last, "the log ends on the quest's").toEqual(
+				expect.objectContaining({ name: "delta", provider: "plane" }),
+			);
+			expect(
+				isRecord(last) && "unresolved" in last,
+				"the log's last entry says nothing was missed",
+			).toBe(false);
+			expect(
+				seen.notices.at(-1),
+				"the person, told calls used the fallback, is told that ended",
+			).toBe(
+				"Budget delta can be drawn on now, so model calls draw on it again.",
+			);
+		});
+
+		it("lifts a budget whose token is refused late, saying the provider's reason", async () => {
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			let slow = false;
+			provide(events, "plane", async () => {
+				if (!slow)
+					return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				return { kind: "unavailable", reason: "The token was taken away." };
+			});
+			await made.run({ action: "load", id: made.top });
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			expect(process.env[KEY], "drawn on in time").toBe("team");
+
+			slow = true;
+			await keeper.keep(seen.ctx, { again: true });
+			expect(process.env[KEY], "the last drawing stands in").toBe("team");
+
+			await vi.waitFor(
+				() =>
+					expect(process.env[KEY], "the refused token is lifted").toBe(
+						"personal",
+					),
+				{ timeout: 5_000, interval: 10 },
+			);
+			expect(
+				seen.notices.at(-1),
+				"the notice gives the provider's reason, not a missed deadline",
+			).toContain("The token was taken away.");
+		});
+
+		it("lays no late answer once its session is forgotten", async () => {
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			let answered = 0;
+			provide(events, "plane", async () => {
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				answered++;
+				return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+			});
+			await made.run({ action: "load", id: made.top });
+			await keeper.keep(ui().ctx);
+
+			keeper.forget();
+			await vi.waitFor(() => expect(answered, "the late answer came").toBe(1), {
+				timeout: 5_000,
+				interval: 10,
+			});
+			// A lay reads the quest from disk after the answer comes, and no
+			// event marks one not happening, so this waits well past one.
+			await new Promise((settle) => setTimeout(settle, 500));
+
+			expect(process.env[KEY], "nothing laid for a session gone").toBe(
+				"personal",
+			);
+		});
+
 		it("is asked again at the next keep, as a restart's load passes", async () => {
 			const { keeper, asked } = await onAClock();
 			await keeper.keep(ui().ctx);
