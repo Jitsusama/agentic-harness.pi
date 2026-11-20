@@ -101,7 +101,9 @@ export function createSteerer(m: MeshState) {
 			root,
 			addresses: () => m.peer?.addresses ?? [],
 			deliver: (one, inbox) => {
-				// Never the person's carry: the node vouches for who ordered it.
+				// Never the person's carry: `by` names whom the steer claims
+				// carries it, an orchestrator or this machine's node, not proof
+				// of who wrote it (lib/mesh/steer.ts).
 				if (one.ordered) {
 					void m.ordering.order(one.ordered);
 					return;

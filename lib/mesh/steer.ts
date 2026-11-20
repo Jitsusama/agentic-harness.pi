@@ -25,11 +25,16 @@
  * to a session mid-task waits for its turn to end unless he says now). A
  * program of the machine's writes `"from": "machine"` and may name itself
  * as `by` (`"by": "nix-offload"`), which the session is told. An
- * orchestrator's carry, `{"act": "ordered-carry", "to", "why", "by"}`,
+ * orchestrator's ordered carry, `{"act": "ordered-carry", "to", "why", "by"}`,
  * which mycelium's node writes stamped with the orchestrator's address as
  * `by` and `from`, is read as `ordered`, never as an act, so nothing that
  * trusts the person's carry takes it (ISXEG8's condition 3, 15 November;
- * extensions/mesh-workflow/ordered-carry.ts). The
+ * extensions/mesh-workflow/ordered-carry.ts). A carry mycelium's node
+ * chose itself, to ease a machine whose kernel says it is stalling, comes
+ * the same way with `node@<machine>` as `by` and `from`, kept as written,
+ * so it reads as that node's, never an orchestrator's. Anything running
+ * as the person that reaches the inbox can write either, so the name says
+ * whom the steer claims, not who wrote it. The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -52,6 +57,18 @@ import { isMachineName } from "../internal/machine/machine.ts";
 import { isMoveTarget } from "../internal/session/move.ts";
 import { type GivenAnswer, givenFrom } from "../internal/session/wants.ts";
 import { writeWhole } from "../internal/write-whole.ts";
+import {
+	FROM_MACHINE,
+	FROM_PERSON,
+	HERE_READ_MS,
+	type Here,
+	hereHeld,
+	hereOr,
+	isFromPerson,
+	nodeNamed,
+	type OrderedCarry,
+	orderedFrom,
+} from "./steer-who.ts";
 import { isTalkId } from "./talk.ts";
 
 /**
@@ -83,40 +100,8 @@ function isSteerAct(value: unknown): value is SteerAct {
 	return (STEER_ACTS as readonly unknown[]).includes(value);
 }
 
-/**
- * The `from` a machine's mycelium node writes, for what the machine itself
- * must say to a session it holds, as that it leaves at a set time. It is
- * never the person's word, so it carries no act.
- */
-export const FROM_MACHINE = "machine";
-
 /** A program's name as a machine steer's `by` may give it. */
 const PROGRAM_NAME = /^[a-z][a-z0-9-]{0,39}$/;
-
-/** The act an orchestrator's carry is written with, apart from STEER_ACTS. */
-export const ORDERED_CARRY = "ordered-carry";
-
-/** A peer's address, a quest's six or a session's eight, as `by` names one. */
-const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
-
-/** The most an ordered carry's `why` says, so it reads as a reason. */
-const MOST_WHY = 500;
-
-/** A carry an orchestrator ordered, as the node stamped it. */
-export interface OrderedCarry {
-	/** The machine it goes to, as it names itself. */
-	readonly to: string;
-	/** Why, in the orchestrator's words. */
-	readonly why: string;
-	/** The orchestrator's address, which the node proved ordered it. */
-	readonly by: string;
-}
-
-/**
- * The `from` mycelium's node writes for what the person asked through it,
- * as `mycelium carry` steers each session with.
- */
-export const FROM_PERSON = "person";
 
 /** How the words a session is given for the machine's own steer open. */
 export const MACHINE_SAYS = "[Said by this machine's ";
@@ -145,16 +130,6 @@ export function isOthersSteerText(text: string): boolean {
 	const closed = text.indexOf("]");
 	if (at < 0 || (closed >= 0 && closed < at)) return false;
 	return !PERSON_ASKERS.has(text.slice(1, at).toLowerCase());
-}
-
-/**
- * Whether a steer's writer is the person: one who names nobody, Joel, or
- * the node writing on the person's word.
- */
-export function isFromPerson(from: string | undefined): boolean {
-	if (from === undefined || from === "") return true;
-	const who = from.toLowerCase();
-	return who === "joel" || who === FROM_PERSON;
 }
 
 /**
@@ -212,29 +187,13 @@ export interface Steer {
 	 * it to end; only for words, never for an act.
 	 */
 	readonly now?: true;
-	/** An orchestrator's carry, which is never an act of the person's. */
+	/**
+	 * A carry an orchestrator ordered or this machine's node chose, which
+	 * is never an act of the person's.
+	 */
 	readonly ordered?: OrderedCarry;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
-}
-
-/**
- * The ordered carry a steer holds, or nothing unless it is whole and
- * from an orchestrator: `from` and `by` one address, never the person or
- * the machine, a machine's name to go to, and a reason.
- */
-function orderedFrom(parsed: object, from: string): OrderedCarry | undefined {
-	if (!("act" in parsed) || parsed.act !== ORDERED_CARRY) return undefined;
-	const by = "by" in parsed ? parsed.by : undefined;
-	const to = "to" in parsed ? parsed.to : undefined;
-	const why =
-		"why" in parsed && typeof parsed.why === "string" ? parsed.why.trim() : "";
-	if (typeof by !== "string" || !ADDRESS.test(by)) return undefined;
-	if (from.toUpperCase() !== by.toUpperCase()) return undefined;
-	if (!isMachineName(to) || why === "" || why.length > MOST_WHY) {
-		return undefined;
-	}
-	return { to, why, by: by.toUpperCase() };
 }
 
 /** What taking the inbox found: steers to deliver, and files set aside. */
@@ -267,8 +226,15 @@ export function giveSteer(
 	return name;
 }
 
-/** A steer read from a file's text, or nothing when it is not one. */
-export function steerFrom(raw: string, file: string): Steer | undefined {
+/**
+ * A steer read from a file's text on the machine `here`, or nothing
+ * when it is not one; with no `here`, a node's carry is none.
+ */
+export function steerFrom(
+	raw: string,
+	file: string,
+	here?: string,
+): Steer | undefined {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);
@@ -279,10 +245,21 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (typeof parsed !== "object" || parsed === null) return undefined;
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
-	const ordered = orderedFrom(parsed, from);
+	const ordered = orderedFrom(parsed, from, here);
 	if (ordered) {
 		const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
-		return { text: "", ordered, ...(at ? { at } : {}), from, file };
+		const named = NAMED_AT.exec(file)?.[0];
+		const put = named === undefined ? undefined : new Date(Number(named));
+		return {
+			text: "",
+			ordered:
+				put === undefined || Number.isNaN(put.getTime())
+					? ordered
+					: { ...ordered, put },
+			...(at ? { at } : {}),
+			from,
+			file,
+		};
 	}
 	// Only the person may pause, resume, stop, close, carry or move a session.
 	const asked =
@@ -437,9 +414,15 @@ function lastChange(dir: string): { at: number; empty: boolean } | undefined {
  * and left where they are for their own session to take: what is not a
  * steer, or was taken as it was read, is passed over. A clock reads every
  * parked peer's this way, and a host runs every conversation's clock on
- * one thread.
+ * one thread, so this machine's name, for a node's carry, is read off it
+ * too, by `readOff` as the steers are. While a record there can't be read,
+ * a node's carry is seen waiting refused, saying why, as the take hands
+ * it on, and a parked session wakes to take it, reading the record again.
  */
-export async function waitingSteers(inbox: string): Promise<Steer[]> {
+export async function waitingSteers(
+	inbox: string,
+	readOff: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
+): Promise<Steer[]> {
 	let names: string[];
 	try {
 		names = await readdir(inbox);
@@ -449,8 +432,8 @@ export async function waitingSteers(inbox: string): Promise<Steer[]> {
 	}
 	const read = await Promise.all(
 		readyOf(names).map((name) =>
-			readFile(join(inbox, name), "utf8").then(
-				(raw) => steerFrom(raw, name),
+			readOff(join(inbox, name)).then(
+				(raw) => ({ name, raw }),
 				() => {
 					// Taken by its session between the listing and the read.
 					return undefined;
@@ -458,23 +441,63 @@ export async function waitingSteers(inbox: string): Promise<Steer[]> {
 			),
 		),
 	);
+	const said = read.filter((one) => one !== undefined);
+	const here = await hereOr(said, readOff);
 	return inWrittenOrder(
-		read.filter((steer): steer is Steer => steer !== undefined),
+		said
+			.map(({ name, raw }) => steerHere(raw, name, here))
+			.filter((steer): steer is Steer => steer !== undefined),
 	);
+}
+
+/**
+ * The steer `raw` is on the machine `here`. Where `here`'s record is
+ * there but unread, a node's carry can't be told from another's, so it
+ * is handed on refused, saying why, as another machine's node's is.
+ * A parked session wakes to take it and reads the record again: read,
+ * the carry goes ahead as any other; still unread, the refusal is said
+ * on screen and written nowhere, and the node waits out its time. Read as
+ * the node it names would have it, it is whole or nothing as it would
+ * be then.
+ */
+function steerHere(raw: string, file: string, here: Here): Steer | undefined {
+	const node = nodeNamed(raw);
+	if (node === undefined || here === undefined) {
+		return steerFrom(raw, file, undefined);
+	}
+	// Another machine's node runs none of this machine's sessions, so its
+	// carry is refused, saying both names, rather than left to wait.
+	const refused =
+		typeof here === "object"
+			? here.unread
+			: node === here
+				? undefined
+				: `it names node@${node}, but this machine is ${here}, so it isn't this machine's node's carry`;
+	const steer = steerFrom(raw, file, node);
+	return steer?.ordered && refused !== undefined
+		? { ...steer, ordered: { ...steer.ordered, refused } }
+		: steer;
 }
 
 /**
  * Every steer waiting in an inbox, in the order written, each taken off
  * disk as it is read. Making the folder is part of looking, so a
- * writer finds it there once its peer has looked once.
+ * writer finds it there once its peer has looked once. This machine's
+ * record is read at the first node's carry, and while it is there but
+ * can't be read, a node's carry is taken refused, saying why, as
+ * `takenSteers` takes it. It reads on the thread, so it is for tests
+ * alone: a session reads its inbox through `takenSteers`.
  */
 export function takeSteers(inbox: string, taker: string): Taken {
 	mkdirSync(inbox, { recursive: true });
 	const taken: Taken = { steers: [], bad: [] };
+	let here: Here;
 	for (const name of readyOf(readdirSync(inbox))) {
 		const taking = claim(inbox, name, taker);
-		if (taking !== undefined)
-			settle(inbox, name, taking, readFileSync(taking, "utf8"), taken);
+		if (taking === undefined) continue;
+		const raw = readFileSync(taking, "utf8");
+		if (here === undefined && nodeNamed(raw) !== undefined) here = hereHeld();
+		settle(inbox, name, taking, steerHere(raw, name, here), taken);
 	}
 	return { ...taken, steers: inWrittenOrder(taken.steers) };
 }
@@ -488,13 +511,16 @@ export function takeSteers(inbox: string, taker: string): Taken {
  * settled in one turn with what was read, so a taker ended while a read
  * waits leaves every steer waiting, never claimed and lost. A steer is
  * published whole by a rename and never rewritten under its name, so
- * what was read is what is claimed.
+ * what was read is what is claimed. While this machine's record is there
+ * but can't be read, a node's carry is taken refused, saying why, and
+ * every other steer as ever.
  */
 export async function takenSteers(
 	inbox: string,
 	taker: string,
 	readOff: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
 	still: () => boolean = () => true,
+	hereMs: number = HERE_READ_MS,
 ): Promise<Taken> {
 	await mkdir(inbox, { recursive: true });
 	const read: { name: string; raw: string }[] = [];
@@ -505,11 +531,13 @@ export async function takenSteers(
 		});
 		if (raw !== undefined) read.push({ name, raw });
 	}
+	const here = await hereOr(read, readOff, hereMs);
 	const taken: Taken = { steers: [], bad: [] };
 	if (!still()) return taken;
 	for (const { name, raw } of read) {
 		const taking = claim(inbox, name, taker);
-		if (taking !== undefined) settle(inbox, name, taking, raw, taken);
+		if (taking !== undefined)
+			settle(inbox, name, taking, steerHere(raw, name, here), taken);
 	}
 	return { ...taken, steers: inWrittenOrder(taken.steers) };
 }
@@ -581,10 +609,9 @@ function settle(
 	inbox: string,
 	name: string,
 	taking: string,
-	raw: string,
+	steer: Steer | undefined,
 	taken: Taken,
 ): void {
-	const steer = steerFrom(raw, name);
 	if (steer) {
 		taken.steers.push(steer);
 		leave(() => unlinkSync(taking));
