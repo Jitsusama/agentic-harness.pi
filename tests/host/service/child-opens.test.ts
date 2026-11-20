@@ -466,6 +466,26 @@ describe("a host starting again", () => {
 		expect(routes.routeOf(b)?.socket).toBe(slotOf(folder, key, a).socket);
 	});
 
+	it("stops a child that became, while nothing watched it, one the roster holds", async () => {
+		roster.held = [entry(a), entry(b)];
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		const child = childOf(a);
+		// Its slot names a, so the roster's b is no hold this child took.
+		child.conversation = conversation(b);
+		child.entry = entry(b);
+		superviseAgain({ nextHost: true });
+
+		expect(await supervisor.adopt(), "none taken up").toBe(0);
+
+		expect(routes.routeOf(b), "b unrouted").toBeUndefined();
+		await vi.waitFor(() =>
+			expect(units.stopped).toEqual([slotOf(folder, key, a).unit]),
+		);
+		expect(String(reported[0])).toContain("which the roster holds already");
+		expect(roster.held, "the roster as it was").toEqual([entry(a), entry(b)]);
+	});
+
 	it("leaves a child that is leaving to the next host when it stops watching", async () => {
 		await supervisor.resume(entry(a));
 		const slot = slotOf(folder, key, a);

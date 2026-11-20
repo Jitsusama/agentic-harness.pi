@@ -161,9 +161,7 @@ describe("whose conversation a child holds", () => {
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
 			`still runs in ${slotB.unit}`,
 		);
-		expect(units.started, "no second child on a's file").toEqual([
-			slotB.unit,
-		]);
+		expect(units.started, "no second child on a's file").toEqual([slotB.unit]);
 	});
 
 	it("keeps the forsaken mark over a slot write queued before it", async () => {
