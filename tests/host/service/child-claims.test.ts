@@ -9,10 +9,12 @@ import {
 	slotForsaken,
 	slotOf,
 	slotWas,
+	writeSlot,
 } from "../../../host/service/child-units.ts";
 import {
 	a,
 	b,
+	CARRIED,
 	childOf,
 	conversation,
 	deferred,
@@ -299,6 +301,139 @@ describe("whose conversation a child holds", () => {
 		await vi.waitFor(() =>
 			expect(units.stopped, "stopped, not left its grace").toEqual([
 				slotA.unit,
+			]),
+		);
+	});
+
+	it("waits out a stop hurried during a grace before the slot's next child starts", async () => {
+		superviseAgain({ clocks: { exitsWithinMs: 10_000 } });
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		const disk = deferred();
+		roster.written = disk.promise;
+		const child = childOf(a);
+		child.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(c),
+			entry: entry(c),
+		});
+		child.say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[c, "parked"]]));
+		// The hurried stop ends the child, but systemd answers it late, and
+		// with a failure, so it is tried again.
+		const answered = deferred();
+		units.stopReturns = answered.promise;
+		units.stopFails = 1;
+		roster.refuses = true;
+		disk.settle();
+		await vi.waitFor(() => expect(units.stopped).toEqual([slotA.unit]));
+
+		roster.refuses = false;
+		const again = supervisor.resume(entry(a));
+		await pause(300);
+		expect(units.started, "no child in the slot yet").toEqual([slotA.unit]);
+		answered.settle();
+
+		await again;
+		await pause(600);
+		expect(
+			units.children.get(slotA.unit),
+			"the slot's next child runs on",
+		).toBeDefined();
+		expect(units.started).toEqual([slotA.unit, slotA.unit]);
+	});
+
+	it("starts both conversations a forsaken child ran once it has gone", async () => {
+		roster.held = [entry(a), entry(b)];
+		await supervisor.resume(entry(a));
+		await supervisor.resume(entry(b));
+		const slotA = slotOf(folder, key, a);
+		const slotB = slotOf(folder, key, b);
+		units.lingers = true;
+		childOf(b).say({
+			type: "became",
+			previousId: b,
+			conversation: conversation(a),
+			entry: entry(a),
+		});
+		await vi.waitFor(() =>
+			expect(String(reported[0])).toContain("which another child runs"),
+		);
+		await childOf(a).end("parked");
+		await vi.waitFor(() => expect(existsSync(slotA.file)).toBe(false));
+		await vi.waitFor(
+			() => expect(String(reported.at(-1))).toContain("still runs"),
+			{ timeout: 4_000 },
+		);
+		units.lingers = false;
+		await units.children.get(slotB.unit)?.exit();
+		units.children.delete(slotB.unit);
+
+		const [ranB, ranA] = await Promise.all([
+			supervisor.resume(entry(b)),
+			supervisor.resume(entry(a)),
+		]);
+
+		expect([ranA.sessionId, ranB.sessionId]).toEqual([a, b]);
+		expect(childOf(b).slot.unit, "b in its own slot").toBe(slotB.unit);
+		expect(existsSync(slotB.file), "b's slot kept for its child").toBe(true);
+	});
+
+	it("names what a child became from in its slot when it moved unwatched", async () => {
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		const child = childOf(a);
+		supervisor.close();
+		child.conversation = conversation(b);
+		child.entry = entry(b);
+		superviseAgain({ held: [entry(a)], nextHost: true });
+		// The roster change never lands, as a host killed first leaves it.
+		roster.written = deferred().promise;
+		void supervisor.adopt();
+		await vi.waitFor(async () =>
+			expect(await slotWas(slotA), "its slot names what it was").toBe(a),
+		);
+		superviseAgain({ held: [entry(a)], nextHost: true });
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(roster.held, "a replaced, not held beside b").toEqual([entry(b)]);
+	});
+
+	it("replaces what a slot's conversation became from when its child moved on again", async () => {
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		const child = childOf(a);
+		supervisor.close();
+		// Its last host named b, became from a, and ended before the roster
+		// changed; the child has since become c.
+		await writeSlot(slotA, entry(b), false, a);
+		child.conversation = conversation(c);
+		child.entry = entry(c);
+		superviseAgain({ held: [entry(a)], nextHost: true });
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(roster.held, "a replaced, not held beside c").toEqual([entry(c)]);
+	});
+
+	it("keeps what the host held of a conversation when it becomes another", async () => {
+		const quest = "QEST-20261120-AAAAAA";
+		const kept = { ...entry(a), attended: true, quest, launch: CARRIED };
+		roster.held = [kept];
+		await supervisor.resume(kept);
+
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: { ...entry(b), launch: { NODE_OPTIONS: "--require=x" } },
+		});
+
+		await vi.waitFor(() =>
+			expect(roster.held).toEqual([
+				{ ...entry(b), attended: true, quest, launch: CARRIED },
 			]),
 		);
 	});

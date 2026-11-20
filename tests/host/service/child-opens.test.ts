@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { slotOf, writeSlot } from "../../../host/service/child-units.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
+import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
 	a,
 	adopting,
@@ -115,16 +116,49 @@ describe("a new conversation", () => {
 		expect(roster.held).toEqual([entry(a)]);
 	});
 
-	it("refuses to begin an adopt of a conversation the roster holds", async () => {
+	it("refuses an adopt of a file the roster holds before any child opens it", async () => {
 		units.next = { opensAs: a };
 
 		await expect(supervisor.begin(adopting("adopt-1", a))).rejects.toThrow(
-			`opened ${a}, which the roster holds already`,
+			`Conversation already held: ${entry(a).file}`,
 		);
 
-		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
+		expect(units.started, "no child started on its file").toEqual([]);
 		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
 		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("refuses a second adopt of one file while the first is under way", async () => {
+		const listens = deferred();
+		units.next = { listensWhen: listens.promise };
+
+		const first = supervisor.begin(adopting("adopt-2", b));
+		await expect(supervisor.begin(adopting("adopt-3", b))).rejects.toThrow(
+			`Conversation already held: ${entry(b).file}`,
+		);
+		listens.settle();
+
+		expect(await first).toMatchObject({ id: "adopt-2", ok: true });
+		expect(units.started, "one child started on the file").toHaveLength(1);
+	});
+
+	it("holds what the open asked, not what its child says of it", async () => {
+		units.next = {
+			answers: (result) => ({
+				...result,
+				entry: {
+					...(result.entry as RosterEntry),
+					attended: false,
+					quest: "QEST-20261120-AAAAAA",
+					launch: { NODE_OPTIONS: "--require=x" },
+				},
+			}),
+		};
+
+		const reply = await supervisor.begin(opening("open-9"));
+
+		const opened = reply.ok ? (reply.result as SessionIdentity) : undefined;
+		expect(roster.held).toEqual([entry(a), derived(opened?.sessionId ?? "")]);
 	});
 
 	it("names what its child answered in its slot before the roster holds it", async () => {
@@ -398,10 +432,10 @@ describe("a host starting again", () => {
 
 		expect(await supervisor.adopt(), "children taken up").toBe(1);
 
-		expect(roster.held, "the open's hold replaced").toEqual([
-			entry(a),
-			entry(b),
-		]);
+		expect(
+			roster.held,
+			"the open's hold replaced, keeping what the host held of it",
+		).toEqual([entry(a), derived(b)]);
 	});
 
 	it("takes up one of two children running one conversation, and stops the other", async () => {

@@ -90,6 +90,16 @@ describe("a resumed conversation", () => {
 		expect(routes.routeOf(a)).toBeUndefined();
 	});
 
+	it("waits on a child slow to listen when systemd once won't say whether it went", async () => {
+		units.next = { listensWhen: pause(1_500) };
+		units.goneFails = 1;
+
+		const running = await supervisor.resume(entry(a));
+
+		expect(running.sessionId).toBe(a);
+		expect(units.stopped, "its child left running").toEqual([]);
+	});
+
 	it("is given up, and its child stopped, when the child never answers its watch", async () => {
 		units.next = { silent: true };
 

@@ -53,8 +53,10 @@
 import { randomUUID } from "node:crypto";
 import { setMaxListeners } from "node:events";
 import type { Socket } from "node:net";
+import { resolve } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { askOnce, madeByHost, reach } from "./child-requests.ts";
 import {
@@ -149,15 +151,20 @@ export interface ChildSupervisor {
 	/**
 	 * Run a held conversation in a child of its own, settling once the
 	 * child has it, or with the one already running it: `woken` when a
-	 * wake of its park asked for it.
+	 * wake of its park asked for it. A host adopts what its last left
+	 * before it resumes anything, since a resume before the first adopt
+	 * waits on no slot of the last host's, and could start a second child
+	 * beside one running the conversation.
 	 */
 	resume(entry: RosterEntry, woken?: boolean): Promise<SessionIdentity>;
 	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it, or with
 	 * `open_unsettled` naming one it built but gave no answer for.
-	 * Rejects when its child can't be started, watched or held, or the
-	 * host stops watching, so a caller is told an error of the host's.
+	 * Rejects when its child can't be started, watched or held, the host
+	 * stops watching, or it adopts a file a conversation the host holds,
+	 * routes or begins on already runs from, so a caller is told an error
+	 * of the host's.
 	 */
 	begin(request: Beginning): Promise<ControlReply>;
 	/**
@@ -226,8 +233,41 @@ interface Holding {
 	was?: string;
 	/** A new conversation, so one the roster holds already is refused. */
 	fresh?: boolean;
+	/**
+	 * What the request that started it asked for, which its first hold
+	 * keeps when the roster holds nothing it came from.
+	 */
+	asked?: Vouched;
 	/** When the watch must have its answer by, as a time. */
 	by?: number;
+}
+
+/**
+ * What a child's roster entry can't vouch for itself: whether it is
+ * attended, its quest, and the launch every resume replays, which
+ * carries the fence. Each is kept from what the host held, or asked.
+ */
+type Vouched = Pick<RosterEntry, "attended" | "quest" | "launch">;
+
+/**
+ * `entry` with what the host vouches for taken from `base`, or, with
+ * no base, with its launch cut to the carried variables, so no child
+ * adds to or drops from what every later resume runs under.
+ */
+function vouched(entry: RosterEntry, base: Vouched | undefined): RosterEntry {
+	const { quest: _quest, launch: _launch, ...rest } = entry;
+	const quest = base ? base.quest : entry.quest;
+	const launch = base
+		? base.launch
+		: entry.launch && carriedEnvironment(entry.launch);
+	return {
+		...rest,
+		attended: base ? base.attended : entry.attended,
+		...(quest !== undefined ? { quest } : {}),
+		...(launch !== undefined && Object.keys(launch).length > 0
+			? { launch }
+			: {}),
+	};
 }
 
 /**
@@ -279,6 +319,17 @@ export function childSupervisor(options: {
 	const marking = new Map<string, Promise<void>>();
 	// Units leaving with a grace to exit in, which a forsaking cuts short.
 	const graced = new Set<string>();
+	// Each graced leave's stop a forsaking hurried, which that leave waits
+	// out before it frees the slot, so no stop outlives it into the next.
+	const hurrying = new Map<string, Promise<void>>();
+	// Each slot's claim under way, by its unit: a start's, from its check
+	// that the slot is free until its unit has started, or a check that
+	// frees it; so none clears a slot another has just taken.
+	const claiming = new Map<string, Promise<unknown>>();
+	// Each slot's clearing under way, which a second clearing joins.
+	const releasing = new Map<string, Promise<void>>();
+	// Each session file a begin adopts, until it settles.
+	const adoptingFiles = new Set<string>();
 	// The slots each conversation runs in or last left, by its keyed id
 	// and then each slot's unit: a forsaken child may run one beside the
 	// child the roster says runs it, and holds its start back as long.
@@ -322,12 +373,50 @@ export function childSupervisor(options: {
 
 	/**
 	 * The id the roster holds `sessionId` under, in the roster's spelling,
-	 * which it matches exactly, or undefined when it holds none.
+	 * which it matches exactly, or undefined when it holds none or none
+	 * is named.
 	 */
-	function heldAs(sessionId: string): string | undefined {
+	function heldAs(sessionId: string | undefined): string | undefined {
+		return heldEntry(sessionId)?.sessionId;
+	}
+
+	/** The roster's entry for `sessionId`, in either case, if it holds one. */
+	function heldEntry(sessionId: string | undefined): RosterEntry | undefined {
+		if (sessionId === undefined) return undefined;
 		return roster
 			.entries()
-			.find((entry) => keyed(entry.sessionId) === keyed(sessionId))?.sessionId;
+			.find((entry) => keyed(entry.sessionId) === keyed(sessionId));
+	}
+
+	/**
+	 * Whether a conversation the host holds, routes or begins on runs
+	 * from `file`, so an adopt of it would run one conversation twice.
+	 */
+	function fileHeld(file: string): boolean {
+		return (
+			adoptingFiles.has(file) ||
+			roster.entries().some((entry) => entry.file === file) ||
+			routes.listed().some((running) => running.file === file)
+		);
+	}
+
+	/**
+	 * Run `claim` on `unit`'s slot once every claim on it before has
+	 * settled, so a check that the slot is free and what takes it are one
+	 * step to every other claim.
+	 */
+	function claimed<T>(unit: string, claim: () => Promise<T>): Promise<T> {
+		const before = claiming.get(unit);
+		const run = (async () => {
+			await before;
+			return claim();
+		})();
+		const settled = run.catch(() => undefined);
+		claiming.set(unit, settled);
+		void settled.then(() => {
+			if (claiming.get(unit) === settled) claiming.delete(unit);
+		});
+		return run;
 	}
 
 	/** Whether a route to a child other than `slot`'s holds `sessionId`. */
@@ -365,7 +454,9 @@ export function childSupervisor(options: {
 			}
 			if (Date.now() - asked >= ASKED_EVERY_MS) {
 				asked = Date.now();
-				if (await units.gone(slot.unit))
+				// A systemd that can't say, as a loaded one may not, is no
+				// sign the child has gone: it is given until the time runs out.
+				if (await units.gone(slot.unit).catch(() => false))
 					throw new Error(`${slot.unit} ended before it listened`);
 			}
 			await pause(TRIED_EVERY_MS);
@@ -389,21 +480,30 @@ export function childSupervisor(options: {
 		}
 	}
 
-	/** Clear and free `slot`, whose unit has gone. */
-	async function release(slot: Slot): Promise<void> {
-		// A mark landing after the clear would forsake the slot's next child.
-		await marking.get(slot.unit);
-		marking.delete(slot.unit);
-		// So does a write its watch queued, which would name it again.
-		await writing.get(slot.unit)?.();
-		writing.delete(slot.unit);
-		await clearSlot(slot);
-		await units.forget(slot.unit);
-		inUse.delete(slot.unit);
-		for (const [sessionId, slots] of ranIn) {
-			slots.delete(slot.unit);
-			if (slots.size === 0) ranIn.delete(sessionId);
-		}
+	/**
+	 * Clear and free `slot`, whose unit has gone; a second ask while one
+	 * runs joins it, so none clears what the slot's next child is given.
+	 */
+	function release(slot: Slot): Promise<void> {
+		const already = releasing.get(slot.unit);
+		if (already) return already;
+		const clearing = (async () => {
+			// A mark landing after the clear would forsake the slot's next child.
+			await marking.get(slot.unit);
+			marking.delete(slot.unit);
+			// So does a write its watch queued, which would name it again.
+			await writing.get(slot.unit)?.();
+			writing.delete(slot.unit);
+			await clearSlot(slot);
+			await units.forget(slot.unit);
+			inUse.delete(slot.unit);
+			for (const [sessionId, slots] of ranIn) {
+				slots.delete(slot.unit);
+				if (slots.size === 0) ranIn.delete(sessionId);
+			}
+		})().finally(() => releasing.delete(slot.unit));
+		releasing.set(slot.unit, clearing);
+		return clearing;
 	}
 
 	/**
@@ -458,12 +558,14 @@ export function childSupervisor(options: {
 	 * gone, and is reported with the command that stops it; a host that
 	 * stops watching meanwhile leaves the slot to the next host's adopt.
 	 * A forsaken child's stop waits on its mark; one forsaken while it
-	 * is given its grace is stopped at once all the same, beside the leave.
+	 * is given its grace is stopped at once all the same, beside the leave,
+	 * which waits that stop out before it frees the slot.
 	 */
 	function leave(slot: Slot, stopNow: boolean): Promise<void> {
 		const already = leaving.get(slot.unit);
 		if (already) {
-			if (stopNow && graced.delete(slot.unit)) void hurried(slot.unit);
+			if (stopNow && graced.delete(slot.unit))
+				hurrying.set(slot.unit, hurried(slot.unit));
 			return already;
 		}
 		inUse.add(slot.unit);
@@ -472,9 +574,12 @@ export function childSupervisor(options: {
 			await marking.get(slot.unit);
 			// A systemd that can't say during the grace is no reason to
 			// leave the child running: it is stopped, as one that overstayed.
-			const went =
-				(!stopNow && (await goneOrUnsaid(slot.unit, exitsWithinMs))) ||
-				(await stopped(slot.unit));
+			const exited = !stopNow && (await goneOrUnsaid(slot.unit, exitsWithinMs));
+			// No stop is hurried once the grace is over, and one that was is
+			// waited out, so none of its tries reaches the slot's next child.
+			graced.delete(slot.unit);
+			await hurrying.get(slot.unit);
+			const went = exited || (await stopped(slot.unit));
 			if (!went) {
 				options.report(
 					new Error(
@@ -492,6 +597,7 @@ export function childSupervisor(options: {
 			.finally(() => {
 				leaving.delete(slot.unit);
 				graced.delete(slot.unit);
+				hurrying.delete(slot.unit);
 			});
 		leaving.set(slot.unit, left);
 		return left;
@@ -543,6 +649,7 @@ export function childSupervisor(options: {
 			named,
 			was: becameFrom,
 			fresh,
+			asked,
 			by = Number.POSITIVE_INFINITY,
 		} = holding;
 		let current: string | undefined;
@@ -641,18 +748,22 @@ export function childSupervisor(options: {
 								identity: host,
 							});
 							first = kept.then(async () => {
-								// Named first, so a host ending before the roster
-								// changes leaves the next one's adopt holding a start
-								// of it back, rather than a slot naming another.
-								if (moved) await writeSlot(slot, entry);
+								// What the roster holds of where it came from: what its
+								// slot names, or what that became from, as a host ending
+								// between naming a became and replacing it leaves it.
+								const from = heldAs(named) ?? heldAs(becameFrom);
+								const holds = vouched(
+									entry,
+									from !== undefined ? heldEntry(from) : asked,
+								);
+								// Named first, with what it was, so a host ending
+								// before the roster changes leaves the next one's adopt
+								// holding a start of it back and replacing what it was,
+								// rather than holding both.
+								if (moved) await writeSlot(slot, holds, false, named);
 								if (!held(sessionId)) {
-									// One that became another while nothing watched it, or
-									// whose last host ended between naming its became and
-									// replacing what it was.
-									const from = moved ? named : becameFrom;
-									const was = from !== undefined && heldAs(from);
-									if (was) await roster.replace(was, entry);
-									else await roster.hold(entry);
+									if (from !== undefined) await roster.replace(from, holds);
+									else await roster.hold(holds);
 								}
 							});
 							// Its failure is the watch's, thrown below.
@@ -695,13 +806,15 @@ export function childSupervisor(options: {
 							if (was) routes.hold(conversation, was);
 							keep(async () => {
 								try {
+									// It keeps what the host held of what it was.
+									const before = heldEntry(left);
+									const holds = vouched(entry, before);
 									// Named first, as a first answer's is, with what it
 									// was, so a host ending before the roster changes
 									// leaves the next one to replace it, not hold both.
-									await writeSlot(slot, entry, false, left);
-									const before = heldAs(left);
-									if (before) await roster.replace(before, entry);
-									else await roster.hold(entry);
+									await writeSlot(slot, holds, false, left);
+									if (before) await roster.replace(before.sessionId, holds);
+									else await roster.hold(holds);
 								} catch (error) {
 									// Unheld, so stopped: nothing runs a conversation no
 									// later host would resume.
@@ -774,16 +887,21 @@ export function childSupervisor(options: {
 		woken: boolean,
 		work: () => Promise<T>,
 	): Promise<T> {
-		if (!(await free(slot)))
-			throw new Error(`A child runs in ${slot.unit} already`);
-		inUse.add(slot.unit);
+		// Taken only once free, so a slot another child runs in is left be.
+		let taken = false;
 		try {
-			stillWatching();
-			await writeSlot(slot, session, woken);
-			await units.start(slot.unit);
+			await claimed(slot.unit, async () => {
+				if (!(await free(slot)))
+					throw new Error(`A child runs in ${slot.unit} already`);
+				inUse.add(slot.unit);
+				taken = true;
+				stillWatching();
+				await writeSlot(slot, session, woken);
+				await units.start(slot.unit);
+			});
 			return await work();
 		} catch (error) {
-			if (!closing) void leave(slot, true);
+			if (taken && !closing) void leave(slot, true);
 			throw error;
 		}
 	}
@@ -803,7 +921,15 @@ export function childSupervisor(options: {
 		// Its last process may be leaving a slot named by another id, and
 		// a forsaken one may run it still.
 		for (const last of [...(ranIn.get(keyed(sessionId))?.values() ?? [])])
-			if (last.unit !== slot.unit && !(await free(last)))
+			if (
+				last.unit !== slot.unit &&
+				!(await claimed(
+					last.unit,
+					// A start there since may have freed the slot of it already.
+					async () =>
+						!ranIn.get(keyed(sessionId))?.has(last.unit) || free(last),
+				))
+			)
 				throw new Error(`${sessionId} still runs in ${last.unit}`);
 		return inSlot(
 			slot,
@@ -1000,26 +1126,41 @@ export function childSupervisor(options: {
 			const by = Date.now() + beginsWithinMs;
 			const slot = slotOf(options.folder, options.key, randomUUID());
 			// An adopt's file, too, must be one no host holds: one the roster
-			// holds is resumed in the slot its own id names, never begun beside.
+			// holds is resumed in the slot its own id names, never begun beside,
+			// so it is refused before any child opens it.
 			const fresh = true;
+			const file =
+				request.op === "adopt" ? resolve(request.sessionFile) : undefined;
+			if (file !== undefined && fileHeld(file))
+				return Promise.reject(new Error(`Conversation already held: ${file}`));
+			if (file !== undefined) adoptingFiles.add(file);
+			const asked: Vouched = {
+				attended: request.attended,
+				...(request.quest !== undefined ? { quest: request.quest } : {}),
+				...(request.env !== undefined ? { launch: request.env } : {}),
+			};
 			return inSlot(slot, undefined, false, async () => {
 				const reply = await firstAsked(slot, request, by);
 				// A stop during the ask ends it, and the begin with it.
 				stillWatching();
 				if (!reply.ok && madeByHost(reply))
-					return unsettled(slot, request, reply, { fresh, by });
+					return unsettled(slot, request, reply, { fresh, asked, by });
 				// A child that couldn't start its conversation is stopped.
 				if (!reply.ok) throw new RefusedBeginning(reply);
 				// The watch must name what the answer named.
 				const { result } = reply;
 				const answered = isRecord(result) ? result.sessionId : undefined;
 				const expected = typeof answered === "string" ? answered : "";
-				await watch(slot, { expected, fresh, by });
+				await watch(slot, { expected, fresh, asked, by });
 				return reply;
-			}).catch((error) => {
-				if (error instanceof RefusedBeginning) return error.reply;
-				throw error;
-			});
+			})
+				.catch((error) => {
+					if (error instanceof RefusedBeginning) return error.reply;
+					throw error;
+				})
+				.finally(() => {
+					if (file !== undefined) adoptingFiles.delete(file);
+				});
 		},
 		adopt() {
 			adopting ??= adoptAll().finally(() => {

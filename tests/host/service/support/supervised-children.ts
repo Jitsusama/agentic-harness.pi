@@ -63,9 +63,12 @@ export function entry(sessionId: string): RosterEntry {
 	};
 }
 
+/** The environment an open or adopt carries, which its child launches with. */
+export const CARRIED = { PI_SANDBOX: "agent" };
+
 /** What an open's child derives for its conversation, launch and all. */
 export function derived(sessionId: string): RosterEntry {
-	return { ...entry(sessionId), attended: true, launch: { PI_ARM: "b" } };
+	return { ...entry(sessionId), attended: true, launch: CARRIED };
 }
 
 /** The shared roster in memory, and what a test makes it do. */
@@ -163,6 +166,8 @@ export interface FakeUnits extends Units {
 	goneFails?: number;
 	/** How many of the next stops fail once their unit has gone. */
 	stopFails?: number;
+	/** The next stop returns, or fails, only once this settles. */
+	stopReturns?: Promise<void>;
 }
 
 /** How a fake child answers. */
@@ -352,6 +357,9 @@ function fakeUnits(): FakeUnits {
 			}
 			await fake.children.get(unit)?.exit();
 			fake.children.delete(unit);
+			const returns = fake.stopReturns;
+			fake.stopReturns = undefined;
+			await returns;
 			if (fake.stopFails) {
 				fake.stopFails -= 1;
 				throw new Error(`Failed to stop ${unit}: Connection timed out`);
@@ -419,6 +427,7 @@ export function adopting(id: string, sessionId: string) {
 		op: "adopt" as const,
 		sessionFile: join(folder, `${sessionId}.jsonl`),
 		attended: true,
+		env: CARRIED,
 	};
 }
 
@@ -430,6 +439,7 @@ export function opening(id: string) {
 		op: "open" as const,
 		cwd: "/home",
 		attended: true,
+		env: CARRIED,
 	};
 }
 
@@ -453,7 +463,7 @@ export function pause(ms: number): Promise<void> {
  */
 export function superviseEachTest(): void {
 	beforeEach(async () => {
-		// Short, since a socket's path may run to no more than 107 bytes.
+		// Short, since a socket's path may run to no more than 103 bytes.
 		folder = await mkdtemp(join(tmpdir(), "cs-"));
 		routes = heldChildren();
 		// As a host holds what it resumes before it resumes it.
