@@ -71,7 +71,7 @@ export function derived(sessionId: string): RosterEntry {
 /** The shared roster in memory, and what a test makes it do. */
 export interface FakeRoster extends KeptRoster {
 	held: RosterEntry[];
-	/** Refuse every hold, as a roster that can't be written would. */
+	/** Refuse every hold and replace, as a roster that can't be written would. */
 	refuses?: boolean;
 	/** Each hold waits on this before it writes, as a slow disk would. */
 	written?: Promise<void>;
@@ -101,6 +101,7 @@ export function fakeRoster(held: RosterEntry[]): FakeRoster {
 			fake.held = [...fake.held, entry];
 		},
 		async replace(previousId, entry) {
+			if (fake.refuses) throw new Error("The roster can't be written");
 			if (!holds(previousId)) throw new Error("Conversation is not held");
 			if (clashes(entry, previousId)) throw new Error("Held already");
 			fake.held = fake.held.map((one) =>
@@ -150,6 +151,8 @@ export interface FakeUnits extends Units {
 	};
 	/** A stop is taken, but its unit runs on, as one systemd can't stop. */
 	lingers?: boolean;
+	/** Refuse the next start, as systemd refuses a unit it can't run. */
+	refusesStart?: boolean;
 	/** How many of the next asks whether a unit has gone fail. */
 	goneFails?: number;
 }
@@ -293,6 +296,10 @@ function fakeUnits(): FakeUnits {
 		children: new Map(),
 		async start(unit) {
 			fake.started.push(unit);
+			if (fake.refusesStart) {
+				fake.refusesStart = false;
+				throw new Error(`Failed to start ${unit}: Unit not found`);
+			}
 			const next = fake.next ?? {};
 			fake.next = undefined;
 			// Held as running from the start, as systemd holds a unit it runs.
@@ -349,6 +356,7 @@ interface Clocks {
 	answersWithinMs?: number;
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
+	unsettledWithinMs?: number;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {
@@ -380,6 +388,17 @@ export function superviseAgain(
 	if (again.held) roster = fakeRoster(again.held);
 	if (again.nextHost) routes = heldChildren();
 	supervisor = supervise(again.clocks);
+}
+
+/** An adopt request, as a caller sends one for the file of `sessionId`. */
+export function adopting(id: string, sessionId: string) {
+	return {
+		v: 1 as const,
+		id,
+		op: "adopt" as const,
+		sessionFile: join(folder, `${sessionId}.jsonl`),
+		attended: true,
+	};
 }
 
 /** An open request, as a caller sends one. */

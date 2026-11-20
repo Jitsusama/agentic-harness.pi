@@ -6,6 +6,7 @@ import { slotOf, writeSlot } from "../../../host/service/child-units.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
 import {
 	a,
+	adopting,
 	b,
 	childOf,
 	conversation,
@@ -111,6 +112,53 @@ describe("a new conversation", () => {
 		expect(units.stopped).toEqual(units.started);
 		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
 		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("refuses to begin an adopt of a conversation the roster holds", async () => {
+		units.next = { opensAs: a };
+
+		await expect(
+			supervisor.begin(adopting("adopt-1", a)),
+		).rejects.toThrow(`opened ${a}, which the roster holds already`);
+
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
+		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("names what its child answered in its slot before the roster holds it", async () => {
+		const writing = deferred();
+		roster.written = writing.promise;
+
+		const beginning = supervisor.begin(opening("open-14"));
+
+		await vi.waitFor(async () => {
+			const slot = slotNamed(units.started[0] ?? "");
+			const named = JSON.parse(await readFile(slot.file, "utf8"));
+			expect(named.session, "named for the next host").toBeDefined();
+		});
+		expect(roster.held, "not held yet").toEqual([entry(a)]);
+		writing.settle();
+		expect(await beginning).toMatchObject({ ok: true });
+	});
+
+	it("names an unanswered open's conversation when its ask had time of its own", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 2_000,
+				unsettledWithinMs: 1_000,
+				answersWithinMs: 5_000,
+			},
+		});
+		units.next = { opensUnanswered: true };
+
+		const reply = await supervisor.begin(opening("open-15"));
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "open_unsettled" },
+		});
+		expect(routes.listed(), "routed to what it built").toHaveLength(1);
 	});
 
 	it("refuses a child whose watch names another conversation than it opened", async () => {
@@ -300,6 +348,44 @@ describe("a host starting again", () => {
 
 		expect(routes.routeOf(a)).toBeDefined();
 		expect(units.stopped).toEqual([]);
+		expect(said, "each try said").toEqual([
+			`${slot.unit}: gave its watch no answer, try 1 of 3`,
+			`${slot.unit}: gave its watch no answer, try 2 of 3`,
+		]);
+	});
+
+	it("starts no child for a conversation still leaving a slot named by another id", async () => {
+		const slot = slotOf(folder, key, "c0000000-0000-4000-8000-000000000003");
+		await writeSlot(slot, entry(b));
+		units.next = { unansweredWatches: 3 };
+		await units.start(slot.unit);
+		await vi.waitFor(() =>
+			expect(units.children.get(slot.unit), "it listens").toBeDefined(),
+		);
+		units.lingers = true;
+
+		expect(await supervisor.adopt(), "children taken up").toBe(0);
+
+		await expect(supervisor.resume(entry(b))).rejects.toThrow(
+			`${b} still runs in ${slot.unit}`,
+		);
+		expect(units.started, "no second process on b's file").toEqual([
+			slot.unit,
+		]);
+	}, 10_000);
+
+	it("takes up each child once when asked to adopt twice at once", async () => {
+		await supervisor.resume(entry(a));
+		superviseAgain({ nextHost: true });
+
+		const taken = await Promise.all([supervisor.adopt(), supervisor.adopt()]);
+
+		expect(taken, "one adopt's count, given to both").toEqual([1, 1]);
+		await childOf(a).end("parked");
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+		// Long enough for a second watch's ending to arrive, were there one.
+		await pause(LISTENS_AFTER_MS);
+		expect(ended, "one watch on it").toEqual([[a, "parked"]]);
 	});
 
 	it("holds the conversation an open's child became under the id it opened", async () => {
@@ -337,14 +423,15 @@ describe("a host starting again", () => {
 		expect(said).toEqual([expect.stringContaining("which another child runs")]);
 	});
 
-	it("starts no child beside one whose unit systemd wouldn't say had gone", async () => {
+	it("watches a child whose unit systemd wouldn't say had gone", async () => {
 		await supervisor.resume(entry(a));
 		superviseAgain({ nextHost: true });
 		units.goneFails = 1;
 
-		expect(await supervisor.adopt(), "children taken up").toBe(0);
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
 
-		await expect(supervisor.resume(entry(a))).rejects.toThrow("runs in");
+		const resumed = await supervisor.resume(entry(a));
+		expect(resumed.sessionId, "the child it watches").toBe(a);
 		expect(units.started, "no second child beside it").toHaveLength(1);
 	});
 

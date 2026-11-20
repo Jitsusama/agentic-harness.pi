@@ -39,20 +39,28 @@ child-supervisor.test.ts runs the supervisor against children in this
 process, started by fake units a little after their unit starts: a
 resume's slot naming its roster entry, one child for two resumes, a
 child ending before it listens or never listening given up, a host's
-stop at each step of a start, a child running another conversation
-refused, state, a new id and an ending each kept in the routes, a new
-id onto one held or run elsewhere refused, what a newer child adds
-passed over, an unreadable line and a silent exit as failed, a folder too
-long refused, and a slot kept in use while its unit may still run, and
-freed once it has gone.
+stop at each step of a start, a slow watch included, a unit systemd
+won't start, a child running another conversation refused and one
+naming its own in another case taken, state, a new id and an ending
+each kept in the routes, a child whose new id is held or run elsewhere
+or can't be held stopped, with a start of that id waiting on it, what
+a newer child adds passed over, an unreadable line and a silent exit
+as failed, and a folder too long refused.
+child-leaving.test.ts runs them as each leaves: a unit stopped three
+times before its slot is kept in use, naming the command that ends it,
+a systemd that once won't say asked again, and a slot freed once its
+unit has gone.
 child-opens.test.ts runs the same children for opens and adopts: an
 open asked of the child without the host's identity, a refusal
-stopping its child, an open of a held id or one its watch contradicts
-refused, an open answered late named rather than stopped, a begin's
-one deadline and a stop ending its ask, a resume waiting on the open's
-slot, and a host starting again taking up the children left running,
-under the ids they now run, a busy one tried again and a second one
-running a conversation stopped.
+stopping its child, an open or adopt of a held id or one its watch
+contradicts refused, its slot named before the roster holds it, an
+open answered late named rather than stopped, a begin's one deadline
+and a stop ending its ask, a resume waiting on the open's slot, and a
+host starting again taking up the children left running, once for two
+adopts, under the ids they now run, a busy one tried again with each
+try said, one systemd won't say has gone watched, a second one running
+a conversation stopped, and a start waiting on one it couldn't take up
+under another id.
 support/supervised-children.ts is their fake units, roster and
 children, each child's traits set by the test that starts it.
 child-units.test.ts checks a slot's paths and unit, and that a name
