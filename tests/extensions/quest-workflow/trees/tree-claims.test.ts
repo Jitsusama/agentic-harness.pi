@@ -388,37 +388,40 @@ describe("hearing that a sweep took a tree", () => {
 	});
 
 	// Root writes a folder whatever its mode, so the locked quest isn't.
-	it.skipIf(process.getuid?.() === 0)("forgets in every other quest when one quest's write fails, and throws nothing", async () => {
-		const root = questsRootHolding("/src/repo/.worktrees/spent");
-		const locked = questListing(
-			root,
-			"QEST-20260731-BBBBBB",
-			"active",
-			"/src/repo/.worktrees/spent",
-		);
-		const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-		const lockedDir = join(locked, "..");
-		chmodSync(lockedDir, 0o500);
-		try {
-			const pi = bus();
-			answerTreeClaims(pi as never, root);
-			forgetSweptTrees(pi as never, root);
+	it.skipIf(process.getuid?.() === 0)(
+		"forgets in every other quest when one quest's write fails, and throws nothing",
+		async () => {
+			const root = questsRootHolding("/src/repo/.worktrees/spent");
+			const locked = questListing(
+				root,
+				"QEST-20260731-BBBBBB",
+				"active",
+				"/src/repo/.worktrees/spent",
+			);
+			const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const lockedDir = join(locked, "..");
+			chmodSync(lockedDir, 0o500);
+			try {
+				const pi = bus();
+				answerTreeClaims(pi as never, root);
+				forgetSweptTrees(pi as never, root);
 
-			const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
-			pi.events.emit(WORK_TREES_SWEPT, swept);
+				const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
+				pi.events.emit(WORK_TREES_SWEPT, swept);
 
-			await vi.waitFor(() => {
-				const text = readFileSync(
-					join(root, "QEST-20260731-AAAAAA", "README.md"),
-					"utf8",
-				);
-				expect(text, "the quest it could write").not.toContain("spent");
-				const lines = said.mock.calls.map(([line]) => String(line));
-				expect(lines.join("")).toContain("QEST-20260731-BBBBBB");
-			});
-		} finally {
-			chmodSync(lockedDir, 0o700);
-			said.mockRestore();
-		}
-	});
+				await vi.waitFor(() => {
+					const text = readFileSync(
+						join(root, "QEST-20260731-AAAAAA", "README.md"),
+						"utf8",
+					);
+					expect(text, "the quest it could write").not.toContain("spent");
+					const lines = said.mock.calls.map(([line]) => String(line));
+					expect(lines.join("")).toContain("QEST-20260731-BBBBBB");
+				});
+			} finally {
+				chmodSync(lockedDir, 0o700);
+				said.mockRestore();
+			}
+		},
+	);
 });

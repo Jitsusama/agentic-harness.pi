@@ -9,6 +9,9 @@
  * its README, it reads quest by quest: on 20 November a signing on the
  * thread for a write held 1,495 quests' host for 6.1 s. Plain pi signs
  * every ask, as before.
+ *
+ * Long because every case here counts the same thread's calls through
+ * one fake filesystem, and splitting them would copy that counting.
  */
 
 import * as fs from "node:fs";

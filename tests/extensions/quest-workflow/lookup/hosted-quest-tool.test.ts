@@ -181,6 +181,8 @@ it("starts a session in a tree another process gave a quest since the last walk"
 		`trees:\n  - path: ${tree}\n    providerId: git-worktree\n` +
 			`    repoRoot: ${tree}\n    origin: scaffolded\n`,
 	);
+	const walked = discoverQuests(questsRoot).index.quests.get(beta.id);
+	expect(walked?.doc.frontMatter.trees ?? [], "the last walk").toEqual([]);
 	const state = createQuestState({ questsRoot });
 	const pi = fakePi();
 	const budgets = { keep: async () => undefined, forget: () => undefined };
