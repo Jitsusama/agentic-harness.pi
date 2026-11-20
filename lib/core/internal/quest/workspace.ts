@@ -153,7 +153,8 @@ async function unlessGone<T>(call: Promise<T>): Promise<T | undefined> {
 	try {
 		return await call;
 	} catch (error) {
-		if (Reflect.get(Object(error), "code") === "ENOENT") return undefined;
+		if (error instanceof Error && Reflect.get(error, "code") === "ENOENT")
+			return undefined;
 		throw error;
 	}
 }
