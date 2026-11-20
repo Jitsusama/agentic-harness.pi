@@ -35,7 +35,10 @@ import {
 	bwrapArgsFile,
 	guardedListFile,
 } from "../../../../lib/internal/fence/fence-args-file.ts";
-import { fencedCommand } from "../../../../lib/internal/fence/fence-command.ts";
+import {
+	bwrapWords,
+	fencedCommand,
+} from "../../../../lib/internal/fence/fence-command.ts";
 import { wrapFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 
 /**
@@ -155,6 +158,27 @@ describe("bubblewrap's arguments from a file", () => {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 	}
+
+	it("says when the variables it passes would take bubblewrap past its count, and never starts it", () => {
+		const fits = (count: number) => {
+			const args = Array.from({ length: count }, () => "--unshare-ipc");
+			const argsFile = bwrapArgsFile(runtimeDir, args);
+			if (!argsFile) throw new Error("no file was written");
+			const fence = { bwrap, landrun, args: argsFile, rules: [] };
+			expect(bwrapWords(fence), "counted without the variables").toBe(
+				count + 3 + 1 + 2 * 2 + 4,
+			);
+			return runAsTheShell(fencedCommand("echo inside", fence));
+		};
+		// Its hundred-odd variables are some 200 words beside the line.
+		const over = fits(BWRAP_MOST_ARGS - 100);
+		expect(over.status).toBe(126);
+		expect(over.stdout, "bubblewrap started").toBe("");
+		expect(over.stderr).toContain(`past the ${BWRAP_MOST_ARGS} it takes`);
+		const under = fits(BWRAP_MOST_ARGS - 1000);
+		expect(under.stderr).toBe("");
+		expect(under.stdout).toBe(`read ${BWRAP_MOST_ARGS - 1000}\ninside\n`);
+	});
 
 	it(`starts a command whose session holds ${TREES} trees`, () => {
 		const args = heldTreeArgs(TREES);
@@ -325,7 +349,7 @@ describe("bubblewrap's arguments from a file", () => {
 		expect(ran.stdout, "descriptor 3 reached the command").toBe("free\n");
 	});
 
-	it("refuses a text too long to start, naming the command or the runtime folder as what made it so", () => {
+	it("refuses a text too long to start, blaming the command for its own length, runtime folder or not", () => {
 		const home = join(folder, "home");
 		mkdirSync(home, { recursive: true });
 		const long = `echo ${"x".repeat(LONGEST_STRING)}`;
@@ -344,7 +368,11 @@ describe("bubblewrap's arguments from a file", () => {
 		expect(noFolder.length, "the long text went through").toBeLessThan(
 			LONGEST_STRING,
 		);
-		expect(noFolder).toContain("XDG_RUNTIME_DIR");
+		expect(
+			noFolder,
+			"the runtime folder blamed for the command's own length",
+		).not.toContain("XDG_RUNTIME_DIR");
+		expect(noFolder).toContain("put it in a script and run that");
 	});
 
 	it("is how a fenced session's command reads them, when there is a runtime folder", () => {

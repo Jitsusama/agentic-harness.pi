@@ -7,7 +7,7 @@
  */
 
 import { quoted, SANDBOXED_COMMAND } from "../sandbox/sandbox-shell.ts";
-import type { ArgsFile } from "./fence-args-file.ts";
+import { type ArgsFile, BWRAP_MOST_ARGS } from "./fence-args-file.ts";
 import {
 	type GitHubDoor,
 	openedOutside,
@@ -81,9 +81,13 @@ export function fencedCommand(
 	const closed = file ? `exec ${ARGS_FD}<&-; ` : "";
 	const run = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
 	const stub = `${closed}${pointedInside(fence.github, run)}`;
+	const known = bwrapWords(fence);
 	return [
 		...openedOutside(fence.github),
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,
+		// The variables passed are known only here, and bubblewrap counts
+		// them too, so here is where a line it would refuse is said.
+		`if [ $((${known} + \${#__pi_env[@]})) -gt ${BWRAP_MOST_ARGS} ]; then printf '%s\\n' "The fence would hand bubblewrap $((${known} + \${#__pi_env[@]})) arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds and the variables it exports, so release the trees it is done with." >&2; exit 126; fi`,
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
 			quoted(fence.bwrap),
@@ -114,4 +118,38 @@ export function fencedCommand(
 			`-- bash -c ${quoted(stub)}`,
 		].join(" "),
 	].join("\n");
+}
+
+/** Each `--env NAME=value` the line passes landrun beside the variables. */
+const ENV_WORDS = 2;
+
+/**
+ * How many arguments bubblewrap counts on `fence`'s line, beside the
+ * `--env` pair for each variable the shell passes: those it reads from
+ * the file, and every word of its own command line after its name,
+ * landrun's half after `--` included.
+ */
+export function bwrapWords(
+	fence: Pick<
+		Parameters<typeof fencedCommand>[1],
+		"args" | "rules" | "door" | "agent" | "homes" | "shims" | "display"
+	>,
+): number {
+	const own =
+		"path" in fence.args
+			? fence.args.args.length + ["--args", `${ARGS_FD}`, "--"].length
+			: fence.args.length + ["--"].length;
+	const passed = [
+		SANDBOXED_COMMAND,
+		fence.door,
+		"GIT_OPTIONAL_LOCKS",
+		fence.agent,
+		fence.shims,
+		fence.display,
+		...(fence.homes ?? []),
+	].filter(Boolean).length;
+	const landrun = ["landrun", ...fence.rules].length;
+	return (
+		own + landrun + passed * ENV_WORDS + ["--", "bash", "-c", "stub"].length
+	);
 }

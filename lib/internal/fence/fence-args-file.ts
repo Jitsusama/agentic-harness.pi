@@ -41,13 +41,13 @@ const UNUSED_FOR_MS = 24 * 60 * 60_000;
 const SWEEP_EVERY_MS = 60 * 60_000;
 
 /**
- * The most arguments a fenced command may hand bubblewrap. It counts its
- * whole command line toward MAX_ARGS (9,000 in bubblewrap.c), its own
- * name included, beside those `--args` reads: past 8,996 read from a
- * file behind `bwrap --args 3 --`, bubblewrap 0.13.1 refused to start
- * (measured 19 November). The inline form has fewer words of its own.
+ * The most arguments bubblewrap takes (MAX_ARGS in bubblewrap.c): those
+ * `--args` reads and every word of its command line after its own name,
+ * the command after `--` included. 8,996 read from a file behind
+ * `bwrap --args 3 -- true` started on bubblewrap 0.13.1, and 8,997
+ * didn't (measured 19 November).
  */
-export const BWRAP_MOST_ARGS = 9000 - ["bwrap", "--args", "3", "--"].length;
+export const BWRAP_MOST_ARGS = 9000;
 
 /** When this process last looked for unused list files. */
 let sweptAt = 0;
