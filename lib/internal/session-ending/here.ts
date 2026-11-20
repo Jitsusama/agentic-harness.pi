@@ -6,36 +6,23 @@
  * user lingers and that it kills no user processes at a log-out: the pi
  * hosts are user services and each holder runs in a scope under the
  * user's manager, so both outlive it (optimus, 19 November). And a
- * disruption is scheduled by a hold asking every session to answer it
- * once parked: a session parked for the asker is one whose lease board
- * says it waits on a standing hold of the asker's that names a
- * disruption. A hold alone says nothing of who parked, and nearly every
- * hold reaches the whole machine, whatever it is about (council of
- * 20 November), so neither its sending nor its reach is taken as more.
+ * session parks only once it is idle with nothing of its own still out,
+ * no run, background job, open prompt or unsent text, and then holds
+ * nothing an ending could lose (session/park.ts): its presence says so.
+ * Neither a hold nor an answer to one says a session parked, since a
+ * peer answers a hold to say it can't hold as readily as that it has,
+ * and the mesh moves an answer onto a hold that supersedes the one it
+ * answered (council of 20 November, round 3).
  *
  * Anything that can't be read spares nothing, as on a Mac, where there
- * is no logind, or a board that can't be read: a guess that spared a
- * session would be the one that ends its run.
+ * is no logind, or a presence that can't be read: a guess that spared
+ * a session would be the one that ends its run.
  */
 
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
-import {
-	createBoard,
-	type Holding,
-	isCurrent,
-	ownerOf,
-} from "../../mesh/lease.ts";
-import { senderOf } from "../../mesh/transport.ts";
+import { createPresences } from "../../mesh/presence.ts";
 import { everyRealmsDir } from "../paths.ts";
-
-/**
- * What a hold's opening words say when it is about ending the machine's
- * sessions: a reboot, restart, shutdown, power-off, log-out or switch
- * of users, in any form of the word.
- */
-const DISRUPTS =
-	/\b(?:reboot|restart|shut(?:ting)?[ -]?down|power(?:ing)?[ -]?off|log(?:ging)?[ -]?out|sign(?:ing)?[ -]?out|switch(?:ing)? users)/i;
 
 /**
  * Whether a log-out here leaves the services of `user`, a name or a
@@ -57,50 +44,21 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
 }
 
 /**
- * The sessions parked for `address`, by session id: those `board` says
- * wait, at `now`, on a hold of its that still stands and whose opening
- * words name a disruption. None when there is no address.
+ * The sessions on this machine, by id, whose presence in any realm says
+ * they parked, each realm's read off the thread, since a host runs
+ * every conversation on one.
  */
-export function parkedFor(
-	board: readonly Holding[],
-	address: string | undefined,
-	now: number,
-): Set<string> {
-	if (address === undefined) return new Set();
-	const disruptions = new Set(
-		board
-			.flatMap((holding) => holding.leases)
-			.filter(
-				(lease) =>
-					lease.kind === "hold" &&
-					isCurrent(lease, now) &&
-					senderOf(lease.subject) === address &&
-					DISRUPTS.test(lease.why ?? ""),
-			)
-			.map((lease) => lease.subject),
+export async function parkedHere(): Promise<Set<string>> {
+	const each = await Promise.all(
+		everyRealmsDir("state", "mesh-workflow").map((mesh) =>
+			createPresences(join(mesh, "presence")).listed(),
+		),
 	);
 	return new Set(
-		board
-			.filter((holding) =>
-				holding.leases.some(
-					(lease) =>
-						lease.kind === "wait" &&
-						isCurrent(lease, now) &&
-						disruptions.has(lease.subject),
-				),
-			)
-			.map(ownerOf),
-	);
-}
-
-/**
- * Every realm's lease board on this machine, as one: a hold and the
- * waits on it are in the realm its sender is in, and a reboot ends
- * every realm's sessions.
- */
-export function machineBoard(): Holding[] {
-	return everyRealmsDir("state", "mesh-workflow").flatMap((dir) =>
-		createBoard(join(dir, "leases")).all(),
+		each
+			.flat()
+			.filter((one) => one.state === "parked")
+			.map((one) => one.session),
 	);
 }
 

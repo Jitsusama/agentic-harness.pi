@@ -270,19 +270,19 @@ describe("a log-out on a machine whose services outlive it", () => {
 	});
 });
 
-describe("an ask from the session holding the machine", () => {
-	/** The sessions that answered the asker's hold, idle or not. */
+describe("an ask past the sessions that parked", () => {
+	/** The sessions whose presence says they parked, whatever the node reads. */
 	const holding = {
 		machine: "optimus",
 		lingers: false,
-		parked: new Set(["a00001", "b00001", "c00001", "d00001"]),
+		parked: new Set(["a00001", "b00001", "c00001", "d00001", "e00001"]),
 	};
 	const here = [
 		on("optimus", "idle", "A00001"),
 		on("optimus", "idle", "B00001"),
 	];
 
-	it("still counts an idle session there that hasn't answered its hold", () => {
+	it("still counts an idle session there that hasn't parked", () => {
 		const reason = refusalOf(
 			[ask("reboot", "optimus")],
 			[...here, on("optimus", "idle", "F00001")],
@@ -294,16 +294,16 @@ describe("an ask from the session holding the machine", () => {
 		expect(reason).not.toMatch(/A00001|B00001/);
 	});
 
-	it("goes ahead past the sessions its hold parked there", () => {
+	it("goes ahead past the sessions parked there", () => {
 		for (const act of ["log out", "reboot", "shut down"] as const) {
 			expect(
 				refusalOf([ask(act, "optimus")], here, SELF, holding),
-				`${act} under the asker's own hold`,
+				`${act} past parked sessions`,
 			).toBeUndefined();
 		}
 	});
 
-	it("still counts a session there that is busy, or out of reach, which hasn't parked", () => {
+	it("still counts a session there busy, or out of reach, since it parked", () => {
 		const reason = refusalOf(
 			[ask("reboot", "optimus")],
 			[
@@ -320,7 +320,7 @@ describe("an ask from the session holding the machine", () => {
 		expect(reason).not.toMatch(/A00001|B00001/);
 	});
 
-	it("still counts another machine's sessions, which its hold doesn't reach", () => {
+	it("still counts another machine's sessions, whose presence isn't read here", () => {
 		const reason = refusalOf(
 			[ask("reboot", "equilibrius")],
 			[...here, on("equilibrius", "idle", "E00001")],

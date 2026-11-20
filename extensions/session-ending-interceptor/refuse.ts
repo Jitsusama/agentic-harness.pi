@@ -39,15 +39,12 @@ export interface SessionEndingDeps {
 	/** This machine's name, for an ask read while the node can't be. */
 	readonly here: () => string;
 	/**
-	 * What spares this machine's sessions from an ask by the session the
-	 * node knows by `address`: a log-out that leaves the user's services
-	 * running, and the sessions parked on its standing hold of a
-	 * disruption. Asked only of an
-	 * ask that would be refused without it; without it, nothing is.
+	 * What spares this machine's sessions from an ask: a log-out that
+	 * leaves the user's services running, and the sessions whose presence
+	 * says they parked. Asked only of an ask that would be refused
+	 * without it; without it, nothing is.
 	 */
-	readonly spares?: (
-		address: string | undefined,
-	) => Promise<Omit<Here, "machine">>;
+	readonly spares?: () => Promise<Omit<Here, "machine">>;
 }
 
 /**
@@ -198,9 +195,8 @@ export async function refusalFor(
 	];
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;
-	const address = sessions.find((one) => one.id === self)?.address;
 	try {
-		const here = { machine: deps.here(), ...(await deps.spares(address)) };
+		const here = { machine: deps.here(), ...(await deps.spares()) };
 		return refusalOf(asks, sessions, self, here);
 	} catch {
 		// What spares a session couldn't be read, so it spares none.

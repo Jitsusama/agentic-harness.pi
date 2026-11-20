@@ -95,8 +95,7 @@ may import from here, and any of it may change without notice.
   out, reboot, restart, shut down or switch users on a machine,
   whether the node's sessions there let it be asked, and what on this
   machine spares a session from one (a log-out its services outlive,
-  parking for the asker's hold of a disruption), for
-  `session-ending-interceptor`.
+  a session that parked), for `session-ending-interceptor`.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on

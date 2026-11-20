@@ -1,8 +1,7 @@
 /**
  * What this machine knows of itself lets an ask through that would
- * otherwise be refused: a log-out its sessions outlive, and the asks of
- * a session whose hold of a disruption its sessions answered once
- * parked; anything unread spares nothing.
+ * otherwise be refused: a log-out its sessions outlive, and any ask
+ * past the sessions that parked; anything unread spares nothing.
  */
 
 import {
@@ -46,7 +45,7 @@ const hosted = (state: string): NodeSession => ({
 });
 
 let pi: FakePi;
-let askedOf: (string | undefined)[];
+let asked = 0;
 
 /** The interceptor over `node`'s sessions, its spares answering `spares`. */
 function interceptorOver(
@@ -63,11 +62,11 @@ function interceptorOver(
 	})(pi);
 }
 
-/** Spares answering `lingers` and `parked`, noting whom they were asked of. */
+/** Spares answering `lingers` and `parked`, counting how often asked. */
 const answering =
 	(lingers: boolean, parked: string[] = []): SessionEndingDeps["spares"] =>
-	async (address) => {
-		askedOf.push(address);
+	async () => {
+		asked += 1;
 		return { lingers, parked: new Set(parked) };
 	};
 
@@ -107,7 +106,7 @@ const look = (ask: string) =>
 	);
 
 beforeEach(() => {
-	askedOf = [];
+	asked = 0;
 	setSessionMode(GUARD, "block");
 	forgetRedirects();
 });
@@ -117,7 +116,7 @@ describe("what spares this machine's sessions", () => {
 		interceptorOver([hosted("busy"), me], answering(true));
 
 		expect(await reply("Please log out of niri on optimus.")).toBeUndefined();
-		expect(askedOf).toEqual(["0IM95G"]);
+		expect(asked).toBe(1);
 	});
 
 	it("still withholds a reboot of hosted sessions", async () => {
@@ -126,7 +125,7 @@ describe("what spares this machine's sessions", () => {
 		expect(await reply("Please reboot optimus.")).toBeDefined();
 	});
 
-	it("lets the holder's own reboot through past the sessions that parked", async () => {
+	it("lets a reboot through past the sessions that parked", async () => {
 		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
 
 		expect(await look("Reboot optimus to install it")).toBeUndefined();
@@ -140,7 +139,7 @@ describe("what spares this machine's sessions", () => {
 		});
 	});
 
-	it("still refuses the holder's reboot of a session still busy", async () => {
+	it("still refuses a reboot of a session busy since it parked", async () => {
 		interceptorOver([hosted("busy"), me], answering(false, ["hosted"]));
 
 		expect(await look("Reboot optimus to install it")).toMatchObject({
@@ -164,7 +163,7 @@ describe("what spares this machine's sessions", () => {
 		await reply("Please reboot optimus.");
 		await reply("All done here.");
 
-		expect(askedOf).toEqual([]);
+		expect(asked).toBe(0);
 	});
 });
 
@@ -185,53 +184,42 @@ describe("what spares, read by default", () => {
 		chmodSync(path, 0o755);
 	};
 
-	/** A session's leases on the board, as the mesh writes them. */
-	const leases = (session: string, kind: string, why: string) => {
+	/** A session's presence, as the mesh writes it. */
+	const presence = (session: string, state: string) => {
 		const dir = join(
 			bin,
 			"pi",
 			"agentic-harness.pi",
 			"mesh-workflow",
-			"leases",
+			"presence",
 		);
 		mkdirSync(dir, { recursive: true });
-		const until = new Date(Date.now() + 60_000).toISOString();
 		writeFileSync(
 			join(dir, `${session}.json`),
 			JSON.stringify({
 				session,
-				leases: [
-					{
-						kind,
-						subject: "1795156260318-WCJQSG-36083-8e7eac05",
-						since: new Date().toISOString(),
-						until,
-						why,
-					},
-				],
+				addresses: [session.toUpperCase()],
+				groups: ["#all"],
+				busy: false,
+				state,
 			}),
 		);
 	};
 
-	it("asks logind of this user, and the board who parked for the asker", async () => {
+	it("asks logind of this user, and the presences who parked", async () => {
 		vi.stubEnv("XDG_STATE_HOME", bin);
 		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
 		stub("busctl", 'echo "b false"');
-		leases("holder", "hold", "WCJQSG hold: rebooting optimus for its BIOS");
-		leases("hosted", "wait", "H00001 holding. Waiting on it: parked");
+		presence("hosted", "parked");
+		presence("waiting", "listening");
 		const deps = nodeDeps({
 			MYCELIUM_REALM: "work",
-			XDG_STATE_HOME: bin,
 			PATH: `${bin}:/usr/bin:/bin`,
 		});
 
-		expect(await deps.spares?.("WCJQSG")).toEqual({
+		expect(await deps.spares?.()).toEqual({
 			lingers: true,
 			parked: new Set(["hosted"]),
-		});
-		expect(await deps.spares?.("0IM95G")).toEqual({
-			lingers: true,
-			parked: new Set(),
 		});
 	});
 });

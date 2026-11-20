@@ -87,19 +87,21 @@ about two seconds spares nothing, as on a Mac, with no logind.
   scope under the user's manager. A session in a plain terminal, and
   any session on another machine, still counts; a reboot or a
   shutdown still ends them all.
-- **Sessions parked for the asker.** A disruption is scheduled by a
-  hold asking each session to answer it once parked, and a session
-  that answers waits on it, which the mesh's lease board records. So
-  when the asker has a standing hold whose opening words name a
-  reboot, restart, shutdown, power-off, log-out or switch of users, a
-  session on this machine that waits on that hold, and that the node
-  reads as idle, doesn't count for the asker's asks. A session that
-  hasn't answered still counts, as does one still busy or out of
-  reach, and so does every session for a hold about anything else,
-  since nearly every hold reaches the whole machine. Sessions on
-  another machine still count, and an ask that names no machine still
-  asks for the name. Every realm's board is read, since a reboot ends
-  every realm's sessions.
+- **Sessions that parked.** A session parks once it is idle with
+  nothing of its own still out (no run, background job, open prompt
+  or unsent text), and its presence then says `parked`. It holds
+  nothing an ending could lose, so a session on this machine whose
+  presence says so, and that the node reads as idle, doesn't count,
+  whoever asks. That is how a scheduled disruption goes through once
+  the sessions it asked to park have. A holder's parked session
+  already reads as ended; a host's reads idle, since the host lives
+  on. One the node reads busy or out of reach still counts, whatever
+  its presence last said, and so does an idle session that hasn't
+  parked. A hold, or an answer to one, is not taken as parking: a
+  peer answers a hold to say it can't hold as readily as that it has.
+  Sessions on another machine still count, and an ask that names no
+  machine still asks for the name. Every realm's presences are read,
+  since a reboot ends every realm's sessions.
 
 Whatever fails while reading either spares nothing, and the ask is
 refused as it would have been.

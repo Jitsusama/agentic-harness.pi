@@ -11,9 +11,9 @@
  * read, under the no-session-ending-ask-while-live guard. A session a
  * log-out leaves running, hosted or held where the user's services
  * outlive it, doesn't count for a log-out, and an idle one on this
- * machine that waits on the asker's standing hold of a disruption has
- * parked for it, which is how a disruption is scheduled, so it doesn't
- * count for that asker. Every realm's
+ * machine whose presence says it parked, with nothing of its own still
+ * out, doesn't count for any ask, which is how a disruption once
+ * scheduled goes through. Every realm's
  * node on the machine is read, since a reboot ends the sessions of all
  * of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
@@ -50,8 +50,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
 	logOutSpares,
-	machineBoard,
-	parkedFor,
+	parkedHere,
 } from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
@@ -152,6 +151,8 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
  * find its socket in, or one no socket's file may carry, is still on
  * the mesh, so its node reads as one that can't be, and so does every
  * node when any one can't be read.
+ * logind is asked on `env`'s PATH; presences are read where every store
+ * of the package keeps its state, from the process's own environment.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
@@ -173,17 +174,17 @@ export function nodeDeps(
 			return rememberMachines(rememberedMachinesFile(env), read);
 		},
 		here: () => thisMachine(),
-		spares: async (address) => {
+		spares: async () => {
 			const exec = spawnExec({
 				timeoutMs: SPARES_PATIENCE_MS,
 				killGraceMs: SPARES_KILL_GRACE_MS,
 				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
 			});
-			const lingers = await logOutSpares(exec, String(userInfo().uid));
-			return {
-				lingers,
-				parked: parkedFor(machineBoard(), address, Date.now()),
-			};
+			const [lingers, parked] = await Promise.all([
+				logOutSpares(exec, String(userInfo().uid)),
+				parkedHere(),
+			]);
+			return { lingers, parked };
 		},
 	};
 }

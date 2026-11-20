@@ -117,7 +117,7 @@ describe("the machines kept", () => {
 		expect(existsSync(lock), "the stale lock is gone once written").toBe(false);
 	});
 
-	it("keeps what it read before the lock, though the file was spoilt while it waited", async () => {
+	it("keeps what it read before the lock, though the file was spoilt since", async () => {
 		await rememberMachines(file, ["optimus"]);
 		const lock = `${file}.lock`;
 		// A live process other than this one holds the lock, so the write waits.
