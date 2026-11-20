@@ -154,6 +154,26 @@ describe("the session's copies of dev's and git's settings", () => {
 		).toBe("[credential] written\n");
 	});
 
+	it("gives two conversations in one host, which share its pid, each only its own copies", () => {
+		const first = copiesOf("s-1");
+		const second = copiesOf("s-2");
+		if (!first || !second) throw new Error("no copies were made");
+		expect(second.dev).toBe(join(sessions, "s-2.100", "dev"));
+		writeFileSync(join(first.dev, "gitconfig"), "[credential] first\n");
+		expect(copiesOf("s-2"), "the second finds its own copies again").toEqual(
+			second,
+		);
+		expect(readFileSync(join(second.dev, "gitconfig"), "utf8")).toBe(
+			"[credential]\n",
+		);
+		expect(copiesOf("s-1"), "the first finds its own copies again").toEqual(
+			first,
+		);
+		expect(readFileSync(join(first.dev, "gitconfig"), "utf8")).toBe(
+			"[credential] first\n",
+		);
+	});
+
 	it("makes a fresh set once the person's files change, leaving the set a running command holds", () => {
 		const copies = copiesOf("s-1");
 		if (!copies) throw new Error("no copies were made");
@@ -210,7 +230,7 @@ describe("the session's copies of dev's and git's settings", () => {
 		expect(copiesOf("s-1")).toEqual(copies);
 		expect(
 			existsSync(join(copies.dev, "gitconfig")),
-			"the kept set still holds dev's gitconfig",
+			"the set made again holds dev's gitconfig",
 		).toBe(true);
 	});
 
@@ -271,12 +291,12 @@ describe("the session's copies of dev's and git's settings", () => {
 			throw new Error("no mkfifo to make a pipe");
 		const copies = copiesOf("s-1");
 		if (!copies) throw new Error("no copies were made");
-		expect(existsSync(join(copies.dev, "pipe")), "a pipe was copied").toBe(
+		expect(existsSync(join(copies.dev, "pipe")), "no pipe is copied").toBe(
 			false,
 		);
 		expect(
 			existsSync(join(copies.dev, "gitconfig")),
-			"dev's gitconfig wasn't copied",
+			"dev's gitconfig is copied",
 		).toBe(true);
 	});
 
@@ -287,7 +307,7 @@ describe("the session's copies of dev's and git's settings", () => {
 		copiesOf("s-1");
 		expect(
 			existsSync(join(sessions, "s-1.100", "git", "config")),
-			"another namespace's copies were removed",
+			"another namespace's copies are kept",
 		).toBe(true);
 	});
 
@@ -315,15 +335,15 @@ describe("the session's copies of dev's and git's settings", () => {
 		if (!copies) throw new Error("no copies were made");
 		expect(
 			existsSync(join(copies.dev, "keys")),
-			"a hidden folder was copied",
+			"a hidden folder isn't copied",
 		).toBe(false);
 		expect(
 			existsSync(join(copies.dev, "token")),
-			"a hidden file was copied",
+			"a hidden file isn't copied",
 		).toBe(false);
 		expect(
 			existsSync(join(copies.dev, "gitconfig")),
-			"dev's gitconfig wasn't copied",
+			"dev's gitconfig is copied",
 		).toBe(true);
 	});
 
@@ -335,9 +355,9 @@ describe("the session's copies of dev's and git's settings", () => {
 	});
 
 	it("tells a process that has ended from one still running", () => {
-		expect(running(process.pid), "this process reads as ended").toBe(true);
+		expect(running(process.pid), "this process reads as running").toBe(true);
 		const ended = spawnSync("true").pid;
-		expect(running(ended), "an ended process reads as running").toBe(false);
+		expect(running(ended), "an ended process reads as ended").toBe(false);
 	});
 
 	it("removes the copies of a pi that has ended, and nothing else there", () => {
@@ -363,7 +383,7 @@ describe("the session's copies of dev's and git's settings", () => {
 		expect(copiesOf("s-1")).toBeDefined();
 		expect(
 			existsSync(join(sessions, "s-2.300")),
-			"the ended pi's link was left",
+			"the ended pi's link is removed",
 		).toBe(false);
 		expect(readFileSync(join(victim, "kept"), "utf8")).toBe("kept\n");
 	});

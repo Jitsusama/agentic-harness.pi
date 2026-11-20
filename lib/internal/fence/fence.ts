@@ -64,9 +64,10 @@
  * environment, less what names the desktop. The strict profile
  * is for text a stranger wrote; the fence is for every session.
  *
- * Long because it is the fence's one declaration: what is hidden, what
- * is let through and what is kept read-only are read against each other,
- * so a path moved from one list to another is seen whole in one file.
+ * Long because it lays the whole fence out in the order bubblewrap
+ * applies it: the hidden list (data/fence-hidden.json) and the read-only
+ * one (fence-home.ts) are placed against what is let through here, and a
+ * later bind wins, so that order is read in one file.
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";
