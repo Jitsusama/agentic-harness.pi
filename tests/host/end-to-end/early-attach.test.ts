@@ -195,9 +195,10 @@ async function attachOnceListening(
 }
 
 /**
- * A fresh trusted folder whose own extension holds its conversation's
- * start until GO_ON appears there: pi loads it as it builds the
- * conversation, after the host lists it and before its screen exists.
+ * A fresh trusted folder whose own extension, allowed, holds its
+ * conversation's start until GO_ON appears there: pi loads it as it
+ * builds the conversation, after the host lists it and before its
+ * screen exists.
  */
 function heldAtStart(): string {
 	const cwd = work.trusted();
@@ -215,7 +216,7 @@ export default async function () {
 }
 `,
 	);
-	return cwd;
+	return work.allowCode(cwd);
 }
 
 /** The conversation the host lists, once it lists one. */

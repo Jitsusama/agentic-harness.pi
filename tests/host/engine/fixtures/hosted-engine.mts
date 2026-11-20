@@ -269,19 +269,31 @@ function refuseStore(sessionId: string): void {
 
 /** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
 function project(name: string): string {
+	const dir = emptyProject(name);
+	projectExtension(dir, "project", name);
+	return dir;
+}
+
+/** A project folder holding nothing yet, by its real path. */
+function emptyProject(name: string): string {
 	const dir = join(projects, name);
+	mkdirSync(dir, { recursive: true });
+	return realpathSync(dir);
+}
+
+/** Give `dir` an extension named `file` that notes each load in projectLoads as `loaded`. */
+function projectExtension(dir: string, file: string, loaded: string): void {
 	mkdirSync(join(dir, ".pi", "extensions"), { recursive: true });
 	writeFileSync(
-		join(dir, ".pi", "extensions", "project.ts"),
+		join(dir, ".pi", "extensions", `${file}.ts`),
 		[
 			'import { appendFileSync } from "node:fs";',
 			"export default function () {",
-			`\tappendFileSync(${JSON.stringify(projectLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded: name })}\n`)});`,
+			`\tappendFileSync(${JSON.stringify(projectLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded })}\n`)});`,
 			"}",
 			"",
 		].join("\n"),
 	);
-	return realpathSync(dir);
 }
 
 /** Whether a probe line is something other than its input handler's answer. */
@@ -1117,6 +1129,60 @@ const scenarios: Record<string, Scenario> = {
 				),
 			};
 			for (const id of [nobody, stored, asked]) await host.close(id);
+			return { ...seen, projectLoads: lines(projectLoads) };
+		},
+	},
+	/**
+	 * Code planted in trusted folders after the host first looked: one
+	 * opened with nobody to ask, one beside code the host found there and
+	 * then reloaded, and one whose screen is asked and allows it.
+	 */
+	"planted-code": {
+		responses: () => [],
+		screens: trustScreens,
+		run: async (engine, host) => {
+			const foundDir = project("found");
+			const plantedDir = emptyProject("planted");
+			const askedDir = emptyProject("asked");
+			writeFileSync(
+				join(agentDir, "trust.json"),
+				JSON.stringify({
+					[foundDir]: true,
+					[plantedDir]: true,
+					[askedDir]: true,
+				}),
+			);
+			const found = await open(engine, {}, { cwd: foundDir });
+			project("planted");
+			project("asked");
+			const planted = await open(engine, {}, { cwd: plantedDir });
+			projectExtension(foundDir, "beside", "found beside");
+			const runtime = engine.view(found)?.runtime;
+			if (!runtime) throw new Error("The found conversation has no runtime");
+			await runtime.session.reload();
+			const asked = await open(engine, {}, { cwd: askedDir, attended: true });
+			await until(
+				"the asked conversation's screen to be asked",
+				() => trustAsked.length > 0,
+				UNTIL_MS,
+			);
+			const question = trustAsked[0];
+			question?.answer("Yes");
+			await until(
+				"the asked conversation to be built",
+				() => screensOpened.has(asked),
+				UNTIL_MS,
+			);
+			const seen = {
+				question: question && {
+					asked: question.sessionId === asked,
+					title: question.title,
+					labels: question.labels,
+				},
+				questionsFor: trustAsked.map(({ cwd }) => basename(cwd)),
+				nobodySaid: engine.view(planted)?.runtime.diagnostics,
+			};
+			for (const id of [found, planted, asked]) await host.close(id);
 			return { ...seen, projectLoads: lines(projectLoads) };
 		},
 	},

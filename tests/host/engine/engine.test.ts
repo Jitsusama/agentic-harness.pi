@@ -873,6 +873,46 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"loads code planted in a trusted folder after the host first looked only once a person allows it",
+		async () => {
+			const seen = await step(hostFolder(), "planted-code");
+			expect(
+				seen.projectLoads,
+				"the code found at the first look loads, planted code only once allowed, and a reload leaves out code planted beside found code",
+			).toEqual([{ loaded: "found" }, { loaded: "asked" }]);
+			expect(seen.questionsFor, "only the attended open is asked").toEqual([
+				"asked",
+			]);
+			expect(seen.question).toMatchObject({
+				asked: true,
+				labels: ["Yes", "No"],
+			});
+			expect(seen.question?.title).toMatch(
+				/asked's \.pi holds code pi would run outside the sandbox \(\.pi\/extensions\/project\.ts\) that is new or changed since it was last allowed\.\nLoad it, as you would any program you run\?$/,
+			);
+			expect(seen.nobodySaid).toEqual([
+				{
+					type: "warning",
+					message: expect.stringMatching(
+						/planted's \.pi holds code .* nobody is at this conversation to allow it/,
+					),
+				},
+			]);
+			expect(seen.reported, "the reload's refusal reaches the journal").toEqual(
+				[
+					expect.stringMatching(
+						/^Conversation [\w-]+: .*planted's \.pi holds code/,
+					),
+					expect.stringMatching(
+						/^Conversation [\w-]+: .*found's \.pi holds code .*\.pi\/extensions\/beside\.ts.* this load leaves out/,
+					),
+				],
+			);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
 		"answers an open its screen says is asking the person, and shows what fails after",
 		async () => {
 			const seen = await step(hostFolder(), "open-asking");

@@ -212,6 +212,22 @@ ask, or unattended, a folder pi would ask about stays untrusted, and its
 start warns that its own settings and extensions were not loaded. A close
 while asking settles the question and builds nothing more.
 
+Trust alone isn't enough for code a folder's .pi holds, which pi runs
+outside the agents' sandbox: its extensions, MCP servers, installed
+packages and the settings that start a program (project-code.ts). A
+fenced command could write them into any folder under a trusted one,
+and the next build or reload would run them unfenced. So the host pins
+each folder's code, by its contents, in project-code.json in pi's agent
+folder, which the sandbox holds read-only. Code there at the host's
+first look is pinned as found, by its files' ctime, which nothing in
+userspace can set back. New or changed code asks an attended start's
+screen first (Load it, as you would any program you run?), and a yes
+pins it; unattended, or at a later load, the folder loads untrusted and
+the journal says why. Every load begins with pi reloading the settings,
+so the check runs there, before a reload's resources too. Skills,
+prompts and themes are words pi reads, and stay under pi's trust alone.
+A plain pi outside the host doesn't check the pins.
+
 An open answers once its first words are durable, so a failed prompt
 fails the open, except while something waits on the person no viewer can
 yet reach: the trust question, an extension command, or a dialog its

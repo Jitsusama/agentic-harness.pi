@@ -4,8 +4,21 @@
  * answer this host already gave the folder, then, where the folder holds
  * what needs trust, its extensions, pi's trust store and the default,
  * asking a person only where pi would and someone is there to answer.
+ *
+ * Code a trusted folder's .pi holds loads only as it was pinned
+ * (project-code.ts): new or changed code asks the person at the
+ * conversation's screen, and with nobody there the folder loads
+ * untrusted. The check runs again before each load of the folder's
+ * resources, a reload's included, so code written between loads waits
+ * for a yes too.
  */
 import type { HostPiModules } from "./host-pi.ts";
+import {
+	type CodeStanding,
+	codeStanding,
+	pin,
+	unpinnedSaying,
+} from "./project-code.ts";
 
 /** A question pi shows as it starts: a title and the labels to pick from, undefined when dismissed. */
 export type StartupQuestion = (
@@ -48,6 +61,9 @@ interface TrustStore {
 
 interface SettingsManager {
 	getDefaultProjectTrust(): string;
+	isProjectTrusted(): boolean;
+	setProjectTrusted(trusted: boolean): void;
+	reload(): Promise<void>;
 }
 
 interface SettingsManagerStatics {
@@ -81,21 +97,31 @@ export function projectTrust(
 	modules: Pick<HostPiModules, "codingAgent" | "projectTrust">,
 ): ProjectTrust {
 	const pi = trustModules(modules);
-	// pi's CLI keeps each folder's answer for its process; the host keeps it for its own life.
+	// pi's CLI keeps each folder's answer for its process; the host keeps it for its own life, for the code the folder held when answered.
 	const decided = new Map<string, boolean>();
 
 	return {
 		services(cwd, agentDir, asking) {
 			const store = new pi.ProjectTrustStore(agentDir);
 			const requiring = pi.hasTrustRequiringProjectResources(cwd);
-			const known = decided.get(cwd);
-			const resolving = known === undefined && requiring;
-			const projectTrusted = resolving
-				? false
-				: (known ?? store.get(cwd) ?? !requiring);
+			const standing = codeStanding(cwd, agentDir);
+			const answered = decisionKey(cwd, standing);
+			const known = decided.get(answered);
+			const unpinned = standing.kind === "unpinned";
+			// New code with nobody to ask stays out, whatever the folder's trust.
+			const refused = unpinned && asking.ask === undefined;
+			if (refused)
+				asking.warn(
+					`${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: nobody is at this conversation to allow it. Open a conversation there with a screen to be asked.`,
+				);
+			const resolving = !refused && known === undefined && requiring;
+			const projectTrusted =
+				!refused &&
+				(resolving ? false : (known ?? store.get(cwd) ?? !requiring));
 			const settingsManager = pi.SettingsManager.create(cwd, agentDir, {
 				projectTrusted,
 			});
+			guardLoads(settingsManager, cwd, agentDir, asking);
 			if (!resolving) return { settingsManager };
 			const defaultProjectTrust = pi.SettingsManager.create(
 				cwd,
@@ -105,6 +131,14 @@ export function projectTrust(
 				settingsManager,
 				resourceLoaderReloadOptions: {
 					async resolveProjectTrust({ extensionsResult }) {
+						if (standing.kind === "unpinned") {
+							const allowed = await allowCode(cwd, standing, asking);
+							if (!allowed) {
+								decided.set(answered, false);
+								return false;
+							}
+							pin(cwd, agentDir, standing.code);
+						}
 						const context = asking.context ?? questionContext(cwd, asking);
 						const trusted = await pi.resolveProjectTrusted({
 							cwd,
@@ -114,7 +148,7 @@ export function projectTrust(
 							projectTrustContext: context,
 							onExtensionError: (message) => asking.warn(message),
 						});
-						decided.set(cwd, trusted);
+						decided.set(answered, trusted);
 						const unanswered =
 							!trusted &&
 							asking.context === undefined &&
@@ -130,6 +164,52 @@ export function projectTrust(
 				},
 			};
 		},
+	};
+}
+
+/** What a folder's answer is kept under: the folder, and the code it held when answered. */
+function decisionKey(cwd: string, standing: CodeStanding): string {
+	return standing.kind === "none" ? cwd : `${cwd}\0${standing.code.digest}`;
+}
+
+/** Ask the person whether `cwd`'s new or changed code may run outside the sandbox. */
+async function allowCode(
+	cwd: string,
+	standing: CodeStanding & { kind: "unpinned" },
+	asking: TrustAsking,
+): Promise<boolean> {
+	if (!asking.ask) return false;
+	const answer = await asking.ask(
+		`${unpinnedSaying(cwd, standing.code)}.\nLoad it, as you would any program you run?`,
+		[YES, NO],
+	);
+	return answer === YES;
+}
+
+/**
+ * Check the folder's code again before each load of its settings and
+ * resources, which pi always begins by reloading the settings: a folder
+ * whose code changed since it loaded drops to untrusted for this
+ * conversation, said once, rather than load the change unasked.
+ */
+function guardLoads(
+	settingsManager: SettingsManager,
+	cwd: string,
+	agentDir: string,
+	asking: TrustAsking,
+): void {
+	const reload = settingsManager.reload.bind(settingsManager);
+	settingsManager.reload = async () => {
+		if (settingsManager.isProjectTrusted()) {
+			const standing = codeStanding(cwd, agentDir);
+			if (standing.kind === "unpinned") {
+				settingsManager.setProjectTrusted(false);
+				asking.warn(
+					`${unpinnedSaying(cwd, standing.code)}, so this load leaves out its own .pi settings and extensions. Open a conversation there with a screen to be asked.`,
+				);
+			}
+		}
+		return reload();
 	};
 }
 

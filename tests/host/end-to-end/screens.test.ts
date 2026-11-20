@@ -672,8 +672,13 @@ function panelFirst(overlay: boolean): string {
 	);
 }
 
-/** `cwd`, given an extension of its own named `name`. */
+/** `cwd`, given an extension of its own named `name`, allowed as a person's yes to its code would. */
 function withExtension(cwd: string, name: string, source: string): string {
+	return work.allowCode(planted(cwd, name, source));
+}
+
+/** `cwd`, given an extension of its own named `name` that nobody has allowed. */
+function planted(cwd: string, name: string, source: string): string {
 	const extensions = join(cwd, ".pi", "extensions");
 	mkdirSync(extensions, { recursive: true });
 	writeFileSync(join(extensions, name), source);
