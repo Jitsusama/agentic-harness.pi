@@ -22,6 +22,10 @@ describe("a cap refusal", () => {
 		expect(isCapRefusal(ALLOWED), "the allowed cap is a cap refusal").toBe(
 			true,
 		);
+		expect(
+			isCapRefusal('403 {"error":{"code":"usage_cap_exceeded"}}'),
+			"the cap's code alone is a cap refusal",
+		).toBe(true);
 	});
 
 	it("is no rate limit, other refusal or missing message", () => {
