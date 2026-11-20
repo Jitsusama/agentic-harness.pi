@@ -124,6 +124,13 @@ export interface BudgetRecord {
 	 * named for that (lib/budget/capped.ts).
 	 */
 	readonly because?: string;
+	/**
+	 * Present when a sure judgement of a session's folder and first
+	 * prompt named the budget, drawn on or in `unresolved`, so a reload
+	 * keeps it rather than paying to judge again; a folder's answer is
+	 * asked afresh instead, as the folder may name another by then.
+	 */
+	readonly judged?: true;
 }
 
 /** A budget named but not drawn on, and what was missing. */
@@ -190,6 +197,7 @@ export function recordIn(data: unknown): BudgetRecord | undefined {
 		...(typeof data.provider === "string" ? { provider: data.provider } : {}),
 		...(unresolved ? { unresolved } : {}),
 		...(typeof data.because === "string" ? { because: data.because } : {}),
+		...(data.judged === true ? { judged: true as const } : {}),
 	};
 }
 

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
 	emptyOverlay,
 	layBudget,
+	layOptedOut,
 	liftBudget,
+	setAsideOptedOut,
 	withoutBudget,
 } from "../../../lib/budget/environment.ts";
 import { budgetKeysOf } from "../../../lib/budget/index.ts";
@@ -211,5 +213,52 @@ describe("the environment without a budget", () => {
 			PATH: "/bin",
 		});
 		expect(env.KEY).toBe("team");
+	});
+
+	it("never carries an opt-out, laid or inherited, to a session for another quest", () => {
+		for (const lay of [true, false]) {
+			const env: NodeJS.ProcessEnv = lay ? {} : { PI_BUDGET_OPTED_OUT: "1" };
+			const overlay = emptyOverlay();
+			if (lay) layOptedOut(env, overlay);
+			else setAsideOptedOut(env, overlay);
+
+			expect(withoutBudget(env, overlay), String(lay)).toEqual({});
+		}
+	});
+});
+
+describe("an inherited opt-out set aside", () => {
+	it("is off while a quest says its own word, and back once the budget is lifted", () => {
+		const env: NodeJS.ProcessEnv = { PI_BUDGET_OPTED_OUT: "1" };
+		const overlay = emptyOverlay();
+
+		setAsideOptedOut(env, overlay);
+		expect("PI_BUDGET_OPTED_OUT" in env, "set aside").toBe(false);
+
+		liftBudget(env, overlay);
+		expect(env.PI_BUDGET_OPTED_OUT).toBe("1");
+	});
+
+	it("stays aside under a budget laid over it, such as a capped key's", () => {
+		const env: NodeJS.ProcessEnv = { PI_BUDGET_OPTED_OUT: "1" };
+		const overlay = emptyOverlay();
+
+		setAsideOptedOut(env, overlay);
+		layBudget(env, delta, overlay);
+		expect(Object.keys(env)).not.toContain("PI_BUDGET_OPTED_OUT");
+
+		liftBudget(env, overlay);
+		expect(env).toEqual({ PI_BUDGET_OPTED_OUT: "1" });
+	});
+
+	it("does nothing where none was inherited", () => {
+		const env: NodeJS.ProcessEnv = { KEY: "personal" };
+		const overlay = emptyOverlay();
+
+		setAsideOptedOut(env, overlay);
+		liftBudget(env, overlay);
+
+		expect(env).toEqual({ KEY: "personal" });
+		expect(overlay.laid.size).toBe(0);
 	});
 });

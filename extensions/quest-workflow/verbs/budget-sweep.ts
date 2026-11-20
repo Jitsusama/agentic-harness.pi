@@ -20,6 +20,11 @@
  * own word or a parent's can't be read is left alone, since a name
  * written under it might go against what it says. Naming leaves
  * `updated` as it was: the quest's work didn't change.
+ *
+ * Its judgements are the sweeping session's classifier calls, so they
+ * bill whatever that session draws on, and the answer says which.
+ * Drawing them on another key would mean moving the session's own
+ * environment under the model calls running beside them.
  */
 
 import { readFileSync } from "node:fs";
@@ -36,6 +41,7 @@ import {
 	budgetFoundInRecord,
 	NO_BUDGET,
 } from "../../../lib/internal/quest/fields/budget.ts";
+import { budgetOfSession } from "../budget.ts";
 import type { QuestState } from "../state.ts";
 import {
 	budgetFromFolder,
@@ -90,6 +96,7 @@ export async function budgetSweep(
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	const dry = params.dryRun === true;
+	const bills = budgetOfSession(ctx);
 	const { index } = discoverQuests(state.questsRoot);
 	const unnamed: [string, QuestEntry][] = [];
 	const unread: string[] = [];
@@ -164,9 +171,10 @@ export async function budgetSweep(
 	const judgedBefore = swept.flatMap((one) =>
 		"judgedBefore" in one ? [one.id] : [],
 	);
-	return ok(said(swept, dry, unread, judgedBefore), {
+	return ok(said(swept, dry, unread, judgedBefore, bills), {
 		dryRun: dry,
 		swept: swept.length,
+		judgingBills: bills,
 		named: swept.flatMap((one) => {
 			const name = nameOf(one);
 			return name ? [{ id: one.id, budget: name }] : [];
@@ -334,6 +342,7 @@ function said(
 	dry: boolean,
 	unread: readonly string[],
 	judgedBefore: readonly string[],
+	bills: string | null,
 ): string {
 	if (swept.length === 0 && unread.length === 0 && judgedBefore.length === 0) {
 		return "Every live quest draws on a budget named on it or above it, so there was nothing to sweep.";
@@ -388,6 +397,14 @@ function said(
 	const lines = [
 		`${dry ? "Dry run, nothing written. " : ""}Swept ${swept.length} live quests drawing on no budget: ${counts.join(", ")}.`,
 	];
+	const judging = swept.filter(
+		(one) => "judged" in one || "unjudged" in one,
+	).length;
+	if (judging > 0) {
+		lines.push(
+			`Its judging bills what this session draws on: ${bills === null ? "the person's own key" : `budget ${bills}`}.`,
+		);
+	}
 	if (named.length > 0) lines.push("", `${verb}:`, ...named);
 	if (unsure.length > 0) {
 		lines.push(

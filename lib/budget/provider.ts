@@ -125,11 +125,25 @@ export type Classify = (
 	signal?: AbortSignal,
 ) => Promise<ClassifierResult>;
 
-/** What a provider is told of work it judges the budget of. */
+/**
+ * What a provider is told of work it judges the budget of. Every field
+ * can hold words someone else wrote: a quest seeded from a link takes
+ * its title and summary from that issue's or page's author, a branch
+ * or folder is named by whoever made it, and a prompt can paste
+ * anything. So a provider hands them all to its classifier as data to
+ * weigh, never as instructions, lest whoever wrote them steer which
+ * budget pays.
+ */
 export interface WorkToBudget {
-	/** The quest's title, or for a session with none, its folder. */
+	/**
+	 * The quest's title, or for a session with none, its folder. Seeded
+	 * from a link, it is the link's author's.
+	 */
 	readonly title: string;
-	/** What the quest says it is about, when it says. */
+	/**
+	 * What the quest says it is about, when it says. Seeded from a link,
+	 * it holds an excerpt the link's author wrote.
+	 */
 	readonly summary?: string;
 	/** The absolute folder the work happens in, when there is one. */
 	readonly folder?: string;
