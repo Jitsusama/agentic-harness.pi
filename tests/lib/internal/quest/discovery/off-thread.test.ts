@@ -416,7 +416,11 @@ describe("answerInThread", () => {
 	it("starts no thread while one is held in a read past its wall", async () => {
 		// A FIFO with no writer holds its reader in the kernel, as a hung
 		// disk does, where ending the thread can't reach it.
-		const fifo = join(scratch(), "hung");
+		// Its own folder, which afterEach doesn't remove: a timed-out test
+		// runs afterEach before its finally, and a FIFO gone by then could
+		// never let its reader go.
+		const held = mkdtempSync(join(tmpdir(), "disc-fifo-"));
+		const fifo = join(held, "hung");
 		execFileSync("mkfifo", [fifo]);
 		const hangs = programOf(
 			'import { readFileSync } from "node:fs";\nimport { parentPort, workerData } from "node:worker_threads";\nparentPort.postMessage(String(readFileSync(workerData)));\n',
@@ -432,6 +436,7 @@ describe("answerInThread", () => {
 				// assertion that failed is the one worth hearing.
 			}
 		};
+
 		const answers = programOf(
 			'import { parentPort } from "node:worker_threads";\nparentPort.postMessage("here");\n',
 		);
@@ -446,10 +451,11 @@ describe("answerInThread", () => {
 			).rejects.toThrow("held in a read past its wall");
 			// The signing's own path hands the refusal up as one, so it reads
 			// as a give-up rather than a failure to sign on the thread.
-			const signing = await readTreeOffThread(
-				settledTree().root,
-				HANGS_AFTER_MS,
-			).catch((error: unknown) => error);
+			const { root } = settledTree();
+			roots.push(root);
+			const signing = await readTreeOffThread(root, HANGS_AFTER_MS).catch(
+				(error: unknown) => error,
+			);
 			expect(threadsHeld(signing), `a refusal: ${signing}`).toBe(true);
 			// A reload evaluates the module again; its copy counts the same.
 			vi.resetModules();
@@ -464,6 +470,7 @@ describe("answerInThread", () => {
 			);
 		} finally {
 			release();
+			rmSync(held, { recursive: true, force: true });
 		}
 		await vi.waitFor(
 			async () =>
@@ -473,6 +480,7 @@ describe("answerInThread", () => {
 				).toBe("here"),
 			{ timeout: 4_000 },
 		);
-		// The 3 s wall, its 1 s grace and the 4 s wait for a thread after.
+		// The 3 s wall, a 1 s grace for each of the three refusals, a module
+		// loaded again and the 4 s wait for a thread after.
 	}, 15_000);
 });

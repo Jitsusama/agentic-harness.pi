@@ -548,7 +548,10 @@ describe("discovery on a host", () => {
 			discoverQuestsAfresh(root),
 			"a hung disk is no tree to sign on the host's thread",
 		).rejects.toThrow("didn't answer a signing in time");
-		expect(statusNow(), "the last walk stands").toBe("active");
+		expect(
+			statusNow(),
+			"the last walk stands, so nothing read the paused README on the host's thread",
+		).toBe("active");
 	});
 
 	it("starts one signing at a time for a root", async () => {
