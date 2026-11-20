@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { GATE_ARM_MS } from "../../lib/ui/gate/gate-dock.ts";
 import { promptToggleList } from "../../lib/ui/prompt/prompt-toggle-list.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 const TITLE = "MARK-toggle Configure the thing";
 
@@ -105,9 +105,9 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 	for (let turn = 0; turn < (options.history ?? 0); turn++) {
 		session.answer(`MARK-history-${turn} ${"lorem ipsum ".repeat(12)}`);
 		await session.prompt(`question ${turn}`);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			`history turn ${turn}`,
+			() => !session.runtime.session.isStreaming,
 		);
 	}
 	session.faux.setResponses([
@@ -118,16 +118,16 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 	]);
 	session.mark("gate");
 	await session.prompt("raise it");
-	await waitFor(
-		async () => (await session.inBuffer("MARK-toggle")) > 0,
+	await screenUntil(
 		"the list",
+		async () => (await session.inBuffer("MARK-toggle")) > 0,
 	);
 	return session;
 }
 
 /** Waits for the list to take the keyboard, then for its arm to pass. */
 async function armed(session: PiSession): Promise<void> {
-	await waitFor(() => !session.editorFocused(), "the list to take focus");
+	await screenUntil("the list to take focus", () => !session.editorFocused());
 	await sleep(GATE_ARM_MS + 50);
 }
 
@@ -137,11 +137,13 @@ function overlaid(session: PiSession): unknown {
 }
 
 async function turnEnds(session: PiSession): Promise<void> {
-	await waitFor(
-		() => session.onScreen("MARK-after-the-gate"),
-		"the turn to carry on past the list",
+	await screenUntil("the turn to carry on past the list", () =>
+		session.onScreen("MARK-after-the-gate"),
 	);
-	await waitFor(() => !session.runtime.session.isStreaming, "the turn to end");
+	await screenUntil(
+		"the turn to end",
+		() => !session.runtime.session.isStreaming,
+	);
 	await sleep(50);
 }
 
@@ -171,7 +173,7 @@ describe("a toggle list raised by a tool", () => {
 
 	it("says the way out to the editor while it has the keys", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the list to take focus");
+		await screenUntil("the list to take focus", () => !session.editorFocused());
 
 		expect(await session.viewport()).toContainEqual(
 			expect.stringContaining("Ctrl+Alt+N editor"),
@@ -302,7 +304,7 @@ describe("a toggle list raised by a tool", () => {
 		await session.key("enter");
 		await session.key("ctrl+alt+n");
 		await session.key("escape");
-		await waitFor(() => answers.length === 1, "the list to answer");
+		await screenUntil("the list to answer", () => answers.length === 1);
 
 		expect(answers).toEqual([opening(3)]);
 	});

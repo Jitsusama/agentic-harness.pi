@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { bootPi, type PiSession, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil } from "./pi-session.ts";
 
 let pi: PiSession | undefined;
 
@@ -20,7 +20,7 @@ describe("the screen harness", () => {
 		pi = await bootPi();
 		pi.answer("MARK-answer from the faux model");
 		await pi.prompt("hello");
-		await waitFor(() => pi?.onScreen("MARK-answer") ?? false, "the answer");
+		await screenUntil("the answer", () => pi?.onScreen("MARK-answer") ?? false);
 		const verdict = await pi.verdict();
 		expect(verdict.desync).toEqual([]);
 		expect(verdict.hygiene).toEqual([]);
@@ -36,7 +36,7 @@ describe("the screen harness", () => {
 				},
 			],
 		});
-		await waitFor(() => pi?.onScreen("MARK-widget") ?? false, "the widget");
+		await screenUntil("the widget", () => pi?.onScreen("MARK-widget") ?? false);
 		expect(
 			pi.editorFocused(),
 			"the editor keeps the keys beside a docked widget",
@@ -65,7 +65,7 @@ describe("the screen harness", () => {
 					},
 				],
 			});
-			await waitFor(() => pi?.onScreen("MARK-next") ?? false, "the widget");
+			await screenUntil("the widget", () => pi?.onScreen("MARK-next") ?? false);
 			const screen = await pi.viewport();
 			const at = screen.findIndex((row) => row.startsWith("MARK-full"));
 			expect(at).toBeGreaterThanOrEqual(0);
@@ -81,12 +81,12 @@ describe("the screen harness", () => {
 		pi = await bootPi();
 		pi.answer("MARK-answer");
 		await pi.prompt("hello");
-		await waitFor(() => pi?.onScreen("MARK-answer") ?? false, "the answer");
+		await screenUntil("the answer", () => pi?.onScreen("MARK-answer") ?? false);
 		pi.term.write("\x1b[1;1HMARK-stray");
 		pi.ctx().ui.setStatus("nudge", "repaint");
-		await waitFor(
-			async () => ((await pi?.verdict())?.frames ?? 0) > 0,
+		await screenUntil(
 			"a frame",
+			async () => ((await pi?.verdict())?.frames ?? 0) > 0,
 		);
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		const verdict = await pi.verdict();

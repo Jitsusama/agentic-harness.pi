@@ -26,7 +26,7 @@ import {
 	setPanelHeightMode,
 } from "../../lib/ui/panel/panel-height.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";
 const APPROVED = { type: "action", key: "__enter__" };
@@ -129,7 +129,7 @@ async function boot(
 	pi = session;
 	session.answer(`MARK-history ${"lorem ipsum ".repeat(12)}`);
 	await session.prompt("question");
-	await waitFor(() => !session.runtime.session.isStreaming, "the history");
+	await screenUntil("the history", () => !session.runtime.session.isStreaming);
 	return session;
 }
 
@@ -149,17 +149,20 @@ async function turn(
 
 /** Waits for the gate to have the keys, and for its arm to pass. */
 async function gateHasKeys(session: PiSession): Promise<void> {
-	await waitFor(
-		async () => (await session.inBuffer("MARK-title")) > 0,
+	await screenUntil(
 		"the gate",
+		async () => (await session.inBuffer("MARK-title")) > 0,
 	);
-	await waitFor(() => !session.editorFocused(), "the gate to take focus");
+	await screenUntil("the gate to take focus", () => !session.editorFocused());
 	await sleep(GATE_ARM_MS + 50);
 }
 
 async function turnEnds(session: PiSession): Promise<void> {
-	await waitFor(() => session.onScreen("MARK-after"), "the turn to go on");
-	await waitFor(() => !session.runtime.session.isStreaming, "the turn to end");
+	await screenUntil("the turn to go on", () => session.onScreen("MARK-after"));
+	await screenUntil(
+		"the turn to end",
+		() => !session.runtime.session.isStreaming,
+	);
 	await sleep(100);
 }
 
@@ -187,7 +190,7 @@ describe("pi's selector opened over a gate", () => {
 			fauxToolCall("pick", { delay: 1500 }),
 		]);
 		await gateHasKeys(session);
-		await waitFor(() => session.onScreen("MARK-select"), "pi's selector");
+		await screenUntil("pi's selector", () => session.onScreen("MARK-select"));
 		// Read before it is answered, long enough for the gate to want the
 		// keys back if it would take them from anything.
 		await sleep(GATE_TYPING_IDLE_MS + 300);
@@ -195,13 +198,13 @@ describe("pi's selector opened over a gate", () => {
 		// The selector has the keys, not the gate.
 		await session.key("down");
 		await session.key("enter");
-		await waitFor(() => picks.length === 1, "the selector to answer");
+		await screenUntil("the selector to answer", () => picks.length === 1);
 		expect(picks).toEqual(["MARK-opt-b"]);
 		expect(gates).toEqual([]);
 
-		await waitFor(
-			() => !session.editorFocused(),
+		await screenUntil(
 			"the gate to take focus back",
+			() => !session.editorFocused(),
 		);
 		await sleep(GATE_ARM_MS + 50);
 		await session.key("enter");
@@ -219,13 +222,13 @@ describe("pi's selector opened over a gate", () => {
 			fauxToolCall("pick", { delay: 1500 }),
 		]);
 		await gateHasKeys(session);
-		await waitFor(() => session.onScreen("MARK-select"), "pi's selector");
+		await screenUntil("pi's selector", () => session.onScreen("MARK-select"));
 		await sleep(GATE_TYPING_IDLE_MS + 300);
 		await session.key("enter");
-		await waitFor(() => picks.length === 1, "the selector to answer");
-		await waitFor(
-			() => !session.editorFocused(),
+		await screenUntil("the selector to answer", () => picks.length === 1);
+		await screenUntil(
 			"the gate to take focus back",
+			() => !session.editorFocused(),
 		);
 
 		await session.key("ctrl+alt+n");
@@ -246,20 +249,20 @@ describe("a gate raised while pi's selector is open", () => {
 			fauxToolCall("pick", { delay: 0 }),
 			fauxToolCall("ask_gate", { delay: 800 }),
 		]);
-		await waitFor(() => session.onScreen("MARK-select"), "pi's selector");
-		await waitFor(
-			async () => (await session.inBuffer("MARK-title")) > 0,
+		await screenUntil("pi's selector", () => session.onScreen("MARK-select"));
+		await screenUntil(
 			"the gate",
+			async () => (await session.inBuffer("MARK-title")) > 0,
 		);
 		await sleep(1200);
 
 		await session.key("down");
 		await session.key("enter");
-		await waitFor(() => picks.length === 1, "the selector to answer");
+		await screenUntil("the selector to answer", () => picks.length === 1);
 		expect(picks).toEqual(["MARK-opt-b"]);
 		expect(gates).toEqual([]);
 
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		await sleep(GATE_ARM_MS + 50);
 		await session.key("enter");
 		await turnEnds(session);
