@@ -40,14 +40,21 @@ process, started by fake units a little after their unit starts: a
 resume's slot naming its roster entry, one child for two resumes, a
 child ending before it listens or never listening given up, a host's
 stop at each step of a start, a child running another conversation
-refused, state, a new id and an ending each kept in the routes, what a
-newer child adds passed over, an unreadable line and a silent exit as
-failed, and a slot kept in use while its unit may still run.
+refused, state, a new id and an ending each kept in the routes, a new
+id onto one held or run elsewhere refused, what a newer child adds
+passed over, an unreadable line and a silent exit as failed, a key too
+long refused, and a slot kept in use while its unit may still run, and
+freed once it has gone.
 child-opens.test.ts runs the same children for opens and adopts: an
 open asked of the child without the host's identity, a refusal
-stopping its child, an open answered late named rather than stopped,
-and a host starting again taking up the children left running, under
-the ids they now run.
+stopping its child, an open of a held id or one its watch contradicts
+refused, an open answered late named rather than stopped, a begin's
+one deadline and a stop ending its ask, a resume waiting on the open's
+slot, and a host starting again taking up the children left running,
+under the ids they now run, a busy one tried again and a second one
+running a conversation stopped.
+support/supervised-children.ts is their fake units, roster and
+children, each child's traits set by the test that starts it.
 child-units.test.ts checks a slot's paths and unit, and that a name
 reaching another path or unit is refused.
 own-threads.test.ts runs the host and two children as node processes

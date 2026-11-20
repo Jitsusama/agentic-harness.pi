@@ -17,7 +17,7 @@ import {
 	LISTENS_AFTER_MS,
 	line,
 	opening,
-	pauseFor,
+	pause,
 	reported,
 	roster,
 	routes,
@@ -50,8 +50,8 @@ describe("a new conversation", () => {
 		const slot = child.slot;
 		expect(
 			JSON.parse(await readFile(slot.file, "utf8")),
-			"a slot naming none",
-		).toEqual({});
+			"a slot naming what it opened, for the next host",
+		).toEqual({ session: derived(opened?.sessionId ?? "") });
 		expect(roster.held, "held as its child derived it").toEqual([
 			entry(a),
 			derived(opened?.sessionId ?? ""),
@@ -74,7 +74,99 @@ describe("a new conversation", () => {
 		expect(units.stopped).toEqual(units.started);
 		expect(routes.listed()).toEqual([]);
 		const slot = slotNamed(units.started[0] ?? "");
-		expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+		await vi.waitFor(() =>
+			expect(existsSync(slot.file), "its slot is cleared").toBe(false),
+		);
+	});
+
+	it("takes a child's own child_unreachable as its refusal, not as no answer", async () => {
+		units.next = { refuses: true, refusesWith: "child_unreachable" };
+
+		const reply = await supervisor.begin(opening("open-7"));
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.listed()).toEqual([]);
+	});
+
+	it("refuses a child that opens a conversation the roster holds already", async () => {
+		units.next = { opensAs: a };
+
+		await expect(supervisor.begin(opening("open-8"))).rejects.toThrow(
+			`opened ${a}, which the roster holds already`,
+		);
+
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
+		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("refuses a child whose watch names another conversation than it opened", async () => {
+		units.next = {
+			answers: (result) => ({ ...result, conversation: conversation(b) }),
+		};
+
+		await expect(supervisor.begin(opening("open-9"))).rejects.toThrow(
+			`runs ${b}, not`,
+		);
+
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.listed()).toEqual([]);
+		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("gives a caller its answer within the time a begin may take", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 1_000, answersWithinMs: 5_000 },
+		});
+		units.next = { silent: true };
+		const asked = Date.now();
+
+		const reply = await supervisor.begin(opening("open-10"));
+
+		expect(reply).toMatchObject({ ok: false });
+		expect(Date.now() - asked, "within its time, not its answer's").toBeLessThan(
+			3_000,
+		);
+	});
+
+	it("ends a begin as soon as the host stops watching during its ask", async () => {
+		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
+		units.next = { silent: true };
+		const beginning = supervisor.begin(opening("open-11"));
+		await vi.waitFor(() =>
+			expect([...units.children.values()][0]?.asked ?? []).toHaveLength(1),
+		);
+		const closed = Date.now();
+
+		supervisor.close();
+
+		await expect(beginning).rejects.toThrow("stopped watching");
+		expect(Date.now() - closed, "not after its answer's time").toBeLessThan(
+			1_000,
+		);
+		expect(units.stopped, "left running").toEqual([]);
+	});
+
+	it("resumes what it opened only once the slot it ran in is empty", async () => {
+		const reply = await supervisor.begin(opening("open-12"));
+		const opened = reply.ok ? (reply.result as SessionIdentity) : undefined;
+		const id = opened?.sessionId ?? "";
+		const first = childOf(id);
+		first.say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[id, "parked"]]));
+
+		const again = supervisor.resume(derived(id), true);
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+
+		expect(
+			units.children.has(first.slot.unit),
+			"the open's child went first",
+		).toBe(false);
+		expect((await again).sessionId).toBe(id);
 	});
 
 	it("fails, and stops its child, when the roster won't hold what it opened", async () => {
@@ -108,6 +200,12 @@ describe("a new conversation", () => {
 	});
 
 	it("asks nothing of its child when the host stops watching as it starts", async () => {
+		let connections = 0;
+		units.next = {
+			connected: () => {
+				connections += 1;
+			},
+		};
 		const beginning = supervisor.begin(opening("open-6"));
 		// Its unit has started, and its child listens a moment later.
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
@@ -115,9 +213,11 @@ describe("a new conversation", () => {
 		supervisor.close();
 
 		await expect(beginning).rejects.toThrow("stopped watching");
-		await pauseFor(LISTENS_AFTER_MS * 2);
+		// Long enough for its child to listen, and so to be asked if it were.
+		await pause(LISTENS_AFTER_MS * 2);
 		const [child] = [...units.children.values()];
-		expect(child?.asked ?? [], "nothing asked").toEqual([]);
+		expect(child, "it listens").toBeDefined();
+		expect(connections, "nothing reached it").toBe(0);
 		expect(units.stopped).toEqual([]);
 	});
 
@@ -174,6 +274,67 @@ describe("a host starting again", () => {
 		expect(units.started, "no child started again").toHaveLength(1);
 	});
 
+	it("tries again a child that takes its watch but answers none, as a busy one may", async () => {
+		const slot = slotOf(folder, key, a);
+		await writeSlot(slot, entry(a));
+		units.next = { unansweredWatches: 2 };
+		await units.start(slot.unit);
+		await vi.waitFor(() =>
+			expect(units.children.get(slot.unit), "it listens").toBeDefined(),
+		);
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(routes.routeOf(a)).toBeDefined();
+		expect(units.stopped).toEqual([]);
+	});
+
+	it("holds the conversation an open's child became under the id it opened", async () => {
+		const reply = await supervisor.begin(opening("open-13"));
+		const opened = reply.ok ? (reply.result as SessionIdentity) : undefined;
+		const child = childOf(opened?.sessionId ?? "");
+		supervisor.close();
+		child.conversation = conversation(b);
+		child.entry = entry(b);
+		superviseAgain({ nextHost: true });
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(roster.held, "the open's hold replaced").toEqual([
+			entry(a),
+			entry(b),
+		]);
+	});
+
+	it("takes up one of two children running one conversation, and stops the other", async () => {
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		const other = slotOf(folder, key, b);
+		await writeSlot(other, entry(a));
+		await units.start(other.unit);
+		await vi.waitFor(() =>
+			expect(units.children.get(other.unit), "it listens").toBeDefined(),
+		);
+		superviseAgain({ nextHost: true });
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		await vi.waitFor(() => expect(units.stopped).toHaveLength(1));
+		expect(routes.routeOf(a)).toBeDefined();
+		expect(said).toEqual([expect.stringContaining("which another child runs")]);
+	});
+
+	it("starts no child beside one whose unit systemd wouldn't say had gone", async () => {
+		await supervisor.resume(entry(a));
+		superviseAgain({ nextHost: true });
+		units.goneFails = 1;
+
+		expect(await supervisor.adopt(), "children taken up").toBe(0);
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow("runs in");
+		expect(units.started, "no second child beside it").toHaveLength(1);
+	});
+
 	it("stops a child it can't watch, and says so", async () => {
 		const slot = slotOf(folder, key, b);
 		await writeSlot(slot, entry(b));
@@ -214,7 +375,8 @@ describe("a host starting again", () => {
 		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
 
 		supervisor.close();
-		await pauseFor(800);
+		// Past its 500 ms to exit, when a still-watching host would stop it.
+		await pause(800);
 
 		expect(units.stopped, "not stopped after the host's stop").toEqual([]);
 		expect(existsSync(slot.file), "its slot is left for an adopt").toBe(true);
@@ -232,7 +394,7 @@ describe("a host starting again", () => {
 		).toBe(false);
 		await childOf(a).end("parked");
 		// Nothing to wait on: an ending that arrives would come within this.
-		await pauseFor(LISTENS_AFTER_MS);
+		await pause(LISTENS_AFTER_MS);
 		expect(ended, "no ending is taken from a child no longer watched").toEqual(
 			[],
 		);

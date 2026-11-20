@@ -26,9 +26,21 @@ export function reach(path: string): Promise<Socket> {
 	});
 }
 
+// Each answer the host made for a child that gave none it could pass on.
+const madeHere = new WeakSet<ControlReply>();
+
+/**
+ * Whether the host made `reply` itself, since the child gave no answer
+ * it could pass on, rather than passing on one the child gave: a child
+ * may send any code, this one's included.
+ */
+export function madeByHost(reply: ControlReply): boolean {
+	return madeHere.has(reply);
+}
+
 /** The answer to `id` when the child can't give one. */
 export function childUnreachable(id: string, message?: string): ControlReply {
-	return {
+	const reply: ControlReply = {
 		v: 1,
 		id,
 		ok: false,
@@ -38,6 +50,8 @@ export function childUnreachable(id: string, message?: string): ControlReply {
 				message ?? "The process running this conversation does not answer",
 		},
 	};
+	madeHere.add(reply);
+	return reply;
 }
 
 /**

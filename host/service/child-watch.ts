@@ -12,8 +12,10 @@
  *
  * A child outlives the host that started it, so a host may watch a
  * child newer or older than itself. What either adds is passed over:
- * fields it doesn't know, nested ones too, a state line it can't read
- * and a line of a type it doesn't know, each reported. Only a became it
+ * fields it doesn't know, nested ones too and in a roster entry, a state
+ * it doesn't know, read as busy, so nothing takes it for one at rest, a
+ * state line it can't read and a line of a type it doesn't know, each
+ * reported. Only a became it
  * can't read ends the watch, since its route would then name a
  * conversation the child no longer runs; an ending it can't read is
  * taken as a park, which keeps the conversation held and lets the child
@@ -41,11 +43,29 @@ const MISREAD_SAID_CHARS = 300;
 
 const sessionId = z.uuid();
 // What a newer child says beyond these, at any depth, is passed over.
-const conversation = identities.conversation.strip();
+const conversation = identities.conversation
+	.extend({ state: identities.conversation.shape.state.catch("busy") })
+	.strip();
 const host = identities.host
 	.extend({ owner: identities.host.shape.owner.strip() })
 	.strip();
-const entry = z.custom<RosterEntry>(isRosterEntry, "not a roster entry");
+const entry = z
+	.custom<RosterEntry>(isRosterEntry, "not a roster entry")
+	.transform(known);
+
+/** The fields of `entry` this host knows, as the shared roster keeps them. */
+function known(entry: RosterEntry): RosterEntry {
+	const { sessionId, file, cwd, attended, quest, since, launch } = entry;
+	return {
+		sessionId,
+		file,
+		cwd,
+		attended,
+		since,
+		...(quest === undefined ? {} : { quest }),
+		...(launch === undefined ? {} : { launch }),
+	};
+}
 const answer = z.discriminatedUnion("ok", [
 	z.object({ ok: z.literal(true), result: z.unknown() }),
 	z.object({
@@ -63,10 +83,11 @@ const line = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("state"),
 		conversation,
-		state: z.enum(["busy", "idle"]).optional(),
+		state: z.enum(["busy", "idle"]).optional().catch(undefined),
 		heap: z
 			.object({ used: z.number().nonnegative(), limit: z.number() })
-			.optional(),
+			.optional()
+			.catch(undefined),
 	}),
 	z.object({
 		type: z.literal("became"),
@@ -119,6 +140,9 @@ export interface ChildWatcher {
 	misread?(error: Error): void;
 }
 
+/** A child that took its watch but gave it no answer in time, as a busy one may. */
+export class Unanswered extends Error {}
+
 /** A watch on one child, once it answered. */
 export interface ChildWatch extends Watched {
 	/** Stop watching, without telling the child anything. */
@@ -164,7 +188,7 @@ export function watchChild(
 			);
 			unanswered = setTimeout(() => {
 				reject(
-					new Error(
+					new Unanswered(
 						`The child gave its watch no answer within ${answersWithinMs} ms`,
 					),
 				);

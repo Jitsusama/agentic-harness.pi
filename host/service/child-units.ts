@@ -10,19 +10,23 @@
  * A slot names one child's files in the host's runtime folder,
  * `pi-host/KEY.d/`: SLOT.json, written before the unit starts, holds
  * the roster entry of the conversation it resumes (none for a new
- * open), SLOT.sock is where the child listens, and SLOT.d/ is the
- * child's own, for its life, which nothing here reads. The slot is the conversation's id for a
+ * open), and is written again with what the host last held for it,
+ * so a host taking the child up knows which id to replace. SLOT.sock is
+ * where the child listens, and SLOT.d/ is the child's own, for its life,
+ * which nothing here reads. The slot is the conversation's id for a
  * resume and a fresh one for an open; the child names its conversation
  * when it is watched, so routes go by that, never by the slot.
  */
 import { execFile } from "node:child_process";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
 	isHostKey,
+	isRosterEntry,
 	isSessionId,
 	type RosterEntry,
 } from "../../lib/core/session/roster.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import { MAX_SOCKET_PATH_BYTES } from "./address.ts";
 
 /** Where one child's files are, and the unit it runs as. */
@@ -90,6 +94,21 @@ export async function writeSlot(
 	await mkdir(join(slot.file, ".."), { recursive: true, mode: 0o700 });
 	const held = session ? { session, ...(woken ? { woken } : {}) } : {};
 	await writeFile(slot.file, `${JSON.stringify(held)}\n`, { mode: 0o600 });
+}
+
+/**
+ * The conversation `slot`'s file says the host last held for its child,
+ * or undefined when it names none or can't be read.
+ */
+export async function slotHolds(slot: Slot): Promise<string | undefined> {
+	try {
+		const held: unknown = JSON.parse(await readFile(slot.file, "utf8"));
+		const session = isRecord(held) ? held.session : undefined;
+		return isRosterEntry(session) ? session.sessionId : undefined;
+	} catch {
+		// Gone or half written: the child's answer says what it runs.
+		return undefined;
+	}
 }
 
 /** Remove a slot's files, once its child has gone. */

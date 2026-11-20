@@ -156,8 +156,16 @@ export interface FakeUnits extends Units {
 export interface ChildTraits {
 	/** Refuse its open. */
 	refuses?: boolean;
+	/** The code it refuses with, when it refuses. */
+	refusesWith?: string;
 	/** Take every request and answer none. */
 	silent?: boolean;
+	/** Called as each connection to it is made, before it reads a line. */
+	connected?: () => void;
+	/** How many of its first watches it takes and answers none of. */
+	unansweredWatches?: number;
+	/** The id it opens its conversation under, rather than a new one. */
+	opensAs?: string;
 	/** Build what it is asked to open, but never answer the open. */
 	opensUnanswered?: boolean;
 	/** Say it ends in the same write as its watch's answer. */
@@ -178,10 +186,13 @@ export function slotNamed(unit: string): Slot {
  */
 async function runChild(
 	slot: Slot,
-	{ refuses, silent, opensUnanswered, endsAsItAnswers, answers }: ChildTraits,
+	traits: ChildTraits,
 	pid: number,
 	own: FakeUnits,
 ): Promise<FakeChild> {
+	const { refuses, refusesWith, silent, opensUnanswered, opensAs } = traits;
+	const { endsAsItAnswers, answers, connected } = traits;
+	let unansweredWatches = traits.unansweredWatches ?? 0;
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
 	await mkdir(slot.folder, { recursive: true });
 	await writeFile(join(slot.folder, "roster.json"), "{}\n");
@@ -213,6 +224,7 @@ async function runChild(
 	};
 	server = createServer((socket) => {
 		sockets.add(socket);
+		connected?.();
 		socket.on("error", () => undefined);
 		const frames = jsonLines();
 		socket.on("data", (chunk: Buffer) => {
@@ -221,19 +233,21 @@ async function runChild(
 				child.asked.push(request);
 				if (silent) continue;
 				const id = request.id;
-				if (request.op === "open") {
+				// An adopt is answered as an open is, under an id of its own.
+				if (request.op === "open" || request.op === "adopt") {
 					if (refuses) {
+						const code = refusesWith ?? "invalid_request";
 						socket.write(
 							line({
 								v: 1,
 								id,
 								ok: false,
-								error: { code: "invalid_request", message: "no such folder" },
+								error: { code, message: "no such folder" },
 							}),
 						);
 						continue;
 					}
-					const sessionId = randomUUID();
+					const sessionId = opensAs ?? randomUUID();
 					child.conversation = conversation(sessionId);
 					child.entry = derived(sessionId);
 					if (opensUnanswered) continue;
@@ -241,6 +255,10 @@ async function runChild(
 						line({ v: 1, id, ok: true, result: child.conversation }),
 					);
 				} else if (request.op === "watch") {
+					if (unansweredWatches > 0) {
+						unansweredWatches -= 1;
+						continue;
+					}
 					watchers.add(socket);
 					const result = {
 						version: "test",
@@ -325,12 +343,14 @@ export function childOf(sessionId: string): FakeChild {
 /** The clocks a supervisor keeps, for a test to shorten or lengthen. */
 interface Clocks {
 	listensWithinMs?: number;
+	answersWithinMs?: number;
 	exitsWithinMs?: number;
+	beginsWithinMs?: number;
 }
 
-function supervise(clocks: Clocks = {}): ChildSupervisor {
+function supervise(clocks: Clocks = {}, keyed = key): ChildSupervisor {
 	return childSupervisor({
-		key,
+		key: keyed,
 		folder,
 		units,
 		routes,
@@ -347,16 +367,22 @@ function supervise(clocks: Clocks = {}): ChildSupervisor {
 
 /**
  * Put a new supervisor in the last one's place, closing that one: with
- * other clocks, over a roster holding `held`, or, as the next host of
- * the key would, with routes of its own. Its units and folder stay.
+ * other clocks, over a roster holding `held`, for another key, or, as
+ * the next host of the key would, with routes of its own. Its units and
+ * folder stay.
  */
 export function superviseAgain(
-	again: { clocks?: Clocks; held?: RosterEntry[]; nextHost?: boolean } = {},
+	again: {
+		clocks?: Clocks;
+		held?: RosterEntry[];
+		nextHost?: boolean;
+		key?: string;
+	} = {},
 ): void {
 	supervisor.close();
 	if (again.held) roster = fakeRoster(again.held);
 	if (again.nextHost) routes = heldChildren();
-	supervisor = supervise(again.clocks);
+	supervisor = supervise(again.clocks, again.key);
 }
 
 /** An open request, as a caller sends one. */
@@ -380,7 +406,7 @@ export function deferred(): { promise: Promise<void>; settle: () => void } {
 }
 
 /** A pause of `ms`, for a test to show something did not happen. */
-export function pauseFor(ms: number): Promise<void> {
+export function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
