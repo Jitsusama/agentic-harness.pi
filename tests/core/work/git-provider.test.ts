@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
@@ -706,5 +709,50 @@ describe("a tree that is already there", () => {
 		await provider.ensure(snapshot());
 
 		expect(addition(standing.calls)).toBeDefined();
+	});
+});
+
+describe("a tree standing where git won't read it", () => {
+	const REFUSED =
+		"/state/x is a worktree of /elsewhere/.git, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox.";
+	let stateDir = "";
+	beforeEach(() => {
+		stateDir = mkdtempSync(join(tmpdir(), "git-provider-stranded-"));
+	});
+	afterEach(() => {
+		rmSync(stateDir, { recursive: true, force: true });
+	});
+
+	it("says why and what to do, rather than cutting over it", async () => {
+		// The guard answers git's refusal with 126, which `ensure` read as no
+		// tree there, and git's `worktree add` then said only `already exists`.
+		const { exec, calls } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+			{ when: ["worktree"], code: 128, stderr: "fatal: already exists" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		const path = join(stateDir, treeIdentity(snapshot()).key);
+		mkdirSync(path);
+		writeFileSync(join(path, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("which git here won't read");
+		await expect(cut).rejects.toThrow(REFUSED);
+		await expect(cut).rejects.toThrow(
+			"`work tidy` lists it and `work reclaim` moves it aside whole",
+		);
+		expect(addition(calls), "nothing is cut over it").toBeUndefined();
+	});
+
+	it("cuts into an empty folder, as git does", async () => {
+		const { exec, calls } = fakeExec(ok);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		mkdirSync(join(stateDir, treeIdentity(snapshot()).key));
+
+		await provider.ensure(snapshot());
+
+		expect(addition(calls)).toBeDefined();
 	});
 });
