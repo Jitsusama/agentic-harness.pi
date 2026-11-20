@@ -9,6 +9,7 @@ import {
 	b,
 	childOf,
 	conversation,
+	deferred,
 	derived,
 	ended,
 	entry,
@@ -210,16 +211,19 @@ describe("a new conversation", () => {
 
 	it("asks nothing of its child when the host stops watching as it starts", async () => {
 		let connections = 0;
+		const listening = deferred();
 		units.next = {
 			connected: () => {
 				connections += 1;
 			},
+			listensWhen: listening.promise,
 		};
 		const beginning = supervisor.begin(opening("open-6"));
-		// Its unit has started, and its child listens a moment later.
+		// Its unit has started, and its child listens only once let.
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 
 		supervisor.close();
+		listening.settle();
 
 		await expect(beginning).rejects.toThrow("stopped watching");
 		// Long enough for its child to listen, and so to be asked if it were.

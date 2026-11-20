@@ -154,10 +154,13 @@ describe("a resumed conversation", () => {
 	});
 
 	it("fails, leaving its child running, when the host stops watching as it starts", async () => {
+		const listening = deferred();
+		units.next = { listensWhen: listening.promise };
 		const resuming = supervisor.resume(entry(a));
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 
 		supervisor.close();
+		listening.settle();
 
 		await expect(resuming).rejects.toThrow("stopped watching");
 		const { unit } = slotOf(folder, key, a);
@@ -244,7 +247,7 @@ describe("a resumed conversation", () => {
 		expect(routes.routeOf(b)).toEqual(route);
 	});
 
-	it("answers an ending said with its answer, keeping no watch", async () => {
+	it("answers an ending said with its answer, and lets its route go", async () => {
 		units.next = { endsAsItAnswers: true };
 
 		const resumed = await supervisor.resume(entry(a));

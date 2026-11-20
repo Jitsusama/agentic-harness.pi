@@ -145,6 +145,8 @@ export interface FakeUnits extends Units {
 	next?: ChildTraits & {
 		diesBeforeListening?: boolean;
 		neverListens?: boolean;
+		/** Listens no sooner than this settles, for a test to order a step. */
+		listensWhen?: Promise<void>;
 	};
 	/** A stop is taken, but its unit runs on, as one systemd can't stop. */
 	lingers?: boolean;
@@ -301,7 +303,8 @@ function fakeUnits(): FakeUnits {
 			const slot = slotNamed(unit);
 			// Late on purpose: a real unit's child listens a while after its
 			// start, and the supervisor must wait that out.
-			setTimeout(() => {
+			setTimeout(async () => {
+				await next.listensWhen;
 				if (next.diesBeforeListening) {
 					fake.children.delete(unit);
 					return;
