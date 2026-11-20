@@ -45,8 +45,16 @@ const TURN_MS = 20_000;
 const LOOK_MS = 60_000;
 /** How long a named conversation may take to park: its idle time, a look, and room for load. */
 const PARK_MS = NAMED_PARK_AFTER_MS + LOOK_MS + 30_000;
-/** How long the parking case may take, parking included. */
-const PARKING_CASE_MS = PARK_MS + 60_000;
+/**
+ * How long a parked conversation's session may take to leave the host's
+ * memory. What its last turn left pending can hold it past the first
+ * collection: on a lender at load on 19 November one was still there.
+ */
+const LET_GO_MS = 30_000;
+/** How long between weighings while it lets go. */
+const WEIGH_AGAIN_MS = 500;
+/** How long the parking case may take, parking and letting go included. */
+const PARKING_CASE_MS = PARK_MS + LET_GO_MS + 60_000;
 /** How long a wake case may take. */
 const CASE_MS = 60_000;
 const ENTER = "\r";
@@ -71,6 +79,22 @@ const named = () => [...Object.values(woken), resting];
 let awake: Weight;
 /** How long each wake took, in ms, said at the end for the record. */
 const took: Record<string, number> = {};
+
+/**
+ * What the host weighs once no parked conversation's session is left in
+ * its memory, or, past LET_GO_MS, what it weighs with them still there.
+ */
+async function lettingGo(weighing: Pick<ScreenHost, "weigh">): Promise<Weight> {
+	const until = Date.now() + LET_GO_MS;
+	let weighed = await weighing.weigh();
+	while (weighed.sessions.length > 0 && Date.now() < until) {
+		// Each weighing collects the host's garbage; a pause between them
+		// lets what a session's last turn left pending settle.
+		await new Promise((settle) => setTimeout(settle, WEIGH_AGAIN_MS));
+		weighed = await weighing.weigh();
+	}
+	return weighed;
+}
 
 /** The words of each user message in a conversation's log, in order. */
 function said(file: string): string[] {
@@ -181,7 +205,10 @@ describe.skipIf(!packageDir)(
 						readParked(sessionId, parkFolder),
 						`${sessionId} left plain pi's marker, which the mesh wakes it by`,
 					).toBeDefined();
-				const parked = await host.weigh();
+				const weighing = Date.now();
+				const parked = await lettingGo(host);
+				// For the record, so a release growing slower shows before it fails.
+				took.letGoMs = Date.now() - weighing;
 				// PSS is kept for the record only: it holds every page V8 hasn't
 				// given back yet, and on 12 November it rose by 10 MB on a lender
 				// as four sessions went. The heap is what letting them go lowers.
@@ -191,7 +218,7 @@ describe.skipIf(!packageDir)(
 				took.parkedHeapKb = parked.heapKb;
 				expect(
 					parked.sessions,
-					"no parked conversation's session is still in the host's memory",
+					`no parked conversation's session is still in the host's memory, weighing again for ${LET_GO_MS} ms`,
 				).toEqual([]);
 				expect(
 					awake.sessions.length,
