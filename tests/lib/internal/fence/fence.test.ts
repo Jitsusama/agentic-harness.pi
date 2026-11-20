@@ -180,7 +180,7 @@ describe("what a session asking for the fence is given", () => {
 		// session is its own, whatever others in the file made.
 		const session = basename(base);
 		try {
-			const text =
+			const text = argsReadIn(
 				wrapFor(
 					fence,
 					{
@@ -188,7 +188,8 @@ describe("what a session asking for the fence is given", () => {
 						env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
 					},
 					home,
-				)?.("true") ?? "";
+				)?.("true") ?? "",
+			);
 			const copies = join(
 				runtimeDir,
 				"pi-fence",
