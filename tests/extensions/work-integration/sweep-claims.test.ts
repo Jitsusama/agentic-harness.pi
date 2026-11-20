@@ -44,7 +44,7 @@ const idle: { rested?: string; skipped?: string } = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
-		claims: SweepClaims | (() => SweepClaims);
+		claims: SweepClaims | (() => SweepClaims | Promise<SweepClaims>);
 		restMs?: number;
 	}) => {
 		rests.push(deps.restMs);
@@ -58,7 +58,9 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		// As the library does: claims are asked only by a sweep that runs.
 		if (idle.rested !== undefined) return { ...none, rested: idle.rested };
 		if (idle.skipped !== undefined) return { ...none, skipped: idle.skipped };
-		given.push(typeof deps.claims === "function" ? deps.claims() : deps.claims);
+		given.push(
+			typeof deps.claims === "function" ? await deps.claims() : deps.claims,
+		);
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
