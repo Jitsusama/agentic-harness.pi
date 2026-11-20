@@ -71,7 +71,9 @@ describe("strandedTrees", () => {
 
 		expect(
 			strandedTrees({ dir: trees, kept: new Set(), refusal: () => undefined }),
-		).toEqual([{ path, why: `the git folder its .git names, ${gone}, is gone` }]);
+		).toEqual([
+			{ path, why: `the git folder its .git names, ${gone}, is gone` },
+		]);
 	});
 
 	it("leaves out a tree git reads, which ensure hands over as it stands", () => {

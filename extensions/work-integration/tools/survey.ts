@@ -33,8 +33,8 @@ import {
 } from "../../../lib/core/work/reclaim.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import {
-	setAside,
 	type StrandedTree,
+	setAside,
 	strandedDir,
 	strandedTrees,
 } from "../../../lib/core/work/stranded.ts";
