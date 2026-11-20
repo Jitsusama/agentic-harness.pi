@@ -55,6 +55,7 @@ import {
 	watchSignals,
 	watchStamps,
 } from "./cut-off.ts";
+import { type KeptWait, keepWait, takeKeptWait } from "./kept-wait.ts";
 import { type JobSession, openSession } from "./lifecycle.ts";
 import {
 	carriedIn,
@@ -219,26 +220,36 @@ function resumeIfCutOff(
  * hour, is up, as is a log the host had nothing to carry on for, since
  * no extension hears that; a session busy then, or with a run under
  * way, looks again each `CARRIED_RUN_RECHECK_MS`. `ending` ends the wait
- * before the clock tells. Answers the wait, or nothing when no carried
- * run is owed.
+ * before the clock tells. A wait `kept` through a reload goes on where
+ * it stood. Answers the wait, or nothing when no carried run is owed.
  */
 function awaitCarriedRun(
 	opened: JobSession,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
 	ending: (wait: CarriedWait) => void,
+	kept?: KeptWait,
 ): CarriedWait | undefined {
 	if (hosted() === undefined) return undefined;
 	const branch = branchOf(ctx);
-	const cut = branch === undefined ? undefined : carriedRunIn(branch);
-	if (branch === undefined || cut === undefined) return undefined;
+	if (branch === undefined) return undefined;
+	const cut = kept?.cut ?? carriedRunIn(branch);
+	if (cut === undefined) return undefined;
 	// Only what comes after the return shows the run: a log that stops
 	// mid-run ends on a tool call or result of its own.
-	const wait: CarriedWait = { opened, cut, since: branch.length };
+	const wait: CarriedWait = {
+		opened,
+		cut,
+		since: kept?.since ?? branch.length,
+		started: kept?.started,
+		typed: kept?.typed,
+		endsAt: 0,
+	};
 	// A host routes what the session says by the conversation it runs in,
 	// which a timer's callback must name again.
 	const key = sessionKeyOf(ctx);
 	const lookIn = (ms: number): void => {
+		wait.endsAt = Date.now() + ms;
 		wait.timer = setTimeout(
 			() =>
 				withSession(key, () => {
@@ -253,7 +264,7 @@ function awaitCarriedRun(
 		// The wait never holds a host up that is otherwise ready to end.
 		wait.timer.unref();
 	};
-	lookIn(CARRIED_RUN_WAIT_MS);
+	lookIn(kept ? Math.max(0, kept.endsAt - Date.now()) : CARRIED_RUN_WAIT_MS);
 	return wait;
 }
 
@@ -271,6 +282,8 @@ interface CarriedWait {
 	 * extension gives, as a mesh message or a job's report is, isn't them.
 	 */
 	typed?: boolean;
+	/** When the clock next tells, in ms since the epoch. */
+	endsAt: number;
 	timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -496,9 +509,14 @@ export default function jobWorkflow(
 			: recordCrashes(`job-workflow:${crashKeyOf(ctx)}`, () =>
 					recordCutOff(pi, session, ctx),
 				);
+		// A reload is no return, but goes on with the wait it ended.
+		const kept =
+			event.reason === "reload" ? takeKeptWait(sessionIdOf(ctx)) : undefined;
 		if (RETURNS.has(event.reason)) {
 			takeUpIfCarried(pi, session, ctx);
 			resumeIfCutOff(session, ctx, ended);
+		}
+		if (RETURNS.has(event.reason) || kept) {
 			carriedWait = awaitCarriedRun(
 				session,
 				ctx,
@@ -506,6 +524,7 @@ export default function jobWorkflow(
 				(wait) => {
 					if (carriedWait === wait) endCarriedWait();
 				},
+				kept,
 			);
 		}
 	});
@@ -530,7 +549,11 @@ export default function jobWorkflow(
 		}
 		signals?.stop();
 		signals = undefined;
-		endCarriedWait();
+		const wait = endCarriedWait();
+		if (wait && event.reason === "reload") {
+			const { cut, since, endsAt, started, typed } = wait;
+			keepWait(sessionIdOf(ctx), { cut, since, endsAt, started, typed });
+		}
 		crashes?.();
 		crashes = undefined;
 		answering?.();
@@ -599,12 +622,17 @@ export default function jobWorkflow(
 		lineRead(line, ctx);
 		// The first run to settle with an answer since a return decides:
 		// one that answered, carried or not, leaves a session that runs on,
-		// and one the person stopped has them there to say what comes next.
-		// A settle with no run started, as a compaction's, or a run that
-		// answered nothing, as one durable refused while it held the carried
-		// run (recovery.ts), leaves the carried run to come.
+		// and one stopped once the person spoke has them there to say what
+		// comes next. A settle with no run started, as a compaction's; a run
+		// that answered nothing, as one durable refused while it held the
+		// carried run (recovery.ts); and a run stopped with no word from the
+		// person, as a compaction, a peer's Stop or a bare Escape stops one,
+		// leave the carried run to come, and the clock to tell if none does.
 		if (!carriedWait?.started) return;
-		if (!event.aborted && !carriedRunAnswered(carriedWait, ctx)) {
+		const undecided = event.aborted
+			? !carriedWait.typed
+			: !carriedRunAnswered(carriedWait, ctx);
+		if (undecided) {
 			carriedWait.started = false;
 			return;
 		}

@@ -68,8 +68,8 @@ describe("a session whose host carried its run on", () => {
 				"s2",
 			);
 			await failed.fire("session_start", { reason: "startup" });
-			// A host without pi's runs-through-pi seam fires no run's start or
-			// settle for the carried run, so the clock reads what its log holds.
+			// A carried run that never settles, as a host killed again leaves
+			// it, is read from its log once the clock tells.
 			failed.branch.push(aborted);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(failed.said, "a carried run that failed is no run").toHaveLength(
@@ -188,8 +188,9 @@ describe("a session whose host carried its run on", () => {
 			expect(pi.said[0]).toMatch(FAILED_TEXT);
 			// Seen, so a second notice would go out at once.
 			await noticeSeen(pi);
+			await carriedRun(pi, interrupted, aborted);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(pi.said, "told once").toHaveLength(1);
+			expect(pi.said, "told once, though another run failed").toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -218,6 +219,27 @@ describe("a session whose host carried its run on", () => {
 				[...failed.said, ...cut.said].map((said) => FAILED_TEXT.test(said)),
 				"each told its run failed",
 			).toEqual([true, true]);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("is told nothing when its carried run called a tool and then answered", async () => {
+		// Its last answer decides, not the first.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			const calling = message("assistant", { stopReason: "toolUse" });
+			const answered = message("assistant", { stopReason: "stop" });
+			await carriedRunStarts(pi, interrupted, calling, message("toolResult"));
+			pi.branch.push(answered);
+			pi.session.busy = false;
+			await pi.fire("agent_settled", {});
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "the carried run answered").toHaveLength(0);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -302,6 +324,13 @@ describe("a session whose host carried its run on", () => {
 			await carriedRun(pi, interrupted, aborted);
 			expect(pi.said, "the carried run decides").toHaveLength(1);
 			expect(pi.said[0]).toMatch(FAILED_TEXT);
+
+			// With no carried run after it, the clock still tells.
+			const left = activate(killedLog(), new EventEmitter(), "s2");
+			await left.fire("session_start", { reason: "startup" });
+			await carriedRun(left, refused, undefined);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(left.said, "the clock tells").toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -359,18 +388,29 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
-	it("is told nothing once a reload drops the open wait", async () => {
-		// The README says so: a reload is no return, and the wait's clock
-		// belonged to the code the reload replaced.
+	it("goes on with its wait through a reload, by the clock it had", async () => {
+		// A hosted conversation reloads itself when its install moves, at
+		// its first quiet moment, which a wait on a carried run is.
 		const host = installTestHost();
-		vi.useFakeTimers({ toFake: TIMEOUTS });
+		vi.useFakeTimers({ toFake: [...TIMEOUTS, "Date"] });
 		try {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
+			const third = CARRIED_RUN_WAIT_MS / 3;
+			await vi.advanceTimersByTimeAsync(2 * third);
+			await pi.fire("session_shutdown", { reason: "reload" });
+			await pi.fire("session_start", { reason: "reload" });
+			await vi.advanceTimersByTimeAsync(third - 1_000);
+			expect(pi.said, "nothing before its clock").toHaveLength(0);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(pi.said, "told as its clock ran out").toHaveLength(1);
+
+			// A reload once the wait has ended has none to go on with.
+			await noticeSeen(pi);
 			await pi.fire("session_shutdown", { reason: "reload" });
 			await pi.fire("session_start", { reason: "reload" });
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(pi.said, "the reload dropped the wait").toHaveLength(0);
+			expect(pi.said, "told once").toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -396,12 +436,40 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
+	it("leaves a run stopped with no word from the person to the carried run to come", async () => {
+		// A compaction stops the run and resumes it; a peer's Stop or a
+		// bare Escape leaves no one to say so, and the clock tells.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const compacted = activate(killedLog(), new EventEmitter());
+			await compacted.fire("session_start", { reason: "startup" });
+			await carriedRun(compacted, interrupted, undefined, { aborted: true });
+			expect(compacted.said, "a stopped run is not told").toHaveLength(0);
+			await carriedRun(compacted, aborted, undefined);
+			expect(compacted.said, "the resumed run decides").toHaveLength(1);
+			expect(compacted.said[0]).toMatch(FAILED_TEXT);
+
+			const stopped = activate(killedLog(), new EventEmitter(), "s2");
+			await stopped.fire("session_start", { reason: "startup" });
+			await carriedRun(stopped, interrupted, undefined, { aborted: true });
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(stopped.said, "the clock tells, once").toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(stopped.said, "and only once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
 	it("is told nothing of a failed carried run the person stopped or spoke over", async () => {
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
 		try {
 			const stopped = activate(killedLog(), new EventEmitter());
 			await stopped.fire("session_start", { reason: "startup" });
+			await stopped.fire("input", { text: "stop", source: "interactive" });
 			await carriedRun(stopped, aborted, undefined, { aborted: true });
 
 			// A host's person types over RPC, and the launcher's Steer comes

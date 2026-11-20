@@ -376,15 +376,17 @@ rather than the machine.
   others (107 took 805 s on 20 November), so a clock decides only for
   a run that never starts, after half an hour, looking again each
   minute while the session is busy. That includes a log the host had
-  nothing to carry for, since no extension hears that, and a reload
-  while the wait is open drops it.
-- What the wait can't see: an extension's run that answers before
-  the carried run, such as a job's report, ends the wait, so a carried
-  run that fails after it goes untold, though the session ran on.
-  Entries the recovery copies in from before the kill can read as the
-  carried run's answer. A host without pi's runs-through-pi seam
-  (`HOST_WANTED_SEAMS`) fires no start or settle for a carried run,
-  so only the clock decides, reading the log. Half an hour is no
+  nothing to carry for, since no extension hears that. A reload while
+  the wait is open, as a host's conversation takes when its install
+  moves, goes on with it, by the clock it had.
+- What the wait can't see: entries the recovery copies in from before
+  the kill can read as the carried run's answer. An extension's
+  prompt, such as a job's report, can't answer first: while the host
+  holds the carried run it refuses that prompt as busy, which the
+  wait passes over, or runs it inside the carried run, whose last
+  answer then decides. A host without pi's runs-through-pi seam
+  (`HOST_WANTED_SEAMS`) still says each run's settle, so the wait
+  decides there as it does with the seam. Half an hour is no
   bound: a bigger restart's last turns can come later and are told
   they were cut off. A transient model error can draw both this notice
   and model-retry-workflow's retry.
