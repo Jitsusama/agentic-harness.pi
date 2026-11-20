@@ -20,11 +20,14 @@ import type { Exec, ExecResult } from "../../../../lib/core/exec/index.ts";
 import {
 	type Parked,
 	parkedPath,
+	parkFolder,
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
 import {
 	logOutSpares,
+	markedThisBoot,
 	parkedHere,
+	runningInHosts,
 } from "../../../../lib/internal/session-ending/here.ts";
 
 const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
@@ -175,8 +178,34 @@ describe("the sessions parked on this machine", () => {
 		writeParked(markerOf("rebooted"));
 		const longAgo = new Date(0);
 		utimesSync(parkedPath("rebooted"), longAgo, longAgo);
+		const booted = () => Date.now() - 60_000;
 
-		expect(await parkedHere()).toEqual(new Set(["slept"]));
+		expect(
+			await parkedHere((session) =>
+				markedThisBoot(session, parkFolder(), booted),
+			),
+		).toEqual(new Set(["slept"]));
+	});
+
+	it("leave out a parked presence a host still runs, woken or never parked", async () => {
+		const mesh = join(home(), "mesh-workflow");
+		presence(mesh, "slept", "parked");
+		presence(mesh, "woken", "parked");
+
+		expect(await parkedHere(marked, async () => new Set(["woken"]))).toEqual(
+			new Set(["slept"]),
+		);
+	});
+
+	it("are none where the boot can't be told, as on a Mac", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		writeParked(markerOf("slept"));
+
+		expect(
+			await parkedHere((session) =>
+				markedThisBoot(session, parkFolder(), () => undefined),
+			),
+		).toEqual(new Set());
 	});
 
 	it("leave out a session idle, waiting, busy or paused, and one that says nothing", async () => {
@@ -192,5 +221,50 @@ describe("the sessions parked on this machine", () => {
 
 	it("are none where no presence was ever kept", async () => {
 		expect(await parkedHere(marked)).toEqual(new Set());
+	});
+});
+
+describe("the conversations a host still runs", () => {
+	let hosts: string;
+	beforeEach(() => {
+		hosts = mkdtempSync(join(tmpdir(), "session-ending-hosts-"));
+	});
+	afterEach(() => {
+		rmSync(hosts, { recursive: true, force: true });
+	});
+
+	/** A host's list, as a host publishes it, its process at `pid`. */
+	const list = (pid: number, sessions: Record<string, string>) => {
+		const since = new Date().toISOString();
+		writeFileSync(
+			join(hosts, `${pid}-1.json`),
+			JSON.stringify({
+				key: "work-background",
+				owner: { pid, startedAt: 1 },
+				sessions: Object.entries(sessions).map(([id, state]) => ({
+					id,
+					state,
+					since,
+				})),
+			}),
+		);
+	};
+
+	it("are those a host lists busy or idle, unless its process is gone", async () => {
+		list(111, { idle: "idle", busy: "busy", closing: "parked" });
+		list(222, { dead: "idle" });
+		list(333, { unjudged: "idle" });
+		const standing = async ({ pid }: { pid: number }) =>
+			pid === 111 ? "running" : pid === 222 ? "gone" : "unknown";
+
+		expect(await runningInHosts(hosts, standing)).toEqual(
+			new Set(["idle", "busy", "unjudged"]),
+		);
+	});
+
+	it("are none where no host keeps a list", async () => {
+		expect(
+			await runningInHosts(join(hosts, "none"), async () => "running"),
+		).toEqual(new Set());
 	});
 });

@@ -10,12 +10,13 @@
  * is there in any state but ended, and refused when the node can't be
  * read, under the no-session-ending-ask-while-live guard. A session a
  * log-out leaves running, hosted or held where the user's services
- * outlive it, doesn't count for a log-out, and an idle one on this
- * machine whose presence says it parked, with nothing of its own still
- * out, doesn't count for any ask, which is how a disruption once
- * scheduled goes through. Every realm's
- * node on the machine is read, since a reboot ends the sessions of all
- * of them. So is a
+ * outlive it, doesn't count for a log-out; a command ending every
+ * process of the user's is no log-out, and counts them all. An idle
+ * session on this machine in a pi host, whose presence says it parked,
+ * whose park marker is from this boot and which no live host still
+ * runs, doesn't count for any ask, which is how a disruption once
+ * scheduled goes through. Every realm's node on the machine is read,
+ * since a reboot ends the sessions of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without
  * mycelium, there is no node and nothing is refused; where one is named

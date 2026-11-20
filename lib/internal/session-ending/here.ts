@@ -25,9 +25,16 @@
 
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import { hostRegistries } from "../../core/session/registry.ts";
 import { createPresences } from "../../mesh/presence.ts";
+import { type Booted, machineBooted } from "../machine/booted.ts";
 import { everyRealmsDir } from "../paths.ts";
-import { isParked } from "../session/park.ts";
+import {
+	type Standing,
+	type TickedOwner,
+	tickedStanding,
+} from "../process-ticks.ts";
+import { isParked, parkFolder } from "../session/park.ts";
 
 /**
  * Whether a log-out here leaves the services of `user`, a name or a
@@ -52,22 +59,71 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
  * The sessions, by id, whose presence kept here in any realm says they
  * parked and whose marker from this boot says they still are, each
  * realm's presences read off the thread, since a host runs every
- * conversation on one. `marked` reads the marker.
+ * conversation on one. `marked` reads the marker. A session a host
+ * still runs is left out: a park closes its conversation, so a host
+ * listing it busy or idle has woken it, or its park never landed.
  */
 export async function parkedHere(
-	marked: (session: string) => boolean = (session) => isParked(session),
+	marked: (session: string) => boolean = (session) => markedThisBoot(session),
+	running: () => Promise<Set<string>> = () => runningInHosts(),
 ): Promise<Set<string>> {
-	const each = await Promise.all(
-		everyRealmsDir("state", "mesh-workflow").map((mesh) =>
-			createPresences(join(mesh, "presence")).listed(),
+	const [each, hosted] = await Promise.all([
+		Promise.all(
+			everyRealmsDir("state", "mesh-workflow").map((mesh) =>
+				createPresences(join(mesh, "presence")).listed(),
+			),
 		),
-	);
+		running(),
+	]);
 	return new Set(
 		each
 			.flat()
-			.filter((one) => one.state === "parked" && marked(one.session))
+			.filter(
+				(one) =>
+					one.state === "parked" &&
+					!hosted.has(one.session) &&
+					marked(one.session),
+			)
 			.map((one) => one.session),
 	);
+}
+
+/**
+ * The conversations a host lists busy or idle, from every host's list
+ * whose process isn't known to be gone: one that can't be judged still
+ * counts, since a host it can't rule out may be running them.
+ */
+export async function runningInHosts(
+	dir?: string,
+	standing: (owner: TickedOwner) => Promise<Standing> = (owner) =>
+		tickedStanding(owner),
+): Promise<Set<string>> {
+	const running = new Set<string>();
+	for (const list of dir === undefined
+		? hostRegistries()
+		: hostRegistries(dir)) {
+		const { session: _session, ...hostProcess } = list.owner;
+		if ((await standing(hostProcess)) === "gone") continue;
+		for (const one of list.sessions) {
+			if (one.state !== "parked") running.add(one.id);
+		}
+	}
+	return running;
+}
+
+/**
+ * Whether `session`'s park marker is from this boot. Parking's own
+ * reader counts every marker where the boot can't be told, as on a Mac;
+ * here that spares nothing, since a marker from an earlier boot would
+ * spare a session that started again since.
+ */
+export function markedThisBoot(
+	session: string,
+	folder: string = parkFolder(),
+	booted: Booted = machineBooted,
+): boolean {
+	const boot = booted();
+	return boot !== undefined && isParked(session, folder, () => boot);
 }
 
 /** What `command` printed, trimmed, or nothing when it failed or can't run. */

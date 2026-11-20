@@ -20,8 +20,11 @@ import {
 	sessionEndingInterceptor,
 } from "../../../extensions/session-ending-interceptor/index.ts";
 import type { SessionEndingDeps } from "../../../extensions/session-ending-interceptor/refuse.ts";
+import { ownerNow } from "../../../lib/core/process/process.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
+import { machineBooted } from "../../../lib/internal/machine/booted.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import { writeParked } from "../../../lib/internal/session/park.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
@@ -219,15 +222,30 @@ describe("what spares, read by default", () => {
 		presence("hosted", "parked");
 		presence("woken", "parked");
 		presence("waiting", "listening");
-		writeParked({
-			session: "hosted", // its marker from this boot
-			sessionFile: "hosted.jsonl",
-			cwd: bin,
-			addresses: ["HOSTED"],
-			parkedAt: new Date().toISOString(),
-			pid: process.pid,
-			wake: "hosted.wake",
-		});
+		// Each marker from this boot.
+		for (const session of ["hosted", "woken"])
+			writeParked({
+				session,
+				sessionFile: `${session}.jsonl`,
+				cwd: bin,
+				addresses: [session.toUpperCase()],
+				parkedAt: new Date().toISOString(),
+				pid: process.pid,
+				wake: `${session}.wake`,
+			});
+		// This process's host lists "woken" idle: woken since it parked.
+		mkdirSync(stateDir("hosts"), { recursive: true });
+		writeFileSync(
+			join(stateDir("hosts"), `${process.pid}-1.json`),
+			JSON.stringify({
+				key: "work-background",
+				// Where its start can't be read, the host can't be judged and counts.
+				owner: (await ownerNow()) ?? { pid: process.pid, startedAt: 0 },
+				sessions: [
+					{ id: "woken", state: "idle", since: new Date().toISOString() },
+				],
+			}),
+		);
 		const deps = nodeDeps({
 			MYCELIUM_REALM: "work",
 			PATH: `${bin}:/usr/bin:/bin`,
@@ -235,7 +253,8 @@ describe("what spares, read by default", () => {
 
 		expect(await deps.spares?.()).toEqual({
 			lingers: true,
-			parked: new Set(["hosted"]),
+			// Where the boot can't be told, as on a Mac, no marker counts.
+			parked: machineBooted() === undefined ? new Set() : new Set(["hosted"]),
 		});
 		expect(
 			readFileSync(ran, "utf8").split("\n").filter(Boolean).sort(),

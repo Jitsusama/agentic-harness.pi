@@ -230,8 +230,13 @@ describe("a log-out on a machine whose services outlive it", () => {
 		expect(reason).not.toMatch(/H00001|K00001/);
 	});
 
-	it("still counts them all for a reboot or a shut-down, which ends the services too", () => {
-		for (const act of ["reboot", "restart", "shut down"] as const) {
+	it("still counts them all for a reboot, a shut-down or an end of the user's processes, which end the services too", () => {
+		for (const act of [
+			"reboot",
+			"restart",
+			"shut down",
+			"end the user's processes",
+		] as const) {
 			expect(
 				refusalOf([ask(act, "optimus")], [hosted, held], SELF, lingering),
 				`${act} ends hosted and held sessions`,
@@ -349,6 +354,14 @@ describe("an ask past the sessions that parked", () => {
 		expect(reason).toMatch(/K00001/);
 		expect(reason).toMatch(/P00001/);
 		expect(reason).not.toMatch(/A00001|B00001/);
+	});
+
+	it("still counts a parked session the node names no machine for", () => {
+		const { machine: _, ...nowhere } = inHost("optimus", "idle", "A00001");
+
+		expect(
+			refusalOf([ask("reboot", "optimus")], [nowhere], SELF, holding),
+		).toMatch(/A00001/);
 	});
 
 	it("still counts another machine's sessions, whose presence isn't read here", () => {

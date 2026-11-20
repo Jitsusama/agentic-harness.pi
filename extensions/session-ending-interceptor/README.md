@@ -88,21 +88,34 @@ machine, read without a deadline.
   optimus the hosts are user services and each holder runs in a
   scope under the user's manager. A session in a plain terminal, and
   any session on another machine, still counts; a reboot or a
-  shutdown still ends them all.
+  shutdown still ends them all. So does a command that ends every
+  process of the user's or the user's manager (`loginctl
+  terminate-user` or `kill-user`, logind's `TerminateUser` or
+  `KillUser` over `busctl`, `pkill -u` or `killall -u` of a user,
+  `kill -1`), which takes the services with it: it reads as an end of
+  the user's processes rather than a log-out, and counts every
+  session. Only ending a session or a seat reads as a log-out.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
   or unsent text); its presence then says `parked`, and its marker
   from this boot, which a woken session clears as it starts, says it
   still is. It holds nothing an ending could lose, so a session a pi
   host runs here whose presence and marker both say so, and that the
-  node reads as idle, doesn't count, whoever asks. That is how a
+  node reads as idle, doesn't count, whoever asks. Where the boot
+  can't be told, as on a Mac, no marker counts, since one from an
+  earlier boot would spare a session started again since. A park
+  closes a host's conversation, so a session a host still lists busy
+  or idle has woken, or its park never landed, and counts whatever
+  its presence says; a host's list counts unless its process is
+  known to be gone. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one
   the node reads idle in a holder or a plain terminal is running,
   whatever its presence says, and counts. One the node reads busy or
   out of reach still counts, and so does an idle session that hasn't
   parked. The guard judges the moment of the ask: a message can wake
-  a parked session before the disruption lands. A hold, or an answer to one, is not taken as parking: a
+  a parked session before the disruption lands. A hold, or an answer
+  to one, is not taken as parking: a
   peer answers a hold to say it can't hold as readily as that it has.
   Sessions on another machine still count, and an ask that names no
   machine still asks for the name. Every realm's presences are read,
@@ -163,8 +176,9 @@ reboot of another device, as a router, is too, and so is a log-out out
 of something else, as gh. A sentence that names only this machine,
 your laptop or the MacBook names none, so every machine is checked. A session-ending command (`sudo reboot`,
 `systemctl poweroff` with any options or by `.target`, `loginctl
-terminate-user` or `terminate-seat`, logind over `busctl`, stopping
-the display manager or the compositor, `pkill -u` of a user, `niri msg
+terminate-user`, `kill-user`, `terminate-session` or `terminate-seat`,
+logind over `busctl`, stopping the display manager or the compositor,
+`pkill -u` or `killall -u` of a user, `kill -1`, `niri msg
 action quit`, the desktops' own log-outs, and macOS's `fdesetup
 authrestart`, `launchctl reboot` and `osascript` restarts, run by path
 or through `sudo`, `pkexec`, `su -c`, `timeout`, `systemd-run`,
