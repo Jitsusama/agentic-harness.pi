@@ -8,7 +8,11 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { attachWaits } from "./attach-waits.ts";
-import type { ControlBackend } from "./dispatch.ts";
+import {
+	type ControlBackend,
+	type ControlReply,
+	hostRefusal,
+} from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
@@ -125,6 +129,29 @@ export interface ConversationEngine {
 	 * ends it.
 	 */
 	handsOn?(sessionId: string): void;
+	/**
+	 * A conversation this host held parked now runs in a child of its own:
+	 * stop watching for its wake, warming its cache and holding its log,
+	 * since the child does each now.
+	 */
+	movedOut?(sessionId: string): void;
+}
+
+/**
+ * The conversations that run in children of their own (children.ts), as
+ * the backend starts and wakes them; the host runs the rest itself.
+ */
+export interface BackendChildren {
+	/** Whether this conversation goes to a child as it next wakes. */
+	moves(sessionId: string): boolean;
+	/** Whether a conversation opened or adopted now starts in a child. */
+	opens(): boolean;
+	/** The conversation as the child running it lists it; nothing when none does. */
+	running(sessionId: string): SessionIdentity | undefined;
+	/** Run a held conversation in a child, `woken` when its park's wake asked. */
+	resume(entry: RosterEntry, woken: boolean): Promise<SessionIdentity>;
+	/** Start a conversation in a child, settling with the child's answer. */
+	begin(request: OpenRequest | AdoptRequest): Promise<ControlReply>;
 }
 
 /**
@@ -218,8 +245,10 @@ export function hostBackend(options: {
 	held?: Pick<HeldOrder, "ahead">;
 	/** How long an attach waits before the journal says on what: attach-waits.ts's ATTACH_SLOW_MS. */
 	attachSlowMs?: number;
+	/** Children to run conversations in; without, the host runs every one. */
+	children?: BackendChildren;
 }): HostBackend {
-	const { host, roster, engine } = options;
+	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
@@ -264,7 +293,7 @@ export function hostBackend(options: {
 				throw new Error(
 					`Conversation ${sessionId} is held but not running, since its last start or park failed; close it and open it again`,
 				);
-			if (holds !== undefined) return;
+			if (holds !== undefined || children?.running(sessionId)) return;
 			const entry = roster
 				.entries()
 				.find((held) => held.sessionId === sessionId);
@@ -275,7 +304,10 @@ export function hostBackend(options: {
 			beginning += 1;
 			try {
 				if (another) await options.admitAnother?.("wake");
-				await engine.resume(entry, true);
+				if (children?.moves(sessionId)) {
+					await children.resume(entry, true);
+					engine.movedOut?.(sessionId);
+				} else await engine.resume(entry, true);
 			} finally {
 				beginning -= 1;
 			}
@@ -298,11 +330,12 @@ export function hostBackend(options: {
 			await starts.get(sessionId);
 			waits.next("its park to settle");
 			await engine.parkSettled?.(sessionId);
-			if (host.holds(sessionId) === undefined && rostered(sessionId)) {
+			const inHost = host.holds(sessionId) !== undefined;
+			if (!inHost && !children?.running(sessionId) && rostered(sessionId)) {
 				waits.next("its wake");
 				await wake(sessionId);
 			}
-			const shown = live(sessionId);
+			const shown = children?.running(sessionId) ?? live(sessionId);
 			waits.answered();
 			return shown;
 		} catch (refusal) {
@@ -342,17 +375,26 @@ export function hostBackend(options: {
 		return roster.entries().some((held) => held.sessionId === sessionId);
 	}
 
-	async function begin(
-		request: OpenRequest | AdoptRequest,
-	): Promise<SessionIdentity> {
+	async function begin(request: OpenRequest | AdoptRequest): Promise<unknown> {
 		const another = roster.entries().length + beginning > 0;
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
+			if (children?.opens()) return await inChild(children, request);
 			return await started(request);
 		} finally {
 			beginning -= 1;
 		}
+	}
+
+	// The child answers as a host would, so its answer is the caller's.
+	async function inChild(
+		moved: BackendChildren,
+		request: OpenRequest | AdoptRequest,
+	): Promise<unknown> {
+		const reply = await moved.begin(request);
+		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
+		return reply.result;
 	}
 
 	async function started(
@@ -681,11 +723,14 @@ export const RESUME_AT_ONCE = 4;
  * order is the one they asked in, roughly the order held, since a few
  * resume at once.
  * One no longer held when its turn comes, closed while the start ran,
- * is passed over.
+ * is passed over. With `children`, one a child already runs, as one the
+ * last host's child kept running, counts as resumed, and one that moves
+ * and doesn't rest parked resumes in a child of its own.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
 	engine: ConversationEngine;
+	children?: BackendChildren;
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (step: Resuming, phase: ResumePhase) => void;
@@ -723,6 +768,10 @@ export async function resumeHeld(options: {
 				dropped.push(sessionId);
 				return;
 			}
+			if (options.children?.running(sessionId)) {
+				resumed.push(sessionId);
+				return;
+			}
 			began = true;
 			await options.starting?.(step);
 			mark("ask");
@@ -733,7 +782,9 @@ export async function resumeHeld(options: {
 			}
 			if (resumed.length > 0) await options.admitAnother?.();
 			mark("gate");
-			await options.engine.resume(entry, false, mark);
+			if (options.children?.moves(sessionId))
+				await options.children.resume(entry, false);
+			else await options.engine.resume(entry, false, mark);
 			resumed.push(sessionId);
 			end = "resumed";
 		} catch (reason) {
