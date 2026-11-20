@@ -66,6 +66,14 @@ export const HEAP_EVERY_MS = 30_000;
  */
 export const FIRST_WITHIN_MS = 5 * 60_000;
 
+/**
+ * How long, in ms, a parked conversation may go with no window viewing
+ * it before its child ends as parked: a window that left and joins again
+ * at once finds it still there, and the child holds no memory for one
+ * nobody watches.
+ */
+export const ALONE_WITHIN_MS = 30_000;
+
 /** Variables systemd gives a unit that a child must never answer for. */
 const SYSTEMD_ONLY = [
 	"NOTIFY_SOCKET",
@@ -279,6 +287,8 @@ export interface ChildLifeOptions {
 	readonly after?: (ms: number, run: () => void) => () => void;
 	/** How long it waits for its first conversation; FIRST_WITHIN_MS by default. */
 	readonly firstWithin?: number;
+	/** How long it stays parked with nobody viewing; ALONE_WITHIN_MS by default. */
+	readonly aloneWithin?: number;
 }
 
 /** A conversation as the host's registry holds it. */
@@ -298,6 +308,8 @@ export interface ChildLife {
 	readonly ending: Promise<Ending>;
 	/** The host published a change to what it runs. */
 	changed(): void;
+	/** How many windows view `sessionId`'s screen, said each time it changes. */
+	viewers(sessionId: string, count: number): void;
 	/** A conversation left the host, ended as its stop or close said. */
 	left(ending: "signalled" | "closed", why: string): void;
 	/** A conversation is becoming another inside pi, under `nextId`. */
@@ -357,6 +369,10 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let pending: { previousId: string; nextId: string } | undefined;
 	// The slot's conversation rests parked, as it did before the start.
 	let resting = false;
+	// How many windows view the conversation, and what ends a grace
+	// nobody viewing it, once one runs.
+	let viewing = 0;
+	let stopAlone: (() => void) | undefined;
 
 	function send(line: WatchLine): void {
 		for (const follow of followers) follow(line);
@@ -381,7 +397,21 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			conversation: identityOf(held),
 			state: held.state,
 			heap: heap(),
+			viewers: viewing,
 		});
+	}
+
+	// A parked conversation nobody views ends its child once its grace
+	// passes; a window joining, or a wake, ends the grace.
+	function weighAlone(held: HostedConversation | undefined): void {
+		if (answered && held?.state === "parked" && viewing === 0) {
+			stopAlone ??= after(options.aloneWithin ?? ALONE_WITHIN_MS, () =>
+				end("parked"),
+			);
+			return;
+		}
+		stopAlone?.();
+		stopAlone = undefined;
 	}
 
 	function end(why: Ending): void {
@@ -389,6 +419,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		ended = why;
 		stopFirst();
 		stopHeap();
+		stopAlone?.();
 		send({ type: "ending", why });
 		for (const { reject } of answers.splice(0))
 			reject(hostRefusal("ending", `The child ended: ${why}`));
@@ -402,6 +433,41 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		const held = current();
 		if (held && answered) stateLine(held);
 	});
+
+	// The first conversation answers the watch; one it became says so;
+	// any other change of id or state says the state.
+	function followChange(held: HostedConversation | undefined): void {
+		const host = options.identity();
+		if (!held || !host) return;
+		if (!answered) {
+			const entry = options.entry(held.id);
+			if (!entry) return;
+			answered = {
+				version: options.version,
+				host,
+				conversation: identityOf(held),
+				entry,
+			};
+			stopFirst();
+			for (const { resolve } of answers.splice(0)) resolve(answered);
+			sent = { id: held.id, state: held.state };
+			return;
+		}
+		if (pending && held.id === pending.nextId) {
+			const entry = options.entry(held.id);
+			if (!entry) return;
+			send({
+				type: "became",
+				previousId: pending.previousId,
+				conversation: identityOf(held),
+				entry,
+			});
+			pending = undefined;
+			sent = { id: held.id, state: held.state };
+			return;
+		}
+		if (held.id !== sent?.id || held.state !== sent.state) stateLine(held);
+	}
 
 	return {
 		ending,
@@ -424,36 +490,17 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
-			const host = options.identity();
-			if (!held || !host) return;
-			if (!answered) {
-				const entry = options.entry(held.id);
-				if (!entry) return;
-				answered = {
-					version: options.version,
-					host,
-					conversation: identityOf(held),
-					entry,
-				};
-				stopFirst();
-				for (const { resolve } of answers.splice(0)) resolve(answered);
-				sent = { id: held.id, state: held.state };
-				return;
-			}
-			if (pending && held.id === pending.nextId) {
-				const entry = options.entry(held.id);
-				if (!entry) return;
-				send({
-					type: "became",
-					previousId: pending.previousId,
-					conversation: identityOf(held),
-					entry,
-				});
-				pending = undefined;
-				sent = { id: held.id, state: held.state };
-				return;
-			}
-			if (held.id !== sent?.id || held.state !== sent.state) stateLine(held);
+			followChange(held);
+			weighAlone(held);
+		},
+		viewers(_sessionId, count) {
+			// A child runs one conversation, so whichever id its terminal goes
+			// by mid-became, the count is that conversation's.
+			if (ended || count === viewing) return;
+			viewing = count;
+			const held = current();
+			if (held && answered) stateLine(held);
+			weighAlone(held);
 		},
 		left(stop, why) {
 			if (ended || options.conversations().length > 0) return;

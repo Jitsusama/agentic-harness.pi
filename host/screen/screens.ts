@@ -156,6 +156,8 @@ export function hostScreens(options: {
 	report: (error: unknown) => void;
 	/** Shows pi's startup questions; without it the screens offer none. */
 	ask?: StartupAsker;
+	/** Told how many windows view a conversation, each time one joins or leaves. */
+	viewers?: (sessionId: string, count: number) => void;
 }): HostScreens {
 	const live = new Map<string, Screen>();
 	const early = new Map<string, Early>();
@@ -187,6 +189,11 @@ export function hostScreens(options: {
 			repaint: () => undefined,
 			asking: undefined,
 		};
+		// The terminal's own id, since a conversation that becomes another
+		// keeps its terminal under the new id.
+		made.terminal.whenViewed((count) =>
+			options.viewers?.(made.terminal.sessionId, count),
+		);
 		return made;
 	}
 

@@ -266,6 +266,46 @@ describe("a child's life", () => {
 		expect(lines[0]).toMatchObject({ heap: { used: 10, limit: 100 } });
 	});
 
+	it("says how many viewers its conversation has, as they come and go", () => {
+		const { life, lines, hold } = following();
+		hold(conversation(A));
+		life.viewers(A, 2);
+		life.viewers(A, 2);
+		life.viewers(A, 1);
+		hold(conversation(A, "busy"));
+		expect(
+			lines.map((line) => line.type === "state" && [line.state, line.viewers]),
+		).toEqual([
+			["idle", 2],
+			["idle", 1],
+			["busy", 1],
+		]);
+	});
+
+	it("ends parked once its parked conversation has had no viewer for its grace", async () => {
+		const { life, lines, hold, timers } = following({ aloneWithin: 2 });
+		hold(conversation(A));
+		life.viewers(A, 1);
+		hold(conversation(A, "parked"));
+		expect(timers.has(2), "no grace while a window views it").toBe(false);
+		life.viewers(A, 0);
+		timers.get(2)?.();
+		expect(await life.ending).toBe("parked");
+		expect(lines.at(-1)).toEqual({ type: "ending", why: "parked" });
+	});
+
+	it("stays while a viewer comes back within the grace, or its conversation wakes", () => {
+		const { life, hold, timers } = following({ aloneWithin: 2 });
+		hold(conversation(A));
+		hold(conversation(A, "parked"));
+		expect(timers.has(2), "a grace once parked with nobody").toBe(true);
+		life.viewers(A, 1);
+		expect(timers.has(2), "a viewer back ends the grace").toBe(false);
+		life.viewers(A, 0);
+		hold(conversation(A));
+		expect(timers.has(2), "a wake ends the grace").toBe(false);
+	});
+
 	it("says a conversation became another, and doesn't end as the old one leaves", () => {
 		const { life, lines, hold } = following();
 		hold(conversation(A));

@@ -177,7 +177,13 @@ export async function startHostProgram(
 	// said as a refusal, not as a module that can't be found.
 	const { hostScreens, hostedModeOf } = await import("../screen/screens.ts");
 	const { hostedAskerOf } = await import("../screen/startup-ask.ts");
+	const { child } = configured;
 	const screens = hostScreens({
+		...(child
+			? {
+					viewers: (id: string, count: number) => child.life.viewers(id, count),
+				}
+			: {}),
 		create: hostedModeOf(configured.interactiveMode),
 		ask: hostedAskerOf(
 			configured.startupQuestions.selector,
@@ -186,7 +192,6 @@ export async function startHostProgram(
 		report,
 	});
 	let engine: HostEngine | undefined;
-	const { child } = configured;
 	const run = await runHost({
 		argv,
 		env,

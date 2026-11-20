@@ -164,6 +164,7 @@ const watchLine = z.discriminatedUnion("type", [
 		conversation: identity,
 		state: z.enum(["busy", "idle"]),
 		heap: z.strictObject({ used: count, limit: count }),
+		viewers: count,
 	}),
 	z.strictObject({
 		type: z.literal("became"),

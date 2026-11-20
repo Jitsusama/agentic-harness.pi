@@ -357,6 +357,20 @@ describe("persistent viewer terminal", () => {
 		expect(blocked, "a closed terminal hears nothing").toHaveBeenCalledOnce();
 	});
 
+	it("says how many viewers it has as they join and leave, and none once it closes", () => {
+		const terminal = new ViewerTerminal("a", () => {});
+		const viewed = vi.fn<(count: number) => void>();
+		terminal.whenViewed(viewed);
+
+		const one = terminal.attach(viewer());
+		terminal.attach(viewer());
+		one.detach();
+		one.detach();
+		terminal.dispose();
+		terminal.dispose();
+		expect(viewed.mock.calls).toEqual([[1], [2], [1], [0]]);
+	});
+
 	it("tells pi's key reader its viewers speak kitty's protocol once it starts", () => {
 		setKittyProtocolActive(false);
 		cleanups.push(() => setKittyProtocolActive(false));
