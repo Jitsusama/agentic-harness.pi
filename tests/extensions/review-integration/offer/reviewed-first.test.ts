@@ -261,6 +261,80 @@ describe("holding a change until our own council has read it", () => {
 		).toBeUndefined();
 	});
 
+	/** Main takes a commit of its own, and the topic is rebased onto it. */
+	async function rebasedOntoNewMain() {
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "main");
+		expect(
+			await git(repo, "rev-parse", "HEAD"),
+			"the rebase gave the head a new id",
+		).not.toBe(fix);
+	}
+
+	it("keeps the council of a change a clean rebase moved", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("keeps the council read before a last fix across a clean rebase", async () => {
+		await councilRead(first);
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("keeps the council when main changed the same file above the change", async () => {
+		// The change appends to a file main then grows at its top, so the
+		// rebase moves its hunk down and gives the file other blob ids.
+		const lines = (from: number, to: number) =>
+			Array.from({ length: to - from }, (_, at) => `line ${from + at}\n`).join(
+				"",
+			);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "shared"), lines(0, 10));
+		await git(repo, "add", "shared");
+		await git(repo, "commit", "-qm", "shared");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "main");
+		writeFileSync(join(repo, "shared"), lines(0, 11));
+		await git(repo, "commit", "-qam", "append");
+		await councilRead(await git(repo, "rev-parse", "HEAD"));
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "shared"), `top\nof\nfile\n${lines(0, 10)}`);
+		await git(repo, "commit", "-qam", "grow");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "main");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("holds a rebased change that brought something else along", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		writeFileSync(join(repo, "two"), "two, said otherwise\n");
+		await git(repo, "commit", "-qam", "otherwise");
+
+		const said = await councilFirst(exec, topic(), "proposed");
+
+		expect(said).toContain("No council of ours");
+		expect(said).toContain("leaves the change's diff as it was");
+	});
+
+	it("holds a clean rebase of a change no council read", async () => {
+		await councilRead(trunk);
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
 	it("says the range can't be read when the head the backend names has no council", async () => {
 		const said = await councilFirst(
 			exec,

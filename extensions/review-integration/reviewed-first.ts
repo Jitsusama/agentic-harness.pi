@@ -25,6 +25,18 @@
  * change's. One that can't be read is said as that, not as a
  * missing council, so nobody pays for a council that would be refused
  * the same way.
+ *
+ * A rebase gives every commit a new id, so a council read before it
+ * would count for nothing, and a clean rebase would cost a round that
+ * reads what was read already. So the branch's earlier heads, as its
+ * reflogs in the checkout recall them, count too: one whose whole
+ * change, from where it left its base, reads the same as the change's
+ * now, line for line though maybe not at the same line numbers, lends
+ * the change any council that read one of that head's own commits. A
+ * rebase that had to settle a conflict, or brought anything else
+ * along, changes the diff and needs a round of its own. Only the last
+ * EARLIER_HEADS of each reflog are asked about, and a checkout that
+ * never held the branch before its rebase remembers none.
  */
 
 import type { Exec } from "../../lib/core/exec/index.ts";
@@ -40,6 +52,9 @@ const COMMITS_ASKED = 500;
  * command line, past what the kernel takes.
  */
 const REFS_A_CALL = 500;
+
+/** How many of a branch's earlier heads, newest first, each reflog is asked for. */
+const EARLIER_HEADS = 30;
 
 /** How many of the branches holding a change's reviewed commits a refusal names. */
 const HOLDERS_NAMED = 3;
@@ -83,7 +98,14 @@ export interface ChangeCommits {
  * they couldn't be read.
  */
 type Read =
-	| { commits: string[]; shared: string[]; holders: string[] }
+	| {
+			commits: string[];
+			shared: string[];
+			holders: string[];
+			/** The base and head as read, each as the remote has it when it does. */
+			base: string;
+			head: string;
+	  }
 	| { unread: string };
 
 /**
@@ -103,6 +125,7 @@ export async function councilFirst(
 	if ("unread" in read) {
 		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.`;
 	}
+	if (await rebasedReviewed(exec, change, read)) return undefined;
 	if (
 		read.shared.length > 0 &&
 		(await witnesses(change.repo, new Set(read.shared)))
@@ -111,7 +134,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). A rebase that leaves the change's diff as it was keeps its council; this one has none to keep, or changed what the change does. Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -166,7 +189,111 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 		commits: all.filter((sha) => own.has(sha)),
 		shared: all.filter((sha) => !own.has(sha)),
 		holders: others.names,
+		base,
+		head,
 	};
+}
+
+/**
+ * Whether a council read an earlier head of the change's branch whose
+ * whole change reads as the change's does now, so that only a clean
+ * rebase stands between them.
+ */
+async function rebasedReviewed(
+	exec: Exec,
+	change: ChangeCommits,
+	read: { base: string; head: string },
+): Promise<boolean> {
+	const git = (...args: string[]) =>
+		exec("git", ["-C", change.checkout, ...args]);
+	const tip = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		"--end-of-options",
+		`${read.head}^{commit}`,
+	);
+	if (tip.code !== 0) return false;
+	const now = tip.stdout.trim();
+	const earlier = (await earlierHeads(git, change.head)).filter(
+		(sha) => sha !== now,
+	);
+	if (earlier.length === 0) return false;
+	const wanted = await changeDiff(git, read.base, now);
+	if (!wanted) return false;
+	const lent = new Set<string>();
+	for (const head of earlier) {
+		const was = await changeDiff(git, read.base, head);
+		if (was?.diff !== wanted.diff) continue;
+		const own = await git(
+			"rev-list",
+			`--max-count=${COMMITS_ASKED}`,
+			"--end-of-options",
+			`${was.from}..${head}`,
+		);
+		if (own.code === 0) for (const sha of commitIds(own.stdout)) lent.add(sha);
+	}
+	return lent.size > 0 && witnesses(change.repo, lent);
+}
+
+/**
+ * The commits `branch` pointed at before, newest first, as its local
+ * and its pushed reflogs recall them; none when it isn't a branch.
+ */
+async function earlierHeads(
+	git: (...args: string[]) => ReturnType<Exec>,
+	branch: string,
+): Promise<string[]> {
+	const heads = new Set<string>();
+	for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+		const logged = await git(
+			"log",
+			"--walk-reflogs",
+			"--format=%H",
+			`--max-count=${EARLIER_HEADS}`,
+			"--end-of-options",
+			ref,
+			"--",
+		);
+		// No reflog, or no such branch: it recalls no earlier head.
+		if (logged.code === 0)
+			for (const sha of commitIds(logged.stdout)) heads.add(sha);
+	}
+	return [...heads];
+}
+
+/**
+ * The whole change `head` makes from where it left `base`, and that
+ * point, with what a rebase alone changes taken out: the blob ids and
+ * the hunks' line numbers. Nothing when it makes none or can't be read,
+ * since an empty change matches every branch cut and never pushed on.
+ */
+async function changeDiff(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	head: string,
+): Promise<{ from: string; diff: string } | undefined> {
+	const fork = await git("merge-base", "--end-of-options", base, head);
+	const from = fork.stdout.trim();
+	if (fork.code !== 0 || !COMMIT_ID.test(from)) return undefined;
+	const diffed = await git(
+		"diff",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--full-index",
+		"--end-of-options",
+		from,
+		head,
+		"--",
+	);
+	if (diffed.code !== 0) return undefined;
+	const diff = diffed.stdout
+		.split("\n")
+		.filter((line) => !line.startsWith("index "))
+		.map((line) => (line.startsWith("@@ ") ? "@@" : line))
+		.join("\n");
+	return diff.trim() === "" ? undefined : { from, diff };
 }
 
 /**
