@@ -9,6 +9,15 @@
  * the child derives an open's launch. The supervisor keeps its routes,
  * its list and the shared roster from these lines alone, so it never
  * reads a child's journal, its roster or asks it again.
+ *
+ * A child outlives the host that started it, so a host may watch a
+ * child newer or older than itself. What either adds is passed over:
+ * fields it doesn't know, nested ones too, a state line it can't read
+ * and a line of a type it doesn't know, each reported. Only a became it
+ * can't read ends the watch, since its route would then name a
+ * conversation the child no longer runs; an ending it can't read is
+ * taken as a park, which keeps the conversation held and lets the child
+ * exit by itself.
  */
 import { createConnection } from "node:net";
 import { z } from "zod";
@@ -16,18 +25,37 @@ import {
 	isRosterEntry,
 	type RosterEntry,
 } from "../../lib/core/session/roster.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import type { HostIdentity } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
-import { identities, parseReply, type SessionIdentity } from "./protocol.ts";
+import { identities, type SessionIdentity } from "./protocol.ts";
+
+/**
+ * The longest line a watch reads: each carries one conversation and its
+ * roster entry, a few hundred bytes, and every running child has a
+ * watch whose buffer lasts its whole life.
+ */
+const WATCH_FRAME_BYTES = 64 * 1024;
+/** How much of why a line couldn't be read goes in the host's journal. */
+const MISREAD_SAID_CHARS = 300;
 
 const sessionId = z.uuid();
-// A line, its conversation and its host may carry more than this reads,
-// as a newer child's would; what it reads, it keeps alone.
+// What a newer child says beyond these, at any depth, is passed over.
 const conversation = identities.conversation.strip();
+const host = identities.host
+	.extend({ owner: identities.host.shape.owner.strip() })
+	.strip();
 const entry = z.custom<RosterEntry>(isRosterEntry, "not a roster entry");
+const answer = z.discriminatedUnion("ok", [
+	z.object({ ok: z.literal(true), result: z.unknown() }),
+	z.object({
+		ok: z.literal(false),
+		error: z.object({ message: z.string() }),
+	}),
+]);
 const watched = z.object({
 	version: z.string().min(1),
-	host: identities.host.strip(),
+	host,
 	conversation,
 	entry,
 });
@@ -87,6 +115,8 @@ export interface ChildWatcher {
 	 * without saying.
 	 */
 	ended(why: ChildEnding): void;
+	/** A line the watch passed over, since it couldn't read it. */
+	misread?(error: Error): void;
 }
 
 /** A watch on one child, once it answered. */
@@ -102,8 +132,8 @@ export interface ChildWatch extends Watched {
  * rejects when it can't be reached, answers with anything but a watch,
  * or connects but gives no answer within `answersWithinMs`, since a
  * child that never answers would otherwise hold its caller for good.
- * A line the supervisor can't read ends the watch as failed, since the
- * child and the supervisor no longer agree on what is said.
+ * A line it can't read is passed over, apart from a became, which ends
+ * the watch as failed, and an ending, taken as a park.
  */
 export function watchChild(
 	socket: string,
@@ -112,7 +142,7 @@ export function watchChild(
 ): Promise<ChildWatch> {
 	return new Promise((resolve, reject) => {
 		const connection = createConnection(socket);
-		const frames = jsonLines();
+		const frames = jsonLines(WATCH_FRAME_BYTES);
 		let answered = false;
 		let over = false;
 		let unanswered: ReturnType<typeof setTimeout> | undefined;
@@ -145,7 +175,7 @@ export function watchChild(
 			try {
 				for (const value of frames.push(chunk)) {
 					if (!answered) {
-						const reply = parseReply(value);
+						const reply = answer.parse(value);
 						if (!reply.ok) throw new Error(reply.error.message);
 						const first = watched.parse(reply.result);
 						clearTimeout(unanswered);
@@ -162,7 +192,21 @@ export function watchChild(
 						});
 						continue;
 					}
-					const said = line.parse(value);
+					const read = line.safeParse(value);
+					if (!read.success) {
+						const type = isRecord(value) ? value.type : undefined;
+						if (type === "became") throw read.error;
+						if (type === "ending") {
+							end("parked");
+							return;
+						}
+						const why = read.error.message.slice(0, MISREAD_SAID_CHARS);
+						watcher.misread?.(
+							new Error(`passed over a line it can't read: ${why}`),
+						);
+						continue;
+					}
+					const said = read.data;
 					if (said.type === "state") watcher.state(said.conversation);
 					else if (said.type === "became")
 						watcher.became(said.previousId, said.conversation, said.entry);

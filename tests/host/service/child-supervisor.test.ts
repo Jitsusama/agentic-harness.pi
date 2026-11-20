@@ -68,22 +68,36 @@ interface FakeRoster extends KeptRoster {
 	held: RosterEntry[];
 	/** Refuse every hold, as a roster that can't be written would. */
 	refuses?: boolean;
+	/** Each hold waits on this before it writes, as a slow disk would. */
+	written?: Promise<void>;
 }
 
-/** A shared roster in memory, refusing what the real one refuses. */
+/**
+ * A shared roster in memory, refusing a second hold of one id or one
+ * file, on a hold or a replace, as the real one does; it takes any
+ * launch, which only the real one's entries are checked for.
+ */
 function fakeRoster(held: RosterEntry[]): FakeRoster {
 	const holds = (sessionId: string) =>
 		fake.held.some((one) => one.sessionId === sessionId);
+	const clashes = (entry: RosterEntry, besides?: string) =>
+		fake.held.some(
+			(one) =>
+				one.sessionId !== besides &&
+				(one.sessionId === entry.sessionId || one.file === entry.file),
+		);
 	const fake: FakeRoster = {
 		held,
 		entries: () => [...fake.held],
 		async hold(entry) {
+			await fake.written;
 			if (fake.refuses) throw new Error("The roster can't be written");
-			if (holds(entry.sessionId)) throw new Error("Held already");
+			if (clashes(entry)) throw new Error("Held already");
 			fake.held = [...fake.held, entry];
 		},
 		async replace(previousId, entry) {
 			if (!holds(previousId)) throw new Error("Conversation is not held");
+			if (clashes(entry, previousId)) throw new Error("Held already");
 			fake.held = fake.held.map((one) =>
 				one.sessionId === previousId ? entry : one,
 			);
@@ -117,10 +131,18 @@ interface FakeChild {
 interface FakeUnits extends Units {
 	readonly started: string[];
 	readonly stopped: string[];
+	readonly forgotten: string[];
 	/** Each unit running, with its child once it listens. */
 	readonly children: Map<string, FakeChild | undefined>;
 	/** What the next child started does, when a test says. */
-	next?: ChildTraits & { diesBeforeListening?: boolean };
+	next?: ChildTraits & {
+		diesBeforeListening?: boolean;
+		neverListens?: boolean;
+	};
+	/** A stop is taken, but its unit runs on, as one systemd can't stop. */
+	lingers?: boolean;
+	/** How many of the next asks whether a unit has gone fail. */
+	goneFails?: number;
 }
 
 /** How a fake child answers. */
@@ -129,6 +151,12 @@ interface ChildTraits {
 	refuses?: boolean;
 	/** Take every request and answer none. */
 	silent?: boolean;
+	/** Build what it is asked to open, but never answer the open. */
+	opensUnanswered?: boolean;
+	/** Say it ends in the same write as its watch's answer. */
+	endsAsItAnswers?: boolean;
+	/** What its watch's answer is made into, as a newer child's might be. */
+	answers?: (result: Record<string, unknown>) => Record<string, unknown>;
 }
 
 function slotNamed(unit: string): Slot {
@@ -139,7 +167,7 @@ function slotNamed(unit: string): Slot {
 /** Run a child in `slot`, as its unit would once its extensions load. */
 async function runChild(
 	slot: Slot,
-	{ refuses, silent }: ChildTraits,
+	{ refuses, silent, opensUnanswered, endsAsItAnswers, answers }: ChildTraits,
 	pid: number,
 ): Promise<FakeChild> {
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
@@ -196,24 +224,26 @@ async function runChild(
 					const sessionId = randomUUID();
 					child.conversation = conversation(sessionId);
 					child.entry = derived(sessionId);
+					if (opensUnanswered) continue;
 					socket.write(
 						line({ v: 1, id, ok: true, result: child.conversation }),
 					);
 				} else if (request.op === "watch") {
 					watchers.add(socket);
-					socket.write(
-						line({
-							v: 1,
-							id,
-							ok: true,
-							result: {
-								version: "test",
-								host: child.identity,
-								conversation: child.conversation,
-								entry: child.entry,
-							},
-						}),
-					);
+					const result = {
+						version: "test",
+						host: child.identity,
+						conversation: child.conversation,
+						entry: child.entry,
+					};
+					const answer = line({
+						v: 1,
+						id,
+						ok: true,
+						result: answers ? answers(result) : result,
+					});
+					const ending = line({ type: "ending", why: "parked" });
+					socket.write(endsAsItAnswers ? `${answer}${ending}` : answer);
 				}
 			}
 		});
@@ -227,6 +257,7 @@ function fakeUnits(): FakeUnits {
 	const fake: FakeUnits = {
 		started: [],
 		stopped: [],
+		forgotten: [],
 		children: new Map(),
 		async start(unit) {
 			fake.started.push(unit);
@@ -243,6 +274,7 @@ function fakeUnits(): FakeUnits {
 					fake.children.delete(unit);
 					return;
 				}
+				if (next.neverListens) return;
 				runChild(slotNamed(unit), next, own).then(
 					(child) => fake.children.set(unit, child),
 					(error) => reported.push(error),
@@ -250,12 +282,20 @@ function fakeUnits(): FakeUnits {
 			}, LISTENS_AFTER_MS);
 		},
 		async gone(unit) {
+			if (fake.goneFails) {
+				fake.goneFails -= 1;
+				throw new Error("systemd would not say");
+			}
 			return !fake.children.has(unit);
 		},
 		async stop(unit) {
 			fake.stopped.push(unit);
+			if (fake.lingers) return;
 			await fake.children.get(unit)?.exit();
 			fake.children.delete(unit);
+		},
+		async forget(unit) {
+			fake.forgotten.push(unit);
 		},
 	};
 	return fake;
@@ -267,7 +307,9 @@ function childOf(sessionId: string): FakeChild {
 	throw new Error(`No child runs ${sessionId}`);
 }
 
-function supervise(): ChildSupervisor {
+function supervise(
+	clocks: { listensWithinMs?: number; exitsWithinMs?: number } = {},
+): ChildSupervisor {
 	return childSupervisor({
 		key,
 		folder,
@@ -280,7 +322,32 @@ function supervise(): ChildSupervisor {
 		listensWithinMs: 5_000,
 		answersWithinMs: 500,
 		exitsWithinMs: 500,
+		...clocks,
 	});
+}
+
+/** An open request, as a caller sends one. */
+function opening(id: string) {
+	return {
+		v: 1 as const,
+		id,
+		op: "open" as const,
+		cwd: "/home",
+		attended: true,
+	};
+}
+
+/** A promise and what settles it, for a test to hold a step open. */
+function deferred(): { promise: Promise<void>; settle: () => void } {
+	let settle = (): void => undefined;
+	const promise = new Promise<void>((resolve) => {
+		settle = resolve;
+	});
+	return { promise, settle };
+}
+
+function pauseFor(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 beforeEach(async () => {
@@ -391,11 +458,101 @@ describe("a resumed conversation", () => {
 		expect(units.stopped).toEqual([]);
 		expect(
 			await units.gone(slotOf(folder, key, a).unit),
-			"its child has gone",
+			"its child still runs",
 		).toBe(false);
 	});
 
+	it("fails, keeping no watch, when the host stops watching as its hold is written", async () => {
+		roster = fakeRoster([]);
+		supervisor.close();
+		supervisor = supervise();
+		const writing = deferred();
+		roster.written = writing.promise;
+		const resuming = supervisor.resume(entry(a));
+		await vi.waitFor(() =>
+			expect(routes.routeOf(a), "its child answered").toBeDefined(),
+		);
+
+		supervisor.close();
+		writing.settle();
+
+		await expect(resuming).rejects.toThrow("stopped watching");
+		await childOf(a).end("parked");
+		await pauseFor(LISTENS_AFTER_MS);
+		expect(ended, "no ending is taken from a child no longer watched").toEqual(
+			[],
+		);
+		expect(units.stopped).toEqual([]);
+	});
+
+	it("is given up, naming its unit, when its child never listens", async () => {
+		supervisor.close();
+		supervisor = supervise({ listensWithinMs: 300 });
+		units.next = { neverListens: true };
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`${slotOf(folder, key, a).unit} did not listen within 300 ms`,
+		);
+	});
+
+	it("is refused, and its child stopped, when the child runs another conversation", async () => {
+		units.next = {
+			answers: (result) => ({ ...result, conversation: conversation(b) }),
+		};
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`runs ${b}, not ${a} as asked`,
+		);
+
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.listed()).toEqual([]);
+	});
+
+	it("is refused when its child names one conversation and holds another", async () => {
+		units.next = { answers: (result) => ({ ...result, entry: entry(b) }) };
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`runs ${a} but holds ${b}`,
+		);
+
+		expect(routes.listed()).toEqual([]);
+	});
+
+	it("refuses a second start in a slot whose child runs on as another", async () => {
+		await supervisor.resume(entry(a));
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+		const route = routes.routeOf(b);
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`A child runs in ${slotOf(folder, key, a).unit} already`,
+		);
+
+		expect(units.started, "no second child").toHaveLength(1);
+		expect(units.stopped, "the running one is left be").toEqual([]);
+		expect(routes.routeOf(b)).toEqual(route);
+	});
+
+	it("answers an ending said with its answer, keeping no watch", async () => {
+		units.next = { endsAsItAnswers: true };
+
+		const resumed = await supervisor.resume(entry(a));
+
+		expect(resumed.sessionId).toBe(a);
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+		expect(routes.routeOf(a)).toBeUndefined();
+		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+	});
+
 	it("starts again in its slot only once the last child there has gone", async () => {
+		// Room for the last child's exit, which the test times itself.
+		supervisor.close();
+		supervisor = supervise({ exitsWithinMs: 3_000 });
 		await supervisor.resume(entry(a));
 		const last = childOf(a);
 		const slot = slotOf(folder, key, a);
@@ -454,6 +611,59 @@ describe("what a child says", () => {
 		);
 	});
 
+	it("holds what its conversation became when the roster no longer held it", async () => {
+		await supervisor.resume(entry(a));
+		roster.held = [];
+
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+
+		await vi.waitFor(() => expect(roster.held).toEqual([entry(b)]));
+		expect(reported).toEqual([]);
+	});
+
+	it("lets the hold of what its conversation became go when it closes", async () => {
+		await supervisor.resume(entry(a));
+		const child = childOf(a);
+		child.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(roster.held).toEqual([entry(b)]));
+
+		await child.end("closed");
+
+		await vi.waitFor(() => expect(ended).toEqual([[b, "closed"]]));
+		await vi.waitFor(() => expect(roster.held, "no hold left").toEqual([]));
+		expect(routes.routeOf(b)).toBeUndefined();
+	});
+
+	it("moves no route onto a conversation another child runs", async () => {
+		roster.held = [entry(a), entry(b)];
+		await supervisor.resume(entry(a));
+		await supervisor.resume(entry(b));
+		const route = routes.routeOf(b);
+
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+
+		await vi.waitFor(() =>
+			expect(String(reported[0])).toContain("which another child runs"),
+		);
+		expect(routes.routeOf(b)).toEqual(route);
+		expect(routes.routeOf(a)).toBeDefined();
+	});
+
 	it("lets the route and the slot go when the child says it ends", async () => {
 		await supervisor.resume(entry(a));
 		const slot = slotOf(folder, key, a);
@@ -472,6 +682,9 @@ describe("what a child says", () => {
 			expect.stringContaining("its process ended, parked"),
 		]);
 		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+		await vi.waitFor(() =>
+			expect(units.forgotten, "systemd forgets its unit").toEqual([slot.unit]),
+		);
 	});
 
 	it("lets the roster's hold go only when the child says it closed", async () => {
@@ -504,6 +717,8 @@ describe("what a child says", () => {
 		childOf(a).say({ type: "ending", why: "parked" });
 
 		const slot = slotOf(folder, key, a);
+		await pauseFor(200);
+		expect(units.stopped, "not stopped while it may still exit").toEqual([]);
 		await vi.waitFor(
 			() => {
 				expect(units.stopped).toEqual([slot.unit]);
@@ -544,6 +759,51 @@ describe("what a child says", () => {
 		);
 	});
 
+	it("is watched when a newer child's answer carries more, nested too", async () => {
+		units.next = {
+			answers: (result) => ({
+				...result,
+				colour: "teal",
+				host: {
+					key,
+					owner: { pid: 7, startedAt: 7, cgroup: "pi.slice" },
+					region: "north",
+				},
+			}),
+		};
+
+		await supervisor.resume(entry(a));
+
+		expect(routes.routeOf(a)?.identity).toEqual({
+			key,
+			owner: { pid: 7, startedAt: 7 },
+		});
+	});
+
+	it("passes over a line of a kind it doesn't know, and says so", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({ type: "weather", sky: "clear" });
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy" },
+		});
+
+		await vi.waitFor(() => expect(routes.listed()[0]?.state).toBe("busy"));
+		expect(ended).toEqual([]);
+		expect(String(reported[0])).toContain("passed over a line");
+	});
+
+	it("takes an ending it can't read as a park, leaving the child to exit", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({ type: "ending", why: "migrated" });
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+		expect(units.stopped, "given its while to exit").toEqual([]);
+	});
+
 	it("lets the roster's hold go when the child says it was released", async () => {
 		await supervisor.resume(entry(a));
 
@@ -559,6 +819,37 @@ describe("what a child says", () => {
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
 		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+	});
+});
+
+describe("a child leaving", () => {
+	it("keeps its slot in use while its unit won't stop, refusing a start there", async () => {
+		await supervisor.resume(entry(a));
+		units.lingers = true;
+
+		childOf(a).say({ type: "became", previousId: "not an id" });
+
+		await vi.waitFor(
+			() => expect(String(reported.at(-1))).toContain("still runs"),
+			{ timeout: 3_000 },
+		);
+		const slot = slotOf(folder, key, a);
+		expect(existsSync(slot.file), "its slot is kept").toBe(true);
+		await expect(supervisor.resume(entry(a))).rejects.toThrow("runs in");
+		expect(units.started, "no second child beside it").toHaveLength(1);
+	});
+
+	it("keeps its slot in use when systemd won't say whether its unit went", async () => {
+		await supervisor.resume(entry(a));
+		units.goneFails = 1;
+
+		childOf(a).say({ type: "became", previousId: "not an id" });
+
+		await vi.waitFor(() =>
+			expect(String(reported.at(-1))).toContain("would not say"),
+		);
+		await expect(supervisor.resume(entry(a))).rejects.toThrow("runs in");
+		expect(units.started, "no second child beside it").toHaveLength(1);
 	});
 });
 
@@ -634,6 +925,42 @@ describe("a new conversation", () => {
 
 		expect(units.stopped).toEqual(units.started);
 		expect(routes.listed()).toEqual([]);
+	});
+
+	it("names the conversation a child built but never answered for, holding it", async () => {
+		units.next = { opensUnanswered: true };
+
+		const reply = await supervisor.begin(opening("open-5"));
+
+		expect(reply).toMatchObject({
+			id: "open-5",
+			ok: false,
+			error: { code: "open_unsettled" },
+		});
+		const [running] = routes.listed();
+		expect(running, "routed to").toBeDefined();
+		expect(reply.ok ? "" : reply.error.message).toContain(
+			running?.sessionId ?? "none",
+		);
+		expect(roster.held).toEqual([
+			entry(a),
+			derived(running?.sessionId ?? ""),
+		]);
+		expect(units.stopped, "left running").toEqual([]);
+	});
+
+	it("asks nothing of its child when the host stops watching as it starts", async () => {
+		const beginning = supervisor.begin(opening("open-6"));
+		// Its unit has started, and its child listens a moment later.
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+
+		supervisor.close();
+
+		await expect(beginning).rejects.toThrow("stopped watching");
+		await pauseFor(LISTENS_AFTER_MS * 2);
+		const [child] = [...units.children.values()];
+		expect(child?.asked ?? [], "nothing asked").toEqual([]);
+		expect(units.stopped).toEqual([]);
 	});
 
 	it("tells the caller a child that never answers doesn't, and stops it", async () => {
@@ -712,10 +1039,40 @@ describe("a host starting again", () => {
 
 		expect(await supervisor.adopt(), "children taken up").toBe(0);
 
-		expect(units.stopped).toEqual([slot.unit]);
-		expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+		await vi.waitFor(() => {
+			expect(units.stopped).toEqual([slot.unit]);
+			expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+		});
 		expect(said).toEqual([expect.stringContaining("could not be watched")]);
 		expect(reported).toHaveLength(1);
+	});
+
+	it("holds a child that became another while nothing watched it in its slot's place", async () => {
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		const child = childOf(a);
+		child.conversation = conversation(b);
+		child.entry = entry(b);
+		routes = heldChildren();
+		supervisor = supervise();
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(roster.held, "one hold, under its new id").toEqual([entry(b)]);
+		expect(routes.routeOf(b)?.socket).toBe(slotOf(folder, key, a).socket);
+	});
+
+	it("leaves a child that is leaving to the next host when it stops watching", async () => {
+		await supervisor.resume(entry(a));
+		const slot = slotOf(folder, key, a);
+		childOf(a).say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+
+		supervisor.close();
+		await pauseFor(800);
+
+		expect(units.stopped, "not stopped after the host's stop").toEqual([]);
+		expect(existsSync(slot.file), "its slot is left for an adopt").toBe(true);
 	});
 
 	it("leaves each child running when it stops watching", async () => {
@@ -726,7 +1083,7 @@ describe("a host starting again", () => {
 		expect(units.stopped).toEqual([]);
 		expect(
 			await units.gone(slotOf(folder, key, a).unit),
-			"the child has gone",
+			"the child still runs",
 		).toBe(false);
 		await childOf(a).end("parked");
 		// Nothing to wait on: an ending that arrives would come within this.

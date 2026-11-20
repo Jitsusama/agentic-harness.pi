@@ -18,7 +18,11 @@
 import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import {
+	isHostKey,
+	isSessionId,
+	type RosterEntry,
+} from "../../lib/core/session/roster.ts";
 import { MAX_SOCKET_PATH_BYTES } from "./address.ts";
 
 /** Where one child's files are, and the unit it runs as. */
@@ -41,11 +45,13 @@ export interface Units {
 	gone(unit: string): Promise<boolean>;
 	/** Stop a unit, settling once systemd has taken the job. */
 	stop(unit: string): Promise<void>;
+	/**
+	 * Have systemd forget a unit that has gone, so one that failed isn't
+	 * left listed as failed: each open's child is a unit of its own,
+	 * never started again. Never throws, since nothing waits on it.
+	 */
+	forget(unit: string): Promise<void>;
 }
-
-/** A slot's name: a uuid, so it names no path but its own. */
-const SLOT_NAME =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** The folder a host's children keep their slots in. */
 export function slotFolder(runtimeDir: string, key: string): string {
@@ -56,7 +62,9 @@ export function slotFolder(runtimeDir: string, key: string): string {
 
 /** The slot `name` names in `folder`, for the host keyed `key`. */
 export function slotOf(folder: string, key: string, name: string): Slot {
-	if (!SLOT_NAME.test(name)) throw new Error(`Not a slot's name: ${name}`);
+	// A conversation's id, so it names no path or unit but its own.
+	if (!isSessionId(name)) throw new Error(`Not a slot's name: ${name}`);
+	if (!isHostKey(key)) throw new Error(`Not a host's key: ${key}`);
 	const socket = join(folder, `${name}.sock`);
 	if (Buffer.byteLength(socket) > MAX_SOCKET_PATH_BYTES)
 		throw new Error(`A child's socket would be too long a path: ${socket}`);
@@ -108,29 +116,54 @@ export async function slotsIn(folder: string, key: string): Promise<Slot[]> {
 	const named = new Set(
 		names
 			.map((name) => name.replace(/\.(json|sock|d)$/, ""))
-			.filter((name) => SLOT_NAME.test(name)),
+			.filter((name) => isSessionId(name)),
 	);
 	return [...named].map((name) => slotOf(folder, key, name));
 }
 
-/** What `systemctl --user` said: its exit code and what it printed. */
+/** What `systemctl --user` said: its exit code, what it printed and why. */
 export interface Said {
 	readonly code: number;
 	readonly out: string;
+	readonly err?: string;
 }
 
 /** Runs `systemctl --user` with these arguments. */
 export type Systemctl = (args: readonly string[]) => Promise<Said>;
 
+/**
+ * How long `systemctl --user` may take to answer: it only queues a job
+ * or reads a state, so one past this has a user manager that hangs,
+ * and a slot waiting on it would otherwise wait for good.
+ */
+export const SYSTEMCTL_WITHIN_MS = 10_000;
+
 const systemctl: Systemctl = (args) =>
 	new Promise((resolve, reject) => {
-		execFile("systemctl", ["--user", ...args], (error, out) => {
-			if (!error) return resolve({ code: 0, out });
-			const code = Reflect.get(error, "code");
-			if (typeof code === "number") return resolve({ code, out });
-			reject(error);
-		});
+		execFile(
+			"systemctl",
+			["--user", ...args],
+			{ timeout: SYSTEMCTL_WITHIN_MS },
+			(error, out, err) => {
+				if (!error) return resolve({ code: 0, out, err });
+				const code = Reflect.get(error, "code");
+				if (typeof code === "number") return resolve({ code, out, err });
+				if (error.killed)
+					return reject(
+						new Error(
+							`systemctl --user ${args.join(" ")} gave no answer within ${SYSTEMCTL_WITHIN_MS} ms`,
+						),
+					);
+				reject(error);
+			},
+		);
 	});
+
+/** What systemd said a refusal was for, after `what`, or `what` alone. */
+function refused(what: string, { err }: Said): Error {
+	const why = err?.trim();
+	return new Error(why ? `${what}: ${why}` : what);
+}
 
 /** The states a unit with nothing queued for it has gone in. */
 const GONE = new Set(["inactive", "failed"]);
@@ -145,16 +178,15 @@ const GONE = new Set(["inactive", "failed"]);
 export function unitsOver(run: Systemctl): Units {
 	return {
 		async start(unit) {
-			const { code } = await run(["start", "--no-block", unit]);
-			if (code !== 0) throw new Error(`systemd would not start ${unit}`);
+			const said = await run(["start", "--no-block", unit]);
+			if (said.code !== 0)
+				throw refused(`systemd would not start ${unit}`, said);
 		},
 		async gone(unit) {
-			const { code, out } = await run([
-				"show",
-				"--property=ActiveState,Job",
-				unit,
-			]);
-			if (code !== 0) throw new Error(`systemd would not say how ${unit} is`);
+			const shown = await run(["show", "--property=ActiveState,Job", unit]);
+			const { code, out } = shown;
+			if (code !== 0)
+				throw refused(`systemd would not say how ${unit} is`, shown);
 			const said = new Map(
 				out
 					.split("\n")
@@ -167,8 +199,16 @@ export function unitsOver(run: Systemctl): Units {
 			return GONE.has(said.get("ActiveState") ?? "") && !said.get("Job");
 		},
 		async stop(unit) {
-			const { code } = await run(["stop", "--no-block", unit]);
-			if (code !== 0) throw new Error(`systemd would not stop ${unit}`);
+			const said = await run(["stop", "--no-block", unit]);
+			if (said.code !== 0) throw refused(`systemd would not stop ${unit}`, said);
+		},
+		async forget(unit) {
+			try {
+				// Refused for a unit not failed, which has nothing to forget.
+				await run(["reset-failed", unit]);
+			} catch {
+				// A user manager that hangs keeps a failed unit listed, no worse.
+			}
 		},
 	};
 }

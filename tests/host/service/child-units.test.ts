@@ -46,6 +46,13 @@ describe("a child's slot", () => {
 			"Not a slot's name",
 		);
 		expect(() => slotFolder("run", key)).toThrow("absolute");
+		expect(() => slotOf(folder, "../work", a)).toThrow("Not a host's key");
+	});
+
+	it("takes any id a roster holds, in either case", () => {
+		const upper = a.toUpperCase();
+
+		expect(slotOf(folder, key, upper).name).toBe(upper);
 	});
 
 	it("refuses a folder whose sockets no Unix could bind whole", () => {
@@ -68,14 +75,30 @@ describe("a child's unit, as systemd says", () => {
 	const unit = `pi-conversation-${key}@${a}.service`;
 
 	/** Units over a systemctl that says `out` to every ask. */
-	function saying(out: string, code = 0) {
+	function saying(out: string, code = 0, err = "") {
 		const asked: (readonly string[])[] = [];
 		const units = unitsOver(async (args): Promise<Said> => {
 			asked.push(args);
-			return { code, out };
+			return { code, out, err };
 		});
 		return { asked, units };
 	}
+
+	it("says why systemd refused, as it said it", async () => {
+		const { units } = saying("", 1, "Unit not found.\n");
+
+		await expect(units.stop(unit)).rejects.toThrow(
+			`systemd would not stop ${unit}: Unit not found.`,
+		);
+	});
+
+	it("forgets a unit that went, whatever systemd says of it", async () => {
+		const { asked, units } = saying("", 1, "Unit not failed.\n");
+
+		await units.forget(unit);
+
+		expect(asked).toEqual([["reset-failed", unit]]);
+	});
 
 	it("has gone once stopped or failed with nothing queued", async () => {
 		for (const state of ["inactive", "failed"]) {

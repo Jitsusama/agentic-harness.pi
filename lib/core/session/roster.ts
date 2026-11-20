@@ -49,6 +49,16 @@ export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Whether `key` names a host as a roster's file does: a realm and a kind. */
+export function isHostKey(key: string): boolean {
+	return KEY.test(key);
+}
+
+/** Whether `id` is a conversation's id as a roster holds one. */
+export function isSessionId(id: string): boolean {
+	return UUID.test(id);
+}
+
 /** The folder every roster lives in; the host creates it before any hold. */
 export function rosterDir(): string {
 	return stateDir("host-rosters");
