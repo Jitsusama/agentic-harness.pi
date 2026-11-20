@@ -16,6 +16,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -283,6 +284,13 @@ describe("bubblewrap's arguments from a file", () => {
 		);
 	});
 
+	it("writes each list file for the person to read and nobody to write", () => {
+		const args = bwrapArgsFile(runtimeDir, ["--mode"])?.path ?? "";
+		const guarded = guardedListFile(runtimeDir, ["/mode"]) ?? "";
+		for (const path of [args, guarded])
+			expect(statSync(path).mode & 0o777, path).toBe(0o400);
+	});
+
 	it("gives no file without a runtime folder, or for an argument holding a NUL", () => {
 		expect(bwrapArgsFile(undefined, ["--dev", "/dev"])).toBeUndefined();
 		expect(
@@ -292,17 +300,20 @@ describe("bubblewrap's arguments from a file", () => {
 
 	it("removes the files nothing used for a day, and keeps one in use and the fence's other copies", () => {
 		const day = 24 * 60 * 60_000;
-		const kept = bwrapArgsFile(runtimeDir, ["--kept"])?.path ?? "";
-		const stale = bwrapArgsFile(runtimeDir, ["--stale"])?.path ?? "";
-		const staleList = guardedListFile(runtimeDir, ["/stale"]) ?? "";
-		const other = join(runtimeDir, "pi-fence", "ssh_config");
+		// A folder of its own, which no earlier test's call has swept.
+		const own = join(folder, "run-sweep");
+		mkdirSync(own);
+		const kept = bwrapArgsFile(own, ["--kept"])?.path ?? "";
+		const stale = bwrapArgsFile(own, ["--stale"])?.path ?? "";
+		const staleList = guardedListFile(own, ["/stale"]) ?? "";
+		const other = join(own, "pi-fence", "ssh_config");
 		writeFileSync(other, "Host *\n");
 		const old = new Date(Date.now() - 2 * day);
 		for (const path of [stale, staleList, kept, other])
 			utimesSync(path, old, old);
 		// An hour on, so this process looks again, and the kept one is used.
-		bwrapArgsFile(runtimeDir, ["--kept"], () => Date.now() + 2 * 60 * 60_000);
-		const left = readdirSync(join(runtimeDir, "pi-fence"));
+		bwrapArgsFile(own, ["--kept"], () => Date.now() + 2 * 60 * 60_000);
+		const left = readdirSync(join(own, "pi-fence"));
 		const named = (path: string) => path.split("/").pop();
 		expect(left, "the stale file stayed").not.toContain(named(stale));
 		expect(left, "the stale list stayed").not.toContain(named(staleList));
@@ -310,6 +321,29 @@ describe("bubblewrap's arguments from a file", () => {
 		expect(left, "another of the fence's copies was removed").toContain(
 			"ssh_config",
 		);
+	});
+
+	it("sweeps a folder again only once its hour has passed", () => {
+		const own = join(folder, "run-hourly");
+		mkdirSync(own);
+		const start = Date.now();
+		const minute = 60_000;
+		bwrapArgsFile(own, ["--first"], () => start);
+		const stale = bwrapArgsFile(own, ["--stale"], () => start)?.path ?? "";
+		const old = new Date(start - 2 * 24 * 60 * minute);
+		utimesSync(stale, old, old);
+		const named = stale.split("/").pop();
+
+		bwrapArgsFile(own, ["--used"], () => start + 59 * minute);
+		expect(
+			readdirSync(join(own, "pi-fence")),
+			"swept before its hour",
+		).toContain(named);
+		bwrapArgsFile(own, ["--used"], () => start + 60 * minute);
+		expect(
+			readdirSync(join(own, "pi-fence")),
+			"not swept once its hour passed",
+		).not.toContain(named);
 	});
 
 	it("sweeps each runtime folder in its own hour, though another was swept a minute before", () => {
@@ -458,6 +492,24 @@ describe("bubblewrap's arguments from a file", () => {
 			"the runtime folder blamed for the command's own length",
 		).not.toContain("XDG_RUNTIME_DIR");
 		expect(noFolder).toContain("put it in a script and run that");
+	});
+
+	it("blames a command for the length its quotes take once quoted", () => {
+		// Some 40 KB as typed, under half what a string takes, and four
+		// times that quoted, as it goes into the text.
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const quotes = `echo ${"'".repeat(40_000)}`;
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{ cwd: home, env: {} },
+				home,
+			)?.(quotes) ?? "";
+		expect(said, "the runtime folder blamed for the quotes").not.toContain(
+			"XDG_RUNTIME_DIR",
+		);
+		expect(said).toContain("put it in a script and run that");
 	});
 
 	it("refuses a session holding more trees than bubblewrap takes arguments for, naming the trees", () => {

@@ -34,6 +34,12 @@ const PREFIXES = {
 	guarded: "guarded-",
 } as const;
 
+/**
+ * A list file's mode: read by the person alone, and written by nobody,
+ * since a name holds what its file holds and is never written again.
+ */
+const LIST_MODE = 0o400;
+
 /** How long a list file nothing read stays. */
 const UNUSED_FOR_MS = 24 * 60 * 60_000;
 
@@ -102,7 +108,7 @@ function listFile(
 	if (items.some((item) => item.includes("\0"))) return undefined;
 	const text = items.map((item) => `${item}\0`).join("");
 	const name = `${PREFIXES[kind]}${createHash("sha256").update(text).digest("hex")}`;
-	const path = fenceCopy(runtimeDir, name, text, readIfThere);
+	const path = fenceCopy(runtimeDir, name, text, readIfThere, LIST_MODE);
 	if (!path) return undefined;
 	const moment = now();
 	try {

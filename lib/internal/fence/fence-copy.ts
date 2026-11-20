@@ -21,14 +21,15 @@ const FOLDER = "pi-fence";
 
 /**
  * The path of the copy named `name`, holding `text`, written only when
- * what is there differs (`current` reads it); or nothing when there is
- * no runtime folder or the copy can't be written.
+ * what is there differs (`current` reads it), with `mode`; or nothing
+ * when there is no runtime folder or the copy can't be written.
  */
 export function fenceCopy(
 	runtimeDir: string | undefined,
 	name: string,
 	text: string,
 	current: (path: string) => string | undefined,
+	mode = 0o600,
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, FOLDER, name);
@@ -46,7 +47,7 @@ export function fenceCopy(
 		const linked = existsSync(path) && lstatSync(path).isSymbolicLink();
 		if (!linked && current(path) === text) return path;
 		staging = `${path}.${randomUUID()}`;
-		writeFileSync(staging, text, { mode: 0o600, flag: "wx" });
+		writeFileSync(staging, text, { mode, flag: "wx" });
 		renameSync(staging, path);
 		staging = undefined;
 		return path;
