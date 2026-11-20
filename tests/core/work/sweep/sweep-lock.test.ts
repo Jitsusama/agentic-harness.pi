@@ -8,8 +8,11 @@
 
 import {
 	existsSync,
+	lutimesSync,
 	readFileSync,
-	rmSync,
+	renameSync,
+	statSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -22,6 +25,7 @@ import {
 import {
 	LOCK_FRESH_EVERY_MS,
 	LOCK_FRESH_FOR_MS,
+	SWEEP_STALE_MS,
 } from "../../../../lib/core/work/sweep-lock.ts";
 import { disposeAll, exec, machine, setUp } from "../support/sweep-live.ts";
 
@@ -30,9 +34,6 @@ afterEach(disposeAll);
 /** How often the sweeps here touch their lock, kept short to keep the cases fast. */
 const FRESH_EVERY_MS = 20;
 
-/** The age at which an untouched lock is taken over. */
-const STALE_MS = 60 * 60 * 1000;
-
 /** Older than any lock a sweep would leave standing. */
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
@@ -40,6 +41,15 @@ const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 function age(lockPath: string): void {
 	const old = new Date(Date.now() - TWO_HOURS_MS);
 	utimesSync(lockPath, old, old);
+}
+
+/**
+ * Put another sweep's lock, naming this pid, where ours is. It is made
+ * before ours goes, so it can never be given our lock's inode again.
+ */
+function replaceLock(lockPath: string): void {
+	writeFileSync(`${lockPath}.theirs`, String(process.pid));
+	renameSync(`${lockPath}.theirs`, lockPath);
 }
 
 /**
@@ -61,20 +71,26 @@ describe("one sweep at a time", () => {
 	it("keeps its lock fresh while it runs, so a second sweep waits however long the first takes", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		await cut("done", ["-b", "done", "@", "main"]);
-		let second: SweepOutcome | undefined;
+		const seconds: (SweepOutcome | undefined)[] = [];
 
 		await sweepEndedTrees({
 			exec: pausingOnce(async () => {
-				age(lockPath);
-				// Long enough for several touches, as an hour's sweep makes many.
-				await wait(FRESH_EVERY_MS * 5);
-				second = await sweepEndedTrees({
-					exec,
-					memory,
-					claims: [],
-					lockPath,
-					facts: machine,
-				});
+				// Three times over, as an hour's sweep is touched many times,
+				// so a sweep that touched its lock only once would lose it.
+				for (let round = 0; round < 3; round += 1) {
+					age(lockPath);
+					// Long enough for several touches.
+					await wait(FRESH_EVERY_MS * 5);
+					seconds.push(
+						await sweepEndedTrees({
+							exec,
+							memory,
+							claims: [],
+							lockPath,
+							facts: machine,
+						}),
+					);
+				}
 			}),
 			memory,
 			claims: [],
@@ -84,9 +100,91 @@ describe("one sweep at a time", () => {
 		});
 
 		expect(
-			second?.skipped,
+			seconds.map((second) => second?.skipped),
 			"a second sweep took over a lock its running sweep had kept fresh",
-		).toContain(String(process.pid));
+		).toEqual(
+			[1, 2, 3].map(() => `another sweep is running, pid ${process.pid}`),
+		);
+	});
+
+	it("stops touching a lock another sweep has taken over", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		await cut("done", ["-b", "done", "@", "main"]);
+		let agedAfterTicks: number | undefined;
+
+		await sweepEndedTrees({
+			exec: pausingOnce(async () => {
+				// Another sweep's lock in its place, left untouched for hours.
+				replaceLock(lockPath);
+				age(lockPath);
+				// Past several of the touches the first sweep would make.
+				await wait(FRESH_EVERY_MS * 5);
+				agedAfterTicks = Date.now() - statSync(lockPath).mtimeMs;
+			}),
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			lockFresh: { everyMs: FRESH_EVERY_MS, forMs: 60_000 },
+		});
+
+		expect(
+			agedAfterTicks,
+			"a sweep kept fresh a lock another sweep had made",
+		).toBeGreaterThan(TWO_HOURS_MS - 60_000);
+	});
+
+	it("leaves a lock naming no pid to the sweep making it, until it goes stale", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const done = await cut("done", ["-b", "done", "@", "main"]);
+		// Made and not yet written, as a sweep starting leaves it.
+		writeFileSync(lockPath, "");
+
+		const fresh = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+		age(lockPath);
+		const stale = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(
+			fresh.skipped,
+			"a sweep took over a lock another was still writing",
+		).toBe("another sweep is starting");
+		expect(
+			stale.taken.map((tree) => tree.path),
+			"an empty lock left for hours kept every sweep out",
+		).toEqual([done]);
+	});
+
+	it("takes over a dangling link left at the lock's path once it is stale", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const done = await cut("done", ["-b", "done", "@", "main"]);
+		symlinkSync(`${lockPath}.nowhere`, lockPath);
+		const old = new Date(Date.now() - TWO_HOURS_MS);
+		lutimesSync(lockPath, old, old);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(
+			outcome.taken.map((tree) => tree.path),
+			"a dangling link at the lock's path kept every sweep out",
+		).toEqual([done]);
 	});
 
 	it("lets its lock go stale once it has kept it fresh for its time", async () => {
@@ -131,8 +229,7 @@ describe("one sweep at a time", () => {
 			exec: pausingOnce(async () => {
 				// Another conversation's sweep in this host takes the lock over:
 				// the same pid, in a lock file of its own.
-				rmSync(lockPath);
-				writeFileSync(lockPath, String(process.pid));
+				replaceLock(lockPath);
 			}),
 			memory,
 			claims: [],
@@ -168,12 +265,23 @@ describe("one sweep at a time", () => {
 
 	it("touches its lock often enough, and long enough, that only a stopped sweep loses it", () => {
 		expect(
+			LOCK_FRESH_EVERY_MS,
+			"a woken machine's running sweep could read as stopped for more than a minute",
+		).toBeLessThanOrEqual(60 * 1000);
+		expect(
 			LOCK_FRESH_EVERY_MS * 4,
 			"a running sweep's lock could pass the stale age between touches",
-		).toBeLessThanOrEqual(STALE_MS);
+		).toBeLessThanOrEqual(SWEEP_STALE_MS);
+		// Stale an hour after the last touch, which comes up to a beat
+		// before the touching ends: between 5.5 and 6 hours in.
+		const staleAfter = LOCK_FRESH_FOR_MS + SWEEP_STALE_MS - LOCK_FRESH_EVERY_MS;
 		expect(
-			LOCK_FRESH_FOR_MS + STALE_MS,
-			"a wedged sweep's lock goes stale at another time than six hours in",
-		).toBe(6 * 60 * 60 * 1000);
+			staleAfter,
+			"a wedged sweep's lock goes stale later than six hours in",
+		).toBeLessThanOrEqual(6 * 60 * 60 * 1000);
+		expect(
+			staleAfter,
+			"a wedged sweep's lock goes stale sooner than five and a half hours in",
+		).toBeGreaterThan(5.5 * 60 * 60 * 1000);
 	});
 });
