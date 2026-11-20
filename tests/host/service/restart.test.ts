@@ -1,9 +1,10 @@
 /**
  * When a host restarts itself: only once it would differ and all is
- * settled. Long because its 33 cases cover restart.ts's three exports,
+ * settled. Long because its cases cover restart.ts's three exports,
  * which decide one restart together: whether all is settled, when a
  * restart waits for it (each share of the heap, background work held, a
- * gap between turns), and what a host follows to know it would differ.
+ * gap between turns, a call or a meeting), and what a host follows to
+ * know it would differ.
  */
 import {
 	mkdir,
@@ -532,6 +533,163 @@ describe("restartWhenSettled", () => {
 		]);
 	});
 
+	// 19 November 16:38:58: the attended host restarted itself mid-call,
+	// as its install moved, and every window on it went with it.
+	it("waits while a call is on or a meeting is near, saying why once, and restarts once it is clear", async () => {
+		const timers = manualTimers();
+		let why: string | undefined = "a call is on";
+		const { facts: given, said } = facts({ quiet: async () => why });
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		await timers.fire();
+		expect(said).toEqual(["report: Restart held while a call is on"]);
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
+
+		why = undefined;
+		await timers.fire(() => said.length > 2);
+		expect(said.slice(1)).toEqual([
+			"expect true",
+			"restart: the install moved",
+		]);
+	});
+
+	it("looks a minute apart while a call holds a restart past the ceiling, not a second", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			quiet: async () => "a meeting is near",
+		});
+		restartWhenSettled(given, {
+			after: timers.after,
+			lookMs: 60,
+			ceilingMs: 0,
+		});
+		await timers.fire();
+		await timers.fire();
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
+		expect(said).toEqual(["report: Restart held while a meeting is near"]);
+	});
+
+	it("holds a pressed heap's restart for a call, but not one whose heap has nearly run out", async () => {
+		let pressure: "pressed" | "urgent" = "pressed";
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			pressure: () => pressure,
+			quiet: async () => "a call is on",
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual(["report: Restart held while a call is on"]);
+
+		pressure = "urgent";
+		await timers.fire(() => said.length > 2);
+		expect(said.slice(1)).toEqual([
+			"expect true",
+			"restart: its heap is short",
+		]);
+	});
+
+	it("holds the restart when it can't tell whether a call is on", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			quiet: async () => {
+				throw new Error("no answer");
+			},
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual([
+			"report: Restart held while it can't tell whether a call is on or a meeting is near: Error: no answer",
+		]);
+	});
+
+	it("asks for no restart when a turn began while the probes answered", async () => {
+		const timers = manualTimers();
+		let busy = false;
+		const { facts: given, said } = facts({
+			held: () => [
+				busy
+					? { state: "busy", since: lately }
+					: { state: "idle", since: long },
+			],
+			quiet: async () => {
+				busy = true;
+				return undefined;
+			},
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual([]);
+	});
+
+	it("asks for no restart when it was stopped while the probes answered", async () => {
+		const timers = manualTimers();
+		let answered = false;
+		let stop: () => void = () => undefined;
+		const { facts: given, said } = facts({
+			quiet: async () => {
+				stop();
+				answered = true;
+				return undefined;
+			},
+		});
+		stop = restartWhenSettled(given, { after: timers.after });
+		await timers.fire(() => answered);
+		await vi.waitFor(() => {
+			if (timers.pending().length > 0) throw new Error("It looks again");
+		});
+		expect(said).toEqual([]);
+	});
+
+	it("lets held wakes through no longer once a call holds a restart that waited for a gap", async () => {
+		const timers = manualTimers();
+		const waits: boolean[] = [];
+		let busy = true;
+		const { facts: given } = facts({
+			held: () => [
+				busy
+					? { state: "busy", since: lately }
+					: { state: "idle", since: long },
+			],
+			quiet: async () => (busy ? undefined : "a call is on"),
+			waitsForGap: (waiting) => waits.push(waiting),
+		});
+		restartWhenSettled(given, {
+			after: timers.after,
+			lookMs: 60,
+			gapLookMs: 1,
+			ceilingMs: 0,
+		});
+		await timers.fire();
+		await timers.fire();
+		expect(waits.at(-1), "a turn runs, so it waits for a gap").toBe(true);
+
+		busy = false;
+		await timers.fire();
+		expect(waits.at(-1), "a call holds it, so it waits for none").toBe(false);
+		expect(timers.pending().map(({ ms }) => ms)).toEqual([60]);
+	});
+
+	it("says again each hour that a call still holds the restart", async () => {
+		const timers = manualTimers();
+		let clock = NOW;
+		const { facts: given, said } = facts({
+			now: () => clock,
+			quiet: async () => "a call is on",
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		await timers.fire();
+		expect(said).toEqual(["report: Restart held while a call is on"]);
+
+		clock += HELD_SAY_MS;
+		await timers.fire();
+		expect(said).toEqual([
+			"report: Restart held while a call is on",
+			"report: Restart held while a call is on",
+		]);
+	});
+
 	it("asks for no restart for its heap once the host has begun stopping", async () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts({
@@ -550,7 +708,10 @@ describe("followWhatStarts", () => {
 	let install: string;
 	let cgroup: string;
 	let unitFile: string;
+	// The probes this machine's own unit names, kept from every case.
+	const waitsOn = process.env.PI_HOST_RESTART_WAITS_ON;
 	beforeEach(async () => {
+		delete process.env.PI_HOST_RESTART_WAITS_ON;
 		dir = await realpath(await mkdtemp(join(tmpdir(), "h1-restart-")));
 		install = join(dir, "install");
 		cgroup = join(dir, "cgroup");
@@ -574,6 +735,8 @@ describe("followWhatStarts", () => {
 		await symlink(join(install, "versions", "one"), join(install, "current"));
 	});
 	afterEach(async () => {
+		if (waitsOn === undefined) delete process.env.PI_HOST_RESTART_WAITS_ON;
+		else process.env.PI_HOST_RESTART_WAITS_ON = waitsOn;
 		await rm(dir, { recursive: true, force: true });
 	});
 
@@ -610,6 +773,7 @@ describe("followWhatStarts", () => {
 			background?: () => number;
 			holding?: () => readonly string[];
 			resting?: () => boolean;
+			quiet?: () => Promise<string | undefined>;
 		} = {},
 	) {
 		const timers = manualTimers();
@@ -623,6 +787,7 @@ describe("followWhatStarts", () => {
 			background: holds.background ?? (() => 0),
 			...(holds.holding ? { holding: holds.holding } : {}),
 			resting: holds.resting ?? (() => true),
+			...(holds.quiet ? { quiet: holds.quiet } : {}),
 			report,
 			root: join(install, "versions", "one"),
 			systemctl,
@@ -653,6 +818,44 @@ describe("followWhatStarts", () => {
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 		expect(String(report.mock.calls[0]?.[0])).toContain(
 			"the install's two changes the host's own code",
+		);
+	});
+
+	it("restarts for a moved install only once no call is on", async () => {
+		const { systemctl, calls } = systemd();
+		let why: string | undefined = "a call is on";
+		const { timers, report } = await follow(systemctl, vi.fn(), small, {
+			quiet: async () => why,
+		});
+		await moveTo("two");
+		await timers.fire();
+		expect(
+			calls.some((call) => call[1] === "restart"),
+			"none mid-call",
+		).toBe(false);
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restart held while a call is on",
+		);
+
+		why = undefined;
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+	});
+
+	it("waits on the probes its unit names when given none", async () => {
+		process.env.PI_HOST_RESTART_WAITS_ON = JSON.stringify([
+			{ while: "a call is on", run: ["/bin/sh", "-c", "exit 0"] },
+		]);
+		const { systemctl, calls } = systemd();
+		const { timers, report } = await follow(systemctl);
+		await moveTo("two");
+		await timers.fire();
+		expect(
+			calls.some((call) => call[1] === "restart"),
+			"none while the unit's probe says a call is on",
+		).toBe(false);
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restart held while a call is on",
 		);
 	});
 
