@@ -34,9 +34,12 @@
  * A carried run can still be lost: at the 22:22 reboot on 14 November
  * the next host failed a run it had cut mid-answer, and the session,
  * told nothing, sat until a mesh message came. So a hosted session
- * whose record says carried waits `CARRIED_RUN_WAIT_MS` for the run to
- * show, an answer or a tool's result, and is told it was cut off if,
- * idle and with nothing typed, it never did.
+ * whose record says carried waits for the run to show an answer that
+ * isn't an error, and is told it was cut off if, with nothing typed,
+ * a run settles with none, or none has started within
+ * `CARRIED_RUN_WAIT_MS`. A carried run waits its turn behind
+ * every other the restart carries, so how long it takes to start says
+ * nothing of whether it was carried; only how it ends does.
  *
  * A host's run is carried from its own record, whatever ended the last
  * host, so a hosted log that stops mid-run waits the same way. On 20
@@ -44,7 +47,9 @@
  * leaving no record. The next host carried each on at once, yet each
  * was queued "nothing has resumed it since", and was told so up to two
  * hours later, at its first idle moment. A log plain pi left so, opened
- * in a host that has no run to carry, is told once the wait is up.
+ * in a host that has no run to carry, is told once the wait is up. Its
+ * host's own result for the tool call the kill cut is no answer: the
+ * run it carries may still fail after it.
  *
  * A move back to plain pi that waited too long on a run ends it at its
  * turn's end and leaves the same record, naming itself as what ended it
@@ -71,11 +76,12 @@ import {
 export { CUT_OFF_ENTRY };
 
 /**
- * How long a returning hosted session gives the run its host carried to
- * show, before it is told the run was cut off: the next host takes runs
- * up as it resumes each conversation, seconds apart.
+ * How long a returning hosted session waits for the run its host carried
+ * to start, before it is told the run was cut off: the next host takes
+ * runs up a few at a time, and on 20 November its 107 resumes took
+ * 805 s, so a run's turn can come many minutes after its return.
  */
-export const CARRIED_RUN_WAIT_MS = 90_000;
+export const CARRIED_RUN_WAIT_MS = 30 * 60_000;
 
 /** The record to leave at a signalled end; none when nothing was under way. */
 export function endedRecord(
@@ -194,25 +200,29 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 }
 
 /**
- * Whether the run a host carried on has shown since its record, or
- * since `since`, the branch's length as the session returned: an
- * answer or a tool's result. A failed answer is no run: on 14 November
- * a reboot's next host failed a carried run it had cut mid-answer. A
- * log that stops mid-run ends on a tool call or result of its own, so
- * only what came after the return counts.
+ * Whether the run a host carried on has shown since `since`, the
+ * branch's length as the session returned: an answer that isn't an
+ * error. A failed answer is no run: on 14 November a reboot's next host
+ * failed a carried run it had cut mid-answer. Nor is a tool's result,
+ * which a host gives the call a kill cut before the run it carries
+ * answers, or fails.
  */
 export function carriedRunShowed(
 	branch: readonly unknown[],
-	since = 0,
+	since: number,
 ): boolean {
 	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
-		if (field(entry, "customType") === CUT_OFF_ENTRY) return false;
-		const role = roleOf(entry);
-		if (role === "toolResult") return true;
 		const stopped = field(field(entry, "message"), "stopReason");
-		if (role === "assistant" && stopped !== "error") return true;
+		if (roleOf(entry) === "assistant" && stopped !== "error") return true;
 	}
+	return false;
+}
+
+/** Whether a prompt has come in since `since`, the branch's length as the session returned. */
+export function typedSince(branch: readonly unknown[], since: number): boolean {
+	for (let i = branch.length - 1; i >= since; i--)
+		if (roleOf(branch[i]) === "user") return true;
 	return false;
 }
 

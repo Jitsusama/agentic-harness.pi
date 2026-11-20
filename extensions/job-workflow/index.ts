@@ -48,6 +48,7 @@ import {
 	leftDead,
 	resumeText,
 	type SignalSource,
+	typedSince,
 	watchSignals,
 	watchStamps,
 } from "./cut-off.ts";
@@ -210,53 +211,65 @@ function resumeIfCutOff(
  * In a host, wait for the run the last host carried on to show, and
  * tell the session it was cut off if it never does: on 14 November the
  * next host failed a carried run, and with nothing said the session sat
- * until a mesh message came. Answers the wait's timer, or nothing when
- * no carried run is owed.
+ * until a mesh message came. The run settling says whether it showed;
+ * a run that never starts is told once `CARRIED_RUN_WAIT_MS` is up.
+ * Answers the wait, or nothing when no carried run is owed.
  */
 function awaitCarriedRun(
 	opened: JobSession,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
-): ReturnType<typeof setTimeout> | undefined {
+): CarriedWait | undefined {
 	if (hosted() === undefined) return undefined;
 	const branch = branchOf(ctx);
 	const cut = branch === undefined ? undefined : carriedRunIn(branch);
 	if (branch === undefined || cut === undefined) return undefined;
 	// Only what comes after the return shows the run: a log that stops
 	// mid-run ends on a tool call or result of its own.
-	const since = branch.length;
+	const wait: CarriedWait = { opened, cut, since: branch.length };
 	// A host routes what the session says by the conversation it runs in,
 	// which a timer's callback must name again.
 	const key = sessionKeyOf(ctx);
-	const timer = setTimeout(
+	wait.timer = setTimeout(
 		() =>
-			withSession(key, () =>
-				tellIfCarriedRunLost(opened, ctx, current, { cut, since }),
-			),
+			withSession(key, () => {
+				// A run under way says how it went as it settles.
+				if (!wait.started && idle(ctx))
+					tellIfCarriedRunLost(wait, ctx, current);
+			}),
 		CARRIED_RUN_WAIT_MS,
 	);
 	// The wait never holds a host up that is otherwise ready to end.
-	timer.unref();
-	return timer;
+	wait.timer.unref();
+	return wait;
+}
+
+/** A returning hosted session's wait on the run its last host carried on. */
+interface CarriedWait {
+	readonly opened: JobSession;
+	/** The cut-off found as the session returned. */
+	readonly cut: CutOff;
+	/** The branch's length as the session returned. */
+	readonly since: number;
+	/** Whether a run has started since the return. */
+	started?: boolean;
+	timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
- * Tell an idle session its carried run, the `cut` found as it returned
- * with a branch `since` long, never showed, if it still hasn't and
- * nothing has been typed since.
+ * Tell a session its carried run never showed, if no answer but an
+ * error has come since `wait` began and nothing has been typed since.
  */
 function tellIfCarriedRunLost(
-	opened: JobSession,
+	wait: CarriedWait,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
-	returned: { readonly cut: CutOff; readonly since: number },
 ): void {
-	if (current() !== opened || !idle(ctx)) return;
+	const { opened, cut, since } = wait;
+	if (current() !== opened) return;
 	const branch = branchOf(ctx);
 	if (branch === undefined) return;
-	if (carriedRunShowed(branch, returned.since)) return;
-	if (carriedRunIn(branch) === undefined) return;
-	const { cut } = returned;
+	if (carriedRunShowed(branch, since) || typedSince(branch, since)) return;
 	opened.outbox.post({
 		jobId: "cut-off",
 		label: "the machine ended this session",
@@ -418,11 +431,17 @@ export default function jobWorkflow(
 	let crashes: (() => void) | undefined;
 	const line = typedLine();
 	let answering: (() => void) | undefined;
-	let carriedWait: ReturnType<typeof setTimeout> | undefined;
+	let carriedWait: CarriedWait | undefined;
+	/** Stop waiting on a carried run, answering the wait there was. */
+	const endCarriedWait = (): CarriedWait | undefined => {
+		const wait = carriedWait;
+		clearTimeout(wait?.timer);
+		carriedWait = undefined;
+		return wait;
+	};
 
 	pi.on("session_start", (event, ctx) => {
-		clearTimeout(carriedWait);
-		carriedWait = undefined;
+		endCarriedWait();
 		answering?.();
 		answering = answerSteerWaiting(pi.events, () => line.waiting());
 		session?.close();
@@ -475,8 +494,7 @@ export default function jobWorkflow(
 		}
 		signals?.stop();
 		signals = undefined;
-		clearTimeout(carriedWait);
-		carriedWait = undefined;
+		endCarriedWait();
 		crashes?.();
 		crashes = undefined;
 		answering?.();
@@ -530,11 +548,17 @@ export default function jobWorkflow(
 	pi.on("agent_start", () => {
 		runStarted();
 		session?.outbox.runStarted();
+		if (carriedWait) carriedWait.started = true;
 	});
 
 	pi.on("agent_settled", (event, ctx) => {
 		session?.outbox.runSettled(event.aborted);
 		lineRead(line, ctx);
+		// The first run to settle since a return decides: one that answered,
+		// carried or not, leaves a session that runs on, and one the person
+		// stopped has them there to say what comes next.
+		const wait = endCarriedWait();
+		if (wait && !event.aborted) tellIfCarriedRunLost(wait, ctx, () => session);
 	});
 
 	pi.on("message_start", (event, ctx) => {
