@@ -20,9 +20,11 @@
  * the user lingers and logind kills no user processes, so a session a
  * pi host runs or a holder holds outlives it; one in a terminal alone
  * does not. And a session whose presence and marker say it parked,
- * idle with nothing of its own still out, holds nothing an ending could
- * lose: while the node reads it as idle in a pi host it doesn't count,
- * whoever asks. A holder's parked session already reads as ended, so
+ * idle with nothing of its own still out, holds nothing a reboot,
+ * restart or shut-down could lose, and the next boot clears its marker:
+ * while the node reads it as idle in a pi host it doesn't count for
+ * one, whoever asks. Any other ending leaves its marker standing after
+ * its host has gone, so it still counts. A holder's parked session already reads as ended, so
  * one the node reads idle with a holder, or with neither, is running
  * whatever its presence says; a host's reads idle, since the host lives
  * on. One the node reads busy or out of reach still counts. Neither
@@ -83,6 +85,17 @@ export interface Here {
 const ENDS_A_LOG_IN: ReadonlySet<SessionEndingAsk["act"]> = new Set([
 	"log out",
 	"switch users",
+]);
+
+/**
+ * The acts that end the boot, whose next boot clears this one's park
+ * markers. Any other ending leaves a parked session's marker saying this
+ * boot after its waker has gone, so the mesh writes wakes nothing reads.
+ */
+const ENDS_THE_BOOT: ReadonlySet<SessionEndingAsk["act"]> = new Set([
+	"reboot",
+	"restart",
+	"shut down",
 ]);
 
 /** The guard a person sets off to let such an ask through. */
@@ -156,7 +169,12 @@ function spares(
 	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
 		return false;
 	}
-	if (one.state === "idle" && one.host !== undefined && here.parked.has(one.id))
+	if (
+		ENDS_THE_BOOT.has(ask.act) &&
+		one.state === "idle" &&
+		one.host !== undefined &&
+		here.parked.has(one.id)
+	)
 		return true;
 	return (
 		here.lingers &&

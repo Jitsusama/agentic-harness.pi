@@ -14,8 +14,8 @@
  * process of the user's is no log-out, and counts them all. An idle
  * session on this machine in a pi host, whose presence says it parked,
  * whose park marker is from this boot and which no live host still
- * runs, doesn't count for any ask, which is how a disruption once
- * scheduled goes through. Every realm's node on the machine is read,
+ * runs, doesn't count for a reboot, restart or shut-down, which is how
+ * a disruption once scheduled goes through. Every realm's node on the machine is read,
  * since a reboot ends the sessions of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without

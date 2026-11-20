@@ -313,13 +313,26 @@ describe("an ask past the sessions that parked", () => {
 		expect(reason).not.toMatch(/A00001|B00001/);
 	});
 
-	it("goes ahead past the sessions parked there", () => {
-		for (const act of ["log out", "reboot", "shut down"] as const) {
+	it("goes ahead past the sessions parked there, for an act that ends the boot", () => {
+		for (const act of ["reboot", "restart", "shut down"] as const) {
 			expect(
 				refusalOf([ask(act, "optimus")], here, SELF, holding),
 				`${act} past parked sessions`,
 			).toBeUndefined();
 		}
+	});
+
+	it("still counts them for an act that leaves the boot, whose markers would outlive their wakers", () => {
+		const wrong = (
+			["log out", "switch users", "end the user's processes"] as const
+		).filter(
+			(act) =>
+				!/A00001/.test(
+					refusalOf([ask(act, "optimus")], here, SELF, holding) ?? "",
+				),
+		);
+
+		expect(wrong, "acts that spared a parked session").toEqual([]);
 	});
 
 	it("still counts a session there busy, or out of reach, since it parked", () => {

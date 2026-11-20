@@ -92,22 +92,29 @@ machine, read without a deadline.
   process of the user's or the user's manager (`loginctl
   terminate-user` or `kill-user`, logind's `TerminateUser` or
   `KillUser` over `busctl`, `pkill -u` or `killall -u` of a user,
-  `kill -1`), which takes the services with it: it reads as an end of
-  the user's processes rather than a log-out, and counts every
-  session. Only ending a session or a seat reads as a log-out.
+  `kill -9 -1`), which takes the services with it: it reads as an end
+  of the user's processes rather than a log-out, and nothing spares a
+  session from it, parked or not. Only ending a session or a seat
+  reads as a log-out.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
   or unsent text); its presence then says `parked`, and its marker
   from this boot, which a woken session clears as it starts, says it
-  still is. It holds nothing an ending could lose, so a session a pi
-  host runs here whose presence and marker both say so, and that the
-  node reads as idle, doesn't count, whoever asks. Where the boot
+  still is. It holds nothing a reboot, restart or shut-down could
+  lose, and the next boot clears its marker, so for one of those a
+  session a pi host runs here whose presence and marker both say so,
+  and that the node reads as idle, doesn't count, whoever asks. Any
+  other ending, such as a log-out without linger or an end of the
+  user's processes, takes its host down with no new boot, leaving its
+  marker to say it is parked where nothing will wake it, so it still
+  counts for those. Where the boot
   can't be told, as on a Mac, no marker counts, since one from an
   earlier boot would spare a session started again since. A park
   closes a host's conversation, so a session a host still lists busy
   or idle has woken, or its park never landed, and counts whatever
   its presence says; a host's list counts unless its process is
-  known to be gone. That is how a
+  known to be gone, though a list that doesn't read as one, as from a
+  host of another version, is passed over. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one
   the node reads idle in a holder or a plain terminal is running,
@@ -178,7 +185,7 @@ your laptop or the MacBook names none, so every machine is checked. A session-en
 `systemctl poweroff` with any options or by `.target`, `loginctl
 terminate-user`, `kill-user`, `terminate-session` or `terminate-seat`,
 logind over `busctl`, stopping the display manager or the compositor,
-`pkill -u` or `killall -u` of a user, `kill -1`, `niri msg
+`pkill -u` or `killall -u` of a user, `kill -9 -1`, `niri msg
 action quit`, the desktops' own log-outs, and macOS's `fdesetup
 authrestart`, `launchctl reboot` and `osascript` restarts, run by path
 or through `sudo`, `pkexec`, `su -c`, `timeout`, `systemd-run`,

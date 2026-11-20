@@ -91,7 +91,9 @@ export async function parkedHere(
 /**
  * The conversations a host lists busy or idle, from every host's list
  * whose process isn't known to be gone: one that can't be judged still
- * counts, since a host it can't rule out may be running them.
+ * counts, since a host it can't rule out may be running them. A file
+ * that doesn't read as a host's list is passed over, as every reader of
+ * the lists passes it over, so it rules out nothing.
  */
 export async function runningInHosts(
 	dir?: string,
