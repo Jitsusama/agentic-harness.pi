@@ -9,6 +9,7 @@ import {
 	type BackendChildren,
 	type ConversationEngine,
 	hostBackend,
+	resumeHeld,
 } from "../../../host/service/backend.ts";
 import {
 	type ControlReply,
@@ -187,6 +188,51 @@ describe("a conversation that moves into a child", () => {
 
 		expect(attached).toEqual({ sessionId: held.sessionId });
 		expect(moved.fake.resume).toHaveBeenCalledExactlyOnceWith(held, true);
+	});
+});
+
+describe("a start's resume of what the host held", () => {
+	it("takes up a moved one in its child, and leaves one a child already runs", async () => {
+		const moving = entry();
+		const running = entry();
+		const staying = entry();
+		for (const held of [moving, running, staying]) await roster.hold(held);
+		const inHost = engine();
+		const moved = children([moving.sessionId, running.sessionId]);
+		moved.runs.set(running.sessionId, shown(running));
+
+		const { resumed } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+		});
+
+		expect(moved.fake.resume).toHaveBeenCalledExactlyOnceWith(moving, false);
+		expect(inHost.resume).toHaveBeenCalledOnce();
+		expect(inHost.resume).toHaveBeenCalledWith(
+			staying,
+			false,
+			expect.anything(),
+		);
+		expect([...resumed].sort()).toEqual(
+			[moving, running, staying].map(({ sessionId }) => sessionId).sort(),
+		);
+	});
+
+	it("leaves a moved one resting parked, for its wake to start its child", async () => {
+		const moving = entry();
+		await roster.hold(moving);
+		const inHost = { ...engine(), restsParked: vi.fn(() => true) };
+		const moved = children([moving.sessionId]);
+
+		const { parked } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+		});
+
+		expect(parked).toEqual([moving.sessionId]);
+		expect(moved.fake.resume).not.toHaveBeenCalled();
 	});
 });
 
