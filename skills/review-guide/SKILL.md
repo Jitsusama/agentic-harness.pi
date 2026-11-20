@@ -232,8 +232,9 @@ commits, from its base to its head. Run the council at the head,
 check its findings against the source, fix and push what holds, then
 propose; a council read before that last fix still counts, and so
 does one read before a clean rebase: an earlier head the checkout's
-reflogs recall whose whole change reads as the change's does now
-lends it that head's council, so a rebase needs a new round only
+reflogs recall, whose change git replays onto the new base cleanly
+into the change's own tree, lends it that head's council, so a
+rebase needs a new round only
 when it settled a conflict or brought something else along. Commits
 another pushed branch holds without the change's head aren't its
 own, so a branch cut from reviewed work needs its own council, and

@@ -29,14 +29,14 @@
  * A rebase gives every commit a new id, so a council read before it
  * would count for nothing, and a clean rebase would cost a round that
  * reads what was read already. So the branch's earlier heads, as its
- * reflogs in the checkout recall them, count too: one whose whole
- * change, from where it left its base, reads the same as the change's
- * now, line for line though maybe not at the same line numbers, lends
- * the change any council that read one of that head's own commits,
- * judged as the change's own are, so a rebase lends nothing a branch
- * cut from reviewed work couldn't claim before it. A
- * rebase that had to settle a conflict, or brought anything else
- * along, changes the diff and needs a round of its own. Only the last
+ * reflogs in the checkout recall them, count too: one whose change,
+ * replayed by git from where it left the base onto where the change
+ * leaves it now, gives the change's own tree, byte for byte, lends the
+ * change any council that read one of that head's own commits, judged
+ * as the change's own are, so a rebase lends nothing a branch cut from
+ * reviewed work couldn't claim before it. A rebase that had to settle a
+ * conflict, or brought anything else along, gives another tree and
+ * needs a round of its own. Only the last
  * EARLIER_HEADS of each reflog are asked about, and a checkout that
  * never held the branch before its rebase remembers none.
  */
@@ -60,9 +60,6 @@ const EARLIER_HEADS = 30;
 
 /** How many of the branches holding a change's reviewed commits a refusal names. */
 const HOLDERS_NAMED = 3;
-
-/** A hunk's header up to its function, with its lengths captured and its line numbers not. */
-const HUNK_AT = /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/;
 
 /** A full commit id, as git prints one a line. */
 const COMMIT_ID = /^[0-9a-f]{40}$/;
@@ -139,7 +136,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A clean rebase keeps the council of the head before it, when this checkout's reflogs still recall that head.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps the council of the head before it when git replays that head onto the new base cleanly and gets this change's tree, and this checkout's reflogs still recall that head.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -215,8 +212,8 @@ async function rangeOf(
 
 /**
  * Whether a council read an earlier head of the change's branch whose
- * whole change reads as the change's does now, so that only a clean
- * rebase stands between them. What it lends is that head's own commits,
+ * change, replayed onto the base the change sits on now, gives the
+ * change's tree, so that only a clean rebase stands between them. What it lends is that head's own commits,
  * as the change's own are judged, so a branch cut from reviewed work
  * gains nothing by a rebase.
  */
@@ -241,7 +238,7 @@ async function rebasedReviewed(
 	);
 	if (earlier.length === 0) return false;
 	// One list of every earlier head's commits and one look at the ledger
-	// before any diff, since most changes refused were never read at all.
+	// before any replay, since most changes refused were never read at all.
 	const listed = await git(
 		"rev-list",
 		`--max-count=${COMMITS_ASKED}`,
@@ -253,10 +250,18 @@ async function rebasedReviewed(
 	const anyRead = new Set(commitIds(listed.stdout));
 	if (anyRead.size === 0 || !(await witnesses(change.repo, anyRead)))
 		return false;
-	const wanted = await changeDiff(git, read.base, now);
-	if (wanted === undefined) return false;
+	const onto = await forkOf(git, read.base, now);
+	const tree = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		"--end-of-options",
+		`${now}^{tree}`,
+	);
+	if (onto === undefined || tree.code !== 0) return false;
 	for (const head of earlier) {
-		if ((await changeDiff(git, read.base, head)) !== wanted) continue;
+		if ((await replayed(git, read.base, head, onto)) !== tree.stdout.trim())
+			continue;
 		const range = await rangeOf(git, read.base, head, change.head);
 		if (
 			range &&
@@ -294,46 +299,43 @@ async function earlierHeads(
 	return [...heads];
 }
 
-/**
- * The whole change `head` makes from where it left `base`, with what a
- * rebase alone changes taken out: the blob ids and the hunks' line
- * numbers, keeping the function each hunk sits in. Binary files are
- * written out whole, since without their ids nothing else tells two
- * apart, and every option the user's config could set to hide part of
- * a change is named. Nothing when it can't be read.
- */
-async function changeDiff(
+/** Where `head` left `base`, or nothing when that can't be read. */
+async function forkOf(
 	git: (...args: string[]) => ReturnType<Exec>,
 	base: string,
 	head: string,
 ): Promise<string | undefined> {
 	const fork = await git("merge-base", "--end-of-options", base, head);
 	const from = fork.stdout.trim();
-	if (fork.code !== 0 || !COMMIT_ID.test(from)) return undefined;
-	const diffed = await git(
-		"diff",
-		"--no-color",
-		"--no-ext-diff",
-		"--no-textconv",
-		"--binary",
-		"--unified=3",
-		"--no-relative",
-		"--no-renames",
-		"--ignore-submodules=none",
-		"--submodule=short",
-		"--src-prefix=a/",
-		"--dst-prefix=b/",
-		"--end-of-options",
-		from,
+	return fork.code === 0 && COMMIT_ID.test(from) ? from : undefined;
+}
+
+/**
+ * The tree `head`'s change gives replayed onto `onto`, from where it
+ * left `base`: trees, not diffs, so every byte counts, binary or not,
+ * and no setting of how a diff is shown can make two changes read the
+ * same. Nothing when the replay conflicts or can't be read.
+ */
+async function replayed(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	head: string,
+	onto: string,
+): Promise<string | undefined> {
+	const from = await forkOf(git, base, head);
+	if (from === undefined) return undefined;
+	// Every argument is a full commit id, read from git itself, so none
+	// can be taken for an option; merge-tree takes no `--end-of-options`.
+	const merged = await git(
+		"merge-tree",
+		"--write-tree",
+		"--no-messages",
+		`--merge-base=${from}`,
+		onto,
 		head,
-		"--",
 	);
-	if (diffed.code !== 0) return undefined;
-	return diffed.stdout
-		.split("\n")
-		.filter((line) => !line.startsWith("index "))
-		.map((line) => line.replace(HUNK_AT, "@@ -$1 +$2 @@"))
-		.join("\n");
+	const tree = merged.stdout.split("\n")[0]?.trim() ?? "";
+	return merged.code === 0 && COMMIT_ID.test(tree) ? tree : undefined;
 }
 
 /**

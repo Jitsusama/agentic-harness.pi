@@ -93,6 +93,9 @@ describe("holding a change until our own council has read it", () => {
 		rmSync(runDir(), { recursive: true, force: true });
 		witnessCouncilsWith(undefined);
 		repo = await freshRepo("reviewed-first");
+		// The earlier heads are read from reflogs, which a person's own
+		// config could turn off.
+		await git(repo, "config", "core.logAllRefUpdates", "true");
 		trunk = await git(repo, "rev-parse", "HEAD");
 		await git(repo, "switch", "-qc", "topic");
 		for (const name of ["one", "two"]) {
@@ -347,6 +350,23 @@ describe("holding a change until our own council has read it", () => {
 		await rebasedOntoNewMain();
 		binary(2);
 		await git(repo, "commit", "-qam", "other bytes");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("holds text whose bytes changed where they aren't UTF-8", async () => {
+		const latin = (byte: number) =>
+			writeFileSync(join(repo, "latin"), Buffer.from([0x63, 0x61, byte, 0x0a]));
+		latin(0xe9);
+		await git(repo, "add", "latin");
+		await git(repo, "commit", "-qm", "latin");
+		await councilRead(await git(repo, "rev-parse", "HEAD"));
+		await git(repo, "reset", "-q", "--hard", "HEAD~1");
+		latin(0xe8);
+		await git(repo, "add", "latin");
+		await git(repo, "commit", "-qm", "latin, otherwise");
 
 		expect(await councilFirst(exec, topic(), "proposed")).toContain(
 			"No council of ours",
