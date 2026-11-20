@@ -141,6 +141,46 @@ export function provenBy(
 	return { files: summary.testResults.length, cases: summary.numTotalTests };
 }
 
+/** The line scripts/host-run.sh prints before a whole run's JSON report. */
+export const REPORT_FOLLOWS = "host-run: vitest's report follows";
+
+/** The line scripts/host-run.sh prints after it. */
+export const REPORT_ENDS = "host-run: vitest's report ends";
+
+/** What scripts/host-test-there.sh says as it starts a run, and as it ends. */
+const RUN_STARTS = /^host-test-there: test:host at (\S+) on (\S+)$/;
+const RUN_ENDS = /^host-test-there: test:host at \S+ on \S+ exited (\d+)$/;
+
+/** A lent run's log, read for what proves it. */
+export interface LoggedRun {
+	/** The JSON report host-run.sh printed last. */
+	readonly report: string;
+	/** The harness commit and runtime the log says it ran, where it says. */
+	readonly commit?: string;
+	readonly runtime?: string;
+}
+
+/**
+ * The JSON report a lent run's log holds, as scripts/host-run.sh prints
+ * it between REPORT_FOLLOWS and REPORT_ENDS, with what the log says it
+ * ran; or why the log proves nothing: it holds no whole report, or
+ * host-test-there says the run exited other than 0.
+ */
+export function loggedRun(log: string): LoggedRun | string {
+	const lines = log.split("\n");
+	const follows = lines.lastIndexOf(REPORT_FOLLOWS);
+	const ends = lines.lastIndexOf(REPORT_ENDS);
+	if (follows < 0 || ends < follows)
+		return "the log holds no whole report between host-run's lines";
+	const ended = lines.map((line) => RUN_ENDS.exec(line)).find(Boolean);
+	if (ended && ended[1] !== "0") return `the run exited ${ended[1]}`;
+	const started = lines.map((line) => RUN_STARTS.exec(line)).find(Boolean);
+	return {
+		report: lines.slice(follows + 1, ends).join("\n"),
+		...(started ? { commit: started[1], runtime: started[2] } : {}),
+	};
+}
+
 /** The runtime store path a pi-monorepo folder sits in, for a refusal to name. */
 export function runtimeOf(packageDir: string): string {
 	const store = /^(\/nix\/store\/[^/]+)/.exec(resolved(packageDir));

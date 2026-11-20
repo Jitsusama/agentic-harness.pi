@@ -19,6 +19,12 @@
  * harness source with no git, and COMMIT the harness commit that source
  * was cut at. It is judged exactly as a run here is. The report doesn't
  * name its runtime, so whoever ran it answers for running it on RUNTIME.
+ *
+ * REPORT may also be the saved log of a whole scripts/host-test-there.sh
+ * run, whose last lines hold the report as scripts/host-run.sh prints it.
+ * That log names the commit and the runtime it ran, and a proof is
+ * refused unless they are COMMIT and RUNTIME, or when it says the run
+ * exited other than 0.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -40,6 +46,7 @@ import {
 	PROOF_VERSION,
 	provenBy,
 	type RunSummary,
+	loggedRun,
 } from "../host/service/proof.ts";
 import { isRecord } from "../lib/internal/record.ts";
 
@@ -74,7 +81,10 @@ if (!existsSync(join(runtime, "lib", "node_modules", "pi-monorepo")))
 
 const { harness, verdict } =
 	values.report !== undefined && values.harness !== undefined
-		? { harness: values.harness, verdict: judged(values.report) }
+		? {
+				harness: values.harness,
+				verdict: reported(values.report, values.harness, runtime),
+			}
 		: runHere();
 
 if (typeof verdict === "string") {
@@ -150,11 +160,48 @@ function runHere(): { harness: string; verdict: ReturnType<typeof judged> } {
 	return { harness: commit, verdict };
 }
 
+/**
+ * What a run elsewhere proves, from `file`: its JSON report, or the log
+ * of a lent run holding one, which must name `commit` and `runtime`
+ * where it names what it ran.
+ */
+function reported(
+	file: string,
+	commit: string,
+	runtime: string,
+): ReturnType<typeof provenBy> {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch {
+		return `${file} can't be read`;
+	}
+	if (text.trimStart().startsWith("{")) return judgedText(text);
+	const logged = loggedRun(text);
+	if (typeof logged === "string") return logged;
+	if (logged.commit !== undefined && logged.commit !== commit)
+		return `the log ran ${logged.commit}, not ${commit}`;
+	if (logged.runtime !== undefined && logged.runtime !== runtime)
+		return `the log ran on ${logged.runtime}, not ${runtime}`;
+	return judgedText(logged.report);
+}
+
 /** What the run's JSON report proves, or why it proves nothing. */
 function judged(file: string): ReturnType<typeof provenBy> {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch {
+		return "the run wrote no report to judge";
+	}
+	return judgedText(text);
+}
+
+/** What a JSON report's text proves, or why it proves nothing. */
+function judgedText(text: string): ReturnType<typeof provenBy> {
 	let value: unknown;
 	try {
-		value = JSON.parse(readFileSync(file, "utf8"));
+		value = JSON.parse(text);
 	} catch {
 		return "the run wrote no report to judge";
 	}

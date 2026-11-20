@@ -6,6 +6,7 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -16,11 +17,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type HostProof,
 	hostProof,
+	loggedRun,
 	PROOF_KIND,
 	PROOF_VERSION,
 	parseProof,
 	proofRefusal,
 	provenBy,
+	REPORT_ENDS,
+	REPORT_FOLLOWS,
 	type RunSummary,
 	runtimeOf,
 } from "../../../host/service/proof.ts";
@@ -164,5 +168,57 @@ describe("what a run proves", () => {
 		];
 		for (const [change, said] of cases)
 			expect(provenBy({ ...passed, ...change })).toBe(said);
+	});
+});
+
+describe("a lent run's log", () => {
+	const COMMIT = "1d7d61247a65f01e7b774a00faec0a4ae70d7b23";
+	const RUNTIME = "/nix/store/52jr2rxrgkgl47wa7ymz93ff5ximyn8z-pi-host-runtime-1.5.0";
+	const report = JSON.stringify(passed);
+
+	/** A log as host-test-there saves one, ending with how the run exited. */
+	function log(exit: number, between = report): string {
+		return [
+			"host-send-runtime: nix-offload already holds what it needs",
+			`host-test-there: test:host at ${COMMIT} on ${RUNTIME}`,
+			" ✓ tests/host/engine/engine.test.ts (34 tests)",
+			REPORT_FOLLOWS,
+			between,
+			"",
+			REPORT_ENDS,
+			`host-test-there: test:host at ${COMMIT} on ${RUNTIME} exited ${exit}`,
+			"rc=0",
+		].join("\n");
+	}
+
+	it("holds the report host-run printed, and the commit and runtime it ran", () => {
+		const run = loggedRun(log(0));
+		if (typeof run === "string") throw new Error(run);
+		expect(JSON.parse(run.report)).toEqual(passed);
+		expect(run.commit).toBe(COMMIT);
+		expect(run.runtime).toBe(RUNTIME);
+	});
+
+	it("proves nothing when the run exited other than 0", () => {
+		expect(loggedRun(log(1))).toBe("the run exited 1");
+	});
+
+	it("proves nothing without a whole report between host-run's lines", () => {
+		const cut = log(0).split(REPORT_ENDS)[0] ?? "";
+		expect(loggedRun(cut)).toBe(
+			"the log holds no whole report between host-run's lines",
+		);
+		expect(loggedRun("host-test-there: nothing ran")).toBe(
+			"the log holds no whole report between host-run's lines",
+		);
+	});
+
+	it("is printed by host-run.sh between the same two lines", () => {
+		const script = readFileSync(
+			join(import.meta.dirname, "../../../scripts/host-run.sh"),
+			"utf8",
+		);
+		expect(script).toContain(`echo "${REPORT_FOLLOWS}"`);
+		expect(script).toContain(`echo "${REPORT_ENDS}"`);
 	});
 });
