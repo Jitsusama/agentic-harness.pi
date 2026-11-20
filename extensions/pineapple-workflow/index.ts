@@ -64,8 +64,12 @@ const run = promisify(execFile);
 /** How long a lookup may take before the guard goes on without it. */
 const LOOKUP_MS = 10_000;
 
-/** How often parked sessions look for a resume, and holds are tended. */
-const CLOCK_MS = 60_000;
+/**
+ * How often a session looks for a stop or a resume, and holds are
+ * tended: often enough that Joel's stop all, which waits a minute for
+ * every session to park, sees an idle one park well inside it.
+ */
+const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);

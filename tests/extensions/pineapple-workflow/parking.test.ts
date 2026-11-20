@@ -122,6 +122,38 @@ describe("parking", () => {
 		expect(RESUMED_TEXT).toContain("check what changed");
 	});
 
+	it("parks an idle session as it stands, and leaves it idle on the resume", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.tick();
+		expect(parking.parked).toBe(true);
+		expect(seen.parked.map((one) => one.stop.id)).toEqual(["q"]);
+		expect(seen).toMatchObject({ aborts: 0, carried: [] });
+		expect(seen.notes).toHaveLength(1);
+		seen.stops = [];
+		await parking.tick();
+		expect(parking.parked).toBe(false);
+		expect(seen.carried).toEqual([]);
+	});
+
+	it("carries on a run started while it stood idle and parked", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.started();
+		expect(seen.aborts).toBe(1);
+		seen.stops = [];
+		await parking.tick();
+		expect(seen.carried).toEqual([RESUMED_TEXT]);
+	});
+
+	it("leaves a busy session to park at its turn's end", async () => {
+		const { seen, parking } = world([quest]);
+		seen.idle = false;
+		await parking.tick();
+		expect(parking.parked).toBe(false);
+		expect(seen.parked).toEqual([]);
+	});
+
 	it("says the resume as the harness, so it isn't taken for Joel typing", () => {
 		expect(isPersonText(RESUMED_TEXT) ? "person" : "harness").toBe("harness");
 	});

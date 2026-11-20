@@ -72,6 +72,8 @@ export function createParking(deps: ParkingDeps): Parking {
 	let personNext = false;
 	let personRun = false;
 	let parked = false;
+	/** Whether the stop ended a run, which the resume then carries on. */
+	let cut = false;
 	const shadowTold = new Set<string>();
 	const liveTold = new Set<string>();
 
@@ -88,12 +90,16 @@ export function createParking(deps: ParkingDeps): Parking {
 		return found.filter((one) => !one.stop.shadow);
 	}
 
-	async function park(): Promise<void> {
+	/** Park the session, ending the run under way when `running`. */
+	async function park(running = true): Promise<void> {
 		const live = await parkers();
 		if (live.length === 0) return;
 		const first = !parked;
 		parked = true;
-		deps.abort();
+		if (running) {
+			cut = true;
+			deps.abort();
+		}
 		for (const one of live) {
 			// Once a session, as in shadow: the launcher counts sessions.
 			if (liveTold.has(one.stop.id)) continue;
@@ -118,9 +124,15 @@ export function createParking(deps: ParkingDeps): Parking {
 			await park();
 		},
 		async tick() {
-			if (!parked || !deps.idle()) return;
+			if (!deps.idle()) return;
+			// An idle session a stop reaches is parked as it stands, so the
+			// stop's count of parked sessions holds it without a run; one the
+			// stop never cut is left idle by the resume, as it was found.
+			if (!parked) return park(false);
 			if ((await parkers()).length > 0) return;
 			parked = false;
+			if (!cut) return;
+			cut = false;
 			deps.carryOn(RESUMED_TEXT);
 		},
 		get parked() {
