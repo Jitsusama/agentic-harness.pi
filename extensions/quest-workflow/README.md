@@ -405,6 +405,29 @@ shipped and tested.
   word it was, and the Journey says it too; `quest budget`
   names another. A dry run names nothing, and a provider that
   fails or takes more than 5 s is passed over.
+  A `create` no folder names one for either is judged: a
+  provider's optional `budgetForWork` is handed its title,
+  summary, folder and seeded link, with the session's classifier
+  (the first Jev with credentials, or the one
+  `PI_BUDGET_CLASSIFIER` names as `provider/model`, `off` for
+  none). A sure judgement names the budget; a sure `none` names
+  nothing, so the quests under it still ask their folders; an
+  unsure one names nothing. The first line and the Journey say
+  which, whose and why either way. A provider has 20 s to judge.
+  `budget-sweep` does the same for every live quest with nothing
+  named on or above it, from the folder its newest session ran
+  in, four at a time, and says what it named, judged personal
+  and was unsure of; with `dryRun` it writes nothing.
+  A session on no quest draws on what its folder names, else on
+  what a sure judgement of its folder and first prompt names,
+  asked before that prompt's model call, and says so once. Only a
+  person's words are judged, in an interactive or hosted
+  conversation: a print or JSON run, as a subagent is, keeps the
+  budget it inherited or its folder's, and one started by a quest
+  whose budget is `none` keeps to none. A session that has been on
+  a quest isn't judged once it leaves it, since its first words
+  were the quest's. A judged session's first prompt, up to 1,500
+  characters, goes to the classifier the session lends.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or

@@ -30,6 +30,7 @@ import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { budget } from "./verbs/budget.ts";
+import { budgetSweep } from "./verbs/budget-sweep.ts";
 import { concludeOrRetire } from "./verbs/conclude.ts";
 import { config } from "./verbs/config.ts";
 import {
@@ -238,6 +239,8 @@ async function dispatch(
 			return needRemove(state, params);
 		case "budget":
 			return budget(state, params);
+		case "budget-sweep":
+			return budgetSweep(state, ctx, params, signal);
 		case "orchestrate":
 			return orchestrate(state, params, true);
 		case "unorchestrate":

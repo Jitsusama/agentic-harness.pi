@@ -1,3 +1,13 @@
+/**
+ * The budget host: registering providers, drawing on a budget, asking
+ * which budget a folder draws on and judging which one work draws on.
+ *
+ * Long because every question the host answers walks the same
+ * providers in the same precedence under the same deadline and stop,
+ * and the cases share the bus and the providers built to answer them;
+ * split by question, each file would rebuild the same fixture.
+ */
+
 import { describe, expect, it, vi } from "vitest";
 import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
@@ -6,6 +16,7 @@ import {
 	BUDGET_REQUEST,
 	type BudgetAnswer,
 	type BudgetProvider,
+	type Classify,
 	registerBudgetProvider,
 } from "../../../lib/budget/provider.ts";
 
@@ -532,5 +543,298 @@ describe("the budget a folder's work draws on", () => {
 			provider: "first",
 		});
 		expect(Date.now() - started).toBeLessThan(1_000);
+	});
+});
+
+function judging(
+	id: string,
+	precedence: number,
+	answer: BudgetProvider["budgetForWork"],
+): BudgetProvider {
+	return { ...provider(id, precedence, {}), budgetForWork: answer };
+}
+
+/** A classifier nothing should reach, for providers that never call it. */
+const noClassifier: Classify = () => {
+	throw new Error("not asked");
+};
+
+describe("the budget some work draws on, judged from what it is", () => {
+	const work = { title: "Speed up walgit's pack writes" };
+
+	it("is the first sure provider's, lowest precedence first, over an unsure one before it", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			judging("company", 10, async () => ({
+				name: "delta",
+				why: "walgit is Delta's",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("unsure", 0, async () => ({
+				name: "aquifer",
+				why: "a guess",
+				sure: false,
+			})),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toEqual({
+			name: "delta",
+			why: "walgit is Delta's",
+			sure: true,
+			provider: "company",
+		});
+	});
+
+	it("is the lowest precedence's of two sure providers, whichever answers first", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			judging("later", 10, async () => ({
+				name: "delta",
+				why: "",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("first", 0, async () => {
+				// A real pause is the point: the lower precedence must answer
+				// after the other and still win.
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				return { name: "aquifer", why: "", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "aquifer",
+			provider: "first",
+		});
+	});
+
+	it("stops the classifier calls of the providers after a sure one", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, undefined, 60_000);
+		const signals: AbortSignal[] = [];
+		registerBudgetProvider(
+			events,
+			judging("first", 0, async () => ({ name: "delta", why: "", sure: true })),
+		);
+		registerBudgetProvider(
+			events,
+			judging("after", 10, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "aquifer", why: "", sure: true };
+			}),
+		);
+		const classify: Classify = (_context, signal) => {
+			if (signal) signals.push(signal);
+			return new Promise(() => {});
+		};
+
+		expect(await host.budgetForWork(work, classify)).toMatchObject({
+			provider: "first",
+		});
+		expect(signals).toHaveLength(1);
+		expect(signals[0]?.aborted, "the late provider's call is aborted").toBe(
+			true,
+		);
+	});
+
+	it("is nothing, not an unsure guess, when a provider that might have been sure was cut off", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, undefined, 20);
+		registerBudgetProvider(
+			events,
+			judging("hung", 0, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("unsure", 10, async () => ({
+				name: "aquifer",
+				why: "a guess",
+				sure: false,
+			})),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toBeUndefined();
+
+		const stop = new AbortController();
+		stop.abort();
+		expect(
+			await host.budgetForWork(work, noClassifier, stop.signal),
+			"a stopped judgement",
+		).toBeUndefined();
+	});
+
+	it("is the first unsure provider's when none is sure", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		for (const [id, precedence, name] of [
+			["later", 10, "delta"],
+			["first", 0, "aquifer"],
+		] as const) {
+			registerBudgetProvider(
+				events,
+				judging(id, precedence, async () => ({ name, why: "", sure: false })),
+			);
+		}
+
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "aquifer",
+			provider: "first",
+		});
+	});
+
+	it("aborts the classifier it handed a provider at the deadline, or with the caller's signal", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, undefined, 20);
+		const signals: AbortSignal[] = [];
+		const classify: Classify = (_context, signal) => {
+			if (signal) signals.push(signal);
+			return new Promise(() => {});
+		};
+		registerBudgetProvider(
+			events,
+			judging("slow", 0, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "delta", why: "", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, classify)).toBeUndefined();
+		expect(signals[0]?.aborted, "the classifier call is aborted").toBe(true);
+
+		const stop = new AbortController();
+		const slow = hostBudgets(bus(), 5_000, undefined, 60_000);
+		const stopped: AbortSignal[] = [];
+		slow.registerProvider(
+			judging("slow", 0, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "delta", why: "", sure: true };
+			}),
+		);
+		const asked = slow.budgetForWork(
+			work,
+			(_context, signal) => {
+				if (signal) stopped.push(signal);
+				return new Promise(() => {});
+			},
+			stop.signal,
+		);
+		stop.abort();
+		expect(await asked).toBeUndefined();
+		expect(stopped[0]?.aborted, "the provider's signal is aborted").toBe(true);
+	});
+
+	it("hands each provider the work and the session's classifier", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		const seen: unknown[] = [];
+		const classify: Classify = async () => ({
+			api: "typesafe-system-one",
+			provider: "typesafe",
+			model: "jev-latest",
+			answers: {},
+			stopReason: "stop",
+			timestamp: 0,
+		});
+		registerBudgetProvider(
+			events,
+			judging("company", 0, async (given, asks) => {
+				seen.push(given, await asks({ state: {}, questions: {} }));
+				return { name: "none", why: "Joel's laptop", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, classify)).toEqual({
+			name: "none",
+			why: "Joel's laptop",
+			sure: true,
+			provider: "company",
+		});
+		expect(seen[0]).toEqual(work);
+		expect(seen[1]).toMatchObject({ model: "jev-latest" });
+	});
+
+	it("passes over a provider that fails, is late, can't judge or names no budget's name", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, undefined, 20);
+		registerBudgetProvider(
+			events,
+			judging("throws", 0, async () => {
+				throw new Error("no classifier");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			judging("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("bad", 2, async () => ({
+				name: "../escape",
+				why: "",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("silent", 3, async () => undefined),
+		);
+		registerBudgetProvider(events, provider("names-only", 4, {}));
+
+		expect(await host.budgetForWork(work, noClassifier)).toBeUndefined();
+	});
+
+	it("makes a provider's why one line of at most 300 characters, and reads only true as sure", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		const notTrue: unknown = "yes";
+		registerBudgetProvider(events, {
+			...provider("wordy", 0, {}),
+			budgetForWork: async () =>
+				({
+					name: "delta",
+					why: `first line\n\nsecond ${"x".repeat(400)}`,
+					sure: notTrue,
+				}) as never,
+		});
+
+		const judged = await host.budgetForWork(work, noClassifier);
+		expect(judged?.why).toMatch(/^first line second x/);
+		expect(judged?.why).toHaveLength(300);
+		expect(judged?.sure, "only true is sure").toBe(false);
+	});
+
+	it("waits one judging deadline however many providers are late", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, undefined, 200);
+		for (const id of ["one", "two", "three"]) {
+			registerBudgetProvider(
+				events,
+				judging(id, 0, () => new Promise(() => {})),
+			);
+		}
+		registerBudgetProvider(
+			events,
+			judging("last", 9, async () => ({
+				name: "worldtree",
+				why: "leafd",
+				sure: true,
+			})),
+		);
+
+		const started = Date.now();
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "worldtree",
+			provider: "last",
+		});
+		expect(Date.now() - started).toBeLessThan(500);
 	});
 });

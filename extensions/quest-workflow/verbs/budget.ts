@@ -20,9 +20,12 @@
  */
 
 import { resolve } from "node:path";
-import type { FolderBudget } from "../../../lib/budget/host.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { FolderBudget, WorkBudget } from "../../../lib/budget/host.ts";
+import type { WorkToBudget } from "../../../lib/budget/provider.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
+	budgetFoundInRecord,
 	budgetInRecord,
 	isBudgetName,
 	NO_BUDGET,
@@ -30,7 +33,7 @@ import {
 } from "../../../lib/internal/quest/fields/budget.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
-import { budgetOfFolder } from "../budget.ts";
+import { budgetOfFolder, budgetOfWork } from "../budget.ts";
 import type { QuestState } from "../state.ts";
 import { addressOf } from "./address.ts";
 import {
@@ -89,16 +92,86 @@ export async function budgetFromFolder(
 	folder: string | undefined,
 ): Promise<FolderBudget | undefined> {
 	if (!folder) return undefined;
-	if (above !== null && budgetInRecord(state.questsRoot, above)) return;
+	if (!unnamedFrom(state, above)) return;
 	// Providers are promised an absolute path, and a call's cwd may not be.
 	return budgetOfFolder(state, resolve(folder));
+}
+
+/**
+ * Whether nothing from `above` up names a budget, every README on the
+ * way read. One that can't be read counts as naming one, since a quest
+ * named under it might be named against its word.
+ */
+export function unnamedFrom(state: QuestState, above: string | null): boolean {
+	return (
+		above === null || budgetFoundInRecord(state.questsRoot, above) === undefined
+	);
+}
+
+/**
+ * What naming a quest's budget came to: named, nothing to name it
+ * with, or left as it stood, with why.
+ */
+export type Naming<T> =
+	| { readonly named: T }
+	| { readonly unasked: true }
+	| { readonly stood: string };
+
+/** How a naming writes. */
+export interface NamingOptions {
+	/** False to leave `updated` as it was, for a sweep over dormant quests. */
+	readonly stampUpdated?: boolean;
+	/** Aborts a judgement still under way. */
+	readonly signal?: AbortSignal;
+}
+
+/**
+ * Write `name` as the budget of the quest in `questDir`, only if by
+ * then nothing on it or above it names one. True when written, else
+ * why it was left.
+ */
+function nameIfUnnamed(
+	state: QuestState,
+	questDir: string,
+	name: string,
+	options: NamingOptions,
+): true | string {
+	let stood: string | undefined;
+	const result = mutateQuestFrontMatter(
+		questDir,
+		(fm) => {
+			// Named by someone else in between, or by hand with a word that
+			// can't be a budget: theirs stands, to be read and put right.
+			if (fm._extra?.budget !== undefined) {
+				stood = "it was named in between";
+				return undefined;
+			}
+			// Read again under the lock, since a quest above may have been
+			// named since the ask, and its name covers this one.
+			const above = fm.parent
+				? budgetFoundInRecord(state.questsRoot, fm.parent)
+				: undefined;
+			if (above === "unread") {
+				stood = "a quest above it can't be read";
+				return undefined;
+			}
+			if (above) {
+				stood = `${above.from} above it was named in between`;
+				return undefined;
+			}
+			return withBudget(fm, name);
+		},
+		options.stampUpdated === false ? { stampUpdated: false } : {},
+	);
+	if (!result.ok) return `its README couldn't be written: ${result.guidance}`;
+	return stood ?? true;
 }
 
 /**
  * The provider that named a folder's budget, as every line about it
  * says it: quoted, so its id can't add a line of its own.
  */
-export function namedBy(taken: FolderBudget): string {
+export function namedBy(taken: Pick<FolderBudget, "provider">): string {
 	return JSON.stringify(taken.provider);
 }
 
@@ -119,19 +192,166 @@ export async function nameBudgetFromFolder(
 	questDir: string,
 	folder: string | undefined,
 ): Promise<FolderBudget | undefined> {
+	const naming = await folderNaming(state, quest, questDir, folder);
+	return "named" in naming ? naming.named : undefined;
+}
+
+/** {@link nameBudgetFromFolder}, saying what it came to. */
+export async function folderNaming(
+	state: QuestState,
+	quest: string,
+	questDir: string,
+	folder: string | undefined,
+	options: NamingOptions = {},
+): Promise<Naming<FolderBudget>> {
 	const taken = await budgetFromFolder(state, quest, folder);
-	if (!taken || !folder) return undefined;
-	let named = false;
-	const result = mutateQuestFrontMatter(questDir, (fm) => {
-		// Named by someone else in between, or by hand with a word that
-		// can't be a budget: theirs stands, to be read and put right.
-		if (fm._extra?.budget !== undefined) return undefined;
-		named = true;
-		return withBudget(fm, taken.name);
-	});
-	if (!result.ok || !named) return undefined;
+	if (!taken || !folder) return { unasked: true };
+	const written = nameIfUnnamed(state, questDir, taken.name, options);
+	if (written !== true) return { stood: written };
 	appendJourneyByPath(questDir, takenFromFolder(taken, folder));
-	return taken;
+	return { named: taken };
+}
+
+/**
+ * The budget the providers judge a quest under `above` (as for
+ * {@link budgetFromFolder}) draws on from what its work is, only when
+ * nothing from `above` up names one. Asked once no folder names one.
+ */
+export async function budgetFromWork(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+	above: string | null,
+	work: WorkToBudget,
+	signal?: AbortSignal,
+): Promise<WorkBudget | undefined> {
+	if (!unnamedFrom(state, above)) return;
+	return budgetOfWork(state, work, ctx, signal);
+}
+
+/**
+ * The budget a judgement names on a quest: only a sure one, and never
+ * `none`, which would stop the folder's answer for every quest under it.
+ */
+export function namedByJudgement(judged: WorkBudget): string | undefined {
+	return judged.sure && judged.name !== NO_BUDGET ? judged.name : undefined;
+}
+
+/** The Journey's line for a judgement of a quest's work. */
+export function judgedFromWork(judged: WorkBudget): string {
+	const by = namedBy(judged);
+	const why = judged.why ? `: ${judged.why}` : "";
+	if (!judged.sure) {
+		return `Budget: unsure, so none named. ${by}'s best guess from its work is ${judged.name}${why}. \`quest budget\` names one.`;
+	}
+	if (judged.name === NO_BUDGET) {
+		return `Budget: none named, since ${by} judged its work the person's own${why}.`;
+	}
+	return `Budget: ${judged.name}, which ${by} judged from its work, since nothing above it or its folder named one${why}.`;
+}
+
+/** What a create's first line says of a judgement of its work. */
+export function judgedClause(judged: WorkBudget): string {
+	const by = namedBy(judged);
+	const why = judged.why ? `: ${judged.why}` : "";
+	if (!judged.sure) {
+		return `, drawing on no budget, since ${by} was unsure (best guess ${judged.name}${why}; \`quest budget\` names one)`;
+	}
+	if (judged.name === NO_BUDGET) {
+		return `, drawing on no budget, since ${by} judged it the person's own work${why}`;
+	}
+	return `, drawing on budget ${judged.name}, which ${by} judged from its work${why} (\`quest budget\` names another)`;
+}
+
+/** The budget a quest is born on, and how its create says so. */
+export interface BornBudget {
+	/** The budget it names, when it names one. */
+	readonly name?: string;
+	/** Its Journey's lines saying where that came from, oldest first. */
+	readonly journey: readonly string[];
+	/** What the create's first line ends on, "" for nothing to say. */
+	readonly clause: string;
+	/** What the create's details say of it. */
+	readonly details: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The budget a quest being made under `above` is born on, when nothing
+ * above it names one: its folder's, else a judgement's of its work,
+ * named only when sure and said either way. What is above is asked
+ * again after the wait, up to 20 s, so a budget named there meanwhile
+ * is the one it draws on, as for a quest made after.
+ */
+export async function budgetAtBirth(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry" | "cwd">,
+	above: string | null,
+	work: WorkToBudget,
+	signal?: AbortSignal,
+): Promise<BornBudget> {
+	const byFolder = await budgetFromFolder(state, above, ctx.cwd);
+	const judgement = byFolder
+		? undefined
+		: await budgetFromWork(state, ctx, above, work, signal);
+	const unnamed = unnamedFrom(state, above);
+	const folderBudget = unnamed ? byFolder : undefined;
+	if (folderBudget && ctx.cwd) {
+		return {
+			name: folderBudget.name,
+			journey: [takenFromFolder(folderBudget, ctx.cwd)],
+			clause: `, drawing on budget ${folderBudget.name}, which ${namedBy(folderBudget)} says this folder's work draws on (\`quest budget\` names another)`,
+			details: { budget: folderBudget.name },
+		};
+	}
+	const judged = unnamed ? judgement : undefined;
+	if (!judged) return { journey: [], clause: "", details: {} };
+	const name = namedByJudgement(judged);
+	return {
+		...(name ? { name } : {}),
+		journey: [judgedFromWork(judged)],
+		clause: judgedClause(judged),
+		details: {
+			...(name ? { budget: name } : {}),
+			judged: {
+				name: judged.name,
+				sure: judged.sure,
+				provider: judged.provider,
+			},
+		},
+	};
+}
+
+/**
+ * Judge which budget quest `quest` in `questDir` draws on from `work`,
+ * when nothing on or above it names one, naming it only when the
+ * judgement is sure, and journal what was judged either way. Says
+ * whether it judged, and when it named nothing for a quest named in
+ * between, or one it couldn't write, why.
+ */
+export async function nameBudgetFromWork(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+	quest: string,
+	questDir: string,
+	work: WorkToBudget,
+	options: NamingOptions = {},
+): Promise<Naming<WorkBudget>> {
+	const judged = await budgetFromWork(state, ctx, quest, work, options.signal);
+	if (!judged) return { unasked: true };
+	const name = namedByJudgement(judged);
+	if (name !== undefined) {
+		const written = nameIfUnnamed(state, questDir, name, options);
+		if (written !== true) return { stood: written };
+	} else {
+		// Named while it was judged, or made unreadable: a line saying it
+		// is unsure or the person's own would contradict what it now says.
+		const now = budgetFoundInRecord(state.questsRoot, quest);
+		if (now === "unread") {
+			return { stood: "its budget word, or one above it, can't be read" };
+		}
+		if (now) return { stood: "it was named in between" };
+	}
+	appendJourneyByPath(questDir, judgedFromWork(judged));
+	return { named: judged };
 }
 
 /** Front matter saying `word` as its budget, or none of its own. */

@@ -15,8 +15,11 @@ import {
 	type BudgetAnswer,
 	type BudgetHostApi,
 	type BudgetProvider,
+	type Classify,
 	isBudgetName,
 	isBudgetProvider,
+	type WorkJudgement,
+	type WorkToBudget,
 } from "./provider.ts";
 
 /** What asking the providers about one name came to. */
@@ -56,6 +59,25 @@ export interface BudgetHost extends BudgetHostApi {
 	 * quest it leaves unnamed draws on the person's own key.
 	 */
 	budgetFor(folder: string): Promise<FolderBudget | undefined>;
+	/**
+	 * Which budget `work` draws on, as the first provider, lowest
+	 * precedence first, that judges it surely says, else the first that
+	 * judges it at all, and which it was. Asked at once under the one
+	 * deadline, as `budgetFor` is, though a longer one, since a
+	 * judgement waits on a model. One that fails, answers late or names
+	 * something that can't be a budget is passed over. The classifier
+	 * each is handed aborts at the deadline, or with `signal`.
+	 */
+	budgetForWork(
+		work: WorkToBudget,
+		classify: Classify,
+		signal?: AbortSignal,
+	): Promise<WorkBudget | undefined>;
+}
+
+/** A provider's judgement of which budget some work draws on. */
+export interface WorkBudget extends WorkJudgement {
+	readonly provider: string;
 }
 
 /** The budget a provider says a folder's work draws on. */
@@ -84,6 +106,7 @@ export function hostBudgets(
 	bus: Pick<EventBus, "emit" | "on">,
 	deadlineMs: number = BUDGET_ANSWER_DEADLINE_MS,
 	troubled: (trouble: FolderTrouble) => void = () => undefined,
+	judgeMs: number = BUDGET_JUDGEMENT_DEADLINE_MS,
 ): BudgetHost {
 	const providers = new Map<string, BudgetProvider>();
 	const listeners: (() => void)[] = [];
@@ -127,6 +150,40 @@ export function hostBudgets(
 			}
 			return undefined;
 		},
+		async budgetForWork(work, classify, signal) {
+			const asking = ordered().filter(
+				(p) => typeof p.budgetForWork === "function",
+			);
+			// Aborted once the answer is settled, so the providers after a
+			// sure one stop their classifier calls rather than paying on.
+			const settled = new AbortController();
+			const asked = signal
+				? AbortSignal.any([signal, settled.signal])
+				: settled.signal;
+			const judged = asking.map((provider) =>
+				askWork(provider, work, classify, judgeMs, asked),
+			);
+			try {
+				// A sure answer from any wins over an unsure one from a
+				// provider before it, which named nothing and only guessed.
+				let guess: WorkBudget | undefined;
+				let cut = false;
+				for (const [at, provider] of asking.entries()) {
+					const judgement = await judged[at];
+					if (judgement === CUT_OFF) cut = true;
+					if (!judgement || judgement === CUT_OFF) continue;
+					const said = { ...judgement, provider: provider.id };
+					if (said.sure) return said;
+					guess ??= said;
+				}
+				// A guess is the answer only when no provider that might have
+				// been sure was stopped first: a judgement cut short is none,
+				// and is asked again, rather than an unsure one journaled.
+				return cut ? undefined : guess;
+			} finally {
+				settled.abort();
+			}
+		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {
 		if (isBudgetProvider(data)) host.registerProvider(data);
@@ -146,6 +203,82 @@ export function hostBudgets(
  * prompt must not hold them.
  */
 export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
+
+/**
+ * How long a provider may take to judge work. A classifier answers in
+ * a few seconds and a create waits on it only once, when nothing else
+ * names its budget; past this, the quest is made unjudged.
+ */
+export const BUDGET_JUDGEMENT_DEADLINE_MS = 20_000;
+
+/** The most of a provider's why a line about it carries. */
+const LONGEST_WHY = 300;
+
+/** What a provider stopped by the deadline or the caller said. */
+const CUT_OFF = "cut off";
+
+/**
+ * One provider's judgement of `work`, undefined when it can't say,
+ * fails or names no budget's name, or `CUT_OFF` when the deadline or
+ * the caller stopped it first. Its why is made one line, since every
+ * line about it quotes it.
+ */
+async function askWork(
+	provider: BudgetProvider,
+	work: WorkToBudget,
+	classify: Classify,
+	deadlineMs: number,
+	signal: AbortSignal | undefined,
+): Promise<WorkJudgement | typeof CUT_OFF | undefined> {
+	if (signal?.aborted) return CUT_OFF;
+	// Aborted at the deadline, so a classifier call nobody waits on any
+	// more stops rather than running, and costing, on.
+	const cutoff = new AbortController();
+	const stop = signal
+		? AbortSignal.any([signal, cutoff.signal])
+		: cutoff.signal;
+	const bounded: Classify = (context, own) =>
+		classify(context, own ? AbortSignal.any([own, stop]) : stop);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let end: (() => void) | undefined;
+	const late = new Promise<undefined>((resolve) => {
+		end = () => {
+			cutoff.abort();
+			resolve(undefined);
+		};
+		timer = setTimeout(end, deadlineMs);
+		signal?.addEventListener("abort", end, { once: true });
+	});
+	try {
+		const judged = await Promise.race([
+			provider.budgetForWork?.(work, bounded),
+			late,
+		]);
+		if (stop.aborted) return CUT_OFF;
+		if (
+			typeof judged !== "object" ||
+			judged === null ||
+			typeof judged.name !== "string" ||
+			!isBudgetName(judged.name)
+		) {
+			return undefined;
+		}
+		const why =
+			typeof judged.why === "string"
+				? judged.why.replace(/\s+/g, " ").trim().slice(0, LONGEST_WHY)
+				: "";
+		return { name: judged.name, why, sure: judged.sure === true };
+	} catch {
+		// A provider that can't judge is passed over, as one that won't;
+		// one that failed because it was stopped was cut off, not wrong.
+		return stop.aborted ? CUT_OFF : undefined;
+	} finally {
+		clearTimeout(timer);
+		// One sweep asks many times under one signal, so each ask takes
+		// its listener away again.
+		if (end) signal?.removeEventListener("abort", end);
+	}
+}
 
 /**
  * The word a quest opts out of budgets with, which a folder's answer
