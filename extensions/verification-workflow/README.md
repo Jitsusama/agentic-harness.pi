@@ -82,24 +82,29 @@ never read from an earlier pass:
 - A failed verify run counts while its tree is the one it
   judged: the same HEAD, and the same size and modification
   time on every changed file. Staging moves no file, so it does
-  not count as a change. Outside git, an edit under its project
-  retires it instead, and only git saying the folder is in no
-  repository counts as outside git. Git is asked in its own
-  untranslated words, off the thread, each question within five
-  seconds and a status within a mebibyte; a check asks a few
-  questions, so it can wait some multiple of that, and on a git
-  that never closes its output until that git ends. When it
-  gives no answer, its clock or a
-  stop ended it, its status ran past that, or it failed to say
-  what the tree sits on for any reason but there being no commit
-  yet, the run holds back no commit, as verify's answer says,
-  but stays failing on the status line: a clean run or an edit there retires it, as does
-  git later saying the tree moved, if git fingerprinted it when
-  the run ended. So a tree changed too widely to list holds back
-  no commit on a failed run. A project the disk says is gone
-  retires it, however it was recorded; one out of reach for now
-  doesn't. Of two failed runs ending close together, in any
-  projects, the one that ended last is kept.
+  not count as a change. Git is asked in its own untranslated
+  words, off the thread: each question within five seconds and a
+  status within a mebibyte. A check asks a few, so it can wait
+  several times that, and longer on a git that holds its output
+  open until it ends.
+  - Outside git, or where the guard refuses git (a submodule,
+    say), it holds back commits until an edit under its project.
+    Only git saying the folder is in no repository counts as
+    outside git.
+  - When git gives no answer (its clock or a stop ended it, its
+    status ran past a mebibyte, or it failed to say what the
+    tree sits on for any reason but there being no commit yet),
+    it holds back no commit, as verify's answer says. It stays
+    failing on the status line until a clean run or an edit
+    there retires it, or git says the tree moved, if git
+    fingerprinted it. So a tree changed too widely to list holds
+    back no commit.
+  - A project the disk says is gone retires it, however it was
+    recorded; one out of reach for now doesn't.
+  - Of two failed runs ending close together, in any projects,
+    the one that ended last is kept. A failure is not kept when a
+    later run of its project ended first, or an edit landed in
+    its project while it ran, and verify's answer says why.
 
 It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit

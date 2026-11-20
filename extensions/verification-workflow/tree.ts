@@ -26,7 +26,10 @@ import {
 	spawnExec,
 } from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
+import {
+	GIT_REFUSED,
+	guardedExec,
+} from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
@@ -132,16 +135,20 @@ async function fingerprinted(
 
 /**
  * The fingerprint to keep with a failed run in `root`: undefined outside
- * git, and null when git holds the root but gave no fingerprint, so the
- * run is kept without being held against a commit on a guess.
+ * git, or where the guard refuses git, so the run holds back commits
+ * until an edit; and null when git holds the root but gave no
+ * fingerprint, so the run is kept without being held against a commit
+ * on a guess.
  */
 export async function recordedFingerprint(
 	root: string,
 ): Promise<string | null | undefined> {
 	const { print, top } = await fingerprinted(root);
 	if (print !== undefined) return print;
-	// Outside git only when git says so: silence, or a git the guard
-	// refused, says nothing either way.
+	// A refusal stands on every ask (a submodule, a repository the fence
+	// doesn't guard), so it fails closed, as it did before git ran off
+	// the thread. Only silence says nothing either way.
+	if (top.answered && top.code === GIT_REFUSED) return undefined;
 	return saysFatally(top, NOT_A_REPOSITORY) ? undefined : null;
 }
 
@@ -277,7 +284,15 @@ async function ask(
 	// Outside any sandbox, so held to where a sandboxed command couldn't
 	// have set what git runs (tree-git.ts).
 	const exec = guardedExec(spawnExec(bounds), gitRules, cwd);
-	const { code, stdout, stderr } = await exec("git", [...args]);
+	let said: Awaited<ReturnType<typeof exec>>;
+	try {
+		said = await exec("git", [...args]);
+	} catch {
+		// A spawn that threw (out of descriptors, say) is no answer, so a
+		// commit's check and a turn's end go on rather than reject.
+		return { answered: false };
+	}
+	const { code, stdout, stderr } = said;
 	if (UNANSWERED.has(code) || signal?.aborted) return { answered: false };
 	return { answered: true, code, stdout, stderr };
 }

@@ -86,12 +86,12 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// last of each, and which run each record holds, so a failure is
 	// recorded only if no later run of its project said otherwise, no
 	// later failure holds the one record, and no edit landed in its
-	// project while its tree was fingerprinted.
+	// project from the run's start until it was recorded.
 	let verdicts = 0;
 	const latest = new Map<string, number>();
 	const runOf = new WeakMap<FailedRun, number>();
-	// The paths edited while each failure's tree is fingerprinted.
-	const fingerprinting = new Set<string[]>();
+	// The paths edited while each verify runs and is recorded.
+	const watchingEdits = new Set<string[]>();
 
 	pi.registerMessageRenderer<VerificationReport>(
 		VERIFICATION_MESSAGE,
@@ -143,7 +143,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		state.touched.add(absolute);
 		state.lastEdited = absolute;
-		for (const edited of fingerprinting) edited.push(absolute);
+		for (const edited of watchingEdits) edited.push(absolute);
 		// An edit under a failed run's project means the run judged a
 		// tree that no longer exists.
 		if (state.failedRun && within(state.failedRun.root, absolute)) {
@@ -299,10 +299,17 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			const questVerify =
 				getLastEntry<{ verify?: string | null }>(ctx, "quest-workflow")
 					?.verify ?? undefined;
+			// Edits from the run's start on: the check may have read the tree
+			// before one landed, so what git sees after says nothing of it.
+			const edited: string[] = [];
+			watchingEdits.add(edited);
 			const result = await runVerify({
 				cwd: dir,
 				...(questVerify ? { questVerify } : {}),
 				...(signal ? { signal } : {}),
+			}).catch((error: unknown) => {
+				watchingEdits.delete(edited);
+				throw error;
 			});
 			const verdict = checkRunVerdict(result);
 			// One that checked nothing says nothing of the project.
@@ -310,30 +317,27 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			if (mine !== undefined) latest.set(root, mine);
 			// The run this call recorded, already as git sees it now.
 			let recorded: Judged | undefined;
+			// Why a failed run wasn't recorded, for verify's answer to say.
+			let unkept: string | undefined;
 			if (
 				verdict.outcome === "failing" &&
 				result.command &&
 				mine !== undefined
 			) {
-				const edited: string[] = [];
-				fingerprinting.add(edited);
-				let fingerprint: string | null | undefined;
-				try {
-					// Not stopped by this call's signal: an Escape after the run
-					// leaves its failure as true as it was.
-					fingerprint = await recordedFingerprint(root);
-				} finally {
-					fingerprinting.delete(edited);
-				}
+				// Not stopped by this call's signal: an Escape after the run
+				// leaves its failure as true as it was.
+				const fingerprint = await recordedFingerprint(root);
 				// A run of the project that ended while git answered, or an edit
-				// there, says more of the tree now; a failure still recorded
-				// that ended later holds the record, as the last to end does.
+				// there since the run began, says more of the tree now; a
+				// failure still recorded that ended later holds the record, as
+				// the last to end does.
 				const holder = state.failedRun && runOf.get(state.failedRun);
-				if (
-					latest.get(root) === mine &&
-					!edited.some((p) => within(root, p)) &&
-					!(holder !== undefined && holder > mine)
-				) {
+				unkept = whyUnkept({
+					later: latest.get(root) !== mine,
+					edited: edited.some((p) => within(root, p)),
+					outranked: holder !== undefined && holder > mine,
+				});
+				if (unkept === undefined) {
 					const run: FailedRun = {
 						root,
 						command: result.command,
@@ -350,6 +354,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			) {
 				state.failedRun = undefined;
 			}
+			watchingEdits.delete(edited);
 			// A check that could not start leaves what else is known as it
 			// was; with nothing else known it says nothing was checked.
 			const settled = await settle(state, recorded, signal);
@@ -362,7 +367,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				verdict.outcome === "deferred"
 					? `Checked nothing in ${root}: ${verdict.reason}. This says ` +
 						`nothing about the code.\n\n${result.output}`
-					: `In ${root}:\n${result.output}${unheld(recorded)}`;
+					: `In ${root}:\n${result.output}${unheld(recorded, unkept)}`;
 			return {
 				content: [{ type: "text", text: said }],
 				details: {
@@ -384,11 +389,30 @@ interface VerifyDetails {
 }
 
 /**
- * What a failure recorded without a fingerprint adds to verify's answer:
- * it holds back no commit, which the person would otherwise learn only
- * from the commit going through.
+ * Why a failed run is left unrecorded: a `later` run of its project has
+ * the say, an edit there landed while it ran (`edited`), or a failure
+ * elsewhere that ended later `outranked` it. Nothing when it is kept.
  */
-function unheld(recorded: Judged | undefined): string {
+function whyUnkept(meanwhile: {
+	readonly later: boolean;
+	readonly edited: boolean;
+	readonly outranked: boolean;
+}): string | undefined {
+	if (meanwhile.later) return "a later run of this project has the say";
+	if (meanwhile.edited) return "an edit landed in this project while it ran";
+	if (meanwhile.outranked)
+		return "a failure in another project that ended later holds the record";
+	return undefined;
+}
+
+/**
+ * What a failure recorded without a fingerprint, or `unkept` for a
+ * reason, adds to verify's answer: it holds back no commit, which the
+ * person would otherwise learn only from the commit going through.
+ */
+function unheld(recorded: Judged | undefined, unkept?: string): string {
+	if (unkept !== undefined)
+		return `\n\nThis failure isn't kept, so it holds back no commit itself: ${unkept}.`;
 	if (recorded?.standing !== "unknown") return "";
 	return (
 		"\n\nThis failure holds back no commit: git gave no fingerprint of " +
