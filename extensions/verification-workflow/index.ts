@@ -83,12 +83,15 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
 	// How many verify runs have said how a project stands, which said so
-	// last of each, and which last failed of any, so a failure is recorded
-	// only if no later run of its project said otherwise, and no later
-	// failure took the one record, while its tree was fingerprinted.
+	// last of each, and which run each record holds, so a failure is
+	// recorded only if no later run of its project said otherwise, no
+	// later failure holds the one record, and no edit landed in its
+	// project while its tree was fingerprinted.
 	let verdicts = 0;
 	const latest = new Map<string, number>();
-	let lastFailing: number | undefined;
+	const runOf = new WeakMap<FailedRun, number>();
+	// The paths edited while each failure's tree is fingerprinted.
+	const fingerprinting = new Set<string[]>();
 
 	pi.registerMessageRenderer<VerificationReport>(
 		VERIFICATION_MESSAGE,
@@ -140,6 +143,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		state.touched.add(absolute);
 		state.lastEdited = absolute;
+		for (const edited of fingerprinting) edited.push(absolute);
 		// An edit under a failed run's project means the run judged a
 		// tree that no longer exists.
 		if (state.failedRun && within(state.failedRun.root, absolute)) {
@@ -306,20 +310,36 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			if (mine !== undefined) latest.set(root, mine);
 			// The run this call recorded, already as git sees it now.
 			let recorded: Judged | undefined;
-			if (verdict.outcome === "failing" && result.command) {
-				lastFailing = mine;
-				// Not stopped by this call's signal: an Escape after the run
-				// leaves its failure as true as it was.
-				const fingerprint = await recordedFingerprint(root);
-				// A run of the project that ended while git answered says more
-				// of the tree now, and a failure of any that ended since holds
-				// the record, as the last to end does.
-				if (latest.get(root) === mine && lastFailing === mine) {
+			if (
+				verdict.outcome === "failing" &&
+				result.command &&
+				mine !== undefined
+			) {
+				const edited: string[] = [];
+				fingerprinting.add(edited);
+				let fingerprint: string | null | undefined;
+				try {
+					// Not stopped by this call's signal: an Escape after the run
+					// leaves its failure as true as it was.
+					fingerprint = await recordedFingerprint(root);
+				} finally {
+					fingerprinting.delete(edited);
+				}
+				// A run of the project that ended while git answered, or an edit
+				// there, says more of the tree now; a failure still recorded
+				// that ended later holds the record, as the last to end does.
+				const holder = state.failedRun && runOf.get(state.failedRun);
+				if (
+					latest.get(root) === mine &&
+					!edited.some((p) => within(root, p)) &&
+					!(holder !== undefined && holder > mine)
+				) {
 					const run: FailedRun = {
 						root,
 						command: result.command,
 						...(fingerprint === undefined ? {} : { fingerprint }),
 					};
+					runOf.set(run, mine);
 					state.failedRun = run;
 					const standing = fingerprint === null ? "unknown" : "same";
 					recorded = { run, standing };
@@ -342,7 +362,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				verdict.outcome === "deferred"
 					? `Checked nothing in ${root}: ${verdict.reason}. This says ` +
 						`nothing about the code.\n\n${result.output}`
-					: `In ${root}:\n${result.output}`;
+					: `In ${root}:\n${result.output}${unheld(recorded)}`;
 			return {
 				content: [{ type: "text", text: said }],
 				details: {
@@ -361,6 +381,19 @@ interface VerifyDetails {
 	readonly outcome: "clean" | "failing" | "deferred";
 	readonly dir: string;
 	readonly command?: string;
+}
+
+/**
+ * What a failure recorded without a fingerprint adds to verify's answer:
+ * it holds back no commit, which the person would otherwise learn only
+ * from the commit going through.
+ */
+function unheld(recorded: Judged | undefined): string {
+	if (recorded?.standing !== "unknown") return "";
+	return (
+		"\n\nThis failure holds back no commit: git gave no fingerprint of " +
+		"the tree, so nothing could tell when it changed."
+	);
 }
 
 /**

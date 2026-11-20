@@ -85,12 +85,15 @@ never read from an earlier pass:
   not count as a change. Outside git, an edit under its project
   retires it instead, and only git saying the folder is in no
   repository counts as outside git. Git is asked in its own
-  untranslated words, off the thread, within five seconds and a
-  mebibyte of status. When it gives no answer, its clock or a
+  untranslated words, off the thread, each question within five
+  seconds and a status within a mebibyte; a check asks a few
+  questions, so it can wait some multiple of that, and on a git
+  that never closes its output until that git ends. When it
+  gives no answer, its clock or a
   stop ended it, its status ran past that, or it failed to say
   what the tree sits on for any reason but there being no commit
-  yet, the run holds back no commit but stays failing on the
-  status line: a clean run or an edit there retires it, as does
+  yet, the run holds back no commit, as verify's answer says,
+  but stays failing on the status line: a clean run or an edit there retires it, as does
   git later saying the tree moved, if git fingerprinted it when
   the run ended. So a tree changed too widely to list holds back
   no commit on a failed run. A project the disk says is gone

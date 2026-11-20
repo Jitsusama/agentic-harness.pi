@@ -95,6 +95,17 @@ export async function treeFingerprint(
 	root: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
+	return (await fingerprinted(root, signal)).print;
+}
+
+/**
+ * A tree's fingerprint, as {@link treeFingerprint} gives it, with what
+ * git said when asked which repository holds the tree.
+ */
+async function fingerprinted(
+	root: string,
+	signal?: AbortSignal,
+): Promise<{ print?: string; top: Asked }> {
 	// Takes no lock, so it never stands in the way of the session's own git.
 	const status = [
 		"--no-optional-locks",
@@ -106,18 +117,17 @@ export async function treeFingerprint(
 	const [head, changed, top] = await Promise.all([
 		ask(root, ["rev-parse", "HEAD^{tree}"], signal),
 		git(root, status, signal, STATUS_MOST_CHARS),
-		gitRoot(root, signal),
+		ask(root, ["rev-parse", "--show-toplevel"], signal),
 	]);
-	if (!head.answered || changed === undefined || top === undefined) {
-		return undefined;
-	}
-	const unborn = head.code !== 0 && NO_COMMIT.test(head.stderr);
+	const topDir = top.answered && top.code === 0 ? top.stdout.trim() : "";
+	if (!head.answered || changed === undefined || !topDir) return { top };
+	const unborn = saysFatally(head, NO_COMMIT);
 	// Any other failure says nothing of what the tree sits on.
-	if (head.code !== 0 && !unborn) return undefined;
+	if (head.code !== 0 && !unborn) return { top };
 	const commit = unborn ? undefined : head.stdout;
-	const print = await fingerprintOf(commit, changed, top);
+	const print = await fingerprintOf(commit, changed, topDir);
 	// Stopped while stamping: what it read is no answer.
-	return signal?.aborted ? undefined : print;
+	return signal?.aborted ? { top } : { print, top };
 }
 
 /**
@@ -128,19 +138,31 @@ export async function treeFingerprint(
 export async function recordedFingerprint(
 	root: string,
 ): Promise<string | null | undefined> {
-	const print = await treeFingerprint(root);
+	const { print, top } = await fingerprinted(root);
 	if (print !== undefined) return print;
 	// Outside git only when git says so: silence, or a git the guard
 	// refused, says nothing either way.
-	const top = await ask(root, ["rev-parse", "--show-toplevel"]);
-	return top.answered && NOT_A_REPOSITORY.test(top.stderr) ? undefined : null;
+	return saysFatally(top, NOT_A_REPOSITORY) ? undefined : null;
 }
 
+/**
+ * Whether git itself ended `asked` saying `message`: its own fatal exit
+ * and line, so a refusal quoting a path that holds the words isn't it.
+ */
+function saysFatally(asked: Asked, message: RegExp): boolean {
+	return (
+		asked.answered && asked.code === GIT_FATAL && message.test(asked.stderr)
+	);
+}
+
+/** The code git exits with when it can't do what it was asked. */
+const GIT_FATAL = 128;
+
 /** What git says, in the C locale, of a folder no repository holds. */
-const NOT_A_REPOSITORY = /not a git repository/i;
+const NOT_A_REPOSITORY = /^fatal: not a git repository/m;
 
 /** What git says, in the C locale, of a HEAD with no commit yet. */
-const NO_COMMIT = /unknown revision|ambiguous argument/i;
+const NO_COMMIT = /^fatal: .*(unknown revision|ambiguous argument)/m;
 
 /** Git's messages untranslated, so what it says can be told apart. */
 const UNTRANSLATED = { LC_ALL: "C" };
