@@ -267,6 +267,8 @@ function fakeUnits(): FakeUnits {
 			fake.children.set(unit, undefined);
 			pid += 1;
 			const own = pid;
+			// Named now, in this test's folder, should it listen after the test.
+			const slot = slotNamed(unit);
 			// Late on purpose: a real unit's child listens a while after its
 			// start, and the supervisor must wait that out.
 			setTimeout(() => {
@@ -275,7 +277,7 @@ function fakeUnits(): FakeUnits {
 					return;
 				}
 				if (next.neverListens) return;
-				runChild(slotNamed(unit), next, own).then(
+				runChild(slot, next, own).then(
 					(child) => fake.children.set(unit, child),
 					(error) => reported.push(error),
 				);
@@ -465,11 +467,11 @@ describe("a resumed conversation", () => {
 		supervisor.close();
 
 		await expect(resuming).rejects.toThrow("stopped watching");
+		const { unit } = slotOf(folder, key, a);
+		// It listens later, and is left be: the next host adopts it.
+		await vi.waitFor(() => expect(units.children.get(unit)).toBeDefined());
 		expect(units.stopped).toEqual([]);
-		expect(
-			await units.gone(slotOf(folder, key, a).unit),
-			"its child still runs",
-		).toBe(false);
+		expect(await units.gone(unit), "its child still runs").toBe(false);
 	});
 
 	it("fails, keeping no watch, when the host stops watching as its hold is written", async () => {
