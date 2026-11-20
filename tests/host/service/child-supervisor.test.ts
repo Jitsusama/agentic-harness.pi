@@ -195,9 +195,7 @@ describe("a resumed conversation", () => {
 	it("frees its slot when systemd refuses to start its unit", async () => {
 		units.refusesStart = true;
 
-		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			"Unit not found",
-		);
+		await expect(supervisor.resume(entry(a))).rejects.toThrow("Unit not found");
 
 		const resumed = await supervisor.resume(entry(a));
 		expect(resumed.sessionId, "started once systemd would").toBe(a);

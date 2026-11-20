@@ -535,8 +535,9 @@ export function childSupervisor(options: {
 							if (forsaken) return;
 							if (why) {
 								options.report(new Error(`${slot.unit} ${why}`));
-								// It runs `next` all the same, wherever else it runs.
-								forsake(next, why);
+								// Word on another conversation is passed over; one that
+								// left its own runs `next` all the same, wherever else.
+								if (previousId === current) forsake(next, why);
 								return;
 							}
 							const was = routes.routeOf(previousId);
