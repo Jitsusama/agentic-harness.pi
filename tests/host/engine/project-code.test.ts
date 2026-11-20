@@ -107,8 +107,18 @@ describe("the code a folder's .pi holds", () => {
 		expect(projectCode(folder)?.digest).not.toBe(before);
 	});
 
-	it("counts each code setting, the shell's among them", () => {
-		for (const key of ["shellCommandPrefix", "npmCommand", "httpProxy"]) {
+	it("counts each of the nine settings that start a program or move pi's traffic", () => {
+		for (const key of [
+			"packages",
+			"extensions",
+			"shellPath",
+			"shellCommandPrefix",
+			"npmCommand",
+			"selfUpdateCommand",
+			"externalEditor",
+			"httpProxy",
+			"sessionDir",
+		]) {
 			write(".pi/settings.json", JSON.stringify({ [key]: "a" }));
 			expect(projectCode(folder)?.files, key).toEqual([".pi/settings.json"]);
 		}
@@ -120,6 +130,13 @@ describe("the code a folder's .pi holds", () => {
 		const code = projectCode(folder);
 		expect(code?.files).toEqual([".pi/extensions/lint.ts"]);
 		expect(code?.complete, "a loop is no reason to stop checking").toBe(true);
+	});
+
+	it("is never complete with a folder too deep to read", () => {
+		const deep = join(folder, ".pi/extensions", ...Array(30).fill("d"));
+		mkdirSync(deep, { recursive: true });
+		writeFileSync(join(deep, "hidden.ts"), "planted");
+		expect(projectCode(folder)?.complete).toBe(false);
 	});
 
 	it("is never complete past the most entries it checks", () => {

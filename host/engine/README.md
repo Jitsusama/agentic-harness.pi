@@ -233,7 +233,7 @@ load, the folder loads untrusted and the journal says why, and a
 reload trusts it again once its code is pinned again. Every load
 begins with pi reloading the settings, so the check runs there, before
 a reload's resources too. A .pi too large to check (past 10,000
-entries or 64 MiB) never loads its code; pins that can't be read pin
+entries, 64 MiB or folders 24 deep) never loads its code; pins that can't be read pin
 nothing; and a folder pi doesn't ask trust for, or that the person
 said not to trust, is never asked about.
 

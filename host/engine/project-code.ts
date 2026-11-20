@@ -204,7 +204,9 @@ function walker(cwd: string): Walker {
 				}
 				folders.add(key);
 				if (depth >= MOST_FOLDERS_DEEP) {
+					// What lies below goes unread, so a change there would go unseen.
 					line("too-deep", place, "");
+					complete = false;
 					return;
 				}
 				const names = readdirSync(path)
