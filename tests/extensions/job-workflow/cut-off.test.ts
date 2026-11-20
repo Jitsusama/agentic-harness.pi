@@ -82,6 +82,16 @@ function killedLog(): unknown[] {
 	];
 }
 
+/** Start the carried run in `pi`, adding `entries` to its log. */
+async function carriedRunStarts(
+	pi: ReturnType<typeof activate>,
+	...entries: unknown[]
+): Promise<void> {
+	pi.session.busy = true;
+	await pi.fire("agent_start");
+	for (const entry of entries) if (entry) pi.branch.push(entry);
+}
+
 /** Run the carried run in `pi`, adding `entries` to its log, then settle it. */
 async function carriedRun(
 	pi: ReturnType<typeof activate>,
@@ -89,12 +99,13 @@ async function carriedRun(
 	second: unknown,
 	settled: { aborted?: boolean } = {},
 ): Promise<void> {
-	pi.session.busy = true;
-	await pi.fire("agent_start");
-	for (const entry of [first, second]) if (entry) pi.branch.push(entry);
+	await carriedRunStarts(pi, first, second);
 	pi.session.busy = false;
 	await pi.fire("agent_settled", settled);
 }
+
+/** What a session is told when its carried run ended in an error. */
+const FAILED_TEXT = /Its host carried the run on, and it ended in an error/;
 
 describe("a session cut off when it ended", () => {
 	it("is found from the record its end left, with nothing typed since", () => {
@@ -521,17 +532,12 @@ describe("the job workflow, at a session's end and its return", () => {
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
 		try {
-			const killed = () => [
-				message("user"),
-				message("assistant", { stopReason: "toolUse" }),
-				message("toolResult"),
-			];
-			const carried = activate(killed(), new EventEmitter());
+			const carried = activate(killedLog(), new EventEmitter());
 			await carried.fire("session_start", { reason: "startup" });
 			expect(carried.said, "nothing yet: the host carries it").toHaveLength(0);
-			carried.branch.push(message("assistant", { stopReason: "stop" }));
+			await carriedRun(carried, interrupted, message("assistant"));
 
-			const lost = activate(killed(), new EventEmitter(), "s2");
+			const lost = activate(killedLog(), new EventEmitter(), "s2");
 			await lost.fire("session_start", { reason: "startup" });
 
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
@@ -555,7 +561,8 @@ describe("the job workflow, at a session's end and its return", () => {
 		try {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
-			await vi.advanceTimersByTimeAsync(3 * 60_000);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS - 1);
+			expect(pi.said, "its turn not yet come").toHaveLength(0);
 			await carriedRun(pi, interrupted, message("assistant"));
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(pi.said, "its run answered").toHaveLength(0);
@@ -575,9 +582,97 @@ describe("the job workflow, at a session's end and its return", () => {
 			await pi.fire("session_start", { reason: "startup" });
 			await carriedRun(pi, interrupted, aborted);
 			expect(pi.said).toHaveLength(1);
-			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			expect(pi.said[0]).toMatch(FAILED_TEXT);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(pi.said, "told once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, tells a carried run that failed after a mesh message came in", async () => {
+		// A mesh message or a job's report is said as an extension's
+		// prompt, and no person is there to say what comes next.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await pi.fire("input", { text: "From A2VLJN", source: "extension" });
+			await carriedRun(pi, message("user"), aborted);
+			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(FAILED_TEXT);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, leaves a settle with no run started to the carried run to come", async () => {
+		// A compaction settles with no run, while the carried run waits.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await pi.fire("agent_settled", {});
+			expect(pi.said, "no run has come yet").toHaveLength(0);
+			await carriedRun(pi, interrupted, aborted);
+			expect(pi.said, "the carried run decides").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, leaves a run under way at the wait's end to say how it went", async () => {
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const busy = activate(killedLog(), new EventEmitter());
+			await busy.fire("session_start", { reason: "startup" });
+			busy.session.busy = true;
+
+			// Idle again, as a host's run reads between its turns.
+			const started = activate(killedLog(), new EventEmitter(), "s2");
+			await started.fire("session_start", { reason: "startup" });
+			await carriedRunStarts(started, interrupted);
+			started.session.busy = false;
+
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(
+				{ busy: busy.said.length, started: started.said.length },
+				"nothing said while a run is under way",
+			).toEqual({ busy: 0, started: 0 });
+
+			busy.session.busy = false;
+			await carriedRun(busy, interrupted, aborted);
+			started.branch.push(aborted);
+			await started.fire("agent_settled", {});
+			expect(
+				[...busy.said, ...started.said].map((said) => FAILED_TEXT.test(said)),
+				"each told once its run settles",
+			).toEqual([true, true]);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, tells a session the wait ran out on only once", async () => {
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said).toHaveLength(1);
+			// The notice reaches the session, so the outbox sends it no more.
+			const content = [{ type: "text", text: pi.said[0] }];
+			await pi.fire("message_end", { message: { role: "user", content } });
+			await carriedRun(pi, interrupted, aborted);
+			expect(pi.said, "the wait ended as it told").toHaveLength(1);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -594,6 +689,7 @@ describe("the job workflow, at a session's end and its return", () => {
 
 			const typed = activate(killedLog(), new EventEmitter(), "s2");
 			await typed.fire("session_start", { reason: "startup" });
+			await typed.fire("input", { text: "Carry on", source: "interactive" });
 			await carriedRun(typed, message("user"), aborted);
 
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
