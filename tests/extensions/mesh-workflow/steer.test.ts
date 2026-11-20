@@ -24,6 +24,7 @@ import {
 	steerText,
 } from "../../../extensions/mesh-workflow/steer.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { isPersonText } from "../../../lib/internal/session/driven.ts";
 import {
 	forgetWants,
 	type GivenAnswer,
@@ -235,9 +236,13 @@ describe("a steer as the session reads it", () => {
 			{ busy: true },
 		);
 		expect(said).toMatch(
-			/^\[Said by this machine's mycelium node, not by the person/,
+			/^\[Automated message, no human input: said by this machine's mycelium node, not by the person/,
 		);
 		expect(said).toMatch(/this machine leaves at 17:00$/);
+		expect(
+			isPersonText(said),
+			"a machine's steer is read as the person's, so a stop lets its run go",
+		).toBe(false);
 	});
 
 	it("names the machine's program that wrote it, when it says", () => {
@@ -251,7 +256,7 @@ describe("a steer as the session reads it", () => {
 			{ busy: false },
 		);
 		expect(said).toMatch(
-			/^\[Said by this machine's nix-offload, not by the person/,
+			/^\[Automated message, no human input: said by this machine's nix-offload, not by the person/,
 		);
 	});
 });
