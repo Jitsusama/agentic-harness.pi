@@ -25,7 +25,7 @@
  * why without one.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -93,6 +93,18 @@ function keptFolder(): string {
 function kept(): string[] {
 	const folder = keptFolder();
 	return existsSync(folder) ? readdirSync(folder).map(String) : [];
+}
+
+/**
+ * When the carried command started, in ms since the epoch: its stub
+ * writes its shell's pid before anything else, so the file's time is
+ * the command's start, however long the turn that ran it took.
+ */
+function keptSince(): number {
+	const file = kept().find((name) => name.endsWith(".pid"));
+	if (file === undefined)
+		throw new Error(`the carried command kept no pid; ${said()}`);
+	return statSync(join(keptFolder(), file)).mtimeMs;
 }
 
 /** The carried command's shell, from the pid its stub kept. */
@@ -196,6 +208,9 @@ it(
 			// RUNS_MS from here.
 			const opened = Date.now();
 			const { file, held, shell } = await carrying(first);
+			// The command's own clock, which the turn that started it doesn't
+			// run: on a loaded lender that turn alone took over 30 s.
+			const started = keptSince();
 			// The record follows the call's start; without one, as before this
 			// change, the kill goes ahead and the case says what was lost.
 			await untilAnswered(
@@ -205,10 +220,10 @@ it(
 			).catch(() => undefined);
 
 			await first.kill();
-			const killedAfter = Date.now() - opened;
+			const killedAfter = Date.now() - started;
 			if (!alive(shell) || killedAfter >= RUNS_MS - 15_000)
 				throw new Error(
-					`the kill came ${killedAfter} ms in, with the command running: ${alive(shell)}; it must land well inside the command's ${RUNS_MS} ms to prove anything`,
+					`the kill came ${killedAfter} ms into the command, with it running: ${alive(shell)}; it must land well inside the command's ${RUNS_MS} ms to prove anything`,
 				);
 			const second = await start(pi);
 			await untilAnswered(
@@ -219,7 +234,7 @@ it(
 			// The next host's engine reaps what a dead host's tools left before
 			// it resumes anything, so a command its record spared runs on here,
 			// unless it was already about to end of itself.
-			if (Date.now() - opened < RUNS_MS - 2_000)
+			if (Date.now() - started < RUNS_MS - 2_000)
 				expect(
 					alive(shell),
 					`the next host's start spared the command; ${said()}`,
