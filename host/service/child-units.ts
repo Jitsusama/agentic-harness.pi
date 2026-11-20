@@ -8,21 +8,24 @@
  * nothing secret passes through this code or a transient unit's record.
  *
  * A slot names one child's files in the host's runtime folder,
- * `pi-host/KEY.d/`: SLOT.json, written before the unit starts, says
- * which conversation it resumes (none for a new open), and SLOT.sock is
- * where the child listens. The slot is the conversation's id for a
+ * `pi-host/KEY.d/`: SLOT.json, written before the unit starts, holds
+ * the roster entry of the conversation it resumes (none for a new
+ * open), SLOT.sock is where the child listens, and SLOT.d/ is the
+ * child's own, for its life, which nothing here reads. The slot is the conversation's id for a
  * resume and a fresh one for an open; the child names its conversation
  * when it is watched, so routes go by that, never by the slot.
  */
 import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import type { RosterEntry } from "../../lib/core/session/roster.ts";
 
-/** What one child's slot holds: the conversation it resumes, if any. */
+/** Where one child's files are, and the unit it runs as. */
 export interface Slot {
 	readonly name: string;
 	readonly socket: string;
 	readonly file: string;
+	readonly folder: string;
 	readonly unit: string;
 }
 
@@ -53,6 +56,7 @@ export function slotOf(folder: string, key: string, name: string): Slot {
 		name,
 		socket: join(folder, `${name}.sock`),
 		file: join(folder, `${name}.json`),
+		folder: join(folder, `${name}.d`),
 		unit: `pi-conversation-${key}@${name}.service`,
 	};
 }
@@ -60,18 +64,18 @@ export function slotOf(folder: string, key: string, name: string): Slot {
 /** Write what the child in `slot` resumes, before its unit starts. */
 export async function writeSlot(
 	slot: Slot,
-	session: string | undefined,
+	session: RosterEntry | undefined,
 ): Promise<void> {
 	await mkdir(join(slot.file, ".."), { recursive: true, mode: 0o700 });
-	await writeFile(slot.file, `${JSON.stringify(session ? { session } : {})}\n`, {
-		mode: 0o600,
-	});
+	const held = session ? { session } : {};
+	await writeFile(slot.file, `${JSON.stringify(held)}\n`, { mode: 0o600 });
 }
 
 /** Remove a slot's files, once its child has gone. */
 export async function clearSlot(slot: Slot): Promise<void> {
 	await rm(slot.file, { force: true });
 	await rm(slot.socket, { force: true });
+	await rm(slot.folder, { force: true, recursive: true });
 }
 
 /** The slots in `folder`, each named by a SLOT.json in it. */

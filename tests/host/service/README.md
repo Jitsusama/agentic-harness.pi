@@ -35,6 +35,16 @@ each conversation once, a child that is gone or ends without
 answering, a window told when its child ends under it, a restart's
 frame sent at a frame's edge and after an attach's answer, and a child
 left unread while its window reads nothing.
+child-supervisor.test.ts runs the supervisor against children in this
+process, started by fake units a little after their unit starts: a
+resume's slot naming its roster entry, one child for two resumes, a
+child ending before it listens given up within a few seconds, state,
+a new id and an ending each kept in the routes, an unreadable line
+and a silent exit as failed, an open asked of the child without the
+host's identity, a refusal stopping its child, and a host starting
+again taking up the children left running.
+child-units.test.ts checks a slot's paths and unit, and that a name
+reaching another path or unit is refused.
 own-threads.test.ts runs the host and two children as node processes
 of their own: while one conversation holds its child's thread for 3 s,
 the host answers a list, and the other conversation takes a turn and

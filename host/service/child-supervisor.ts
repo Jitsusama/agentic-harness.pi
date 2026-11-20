@@ -17,6 +17,7 @@
  * watches them again, and clears a slot whose unit has gone.
  */
 import { randomUUID } from "node:crypto";
+import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { askOnce, reach } from "./child-requests.ts";
 import {
@@ -43,6 +44,8 @@ import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 export const LISTENS_WITHIN_MS = 60_000;
 /** How often a starting child's socket is tried until it listens. */
 const TRIED_EVERY_MS = 100;
+/** How often a starting child's unit is asked whether it still runs. */
+const ASKED_EVERY_MS = 1_000;
 
 /** A request that starts a conversation, as a child takes it first. */
 export type Beginning = Extract<ControlRequest, { op: "open" | "adopt" }>;
@@ -53,7 +56,7 @@ export interface ChildSupervisor {
 	 * Run a held conversation in a child of its own, settling once the
 	 * child has it, or with the one already running it.
 	 */
-	resume(sessionId: string): Promise<SessionIdentity>;
+	resume(entry: RosterEntry): Promise<SessionIdentity>;
 	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it.
@@ -85,17 +88,27 @@ function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Try `attempt` until the child at its socket listens, or the time runs out. */
+/**
+ * Try `attempt` until the child at its socket listens, the time runs
+ * out, or its unit is found to have stopped, asked once a second.
+ */
 async function once<T>(
 	attempt: () => Promise<T>,
 	withinMs: number,
+	running: () => Promise<boolean>,
 ): Promise<T> {
 	const until = Date.now() + withinMs;
+	let asked = Date.now();
 	for (;;) {
 		try {
 			return await attempt();
 		} catch (error) {
 			if (!notListening(error) || Date.now() >= until) throw error;
+		}
+		if (Date.now() - asked >= ASKED_EVERY_MS) {
+			asked = Date.now();
+			if (!(await running()))
+				throw new Error("The child's process ended before it listened");
 		}
 		await pause(TRIED_EVERY_MS);
 	}
@@ -150,6 +163,7 @@ export function childSupervisor(options: {
 					},
 				}),
 			withinMs,
+			() => units.active(slot.unit),
 		);
 		// One that ended as it answered is watched no longer.
 		if (!over) {
@@ -171,7 +185,7 @@ export function childSupervisor(options: {
 	 */
 	async function inSlot<T>(
 		slot: Slot,
-		session: string | undefined,
+		session: RosterEntry | undefined,
 		work: () => Promise<T>,
 	): Promise<T> {
 		await writeSlot(slot, session);
@@ -185,22 +199,21 @@ export function childSupervisor(options: {
 		}
 	}
 
-	function started(sessionId: string): Promise<SessionIdentity> {
-		const slot = slotOf(options.folder, options.key, sessionId);
-		return inSlot(slot, sessionId, async () => (await watch(slot)).conversation);
+	function started(entry: RosterEntry): Promise<SessionIdentity> {
+		const slot = slotOf(options.folder, options.key, entry.sessionId);
+		return inSlot(slot, entry, async () => (await watch(slot)).conversation);
 	}
 
 	return {
-		resume(sessionId) {
+		resume(entry) {
+			const { sessionId } = entry;
 			const running = routes
 				.listed()
 				.find((held) => held.sessionId === sessionId);
 			if (running) return Promise.resolve(running);
 			const already = starting.get(sessionId);
 			if (already) return already;
-			const start = started(sessionId).finally(() =>
-				starting.delete(sessionId),
-			);
+			const start = started(entry).finally(() => starting.delete(sessionId));
 			starting.set(sessionId, start);
 			return start;
 		},
@@ -210,7 +223,11 @@ export function childSupervisor(options: {
 			// identity the caller could know yet.
 			const { expectedHost: _checked, ...asked } = request;
 			return inSlot(slot, undefined, async () => {
-				const child = await once(() => reach(slot.socket), withinMs);
+				const child = await once(
+					() => reach(slot.socket),
+					withinMs,
+					() => units.active(slot.unit),
+				);
 				const reply = await askOnce(
 					child,
 					`${JSON.stringify(asked)}\n`,
@@ -234,8 +251,17 @@ export function childSupervisor(options: {
 						await clearSlot(slot);
 						return false;
 					}
-					await watch(slot);
-					return true;
+					try {
+						await watch(slot);
+						return true;
+					} catch (error) {
+						// A child nothing can watch runs a conversation nothing can
+						// reach, such as one an earlier host never finished opening:
+						// it is stopped, and its conversation waits in the roster.
+						await units.stop(slot.unit).catch(options.report);
+						await clearSlot(slot);
+						throw error;
+					}
 				}),
 			);
 			let count = 0;
