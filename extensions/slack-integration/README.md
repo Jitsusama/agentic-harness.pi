@@ -111,11 +111,18 @@ slack-integration/
   Slack tool not known to read is treated as a write.
 - **Gateway only**: a machine that wants the tool gateway as its
   only way to Slack places a file at
-  `~/.config/agentic-harness/slack/gateway-only`, from its own
-  configuration. While it's there, the `slack` tool and its sign-in
-  commands aren't registered, and nothing in the package reads the
-  stored token, signs in, takes a browser's session or calls Slack's
-  API (`lib/slack/policy.ts`). The token stays stored, for whatever
-  else on the machine reads it. It's a rule the package keeps, not a
-  boundary: the fence is what keeps agents' commands from the token.
+  `~/.config/agentic-harness/slack/gateway-only` (under
+  `$XDG_CONFIG_HOME` when that is set, like every other path here),
+  from its own configuration. While it's there, the `slack` tool and
+  its sign-in commands aren't registered, and nothing in the package
+  reads the stored token, signs in, takes a browser's session or calls
+  Slack's API (`lib/slack/policy.ts`). A session loaded before the
+  file appeared keeps the tool and the commands, but each refuses,
+  saying direct Slack is off, rather than asking you to sign in. The
+  token stays stored, for whatever else on the machine reads it. It's
+  a rule the package keeps, not a boundary: the fence is what keeps
+  agents' commands from the token. Turning direct Slack back on means
+  taking the line that writes the file out of the machine's
+  configuration and switching; deleting the file by hand lasts only
+  until the next switch.
 - **CSRF protection**: OAuth state parameter prevents forgery

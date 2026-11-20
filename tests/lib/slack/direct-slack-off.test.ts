@@ -47,9 +47,8 @@ vi.mock("puppeteer-core", () => ({
 	},
 }));
 
-const { DirectSlackRefused, directSlackRefused } = await import(
-	"../../../lib/slack/policy.ts"
-);
+const { DIRECT_SLACK_REFUSED, DirectSlackRefused, directSlackRefused } =
+	await import("../../../lib/slack/policy.ts");
 const { SlackClient } = await import("../../../lib/slack/api/client.ts");
 const { getToken, hasToken, storeToken } = await import(
 	"../../../lib/slack/auth/credentials.ts"
@@ -114,7 +113,7 @@ describe("with direct Slack off", () => {
 		expect(touched.count).toBe(0);
 	});
 
-	it("refuses every direct call to Slack's API", () => {
+	it("refuses to build a client for Slack's API", () => {
 		expect(() => new SlackClient("xoxp-stored")).toThrow(DirectSlackRefused);
 	});
 
@@ -189,6 +188,51 @@ describe("turning direct Slack off while a session runs", () => {
 				"code",
 			),
 		).rejects.toBeInstanceOf(DirectSlackRefused);
+		expect(fetched).not.toHaveBeenCalled();
+	});
+
+	it("leaves a session loaded before it neither signing in nor sending", async () => {
+		const pi = fakePi();
+		slackIntegration(pi);
+		turnOff();
+		const said: string[] = [];
+		const asked = () => {
+			throw new Error("Joel was asked for something");
+		};
+		const ctx = {
+			hasUI: true,
+			ui: {
+				notify: (message: string) => said.push(message),
+				input: asked,
+				select: asked,
+				confirm: asked,
+				custom: asked,
+			},
+		} as never;
+		for (const [name, args] of [
+			["slack-setup", ""],
+			["slack-auth", "--status"],
+			["slack-reset", ""],
+		] as const) {
+			const command = pi.recorded.commands.get(name);
+			await command?.handler(args, ctx);
+		}
+		expect(said).toEqual([
+			DIRECT_SLACK_REFUSED,
+			DIRECT_SLACK_REFUSED,
+			DIRECT_SLACK_REFUSED,
+		]);
+		const tool = pi.recorded.tools.find((each) => each.name === "slack");
+		await expect(
+			tool?.execute(
+				"call",
+				{ action: "send_message", channel: "C1", text: "hi" },
+				undefined,
+				undefined,
+				ctx,
+			),
+		).rejects.toBeInstanceOf(DirectSlackRefused);
+		expect(touched.count).toBe(0);
 		expect(fetched).not.toHaveBeenCalled();
 	});
 });

@@ -38,7 +38,11 @@ import type {
 	SlackClient,
 	SlackUser,
 } from "../../lib/slack/index.ts";
-import { directSlackRefused } from "../../lib/slack/policy.ts";
+import {
+	DIRECT_SLACK_REFUSED,
+	DirectSlackRefused,
+	directSlackRefused,
+} from "../../lib/slack/policy.ts";
 import { formatSlackText } from "../../lib/slack/renderers/message.ts";
 import { parseSlackUrl } from "../../lib/slack/resolvers/url.ts";
 import { displayNameForId } from "../../lib/slack/resolvers/user.ts";
@@ -208,6 +212,19 @@ function isAuthError(error: unknown): boolean {
 	);
 }
 
+/**
+ * Say that direct Slack is off, when it is, so a command in a session
+ * loaded before the machine turned it off neither asks Joel for a token
+ * nor clears the one kept for the machine's other readers.
+ */
+function refusedHere(ctx: {
+	ui: { notify(message: string, level: "warning"): void };
+}): boolean {
+	if (!directSlackRefused()) return false;
+	ctx.ui.notify(DIRECT_SLACK_REFUSED, "warning");
+	return true;
+}
+
 /** Fallback OAuth config from environment variables. */
 const ENV_OAUTH_CONFIG: OAuthApp = {
 	clientId: process.env.SLACK_CLIENT_ID || "",
@@ -244,6 +261,9 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					ENV_OAUTH_CONFIG,
 				);
 			} catch (error) {
+				// A machine that turned direct Slack off is not a sign-in
+				// to hold for Joel's return: it says so as it is.
+				if (error instanceof DirectSlackRefused) throw error;
 				throw signInFailure("Slack", GUARDS.slack.name, error);
 			}
 			return cachedClient;
@@ -501,6 +521,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			// it as optional, since most actions have nothing structured to
 			// attach. Reconciled here at the one seam between them rather
 			// than at the fifty-odd places a result is built.
+			// A session loaded before the machine turned direct Slack off
+			// still has this tool, so each call refuses before it builds a
+			// client or asks Joel to approve a send it would then refuse.
+			if (directSlackRefused()) throw new DirectSlackRefused();
 			try {
 				const client = await getClient(ctx);
 				const { routeAction } = await routerModule();
@@ -742,6 +766,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	pi.registerCommand("slack-setup", {
 		description: "Set up Slack authentication (interactive)",
 		handler: async (args, ctx) => {
+			if (refusedHere(ctx)) return;
 			const { handleSlackAuthCommand } = await authCommandModule();
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
@@ -751,6 +776,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 		description:
 			"Authenticate with Slack. Usage: slack-auth [--status] [--logout]",
 		handler: async (args, ctx) => {
+			if (refusedHere(ctx)) return;
 			const { handleSlackAuthCommand } = await authCommandModule();
 			await handleSlackAuthCommand(args, ctx, ENV_OAUTH_CONFIG);
 		},
@@ -761,6 +787,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			"Clear all Slack configuration (OAuth credentials, tokens). " +
 			"Used for testing or starting fresh.",
 		handler: async (_args, ctx) => {
+			if (refusedHere(ctx)) return;
 			await clearAllConfig();
 			cachedClient = null;
 			ctx.ui.notify(
