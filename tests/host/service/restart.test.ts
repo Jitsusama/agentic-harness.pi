@@ -678,6 +678,39 @@ describe("restartWhenSettled", () => {
 		expect(drains, "drained, then again after the lift").toEqual([true, true]);
 	});
 
+	it("takes a drain by hand after the heap's was lifted by hand for its asker's, not a short heap's", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		let state: Held["state"] = "busy";
+		let hostDrains = false;
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => "the install moved",
+			held: () => [{ state, since: lately }],
+			background: () => 1,
+			pressure: () => pressure,
+			drain: (on) => {
+				hostDrains = on;
+			},
+			draining: () => hostDrains,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(hostDrains, "the heap's drain").toBe(true);
+
+		// Lifted by hand as the heap has room, then drained by hand again.
+		hostDrains = false;
+		pressure = undefined;
+		state = "idle";
+		await timers.fire();
+		hostDrains = true;
+		await timers.fire();
+		await timers.fire();
+		expect(
+			said.filter((line) => line.startsWith("restart:")),
+			"no heap restart ends the background work",
+		).toEqual([]);
+	});
+
 	it("leaves the heap's drain lifted by hand as it is once nothing differs", async () => {
 		let differs: string | undefined = "its heap is short";
 		let hostDrains = false;

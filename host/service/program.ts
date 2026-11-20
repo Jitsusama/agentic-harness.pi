@@ -237,7 +237,7 @@ export async function startHostProgram(
 					`The heap's drain leaves heavy runs going, which its restart won't wait for: ${heavy.join("; ")}`,
 				);
 		},
-		draining: () => engine?.drains?.() ?? false,
+		draining: () => engine?.drains?.(),
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {

@@ -268,8 +268,11 @@ export interface RestartFacts {
 	 * next host. A throw is reported.
 	 */
 	drain?(on: boolean): void;
-	/** Whether the host drains now, whoever asked; `drain`'s own by default. */
-	draining?(): boolean;
+	/**
+	 * Whether the host drains now, whoever asked, or nothing when it can't
+	 * tell; then the loop goes by the drains it asked for itself.
+	 */
+	draining?(): boolean | undefined;
 	/**
 	 * Why the person can't take a restart now, such as "a call is on", or
 	 * nothing when they can. A throw means it can't tell, which holds it.
@@ -546,6 +549,9 @@ export function restartWhenSettled(
 	// pressed while the heap would still restart the host, so its parks
 	// never undo it; once it would not, the drain lifts.
 	function readPressure(): void {
+		// A drain lifted by hand is no longer the heap's, so a drain asked
+		// by hand after it is its asker's, never taken for a short heap.
+		if (drained && facts.draining?.() === false) drained = false;
 		const read = facts.pressure?.();
 		if (read === undefined && facts.heapRestarts?.() === false)
 			liftHeapDrain("The heap is under half its limit again");
@@ -635,8 +641,8 @@ export interface Following {
 	waitsForGap?(waiting: boolean): void;
 	/** Start or lift the host's drain for a pressed heap (restartWhenSettled). */
 	drain?(on: boolean): void;
-	/** Whether the host drains now, whoever asked (restartWhenSettled). */
-	draining?(): boolean;
+	/** Whether the host drains now, whoever asked, or nothing when it can't tell (restartWhenSettled). */
+	draining?(): boolean | undefined;
 	/** Why the person can't take a restart now; the unit's probes by default (quiet.ts). */
 	readonly quiet?: () => Promise<string | undefined>;
 	report(error: unknown): void;
