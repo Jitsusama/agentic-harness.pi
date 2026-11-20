@@ -76,6 +76,7 @@ import {
 } from "../fence/fence-args-file.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
 import { bwrapWords, fencedCommand } from "../fence/fence-command.ts";
+import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
 import {
@@ -584,6 +585,9 @@ export function wrapFor(
 					? { program: sandbox.githubDoor, session, folder: githubFolder }
 					: undefined;
 			const direnv = fencedDirenv(home, place.env, direnvTrusts());
+			// dev's setup writes its settings and git's global ones on every
+			// call, so the session writes copies of its own (fence-dev.ts).
+			const devCopies = fenceDevCopies(home, place.env, session);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
@@ -595,6 +599,7 @@ export function wrapFor(
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
 				docker: dockerHoldsCredentials(home),
+				...(devCopies ? { devCopies } : {}),
 			};
 			makeFoldersFirst(home);
 			setAsidePlanted();
@@ -621,6 +626,9 @@ export function wrapFor(
 						([name, folder]) => [name, join(own, folder)] as const,
 					),
 					...(direnv ? [[DIRENV_VARIABLE, direnv] as const] : []),
+					...(devCopies
+						? [["GIT_CONFIG_GLOBAL", gitGlobalIn(devCopies.git)] as const]
+						: []),
 				],
 				...(github ? { github } : {}),
 			};

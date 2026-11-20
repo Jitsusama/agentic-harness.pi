@@ -179,6 +179,64 @@ describe("the fence's arguments", () => {
 		expect(args, "with no copy, nothing is bound").not.toContain(npmrc);
 	});
 
+	it("binds the session's writable copies of dev's settings and git's global folder, before the hidden entries are emptied", () => {
+		const copies = {
+			dev: "/run/user/1000/pi-fence/dev/s-1/dev",
+			git: "/run/user/1000/pi-fence/dev/s-1/git",
+		};
+		const settings = `${place.home}/.config/dev`;
+		const hiddenFile = `${place.home}/${HIDDEN[0]}`;
+		const folders = diskWith(place.home, [".config", ".gitconfig"]);
+		const given = fenceArgs(
+			{ ...place, devCopies: copies },
+			{
+				...folders,
+				kind: (path) => (path === hiddenFile ? "file" : folders.kind(path)),
+			},
+		);
+		const at = given.indexOf(copies.dev);
+		expect(given.slice(at - 1, at + 2)).toEqual([
+			"--bind",
+			copies.dev,
+			settings,
+		]);
+		const covering = [settings, `${place.home}/.config`, place.home];
+		expect(
+			given.slice(at + 2).filter((arg) => covering.includes(arg)),
+			"no later mount of dev's settings, or a folder holding them, covers the copy",
+		).toEqual([]);
+		const hidden = given.indexOf(hiddenFile);
+		expect(hidden, "no hidden entry was emptied").toBeGreaterThan(-1);
+		expect(
+			hidden,
+			"the hidden entries are emptied after the copy, so one in dev's folder stays hidden",
+		).toBeGreaterThan(at);
+		const git = given.indexOf(copies.git);
+		expect(given.slice(git - 1, git + 2)).toEqual([
+			"--bind",
+			copies.git,
+			copies.git,
+		]);
+		expect(
+			git,
+			"git's folder is bound after the runtime folder is emptied",
+		).toBeGreaterThan(given.indexOf("/run/user/1000"));
+		expect(
+			fenceRefusesWrite(settings, place),
+			"pi's own tools still never write the person's dev settings",
+		).toBe(true);
+		expect(args, "with no copies, nothing is bound").not.toContain(copies.dev);
+
+		const none: Disk = {
+			kind: (path) => (path === settings ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(
+			fenceArgs({ ...place, devCopies: copies }, none),
+			"no mount over dev's settings where the person has none",
+		).not.toContain(copies.dev);
+	});
+
 	it("binds the npm copy over the file its settings link to, and nothing where there are none", () => {
 		const npmrc = "/run/user/1000/pi-fence/npmrc";
 		const settings = `${place.home}/.npmrc`;

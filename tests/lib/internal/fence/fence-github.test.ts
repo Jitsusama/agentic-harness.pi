@@ -94,9 +94,12 @@ describe("a fenced command with the GitHub door", () => {
 	const POINTED = [
 		"HTTPS_PROXY",
 		"https_proxy",
+		"http_proxy",
+		"HTTP_PROXY",
 		"NO_PROXY",
 		"no_proxy",
 		"GH_TOKEN",
+		"DEV_GITHUB_TOKEN",
 		"SSL_CERT_FILE",
 		"GIT_SSL_CAINFO",
 		"NIX_SSL_CERT_FILE",
@@ -188,7 +191,17 @@ describe("a fenced command with the GitHub door", () => {
 				env.get(name),
 				`${name} sends this machine's servers to the relay`,
 			).toBe("localhost,127.0.0.1,::1");
+		// Ruby's Net::HTTP, which dev drives, finds its proxy only in
+		// http_proxy, even for HTTPS, which it then sends as CONNECT.
+		expect(env.get("http_proxy")).toBe("http://127.0.0.1:4242");
+		// curl and others never read the capital name, kept from CGI's
+		// Proxy header, so it isn't set.
+		expect(env.has("HTTP_PROXY")).toBe(false);
 		expect(env.get("GH_TOKEN")).toBe(GITHUB_PLACEHOLDER);
+		expect(
+			env.get("DEV_GITHUB_TOKEN"),
+			"dev's GitHub token isn't the placeholder the door swaps",
+		).toBe(GITHUB_PLACEHOLDER);
 		for (const name of [
 			"SSL_CERT_FILE",
 			"GIT_SSL_CAINFO",

@@ -43,7 +43,7 @@ const GITHUB_TRUST = [
 const LOCAL_HOSTS = "localhost,127.0.0.1,::1";
 
 /** A session id the door takes, which can name a folder and nothing more. */
-const PLAIN_SESSION = /^[A-Za-z0-9_-]{1,64}$/;
+export const PLAIN_SESSION = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** How a fenced command reaches GitHub through the door. */
 export interface GitHubDoor {
@@ -95,7 +95,11 @@ export function openedOutside(door: GitHubDoor | undefined): string[] {
  * `run`: HTTPS goes through the session's relay on localhost, which
  * sends GitHub's hosts to the door and the rest straight out, trust in
  * the session's authority is added for TLS clients that read these
- * variables, and gh's token is the placeholder the door swaps. Only
+ * variables, and gh's and dev's tokens are the placeholder the door
+ * swaps. Plain HTTP goes to the relay too, in http_proxy alone: Ruby's
+ * Net::HTTP, which dev drives, reads no other name even for HTTPS, which
+ * it then sends as CONNECT, and the capital HTTP_PROXY is left unset, as
+ * curl leaves it, since a CGI request's Proxy header can set it. Only
  * when the door made the folder and its relay started; otherwise none
  * is set and gh fails as it did before the door. `run` alone, without
  * a door.
@@ -116,7 +120,7 @@ export function pointedInside(
 		.join(" ");
 	return [
 		`if [ -r ${bundle} ] && [ -S ${socket} ] && __pi_port=$(${quoted(door.program)} relay --socket ${socket} --while $$ 2>/dev/null); then`,
-		`export HTTPS_PROXY=${proxy} https_proxy=${proxy} ${local} GH_TOKEN=${GITHUB_PLACEHOLDER} ${trusted};`,
+		`export HTTPS_PROXY=${proxy} https_proxy=${proxy} http_proxy=${proxy} ${local} GH_TOKEN=${GITHUB_PLACEHOLDER} DEV_GITHUB_TOKEN=${GITHUB_PLACEHOLDER} ${trusted};`,
 		"fi; unset __pi_port;",
 		run,
 	].join(" ");
