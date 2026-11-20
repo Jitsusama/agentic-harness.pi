@@ -250,9 +250,10 @@ interface Holding {
 type Vouched = Pick<RosterEntry, "attended" | "quest" | "launch">;
 
 /**
- * `entry` with what the host vouches for taken from `base`, or, with
- * no base, with its launch cut to the carried variables, so no child
- * adds to or drops from what every later resume runs under.
+ * `entry` with what the host vouches for taken from `base`, so no
+ * child adds to or drops from what every later resume runs under. With
+ * no base, as for a conversation the roster never held, its launch is
+ * cut to the carried variables: it adds none, but may leave one out.
  */
 function vouched(entry: RosterEntry, base: Vouched | undefined): RosterEntry {
 	const { quest: _quest, launch: _launch, ...rest } = entry;
@@ -490,9 +491,11 @@ export function childSupervisor(options: {
 		const clearing = (async () => {
 			// A mark landing after the clear would forsake the slot's next child.
 			await marking.get(slot.unit);
-			marking.delete(slot.unit);
-			// So does a write its watch queued, which would name it again.
+			// So does a write its watch queued, which would name it again; a
+			// write that fails forsakes the child, queuing a mark behind it.
 			await writing.get(slot.unit)?.();
+			await marking.get(slot.unit);
+			marking.delete(slot.unit);
 			writing.delete(slot.unit);
 			await clearSlot(slot);
 			await units.forget(slot.unit);
@@ -579,6 +582,8 @@ export function childSupervisor(options: {
 			// waited out, so none of its tries reaches the slot's next child.
 			graced.delete(slot.unit);
 			await hurrying.get(slot.unit);
+			// A child forsaken since the leave began is stopped once marked.
+			if (!exited) await marking.get(slot.unit);
 			const went = exited || (await stopped(slot.unit));
 			if (!went) {
 				options.report(

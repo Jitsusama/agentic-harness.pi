@@ -1,5 +1,6 @@
 /** Children a supervisor under test starts, watches and adopts: fake units, a fake roster, and children run in this process. */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -143,6 +144,8 @@ export interface FakeChild {
 export interface FakeUnits extends Units {
 	readonly started: string[];
 	readonly stopped: string[];
+	/** For each stop, whether its slot's file said it forsaken as it was asked. */
+	readonly markedAtStop: boolean[];
 	readonly forgotten: string[];
 	/** Each unit running, with its child once it listens. */
 	readonly children: Map<string, FakeChild | undefined>;
@@ -190,6 +193,18 @@ export interface ChildTraits {
 	endsAsItAnswers?: boolean;
 	/** What its watch's answer is made into, as a newer child's might be. */
 	answers?: (result: Record<string, unknown>) => Record<string, unknown>;
+}
+
+/** Whether the slot `unit` names says, as of now, that a host forsook it. */
+function markedNow(unit: string): boolean {
+	try {
+		return (
+			JSON.parse(readFileSync(slotNamed(unit).file, "utf8")).forsaken === true
+		);
+	} catch {
+		// No file, or half written: no mark yet.
+		return false;
+	}
 }
 
 /** The slot a unit's instance names, in this test's folder. */
@@ -305,6 +320,7 @@ function fakeUnits(): FakeUnits {
 	const fake: FakeUnits = {
 		started: [],
 		stopped: [],
+		markedAtStop: [],
 		forgotten: [],
 		children: new Map(),
 		async start(unit) {
@@ -345,6 +361,7 @@ function fakeUnits(): FakeUnits {
 		},
 		async stop(unit) {
 			fake.stopped.push(unit);
+			fake.markedAtStop.push(markedNow(unit));
 			if (fake.lingers) return;
 			const deactivating = fake.deactivatesForMs;
 			if (deactivating !== undefined) {

@@ -250,6 +250,38 @@ describe("whose conversation a child holds", () => {
 		expect(roster.held, "the roster followed it").toEqual([entry(d)]);
 	});
 
+	it("clears its slot only once a mark a failed queued write raised has landed", async () => {
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		const disk = deferred();
+		roster.written = disk.promise;
+		const child = childOf(a);
+		child.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(c),
+			entry: entry(c),
+		});
+		child.say({
+			type: "became",
+			previousId: c,
+			conversation: conversation(d),
+			entry: entry(d),
+		});
+		await child.end("parked");
+
+		// The queued writes fail, so the child is forsaken as its slot clears.
+		roster.refuses = true;
+		disk.settle();
+
+		await vi.waitFor(() => expect(units.forgotten).toEqual([slotA.unit]));
+		// Time for a mark queued behind the clear to land.
+		await pause(200);
+		expect(existsSync(slotA.file), "no mark landed after the clear").toBe(
+			false,
+		);
+	});
+
 	it("replaces what a child became from when its last host ended before the roster did", async () => {
 		await supervisor.resume(entry(a));
 		const slotA = slotOf(folder, key, a);
@@ -303,6 +335,9 @@ describe("whose conversation a child holds", () => {
 				slotA.unit,
 			]),
 		);
+		expect(units.markedAtStop, "its mark written before its stop").toEqual([
+			true,
+		]);
 	});
 
 	it("waits out a stop hurried during a grace before the slot's next child starts", async () => {
@@ -331,11 +366,13 @@ describe("whose conversation a child holds", () => {
 
 		roster.refuses = false;
 		const again = supervisor.resume(entry(a));
+		// Time for a start that didn't wait on the stop to have begun.
 		await pause(300);
 		expect(units.started, "no child in the slot yet").toEqual([slotA.unit]);
 		answered.settle();
 
 		await again;
+		// Time for a stop's late retry to reach the slot's next child.
 		await pause(600);
 		expect(
 			units.children.get(slotA.unit),
