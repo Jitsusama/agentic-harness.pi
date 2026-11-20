@@ -141,6 +141,94 @@ export function provenBy(
 	return { files: summary.testResults.length, cases: summary.numTotalTests };
 }
 
+/** The line scripts/host-run.sh prints before a whole run's JSON report. */
+export const REPORT_FOLLOWS = "host-run: vitest's report follows";
+
+/** The line scripts/host-run.sh prints after it. */
+export const REPORT_ENDS = "host-run: vitest's report ends";
+
+/**
+ * What scripts/host-test-there.sh says as it starts a run, and as it
+ * ends, with the commit, the runtime and the exit; its echo lines must
+ * read so, as tests/host/service/proof.test.ts holds.
+ */
+const RUN_STARTS = /^host-test-there: test:host at (\S+) on (\S+)$/;
+const RUN_ENDS = /^host-test-there: test:host at (\S+) on (\S+) exited (\d+)$/;
+
+/** What a run's JSON report proves, or why it proves nothing. */
+export function judgedReport(text: string): ReturnType<typeof provenBy> {
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		return "the run's report isn't JSON";
+	}
+	return isSummary(value) ? provenBy(value) : "the run's report isn't vitest's";
+}
+
+/**
+ * What a lent run's whole log proves of `runtime` at harness `commit`,
+ * or why it proves nothing. The log must be one run's alone: exactly
+ * one start line from scripts/host-test-there.sh naming that commit and
+ * runtime, then one report between REPORT_FOLLOWS and REPORT_ENDS, as
+ * scripts/host-run.sh prints it, then one end line saying the run
+ * exited 0. A log missing any of them, such as the fenced call's, which
+ * prints only nix-offload's own output, proves nothing.
+ */
+export function judgedLog(
+	log: string,
+	commit: string,
+	runtime: string,
+): ReturnType<typeof provenBy> {
+	// A relay that ends its lines with a carriage return changes nothing.
+	const lines = log.split("\n").map((line) => line.replace(/\r$/, ""));
+	const at = (find: (line: string) => boolean) =>
+		lines.flatMap((line, index) => (find(line) ? [index] : []));
+	const starts = at((line) => RUN_STARTS.test(line));
+	const ends = at((line) => RUN_ENDS.test(line));
+	const follows = at((line) => line === REPORT_FOLLOWS);
+	const over = at((line) => line === REPORT_ENDS);
+	const [start] = starts;
+	const [end] = ends;
+	const [from] = follows;
+	const [to] = over;
+	if (start === undefined || end === undefined)
+		return "the log holds no start and end lines from host-test-there";
+	if ([starts, ends, follows, over].some((found) => found.length > 1))
+		return "the log holds more than one run";
+	if (
+		from === undefined ||
+		to === undefined ||
+		!(start < from && from < to && to < end)
+	)
+		return "the log holds no whole report inside its run";
+	const [, ranCommit, ranRuntime] = RUN_STARTS.exec(lines[start] ?? "") ?? [];
+	const [, endCommit, endRuntime, exit] = RUN_ENDS.exec(lines[end] ?? "") ?? [];
+	const otherCommit = [ranCommit, endCommit].find((ran) => ran !== commit);
+	if (otherCommit !== undefined || ranCommit === undefined)
+		return `the log ran ${otherCommit}, not ${commit}`;
+	const otherRuntime = [ranRuntime, endRuntime].find((ran) => ran !== runtime);
+	if (otherRuntime !== undefined || ranRuntime === undefined)
+		return `the log ran on ${otherRuntime}, not ${runtime}`;
+	if (exit !== "0") return `the run exited ${exit}`;
+	return judgedReport(lines.slice(from + 1, to).join("\n"));
+}
+
+function isSummary(value: unknown): value is RunSummary {
+	return (
+		isRecord(value) &&
+		typeof value.success === "boolean" &&
+		Array.isArray(value.testResults) &&
+		[
+			value.numTotalTests,
+			value.numPassedTests,
+			value.numFailedTests,
+			value.numPendingTests,
+			value.numTodoTests,
+		].every((count) => typeof count === "number")
+	);
+}
+
 /** The runtime store path a pi-monorepo folder sits in, for a refusal to name. */
 export function runtimeOf(packageDir: string): string {
 	const store = /^(\/nix\/store\/[^/]+)/.exec(resolved(packageDir));
