@@ -1,28 +1,33 @@
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { followSessionLife } from "../../../../extensions/quest-workflow/wiring/session.ts";
 import { withFileLock } from "../../../../lib/core/internal/file-lock.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
 import { clearDiscoveryCache } from "../../../../lib/internal/quest/discovery/discovery.ts";
-import { layoutFaultsFile } from "../../../../lib/internal/quest/discovery/layout-faults.ts";
+import {
+	layoutFaultsFile,
+	readLayoutFaults,
+} from "../../../../lib/internal/quest/discovery/layout-faults.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
+
+/** What went to the system's journal. */
+const journalled = vi.hoisted(() => [] as string[]);
+vi.mock("../../../../lib/internal/session/journal.ts", async (original) => ({
+	...(await original<object>()),
+	sayInJournal: (text: string) => journalled.push(text),
+}));
 
 const envGuard = createEnvGuard();
 let tmpRoot: string;
 
 beforeEach(() => {
 	envGuard.enter();
+	journalled.length = 0;
 	tmpRoot = mkdtempSync(join(tmpdir(), "layout-faults-start-"));
 	clearDiscoveryCache();
 	rmSync(layoutFaultsFile(), { force: true });
@@ -60,21 +65,20 @@ function startIn(cwd: string, notices: string[]): unknown {
 }
 
 /** The record's lines on disk, or none when it was never written. */
-function recordedLines(): string[] {
-	const file = layoutFaultsFile();
-	if (!existsSync(file)) return [];
-	return readFileSync(file, "utf8")
-		.split("\n")
-		.filter((line) => line.trim() !== "");
+function recordedPaths(): string[] {
+	return (readLayoutFaults()?.faults ?? []).map((fault) => fault.path);
 }
 
-it("keeps a quest folder with no README to the record, once, and off the screen", async () => {
+it("keeps a quest folder with no README to the record and the journal, once, and off the screen", async () => {
 	const questsRoot = join(tmpRoot, "quests");
-	mkdirSync(join(questsRoot, "QEST-20261120-AAAAAA"), { recursive: true });
 	const notices: string[] = [];
 	const budgets = { keep: async () => undefined, forget: () => undefined };
 
-	for (const reason of ["startup", "reload"]) {
+	for (const [reason, folder] of [
+		["startup", "QEST-20261120-AAAAAA"],
+		["reload", "QEST-20261120-BBBBBB"],
+	]) {
+		mkdirSync(join(questsRoot, folder ?? ""), { recursive: true });
 		const pi = fakePi();
 		const state = createQuestState({ questsRoot });
 		followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
@@ -83,16 +87,19 @@ it("keeps a quest folder with no README to the record, once, and off the screen"
 		await withSession("a", async () =>
 			start?.({ type: "session_start", reason }, startIn(tmpRoot, notices)),
 		);
-		// The start writes without waiting; a turn at the record's lock in
-		// this process comes after that write has finished.
+		// The start writes without waiting. keepLayoutFaults joins the
+		// record's in-process lock queue before its first await, so a turn
+		// taken at that lock now comes after the start's write.
 		await withFileLock(layoutFaultsFile(), async () => undefined);
-		expect(recordedLines(), `the record after the ${reason}`).toHaveLength(1);
 	}
 
 	expect(notices, "what the starts showed").toEqual([]);
-	const [line] = recordedLines();
-	expect(JSON.parse(line ?? "{}"), "the recorded fault").toMatchObject({
-		path: expect.stringContaining("QEST-20261120-AAAAAA"),
-		message: "README.md missing",
-	});
+	expect(recordedPaths(), "the faults the reload found").toEqual([
+		expect.stringContaining("QEST-20261120-AAAAAA"),
+		expect.stringContaining("QEST-20261120-BBBBBB"),
+	]);
+	expect(journalled, "each fault journalled once, as first found").toEqual([
+		expect.stringMatching(/QEST-20261120-AAAAAA.*README\.md missing/),
+		expect.stringMatching(/QEST-20261120-BBBBBB.*README\.md missing/),
+	]);
 });

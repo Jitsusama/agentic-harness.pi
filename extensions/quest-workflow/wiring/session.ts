@@ -112,15 +112,13 @@ export function followSessionLife(
 						releaseSessionOnShutdown(state, session),
 					);
 			}
-			// A quest out of the layout is skipped from the index. Each such
-			// fault goes to the health record once, never to the screen: every
-			// start and reload finds the same ones, so a notice asked nothing
-			// new of the person and read as the reload failing.
+			// A quest out of the layout is skipped from the index. The faults
+			// go to the health record, and a new one to the journal, never to
+			// the screen: every start and reload finds the same ones, so a
+			// notice asked nothing new of the person and read as the reload
+			// failing. The keeping never rejects, so the start needn't wait.
 			const { index, errors } = discoverQuests(state.questsRoot);
-			void keepLayoutFaults(errors).catch(() => {
-				// A record that can't be written loses only its own lines;
-				// the walk found them, and the next start writes them again.
-			});
+			void keepLayoutFaults(errors);
 			// From the walk just made, so it walks nothing more, and it catches
 			// a priority edited by hand while no session was running.
 			keepQuestWeights(state.questsRoot, index);

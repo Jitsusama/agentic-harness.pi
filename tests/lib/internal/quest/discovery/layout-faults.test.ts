@@ -1,15 +1,29 @@
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { keepLayoutFaults } from "../../../../../lib/internal/quest/discovery/layout-faults.ts";
+import {
+	type KeepLayoutFaultsOptions,
+	keepLayoutFaults,
+	readLayoutFaults,
+} from "../../../../../lib/internal/quest/discovery/layout-faults.ts";
 
 let dir: string;
 let file: string;
+let journalled: string[];
+let clock: string;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "layout-faults-"));
-	file = join(dir, "state", "layout-faults.jsonl");
+	file = join(dir, "state", "layout-faults.json");
+	journalled = [];
+	clock = "2026-11-20T15:00:00.000Z";
 });
 
 afterEach(() => {
@@ -18,67 +32,101 @@ afterEach(() => {
 
 const noReadme = { path: "/q/QEST-1", message: "README.md missing" };
 const nested = { path: "/q/QEST-2/QEST-3", message: "nested quest" };
-const at = () => new Date("2026-11-20T15:00:00.000Z");
 
-/** The record's lines, each read back as JSON. */
-function recorded(): unknown[] {
-	return readFileSync(file, "utf8")
-		.split("\n")
-		.filter((line) => line.trim() !== "")
-		.map((line) => JSON.parse(line));
+/** The options every keep here is given: this test's file, clock and journal. */
+function options(): KeepLayoutFaultsOptions {
+	return {
+		file,
+		now: () => new Date(clock),
+		journal: (line) => journalled.push(line),
+	};
 }
 
 describe("keepLayoutFaults", () => {
-	it("writes each fault once, however many starts find it", async () => {
-		const first = await keepLayoutFaults([noReadme], file, at);
-		const second = await keepLayoutFaults([noReadme, nested], file, at);
+	it("records what a start found, keeping when each fault was first seen", async () => {
+		await keepLayoutFaults([noReadme], options());
+		clock = "2026-11-20T16:00:00.000Z";
+		const fresh = await keepLayoutFaults([noReadme, nested], options());
 
-		expect(first, "the first start's new faults").toBe(1);
-		expect(second, "the second start's new faults").toBe(1);
-		expect(recorded(), "one line a fault").toEqual([
-			{ at: "2026-11-20T15:00:00.000Z", ...noReadme },
-			{ at: "2026-11-20T15:00:00.000Z", ...nested },
+		expect(fresh, "the second start's new faults").toEqual([nested]);
+		expect(readLayoutFaults(file), "the record").toEqual({
+			checkedAt: "2026-11-20T16:00:00.000Z",
+			faults: [
+				{ ...noReadme, since: "2026-11-20T15:00:00.000Z" },
+				{ ...nested, since: "2026-11-20T16:00:00.000Z" },
+			],
+		});
+	});
+
+	it("journals a fault only when the record didn't hold it", async () => {
+		await keepLayoutFaults([noReadme], options());
+		await keepLayoutFaults([noReadme], options());
+
+		expect(journalled, "what the journal was told").toEqual([
+			"quest-workflow: /q/QEST-1 is skipped from the quest index: README.md missing",
 		]);
 	});
 
-	it("writes a fault once when two starts find it at the same time", async () => {
-		const added = await Promise.all([
-			keepLayoutFaults([noReadme], file, at),
-			keepLayoutFaults([noReadme], file, at),
-		]);
+	it("drops a fault since fixed, and counts it new when it comes back", async () => {
+		await keepLayoutFaults([noReadme, nested], options());
+		await keepLayoutFaults([nested], options());
 
 		expect(
-			added.reduce((sum, n) => sum + n, 0),
-			"the faults both added",
-		).toBe(1);
-		expect(recorded(), "the record").toHaveLength(1);
+			readLayoutFaults(file)?.faults.map((fault) => fault.path),
+			"the faults that still hold",
+		).toEqual([nested.path]);
+
+		clock = "2026-11-20T17:00:00.000Z";
+		const fresh = await keepLayoutFaults([noReadme, nested], options());
+
+		expect(fresh, "the fault that came back").toEqual([noReadme]);
+		expect(
+			readLayoutFaults(file)?.faults[0]?.since,
+			"when the fault that came back was seen again",
+		).toBe("2026-11-20T17:00:00.000Z");
 	});
 
-	it("reads past a line cut short and keeps what it names", async () => {
-		await keepLayoutFaults([noReadme], file, at);
-		appendFileSync(file, '{"at":"2026-11-20T15:01:00.000Z","pa\n');
+	it("empties the record when every fault is fixed", async () => {
+		await keepLayoutFaults([noReadme], options());
+		await keepLayoutFaults([], options());
 
-		const added = await keepLayoutFaults([noReadme], file, at);
-
-		expect(added, "a fault already recorded before the cut line").toBe(0);
+		expect(readLayoutFaults(file)?.faults, "the faults left").toEqual([]);
 	});
 
-	it("writes nothing, and makes no record, when a start finds no fault", async () => {
-		const added = await keepLayoutFaults([], file, at);
+	it("writes nothing, and makes no record, when a tidy tree has none", async () => {
+		const fresh = await keepLayoutFaults([], options());
 
-		expect(added, "the faults added").toBe(0);
-		expect(() => readFileSync(file), "the record").toThrow();
+		expect(fresh, "the new faults").toEqual([]);
+		expect(existsSync(file), "whether a record was made").toBe(false);
 	});
 
 	it("keeps a fault the same path names with another message", async () => {
-		await keepLayoutFaults([noReadme], file, at);
+		await keepLayoutFaults([noReadme], options());
+		const other = { path: noReadme.path, message: "front matter unreadable" };
 
-		const added = await keepLayoutFaults(
-			[{ path: noReadme.path, message: "front matter unreadable" }],
-			file,
-			at,
-		);
+		const fresh = await keepLayoutFaults([noReadme, other], options());
 
-		expect(added, "a new message about a known path").toBe(1);
+		expect(fresh, "a new message about a known path").toEqual([other]);
+	});
+
+	it("starts afresh over a record it can't read", async () => {
+		mkdirSync(join(dir, "state"));
+		writeFileSync(file, '{"checkedAt":"2026-11-20T14:00');
+
+		const fresh = await keepLayoutFaults([noReadme], options());
+
+		expect(fresh, "the faults counted new").toEqual([noReadme]);
+		expect(readLayoutFaults(file)?.faults, "the record").toHaveLength(1);
+	});
+
+	it("journals a record it can't write, and answers rather than rejecting", async () => {
+		writeFileSync(join(dir, "state"), "a file where the folder goes");
+
+		const fresh = await keepLayoutFaults([noReadme], options());
+
+		expect(fresh, "the faults it could keep").toEqual([]);
+		expect(journalled, "what the journal was told").toEqual([
+			expect.stringContaining("couldn't be written"),
+		]);
 	});
 });
