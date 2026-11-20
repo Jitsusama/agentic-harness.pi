@@ -102,7 +102,7 @@ describe("a reply that asks", () => {
 		['Click "Save", then click "Restart".', "restart"],
 		["Choose `Log Out` from the Apple menu.", "log out"],
 	])("%s", (text, act) => {
-		expect(mayAsk(text), `the first look passes over ${text}`).toBe(true);
+		expect(mayAsk(text), `the first look reads ${text} closer`).toBe(true);
 		expect(acts(text)).toEqual([act]);
 	});
 
@@ -295,7 +295,7 @@ describe("a command in fenced code", () => {
 		["```sh\nif true; then sudo reboot; fi\n```", "reboot"],
 		["```sh\n(sudo reboot)\n```", "reboot"],
 	])("%s asks", (text, act) => {
-		expect(mayAsk(text), `the first look passes over ${text}`).toBe(true);
+		expect(mayAsk(text), `the first look reads ${text} closer`).toBe(true);
 		expect(acts(text)).toEqual([act]);
 	});
 

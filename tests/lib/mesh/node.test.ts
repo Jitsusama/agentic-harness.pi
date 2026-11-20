@@ -218,9 +218,9 @@ describe("whether a node serves at a socket", () => {
 		writeFileSync(file, "");
 		expect(
 			await nodeServes(join(root, "none.sock")),
-			"no socket file serves nothing",
+			"a path with nothing at it isn't served",
 		).toBe(false);
-		expect(await nodeServes(file), "a plain file serves nothing").toBe(false);
+		expect(await nodeServes(file), "a plain file isn't served").toBe(false);
 	});
 });
 
