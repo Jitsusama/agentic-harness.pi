@@ -100,10 +100,14 @@ function treeOf(count: number): string {
 	return root;
 }
 
-/** What the thread read of `root`, which the memo kept throughout. */
+/**
+ * What the thread read of `root`, which the memo kept throughout, kept
+ * as a signing nothing newer overtook is.
+ */
 async function readOf(root: string): Promise<ReadOffThread> {
 	const read = await readTreeOffThread(root, HANGS_AFTER_MS);
 	if (!read) throw new Error("the memo was let go while the tree was read");
+	read.keep();
 	return read;
 }
 
@@ -208,6 +212,17 @@ describe("readTreeOffThread", () => {
 		expect(second.pass.hashes.get(notes)).toBe(first.pass.hashes.get(notes));
 	});
 
+	it("doesn't read again a README in a kind folder, which the walk only hashes", async () => {
+		const root = treeOf(1);
+		const inPlans = join(root, questId(0), "plans", "README.md");
+		writeSettled(inPlans, "what these plans are");
+		settle(join(root, questId(0), "plans"));
+		const first = await readOf(root);
+		const second = await readOf(root);
+		expect(first.pass.bytes.has(inPlans), "first read reads it").toBe(true);
+		expect(second.pass.bytes.has(inPlans), "second read skips it").toBe(false);
+	});
+
 	it("reads a file again once it changes", async () => {
 		const root = treeOf(1);
 		const notes = join(root, questId(0), "plans", "notes.txt");
@@ -235,6 +250,42 @@ describe("readTreeOffThread", () => {
 		expect(pass.bytes.has(readmePath), "not read again").toBe(false);
 		expect(pass.hashes.get(readmePath)).toBe(record?.hash);
 		expect(memo().readmes.get(readmePath)).toBe(record);
+	});
+
+	it("answers a skipped README by the record a walk parsed while it read", async () => {
+		const { root, readmePath } = settledTree();
+		roots.push(root);
+		discoverQuests(root);
+		const record = memo().readmes.get(readmePath);
+		if (!record) throw new Error("the walk parsed no README");
+
+		const reading = readOf(root);
+		const newer = { ...record, hash: "a later write's hash" };
+		memo().readmes.set(readmePath, newer);
+		const { pass } = await reading;
+
+		expect(pass.bytes.has(readmePath), "not read again").toBe(false);
+		expect(
+			pass.hashes.get(readmePath),
+			"the hash the walk finds its record under, so it reads nothing",
+		).toBe(newer.hash);
+		expect(memo().readmes.get(readmePath)).toBe(newer);
+	});
+
+	it("puts nothing back for a signing that isn't kept", async () => {
+		const { root, readmePath } = settledTree();
+		roots.push(root);
+		discoverQuests(root);
+		expect(memo().readmes.has(readmePath), "the walk parsed it").toBe(true);
+
+		const reading = readTreeOffThread(root, HANGS_AFTER_MS);
+		memo().readmes.delete(readmePath);
+		expect(await reading, "the memo was kept").toBeDefined();
+
+		expect(
+			memo().readmes.has(readmePath),
+			"a walk's forgetting stands until the signing is kept",
+		).toBe(false);
 	});
 
 	it("answers nothing when the memo is let go while it reads", async () => {
@@ -291,11 +342,19 @@ describe("answerInThread", () => {
 		});
 	});
 
-	it("is refused once its wall passes with no answer", async () => {
-		const program = programOf("setInterval(() => undefined, 1_000);\n");
-		await expect(answerInThread(program, null, 200)).rejects.toThrow(
-			"no answer within 200 ms",
+	it("is refused once its wall passes with no answer, and ends the thread", async () => {
+		const program = programOf(
+			'import { workerData } from "node:worker_threads";\nconst beats = new Int32Array(workerData);\nsetInterval(() => Atomics.add(beats, 0, 1), 10);\n',
 		);
+		const beats = new Int32Array(new SharedArrayBuffer(4));
+		await expect(answerInThread(program, beats.buffer, 1_000)).rejects.toThrow(
+			"no answer within 1000 ms",
+		);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const ended = Atomics.load(beats, 0);
+		expect(ended, "the thread had begun to beat").toBeGreaterThan(0);
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(Atomics.load(beats, 0), "the thread beats no more").toBe(ended);
 	});
 
 	it("is refused when its program ends without answering", async () => {

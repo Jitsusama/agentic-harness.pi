@@ -627,6 +627,7 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 		const { pass, rootStamp } = read;
 		const cached = m.cache.get(questsRoot);
 		if (cached && cached.signedAt > signedAt) return "dropped";
+		read.keep();
 		const signature = discoverySignature(questsRoot, pass);
 		const result =
 			cached && cached.signature === signature

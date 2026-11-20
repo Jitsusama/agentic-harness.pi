@@ -7,7 +7,10 @@
  * quests and a loop held for seconds at a time, a signing took 30 to 76
  * s, past the 30 s its asks wait, so every write resting on one was
  * refused. On this thread the reads run at the disk's pace, whatever
- * the host's thread is doing, and cost it one turn.
+ * the host's thread is doing, and cost it one turn. They are made
+ * synchronously, so they hold only this thread: read through promises,
+ * they would take the process's filesystem threads, which every
+ * conversation's own reads, lookups and compression wait on.
  */
 
 import { fileURLToPath } from "node:url";
@@ -52,13 +55,6 @@ export interface TreeRead {
 	readonly files: readonly [string, StatRead | null, Uint8Array | null][];
 }
 
-/**
- * How many calls the thread keeps with the disk at once. The process's
- * filesystem threads are shared with every conversation's own reads,
- * so a signing takes only a few of them.
- */
-const AT_ONCE = 4;
-
 /** The program the thread runs, beside this file. */
 const TREE_READ = fileURLToPath(new URL("./tree-read.mjs", import.meta.url));
 
@@ -74,7 +70,6 @@ export async function readTreeInThread(
 	const data = {
 		root: questsRoot,
 		skip: [...skip],
-		atOnce: AT_ONCE,
 		depth: MAX_WALK_DEPTH,
 		kinds: CANONICAL_DOCUMENT_DIRS,
 		id: ID_PATTERN,
@@ -91,9 +86,9 @@ export async function readTreeInThread(
 /**
  * The first message `program` sends, run on a thread of its own with
  * `data`. Rejects when the thread errs or exits unanswered, and after
- * `wallMs` without an answer, ending the thread. A disk that hangs then
- * holds that thread, and any of the process's filesystem threads its
- * reads had taken, but never the host's own.
+ * `wallMs` without an answer, ending the thread. A disk that hangs in a
+ * synchronous read then holds that thread until the read returns, but
+ * never the host's own.
  */
 export function answerInThread(
 	program: string,

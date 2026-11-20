@@ -8,7 +8,7 @@
  */
 
 import { statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { isId, prefixOf } from "../creation/id.ts";
 import {
 	type Entry,
@@ -81,6 +81,13 @@ function joined(
 export interface ReadOffThread {
 	readonly pass: Pass;
 	readonly rootStamp: string | undefined;
+	/**
+	 * For a signing that is kept, before its walk: put back the record of
+	 * each file it skipped that a walk let go meanwhile, and answer each
+	 * one's hash as the walk will find its record. A signing dropped
+	 * never calls it, so it changes nothing a newer walk decided.
+	 */
+	readonly keep: () => void;
 }
 
 /**
@@ -118,21 +125,22 @@ export async function readTreeOffThread(
 			stamp === undefined ? undefined : joined(stamp, readme ?? undefined),
 		);
 	}
-	filesInto(read, skip, pass);
-	return { pass, rootStamp };
+	const keep = filesInto(read, skip, pass);
+	return { pass, rootStamp, keep };
 }
 
 /**
- * Each file the thread read into the pass: its bytes' hash; for one it
- * skipped, the hash its stamp vouched for when the signing began, with
- * the record parsed from it; else missing. Nothing is read here, so the
- * host's thread waits on no disk.
+ * Each file the thread read into the pass: its bytes' hash, or missing.
+ * One it skipped holds the hash its stamp vouched for when the signing
+ * began until the answer, `keep`, says which record the walk will find.
+ * Nothing is read here, so the host's thread waits on no disk.
  */
 function filesInto(
 	read: TreeRead,
 	skip: ReadonlyMap<string, Skipped>,
 	pass: Pass,
-): void {
+): () => void {
+	const skipped: [string, Skipped][] = [];
 	for (const [path, st, bytes] of read.files) {
 		if (!st) {
 			pass.absent.add(path);
@@ -142,11 +150,15 @@ function filesInto(
 			hashRead(path, st, bufferOf(bytes), pass);
 			continue;
 		}
-		const skipped = skip.get(path);
-		if (!skipped) throw new Error(`the thread skipped ${path} unasked`);
-		pass.hashes.set(path, skipped.hash);
-		skipped.keepRecord();
+		const vouched = skip.get(path);
+		if (!vouched) throw new Error(`the thread skipped ${path} unasked`);
+		pass.hashes.set(path, vouched.hash);
+		skipped.push([path, vouched]);
 	}
+	return () => {
+		for (const [path, vouched] of skipped)
+			pass.hashes.set(path, vouched.keep());
+	};
 }
 
 /** Bytes a thread sent, as the Buffer the walk hashes and parses. */
@@ -166,12 +178,15 @@ function entryOf(name: string, kind: EntryKind): Entry {
 
 /**
  * Whether the walk parses a file: a quest's README, or a markdown file
- * named as a document. Any other file in a kind folder is only hashed,
- * so its stamp is enough.
+ * named as a document. Any other file in a kind folder, a README there
+ * among them, is only hashed, so its stamp is enough.
  */
 function parsedByTheWalk(path: string): boolean {
 	const name = basename(path);
-	if (name === "README.md") return true;
+	if (name === "README.md") {
+		const quest = basename(dirname(path));
+		return isId(quest) && prefixOf(quest) === "QEST";
+	}
 	if (!name.endsWith(".md")) return false;
 	const base = name.slice(0, -3);
 	return isId(base) && prefixOf(base) !== "QEST";

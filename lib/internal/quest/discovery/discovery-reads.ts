@@ -381,14 +381,16 @@ function statKey(st: StatOf): string {
 /**
  * A file a signing need not read again, as the memo held it when the
  * signing began: the stat its stamp was taken under and the hash that
- * stamp vouches for. `keepRecord` puts back the record parsed from that
- * hash, should a walk let it go while the signing reads, so the walk
+ * stamp vouches for. `keep`, for a signing that is kept, puts back the
+ * record parsed from that hash should a walk have let it go meanwhile,
+ * and answers the hash the walk will find the file's record under: that
+ * one, or the hash of a record a walk parsed since. Either way the walk
  * after it needn't read the file on the host's thread.
  */
 export interface Skipped {
 	readonly stat: string;
 	readonly hash: string;
-	readonly keepRecord: () => void;
+	readonly keep: () => string;
 }
 
 /**
@@ -402,27 +404,31 @@ export function skippable(
 	const { stamps, readmes, documents } = memo();
 	const skip = new Map<string, Skipped>();
 	for (const [path, { stat, hash }] of stamps) {
-		const keepRecord = !parses(path)
-			? () => undefined
+		const keep = !parses(path)
+			? () => hash
 			: (keeping(readmes, path, hash) ?? keeping(documents, path, hash));
-		if (keepRecord) skip.set(path, { stat, hash, keepRecord });
+		if (keep) skip.set(path, { stat, hash, keep });
 	}
 	return skip;
 }
 
 /**
  * What puts back `path`'s record in `table` while no other has taken
- * its place, when the one there now was parsed from `hash`.
+ * its place, when the one there now was parsed from `hash`, answering
+ * the hash of the record there then.
  */
 function keeping<D>(
 	table: Map<string, Parsed<D>>,
 	path: string,
 	hash: string,
-): (() => void) | undefined {
+): (() => string) | undefined {
 	const record = table.get(path);
 	if (record?.hash !== hash) return undefined;
 	return () => {
-		if (!table.has(path)) table.set(path, record);
+		const now = table.get(path);
+		if (now) return now.hash;
+		table.set(path, record);
+		return hash;
 	};
 }
 
