@@ -131,6 +131,65 @@ describe("writesInBash", () => {
 		expect(writesInBash("nixos-rebuild build", HERE)).toEqual([]);
 	});
 
+	it("reads pi started, however it is wrapped, as a start of agents", () => {
+		const start = (command: string) =>
+			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
+		const held = (command: string, action: string) =>
+			expect(start(command), command).toEqual([{ action, kind: "start" }]);
+		held("pi", "pi");
+		held("pi -p 'go on'", "pi");
+		held("pi-host --attended", "pi-host");
+		held("pi-carry ab12", "pi-carry");
+		held("node scripts/pi-host.ts", "pi pi-host");
+		held("tsx --env-file x scripts/pi-carry.ts", "pi pi-carry");
+		held("./scripts/host-take-up.ts", "pi host-take-up");
+		held("systemd-run --user --unit=x -p RuntimeMaxSec=60 -- pi", "pi");
+		held("systemd-run --user --unit x --slice app.slice pi", "pi");
+		held("setsid nohup pi", "pi");
+		held("mycelium run --need machine=mac -- pi", "pi");
+		held("bash -c 'pi -p hi'", "pi");
+		held(
+			"systemctl --user -H mac restart pi-host-work-background",
+			"pi host restart",
+		);
+		held("systemctl --user start 'pi-host-*'", "pi host start");
+		held("systemctl --user enable pi-conversation@x", "pi host enable");
+		expect(start("pi --version")).toEqual([]);
+		expect(start("pip install x")).toEqual([]);
+	});
+
+	it("lets what takes agents away, or only names a host, go", () => {
+		const start = (command: string) => writesInBash(command, HERE);
+		for (const command of [
+			"systemctl --user stop pi-host-work-background",
+			"systemctl --user kill pi-conversation-ab12@x",
+			"systemctl --user disable pi-host-work-attended",
+			"systemctl --user -p ActiveState show pi-host-work-attended",
+			"systemctl --user --state running list-units 'pi-host-*'",
+			"cat scripts/host-cutover.ts",
+			"git diff scripts/pi-host.ts",
+			"rg cutover scripts/host-cutover.ts",
+			"systemd-run --user --unit=x -- cat scripts/host-cutover.ts",
+			"mycelium sessions",
+		]) {
+			expect(start(command), command).toEqual([]);
+		}
+	});
+
+	it("finds a start by pattern in a line the command model can't read", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		expect(
+			actions("for u in a b; do systemctl --user restart pi-host-$u; done"),
+		).toContain("pi host start");
+		expect(actions("for i in 1; do pi-packages update; done")).toContain(
+			"pi-packages update",
+		);
+		expect(
+			actions("for u in a b; do systemctl --user status pi-host-$u; done"),
+		).toEqual([]);
+	});
+
 	it("reads a pi host started, stopped or moved as a start of agents", () => {
 		const start = (command: string) =>
 			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
