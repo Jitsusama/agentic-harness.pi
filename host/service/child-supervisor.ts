@@ -50,6 +50,7 @@
  * four together, and split apart they would be one state passed about.
  */
 import { randomUUID } from "node:crypto";
+import { setMaxListeners } from "node:events";
 import type { Socket } from "node:net";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -57,7 +58,9 @@ import { sessionAddress } from "../../lib/mesh/address.ts";
 import { askOnce, madeByHost, reach } from "./child-requests.ts";
 import {
 	clearSlot,
+	forsakeSlot,
 	type Slot,
+	slotForsaken,
 	slotHolds,
 	slotOf,
 	slotsIn,
@@ -252,6 +255,10 @@ export function childSupervisor(options: {
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
+	// One listener for each watch not yet answered, which an adopt of many
+	// children takes past Node's warning: none is a leak, since each goes
+	// once its watch is answered or ended.
+	setMaxListeners(0, stopping.signal);
 	// Each begin's first request in flight, so a stop can end it.
 	const asking = new Set<Socket>();
 	// Each conversation a child is starting for, so two asks start one.
@@ -412,11 +419,21 @@ export function childSupervisor(options: {
 	 * gone, and is reported with the command that stops it; a host that
 	 * stops watching meanwhile leaves the slot to the next host's adopt.
 	 */
-	function leave(slot: Slot, stopNow: boolean): Promise<void> {
+	function leave(
+		slot: Slot,
+		stopNow: boolean,
+		marked?: Promise<void>,
+	): Promise<void> {
 		const already = leaving.get(slot.unit);
 		if (already) return already;
 		inUse.add(slot.unit);
 		const left = (async () => {
+			try {
+				await marked;
+			} catch (error) {
+				// A mark that won't write is said, and the child stopped all the same.
+				options.report(error);
+			}
 			// A systemd that can't say during the grace is no reason to
 			// leave the child running: it is stopped, as one that overstayed.
 			const went =
@@ -485,7 +502,9 @@ export function childSupervisor(options: {
 			// another child runs that conversation as the roster says.
 			const other = ranIn.get(keyed(running));
 			if (!other || other.unit === slot.unit) ranIn.set(keyed(running), slot);
-			void leave(slot, true);
+			// Marked before it is stopped, so a host ending before the stop
+			// takes leaves the next one to stop it rather than take it up.
+			void leave(slot, true, forsakeSlot(slot));
 		}
 		// This child's roster changes, in the order it said them; the first,
 		// its hold, fails the watch when the roster refuses it, since a
@@ -564,11 +583,11 @@ export function childSupervisor(options: {
 								? `said ${previousId} became another, but runs ${current}`
 								: keyed(entry.sessionId) !== keyed(next)
 									? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
-										: elsewhere(slot, next)
-											? `said ${previousId} became ${next}, which another child runs`
-											: keyed(next) !== keyed(previousId) && held(next)
-												? `said ${previousId} became ${next}, which the roster holds already`
-												: undefined;
+									: elsewhere(slot, next)
+										? `said ${previousId} became ${next}, which another child runs`
+										: keyed(next) !== keyed(previousId) && held(next)
+											? `said ${previousId} became ${next}, which the roster holds already`
+											: undefined;
 							if (forsaken) return;
 							if (why) {
 								options.report(new Error(`${slot.unit} ${why}`));
@@ -717,11 +736,17 @@ export function childSupervisor(options: {
 	async function takeUp(
 		slot: Slot,
 		named: string | undefined,
+		forsaken: boolean,
 	): Promise<boolean> {
 		inUse.add(slot.unit);
 		if (named !== undefined) ranIn.set(keyed(named), slot);
 		if (await units.gone(slot.unit).catch(() => false)) {
 			await leave(slot, false);
+			return false;
+		}
+		if (forsaken) {
+			options.say?.(`${slot.unit}: stopped, since an earlier host forsook it`);
+			void leave(slot, true);
 			return false;
 		}
 		for (let tries = 1; ; tries += 1) {
@@ -821,10 +846,13 @@ export function childSupervisor(options: {
 			);
 			// Each in use before its file is read, so nothing starts in it.
 			for (const slot of slots) inUse.add(slot.unit);
-			const names = await Promise.all(slots.map(slotHolds));
+			const [names, forsook] = await Promise.all([
+				Promise.all(slots.map(slotHolds)),
+				Promise.all(slots.map(slotForsaken)),
+			]);
 			return slots.map((slot, at) => {
 				const named = names[at];
-				const taken = takeUp(slot, named);
+				const taken = takeUp(slot, named, forsook[at] === true);
 				const settled = taken.catch(() => undefined);
 				takingUnit.set(slot.unit, settled);
 				if (named) takingFor.set(keyed(named), settled);

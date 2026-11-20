@@ -215,7 +215,12 @@ export function watchChild(
 				for (const value of frames.push(chunk)) {
 					if (!answered) {
 						const reply = answer.parse(value);
-						if (!reply.ok) throw new Error(reply.error.message);
+						if (!reply.ok) {
+							const said = JSON.stringify(
+								reply.error.message.slice(0, MISREAD_SAID_CHARS),
+							);
+							throw new Error(`The child refused its watch: ${said}`);
+						}
 						const first = watched.parse(reply.result);
 						clearTimeout(unanswered);
 						answered = true;

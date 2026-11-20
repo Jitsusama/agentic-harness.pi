@@ -18,7 +18,14 @@
  * when it is watched, so routes go by that, never by the slot.
  */
 import { execFile } from "node:child_process";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
 	isHostKey,
@@ -84,16 +91,52 @@ export function slotOf(folder: string, key: string, name: string): Slot {
 /**
  * Write what the child in `slot` resumes, before its unit starts:
  * `woken` when a park's wake asked for it, so the child keeps the wake
- * rather than resting parked again.
+ * rather than resting parked again. Written aside and renamed into
+ * place, so a host killed mid-write leaves the last whole file, which
+ * names the id the next host replaces.
  */
 export async function writeSlot(
 	slot: Slot,
 	session: RosterEntry | undefined,
 	woken = false,
 ): Promise<void> {
-	await mkdir(join(slot.file, ".."), { recursive: true, mode: 0o700 });
 	const held = session ? { session, ...(woken ? { woken } : {}) } : {};
-	await writeFile(slot.file, `${JSON.stringify(held)}\n`, { mode: 0o600 });
+	await writeHeld(slot, held);
+}
+
+/**
+ * Mark `slot`'s file forsaken, so a host taking the slot up stops its
+ * child rather than watching it: one whose stop hadn't taken when its
+ * host ended would otherwise be taken up, and might win the
+ * conversation it claimed from the child that runs it.
+ */
+export async function forsakeSlot(slot: Slot): Promise<void> {
+	await writeHeld(slot, { forsaken: true });
+}
+
+/** Whether `slot`'s file says a host forsook its child. */
+export async function slotForsaken(slot: Slot): Promise<boolean> {
+	try {
+		const held: unknown = JSON.parse(await readFile(slot.file, "utf8"));
+		return isRecord(held) && held.forsaken === true;
+	} catch {
+		// Gone or half written: nothing says it was forsaken.
+		return false;
+	}
+}
+
+/** Write `held` as `slot`'s file, aside and then renamed into place. */
+async function writeHeld(slot: Slot, held: object): Promise<void> {
+	await mkdir(join(slot.file, ".."), { recursive: true, mode: 0o700 });
+	const aside = asideOf(slot);
+	await writeFile(aside, `${JSON.stringify(held)}\n`, { mode: 0o600 });
+	await rename(aside, slot.file);
+}
+
+/** Where `slot`'s file is written before it is renamed into place. */
+function asideOf(slot: Slot): string {
+	// Ends in none of a slot's suffixes, so `slotsIn` names no slot by it.
+	return `${slot.file}.writing`;
 }
 
 /**
@@ -114,6 +157,7 @@ export async function slotHolds(slot: Slot): Promise<string | undefined> {
 /** Remove a slot's files, once its child has gone. */
 export async function clearSlot(slot: Slot): Promise<void> {
 	await rm(slot.file, { force: true });
+	await rm(asideOf(slot), { force: true });
 	await rm(slot.socket, { force: true });
 	await rm(slot.folder, { force: true, recursive: true });
 }
