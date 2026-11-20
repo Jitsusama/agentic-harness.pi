@@ -23,9 +23,11 @@ import {
 const asked: ((print: string | undefined) => void)[] = [];
 /** Whether the run's root is still on disk. */
 const disk = { there: true };
+/** The repository git names for a folder, or none when it gives no answer. */
+const git: { top: string | undefined } = { top: "/src/repo" };
 
 vi.mock("../../../extensions/verification-workflow/tree.ts", () => ({
-	gitRoot: async () => "/src/repo",
+	gitRoot: async () => git.top,
 	within: (root: string, path: string) => path.startsWith(root),
 	present: async () => disk.there,
 	treeFingerprint: () =>
@@ -61,6 +63,7 @@ async function settled(): Promise<void> {
 beforeEach(() => {
 	asked.length = 0;
 	disk.there = true;
+	git.top = "/src/repo";
 	state = createVerificationState();
 	state.failedRun = RUN;
 });
@@ -87,7 +90,15 @@ describe("a commit's check", () => {
 
 	// Three asks bound a check that verifies keep overtaking; the newest
 	// is left for the next ask rather than chased.
-	it("leaves the newest run for the next ask after three recorded meanwhile", async () => {
+	it("holds a commit from below a failed run's root when git names no repository", async () => {
+		git.top = undefined;
+		const checking = failureNow(state, { dir: "/src/repo/lib" }, undefined);
+		await gitSays("judged");
+		const { failure } = await checking;
+		expect(failure?.problems[0]).toContain("pnpm check failed");
+	});
+
+	it("holds the commit on the newest run after three recorded meanwhile", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		const newest = { ...NEXT, command: "pnpm lint" };
 		for (const next of [NEXT, { ...NEXT }, newest]) {
@@ -96,7 +107,7 @@ describe("a commit's check", () => {
 			await gitSays("now");
 		}
 		const { failure, judged } = await checking;
-		expect(failure).toBeUndefined();
+		expect(failure?.problems[0]).toContain("pnpm lint failed");
 		expect(asked, "fingerprints still asked").toHaveLength(0);
 		expect(judged?.run).not.toBe(newest);
 		expect(state.failedRun).toBe(newest);
@@ -115,7 +126,7 @@ describe("a commit's check", () => {
 		const after = asked.length;
 		// Answer any it asked, so a failing count fails rather than hangs.
 		for (const answer of asked.splice(0)) answer("now");
-		expect(await checking).toBeUndefined();
+		expect((await checking)?.problems[0]).toContain("pnpm lint failed");
 		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(state.outcome).toBe("failing");
 		expect(state.failedRun).toBe(newest);
