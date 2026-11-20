@@ -279,9 +279,17 @@ export function childSupervisor(options: {
 
 	/** Whether the roster holds `sessionId`, in either case. */
 	function held(sessionId: string): boolean {
+		return heldAs(sessionId) !== undefined;
+	}
+
+	/**
+	 * The id the roster holds `sessionId` under, in the roster's spelling,
+	 * which it matches exactly, or undefined when it holds none.
+	 */
+	function heldAs(sessionId: string): string | undefined {
 		return roster
 			.entries()
-			.some((entry) => keyed(entry.sessionId) === keyed(sessionId));
+			.find((entry) => keyed(entry.sessionId) === keyed(sessionId))?.sessionId;
 	}
 
 	/** Whether a route to a child other than `slot`'s holds `sessionId`. */
@@ -366,9 +374,32 @@ export function childSupervisor(options: {
 			} catch (error) {
 				if (error instanceof StoppedWatching) throw error;
 				options.say?.(`${unit}: its stop failed: ${quoted(error)}`);
+				// A systemd that refused at once is given a moment to recover.
+				if (tries < STOP_TRIES) await pause(LEFT_EVERY_MS * tries);
 			}
 		}
-		return false;
+		// Asked once more, since the last try may have failed only to say.
+		return ended(unit);
+	}
+
+	/**
+	 * Whether `unit` has gone within `ms`, taking a systemd that fails to
+	 * say as one whose unit may still run.
+	 */
+	async function goneOrUnsaid(unit: string, ms: number): Promise<boolean> {
+		try {
+			return await goneWithin(unit, ms);
+		} catch (error) {
+			if (error instanceof StoppedWatching) throw error;
+			options.say?.(`${unit}: systemd didn't say: ${quoted(error)}`);
+			return false;
+		}
+	}
+
+	/** Whether `unit` has gone, as far as systemd will say now. */
+	async function ended(unit: string): Promise<boolean> {
+		stillWatching();
+		return units.gone(unit).catch(() => false);
 	}
 
 	/**
@@ -386,8 +417,10 @@ export function childSupervisor(options: {
 		if (already) return already;
 		inUse.add(slot.unit);
 		const left = (async () => {
+			// A systemd that can't say during the grace is no reason to
+			// leave the child running: it is stopped, as one that overstayed.
 			const went =
-				(!stopNow && (await goneWithin(slot.unit, exitsWithinMs))) ||
+				(!stopNow && (await goneOrUnsaid(slot.unit, exitsWithinMs))) ||
 				(await stopped(slot.unit));
 			if (!went) {
 				options.report(
@@ -448,7 +481,10 @@ export function childSupervisor(options: {
 			options.say?.(`${slot.unit}: stopped, since it ${why}`);
 			if (current) routes.drop(current);
 			current = undefined;
-			ranIn.set(keyed(running), slot);
+			// A resume of what it runs waits for this slot to empty, unless
+			// another child runs that conversation as the roster says.
+			const other = ranIn.get(keyed(running));
+			if (!other || other.unit === slot.unit) ranIn.set(keyed(running), slot);
 			void leave(slot, true);
 		}
 		// This child's roster changes, in the order it said them; the first,
@@ -506,8 +542,8 @@ export function childSupervisor(options: {
 								if (moved) await writeSlot(slot, entry);
 								if (!held(sessionId)) {
 									// One that became another while nothing watched it.
-									if (moved && named !== undefined && held(named))
-										await roster.replace(named, entry);
+									const was = moved && named !== undefined && heldAs(named);
+									if (was) await roster.replace(was, entry);
 									else await roster.hold(entry);
 								}
 							});
@@ -522,11 +558,12 @@ export function childSupervisor(options: {
 							const next = conversation.sessionId;
 							// A child speaks for its own conversation alone, and
 							// can't become one the roster or another child has.
-							const why =
-								previousId !== current
-									? `said ${previousId} became another, but runs ${current}`
-									: entry.sessionId !== next
-										? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
+							const its =
+								current !== undefined && keyed(previousId) === keyed(current);
+							const why = !its
+								? `said ${previousId} became another, but runs ${current}`
+								: keyed(entry.sessionId) !== keyed(next)
+									? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
 										: elsewhere(slot, next)
 											? `said ${previousId} became ${next}, which another child runs`
 											: keyed(next) !== keyed(previousId) && held(next)
@@ -537,12 +574,14 @@ export function childSupervisor(options: {
 								options.report(new Error(`${slot.unit} ${why}`));
 								// Word on another conversation is passed over; one that
 								// left its own runs `next` all the same, wherever else.
-								if (previousId === current) forsake(next, why);
+								if (its) forsake(next, why);
 								return;
 							}
-							const was = routes.routeOf(previousId);
-							routes.drop(previousId);
-							ranIn.delete(keyed(previousId));
+							// Its route and hold are under the spelling first answered.
+							const left = current ?? previousId;
+							const was = routes.routeOf(left);
+							routes.drop(left);
+							ranIn.delete(keyed(left));
 							current = next;
 							ranIn.set(keyed(next), slot);
 							if (was) routes.hold(conversation, was);
@@ -550,7 +589,8 @@ export function childSupervisor(options: {
 								try {
 									// Named first, as a first answer's is.
 									await writeSlot(slot, entry);
-									if (held(previousId)) await roster.replace(previousId, entry);
+									const before = heldAs(left);
+									if (before) await roster.replace(before, entry);
 									else await roster.hold(entry);
 								} catch (error) {
 									// Unheld, so stopped: nothing runs a conversation no
@@ -571,7 +611,7 @@ export function childSupervisor(options: {
 							if (!current) return;
 							const gone = current;
 							if (why === "closed" || why === "released")
-								keep(() => roster.drop(gone));
+								keep(() => roster.drop(heldAs(gone) ?? gone));
 							options.say?.(
 								`${sessionAddress(current)} (${current}): its process ended, ${why}`,
 							);
@@ -799,8 +839,11 @@ export function childSupervisor(options: {
 		const taken = await Promise.allSettled(await taking);
 		let count = 0;
 		for (const outcome of taken) {
-			if (outcome.status === "rejected") options.report(outcome.reason);
-			else if (outcome.value) count += 1;
+			// A host that stopped watching leaves the child to the next one.
+			if (outcome.status === "rejected") {
+				if (!(outcome.reason instanceof StoppedWatching))
+					options.report(outcome.reason);
+			} else if (outcome.value) count += 1;
 		}
 		return count;
 	}
