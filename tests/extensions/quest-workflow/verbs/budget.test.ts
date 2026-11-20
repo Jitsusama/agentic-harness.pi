@@ -1699,13 +1699,67 @@ describe("the budget of a session on no quest", () => {
 			{
 				type: "custom",
 				customType: BUDGET_ENTRY,
-				data: { v: 1, name: "delta" },
+				data: { v: 1, name: "delta", judged: true },
 			} as unknown as (typeof written)[number],
 		);
 
 		await keeper.keep(ctx);
 
 		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("asks its folder afresh once reloaded, rather than keep a budget its folder named before", async () => {
+		// The folder no longer names aquifer, as a team took it off its list.
+		const { keeper, ctx } = loose(undefined, "delta", 0.5);
+		written.push(
+			{
+				type: "message",
+				message: { role: "user", content: "Speed up walgit" },
+			} as unknown as (typeof written)[number],
+			{
+				type: "custom",
+				customType: BUDGET_ENTRY,
+				data: { v: 1, name: "aquifer", label: "aquifer", provider: "judge" },
+			} as unknown as (typeof written)[number],
+		);
+
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("personal");
+		expect(process.env.PI_BUDGET).toBeUndefined();
+	});
+
+	it("keeps the budget it was judged onto through a quest and a reload, without judging again", async () => {
+		const first = loose(undefined, "delta");
+		written.push({
+			type: "message",
+			message: { role: "user", content: "Speed up walgit" },
+		} as unknown as (typeof written)[number]);
+		await first.keeper.keep(first.ctx, { prompt: "Speed up walgit" });
+		expect(recorded(), "said to be a judgement's").toContainEqual(
+			expect.objectContaining({ name: "delta", judged: true }),
+		);
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(first.state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Aquifer Work" }));
+		const id = first.state.questId as string;
+		succeeded(await run({ action: "budget", id, ref: "aquifer" }));
+		written.push({
+			type: "custom",
+			customType: "quest-workflow",
+			data: { questId: id },
+		} as unknown as (typeof written)[number]);
+		await first.keeper.keep(first.ctx);
+		expect(process.env[KEY]).toBe("aquifer");
+
+		// Reloaded, with the quest put down: unsure now, so a judgement
+		// asked again would take delta off.
+		first.keeper.forget();
+		const next = loose(undefined, "delta", 0.5);
+		await next.keeper.keep(next.ctx);
+
+		expect(next.judged).toEqual([]);
 		expect(process.env[KEY]).toBe("delta");
 	});
 
@@ -1723,6 +1777,7 @@ describe("the budget of a session on no quest", () => {
 					v: 1,
 					name: null,
 					unresolved: { budget: "delta", missing: "no key" },
+					judged: true,
 				},
 			} as unknown as (typeof written)[number],
 		);
@@ -1916,6 +1971,74 @@ describe("the budget of a session on no quest", () => {
 		await keeper.keep(ctx);
 
 		expect(process.env[KEY]).toBe("aquifer");
+	});
+
+	it("lays nothing from a judgement that lands after a quest loaded", async () => {
+		const { state, keeper, ctx, judged } = loose(undefined, "delta");
+		let release: (answer: unknown) => void = () => {};
+		const held = {
+			...ctx,
+			modelRegistry: {
+				...ctx.modelRegistry,
+				classify: () =>
+					new Promise((resolve) => {
+						release = resolve;
+					}),
+			},
+		} as unknown as typeof ctx;
+		const keeping = keeper.keep(held, { prompt: "Speed up walgit" });
+		await vi.waitFor(() => expect(judged).toHaveLength(1));
+
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Aquifer Work" }));
+		const id = state.questId as string;
+		succeeded(await run({ action: "budget", id, ref: "aquifer" }));
+		// The same context, as pi may hand every event.
+		await keeper.keep(held);
+		release({ answers: {} });
+		await keeping;
+
+		expect(process.env[KEY]).toBe("aquifer");
+	});
+
+	it("asks its folder again once it leaves a quest it was on as a provider registered", async () => {
+		const { state, keeper, ctx, events } = loose(undefined, "delta", 0.5);
+		await keeper.keep(ctx);
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Other Work" }));
+		await keeper.keep(ctx);
+
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 1,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (asked) => (asked === tmpRoot ? "delta" : undefined),
+		});
+		succeeded(await run({ action: "unload" }));
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("sets an inherited none aside on a quest that names nothing, and keeps to it again once off it", async () => {
+		process.env.PI_BUDGET_OPTED_OUT = "1";
+		// Unsure, so the quest made here is named nothing.
+		const { state, keeper, ctx } = loose(undefined, "delta", 0.5);
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Other Work" }));
+
+		await keeper.keep(ctx);
+		expect(
+			process.env.PI_BUDGET_OPTED_OUT,
+			"not handed to what it starts",
+		).toBeUndefined();
+
+		succeeded(await run({ action: "unload" }));
+		await keeper.keep(ctx);
+		expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
 	});
 });
 

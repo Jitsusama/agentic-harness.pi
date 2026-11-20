@@ -29,8 +29,8 @@ import {
 interface Laid {
 	/** What the variable held before, or undefined when it was unset. */
 	readonly before: string | undefined;
-	/** What the budget set it to. */
-	readonly value: string;
+	/** What the budget set it to, or undefined where it took it off. */
+	readonly value: string | undefined;
 }
 
 /** The budget laid over an environment, if any. */
@@ -106,7 +106,8 @@ export function layBudget(
 		[BUDGET_VARIABLE]: budget.name,
 	};
 	for (const key of [...overlay.laid.keys()]) {
-		if (!(key in laying)) restore(target, overlay, key);
+		if (!(key in laying || isSetAside(overlay, key)))
+			restore(target, overlay, key);
 	}
 	for (const [key, value] of Object.entries(laying)) {
 		const earlier = overlay.laid.get(key);
@@ -152,6 +153,34 @@ export function layOptedOut(
 /** What {@link layOptedOut} sets its variable to. */
 const OPTED_OUT = "1";
 
+/**
+ * Take an inherited {@link BUDGET_OPTED_OUT_VARIABLE} off `env`, for
+ * work on a quest whose own word stands over the one it was started
+ * under, so what it starts doesn't keep to that word. Laid as a
+ * budget's variables are, so a lift puts it back as the session goes
+ * back to its own word; a budget laid over it, such as a capped key's,
+ * leaves it aside, since that doesn't change whose word stands.
+ */
+export function setAsideOptedOut(
+	env: NodeJS.ProcessEnv | SessionEnvironment,
+	overlay: BudgetOverlay = processOverlay(),
+): void {
+	const target = mutableEnvironment(env);
+	const key = BUDGET_OPTED_OUT_VARIABLE;
+	const before = target.get(key);
+	if (before === undefined || overlay.laid.has(key)) return;
+	overlay.laid.set(key, { before, value: undefined });
+	target.delete(key);
+}
+
+/** Whether `key` is an inherited opt-out {@link setAsideOptedOut} took off. */
+function isSetAside(overlay: BudgetOverlay, key: string): boolean {
+	return (
+		key === BUDGET_OPTED_OUT_VARIABLE &&
+		overlay.laid.get(key)?.value === undefined
+	);
+}
+
 /** Take the budget off `env`, putting back what it replaced. */
 export function liftBudget(
 	env: NodeJS.ProcessEnv | SessionEnvironment,
@@ -166,7 +195,8 @@ export function liftBudget(
 /**
  * A copy of `env` as it would be with no budget on: for a session
  * started for another quest, which draws on its own budget rather
- * than inheriting this one's.
+ * than inheriting this one's, and keeps to its own word on none
+ * rather than one this session laid or inherited.
  */
 export function withoutBudget(
 	env: Readonly<Record<string, string | undefined>>,
@@ -178,6 +208,7 @@ export function withoutBudget(
 		if (laid.before === undefined) delete out[key];
 		else out[key] = laid.before;
 	}
+	delete out[BUDGET_OPTED_OUT_VARIABLE];
 	return out;
 }
 

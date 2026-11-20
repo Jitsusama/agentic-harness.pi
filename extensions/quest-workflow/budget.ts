@@ -55,6 +55,7 @@ import {
 	layOptedOut,
 	liftBudget,
 	processOverlay,
+	setAsideOptedOut,
 } from "../../lib/budget/environment.ts";
 import {
 	type BudgetDrawing,
@@ -266,6 +267,29 @@ export interface BudgetKeeperOptions {
 /** How long a session the cap moved stays on its budget (capped.ts). */
 export const CAPPED_HOLD_MS = CAP_MOVE_LASTS_MS;
 
+/** The budget a session on no quest draws on, and whether a judgement named it. */
+interface Loose {
+	readonly name: string | null;
+	readonly judged: boolean;
+}
+
+/** A session on no quest that draws on no budget. */
+const UNNAMED: Loose = { name: null, judged: false };
+
+/** How a keep settles the name it asked for. */
+interface Settling {
+	/** The quest's own word, or one above it, is none. */
+	readonly optedOut: boolean;
+	/** The name was missed before, so a miss waits longer. */
+	readonly retrying: boolean;
+	/** What calls draw on changed though the name didn't. */
+	readonly changed: boolean;
+	/** A judgement of the session's folder and first prompt named it. */
+	readonly judged: boolean;
+	/** A quest's own word names it, standing over a none inherited. */
+	readonly questsOwn: boolean;
+}
+
 /**
  * How long a budget that couldn't be drawn on waits, once a retry has
  * missed it too, before the next keep asks for it again. A provider can
@@ -322,6 +346,8 @@ export function keepQuestBudget(
 	let wanted: string | null | undefined;
 	/** Whether that none was the quest's own word, laid for what it starts. */
 	let wantedOptedOut = false;
+	/** Whether that name was a quest's own word, over a none inherited. */
+	let wantedQuestsOwn = false;
 	/** Whether this session has been on a quest, whose words its own aren't. */
 	let beenOnQuest = false;
 	/** Bumped on every ask, so an answer overtaken by another is dropped. */
@@ -383,14 +409,15 @@ export function keepQuestBudget(
 
 	/**
 	 * The budget a session on no quest draws on: its folder's, else a
-	 * sure judgement's of its folder and first prompt, or null for none.
+	 * sure judgement's of its folder and first prompt, or null for none;
+	 * and whether a judgement named it.
 	 */
 	const looseName = async (
 		ctx: ExtensionContext,
 		prompt: string | undefined,
-	): Promise<string | null> => {
-		if (typeof ctx.cwd !== "string" || ctx.cwd === "") return null;
-		if (startedOn) return null;
+	): Promise<Loose> => {
+		if (typeof ctx.cwd !== "string" || ctx.cwd === "") return UNNAMED;
+		if (startedOn) return UNNAMED;
 		const folder = resolve(ctx.cwd);
 		// The session this ask is for: once forgotten, its answer is no
 		// longer the next session's to keep or to say.
@@ -406,28 +433,27 @@ export function keepQuestBudget(
 			return taken.name;
 		});
 		const byFolder = await folderAsked;
-		if (session !== sessions) return null;
-		if (byFolder !== null) return byFolder;
+		if (session !== sessions) return UNNAMED;
+		if (byFolder !== null) return { name: byFolder, judged: false };
 		// Only a person's session is judged on its prompt: a subagent or a
 		// job runs in print or JSON mode, and its task is no word on whose
 		// work it is, so it keeps what it inherited or its folder's, unasked
 		// and unpaid. A hosted conversation is bound as RPC with no screen,
 		// so pi says it has no UI; its mode is what tells it from a job.
-		if (ctx.mode === "print" || ctx.mode === "json") return null;
+		if (ctx.mode === "print" || ctx.mode === "json") return UNNAMED;
 		const said = prompt?.trim();
 		firstPrompt ??=
 			firstPromptOf(ctx) ?? (said && isPersonText(said) ? said : undefined);
-		if (firstPrompt === undefined) return null;
-		// A session that left a quest opened on that quest's work, so its
-		// first words would judge the quest's budget onto what comes next.
-		if (promptAsked === undefined && (beenOnQuest || wasOnQuest(ctx)))
-			return null;
+		if (firstPrompt === undefined) return UNNAMED;
 		// A keeper reloaded into a conversation keeps the budget the one
-		// before it recorded, rather than paying to judge again, which a
-		// miss or an unsure answer would take off without a word.
+		// before it was judged onto, rather than paying to judge again,
+		// which a miss or an unsure answer would take off without a word.
+		// Read before the quest check, since a session judged and then on
+		// a quest went back to that budget as it left. Only a judgement's:
+		// a folder's answer was asked afresh above.
 		if (promptAsked === undefined && wanted === undefined) {
 			// One it missed names what it wanted, not what calls fell to.
-			const last = lastRecordOn(branchOf(ctx));
+			const last = lastJudgedOn(branchOf(ctx));
 			const missed = last?.unresolved?.budget;
 			const recorded =
 				missed !== undefined && isBudgetName(missed) ? missed : last?.name;
@@ -436,16 +462,20 @@ export function keepQuestBudget(
 				promptAsked = Promise.resolve(recorded);
 			}
 		}
+		// A session that left a quest opened on that quest's work, so its
+		// first words would judge the quest's budget onto what comes next.
+		if (promptAsked === undefined && (beenOnQuest || wasOnQuest(ctx)))
+			return UNNAMED;
 		// Started only with a run to stop it, so Escape can end the wait: a
 		// keep at a session's start has none, and the prompt's keep asks.
 		if (promptAsked === undefined && prompt === undefined && !ctx.signal)
-			return null;
+			return UNNAMED;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const asked = promptAsked;
 		const byPrompt = await asked;
-		if (session !== sessions) return null;
+		if (session !== sessions) return UNNAMED;
 		if (asked === promptAsked) promptNamed = byPrompt;
-		return byPrompt;
+		return { name: byPrompt, judged: byPrompt !== null };
 	};
 
 	const judgeLoose = async (
@@ -491,10 +521,11 @@ export function keepQuestBudget(
 		const found = state.questId
 			? budgetInRecord(state.questsRoot, state.questId)
 			: undefined;
-		const name = state.questId
-			? (found?.name ?? null)
-			: await looseName(ctx, prompt);
-		if (ctx !== last) return pending;
+		const loose = state.questId ? undefined : await looseName(ctx, prompt);
+		const name = loose ? loose.name : (found?.name ?? null);
+		// A quest loaded while a loose answer was on its way settled its own
+		// budget, whether or not pi handed that keep this very context.
+		if (ctx !== last || (loose && state.questId)) return pending;
 		// A quest whose own word, or one above it, is none, as against one
 		// nothing names: what it starts keeps to that word.
 		const optedOut = found !== undefined && found.name === null;
@@ -503,7 +534,13 @@ export function keepQuestBudget(
 		const cappedOut =
 			capped !== undefined && wallNow() - capped.at >= CAPPED_HOLD_MS;
 		if (cappedOut) capped = undefined;
-		const same = name === wanted && optedOut === wantedOptedOut;
+		const questsOwn = !loose && !optedOut;
+		// Leaving a quest that named nothing changes whose word stands, so
+		// a none it set aside comes back, though the name is still none.
+		const same =
+			name === wanted &&
+			optedOut === wantedOptedOut &&
+			questsOwn === wantedQuestsOwn;
 		if (same && !redrawOwed && !due && !cappedOut) return pending;
 		// Due or not, a name missed before is a retry, so a capped key's hour
 		// running out doesn't start its backoff afresh.
@@ -511,11 +548,18 @@ export function keepQuestBudget(
 		redrawOwed = false;
 		wanted = name;
 		wantedOptedOut = optedOut;
+		wantedQuestsOwn = questsOwn;
 		missedAt = undefined;
 		const ask = ++asking;
 		// The hour out changes what calls draw on, so it is recorded even
 		// when the miss is the same as before.
-		pending = settle(ctx, name, ask, optedOut, retrying, cappedOut);
+		pending = settle(ctx, name, ask, {
+			optedOut,
+			retrying,
+			changed: cappedOut,
+			judged: loose?.judged ?? false,
+			questsOwn,
+		});
 		return pending;
 	};
 
@@ -523,13 +567,18 @@ export function keepQuestBudget(
 		ctx: ExtensionContext,
 		name: string | null,
 		ask: number,
-		optedOut = false,
-		retrying = false,
-		changed = false,
+		how: Settling,
 	) => {
+		const { optedOut, retrying, changed, judged } = how;
+		// A quest's own word stands over a none the session was started
+		// under, so what it starts doesn't keep to that none.
+		const ownWord = () => {
+			if (how.questsOwn) setAsideOptedOut(sessionEnv(ctx), processOverlay(ctx));
+		};
 		if (name === null) {
 			if (optedOut) layOptedOut(sessionEnv(ctx), processOverlay(ctx));
 			else liftBudget(sessionEnv(ctx), processOverlay(ctx));
+			ownWord();
 			// A capped key moves even work said to draw on none, for its hour.
 			layCapped(ctx);
 			recordDrawn(pi, ctx);
@@ -543,11 +592,13 @@ export function keepQuestBudget(
 				{ name, label: drawing.label, env: drawing.env },
 				processOverlay(ctx),
 			);
+			ownWord();
 			told.delete(name);
-			recordDrawn(pi, ctx, drawing);
+			recordDrawn(pi, ctx, { drawing, judged });
 			return;
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
+		ownWord();
 		const started = sessionEnv(ctx).snapshot();
 		const inherited = budgetDrawnOn(started);
 		// Started on the very budget the quest names, with its keys, the
@@ -578,7 +629,7 @@ export function keepQuestBudget(
 			} satisfies BudgetSettled);
 			return;
 		}
-		if (recordDrawn(pi, ctx, undefined, unresolved)) {
+		if (recordDrawn(pi, ctx, { unresolved, judged })) {
 			const namer = state.questId
 				? `quest ${state.questId}`
 				: "this session's folder or first prompt";
@@ -618,7 +669,7 @@ export function keepQuestBudget(
 		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
 		capped = { name, label: drawing.label, env: drawing.env, at: wallNow() };
 		layCapped(ctx);
-		recordDrawn(pi, ctx, drawing, undefined, why);
+		recordDrawn(pi, ctx, { drawing, because: why });
 		journal(`${questOf()} moves to budget ${name}, since ${why}`);
 		if (!saidCapped) {
 			saidCapped = true;
@@ -641,8 +692,10 @@ export function keepQuestBudget(
 	// A provider that registers late may know the name nothing did, or,
 	// for a session on no quest, the folder nothing named.
 	host.onRegistered(() => {
+		// Asked again even on a quest, for free, so a session that leaves
+		// it takes the folder's budget the provider now names.
+		folderAsked = undefined;
 		if (!state.questId) {
-			folderAsked = undefined;
 			// Only a judgement that answered none is asked again. A sure one
 			// stands, and so does one still on its way, rather than a paid one
 			// asked over it that a failure or a stop would take it off.
@@ -661,6 +714,7 @@ export function keepQuestBudget(
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
 		wantedOptedOut = false;
+		wantedQuestsOwn = false;
 		beenOnQuest = false;
 		missedAt = undefined;
 		missedWait = 0;
@@ -742,31 +796,44 @@ function firstPromptOf(ctx: ExtensionContext): string | undefined {
 function recordDrawn(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	drawing?: { readonly provider: string; readonly label: string },
-	unresolved?: UnresolvedBudget,
-	because?: string,
+	saying: {
+		readonly drawing?: { readonly provider: string; readonly label: string };
+		readonly unresolved?: UnresolvedBudget;
+		readonly because?: string;
+		/** Whether a judgement named the budget drawn on or missed. */
+		readonly judged?: boolean;
+	} = {},
 ): boolean {
+	const { drawing, unresolved, because } = saying;
 	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
 	pi.events.emit(BUDGET_SETTLED, settled);
+	const laid = drawing && name !== null;
+	const judged = (saying.judged ?? false) && (laid || unresolved !== undefined);
 	const last = lastRecordOn(branchOf(ctx));
 	if (
 		last?.name === name &&
 		last.unresolved?.budget === unresolved?.budget &&
 		last.unresolved?.missing === unresolved?.missing &&
-		(because === undefined || last.because === because)
+		(because === undefined || last.because === because) &&
+		(last.judged ?? false) === judged
 	)
 		return false;
-	const record: BudgetRecord =
-		drawing && name !== null
-			? {
-					v: 1,
-					name,
-					label: drawing.label,
-					provider: drawing.provider,
-					...(because ? { because } : {}),
-				}
-			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
+	const record: BudgetRecord = laid
+		? {
+				v: 1,
+				name,
+				label: drawing.label,
+				provider: drawing.provider,
+				...(because ? { because } : {}),
+				...(judged ? { judged: true as const } : {}),
+			}
+		: {
+				v: 1,
+				name,
+				...(unresolved ? { unresolved } : {}),
+				...(judged ? { judged: true as const } : {}),
+			};
 	pi.appendEntry(BUDGET_ENTRY, record);
 	return true;
 }
@@ -783,6 +850,22 @@ function carriesItsKeys(
 function waitAfter(wait: number): number {
 	if (wait < BUDGET_ASKED_AGAIN_MS) return BUDGET_ASKED_AGAIN_MS;
 	return Math.min(wait * 2, BUDGET_ASKED_AGAIN_MOST_MS);
+}
+
+/**
+ * The newest record on a branch whose budget a judgement named, or
+ * undefined when none was.
+ */
+function lastJudgedOn(
+	branch: Parameters<typeof lastRecordOn>[0],
+): BudgetRecord | undefined {
+	for (let at = branch.length - 1; at >= 0; at--) {
+		const entry = branch[at];
+		if (entry?.type !== "custom" || entry.customType !== BUDGET_ENTRY) continue;
+		const record = recordIn(entry.data);
+		if (record?.judged) return record;
+	}
+	return undefined;
 }
 
 /** The session's branch, or none where its manager can't say. */
