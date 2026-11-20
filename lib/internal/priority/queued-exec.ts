@@ -14,7 +14,7 @@
  * any other runs as it was.
  */
 
-import type { Exec } from "../../core/exec/index.ts";
+import type { Exec, Turn } from "../../core/exec/index.ts";
 import { queuedCommand } from "./turn.ts";
 
 /**
@@ -25,6 +25,22 @@ import { queuedCommand } from "./turn.ts";
  * honest work, and one that counts the wait must outlast both.
  */
 export const QUEUED_LIMIT_MS = 5 * 60 * 60 * 1000;
+
+/**
+ * How World's push gate, a pre-push hook taking pushes of World one at a
+ * time, says a push waits for another and that its turn came or it goes
+ * on without one, as its git passes on. The gate gives up waiting after
+ * 30 minutes; the longest a wait holds the clock leaves it 5 more.
+ *
+ * A push the queue didn't take runs on a clock of ten minutes, and on 20
+ * November five pushes waited at the gate behind one that hung for 25,
+ * so they timed out before their turn came (IKQ63G [d73f883a]).
+ */
+export const WORLD_PUSH_TURN: Turn = {
+	waits: "another push to World is running; this one waits its turn",
+	goes: ["its turn came after", "this one goes on", "this push goes on"],
+	longestMs: 35 * 60 * 1000,
+};
 
 /** A word the shell reads as it stands. */
 const PLAIN = /^[\w@%+=:,./-]+$/;

@@ -214,6 +214,15 @@ describe("a command that will not finish", () => {
 		expect(result.stdout).toBe("sent\n");
 	});
 
+	it("hears a wait said across two pieces of its output", async () => {
+		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+			"-c",
+			"printf 'gate: this one wai' >&2; sleep 0.2; printf 'ts its turn.\\n' >&2; sleep 1.2; echo 'gate: its turn came after 1 s' >&2; echo sent",
+		]);
+
+		expect(result.code, "a mark split between chunks is still a wait").toBe(0);
+	});
+
 	it("runs its clock again once its turn comes", async () => {
 		const started = Date.now();
 		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
@@ -230,17 +239,17 @@ describe("a command that will not finish", () => {
 
 	it("is stopped when one wait for its turn runs past the longest", async () => {
 		const started = Date.now();
+		// The run's clock is a backstop shorter than the test's own limit,
+		// so a wait nothing stops fails naming how it ended.
 		const result = await spawnExec({
-			timeoutMs: 5_000,
+			timeoutMs: 2_000,
 			turn: { ...TURN, longestMs: 300 },
 		})("sh", [
 			"-c",
 			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 30",
 		]);
 
-		expect(result.code, "a wait has a clock of its own").toBe(
-			EXIT_TIMED_OUT,
-		);
+		expect(result.code, "a wait has a clock of its own").toBe(EXIT_TIMED_OUT);
 		expect(result.stderr).toContain("waited its turn for over 300 ms");
 		expect(Date.now() - started).toBeLessThan(3000);
 	});
