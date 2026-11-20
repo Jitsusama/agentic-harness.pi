@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import verificationWorkflow from "../../../extensions/verification-workflow/index.ts";
+import { present } from "../../../extensions/verification-workflow/tree.ts";
 import {
 	clearLspBackends,
 	type Diagnostic,
@@ -530,6 +531,19 @@ describe("the verify tool", () => {
 		await verifyEndsMeanwhile(h, repo, "true");
 
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		// Not even kept unknown: only the footer tells the two apart.
+		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
+	}, 20_000);
+
+	it("keeps the failure of another project that ended meanwhile, as the last to end", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+
+		await verifyEndsMeanwhile(h, other, "exit 1");
+
+		const held = await currentVerificationFailure({ dir: other });
+		expect(held?.problems[0]).toContain(`exit 1 failed in ${other}`);
 	}, 20_000);
 
 	it("records a failure while a verify of another project ends", async () => {
@@ -623,6 +637,37 @@ describe("the verify tool", () => {
 		expect(held?.problems[0]).toContain("exit 1 failed in");
 	}, 20_000);
 
+	it("keeps a failed run while git fails to say what it sits on", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Failing as no commit yet never does: it says nothing of the tree.
+		gitThat("echo 'fatal: unable to read' >&2; exit 128", " HEAD^{tree} ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	});
+
+	it("keeps a failed run while git's status says too much to read", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Past the mebibyte a status may print.
+		gitThat("head -c 1100000 /dev/zero | tr '\\0' a; exit 0", " status ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(h.statuses.at(-1), "still said failing").toBeDefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	});
+
 	it("fingerprints a failing run's tree once", async () => {
 		repo = await projectRepo();
 		const h = await harness();
@@ -645,5 +690,48 @@ describe("the verify tool", () => {
 
 		await edit(h, join(tree, "fix.ts"));
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
+	});
+
+	it("outside git, holds back a commit whatever language git speaks", async () => {
+		const h = await harness();
+		const tree = project("plain");
+		h.questVerify = "exit 1";
+		// A git that answers in German unless asked for its own words.
+		gitThat(
+			'[ "$LC_ALL" = C ] || { echo "fatal: Kein Git-Repository" >&2; exit 128; }',
+			" --show-toplevel ",
+		);
+		const language = process.env.LC_ALL;
+		process.env.LC_ALL = "de_DE.UTF-8";
+		try {
+			await h.verify.execute("call", { path: tree }, undefined);
+		} finally {
+			if (language === undefined) delete process.env.LC_ALL;
+			else process.env.LC_ALL = language;
+		}
+
+		expect(await currentVerificationFailure({ dir: tree })).toBeDefined();
+	});
+});
+
+describe("whether a run's root is still there", () => {
+	it("is gone only once the disk says it isn't there", async () => {
+		const file = join(root, "file");
+		writeFileSync(file, "");
+
+		expect(await present(root), "a folder there").toBe(true);
+		expect(await present(join(root, "missing")), "nothing there").toBe(false);
+		expect(await present(join(file, "inner")), "under a file").toBe(false);
+	});
+
+	it("takes a root out of reach for now as still there", async () => {
+		const locked = join(root, "locked");
+		mkdirSync(join(locked, "inner"), { recursive: true });
+		chmodSync(locked, 0o000);
+		try {
+			expect(await present(join(locked, "inner")), "out of reach").toBe(true);
+		} finally {
+			chmodSync(locked, 0o755);
+		}
 	});
 });

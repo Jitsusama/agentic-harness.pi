@@ -9,6 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	commitCheck,
 	failureNow,
 	settle,
 } from "../../../extensions/verification-workflow/current.ts";
@@ -111,6 +112,25 @@ describe("a commit's check", () => {
 		expect(failure).toBeUndefined();
 		expect(asked, "fingerprints still asked").toHaveLength(0);
 		expect(judged?.run).not.toBe(newest);
+		expect(state.failedRun).toBe(newest);
+	});
+
+	it("settles a commit's outcome past the bound without asking git again", async () => {
+		state.outcome = "failing";
+		const checking = commitCheck(state, { dir: "/src/repo" }, undefined);
+		const newest = { ...NEXT, command: "pnpm lint" };
+		for (const next of [NEXT, { ...NEXT }, newest]) {
+			await gitAsked();
+			state.failedRun = next;
+			await gitSays("now");
+		}
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("now");
+		expect(await checking).toBeUndefined();
+		expect(after, "fingerprints asked after the bound").toBe(0);
+		expect(state.outcome).toBe("failing");
 		expect(state.failedRun).toBe(newest);
 	});
 
