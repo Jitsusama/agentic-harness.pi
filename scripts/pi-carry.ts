@@ -72,7 +72,11 @@ import {
 	handoverOf,
 	readHandover,
 } from "../lib/internal/carry/handover.ts";
-import { asksForHelp, CARRY_HELP } from "../lib/internal/carry/help.ts";
+import {
+	ASKED_WRONGLY,
+	asksForHelp,
+	CARRY_HELP,
+} from "../lib/internal/carry/help.ts";
 import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { carriedBy, tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
@@ -97,9 +101,6 @@ import { isParked } from "../lib/internal/session/park.ts";
 import { treeRecordDir } from "../lib/internal/work-records.ts";
 import { memoryDbPath, openMemoryStore } from "../lib/memory/index.ts";
 import { nodeMachine } from "../lib/mesh/steer-who.ts";
-
-/** What pi-carry exits with when it was asked wrongly. */
-const ASKED_WRONGLY = 2;
 
 /** A session's id as a done file's name may hold it. */
 const SESSION_ID = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;

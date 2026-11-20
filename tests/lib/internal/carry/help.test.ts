@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
+	ASKED_WRONGLY,
 	asksForHelp,
 	CARRY_HELP,
 } from "../../../../lib/internal/carry/help.ts";
@@ -36,7 +37,7 @@ describe("pi-carry's help", () => {
 	it("says each code it exits with, as the script gives them", () => {
 		expect(CARRY_HELP).toContain(
 			"It exits 0 when done, 1 when it couldn't do all it was asked, a line\n" +
-				"saying why, and 2 when asked wrongly.\n",
+				`saying why, and ${ASKED_WRONGLY} when asked wrongly.\n`,
 		);
 	});
 

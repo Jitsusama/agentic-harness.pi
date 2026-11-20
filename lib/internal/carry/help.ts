@@ -3,12 +3,18 @@
  * before any of the person's state so its help answers on any machine.
  */
 
+/**
+ * What pi-carry exits with when it was asked wrongly, which its help
+ * says and mycelium's settle reads as a pi-carry that can't settle.
+ */
+export const ASKED_WRONGLY = 2;
+
 /** What `pi-carry --help` says, each line within 72 columns. */
 export const CARRY_HELP = `pi-carry carries a quest's work from one of the person's machines
 to another, as \`mycelium carry\` asks it. A carry, an arrival and a
-settling print a JSON line for each thing they do. Where and fence
-print a bare answer, fence nothing for a session that runs unfenced,
-and say why they couldn't on stderr.
+settling print a JSON line for each thing they do, as every form does
+when asked wrongly. Where and fence print a bare answer, fence's off
+for a session that runs unfenced, and say on stderr why they couldn't.
 
 Usage:
   pi-carry QUEST --to MACHINE
@@ -31,7 +37,7 @@ Forms:
 A value starting with a dash goes in one word, as --why=-h.
 
 It exits 0 when done, 1 when it couldn't do all it was asked, a line
-saying why, and 2 when asked wrongly.
+saying why, and ${ASKED_WRONGLY} when asked wrongly.
 `;
 
 /**
