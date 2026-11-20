@@ -176,7 +176,8 @@ describe("what a run proves", () => {
 
 describe("a lent run's log", () => {
 	const COMMIT = "1d7d61247a65f01e7b774a00faec0a4ae70d7b23";
-	const RUNTIME = "/nix/store/52jr2rxrgkgl47wa7ymz93ff5ximyn8z-pi-host-runtime-1.5.0";
+	const RUNTIME =
+		"/nix/store/52jr2rxrgkgl47wa7ymz93ff5ximyn8z-pi-host-runtime-1.5.0";
 	const report = JSON.stringify(passed);
 
 	const SCRIPTS = join(import.meta.dirname, "../../../scripts");
@@ -184,13 +185,15 @@ describe("a lent run's log", () => {
 	const ENDS = (exit: number) => `${STARTS} exited ${exit}`;
 
 	/** A log as host-test-there saves one, from its lines in order. */
-	function log(
-		{
-			starts = STARTS,
-			ends = ENDS(0),
-			between = report,
-		}: { starts?: string; ends?: string; between?: string } = {},
-	): string {
+	function log({
+		starts = STARTS,
+		ends = ENDS(0),
+		between = report,
+	}: {
+		starts?: string;
+		ends?: string;
+		between?: string;
+	} = {}): string {
 		return [
 			"host-send-runtime: nix-offload already holds what it needs",
 			starts,
@@ -206,9 +209,10 @@ describe("a lent run's log", () => {
 
 	it("proves what the report host-run printed proves, carriage returns or not", () => {
 		expect(judgedLog(log(), COMMIT, RUNTIME)).toEqual({ files: 14, cases: 71 });
-		expect(
-			judgedLog(log().replaceAll("\n", "\r\n"), COMMIT, RUNTIME),
-		).toEqual({ files: 14, cases: 71 });
+		expect(judgedLog(log().replaceAll("\n", "\r\n"), COMMIT, RUNTIME)).toEqual({
+			files: 14,
+			cases: 71,
+		});
 	});
 
 	it("proves nothing when the run exited other than 0", () => {
@@ -276,13 +280,14 @@ describe("a lent run's log", () => {
 
 	it("reads host-test-there.sh's own start and end lines", () => {
 		const script = readFileSync(join(SCRIPTS, "host-test-there.sh"), "utf8");
-		const said = [...script.matchAll(/echo "(host-test-there: test:host at [^"]*)"/g)]
-			.map(([, line = ""]) =>
-				line
-					.replace("$rev", COMMIT)
-					.replace("$runtime", RUNTIME)
-					.replace("$status", "0"),
-			);
+		const said = [
+			...script.matchAll(/echo "(host-test-there: test:host at [^"]*)"/g),
+		].map(([, line = ""]) =>
+			line
+				.replace("$rev", COMMIT)
+				.replace("$runtime", RUNTIME)
+				.replace("$status", "0"),
+		);
 		expect(said).toEqual([STARTS, ENDS(0)]);
 	});
 
@@ -296,9 +301,9 @@ describe("a lent run's log", () => {
 			pnpm,
 			[
 				"#!/usr/bin/env bash",
-				'[[ $1 == install ]] && exit 0',
+				"[[ $1 == install ]] && exit 0",
 				'for word in "$@"; do',
-				'  [[ $word == --outputFile.json=* ]] && printf %s "$REPORT" > "${word#*=}"',
+				`  [[ $word == --outputFile.json=* ]] && printf %s "$REPORT" > "\${word#*=}"`,
 				"done",
 				"echo suite ran",
 				"exit 3",

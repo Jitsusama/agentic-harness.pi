@@ -156,9 +156,7 @@ const RUN_STARTS = /^host-test-there: test:host at (\S+) on (\S+)$/;
 const RUN_ENDS = /^host-test-there: test:host at (\S+) on (\S+) exited (\d+)$/;
 
 /** What a run's JSON report proves, or why it proves nothing. */
-export function judgedReport(
-	text: string,
-): ReturnType<typeof provenBy> {
+export function judgedReport(text: string): ReturnType<typeof provenBy> {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
@@ -198,7 +196,11 @@ export function judgedLog(
 		return "the log holds no start and end lines from host-test-there";
 	if ([starts, ends, follows, over].some((found) => found.length > 1))
 		return "the log holds more than one run";
-	if (from === undefined || to === undefined || !(start < from && from < to && to < end))
+	if (
+		from === undefined ||
+		to === undefined ||
+		!(start < from && from < to && to < end)
+	)
 		return "the log holds no whole report inside its run";
 	const [, ranCommit, ranRuntime] = RUN_STARTS.exec(lines[start] ?? "") ?? [];
 	const [, endCommit, endRuntime, exit] = RUN_ENDS.exec(lines[end] ?? "") ?? [];
