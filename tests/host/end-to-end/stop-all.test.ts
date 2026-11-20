@@ -43,6 +43,18 @@ const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
 
 /** How long Joel's stop all waits for every session to park. */
 const PARKING_MS = 60_000;
+/**
+ * The harness's parking clock, which parks an idle session on its tick
+ * and carries on a cut one on its tick after the resume.
+ */
+const CLOCK_MS = 10_000;
+/** How soon an idle session parks: two ticks, so a late first one passes. */
+const IDLE_PARKS_MS = 2 * CLOCK_MS;
+/**
+ * The most any other step is given, so the steps' budgets add up to less
+ * than the case's and a slow step names itself rather than the case.
+ */
+const STEP_MS = 40_000;
 /** How long a parked session is given to start a run it must not. */
 const NOTHING_STARTS_MS = 15_000;
 /** What a tool call answers when its run was ended before it ran. */
@@ -127,13 +139,24 @@ it(
 			});
 			const files = () =>
 				`busy: ${textOf(busy.file)}\nidle: ${textOf(idle.file)}`;
-			await untilAnswered("the busy conversation is in its tool", async () =>
-				textOf(busy.file).includes(WAITING),
+			await untilAnswered(
+				"the busy conversation is in its tool",
+				async () => textOf(busy.file).includes(WAITING),
+				STEP_MS,
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${files()}`);
 			});
 
 			await stopAll(false);
+			await untilAnswered(
+				"the idle one parks within two of the clock's ticks",
+				async () => parked().includes(idle.sessionId),
+				IDLE_PARKS_MS,
+			).catch((error: unknown) => {
+				throw new Error(
+					`${String(error)}: parked ${JSON.stringify(parked())}\n${files()}`,
+				);
+			});
 			await untilAnswered(
 				"both conversations park within the minute stop all waits",
 				async () =>
@@ -157,6 +180,7 @@ it(
 			await untilAnswered(
 				"Joel's words to the idle one still run, and its spawn is refused",
 				async () => toolAnswer(idle.file, "quest") !== undefined,
+				STEP_MS,
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${files()}`);
 			});
@@ -172,6 +196,7 @@ it(
 				"the busy one is handed the idle one's question",
 				async () =>
 					/Mesh message \[[0-9a-f]+\] \(question\)/.test(textOf(busy.file)),
+				STEP_MS,
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${files()}`);
 			});
@@ -189,16 +214,21 @@ it(
 			await untilAnswered(
 				"the one whose run the stop ended carries on, told Joel resumed",
 				async () => textOf(busy.file).includes(RESUMED),
+				STEP_MS,
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${files()}`);
 			});
+			// Each session carries on at its own tick, so the idle one is given
+			// one whole tick past the busy one's before it is said to stay idle.
+			await pause(CLOCK_MS + 2_000);
 			expect(
 				textOf(idle.file),
 				"the one the stop found idle is left idle by the resume",
 			).not.toContain(RESUMED);
 		});
 	},
-	// A host's start, two opens, a tool that waits, a minute's parking,
-	// the time given to a run that mustn't start, and the resume.
+	// A host's start and two opens, then four steps of STEP_MS, the idle
+	// park's two ticks, a minute's parking, the time given to a run that
+	// mustn't start, and a tick past the resume: 267 s, inside 360.
 	ROUND_TRIP_MS * 4,
 );
