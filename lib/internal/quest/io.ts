@@ -205,16 +205,15 @@ function wrote(path: string): void {
 }
 
 /**
- * The quest whose folder holds `path`: the nearest folder on it named
- * as a quest. A path in none, as a session's record, is in no quest.
+ * The quest folder that holds `path`: the outermost folder on it named
+ * as a quest, which is the quests root's entry discovery reads again,
+ * even for a quest misplaced inside another. A path in none, as a
+ * session's record, is in no quest.
  */
 function questOf(path: string): string | undefined {
-	const parts = path.split(sep);
-	for (let at = parts.length - 1; at >= 0; at--) {
-		const part = parts[at] ?? "";
-		if (isId(part) && prefixOf(part) === "QEST") return part;
-	}
-	return undefined;
+	return path
+		.split(sep)
+		.find((part) => isId(part) && prefixOf(part) === "QEST");
 }
 
 /**

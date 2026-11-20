@@ -89,8 +89,10 @@ export function followSessionLife(
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
 	pi.on("session_start", async (event, ctx) =>
 		withDiscoveryHeld(() => {
-			// What a start restores and records rests on its quest as it is.
-			refreshQuests(state.questsRoot, [state.questId]);
+			// What a start restores and records rests on its quest as it is:
+			// the one it had, here, and the one it resolves, once chosen.
+			const had = state.questId;
+			refreshQuests(state.questsRoot, [had]);
 			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 			stayedBecause = undefined;
 			// What this session journals is its own, for its own undo.
@@ -139,6 +141,9 @@ export function followSessionLife(
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
 			resolveStartup(state, pi, ctx);
+			if (state.questId !== had) {
+				refreshQuests(state.questsRoot, [state.questId]);
+			}
 			// Asked now, waited on before the first model call
 			// (before_agent_start, in turns.ts).
 			budgets.keep(ctx).catch(() => {

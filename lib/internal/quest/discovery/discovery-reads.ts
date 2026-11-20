@@ -316,6 +316,27 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 }
 
 /**
+ * Hash a quest's README and documents into `pass` as a signing would,
+ * so a walk of the quest alone reuses the record of each whose stat
+ * still vouches for it rather than reading and parsing it again.
+ */
+export function vouchQuestFiles(questDir: string, pass: Pass): void {
+	const vouch = (path: string): void => {
+		try {
+			contentHash(path, pass);
+		} catch {
+			// Missing or unreadable: the walk finds it so and says why.
+		}
+	};
+	vouch(join(questDir, "README.md"));
+	for (const subdir of CANONICAL_DOCUMENT_DIRS) {
+		for (const doc of kindEntries(questDir, subdir, pass) ?? []) {
+			if (doc.isFile()) vouch(join(questDir, subdir, doc.name));
+		}
+	}
+}
+
+/**
  * A file's content hash: as a signing off the thread found it, else
  * from its stamp when the stat still vouches, else from its bytes.
  */

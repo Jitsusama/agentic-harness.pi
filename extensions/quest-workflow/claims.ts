@@ -15,6 +15,7 @@
  * side importing the other.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -53,23 +54,34 @@ import {
  * the asker's {@link TreeClaims.untilSpent} when it offers that list,
  * and are held for good only by an asker that doesn't.
  *
- * The asker hears the claims as the event fires, so they come from each
- * store's last walk, as a host brings it up to date between signings:
- * a tree another process listed in the last few seconds can go
- * unclaimed. A sweep takes only a tree that is clean and in trunk, or
- * pushed and left a day, so a tree cut that recently loses nothing.
+ * The claims come at once from each store's last walk, which on a host
+ * may predate another process's change by as long as nobody asked. An
+ * asker that offers {@link TreeClaims.answering} waits as well on each
+ * store signed afresh off the thread, whose trees are added when it
+ * ends; one that doesn't hears only the last walk.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
 		const into = claims.untilSpent ?? claims.paths;
-		const walks = storesOf(questsRoot).map((store) => discoverQuests(store));
-		for (const entry of liveQuests(walks)) {
-			for (const tree of entry.doc.frontMatter.trees ?? []) {
-				into.push(tree.path);
-			}
-		}
+		const stores = storesOf(questsRoot);
+		claimFrom(
+			stores.map((store) => discoverQuests(store)),
+			into,
+		);
+		claims.answering?.push(
+			Promise.all(stores.map(signed)).then((walks) => claimFrom(walks, into)),
+		);
 	});
+}
+
+/** Push every tree a live quest in `walks` lists onto `into`. */
+function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
+	for (const entry of liveQuests(walks)) {
+		for (const tree of entry.doc.frontMatter.trees ?? []) {
+			into.push(tree.path);
+		}
+	}
 }
 
 /**
@@ -77,15 +89,26 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
  * its folder is gone and a recut at its branch makes a new one. Logged
  * by the sweep itself, with the branch and the sessions that used it.
  * What it writes rests on which quests list a tree now, so it waits on
- * each store signed afresh, off a host's thread.
+ * each store signed afresh, off a host's thread. Nothing awaits it, so
+ * whatever goes wrong is said on stderr, never thrown: an unheard
+ * rejection ends the process, and on a host every conversation in it.
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
-		void forgetTaken(questsRoot, new Set((data as SweptTrees).paths));
+		const taken = new Set((data as SweptTrees).paths);
+		forgetTaken(questsRoot, taken).catch((error: unknown) => {
+			sayForgetFailed("any quest", error);
+		});
 	});
 }
 
-/** Drop each tree in `taken` from every live quest that lists it. */
+/**
+ * Drop each tree in `taken` from every live quest that lists it, each
+ * quest's write on its own, so one quest's locked or vanished folder
+ * leaves the rest forgetting. A tree whose folder is back by the time
+ * the walk ends was cut again at its path while the quest was signed,
+ * so it stays listed.
+ */
 async function forgetTaken(
 	questsRoot: string,
 	taken: ReadonlySet<string>,
@@ -94,11 +117,26 @@ async function forgetTaken(
 	for (const store of storesOf(questsRoot)) walks.push(await signed(store));
 	for (const entry of liveQuests(walks)) {
 		for (const tree of entry.doc.frontMatter.trees ?? []) {
-			if (!taken.has(tree.path)) continue;
-			removeTreeFromQuest(entry.dir, tree.path);
-			setPendingPrune(entry.dir, null, { clearPath: tree.path });
+			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
+			try {
+				removeTreeFromQuest(entry.dir, tree.path);
+				setPendingPrune(entry.dir, null, { clearPath: tree.path });
+			} catch (error) {
+				sayForgetFailed(entry.doc.frontMatter.id, error);
+			}
 		}
 	}
+}
+
+/**
+ * Say on stderr, a host's journal, that a swept tree stays listed in
+ * `where`, which claims a folder that is gone until its quest prunes it.
+ */
+function sayForgetFailed(where: string, error: unknown): void {
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`[quest-workflow] couldn't forget swept trees in ${where}: ${why}\n`,
+	);
 }
 
 /**

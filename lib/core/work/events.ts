@@ -81,6 +81,14 @@ export interface TreeClaims {
 	 * never heard of it holds them for good.
 	 */
 	untilSpent?: string[];
+	/**
+	 * Offered by an asker that can wait: a holder whose quick answer may
+	 * be out of date pushes a promise here that ends once it has written
+	 * its up-to-date answer into {@link paths} or {@link untilSpent}, and
+	 * the asker reads them only after every one has settled. A holder
+	 * finding it missing answers from what it knows already.
+	 */
+	answering?: Promise<unknown>[];
 }
 
 /**

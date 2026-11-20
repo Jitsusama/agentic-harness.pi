@@ -92,13 +92,14 @@ export interface SweepDeps extends UseSigns {
 	memory: TreeMemory;
 	/**
 	 * Paths something else says it wants, such as a quest's trees, held
-	 * for good or only until spent, or how to ask for them. Asked only once the sweep holds its lock and isn't
-	 * resting, since asking can be dear: a quest answers by signing its
-	 * whole tree, on a host's shared thread, and sixty conversations'
+	 * for good or only until spent, or how to ask for them, which may be
+	 * waited on. Asked only once the sweep holds its lock and isn't
+	 * resting, since asking can be dear: a quest answered by signing its
+	 * whole tree on a host's shared thread, and sixty conversations'
 	 * first sweeps asking at once held a host's thread past its watchdog
 	 * on 18 November, though all but one of them then skipped.
 	 */
-	claims: SweepClaims | (() => SweepClaims);
+	claims: SweepClaims | (() => SweepClaims | Promise<SweepClaims>);
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
 	/**
@@ -228,7 +229,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		// Asked at once, before any wait, so a conversation that closes
 		// while the sweep runs has already said what its quests hold.
 		const asked =
-			typeof deps.claims === "function" ? deps.claims() : deps.claims;
+			typeof deps.claims === "function" ? await deps.claims() : deps.claims;
 		const claims = "held" in asked ? asked.held : asked;
 		const untilSpent = "held" in asked ? asked.untilSpent : [];
 		const facts = deps.facts ?? systemFacts;

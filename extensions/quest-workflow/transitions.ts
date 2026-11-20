@@ -20,7 +20,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/process/async-mutex.ts";
-import { refreshQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+import { readyQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import { sayConcluded } from "../../lib/internal/quest/fields/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/fields/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
@@ -120,13 +120,18 @@ export function handle(
 			const actedOn = targetsOf(state, params);
 			// What an action reads decides what it writes, so on a host it
 			// reads the quests it names as they stand, not as a walk a few
-			// seconds old found them; the rest of the tree, as that walk did.
-			refreshQuests(state.questsRoot, [
-				...actedOn,
-				state.questId,
-				...idsNamed(params.parent),
-				...idsNamed(params.target),
-			]);
+			// seconds old found them, and waits on the whole tree signed
+			// afresh when what it writes rests on others too.
+			await readyQuests(
+				state.questsRoot,
+				[
+					...actedOn,
+					state.questId,
+					...idsNamed(params.parent),
+					...idsNamed(params.target),
+				],
+				!NAMED_ONLY.has(params.action),
+			);
 			const result = await dispatch(state, pi, ctx, params, signal);
 			tellConcluded(pi, params, actedOn, result);
 			tellLanded(pi, params, result);
@@ -135,6 +140,59 @@ export function handle(
 		{ signal },
 	);
 }
+
+/**
+ * The actions that write only the quests and documents they name, or
+ * write nothing: each other reads quests it doesn't name to decide what
+ * it writes, as a rank among siblings, a parent's cycle check, or a
+ * quest's children before it is sealed. A listing writes nothing, so it
+ * answers the last walk, at most a minute old, with the quests it names
+ * read again.
+ */
+const NAMED_ONLY: ReadonlySet<string> = new Set([
+	"load",
+	"unload",
+	"show",
+	"status",
+	"config",
+	"focus",
+	"unfocus",
+	"journal",
+	"tick",
+	"untick",
+	"section",
+	"retitle",
+	"need-add",
+	"need-remove",
+	"budget",
+	"think",
+	"draft",
+	"build",
+	"alias-add",
+	"alias-remove",
+	"tree-add",
+	"tree-adopt",
+	"tree-list",
+	"tree-release",
+	"tree-expand",
+	"expand",
+	"session-attach",
+	"session-detach",
+	"session-rename",
+	"spawn",
+	"spawn-tab",
+	"spawn-pane",
+	"spawn-window",
+	"list",
+	"tree",
+	"find",
+	"who",
+	"links",
+	"locate",
+	"ancestors",
+	"sessions",
+	"recent",
+]);
 
 /** What a call acts on: the ids it names, else the focused document or quest. */
 function targetsOf(state: QuestState, params: QuestToolParams): string[] {

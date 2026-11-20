@@ -133,8 +133,9 @@ async function treesLeftBehind(
 	// The person asked for this survey, so a tree a quest holds only
 	// while it is still work is held here all the same: only the
 	// unattended sweep spends them.
-	const claims: TreeClaims = { paths: [], untilSpent: [] };
+	const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
+	await Promise.all(claims.answering ?? []);
 
 	const unattributed = new Set(broker.unattributed().map((one) => one.path));
 	// A record's owners name processes, and a session resumed in a new one
