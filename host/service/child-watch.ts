@@ -157,14 +157,21 @@ export interface ChildWatch extends Watched {
  * or connects but gives no answer within `answersWithinMs`, since a
  * child that never answers would otherwise hold its caller for good.
  * A line it can't read is passed over, apart from a became, which ends
- * the watch as failed, and an ending, taken as a park.
+ * the watch as failed, and an ending, taken as a park. An abort of
+ * `signal` before the child answers rejects with its reason and lets
+ * the connection go, so nothing the child says after is heard.
  */
 export function watchChild(
 	socket: string,
 	answersWithinMs: number,
 	watcher: ChildWatcher,
+	signal?: AbortSignal,
 ): Promise<ChildWatch> {
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(signal.reason);
+			return;
+		}
 		const connection = createConnection(socket);
 		const frames = jsonLines(WATCH_FRAME_BYTES);
 		let answered = false;
@@ -180,8 +187,16 @@ export function watchChild(
 			over = true;
 			connection.destroy();
 			finished();
+			signal?.removeEventListener("abort", abandoned);
 			if (answered) watcher.ended(why);
 		}
+		// Answered, a watch is ended by its close instead.
+		function abandoned() {
+			if (answered) return;
+			reject(signal?.reason);
+			end("failed");
+		}
+		signal?.addEventListener("abort", abandoned, { once: true });
 		connection.on("connect", () => {
 			connection.write(
 				`${JSON.stringify({ v: 1, id: "watch", op: "watch" })}\n`,
@@ -204,6 +219,7 @@ export function watchChild(
 						const first = watched.parse(reply.result);
 						clearTimeout(unanswered);
 						answered = true;
+						signal?.removeEventListener("abort", abandoned);
 						watcher.watched(first);
 						resolve({
 							...first,
