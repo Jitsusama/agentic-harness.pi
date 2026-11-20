@@ -88,16 +88,21 @@ describe("a commit's check", () => {
 		expect(state.failedRun).toBe(NEXT);
 	});
 
-	// Three asks bound a check that verifies keep overtaking; the newest
-	// is left for the next ask rather than chased.
-	it("holds a commit from below a failed run's root when git names no repository", async () => {
+	it("holds no commit on a guess about a run above a folder git was silent on", async () => {
+		// It may be another repository's, as a submodule's parent is.
 		git.top = undefined;
 		const checking = failureNow(state, { dir: "/src/repo/lib" }, undefined);
-		await gitSays("judged");
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a guess fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("judged");
 		const { failure } = await checking;
-		expect(failure?.problems[0]).toContain("pnpm check failed");
+		expect(failure).toBeUndefined();
+		expect(after, "fingerprints asked").toBe(0);
 	});
 
+	// Three asks bound a check that verifies keep overtaking; the newest
+	// then holds the commit as it was recorded, without asking git again.
 	it("holds the commit on the newest run after three recorded meanwhile", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		const newest = { ...NEXT, command: "pnpm lint" };
@@ -106,9 +111,13 @@ describe("a commit's check", () => {
 			state.failedRun = next;
 			await gitSays("now");
 		}
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("now");
 		const { failure, judged } = await checking;
-		expect(failure?.problems[0]).toContain("pnpm lint failed");
-		expect(asked, "fingerprints still asked").toHaveLength(0);
+		expect(failure?.problems[0]).toMatch(/pnpm lint failed .* while this/);
+		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(judged?.run).not.toBe(newest);
 		expect(state.failedRun).toBe(newest);
 	});
@@ -126,10 +135,25 @@ describe("a commit's check", () => {
 		const after = asked.length;
 		// Answer any it asked, so a failing count fails rather than hangs.
 		for (const answer of asked.splice(0)) answer("now");
-		expect((await checking)?.problems[0]).toContain("pnpm lint failed");
+		expect((await checking)?.problems[0]).toMatch(
+			/pnpm lint failed .* while this/,
+		);
 		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(state.outcome).toBe("failing");
 		expect(state.failedRun).toBe(newest);
+	});
+
+	it("holds no commit past the bound on a newest run outside its project", async () => {
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		const elsewhere = { ...NEXT, root: "/src/other" };
+		for (const next of [NEXT, { ...NEXT }, elsewhere]) {
+			await gitAsked();
+			state.failedRun = next;
+			await gitSays("now");
+		}
+		const { failure } = await checking;
+		expect(failure).toBeUndefined();
+		expect(state.failedRun).toBe(elsewhere);
 	});
 
 	it("holds nothing back for a run cleared while git answered", async () => {
