@@ -218,15 +218,32 @@ packages and the settings that start a program (project-code.ts). A
 fenced command could write them into any folder under a trusted one,
 and the next build or reload would run them unfenced. So the host pins
 each folder's code, by its contents, in project-code.json in pi's agent
-folder, which the sandbox holds read-only. Code there at the host's
-first look is pinned as found, by its files' ctime, which nothing in
-userspace can set back. New or changed code asks an attended start's
-screen first (Load it, as you would any program you run?), and a yes
-pins it; unattended, or at a later load, the folder loads untrusted and
-the journal says why. Every load begins with pi reloading the settings,
-so the check runs there, before a reload's resources too. Skills,
-prompts and themes are words pi reads, and stay under pi's trust alone.
-A plain pi outside the host doesn't check the pins.
+folder, which the sandbox holds read-only. Once a .pi holds code, every
+file in it counts, since an extension may run what a file beside it
+says, as are the files its settings name as extensions or packages,
+wherever they are; skills, prompts, themes and the system prompt files
+are words pi reads, and stay under pi's trust alone. Code there at the
+host's first look is pinned as found, by its files' ctime, which
+nothing in userspace can set back. Code once allowed loads in any
+folder that holds the same, so a new tree of the same branch doesn't
+ask. New or changed code asks an attended start's screen first (Load
+it, as you would any program you run?), and a yes pins it, unless the
+code changed while the question waited. Unattended, or at a later
+load, the folder loads untrusted and the journal says why, and a
+reload trusts it again once its code is pinned again. Every load
+begins with pi reloading the settings, so the check runs there, before
+a reload's resources too. A .pi too large to check (past 10,000
+entries or 64 MiB) never loads its code; pins that can't be read pin
+nothing; and a folder pi doesn't ask trust for, or that the person
+said not to trust, is never asked about.
+
+What the pins don't cover: code outside .pi that pinned code imports
+or runs, such as a linter an extension starts from the repository; a
+change between the check and pi's reading of the file; two hosts
+writing the pins at once, where the last write wins; the hand-kept
+lists of pi's code entries and code settings, which a new pi may
+outgrow; and a plain pi outside the host, which doesn't check the
+pins.
 
 An open answers once its first words are durable, so a failed prompt
 fails the open, except while something waits on the person no viewer can

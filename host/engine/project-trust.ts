@@ -10,13 +10,18 @@
  * conversation's screen, and with nobody there the folder loads
  * untrusted. The check runs again before each load of the folder's
  * resources, a reload's included, so code written between loads waits
- * for a yes too.
+ * for a yes too, and a folder dropped for changed code is trusted again
+ * once its code is pinned again. A folder that holds nothing pi asks
+ * trust for, or that the person said not to trust, loads none of its
+ * code whatever it holds, so its code isn't checked or asked about.
  */
 import type { HostPiModules } from "./host-pi.ts";
 import {
 	type CodeStanding,
 	codeStanding,
 	pin,
+	projectCode,
+	startPins,
 	unpinnedSaying,
 } from "./project-code.ts";
 
@@ -104,15 +109,23 @@ export function projectTrust(
 		services(cwd, agentDir, asking) {
 			const store = new pi.ProjectTrustStore(agentDir);
 			const requiring = pi.hasTrustRequiringProjectResources(cwd);
-			const standing = codeStanding(cwd, agentDir);
+			const untrusted = store.get(cwd) === false;
+			startPins(agentDir);
+			const standing: CodeStanding =
+				requiring && !untrusted
+					? codeStanding(cwd, agentDir)
+					: { kind: "none" };
 			const answered = decisionKey(cwd, standing);
 			const known = decided.get(answered);
 			const unpinned = standing.kind === "unpinned";
-			// New code with nobody to ask stays out, whatever the folder's trust.
-			const refused = unpinned && asking.ask === undefined;
+			// New code with nobody to ask, or too large to check, stays out, whatever the folder's trust.
+			const refused =
+				unpinned && (asking.ask === undefined || !standing.code.complete);
 			if (refused)
 				asking.warn(
-					`${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: nobody is at this conversation to allow it. Open a conversation there with a screen to be asked.`,
+					standing.code.complete
+						? `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: nobody is at this conversation to allow it. Open a conversation there with a screen to be asked.`
+						: `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded.`,
 				);
 			const resolving = !refused && known === undefined && requiring;
 			const projectTrusted =
@@ -121,7 +134,14 @@ export function projectTrust(
 			const settingsManager = pi.SettingsManager.create(cwd, agentDir, {
 				projectTrusted,
 			});
-			guardLoads(settingsManager, cwd, agentDir, asking);
+			guardLoads(
+				settingsManager,
+				cwd,
+				agentDir,
+				asking,
+				() =>
+					pi.hasTrustRequiringProjectResources(cwd) && store.get(cwd) !== false,
+			);
 			if (!resolving) return { settingsManager };
 			const defaultProjectTrust = pi.SettingsManager.create(
 				cwd,
@@ -135,6 +155,14 @@ export function projectTrust(
 							const allowed = await allowCode(cwd, standing, asking);
 							if (!allowed) {
 								decided.set(answered, false);
+								return false;
+							}
+							// The yes was for the code shown: code that changed while the question waited loads only after one of its own.
+							const now = projectCode(cwd);
+							if (now?.digest !== standing.code.digest) {
+								asking.warn(
+									`${cwd}'s .pi code changed while you were asked, so this conversation leaves out its own .pi settings and extensions. Open another there to be asked about it as it is now.`,
+								);
 								return false;
 							}
 							pin(cwd, agentDir, standing.code);
@@ -189,24 +217,39 @@ async function allowCode(
 /**
  * Check the folder's code again before each load of its settings and
  * resources, which pi always begins by reloading the settings: a folder
- * whose code changed since it loaded drops to untrusted for this
- * conversation, said once, rather than load the change unasked.
+ * whose code changed since it loaded drops to untrusted for this load,
+ * said once for each change, rather than load the change unasked. Once
+ * its code is pinned again, by a yes in another conversation or by
+ * changing back, the next load trusts it again, since the drop was the
+ * guard's and not the person's.
  */
 function guardLoads(
 	settingsManager: SettingsManager,
 	cwd: string,
 	agentDir: string,
 	asking: TrustAsking,
+	checked: () => boolean,
 ): void {
 	const reload = settingsManager.reload.bind(settingsManager);
+	let dropped = false;
+	let said: string | undefined;
 	settingsManager.reload = async () => {
-		if (settingsManager.isProjectTrusted()) {
-			const standing = codeStanding(cwd, agentDir);
+		if (settingsManager.isProjectTrusted() || dropped) {
+			const standing: CodeStanding = checked()
+				? codeStanding(cwd, agentDir)
+				: { kind: "none" };
 			if (standing.kind === "unpinned") {
 				settingsManager.setProjectTrusted(false);
-				asking.warn(
-					`${unpinnedSaying(cwd, standing.code)}, so this load leaves out its own .pi settings and extensions. Open a conversation there with a screen to be asked.`,
-				);
+				dropped = true;
+				if (said !== standing.code.digest)
+					asking.warn(
+						`${unpinnedSaying(cwd, standing.code)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there with a screen to be asked; this one picks it up at its next reload.`,
+					);
+				said = standing.code.digest;
+			} else if (dropped) {
+				settingsManager.setProjectTrusted(true);
+				dropped = false;
+				said = undefined;
 			}
 		}
 		return reload();

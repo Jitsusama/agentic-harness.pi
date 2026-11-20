@@ -1134,44 +1134,68 @@ const scenarios: Record<string, Scenario> = {
 	},
 	/**
 	 * Code planted in trusted folders after the host first looked: one
-	 * opened with nobody to ask, one beside code the host found there and
-	 * then reloaded, and one whose screen is asked and allows it.
+	 * opened with nobody to ask; one beside code the host found there,
+	 * reloaded, then reloaded again once the planted file is gone; one
+	 * whose screen is asked and allows it; one whose screen says no; and
+	 * one whose code changes while its screen is asked, then says yes.
 	 */
 	"planted-code": {
 		responses: () => [],
 		screens: trustScreens,
 		run: async (engine, host) => {
 			const foundDir = project("found");
-			const plantedDir = emptyProject("planted");
-			const askedDir = emptyProject("asked");
+			const names = ["planted", "asked", "refused", "swapped"] as const;
+			const [plantedDir, askedDir, refusedDir, swappedDir] = names.map((name) =>
+				emptyProject(name),
+			);
+			if (!plantedDir || !askedDir || !refusedDir || !swappedDir)
+				throw new Error("Every project folder should be made");
 			writeFileSync(
 				join(agentDir, "trust.json"),
-				JSON.stringify({
-					[foundDir]: true,
-					[plantedDir]: true,
-					[askedDir]: true,
-				}),
+				JSON.stringify(
+					Object.fromEntries(
+						[foundDir, plantedDir, askedDir, refusedDir, swappedDir].map(
+							(dir) => [dir, true],
+						),
+					),
+				),
 			);
 			const found = await open(engine, {}, { cwd: foundDir });
-			project("planted");
-			project("asked");
+			for (const name of names) project(name);
 			const planted = await open(engine, {}, { cwd: plantedDir });
 			projectExtension(foundDir, "beside", "found beside");
 			const runtime = engine.view(found)?.runtime;
 			if (!runtime) throw new Error("The found conversation has no runtime");
 			await runtime.session.reload();
-			const asked = await open(engine, {}, { cwd: askedDir, attended: true });
-			await until(
-				"the asked conversation's screen to be asked",
-				() => trustAsked.length > 0,
-				UNTIL_MS,
-			);
+			rmSync(join(foundDir, ".pi", "extensions", "beside.ts"));
+			await runtime.session.reload();
+			/** Open `dir` with a screen, and give its question `answer` once `meanwhile` has run. */
+			const answered = async (
+				dir: string,
+				answer: string,
+				meanwhile: () => void = () => {},
+			) => {
+				const before = trustAsked.length;
+				const id = await open(engine, {}, { cwd: dir, attended: true });
+				await until(
+					`${basename(dir)}'s screen to be asked`,
+					() => trustAsked.length > before,
+					UNTIL_MS,
+				);
+				meanwhile();
+				trustAsked[before]?.answer(answer);
+				await until(
+					`${basename(dir)}'s conversation to be built`,
+					() => screensOpened.has(id),
+					UNTIL_MS,
+				);
+				return id;
+			};
+			const asked = await answered(askedDir, "Yes");
 			const question = trustAsked[0];
-			question?.answer("Yes");
-			await until(
-				"the asked conversation to be built",
-				() => screensOpened.has(asked),
-				UNTIL_MS,
+			const refused = await answered(refusedDir, "No");
+			const swapped = await answered(swappedDir, "Yes", () =>
+				projectExtension(swappedDir, "swapped", "swapped in"),
 			);
 			const seen = {
 				question: question && {
@@ -1181,8 +1205,10 @@ const scenarios: Record<string, Scenario> = {
 				},
 				questionsFor: trustAsked.map(({ cwd }) => basename(cwd)),
 				nobodySaid: engine.view(planted)?.runtime.diagnostics,
+				swappedSaid: engine.view(swapped)?.runtime.diagnostics,
 			};
-			for (const id of [found, planted, asked]) await host.close(id);
+			for (const id of [found, planted, asked, refused, swapped])
+				await host.close(id);
 			return { ...seen, projectLoads: lines(projectLoads) };
 		},
 	},
