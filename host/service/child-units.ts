@@ -200,7 +200,8 @@ export function unitsOver(run: Systemctl): Units {
 		},
 		async stop(unit) {
 			const said = await run(["stop", "--no-block", unit]);
-			if (said.code !== 0) throw refused(`systemd would not stop ${unit}`, said);
+			if (said.code !== 0)
+				throw refused(`systemd would not stop ${unit}`, said);
 		},
 		async forget(unit) {
 			try {

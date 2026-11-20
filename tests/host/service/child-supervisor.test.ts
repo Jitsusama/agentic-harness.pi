@@ -449,8 +449,18 @@ describe("a resumed conversation", () => {
 		expect(units.started).toEqual([]);
 	});
 
+	it("starts nothing when the host stops watching before its unit starts", async () => {
+		const resuming = supervisor.resume(entry(a));
+
+		supervisor.close();
+
+		await expect(resuming).rejects.toThrow("stopped watching");
+		expect(units.started).toEqual([]);
+	});
+
 	it("fails, leaving its child running, when the host stops watching as it starts", async () => {
 		const resuming = supervisor.resume(entry(a));
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 
 		supervisor.close();
 
@@ -942,10 +952,7 @@ describe("a new conversation", () => {
 		expect(reply.ok ? "" : reply.error.message).toContain(
 			running?.sessionId ?? "none",
 		);
-		expect(roster.held).toEqual([
-			entry(a),
-			derived(running?.sessionId ?? ""),
-		]);
+		expect(roster.held).toEqual([entry(a), derived(running?.sessionId ?? "")]);
 		expect(units.stopped, "left running").toEqual([]);
 	});
 
