@@ -44,5 +44,16 @@ export function jsonLines(limit = MAX_FRAME_BYTES) {
 			if (bytes) fail("Host frame ended before LF");
 			failed = true;
 		},
+		/**
+		 * Stop decoding and hand back the bytes of a line not yet ended, so
+		 * a connection passed on whole to another reader loses none of it.
+		 */
+		rest(): Buffer {
+			const held = Buffer.from(pending?.subarray(0, bytes) ?? Buffer.alloc(0));
+			pending = undefined;
+			bytes = 0;
+			failed = true;
+			return held;
+		},
 	};
 }

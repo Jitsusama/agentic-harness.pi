@@ -10,7 +10,13 @@ import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { ATTACH_SLOW_MS, secondsSince } from "./attach-waits.ts";
-import { type ControlBackend, dispatchControl } from "./dispatch.ts";
+import { type ChildRoutes, passedOn } from "./children.ts";
+import {
+	type ControlBackend,
+	dispatchControl,
+	sameHost,
+	staleHost,
+} from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
 
@@ -49,6 +55,26 @@ export interface ViewerBridge {
 		request: Extract<ControlRequest, { op: "attach" }>,
 		sink: ViewerSink,
 	): ViewerConnection;
+}
+
+/** A connection passed on to the child running its conversation, and its opening bytes. */
+interface PassedOn {
+	child: Socket;
+	line: string;
+	/** Whether a window attaches on it, which a restart tells by a frame. */
+	viewing: boolean;
+}
+
+/** Connect to a child's socket, or fail as the kernel says it can't be reached. */
+function reach(path: string): Promise<Socket> {
+	return new Promise((resolve, reject) => {
+		const child = createConnection(path);
+		child.once("connect", () => {
+			child.off("error", reject);
+			resolve(child);
+		});
+		child.once("error", reject);
+	});
 }
 
 async function privateDirectory(path: string) {
@@ -118,6 +144,12 @@ export async function listenControl(options: {
 	say?: (line: string) => void;
 	/** How long an attached window may go undrawn before the journal says so: ATTACH_SLOW_MS. */
 	attachSlowMs?: number;
+	/**
+	 * The conversations children run: a request naming one is passed on
+	 * to its child's socket, and the connection with it, so the child
+	 * answers it, and a window attached to it, on a thread of its own.
+	 */
+	children?: ChildRoutes;
 }) {
 	if (!isAbsolute(options.path))
 		throw new Error("Host socket path must be absolute");
@@ -125,6 +157,8 @@ export async function listenControl(options: {
 	const sockets = new Set<Socket>();
 	// How to reach each connection a viewer is attached on.
 	const viewing = new Map<Socket, (value: unknown) => void>();
+	// How to end each connection passed on to a child, at a frame's edge.
+	const passing = new Map<Socket, () => void>();
 	let ready = false;
 	const server = createServer((socket) => {
 		if (!ready) {
@@ -187,6 +221,7 @@ export async function listenControl(options: {
 				}
 			}
 			viewing.delete(socket);
+			passing.delete(socket);
 			sockets.delete(socket);
 		}
 		// What the screen drew this tick, sent as one frame once the tick
@@ -224,7 +259,61 @@ export async function listenControl(options: {
 			}
 			socket.write(line);
 		}
-		async function receive(value: unknown) {
+		/**
+		 * Hand the connection to the child: what it was sent from the request
+		 * on goes to the child as bytes, and what the child answers comes
+		 * back as bytes, so neither is decoded on this thread again.
+		 */
+		function passOn(
+			{ child, line, viewing: attached }: PassedOn,
+			after: readonly unknown[],
+			rest: Buffer,
+		) {
+			socket.off("data", received);
+			let atEdge = true;
+			let leaving = false;
+			const leave = () => {
+				socket.write(`${JSON.stringify({ type: "restarting" })}\n`);
+				socket.end();
+				child.destroy();
+			};
+			// A request's one answer is left to come: a frame after it would
+			// read as a second answer.
+			if (attached)
+				passing.set(socket, () => {
+					leaving = true;
+					if (atEdge) leave();
+				});
+			child.on("data", (chunk: Buffer) => {
+				if (socket.destroyed) return;
+				if (leaving) {
+					// The rest of the frame the window was being sent, then the one
+					// saying the host restarts.
+					const lf = chunk.indexOf(10);
+					if (lf === -1) socket.write(chunk);
+					else {
+						socket.write(chunk.subarray(0, lf + 1));
+						leave();
+					}
+					return;
+				}
+				atEdge = chunk.at(-1) === 10;
+				if (!socket.write(chunk)) child.pause();
+			});
+			socket.on("drain", () => child.resume());
+			child.on("end", () => socket.end());
+			child.on("close", () => socket.end());
+			child.on("error", (error) => {
+				options.report(error);
+				socket.destroy();
+			});
+			socket.on("close", () => child.destroy());
+			child.write(line);
+			for (const value of after) child.write(`${JSON.stringify(value)}\n`);
+			if (rest.length) child.write(rest);
+			socket.pipe(child);
+		}
+		async function receive(value: unknown): Promise<PassedOn | undefined> {
 			if (viewer && sessionId) {
 				const input = parseViewer(value);
 				const attached = viewer;
@@ -259,6 +348,45 @@ export async function listenControl(options: {
 					},
 				});
 				return;
+			}
+			const route =
+				"sessionId" in request
+					? options.children?.routeOf(request.sessionId)
+					: undefined;
+			if (route) {
+				// The caller named this host, so this host checks it; the child
+				// is asked under its own name.
+				if (
+					request.expectedHost &&
+					!sameHost(request.expectedHost, options.backend.identity)
+				) {
+					send(staleHost(request.id));
+					return;
+				}
+				try {
+					const child = await reach(route.socket);
+					if (socket.destroyed || ended) {
+						child.destroy();
+						return;
+					}
+					return {
+						child,
+						line: `${JSON.stringify(passedOn(request, route))}\n`,
+						viewing: request.op === "attach",
+					};
+				} catch (error) {
+					options.report(error);
+					send({
+						v: 1,
+						id: request.id,
+						ok: false,
+						error: {
+							code: "child_unreachable",
+							message: "The process running this conversation does not answer",
+						},
+					});
+					return;
+				}
 			}
 			if (request.op === "attach" && !options.viewer) {
 				send({
@@ -307,23 +435,33 @@ export async function listenControl(options: {
 				);
 				viewing.set(socket, send);
 			}
+			return undefined;
 		}
-		socket.on("data", (chunk) => {
+		let passed = false;
+		function received(chunk: Buffer | string) {
 			socket.pause();
 			void (async () => {
-				for (const value of frames.push(
+				const values = frames.push(
 					typeof chunk === "string" ? Buffer.from(chunk) : chunk,
-				)) {
+				);
+				for (const [at, value] of values.entries()) {
 					if (socket.destroyed || ended) break;
-					await receive(value);
+					const child = await receive(value);
+					if (child) {
+						passed = true;
+						passOn(child, values.slice(at + 1), frames.rest());
+						return;
+					}
 				}
 				socket.resume();
 			})().catch((error) => {
 				options.report(error);
 				socket.destroy();
 			});
-		});
+		}
+		socket.on("data", received);
 		socket.on("end", () => {
+			if (passed) return detach();
 			try {
 				frames.end();
 			} catch (error) {
@@ -375,13 +513,22 @@ export async function listenControl(options: {
 			// with no frame to say why.
 			// close() awaits the same promise, and reports how it ended.
 			stopListening().catch(() => undefined);
-			const leaving = [...viewing].map(
-				([socket, send]) =>
+			const leaving = [
+				...[...viewing].map(([socket, send]) => ({
+					socket,
+					leave: () => {
+						send({ type: "restarting" });
+						socket.end();
+					},
+				})),
+				// One passed on to a child says so once the child's frame ends.
+				...[...passing].map(([socket, leave]) => ({ socket, leave })),
+			].map(
+				({ socket, leave }) =>
 					new Promise<void>((resolve) => {
 						if (socket.destroyed) return resolve();
 						socket.once("close", () => resolve());
-						send({ type: "restarting" });
-						socket.end();
+						leave();
 					}),
 			);
 			let timer: NodeJS.Timeout | undefined;

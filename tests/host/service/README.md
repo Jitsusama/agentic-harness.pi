@@ -25,6 +25,17 @@ stop and resume at the next start, and a starting host answers a list
 before it has resumed what it held. The stale-rejection net is mocked,
 so the test worker keeps its own handling; the test checks a host sets
 it before its engine loads.
+children.test.ts checks a host passing what names a conversation a
+child runs to the child's socket over real sockets with fake backends:
+an attach and the window's keys and frames both ways, a frame split
+across the hand-over, a close under the child's own identity, a stale
+host refused before the child hears of it, lists naming each
+conversation once, an unreachable child said as such, and a restart's
+frame sent at a frame's edge with the child left running.
+own-threads.test.ts runs the host and two children as node processes
+of their own: while one conversation holds its child's thread for 3 s,
+the host and the other each answer within 1 s. It is in the process
+lane.
 killed-host.test.ts runs a host in a node process of its own, kills it
 with SIGKILL after two opens, and starts the next host of the key here:
 it takes over the left lock and socket and resumes both holds. It is in
