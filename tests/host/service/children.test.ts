@@ -251,7 +251,13 @@ describe("a host with conversations in children", () => {
 		const caller = createConnection(hostPath);
 		const seen = messages(caller);
 		caller.write(
-			line({ v: 1, id: "abort", op: "abort", sessionId: a, expectedHost: host }),
+			line({
+				v: 1,
+				id: "abort",
+				op: "abort",
+				sessionId: a,
+				expectedHost: host,
+			}),
 		);
 		expect((await seen.next()).value).toMatchObject({ id: "abort", ok: true });
 		caller.write(line({ v: 1, id: "list", op: "list" }));
@@ -395,9 +401,7 @@ describe("a host with conversations in children", () => {
 		childSide?.destroy();
 
 		expect((await seen.next()).value).toMatchObject({ type: "detached" });
-		expect((await seen.next()).done, "the window's connection ends").toBe(
-			true,
-		);
+		expect((await seen.next()).done, "the window's connection ends").toBe(true);
 		expect(said).toEqual([expect.stringContaining("ended under")]);
 	});
 	it("tells a window attached through it that it restarts once the child's frame ends, and leaves the child", async () => {
@@ -422,9 +426,7 @@ describe("a host with conversations in children", () => {
 			data: "drawn",
 		});
 		expect((await seen.next()).value).toEqual({ type: "restarting" });
-		expect((await seen.next()).done, "the window's connection ends").toBe(
-			true,
-		);
+		expect((await seen.next()).done, "the window's connection ends").toBe(true);
 		await told;
 	});
 	it("answers an attach before it says it restarts, when it restarts while the child is answering", async () => {

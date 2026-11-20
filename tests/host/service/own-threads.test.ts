@@ -1,8 +1,8 @@
 /** A conversation that holds its thread holds no other, once each runs in a child. */
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { controlRequest } from "../../../host/service/client.ts";
@@ -151,7 +151,7 @@ function drawn(path: string, sessionId: string): Promise<number> {
 		const frames = jsonLines();
 		window.on("data", (chunk: Buffer) => {
 			for (const value of frames.push(chunk)) {
-				if (Reflect.get(Object(value), "type") !== "output") continue;
+				if (Reflect.get(new Object(value), "type") !== "output") continue;
 				window.destroy();
 				done(Date.now() - asked);
 			}
@@ -165,10 +165,7 @@ function drawn(path: string, sessionId: string): Promise<number> {
 
 describe("a conversation holding its thread", () => {
 	it("holds neither the host, another conversation's turn nor a window on it", async () => {
-		const [held, free] = await Promise.all([
-			run("busy", {}),
-			run("other", {}),
-		]);
+		const [held, free] = await Promise.all([run("busy", {}), run("other", {})]);
 		const host = await run("host", {
 			ROUTES: JSON.stringify([
 				[busy, held],

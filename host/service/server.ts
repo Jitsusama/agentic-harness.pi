@@ -450,11 +450,7 @@ export async function listenControl(options: {
 				return;
 			}
 			const asked = Date.now();
-			const reply = await dispatchControl(
-				request,
-				backend,
-				options.report,
-			);
+			const reply = await dispatchControl(request, backend, options.report);
 			send(reply);
 			const gone = socket.destroyed || ended;
 			const slow =
