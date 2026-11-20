@@ -108,9 +108,10 @@ export class SessionHost implements Host {
 	readonly owner: SessionOwner;
 	readonly registryPath: string;
 	private readonly closedState: string;
-	// Whether the records' folder lay closed as the host started: one a
-	// fenced command swapped for its own later reads as closed by then.
-	private readonly closedAtStart: boolean;
+	// Why the records' folder didn't lie closed as the host started, if
+	// it didn't: one a fenced command swapped for its own later reads as
+	// closed by then, so only a restart clears it.
+	private readonly unclosedAtStart: string | undefined;
 	// Whether the host has said, once, that its records name no fence.
 	private saidUnclosed = false;
 	// Why the record last couldn't be written, as the host said it.
@@ -148,11 +149,11 @@ export class SessionHost implements Host {
 		this.registryPath = hostRegistryPath(this.owner, options.registryDir);
 		this.closedState = options.closedState ?? join(homedir(), CLOSED_STATE);
 		const folder = dirname(this.registryPath);
-		// Made writable by its owner alone whatever the umask, as closedIn
+		// Made writable by its owner alone whatever the umask, as unclosedIn
 		// asks, so a umask that lets the person's group write still names one.
 		mkdirSync(folder, { recursive: true, mode: 0o755 });
 		closeToOthers(folder, this.closedState);
-		this.closedAtStart = closedIn(folder, this.closedState);
+		this.unclosedAtStart = unclosedIn(folder, this.closedState);
 		const unhost = installHost(this);
 		// Code that reads process.env directly sees its own conversation's.
 		const unview = installConversationEnv(this);
@@ -619,11 +620,16 @@ export class SessionHost implements Host {
 		// fenced command or another account could put its own record in
 		// this one's place, so none names a fence and the node refuses
 		// each session's carry.
-		const closed = this.closedAtStart && closedIn(folder, this.closedState);
+		const why = this.unclosedAtStart ?? unclosedIn(folder, this.closedState);
+		const closed = why === undefined;
 		if (!closed && !this.saidUnclosed) {
 			this.saidUnclosed = true;
+			const after =
+				this.unclosedAtStart === undefined
+					? "until that's put right"
+					: "until the host restarts once that's put right, as it was so when the host started";
 			process.stderr.write(
-				`pi-host: ${folder} lies past a link, outside ${this.closedState}, or under a folder another account may write, now or as the host started, so its record names no session's fence and a mycelium node carries none of them.\n`,
+				`pi-host: ${why}, so ${this.registryPath} names no session's fence and a mycelium node carries none of them, ${after}.\n`,
 			);
 		}
 		const registry = this.registry(closed);
@@ -677,14 +683,20 @@ function loosest(
 }
 
 /**
- * Whether `folder` lies in `closed`, spelled as it really is, through no
- * link, and it and each folder from `closed` down to it are this
- * account's own, which no other may write: another account could
- * otherwise rename one away and put its own, holding its own record, there.
+ * Why `folder` doesn't lie closed in `closed`, or undefined where it
+ * does: spelled as it really is, through no link, and it and each
+ * folder from `closed` down to it this account's own, which no other
+ * may write. Another account could otherwise rename one away and put
+ * its own, holding its own record, there.
  */
-function closedIn(folder: string, closed: string): boolean {
+function unclosedIn(folder: string, closed: string): string | undefined {
 	const folders = downTo(folder, closed);
-	return folders !== undefined && folders.every(ownAlone);
+	if (folders === undefined) return `${folder} lies outside ${closed}`;
+	for (const each of folders) {
+		const why = notOwnAlone(each);
+		if (why !== undefined) return `${each} ${why}`;
+	}
+	return undefined;
 }
 
 /** `closed` and each folder below it down to `folder`; none outside it. */
@@ -698,21 +710,22 @@ function downTo(folder: string, closed: string): string[] | undefined {
 	];
 }
 
-function ownAlone(folder: string): boolean {
+/** Why `folder` isn't this account's alone, at its real path, or undefined. */
+function notOwnAlone(folder: string): string | undefined {
 	let real: string;
 	let held: Stats;
 	try {
 		real = realpathSync(folder);
 		held = lstatSync(folder);
 	} catch {
-		return false;
+		return "can't be read";
 	}
-	return (
-		real === folder &&
-		held.isDirectory() &&
-		held.uid === process.getuid?.() &&
-		(held.mode & 0o022) === 0
-	);
+	if (held.isSymbolicLink()) return "is a link";
+	if (real !== folder) return "lies past a link";
+	if (!held.isDirectory()) return "is not a folder";
+	if (held.uid !== process.getuid?.()) return "is another account's";
+	if ((held.mode & 0o022) !== 0) return "may be written by another account";
+	return undefined;
 }
 
 /**
@@ -728,7 +741,7 @@ function untold(conversation: Conversation): void {
 /**
  * Clear group and other write from each folder from `closed` down to
  * `folder` that is this account's own and no link, as code before this
- * host may have made them under a looser umask; closedIn then judges
+ * host may have made them under a looser umask; unclosedIn then judges
  * them as they stand. The walk stops at the first that isn't at its
  * real path, so nothing past a link is changed; a link swapped in at
  * the last part after that look is refused by the open, though one
@@ -744,7 +757,7 @@ function closeToOthers(folder: string, closed: string): void {
 				constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
 			);
 		} catch {
-			// closedIn names no fence for a folder it can't read.
+			// unclosedIn names no fence for a folder it can't read.
 			return;
 		}
 		try {
@@ -752,7 +765,7 @@ function closeToOthers(folder: string, closed: string): void {
 			if (held.uid === process.getuid?.() && (held.mode & 0o022) !== 0)
 				fchmodSync(opened, held.mode & 0o7755);
 		} catch {
-			// As above: left as it is, closedIn judges it.
+			// As above: left as it is, unclosedIn judges it.
 		} finally {
 			closeSync(opened);
 		}

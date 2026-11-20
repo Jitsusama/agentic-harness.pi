@@ -495,6 +495,49 @@ it("names no fence where its records lay past a link as it started", () => {
 	expect(fences(host)).toEqual({ a: undefined });
 });
 
+/** What the host says on its log while `act` runs, naming no fence. */
+function saidUnclosed(act: () => void): string | undefined {
+	const said: string[] = [];
+	const spy = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((text) => said.push(String(text)) > 0);
+	try {
+		act();
+	} finally {
+		spy.mockRestore();
+	}
+	return said.find((line) => line.includes("names no"));
+}
+
+it("says which folder names no fence and why, needing no restart once it's put right", () => {
+	const state = closedState();
+	const host = start(state);
+	const said = saidUnclosed(() => {
+		chmodSync(join(state, "agentic-harness.pi"), 0o777);
+		host.register(registration("a"));
+	});
+	expect(said, "didn't name the folder others may write").toContain(
+		`${join(state, "agentic-harness.pi")} may be written by another account`,
+	);
+	expect(said, "asked a restart for what clears as it's fixed").not.toMatch(
+		/restart/,
+	);
+});
+
+it("says which folder named no fence as the host started, and to restart once it's put right", () => {
+	const state = closedState();
+	const real = join(state, "real");
+	mkdirSync(real);
+	symlinkSync(real, join(state, "linked"));
+	const said = saidUnclosed(() =>
+		start(state, join(state, "linked/hosts")).register(registration("a")),
+	);
+	expect(said, "didn't name the link").toContain(
+		`${join(state, "linked")} is a link`,
+	);
+	expect(said, "didn't ask a restart").toMatch(/restart/);
+});
+
 it("names no fence where others may write its records' folder", () => {
 	const state = closedState();
 	const host = start(state);
