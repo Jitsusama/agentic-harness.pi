@@ -361,6 +361,16 @@ rather than the machine.
   bus before its shutdown runs, and one the person closed `closed`
   (`SESSION_STAMP_EVENT`, `lib/core/session`); only `signalled` leaves
   the record.
+- A host carries on the run it stopped, recorded or killed with no
+  record, so a hosted session isn't told at once. The first run to
+  start and settle after its return decides: an answer says nothing,
+  one that ended in an error is told it did, and one the person
+  stopped or typed over is left to them. A mesh message or a job's
+  report is not the person. A carried run waits its turn behind the
+  others (107 took 805 s on 20 November), so a clock decides only
+  for a run that never starts, after half an hour. That includes a
+  log the host had nothing to carry for, since no extension hears
+  that, and a reload while the wait is open drops it.
 
 ## Limits
 

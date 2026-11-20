@@ -200,30 +200,27 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 }
 
 /**
- * Whether the run a host carried on has shown since `since`, the
- * branch's length as the session returned: an answer that isn't an
- * error. A failed answer is no run: on 14 November a reboot's next host
- * failed a carried run it had cut mid-answer. Nor is a tool's result,
- * which a host gives the call a kill cut before the run it carries
- * answers, or fails.
+ * How the run a host carried on went since `since`, the branch's length
+ * as the session returned: `answered` by an answer that isn't an error,
+ * `failed` when it answered only with errors, and `unseen` when it gave
+ * no answer at all. A failed answer is no run: on 14 November a
+ * reboot's next host failed a carried run it had cut mid-answer. Nor is
+ * a tool's result, which a host gives the call a kill cut before the
+ * run it carries answers, or fails.
  */
-export function carriedRunShowed(
+export function carriedRunWent(
 	branch: readonly unknown[],
 	since: number,
-): boolean {
+): "answered" | "failed" | "unseen" {
+	let failed = false;
 	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
+		if (roleOf(entry) !== "assistant") continue;
 		const stopped = field(field(entry, "message"), "stopReason");
-		if (roleOf(entry) === "assistant" && stopped !== "error") return true;
+		if (stopped !== "error") return "answered";
+		failed = true;
 	}
-	return false;
-}
-
-/** Whether a prompt has come in since `since`, the branch's length as the session returned. */
-export function typedSince(branch: readonly unknown[], since: number): boolean {
-	for (let i = branch.length - 1; i >= since; i--)
-		if (roleOf(branch[i]) === "user") return true;
-	return false;
+	return failed ? "failed" : "unseen";
 }
 
 /** A log that stops on a tool call or its result: a session killed mid-run. */
@@ -246,21 +243,45 @@ function killedIn(branch: readonly unknown[]): CutOff | undefined {
 
 /** What the restored session is told, its time said by `time`. */
 export function resumeText(cut: CutOff, time: (at: number) => string): string {
-	const when = `This session ended at ${time(cut.at)}, when ${cut.by ?? "the machine"} stopped it rather than the person`;
+	const when = endedWhen(cut, time);
 	const what = cut.runCarried
 		? `${when}. Its host carried on the run it had under way, but nothing has taken up its background work.`
 		: cut.running
 			? `${when}, mid-run, and nothing has resumed it since.`
 			: `${when}, while it waited on background work, and nothing has resumed it since.`;
-	const died =
-		cut.jobs.length > 0
-			? ` These jobs died with it and will never report: ${cut.jobs
-					.map((job) => `${job.id} (${job.label})`)
-					.join(
-						", ",
-					)}. Anything they started outside this machine, such as cloud VMs, may still be running.`
-			: "";
-	return `${what}${died} Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.`;
+	return `${what}${diedWith(cut)}${CARRY_ON}`;
+}
+
+/**
+ * What a session is told when the run its host carried on ended in an
+ * error, its time said by `time`: the run was resumed, and failed.
+ */
+export function carriedRunFailedText(
+	cut: CutOff,
+	time: (at: number) => string,
+): string {
+	const what = `${endedWhen(cut, time)}, mid-run. Its host carried the run on, and it ended in an error.`;
+	return `${what}${diedWith(cut)}${CARRY_ON}`;
+}
+
+/** How a session's end is said, its time said by `time`. */
+function endedWhen(cut: CutOff, time: (at: number) => string): string {
+	return `This session ended at ${time(cut.at)}, when ${cut.by ?? "the machine"} stopped it rather than the person`;
+}
+
+/** What a session is told to do on its return. */
+const CARRY_ON =
+	" Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.";
+
+/** The jobs that died with a session, said for its return, or nothing. */
+function diedWith(cut: CutOff): string {
+	return cut.jobs.length > 0
+		? ` These jobs died with it and will never report: ${cut.jobs
+				.map((job) => `${job.id} (${job.label})`)
+				.join(
+					", ",
+				)}. Anything they started outside this machine, such as cloud VMs, may still be running.`
+		: "";
 }
 
 /** Where signals are heard: the process, or a stand-in under test. */
