@@ -362,15 +362,17 @@ describe("whether a run was cut since a moment", () => {
 
 	it("counts a tool's result or a call for tools as cut", () => {
 		expect(cutSince([toolResult(10)], T0), "a tool's result is cut").toBe(true);
-		expect(cutSince([answer(10, "toolUse")], T0), "a call for tools is cut").toBe(
-			true,
-		);
+		expect(
+			cutSince([answer(10, "toolUse")], T0),
+			"a call for tools is cut",
+		).toBe(true);
 	});
 
 	it("counts an answer that ended on its own as finished", () => {
-		expect(cutSince([answer(10, "stop")], T0), "an answer that stopped is not").toBe(
-			false,
-		);
+		expect(
+			cutSince([answer(10, "stop")], T0),
+			"an answer that stopped is not",
+		).toBe(false);
 		expect(
 			cutSince([answer(10, "length")], T0),
 			"an answer that ran to length is not",
