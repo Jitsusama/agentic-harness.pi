@@ -4,8 +4,8 @@
  */
 
 import { execFile } from "node:child_process";
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runDir } from "../../../../extensions/review-integration/engine.ts";
 import {
@@ -317,11 +317,149 @@ describe("holding a change until our own council has read it", () => {
 		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
 	});
 
-	it("holds a rebased change with more on it than its council read", async () => {
+	it("keeps the council across a clean rebase and a fix made after it", async () => {
 		await councilRead(fix);
 		await rebasedOntoNewMain();
 		writeFileSync(join(repo, "two"), "two, said otherwise\n");
 		await git(repo, "commit", "-qam", "otherwise");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("keeps the council when main moves on again after the rebase", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later still"), "later still\n");
+		await git(repo, "add", "later still");
+		await git(repo, "commit", "-qm", "later still");
+		await git(repo, "switch", "-q", "topic");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("holds a rebased change whose reviewed commit was then rewritten", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		await git(repo, "reset", "-q", "--hard", "HEAD~1");
+		writeFileSync(join(repo, "two"), "two, said otherwise\n");
+		await git(repo, "add", "two");
+		await git(repo, "commit", "-qm", "two, otherwise");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("lends an upper branch nothing of a lower one's council across a restack", async () => {
+		// `first` went up as the branch below and its council read it; this
+		// one adds `fix`, which nobody read. Both are restacked onto a new
+		// main, so no pushed branch holds `first` itself any more.
+		await git(repo, "branch", "lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/lower", first);
+		await councilRead(first);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "lower");
+		await git(repo, "rebase", "-q", "main");
+		await git(
+			repo,
+			"update-ref",
+			"refs/remotes/origin/lower",
+			await git(repo, "rev-parse", "HEAD"),
+		);
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "lower");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	/**
+	 * Main adds its own `two`, so rebasing the topic stops at `fix`; it
+	 * is settled with what `settle` gives for the file, from main's head.
+	 */
+	async function rebasedThroughAConflict(
+		settle: (onto: string) => Promise<string>,
+	) {
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "two"), "two on main\n");
+		await git(repo, "add", "two");
+		await git(repo, "commit", "-qm", "main's two");
+		const onto = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "switch", "-q", "topic");
+		const stopped = await exec("git", ["-C", repo, "rebase", "-q", "main"]);
+		expect(stopped.code, "the rebase stopped at the conflict").not.toBe(0);
+		writeFileSync(join(repo, "two"), await settle(onto));
+		await git(repo, "add", "two");
+		const went = await exec("git", [
+			"-C",
+			repo,
+			"-c",
+			"core.editor=true",
+			"rebase",
+			"--continue",
+		]);
+		expect(went.code, went.stderr).toBe(0);
+	}
+
+	/** `two` as git's replay of the topic onto `onto` leaves it. */
+	async function replayedTwo(onto: string): Promise<string> {
+		const merged = await exec("git", [
+			"-C",
+			repo,
+			"merge-tree",
+			"--write-tree",
+			"--no-messages",
+			`--merge-base=${trunk}`,
+			onto,
+			fix,
+		]);
+		const tree = merged.stdout.split("\n")[0] ?? "";
+		return (await exec("git", ["-C", repo, "show", `${tree}:two`])).stdout;
+	}
+
+	it("holds a rebase settled by keeping the conflict git left", async () => {
+		await councilRead(fix);
+		await rebasedThroughAConflict(async (onto) => {
+			const left = await replayedTwo(onto);
+			expect(left, "git left the conflict in the file").toContain("<<<<<<<");
+			return left;
+		});
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("holds a rebase whose conflict a merge driver in the checkout's files settled", async () => {
+		await councilRead(fix);
+		await rebasedThroughAConflict(async (onto) => {
+			writeFileSync(join(repo, ".gitattributes"), "two merge=union\n");
+			const united = await replayedTwo(onto);
+			expect(united, "the driver settled the conflict").not.toContain(
+				"<<<<<<<",
+			);
+			return united;
+		});
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("lends nothing in a checkout that names merge drivers of its own", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		const own = join(
+			repo,
+			await git(repo, "rev-parse", "--git-path", "info/attributes"),
+		);
+		mkdirSync(dirname(own), { recursive: true });
+		writeFileSync(own, "* merge=union\n");
 
 		expect(await councilFirst(exec, topic(), "proposed")).toContain(
 			"No council of ours",
@@ -340,7 +478,7 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("holds a binary file whose content changed though its diff's words didn't", async () => {
+	it("holds a rebase whose binary file's bytes differ from what was read", async () => {
 		const binary = (byte: number) =>
 			writeFileSync(join(repo, "blob.bin"), Buffer.from([0, byte, 0, 255]));
 		binary(1);
@@ -348,15 +486,17 @@ describe("holding a change until our own council has read it", () => {
 		await git(repo, "commit", "-qm", "blob");
 		await councilRead(await git(repo, "rev-parse", "HEAD"));
 		await rebasedOntoNewMain();
+		await git(repo, "reset", "-q", "--hard", "HEAD~1");
 		binary(2);
-		await git(repo, "commit", "-qam", "other bytes");
+		await git(repo, "add", "blob.bin");
+		await git(repo, "commit", "-qm", "blob, other bytes");
 
 		expect(await councilFirst(exec, topic(), "proposed")).toContain(
 			"No council of ours",
 		);
 	});
 
-	it("holds text whose bytes changed where they aren't UTF-8", async () => {
+	it("holds a rewrite whose text differs from what was read only in bytes that aren't UTF-8", async () => {
 		const latin = (byte: number) =>
 			writeFileSync(join(repo, "latin"), Buffer.from([0x63, 0x61, byte, 0x0a]));
 		latin(0xe9);
@@ -373,7 +513,7 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("holds the same edit made in another function", async () => {
+	it("holds a rewrite making the reviewed edit in another function", async () => {
 		// Bodies alike and long enough that a hunk in either reads the same
 		// but for the function its header names.
 		const lines = Array.from({ length: 11 }, (_, at) => `\tline${at};\n`);

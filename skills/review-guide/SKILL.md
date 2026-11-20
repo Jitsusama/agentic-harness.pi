@@ -231,11 +231,13 @@ finished `review_ask council` has read one of the change's own
 commits, from its base to its head. Run the council at the head,
 check its findings against the source, fix and push what holds, then
 propose; a council read before that last fix still counts, and so
-does one read before a clean rebase: an earlier head the checkout's
-reflogs recall, whose change git replays onto the new base cleanly
-into the change's own tree, lends it that head's council, so a
-rebase needs a new round only
-when it settled a conflict or brought something else along. Commits
+does one read before a clean rebase: a head the council read, which
+the checkout's reflogs still recall and which was the branch's own
+work, lends its council when git replays its change onto the new
+base cleanly into the tree of the change's head, or of one of its
+commits below a later fix. So a rebase needs a new round only when
+it settled a conflict or brought something else along, and after a
+restack a branch never borrows the council of the one below it. Commits
 another pushed branch holds without the change's head aren't its
 own, so a branch cut from reviewed work needs its own council, and
 a lower branch fixed under a stack is judged once the branches above

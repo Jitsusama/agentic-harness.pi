@@ -29,17 +29,25 @@
  * A rebase gives every commit a new id, so a council read before it
  * would count for nothing, and a clean rebase would cost a round that
  * reads what was read already. So the branch's earlier heads, as its
- * reflogs in the checkout recall them, count too: one whose change,
- * replayed by git from where it left the base onto where the change
- * leaves it now, gives the change's own tree, byte for byte, lends the
- * change any council that read one of that head's own commits, judged
- * as the change's own are, so a rebase lends nothing a branch cut from
- * reviewed work couldn't claim before it. A rebase that had to settle a
- * conflict, or brought anything else along, gives another tree and
- * needs a round of its own. Only the last
- * EARLIER_HEADS of each reflog are asked about, and a checkout that
- * never held the branch before its rebase remembers none.
+ * reflogs in the checkout recall them, count too. A council that read
+ * one of them lends itself to the change when that head is its
+ * branch's own work, as the change's own commits are judged, and its
+ * change, replayed by git from where it left the base onto where the
+ * change leaves it now, gives byte for byte the tree of the change's
+ * head or of one of its own commits below it, as a fix after a council
+ * keeps it. Only the head the council read lends, never the commits
+ * under it: after a restack those are the old copies of a lower
+ * branch's, which no pushed branch holds any more. A rebase that had to
+ * settle a conflict, or brought anything else along, gives another tree
+ * and needs a round of its own; so the replay reads no merge drivers
+ * from the change's files, and a checkout naming any of its own lends
+ * nothing. Only the last EARLIER_HEADS of each reflog are asked about,
+ * and a checkout that never held the branch before its rebase remembers
+ * none.
  */
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { createRunStore } from "../../lib/core/review/index.ts";
@@ -136,7 +144,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps the council of the head before it when git replays that head onto the new base cleanly and gets this change's tree, and this checkout's reflogs still recall that head.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is still recalled by this checkout's reflogs, was this branch's own work, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -211,16 +219,15 @@ async function rangeOf(
 }
 
 /**
- * Whether a council read an earlier head of the change's branch whose
- * change, replayed onto the base the change sits on now, gives the
- * change's tree, so that only a clean rebase stands between them. What it lends is that head's own commits,
- * as the change's own are judged, so a branch cut from reviewed work
- * gains nothing by a rebase.
+ * Whether a council read an earlier head of the change's branch, its
+ * own work then, whose change replayed onto the base the change sits on
+ * now gives the tree of the change's head or of one of its own commits,
+ * so that only a clean rebase, and fixes after it, stand between them.
  */
 async function rebasedReviewed(
 	exec: Exec,
 	change: ChangeCommits,
-	read: { base: string; head: string },
+	read: { base: string; head: string; commits: readonly string[] },
 ): Promise<boolean> {
 	const git = (...args: string[]) =>
 		exec("git", ["-C", change.checkout, ...args]);
@@ -236,41 +243,104 @@ async function rebasedReviewed(
 	const earlier = (await earlierHeads(git, change.head)).filter(
 		(sha) => sha !== now,
 	);
-	if (earlier.length === 0) return false;
-	// One list of every earlier head's commits and one look at the ledger
-	// before any replay, since most changes refused were never read at all.
-	const listed = await git(
-		"rev-list",
-		`--max-count=${COMMITS_ASKED}`,
-		"--end-of-options",
-		...earlier,
-		`^${read.base}`,
-	);
-	if (listed.code !== 0) return false;
-	const anyRead = new Set(commitIds(listed.stdout));
-	if (anyRead.size === 0 || !(await witnesses(change.repo, anyRead)))
+	// One look at the ledger before any replay, since most changes
+	// refused were never read at all.
+	if (earlier.length === 0 || !(await witnesses(change.repo, new Set(earlier))))
 		return false;
 	const onto = await forkOf(git, read.base, now);
-	const tree = await git(
-		"rev-parse",
-		"--verify",
-		"--quiet",
-		"--end-of-options",
-		`${now}^{tree}`,
-	);
-	if (onto === undefined || tree.code !== 0) return false;
+	const trees = await ownTrees(git, read.base, now, read.commits);
+	const drivers = await mergeDriversIgnored(git, change.checkout);
+	if (onto === undefined || trees === undefined || drivers === undefined)
+		return false;
 	for (const head of earlier) {
-		if ((await replayed(git, read.base, head, onto)) !== tree.stdout.trim())
-			continue;
-		const range = await rangeOf(git, read.base, head, change.head);
-		if (
-			range &&
-			range.commits.length > 0 &&
-			(await witnesses(change.repo, new Set(range.commits)))
-		)
+		if (!(await witnesses(change.repo, new Set([head])))) continue;
+		const tree = await replayed(git, read.base, head, onto, drivers);
+		if (tree === undefined || !trees.has(tree)) continue;
+		if (await ownWherever(git, read.base, head, earlier, change.head))
 			return true;
 	}
 	return false;
+}
+
+/**
+ * Whether `commit` was `branch`'s own work at each of its earlier
+ * `heads` that holds it. Judged at itself alone, a branch pointing just
+ * there would read as one above it, so reviewed work a branch was cut
+ * from would pass for the branch's own.
+ */
+async function ownWherever(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	commit: string,
+	heads: readonly string[],
+	branch: string,
+): Promise<boolean> {
+	let held = false;
+	for (const head of heads) {
+		const range = await rangeOf(git, base, head, branch);
+		if (range === undefined) return false;
+		if (range.shared.includes(commit)) return false;
+		if (range.commits.includes(commit)) held = true;
+	}
+	return held;
+}
+
+/**
+ * The trees of `head`'s own commits from `base`, `own` naming them;
+ * nothing when they can't be read.
+ */
+async function ownTrees(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	head: string,
+	own: readonly string[],
+): Promise<Set<string> | undefined> {
+	const logged = await git(
+		"log",
+		"--format=%H %T",
+		`--max-count=${COMMITS_ASKED}`,
+		"--end-of-options",
+		`${base}..${head}`,
+		"--",
+	);
+	if (logged.code !== 0) return undefined;
+	const mine = new Set(own);
+	const trees = new Set<string>();
+	for (const [commit, tree] of logged.stdout
+		.split("\n")
+		.map((line) => line.split(" ")))
+		if (commit && tree && mine.has(commit) && COMMIT_ID.test(tree))
+			trees.add(tree);
+	return trees;
+}
+
+/**
+ * git's options for a replay that reads no merge driver from the
+ * change's own files, as a `merge=union` there would settle a conflict
+ * and call it clean; nothing when the checkout names drivers of its own
+ * in `info/attributes`, which git reads whatever it is told, or when
+ * that can't be read.
+ */
+async function mergeDriversIgnored(
+	git: (...args: string[]) => ReturnType<Exec>,
+	checkout: string,
+): Promise<string[] | undefined> {
+	const empty = await git("hash-object", "-t", "tree", "/dev/null");
+	const at = await git("rev-parse", "--git-path", "info/attributes");
+	const tree = empty.stdout.trim();
+	if (empty.code !== 0 || at.code !== 0 || !/^[0-9a-f]{40,64}$/.test(tree))
+		return undefined;
+	try {
+		const own = readFileSync(resolve(checkout, at.stdout.trim()), "utf8");
+		if (own.trim() !== "") return undefined;
+	} catch (error) {
+		// No such file is a checkout with no attributes of its own; anything
+		// else can't be told from one that has them.
+		const absent =
+			error instanceof Error && "code" in error && error.code === "ENOENT";
+		if (!absent) return undefined;
+	}
+	return ["-c", "core.attributesFile=/dev/null", `--attr-source=${tree}`];
 }
 
 /**
@@ -321,12 +391,14 @@ async function replayed(
 	base: string,
 	head: string,
 	onto: string,
+	drivers: readonly string[],
 ): Promise<string | undefined> {
 	const from = await forkOf(git, base, head);
 	if (from === undefined) return undefined;
 	// Every argument is a full commit id, read from git itself, so none
 	// can be taken for an option; merge-tree takes no `--end-of-options`.
 	const merged = await git(
+		...drivers,
 		"merge-tree",
 		"--write-tree",
 		"--no-messages",
