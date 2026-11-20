@@ -805,6 +805,18 @@ describe("the host's engine", () => {
 		2 * HOST_LIFE_MS,
 	);
 
+	it.skipIf(process.platform !== "linux")(
+		"lets go of the log of one resting parked once a child runs it",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "park-to-restart");
+			const seen = await step(folder, "moved-out");
+			expect(seen.rests, "its next start leaves it parked").toBe(true);
+			expect(seen.logs).toEqual({ resting: ["read"], movedOut: [] });
+		},
+		2 * HOST_LIFE_MS,
+	);
+
 	it(
 		"answers an open whose first words are a command still waiting on a person",
 		async () => {

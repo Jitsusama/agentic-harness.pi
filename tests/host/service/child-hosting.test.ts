@@ -125,6 +125,50 @@ describe("a host's children", () => {
 		);
 	});
 
+	it("lets a child start still waiting go at once as it closes", async () => {
+		const resuming = children.backend.resume(held[0] as RosterEntry, false);
+		await vi.waitFor(() => expect(units.started).toHaveLength(1));
+		children.close();
+
+		await expect(resuming).rejects.toThrow();
+		const [unit] = units.started;
+		expect(
+			units.children.get(unit as string),
+			"failed before its child listened",
+		).toBeUndefined();
+		expect(units.stopped, "its child is left to run").toEqual([]);
+		// It listens later, for the next host; end it before the folder goes.
+		await vi.waitFor(() =>
+			expect(units.children.get(unit as string)).toBeDefined(),
+		);
+		await units.children.get(unit as string)?.exit();
+	});
+
+	it("says the policy moved one whose child didn't start", async () => {
+		units.next = { diesBeforeListening: true };
+
+		await expect(
+			children.backend.resume(held[0] as RosterEntry, false),
+		).rejects.toThrow("as children.json says");
+	});
+
+	it("says once the child that ran one has gone", async () => {
+		await children.backend.resume(held[0] as RosterEntry, false);
+		const [unit] = units.started;
+		await units.childOf(a).exit();
+		await vi.waitFor(() => expect(rested).toHaveLength(1));
+
+		await children.backend.left(a);
+
+		expect(units.children.has(unit as string), "its unit is gone").toBe(false);
+	});
+
+	it("refuses to ask a child of one no child runs", async () => {
+		await expect(
+			children.backend.ask(a, { v: 1, id: "x", op: "abort", sessionId: a }),
+		).rejects.toThrow("not hosted");
+	});
+
 	it("rests none that closed, which no longer is held", async () => {
 		await children.backend.resume(held[0] as RosterEntry, false);
 		await units.childOf(a).end("closed");
@@ -144,6 +188,8 @@ describe("a host's children", () => {
 	it("leaves each child running as it closes, and stops reading the policy", async () => {
 		await children.backend.resume(held[0] as RosterEntry, false);
 		children.close();
+		// A turn of the loop, so a stop the close set off would have begun.
+		await new Promise((turned) => setImmediate(turned));
 		expect(policy.close, "the policy is no longer read").toHaveBeenCalled();
 		expect(units.stopped, "no child is stopped").toEqual([]);
 		expect(units.childOf(a), "the child still runs").toBeDefined();

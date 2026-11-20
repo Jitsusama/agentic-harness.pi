@@ -75,6 +75,8 @@ export interface ServingHost {
 	 * restart rests: held, not running, and not among those that failed.
 	 */
 	resting(): number;
+	/** How many conversations it holds run in processes of their own. */
+	inChildren?(): number;
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
 	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
@@ -185,18 +187,30 @@ export async function serveHost(options: {
 					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 			}),
 		);
-		if (options.children)
-			children = hostChildren({
-				key,
-				// Beside the socket, in the runtime folder it was checked under.
-				folder: slotFolder(dirname(dirname(path)), key),
-				units: options.children.units,
-				policy: await options.children.policy(key),
-				roster,
-				restsParked: (entry) => engine.restsParked?.(entry) ?? false,
-				report: options.report,
-				...(options.say ? { say: options.say } : {}),
-			});
+		if (options.children) {
+			const policy = await options.children.policy(key);
+			try {
+				children = hostChildren({
+					key,
+					// Beside the socket, in the runtime folder it was checked under.
+					folder: slotFolder(dirname(dirname(path)), key),
+					units: options.children.units,
+					policy,
+					roster,
+					restsParked: (entry) => engine.restsParked?.(entry) ?? false,
+					report: options.report,
+					...(options.say ? { say: options.say } : {}),
+				});
+			} catch (error) {
+				// A runtime folder too long for a child's socket moves nothing:
+				// the host runs every conversation itself, as with no policy.
+				policy.close();
+				options.report(error);
+				options.say?.(
+					"runs every conversation itself, since no child could be set up",
+				);
+			}
+		}
 		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
 		const slowAfter =
@@ -227,8 +241,15 @@ export async function serveHost(options: {
 		wakes = backend.wake;
 		listening(backend.wake);
 		// Before the resumes, so one a child an earlier host left running
-		// still runs is taken up there rather than started again here.
-		await children?.adopt().catch(options.report);
+		// still runs is taken up there rather than started again here. One
+		// that can't read which children run fails the start, since resuming
+		// regardless could run a conversation in two processes at once.
+		if (children) {
+			const taken = await children.adopt();
+			options.say?.(
+				`took up ${taken} ${taken === 1 ? "child" : "children"} an earlier host left running`,
+			);
+		}
 		const { unresumed, dropped } = await resumeHeld({
 			roster,
 			engine,
@@ -257,6 +278,7 @@ export async function serveHost(options: {
 					return held.has(sessionId) && (state ?? "parked") === "parked";
 				}).length;
 			},
+			inChildren: () => children?.routes.listed().length ?? 0,
 			resting: () => {
 				const live = new Set(running.list().map(({ id }) => id));
 				const failed = new Set(unresumed.map(({ sessionId }) => sessionId));
@@ -284,11 +306,12 @@ export async function serveHost(options: {
 						);
 					if (restarting) await control.restarting();
 					await control.close();
+					// Each child runs on through the stop, for the next host to adopt,
+					// and one still starting is let go at once rather than waited on.
+					children?.close();
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
-					// Each child runs on through the stop, for the next host to adopt.
-					children?.close();
 					// A restart's parks carry each conversation's bash calls, which
 					// are then kept out of the host's stop for the next host. Any
 					// other stop carries them too where the engine can keep them:

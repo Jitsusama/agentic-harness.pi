@@ -273,6 +273,11 @@ describe("a host with conversations in children", () => {
 		window.write(line({ type: "input", data: "hello" }));
 		await vi.waitFor(() => expect(viewed).toEqual([{ input: "hello" }]));
 		expect(hostViewed, "the host's own viewer drew none of it").toEqual([]);
+		sink?.write("drawn");
+		expect(
+			(await seen.next()).value,
+			"the child's drawing, with no second answer before it",
+		).toEqual({ type: "output", data: "drawn" });
 		window.end();
 		await vi.waitFor(() => expect(viewed).toContain("detached"));
 	});

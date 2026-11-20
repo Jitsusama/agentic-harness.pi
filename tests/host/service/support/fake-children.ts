@@ -83,6 +83,8 @@ export interface ChildTraits {
 export interface FakeUnits extends Units {
 	readonly started: string[];
 	readonly stopped: string[];
+	/** Each unit systemd was asked to forget, in order. */
+	readonly forgotten: string[];
 	/** Each unit running, with its child once it listens. */
 	readonly children: Map<string, FakeChild | undefined>;
 	/** What the next child started does, when a test says. */
@@ -195,6 +197,7 @@ export function fakeUnits(
 	const fake: FakeUnits = {
 		started: [],
 		stopped: [],
+		forgotten: [],
 		children: new Map(),
 		slotNamed(unit) {
 			const name = unit.slice(unit.indexOf("@") + 1, -".service".length);
@@ -233,6 +236,9 @@ export function fakeUnits(
 			fake.stopped.push(unit);
 			await fake.children.get(unit)?.exit();
 			fake.children.delete(unit);
+		},
+		async forget(unit) {
+			fake.forgotten.push(unit);
 		},
 	};
 	return fake;

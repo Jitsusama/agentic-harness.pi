@@ -5,6 +5,7 @@
  * dropped only after a deliberate close or release commits, so a crash at any
  * step leaves it held for the next start rather than lost.
  */
+import { resolve } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { attachWaits } from "./attach-waits.ts";
@@ -152,6 +153,13 @@ export interface BackendChildren {
 	resume(entry: RosterEntry, woken: boolean): Promise<SessionIdentity>;
 	/** Start a conversation in a child, settling with the child's answer. */
 	begin(request: OpenRequest | AdoptRequest): Promise<ControlReply>;
+	/**
+	 * Ask the child running a conversation a request that reached the host
+	 * before its route did, answering as the child does or with its refusal.
+	 */
+	ask(sessionId: string, request: ControlRequest): Promise<unknown>;
+	/** Settles once the child that last ran this conversation has gone. */
+	left(sessionId: string): Promise<void>;
 }
 
 /**
@@ -294,6 +302,9 @@ export function hostBackend(options: {
 					`Conversation ${sessionId} is held but not running, since its last start or park failed; close it and open it again`,
 				);
 			if (holds !== undefined || children?.running(sessionId)) return;
+			// A child that just failed may still be writing its file, whichever
+			// process runs the conversation next.
+			await children?.left(sessionId);
 			const entry = roster
 				.entries()
 				.find((held) => held.sessionId === sessionId);
@@ -306,7 +317,9 @@ export function hostBackend(options: {
 				if (another) await options.admitAnother?.("wake");
 				if (children?.moves(sessionId)) {
 					await children.resume(entry, true);
-					engine.movedOut?.(sessionId);
+					// One whose child already ended was rested again as it ended,
+					// so the host keeps watching its wake.
+					if (children.running(sessionId)) engine.movedOut?.(sessionId);
 				} else await engine.resume(entry, true);
 			} finally {
 				beginning -= 1;
@@ -357,11 +370,15 @@ export function hostBackend(options: {
 	}
 
 	// Held but not running, as after a failed resume: listed parked, so a
-	// person can see it and close it.
+	// person can see it and close it. One a child runs is the child's to list.
 	function stranded(): SessionIdentity[] {
 		return roster
 			.entries()
-			.filter((held) => host.holds(held.sessionId) === undefined)
+			.filter(
+				(held) =>
+					host.holds(held.sessionId) === undefined &&
+					!children?.running(held.sessionId),
+			)
 			.map(({ sessionId, file, cwd, since }) => ({
 				sessionId,
 				file,
@@ -380,11 +397,29 @@ export function hostBackend(options: {
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
-			if (children?.opens()) return await inChild(children, request);
+			if (children?.opens()) {
+				heldElsewhere(request);
+				return await inChild(children, request);
+			}
 			return await started(request);
 		} finally {
 			beginning -= 1;
 		}
+	}
+
+	// The engine refuses an adopt of a file it holds; a child holds
+	// nothing yet, so the host refuses one its roster holds, wherever it
+	// runs, rather than start a second pi on one file.
+	function heldElsewhere(request: OpenRequest | AdoptRequest): void {
+		if (request.op !== "adopt") return;
+		const file = resolve(request.sessionFile);
+		const holder = roster.entries().find((held) => resolve(held.file) === file);
+		// Said to the requester, who can then attach to the one held.
+		if (holder)
+			throw hostRefusal(
+				"already_held",
+				`Conversation already held: ${holder.sessionId}`,
+			);
 	}
 
 	// The child answers as a host would, so its answer is the caller's.
@@ -451,11 +486,9 @@ export function hostBackend(options: {
 	// The reason it closes with names the caller, so the journal line the
 	// engine's ended brings says who asked; one not running (parked, or
 	// stranded) has no end to bring it, so it is said here.
-	function end(
-		sessionId: string,
-		why: "closed" | "released",
-		by: string | undefined,
-	) {
+	function end(request: Extract<ControlRequest, { op: "close" | "release" }>) {
+		const { sessionId, by } = request;
+		const why = request.op === "close" ? "closed" : "released";
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
@@ -463,6 +496,9 @@ export function hostBackend(options: {
 			// it is closed as a parked one, its viewers told and the end said.
 			await engine.parkSettled?.(sessionId);
 			const running = host.holds(sessionId) !== undefined;
+			// Moved into a child while this waited: the child ends it.
+			if (!running && children?.running(sessionId))
+				return children.ask(sessionId, request);
 			if (!running && !rostered(sessionId))
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
 			const asked = `${why}, asked by ${askedBy(by)}`;
@@ -496,8 +532,16 @@ export function hostBackend(options: {
 			parked: count("parked"),
 			heavy: [...heavy],
 		};
+		// Children outlive a restart, so a drain neither parks nor counts them.
+		const inChildren = roster
+			.entries()
+			.filter((held) => children?.running(held.sessionId)).length;
+		const apart =
+			inChildren > 0
+				? `; ${inChildren} in processes of their own, which run on`
+				: "";
 		options.say?.(
-			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked; heavy runs: ${heavy.length > 0 ? heavy.join("; ") : "none"}`,
+			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked${apart}; heavy runs: ${heavy.length > 0 ? heavy.join("; ") : "none"}`,
 		);
 		return result;
 	}
@@ -522,13 +566,17 @@ export function hostBackend(options: {
 						host: options.identity,
 					};
 				case "close":
-					return end(request.sessionId, "closed", request.by);
 				case "release":
-					return end(request.sessionId, "released", request.by);
+					return end(request);
 				case "drain":
 					return drain(request.on, request.by);
 				case "abort":
 					await startOwes(request.sessionId);
+					if (
+						host.holds(request.sessionId) === undefined &&
+						children?.running(request.sessionId)
+					)
+						return children.ask(request.sessionId, request);
 					live(request.sessionId);
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };

@@ -173,9 +173,11 @@ export interface ChildSupervisor {
 	 * second call while one runs settles with the first's count.
 	 */
 	adopt(): Promise<number>;
+	/** Settles once the child that last ran this conversation has gone. */
+	left(sessionId: string): Promise<void>;
 	/**
 	 * Stop watching every child, leaving each running, one still being
-	 * set up among them, whose start then fails as the host's stop.
+	 * set up among them, whose start then fails at once as the host's stop.
 	 */
 	close(): void;
 }
@@ -315,6 +317,9 @@ export function childSupervisor(options: {
 	const inUse = new Set<string>();
 	// Each slot whose child is leaving, until its unit has gone.
 	const leaving = new Map<string, Promise<void>>();
+	// The leave of the child that last ran each conversation, until its
+	// unit has gone, which a wake of that conversation waits out.
+	const leftBy = new Map<string, Promise<void>>();
 	// Each forsaken slot's mark, by its unit, until it has been written or
 	// failed to be, which its stop and the clearing of its slot wait on.
 	const marking = new Map<string, Promise<void>>();
@@ -835,9 +840,17 @@ export function childSupervisor(options: {
 							if (forsaken) return;
 							if (current) dropOwn(current);
 							// One refused as it ended may run on: it is stopped.
-							void leave(slot, why === "failed" || refused !== undefined);
+							const left = leave(
+								slot,
+								why === "failed" || refused !== undefined,
+							);
 							if (!current) return;
 							const gone = current;
+							leftBy.set(keyed(gone), left);
+							void left.then(() => {
+								if (leftBy.get(keyed(gone)) === left)
+									leftBy.delete(keyed(gone));
+							});
 							if (why === "closed" || why === "released")
 								keep(() => roster.drop(heldAs(gone) ?? gone));
 							options.say?.(
@@ -1172,6 +1185,9 @@ export function childSupervisor(options: {
 				adopting = undefined;
 			});
 			return adopting;
+		},
+		left(sessionId) {
+			return leftBy.get(keyed(sessionId)) ?? Promise.resolve();
 		},
 		close() {
 			closing = true;

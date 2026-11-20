@@ -406,7 +406,7 @@ export async function listenControl(options: {
 			socket.once("close", gone);
 			send(await askOnce(child, line, request.id, options.report));
 			socket.off("close", gone);
-			return;
+			return undefined;
 		}
 		async function receive(value: unknown): Promise<PassedOn | undefined> {
 			if (viewer && sessionId) {

@@ -15,7 +15,10 @@ import {
 	type ControlReply,
 	dispatchControl,
 } from "../../../host/service/dispatch.ts";
-import type { SessionIdentity } from "../../../host/service/protocol.ts";
+import type {
+	ControlRequest,
+	SessionIdentity,
+} from "../../../host/service/protocol.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 
@@ -99,6 +102,11 @@ function children(moving: readonly string[], opening = false) {
 				result: shown(opened),
 			}),
 		),
+		ask: vi.fn(async (sessionId: string, _request: ControlRequest) => ({
+			sessionId,
+			asked: "the child",
+		})),
+		left: vi.fn(async (_sessionId: string) => {}),
 	} satisfies BackendChildren;
 	return { fake, runs, opened };
 }
@@ -130,6 +138,57 @@ describe("a conversation that moves into a child", () => {
 		expect(moved.fake.resume).toHaveBeenCalledExactlyOnceWith(held, true);
 		expect(inHost.resume).not.toHaveBeenCalled();
 		expect(inHost.movedOut).toHaveBeenCalledExactlyOnceWith(held.sessionId);
+	});
+
+	it("keeps the host watching its wake when its child ended as it started", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const inHost = engine();
+		const moved = children([held.sessionId]);
+		// Its child answered and then ended parked, so no route is left.
+		moved.fake.resume.mockImplementationOnce(async (resumed) => shown(resumed));
+
+		await backendWith(inHost, moved.fake).wake(held.sessionId);
+
+		expect(moved.fake.resume).toHaveBeenCalledOnce();
+		expect(inHost.movedOut).not.toHaveBeenCalled();
+	});
+
+	it("keeps the host watching its wake when its child doesn't start", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const inHost = engine();
+		const moved = children([held.sessionId]);
+		moved.fake.resume.mockRejectedValueOnce(new Error("no child unit"));
+
+		await expect(
+			backendWith(inHost, moved.fake).wake(held.sessionId),
+		).rejects.toThrow("no child unit");
+		expect(inHost.movedOut).not.toHaveBeenCalled();
+		expect(inHost.resume).not.toHaveBeenCalled();
+	});
+
+	it("waits for the child that last ran it to go before it runs again", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const inHost = engine();
+		const moved = children([]);
+		let gone: () => void = () => undefined;
+		moved.fake.left.mockReturnValueOnce(
+			new Promise<void>((done) => {
+				gone = done;
+			}),
+		);
+
+		const woken = backendWith(inHost, moved.fake).wake(held.sessionId);
+		await vi.waitFor(() =>
+			expect(moved.fake.left).toHaveBeenCalledWith(held.sessionId),
+		);
+		expect(inHost.resume).not.toHaveBeenCalled();
+		gone();
+		await woken;
+
+		expect(inHost.resume).toHaveBeenCalledExactlyOnceWith(held, true);
 	});
 
 	it("is woken in the host when it hasn't moved, as before", async () => {
@@ -191,7 +250,75 @@ describe("a conversation that moves into a child", () => {
 	});
 });
 
+describe("a request that reached the host before the child's route did", () => {
+	it("closes in the child that now runs it, which drops it", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const moved = children([held.sessionId]);
+		moved.runs.set(held.sessionId, shown(held));
+		const close = {
+			v: 1,
+			id: "c",
+			op: "close",
+			sessionId: held.sessionId,
+			by: "the launcher",
+		} as const;
+
+		const closed = await backendWith(engine(), moved.fake).execute(close);
+
+		expect(closed).toEqual({ sessionId: held.sessionId, asked: "the child" });
+		expect(moved.fake.ask).toHaveBeenCalledExactlyOnceWith(
+			held.sessionId,
+			close,
+		);
+		expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([
+			held.sessionId,
+		]);
+	});
+
+	it("aborts in the child that now runs it", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const inHost = engine();
+		const moved = children([held.sessionId]);
+		moved.runs.set(held.sessionId, shown(held));
+		const abort = {
+			v: 1,
+			id: "x",
+			op: "abort",
+			sessionId: held.sessionId,
+		} as const;
+
+		await backendWith(inHost, moved.fake).execute(abort);
+
+		expect(moved.fake.ask).toHaveBeenCalledExactlyOnceWith(
+			held.sessionId,
+			abort,
+		);
+		expect(inHost.abort).not.toHaveBeenCalled();
+	});
+});
+
 describe("a start's resume of what the host held", () => {
+	it("counts a moved one whose child doesn't start as not resumed", async () => {
+		const moving = entry();
+		await roster.hold(moving);
+		const moved = children([moving.sessionId]);
+		const refused = new Error("no child unit");
+		moved.fake.resume.mockRejectedValueOnce(refused);
+
+		const { unresumed, resumed } = await resumeHeld({
+			roster,
+			engine: engine(),
+			children: moved.fake,
+		});
+
+		expect(unresumed).toEqual([
+			{ sessionId: moving.sessionId, reason: refused },
+		]);
+		expect(resumed).toEqual([]);
+	});
+
 	it("takes up a moved one in its child, and leaves one a child already runs", async () => {
 		const moving = entry();
 		const running = entry();
@@ -264,6 +391,60 @@ describe("a conversation opened while children open", () => {
 		await backendWith(engine(), moved.fake, gate).execute(open);
 
 		expect(gate).toHaveBeenCalledOnce();
+	});
+
+	it("adopts in a child too", async () => {
+		const moved = children([], true);
+		const adopt = {
+			v: 1,
+			id: "d",
+			op: "adopt",
+			sessionFile: join(dir, "elsewhere.jsonl"),
+			attended: true,
+			env: {},
+		} as const;
+
+		await backendWith(engine(), moved.fake).execute(adopt);
+
+		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(adopt);
+	});
+
+	it("refuses to adopt a file the host already holds, starting no child", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const moved = children([], true);
+
+		const reply = await dispatchControl(
+			{
+				v: 1,
+				id: "d",
+				op: "adopt",
+				sessionFile: held.file,
+				attended: true,
+			},
+			backendWith(engine(), moved.fake),
+		);
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { message: expect.stringContaining("already held") },
+		});
+		expect(moved.fake.begin).not.toHaveBeenCalled();
+	});
+
+	it("fails when its child can't start, as an open in the host would", async () => {
+		const moved = children([], true);
+		moved.fake.begin.mockRejectedValueOnce(
+			new Error("The child's process ended before it listened"),
+		);
+
+		const reply = await dispatchControl(
+			open,
+			backendWith(engine(), moved.fake),
+		);
+
+		expect(reply).toMatchObject({ ok: false });
+		expect(roster.entries()).toEqual([]);
 	});
 
 	it("is refused with the child's own refusal", async () => {

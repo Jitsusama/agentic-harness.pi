@@ -12,6 +12,7 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type { BackendChildren } from "./backend.ts";
 import type { ChildPolicy } from "./child-policy.ts";
+import { askOnce, reach } from "./child-requests.ts";
 import {
 	type ChildSupervisor,
 	childSupervisor,
@@ -19,7 +20,9 @@ import {
 } from "./child-supervisor.ts";
 import type { Units } from "./child-units.ts";
 import type { ChildEnding } from "./child-watch.ts";
-import { type HeldChildren, heldChildren } from "./children.ts";
+import { type HeldChildren, heldChildren, passedOn } from "./children.ts";
+import { hostRefusal } from "./dispatch.ts";
+import type { ControlRequest } from "./protocol.ts";
 
 /** A host's children, as the backend, the server and its stop use them. */
 export interface HostedChildren {
@@ -80,14 +83,43 @@ export function hostChildren(options: {
 		}
 	}
 
+	// The policy moved it, so a child that can't start says so: on a
+	// machine with no child unit, systemd's own refusal names no policy.
+	async function resumed(entry: RosterEntry, woken: boolean) {
+		try {
+			return await supervisor.resume(entry, woken);
+		} catch (error) {
+			throw new Error(
+				`${entry.sessionId} moves to a process of its own, as children.json says, which didn't start: ${String(error)}`,
+				{ cause: error },
+			);
+		}
+	}
+
+	// Asked once of the child, as the server asks a routed request.
+	async function ask(sessionId: string, request: ControlRequest) {
+		const route = routes.routeOf(sessionId);
+		if (!route) throw new Error(`Conversation is not hosted: ${sessionId}`);
+		const reply = await askOnce(
+			await reach(route.socket),
+			`${JSON.stringify(passedOn(request, route))}\n`,
+			request.id,
+			report,
+		);
+		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
+		return reply.result;
+	}
+
 	return {
 		backend: {
 			moves: (sessionId) => policy.moves(sessionId),
 			opens: () => policy.opens(),
 			running: (sessionId) =>
 				routes.listed().find((held) => held.sessionId === sessionId),
-			resume: (entry, woken) => supervisor.resume(entry, woken),
+			resume: resumed,
 			begin: (request) => supervisor.begin(request),
+			ask,
+			left: (sessionId) => supervisor.left(sessionId),
 		},
 		routes,
 		adopt: () => supervisor.adopt(),

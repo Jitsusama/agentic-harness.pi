@@ -273,12 +273,18 @@ input pipeline or screen. No unit or running host is installed yet.
   go with the slot as the child ends. A child that never listens or
   refuses its first request is stopped; a host starting takes up the
   children an earlier one left running, and a host stopping leaves
-  them.
+  them, so stopping the host halts none of its children's
+  conversations. To halt those too, stop their units:
+  `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, to
+  resume at the next start.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,
-  and `"all":true` moves every one and every open. A missing or
-  unreadable file moves nothing, so emptying it moves them back.
+  and `"all":true` moves every one and every open. A missing file
+  moves nothing, so deleting it or emptying its list moves them back;
+  one it can't read keeps the last it read, so write it beside and
+  rename it into place. A folder it can't watch moves nothing, and
+  says so, rather than failing the host.
 - child-hosting.ts: the routes, supervisor and policy put together for
   serve.ts. A child that ends parked or failed leaves its conversation
   held and resting, its wake watched by the host again, so no process
