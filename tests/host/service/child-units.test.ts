@@ -1,4 +1,5 @@
 /** Where each child's files are, named so no slot can reach outside its folder. */
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
 	slotFolder,
 	slotOf,
 	slotsIn,
+	systemdUnits,
 	unitsOver,
 } from "../../../host/service/child-units.ts";
 
@@ -107,4 +109,20 @@ describe("a child's unit, as systemd says", () => {
 		await expect(refusing.start(unit)).rejects.toThrow("would not start");
 		await expect(refusing.gone(unit)).rejects.toThrow("would not say");
 	});
+
+	it("asks the user's systemd, which says a unit that never ran has gone", async (context) => {
+		// Only where a user's systemd answers, as it doesn't in a container.
+		if (!(await userSystemdAnswers())) context.skip();
+		const never = "pi-conversation-never-ran@0.service";
+		expect(await systemdUnits.gone(never)).toBe(true);
+	});
 });
+
+/** Whether `systemctl --user` reaches a running user manager. */
+function userSystemdAnswers(): Promise<boolean> {
+	return new Promise((resolve) => {
+		execFile("systemctl", ["--user", "show-environment"], (error) =>
+			resolve(error === null),
+		);
+	});
+}
