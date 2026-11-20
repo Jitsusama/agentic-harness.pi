@@ -110,6 +110,7 @@ import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
+import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
 
@@ -163,8 +164,6 @@ function tooLong(
 		? `${said}, since pi's runtime folder couldn't hold the fence's lists; check that XDG_RUNTIME_DIR names a folder pi can write, and that it isn't full.`
 		: `${said}; put it in a script and run that.`;
 }
-/** The Nix daemon's door for sandboxes, in the account's runtime folder. */
-export const NIX_DOOR = "nix-untrusted.sock";
 
 /**
  * Variables kept from the sandbox whatever their names: the bus's address
@@ -243,125 +242,6 @@ const NEVER = [
 	"*SESSION*",
 	"*SOCK*",
 ] as const;
-
-/**
- * The sandbox's own folder in the home folder, beneath the person's cache,
- * which it never reaches: its cache and its temporary folder, shared by
- * every sandboxed command and used by nothing outside.
- */
-export const SANDBOX_FOLDER = ".cache/pi-sandbox";
-
-/**
- * The sandbox's cache, temporary folder and gcloud's settings, for the
- * home folder `home`. gcloud writes its logs and settings where it's
- * pointed, so each session gets a folder of its own within `gcloud`.
- */
-export function sandboxFolders(home: string): {
-	cache: string;
-	temporary: string;
-	gcloud: string;
-} {
-	return {
-		cache: join(home, SANDBOX_FOLDER, "cache"),
-		temporary: join(home, SANDBOX_FOLDER, "tmp"),
-		gcloud: join(home, SANDBOX_FOLDER, "gcloud"),
-	};
-}
-
-/** Where a command runs, as the sandbox's rules need it. */
-export interface SandboxPlace {
-	readonly home: string;
-	/** `XDG_RUNTIME_DIR`, where the Nix door is. */
-	readonly runtimeDir: string | undefined;
-	readonly cwd: string;
-	/** The git folder of the repository `cwd` is a worktree of, if it is one. */
-	readonly repository?: string;
-}
-
-/** A rule landrun takes: what it is, and the path or value it is for. */
-type Rule = readonly [flag: string, value: string];
-
-/** The paths the strict profile gives, by what it lets a command do there. */
-interface StrictPaths {
-	readonly runnable: readonly string[];
-	readonly readable: readonly string[];
-	readonly writable: readonly string[];
-	readonly sockets: readonly string[];
-}
-
-/** The strict profile's paths, for the place a command runs in. */
-function strictPaths(place: SandboxPlace): StrictPaths {
-	const home = (path: string) => join(place.home, path);
-	const runnable = [
-		"/nix/store",
-		"/run/current-system",
-		"/run/booted-system",
-		"/run/opengl-driver",
-		"/run/wrappers",
-		"/etc/profiles",
-		"/nix/var/nix/profiles",
-		"/usr",
-		"/bin",
-		home(".nix-profile"),
-		home(".local/state/nix/profile"),
-	];
-	const readable = [
-		"/etc",
-		"/proc",
-		"/sys",
-		"/nix/var/nix/db",
-		"/run/systemd/resolve",
-		"/dev/urandom",
-		"/dev/random",
-		home(".gitconfig"),
-		home(".config/git"),
-		home(".config/dev"),
-		home(".config/nix/nix.conf"),
-		...(place.repository ? [place.repository] : []),
-	];
-	const own = sandboxFolders(place.home);
-	const writable = [
-		place.cwd,
-		own.temporary,
-		own.cache,
-		own.gcloud,
-		"/dev/null",
-		"/dev/full",
-		"/dev/zero",
-		"/dev/shm",
-	];
-	const sockets = [
-		"/run/nscd/socket",
-		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
-	];
-	return { runnable, readable, writable, sockets };
-}
-
-/**
- * The strict profile's rules. Paths that don't exist on a machine are
- * passed anyway and skipped (`--ignore-missing`), so one list serves
- * every machine.
- */
-export function strictRules(place: SandboxPlace): Rule[] {
-	const { runnable, readable, writable, sockets } = strictPaths(place);
-	const own = sandboxFolders(place.home);
-	return [
-		...runnable.map((path): Rule => ["--rox", path]),
-		...readable.map((path): Rule => ["--ro", path]),
-		...writable.map((path): Rule => ["--rw", path]),
-		...sockets.map((path): Rule => ["--unix", path]),
-		["--env", `TMPDIR=${own.temporary}`],
-		["--env", `XDG_CACHE_HOME=${own.cache}`],
-		...(place.runtimeDir
-			? [
-					[
-						"--env",
-						`NIX_REMOTE=unix://${join(place.runtimeDir, NIX_DOOR)}`,
-					] as Rule,
-				]
-			: []),
-	];
-}
 
 /**
  * The shell text that runs `command` under landrun with `rules`.
@@ -818,21 +698,4 @@ export function wrapFor(
 				);
 		}
 	}
-}
-
-/** What one of pi's own file tools does with the path it names. */
-export type FileUse = "read" | "write";
-
-/**
- * Where pi's file tools may `use` a path under the strict profile: where
- * a command may, less `/proc` and the devices. pi's tools run in pi's own
- * process, unfenced, and its `/proc/self/environ` holds every token the
- * sandbox keeps from commands.
- */
-export function fileReach(place: SandboxPlace, use: FileUse): string[] {
-	const { runnable, readable, writable } = strictPaths(place);
-	const ours = (path: string) => path !== "/proc" && !path.startsWith("/dev/");
-	const written = writable.filter(ours);
-	if (use === "write") return written;
-	return [...runnable, ...readable.filter(ours), ...written];
 }
