@@ -3,7 +3,8 @@
  * sweep's lock that says when the last one ended.
  */
 
-import { statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 /** The stamp beside a sweep's lock that says when the last sweep ended. */
 function endedStamp(lockPath: string): string {
@@ -83,6 +84,8 @@ export function sweptOutsideSince(
 export function markSweptOutside(lockPath: string, at: number): void {
 	const stamp = outsideStamp(lockPath);
 	try {
+		// A machine whose first sweep this is has no work state folder yet.
+		mkdirSync(dirname(stamp), { recursive: true });
 		writeFileSync(stamp, "");
 		utimesSync(stamp, at / 1000, at / 1000);
 	} catch {
