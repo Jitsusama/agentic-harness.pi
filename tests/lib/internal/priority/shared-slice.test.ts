@@ -126,6 +126,18 @@ describe("a command run in the shared slice", () => {
 		expect(said("asked")).toContain("--slice=shared.slice");
 	});
 
+	it("runs as it was when the slice's form, which holds it twice, would pass what Linux takes in one string", () => {
+		// Short of the fence's own bound, yet twice over and with each quote
+		// quoted it runs past 128 KiB.
+		const long = `: '${"x".repeat(70 * 1024)}'\n${COMMAND}`;
+		const wrapped = inSharedSlice(long, join(root, "none"));
+		expect(wrapped, "the command was left as it was").toBe(long);
+		const ran = run(wrapped, { SHARED_SLICE: "shared.slice" });
+		expect(ran.status).toBe(3);
+		expect(said("out")).toEqual(["it's kept"]);
+		expect(said("asked")).toEqual([]);
+	});
+
 	it("runs as it was where there is no systemd of the person's to ask", () => {
 		const ran = run(inSharedSlice(COMMAND, join(root, "none")), {
 			SHARED_SLICE: "shared.slice",
