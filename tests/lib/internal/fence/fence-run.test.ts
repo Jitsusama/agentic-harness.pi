@@ -205,6 +205,39 @@ describe("refusing to run where the fence can't hold", () => {
 		expect(homed).toHaveProperty("refused");
 	});
 
+	it("holds the code caches on a Mac, the temporary folder's beside /tmp's, and their folders undeletable", () => {
+		const made = fenceRunText(asking(join(base, "plain")), {
+			env: {},
+			home,
+			platform: "darwin",
+			sandboxExec: "/usr/bin/sandbox-exec",
+			treesRoot: join(base, "trees"),
+		});
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		const own = join(realpathSync(tmpdir()), "jiti");
+		const lines = made.text.split("\n");
+		const naming = (folder: string) =>
+			lines.filter((line) => line.includes(`"${folder}"`));
+		// As the kernel names them, which on a Mac is /private/tmp's.
+		for (const cache of [join(realpathSync("/tmp"), "jiti"), own]) {
+			// Its own deny names it as a subpath, so it can be neither written
+			// nor renamed (one not there is hidden whole); the folder above it
+			// can't be renamed either.
+			expect(
+				naming(cache).some((line) =>
+					/^\(deny (file-read\* )?file-write\*/.test(line),
+				),
+				`${cache} is kept from writes`,
+			).toBe(true);
+			expect(
+				naming(dirname(cache)).some((line) =>
+					line.startsWith("(deny file-write-unlink"),
+				),
+				`${dirname(cache)} can't be moved away`,
+			).toBe(true);
+		}
+	});
+
 	const onEither = (folder: string, platform: "linux" | "darwin") =>
 		fenceRunText(
 			{ kind: "fence", folder, words: ["true"] },

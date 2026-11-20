@@ -162,6 +162,14 @@ export interface SeatbeltReach {
 	 * program can find its way down.
 	 */
 	readonly regranted?: readonly Regrant[];
+	/**
+	 * Paths outside the home whose rules must hold however the folders
+	 * above them are named: the temporary folder's code caches
+	 * (fence-temp-caches.ts). A Mac's own temporary folder is the
+	 * person's, so a command could otherwise rename it and leave a link in
+	 * its place, past every rule that names the caches in it.
+	 */
+	readonly heldFromRoot?: readonly string[];
 }
 
 /** A tree granted again after every hide, and the folder in it a command writes. */
@@ -255,6 +263,25 @@ export function seatbeltProfile(
 				}
 				break;
 			}
+			case "--overlay-src": {
+				// A folder whose writes go to a tmpfs of the fence's own
+				// (fence-temp-caches.ts). Seatbelt has no overlay, so it is
+				// read-only here: a write fails rather than reaching outside.
+				const [from = "", over = "", to = ""] = values(3);
+				if (over !== "--tmp-overlay" || from !== to) {
+					throw new Error(
+						`the Mac's fence can't say bubblewrap's ${option} ${over}`,
+					);
+				}
+				const rules = [
+					`(allow file-read* (subpath ${path(to)}))`,
+					`(deny file-write* (subpath ${path(to)}))`,
+				];
+				readOnly.push({ to, rules, at: mounts.length });
+				mounts.push(rules[0] ?? "");
+				close(to, rules[1] ?? "");
+				break;
+			}
 			case "--tmpfs": {
 				const [to = ""] = values(1);
 				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;
@@ -327,6 +354,11 @@ export function seatbeltProfile(
 		...mounts,
 		";; Every hide again, so no mount laid after it reopens one.",
 		...hides,
+		// And each held cache kept from writes again, so a strict run whose
+		// folder holds one, a temporary folder, can't write it.
+		...readOnly
+			.filter(({ to }) => (reach.heldFromRoot ?? []).includes(to))
+			.flatMap(({ rules }) => rules),
 		...keptInHidden,
 		...hidden,
 		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
@@ -349,7 +381,11 @@ export function seatbeltProfile(
 					...(home ? MAC_HIDDEN.map((secret) => join(home, secret)) : []),
 					// Nor one holding a program, swapped for a folder planting one.
 					...programFolders,
-				].flatMap((to) => above(to, home)),
+				]
+					.flatMap((to) => above(to, home))
+					// Nor any folder between the root and a held cache, which a
+					// rename would carry out from under its read-only rule.
+					.concat((reach.heldFromRoot ?? []).flatMap((to) => between("/", to))),
 			),
 		]
 			// As named too, so a folder that is a link can't be removed and

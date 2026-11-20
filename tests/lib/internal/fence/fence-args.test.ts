@@ -17,7 +17,11 @@ import {
 	NEVER_THROUGH,
 } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
-import { READ_ONLY } from "../../../../lib/internal/fence/fence-home.ts";
+import {
+	foldersMadeFirst,
+	READ_ONLY,
+} from "../../../../lib/internal/fence/fence-home.ts";
+import { plantedCache } from "../../../../lib/internal/fence/fence-temp-caches.ts";
 
 /**
  * A disk where every path is a folder but the links named and any git
@@ -848,5 +852,100 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(worktrees, "world is writable").toBeGreaterThan(-1);
 		expect(back > worktrees, "the own folder isn't bound back").toBe(true);
 		expect(settings > back, "the own settings are writable").toBe(true);
+	});
+});
+
+describe("what node reads back as compiled code outside the fence", () => {
+	// A cache entry, or a module node's require finds last, runs at the
+	// next start of a host or pi, unfenced (04TNWT, 19 November).
+	const home = "/home/someone";
+	const place = { home, runtimeDir: undefined };
+	const disk = diskWith(home, [".local", ".cache", ".node_modules"]);
+	const args = fenceArgs(place, disk);
+
+	it("sends a write to node's or jiti's cache in /tmp to the fence's own tmpfs", () => {
+		for (const folder of ["/tmp/node-compile-cache", "/tmp/jiti"]) {
+			const source = args.indexOf(folder);
+			expect(args.slice(source - 1, source + 3)).toEqual([
+				"--overlay-src",
+				folder,
+				"--tmp-overlay",
+				folder,
+			]);
+			// After `/` is bound, which would otherwise cover it again.
+			expect(source).toBeGreaterThan(args.indexOf("/"));
+		}
+	});
+
+	it("makes a missing cache a tmpfs of its own, and refuses a link left there", () => {
+		const missing = fenceArgs(place, {
+			kind: () => undefined,
+			entries: () => [],
+		});
+		const at = missing.indexOf("/tmp/jiti");
+		expect(missing.slice(at - 1, at + 1)).toEqual(["--tmpfs", "/tmp/jiti"]);
+		// One of ours is set aside before (setAsidePlanted); one still there
+		// would lead node and jiti outside wherever it points.
+		expect(() =>
+			fenceArgs(place, diskWith(home, [".local"], ["/tmp/jiti"])),
+		).toThrow(/\/tmp\/jiti is a link/);
+	});
+
+	it("says why before the fence is laid, so a link left there is refused as any refusal is", () => {
+		const folders = ["/tmp/node-compile-cache", "/tmp/jiti"];
+		expect(plantedCache(folders, disk)).toBeUndefined();
+		expect(
+			plantedCache(folders, { kind: () => undefined, entries: () => [] }),
+		).toBeUndefined();
+		expect(
+			plantedCache(folders, diskWith(home, [".local"], ["/tmp/jiti"])),
+		).toMatch(/^the fence won't start: \/tmp\/jiti is a link/);
+	});
+
+	it("binds each node_modules node searches above pi's code read-only", () => {
+		for (const folder of [
+			".pi/node_modules",
+			".local/node_modules",
+			".local/share/node_modules",
+			".local/state/node_modules",
+		]) {
+			const path = `${home}/${folder}`;
+			const at = args.lastIndexOf(path) - 1;
+			expect(args.slice(at - 1, at + 2), `${folder} isn't read-only`).toEqual([
+				"--ro-bind",
+				path,
+				path,
+			]);
+		}
+		expect(foldersMadeFirst(home)).toContain(
+			`${home}/.local/share/node_modules`,
+		);
+	});
+
+	it("binds neither of node's home module folders back writable", () => {
+		expect(READ_ONLY).toEqual(
+			expect.arrayContaining([".node_modules", ".node_libraries"]),
+		);
+		const bound = args.flatMap((arg, at) =>
+			arg === "--bind" ? [args[at + 1]] : [],
+		);
+		expect(bound).not.toContain(`${home}/.node_modules`);
+	});
+
+	it("refuses pi's file tools every cache and module folder", () => {
+		for (const path of [
+			"/tmp/node-compile-cache/v22/entry",
+			"/tmp/jiti/fence.0b681951.mjs",
+			`${home}/.local/share/node_modules/bufferutil/index.js`,
+			`${home}/.pi/node_modules/bufferutil/index.js`,
+			`${home}/.local/state/pi/agentic-harness.pi/host-compile/work-1/entry`,
+			`${home}/.local/state/pi/agentic-harness.pi/node-compile-cache/entry`,
+			`${home}/.node_modules/bufferutil.js`,
+			`${home}/.node_libraries/bufferutil.js`,
+		]) {
+			expect(fenceRefusesWrite(path, place, disk), `${path} was writable`).toBe(
+				true,
+			);
+		}
 	});
 });

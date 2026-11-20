@@ -91,6 +91,7 @@ import { fenceNpmrc } from "../fence/fence-npmrc.ts";
 import { seedOwnHomes } from "../fence/fence-seed.ts";
 import { fenceSshConfig } from "../fence/fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
+import { plantedCache, setAsidePlanted } from "../fence/fence-temp-caches.ts";
 import {
 	inStore,
 	type Offload,
@@ -520,7 +521,7 @@ function askedFor(
  * entry is there: the deeper read-only paths and the caches within
  * read-only entries, which nothing inside could make.
  */
-function makeFoldersFirst(home: string): void {
+export function makeFoldersFirst(home: string): void {
 	for (const path of foldersMadeFirst(home)) {
 		const entry = join(home, relative(home, path).split(sep)[0] ?? "");
 		if (!statSync(entry, { throwIfNoEntry: false })?.isDirectory()) continue;
@@ -595,6 +596,9 @@ export function wrapFor(
 				docker: dockerHoldsCredentials(home),
 			};
 			makeFoldersFirst(home);
+			setAsidePlanted();
+			const planted = plantedCache();
+			if (planted) return () => refused(planted);
 			const own = sandboxFolders(home).cache;
 			// Never waited on: a command started first finds what the own
 			// homes held already.
