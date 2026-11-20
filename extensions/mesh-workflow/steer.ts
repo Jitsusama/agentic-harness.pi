@@ -14,13 +14,13 @@
 
 import { type FSWatcher, watch } from "node:fs";
 import { withSession } from "../../lib/core/session/index.ts";
+import { automatedHeader } from "../../lib/internal/automated.ts";
 import { coalescing } from "../../lib/internal/process/single-flight.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
 import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
 	ASKING_FROM_OUTSIDE,
 	inboxOf,
-	MACHINE_SAYS,
 	type Steer,
 	type Taken,
 	takenSteers,
@@ -180,7 +180,9 @@ export interface SteeredInto {
 
 /**
  * What the session reads: the person asking, to be answered first and
- * briefly, or the machine's words, saying they aren't the person's.
+ * briefly, or the machine's words, under the harness's own header so
+ * that whatever reads who drives a session (a safe word's parking, the
+ * mesh's driven mark) knows them for not the person's.
  *
  * The person's words are a question put from the launcher or another
  * window, where the talk shows the first answer; framed as mere
@@ -189,7 +191,7 @@ export interface SteeredInto {
 export function steerText(steer: Steer, into: SteeredInto): string {
 	if (steer.from === FROM_MACHINE) {
 		const who = steer.by ?? "mycelium node";
-		return `${MACHINE_SAYS}${who}, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
+		return `${automatedHeader(`said by this machine's ${who}, not by the person, through this session's steer inbox`)}\n\n${steer.text}`;
 	}
 	const then = into.busy
 		? " while this session works: answer first, in a line or two, then carry on."
