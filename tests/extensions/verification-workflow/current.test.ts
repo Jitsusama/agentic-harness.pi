@@ -163,6 +163,19 @@ describe("a commit's check", () => {
 		expect(await settling).toBe("failing");
 		expect(after, "fingerprints asked after the check").toBe(0);
 	});
+
+	it("settles a commit's outcome from the answer its check had", async () => {
+		state.outcome = "failing";
+		const checking = commitCheck(state, { dir: "/src/repo" }, undefined);
+		await gitSays("judged");
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("judged");
+		expect((await checking)?.problems[0]).toContain("pnpm check failed");
+		expect(after, "fingerprints asked after the check").toBe(0);
+		expect(state.outcome).toBe("failing");
+	});
 });
 
 describe("settling the outcome", () => {

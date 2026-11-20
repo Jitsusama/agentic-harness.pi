@@ -24,7 +24,11 @@ import {
 	currentVerificationFailure,
 	provideVerificationCheck,
 } from "../../../lib/internal/verification/signal.ts";
-import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 import { endTurn } from "../../support/turn-end.ts";
 
 /**
@@ -261,22 +265,31 @@ function counted(file: string): number {
 
 /**
  * Start a failing verify of the repository, and once it waits on git
- * for its fingerprint, end another verify in `other` with `then`.
+ * for its fingerprint, end a verify in `other` with each of `thens`,
+ * one after another, or with none, make the edit `meanwhile` does.
  */
 async function verifyEndsMeanwhile(
 	h: Harness,
 	other: string,
-	then: string,
+	...thens: (string | (() => Promise<void>))[]
 ): Promise<void> {
 	// Another project's git answers at once, so the repository's ends last.
 	heldGit(" status ", other === repo ? undefined : other);
 	h.questVerify = "exit 1";
 	const failing = h.verify.execute("call", { path: repo }, undefined);
-	await vi.waitFor(() =>
-		expect(existsSync(gitWaiting()), "git asked").toBe(true),
+	// A shell and the stub's gits start first, slowly on a loaded machine.
+	await vi.waitFor(
+		() => expect(existsSync(gitWaiting()), "git asked").toBe(true),
+		{ timeout: REAL_GIT_MS },
 	);
-	h.questVerify = then;
-	await h.verify.execute("call", { path: other }, undefined);
+	for (const then of thens) {
+		if (typeof then !== "string") {
+			await then();
+			continue;
+		}
+		h.questVerify = then;
+		await h.verify.execute("call", { path: other }, undefined);
+	}
 	// Only now may the first verify's git answer, so the other has ended.
 	writeFileSync(gitReleased(), "");
 	await failing;
@@ -552,6 +565,28 @@ describe("the verify tool", () => {
 		expect(held?.problems[0]).toContain(`exit 1 failed in ${other}`);
 	}, 20_000);
 
+	it("records no failure an edit of its project answered for meanwhile", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const fixed = join(repo, "package.json");
+
+		await verifyEndsMeanwhile(h, repo, () => edit(h, fixed));
+
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
+	}, 20_000);
+
+	it("keeps a failure still standing once another that ended later is answered for", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+
+		await verifyEndsMeanwhile(h, other, "exit 1", "true");
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
 	it("records a failure while a verify of another project ends", async () => {
 		repo = await projectRepo();
 		const h = await harness();
@@ -581,8 +616,24 @@ describe("the verify tool", () => {
 		const result = await h.verify.execute("call", { path: repo }, undefined);
 
 		expect(result.details.outcome).toBe("failing");
+		expect(result.content[0]?.text).toContain("holds back no commit");
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 		expect(h.statuses.at(-1), "still said failing").toBeDefined();
+	});
+
+	it("holds back a commit on a failed run in a repository with no commit yet", async () => {
+		const unborn = project("unborn");
+		execFileSync(REAL_GIT, ["init", "-q", unborn]);
+		const h = await harness();
+		h.questVerify = "exit 1";
+
+		await h.verify.execute("call", { path: unborn }, undefined);
+		const held = await currentVerificationFailure({ dir: unborn });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+
+		// Compared, not constant: a file written there moves it.
+		writeFileSync(join(unborn, "formatted.ts"), "export {};\n");
+		expect(await currentVerificationFailure({ dir: unborn })).toBeUndefined();
 	});
 
 	it("retires a failed run once its repository is gone", async () => {
@@ -730,14 +781,19 @@ describe("whether a run's root is still there", () => {
 		expect(await present(join(file, "inner")), "under a file").toBe(false);
 	});
 
-	it("takes a root out of reach for now as still there", async () => {
-		const locked = join(root, "locked");
-		mkdirSync(join(locked, "inner"), { recursive: true });
-		chmodSync(locked, 0o000);
-		try {
-			expect(await present(join(locked, "inner")), "out of reach").toBe(true);
-		} finally {
-			chmodSync(locked, 0o755);
-		}
-	});
+	// Root reaches into any folder, so nothing is out of its reach.
+	it.skipIf(process.getuid?.() === 0)(
+		"takes a root out of reach for now as still there",
+		async () => {
+			const locked = join(root, "locked");
+			mkdirSync(join(locked, "inner"), { recursive: true });
+			chmodSync(locked, 0o000);
+			try {
+				const inner = join(locked, "inner");
+				expect(await present(inner), "out of reach").toBe(true);
+			} finally {
+				chmodSync(locked, 0o755);
+			}
+		},
+	);
 });
