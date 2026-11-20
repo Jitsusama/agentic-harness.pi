@@ -61,13 +61,16 @@ function facts(over: Partial<Parameters<typeof handOverOf>[0]> = {}) {
 describe("handing a window over", () => {
 	it("names the join, then plain pi on its log, as what its holder starts next", () => {
 		let quiet = 0;
-		handOverOf(
+		const over = handOverOf(
 			facts({
 				quiet: () => {
 					quiet += 1;
 				},
 			}),
-		)?.end();
+		);
+		expect(over?.tell(), "told, with no why").toBeUndefined();
+		expect(quiet, "telling alone leaves it drawing").toBe(0);
+		over?.quiet();
 		expect(JSON.parse(readFileSync(again, "utf8"))).toEqual([
 			process.execPath,
 			QUIET,
@@ -97,7 +100,7 @@ describe("handing a window over", () => {
 					PI_SANDBOX: "fence",
 				},
 			}),
-		)?.end();
+		)?.tell();
 		const command: unknown = JSON.parse(readFileSync(again, "utf8"));
 		expect(
 			Array.isArray(command)
@@ -113,7 +116,7 @@ describe("handing a window over", () => {
 		expect(handOverOf(facts({ pid: 7 })), "a shell between").toBeUndefined();
 	});
 
-	it("throws before going quiet, leaving nothing named, when its holder can't be told", () => {
+	it("says why, leaving nothing named, when its holder can't be told", () => {
 		mkdirSync(wake);
 		let quiet = 0;
 		const over = handOverOf(
@@ -125,11 +128,19 @@ describe("handing a window over", () => {
 		);
 
 		expect(
-			() => over?.end(),
-			"the move's catch closes it, told which file failed and how",
-		).toThrow(/couldn't be told the join: EISDIR.*wake/);
-		expect(quiet, "not gone quiet, so its note still stands").toBe(0);
+			over?.tell(),
+			"the move is called off, told which file failed and how",
+		).toMatch(/couldn't be told the join: EISDIR.*wake/);
+		expect(quiet, "not gone quiet, so its window still draws").toBe(0);
 		expect(existsSync(again), "no join left for a later start").toBe(false);
+	});
+
+	it("takes back what it told, for a move called off after", () => {
+		const over = handOverOf(facts());
+		over?.tell();
+		over?.untell();
+		expect(existsSync(again), "no join left for a later start").toBe(false);
+		expect(existsSync(wake), "no wake into it either").toBe(false);
 	});
 
 	it("can't with no log, or with flags plain pi would drop", () => {
@@ -200,7 +211,13 @@ interface Window {
 	tick?: () => void;
 }
 
-function window(over: () => void = () => undefined): {
+/** How a window's hand-over goes: why its holder can't be told, or its note can't be written. */
+interface Going {
+	readonly untold?: string;
+	readonly noteFails?: string;
+}
+
+function window(going: Going = {}): {
 	at: Window;
 	move: ReturnType<typeof createMoving>;
 } {
@@ -209,10 +226,12 @@ function window(over: () => void = () => undefined): {
 		clock: Date.parse("2026-11-11T03:00:00.000Z"),
 		moving: undefined,
 		over: {
-			end: () => {
-				over();
-				at.did.push("hand over");
+			tell: () => {
+				at.did.push("tell");
+				return going.untold;
 			},
+			untell: () => at.did.push("untell"),
+			quiet: () => at.did.push("hand over"),
 		},
 		did: [],
 		told: [],
@@ -224,7 +243,10 @@ function window(over: () => void = () => undefined): {
 		setMoving: (now) => {
 			at.moving = now;
 		},
-		note: (to) => at.did.push(`note ${to}`),
+		note: (to) => {
+			if (going.noteFails !== undefined) throw new Error(going.noteFails);
+			at.did.push(`note ${to}`);
+		},
 		handOver: () => at.over,
 		keyedAt: () => at.keyedAt,
 		tell: (text) => at.told.push(text),
@@ -250,7 +272,12 @@ describe("moving in place", () => {
 	it("hands its window over, telling nothing, once nobody has typed", () => {
 		const { at, move } = window();
 		move.move("attended");
-		expect(at.did).toEqual(["note attended", "hand over", "close"]);
+		expect(at.did, "its holder told before the move is noted").toEqual([
+			"tell",
+			"note attended",
+			"hand over",
+			"close",
+		]);
 		expect(at.told).not.toContainEqual(expect.stringMatching(/Free now/));
 	});
 
@@ -267,7 +294,7 @@ describe("moving in place", () => {
 		pass(at, QUIET_MS - 1);
 		expect(at.did).toEqual([]);
 		pass(at, 1);
-		expect(at.did).toEqual(["note attended", "hand over", "close"]);
+		expect(at.did).toEqual(["tell", "note attended", "hand over", "close"]);
 	});
 
 	it("rests when nobody stops typing, then looks again", () => {
@@ -283,17 +310,29 @@ describe("moving in place", () => {
 		pass(at, QUIET_REST_MS - 2_000);
 		expect(at.did, "it still rests").toEqual([]);
 		pass(at, 2_000);
-		expect(at.did).toEqual(["note background", "hand over", "close"]);
+		expect(at.did).toEqual(["tell", "note background", "hand over", "close"]);
 	});
 
-	it("closes its window as before when the hand-over fails", () => {
-		const { at, move } = window(() => {
-			throw new Error("the disk is full");
-		});
+	it("stays open, saying why, when its holder can't be told", () => {
+		const { at, move } = window({ untold: "the disk is full" });
 		move.move("attended");
-		expect(at.did).toEqual(["note attended", "close"]);
+		expect(at.did, "neither noted nor closed").toEqual(["tell"]);
+		expect(at.moving, "the move is off").toBeUndefined();
 		expect(at.told.at(-1)).toBe(
-			"Free now; moving to the attended host. Its window closes, since the disk is full.",
+			"This session couldn't move to the attended host, so it stays open: the disk is full",
+		);
+	});
+
+	it("takes back its holder's telling when its note can't be written", () => {
+		const { at, move } = window({ noteFails: "the disk is full" });
+		move.move("attended");
+		expect(at.did, "told, then taken back, and not closed").toEqual([
+			"tell",
+			"untell",
+		]);
+		expect(at.moving, "the move is off").toBeUndefined();
+		expect(at.told.at(-1)).toBe(
+			"This session couldn't move to the attended host, so it stays open: the disk is full",
 		);
 	});
 
@@ -303,6 +342,7 @@ describe("moving in place", () => {
 		at.keyedAt = at.clock;
 		move.move("attended");
 		expect(at.did).toEqual(["note attended", "close"]);
+		expect(at.told).toContain("Free now; moving to the attended host.");
 
 		const other = window();
 		other.at.over = undefined;

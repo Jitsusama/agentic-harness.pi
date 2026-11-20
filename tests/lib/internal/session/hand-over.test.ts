@@ -17,6 +17,7 @@ import {
 	goQuiet,
 	handingOf,
 	tellHolder,
+	untellHolder,
 } from "../../../../lib/internal/session/hand-over.ts";
 import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
@@ -145,6 +146,22 @@ describe("telling the holder what starts next", () => {
 		});
 
 		expect(existsSync(files.again), "the command it wrote is gone").toBe(false);
+	});
+
+	it("takes back what it told, leaving its holder nothing to start", () => {
+		const { files } = holderFor(4242);
+		tellHolder(files, ["pi"], { view: true });
+
+		untellHolder(files);
+
+		expect(existsSync(files.again), "no command").toBe(false);
+		expect(existsSync(files.wake), "no wake").toBe(false);
+	});
+
+	it("takes back nothing quietly when nothing was told", () => {
+		const { files } = holderFor(4242);
+
+		expect(() => untellHolder(files), "nothing to take back").not.toThrow();
 	});
 });
 

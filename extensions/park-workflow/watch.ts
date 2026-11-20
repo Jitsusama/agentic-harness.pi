@@ -7,7 +7,6 @@ import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
-import { tellHolder } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
@@ -194,6 +193,8 @@ export interface WatchOptions {
 	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
+	/** Say a line in its window, from within its exit; stdout unless given. */
+	readonly say?: (line: string) => void;
 	/**
 	 * The desktop its window is closed through as it parks, under niri;
 	 * this machine's unless given.
@@ -571,14 +572,26 @@ export function watch(
 		const seen = asked ? undefined : watched();
 		if (seen !== undefined) return seen;
 		const throughHolder = () => {
-			// Untold, with neither file left, its holder keeps the window
-			// parked, and a key starts the command it holds, on the log that
-			// command names: nothing is left to start on the fresh log alone.
-			tellHolder({ again, wake }, holderCommand(fresh, args, env), {
-				session,
-				restart: fresh,
-				at: new Date(now()).toISOString(),
-			});
+			// Its holder starts the named command on the fresh log at once
+			// when woken. With the command written but not the wake, the window
+			// stays parked and a key starts that command, still on the fresh
+			// log; with neither, a key starts the command its holder holds. So
+			// nothing written is taken back, and the window says why.
+			try {
+				writeFileSync(again, JSON.stringify(holderCommand(fresh, args, env)));
+				writeFileSync(
+					wake,
+					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
+				);
+			} catch (error) {
+				const why = error instanceof Error ? error.message : String(error);
+				(
+					options.say ??
+					((line: string) => process.stdout.write(`\r\n${line}\r\n`))
+				)(
+					`It stays parked, since its holder couldn't be told to start it again: ${why}.`,
+				);
+			}
 			const setCode =
 				options.setExitCode ??
 				((code: number) => {

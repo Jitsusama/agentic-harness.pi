@@ -64,11 +64,13 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
 					: { handed: false as const };
 			if (handing.handed) return;
 			const refusal = heldByHost(sessionId, hold);
+			// The why comes first, so the refusal's command to reach the host
+			// still ends the line, as a person copies it.
 			refuse(
 				ctx,
 				handing.why === undefined
 					? refusal
-					: `${refusal} Its window couldn't be handed to the host's view: ${handing.why}`,
+					: `Its window couldn't be handed to the host's view: ${handing.why}. ${refusal}`,
 			);
 		});
 		// A prompt given on the command line, or typed before the end lands.

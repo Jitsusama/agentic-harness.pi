@@ -642,6 +642,7 @@ describe("starting again on a fresh log", () => {
 	let restarts: string[];
 	let fallbacks: (() => void)[];
 	let focused: string | null;
+	let said: string[];
 	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
 		watch(session(), events, {
 			env,
@@ -656,6 +657,7 @@ describe("starting again on a fresh log", () => {
 				fallbacks.push(fallback);
 			},
 			setExitCode: (code) => exits.push(code),
+			say: (line) => said.push(line),
 			focusedWindow: () => focused,
 			clock: false,
 		});
@@ -677,6 +679,7 @@ describe("starting again on a fresh log", () => {
 	beforeEach(() => {
 		restarts = [];
 		fallbacks = [];
+		said = [];
 		focused = "pi-session.3";
 		writeFileSync(fresh(), "");
 	});
@@ -713,15 +716,20 @@ describe("starting again on a fresh log", () => {
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
-	it("takes back the command it named when its holder's wake can't be written", () => {
+	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {
 		mkdirSync(join(folder, "held.wake"));
 		restarting();
 		asked();
 		fallbacks[0]?.();
 		expect(
-			readdirSync(folder),
-			"no command left that a key would start on the fresh log",
-		).not.toContain("held.again");
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+			"a key starts it on the fresh log, not on what its holder first ran",
+		).toEqual(["pi", "--session", fresh()]);
+		expect(said).toEqual([
+			expect.stringMatching(
+				/^It stays parked, since its holder couldn't be told to start it again: EISDIR.*held\.wake/,
+			),
+		]);
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 

@@ -423,7 +423,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 
 		expect(said, "the refusal says why the view couldn't take over").toEqual([
 			expect.stringMatching(
-				/is open in the work-background host.*Its window couldn't be handed to the host's view: EISDIR.*again/s,
+				/^Its window couldn't be handed to the host's view: EISDIR.*again.*is open in the work-background host.*Reach it through its host, with the launcher's Go To or: mycelium /s,
 			),
 		]);
 		expect(existsSync(holder.wake), "it wrote no wake").toBe(false);
@@ -445,7 +445,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 
 		expect(said, "the refusal says why the view couldn't take over").toEqual([
 			expect.stringMatching(
-				/is open in the work-background host.*Its window couldn't be handed to the host's view: EISDIR.*wake/s,
+				/^Its window couldn't be handed to the host's view: EISDIR.*wake.*is open in the work-background host.*Reach it through its host, with the launcher's Go To or: mycelium /s,
 			),
 		]);
 		expect(existsSync(holder.again), "the words it wrote first are gone").toBe(

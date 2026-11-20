@@ -1,11 +1,10 @@
 /**
  * Handing a pi's window to what its holder starts next: the host's join
- * for a move (mesh-workflow's in-place.ts), the host's view for a
- * conversation a host already holds (one-writer-workflow), or pi again
- * on a fresh log (park-workflow's restart). Each tells its holder the
- * same way; the first two also ask the same of a pi before it may, and
- * end the same way, so the window keeps pi's last frame until the next
- * program draws over it.
+ * for a move (mesh-workflow's in-place.ts), or the host's view for a
+ * conversation a host already holds (one-writer-workflow). Both ask the
+ * same of a pi before it may, tell its holder the same way, and end the
+ * same way, so the window keeps pi's last frame until the next program
+ * draws over it.
  */
 
 import { rmSync, writeFileSync } from "node:fs";
@@ -72,13 +71,21 @@ export function tellHolder(
 		writeFileSync(files.wake, JSON.stringify(wake));
 		return { told: true };
 	} catch (error) {
-		forget(files.again);
-		forget(files.wake);
+		untellHolder(files);
 		return {
 			told: false,
 			why: error instanceof Error ? error.message : String(error),
 		};
 	}
+}
+
+/**
+ * Takes back what {@link tellHolder} told, so the holder starts nothing
+ * next: for a hand-over called off after its holder was told.
+ */
+export function untellHolder(files: HolderFiles): void {
+	forget(files.again);
+	forget(files.wake);
 }
 
 /**
