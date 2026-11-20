@@ -60,7 +60,9 @@ machine a node has named is kept, in
 `~/.local/state/pi/agentic-harness.pi/session-ending/machines.json`,
 and still counts when that node, or every node, can't be read, even
 in a session started since. So "restart equilibrius" is still read as
-an ask, and refused. This is the
+an ask, and refused. Every session on the machine adds to that one
+file, so each addition reads and writes it under a lock, and two
+adding at once lose none of each other's. This is the
 rule of EWUL44's `se7_guard_no_live_sessions`, which guards its
 pairing script's log-out the same way.
 
@@ -68,6 +70,30 @@ Where no mycelium realm is named, as for a consumer without mycelium,
 there is no node to ask and nothing is refused. A realm named with no
 node to answer, its runtime folder missing included, counts as a node
 that can't be read, and refuses.
+
+## What Spares a Session
+
+Two things on this machine let an ask through that would otherwise be
+refused. Both are read only for an ask that would be refused, so an
+ordinary reply pays nothing, and anything that can't be read within
+two seconds spares nothing, as on a Mac, with no logind.
+
+- **A log-out that leaves the user's services running.** When logind
+  says the user lingers and kills no user processes at a log-out
+  (`loginctl show-user` and `KillUserProcesses` over `busctl`), a
+  session the node says runs in a pi host or in a holder survives a
+  log-out or a switch of users, so it doesn't count for one. On
+  optimus the hosts are user services and each holder runs in a
+  scope under the user's manager. A session in a plain terminal, and
+  any session on another machine, still counts; a reboot or a
+  shutdown still ends them all.
+- **The session holding the machine.** When the asker has a standing
+  hold to `#all` (`mycelium unanswered` lists it from the asker's
+  address, unexpired), it has parked the machine to ask exactly this,
+  which is how a disruption is scheduled, so no session on this
+  machine counts for its asks. Sessions on another machine still do,
+  and an ask that names no machine still asks for the name. Any such
+  hold counts, whatever it is about.
 
 ## What Reads as an Ask
 
