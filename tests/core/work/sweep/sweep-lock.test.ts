@@ -216,6 +216,34 @@ describe("one sweep at a time", () => {
 		).toBe(true);
 	});
 
+	it("keeps watching its lock after it stops touching it", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		await cut("done", ["-b", "done", "@", "main"]);
+		const ours = `${lockPath}.ours`;
+
+		await sweepEndedTrees({
+			exec: pausingOnce(async () => {
+				// Past the touching's time, so only the watching is left.
+				await wait(FRESH_EVERY_MS * 4);
+				linkSync(lockPath, ours);
+				replaceLock(lockPath);
+				// Long enough for several beats to see the lock is no longer ours.
+				await wait(FRESH_EVERY_MS * 5);
+				renameSync(ours, lockPath);
+			}),
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			lockFresh: { everyMs: FRESH_EVERY_MS, forMs: FRESH_EVERY_MS * 2 },
+		});
+
+		expect(
+			existsSync(lockPath),
+			"a sweep past its touching removed a later lock given its old inode",
+		).toBe(true);
+	});
+
 	it("takes over a dangling link left at the lock's path once it is stale", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		const done = await cut("done", ["-b", "done", "@", "main"]);

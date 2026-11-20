@@ -93,7 +93,20 @@ export function sweepLock(
 		}
 		return "another sweep took the lock as this one did";
 	} finally {
-		for (const aside of asides) rmSync(aside, { force: true });
+		for (const aside of asides) removeAside(aside);
+	}
+}
+
+/**
+ * Remove a moved-aside lock, never throwing: one left behind is only a
+ * stray file, while a throw here would lose the release of a lock
+ * already made, keeping every sweep out for hours.
+ */
+function removeAside(aside: string): void {
+	try {
+		rmSync(aside, { force: true });
+	} catch {
+		// Left for whoever tidies the state folder; it holds no sweep back.
 	}
 }
 
@@ -202,7 +215,7 @@ function heldBy(lockPath: string, asides: string[]): string | undefined {
 		} catch (error) {
 			if (!hasCode(error, "EEXIST")) throw error;
 		}
-		rmSync(aside, { force: true });
+		removeAside(aside);
 		return undefined;
 	}
 	asides.push(aside);
