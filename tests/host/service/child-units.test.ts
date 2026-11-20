@@ -114,7 +114,7 @@ describe("a child's unit, as systemd says", () => {
 		// Only where a user's systemd answers, as it doesn't in a container.
 		if (!(await userSystemdAnswers())) context.skip();
 		const never = "pi-conversation-never-ran@0.service";
-		expect(await systemdUnits.gone(never)).toBe(true);
+		expect(await systemdUnits.gone(never), `${never} has gone`).toBe(true);
 	});
 });
 
