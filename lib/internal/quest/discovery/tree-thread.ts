@@ -102,7 +102,8 @@ const TREE_READ = fileURLToPath(new URL("./tree-read.mjs", import.meta.url));
 
 /**
  * Read `questsRoot` on a thread of its own, reading no file whose stat
- * matches the key `skip` holds for it. Rejects as `answerInThread` does.
+ * matches the key `skip` holds for it. Rejects as `answerInThread` does,
+ * a refusal for a held thread with its `ThreadsHeld` as it stands.
  */
 export async function readTreeInThread(
 	questsRoot: string,
@@ -118,6 +119,8 @@ export async function readTreeInThread(
 	};
 	const answer = await answerInThread(TREE_READ, data, wallMs).catch(
 		(error: unknown) => {
+			// A refusal goes up as it is, so the signing reads it as a give-up.
+			if (threadsHeld(error)) throw error;
 			throw new Error(`reading ${questsRoot}: ${error}`);
 		},
 	);

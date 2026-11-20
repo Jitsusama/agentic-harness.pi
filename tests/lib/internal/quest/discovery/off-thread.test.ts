@@ -40,6 +40,7 @@ import {
 import {
 	answerInThread,
 	readTreeInThread,
+	threadsHeld,
 } from "../../../../../lib/internal/quest/discovery/tree-thread.ts";
 import {
 	plan,
@@ -423,8 +424,14 @@ describe("answerInThread", () => {
 		// Open without waiting, so a reader not there fails rather than
 		// holding this thread too; closing it unwritten lets the read
 		// return at its end.
-		const release = () =>
-			closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+		const release = () => {
+			try {
+				closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+			} catch {
+				// No reader came (ENXIO), so nothing is held to let go, and the
+				// assertion that failed is the one worth hearing.
+			}
+		};
 		const answers = programOf(
 			'import { parentPort } from "node:worker_threads";\nparentPort.postMessage("here");\n',
 		);
@@ -437,6 +444,24 @@ describe("answerInThread", () => {
 				answerInThread(answers, null, HANGS_AFTER_MS),
 				"refused while the first is held",
 			).rejects.toThrow("held in a read past its wall");
+			// The signing's own path hands the refusal up as one, so it reads
+			// as a give-up rather than a failure to sign on the thread.
+			const signing = await readTreeOffThread(
+				settledTree().root,
+				HANGS_AFTER_MS,
+			).catch((error: unknown) => error);
+			expect(threadsHeld(signing), `a refusal: ${signing}`).toBe(true);
+			// A reload evaluates the module again; its copy counts the same.
+			vi.resetModules();
+			const again = await import(
+				"../../../../../lib/internal/quest/discovery/tree-thread.ts"
+			);
+			const copied = await again
+				.answerInThread(answers, null, HANGS_AFTER_MS)
+				.catch((error: unknown) => error);
+			expect(threadsHeld(copied), `refused across copies: ${copied}`).toBe(
+				true,
+			);
 		} finally {
 			release();
 		}
@@ -448,5 +473,6 @@ describe("answerInThread", () => {
 				).toBe("here"),
 			{ timeout: 4_000 },
 		);
-	});
+		// The 3 s wall, its 1 s grace and the 4 s wait for a thread after.
+	}, 15_000);
 });

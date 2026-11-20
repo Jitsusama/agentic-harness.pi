@@ -650,10 +650,14 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 		return "kept";
 	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
-		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
 		// A thread still held in a read means the disk hangs, which a
 		// signing on the host's own thread would hang on too.
-		return threadsHeld(error) ? "gave up" : "failed";
+		if (threadsHeld(error)) {
+			sayOnHost(`signing ${questsRoot} off the thread gave up: ${error}`);
+			return "gave up";
+		}
+		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
+		return "failed";
 	});
 	// Only this walk's own hold: one freed as hung that ends later must
 	// not free the walk that took its root since.
