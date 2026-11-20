@@ -451,19 +451,119 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("lends nothing in a checkout that names merge drivers of its own", async () => {
+	it("holds a rebase whose conflict the checkout's default merge driver settled", async () => {
 		await councilRead(fix);
-		await rebasedOntoNewMain();
+		await rebasedThroughAConflict(async (onto) => {
+			await git(repo, "config", "merge.default", "union");
+			const united = await replayedTwo(onto);
+			expect(united, "the driver settled the conflict").not.toContain(
+				"<<<<<<<",
+			);
+			return united;
+		});
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	/** The checkout's own attributes, which git reads whatever it is told. */
+	async function ownAttributes(text: string) {
 		const own = join(
 			repo,
 			await git(repo, "rev-parse", "--git-path", "info/attributes"),
 		);
 		mkdirSync(dirname(own), { recursive: true });
-		writeFileSync(own, "* merge=union\n");
+		writeFileSync(own, text);
+	}
+
+	it("holds a rebase whose conflict a merge driver the checkout names settled", async () => {
+		await councilRead(fix);
+		await rebasedThroughAConflict(async (onto) => {
+			await ownAttributes("* merge=union\n");
+			const united = await replayedTwo(onto);
+			expect(united, "the driver settled the conflict").not.toContain(
+				"<<<<<<<",
+			);
+			return united;
+		});
 
 		expect(await councilFirst(exec, topic(), "proposed")).toContain(
 			"No council of ours",
 		);
+	});
+
+	it("keeps a clean rebase's council in a checkout naming merge drivers of its own", async () => {
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		await ownAttributes("* merge=union\n");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("lends nothing to a branch made at reviewed work and rebased at once", async () => {
+		// `fix` went up as the topic and its council read it; `cut` is made
+		// there, rebased before it holds anything of its own, then given
+		// `three`, which nobody read. Unrebased, the topic's pushed branch
+		// would hold its commits without its head and keep them the topic's.
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-qc", "cut", "topic");
+		await git(repo, "rebase", "-q", "main");
+		writeFileSync(join(repo, "three"), "three\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "cut" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	it("keeps a restacked upper branch's own council", async () => {
+		// The topic sits on `lower`, which holds `first`; its council read
+		// `fix`, and both are restacked onto a new main.
+		await git(repo, "branch", "lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "lower");
+		await git(repo, "rebase", "-q", "main");
+		const restacked = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "update-ref", "refs/remotes/origin/lower", restacked);
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "--onto", "lower", first);
+
+		expect(
+			await councilFirst(exec, { ...topic(), base: "lower" }, "proposed"),
+		).toBeUndefined();
+	});
+
+	it("keeps a lower branch's council when it is rebased under one not yet restacked", async () => {
+		// `lower` is made on the trunk and holds `first`, which its council
+		// read; the topic above it still holds the old `first`.
+		await git(repo, "branch", "lower", trunk);
+		await git(repo, "update-ref", "refs/heads/lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(first);
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "lower");
+		await git(repo, "rebase", "-q", "main");
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "lower" }, "proposed"),
+		).toBeUndefined();
 	});
 
 	it("lends a rebase nothing a branch cut from reviewed work couldn't claim", async () => {
@@ -542,9 +642,8 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("finds the head before a rebase in the pushed branch's reflog", async () => {
-		// Pushed before the rebase and again after it, from a checkout whose
-		// own branch remembers nothing of its past.
+	/** The topic pushed before the rebase and again after it. */
+	async function pushedAcrossTheRebase() {
 		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
 		await councilRead(fix);
 		await rebasedOntoNewMain();
@@ -554,9 +653,37 @@ describe("holding a change until our own council has read it", () => {
 			"refs/remotes/origin/topic",
 			await git(repo, "rev-parse", "HEAD"),
 		);
-		await git(repo, "reflog", "expire", "--expire=now", "refs/heads/topic");
+	}
+
+	it("finds the head before a rebase in the pushed branch's reflog", async () => {
+		// The checkout's own branch keeps where it was made, and nothing of
+		// the head the council read.
+		await pushedAcrossTheRebase();
+		const entries = await git(
+			repo,
+			"log",
+			"--walk-reflogs",
+			"--format=%gd %H",
+			"refs/heads/topic",
+		);
+		const atFix = entries
+			.split("\n")
+			.filter((line) => line.endsWith(` ${fix}`))
+			.map((line) => line.split(" ")[0] ?? "")
+			.reverse();
+		expect(atFix.length, "the branch's reflog held the reviewed head").toBe(1);
+		for (const entry of atFix) await git(repo, "reflog", "delete", entry);
 
 		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("lends nothing once the branch's reflog no longer says where it was made", async () => {
+		await pushedAcrossTheRebase();
+		await git(repo, "reflog", "expire", "--expire=now", "refs/heads/topic");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
 	});
 
 	it("holds a clean rebase of a change no council read", async () => {

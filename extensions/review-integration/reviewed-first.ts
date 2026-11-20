@@ -39,15 +39,19 @@
  * under it: after a restack those are the old copies of a lower
  * branch's, which no pushed branch holds any more. A rebase that had to
  * settle a conflict, or brought anything else along, gives another tree
- * and needs a round of its own; so the replay reads no merge drivers
- * from the change's files, and a checkout naming any of its own lends
- * nothing. Only the last EARLIER_HEADS of each reflog are asked about,
- * and a checkout that never held the branch before its rebase remembers
- * none.
+ * and needs a round of its own; so the replay runs in a scratch repo
+ * that reads no settings or attributes, and no merge driver can settle
+ * a conflict for it. Nor does the commit the branch was made at lend,
+ * or anything under it: that is work it was cut from, which after a
+ * restack no pushed branch may hold any more. So the branch must have
+ * been made in this checkout, its reflog still saying so. Only the last
+ * EARLIER_HEADS of each reflog are asked about, and a checkout that
+ * never held the branch before its rebase remembers none.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { createRunStore } from "../../lib/core/review/index.ts";
@@ -65,6 +69,9 @@ const REFS_A_CALL = 500;
 
 /** How many of a branch's earlier heads, newest first, each reflog is asked for. */
 const EARLIER_HEADS = 30;
+
+/** How git's reflog says a branch was made, in its oldest entry. */
+const MADE = "branch: Created from ";
 
 /** How many of the branches holding a change's reviewed commits a refusal names. */
 const HOLDERS_NAMED = 3;
@@ -144,7 +151,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is still recalled by this checkout's reflogs, was this branch's own work, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch was made here and that head is its own work above where it was made, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -249,17 +256,64 @@ async function rebasedReviewed(
 		return false;
 	const onto = await forkOf(git, read.base, now);
 	const trees = await ownTrees(git, read.base, now, read.commits);
-	const drivers = await mergeDriversIgnored(git, change.checkout);
-	if (onto === undefined || trees === undefined || drivers === undefined)
+	const created = await createdAt(git, change.head);
+	if (onto === undefined || trees === undefined || created === undefined)
 		return false;
-	for (const head of earlier) {
-		if (!(await witnesses(change.repo, new Set([head])))) continue;
-		const tree = await replayed(git, read.base, head, onto, drivers);
-		if (tree === undefined || !trees.has(tree)) continue;
-		if (await ownWherever(git, read.base, head, earlier, change.head))
-			return true;
+	const scratch = await scratchRepo(exec, git);
+	if (scratch === undefined) return false;
+	try {
+		for (const head of earlier) {
+			if (!(await witnesses(change.repo, new Set([head])))) continue;
+			if (await atOrBelow(git, head, created)) continue;
+			const tree = await replayed(git, scratch, read.base, head, onto);
+			if (tree === undefined || !trees.has(tree)) continue;
+			if (await ownWherever(git, read.base, head, earlier, change.head))
+				return true;
+		}
+		return false;
+	} finally {
+		scratch.remove();
 	}
-	return false;
+}
+
+/**
+ * The commit `branch` was made at, as the oldest entry of its reflog in
+ * the checkout says, git writing "branch: Created from" there however a
+ * branch is made and keeping it through a rename; nothing when the
+ * reflog no longer reaches back that far, or there is no such branch.
+ */
+async function createdAt(
+	git: (...args: string[]) => ReturnType<Exec>,
+	branch: string,
+): Promise<string | undefined> {
+	const logged = await git(
+		"log",
+		"--walk-reflogs",
+		"--format=%H %gs",
+		"--end-of-options",
+		`refs/heads/${branch}`,
+		"--",
+	);
+	if (logged.code !== 0) return undefined;
+	const oldest = logged.stdout.trim().split("\n").at(-1) ?? "";
+	const [commit = "", ...said] = oldest.split(" ");
+	return COMMIT_ID.test(commit) && said.join(" ").startsWith(MADE)
+		? commit
+		: undefined;
+}
+
+/**
+ * Whether `head` is `created` or under it: work the branch was cut from,
+ * never its own, whoever's council read it.
+ */
+async function atOrBelow(
+	git: (...args: string[]) => ReturnType<Exec>,
+	head: string,
+	created: string,
+): Promise<boolean> {
+	const under = await git("merge-base", "--is-ancestor", head, created);
+	// 1 says it isn't; anything else can't be told from it being so.
+	return under.code !== 1;
 }
 
 /**
@@ -315,32 +369,69 @@ async function ownTrees(
 }
 
 /**
- * git's options for a replay that reads no merge driver from the
- * change's own files, as a `merge=union` there would settle a conflict
- * and call it clean; nothing when the checkout names drivers of its own
- * in `info/attributes`, which git reads whatever it is told, or when
- * that can't be read.
+ * Where a replay runs: a bare repo of its own that reads the checkout's
+ * objects and writes its own, with no settings and no attributes from
+ * anywhere, so no merge driver a setting or an attributes file names
+ * (`merge.default`, a `merge=union`, in the change, the checkout, the
+ * person's files or the system's) can settle a conflict and call it
+ * clean. The command runs `git` under `env`, which sets what it reads
+ * and unsets what would point it elsewhere.
  */
-async function mergeDriversIgnored(
+interface Scratch {
+	readonly run: (...args: string[]) => ReturnType<Exec>;
+	readonly remove: () => void;
+}
+
+/** A scratch repo for replays, or nothing when one can't be made. */
+async function scratchRepo(
+	exec: Exec,
 	git: (...args: string[]) => ReturnType<Exec>,
-	checkout: string,
-): Promise<string[] | undefined> {
+): Promise<Scratch | undefined> {
+	const objects = await git(
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-path",
+		"objects",
+	);
 	const empty = await git("hash-object", "-t", "tree", "/dev/null");
-	const at = await git("rev-parse", "--git-path", "info/attributes");
 	const tree = empty.stdout.trim();
-	if (empty.code !== 0 || at.code !== 0 || !/^[0-9a-f]{40,64}$/.test(tree))
+	if (objects.code !== 0 || empty.code !== 0 || !COMMIT_ID.test(tree))
 		return undefined;
-	try {
-		const own = readFileSync(resolve(checkout, at.stdout.trim()), "utf8");
-		if (own.trim() !== "") return undefined;
-	} catch (error) {
-		// No such file is a checkout with no attributes of its own; anything
-		// else can't be told from one that has them.
-		const absent =
-			error instanceof Error && "code" in error && error.code === "ENOENT";
-		if (!absent) return undefined;
+	const dir = mkdtempSync(join(tmpdir(), "reviewed-first-"));
+	const remove = () => rmSync(dir, { recursive: true, force: true });
+	const unread = [
+		...["GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY"],
+		...["GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"],
+		...["GIT_CONFIG_SYSTEM", "GIT_ATTR_SOURCE", "GIT_NAMESPACE"],
+	].flatMap((name) => ["-u", name]);
+	const env = [
+		...unread,
+		`GIT_DIR=${dir}`,
+		`GIT_ALTERNATE_OBJECT_DIRECTORIES=${objects.stdout.trim()}`,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_ATTR_NOSYSTEM=1",
+	];
+	const bare = ["-c", "core.attributesFile=/dev/null"];
+	const made = await exec("env", [
+		...env,
+		"git",
+		...bare,
+		"init",
+		"--quiet",
+		"--bare",
+		"--template=",
+		dir,
+	]);
+	if (made.code !== 0) {
+		remove();
+		return undefined;
 	}
-	return ["-c", "core.attributesFile=/dev/null", `--attr-source=${tree}`];
+	return {
+		run: (...args) =>
+			exec("env", [...env, "git", ...bare, `--attr-source=${tree}`, ...args]),
+		remove,
+	};
 }
 
 /**
@@ -388,17 +479,16 @@ async function forkOf(
  */
 async function replayed(
 	git: (...args: string[]) => ReturnType<Exec>,
+	scratch: Scratch,
 	base: string,
 	head: string,
 	onto: string,
-	drivers: readonly string[],
 ): Promise<string | undefined> {
 	const from = await forkOf(git, base, head);
 	if (from === undefined) return undefined;
 	// Every argument is a full commit id, read from git itself, so none
 	// can be taken for an option; merge-tree takes no `--end-of-options`.
-	const merged = await git(
-		...drivers,
+	const merged = await scratch.run(
 		"merge-tree",
 		"--write-tree",
 		"--no-messages",
