@@ -14,7 +14,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { forgetTreeBroker } from "../../../extensions/work-integration/broker.ts";
 import workIntegration from "../../../extensions/work-integration/index.ts";
-import { settlingLines } from "../../../extensions/work-integration/tools/settling.ts";
+import {
+	landedLines,
+	settlingLines,
+} from "../../../extensions/work-integration/tools/settling.ts";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
@@ -59,6 +62,17 @@ describe("the lines a replay's settling is said in", () => {
 
 	it("says nothing when nothing was settled", () => {
 		expect(settlingLines()).toEqual([]);
+		expect(landedLines()).toEqual([]);
+	});
+
+	it("says where a halted commit landed and how to drop it", () => {
+		const said = landedLines({
+			landed: { commit: "abc1234", as: "def5678", paths: ["HISTORY.md"] },
+		}).join("\n");
+
+		expect(said).toContain("abc1234 already landed on the base as def5678");
+		expect(said).toContain("HISTORY.md changed there since");
+		expect(said).toContain("Take the base's side and resume");
 	});
 });
 
@@ -172,6 +186,42 @@ describe("a rebase through a log both sides appended to", () => {
 		expect(await git(repo, "show", "HEAD:AGENTS.md")).toBe(
 			"# Agents\n\nSee HISTORY §3.\n\nAlso HISTORY §3.",
 		);
+	}, 20_000);
+});
+
+describe("a rebase through a log entry that landed and was edited since", () => {
+	it("halts with both wordings left for judgement, and says where it landed", async () => {
+		const base = "# History\n\n## 1. First\n\nOne.\n";
+		await commit("HISTORY.md", base, "docs: start the history");
+		await git(repo, "checkout", "-qb", "topic");
+		await commit(
+			"HISTORY.md",
+			`${base}\n## 2. Mine\n\nTwo.\n`,
+			"docs: add mine",
+		);
+		await git(repo, "checkout", "-q", "main");
+		// Main moves on first: a pick onto the same parent within the same
+		// second is the very same commit, and topic would have none to replay.
+		await commit("NOTES.md", "# Notes\n", "docs: start the notes");
+		await git(repo, "cherry-pick", "topic");
+		const landed = (await git(repo, "rev-parse", "--short", "HEAD")).trim();
+		await commit(
+			"HISTORY.md",
+			`${base}\n## 2. Mine\n\nTwo, edited.\n`,
+			"docs: edit mine",
+		);
+		await git(repo, "checkout", "-q", "topic");
+
+		const answer = await workTool()({
+			action: "rebase",
+			tree: repo,
+			onto: "main",
+		});
+		const said = answer.content[0]?.text ?? "";
+
+		expect(said).toContain("Replay halted");
+		expect(said).toContain(`already landed on the base as ${landed}`);
+		expect(said).not.toContain("both sides only added");
 	}, 20_000);
 });
 

@@ -26,6 +26,7 @@
 
 import type { Exec } from "../exec/index.ts";
 import type { SettledFile, StaleCitation } from "./appends.ts";
+import type { Landed } from "./landed.ts";
 import {
 	type CarriedOn,
 	carryOn,
@@ -71,6 +72,8 @@ export interface ReplayResult {
 	recited?: readonly string[];
 	/** Lines the branch added still citing a number one of its entries moved off. */
 	stale?: readonly StaleCitation[];
+	/** A halt left unsettled because its commit already landed on the base. */
+	landed?: Landed;
 }
 
 /** How a restack went. */
@@ -613,6 +616,9 @@ export function createGitStacks(deps: {
 					};
 				}
 
+				// With a boundary that is an ancestor of the branch, git finds
+				// nothing to match against anyway, so the flag matters for a step
+				// with no boundary recorded, or one no longer below the branch.
 				const args = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
 				// The boundary is what separates this branch's commits from its
 				// parent's. Without it the branch is handed copies of

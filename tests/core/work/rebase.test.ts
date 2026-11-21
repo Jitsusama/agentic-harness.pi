@@ -62,11 +62,11 @@ describe("replaying a branch", () => {
 		});
 	});
 
-	it("reads none of the base's commits to find what it already holds", async () => {
+	it("asks git to reapply cherry-picks rather than match the base's patches", async () => {
 		// On 21 November a World rebase of two commits read 83 GB over 16
 		// minutes before it started, matching patches against every commit
 		// main had gained. With this flag it reached its first pick in
-		// seconds; a commit the base holds still drops, as empty.
+		// seconds; what then becomes of a landed commit is in rebase-live.
 		const { exec, calls } = fakeExec([
 			...ready,
 			{ when: ["rebase", "main"], code: 0 },

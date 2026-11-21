@@ -145,8 +145,9 @@ describe("replaying a stack", () => {
 		expect(outcome.kind).toBe("restacked");
 		// The boundary is the recorded base, and it is what stops the branch
 		// being handed its parent's commits a second time.
-		// And none reads the parent's commits to find what it holds already,
-		// which in World cost a two-commit rebase 83 GB of reads.
+		// Each asks git to reapply cherry-picks too, so a step with no
+		// boundary never matches the parent's patches, which in World cost a
+		// two-commit rebase 83 GB of reads.
 		expect(replays(calls)).toEqual([
 			`-C ${TREE} rebase --reapply-cherry-picks --onto main trunk1`,
 			`-C ${TREE} rebase --reapply-cherry-picks --onto a a1`,
@@ -232,9 +233,10 @@ describe("a restack that halts", () => {
 		// mid-rebase, producing a stack built on a commit about to be rewritten.
 		const { exec } = fakeExec([
 			...holding.filter((reply) => !reply.when.includes("rebase")),
-			// Matched as one fragment against the joined args. A bare "a" also
-			// appears inside "main", so the root's replay would fail instead.
-			{ when: ["--onto a a1"], code: 1 },
+			// Matched as fragments against the joined args, wherever the flags
+			// sit. A bare "a" also appears inside "main", so the root's replay
+			// would fail instead.
+			{ when: ["rebase", "--onto a a1"], code: 1 },
 			{ when: ["rebase"], code: 0 },
 			{ when: ["--diff-filter=U"], stdout: "lib/work/tree.ts\n" },
 		]);

@@ -8,11 +8,21 @@
  * names each file and every number moved, so nothing changed unseen. Lines
  * the branch's other commits added that still cite a moved number cannot be
  * rewritten mid-replay, so those are named as the one thing left to do.
+ * A halt on a commit that already landed is left as it is, and says where.
  */
 
 import type { Settling } from "../../../lib/core/work/rebase.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
+
+/** Lines saying why a halt was left unsettled, when its commit already landed. */
+export function landedLines(said: Settling = {}): string[] {
+	const { landed } = said;
+	if (!landed) return [];
+	return [
+		`   ${GLYPH.dirty} ${landed.commit} already landed on the base as ${landed.as}, and ${landed.paths.join(", ")} changed there since, so keeping both sides would bring its old text back. Take the base's side and resume, and the commit drops as empty.`,
+	];
+}
 
 /** Lines saying what a replay settled and what still cites a moved number. */
 export function settlingLines(said: Settling = {}): string[] {

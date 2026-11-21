@@ -23,7 +23,9 @@
  * The one conflict settled without being asked is two additions at the same
  * place in a Markdown file, which is how appended logs conflict on nearly
  * every replay (see `appends.ts`). A halt made only of those carries on by
- * itself, and says what it settled and which numbers it moved.
+ * itself, and says what it settled and which numbers it moved. A halt on a
+ * commit whose change to those files the base already has is the exception,
+ * left for judgement (see `landed.ts`).
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,6 +38,7 @@ import {
 	settleAdditions,
 	staleIn,
 } from "./appends.ts";
+import { type Landed, landedAs } from "./landed.ts";
 import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
@@ -44,8 +47,13 @@ import { unattended } from "./unattended.ts";
  * commits that already carry the branch's patches. That search reads
  * every commit the base gained since the branch left it: in World, on 21
  * November, a two-commit rebase read 83 GB over 16 minutes before its
- * first pick, and with this flag it reached it in seconds. A commit the
- * base already holds then applies empty, and git drops it all the same.
+ * first pick, and with this flag it reached it in seconds.
+ *
+ * So no commit is dropped for matching one upstream. One the base holds
+ * unchanged applies empty, and git drops it as empty. One the base has
+ * since edited halts, and one it has since reverted comes back, each in
+ * plain sight in the replay rather than judged away beforehand; a halt
+ * like that in Markdown is never settled by itself (see `landed.ts`).
  */
 export const REAPPLY_CHERRY_PICKS = "--reapply-cherry-picks";
 
@@ -60,6 +68,8 @@ export interface Settling {
 	settled?: readonly SettledFile[];
 	recited?: readonly string[];
 	stale?: readonly StaleCitation[];
+	/** A halt left unsettled because its commit already landed on the base. */
+	landed?: Landed;
 }
 
 /** Only what a replay's settling has to say, without its empty keys. */
@@ -68,6 +78,7 @@ export function settlingOf(carried: Settling): Settling {
 		...(carried.settled ? { settled: carried.settled } : {}),
 		...(carried.recited ? { recited: carried.recited } : {}),
 		...(carried.stale ? { stale: carried.stale } : {}),
+		...(carried.landed ? { landed: carried.landed } : {}),
 	};
 }
 
@@ -90,6 +101,7 @@ export type RebaseOutcome =
 			conflicted: readonly string[];
 			settled?: readonly SettledFile[];
 			recited?: readonly string[];
+			landed?: Landed;
 	  }
 	| { kind: "refused"; reason: string };
 
@@ -113,6 +125,7 @@ export type ResumeOutcome =
 			conflicted: readonly string[];
 			settled?: readonly SettledFile[];
 			recited?: readonly string[];
+			landed?: Landed;
 	  }
 	| { kind: "abandoned"; branch: string }
 	| { kind: "refused"; reason: string };
@@ -284,6 +297,7 @@ export type CarriedOn =
 			conflicted: readonly string[];
 			settled?: readonly SettledFile[];
 			recited?: readonly string[];
+			landed?: Landed;
 	  }
 	| { kind: "refused"; reason: string };
 
@@ -293,7 +307,9 @@ export type CarriedOn =
  * halt after halt, until a conflict needs someone or the replay ends.
  *
  * `onlyIfSettled` is for a halt just reached, where carrying on is worth it
- * only when something was settled; a resume always carries on.
+ * only when something was settled; a resume always carries on. A halt whose
+ * commit already landed is never settled here, though what was settled by
+ * hand is still staged, and the halt says where it landed.
  */
 export async function carryOn(
 	exec: Exec,
@@ -322,7 +338,10 @@ export async function carryOn(
 	});
 
 	for (let round = 0; round < CARRY_ON_LIMIT; round += 1) {
-		const now = await settleAdditions(exec, treePath, moves);
+		const landed = await landedHalt(exec, treePath, onto);
+		const now = landed
+			? { settled: [], moves: [], recited: [] }
+			: await settleAdditions(exec, treePath, moves);
 		settled.push(...now.settled);
 		moves.push(...now.moves);
 		for (const path of now.recited) recited.add(path);
@@ -331,8 +350,14 @@ export async function carryOn(
 			options.onlyIfSettled &&
 			now.settled.length === 0 &&
 			now.recited.length === 0
-		)
-			return { kind: "untouched" };
+		) {
+			if (!landed) return { kind: "untouched" };
+			return {
+				kind: "halted",
+				conflicted: await conflictedIn(exec, treePath),
+				landed,
+			};
+		}
 
 		const conflicted = await conflictedIn(exec, treePath);
 		const plain = await settledIn(exec, treePath, conflicted);
@@ -363,7 +388,14 @@ export async function carryOn(
 				// Unnoted, a later resume only names fewer stale citations.
 			}
 		}
-		if (left.length > 0) return { kind: "halted", conflicted: left, ...some() };
+		if (left.length > 0) {
+			return {
+				kind: "halted",
+				conflicted: left,
+				...some(),
+				...(landed ? { landed } : {}),
+			};
+		}
 
 		// Continuing a conflicted pick commits with `-e`, so without this git
 		// opens an editor on a stdin nobody is attached to and waits for a human
@@ -410,6 +442,25 @@ export async function carryOn(
 		conflicted: await conflictedIn(exec, treePath),
 		...some(),
 	};
+}
+
+/**
+ * Where the commit a replay halted on already landed, when a Markdown file
+ * the settler would otherwise settle is still in conflict for it. A file
+ * already settled by hand is left out, since staging it is no judgement.
+ */
+async function landedHalt(
+	exec: Exec,
+	treePath: string,
+	onto: string | undefined,
+): Promise<Landed | undefined> {
+	if (onto === undefined) return undefined;
+	const conflicted = await conflictedIn(exec, treePath);
+	const markdown = conflicted.filter((path) => /\.md$/i.test(path));
+	if (markdown.length === 0) return undefined;
+	const settledByHand = await settledIn(exec, treePath, markdown);
+	const marked = markdown.filter((path) => !settledByHand.includes(path));
+	return landedAs(exec, treePath, onto, marked);
 }
 
 /** Replay with plain git. */
