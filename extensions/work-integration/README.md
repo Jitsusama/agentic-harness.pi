@@ -268,7 +268,10 @@ process's files can't for a reason other than permission, nothing is
 taken, and the sweep's line says why in `idleUnjudged`. A reader that
 opens files by path and keeps none open leaves no sign, so four hours
 is its protection. At most 20 go a sweep, oldest first, each logged
-with its sessions and commit. A session that asks for one again gets
+with its sessions and commit; the sweep outside the hosts takes up to
+200, each judged only once the one before is taken, and judges no more
+past its first 20 once 10 minutes have gone, saying in `idleLeft` how
+many it left. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 
 A tree cut from a clone in a quest's scratch folder outlives the

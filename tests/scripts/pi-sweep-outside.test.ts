@@ -45,11 +45,13 @@ const seen = vi.hoisted(() => ({
 	releasing: false,
 	trees: 1,
 	partly: undefined as string | undefined,
+	left: undefined as number | undefined,
 	fails: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
 	idleTakes: [] as (number | undefined)[],
 	idleWithin: [] as (number | undefined)[],
+	betweenIdleTakes: [] as (undefined | (() => Promise<void>))[],
 	execs: [] as Exec[],
 }));
 
@@ -72,6 +74,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		restMs?: number;
 		idleTakes?: number;
 		idleWithinMs?: number;
+		betweenIdleTakes?: () => Promise<void>;
 		exec: Exec;
 		providers: () => readonly TreeProvider[];
 	}) => {
@@ -79,6 +82,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		seen.rests.push(deps.restMs);
 		seen.idleTakes.push(deps.idleTakes);
 		seen.idleWithin.push(deps.idleWithinMs);
+		seen.betweenIdleTakes.push(deps.betweenIdleTakes);
 		seen.execs.push(deps.exec);
 		if (seen.fails !== undefined) throw new Error(seen.fails);
 		// As the library does: each provider that can is asked about a tree
@@ -98,6 +102,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 			dropped: [],
 			branches: [],
 			...(seen.partly === undefined ? {} : { idleUnjudged: seen.partly }),
+			...(seen.left === undefined ? {} : { idleLeft: seen.left }),
 		};
 	},
 }));
@@ -119,11 +124,13 @@ beforeEach(() => {
 	seen.releasing = false;
 	seen.trees = 1;
 	seen.partly = undefined;
+	seen.left = undefined;
 	seen.fails = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
 	seen.idleTakes.length = 0;
 	seen.idleWithin.length = 0;
+	seen.betweenIdleTakes.length = 0;
 	seen.execs.length = 0;
 });
 afterEach(() => {
@@ -239,10 +246,20 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 		seen.idleTakes[0],
 		"idle snapshots it may take, past a host's few, as it holds no host's thread",
 	).toBeGreaterThan(IDLE_TAKES_PER_SWEEP);
+	// At least a minute, as milliseconds, and less than the hour between
+	// runs, so it neither ends at once nor runs into the next.
 	expect(
 		seen.idleWithin[0],
-		"how long it may take them for, so a loaded machine gets fewer",
-	).toBeGreaterThan(0);
+		"how long it may judge them for, so a loaded machine gets fewer",
+	).toBeGreaterThanOrEqual(60 * 1000);
+	expect(seen.idleWithin[0]).toBeLessThan(60 * 60 * 1000);
+	// A gap of a second or more between removals, yet short enough that a
+	// run's ten minutes still hold many takes.
+	const began = performance.now();
+	await seen.betweenIdleTakes[0]?.();
+	const gap = performance.now() - began;
+	expect(gap, "the pause between its takes").toBeGreaterThanOrEqual(1000);
+	expect(gap).toBeLessThan(10 * 1000);
 	expect(
 		liveQuestTrees(seen.quests),
 		"the trees its quest still lists",
@@ -477,6 +494,21 @@ it("passes over a module whose provider's judgement is null", async () => {
 		`${world}: it gave something that is no tree provider`,
 	]);
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("logs how many idle snapshots its time left, as a run that ran", async () => {
+	// Its time stops only what lies past a host's share, so the hosts may
+	// stand down as after any run that judged everything it was given.
+	seen.left = 3;
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how its sweep ended").toBe("ran");
+	expect(exitCodeOf(ran), "the code the run exits with").toBe(0);
+	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	expect(logLines()[0], "the line it logged").toEqual(
+		expect.objectContaining({ idleLeft: 3 }),
+	);
 });
 
 it("leaves no stamp after a sweep that left idle snapshots unjudged", async () => {

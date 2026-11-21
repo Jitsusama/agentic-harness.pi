@@ -74,9 +74,16 @@ export interface IdleChoice extends UseSigns {
 	most?: number;
 	/**
 	 * Whether the sweep has run as long as it may take these for, asked
-	 * before each is judged; never, by default.
+	 * before each is judged once {@link IDLE_TAKES_PER_SWEEP} have been
+	 * given, so a sweep that may take more never takes fewer than a host
+	 * would; never, by default.
 	 */
 	spent?(): boolean;
+	/**
+	 * Told how many aged, unclaimed snapshots were left unjudged when
+	 * `spent` stopped the choosing, so a sweep can say its time ran out.
+	 */
+	left?(count: number): void;
 }
 
 /**
@@ -98,16 +105,31 @@ export function lastUsed(tree: HeldTree, asked: number | undefined): number {
 }
 
 /**
- * The snapshots among `held`, which live sessions hold, that nothing has
- * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
- * most `choice.most` of them, least recently used first.
- * Throws when there are some to judge and the machine can't say which
- * processes hold them, so the sweep says why it took none.
+ * The snapshots {@link eachIdleSnapshot} gives, all of them chosen
+ * before any is taken.
  */
 export async function idleSnapshots(
 	held: readonly HeldTree[],
 	choice: IdleChoice,
 ): Promise<IdleSnapshot[]> {
+	const chosen: IdleSnapshot[] = [];
+	for await (const idle of eachIdleSnapshot(held, choice)) chosen.push(idle);
+	return chosen;
+}
+
+/**
+ * The snapshots among `held`, which live sessions hold, that nothing has
+ * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
+ * most `choice.most` of them, least recently used first. Each is judged
+ * only once the one before it has been dealt with, so a sweep can take
+ * each as it comes and time spent judging is never lost to the takes.
+ * Throws when there are some to judge and the machine can't say which
+ * processes hold them, so the sweep says why it took none.
+ */
+export async function* eachIdleSnapshot(
+	held: readonly HeldTree[],
+	choice: IdleChoice,
+): AsyncGenerator<IdleSnapshot> {
 	const since = choice.now - IDLE_HELD_MS;
 	const aged = held
 		.filter(
@@ -129,7 +151,7 @@ export async function idleSnapshots(
 		const inside = (one: string) => one === path || one.startsWith(`${path}/`);
 		return !claimed.some((one) => inside(one) || path.startsWith(`${one}/`));
 	});
-	if (unclaimed.length === 0) return [];
+	if (unclaimed.length === 0) return;
 	// Read before the cap too, so trees kept busy for days never fill it
 	// and starve every other.
 	const busyBefore = await choice.busyAmong?.(
@@ -138,9 +160,14 @@ export async function idleSnapshots(
 	if (busyBefore === undefined)
 		throw new Error("the machine can't say which processes hold its trees");
 	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
-	const chosen: IdleSnapshot[] = [];
-	for (const { tree, usedAt, path } of unclaimed) {
-		if (chosen.length >= most || choice.spent?.() === true) break;
+	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
+	let given = 0;
+	for (const [at, { tree, usedAt, path }] of unclaimed.entries()) {
+		if (given >= most) return;
+		if (given >= floor && choice.spent?.() === true) {
+			choice.left?.(unclaimed.length - at);
+			return;
+		}
 		if (busyBefore.has(path)) continue;
 		const commit = pinnedCommit(tree.identity);
 		if (
@@ -149,9 +176,9 @@ export async function idleSnapshots(
 		) {
 			continue;
 		}
-		chosen.push({ tree, commit, usedAt });
+		given += 1;
+		yield { tree, commit, usedAt };
 	}
-	return chosen;
 }
 
 /**

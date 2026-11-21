@@ -10,8 +10,10 @@ import type { HeldTree } from "../../../../lib/core/work/broker.ts";
 import type { SweepDeps } from "../../../../lib/core/work/sweep.ts";
 import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
 import {
+	eachIdleSnapshot,
 	IDLE_HELD_MS,
 	IDLE_TAKES_PER_SWEEP,
+	type IdleChoice,
 	idleSnapshots,
 } from "../../../../lib/core/work/sweep-idle.ts";
 import { git } from "../../../support/git-fixture.ts";
@@ -39,6 +41,48 @@ const IDLE = IDLE_HELD_MS + 60_000;
 const HOUR = 60 * 60 * 1000;
 
 type Setup = Awaited<ReturnType<typeof setUp>>;
+
+/**
+ * `count` snapshots at paths nothing stands at, each idle an hour longer
+ * than the next and clean by what git is made to answer, with a choice
+ * that records where git was asked, so choosing is seen without a disk.
+ */
+function idleFakes(count: number) {
+	const commit = "a".repeat(40);
+	const now = Date.now();
+	const trees: HeldTree[] = Array.from({ length: count }, (_, at) => ({
+		identity: { key: `snapshot-fake-${at}-${commit}`, shareable: true },
+		path: `/nowhere/fake-${at}`,
+		providerId: "git-worktree",
+		owners: [RUNNING],
+		usedAt: now - IDLE - at * HOUR,
+	}));
+	const answers: Record<string, string> = {
+		"rev-parse HEAD": commit,
+		"reflog --format=%H HEAD": commit,
+		"rev-parse --absolute-git-dir": "/nowhere/.git",
+		"status --porcelain=v1 --untracked-files=all": "",
+	};
+	const judgedIn = new Set<string>();
+	const asked = new Map(trees.map((tree) => [tree.path, tree.usedAt]));
+	const choice: IdleChoice = {
+		exec: async (_command, args) => {
+			const where = args[1];
+			if (where !== undefined) judgedIn.add(where);
+			return {
+				code: 0,
+				stdout: answers[args.slice(3).join(" ")] ?? "unasked",
+				stderr: "",
+			};
+		},
+		claims: [],
+		now,
+		askedAt: (path) => asked.get(path),
+		busyAmong: async () => new Set(),
+	};
+	const oldestFirst = trees.map((tree) => tree.path).reverse();
+	return { trees, choice, judgedIn, oldestFirst };
+}
 
 /**
  * A snapshot pinned by {@link RUNNING}, a session still open, left
@@ -122,7 +166,12 @@ function sweepWhileOpen(
 	known: Partial<
 		Pick<
 			SweepDeps,
-			"busyAmong" | "claims" | "idleTakes" | "idleWithinMs" | "now"
+			| "awake"
+			| "betweenIdleTakes"
+			| "busyAmong"
+			| "claims"
+			| "idleTakes"
+			| "idleWithinMs"
 		>
 	> = {},
 ) {
@@ -170,39 +219,79 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
-	it("chooses none once the sweep has run as long as its runner gave it", async () => {
-		const setup = await setUp();
-		const { tree } = await leftAlone(setup, "left", IDLE);
-
-		const outcome = await sweepWhileOpen(setup, { idleWithinMs: 0 });
-
-		expect(outcome.taken).toEqual([]);
-		expect(existsSync(tree), `${tree} is gone`).toBe(true);
-	});
-
-	it("takes no more once its time runs out between takes, keeping the rest", async () => {
+	it("waits between its takes, never before the first", async () => {
 		const setup = await setUp();
 		const older = await leftAlone(setup, "older", IDLE + HOUR);
 		const newer = await leftAlone(setup, "newer", IDLE);
-		const started = Date.now();
-		let late = false;
+		const atEachWait: boolean[][] = [];
 
 		const outcome = await sweepWhileOpen(setup, {
-			idleWithinMs: HOUR,
-			// The clock runs past the hour once the first take has asked who
-			// works in its tree, after both were chosen.
-			now: () => (late ? started + 2 * HOUR : started),
-			busyAmong: async (paths) => {
-				if (paths.length === 1) late = true;
-				return new Set();
+			betweenIdleTakes: async () => {
+				atEachWait.push([existsSync(older.tree), existsSync(newer.tree)]);
 			},
 		});
 
-		expect(outcome.taken.map((one) => one.path)).toEqual([older.tree]);
-		expect(existsSync(newer.tree), "the newer waits for the next sweep").toBe(
-			true,
+		expect(outcome.taken).toHaveLength(2);
+		expect(atEachWait, "which stood at each wait").toEqual([[false, true]]);
+	});
+
+	it("takes a host's share though its time is spent before it starts, leaving none it could take", async () => {
+		// A loaded machine gets fewer than its runner allows, never fewer than
+		// a host would take.
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 200,
+			idleWithinMs: 0,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([
+			older.tree,
+			newer.tree,
+		]);
+		expect(outcome.idleLeft, "none left that its share couldn't take").toBe(
+			undefined,
 		);
 	});
+
+	it("takes no more than a host's share once its time is spent, saying how many it left", async () => {
+		const setup = await setUp();
+		const trees: string[] = [];
+		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP; at += 1) {
+			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+			trees.push(tree);
+		}
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 200,
+			idleWithinMs: 0,
+		});
+
+		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP);
+		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
+		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
+		// Twenty-one real worktrees took 128 s on a machine at load 170.
+	}, 300_000);
+
+	it("counts its time on the clock that stands still while the machine sleeps", async () => {
+		// However long the wall clock runs while it works, a run whose awake
+		// time stands still has spent none of it.
+		const setup = await setUp();
+		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP; at += 1) {
+			await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+		}
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 200,
+			idleWithinMs: 1,
+			awake: () => 0,
+		});
+
+		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
+		expect(outcome.idleLeft).toBe(undefined);
+	}, 300_000);
 
 	it("keeps one a session asked for within the window, though its files sat still", async () => {
 		const setup = await setUp();
@@ -583,47 +672,45 @@ describe("choosing the snapshots to take", () => {
 		);
 	});
 
-	it("judges no more once its time is spent, choosing only those judged before", async () => {
-		const commit = "a".repeat(40);
-		const now = Date.now();
-		const snapshot = (name: string, ago: number): HeldTree => ({
-			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
-			path: `/nowhere/${name}`,
-			providerId: "git-worktree",
-			owners: [RUNNING],
-			usedAt: now - ago,
-		});
-		const older = snapshot("older", IDLE + 2 * HOUR);
-		const newer = snapshot("newer", IDLE + HOUR);
-		const answers: Record<string, string> = {
-			"rev-parse HEAD": commit,
-			"reflog --format=%H HEAD": commit,
-			"rev-parse --absolute-git-dir": "/nowhere/.git",
-			"status --porcelain=v1 --untracked-files=all": "",
-		};
-		const judgedIn = new Set<string>();
-		let asked = 0;
+	it("chooses past a host's share when its runner says, oldest first", async () => {
+		const many = idleFakes(IDLE_TAKES_PER_SWEEP + 2);
 
-		const chosen = await idleSnapshots([newer, older], {
-			exec: async (_command, args) => {
-				const where = args[1];
-				if (where !== undefined) judgedIn.add(where);
-				return {
-					code: 0,
-					stdout: answers[args.slice(3).join(" ")] ?? "unasked",
-					stderr: "",
-				};
-			},
-			claims: [],
-			now,
-			askedAt: (path) => (path === older.path ? older.usedAt : newer.usedAt),
-			busyAmong: async () => new Set(),
-			// Spent once the first has been judged.
-			spent: () => asked++ > 0,
+		const chosen = await idleSnapshots(many.trees, {
+			...many.choice,
+			most: IDLE_TAKES_PER_SWEEP + 1,
 		});
 
-		expect(chosen.map((one) => one.tree.path)).toEqual([older.path]);
-		expect([...judgedIn], "git asked in the newer").not.toContain(newer.path);
+		expect(chosen.map((one) => one.tree.path)).toEqual(
+			many.oldestFirst.slice(0, IDLE_TAKES_PER_SWEEP + 1),
+		);
+	});
+
+	it("judges no more past a host's share once its time is spent, saying how many it left", async () => {
+		const many = idleFakes(IDLE_TAKES_PER_SWEEP + 2);
+		const left: number[] = [];
+
+		const chosen = await idleSnapshots(many.trees, {
+			...many.choice,
+			most: 200,
+			spent: () => true,
+			left: (count) => left.push(count),
+		});
+
+		const share = many.oldestFirst.slice(0, IDLE_TAKES_PER_SWEEP);
+		expect(chosen.map((one) => one.tree.path)).toEqual(share);
+		expect([...many.judgedIn], "git asked only in its share").toEqual(share);
+		expect(left).toEqual([2]);
+	});
+
+	it("judges each only once the one before has been dealt with", async () => {
+		const many = idleFakes(3);
+		const judgedAtEach: number[] = [];
+
+		for await (const _idle of eachIdleSnapshot(many.trees, many.choice)) {
+			judgedAtEach.push(many.judgedIn.size);
+		}
+
+		expect(judgedAtEach).toEqual([1, 2, 3]);
 	});
 
 	it("keeps one whose record can't date its last ask, however old its own date", async () => {

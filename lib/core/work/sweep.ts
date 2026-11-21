@@ -63,8 +63,8 @@ import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	checkoutOf,
+	eachIdleSnapshot,
 	type IdleSnapshot,
-	idleSnapshots,
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
@@ -134,12 +134,26 @@ export interface SweepDeps extends UseSigns {
 	 */
 	idleTakes?: number;
 	/**
-	 * How long after it starts, in milliseconds, a sweep may go on
-	 * choosing and taking those snapshots, so a loaded machine, where
-	 * each is slow, gets fewer rather than a longer sweep; no limit by
-	 * default.
+	 * How long after it starts, in milliseconds of awake time, a sweep may
+	 * go on judging those snapshots past the `IDLE_TAKES_PER_SWEEP` a host
+	 * takes, so a loaded machine, where each is slow, gets fewer rather
+	 * than a longer sweep; no limit by default. It stops new judging only,
+	 * never a take begun, which runs to its end.
 	 */
 	idleWithinMs?: number;
+	/**
+	 * Milliseconds on a clock that stands still while the machine sleeps,
+	 * as the sweep lock's freshness counts, so a suspend or a clock set
+	 * back neither spends `idleWithinMs` nor stretches it;
+	 * `performance.now` by default.
+	 */
+	awake?: () => number;
+	/**
+	 * Waited on before each idle snapshot's take but the first, so a sweep
+	 * taking many leaves the disk's directory locks free between its
+	 * removals; nothing by default. Its time counts against `idleWithinMs`.
+	 */
+	betweenIdleTakes?: () => Promise<void>;
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
 }
@@ -199,6 +213,11 @@ export interface SweepOutcome {
 	 * to say which processes hold trees.
 	 */
 	idleUnjudged?: string;
+	/**
+	 * How many aged snapshots its time left unjudged, when `idleWithinMs`
+	 * ran out before they were.
+	 */
+	idleLeft?: number;
 }
 
 /**
@@ -235,6 +254,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		branches: [],
 	};
 	const now = deps.now?.() ?? Date.now();
+	const awake = deps.awake ?? (() => performance.now());
+	const began = awake();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
 	const release = sweepLock(deps.lockPath, deps.lockFresh);
@@ -285,10 +306,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			outcome,
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
-		const clock = deps.now ?? Date.now;
 		const { idleWithinMs } = deps;
 		const spent = () =>
-			idleWithinMs !== undefined && clock() - now >= idleWithinMs;
+			idleWithinMs !== undefined && awake() - began >= idleWithinMs;
 		try {
 			const askedAt = (path: string, key?: string) =>
 				deps.memory.askedAt(path, key);
@@ -301,9 +321,16 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				askedAt,
 				...(deps.idleTakes === undefined ? {} : { most: deps.idleTakes }),
 				spent,
+				left: (count: number) => {
+					outcome.idleLeft = count;
+				},
 			};
-			for (const idle of await idleSnapshots(live, choice)) {
-				if (spent()) break;
+			// Each is taken before the next is judged, so the time judging
+			// takes always buys takes.
+			let before = false;
+			for await (const idle of eachIdleSnapshot(live, choice)) {
+				if (before) await deps.betweenIdleTakes?.();
+				before = true;
 				await takeIdle(deps, facts, idle, now, outcome);
 			}
 		} catch (error) {

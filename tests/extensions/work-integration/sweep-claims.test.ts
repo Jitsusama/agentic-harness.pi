@@ -52,6 +52,9 @@ const rests: (number | undefined)[] = [];
 /** The exec each sweep was given to run git with. */
 const execs: Exec[] = [];
 
+/** The idle takes and time each sweep was given, which a host leaves as the library's. */
+const idleAsks: { takes?: number; within?: number; paused: boolean }[] = [];
+
 /**
  * Why the next sweep does nothing, when it should, as the library says,
  * or the error it fails with.
@@ -67,9 +70,17 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
 		claims: SweepClaims | (() => SweepClaims | Promise<SweepClaims>);
 		restMs?: number;
+		idleTakes?: number;
+		idleWithinMs?: number;
+		betweenIdleTakes?: () => Promise<void>;
 		exec: Exec;
 	}) => {
 		rests.push(deps.restMs);
+		idleAsks.push({
+			takes: deps.idleTakes,
+			within: deps.idleWithinMs,
+			paused: deps.betweenIdleTakes !== undefined,
+		});
 		execs.push(deps.exec);
 		if (idle.failed !== undefined) throw new Error(idle.failed);
 		const none = {
@@ -113,6 +124,7 @@ beforeEach(() => {
 	given.length = 0;
 	rests.length = 0;
 	execs.length = 0;
+	idleAsks.length = 0;
 	delete idle.rested;
 	delete idle.skipped;
 	delete idle.failed;
@@ -256,6 +268,10 @@ it("asks every sweep to rest 20 minutes after any sweep ends", async () => {
 	await sweepOn(createEventBus());
 
 	expect(rests, "the rest each sweep was asked for").toEqual([20 * 60 * 1000]);
+	expect(
+		idleAsks,
+		"a host's sweep, on its thread, keeps the library's few idle takes",
+	).toEqual([{ takes: undefined, within: undefined, paused: false }]);
 });
 
 it("stands a host's sweep down for two hours after a sweep outside the hosts", async () => {
