@@ -84,7 +84,7 @@ describe("the words a cell's declared subjects give it", () => {
 
 	it("never gives a cell the broader words of a subject it narrows", () => {
 		expect(subjectWords("mycelium:easing")).toEqual(["easing"]);
-		expect(subjectWords("unit:pi-host-")).toEqual(["host"]);
+		expect(subjectWords("unit:pi-host-")).toEqual(["host", "pi-host"]);
 		expect(subjectWords("health.asks.")).toEqual(["asks"]);
 		expect(subjectWords("")).toEqual([]);
 	});
@@ -148,8 +148,9 @@ describe("the words a cell's declared subjects give it", () => {
 
 	it("gives a cell at most MOST_SUBJECT_WORDS words from all its subjects together", () => {
 		const half = MOST_SUBJECT_WORDS / 2 + 1;
-		const subject = (from: number) =>
-			`x:${Array.from({ length: half }, (_, at) => `word${from + at}`).join("-")}`;
+		const run = (from: number) =>
+			Array.from({ length: half }, (_, at) => `word${from + at}`);
+		const subject = (from: number) => `x:${run(from).join("-")}`;
 		const line = JSON.stringify({
 			id: 2,
 			records: [
@@ -166,10 +167,12 @@ describe("the words a cell's declared subjects give it", () => {
 		expect(
 			cell?.words,
 			"its title, then the first subject words up to the cap, across subjects",
-		).toEqual([
-			"placement",
-			...Array.from({ length: MOST_SUBJECT_WORDS }, (_, at) => `word${at}`),
-		]);
+		).toEqual(
+			["placement", ...run(0), run(0).join("-"), ...run(half)].slice(
+				0,
+				1 + MOST_SUBJECT_WORDS,
+			),
+		);
 	});
 });
 

@@ -25,9 +25,11 @@ describe("the words a subject naming a service unit gives", () => {
 		// Owner prefixes name units whole, and a unit's type is no subject:
 		// every service would otherwise claim one word and lose its own.
 		expect(subjectWords("unstamped:agents.service")).toEqual(["agents"]);
+		// A joined name is a word whole too, as resident needs are written.
 		expect(subjectWords("failed:pulse-sampler.service")).toEqual([
 			"pulse",
 			"sampler",
+			"pulse-sampler",
 		]);
 		expect(subjectWords("failed:com.shopify.monobus.service")).toEqual([
 			"monobus",
@@ -35,6 +37,7 @@ describe("the words a subject naming a service unit gives", () => {
 		expect(subjectWords("failed:systemd-coredump@.service")).toEqual([
 			"systemd",
 			"coredump",
+			"systemd-coredump",
 		]);
 		// The node lowercases a hub's subject; a cell's comes as declared.
 		expect(subjectWords("unstamped:Agents.Service")).toEqual(["agents"]);
@@ -46,7 +49,11 @@ describe("the words a subject naming a service unit gives", () => {
 		expect(subjectWords("unit:.service")).toEqual(["service"]);
 		expect(subjectWords("github:mycelium/.service")).toEqual(["service"]);
 		expect(subjectWords("health.service.")).toEqual(["service"]);
-		expect(subjectWords("agents.service-mesh")).toEqual(["service", "mesh"]);
+		expect(subjectWords("agents.service-mesh")).toEqual([
+			"service",
+			"mesh",
+			"service-mesh",
+		]);
 		expect(subjectWords("agents.servicex")).toEqual(["servicex"]);
 		expect(subjectWords("oauth.scope")).toEqual(["scope"]);
 		expect(subjectWords("build.target")).toEqual(["target"]);

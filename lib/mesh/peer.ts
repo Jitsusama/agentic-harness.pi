@@ -23,6 +23,7 @@
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import type { Orchestration } from "../internal/quest/fields/orchestration.ts";
+import type { Served } from "../internal/quest/fields/serves.ts";
 import { type Doing, readDoing } from "../internal/quest/sessions/doing.ts";
 import { recentEvents, type SessionEvent } from "../internal/session/events.ts";
 import {
@@ -415,6 +416,7 @@ export function localPeer(at: Surroundings): Peer {
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
 	let subjects: readonly string[] = [];
+	let serves: readonly Served[] = [];
 	let shares: readonly Share[] = [];
 	let repo: string | undefined;
 	let workspace: string | undefined;
@@ -510,6 +512,7 @@ export function localPeer(at: Surroundings): Peer {
 			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
 			...(subjects.length > 0 ? { subjects } : {}),
+			...(serves.length > 0 ? { serves } : {}),
 			// An ended session works with nobody, so its last word shares none.
 			...(shares.length > 0 && !ended ? { shares } : {}),
 			cwd: at.cwd,
@@ -583,6 +586,7 @@ export function localPeer(at: Surroundings): Peer {
 			ownedPrefixes(at.owners?.() ?? [], working),
 			work.subjects ?? [],
 		);
+		serves = work.serves ?? [];
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
