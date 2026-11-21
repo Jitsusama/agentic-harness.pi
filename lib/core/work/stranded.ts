@@ -134,13 +134,6 @@ export interface StrandedSigns {
 	): Promise<ReadonlySet<string> | undefined>;
 	/** Now, in milliseconds since the epoch. */
 	now?: number;
-	/**
-	 * The git folders of checkouts whose own entries are read for a
-	 * tree's lock too, the one reclaim runs from: such an entry still
-	 * names a tree whose `.git` points elsewhere, as once the clone has
-	 * moved, so reclaim keeps what a cut from there refuses for its lock.
-	 */
-	clones?: readonly string[];
 }
 
 /** Stranded trees split into those reclaim may set aside and those kept. */
@@ -162,11 +155,10 @@ export async function splitStranded(
 	signs: StrandedSigns,
 ): Promise<StrandedSplit> {
 	const now = signs.now ?? Date.now();
-	const clones = signs.clones ?? [];
 	const kept: KeptTree[] = [];
 	const quiet: StrandedTree[] = [];
 	for (const tree of trees) {
-		const why = makingWhy(tree.path, now, clones);
+		const why = makingWhy(tree.path, now);
 		if (why === undefined) quiet.push(tree);
 		else kept.push({ path: tree.path, why });
 	}
@@ -207,12 +199,13 @@ export const CANT_SAY =
  * one stays, a lock a cut killed before git was told English included: a re-cut
  * never forgets such a lock, so setting the tree aside would leave its
  * name uncuttable. The lock is read where the tree's own `.git` points,
- * which whatever ran in it could have written, and in the entry the
- * clone reclaim runs from keeps for it, so this says what git's files
- * hold rather than who put it there.
+ * which whatever ran in it could have written, so this says what git's
+ * files hold rather than who put it there. A lock in the entry of the
+ * checkout reclaim runs from never gets here: git there lists the tree,
+ * and reclaim leaves every tree it lists to git.
  */
 export const HAND_LOCKED =
-	"git won't read it, but the git entry it names is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that isn't a plain file, which git never writes, stops unlock too, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
+	"git won't read it, but git's entry for it is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that is neither a plain file nor a link to one, such as a fifo, which git never writes, would hold `git worktree unlock` and `git worktree list` waiting, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or
@@ -220,14 +213,8 @@ export const HAND_LOCKED =
  * a cut writes its record only once it ends, and a lock no cut put
  * there is never taken away here.
  */
-function makingWhy(
-	path: string,
-	now: number,
-	clones: readonly string[],
-): string | undefined {
-	if (handLocked(path) || clones.some((clone) => handLockedIn(clone, path))) {
-		return HAND_LOCKED;
-	}
+function makingWhy(path: string, now: number): string | undefined {
+	if (handLocked(path)) return HAND_LOCKED;
 	if (cutRunning(path, now)) {
 		return "git won't read it, but git marks it locked, as it does while a cut runs, so it stays";
 	}
@@ -298,11 +285,16 @@ export function forgetGoneEntry(
 	// An empty folder is as gone to git, and is what the cut makes first
 	// where each tree is a subvolume of its own.
 	if (holdsSomething(path)) return false;
-	const entry = entryNaming(commonDir, path);
-	if (entry === undefined) return false;
-	if (lockedSince(entry, now) || lockedByHand(entry)) return false;
+	// Every entry naming the path is for it, and one locked keeps them all,
+	// since forgetting the rest would cut over a tree somebody locked.
+	const entries = entriesNaming(commonDir, path);
+	if (entries.length === 0) return false;
+	if (entries.some((entry) => lockedSince(entry, now) || lockedByHand(entry))) {
+		return false;
+	}
 	try {
-		rmSync(entry, { recursive: true, force: true });
+		for (const entry of entries)
+			rmSync(entry, { recursive: true, force: true });
 		return true;
 	} catch {
 		// One going as it is forgotten: git's to finish.
@@ -318,8 +310,9 @@ export function forgetGoneEntry(
  * once the clone has moved, and where {@link handLocked} so sees none.
  */
 export function handLockedIn(commonDir: string, path: string): boolean {
-	const entry = entryNaming(commonDir, path);
-	return entry !== undefined && lockedByHand(entry);
+	// Any of them, so an unlocked entry naming the same path, which
+	// anything in a tree could point at, hides no lock.
+	return entriesNaming(commonDir, path).some(lockedByHand);
 }
 
 /**
@@ -340,10 +333,10 @@ export function checkoutGitFolder(checkout: string): string | undefined {
 }
 
 /**
- * Git's entry, in the repository whose common folder is `commonDir`,
- * whose way back names a worktree at `path`, or nothing.
+ * Git's entries, in the repository whose common folder is `commonDir`,
+ * whose way back names a worktree at `path`.
  */
-function entryNaming(commonDir: string, path: string): string | undefined {
+function entriesNaming(commonDir: string, path: string): string[] {
 	const entries = join(commonDir, "worktrees");
 	// git writes the real path, which only the folder's parent still has.
 	const wanted = new Set([
@@ -355,21 +348,22 @@ function entryNaming(commonDir: string, path: string): string | undefined {
 		names = readdirSync(entries);
 	} catch {
 		// No worktrees folder: git has no entry for it.
-		return undefined;
+		return [];
 	}
+	const naming: string[] = [];
 	for (const name of names) {
 		const entry = join(entries, name);
 		try {
 			if (!lstatSync(entry).isDirectory()) continue;
 			const named = readPlain(join(entry, "gitdir"))?.trim();
 			if (named !== undefined && wanted.has(resolve(entry, named))) {
-				return entry;
+				naming.push(entry);
 			}
 		} catch {
 			// An entry git can't have written, or one going as it is read.
 		}
 	}
-	return undefined;
+	return naming;
 }
 
 /**

@@ -28,6 +28,7 @@ import {
 	checkoutGitFolder,
 	cutRunning,
 	HAND_LOCKED,
+	handLockedIn,
 	LOCK_STALE_MS,
 	plainWords,
 	type StrandedRecords,
@@ -360,29 +361,41 @@ describe("splitStranded", () => {
 		expect(cutRunning(path), "a folder is no cut's lock").toBe(false);
 	});
 
-	it("keeps a tree the clone it runs from locks, where its .git names a moved one", async () => {
-		// Once the clone has moved, the tree's `.git` names a folder that
-		// is gone, and only the clone's own entry still says it's locked,
-		// as a cut from that clone reads it before refusing.
-		const clone = join(root, "moved-to", ".git");
-		const entry = join(clone, "worktrees", "snapshot-m");
-		mkdirSync(entry, { recursive: true });
-		const path = treeNaming("snapshot-m", join(root, "gone", "snapshot-m"));
+	it("finds a clone's lock whichever of two entries naming the tree holds it", () => {
+		// Anything in a tree could point a second entry at it, and one
+		// unlocked must hide no lock, whichever git lists first.
+		const clone = join(root, "two", ".git");
+		const path = treeNaming("snapshot-two", join(root, "gone", "snapshot-two"));
+		for (const name of ["a", "b"]) {
+			const entry = join(clone, "worktrees", name);
+			mkdirSync(entry, { recursive: true });
+			writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+		}
+		writeFileSync(join(clone, "worktrees", "a", "locked"), "on a drive\n");
+
+		expect(handLockedIn(clone, path), "the first locked").toBe(true);
+
+		rmSync(join(clone, "worktrees", "a", "locked"));
+		writeFileSync(join(clone, "worktrees", "b", "locked"), "on a drive\n");
+
+		expect(handLockedIn(clone, path), "the second locked").toBe(true);
+	});
+
+	it("reads a link to nothing where a lock should be as a hand lock", async () => {
+		// Asking whether the lock exists through the link would say no,
+		// and set aside a tree somebody locked.
+		const gitDir = standingGitDir("snapshot-n");
+		const path = treeNaming("snapshot-n", gitDir);
 		const at = (Date.now() - LONG_AGO) / 1000;
 		utimesSync(join(path, ".git"), at, at);
-		writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
-		writeFileSync(join(entry, "locked"), "on a drive away\n");
-		const tree = { path, why: "the git folder its .git file names is gone" };
+		symlinkSync(join(root, "nothing-here"), join(gitDir, "locked"));
 
-		const read = await splitStranded([tree], {
+		const split = await splitStranded([{ path, why: REFUSED }], {
 			busyAmong: nobody,
-			clones: [clone],
 		});
-		const unread = await splitStranded([tree], { busyAmong: nobody });
 
-		expect(read.free, "set aside by reclaim").toEqual([]);
-		expect(read.kept[0]?.why).toBe(HAND_LOCKED);
-		expect(unread.free, "seen only through the clone").toEqual([tree]);
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
 	});
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {

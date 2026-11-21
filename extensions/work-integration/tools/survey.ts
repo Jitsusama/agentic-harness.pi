@@ -34,7 +34,6 @@ import {
 } from "../../../lib/core/work/reclaim.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import {
-	checkoutGitFolder,
 	GUARD_WORDS,
 	type KeptTree,
 	plainWords,
@@ -206,9 +205,10 @@ async function treesLeftBehind(
 		// Not every record: one whose sessions have all ended holds
 		// nothing, and its tree, which release can't take since git won't
 		// run there, goes only by being set aside under its record's lock.
-		// One a running session holds is among `keeping`.
+		// One a running session holds is among `keeping`. One the
+		// checkout's own entry names is among `worktrees`, whatever its
+		// `.git` says, so a lock git keeps there is never this sweep's.
 		...(await strandedBeside(
-			mainPath,
 			[...keeping, ...unattributed, ...worktrees.map((tree) => tree.path)].map(
 				resolved,
 			),
@@ -224,18 +224,10 @@ interface LeftBehind extends OrphanPlan {
 	strandedKept: KeptTree[];
 }
 
-/**
- * What tells a stranded tree is still being made or used, read now,
- * with the entries of `checkout`, the clone reclaim runs from, read for
- * its lock as a cut from there reads them.
- */
-function strandedSigns(checkout: string): StrandedSigns {
+/** What tells a stranded tree is still being made or used, read now. */
+function strandedSigns(): StrandedSigns {
 	const busyAmong = useSigns().busyAmong;
-	const clone = checkoutGitFolder(checkout);
-	return {
-		...(busyAmong === undefined ? {} : { busyAmong }),
-		...(clone === undefined ? {} : { clones: [clone] }),
-	};
+	return busyAmong === undefined ? {} : { busyAmong };
 }
 
 /**
@@ -247,7 +239,6 @@ function strandedSigns(checkout: string): StrandedSigns {
  * record is the broker's, but a reader may still stand in the folder.
  */
 async function strandedBeside(
-	checkout: string,
 	kept: readonly string[],
 ): Promise<{ stranded: StrandedTree[]; strandedKept: KeptTree[] }> {
 	const rules = gitRules();
@@ -260,7 +251,7 @@ async function strandedBeside(
 			return "refused" in run ? GUARD_WORDS : undefined;
 		},
 	});
-	const split = await splitStranded(found, strandedSigns(checkout));
+	const split = await splitStranded(found, strandedSigns());
 	return { stranded: split.free, strandedKept: split.kept };
 }
 
@@ -272,11 +263,10 @@ async function strandedBeside(
  * every process.
  */
 async function setStrandedAside(
-	checkout: string,
 	trees: readonly StrandedTree[],
 ): Promise<SetAsideTree[]> {
 	if (trees.length === 0) return [];
-	const again = await splitStranded(trees, strandedSigns(checkout));
+	const again = await splitStranded(trees, strandedSigns());
 	return [
 		...again.kept.map((tree) => ({ kind: "kept" as const, ...tree })),
 		...(await setAside(again.free, {
@@ -380,7 +370,7 @@ async function surveyRepo(
 		let moved: SetAsideTree[] = [];
 		let unmoved: string | undefined;
 		try {
-			moved = await setStrandedAside(target.path, orphans.stranded);
+			moved = await setStrandedAside(orphans.stranded);
 		} catch (error) {
 			unmoved = plainWords(
 				error instanceof Error ? error.message : String(error),
