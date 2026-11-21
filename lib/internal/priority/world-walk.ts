@@ -212,12 +212,15 @@ const WORLD_FOLDER = "world";
  * A git command that walks a repository's objects, past options such as
  * `-C <dir>` and `-c <key>=<value>`: a push (the LFS pre-push hook runs
  * `git rev-list --objects` over what it sends), a fetch or pull, a
- * clone, and the repacks. Options are kept, to read the folder `-C`
- * names, then the subcommand, and the rest, to read a path it fetches
- * from or clones and what it fetches.
+ * clone, the repacks, and what merges trees or fills a sparse checkout:
+ * a rebase, a cherry-pick, a merge and `sparse-checkout`. Two World
+ * rebases held 3.8 and 3.9 GB each beside other walks at 06:08 on 21
+ * November, with no turn (80ECO2). Options are kept, to read the folder
+ * `-C` names, then the subcommand, and the rest, to read a path it
+ * fetches from or clones and what it fetches.
  */
 export const GIT_WALK =
-	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects)(?![\w.=-])(.*)$/;
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|rebase|cherry-pick|merge|sparse-checkout)(?![\w.=-])(.*)$/;
 
 /** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
 const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;

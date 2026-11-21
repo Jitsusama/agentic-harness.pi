@@ -132,6 +132,12 @@ export interface Room {
 	readonly availableGib: number;
 	/** Memory pressure, avg10, in percent. */
 	readonly memoryPressure: number;
+	/**
+	 * The share of the last minute every task stalled on memory (`full
+	 * avg60`), in percent, which the walks of World's objects are held to.
+	 * Nothing where it isn't read.
+	 */
+	readonly memoryFullMinute?: number;
 	/** VMs running on the machine, queued or not. */
 	readonly vms: number;
 	/** CPU pressure, avg10, in percent. */

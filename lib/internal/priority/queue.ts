@@ -113,9 +113,11 @@ export {
 	type Kind,
 	NEEDS_GIB,
 	needsGibOf,
+	ONE_WALK_FROM_PRESSURE,
 	PUSH_GIB,
 	runsChangedChecks,
 	WALKS_AT_ONCE,
+	walksAtOnce,
 } from "./needs.ts";
 export {
 	JOINS_FOR_MS,

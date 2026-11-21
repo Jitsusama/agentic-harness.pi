@@ -6,6 +6,7 @@ import {
 	needsGibOf,
 	needsGibOfCommand,
 	nextTurn,
+	ONE_WALK_FROM_PRESSURE,
 	RAMP_MS,
 	skipsWorldPushHooks,
 	WALKS_AT_ONCE,
@@ -35,6 +36,12 @@ describe("a walk of World's objects", () => {
 			"git repack -ad",
 			"git rev-list --objects --all | git pack-objects --stdout > p.pack",
 			"git -c core.askPass=true fetch delta",
+			// 11-21, 06:08: two rebases of 3.8 and 3.9 GB beside other walks.
+			"git rebase origin/main",
+			"git -C ~/world/trees/w-main/src rebase --continue",
+			"git cherry-pick abc123",
+			"git merge origin/main",
+			"git sparse-checkout add areas/tools",
 		]) {
 			expect(kindOf(walking, inWorld), walking).toBe("world-walk");
 		}
@@ -86,6 +93,8 @@ describe("a walk of World's objects", () => {
 			"git status",
 			"git -c push.default=current status",
 			"git log --grep push",
+			"git merge-base HEAD origin/main",
+			"git log --grep rebase",
 			"echo git push",
 			"gh pr create --title 'git push it'",
 			"rg 'git fetch' scripts",
@@ -126,6 +135,27 @@ describe("a walk of World's objects", () => {
 		const after = jobs.filter((one) => one.id !== "two");
 		expect(nextTurn(after, plenty, NOW)?.id).toBe("third");
 		expect(waitReasons(after, plenty, NOW).get("third")).toBe("order");
+	});
+
+	it("runs one at a time while memory has stalled everything 5% of the last minute", () => {
+		const long = startedAgo(RAMP_MS + 60_000);
+		const jobs = [
+			job("one", { kind: "world-walk", what: "git rebase", started: long }),
+			job("two", { kind: "world-walk", what: "git push" }),
+		];
+		const plenty = { ...ROOMY, availableGib: 100 };
+		const stalled = { ...plenty, memoryFullMinute: ONE_WALK_FROM_PRESSURE };
+
+		expect(ONE_WALK_FROM_PRESSURE).toBe(5);
+		expect(nextTurn(jobs, stalled, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, stalled, NOW).get("two")).toBe("walks");
+		// Just under it, or where it isn't read, two run as before.
+		const under = { ...plenty, memoryFullMinute: 4.9 };
+		expect(nextTurn(jobs, under, NOW)?.id).toBe("two");
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
+		// With none running, one starts however the minute reads.
+		const alone = jobs.filter((one) => one.id !== "one");
+		expect(nextTurn(alone, stalled, NOW)?.id).toBe("two");
 	});
 
 	it("waits on memory like any job when its 6 GiB isn't free", () => {

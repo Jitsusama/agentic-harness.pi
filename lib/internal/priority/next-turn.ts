@@ -39,6 +39,7 @@ import {
 	needsGibOf,
 	runsChangedChecks,
 	WALKS_AT_ONCE,
+	walksAtOnce,
 } from "./needs.ts";
 
 /** How far apart two turns are given. */
@@ -274,8 +275,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * push of World that leaves out its LFS scan is quick work, held to
  * needs.ts's `PUSH_GIB` or what it was seen to hold, and quick work held to
  * {@link LIGHT_GIB} or less, builds aside, starts while memory is short.
+ * 13: walks of World's objects one at a time from needs.ts's
+ * `ONE_WALK_FROM_PRESSURE`, and git's rebase, cherry-pick, merge and
+ * sparse-checkout in a World checkout read as walks.
  */
-export const RULES_VERSION = 12;
+export const RULES_VERSION = 13;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -330,7 +334,7 @@ export function nextTurn(
 		) {
 			continue;
 		}
-		if (walkWaits(job, walks, fetching)) continue;
+		if (walkWaits(job, walks, fetching, room)) continue;
 		// Only bulk work is behind a build, and it all waits with it.
 		const ruledOut =
 			job.kind === "build" &&
@@ -442,7 +446,7 @@ export function waitReasons(
 			) {
 				return "vms";
 			}
-			if (walkWaits(job, walks, fetching)) return "walks";
+			if (walkWaits(job, walks, fetching, room)) return "walks";
 			const ruledOut =
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
@@ -467,11 +471,19 @@ export function waitReasons(
  * of main runs, which will answer it as it ends (fetched.ts). On the
  * evening of 5 November four fetches of main waited up to 75 minutes
  * behind one already running, each to fetch the same commits again
- * (80ECO2). Like a VM held to its count, it lets the jobs behind it past.
+ * (80ECO2). The walks allowed are needs.ts's `walksAtOnce` for the
+ * memory pressure `room` reads. Like a VM held to its count, it lets the
+ * jobs behind it past.
  */
-function walkWaits(job: Job, walks: number, fetching: boolean): boolean {
+function walkWaits(
+	job: Job,
+	walks: number,
+	fetching: boolean,
+	room: Room,
+): boolean {
 	if (job.kind !== "world-walk") return false;
-	return walks >= WALKS_AT_ONCE || (job.walk === "main-fetch" && fetching);
+	const allowed = walksAtOnce(room.memoryFullMinute);
+	return walks >= allowed || (job.walk === "main-fetch" && fetching);
 }
 
 /**

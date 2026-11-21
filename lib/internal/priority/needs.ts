@@ -100,6 +100,26 @@ export const LIGHT_GIB = 1;
 export const WALKS_AT_ONCE = 2;
 
 /**
+ * The memory pressure, the share of the last minute every task stalled
+ * (`full avg60`), in percent, from which walks of World's objects go one
+ * at a time. At 06:08 on 21 November it read 13.6 to 17.8 while two
+ * World rebases of 3.8 and 3.9 GB, a push's LFS scan of 2.3 GB and a
+ * `git log -S` of 1.3 GB ran side by side, and core.nix's own small git
+ * calls took 9 to 70 s each (80ECO2). Beside one another, each walk
+ * evicts the packs the next one maps.
+ */
+export const ONE_WALK_FROM_PRESSURE = 5;
+
+/**
+ * How many walks of World's objects may run at once while `fullMinute`
+ * is the memory pressure read, or nothing where none is read: one from
+ * {@link ONE_WALK_FROM_PRESSURE}, else {@link WALKS_AT_ONCE}.
+ */
+export function walksAtOnce(fullMinute: number | undefined): number {
+	return (fullMinute ?? 0) >= ONE_WALK_FROM_PRESSURE ? 1 : WALKS_AT_ONCE;
+}
+
+/**
  * What a whole flake's check holds, in GiB, whatever its kind: `nix flake
  * check` evaluates every output before it builds one, and keeps that heap
  * until the last build ends. A core.nix check's evaluator held 17.1 GiB
