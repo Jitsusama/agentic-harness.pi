@@ -4,10 +4,11 @@
  * invitation into one, and the ties the node keeps.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -461,6 +462,58 @@ describe("groups", () => {
 		const text = listed?.content[0]?.text ?? "";
 		expect(text).not.toContain("#optimus/power: P9R1KI");
 		expect(text).toContain("Ended, so left out until restored: P9R1KI.");
+	});
+
+	it("says a conversation its restarting host still holds is resuming, not ended", async () => {
+		// Its host's process is gone, as while the host starts again, but the
+		// host's roster still holds the conversation for that start.
+		const conversation = "01a1f92f-2616-7076-a389-ed92252551f1";
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: conversation,
+			addresses: ["Q9SDM1"],
+			groups: ["#aquifer/trust"],
+			worksOn: "the trust hub",
+			owns: [],
+			busy: true,
+			owner: { pid: process.pid, startedAt: 1 },
+			hosted: { host: "work-background", conversation },
+			at: new Date().toISOString(),
+		});
+		const rosters = rosterDir();
+		mkdirSync(rosters, { recursive: true });
+		writeFileSync(
+			rosterPath("work-background", rosters),
+			JSON.stringify({
+				v: 1,
+				key: "work-background",
+				sessions: [
+					{
+						sessionId: conversation,
+						file: "/sessions/one.jsonl",
+						cwd: "/work",
+						attended: false,
+						since: "2026-11-21T08:00:00.000Z",
+					},
+				],
+			}),
+		);
+		const { tools } = await startSession();
+
+		try {
+			const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+			const text = listed?.content[0]?.text ?? "";
+			expect(text).toContain("#aquifer/trust: Q9SDM1");
+			expect(text).not.toContain("Ended, so left out");
+			expect(text).toContain(
+				"Resuming, as their host starts again, still theirs: Q9SDM1.",
+			);
+			expect(text).toContain(
+				"Q9SDM1, resuming as its host starts again: the trust hub",
+			);
+		} finally {
+			rmSync(rosterPath("work-background", rosters), { force: true });
+		}
 	});
 
 	it("lists an ended address once, and not while a live session answers to it", async () => {

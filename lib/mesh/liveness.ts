@@ -33,8 +33,17 @@
  * A parked session (see parked.ts) is there too while its marker stands,
  * its process gone: it ended only to hold no memory while it waits, and
  * its holder starts it again for what is sent to it.
+ *
+ * A hosted conversation whose host has gone is resuming, not ended, while
+ * its host's roster still holds it: a host restarting leaves its holds in
+ * place, and its next start brings each back, which on 21 November took
+ * eight minutes for 116. Judged gone meanwhile, about 60 cells read as
+ * ended, which led to questions of who owned their work and nearly to a
+ * push onto another cell's branch (IKQ63G). Only a roster that holds it
+ * says so; one that can't be read leaves it gone, as before.
  */
 
+import { type HeldStatus, heldSessionStatus } from "../core/session/roster.ts";
 import {
 	askedOnceWithTicks,
 	processKey,
@@ -49,13 +58,28 @@ import type { Presence } from "./presence.ts";
 /** Whether a session's parked marker stands. */
 export type ParkedAsk = (session: string) => boolean;
 
-/** Whether a peer is there, gone, or cannot be told. */
-export type Liveness = "present" | "gone" | "unknown";
+/** Whether the host keyed `host` holds `conversation` for its next start. */
+export type HeldAsk = (
+	conversation: string,
+	host: string,
+) => Promise<HeldStatus>;
+
+const heldByRoster: HeldAsk = (conversation, host) =>
+	heldSessionStatus(conversation, { hostKey: host });
+
+/**
+ * Whether a peer is there, resuming while its host starts again, gone,
+ * or cannot be told.
+ */
+export type Liveness = "present" | "resuming" | "gone" | "unknown";
 
 /** The peers in a listing, sorted by whether they are still there. */
 export interface Census {
+	/** Those there, those resuming and those that cannot be told among them. */
 	readonly present: readonly Presence[];
 	readonly gone: readonly Presence[];
+	/** Of those present, the ones a restarting host is bringing back. */
+	readonly resuming?: readonly Presence[];
 }
 
 /** Whether this peer is still on the mesh. */
@@ -64,6 +88,7 @@ export async function livenessOf(
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
 	parked: ParkedAsk = isParked,
+	held: HeldAsk = heldByRoster,
 ): Promise<Liveness> {
 	if (presence.machine !== undefined) {
 		const held = await node();
@@ -87,9 +112,10 @@ export async function livenessOf(
 	const standing = await tickedStanding(owner, facts);
 	if (standing === "running") return "present";
 	if (standing !== "gone") return "unknown";
-	return presence.state === "parked" && parked(presence.session)
-		? "present"
-		: "gone";
+	if (presence.state === "parked" && parked(presence.session)) return "present";
+	if (!presence.hosted) return "gone";
+	const { host, conversation } = presence.hosted;
+	return (await held(conversation, host)) === "held" ? "resuming" : "gone";
 }
 
 /**
@@ -111,6 +137,7 @@ export async function census(
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
 	parked: ParkedAsk = isParked,
+	held: HeldAsk = heldByRoster,
 ): Promise<Census> {
 	const once = askedOnceWithTicks(facts);
 	let asked: ReturnType<AskNode> | undefined;
@@ -134,12 +161,15 @@ export async function census(
 			async (one) =>
 				[
 					one,
-					left(one) ? "gone" : await livenessOf(one, once, nodeOnce, parked),
+					left(one)
+						? "gone"
+						: await livenessOf(one, once, nodeOnce, parked, held),
 				] as const,
 		),
 	);
 	return {
 		present: judged.filter(([, at]) => at !== "gone").map(([one]) => one),
 		gone: judged.filter(([, at]) => at === "gone").map(([one]) => one),
+		resuming: judged.filter(([, at]) => at === "resuming").map(([one]) => one),
 	};
 }

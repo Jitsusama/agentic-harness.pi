@@ -82,6 +82,55 @@ describe("a peer's liveness", () => {
 	it("cannot be told for a presence that names no process", async () => {
 		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
 	});
+
+	it("is resuming while its host restarts, as long as its roster holds it", async () => {
+		const one = presence({
+			session: "c-1",
+			owner: { pid: 40, startedAt: 1000 },
+			state: "busy",
+			hosted: { host: "work-background", conversation: "c-1" },
+		});
+		const asked: string[] = [];
+		const roster =
+			(answer: "held" | "unheld" | "unknown") =>
+			async (conversation: string, host: string) => {
+				asked.push(`${host}/${conversation}`);
+				return answer;
+			};
+
+		const gone = machine({});
+		expect(
+			await livenessOf(one, gone, undefined, () => false, roster("held")),
+		).toBe("resuming");
+		expect(asked).toEqual(["work-background/c-1"]);
+		// Closed or released, or a roster that can't be read: gone, as before.
+		expect(
+			await livenessOf(one, gone, undefined, () => false, roster("unheld")),
+		).toBe("gone");
+		expect(
+			await livenessOf(one, gone, undefined, () => false, roster("unknown")),
+		).toBe("gone");
+
+		const standing = await census(
+			[one, presence({ owner: { pid: 41, startedAt: 1000 } })],
+			gone,
+			undefined,
+			() => false,
+			roster("held"),
+		);
+		expect(standing.present.map((peer) => peer.session)).toEqual(["c-1"]);
+		expect(standing.resuming?.map((peer) => peer.session)).toEqual(["c-1"]);
+		expect(standing.gone.map((peer) => peer.session)).toEqual(["s-1"]);
+	});
+
+	it("never asks a roster of a peer no host holds", async () => {
+		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
+		const roster = async () => "held" as const;
+
+		expect(
+			await livenessOf(one, machine({}), undefined, () => false, roster),
+		).toBe("gone");
+	});
 });
 
 /** A node holding these sessions, counting how often it is asked. */
