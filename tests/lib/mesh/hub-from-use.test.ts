@@ -231,6 +231,22 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
+	// A new session on a quest signs with its address as the one before it
+	// did, and restored, that one is on the same quest, so above too.
+	it("is reached at its quest's address after an earlier session on that quest ended", () => {
+		const earlier = cell("p0", ["MID002"], ["root01", "mid002"]);
+		const now = cell("p1", ["MID002"], ["root01", "mid002"]);
+
+		const above = hubFromUse(
+			self,
+			[self, now, root],
+			[tie("MID002", 9), tie("ROOT01", 1)],
+			[earlier],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
 	// A group joined before the quest was loaded stays joined, and still
 	// ends in this cell's own quest.
 	it("reads its own quest's chain from a group it had joined before", () => {

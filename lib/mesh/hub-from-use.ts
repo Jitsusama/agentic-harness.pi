@@ -60,10 +60,13 @@ const QUEST_GROUP = "#quest/";
  * cell's presence says; one that isn't shaped as a peer's address, or
  * that a send reads as a group, as it reads `machine` and `global`, is
  * never a hub, so a presence can't widen where `orchestrator` reaches.
- * Nor is an address another presence also lists, live or `ended`,
- * which a forged presence could take to point the send at a peer that
- * isn't above: a send to an ended peer's address still reaches it once
- * it is restored.
+ * Nor is an address another live presence also lists, or an `ended`
+ * one on another quest, which a forged presence could take to point
+ * the send at a peer that isn't above: a send to an ended peer's
+ * address still reaches it once it is restored. An ended session on the
+ * live holder's own quest doesn't count, since a new session on a quest
+ * signs with its address as the one before it did, and that one,
+ * restored, is above as well.
  *
  * `ties` is this cell's, strongest first, as the node keeps them;
  * missing when no node answered.
@@ -98,10 +101,17 @@ export function hubFromUse(
 	const stoppers = new Set(
 		stoppedBy(self, live).map(({ stopper }) => stopper.session),
 	);
-	// Held by exactly one presence, live or ended, so the cell it names is
-	// that one, in any case, since a send reads an address upper-cased.
-	const alone = (address: string) =>
-		[...live, ...ended].filter((one) => lists(one, address)).length === 1;
+	// Held by exactly one live presence, and by no ended one on another
+	// quest, so the cell it names is that one, in any case, since a send
+	// reads an address upper-cased.
+	const alone = (address: string) => {
+		const [holder, ...others] = live.filter((one) => lists(one, address));
+		if (holder === undefined || others.length > 0) return false;
+		const quest = ownQuestOf(holder);
+		return !ended.some(
+			(one) => lists(one, address) && ownQuestOf(one) !== quest,
+		);
+	};
 	const writable = (address: string) => isHub(address) && alone(address);
 	const candidates = live.filter((one) => {
 		if (
@@ -111,7 +121,7 @@ export function hubFromUse(
 		) {
 			return false;
 		}
-		const own = questChainOf(one).at(-1);
+		const own = ownQuestOf(one);
 		return own !== undefined && above.has(own) && one.addresses.some(writable);
 	});
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
@@ -174,6 +184,13 @@ function isHub(address: string): boolean {
 	return (
 		isAddress(address) && groupNamed(address) === `@${address.toUpperCase()}`
 	);
+}
+
+/** The quest `one` works on, the last of its chain, if it has one. */
+function ownQuestOf(
+	one: Pick<Presence, "groups" | "joined" | "quest">,
+): string | undefined {
+	return questChainOf(one).at(-1);
 }
 
 /**
