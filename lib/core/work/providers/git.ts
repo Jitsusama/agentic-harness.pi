@@ -69,7 +69,7 @@ function unreadTree(
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
 	if (handLocked(path)) {
-		return `${where} The git entry it names is locked for a reason no cut gives, as \`git worktree lock\` leaves, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from the clone that cut it, never inside it, and \`work reclaim\` can then set it aside. Where that clone doesn't know it, its \`.git\` names a lock of no clone's, so move it aside by hand.`;
+		return `${where} The git entry it names is locked for a reason other than the English one a cut gives, as \`git worktree lock\` leaves or a cut killed before git here was told English, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from the clone that cut it, never inside it, then \`work tidy\` says whether \`work reclaim\` can set it aside. Where that clone doesn't know it, its \`.git\` names a lock of no clone's, so move it aside by hand.`;
 	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;

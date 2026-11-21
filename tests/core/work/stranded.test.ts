@@ -281,6 +281,26 @@ describe("splitStranded", () => {
 		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
 	});
 
+	it("keeps an old cut's lock git wrote in French, saying a cut may have", async () => {
+		// A cut killed before git was told English left its reason translated,
+		// which reads as no cut's, so the reason kept says a cut may have.
+		const gitDir = standingGitDir("snapshot-f");
+		const path = treeNaming("snapshot-f", gitDir);
+		const at = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "initialisation\n");
+		utimesSync(join(gitDir, "locked"), at, at);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toContain(
+			"a cut killed before git here was told English",
+		);
+	});
+
 	it("reads no hand lock from a fifo where a lock should be", async () => {
 		// What ran in the tree chooses where its `.git` points, and a read
 		// waiting on a fifo's writer would hold reclaim for good. One that

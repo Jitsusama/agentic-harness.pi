@@ -146,7 +146,7 @@ export interface StrandedSplit {
  * Split stranded trees into those nothing is making or using, which
  * may be set aside, and those kept for now, each saying why: one git
  * marks locked, as it does while a cut runs; one locked for a reason
- * no cut gives, which nothing here takes away; one cut within
+ * other than a cut's English one, which nothing here takes away; one cut within
  * {@link CUT_GRACE_MS}, whose record may not be written yet; and one
  * a process works in, or every one when the machine can't say.
  */
@@ -195,14 +195,15 @@ export const CANT_SAY =
 	"git won't read it, but this machine can't say whether something works in it, so it stays";
 
 /**
- * Why a stranded tree locked for a reason no cut gives stays: a re-cut
+ * Why a stranded tree locked for a reason other than a cut's English
+ * one stays, a lock a cut killed before git was told English included: a re-cut
  * never forgets such a lock, so setting the tree aside would leave its
  * name uncuttable. The lock is read where the tree's own `.git` points,
  * which whatever ran in it could have written, so this says what git's
  * files hold rather than who put it there.
  */
 export const HAND_LOCKED =
-	"git won't read it, but the git entry it names is locked for a reason no cut gives, as `git worktree lock` leaves, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it, takes that lock away; where that clone doesn't know it, move it aside by hand";
+	"git won't read it, but the git entry it names is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it, takes that lock away; where that clone doesn't know it, move it aside by hand";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or
@@ -240,7 +241,8 @@ export function cutRunning(path: string, now = Date.now()): boolean {
 
 /**
  * Whether the git entry the worktree at `path` names is locked for a
- * reason no cut gives, as `git worktree lock` leaves, which nothing
+ * reason other than a cut's English one, as `git worktree lock` leaves
+ * or a cut killed before git was told English, which nothing
  * here takes away, however old the lock.
  */
 export function handLocked(path: string): boolean {

@@ -874,6 +874,9 @@ describe("a tree standing where git won't read it", () => {
 		await expect(cut).rejects.toThrow(
 			"from the clone that cut it, never inside it",
 		);
+		await expect(cut).rejects.toThrow(
+			"`work tidy` says whether `work reclaim` can set it aside",
+		);
 		await expect(cut).rejects.not.toThrow("ask again");
 	});
 
