@@ -427,6 +427,10 @@ export interface NodeSession {
 	readonly machine?: string;
 	/** Its state as the node named it, as `idle`, or `unknown` for none. */
 	readonly state: string;
+	/** The pi host it runs in, as `work-background`, where it runs in one. */
+	readonly host?: string;
+	/** The holder that holds it, by its id, where a holder does. */
+	readonly held?: string;
 }
 
 /**
@@ -460,7 +464,7 @@ export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
 	if (!Array.isArray(sessions)) return undefined;
 	return sessions.flatMap((one: unknown): NodeSession[] => {
 		if (!isRecord(one)) return [];
-		const { id, address, machine, state } = one;
+		const { id, address, machine, state, host, held } = one;
 		return [
 			{
 				// A row with no id is still a session there, never nobody.
@@ -468,9 +472,16 @@ export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
 				...(typeof address === "string" ? { address } : {}),
 				...(typeof machine === "string" ? { machine } : {}),
 				state: typeof state === "string" ? state : "unknown",
+				...(isNamed(host) ? { host } : {}),
+				...(isNamed(held) ? { held } : {}),
 			},
 		];
 	});
+}
+
+/** Whether a row's field names something: a string with words in it. */
+function isNamed(value: unknown): value is string {
+	return typeof value === "string" && value.trim() !== "";
 }
 
 /**

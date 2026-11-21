@@ -8,9 +8,15 @@
  * `ask`, a `show_person` look or a reply asking for one is refused while
  * the machine's mycelium node says any session other than the asker's
  * is there in any state but ended, and refused when the node can't be
- * read, under the no-session-ending-ask-while-live guard. Every realm's
- * node on the machine is read, since a reboot ends the sessions of all
- * of them. So is a
+ * read, under the no-session-ending-ask-while-live guard. A session a
+ * log-out leaves running, hosted or held where the user's services
+ * outlive it, doesn't count for a log-out; a command ending every
+ * process of the user's is no log-out, and counts them all. An idle
+ * session on this machine in a pi host, whose presence says it parked,
+ * whose park marker is from this boot and which no live host still
+ * runs, doesn't count for a reboot, restart or shut-down, which is how
+ * a disruption once scheduled goes through. Every realm's node on the machine is read,
+ * since a reboot ends the sessions of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without
  * mycelium, there is no node and nothing is refused; where one is named
@@ -30,10 +36,12 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { userInfo } from "node:os";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
@@ -41,6 +49,10 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
+import {
+	logOutSpares,
+	parkedHere,
+} from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
 	type NodeSession,
@@ -105,6 +117,16 @@ interface Told {
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
+/** How long logind has to say what spares a session. */
+const SPARES_PATIENCE_MS = 2000;
+
+/**
+ * How long a command past its time has to exit before it is killed, so
+ * one that ignores being stopped holds a refusal up little past
+ * SPARES_PATIENCE_MS.
+ */
+const SPARES_KILL_GRACE_MS = 250;
+
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
@@ -130,6 +152,8 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
  * find its socket in, or one no socket's file may carry, is still on
  * the mesh, so its node reads as one that can't be, and so does every
  * node when any one can't be read.
+ * logind is asked on `env`'s PATH; presences are read where every store
+ * of the package keeps its state, from the process's own environment.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
@@ -140,7 +164,7 @@ export function nodeDeps(
 			everyRealmsSessions(nodeSockets(env), async (socket) => {
 				const sessions = await nodeSessionsAt(socket);
 				const named = (sessions ?? []).flatMap((one) => one.machine ?? []);
-				rememberMachines(rememberedMachinesFile(env), named);
+				await rememberMachines(rememberedMachinesFile(env), named);
 				return sessions;
 			}),
 		machines: async () => {
@@ -151,7 +175,34 @@ export function nodeDeps(
 			return rememberMachines(rememberedMachinesFile(env), read);
 		},
 		here: () => thisMachine(),
+		spares: async () => {
+			const exec = spawnExec({
+				timeoutMs: SPARES_PATIENCE_MS,
+				killGraceMs: SPARES_KILL_GRACE_MS,
+				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
+			});
+			const [lingers, parked] = await Promise.all([
+				lingersHere(exec),
+				parkedHere(),
+			]);
+			return { lingers, parked };
+		},
 	};
+}
+
+/**
+ * Whether a log-out here leaves this user's services running; not
+ * where the user can't be told, so the parked sessions are still read.
+ */
+async function lingersHere(exec: Exec): Promise<boolean> {
+	let uid: number;
+	try {
+		uid = userInfo().uid;
+	} catch {
+		// No user entry for this process: nothing says what lingers.
+		return false;
+	}
+	return logOutSpares(exec, String(uid));
 }
 
 /**

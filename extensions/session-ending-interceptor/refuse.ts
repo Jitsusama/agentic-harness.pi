@@ -9,10 +9,12 @@ import {
 	asksInCommand,
 	asksInLabel,
 	asksInProse,
+	codeBesideAsks,
 	mayAsk,
 	type SessionEndingAsk,
 } from "../../lib/internal/session-ending/asks.ts";
 import {
+	type Here,
 	machinesKnown,
 	type Refusal,
 	refusalOf,
@@ -37,6 +39,13 @@ export interface SessionEndingDeps {
 	readonly machines: () => Promise<readonly string[] | undefined>;
 	/** This machine's name, for an ask read while the node can't be. */
 	readonly here: () => string;
+	/**
+	 * What spares this machine's sessions from an ask: a log-out that
+	 * leaves the user's services running, and the sessions whose presence
+	 * says they parked. Asked only of an ask that would be refused
+	 * without it; without it, nothing is.
+	 */
+	readonly spares?: () => Promise<Omit<Here, "machine">>;
 }
 
 /**
@@ -176,7 +185,7 @@ export async function refusalFor(
 		deps.machines(),
 	]);
 	const machines = machinesSoFar(deps, sessions, listed);
-	const asks: SessionEndingAsk[] = [
+	const read: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) =>
 			asksInLabel(text, machines).map((ask) =>
@@ -185,7 +194,20 @@ export async function refusalFor(
 		),
 		...commands.flatMap((line) => asksInCommand(line, machines)),
 	];
-	return refusalOf(asks, sessions, self);
+	// Code in one field asks beside the words of another said with it.
+	const asks = [
+		...read,
+		...codeBesideAsks([...said.prose, ...said.labels], read, machines),
+	];
+	const refusal = refusalOf(asks, sessions, self);
+	if (!refusal || !sessions || !deps.spares) return refusal;
+	try {
+		const here = { machine: deps.here(), ...(await deps.spares()) };
+		return refusalOf(asks, sessions, self, here);
+	} catch {
+		// What spares a session couldn't be read, so it spares none.
+		return refusal;
+	}
 }
 
 /**

@@ -92,9 +92,10 @@ may import from here, and any of it may change without notice.
   see: the shapes one takes in a tool's output and the mark that
   replaces it, and an agent's ask for one work secret.
 - **`session-ending/`**: what reads as asking the person to log
-  out, reboot, restart, shut down or switch users on a machine, and
-  whether the node's sessions there let it be asked, for
-  `session-ending-interceptor`.
+  out, reboot, restart, shut down or switch users on a machine,
+  whether the node's sessions there let it be asked, and what on this
+  machine spares a session from one (a log-out its services outlive,
+  a session that parked), for `session-ending-interceptor`.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on

@@ -196,6 +196,223 @@ describe("what a refusal is known again by", () => {
 	});
 });
 
+describe("a log-out on a machine whose services outlive it", () => {
+	const lingering = {
+		machine: "optimus",
+		lingers: true,
+		parked: new Set<string>(),
+	};
+	const hosted = {
+		...on("optimus", "busy", "H00001"),
+		host: "work-background",
+	};
+	const held = { ...on("optimus", "idle", "K00001"), held: "f0520da9" };
+	const plain = on("optimus", "idle", "P00001");
+
+	it("goes ahead when every other session there is hosted or held", () => {
+		for (const act of ["log out", "switch users"] as const) {
+			expect(
+				refusalOf([ask(act, "optimus")], [hosted, held], SELF, lingering),
+				`${act} ends no hosted or held session`,
+			).toBeUndefined();
+		}
+	});
+
+	it("still counts a session in a terminal alone, which the log-out ends", () => {
+		const reason = refusalOf(
+			[ask("log out", "optimus")],
+			[hosted, held, plain],
+			SELF,
+			lingering,
+		);
+
+		expect(reason).toMatch(/P00001/);
+		expect(reason).not.toMatch(/H00001|K00001/);
+	});
+
+	it("still counts them all for a reboot, a shut-down or an end of the user's processes, which end the services too", () => {
+		for (const act of [
+			"reboot",
+			"restart",
+			"shut down",
+			"end the user's processes",
+		] as const) {
+			expect(
+				refusalOf([ask(act, "optimus")], [hosted, held], SELF, lingering),
+				`${act} ends hosted and held sessions`,
+			).toMatch(/H00001.*K00001/);
+		}
+	});
+
+	it("still counts them all where the services don't outlive a log-out", () => {
+		const reason = refusalOf(
+			[ask("log out", "optimus")],
+			[hosted, held],
+			SELF,
+			{
+				...lingering,
+				lingers: false,
+			},
+		);
+
+		expect(reason).toMatch(/H00001.*K00001/);
+	});
+
+	it("still counts them all on another machine, whose services nothing here reads", () => {
+		const far = { ...hosted, machine: "equilibrius" };
+
+		expect(
+			refusalOf([ask("log out", "equilibrius")], [far], SELF, lingering),
+		).toMatch(/H00001/);
+	});
+
+	it("still counts a hosted session the node names no machine for", () => {
+		const { machine: _, ...nowhere } = hosted;
+
+		expect(
+			refusalOf([ask("log out", "optimus")], [nowhere], SELF, lingering),
+		).toMatch(/H00001/);
+	});
+});
+
+describe("an ask past the sessions that parked", () => {
+	/** The sessions whose presence says they parked, whatever the node reads. */
+	const holding = {
+		machine: "optimus",
+		lingers: false,
+		parked: new Set([
+			"a00001",
+			"b00001",
+			"c00001",
+			"d00001",
+			"e00001",
+			"k00001",
+			"p00001",
+		]),
+	};
+	/** A session a pi host runs, which reads idle while it parks. */
+	const inHost = (
+		machine: string,
+		state: NodeSession["state"],
+		address: string,
+	): NodeSession => ({ ...on(machine, state, address), host: "work-attended" });
+	const here = [
+		inHost("optimus", "idle", "A00001"),
+		inHost("optimus", "idle", "B00001"),
+	];
+
+	it("still counts an idle session there that hasn't parked", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[...here, inHost("optimus", "idle", "F00001")],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/F00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+	});
+
+	it("goes ahead past the sessions parked there, for an act that ends the boot", () => {
+		for (const act of ["reboot", "restart", "shut down"] as const) {
+			expect(
+				refusalOf([ask(act, "optimus")], here, SELF, holding),
+				`${act} past parked sessions`,
+			).toBeUndefined();
+		}
+	});
+
+	it("still counts them for an act that leaves the boot, whose markers would outlive their wakers", () => {
+		const wrong = (
+			[
+				"log out",
+				"switch users",
+				"end the user's processes",
+				"soft-reboot",
+			] as const
+		).filter(
+			(act) =>
+				!/A00001/.test(
+					refusalOf([ask(act, "optimus")], here, SELF, holding) ?? "",
+				),
+		);
+
+		expect(wrong, "acts that spared a parked session").toEqual([]);
+	});
+
+	it("still counts a session there busy, or out of reach, since it parked", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[
+				...here,
+				inHost("optimus", "busy", "C00001"),
+				inHost("optimus", "unreachable", "D00001"),
+			],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/C00001 \(busy\)/);
+		expect(reason).toMatch(/D00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+	});
+
+	it("still counts an idle session a holder holds, or none, whose presence is stale", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[
+				...here,
+				{ ...on("optimus", "idle", "K00001"), held: "f0520da9" },
+				on("optimus", "idle", "P00001"),
+			],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/K00001/);
+		expect(reason).toMatch(/P00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+	});
+
+	it("still counts a parked session the node names no machine for", () => {
+		const { machine: _, ...nowhere } = inHost("optimus", "idle", "A00001");
+
+		expect(
+			refusalOf([ask("reboot", "optimus")], [nowhere], SELF, holding),
+		).toMatch(/A00001/);
+	});
+
+	it("still counts another machine's sessions, whose presence isn't read here", () => {
+		const reason = refusalOf(
+			[ask("reboot", "equilibrius")],
+			[...here, inHost("equilibrius", "idle", "E00001")],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/E00001/);
+	});
+
+	it("still asks for the machine when the ask names none and another has sessions", () => {
+		const reason = refusalOf(
+			[ask("reboot")],
+			[...here, inHost("equilibrius", "idle", "E00001")],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/E00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+		expect(reason).toMatch(/name the one it means/);
+	});
+
+	it("still refuses when the node can't be read", () => {
+		expect(
+			refusalOf([ask("reboot", "optimus")], undefined, SELF, holding),
+		).toMatch(/couldn't be read/);
+	});
+});
+
 describe("a node that can't be read", () => {
 	it("refuses, since nothing says who would be ended", () => {
 		expect(refusalOf([ask("log out", "equilibrius")], undefined, SELF)).toMatch(

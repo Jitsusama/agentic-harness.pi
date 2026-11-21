@@ -28,6 +28,25 @@ describe("a reply that asks", () => {
 		["Could you shut down equilibrius tonight?", "shut down"],
 		["You'll need to switch users to test the second account.", "switch users"],
 		["The new kernel needs a reboot to take.", "reboot"],
+		["optimus needs a soft reboot to pick it up.", "soft-reboot"],
+		["optimus needs a soft restart to pick it up.", "soft-reboot"],
+		["Could you do a soft reboot of optimus tonight?", "soft-reboot"],
+		["Could you do a soft restart of optimus tonight?", "soft-reboot"],
+		["optimus needs a soft  reboot to pick it up.", "soft-reboot"],
+		["optimus needs a userspace reboot to pick it up.", "soft-reboot"],
+		["optimus needs a user space reboot to pick it up.", "soft-reboot"],
+		["Could you do a userspace reboot now?", "soft-reboot"],
+		["Could you do a 'soft' reboot of optimus tonight?", "soft-reboot"],
+		['Could you do a "soft" reboot of optimus tonight?', "soft-reboot"],
+		['Could you "soft" reboot optimus tonight?', "soft-reboot"],
+		['Please "soft" reboot optimus.', "soft-reboot"],
+		["You'll need to \u201csoft\u201d reboot optimus.", "soft-reboot"],
+		["optimus needs a \u201csoft\u201d reboot to pick it up.", "soft-reboot"],
+		["Do a quick soft reboot of optimus.", "soft-reboot"],
+		["optimus needs a quick soft reboot to pick it up.", "soft-reboot"],
+		["optimus needs to be soft rebooted.", "soft-reboot"],
+		["- Could you do a soft\n  restart of optimus tonight?", "soft-reboot"],
+		["- Could you do a soft\n  reboot of optimus tonight?", "soft-reboot"],
 		["May I ask Joel to reboot optimus?", "reboot"],
 		["1. Restart the machine.", "restart"],
 		["Once you've rebooted, check the mic.", "reboot"],
@@ -140,6 +159,89 @@ describe("a reply that asks", () => {
 	it("reads a machine named in another case", () => {
 		expect(named("Reboot Optimus now.")).toEqual([["optimus"]]);
 	});
+
+	it.each([
+		[
+			"Log out of niri on optimus by running `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		[
+			"Log out with `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		["Reboot optimus with `sudo systemctl soft-reboot`.", "soft-reboot"],
+		["Please reboot optimus (`systemctl soft-reboot`).", "soft-reboot"],
+		[
+			"Please log out of niri on optimus. The quickest way is `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		[
+			"Reboot optimus. Use `sudo systemctl soft-reboot` so the kernel stays.",
+			"soft-reboot",
+		],
+		[
+			"Please log out of niri on optimus:\n\n- `loginctl terminate-user joel`",
+			"end the user's processes",
+		],
+		["Reboot optimus with:\n\n`sudo systemctl soft-reboot`", "soft-reboot"],
+		[
+			"Log out of niri on optimus with `loginctl terminate-user joel; echo done`.",
+			"end the user's processes",
+		],
+	])("%s asks for what its code does too", (text, act) => {
+		expect(acts(text)).toContain(act);
+	});
+
+	it.each([
+		"Reboot optimus to take the BIOS. Then `ssh equilibrius sudo reboot`.",
+		"Reboot optimus, and run `ssh equilibrius sudo reboot`.",
+	])("%s asks for its code's act on the code's machine too", (text) => {
+		const asks = asksInProse(text, MACHINES);
+		expect(
+			asks.some(
+				(one) => one.act === "reboot" && one.machines.includes("equilibrius"),
+			),
+			`no reboot reaches equilibrius in ${JSON.stringify(asks)}`,
+		).toBe(true);
+	});
+
+	it.each([
+		"Reboot optimus. Then `ssh eq sudo reboot`.",
+		"Reboot optimus, and run `ssh joel@10.0.0.7 sudo reboot`.",
+		"Reboot optimus to take the BIOS. On equilibrius, `sudo reboot` once it's up.",
+		"Reboot optimus. Then the same on equilibrius: `sudo reboot`.",
+	])("%s asks for its code's reboot beyond optimus", (text) => {
+		const asks = asksInProse(text, MACHINES);
+		expect(
+			asks.some(
+				(one) =>
+					one.act === "reboot" &&
+					(one.machines.length === 0 || one.machines.includes("equilibrius")),
+			),
+			`no reboot reaches past optimus in ${JSON.stringify(asks)}`,
+		).toBe(true);
+	});
+
+	it("places code that names no machine on the machines its reply names", () => {
+		expect(
+			asksInProse(
+				"Please log out of niri on optimus. The quickest way is `loginctl terminate-user joel`.",
+				MACHINES,
+			),
+		).toContainEqual(
+			expect.objectContaining({
+				act: "end the user's processes",
+				machines: ["optimus"],
+			}),
+		);
+	});
+
+	it("reads code once beside a worded ask, and none where nothing asks", () => {
+		expect(acts("Please run `sudo reboot` on optimus.")).toEqual(["reboot"]);
+		expect(
+			acts("The guard now refuses `loginctl terminate-user joel` here."),
+		).toEqual([]);
+	});
 });
 
 describe("a reply that only mentions one, or warns against one", () => {
@@ -231,7 +333,9 @@ describe("a command in fenced code", () => {
 	it.each([
 		["Type this:\n\n```sh\nsudo reboot\n```", "reboot"],
 		["```\n$ systemctl poweroff\n```", "shut down"],
-		["```\nloginctl terminate-user jitsusama\n```", "log out"],
+		["```\nloginctl terminate-user jitsusama\n```", "end the user's processes"],
+		["```\nloginctl kill-user jitsusama\n```", "end the user's processes"],
+		["```\nloginctl terminate-session 3\n```", "log out"],
 		["```\nniri msg action quit\n```", "log out"],
 		["````sh\nsudo reboot\n````", "reboot"],
 		["```shell-session\n$ sudo reboot\n```", "reboot"],
@@ -247,8 +351,34 @@ describe("a command in fenced code", () => {
 		],
 		["```sh\nsudo launchctl reboot\n```", "reboot"],
 		["```sh\nsudo fdesetup authrestart\n```", "reboot"],
-		["```sh\nsudo pkill -KILL -u joel\n```", "log out"],
-		["```sh\nkill -9 -1\n```", "log out"],
+		["```sh\nsudo pkill -KILL -u joel\n```", "end the user's processes"],
+		["```sh\npkill -KILL -u joel 2>/dev/null\n```", "end the user's processes"],
+		["```sh\nkill -9 -1 1234\n```", "end the user's processes"],
+		["```sh\nkill -9 1234 -1\n```", "end the user's processes"],
+		["```sh\nkill -s KILL -1\n```", "end the user's processes"],
+		["```sh\nkill -n 9 -1\n```", "end the user's processes"],
+		["```sh\nkill -9 -1\n```", "end the user's processes"],
+		["```sh\nkill -- -1\n```", "end the user's processes"],
+		["```sh\nkill -9 -1 2>/dev/null\n```", "end the user's processes"],
+		["```sh\nkill -9 -1 >/dev/null 2>&1\n```", "end the user's processes"],
+		["```sh\nkill -9 -1 # every one\n```", "end the user's processes"],
+		["```sh\nsudo systemctl soft-reboot\n```", "soft-reboot"],
+		["```sh\nsystemctl isolate soft-reboot.target\n```", "soft-reboot"],
+		["```sh\nsudo systemctl isolate soft-reboot\n```", "soft-reboot"],
+		["```sh\nsudo systemctl isolate reboot\n```", "reboot"],
+		["```sh\nsudo systemctl isolate poweroff\n```", "shut down"],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager RebootWithFlags t 4\n```",
+			"soft-reboot",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduleShutdown st soft-reboot 0\n```",
+			"soft-reboot",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager PowerOffWithFlags t 0\n```",
+			"shut down",
+		],
 		["```sh\nsudo systemctl restart display-manager\n```", "log out"],
 		["```sh\nswaymsg exit\n```", "log out"],
 		["```sh\nhyprctl dispatch exit\n```", "log out"],
@@ -284,6 +414,14 @@ describe("a command in fenced code", () => {
 		["```sh\nsystemctl --user stop niri\n```", "log out"],
 		[
 			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager TerminateUser u 1000\n```",
+			"end the user's processes",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager KillUser uss 1000 all 9\n```",
+			"end the user's processes",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager TerminateSession s 3\n```",
 			"log out",
 		],
 		["```sh\ntimeout 5 sudo reboot\n```", "reboot"],
@@ -302,6 +440,11 @@ describe("a command in fenced code", () => {
 	it("asks nothing of a command that ends no session", () => {
 		expect(acts("```sh\nsudo shutdown -c\n```")).toEqual([]);
 		expect(acts("```sh\npkill -u $USER -f vitest\n```")).toEqual([]);
+		// Signal 1 to one process, not every process.
+		expect(acts("```sh\nkill -1 1234\n```")).toEqual([]);
+		expect(acts("```sh\nsudo kill -1 $(pidof nginx)\n```")).toEqual([]);
+		// A process group, not every process.
+		expect(acts("```sh\nkill -9 -12345\n```")).toEqual([]);
 		expect(acts("```sh\n# reboot once this lands\nls\n```")).toEqual([]);
 		expect(acts("```\nshutdown of the old node is done.\n```")).toEqual([]);
 	});
@@ -360,7 +503,7 @@ describe("a command given on its own", () => {
 	it("asks when it ends sessions, and not otherwise", () => {
 		expect(
 			asksInCommand("loginctl terminate-user joel", MACHINES).map((a) => a.act),
-		).toEqual(["log out"]);
+		).toEqual(["end the user's processes"]);
 		expect(asksInCommand("test -e /run/booted", MACHINES)).toEqual([]);
 	});
 });
@@ -376,6 +519,8 @@ describe("a label, choice or title, which is the ask itself", () => {
 		["Yes, a restart tonight", "restart"],
 		["Go with the reboot", "reboot"],
 		["Kernel reboot on equilibrius", "reboot"],
+		["Userspace reboot now", "soft-reboot"],
+		["User space reboot now", "soft-reboot"],
 		["Apple menu \u2192 Log Out", "log out"],
 	])("%s asks", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);

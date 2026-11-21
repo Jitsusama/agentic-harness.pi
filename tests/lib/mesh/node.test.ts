@@ -174,6 +174,32 @@ describe("asking the node who is on which machine", () => {
 		]);
 	});
 
+	it("hears the pi host a session runs in, or the holder that holds it", () => {
+		const heard = nodeSessionsFrom(
+			sessions(
+				{
+					id: "hosted",
+					machine: "optimus",
+					state: "busy",
+					host: "work-background",
+				},
+				{ id: "held", machine: "optimus", state: "idle", held: "f0520da9" },
+				{ id: "plain", machine: "optimus", state: "idle", host: 3, held: "" },
+			),
+		);
+
+		expect(heard).toEqual([
+			{
+				id: "hosted",
+				machine: "optimus",
+				state: "busy",
+				host: "work-background",
+			},
+			{ id: "held", machine: "optimus", state: "idle", held: "f0520da9" },
+			{ id: "plain", machine: "optimus", state: "idle" },
+		]);
+	});
+
 	it("hears nothing where no node serves or none answers in time", async () => {
 		const socket = await serving(() => undefined);
 

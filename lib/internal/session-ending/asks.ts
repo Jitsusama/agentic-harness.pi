@@ -35,10 +35,12 @@ import { isMachineName } from "../machine/machine.ts";
 
 /** A session-ending act, as the refusal names it. */
 export type Act =
+	| "end the user's processes"
 	| "log out"
 	| "reboot"
 	| "restart"
 	| "shut down"
+	| "soft-reboot"
 	| "switch users";
 
 /** One ask to end a machine's sessions, found in a text. */
@@ -80,6 +82,66 @@ export function asksInLabel(
 	return asksIn(text, machines, "label");
 }
 
+/**
+ * The asks of every inline code span in `texts` beyond those `found`
+ * already makes, once it makes any: "log out. The quickest way is
+ * `loginctl terminate-user`" asks for what that command does too,
+ * wherever the code sits, in this text or another field said with it,
+ * so a spare chosen from the words can't let it through. Code run
+ * here is placed on every machine the asks or these texts name; an ssh
+ * to a host none of `machines` is stays on every machine.
+ */
+export function codeBesideAsks(
+	texts: readonly string[],
+	found: readonly SessionEndingAsk[],
+	machines: readonly string[],
+): SessionEndingAsk[] {
+	if (found.length === 0) return [];
+	const named = found.some((one) => one.machines.length === 0)
+		? []
+		: [
+				...new Set([
+					...found.flatMap((one) => one.machines),
+					...texts.flatMap((text) => namedIn(plainOf(text), machines)),
+				]),
+			];
+	const asked = [...found];
+	const more: SessionEndingAsk[] = [];
+	for (const text of texts) {
+		for (const part of parts(folded(text))) {
+			if (!part.prose) continue;
+			for (const code of codeSpans(part.lines.join("\n"))) {
+				for (const { ask: one, here } of placedAsks(code, machines)) {
+					const ask = here ? { ...one, machines: named } : one;
+					if (covered(ask, asked)) continue;
+					asked.push(ask);
+					more.push(ask);
+				}
+			}
+		}
+	}
+	return more;
+}
+
+/**
+ * Whether `asks` already ask for `one`: its act, on every machine, or on
+ * each machine it names.
+ */
+function covered(
+	one: SessionEndingAsk,
+	asks: readonly SessionEndingAsk[],
+): boolean {
+	return asks.some((ask) => {
+		if (ask.act !== one.act) return false;
+		if (ask.machines.length === 0) return true;
+		const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
+		return (
+			one.machines.length > 0 &&
+			one.machines.every((name) => reach.has(name.toLowerCase()))
+		);
+	});
+}
+
 /** The asks of one command line, as a check a wait is done by. */
 export function asksInCommand(
 	line: string,
@@ -89,7 +151,7 @@ export function asksInCommand(
 }
 
 const FIRST_LOOK =
-	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+(?:\S+\s+){1,3}down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|power(?:s|ed|ing)?\s+(?:\S+\s+){1,2}(?:off|down)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
+	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+(?:\S+\s+){1,3}down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|power(?:s|ed|ing)?\s+(?:\S+\s+){1,2}(?:off|down)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:\S+\s+)*?-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
 
 /**
  * A text with its typography folded to what the patterns read: every
@@ -121,11 +183,26 @@ const PICKED_BEFORE = new RegExp(
 	"i",
 );
 
-/** Prose with each quote a quote, but what it says to pick or run. */
+/** The words that make a reboot or restart soft: "userspace" too. */
+const SOFT_WORD = String.raw`(?:soft|user[\s-]?space)`;
+
+/** A soft word quoted for emphasis, right before what it qualifies. */
+const QUOTED_SOFT = new RegExp(String.raw`^"${SOFT_WORD}"$`);
+const QUALIFIED_AFTER = /^(?:\s+|-)?re-?(?:boot|start)/;
+
+/**
+ * Prose with each quote a quote, but what it says to pick or run, and
+ * a soft word quoted for emphasis, as in a "soft" reboot, which reads
+ * as though it were never quoted.
+ */
 function withoutQuotes(plain: string): string {
-	return plain.replace(QUOTED, (quote, at: number) =>
-		PICKED_BEFORE.test(plain.slice(0, at)) ? quote : '""',
-	);
+	return plain.replace(QUOTED, (quote, at: number) => {
+		if (PICKED_BEFORE.test(plain.slice(0, at))) return quote;
+		const emphasis =
+			QUOTED_SOFT.test(quote) &&
+			QUALIFIED_AFTER.test(plain.slice(at + quote.length));
+		return emphasis ? quote.slice(1, -1) : '""';
+	});
 }
 
 /**
@@ -181,7 +258,7 @@ function asksIn(
 			});
 		}
 	}
-	return found;
+	return [...found, ...codeBesideAsks([text], found, machines)];
 }
 
 /**
@@ -226,16 +303,15 @@ function sentenceAsks(
 			byAct.set(act, { act, machines: named, said });
 		}
 	}
-	if (asksToRun(plain)) {
-		for (const code of inlineCode(sentence)) {
-			for (const one of commandAsks(code, machines)) {
-				if (byAct.has(one.act)) continue;
-				const where = one.machines.length > 0 ? one.machines : named;
-				byAct.set(one.act, { act: one.act, machines: where, said });
-			}
+	const found = [...byAct.values()];
+	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
+		for (const { ask: one, here } of placedAsks(code, machines)) {
+			const where = here ? named : one.machines;
+			const ask = { act: one.act, machines: where, said };
+			if (!covered(ask, found)) found.push(ask);
 		}
 	}
-	return [...byAct.values()];
+	return found;
 }
 
 /**
@@ -267,6 +343,11 @@ function withoutBoldLabel(sentence: string, words: string): string {
  */
 const RUN_SPAN =
 	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
+
+/** Every inline code span of some prose, as written. */
+function codeSpans(sentence: string): string[] {
+	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
+}
 
 /** The spans a sentence asks to run, as written. */
 function inlineCode(sentence: string): string[] {
@@ -575,6 +656,13 @@ const NOT_A_TIME =
 	"(?<!\\b(?:after|before|since|until|till|during|from|following)\\s+(?:(?:the|a|an|that|this|your|my|its|our|each|every)\\s+)?(?:(?:last|next|previous|recent|latest|first)\\s+)?|\\b(?:last|next|previous|recent|latest)\\s+)";
 
 /**
+ * The word before a reboot or restart that makes it soft, quoted or
+ * not, whatever whitespace a wrapped line leaves after it: "soft" or
+ * "userspace", in one word or two. It brings its own word boundary.
+ */
+const SOFT = String.raw`['"]?\b${SOFT_WORD}\b['"]?(?:\s+|-)?`;
+
+/**
  * The acts in a sentence read as an ask. With no object, a restart or
  * shutdown counts as a verb ("restart now", "try restarting"), and as a
  * noun ("a restart tonight") only where `nouns` says the sentence asks
@@ -588,8 +676,15 @@ function actsIn(
 ): Act[] {
 	const machine = `(?:${objects})\\b`;
 	const acts: Act[] = [];
+	const notOfADevice = `(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`;
+	// A soft reboot keeps the kernel's boot, so it is an act of its own,
+	// and so is a soft restart or a userspace reboot, its other names.
+	const softReboot = new RegExp(
+		`${NOT_A_TIME}${SOFT}re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+	);
+	if (softReboot.test(plain)) acts.push("soft-reboot");
 	const reboot = new RegExp(
-		`${NOT_A_TIME}${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`,
+		`${NOT_A_TIME}(?<!${SOFT})${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (reboot.test(plain)) acts.push("reboot");
 	const alone =
@@ -610,7 +705,12 @@ function actsIn(
 		`\\b${machine}\\s+(?:needs|requires|wants|will\\s+need|has\\s+to|must|should)\\s+(?:a\\s+restart|restarting|to\\s+(?:be\\s+)?restart(?:ed)?)`,
 		`\\b${machine}\\s+a\\s+restart\\b`,
 	];
-	if (restart.some((pattern) => new RegExp(pattern).test(plain))) {
+	// A soft restart was read above; joined into one word, it is no restart.
+	const hard = plain.replace(
+		new RegExp(String.raw`${SOFT}(?=restart)`, "g"),
+		"soft",
+	);
+	if (restart.some((pattern) => new RegExp(pattern).test(hard))) {
 		acts.push("restart");
 	}
 	const shutAlone =
@@ -666,8 +766,9 @@ const OPENING = new RegExp(
 const LEAD_IN = /^([^,:;]{1,80}?)(?:[,:]|\s-{1,2})\s+/;
 
 /** A noun of the act after a verb that does it: "do a reboot". */
-const DO_NOUN =
-	/\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+)?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b/;
+const DO_NOUN = new RegExp(
+	String.raw`\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+)?(?:${SOFT})?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b`,
+);
 
 /**
  * A noun after an act word that the act only qualifies: "the reboot
@@ -858,7 +959,7 @@ const RUN = "(?:run|type|paste|execute|enter)\\b";
 
 /** A need for an act, which asks for it as plainly. */
 const NEED = new RegExp(
-	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+)?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
+	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+)?(?:${SOFT})?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:${SOFT})?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
 );
 
 /**
@@ -992,23 +1093,53 @@ const SYSTEMCTL = String.raw`systemctl(?:\s+-\S+)*\s+`;
 /** logind's manager over D-Bus, as busctl, dbus-send or gdbus call it. */
 const LOGIN1 = String.raw`(?:busctl|dbus-send|gdbus)\s.*login1.*`;
 
+/**
+ * The end of a command, but for a redirect or a comment, after a pattern
+ * that more words would make another command.
+ */
+const ENDS_HERE = String.raw`\s*(?:$|[<>#]|\d+[<>])`;
+
+/**
+ * kill's signal, which only its first argument can be: after it, a -1
+ * is the pid that means every process.
+ */
+const SIGNAL = String.raw`(?:(?:-s|-n|--signal)\s+\S+|-\S+)`;
+
 /** Session-ending commands, by the act each is, macOS's and Linux's. */
 const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	[
 		new RegExp(
-			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|soft-reboot|kexec)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:reboot|soft-reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
+			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}isolate\s+soft-reboot(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+soft-reboot\.target|${LOGIN1}\b(?:rebootwithflags|soft-reboot)\b)`,
+		),
+		// It ends every process but keeps the kernel and its boot, so what
+		// a boot clears outlives it. logind's RebootWithFlags is read as one
+		// whatever its flags, since one of them makes it soft. isolate takes
+		// a bare name as a target; start would take it as a service.
+		"soft-reboot",
+	],
+	[
+		new RegExp(
+			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|kexec)(?=\s|$)|${SYSTEMCTL}isolate\s+(?:reboot|kexec)(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+(?:reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
 		),
 		"reboot",
 	],
 	[
 		new RegExp(
-			String.raw`^(?:(?:shutdown(?![^|;&]*\s-c\b)|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)\b|qdbus\s.*\blogoutandshutdown\b)`,
+			String.raw`^(?:(?:shutdown(?![^|;&]*\s-c\b)|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}isolate\s+(?:poweroff|halt)(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)(?:withflags)?\b|qdbus\s.*\blogoutandshutdown\b)`,
 		),
 		"shut down",
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:user|session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill\s+(?:-\S+\s+)*-1(?=\s|$)|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:user|session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*${ENDS_HERE}|kill\s+${SIGNAL}\s+(?:\S+\s+)*?-1(?=[\s<>#]|$)|kill\s+(?!-)(?:\S+\s+)*?-1(?=[\s<>#]|$)|kill\s+-1${ENDS_HERE})`,
+		),
+		// These end the user's manager or every process the user owns, so
+		// what outlives a log-out ends too.
+		"end the user's processes",
+	],
+	[
+		new RegExp(
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
 		),
 		"log out",
 	],
@@ -1082,7 +1213,19 @@ function commandAsks(
 	line: string,
 	machines: readonly string[],
 ): SessionEndingAsk[] {
-	const found: SessionEndingAsk[] = [];
+	return placedAsks(line, machines).map(({ ask }) => ask);
+}
+
+/**
+ * The asks of one command line, each with whether it runs here, with
+ * no ssh in front: only such code takes the machines its words name,
+ * since an ssh to a host none of `machines` is may reach any of them.
+ */
+function placedAsks(
+	line: string,
+	machines: readonly string[],
+): { ask: SessionEndingAsk; here: boolean }[] {
+	const found: { ask: SessionEndingAsk; here: boolean }[] = [];
 	for (const piece of line.replace(PROMPT, "").split(/&&|\|\||[;|&]/)) {
 		let command = unwrapped(piece);
 		let machine: string | undefined;
@@ -1096,7 +1239,10 @@ function commandAsks(
 		)?.[1];
 		if (!act) continue;
 		const known = machine ? knownAs(machine, machines) : undefined;
-		found.push({ act, machines: known ? [known] : [], said: line.trim() });
+		found.push({
+			ask: { act, machines: known ? [known] : [], said: line.trim() },
+			here: machine === undefined,
+		});
 	}
 	return found;
 }

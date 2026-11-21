@@ -60,7 +60,9 @@ machine a node has named is kept, in
 `~/.local/state/pi/agentic-harness.pi/session-ending/machines.json`,
 and still counts when that node, or every node, can't be read, even
 in a session started since. So "restart equilibrius" is still read as
-an ask, and refused. This is the
+an ask, and refused. Every session on the machine adds to that one
+file, so each addition reads and writes it under a lock, and two
+adding at once lose none of each other's. This is the
 rule of EWUL44's `se7_guard_no_live_sessions`, which guards its
 pairing script's log-out the same way.
 
@@ -68,6 +70,79 @@ Where no mycelium realm is named, as for a consumer without mycelium,
 there is no node to ask and nothing is refused. A realm named with no
 node to answer, its runtime folder missing included, counts as a node
 that can't be read, and refuses.
+
+## What Spares a Session
+
+Two things on this machine let an ask through that would otherwise be
+refused. Both are read only for an ask that would be refused, so an
+ordinary reply pays nothing, and anything that can't be read spares
+nothing, as on a Mac, with no logind. logind is given about two
+seconds to answer; the presences and markers are files on this
+machine, read without a deadline.
+
+- **A log-out that leaves the user's services running.** When logind
+  says the user lingers and kills no user processes at a log-out
+  (`loginctl show-user` and `KillUserProcesses` over `busctl`), a
+  session the node says runs in a pi host or in a holder survives a
+  log-out or a switch of users, so it doesn't count for one. On
+  optimus the hosts are user services and each holder runs in a
+  scope under the user's manager. A session in a plain terminal, and
+  any session on another machine, still counts; a reboot or a
+  shutdown still ends them all. So does a command that ends every
+  process of the user's or the user's manager (`loginctl
+  terminate-user` or `kill-user`, logind's `TerminateUser` or
+  `KillUser` over `busctl`, `pkill -u` or `killall -u` of a user,
+  `kill -9 -1`), which takes the services with it: it reads as an end
+  of the user's processes rather than a log-out, and nothing spares a
+  session from it, parked or not. Only ending a session or a seat,
+  or stopping the desktop logged in to (its compositor or
+  `graphical-session.target`), reads as a log-out, so a host or holder
+  the spare passes over has to outlive the desktop, as a host wanted
+  by `default.target`, or a holder's scope in `agents.slice`, bound to
+  nothing graphical does. A reply that asks for an act also asks for
+  what each command in its inline code does, wherever in the reply it
+  sits, so "log out. The quickest way is `loginctl terminate-user`"
+  counts as ending the user's processes too. A command run here counts
+  on every machine the reply names, and one over ssh to a host the
+  node doesn't list counts on every machine.
+- **Sessions that parked.** A session parks once it is idle with
+  nothing of its own still out (no run, background job, open prompt
+  or unsent text); its presence then says `parked`, and its marker
+  from this boot, which a woken session clears as it starts, says it
+  still is. It holds nothing a reboot, restart or shut-down could
+  lose, and the next boot clears its marker, so for one of those a
+  session a pi host runs here whose presence and marker both say so,
+  and that the node reads as idle, doesn't count, whoever asks. Any
+  other ending, such as a log-out without linger or an end of the
+  user's processes, or a soft reboot (`systemctl soft-reboot`,
+  logind's `RebootWithFlags` or a soft-reboot `ScheduleShutdown`, or a
+  soft reboot, soft restart or user space reboot asked for in words),
+  which keeps the kernel and its boot, takes its host down
+  with no new boot, leaving its
+  marker to say it is parked where nothing will wake it, so it still
+  counts for those. Where the boot
+  can't be told, as on a Mac, no marker counts, since one from an
+  earlier boot would spare a session started again since. A park
+  closes a host's conversation, so a session a host still lists busy
+  or idle has woken, or its park never landed, and counts whatever
+  its presence says; a host's list counts unless its process is
+  known to be gone, though a list that doesn't read as one, as from a
+  host of another version, is passed over. That is how a
+  scheduled disruption goes through once the sessions it asked to
+  park have. A holder's parked session already reads as ended, so one
+  the node reads idle in a holder or a plain terminal is running,
+  whatever its presence says, and counts. One the node reads busy or
+  out of reach still counts, and so does an idle session that hasn't
+  parked. The guard judges the moment of the ask: a message can wake
+  a parked session before the disruption lands. A hold, or an answer
+  to one, is not taken as parking: a
+  peer answers a hold to say it can't hold as readily as that it has.
+  Sessions on another machine still count, and an ask that names no
+  machine still asks for the name. Every realm's presences are read,
+  since a reboot ends every realm's sessions.
+
+Whatever fails while reading either spares nothing, and the ask is
+refused as it would have been.
 
 ## What Reads as an Ask
 
@@ -120,9 +195,11 @@ object ("restart now"), so restarting the shell or pi is left alone; a
 reboot of another device, as a router, is too, and so is a log-out out
 of something else, as gh. A sentence that names only this machine,
 your laptop or the MacBook names none, so every machine is checked. A session-ending command (`sudo reboot`,
-`systemctl poweroff` with any options or by `.target`, `loginctl
-terminate-user` or `terminate-seat`, logind over `busctl`, stopping
-the display manager or the compositor, `pkill -u` of a user, `niri msg
+`systemctl poweroff` with any options or by target, `systemctl
+soft-reboot`, `loginctl
+terminate-user`, `kill-user`, `terminate-session` or `terminate-seat`,
+logind over `busctl`, stopping the display manager or the compositor,
+`pkill -u` or `killall -u` of a user, `kill -9 -1`, `niri msg
 action quit`, the desktops' own log-outs, and macOS's `fdesetup
 authrestart`, `launchctl reboot` and `osascript` restarts, run by path
 or through `sudo`, `pkexec`, `su -c`, `timeout`, `systemd-run`,
