@@ -32,7 +32,7 @@ import type {
  * tools use far more often than writes, such as `schedule` and `resolve`,
  * are left out.
  */
-export const WRITE_VERBS = new Set([
+const GATING_WORDS: ReadonlySet<string> = new Set([
 	"create",
 	"update",
 	"delete",
@@ -173,6 +173,29 @@ export const WRITE_VERBS = new Set([
 ]);
 
 /**
+ * The words that gate a call, for a reader to list or check names against.
+ * It is a copy, so nothing done to it changes what the default gate asks
+ * about. Its add, delete and clear throw rather than change only the copy
+ * unseen: a server changes what it gates through the `writeSignal` it hands
+ * `makeDefaultWrap` or `defaultResolved`.
+ */
+export const WRITE_VERBS: ReadonlySet<string> = refusingCopy(GATING_WORDS);
+
+/** A copy of the words whose add, delete and clear throw, typechecked or not. */
+function refusingCopy(words: ReadonlySet<string>): ReadonlySet<string> {
+	const copy = new Set(words);
+	const refuse = () => {
+		throw new TypeError(
+			"WRITE_VERBS is read only: hand makeDefaultWrap or defaultResolved a writeSignal of your own to change what a server gates",
+		);
+	};
+	for (const method of ["add", "delete", "clear"]) {
+		Object.defineProperty(copy, method, { value: refuse });
+	}
+	return copy;
+}
+
+/**
  * Where one word of a tool name ends: a run of anything but letters and
  * digits, a lower-case letter or digit before a capital, the last capital of
  * a run before a capital and a lower-case letter, or a letter beside a digit.
@@ -180,8 +203,12 @@ export const WRITE_VERBS = new Set([
 const WORD_BREAK =
 	/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=[0-9])|(?<=[0-9])(?=[A-Za-z])/;
 
-/** The words of a tool name, in lower case, whether it is spelt in snake, kebab, camel or Pascal case. */
-function nameWords(name: string): string[] {
+/**
+ * The words of a tool name, in lower case, whether it is spelt in snake,
+ * kebab, camel or Pascal case: the words the default gate checks against
+ * the write verbs.
+ */
+export function nameWords(name: string): string[] {
 	return name
 		.split(WORD_BREAK)
 		.filter((word) => word !== "")
@@ -228,7 +255,7 @@ export function makeTruncatingShape(limits: {
  * a post. With neither hint, whether the
  * server sent no annotations or ones carrying neither, the tool name's words
  * are checked against the write verbs, so an empty annotation can't wave a
- * `delete_` tool past the gate in any of the cases `WRITE_VERBS` reads. A
+ * `delete_` tool past the gate in any of the cases the verbs are read in. A
  * server can still name a write with no listed word, or call it read only,
  * so this guards against a careless server, not a hostile one.
  */
@@ -237,7 +264,7 @@ export function defaultWriteSignal(tool: McpTool): boolean {
 	const { readOnlyHint, destructiveHint } = tool.annotations ?? none;
 	if (typeof readOnlyHint === "boolean") return !readOnlyHint;
 	if (typeof destructiveHint === "boolean") return true;
-	return nameWords(tool.name).some((word) => WRITE_VERBS.has(word));
+	return nameWords(tool.name).some((word) => GATING_WORDS.has(word));
 }
 
 /** Convert a server result into the text and image content pi carries to the model. */
