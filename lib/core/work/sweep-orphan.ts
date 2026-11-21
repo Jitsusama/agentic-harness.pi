@@ -10,7 +10,7 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ProcessFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
@@ -32,6 +32,18 @@ export function goneGitDir(path: string): string | undefined {
 		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
 		return undefined;
 	}
+}
+
+/**
+ * The git folder of the repository a gone worktree folder belonged to,
+ * when that still stands: git pruned the tree's entry, as `git worktree
+ * prune` does, but kept the repository.
+ */
+export function standingRepository(gitDir: string): string | undefined {
+	const entries = dirname(gitDir);
+	if (basename(entries) !== "worktrees") return undefined;
+	const repository = dirname(entries);
+	return existsSync(repository) ? repository : undefined;
 }
 
 /**

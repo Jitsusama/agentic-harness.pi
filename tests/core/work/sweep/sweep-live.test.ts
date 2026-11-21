@@ -423,6 +423,23 @@ describe("trees whose repository is gone", () => {
 		]);
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 	});
+
+	it("says only git's entry went when the repository stands", async () => {
+		// As `git worktree prune` leaves a tree whose folder it missed.
+		const { main, cut, sweep } = await setUp();
+		const tree = await cut("pruned", ["--detach", "@", "main"]);
+		rmSync(join(main, ".git", "worktrees", "pruned"), { recursive: true });
+
+		const outcome = await sweep([], () => false);
+
+		expect(outcome.kept).toEqual([
+			{
+				path: tree,
+				why: `git's entry for it in ${join(main, ".git")} is gone, though the repository stands`,
+			},
+		]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
 });
 
 describe("trees whose git pi won't run", () => {

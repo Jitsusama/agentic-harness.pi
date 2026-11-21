@@ -69,7 +69,7 @@ import {
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
 import { type LockFresh, sweepLock } from "./sweep-lock.ts";
-import { goneGitDir, takeOrphan } from "./sweep-orphan.ts";
+import { goneGitDir, standingRepository, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
 import { orphanedTrees } from "./tidy.ts";
 import { pinnedCommit } from "./tree.ts";
@@ -356,7 +356,7 @@ async function byRepository(
 			} else {
 				outcome.kept.push({
 					path: tree.path,
-					why: unreadWhy(found.unread, gitDir !== undefined),
+					why: unreadWhy(found.unread, gitDir),
 				});
 			}
 			continue;
@@ -369,14 +369,24 @@ async function byRepository(
 
 /**
  * Why a tree whose repository git couldn't name is kept. Its repository
- * is gone only when the git folder its `.git` file names is: pi's git
- * refuses such a tree too, as no worktree names it back, so the code git
- * answered can't say. Where the folder stands, a refusal, as in a tree
- * whose repository the fence doesn't guard, is told from git failing,
- * as it does when it times out, and the sweep log says which.
+ * is gone only when the git folder its `.git` file names, `goneGitDir`,
+ * is gone along with the repository holding it: pi's git refuses such a
+ * tree too, as no worktree names it back, so the code git answered can't
+ * say. A pruned entry in a standing repository is told apart. Where the
+ * folder stands, a refusal, as in a tree whose repository the fence
+ * doesn't guard, is told from git failing, as it does when it times out,
+ * and the sweep log says which.
  */
-function unreadWhy(unread: "refused" | "failed", gone: boolean): string {
-	if (gone) return "its repository is gone";
+function unreadWhy(
+	unread: "refused" | "failed",
+	lostGitDir: string | undefined,
+): string {
+	if (lostGitDir !== undefined) {
+		const repository = standingRepository(lostGitDir);
+		return repository === undefined
+			? "its repository is gone"
+			: `git's entry for it in ${repository} is gone, though the repository stands`;
+	}
 	return unread === "refused"
 		? "pi won't run git there, so it can't be judged"
 		: "git couldn't name its repository";

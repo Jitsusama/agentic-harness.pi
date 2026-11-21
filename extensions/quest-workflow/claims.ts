@@ -198,15 +198,17 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
 		const why = error instanceof Error ? error.message : String(error);
 		return `its README can't be read: ${why}`;
 	}
+	const said = walk.errors.find(
+		(error) => error.path === readme && error.message !== README_MISSING,
+	);
+	// A README that won't parse is never indexed, so nothing took its
+	// place, whichever folder holds its id.
+	if (said?.message === FRONT_MATTER_INVALID) return said.message;
 	// The walk keeps one quest per id, the folder it read last.
 	const taker = walk.index.quests.get(basename(dir));
 	if (taker !== undefined && taker.dir !== dir) {
 		return `the README at ${taker.dir} names its id, and took its place`;
 	}
-	const said = walk.errors.find(
-		(error) => error.path === readme && error.message !== README_MISSING,
-	);
-	if (said?.message === FRONT_MATTER_INVALID) return said.message;
 	// A folder named apart from its id is only left out when another
 	// folder holds that id.
 	if (said !== undefined) {

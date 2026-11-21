@@ -803,6 +803,32 @@ it("fails before sweeping when the realms folder is a link to nothing", async ()
 	);
 });
 
+it("says a README that won't parse, though another folder holds its id", async () => {
+	// Nothing took its place: a README that won't parse is never indexed.
+	questListing(SPENT);
+	const broken = join(seen.quests, "QEST-20260731-AAAAAA");
+	writeFileSync(
+		join(broken, "README.md"),
+		"# A quest whose front matter went\n",
+	);
+	questListing("/src/repo/.worktrees/copy", { id: "QEST-20260731-BBBBBB" });
+	const copy = join(seen.quests, "QEST-20260731-BBBBBB", "README.md");
+	writeFileSync(
+		copy,
+		readFileSync(copy, "utf8").replace(
+			"id: QEST-20260731-BBBBBB",
+			"id: QEST-20260731-AAAAAA",
+		),
+	);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${broken} can't be read for its claims: Front-matter invalid`,
+	);
+});
+
 it("fails before sweeping when another folder's README takes a quest's id", async () => {
 	// The walk keeps one quest per id, so the other's trees would go.
 	questListing(SPENT);
