@@ -45,6 +45,11 @@ export interface QuestToolParams {
 	machine?: string;
 	/** spawn: what the machine must be, as `kind=value`, for the node to choose. */
 	needs?: string[];
+	/**
+	 * spawn: the fence the session tells the node it runs in, fence or
+	 * strict; need-add and need-remove: the quest's own.
+	 */
+	fence?: string;
 	command?: string;
 	cwd?: string;
 	sessionId?: string;

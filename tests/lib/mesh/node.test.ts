@@ -316,6 +316,30 @@ describe("asking the node to start a session held", () => {
 		]);
 	});
 
+	it("says the fence the work declares beside its needs", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return '{"Err":"refused"}';
+		});
+
+		await startAt(socket, {
+			...start,
+			fence: { kind: "fence", from: "spawn" },
+		});
+
+		expect(asked, "the start's work carries the fence").toMatchObject([
+			{
+				Start: {
+					work: {
+						needs: [{ machine: "equilibrius" }],
+						fence: { kind: "fence", from: "spawn" },
+					},
+				},
+			},
+		]);
+	});
+
 	it("hears the node's reason when nothing starts", () => {
 		expect(
 			startedFrom('{"Err":"nowhere: optimus isn\'t equilibrius"}'),
@@ -424,6 +448,31 @@ describe("asking the node where work a spawn starts goes", () => {
 
 		expect(asked).toEqual([{ PlaceToStart: { needs: [{ reach: "home" }] } }]);
 		expect(answer).toEqual({ ok: true, machine: "optimus" });
+	});
+
+	it("says the fence the work declares, here and when asked where again", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			const ask = JSON.parse(line);
+			asked.push(ask);
+			return JSON.stringify(
+				"PlaceToStart" in ask
+					? { Err: "not a request: unknown variant `PlaceToStart`" }
+					: {
+							Ok: {
+								Placement: { placed: { machine: "optimus", passed: [] } },
+							},
+						},
+			);
+		});
+		const fence = { kind: "strict", from: "default" } as const;
+
+		await placeToStartAt(socket, [], undefined, fence);
+
+		expect(asked, "both asks carry the fence").toEqual([
+			{ PlaceToStart: { needs: [], fence } },
+			{ Place: { needs: [], fence } },
+		]);
 	});
 
 	it("asks a node that doesn't know that request where, as before", async () => {

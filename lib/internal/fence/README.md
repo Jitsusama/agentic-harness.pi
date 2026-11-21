@@ -145,6 +145,13 @@ would miss what another binds over it.
   by hand, under pi's state, `scripts/fence-stage.ts`), and how
   `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
   unknown value reads as the fence, saying so once.
+- **`fence-declaration.ts`**: the fence a spawned session tells
+  mycelium's node it runs in, `fence` or `strict`: the spawn's own
+  word, then its quest's, then strict when neither names one, with a
+  word that names neither refused rather than read as a fence. The two
+  tests a fence passes are said word for word. A fresh session whose
+  fence was declared starts with `PI_SANDBOX` set to it; one nobody
+  declared sets none, so the stage decides as before.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.

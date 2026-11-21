@@ -14,6 +14,7 @@ import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
 
 let tmpRoot: string;
 let spawned: string | undefined;
+let spawnedEnv: Readonly<Record<string, string | undefined>> | undefined;
 const kept: Record<string, string | undefined> = {};
 
 function fakeCtx() {
@@ -36,12 +37,14 @@ beforeEach(() => {
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	delete process.env.MYCELIUM_REALM;
 	spawned = undefined;
+	spawnedEnv = undefined;
 	clearTerminalDrivers();
 	registerTerminalDriver({
 		id: "fake",
 		available: () => true,
 		async spawn(req) {
 			spawned = req.command;
+			spawnedEnv = req.env;
 		},
 	});
 });
@@ -74,6 +77,13 @@ function needsIn(dir: string): unknown {
 	const parsed = parseQuestFrontMatter(readme);
 	if (!parsed) throw new Error(`the README no longer parses:\n${readme}`);
 	return parsed.frontMatter._extra?.needs;
+}
+
+function fenceIn(dir: string): unknown {
+	const readme = readFileSync(join(dir, "README.md"), "utf8");
+	const parsed = parseQuestFrontMatter(readme);
+	if (!parsed) throw new Error(`the README no longer parses:\n${readme}`);
+	return parsed.frontMatter._extra?.fence;
 }
 
 describe("a quest's needs of a machine", () => {
@@ -180,6 +190,18 @@ describe("a quest's needs of a machine", () => {
 		expect(spawned, "the subquest started here, asking no node").toBe("pi");
 	});
 
+	it("are named one at a time, never with a fence beside them", async () => {
+		const { dir, run } = await quest("Alpha");
+
+		const result = refused(
+			await run({ action: "need-add", ref: "reach=home", fence: "fence" }),
+		);
+
+		expect(result.guidance, "it says to name one").toContain("one at a time");
+		expect(needsIn(dir), "no need was kept").toBeUndefined();
+		expect(fenceIn(dir), "no fence was kept").toBeUndefined();
+	});
+
 	it("are replaced, not added to, by needs the spawn names", async () => {
 		const { id, run } = await quest("Alpha");
 		await run({ action: "need-add", ref: "system=macos" });
@@ -187,5 +209,97 @@ describe("a quest's needs of a machine", () => {
 		succeeded(await run({ action: "spawn-tab", id, needs: [] }));
 
 		expect(spawned, "it started here, asking no node").toBe("pi");
+	});
+});
+
+describe("the fence a quest's spawns declare", () => {
+	it("is kept beside its needs, and journalled", async () => {
+		const { dir, run } = await quest("Alpha");
+
+		const added = succeeded(await run({ action: "need-add", fence: "fence" }));
+
+		expect(fenceIn(dir), "the fence is kept").toBe("fence");
+		expect(added.details, "the details say it changed").toEqual({
+			fence: "fence",
+			changed: true,
+		});
+		expect(journeyOf(dir), "the journey says it").toContain(
+			"Declares fence: its spawns tell the node so unless they name another.",
+		);
+	});
+
+	it("refuses a word that names no fence, saying the two tests and writing nothing", async () => {
+		const { dir, run } = await quest("Alpha");
+		const before = readFileSync(join(dir, "README.md"), "utf8");
+
+		const result = refused(await run({ action: "need-add", fence: "none" }));
+
+		expect(result.guidance, "it names the words").toContain(
+			'fence is fence or strict, not "none"',
+		);
+		expect(result.guidance, "it says the tests").toContain(
+			"optimus's own credentials",
+		);
+		expect(
+			readFileSync(join(dir, "README.md"), "utf8"),
+			"the README is as it was",
+		).toBe(before);
+	});
+
+	it("is cleared by need-remove, leaving no key", async () => {
+		const { dir, run } = await quest("Alpha");
+		await run({ action: "need-add", fence: "strict" });
+
+		const removed = succeeded(
+			await run({ action: "need-remove", fence: "strict" }),
+		);
+
+		expect(fenceIn(dir), "no fence key is left").toBeUndefined();
+		expect(removed.message, "it says strict is what follows").toContain(
+			"declares no fence now",
+		);
+	});
+
+	it("starts a fresh spawn here in the sandbox its quest declares, and says so", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", fence: "fence" });
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(spawnedEnv?.PI_SANDBOX, "its commands run fenced").toBe("fence");
+		expect(result.message, "it says who declared it").toContain(
+			"It tells the node it runs fence, as its quest declares.",
+		);
+		expect(result.details, "the details carry it").toMatchObject({
+			fence: { kind: "fence", from: "quest" },
+		});
+	});
+
+	it("gives way to the fence a spawn names", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", fence: "fence" });
+
+		succeeded(await run({ action: "spawn-tab", id, fence: "strict" }));
+
+		expect(spawnedEnv?.PI_SANDBOX, "the spawn's word wins").toBe("strict");
+	});
+
+	it("sets no sandbox when nobody declared one, so the stage decides as before", async () => {
+		const { id, run } = await quest("Alpha");
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(spawnedEnv?.PI_SANDBOX, "no sandbox is named").toBeUndefined();
+		expect(result.message, "it says strict is told").toContain(
+			"It tells the node it runs strict, since nothing declared a fence.",
+		);
+	});
+
+	it("refuses a spawn naming no fence it may declare, starting nothing", async () => {
+		const { id, run } = await quest("Alpha");
+
+		refused(await run({ action: "spawn-tab", id, fence: "off" }));
+
+		expect(spawned, "no terminal was opened").toBeUndefined();
 	});
 });

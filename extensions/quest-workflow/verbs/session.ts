@@ -9,6 +9,12 @@ import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
+import {
+	declarationSaid,
+	type FenceDeclaration,
+	fenceDeclared,
+	sandboxFor,
+} from "../../../lib/internal/fence/fence-declaration.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -33,6 +39,7 @@ import {
 	spawnedWords,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
@@ -295,18 +302,27 @@ export function sessionRename(
 	});
 }
 
+/** What a spawn settled on its way, for its answer to say. */
+interface SpawnSaid {
+	budget?: FolderBudget;
+	fence?: FenceDeclaration;
+}
+
 /**
  * Give a quest a session of its own, first naming the budget its folder
  * draws on when nothing above it names one, so the session starts on
- * it; the answer opens by saying so.
+ * it; the answer opens by saying so, and says the fence it declared.
  */
 export async function spawn(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
-	const said: { budget?: FolderBudget } = {};
-	const result = await spawnNaming(state, ctx, params, said);
+	const said: SpawnSaid = {};
+	const result = withFence(
+		await spawnNaming(state, ctx, params, said),
+		said.fence,
+	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
 	if (!result.ok) {
@@ -322,11 +338,24 @@ export async function spawn(
 	};
 }
 
+/** A spawn's answer saying the fence it told the node, once it did. */
+function withFence(
+	result: QuestResult,
+	fence: FenceDeclaration | undefined,
+): QuestResult {
+	if (!result.ok || !fence) return result;
+	return {
+		...result,
+		message: `${result.message} ${declarationSaid(fence)}`,
+		details: { ...result.details, fence },
+	};
+}
+
 async function spawnNaming(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
-	said: { budget?: FolderBudget },
+	said: SpawnSaid,
 ): Promise<QuestResult> {
 	// A suffixed verb names its layout; a bare spawn leaves it to the
 	// terminal settings unless the call gives one.
@@ -387,11 +416,18 @@ async function spawnNaming(
 	// History stays on its machine, so a session elsewhere starts fresh.
 	// A machine or needs the call names replace the quest's needs.
 	const named = params.machine?.trim() || undefined;
+	// The fence it tells the node it runs in: the call's, else the quest's.
+	const declared = fenceDeclared(params.fence, fm._extra?.fence);
+	if (!declared.ok) return refuse(declared.refusal);
+	const fence = declared.declaration;
+	said.fence = fence;
 	const chosen = await machineFor(
 		named,
 		named !== undefined || params.needs !== undefined
 			? (params.needs ?? [])
 			: needsOf(fm),
+		undefined,
+		fence,
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { needs } = chosen;
@@ -404,6 +440,7 @@ async function spawnNaming(
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),
+		fence,
 	});
 	const resume =
 		machine === undefined || isThisMachine(machine) ? resumable : undefined;
@@ -440,6 +477,13 @@ async function spawnNaming(
 	const { command: asks, dryRun } = params; // a reopen isn't staged
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
+	// A declared fence runs a fresh session's commands; a reopen keeps its
+	// own, as the stage leaves a reopen alone (spawn-stage.ts).
+	const sandbox = picked ? undefined : sandboxFor(fence);
+	const carried = {
+		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
+		...(sandbox ? { [SANDBOX_VARIABLE]: sandbox } : {}),
+	};
 	// The host the call names, or for a plain spawn the one spawnHost says.
 	const byHost = await spawnByHost({
 		...(target.kind ? { asked: target.kind } : {}),
@@ -459,7 +503,7 @@ async function spawnNaming(
 				: {}),
 			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
 			env: sessionEnv(ctx).snapshot(),
-			...(staged ? { carried: { [STAGE_VARIABLE]: staged } } : {}),
+			...(Object.keys(carried).length > 0 ? { carried } : {}),
 			...(params.dryRun ? { dryRun: true } : {}),
 		},
 	});
@@ -467,6 +511,7 @@ async function spawnNaming(
 	const settingNote = byHost.terminalNote;
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
+	const freshSandbox = resumedSessionId ? undefined : sandbox;
 	// A reopen starts where its session ran, since pi finds a session by
 	// id only among the logs of the folder it starts in, even over a
 	// folder the call named: on 14 November two of WJATIN's four reopens
@@ -551,6 +596,8 @@ async function spawnNaming(
 		const held = await spawnHeld({
 			machine,
 			needs,
+			fence,
+			...(freshSandbox ? { sandbox: freshSandbox } : {}),
 			command,
 			cwd,
 			home: homedir(),
@@ -621,6 +668,7 @@ async function spawnNaming(
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
 	if (staged) env[STAGE_VARIABLE] = staged;
+	if (freshSandbox) env[SANDBOX_VARIABLE] = freshSandbox;
 	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the

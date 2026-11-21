@@ -24,6 +24,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { FenceDeclaration } from "../internal/fence/fence-declaration.ts";
 import { isMachineName } from "../internal/machine/machine.ts";
 import { isRealmName } from "../internal/machine/realm.ts";
 import { runtimeDir } from "../internal/paths.ts";
@@ -89,6 +90,23 @@ export const START_PATIENCE_MS = 120_000;
 export const PLACE_PATIENCE_MS = 5000;
 
 /**
+ * The work placement weighs, as the node reads it: what a machine must
+ * be, and the fence the work says it runs in, which the node judges
+ * where it may go by. A node that knows no fence ignores it, as it
+ * ignores any field of work it doesn't know, so the spawn starts as
+ * before rather than not at all.
+ */
+function workOnTheWire(
+	needs: readonly Need[],
+	fence: FenceDeclaration | undefined,
+): Record<string, unknown> {
+	return {
+		needs: needs.map(needOnTheWire),
+		...(fence ? { fence: { kind: fence.kind, from: fence.from } } : {}),
+	};
+}
+
+/**
  * Asks the node serving `socket` where work needing `needs` goes, without
  * starting anything, answering the machine it chose or its reasons.
  */
@@ -96,8 +114,9 @@ export function placeAt(
 	socket: string | undefined,
 	needs: readonly Need[],
 	patience: number = PLACE_PATIENCE_MS,
+	fence?: FenceDeclaration,
 ): Promise<PlaceAnswer> {
-	return placeAsking("Place", socket, needs, patience);
+	return placeAsking("Place", socket, needs, patience, fence);
 }
 
 /**
@@ -112,10 +131,17 @@ export async function placeToStartAt(
 	socket: string | undefined,
 	needs: readonly Need[],
 	patience: number = PLACE_PATIENCE_MS,
+	fence?: FenceDeclaration,
 ): Promise<PlaceAnswer> {
-	const answer = await placeAsking("PlaceToStart", socket, needs, patience);
+	const answer = await placeAsking(
+		"PlaceToStart",
+		socket,
+		needs,
+		patience,
+		fence,
+	);
 	return !answer.ok && answer.reason.startsWith(UNKNOWN_PLACE_TO_START)
-		? placeAt(socket, needs, patience)
+		? placeAt(socket, needs, patience, fence)
 		: answer;
 }
 
@@ -127,6 +153,7 @@ async function placeAsking(
 	socket: string | undefined,
 	needs: readonly Need[],
 	patience: number,
+	fence: FenceDeclaration | undefined,
 ): Promise<PlaceAnswer> {
 	if (socket === undefined) {
 		return {
@@ -134,7 +161,7 @@ async function placeAsking(
 			reason: "no mycelium realm is named here, so there is no node to ask",
 		};
 	}
-	const asked = { [request]: { needs: needs.map(needOnTheWire) } };
+	const asked = { [request]: workOnTheWire(needs, fence) };
 	const line = await askAt(socket, asked, patience);
 	if (line === undefined) {
 		return { ok: false, reason: `no mycelium node answered at ${socket}` };
@@ -151,6 +178,8 @@ export interface NodeStart {
 	 * it starts it, so a machine that changed since it was chosen refuses.
 	 */
 	readonly needs?: readonly Need[];
+	/** The fence it says it runs in, which the node judges it by. */
+	readonly fence?: FenceDeclaration;
 	/**
 	 * The folder it begins in there: a full path, or one within that
 	 * machine's home. Its node begins it in its home when this names none
@@ -209,14 +238,13 @@ export async function startAt(
 	}
 	const asked = {
 		Start: {
-			work: {
-				needs: [
-					...(start.needs ?? [])
-						.filter((need) => need.kind !== "machine")
-						.map(needOnTheWire),
-					{ machine: start.machine },
+			work: workOnTheWire(
+				[
+					...(start.needs ?? []).filter((need) => need.kind !== "machine"),
+					{ kind: "machine", value: start.machine },
 				],
-			},
+				start.fence,
+			),
 			...(start.folder !== undefined ? { folder: start.folder } : {}),
 			command: start.command,
 			...(start.once !== undefined ? { once: start.once } : {}),

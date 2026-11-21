@@ -147,6 +147,12 @@ export const QUEST_PARAMETERS = Type.Object({
 				"spawn: what the machine must be, kind=value (machine, system, arch, reach, accelerator), e.g. reach=home; the node picks one.",
 		}),
 	),
+	fence: Type.Optional(
+		Type.String({
+			description:
+				"spawn: fence or strict, the fence the session tells the node it runs in (left out: the quest's, else strict); fence may start it on another machine under a strict parent. need-add: the quest's own, which its spawns declare; need-remove with fence clears it. Declare fence only when both hold: (1) it needs none of optimus's own credentials: its TPM keys, the agents' proxy, or Joel's gcloud or World push; (2) its work reads no stranger's text: other people's PRs and issues, Slack, email, or web pages beyond docs. Strict when unsure.",
+		}),
+	),
 	command: Type.Optional(
 		Type.String({
 			description:

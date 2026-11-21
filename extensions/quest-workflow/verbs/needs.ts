@@ -12,8 +12,16 @@
  *
  * The list is the harness's own, so both parsers keep it among the
  * extras, and core's verbs write it back untouched.
+ *
+ * Given `fence` instead, they keep the fence the quest's spawns declare
+ * to the node as `fence` beside it (fence-declaration.ts), a spawn's
+ * own word winning.
  */
 
+import {
+	FENCE_TESTS,
+	isDeclaredFence,
+} from "../../../lib/internal/fence/fence-declaration.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { needFrom, needWords } from "../../../lib/mesh/placement.ts";
@@ -59,6 +67,14 @@ function changeNeeds(
 	params: QuestToolParams,
 	change: "add" | "remove",
 ): QuestResult {
+	if (params.fence !== undefined) {
+		if (params.ref?.trim()) {
+			return refuse(
+				"Name needs in `ref` or a `fence`, one at a time, so each change is journalled as itself.",
+			);
+		}
+		return changeFence(state, params, change);
+	}
 	const words = wordsOf(params.ref);
 	if ("refusal" in words) return refuse(words.refusal);
 	const target = addressOf(state, params.id, { focused: false });
@@ -110,6 +126,63 @@ function changeNeeds(
 			? `${quest} needs ${now.join(", ")}; its sessions start where mycelium's node places them.`
 			: `${quest} needs nothing of a machine now; its sessions start here.`;
 	return ok(said, { needs: now, changed: true });
+}
+
+/**
+ * Set the fence the quest's spawns declare to the one `fence` names, or
+ * clear it, whatever `fence` says, on a remove.
+ */
+function changeFence(
+	state: QuestState,
+	params: QuestToolParams,
+	change: "add" | "remove",
+): QuestResult {
+	const asked = params.fence?.trim();
+	if (change === "add" && !isDeclaredFence(asked)) {
+		return refuse(`fence is fence or strict, not "${asked}". ${FENCE_TESTS}`);
+	}
+	const target = addressOf(state, params.id, { focused: false });
+	if ("refusal" in target) return refuse(target.refusal);
+	if (target.documentId) {
+		return refuse(
+			`${target.documentId} is a document; a quest's sessions declare a fence, so name ${target.questId}.`,
+		);
+	}
+	let was: unknown;
+	const result = mutateQuestFrontMatter(target.questDir, (fm) => {
+		was = fm._extra?.fence;
+		const next = change === "add" ? asked : undefined;
+		if (was === next) return undefined;
+		const { fence: _was, ...rest } = fm._extra ?? {};
+		const extra = next === undefined ? rest : { ...rest, fence: next };
+		return {
+			...fm,
+			_extra: Object.keys(extra).length > 0 ? extra : undefined,
+		};
+	});
+	if (!result.ok) return refuse(result.guidance);
+	const quest = target.questId;
+	const now = result.fm._extra?.fence;
+	if (was === now) {
+		return ok(
+			now === undefined
+				? `${quest} declares no fence; its spawns tell the node strict unless they name one.`
+				: `${quest} already declares ${String(now)}.`,
+			{ fence: now ?? null, changed: false },
+		);
+	}
+	appendJourneyByPath(
+		target.questDir,
+		now === undefined
+			? "Declares no fence: its spawns tell the node strict unless they name one."
+			: `Declares ${String(now)}: its spawns tell the node so unless they name another.`,
+	);
+	return ok(
+		now === undefined
+			? `${quest} declares no fence now; its spawns tell the node strict unless they name one.`
+			: `${quest} declares ${String(now)}; its spawns tell the node so unless they name another.`,
+		{ fence: now ?? null, changed: true },
+	);
 }
 
 /** The words `ref` names, comma-separated, each read as a need. */
