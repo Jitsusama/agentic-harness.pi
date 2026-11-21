@@ -446,25 +446,35 @@ describe("a child's life", () => {
 
 	// F40: a conversation resting parked, closed or released from the
 	// launcher before any wake, ended its child as failed.
-	it.each([
-		["closed", "closed, asked by the launcher"],
-		["released", "released, asked by the launcher"],
-	] as const)(
+	it.each(["closed", "released"] as const)(
 		"ends %s, not failed, when the conversation it rests is %s before a wake",
-		async (how, why) => {
-			const { life, timers } = following({ aloneWithin: 2 });
+		async (how) => {
+			const { life, timers } = following({ aloneWithin: 2, resumes: true });
 			life.resumed("parked");
-			life.left(how, why);
+			life.left(how, `${how}, asked by the launcher`);
 			expect(await life.ending).toBe(how);
 			expect(timers.has(2), "its grace ends with it").toBe(false);
 		},
 	);
 
-	it("keeps its grace when the conversation it rests is signalled away before a wake", () => {
-		const { life, timers } = following({ aloneWithin: 2 });
+	it("keeps its grace when the conversation it rests is signalled away before a wake, then ends parked", async () => {
+		const { life, timers } = following({ aloneWithin: 2, resumes: true });
 		life.resumed("parked");
 		life.left("signalled", "the host is stopping");
 		expect(timers.has(2), "the grace still bounds the rest").toBe(true);
+		timers.get(2)?.();
+		expect(await life.ending).toBe("parked");
+	});
+
+	// The other side of the rule: a start that neither answered nor
+	// rested never worked, whatever its end asked.
+	it("ends failed when it leaves having neither answered nor rested", async () => {
+		const { life, timers } = following({ aloneWithin: 2, resumes: true });
+		const answer = life.watch.answer();
+		life.left("closed", "closed, asked by the launcher");
+		expect(await life.ending).toBe("failed");
+		await expect(answer).rejects.toThrow("The child ended: failed");
+		expect(timers.has(2), "no grace for a start that never worked").toBe(false);
 	});
 
 	it("clears every timer as it is disposed, its grace among them", () => {

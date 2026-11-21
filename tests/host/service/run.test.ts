@@ -273,16 +273,9 @@ describe("a child host", () => {
 			children: { units, policy },
 			places: { registryDir: join(dir, "hosts") },
 		});
+		// Its start asks the policy, before anything opens.
 		try {
-			const reply = await controlRequest(run.serving.path, {
-				v: 1,
-				id: "o",
-				op: "open",
-				cwd: dir,
-				attended: false,
-			});
-			expect(reply.ok, "the host opened the conversation").toBe(true);
-			expect(policy, "its key's policy was asked").toHaveBeenCalled();
+			expect(policy).toHaveBeenCalledExactlyOnceWith("work-background");
 		} finally {
 			signals.emit("SIGTERM");
 			await run.stopped;
