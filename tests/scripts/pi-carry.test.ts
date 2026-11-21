@@ -453,6 +453,17 @@ describe("pi-carry", () => {
 		]);
 	});
 
+	it("exits 64 when settle is asked wrongly, the exit mycelium's settle reads", async () => {
+		const one = machine("settle-asked", folder(made, "cache"));
+
+		const asked = await piCarry(one.env, "settle", QUEST);
+
+		expect(asked.code).toBe(64);
+		expect(asked.lines).toEqual([
+			{ kind: "failed", why: expect.stringContaining("--session") },
+		]);
+	});
+
 	it("answers --help on stdout alone, exiting 0, with only PATH set", async () => {
 		for (const words of [["--help"], ["settle", "not-a-quest", "-h"]]) {
 			// run rejects on any exit but 0, so resolving is the exit check.
