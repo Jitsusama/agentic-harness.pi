@@ -199,6 +199,22 @@ export function questsAbove(
 	return questChainOf(one).slice(0, -1);
 }
 
+/**
+ * Whether a hub found earlier still stands as `self` reads it now: its
+ * address listed by exactly one of the `live` presences, and that one
+ * on a quest above `self`'s, as the find required when it chose it.
+ */
+export function stillAbove(
+	self: Pick<Presence, "groups" | "joined" | "quest">,
+	live: readonly Presence[],
+	address: string,
+): boolean {
+	const [holder, ...others] = live.filter((one) => lists(one, address));
+	if (holder === undefined || others.length > 0) return false;
+	const own = ownQuestOf(holder);
+	return own !== undefined && questsAbove(self).includes(own);
+}
+
 /** The quest `one` works on, the last of its chain, if it has one. */
 function ownQuestOf(
 	one: Pick<Presence, "groups" | "joined" | "quest">,

@@ -2,7 +2,8 @@
  * The hub from use a peer keeps for what the mesh says by itself: found
  * at once, read without waiting, never sought under the mark or on a
  * quest heading an orchestration, and none rather than a stale one when
- * a find fails, a role is taken, the hub ends or the keeping stops.
+ * a find fails, a role is taken, the quest moves, the hub ends or its
+ * address is shared, or the keeping stops.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -80,7 +81,7 @@ function onMesh(
 		questHeads: roles.questHeads,
 	} as unknown as Peer;
 	const asked = vi.fn(ties);
-	return { at: { peer, presences, ties: asked }, asked };
+	return { at: { peer, presences, ties: asked }, asked, live };
 }
 
 /** Finds again every few milliseconds, so a test sees several. */
@@ -88,6 +89,9 @@ const QUICK: HubKeeping = { every: 5, retry: 5 };
 
 /** Long enough for a few quick finds to have come and gone. */
 const A_FEW_FINDS_MS = 60;
+
+/** Long enough that no find in a test comes round again by itself. */
+const NEVER_AGAIN_MS = 60 * 60_000;
 
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
@@ -119,8 +123,9 @@ describe("a kept hub", () => {
 			orchestratedBy: "WCJQSG",
 		});
 
-		const hub = keep(at);
-		await Promise.resolve();
+		const hub = keep(at, QUICK);
+		// Long enough for any find it made to have asked the node.
+		await pause(A_FEW_FINDS_MS);
 
 		expect(asked).not.toHaveBeenCalled();
 		expect(hub.current()).toBeUndefined();
@@ -135,8 +140,9 @@ describe("a kept hub", () => {
 			orchestrates: "7M6JKG",
 		});
 
-		const hub = keep(at);
-		await Promise.resolve();
+		const hub = keep(at, QUICK);
+		// Long enough for any find it made to have asked the node.
+		await pause(A_FEW_FINDS_MS);
 
 		expect(asked).not.toHaveBeenCalled();
 		expect(hub.current()).toBeUndefined();
@@ -149,8 +155,9 @@ describe("a kept hub", () => {
 			questHeads: "7M6JKG",
 		});
 
-		const hub = keep(at);
-		await Promise.resolve();
+		const hub = keep(at, QUICK);
+		// Long enough for any find it made to have asked the node.
+		await pause(A_FEW_FINDS_MS);
 
 		expect(asked).not.toHaveBeenCalled();
 		expect(hub.current()).toBeUndefined();
@@ -191,7 +198,19 @@ describe("a kept hub", () => {
 			return [tie("ROOT01", 3)];
 		});
 
-		const hub = keep(at, { every: 60 * 60_000, retry: 5 });
+		const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 5 });
+
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	it("is found soon after a find the node gave no answer to", async () => {
+		let tries = 0;
+		const { at } = onMesh(async () => {
+			tries += 1;
+			return tries === 1 ? undefined : [tie("ROOT01", 3)];
+		});
+
+		const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 5 });
 
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 	});
@@ -202,6 +221,18 @@ describe("a kept hub", () => {
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 
 		Object.assign(at.peer, { orchestrates: "7M6JKG" });
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	it("is none at once when the peer's quest moves out from under the hub", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		const self = at.presences.of("session-s");
+		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
+		at.presences.publish({ ...self, groups: ["#quest/other1/7m6jkg"] });
 
 		expect(hub.current()).toBeUndefined();
 	});
@@ -218,7 +249,19 @@ describe("a kept hub", () => {
 		expect(hub.current()).toBeUndefined();
 	});
 
-	it("finds nothing more once stopped, and keeps what a find still asking comes to", async () => {
+	// The find refuses an address two live presences list, since a forged
+	// one could point a send elsewhere; reading the kept hub holds to it.
+	it("is none at once when a second live presence lists the hub's address", async () => {
+		const { at, live } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		live("session-x", "ROOT01", "root01");
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	it("finds nothing more once stopped, and keeps nothing a find still asking comes to", async () => {
 		let answer: (ties: readonly Tie[]) => void = () => undefined;
 		const { at, asked } = onMesh(
 			() =>
@@ -226,26 +269,45 @@ describe("a kept hub", () => {
 					answer = done;
 				}),
 		);
-		const hub = keep(at, QUICK);
+		const found = vi.fn();
+		const hub = keep(at, { ...QUICK, found });
 		await vi.waitFor(() => expect(asked).toHaveBeenCalledOnce());
 
 		hub.stop();
 		answer([tie("ROOT01", 3)]);
+		// Long enough for the late find to have kept and said its hub, and
+		// for more to have come round, had stopping not held them.
 		await pause(A_FEW_FINDS_MS);
 
 		expect(asked).toHaveBeenCalledOnce();
+		expect(found).not.toHaveBeenCalled();
 		expect(hub.current()).toBeUndefined();
 	});
 
-	it("says once when a hub is found where none was kept", async () => {
+	// What waited for a hub is told even when the one found is the hub
+	// kept before, or another, after a spell reading as none.
+	it("says each find that keeps a hub, not only the first", async () => {
 		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
 		const found = vi.fn();
 
 		keep(at, { ...QUICK, found });
-		await vi.waitFor(() => expect(found).toHaveBeenCalledWith("ROOT01"));
-		await pause(A_FEW_FINDS_MS);
 
-		expect(found).toHaveBeenCalledOnce();
+		await vi.waitFor(() =>
+			expect(found.mock.calls.length).toBeGreaterThanOrEqual(3),
+		);
+		expect(found).toHaveBeenCalledWith("ROOT01");
+	});
+
+	it("keeps the hub it found when whoever hears of it fails", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const found = vi.fn(() => {
+			throw new Error("the tell failed");
+		});
+
+		const hub = keep(at, { ...QUICK, found });
+		await vi.waitFor(() => expect(found).toHaveBeenCalled());
+
+		expect(hub.current()).toBe("ROOT01");
 	});
 
 	// Nothing above could be its hub, so ties could change nothing.

@@ -85,8 +85,7 @@ export function createHanding(m: MeshState) {
 			m.onNoModelUntold = event;
 			return;
 		}
-		m.toldOnNoModel = true;
-		m.onNoModelUntold = undefined;
+		m.onNoModelUntold = event;
 		const message = tellOnNoModel(
 			m.peer,
 			above,
@@ -94,6 +93,10 @@ export function createHanding(m: MeshState) {
 			event,
 			m.presences.all(),
 		);
+		// Counted told only once it was, so one that threw is kept and tried
+		// again at the next find.
+		m.toldOnNoModel = true;
+		m.onNoModelUntold = undefined;
 		if (message) m.seen.add(message.id);
 	};
 

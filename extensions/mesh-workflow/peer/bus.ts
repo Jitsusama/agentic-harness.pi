@@ -99,6 +99,11 @@ export function onBus(m: MeshState, f: Handing) {
 	// A session on no model answers nothing it is sent, so its
 	// orchestrator hears it from the mesh rather than from its window.
 	if (m.pi.events) onNoModel(m.pi.events, f.tellNoModel);
+	// A model chosen since: a finding still kept for want of a hub to
+	// hear it would now be false, so it is dropped rather than told late.
+	m.pi.on("model_select", async () => {
+		m.onNoModelUntold = undefined;
+	});
 
 	// A quest or document ended: its orchestrator hears it from the mesh,
 	// not from whether the session remembers to say so.

@@ -6,14 +6,15 @@
  * every time. What the mesh says by itself (tells.ts, delivery.ts)
  * can't wait on the node while it says it, so each peer also keeps the
  * hub it last found (`keepHub`), checked again whenever it is read
- * against the peer's roles and the hub's presence as they stand then.
+ * against the peer's roles, its quest and the hub's presence as they
+ * stand then.
  */
 
 import {
 	type Above,
 	hubFromUse,
-	lists,
 	questsAbove,
+	stillAbove,
 } from "../../../lib/mesh/hub-from-use.ts";
 import { type Local, peers } from "./local.ts";
 
@@ -33,7 +34,7 @@ export const HUB_KEEP_MS = 5 * 60_000;
 export const HUB_RETRY_MS = 30_000;
 
 /** What a find came to, and whether it could be finished. */
-interface Found {
+export interface Found {
 	readonly above: Above;
 	/** False when it should be tried again soon rather than in a while. */
 	readonly settled: boolean;
@@ -44,7 +45,12 @@ export async function aboveFor(at: HubReading): Promise<Above> {
 	return (await findAbove(at)).above;
 }
 
-async function findAbove(at: HubReading): Promise<Found> {
+/**
+ * Where this peer's `orchestrator` points, and whether the find could be
+ * finished: one with no presence yet, or no answer from the node, can't
+ * say that nothing is above.
+ */
+export async function findAbove(at: HubReading): Promise<Found> {
 	const mark = at.peer.orchestratedBy;
 	if (mark !== undefined) {
 		return { above: { address: mark, by: "mark" }, settled: true };
@@ -117,7 +123,10 @@ export interface HubKeeping {
 	readonly every?: number;
 	/** Milliseconds to the next find after one that could not finish. */
 	readonly retry?: number;
-	/** Called when a find turns up a hub where none was kept. */
+	/**
+	 * Called each time a find keeps a hub, so what waited for one is told
+	 * whether the hub is new, back, or the one kept before.
+	 */
 	readonly found?: (address: string) => void;
 }
 
@@ -130,9 +139,10 @@ export interface HubKeeping {
  * may be gone.
  *
  * Reading it checks again, without waiting, what may have changed since
- * the last find: a peer that has taken a role since has no hub, and
- * nor has one whose hub's every presence now says it ended. A hub that
- * stopped without saying so is kept until the next find.
+ * the last find: a peer that has taken a role since has no hub, nor has
+ * one whose quest is no longer below the hub's, nor one whose hub's
+ * address is now listed by no live presence, or by more than one. A
+ * hub that stopped without saying so is kept until the next find.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
@@ -165,10 +175,8 @@ export function keepHub(
 			// Stopped while it asked: what it found is no longer this
 			// peer's to keep.
 			if (stopped) return;
-			const had = kept;
 			kept = "address" in finding.above ? finding.above.address : undefined;
 			if (!finding.settled) wait = retry;
-			if (had === undefined && kept !== undefined) found?.(kept);
 		} catch {
 			// The node or presences unreadable now: no hub is better than a
 			// stale one, and the find is tried again soon.
@@ -177,6 +185,13 @@ export function keepHub(
 			wait = retry;
 		}
 		after(wait);
+		if (kept === undefined) return;
+		try {
+			found?.(kept);
+		} catch {
+			// What the listener failed to say is its own to keep and try
+			// again: the hub this find kept still holds.
+		}
 	};
 	void find();
 	return {
@@ -185,10 +200,12 @@ export function keepHub(
 			if (stopped || address === undefined) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
-			const there = reading.presences
+			const live = reading.presences
 				.all()
-				.some((one) => one.ended === undefined && lists(one, address));
-			return there ? address : undefined;
+				.filter((one) => one.ended === undefined);
+			const self = live.find((one) => one.session === reading.peer.session);
+			if (self === undefined) return undefined;
+			return stillAbove(self, live, address) ? address : undefined;
 		},
 		stop: () => {
 			stopped = true;

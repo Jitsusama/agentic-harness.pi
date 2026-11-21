@@ -35,7 +35,7 @@ import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
-import { aboveFor } from "./above.ts";
+import { aboveFor, findAbove } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -157,7 +157,9 @@ function toOrchestrator(
  * Whether these groups reach this peer's hub from use when the send
  * named no `orchestrator` to find it by: found afresh, so a question
  * for the person's hands is counted the same way whichever it was
- * sent by, kept hub or none.
+ * sent by, kept hub or none. A find that can't be finished, with no
+ * answer from the node, can't say the address isn't the hub's, so it
+ * counts as reaching it and the check is made rather than skipped.
  */
 async function toHubByAddress(
 	at: Local,
@@ -173,8 +175,12 @@ async function toHubByAddress(
 	) {
 		return false;
 	}
-	const found = await aboveFor(at);
-	return "address" in found && toOrchestrator(named, found.address, present);
+	const found = await findAbove(at);
+	if (!found.settled) return true;
+	return (
+		"address" in found.above &&
+		toOrchestrator(named, found.above.address, present)
+	);
 }
 
 /** Whether the mesh's own routing, not the sender, picked the groups. */

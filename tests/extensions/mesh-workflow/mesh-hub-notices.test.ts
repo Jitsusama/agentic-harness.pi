@@ -4,7 +4,8 @@
  * peer keeps, the second once one is found if none was yet; a send
  * finds the hub afresh rather than reading the kept one; and a question
  * for the person's hands sent to the hub by its address is counted as
- * one sent with the word, whether or not a hub was kept.
+ * one sent with the word, whether or not a hub was kept, and when no
+ * node answers to say whether it is the hub.
  */
 
 import { join } from "node:path";
@@ -13,7 +14,13 @@ import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
-import { fixture, onQuest, send, startSession } from "./support/mesh.ts";
+import {
+	fixture,
+	noNode,
+	onQuest,
+	send,
+	startSession,
+} from "./support/mesh.ts";
 import { closeNodes, node } from "./support/node.ts";
 
 afterEach(closeNodes);
@@ -118,6 +125,7 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		const answer = await send(tools, "orchestrator", "fyi", "The run ended.");
 
 		expect(answer).toContain("Not sent:");
+		expect(answer).toContain("no live cell on a quest above it");
 		expect(sent()).toHaveLength(1);
 	});
 
@@ -137,6 +145,49 @@ describe("the mesh's own word, on a quest with no mark", () => {
 
 		expect(refused).toContain("Not sent: this asks for the person's hands");
 		expect(sent()).toHaveLength(0);
+	});
+
+	// No answer can't say the address isn't the hub's, so the check is
+	// made rather than skipped.
+	it("counts the person's acts in a question to the hub by address when no node answers", async () => {
+		onQuest();
+		parentLive();
+		const { tools } = await startSession(noNode());
+
+		const refused = await send(
+			tools,
+			"5GV2AH",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(0);
+	});
+
+	it("tells nobody of a session on no model once a model is chosen, though a hub is found after", async () => {
+		onQuest();
+		parentLive();
+		let answerTies: () => void = () => undefined;
+		const tiesHeld = new Promise<void>((done) => {
+			answerTies = done;
+		});
+		const env = await node([asker], [tieTo("5GV2AH", 4)], tiesHeld);
+		const { emit, fire } = await startSession(env);
+
+		emit(SESSION_ON_NO_MODEL, { when: "before a turn" });
+		await fire("model_select", { source: "set" });
+		answerTies();
+
+		await vi.waitFor(() => {
+			emit(QUEST_CONCLUDED, {
+				how: "concluded",
+				ids: ["PLAN-20261021-AAAAAA"],
+				said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
+			});
+			expect(sent().at(-1)).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" });
+		});
+		expect(sent().filter((one) => one?.intent === "finding")).toHaveLength(0);
 	});
 
 	it("tells a session on no model to the hub once one is found, when it came first", async () => {
