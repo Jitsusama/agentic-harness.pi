@@ -208,6 +208,44 @@ describe("a sprouted session's start", () => {
 		expect(words).toMatch(/tied on the map to the cell it came from, TERN02/u);
 	});
 
+	it("records the need it was sent for as one its quest serves, once", async () => {
+		const need = "TERN02/mi1x.0123456789ab";
+		const first = await start({ words: "tidy\nthe rows", id: "S9", need });
+		await start(
+			{ words: "tidy\nthe rows", id: "S9", need },
+			{
+				sessionId: "sess-2",
+			},
+		);
+		clearDiscoveryCache();
+
+		const id = first.state.questId ?? "";
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(id);
+		const serves = entry?.doc.frontMatter._extra?.serves;
+
+		expect(serves, "the asker's need, on one line, by its id").toEqual([
+			{
+				cell: "TERN02",
+				need: "tidy the rows",
+				since: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+				id: need,
+			},
+		]);
+	});
+
+	it("records no need for a seed sent for none", async () => {
+		const { state } = await start({ words: "tea", id: "S10" });
+		clearDiscoveryCache();
+
+		const id = state.questId ?? "";
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(id);
+
+		expect(
+			entry?.doc.frontMatter._extra?.serves,
+			"a quest no need sent serves none",
+		).toBeUndefined();
+	});
+
 	it("still starts when the tie fails, saying the command to run", async () => {
 		const { state, words } = await start(
 			{ words: "tea", from: "TERN02" },

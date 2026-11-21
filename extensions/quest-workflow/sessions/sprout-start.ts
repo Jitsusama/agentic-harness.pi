@@ -25,7 +25,10 @@ import {
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/creation/alias-index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
+import { withServed } from "../../../lib/internal/quest/fields/serves.ts";
 import {
+	needAsker,
 	type SproutSeed,
 	sproutAlias,
 	sproutedWords,
@@ -132,8 +135,38 @@ export async function startSprouted(
 			ref: `${alias.type}:${alias.value}`,
 		});
 	}
+	servesNeed(state, id, seed);
 	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
+}
+
+/**
+ * Record on quest `id`'s README the mesh need its sprout took on, so
+ * its presence says whose need its cell serves and the node's forage
+ * shows why it exists: the asker named by the need's id, what the words
+ * asked (else the id), and since now. A quest it joined takes it too,
+ * since its cell now serves that need as well; one already holding it
+ * is left as it is. A README that can't be written leaves the quest
+ * standing without it, since the work matters more than its lineage.
+ */
+function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
+	const cell = seed.need ? needAsker(seed.need) : undefined;
+	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
+	if (!seed.need || !cell || !dir) return;
+	const taken = {
+		cell,
+		need: seed.words || seed.need,
+		since: new Date().toISOString(),
+		id: seed.need,
+	};
+	mutateQuestFrontMatter(dir, (fm) => {
+		const before = fm._extra?.serves;
+		const serves = withServed(before, taken);
+		if (JSON.stringify(serves) === JSON.stringify(before ?? [])) {
+			return undefined;
+		}
+		return { ...fm, _extra: { ...fm._extra, serves } };
+	});
 }
 
 /**
