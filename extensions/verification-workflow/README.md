@@ -110,10 +110,12 @@ never read from an earlier pass:
     while it asks; a run elsewhere waits for the next verify to be
     asked after. No wall bounds the check as a whole, since one
     ending it would let the commit through unjudged.
-  - A check that verify runs keep overtaking asks git three
-    times, then holds the commit on the newest run as it was
-    recorded, in scope, and says it failed while the commit was
-    checked.
+  - A check asks git after each project three times at most,
+    however verify runs overtake it, then holds the commit on
+    that project's newest run as it was recorded, in scope, and
+    says it failed while the commit was checked. A run an edit or
+    a clean verify retires while others are asked after holds
+    nothing.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
   - Each project keeps its own last failed run, so a failure in

@@ -28,9 +28,10 @@ import {
 import { gitRoot, present, treeFingerprint, within } from "./tree.ts";
 
 /**
- * How many times a check asks after a project's run recorded while git
- * answered for the one before, before it holds the commit on the newest
- * as it was recorded, asking git no more.
+ * How many times a check asks git after one project, whether its runs
+ * were recorded while git answered for the one before or while other
+ * projects were asked after, before it holds the commit on the newest
+ * as it was recorded, asking git no more about that project.
  */
 const JUDGED_AT_MOST = 3;
 
@@ -99,9 +100,16 @@ export async function failureNow(
 
 	const judged: Judged[] = [];
 	const leave = new Set<string>();
-	// Each project's problem as git last answered for it, so asking one
-	// again replaces what it said before rather than adding to it.
-	const runProblems = new Map<string, string>();
+	// Each project's problem as git last answered for it, with the run it
+	// names, so asking one again replaces what it said before, and one an
+	// edit or a clean verify retired while others were asked says nothing.
+	const runProblems = new Map<
+		string,
+		{ readonly run: FailedRun; readonly problem: string }
+	>();
+	// How often git was asked after each project, so runs recorded in
+	// turn across projects can't keep the check asking.
+	const spent = new Map<string, number>();
 	// One project at a time, so a commit's check never sets several git
 	// statuses on the disk it waits on at once; a run recorded while
 	// others are asked about, in a new project or one already asked
@@ -119,8 +127,15 @@ export async function failureNow(
 			leave.add(at);
 			continue;
 		}
-		const one = await askAfter(state, at, scope.signal);
-		if (one?.problem) runProblems.set(at, one.problem);
+		const one = await askAfter(state, at, spent, scope.signal);
+		const holding =
+			one === undefined
+				? undefined
+				: "judged" in one
+					? one.judged.run
+					: state.failedRuns.get(at);
+		if (one?.problem && holding)
+			runProblems.set(at, { run: holding, problem: one.problem });
 		else runProblems.delete(at);
 		if (!one) continue;
 		if ("judged" in one) {
@@ -132,7 +147,12 @@ export async function failureNow(
 			leave.add(one.overtaken);
 		}
 	}
-	problems.push(...runProblems.values());
+	// A run retired meanwhile says nothing; one recorded since in a project
+	// asked about no more holds the commit as it was recorded.
+	for (const [at, { run, problem }] of runProblems) {
+		const now = state.failedRuns.get(at);
+		if (now) problems.push(now === run ? problem : recordedMeanwhile(now));
+	}
 	const failure = problems.length > 0 ? { problems } : undefined;
 	return { failure, judged, leave };
 }
@@ -141,18 +161,23 @@ export async function failureNow(
  * Ask git after the failed run of the project at `root`, retiring it
  * when its tree has moved on. Only the run still recorded once git
  * answers counts: one an edit or a clean verify cleared meanwhile is
- * gone, and one recorded meanwhile is asked about in turn. Overtaken
- * past the bound, the newest holds the commit as it was recorded,
- * since verify fingerprinted it last, and git isn't asked again.
+ * gone, and one recorded meanwhile is asked about in turn. Once the
+ * project has spent the bound, in this ask or earlier ones, the newest
+ * holds the commit as it was recorded, since verify fingerprinted it
+ * last, and git isn't asked again.
  */
 async function askAfter(
 	state: VerificationState,
 	root: string,
+	spent: Map<string, number>,
 	signal?: AbortSignal,
 ): Promise<Asked> {
-	for (let tries = 0; tries < JUDGED_AT_MOST; tries++) {
+	for (;;) {
+		const tries = spent.get(root) ?? 0;
+		if (tries >= JUDGED_AT_MOST) break;
 		const run = state.failedRuns.get(root);
 		if (!run) return undefined;
+		spent.set(root, tries + 1);
 		const standing = await standingOf(run, signal);
 		if (state.failedRuns.get(root) !== run) continue;
 		if (standing === "moved") state.failedRuns.delete(root);

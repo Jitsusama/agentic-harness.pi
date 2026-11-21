@@ -91,6 +91,9 @@ describe("a commit's check", () => {
 		await gitSays("judged");
 		const { failure } = await checking;
 		expect(failure?.problems[0]).toContain("pnpm check failed");
+		expect(failure?.problems[0]).toContain(
+			"Run verify with path /src/repo once",
+		);
 	});
 
 	it("asks again for a run recorded while git answered for the last", async () => {
@@ -165,6 +168,9 @@ describe("a commit's check", () => {
 		for (const answer of asked.splice(0)) answer("now");
 		const { failure, judged, leave } = await checking;
 		expect(failure?.problems[0]).toMatch(/pnpm lint failed .* while this/);
+		expect(failure?.problems[0]).toContain(
+			"Run verify with path /src/repo once",
+		);
 		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(judged).toEqual([]);
 		expect([...leave]).toEqual([RUN.root]);
@@ -269,6 +275,45 @@ describe("a commit's check", () => {
 		const { failure } = await checking;
 		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(failure?.problems).toHaveLength(2);
+		expect(failure?.problems.join("\n")).toMatch(
+			/pnpm build failed in \/src\/repo while this/,
+		);
+	});
+
+	it("holds a commit on no run retired while another project was asked", async () => {
+		const lib = { ...RUN, root: "/src/repo/lib", command: "pnpm lint" };
+		record(lib);
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitSays("judged");
+		await gitAsked();
+		// An edit or a clean verify retires the repository's run meanwhile.
+		state.failedRuns.delete(RUN.root);
+		await gitSays("judged");
+		const { failure } = await checking;
+		expect(failure?.problems).toEqual([
+			expect.stringContaining("pnpm lint failed in /src/repo/lib"),
+		]);
+	});
+
+	// Each project re-recorded while the other is asked about is judged
+	// at its first ask, so only a bound per project across the check
+	// ends it.
+	it("asks no more about projects recorded again in turn past the bound", async () => {
+		const lib = { ...RUN, root: "/src/repo/lib", command: "pnpm lint" };
+		record(lib);
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		for (let turn = 0; turn < 6; turn++) {
+			await gitAsked();
+			record(turn % 2 === 0 ? { ...lib } : { ...RUN });
+			await gitSays("judged");
+		}
+		await settled();
+		expect(asked, "fingerprints asked past the bound").toHaveLength(0);
+		const { failure } = await checking;
+		expect(failure?.problems).toHaveLength(2);
+		expect(failure?.problems.join("\n")).toMatch(
+			/pnpm check failed in \/src\/repo while this/,
+		);
 	});
 
 	it("asks git after one project's run at a time", async () => {
