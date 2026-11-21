@@ -208,9 +208,19 @@ word, in the change's local checkout (or the `repo` the call names):
 
 Exit 0 lets the merge go on. Any other exit refuses it, with what
 the gate said; so does a gate that isn't on the machine or runs past
-five minutes, since a gate skipped whenever it breaks guards
-nothing. It came of four checks going red on core.nix's main on 8
-November, each from a branch that built before rebasing.
+its time, since a gate skipped whenever it breaks guards nothing. It
+came of four checks going red on core.nix's main on 8 November, each
+from a branch that built before rebasing.
+
+A gate has five minutes unless it names its own, from 1 to 180:
+
+```json
+{ "merge": { "gates": { "github:Jitsusama/core.nix":
+  { "command": "merge-net ready", "minutes": 30 } } } }
+```
+
+core.nix's gate builds the merge's net, about 13 minutes on 21
+November, so the five minutes refused every merge there as late.
 
 ### When a Queued Change Lands
 

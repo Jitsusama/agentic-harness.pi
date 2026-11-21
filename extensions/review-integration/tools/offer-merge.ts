@@ -152,7 +152,7 @@ async function gated(
 	if (!head) {
 		return `${change.repo.key} has a merge gate, \`${gate.command}\`, and the head of ${change.label} couldn't be read to hand it. Merge with expectedHead set to the head's full sha.`;
 	}
-	return gateRefusal(gate.command, head, gating.cwd, gating.run);
+	return gateRefusal(gate, head, gating.cwd, gating.run);
 }
 
 /** Land the change. */

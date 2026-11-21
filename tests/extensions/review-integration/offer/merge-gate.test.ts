@@ -4,14 +4,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	DEFAULT_GATE_MINUTES,
 	gateFor,
 	gateRefusal,
+	MOST_GATE_MINUTES,
 	type RunGate,
 } from "../../../../extensions/review-integration/merge-gate.ts";
 
 const CORE = "github:Jitsusama/core.nix";
 const HEAD = "4dca0632e1f0a6b3c9d27f4e5a8b1c0d2e3f4a5b";
 const review = { merge: { gates: { [CORE]: "merge-net ready" } } };
+const GATE = { command: "merge-net ready", minutes: DEFAULT_GATE_MINUTES };
+
+/** A gate run that never runs: it only keeps the time it was given. */
+function timed(): { run: RunGate; given: number[] } {
+	const given: number[] = [];
+	return {
+		given,
+		run: async (_line, _cwd, timeoutMs) => {
+			given.push(timeoutMs);
+			return { code: 0, stdout: "", stderr: "", killed: false };
+		},
+	};
+}
 
 /** The gate run by a real shell, as review_offer runs it. */
 const shell: RunGate = async (line, cwd) => {
@@ -34,14 +49,63 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 // changed-checks at its merge, from branches that built before rebasing.
 describe("a repo's merge gate", () => {
 	it("is read by the repo's key, and none for a repo that names none", () => {
-		expect(gateFor(review, CORE)).toEqual({
+		expect(
+			gateFor(review, CORE),
+			"a bare command gets the default time",
+		).toEqual({
 			kind: "gate",
 			command: "merge-net ready",
+			minutes: DEFAULT_GATE_MINUTES,
 		});
-		expect(gateFor(review, "github:Jitsusama/agentic-harness.pi")).toEqual({
-			kind: "none",
+		expect(
+			gateFor(review, "github:Jitsusama/agentic-harness.pi"),
+			"a repo naming no gate has none",
+		).toEqual({ kind: "none" });
+		expect(gateFor(undefined, CORE), "no review section names no gate").toEqual(
+			{
+				kind: "none",
+			},
+		);
+	});
+
+	it("gives a gate the minutes it names, and runs it with that long", async () => {
+		// 21 November: core.nix's merge-net ready took about 13 minutes,
+		// past the five every gate had, so no core.nix PR could merge
+		// through review_offer (1JQPPC, CUITX1).
+		const slow = {
+			merge: { gates: { [CORE]: { command: "merge-net ready", minutes: 30 } } },
+		};
+		const gate = gateFor(slow, CORE);
+		expect(gate, "the gate keeps its command and its own time").toEqual({
+			kind: "gate",
+			command: "merge-net ready",
+			minutes: 30,
 		});
-		expect(gateFor(undefined, CORE)).toEqual({ kind: "none" });
+		if (gate.kind !== "gate") throw new Error("no gate was read");
+		const { run, given } = timed();
+		await gateRefusal(gate, HEAD, dir, run);
+		expect(given, "the run is killed only after the gate's 30 minutes").toEqual(
+			[30 * 60_000],
+		);
+	});
+
+	it("refuses a time it can't trust, so the merge stops", () => {
+		for (const minutes of [0, 2.5, -1, "30", MOST_GATE_MINUTES + 1]) {
+			expect(
+				gateFor(
+					{ merge: { gates: { [CORE]: { command: "x", minutes } } } },
+					CORE,
+				),
+				`minutes of ${JSON.stringify(minutes)} is refused`,
+			).toMatchObject({
+				kind: "malformed",
+				problem: expect.stringContaining("minutes"),
+			});
+		}
+		expect(
+			gateFor({ merge: { gates: { [CORE]: { minutes: 30 } } } }, CORE),
+			"a gate with a time and no command is refused",
+		).toMatchObject({ kind: "malformed" });
 	});
 
 	it("says what's wrong with a gate it can't read, so the merge stops", () => {
@@ -56,35 +120,53 @@ describe("a repo's merge gate", () => {
 
 	it("lets a head through only when the gate, handed it, exits 0 in the checkout", async () => {
 		const passing = `test "$(pwd -P)" = ${JSON.stringify(realpathSync(dir))} && test`;
-		expect(await gateRefusal(passing, HEAD, dir, shell)).toBeUndefined();
+		expect(
+			await gateRefusal({ ...GATE, command: passing }, HEAD, dir, shell),
+			"a gate exiting 0 in the checkout lets the head through",
+		).toBeUndefined();
 	});
 
 	it("refuses with what the gate said", async () => {
 		const refusing =
 			"sh -c 'echo \"origin/main is not an ancestor of $0\" >&2; exit 3'";
-		const said = await gateRefusal(refusing, HEAD, dir, shell);
-		expect(said).toContain("exit 3");
-		expect(said).toContain(`origin/main is not an ancestor of ${HEAD}`);
+		const said = await gateRefusal(
+			{ ...GATE, command: refusing },
+			HEAD,
+			dir,
+			shell,
+		);
+		expect(said, "the refusal gives the exit").toContain("exit 3");
+		expect(said, "the refusal gives what the gate said").toContain(
+			`origin/main is not an ancestor of ${HEAD}`,
+		);
 	});
 
 	it("refuses when the gate isn't there to ask, or ran past its time", async () => {
-		expect(await gateRefusal("no-such-gate-here", HEAD, dir, shell)).toMatch(
-			/isn't on this machine/,
-		);
+		expect(
+			await gateRefusal(
+				{ ...GATE, command: "no-such-gate-here" },
+				HEAD,
+				dir,
+				shell,
+			),
+			"a missing gate says so",
+		).toMatch(/isn't on this machine/);
 		const slow: RunGate = async () => ({
 			code: 0,
 			stdout: "",
 			stderr: "",
 			killed: true,
 		});
-		expect(await gateRefusal("merge-net ready", HEAD, dir, slow)).toMatch(
-			/ran past/,
-		);
+		expect(
+			await gateRefusal({ ...GATE, minutes: 30 }, HEAD, dir, slow),
+			"a late gate says the time it had and how to name more",
+		).toMatch(/ran past its 30 minutes[\s\S]*"minutes"/);
 		const broken: RunGate = async () => {
 			throw new Error("spawn bash ENOENT");
 		};
-		expect(await gateRefusal("merge-net ready", HEAD, dir, broken)).toMatch(
-			/couldn't run.*ENOENT/,
-		);
+		expect(
+			await gateRefusal(GATE, HEAD, dir, broken),
+			"a gate that can't start says why",
+		).toMatch(/couldn't run.*ENOENT/);
 	});
 });
