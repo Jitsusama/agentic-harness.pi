@@ -31,6 +31,14 @@
  * the loop past HELD_MS: a loop held that long stalls every conversation
  * and its viewer, which costs more than the pages it would give back.
  * One runs again once the heap has fallen within it.
+ *
+ * A pace is forgotten PACE_KEPT_MS after its collection, and with none
+ * kept the next look collects and measures one afresh, as the first look
+ * does. A skip measures nothing, so one pause slowed by swap would
+ * otherwise skip every later look while the heap only grew: on 21
+ * November 19 children logged "Left uncollected" 31 times, holding a
+ * mean of 265 MB each. Foretelling a nominal pace with none kept would
+ * leave a large heap skipped for good in the same way, so none is.
  */
 import { readFileSync } from "node:fs";
 import {
@@ -65,6 +73,9 @@ const HELD_MS = 1_000;
 
 /** How many of its last collections foretell the next one's pause, by the slowest. */
 export const PACE_WINDOW = 4;
+
+/** How long a collection's pace foretells the next, so a slow one can't rule for good. */
+export const PACE_KEPT_MS = 60 * MS_PER_MINUTE;
 
 const KB = 1024;
 const MB = KB * KB;
@@ -141,8 +152,9 @@ export function quietCollection(options: {
 	let lastViewed = Number.NEGATIVE_INFINITY;
 	// Since when a collection has been due but held off by running work.
 	let dueSince: number | undefined;
-	// The last collections' pauses, in ms for each byte of heap they walked.
-	const paces: number[] = [];
+	// The last collections' pauses, in ms for each byte of heap they
+	// walked, and when each ran.
+	const paces: { readonly pace: number; readonly at: number }[] = [];
 
 	const forPark = (now: number) => parkOwed && now - lastForPark >= SPACING_MS;
 	const due = (now: number) =>
@@ -183,7 +195,9 @@ export function quietCollection(options: {
 		dueSince = undefined;
 		lastCollected = now;
 		const heapBefore = heap();
-		const pace = paces.length > 0 ? Math.max(...paces) : undefined;
+		while (paces[0] && now - paces[0].at >= PACE_KEPT_MS) paces.shift();
+		const pace =
+			paces.length > 0 ? Math.max(...paces.map((one) => one.pace)) : undefined;
 		if (
 			heapBefore !== undefined &&
 			pace !== undefined &&
@@ -194,12 +208,13 @@ export function quietCollection(options: {
 			);
 			return;
 		}
-		collected(reading, working, heapBefore);
+		collected(reading, working, heapBefore, now);
 	};
 	const collected = (
 		reading: QuietReading,
 		working: boolean,
 		heapBefore: Heap | undefined,
+		now: number,
 	) => {
 		const before = weigh();
 		const started = clock();
@@ -227,7 +242,7 @@ export function quietCollection(options: {
 		};
 		const took = Math.round(ended - started);
 		if (heapBefore !== undefined && heapBefore.used > 0) {
-			paces.push(took / heapBefore.used);
+			paces.push({ pace: took / heapBefore.used, at: now });
 			if (paces.length > PACE_WINDOW) paces.shift();
 		}
 		const after = weigh();

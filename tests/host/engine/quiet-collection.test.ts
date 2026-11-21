@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CEILING_MS,
 	lastResortCollect,
+	PACE_KEPT_MS,
 	PACE_WINDOW,
 	processCode,
 	processHeap,
@@ -342,6 +343,32 @@ describe("the host's collection once quiet", () => {
 		expect(said[1]).toMatch(
 			/^Left uncollected while quiet: the heap uses 900 MB, which at 1252 ms a GB/,
 		);
+	});
+
+	it("forgets a slow pause after an hour, so one slowed by swap doesn't skip every look after", () => {
+		const used = 300 * MB;
+		// 1.1 s at 300 MB, as under swap, then 150 ms once it has passed.
+		const { collect, said, next } = paced(() => used, [1100, 150]);
+		next();
+		const lookups = PACE_KEPT_MS / SPACING_MS - 1;
+		for (let one = 0; one < lookups; one += 1) next();
+		expect(
+			collect,
+			"the slow pace rules within its hour",
+		).toHaveBeenCalledTimes(1);
+		next();
+		expect(
+			collect,
+			"past its hour, with no pace kept, the next look collects and measures afresh",
+		).toHaveBeenCalledTimes(2);
+		expect(said.at(-1)).toMatch(/^Collected while quiet in 150 ms/);
+	});
+
+	it("collects a heap over a GB with no pace kept, since only a collection measures one", () => {
+		const { collect, said, next } = paced(() => 1200 * MB, [900]);
+		next();
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said[0]).toMatch(/^Collected while quiet in 900 ms/);
 	});
 
 	it("starts with collection off, said once, where V8 exposes no gc", () => {
