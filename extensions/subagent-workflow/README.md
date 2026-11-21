@@ -41,15 +41,20 @@ becomes pi's `--system-prompt`, `skills` and
 `verify_output` before ending.
 
 A subagent's pi runs outside the fence its parent's commands
-run in, so the tool keeps a fenced command's code out of it
-(`fence-keep.ts`). Every extension a job names, `verify`'s
-included, must be an absolute path inside pi's installed
-packages, which the fence holds read-only; the child is
-handed the path as followed, links and all, so a link swapped
-since can't move it. And every job starts with `--no-approve`,
-isolated or not, so a folder's own `.pi` is never loaded as
-code. To try an extension the model wrote, run pi on it as a
-fenced command instead.
+run in, so in a fenced session the tool keeps a fenced
+command's code out of it (`fence-keep.ts`). Every extension a
+job names, `verify`'s included, must be an absolute path in the
+current version of a package pi has installed, which the fence
+holds read-only; the child is handed the path as followed,
+links and all, so a link swapped since can't move it. Every
+child starts with `--no-approve`, isolated or not, so a
+folder's own `.pi` is never loaded as code, and is told its
+sandbox by name; an isolated one loads the fence's own bash and
+file guards from the install, and none starts when they aren't
+there. To try an extension the model wrote, run pi on it as a
+fenced command instead. An unfenced session's children, whose
+parent's commands already run as the person, load what they
+are told, as before.
 
 The tool returns:
 

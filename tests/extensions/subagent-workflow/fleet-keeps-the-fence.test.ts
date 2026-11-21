@@ -15,6 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	joinSpawns,
+	listForStage,
+} from "../../../lib/internal/fence/fence-stage.ts";
 import type { RunPi } from "../../../lib/subagent/subagent.ts";
 import { activateWith } from "../support/review-extension.ts";
 
@@ -82,7 +86,14 @@ const job = (id: string, extra: object = {}) => ({
 	...extra,
 });
 
-describe("a fleet naming extensions", () => {
+/** A session id, as pi mints one, for a session the first stage lists. */
+const LISTED = "0193a2b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b";
+
+describe("a fenced fleet naming extensions", () => {
+	beforeEach(() => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+	});
+
 	it("starts nothing when one job names an extension outside the install", async () => {
 		const text = await fleet([
 			job("a"),
@@ -96,36 +107,61 @@ describe("a fleet naming extensions", () => {
 	it("hands the child an installed extension as followed, not the link named", async () => {
 		const link = join(root, "link.ts");
 		symlinkSync(installed, link);
-		await fleet([job("a", { extraExtensions: [link] })]);
+		await fleet([job("a", { isolated: false, extraExtensions: [link] })]);
 		expect(each(started[0], "--extension")).toContain(installed);
 		expect(each(started[0], "--extension")).not.toContain(link);
 	});
 });
 
+describe("an unfenced fleet naming extensions", () => {
+	it("hands the child what was named, since the parent's commands already run as the person", async () => {
+		const planted = join(root, "planted.ts");
+		await fleet([job("a", { isolated: false, extraExtensions: [planted] })]);
+		expect(each(started[0], "--extension")).toContain(planted);
+	});
+});
+
 describe("a fleet's children and a folder's own .pi", () => {
-	it("starts an unisolated child ignoring project-local files", async () => {
+	it("starts a fenced session's unisolated child ignoring project-local files", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
 		await fleet([job("a", { isolated: false })]);
 		expect(started[0]).toContain("--no-approve");
 		expect(started[0]).not.toContain("--no-extensions");
 	});
 
-	it("starts an isolated child ignoring them too", async () => {
-		await fleet([job("a")]);
-		expect(started[0]).toContain("--no-approve");
-		expect(started[0]).toContain("--no-extensions");
+	it("leaves an unfenced session's unisolated child the folder's .pi, as before", async () => {
+		await fleet([job("a", { isolated: false })]);
+		expect(started[0]).not.toContain("--no-approve");
 	});
 });
 
 describe("a fenced session's fleet", () => {
-	it("starts an isolated child in its sandbox, with the fence's own bash", async () => {
+	it("starts no isolated child when this session runs code outside the install, whose fence it can't hand on", async () => {
 		vi.stubEnv("PI_SANDBOX", "fence");
-		await fleet([job("a")]);
+		const text = await fleet([job("a")]);
+		expect(text).toContain("needs the fence's own extensions");
+		expect(started).toEqual([]);
+	});
+
+	it("fences the children of a session the first stage lists, with no PI_SANDBOX to pass on", async () => {
+		vi.stubEnv("PI_SANDBOX", undefined);
+		vi.stubEnv("PI_SESSION_ID", LISTED);
+		listForStage(LISTED, "a test");
+		await fleet([job("a", { isolated: false })]);
 		expect(given[0]).toMatchObject({ PI_SANDBOX: "fence" });
-		expect(
-			each(started[0], "--extension").some((path) =>
-				path.endsWith(join("extensions", "shell-workflow", "index.ts")),
-			),
-		).toBe(true);
+		expect(started[0]).toContain("--no-approve");
+	});
+
+	it("fences an unfenced session's children once subagents join the first stage", async () => {
+		joinSpawns("a test");
+		const text = await fleet([
+			job("a", {
+				isolated: false,
+				extraExtensions: [join(root, "planted.ts")],
+			}),
+		]);
+		expect(text).toContain("planted.ts lies outside pi's installed packages");
+		expect(started).toEqual([]);
 	});
 
 	it("starts an unisolated child in its sandbox, which its own extensions fence", async () => {

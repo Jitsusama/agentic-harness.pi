@@ -170,6 +170,21 @@ export function treeToLoad(
 }
 
 /**
+ * Why the model of a session whose commands run in `sandbox` may not
+ * reload onto `tree`, or nothing. A reload runs the code it loads in
+ * this pi, outside the fence, and a tree is a folder the fenced commands
+ * may have written, so the model may only take the session back onto
+ * the install. The person still loads a tree by starting a pi on it.
+ */
+export function fencedReloadRefusal(
+	tree: string | undefined,
+	sandbox: string | undefined,
+): string | undefined {
+	if (sandbox === undefined || tree === undefined) return undefined;
+	return `This session's commands run in the ${sandbox} sandbox, and a reload would run ${homely(tree)}'s code outside it, where a fenced command may have written it. Reload onto "${INSTALLED}", or try the tree as a fenced command (pi -p -e <tree>).`;
+}
+
+/**
  * Ask for a reload onto `tree` (or the install), once the run ends.
  * A tree is loaded in a pi of its own first, and a tree that does not
  * load is refused here, before anything touches the settings.

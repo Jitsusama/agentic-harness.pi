@@ -34,6 +34,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
+import { askedSandbox } from "../../lib/internal/fence/fence-stage.ts";
 import {
 	type Held,
 	heldNote,
@@ -48,6 +49,7 @@ import {
 import { piPackageSettings } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
+import { SANDBOX_NAMES } from "../../lib/internal/sandbox/sandbox.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
@@ -68,6 +70,7 @@ import { keepMcpServersAcrossReloads } from "./mcp.ts";
 import {
 	COMMAND,
 	callOff,
+	fencedReloadRefusal,
 	HOSTED_RELOAD,
 	INSTALLED,
 	performReload,
@@ -245,6 +248,8 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			// A host refuses every tree itself, so the fence's refusal is for a
+			// session of its own.
 			if (hosted()) {
 				if (!hostReloads()) throw new Error(HOSTED_RELOAD);
 				const text = requestHostedReload(ctx, params.reason, params.onto);
@@ -252,6 +257,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			}
 			running = await whatRuns(settings);
 			const tree = treeToLoad(params.onto, running, ctx.cwd, homedir());
+			const fenced = fencedReloadRefusal(
+				tree,
+				askedSandbox(process.env, SANDBOX_NAMES).name,
+			);
+			if (fenced !== undefined) throw new Error(fenced);
 			const text = await requestReload(
 				params.reason,
 				tree,
