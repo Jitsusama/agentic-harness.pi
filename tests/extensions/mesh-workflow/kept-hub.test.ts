@@ -1,6 +1,7 @@
 /**
  * The hub from use a peer keeps for what the mesh says by itself: found
- * at once, read without waiting, never sought under the mark, and none
+ * at once, read without waiting, never sought under the mark or on a
+ * quest heading an orchestration, and none
  * rather than a stale one when a find fails.
  */
 
@@ -42,7 +43,11 @@ const tie = (other: string, strength: number): Tie => ({
  */
 function onMesh(
 	ties: () => Promise<readonly Tie[] | undefined>,
-	roles: { orchestratedBy?: string; orchestrates?: string } = {},
+	roles: {
+		orchestratedBy?: string;
+		orchestrates?: string;
+		questHeads?: string;
+	} = {},
 ) {
 	const folder = mkdtempSync(join(tmpdir(), "kept-hub-"));
 	folders.push(folder);
@@ -67,6 +72,7 @@ function onMesh(
 		addresses: ["7M6JKG"],
 		orchestratedBy: roles.orchestratedBy,
 		orchestrates: roles.orchestrates,
+		questHeads: roles.questHeads,
 	} as unknown as Peer;
 	const asked = vi.fn(ties);
 	return { at: { peer, presences, ties: asked }, asked };
@@ -111,6 +117,20 @@ describe("a kept hub", () => {
 	it("is never sought by the head of an orchestration", async () => {
 		const { at, asked } = onMesh(async () => [tie("ROOT01", 3)], {
 			orchestrates: "7M6JKG",
+		});
+
+		const hub = keep(at);
+		await Promise.resolve();
+
+		expect(asked).not.toHaveBeenCalled();
+		expect(hub.current()).toBeUndefined();
+	});
+
+	// Its quest's head is its orchestrator, so the mesh's own tells go
+	// nowhere wider rather than to a hub over that head.
+	it("is never sought by another session on a quest heading an orchestration", async () => {
+		const { at, asked } = onMesh(async () => [tie("ROOT01", 3)], {
+			questHeads: "7M6JKG",
 		});
 
 		const hub = keep(at);

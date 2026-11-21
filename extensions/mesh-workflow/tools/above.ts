@@ -61,9 +61,9 @@ export interface KeptHub {
 
 /**
  * Keep the hub from use of whatever peer `at` gives, found at once and
- * every `every` milliseconds after. A peer under the mark, or heading
- * an orchestration, keeps none and never asks the node, since the mark
- * is its orchestrator; a find that fails keeps none rather than one
+ * every `every` milliseconds after. A peer under the mark, or on a
+ * quest heading an orchestration, keeps none and never asks the node,
+ * since the mark is its orchestrator; a find that fails keeps none rather than one
  * that may be gone.
  */
 export function keepHub(
@@ -77,7 +77,8 @@ export function keepHub(
 		if (
 			reading === undefined ||
 			reading.peer.orchestratedBy !== undefined ||
-			reading.peer.orchestrates !== undefined
+			reading.peer.orchestrates !== undefined ||
+			reading.peer.questHeads !== undefined
 		) {
 			kept = undefined;
 			return;
