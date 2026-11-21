@@ -19,16 +19,20 @@
  * answered (council of 20 November, round 3).
  *
  * Anything that can't be read spares nothing, as on a Mac, where there
- * is no logind, or a presence that can't be read: a guess that spared
- * a session would be the one that ends its run.
+ * is no logind, or a presence or host list that can't be read, or a
+ * read past its patience: a guess that spared a session would be the
+ * one that ends its run. A `systemctl reboot` goes soft, keeping the
+ * boot, while /run/nextroot holds a tree, so then no marker counts.
  */
 
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
-import { hostRegistries } from "../../core/session/registry.ts";
+import type { HostRegistry } from "../../core/session/host.ts";
+import { hostRegistryAt } from "../../core/session/registry.ts";
 import { createPresences } from "../../mesh/presence.ts";
 import { type Booted, machineBooted } from "../machine/booted.ts";
-import { everyRealmsDir } from "../paths.ts";
+import { everyRealmsDir, stateDir } from "../paths.ts";
 import {
 	type Standing,
 	type TickedOwner,
@@ -62,11 +66,15 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
  * conversation on one. `marked` reads the marker. A session a host
  * still runs is left out: a park closes its conversation, so a host
  * listing it busy or idle has woken it, or its park never landed.
+ * None counts while `nextRoot` holds a tree, since a reboot then keeps
+ * the boot and every marker with it.
  */
 export async function parkedHere(
 	marked: (session: string) => boolean = (session) => markedThisBoot(session),
 	running: () => Promise<Set<string>> = () => runningInHosts(),
+	nextRoot = "/run/nextroot",
 ): Promise<Set<string>> {
+	if (holdsATree(nextRoot)) return new Set();
 	const [each, hosted] = await Promise.all([
 		Promise.all(
 			everyRealmsDir("state", "mesh-workflow").map((mesh) =>
@@ -92,18 +100,16 @@ export async function parkedHere(
  * The conversations a host lists busy or idle, from every host's list
  * whose process isn't known to be gone: one that can't be judged still
  * counts, since a host it can't rule out may be running them. A file
- * that doesn't read as a host's list is passed over, as every reader of
- * the lists passes it over, so it rules out nothing.
+ * that doesn't read as a host's list can't be told apart from a list
+ * of every session, so it fails the read, and nothing is spared.
  */
 export async function runningInHosts(
-	dir?: string,
+	dir: string = stateDir("hosts"),
 	standing: (owner: TickedOwner) => Promise<Standing> = (owner) =>
 		tickedStanding(owner),
 ): Promise<Set<string>> {
 	const running = new Set<string>();
-	for (const list of dir === undefined
-		? hostRegistries()
-		: hostRegistries(dir)) {
+	for (const list of hostLists(dir)) {
 		const { session: _session, ...hostProcess } = list.owner;
 		if ((await standing(hostProcess)) === "gone") continue;
 		for (const one of list.sessions) {
@@ -126,6 +132,64 @@ export function markedThisBoot(
 ): boolean {
 	const boot = booted();
 	return boot !== undefined && isParked(session, folder, () => boot);
+}
+
+/**
+ * Every host list in `dir`, failing on one that can't be read: its
+ * host may run any session. A list gone since the folder was read went
+ * with its host, so it is passed over.
+ */
+function hostLists(dir: string): HostRegistry[] {
+	let names: string[];
+	try {
+		names = readdirSync(dir).filter((name) => name.endsWith(".json"));
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return [];
+		throw error;
+	}
+	return names.flatMap((name) => {
+		const path = join(dir, name);
+		const list = hostRegistryAt(path);
+		if (list) return [list];
+		if (!existsSync(path)) return [];
+		throw new Error(`the host list ${name} can't be read`);
+	});
+}
+
+/**
+ * Whether `root` holds anything, as a next root a reboot would soft-boot
+ * into; one that can't be read might, so it does.
+ */
+function holdsATree(root: string): boolean {
+	try {
+		return readdirSync(root).length > 0;
+	} catch (error) {
+		return codeOf(error) !== "ENOENT";
+	}
+}
+
+/** The code a failed file call carries, such as ENOENT. */
+function codeOf(error: unknown): unknown {
+	return error instanceof Error && "code" in error ? error.code : undefined;
+}
+
+/**
+ * What `read` answers within `patienceMs`, failing once that is out, so
+ * a read stuck on a slow disk spares nothing rather than holding up the
+ * reply.
+ */
+export function withinPatience<T>(
+	read: Promise<T>,
+	patienceMs: number,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const out = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`what spares wasn't read in ${patienceMs} ms`)),
+			patienceMs,
+		);
+	});
+	return Promise.race([read, out]).finally(() => clearTimeout(timer));
 }
 
 /** What `command` printed, trimmed, or nothing when it failed or can't run. */

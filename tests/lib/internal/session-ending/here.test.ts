@@ -28,6 +28,7 @@ import {
 	markedThisBoot,
 	parkedHere,
 	runningInHosts,
+	withinPatience,
 } from "../../../../lib/internal/session-ending/here.ts";
 
 const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
@@ -222,6 +223,38 @@ describe("the sessions parked on this machine", () => {
 	it("are none where no presence was ever kept", async () => {
 		expect(await parkedHere(marked)).toEqual(new Set());
 	});
+
+	it("are none where a reboot would go soft, a next root being set", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		mkdirSync(join(nextRoot, "usr"), { recursive: true });
+
+		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
+			new Set(),
+		);
+	});
+
+	it("are still read where the next root is there but empty", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		mkdirSync(nextRoot, { recursive: true });
+
+		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
+			new Set(["slept"]),
+		);
+	});
+});
+
+describe("a read of what spares, within its patience", () => {
+	it("answers what the read answers in time", async () => {
+		expect(await withinPatience(Promise.resolve("read"), 1000)).toBe("read");
+	});
+
+	it("fails once its patience is out, so the read spares nothing", async () => {
+		await expect(withinPatience(new Promise(() => {}), 20)).rejects.toThrow(
+			/20 ms/,
+		);
+	});
 });
 
 describe("the conversations a host still runs", () => {
@@ -259,6 +292,15 @@ describe("the conversations a host still runs", () => {
 
 		expect(await runningInHosts(hosts, standing)).toEqual(
 			new Set(["idle", "busy", "unjudged"]),
+		);
+	});
+
+	it("can't be told where a host's list can't be read, since it may run any", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, "222-1.json"), "{ half a list");
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			/222-1\.json/,
 		);
 	});
 

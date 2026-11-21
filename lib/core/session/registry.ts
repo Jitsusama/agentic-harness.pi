@@ -28,7 +28,7 @@ function sameOwner(a: TickedOwner, b: TickedOwner): boolean {
 /** Consult the local host or its list after the kernel has confirmed its owner. */
 export function hostedStanding(
 	owner: TickedOwner,
-	readRegistry: (path: string) => HostRegistry | undefined = registryAt,
+	readRegistry: (path: string) => HostRegistry | undefined = hostRegistryAt,
 ): Standing {
 	const host = hosted();
 	if (host && host.key === owner.host && sameOwner(host.owner, owner)) {
@@ -48,7 +48,7 @@ export function askedHostOnce(): (owner: TickedOwner) => Standing {
 	const lists = new Map<string, HostRegistry | undefined>();
 	return (owner) =>
 		hostedStanding(owner, (path) => {
-			if (!lists.has(path)) lists.set(path, registryAt(path));
+			if (!lists.has(path)) lists.set(path, hostRegistryAt(path));
 			return lists.get(path);
 		});
 }
@@ -66,11 +66,15 @@ export function hostRegistries(dir = stateDir("hosts")): HostRegistry[] {
 		return [];
 	}
 	return names
-		.map((name) => registryAt(join(dir, name)))
+		.map((name) => hostRegistryAt(join(dir, name)))
 		.filter((read): read is HostRegistry => read !== undefined);
 }
 
-function registryAt(path: string): HostRegistry | undefined {
+/**
+ * The host list at `path`, or nothing when it can't be read or doesn't
+ * read as one, for a reader that must know which list it passed over.
+ */
+export function hostRegistryAt(path: string): HostRegistry | undefined {
 	try {
 		const read: unknown = JSON.parse(readFileSync(path, "utf8"));
 		return isRegistry(read) ? withKnownFences(read) : undefined;
