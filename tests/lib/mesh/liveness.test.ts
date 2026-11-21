@@ -221,7 +221,10 @@ describe("whether a restarting host is bringing a conversation back", () => {
 		keep("work-background", [CONVERSATION]);
 		hostStarted(RESUME_GRACE_MS * 3);
 
-		expect(await ask()(CONVERSATION, "work-background")).toBe(true);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"resuming while no host runs under its key",
+		).toBe(true);
 	});
 
 	it("is while the host running again started within the grace", async () => {
@@ -231,6 +234,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 
 		expect(
 			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+			"resuming while the running host is within the grace",
 		).toBe(true);
 	});
 
@@ -241,6 +245,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 
 		expect(
 			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+			"not resuming once the running host is past the grace",
 		).toBe(false);
 	});
 
@@ -251,31 +256,50 @@ describe("whether a restarting host is bringing a conversation back", () => {
 
 		expect(
 			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+			"resuming while the running host has it open",
 		).toBe(true);
 	});
 
 	it("reads only the named host's roster, not another host's", async () => {
 		keep("work-attended", [CONVERSATION]);
 
-		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"another host's roster says nothing of this one",
+		).toBe(false);
 		keep("work-background", []);
-		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"the named roster not holding it",
+		).toBe(false);
 	});
 
 	it("is not when the roster can't be read", async () => {
 		writeFileSync(join(rosters, "work-background.json"), "{ half");
 
-		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"an unreadable roster holds nothing",
+		).toBe(false);
 	});
 
 	it("reads each roster once however many it is asked about", async () => {
 		keep("work-background", [CONVERSATION]);
 		const once = ask();
-		expect(await once(CONVERSATION, "work-background")).toBe(true);
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the first ask reads the roster",
+		).toBe(true);
 
 		rmSync(join(rosters, "work-background.json"));
-		expect(await once(CONVERSATION, "work-background")).toBe(true);
-		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the same census answers from the roster it read",
+		).toBe(true);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"a new census reads the roster again",
+		).toBe(false);
 	});
 });
 
