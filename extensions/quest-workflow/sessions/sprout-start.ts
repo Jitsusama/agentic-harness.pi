@@ -36,7 +36,7 @@ import {
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
-import { parseRef } from "../../../lib/refs/index.ts";
+import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import { create, load } from "../verbs/lifecycle.ts";
@@ -197,13 +197,39 @@ function questsWith(
 }
 
 /**
+ * The ref the seed's link is the page of: only where the link begins
+ * with the ref's own address, so a link merely carrying another page's
+ * address in its path or fragment joins no quest and takes no mark.
+ */
+function linkRef(seed: SproutSeed): Ref | undefined {
+	if (!seed.link) return undefined;
+	const ref = parseRef(seed.link);
+	const own = ref ? placeOf(urlForRef(ref)) : undefined;
+	const link = placeOf(seed.link);
+	if (!own || !link) return undefined;
+	return link === own || link.startsWith(`${own}/`) ? ref : undefined;
+}
+
+/** A web address's host, less any www., and its path, to compare by. */
+function placeOf(url: string | undefined): string | undefined {
+	if (!url) return undefined;
+	try {
+		const { host, pathname } = new URL(url);
+		return `${host.replace(/^www\./u, "")}${pathname.replace(/\/$/u, "")}`;
+	} catch {
+		// Not a web address, so no page to be the ref's own.
+		return undefined;
+	}
+}
+
+/**
  * The mark a sprout's own quest takes for a link a sealed quest holds,
  * since the link's own alias can't go on two quests.
  */
 function sproutLink(
 	seed: SproutSeed,
 ): { type: string; value: string } | undefined {
-	const ref = seed.link ? parseRef(seed.link) : undefined;
+	const ref = linkRef(seed);
 	return ref
 		? { type: "sprout-link", value: `${ref.type}:${ref.value}` }
 		: undefined;
@@ -215,7 +241,7 @@ function sproutLink(
  * it took when the quest holding it had ended.
  */
 function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
-	const ref = seed.link ? parseRef(seed.link) : undefined;
+	const ref = linkRef(seed);
 	const mark = sproutLink(seed);
 	if (!ref || !mark) return undefined;
 	const all = [...questsWith(state, ref), ...questsWith(state, mark)];
@@ -239,7 +265,7 @@ async function makeQuest(
 		priority: "driving",
 	} as const;
 	const title = (seed.words ? titleFromWords(seed.words) : seed.link) ?? "";
-	if (linkable && seed.link && parseRef(seed.link)) {
+	if (linkable && seed.link && linkRef(seed)) {
 		const note = seed.words ? { note: seed.words } : {};
 		const linked = await make({ ...base, url: seed.link, ...note });
 		if (linked.ok) return linked;

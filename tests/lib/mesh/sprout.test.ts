@@ -3,7 +3,9 @@
  * session, and what it answered read.
  */
 
-import { homedir } from "node:os";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	type Ran,
@@ -220,6 +222,25 @@ describe("sprouting", () => {
 		}
 	});
 
+	it("keeps what a signal ended after the node's start or refusal was read", async () => {
+		const started = answering({
+			code: null,
+			stdout: `${STARTED}\n`,
+			stderr: "",
+		});
+		expect(await sprout({ words: "tea" }, "/", started.run)).toMatchObject({
+			ok: true,
+		});
+		const refused = answering({
+			code: null,
+			stdout: '{"Err":"no such machine"}\n',
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/", refused.run);
+		expect(answer).toMatchObject({ ok: false });
+		expect(answer).not.toHaveProperty("mayLand");
+	});
+
 	it("says nothing was sprouted when mycelium couldn't be started at all", async () => {
 		const { run } = answering({
 			code: null,
@@ -300,11 +321,22 @@ describe("running a program", () => {
 	});
 
 	it("says one that couldn't be started never ran, with the system's reason", async () => {
+		// A plain file as the folder fails the spawn itself, on any system.
+		const file = join(mkdtempSync(join(tmpdir(), "sprout-")), "file");
+		writeFileSync(file, "");
 		const ran = await runProgram("sh", ["-c", "exit 0"], {
 			...patience,
-			cwd: "/etc/hostname",
+			cwd: file,
 		});
 		expect(ran).toMatchObject({ code: null, neverRan: "ENOTDIR" });
+	});
+
+	it("never says one node cut off for saying too much never ran", async () => {
+		const chatty =
+			"awk 'BEGIN { while (i++ < 40000) print \"0123456789012345678901234567890123456789\" }'";
+		const ran = await runProgram("sh", ["-c", chatty], patience);
+		expect(ran.code).toBeNull();
+		expect(ran).not.toHaveProperty("neverRan");
 	});
 
 	it("says one that ran past its patience timed out", async () => {

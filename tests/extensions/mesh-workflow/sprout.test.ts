@@ -55,7 +55,9 @@ describe("mesh_sprout", () => {
 		expect(said(answer)).toMatch(
 			/Sprouted on skiff in \/home\/joel\/src\/core\.nix/u,
 		);
-		expect(said(answer)).toMatch(/tied to this cell, 42P0R4/u);
+		expect(said(answer)).toMatch(
+			/asks to tie its quest to this cell, 42P0R4, on the map as it starts; until the map shows the tie, it isn't there/u,
+		);
 		expect(said(answer)).toMatch(/mycelium attach 01JHELD/u);
 	});
 

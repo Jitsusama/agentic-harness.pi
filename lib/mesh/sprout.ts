@@ -265,9 +265,13 @@ function runFile(
 			...(options.signal ? { signal: options.signal } : {}),
 		},
 		(error, stdout, stderr) => {
-			// A string code is the spawn's own failure: the program never ran.
+			// A system error's code (EAGAIN, EACCES) is the spawn's own
+			// failure: the program never ran. Node's own codes (ERR_...), such
+			// as its kill of a run past its output's limit, come from one that
+			// ran and may have asked the node.
 			const failedToSpawn =
 				typeof error?.code === "string" &&
+				/^E[A-Z0-9]+$/u.test(error.code) &&
 				error.code !== "ENOENT" &&
 				error.name !== "AbortError"
 					? error.code

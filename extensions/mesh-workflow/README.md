@@ -244,8 +244,10 @@ and can answer a question or a gate left open on screen.
   Start New Work and a terminal do, rather than asking the node's
   socket itself: the program judges the folder on this disk first,
   refuses home, and falls back to a plain start on an older node.
-  The new session makes its own quest, tied to this cell by
-  `--from`, and runs in no window; the answer says how to join it.
+  The new session makes its own quest, asking the map to tie it
+  to this cell by `--from`, and runs in no window; the answer says
+  how to join it, and that the tie is there only once the map
+  shows it.
   Loaded on demand.
 - `mesh_wait`: say that this session's quest has something
   waiting on the person that only they can do, or with `done`

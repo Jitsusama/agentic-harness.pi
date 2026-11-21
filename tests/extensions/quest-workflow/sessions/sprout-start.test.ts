@@ -266,6 +266,31 @@ describe("a sprouted session's start", () => {
 		expect(again.words).toMatch(/already holds this work/u);
 	});
 
+	it("joins nothing for a link that only carries another page's address", async () => {
+		const first = await start({ words: "the PR's work", id: "S30" });
+		if (!first.state.questId) throw new Error("no quest to mark");
+		markWith(first.state.questId, "https://github.com/o/r/pull/1");
+		for (const [n, link] of [
+			"https://evil.example/https://github.com/o/r/pull/1",
+			"https://github.com/x/https://github.com/o/r/pull/1",
+			"https://evil.example/#o/r#1",
+		].entries()) {
+			const again = await start(
+				{ link, id: `S3${n + 1}` },
+				{ sessionId: `sess-carry-${n}` },
+			);
+			expect(again.state.questId, link).not.toBe(first.state.questId);
+			expect(again.words, link).not.toMatch(/already holds this work/u);
+		}
+		const own = await start(
+			{ link: "https://www.github.com/o/r/pull/1/files", id: "S34" },
+			{ sessionId: "sess-carry-own" },
+		);
+		expect(own.state.questId, "its own page, deeper in").toBe(
+			first.state.questId,
+		);
+	});
+
 	it("makes its own quest when the one holding its link has ended, never carrying it on", async () => {
 		const first = await start({ words: "the PR's work", id: "S5" });
 		const ended = first.state.questId;
