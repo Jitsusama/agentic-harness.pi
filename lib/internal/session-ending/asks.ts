@@ -243,13 +243,17 @@ function sentenceAsks(
 			byAct.set(act, { act, machines: named, said });
 		}
 	}
-	if (asksToRun(plain)) {
-		for (const code of inlineCode(sentence)) {
-			for (const one of commandAsks(code, machines)) {
-				if (byAct.has(one.act)) continue;
-				const where = one.machines.length > 0 ? one.machines : named;
-				byAct.set(one.act, { act: one.act, machines: where, said });
-			}
+	// An ask in words reads its code too, so "log out with `loginctl
+	// terminate-user`" asks for what that command does, not only a log-out.
+	const spans = new Set([
+		...(asksToRun(plain) ? inlineCode(sentence) : []),
+		...(byAct.size > 0 ? codeSpans(sentence) : []),
+	]);
+	for (const code of spans) {
+		for (const one of commandAsks(code, machines)) {
+			if (byAct.has(one.act)) continue;
+			const where = one.machines.length > 0 ? one.machines : named;
+			byAct.set(one.act, { act: one.act, machines: where, said });
 		}
 	}
 	return [...byAct.values()];
@@ -284,6 +288,11 @@ function withoutBoldLabel(sentence: string, words: string): string {
  */
 const RUN_SPAN =
 	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
+
+/** Every inline code span of a sentence, as written. */
+function codeSpans(sentence: string): string[] {
+	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
+}
 
 /** The spans a sentence asks to run, as written. */
 function inlineCode(sentence: string): string[] {

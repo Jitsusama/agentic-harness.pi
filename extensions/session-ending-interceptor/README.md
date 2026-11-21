@@ -96,9 +96,12 @@ machine, read without a deadline.
   of the user's processes rather than a log-out, and nothing spares a
   session from it, parked or not. Only ending a session or a seat,
   or stopping the desktop logged in to (its compositor or
-  `graphical-session.target`), reads as a log-out, so a host the
-  spare passes over has to outlive the desktop, as one wanted by
-  `default.target` and bound to nothing graphical does.
+  `graphical-session.target`), reads as a log-out, so a host or holder
+  the spare passes over has to outlive the desktop, as a host wanted
+  by `default.target`, or a holder's scope in `agents.slice`, bound to
+  nothing graphical does. A reply that names an act in words and a
+  command in inline code asks for both, so "log out with `loginctl
+  terminate-user`" counts as ending the user's processes too.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
   or unsent text); its presence then says `parked`, and its marker

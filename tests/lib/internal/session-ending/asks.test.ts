@@ -159,6 +159,21 @@ describe("a reply that asks", () => {
 	it("reads a machine named in another case", () => {
 		expect(named("Reboot Optimus now.")).toEqual([["optimus"]]);
 	});
+
+	it.each([
+		[
+			"Log out of niri on optimus by running `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		[
+			"Log out with `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		["Reboot optimus with `sudo systemctl soft-reboot`.", "soft-reboot"],
+		["Please reboot optimus (`systemctl soft-reboot`).", "soft-reboot"],
+	])("%s asks for what its code does too", (text, act) => {
+		expect(acts(text)).toContain(act);
+	});
 });
 
 describe("a reply that only mentions one, or warns against one", () => {
