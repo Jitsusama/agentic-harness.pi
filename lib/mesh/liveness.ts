@@ -35,15 +35,28 @@
  * its holder starts it again for what is sent to it.
  *
  * A hosted conversation whose host has gone is resuming, not ended, while
- * its host's roster still holds it: a host restarting leaves its holds in
- * place, and its next start brings each back, which on 21 November took
- * eight minutes for 116. Judged gone meanwhile, about 60 cells read as
- * ended, which led to questions of who owned their work and nearly to a
- * push onto another cell's branch (IKQ63G). Only a roster that holds it
- * says so; one that can't be read leaves it gone, as before.
+ * its host's roster still holds it and that host is starting again: a
+ * host restarting leaves its holds in place, and its next start brings
+ * each back, which on 21 November took eight minutes for 116. Judged gone
+ * meanwhile, about 60 cells read as ended, which led to questions of who
+ * owned their work and nearly to a push onto another cell's branch
+ * (IKQ63G). Only that host's own roster holding it says so; one that
+ * can't be read leaves it gone, as before. The host is starting again
+ * while none runs under its key, or the one running started within
+ * {@link RESUME_GRACE_MS} or has it open; past that, a held conversation
+ * it never brought back (a start that failed) is gone, not resuming for
+ * as long as its hold stands.
  */
 
-import { type HeldStatus, heldSessionStatus } from "../core/session/roster.ts";
+import { readFile } from "node:fs/promises";
+import type { HostRegistry } from "../core/session/host.ts";
+import { hostRegistries } from "../core/session/registry.ts";
+import {
+	parseRoster,
+	type Roster,
+	rosterDir,
+	rosterPath,
+} from "../core/session/roster.ts";
 import {
 	askedOnceWithTicks,
 	processKey,
@@ -58,14 +71,95 @@ import type { Presence } from "./presence.ts";
 /** Whether a session's parked marker stands. */
 export type ParkedAsk = (session: string) => boolean;
 
-/** Whether the host keyed `host` holds `conversation` for its next start. */
-export type HeldAsk = (
-	conversation: string,
-	host: string,
-) => Promise<HeldStatus>;
+/** Whether the host keyed `host` is bringing `conversation` back as it starts again. */
+export type HeldAsk = (conversation: string, host: string) => Promise<boolean>;
 
-const heldByRoster: HeldAsk = (conversation, host) =>
-	heldSessionStatus(conversation, { hostKey: host });
+/**
+ * How long a host that started again has to bring back what its roster
+ * holds before a conversation it hasn't is no longer taken as resuming.
+ * On 21 November one start took eight minutes for 116 conversations.
+ */
+export const RESUME_GRACE_MS = 20 * 60_000;
+
+/** Where the rosters and host lists are; the machine's unless a test sets them. */
+export interface HeldLooking {
+	readonly rosters?: string;
+	readonly hosts?: string;
+	readonly now?: number;
+}
+
+/**
+ * A {@link HeldAsk} reading each host's roster, and the host lists, once
+ * however many presences it is asked about, as one census asks.
+ */
+export function heldOnce(
+	facts: TickFacts = tickFacts,
+	looking: HeldLooking = {},
+): HeldAsk {
+	const now = looking.now ?? Date.now();
+	const rosters = new Map<string, Promise<Roster | undefined>>();
+	const live = new Map<string, Promise<HostRegistry | undefined>>();
+	let lists: readonly HostRegistry[] | undefined;
+	const rosterOf = (host: string) => {
+		let read = rosters.get(host);
+		if (!read) {
+			read = rosterAt(host, looking.rosters ?? rosterDir());
+			rosters.set(host, read);
+		}
+		return read;
+	};
+	const runningHost = (host: string) => {
+		let found = live.get(host);
+		if (!found) {
+			lists ??= looking.hosts
+				? hostRegistries(looking.hosts)
+				: hostRegistries();
+			found = running(
+				lists.filter((list) => list.key === host),
+				facts,
+			);
+			live.set(host, found);
+		}
+		return found;
+	};
+	return async (conversation, host) => {
+		const roster = await rosterOf(host);
+		if (!roster?.sessions.some((entry) => entry.sessionId === conversation))
+			return false;
+		const up = await runningHost(host);
+		return (
+			up === undefined ||
+			now - up.owner.startedAt < RESUME_GRACE_MS ||
+			up.sessions.some((one) => one.id === conversation)
+		);
+	};
+}
+
+/** One host key's roster, or nothing when it is missing or can't be read. */
+async function rosterAt(
+	host: string,
+	dir: string,
+): Promise<Roster | undefined> {
+	try {
+		return parseRoster(await readFile(rosterPath(host, dir), "utf8"), host);
+	} catch {
+		// Missing, unreadable or not a host key: no evidence of a hold.
+		return undefined;
+	}
+}
+
+/** Of a key's host lists, the one whose process runs now, judged by its ticks. */
+async function running(
+	lists: readonly HostRegistry[],
+	facts: TickFacts,
+): Promise<HostRegistry | undefined> {
+	for (const list of lists) {
+		// Asked of the host's process alone: the list says what it holds.
+		const { session: _session, ...hostProcess } = list.owner;
+		if ((await tickedStanding(hostProcess, facts)) === "running") return list;
+	}
+	return undefined;
+}
 
 /**
  * Whether a peer is there, resuming while its host starts again, gone,
@@ -79,7 +173,7 @@ export interface Census {
 	readonly present: readonly Presence[];
 	readonly gone: readonly Presence[];
 	/** Of those present, the ones a restarting host is bringing back. */
-	readonly resuming?: readonly Presence[];
+	readonly resuming: readonly Presence[];
 }
 
 /** Whether this peer is still on the mesh. */
@@ -88,7 +182,7 @@ export async function livenessOf(
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
 	parked: ParkedAsk = isParked,
-	held: HeldAsk = heldByRoster,
+	held: HeldAsk = heldOnce(facts),
 ): Promise<Liveness> {
 	if (presence.machine !== undefined) {
 		const held = await node();
@@ -115,7 +209,7 @@ export async function livenessOf(
 	if (presence.state === "parked" && parked(presence.session)) return "present";
 	if (!presence.hosted) return "gone";
 	const { host, conversation } = presence.hosted;
-	return (await held(conversation, host)) === "held" ? "resuming" : "gone";
+	return (await held(conversation, host)) ? "resuming" : "gone";
 }
 
 /**
@@ -137,9 +231,10 @@ export async function census(
 	facts: TickFacts = tickFacts,
 	node: AskNode = askNode,
 	parked: ParkedAsk = isParked,
-	held: HeldAsk = heldByRoster,
+	held?: HeldAsk,
 ): Promise<Census> {
 	const once = askedOnceWithTicks(facts);
+	const heldHere = held ?? heldOnce(once);
 	let asked: ReturnType<AskNode> | undefined;
 	const nodeOnce: AskNode = () => {
 		asked ??= node();
@@ -163,7 +258,7 @@ export async function census(
 					one,
 					left(one)
 						? "gone"
-						: await livenessOf(one, once, nodeOnce, parked, held),
+						: await livenessOf(one, once, nodeOnce, parked, heldHere),
 				] as const,
 		),
 	);

@@ -467,39 +467,46 @@ describe("groups", () => {
 	it("says a conversation its restarting host still holds is resuming, not ended", async () => {
 		// Its host's process is gone, as while the host starts again, but the
 		// host's roster still holds the conversation for that start.
-		const conversation = "01a1f92f-2616-7076-a389-ed92252551f1";
-		createPresences(join(fixture.paths.mesh, "presence")).publish({
-			session: conversation,
-			addresses: ["Q9SDM1"],
-			groups: ["#aquifer/trust"],
-			worksOn: "the trust hub",
-			owns: [],
-			busy: true,
-			owner: { pid: process.pid, startedAt: 1 },
-			hosted: { host: "work-background", conversation },
-			at: new Date().toISOString(),
-		});
+		const held = [
+			["01a1f92f-2616-7076-a389-ed92252551f1", "Q9SDM1", ["#aquifer/trust"]],
+			// In no group, as the Ended line leaves such a peer out.
+			["01a1f92f-2616-7076-a389-ed92252551f2", "NOGRP1", []],
+			// A session already running answers to this address again.
+			["01a1f92f-2616-7076-a389-ed92252551f3", "AGAIN1", ["#optimus"]],
+		] as const;
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		for (const [conversation, address, groups] of held)
+			presences.publish({
+				session: conversation,
+				addresses: [address],
+				groups: [...groups],
+				worksOn: address === "Q9SDM1" ? "the trust hub" : "",
+				owns: [],
+				busy: true,
+				owner: { pid: process.pid, startedAt: 1 },
+				hosted: { host: "work-background", conversation },
+				at: new Date().toISOString(),
+			});
+		peer("session-again-live", ["AGAIN1"], ["#optimus"]);
 		const rosters = rosterDir();
-		mkdirSync(rosters, { recursive: true });
-		writeFileSync(
-			rosterPath("work-background", rosters),
-			JSON.stringify({
-				v: 1,
-				key: "work-background",
-				sessions: [
-					{
-						sessionId: conversation,
-						file: "/sessions/one.jsonl",
+
+		try {
+			mkdirSync(rosters, { recursive: true });
+			writeFileSync(
+				rosterPath("work-background", rosters),
+				JSON.stringify({
+					v: 1,
+					key: "work-background",
+					sessions: held.map(([sessionId]) => ({
+						sessionId,
+						file: `/sessions/${sessionId}.jsonl`,
 						cwd: "/work",
 						attended: false,
 						since: "2026-11-21T08:00:00.000Z",
-					},
-				],
-			}),
-		);
-		const { tools } = await startSession();
-
-		try {
+					})),
+				}),
+			);
+			const { tools } = await startSession();
 			const listed = await tools.get("mesh_groups")?.execute("call-1", {});
 
 			const text = listed?.content[0]?.text ?? "";

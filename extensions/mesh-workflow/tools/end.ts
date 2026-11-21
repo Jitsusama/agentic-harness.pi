@@ -1,11 +1,15 @@
 /** mesh_end: ending a session of this orchestration, and its process. */
 
 import { endSession } from "../../../lib/core/session/index.ts";
-import { tickedStanding } from "../../../lib/internal/process-ticks.ts";
+import {
+	type TickedOwner,
+	tickedStanding,
+} from "../../../lib/internal/process-ticks.ts";
 import { askWake } from "../../../lib/internal/session/park.ts";
 import { endTarget } from "../../../lib/mesh/end.ts";
 import { groupNamed } from "../../../lib/mesh/group.ts";
 import { closeThroughHost, hostedHere } from "../../../lib/mesh/host-close.ts";
+import { heldOnce } from "../../../lib/mesh/liveness.ts";
 import { type Answer, answer, type EndProcess, type Local } from "./local.ts";
 
 export async function end(
@@ -32,6 +36,10 @@ export async function end(
 		`mesh_end from ${at.peer.signature}`,
 	);
 	if (ended === "gone") {
+		if (await resuming(at, target.owner))
+			return answer(
+				`${address} is resuming as its host starts again, so nothing was signalled; mesh_end ends it once it runs.`,
+			);
 		return answer(`${address} had already ended; nothing was signalled.`);
 	}
 	if (ended === "unsure") {
@@ -48,6 +56,16 @@ export async function end(
 	return answer(
 		`Asked ${address}'s pi (pid ${target.owner.pid}) to quit; its window closes with it.`,
 	);
+}
+
+/**
+ * Whether a hosted conversation that reads gone is one its host is
+ * bringing back as it starts again, as mesh_groups would say.
+ */
+function resuming(at: Local, owner: TickedOwner): Promise<boolean> {
+	if (owner.host === undefined || owner.session === undefined)
+		return Promise.resolve(false);
+	return (at.heldAsk ?? heldOnce())(owner.session, owner.host);
 }
 
 /** Whether a parked session was woken for mesh_end, rather than ended. */

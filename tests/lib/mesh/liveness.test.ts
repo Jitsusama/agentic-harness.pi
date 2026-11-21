@@ -2,13 +2,22 @@
  * Liveness: whether a peer is still on the mesh, asked of the machine.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProcessFacts } from "../../../lib/core/process/index.ts";
 import {
 	type TickFacts,
 	tickedOwnerNow,
 } from "../../../lib/internal/process-ticks.ts";
-import { census, livenessOf } from "../../../lib/mesh/liveness.ts";
+import {
+	census,
+	type HeldAsk,
+	heldOnce,
+	livenessOf,
+	RESUME_GRACE_MS,
+} from "../../../lib/mesh/liveness.ts";
 import type { AskNode, Held } from "../../../lib/mesh/node.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
@@ -83,32 +92,18 @@ describe("a peer's liveness", () => {
 		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
 	});
 
-	it("is resuming while its host restarts, as long as its roster holds it", async () => {
-		const one = presence({
-			session: "c-1",
-			owner: { pid: 40, startedAt: 1000 },
-			state: "busy",
-			hosted: { host: "work-background", conversation: "c-1" },
-		});
-		const asked: string[] = [];
-		const roster =
-			(answer: "held" | "unheld" | "unknown") =>
-			async (conversation: string, host: string) => {
-				asked.push(`${host}/${conversation}`);
-				return answer;
-			};
+	it("is resuming while its host restarts, as long as its host brings it back", async () => {
+		const one = hostedPresence();
+		const { ask, asked } = holding(true);
 
 		const gone = machine({});
-		expect(
-			await livenessOf(one, gone, undefined, () => false, roster("held")),
-		).toBe("resuming");
+		expect(await livenessOf(one, gone, undefined, () => false, ask)).toBe(
+			"resuming",
+		);
 		expect(asked).toEqual(["work-background/c-1"]);
-		// Closed or released, or a roster that can't be read: gone, as before.
+		// Closed, released, never brought back, or a roster that can't be read.
 		expect(
-			await livenessOf(one, gone, undefined, () => false, roster("unheld")),
-		).toBe("gone");
-		expect(
-			await livenessOf(one, gone, undefined, () => false, roster("unknown")),
+			await livenessOf(one, gone, undefined, () => false, holding(false).ask),
 		).toBe("gone");
 
 		const standing = await census(
@@ -116,20 +111,171 @@ describe("a peer's liveness", () => {
 			gone,
 			undefined,
 			() => false,
-			roster("held"),
+			holding(true).ask,
 		);
 		expect(standing.present.map((peer) => peer.session)).toEqual(["c-1"]);
-		expect(standing.resuming?.map((peer) => peer.session)).toEqual(["c-1"]);
+		expect(standing.resuming.map((peer) => peer.session)).toEqual(["c-1"]);
 		expect(standing.gone.map((peer) => peer.session)).toEqual(["s-1"]);
+	});
+
+	it("asks no roster of a hosted peer still running or parked", async () => {
+		const { ask, asked } = holding(false);
+		const running: TickFacts = {
+			...machine({ 40: 1000 }),
+			sessionStanding: () => "running",
+		};
+		expect(
+			await livenessOf(hostedPresence(), running, undefined, () => false, ask),
+		).toBe("present");
+		const parked = hostedPresence({ state: "parked" });
+		expect(
+			await livenessOf(parked, machine({}), undefined, () => true, ask),
+		).toBe("present");
+		expect(asked).toEqual([]);
 	});
 
 	it("never asks a roster of a peer no host holds", async () => {
 		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
-		const roster = async () => "held" as const;
+		const { ask, asked } = holding(true);
 
 		expect(
-			await livenessOf(one, machine({}), undefined, () => false, roster),
+			await livenessOf(one, machine({}), undefined, () => false, ask),
 		).toBe("gone");
+		expect(asked).toEqual([]);
+	});
+});
+
+/** A presence on conversation c-1 that the work-background host holds. */
+function hostedPresence(over: Partial<Presence> = {}): Presence {
+	return presence({
+		session: "c-1",
+		owner: { pid: 40, startedAt: 1000 },
+		state: "busy",
+		hosted: { host: "work-background", conversation: "c-1" },
+		...over,
+	});
+}
+
+/** A roster answering `answer`, keeping each host and conversation asked. */
+function holding(answer: boolean): { ask: HeldAsk; asked: string[] } {
+	const asked: string[] = [];
+	return {
+		asked,
+		ask: async (conversation, host) => {
+			asked.push(`${host}/${conversation}`);
+			return answer;
+		},
+	};
+}
+
+describe("whether a restarting host is bringing a conversation back", () => {
+	const CONVERSATION = "01a1f23f-0000-7000-8000-000000000001";
+	const NOW = 2_000_000_000_000;
+	const HOST_PID = 700;
+	let root: string;
+	let rosters: string;
+	let hosts: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "held-once-"));
+		rosters = join(root, "rosters");
+		hosts = join(root, "hosts");
+		mkdirSync(rosters);
+		mkdirSync(hosts);
+	});
+
+	afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+	const keep = (key: string, ids: readonly string[]) =>
+		writeFileSync(
+			join(rosters, `${key}.json`),
+			JSON.stringify({
+				v: 1,
+				key,
+				sessions: ids.map((sessionId) => ({
+					sessionId,
+					file: `/sessions/${sessionId}.jsonl`,
+					cwd: "/work",
+					attended: false,
+					since: "2026-11-21T09:00:00.000Z",
+				})),
+			}),
+		);
+	const hostStarted = (agoMs: number, open: readonly string[] = []) =>
+		writeFileSync(
+			join(hosts, `${HOST_PID}-${NOW - agoMs}.json`),
+			JSON.stringify({
+				key: "work-background",
+				owner: { pid: HOST_PID, startedAt: NOW - agoMs },
+				sessions: open.map((id) => ({
+					id,
+					state: "busy",
+					since: "2026-11-21T09:00:00.000Z",
+				})),
+			}),
+		);
+	const ask = (running: Record<number, number> = {}) =>
+		heldOnce(machine(running), { rosters, hosts, now: NOW });
+
+	it("is while its roster holds it and no host runs under its key", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(RESUME_GRACE_MS * 3);
+
+		expect(await ask()(CONVERSATION, "work-background")).toBe(true);
+	});
+
+	it("is while the host running again started within the grace", async () => {
+		keep("work-background", [CONVERSATION]);
+		const ago = RESUME_GRACE_MS - 60_000;
+		hostStarted(ago);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+		).toBe(true);
+	});
+
+	it("is not once the host running again is past the grace and never brought it back", async () => {
+		keep("work-background", [CONVERSATION]);
+		const ago = RESUME_GRACE_MS + 60_000;
+		hostStarted(ago);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+		).toBe(false);
+	});
+
+	it("is while a host past the grace has it open, its presence not yet written again", async () => {
+		keep("work-background", [CONVERSATION]);
+		const ago = RESUME_GRACE_MS * 3;
+		hostStarted(ago, [CONVERSATION]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+		).toBe(true);
+	});
+
+	it("reads only the named host's roster, not another host's", async () => {
+		keep("work-attended", [CONVERSATION]);
+
+		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+		keep("work-background", []);
+		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+	});
+
+	it("is not when the roster can't be read", async () => {
+		writeFileSync(join(rosters, "work-background.json"), "{ half");
+
+		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
+	});
+
+	it("reads each roster once however many it is asked about", async () => {
+		keep("work-background", [CONVERSATION]);
+		const once = ask();
+		expect(await once(CONVERSATION, "work-background")).toBe(true);
+
+		rmSync(join(rosters, "work-background.json"));
+		expect(await once(CONVERSATION, "work-background")).toBe(true);
+		expect(await ask()(CONVERSATION, "work-background")).toBe(false);
 	});
 });
 

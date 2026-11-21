@@ -467,6 +467,38 @@ it("wakes a parked session it is asked to end, signalling nothing", async () => 
 	self.dispose();
 });
 
+it("says a conversation its restarting host is bringing back is resuming, not ended", async () => {
+	const { host } = await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	await peer("bravo-BBBBBBBB");
+	const presences = createPresences(join(paths.mesh, "presence"));
+	const bravo = presences.of("bravo-BBBBBBBB");
+	if (!bravo) throw new Error("bravo did not publish");
+	presences.publish({
+		...bravo,
+		orchestratedBy: "ORCHST",
+		owner: host.owner,
+		hosted: { host: "work-background", conversation: bravo.session },
+	});
+	const asked: string[] = [];
+	let bringing = true;
+	const { self, end } = orchestrator(a.ctx.cwd, presences, {
+		wakeParked: () => false,
+		endProcess: async () => "gone",
+		heldAsk: async (conversation, key) => {
+			asked.push(`${key}/${conversation}`);
+			return bringing;
+		},
+	});
+	expect(await end("BBBBBBBB")).toContain(
+		"is resuming as its host starts again, so nothing was signalled",
+	);
+	expect(asked).toEqual(["work-background/bravo-BBBBBBBB"]);
+	bringing = false;
+	expect(await end("BBBBBBBB")).toContain("had already ended");
+	self.dispose();
+});
+
 it("ends a conversation another host holds through that host's socket, never a signal", async () => {
 	const { host } = await inHost();
 	const a = await peer("alpha-AAAAAAAA");

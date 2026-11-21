@@ -222,9 +222,20 @@ export function groupsText(standing: Census, peer: Peer): string {
 		ended.length > 0
 			? `\nEnded, so left out until restored: ${ended.join(", ")}.`
 			: "";
+	// Listed as the Ended line lists, of those in a group, and only while
+	// no session already running answers to the address again.
+	const coming = new Set(standing.resuming);
+	const running = new Set(
+		standing.present
+			.filter((one) => !coming.has(one))
+			.flatMap((one) => one.addresses.slice(0, 1)),
+	);
 	const back = [
 		...new Set(
-			(standing.resuming ?? []).flatMap((one) => one.addresses.slice(0, 1)),
+			standing.resuming
+				.filter((one) => one.groups.length > 0 && one.addresses[0])
+				.map((one) => one.addresses[0] as string)
+				.filter((address) => !running.has(address)),
 		),
 	];
 	const resuming =
