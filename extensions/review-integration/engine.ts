@@ -205,6 +205,19 @@ export function runDir(): string {
 }
 
 /**
+ * Where other machines' rounds are mirrored, a folder a node, each
+ * holding its `runs` as that machine wrote them.
+ *
+ * Filled from outside the harness (a user unit in World's dotfiles
+ * syncs a Mac's ledger here), and only ever read: a council run on
+ * another machine counts toward our own review first, and nothing
+ * merges its rounds into this machine's ledger of the same change.
+ */
+export function mirroredRunsDir(): string {
+	return join(stateDir("review"), "runs-from");
+}
+
+/**
  * Where a round's reviewers leave their transcripts.
  *
  * Beside the ledger rather than inside it: the ledger is a small file

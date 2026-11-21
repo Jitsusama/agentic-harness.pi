@@ -52,15 +52,23 @@
  * still reach back to its making or copying. Only the last
  * EARLIER_HEADS of each reflog are asked about, and a checkout that
  * never held the branch before its rebase remembers none.
+ *
+ * A council counts wherever in the realm it ran: this machine's ledger
+ * is asked first, then each other machine's mirrored under runs-from,
+ * a folder a node. The mirror is filled from outside the harness and
+ * only read here, so a round run on the Mac while optimus's memory
+ * holds councils back still lets the change through, and no ledger
+ * takes in another machine's rounds.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { createRunStore } from "../../lib/core/review/index.ts";
-import { runDir } from "./engine.ts";
+import { mirroredRunsDir, runDir } from "./engine.ts";
 
 /** How many of a change's commits are asked about, newest first. */
 const COMMITS_ASKED = 500;
@@ -117,8 +125,35 @@ export type Witnesses = (
 	commits: ReadonlySet<string>,
 ) => Promise<boolean>;
 
-const onTheLedger: Witnesses = async (repo, commits) =>
-	(await createRunStore(runDir()).witnessed(repo, commits)) !== undefined;
+/**
+ * Asks this machine's ledger, then each mirrored one. A council run on
+ * another machine of the realm is still our own review: equilibrius
+ * runs rounds while optimus's memory holds councils back, and its
+ * ledger is mirrored here rather than merged into ours.
+ */
+const onTheLedger: Witnesses = async (repo, commits) => {
+	for (const ledger of [runDir(), ...(await mirroredLedgers())]) {
+		const read = await createRunStore(ledger).witnessed(repo, commits);
+		if (read !== undefined) return true;
+	}
+	return false;
+};
+
+/** Each machine's mirrored ledger, a folder a node, in name order. */
+async function mirroredLedgers(): Promise<string[]> {
+	const root = mirroredRunsDir();
+	try {
+		const nodes = await readdir(root, { withFileTypes: true });
+		return nodes
+			.filter((node) => node.isDirectory())
+			.map((node) => join(root, node.name))
+			.sort();
+	} catch {
+		// No mirror on this machine, or one that can't be listed: only the
+		// local ledger is asked, as before mirrors existed.
+		return [];
+	}
+}
 
 let witnesses: Witnesses = onTheLedger;
 
