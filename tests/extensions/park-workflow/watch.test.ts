@@ -1141,10 +1141,10 @@ describe("why a session stays awake", () => {
 	// 21 November: 75 background conversations, each its own process since
 	// the day before, held about 20 GB, and 37 had sent nothing for five
 	// minutes while the half hour kept them (A2VLJN [ebe376a1]).
-	it("parks a background host's conversation after five idle minutes, while an attended host's waits its half hour", () => {
-		writeFileSync(parkSwitch(folder), "on\n");
+	it("parks a background host's conversation after five idle minutes, or sooner where its own limit is, while an attended host's waits its half hour", () => {
 		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
-		const parksAfter = (key: string): number | undefined => {
+		const parksAfter = (key: string, line = "on"): number | undefined => {
+			writeFileSync(parkSwitch(folder), `${line}\n`);
 			// Each starts unparked, not woken from the one before's marker.
 			rmSync(join(folder, "parked"), { recursive: true, force: true });
 			const host = installTestHost(key);
@@ -1154,6 +1154,8 @@ describe("why a session stays awake", () => {
 				clock = 0;
 				const watched = watching(session(), conversation);
 				for (const at of [
+					NAMED_PARK_AFTER_MS - 1,
+					NAMED_PARK_AFTER_MS,
 					BACKGROUND_PARK_AFTER_MS - 1,
 					BACKGROUND_PARK_AFTER_MS,
 					PARK_AFTER_MS - 1,
@@ -1179,6 +1181,10 @@ describe("why a session stays awake", () => {
 		expect(parksAfter("one-attended"), "attended waits its half hour").toBe(
 			PARK_AFTER_MS,
 		);
+		expect(
+			parksAfter("one-background", SESSION),
+			"named in the switch, background parks at its two minutes",
+		).toBe(NAMED_PARK_AFTER_MS);
 	});
 
 	it("keeps a background host's conversation awake when PI_PARK is off for it or the switch is off, and parks it at once in a drain", () => {
@@ -1194,7 +1200,7 @@ describe("why a session stays awake", () => {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 			});
 			clock = PARK_AFTER_MS;
-			expect(switchedOff.look(), "no switch, no park").not.toBeUndefined();
+			expect(switchedOff.look(), "no switch, no park").toBe("parking is off");
 			expect(asked, "nothing asked with the switch off").toEqual([]);
 			switchedOff.stop();
 			writeFileSync(parkSwitch(folder), "on\n");
