@@ -51,7 +51,7 @@ lib/core/result/spill.ts:pid 1 Names a spill's staging file, written and renamed
 lib/core/review/ask/council.ts:cwd 1 Shortens stack frames' paths, which name the process's own code, not a conversation's folder (H1 for 85PKB2, 2026-11-10).
 lib/core/review/ask/store.ts:pid 1 Names each ledger write's pending file with a random UUID, so writes across awaits never share a name (H1 for 85PKB2, 2026-11-10).
 lib/core/review/draft/store.ts:pid 1 Names each draft write's staging file with a random tail, so writes across awaits never share a name (H1 for 85PKB2, 2026-11-10).
-lib/core/session/env.ts:env-write 6 The session seam: plain pi's environment is the process's, and launch hints are taken from it once; hosted calls go to the host's environment per conversation (H1 for 85PKB2, 2026-11-10).
+lib/core/session/env.ts:env-write 7 The session seam: plain pi's environment is the process's, and launch hints are taken from it once; hosted calls go to the host's environment per conversation (H1 for 85PKB2, 2026-11-10). The seventh drops a sprout's seed, which the node sets only for the plain pi it starts, so nothing that pi starts inherits it (42P0R4, 2026-11-20).
 lib/core/session/host.ts:global 1 The seam: the one host installed in the process (H1 for 85PKB2, 2026-11-10).
 lib/core/session/identity.ts:global 1 The seam: one AsyncLocalStorage carrying each call's ambient session (H1 for 85PKB2, 2026-11-10).
 lib/core/session/slot.ts:global 3 The seam: plain pi's slots stay on their own process symbols, and hosted slots are keyed by session in one process map (H1 for 85PKB2, 2026-11-10).

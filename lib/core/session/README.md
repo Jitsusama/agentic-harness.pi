@@ -54,9 +54,13 @@ model-provider keys still require the separate host/provider solution.
 
 launchHints(ctxOrId?) consumes Host.hints in a host. Plain pi consumes
 QUEST_WORKFLOW_AUTOLOAD_ID, QUEST_WORKFLOW_ORCHESTRATE (true only at 1)
-and QUEST_WORKFLOW_FIRST_WORDS. The last is a file token, returned as
+QUEST_WORKFLOW_FIRST_WORDS, QUEST_WORKFLOW_FIRST_TEXT and
+QUEST_WORKFLOW_SPROUT. FIRST_WORDS is a file token, returned as
 firstWordsToken, not prompt text. The existing quest first-words reader
-must resolve that token. Hosted firstWords are literal text.
+must resolve that token. Hosted firstWords are literal text. SPROUT is
+a sprouted session's seed, returned as sprout and read as data by
+quest-workflow (sprout-seed.ts), never as words to say. Each is deleted
+once read, so an in-process restart can't replay it.
 
 ## Host Contract
 

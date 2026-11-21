@@ -45,6 +45,7 @@ import {
 	reconcileSessionMembership,
 	releaseSessionOnShutdown,
 	resolveStartup,
+	type StartupResolution,
 	sayFirstWords,
 } from "../lifecycle.ts";
 import { recentSessionHints } from "../lookup.ts";
@@ -63,6 +64,7 @@ import {
 	stopHeartbeat,
 	trackSession,
 } from "../session-registry.ts";
+import { hushReplayedSprout, startSprouted } from "../sessions/sprout-start.ts";
 import type { QuestState } from "../state.ts";
 import { currentSessionId, isPersistedSession } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";
@@ -92,7 +94,7 @@ export function followSessionLife(
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
 	pi.on("session_start", async (event, ctx) => {
 		await readyForStart(state);
-		return withDiscoveryHeld(() => {
+		const begin = (): StartupResolution["source"] => {
 			// What a start restores and records rests on its quest as it is:
 			// the one it had, here, and the one it resolves, once chosen.
 			const had = state.questId;
@@ -129,10 +131,13 @@ export function followSessionLife(
 			// session's persisted history (a /reload restores the last
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
-			resolveStartup(state, pi, ctx);
+			const { source } = resolveStartup(state, pi, ctx);
 			if (state.questId !== had) {
 				refreshQuests(state.questsRoot, [state.questId]);
 			}
+			return source;
+		};
+		const finish = (): void => {
 			// Asked now, waited on before the first model call
 			// (before_agent_start, in turns.ts).
 			budgets.keep(ctx).catch(() => {
@@ -207,7 +212,27 @@ export function followSessionLife(
 			// probing history or loading anything. The authoritative, probed
 			// view is `quest recent`.
 			showSessionHint(state, ctx);
+		};
+		// A sprout makes its quest between the two halves, waiting on its
+		// link's page; every other start runs whole under one walk.
+		const sprouting = withDiscoveryHeld(() => {
+			const source = begin();
+			if (source !== "sprout") {
+				hushReplayedSprout(state, ctx);
+				finish();
+			}
+			return source === "sprout";
 		});
+		if (!sprouting) return;
+		try {
+			await startSprouted(state, pi, ctx);
+		} finally {
+			// Whatever the sprout came to, the start finishes: a throw there
+			// still leaves its words said, its session tracked and kept.
+			// The quest it made is one the start's walk never read.
+			refreshQuests(state.questsRoot, [state.questId]);
+			withDiscoveryHeld(finish);
+		}
 	});
 
 	// pi asks for resources once every extension's session_start has

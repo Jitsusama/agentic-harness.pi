@@ -534,6 +534,7 @@ export async function load(
 		resumable,
 		pruned,
 		reconciled,
+		...(peers ? { peers } : {}),
 	});
 }
 

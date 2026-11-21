@@ -19,9 +19,14 @@ export function sessionEnv(ref?: SessionRef): SessionEnvironment {
 	return host ? host.env(requireSession(ref)) : processEnvironment;
 }
 
+/** The variable a sprout's seed comes in, beside its first words. */
+const SPROUT_SEED = "QUEST_WORKFLOW_SPROUT";
+
 /**
  * Consume startup hints once. Plain pi's first words are a file token,
- * or the words themselves for a pi spawned from another machine.
+ * or the words themselves for a pi spawned from another machine. A
+ * sprout's seed comes beside them, as the node sets it for the plain pi
+ * it starts; a host hands its own hints, a seed among them if it has one.
  */
 export function launchHints(ref?: SessionRef): LaunchHints {
 	const host = hosted();
@@ -30,6 +35,8 @@ export function launchHints(ref?: SessionRef): LaunchHints {
 	const orchestrate = process.env.QUEST_WORKFLOW_ORCHESTRATE === "1";
 	const firstWordsToken = process.env.QUEST_WORKFLOW_FIRST_WORDS;
 	const firstWords = process.env.QUEST_WORKFLOW_FIRST_TEXT || undefined;
+	const sprout = process.env[SPROUT_SEED] || undefined;
+	delete process.env[SPROUT_SEED];
 	delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 	delete process.env.QUEST_WORKFLOW_ORCHESTRATE;
 	delete process.env.QUEST_WORKFLOW_FIRST_WORDS;
@@ -39,5 +46,6 @@ export function launchHints(ref?: SessionRef): LaunchHints {
 		orchestrate,
 		firstWordsToken,
 		...(firstWords ? { firstWords } : {}),
+		...(sprout ? { sprout } : {}),
 	};
 }
