@@ -36,6 +36,8 @@ export interface Local {
 	readonly flows?: () => Promise<readonly string[]>;
 	/** This peer's ties, strongest first, as the node keeps them (lib/mesh/node.ts). */
 	readonly ties?: () => Promise<readonly Tie[] | undefined>;
+	/** The hub from use this peer last found, read without asking the node (above.ts). */
+	readonly hub?: () => string | undefined;
 	/**
 	 * Find the live cell that works on a need, over the node's hubs and
 	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
