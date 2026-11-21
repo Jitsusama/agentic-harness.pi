@@ -278,6 +278,10 @@ describe("the fence a quest's spawns declare", () => {
 		const result = succeeded(await run({ action: "spawn-tab", id }));
 
 		expect(spawnedEnv?.PI_SANDBOX, "its commands run fenced").toBe("fence");
+		expect(
+			spawnedEnv?.PI_FENCE_DECLARED,
+			"the mark that keeps it from the lift goes with it",
+		).toBe("1");
 		expect(result.message, "it says who declared it").toContain(
 			"It runs fence, as its quest declares.",
 		);
@@ -354,6 +358,43 @@ describe("the fence a quest's spawns declare", () => {
 
 		succeeded(await run({ action: "spawn-tab", id, fence: "fence" }));
 		expect(spawnedEnv?.PI_SANDBOX, "a declared fence lowers it").toBe("fence");
+		expect(
+			spawnedEnv?.PI_FENCE_DECLARED,
+			"to a fence its pi keeps, never to none",
+		).toBe("1");
+	});
+
+	it("claims none for a command that isn't pi, whatever its parent runs", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const result = succeeded(
+			await run({ action: "spawn-tab", id, command: "bash -l" }),
+		);
+
+		expect(result.details, "a shell reads no fence variable").toMatchObject({
+			fence: { kind: "none", from: "default" },
+		});
+	});
+
+	it("says on a dry run what the spawn it previews would claim", async () => {
+		const { id, run } = await quest("Alpha");
+
+		const before = succeeded(
+			await run({ action: "spawn-tab", id, dryRun: true }),
+		);
+		expect(before.details, "before spawns join").toMatchObject({
+			fence: { kind: "none", from: "default" },
+		});
+
+		joinSpawns("the test lets spawns join");
+		const after = succeeded(
+			await run({ action: "spawn-tab", id, dryRun: true }),
+		);
+		expect(after.details, "once spawns join, the stage takes it").toMatchObject(
+			{ fence: { kind: "fence", from: "default" } },
+		);
+		expect(spawned, "a dry run opens nothing").toBeUndefined();
 	});
 
 	it("refuses a spawn naming no fence it may declare, starting nothing", async () => {

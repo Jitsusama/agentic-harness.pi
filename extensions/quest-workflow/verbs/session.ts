@@ -15,6 +15,7 @@ import {
 	type FenceDeclaration,
 	sandboxFor,
 } from "../../../lib/internal/fence/fence-declaration.ts";
+import { declaredSandbox } from "../../../lib/internal/fence/fence-lifted.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -39,7 +40,6 @@ import {
 	spawnedWords,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liveness.ts";
-import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
@@ -93,9 +93,9 @@ import {
 	placementFence,
 	reopens,
 	spawnFence,
+	spawnSettled,
 	stagedById,
 	stagedSpawn,
-	wouldStage,
 } from "./spawn-stage.ts";
 
 /** What a spawn settled on its way, for its answer to say. */
@@ -137,7 +137,8 @@ export async function spawn(
 /**
  * A spawn's answer saying the fence it runs in, which it told the node
  * where it asked one. A host too old for the stage's token opened it
- * without, so an undeclared fence settles to what that runs.
+ * without, and without a declared fence's mark, so either settles to
+ * what that runs.
  */
 function withFence(
 	result: QuestResult,
@@ -150,6 +151,8 @@ function withFence(
 					staged: false,
 					carried: true,
 					reopens: false,
+					pi: true,
+					kept: false,
 				})
 			: asked;
 	return {
@@ -294,20 +297,21 @@ async function spawnNaming(
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
 	const reopening = reopens(stage);
-	// The stage's token reaches what opens here, in a terminal, the
-	// launcher or a host; a held start, even on this machine, carries none.
-	fence = declarationSettled(fence, {
-		staged: dryRun ? wouldStage(stage) : staged !== undefined,
-		carried: machine === undefined,
-		reopens: reopening,
-	});
+	fence = declarationSettled(
+		fence,
+		spawnSettled({
+			...stage,
+			listed: staged !== undefined,
+			held: machine !== undefined,
+		}),
+	);
 	said.fence = fence;
 	// A declared fence runs a fresh session's commands; a reopen keeps its
 	// own, as the stage leaves a reopen alone (spawn-stage.ts).
 	const sandbox = reopening ? undefined : sandboxFor(fence);
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
-		...(sandbox ? { [SANDBOX_VARIABLE]: sandbox } : {}),
+		...declaredSandbox(sandbox),
 	};
 	// The host the call names, or for a plain spawn the one spawnHost says.
 	const byHost = await spawnByHost({
@@ -493,7 +497,7 @@ async function spawnNaming(
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
 	if (staged) env[STAGE_VARIABLE] = staged;
-	if (sandbox) env[SANDBOX_VARIABLE] = sandbox;
+	Object.assign(env, declaredSandbox(sandbox));
 	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the

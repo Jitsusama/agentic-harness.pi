@@ -2,13 +2,15 @@
  * The variables, as a session was started with them, that say how it
  * runs its commands: in the agent fence, through the spawner, and as
  * the fence's first stage listed it (`PI_FENCE_STAGE`), which is how a
- * host's fresh conversation is listed before its id is known. Each
+ * host's fresh conversation is listed before its id is known, and the
+ * mark that a spawn declared its fence (`PI_FENCE_DECLARED`). Each
  * way back into a session hands them on: a holder's restart, and the
  * launcher reopening it from its record after the machine restarted.
  * Without them, on 11 November, a session started fenced came back
  * from a park, and from a reboot, unfenced.
  */
 
+import { DECLARED_VARIABLE } from "../fence/fence-lifted.ts";
 import { STAGE_VARIABLE } from "../fence/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../sandbox/sandbox.ts";
 import { SPAWNER_VARIABLE } from "../shell/spawner-variable.ts";
@@ -18,6 +20,7 @@ export const CARRIED_VARIABLES: readonly string[] = [
 	SANDBOX_VARIABLE,
 	SPAWNER_VARIABLE,
 	STAGE_VARIABLE,
+	DECLARED_VARIABLE,
 ];
 
 /**

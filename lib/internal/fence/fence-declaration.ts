@@ -128,6 +128,13 @@ export interface SpawnSettled {
 	readonly carried: boolean;
 	/** Whether it reopens a session, which is given no sandbox. */
 	readonly reopens: boolean;
+	/** Whether what it runs is pi, the one program the fence's variables reach. */
+	readonly pi: boolean;
+	/**
+	 * Whether a declared fence reaches it with the mark that keeps it from
+	 * the spawned pi's lift (fence-lifted.ts).
+	 */
+	readonly kept: boolean;
 }
 
 /** What a spawn runs given no sandbox, claimed by nobody's word. */
@@ -135,9 +142,11 @@ export const UNFENCED: FenceDeclaration = { kind: "none", from: "default" };
 
 /**
  * `declaration` once it is known how the spawn starts. A reopen is given
- * no sandbox, so whatever was declared, it claims none rather than a
+ * no sandbox, and a command that isn't pi reads none of the fence's
+ * variables, so whatever was declared, each claims none rather than a
  * fence it may not run; an undeclared fence the stage didn't list, or
- * listed under a token nothing carries to it, runs none too. Claiming
+ * listed under a token nothing carries to it, runs none too, and so does
+ * a declared one whose mark didn't reach it, since its pi lifts it. Claiming
  * less than runs is safe, since the node's judge trusts no default; more
  * would have it trust a fence that isn't there (ISXEG8 [8d401568]).
  */
@@ -145,13 +154,13 @@ export function declarationSettled(
 	declaration: FenceDeclaration,
 	settled: SpawnSettled,
 ): FenceDeclaration {
-	if (settled.reopens) return UNFENCED;
-	const unstaged = !settled.staged || !settled.carried;
-	return declaration.from === "default" &&
-		declaration.kind === "fence" &&
-		unstaged
-		? UNFENCED
-		: declaration;
+	if (settled.reopens || !settled.pi) return UNFENCED;
+	if (declaration.kind !== "fence") return declaration;
+	const lost =
+		declaration.from === "default"
+			? !settled.staged || !settled.carried
+			: !settled.kept;
+	return lost ? UNFENCED : declaration;
 }
 
 /** The declaration said in a sentence, for a spawn's answer. */

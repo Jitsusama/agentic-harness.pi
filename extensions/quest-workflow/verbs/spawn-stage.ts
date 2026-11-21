@@ -12,6 +12,7 @@ import {
 	type DeclarationRead,
 	type FenceDeclaration,
 	fenceDeclared,
+	type SpawnSettled,
 	UNFENCED,
 	undeclaredRuns,
 } from "../../../lib/internal/fence/fence-declaration.ts";
@@ -106,9 +107,22 @@ export interface PlacementAsked {
 }
 
 /**
- * The fence a spawn tells the node when asking where it runs: asked
- * before it is known whether it reopens, which is given no sandbox, one
- * that may reopen claims none, since under-claiming is safe.
+ * Whether `command` runs pi, the one program the fence's variables
+ * reach: none given starts pi, and else its first word must name it. A
+ * command that starts pi another way (through env or a wrapper) counts
+ * as not, so it claims less than it may run, never more.
+ */
+export function runsPi(command: string | undefined): boolean {
+	const first = command?.trim().split(/\s+/)[0] ?? "";
+	return first === "" || first.split("/").pop() === "pi";
+}
+
+/**
+ * The fence a spawn tells the node when asking where it runs, asked
+ * before it is known whether it reopens or is held: one that may reopen,
+ * which is given no sandbox, or runs something other than pi claims
+ * none, and so does an undeclared fence, which a held start runs
+ * without, since under-claiming is safe.
  */
 export function placementFence(
 	fence: FenceDeclaration,
@@ -117,7 +131,33 @@ export function placementFence(
 	const command = asked.command?.trim() ?? "";
 	const mayReopen =
 		resumedBy(command) !== undefined || (asked.resumes && command === "");
-	return mayReopen ? UNFENCED : fence;
+	const mayBeHeld = fence.from === "default" && fence.kind === "fence";
+	return mayReopen || mayBeHeld || !runsPi(command) ? UNFENCED : fence;
+}
+
+/** A spawn once it is known where it starts and what listed it. */
+export interface StartedSpawn extends StagedSpawn {
+	/** Whether the stage listed it (`stagedSpawn`). */
+	readonly listed: boolean;
+	/** Whether a node holds it, on this machine or another. */
+	readonly held: boolean;
+}
+
+/**
+ * How `spawn` starts, for the claim it settles: a dry run is staged as
+ * the stage would list it; the token reaches what opens here, in a
+ * terminal, the launcher or a host, but never a held start, even on this
+ * machine; and a declared fence's mark goes wherever its `PI_SANDBOX`
+ * does.
+ */
+export function spawnSettled(spawn: StartedSpawn): SpawnSettled {
+	return {
+		staged: spawn.dryRun ? wouldStage(spawn) : spawn.listed,
+		carried: !spawn.held,
+		reopens: reopens(spawn),
+		pi: runsPi(spawn.command),
+		kept: true,
+	};
 }
 
 /** Whether the stage would list `spawn`, dry run or not. */

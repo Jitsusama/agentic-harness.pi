@@ -39,11 +39,11 @@ import type {
 	DeclaredFence,
 	FenceDeclaration,
 } from "../../../lib/internal/fence/fence-declaration.ts";
+import { declaredSandbox } from "../../../lib/internal/fence/fence-lifted.ts";
 import {
 	FIRST_TEXT_VARIABLE,
 	FIRST_WORDS_VARIABLE,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
-import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import {
 	agentsAt,
 	type NodeStart,
@@ -424,7 +424,9 @@ export function heldWords(
 		`QUEST_WORKFLOW_AUTOLOAD_ID=${questId}`,
 		...(firstWords ? [`${FIRST_WORDS_VARIABLE}=${firstWords}`] : []),
 		...(firstText ? [`${FIRST_TEXT_VARIABLE}=${firstText}`] : []),
-		...(sandbox ? [`${SANDBOX_VARIABLE}=${sandbox}`] : []),
+		...Object.entries(declaredSandbox(sandbox)).map(
+			([name, value]) => `${name}=${value}`,
+		),
 		"sh",
 		"-c",
 		command,

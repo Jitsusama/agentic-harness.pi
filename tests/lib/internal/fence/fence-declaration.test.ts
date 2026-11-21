@@ -94,7 +94,13 @@ describe("what a spawn nobody declared a fence for runs", () => {
 describe("the declaration once the spawn has started", () => {
 	const staged = { kind: "fence", from: "default" } as const;
 
-	const fresh = { staged: true, carried: true, reopens: false };
+	const fresh = {
+		staged: true,
+		carried: true,
+		reopens: false,
+		pi: true,
+		kept: true,
+	};
 	const unfenced = { kind: "none", from: "default" };
 
 	it("is unfenced for an undeclared fence the stage didn't take, or whose token nothing carries", () => {
@@ -122,11 +128,44 @@ describe("the declaration once the spawn has started", () => {
 		}
 	});
 
+	it("is unfenced for a command that isn't pi, which reads none of the fence's variables", () => {
+		for (const declared of [
+			{ kind: "fence", from: "spawn" },
+			{ kind: "strict", from: "quest" },
+			{ kind: "strict", from: "default" },
+			staged,
+		] as const) {
+			expect(
+				declarationSettled(declared, { ...fresh, pi: false }),
+				`a command declared ${declared.kind} from ${declared.from}`,
+			).toEqual(unfenced);
+		}
+	});
+
+	it("is unfenced for a declared fence whose mark didn't reach it, which its pi lifts", () => {
+		const declared = { kind: "fence", from: "spawn" } as const;
+		expect(
+			declarationSettled(declared, { ...fresh, kept: false }),
+			"an older host dropped the mark",
+		).toEqual(unfenced);
+		const strict = { kind: "strict", from: "spawn" } as const;
+		expect(
+			declarationSettled(strict, { ...fresh, kept: false }),
+			"strict is never lifted, mark or not",
+		).toEqual(strict);
+	});
+
 	it("is unchanged for one staged and carried, or one declared", () => {
 		expect(declarationSettled(staged, fresh), "staged and carried").toEqual(
 			staged,
 		);
-		const neither = { staged: false, carried: false, reopens: false };
+		const neither = {
+			staged: false,
+			carried: false,
+			reopens: false,
+			pi: true,
+			kept: true,
+		};
 		const declared = { kind: "fence", from: "quest" } as const;
 		expect(
 			declarationSettled(declared, neither),

@@ -130,11 +130,12 @@ describe("the words a held spawn uses", () => {
 	it("names the sandbox a declared fence runs its commands in, and none otherwise", () => {
 		expect(
 			heldWords("pi", "QEST-1", undefined, undefined, "fence"),
-			"a declared fence sets PI_SANDBOX",
+			"a declared fence sets PI_SANDBOX and the mark that keeps it",
 		).toEqual([
 			"env",
 			"QUEST_WORKFLOW_AUTOLOAD_ID=QEST-1",
 			"PI_SANDBOX=fence",
+			"PI_FENCE_DECLARED=1",
 			"sh",
 			"-c",
 			"pi",
