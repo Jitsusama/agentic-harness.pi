@@ -21,8 +21,10 @@ import {
 	runningFolder,
 	takeEndedNote,
 } from "../../../extensions/job-workflow/running.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import { findJobHost, type JobHost } from "../../../lib/jobs/index.ts";
 import { forgetParkedJobs, jobRuntime } from "../../support/job-runtime.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 const SESSION = "ended-with-host";
 /** A pid no process has. */
@@ -107,6 +109,25 @@ describe("a session back from a kill", () => {
 		expect(said, "and names the job that died").toContain(
 			"j104 (pnpm test:host)",
 		);
+	});
+
+	it("in a host, is told of each dead job alone when its log stops mid-run, as the host carries the run on", async () => {
+		const host = installTestHost();
+		try {
+			noteRunning(SESSION, { owner: GONE, jobs: [JOB] });
+			const back = jobRuntime(createEventBus(), SESSION, MID_RUN);
+			// Inside its conversation, as a host runs every hook.
+			await withSession(SESSION, () =>
+				back.fire("session_start", { reason: "resume" }),
+			);
+
+			expect(back.said, "the job's own result").toHaveLength(1);
+			const [said = ""] = back.said;
+			expect(said, "said as the job's result").toContain("[j104]");
+			expect(said, "not as a run cut off").not.toMatch(/mid-run/);
+		} finally {
+			host.dispose();
+		}
 	});
 
 	it("numbers a new job past the one that died", async () => {

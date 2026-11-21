@@ -24,10 +24,9 @@
  * waits on nothing but the cap.
  */
 import {
-	isPersonWords,
+	isPersonsOwnText,
 	userTextOf,
 } from "../../lib/internal/session/driven.ts";
-import { isOthersSteerText } from "../../lib/mesh/steer.ts";
 import type { AgentMessage } from "./pi-types.ts";
 
 /** How many cut-off runs a host carries on at once as it comes back. */
@@ -221,7 +220,6 @@ export function beganWithPersonsWords(
  * reaches a session as a user's words without that header too.
  */
 export function isJoelsWords(message: AgentMessage): boolean {
-	const entry = { type: "message", message };
-	if (!isPersonWords(entry)) return false;
-	return !isOthersSteerText(userTextOf(entry) ?? "");
+	const text = userTextOf({ type: "message", message });
+	return text !== undefined && isPersonsOwnText(text);
 }

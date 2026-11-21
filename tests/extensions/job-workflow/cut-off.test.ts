@@ -9,40 +9,37 @@
  */
 
 import { EventEmitter } from "node:events";
-import {
-	createEventBus,
-	type ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
 	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
+	carriedRunIn,
 	cutOffIn,
 	endedRecord,
 	resumeText,
 	watchSignals,
 } from "../../../extensions/job-workflow/cut-off.ts";
-import jobWorkflow from "../../../extensions/job-workflow/index.ts";
 import { CARRIED_ENTRY } from "../../../extensions/job-workflow/moved.ts";
 import { HOST_RESTARTING_EVENT } from "../../../lib/core/session/host.ts";
-import {
-	SESSION_STAMP_EVENT,
-	withSession,
-} from "../../../lib/core/session/index.ts";
+import { SESSION_STAMP_EVENT } from "../../../lib/core/session/index.ts";
 import { processGlobal } from "../../../lib/internal/process/process-global.ts";
 import { CRASH_SLOT } from "../../../lib/internal/session/crash-record.ts";
 import { cutByMove } from "../../../lib/internal/session/cut-off-record.ts";
 import { JOBS_CARRIED } from "../../../lib/jobs/host.ts";
 import { findJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
-
-const AT = "2026-10-24T17:54:34.617Z";
-
-/** The timers the carried run's wait uses, faked alone. */
-const TIMEOUTS: ("setTimeout" | "clearTimeout")[] = [
-	"setTimeout",
-	"clearTimeout",
-];
+import {
+	AT,
+	aborted,
+	activate,
+	ended,
+	killedLog,
+	message,
+	noticeSeen,
+	refused,
+	stoppedShort,
+	TIMEOUTS,
+} from "./support/cut-off-session.ts";
 
 /** Hand an uncaught error to the crash slot's listener, as Node would. */
 function crash(): void {
@@ -54,28 +51,41 @@ function crash(): void {
 	listener(new Error("ESRCH: no such process, write"), "uncaughtException");
 }
 
-const message = (role: string, extra: Record<string, unknown> = {}) => ({
-	type: "message",
-	timestamp: AT,
-	message: { role, content: [{ type: "text", text: "x" }], ...extra },
-});
-const ended = (data: unknown) => ({
-	type: "custom",
-	customType: CUT_OFF_ENTRY,
-	timestamp: AT,
-	data,
-});
-const aborted = message("assistant", {
-	stopReason: "error",
-	errorMessage: "This operation was aborted",
-});
-
 describe("a session cut off when it ended", () => {
 	it("is found from the record its end left, with nothing typed since", () => {
 		const record = { at: Date.parse(AT), running: true, jobs: [] };
 		expect(cutOffIn([message("user"), ended(record), aborted])).toEqual(record);
 		// A prompt since, the person's or the turn this gives, has taken it up.
 		expect(cutOffIn([ended(record), aborted, message("user")])).toBeUndefined();
+	});
+
+	it("is taken up by an answer since its record, with no prompt typed", () => {
+		// A background session driven by mesh messages, as on 20 November:
+		// the 20:12 record, then answers, then the 22:00 reset.
+		const record = { at: Date.parse(AT), running: true, jobs: [] };
+		const carried = { ...record, runCarried: true };
+		const mesh = { type: "custom_message", customType: "mesh" };
+		const answered = message("assistant", { stopReason: "stop" });
+		for (const cut of [record, carried]) {
+			const branch = [ended(cut), aborted, mesh, answered, mesh, answered];
+			expect(cutOffIn(branch), "an answer took it up").toBeUndefined();
+			expect(carriedRunIn(branch), "no carried run owed").toBeUndefined();
+		}
+		const later = "2026-10-24T20:00:00.000Z";
+		const killed = [
+			ended(carried),
+			answered,
+			mesh,
+			{ ...message("assistant", { stopReason: "toolUse" }), timestamp: later },
+		];
+		expect(cutOffIn(killed), "cut where its log stops").toEqual({
+			at: Date.parse(later),
+			running: true,
+			jobs: [],
+		});
+		// Stopped short, failed or refused, a run saw nothing through.
+		for (const short of [stoppedShort, aborted, refused])
+			expect(cutOffIn([ended(record), short])).toEqual(record);
 	});
 
 	it("is found from a log that stops mid-run when it was killed outright", () => {
@@ -91,6 +101,10 @@ describe("a session cut off when it ended", () => {
 				message("assistant", { stopReason: "toolUse" }),
 			]),
 		).toBeDefined();
+		expect(
+			cutOffIn(killedLog(), true),
+			"returning in a host, which carries that run on",
+		).toBeUndefined();
 	});
 
 	it("is not found where the run ended, the person stopped it, or nothing ran", () => {
@@ -167,42 +181,6 @@ describe("a session cut off when it ended", () => {
 		);
 	});
 });
-
-/** Just enough of pi and a session for the end and the restore. */
-function activate(branch: unknown[], signals: EventEmitter, id = "s1") {
-	const handlers = new Map<string, ((e: unknown, c: unknown) => unknown)[]>();
-	const events = createEventBus();
-	const said: string[] = [];
-	const appended: { type: string; data: unknown }[] = [];
-	const session = { busy: false };
-	const pi = {
-		events,
-		on: (name: string, handler: (e: unknown, c: unknown) => unknown) => {
-			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
-		},
-		registerCommand: () => {},
-		registerTool: () => {},
-		sendUserMessage: (text: string) => said.push(text),
-		appendEntry: (type: string, data: unknown) => appended.push({ type, data }),
-	};
-	const ctx = {
-		hasUI: true,
-		isIdle: () => !session.busy,
-		sessionManager: { getBranch: () => branch, getSessionId: () => id },
-		ui: {
-			setStatus: () => {},
-			theme: { fg: (_colour: string, text: string) => text },
-			notify: () => {},
-		},
-	};
-	jobWorkflow(pi as unknown as ExtensionAPI, { signals });
-	const fire = async (name: string, event: unknown = {}) => {
-		// Inside its conversation, as a host runs every hook.
-		for (const handler of handlers.get(name) ?? [])
-			await withSession(id, () => handler(event, ctx));
-	};
-	return { events, said, appended, session, fire, branch };
-}
 
 describe("the job workflow, at a session's end and its return", () => {
 	it("records a run under way when a signal ends the session", async () => {
@@ -293,6 +271,22 @@ describe("the job workflow, at a session's end and its return", () => {
 		);
 		await reloaded.fire("session_start", { reason: "reload" });
 		expect(reloaded.said).toHaveLength(0);
+	});
+
+	it("tells plain pi of a run its kill cut once, with no wait on a host to carry it", async () => {
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			// Seen, so a second notice would go out at once.
+			await noticeSeen(pi);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "told once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("tells plain pi what ended the run when a move back to it did", async () => {
@@ -400,90 +394,6 @@ describe("the job workflow, at a session's end and its return", () => {
 			expect(withJob.said[0]).toMatch(/carried on the run/);
 			expect(withJob.said[0]).not.toMatch(/mid-run|nothing has resumed it/);
 		} finally {
-			host.dispose();
-		}
-	});
-
-	it("in a host, tells a returning session its run was cut off when the carried run never shows", async () => {
-		// On 14 November the 22:22 reboot cut a run mid-answer; the next
-		// host's recovery failed it ("The host stopped while the model was
-		// answering, on attempt 1"), and with the record saying carried,
-		// nothing told the session, which sat until a mesh message came.
-		const host = installTestHost();
-		vi.useFakeTimers({ toFake: TIMEOUTS });
-		try {
-			const carried = { at: Date.parse(AT), running: true, runCarried: true };
-			const lost = activate(
-				[message("user"), ended({ ...carried, jobs: [] })],
-				new EventEmitter(),
-			);
-			await lost.fire("session_start", { reason: "startup" });
-			expect(lost.said, "nothing yet: the next host may carry it").toHaveLength(
-				0,
-			);
-			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(lost.said).toHaveLength(1);
-			expect(lost.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
-
-			const failed = activate(
-				[message("user"), ended({ ...carried, jobs: [] })],
-				new EventEmitter(),
-				"s2",
-			);
-			await failed.fire("session_start", { reason: "startup" });
-			failed.branch.push(aborted);
-			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(failed.said, "a carried run that failed is no run").toHaveLength(
-				1,
-			);
-		} finally {
-			vi.useRealTimers();
-			host.dispose();
-		}
-	});
-
-	it("in a host, says nothing once the carried run shows, runs or the session ends", async () => {
-		const host = installTestHost();
-		// A shutdown yields once with setImmediate, which stays real.
-		vi.useFakeTimers({ toFake: TIMEOUTS });
-		try {
-			const record = ended({
-				at: Date.parse(AT),
-				running: true,
-				runCarried: true,
-				jobs: [],
-			});
-			const answered = activate([message("user"), record], new EventEmitter());
-			await answered.fire("session_start", { reason: "startup" });
-			answered.branch.push(message("assistant", { stopReason: "stop" }));
-
-			const running = activate(
-				[message("user"), record],
-				new EventEmitter(),
-				"s2",
-			);
-			await running.fire("session_start", { reason: "startup" });
-			running.session.busy = true;
-
-			const closed = activate(
-				[message("user"), record],
-				new EventEmitter(),
-				"s3",
-			);
-			await closed.fire("session_start", { reason: "startup" });
-			await closed.fire("session_shutdown", { reason: "quit" });
-
-			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(
-				{
-					answered: answered.said.length,
-					running: running.said.length,
-					closed: closed.said.length,
-				},
-				"a carried run that showed, one under way, and an ended session",
-			).toEqual({ answered: 0, running: 0, closed: 0 });
-		} finally {
-			vi.useRealTimers();
 			host.dispose();
 		}
 	});

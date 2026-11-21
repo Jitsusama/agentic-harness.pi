@@ -16,6 +16,7 @@
  * scatter one contract across files that change together.
  */
 import { randomUUID } from "node:crypto";
+import { markedRefused } from "../../lib/internal/session/cut-off-record.ts";
 
 import type {
 	Conversation,
@@ -479,6 +480,10 @@ export class HostedAgent {
 					content: userContent(messages),
 					whenBusy: "reject",
 					entry: { kind: INPUT_KINDS.prompt, data },
+				}).catch((error: unknown) => {
+					// Only durable's refusal is a run never admitted.
+					run.refused = true;
+					throw error;
 				});
 			} catch (error) {
 				this.admissions.committed(prompts, error);
@@ -497,7 +502,7 @@ export class HostedAgent {
 
 	/** pi's continue: a run that asks the model again on what the session holds. */
 	private continueRun(): Promise<Run> {
-		return this.continueRunRefusing().then(({ run }) => run);
+		return this.continueRunRefusing(false).then(({ run }) => run);
 	}
 
 	/**
@@ -516,7 +521,13 @@ export class HostedAgent {
 		if (refused) throw refused.error;
 	}
 
-	private async continueRunRefusing(): Promise<{
+	/**
+	 * A continue, answering its run and what refused it. `marked` says a
+	 * refusal is a run never admitted, as for pi's own loop; the
+	 * recovery's ask again is the carried run itself, so its refusal is
+	 * that run failing, and is left unmarked.
+	 */
+	private async continueRunRefusing(marked = true): Promise<{
 		readonly run: Run;
 		readonly refused?: { readonly error: unknown };
 	}> {
@@ -527,6 +538,7 @@ export class HostedAgent {
 			try {
 				await this.admit(started, { type: "continue" });
 			} catch (error) {
+				started.refused = marked;
 				refused = { error };
 				throw error;
 			}
@@ -648,7 +660,7 @@ export class HostedAgent {
 
 	private async fail(run: Run, error: unknown): Promise<void> {
 		if (run.ended) throw error;
-		const message: AssistantMessage = {
+		const answer: AssistantMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
 			api: this.state.model.api,
@@ -659,6 +671,8 @@ export class HostedAgent {
 			errorMessage: error instanceof Error ? error.message : String(error),
 			timestamp: Date.now(),
 		};
+		// Marked, so a carried run's end is never read from a run never admitted.
+		const message = run.refused ? markedRefused(answer) : answer;
 		await this.emit({ type: "message_start", message });
 		await this.emit({ type: "message_end", message });
 		await this.emit({ type: "turn_end", message, toolResults: [] });

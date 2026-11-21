@@ -13,7 +13,8 @@
  * still under way then was cut off; a run the person stopped with
  * Escape has settled long before. When a signal ends the session with
  * a run or a job under way, an entry records it, and the restored
- * session is told where it stopped until a prompt takes it up. An
+ * session is told where it stopped until a prompt, or an answer a run
+ * saw through, takes it up. An
  * uncaught error ends pi with no signal, so the same entry is left as
  * it dies (`lib/internal/session/crash-record.ts`); on 11 November five
  * lanes waiting on jobs died so and came back idle for two hours. A
@@ -34,9 +35,24 @@
  * A carried run can still be lost: at the 22:22 reboot on 14 November
  * the next host failed a run it had cut mid-answer, and the session,
  * told nothing, sat until a mesh message came. So a hosted session
- * whose record says carried waits `CARRIED_RUN_WAIT_MS` for the run to
- * show, an answer or a tool's result, and is told it was cut off if,
- * idle and with nothing typed, it never did.
+ * whose record says carried waits for the run to show an answer that
+ * isn't an error. With nothing typed, it is told at once of a run that
+ * ends in one, and told it was cut off if no answer has come once
+ * `CARRIED_RUN_WAIT_MS` is up and it rests, unless someone stopped its
+ * last run, as a peer's Stop or a bare Escape does, and none ran since. A carried run waits its
+ * turn behind every other the restart carries, so how long it takes
+ * to start says nothing of whether it was carried; only how it ends
+ * does.
+ *
+ * A host's run is carried from its own record, whatever ended the last
+ * host, so a hosted log that stops mid-run waits the same way. On 20
+ * November the 04:35 restart killed runs wedged since 03:03 and 04:11,
+ * leaving no record. The next host carried each on at once, yet each
+ * was queued "nothing has resumed it since", and was told so up to two
+ * hours later, at its first idle moment. A log plain pi left so, opened
+ * in a host that has no run to carry, is told once the wait is up. Its
+ * host's own result for the tool call the kill cut is no answer: the
+ * run it carries may still fail after it.
  *
  * A move back to plain pi that waited too long on a run ends it at its
  * turn's end and leaves the same record, naming itself as what ended it
@@ -56,6 +72,7 @@ import {
 	CUT_OFF_ENTRY,
 	type CutJob,
 	type CutOff,
+	isRefusedRun,
 } from "../../lib/internal/session/cut-off-record.ts";
 
 // The record's shape is shared with a move that ends a run, which reads
@@ -63,11 +80,21 @@ import {
 export { CUT_OFF_ENTRY };
 
 /**
- * How long a returning hosted session gives the run its host carried to
- * show, before it is told the run was cut off: the next host takes runs
- * up as it resumes each conversation, seconds apart.
+ * How long a returning hosted session waits for the run its host carried
+ * to start, before it is told the run was cut off: the next host takes
+ * runs up a few at a time, and on 20 November its 107 resumes took
+ * 805 s, so a run's turn can come many minutes after its return. It is
+ * no bound: a bigger restart's last turns can come later still, and are
+ * told they were cut off, and their run's own answer follows.
  */
-export const CARRIED_RUN_WAIT_MS = 90_000;
+export const CARRIED_RUN_WAIT_MS = 30 * 60_000;
+
+/**
+ * How soon a wait whose time is up looks again while the session is busy
+ * or a run is under way: the session is told only once it rests, and a
+ * run that answers decides as it settles.
+ */
+export const CARRIED_RUN_RECHECK_MS = 60_000;
 
 /** The record to leave at a signalled end; none when nothing was under way. */
 export function endedRecord(
@@ -115,10 +142,27 @@ function roleOf(entry: unknown): string | undefined {
 }
 
 /**
+ * Whether `entry` took up what came before it: a prompt, or an answer a
+ * run saw through since. A session driven by mesh and job messages may
+ * never see a prompt: on 20 November dozens of background sessions had
+ * run up to 130 answers since the 20:12 restart's record, and each
+ * reopen after the 22:00 reset told them again they ended at 20:12. An
+ * answer stopped short, failed, or refused is no run seen through.
+ */
+function tookUp(entry: unknown): boolean {
+	const role = roleOf(entry);
+	if (role === "user") return true;
+	if (role !== "assistant") return false;
+	const message = field(entry, "message");
+	return field(message, "stopReason") === "stop" && !isRefusedRun(message);
+}
+
+/**
  * Whether a session's history says it was cut off and nothing has
  * taken it up since: what was under way, or nothing. Returning in a
  * host, a run its host carries on has been taken up, so only a job dead
- * with it counts; elsewhere nothing carries it.
+ * with it counts, and a log that stops mid-run is a run the host
+ * carries on; elsewhere nothing carries it.
  */
 export function cutOffIn(
 	branch: readonly unknown[],
@@ -126,8 +170,9 @@ export function cutOffIn(
 ): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		// A prompt since the record took it up; a later kill is read below.
-		if (roleOf(entry) === "user") break;
+		// A prompt or an answer since the record took it up; a later kill
+		// is read below.
+		if (tookUp(entry)) break;
 		if (
 			field(entry, "type") === "custom" &&
 			field(entry, "customType") === CUT_OFF_ENTRY
@@ -140,7 +185,7 @@ export function cutOffIn(
 			return data.jobs.length === 0 ? undefined : data;
 		}
 	}
-	return killedIn(branch);
+	return returnsInHost ? undefined : killedIn(branch);
 }
 
 /**
@@ -161,14 +206,17 @@ export function leftDead(
 }
 
 /**
- * The record of a run a host carried on with no job dead with it, and
- * nothing typed since: told nothing on the return, since the next host
- * takes the run up, but owed a notice if that run never shows.
+ * The run a host carries on with no job dead with it, and nothing typed
+ * since, from its record or from a log that stops mid-run: told nothing
+ * on the return, since the next host takes the run up, but owed a
+ * notice if that run never shows.
  */
 export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		if (roleOf(entry) === "user") return undefined;
+		// A prompt or an answer since the record took it up; a later kill
+		// is read below.
+		if (tookUp(entry)) break;
 		if (
 			field(entry, "type") === "custom" &&
 			field(entry, "customType") === CUT_OFF_ENTRY
@@ -179,24 +227,51 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 				: undefined;
 		}
 	}
-	return undefined;
+	return killedIn(branch);
 }
 
 /**
- * Whether the run a host carried on has shown since its record: an
- * answer or a tool's result. A failed answer is no run: on 14 November
- * a reboot's next host failed a carried run it had cut mid-answer.
+ * How the run a host carried on went since `since`, the branch's length
+ * as the session returned, read from its newest answer: `answered` when
+ * that is neither an error nor a tool call, `failed` when it is one of
+ * those, and `unseen` when no answer came at all. A failed answer is no
+ * run, nor is one that stopped on a tool call it never saw through: on
+ * 14 November a reboot's next host failed a carried run it had cut
+ * mid-answer. Nor is a tool's result, which a host gives the call a
+ * kill cut before the run it carries answers, or fails; nor the error a
+ * host answers a run it never admitted, as one asked while it carries
+ * another on, which says nothing of how that one went. The host marks
+ * those (cut-off-record.ts). Nor is an answer stopped short, as a
+ * compaction, a peer's Stop or a bare Escape stops one: the person
+ * typing since ends the wait on its own, and otherwise the run is still
+ * owed.
  */
-export function carriedRunShowed(branch: readonly unknown[]): boolean {
-	for (let i = branch.length - 1; i >= 0; i--) {
+export function carriedRunWent(
+	branch: readonly unknown[],
+	since: number,
+): "answered" | "failed" | "unseen" {
+	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
-		if (field(entry, "customType") === CUT_OFF_ENTRY) return false;
-		const role = roleOf(entry);
-		if (role === "toolResult") return true;
-		const stopped = field(field(entry, "message"), "stopReason");
-		if (role === "assistant" && stopped !== "error") return true;
+		if (roleOf(entry) !== "assistant") continue;
+		const message = field(entry, "message");
+		const stopped = field(message, "stopReason");
+		if (isRefusedRun(message) || stopped === "aborted") continue;
+		if (stopped === "error" && refusedAsBusy(field(message, "errorMessage")))
+			continue;
+		return stopped === "error" || stopped === "toolUse" ? "failed" : "answered";
 	}
-	return false;
+	return "unseen";
+}
+
+/**
+ * Whether `error` is durable's refusal of a run while its conversation
+ * was busy (its `ConversationBusy`, "Conversation ID is busy"), which a
+ * host ends that run with as an error answer of its own. Only for logs a
+ * host wrote before it marked those answers; a marked one is known by
+ * its mark, whatever durable's words.
+ */
+function refusedAsBusy(error: unknown): boolean {
+	return typeof error === "string" && /^Conversation \S+ is busy$/.test(error);
 }
 
 /** A log that stops on a tool call or its result: a session killed mid-run. */
@@ -219,21 +294,45 @@ function killedIn(branch: readonly unknown[]): CutOff | undefined {
 
 /** What the restored session is told, its time said by `time`. */
 export function resumeText(cut: CutOff, time: (at: number) => string): string {
-	const when = `This session ended at ${time(cut.at)}, when ${cut.by ?? "the machine"} stopped it rather than the person`;
+	const when = endedWhen(cut, time);
 	const what = cut.runCarried
 		? `${when}. Its host carried on the run it had under way, but nothing has taken up its background work.`
 		: cut.running
 			? `${when}, mid-run, and nothing has resumed it since.`
 			: `${when}, while it waited on background work, and nothing has resumed it since.`;
-	const died =
-		cut.jobs.length > 0
-			? ` These jobs died with it and will never report: ${cut.jobs
-					.map((job) => `${job.id} (${job.label})`)
-					.join(
-						", ",
-					)}. Anything they started outside this machine, such as cloud VMs, may still be running.`
-			: "";
-	return `${what}${died} Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.`;
+	return `${what}${diedWith(cut)}${CARRY_ON}`;
+}
+
+/**
+ * What a session is told when the run its host carried on ended in an
+ * error, its time said by `time`: the run was resumed, and failed.
+ */
+export function carriedRunFailedText(
+	cut: CutOff,
+	time: (at: number) => string,
+): string {
+	const what = `${endedWhen(cut, time)}, mid-run. Its host carried the run on, and it ended in an error.`;
+	return `${what}${diedWith(cut)}${CARRY_ON}`;
+}
+
+/** How a session's end is said, its time said by `time`. */
+function endedWhen(cut: CutOff, time: (at: number) => string): string {
+	return `This session ended at ${time(cut.at)}, when ${cut.by ?? "the machine"} stopped it rather than the person`;
+}
+
+/** What a session is told to do on its return. */
+const CARRY_ON =
+	" Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.";
+
+/** The jobs that died with a session, said for its return, or nothing. */
+function diedWith(cut: CutOff): string {
+	return cut.jobs.length > 0
+		? ` These jobs died with it and will never report: ${cut.jobs
+				.map((job) => `${job.id} (${job.label})`)
+				.join(
+					", ",
+				)}. Anything they started outside this machine, such as cloud VMs, may still be running.`
+		: "";
 }
 
 /** Where signals are heard: the process, or a stand-in under test. */

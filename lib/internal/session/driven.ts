@@ -11,6 +11,7 @@
  * to the attended host (host/cutover/attended.ts).
  */
 
+import { isOthersSteerText } from "../../mesh/steer.ts";
 import { isAutomatedText } from "../automated.ts";
 import { isRecord } from "../record.ts";
 
@@ -37,6 +38,16 @@ export function userTextOf(entry: unknown): string | undefined {
  */
 export function isPersonText(text: string): boolean {
 	return !isAutomatedText(text);
+}
+
+/**
+ * Whether text a session is given as a user's is the person's own: a
+ * person's, and no steer a peer agent or the machine wrote, which
+ * reaches a session without the automated header too. A steer's frame
+ * is declared by whoever wrote it, so this trusts the inbox's writers.
+ */
+export function isPersonsOwnText(text: string): boolean {
+	return isPersonText(text) && !isOthersSteerText(text);
 }
 
 /** Whether a log entry is words a person wrote. */

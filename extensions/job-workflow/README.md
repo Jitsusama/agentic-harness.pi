@@ -330,7 +330,10 @@ the record is left as it dies too, through the crash record's slot
 (`lib/internal/session/crash-record.ts`). A session killed outright
 writes nothing, so a log that stops on a tool call or its result is
 read the same way. A prompt after the record, the person's or that
-turn's, takes it up, so the turn comes once. The turn asks the session
+turn's, takes it up, so the turn comes once; so does an answer a run
+saw through, since a session driven only by mesh and job messages
+never sees a prompt. A kill after that is read from where the log
+stops, not from the old record's time. The turn asks the session
 to tell its orchestrator, once, that it came back and what it carries
 on with. A move back to plain pi that waited 5 minutes on a run ends
 it and leaves the same record
@@ -361,6 +364,43 @@ rather than the machine.
   bus before its shutdown runs, and one the person closed `closed`
   (`SESSION_STAMP_EVENT`, `lib/core/session`); only `signalled` leaves
   the record.
+- A host carries on the run it stopped, recorded or killed with no
+  record, so a hosted session isn't told at once. The first run to
+  settle with an answer after its return decides, read from its newest
+  answer: one that is neither an error nor a tool call says nothing,
+  one that is either is told the run failed, and one the person
+  stopped or typed over is left to them. An answer stopped short with
+  no word from them is no answer: a compaction's run starts again and
+  decides, and one a peer's Stop or a bare Escape left, with no run
+  since, is never told to carry on, since someone stopped it. A run that answers nothing,
+  or answers only with the error its host marks as its own for a run
+  durable never admitted, as one refused while it holds the carried
+  run, leaves the carried run to come. The recovery's own ask again
+  is the carried run, so its refusal is left unmarked and told as the
+  run failing. A log from a host before that
+  mark is read by durable's "is busy" words. The person is told apart
+  by the automated header and by a steer's frame, not by where words
+  came from, since the launcher's Steer comes through an extension,
+  and a peer's or the machine's steer carries no automated header. A
+  steer's frame is declared by whoever wrote it, so this trusts those
+  who can write the steer inbox. A carried run waits its turn behind the
+  others (107 took 805 s on 20 November), so a clock decides only for
+  a run that never starts, after half an hour, looking again each
+  minute while the session is busy. That includes a log the host had
+  nothing to carry for, since no extension hears that. A reload while
+  the wait is open, as a host's conversation takes when its install
+  moves, goes on with it, by the clock it had.
+- What the wait can't see: entries the recovery copies in from before
+  the kill can read as the carried run's answer. An extension's
+  prompt, such as a job's report, can't answer first: while the host
+  holds the carried run it refuses that prompt as busy, which the
+  wait passes over, or runs it inside the carried run, whose last
+  answer then decides. A host without pi's runs-through-pi seam
+  (`HOST_WANTED_SEAMS`) still says each run's settle, so the wait
+  decides there as it does with the seam. Half an hour is no
+  bound: a bigger restart's last turns can come later and are told
+  they were cut off. A transient model error can draw both this notice
+  and model-retry-workflow's retry.
 
 ## Limits
 
