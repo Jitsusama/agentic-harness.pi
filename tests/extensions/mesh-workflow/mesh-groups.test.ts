@@ -4,10 +4,12 @@
  * invitation into one, and the ties the node keeps.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
+import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -461,6 +463,96 @@ describe("groups", () => {
 		const text = listed?.content[0]?.text ?? "";
 		expect(text).not.toContain("#optimus/power: P9R1KI");
 		expect(text).toContain("Ended, so left out until restored: P9R1KI.");
+	});
+
+	it("says a conversation its restarting host still holds is resuming, not ended", async () => {
+		// The process it ran in is gone, as while its host starts again; the
+		// host running again, just started, holds the roster's lock, and the
+		// roster still holds the conversation for that start.
+		const held = [
+			["01a1f92f-2616-7076-a389-ed92252551f1", "Q9SDM1", ["#aquifer/trust"]],
+			// In no group, as the Ended line leaves such a peer out.
+			["01a1f92f-2616-7076-a389-ed92252551f2", "NOGRP1", []],
+			// A session already running answers to this address again, and
+			// has left #old since.
+			["01a1f92f-2616-7076-a389-ed92252551f3", "AGAIN1", ["#optimus", "#old"]],
+		] as const;
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		for (const [conversation, address, groups] of held)
+			presences.publish({
+				session: conversation,
+				addresses: [address],
+				groups: [...groups],
+				worksOn: address === "Q9SDM1" ? "the trust hub" : "",
+				owns: [],
+				busy: true,
+				owner: { pid: process.pid, startedAt: 1 },
+				hosted: { host: "work-background", conversation },
+				at: new Date().toISOString(),
+			});
+		peer("session-again-live", ["AGAIN1"], ["#optimus"]);
+		const rosters = rosterDir();
+
+		try {
+			mkdirSync(rosters, { recursive: true });
+			writeFileSync(
+				rosterPath("work-background", rosters),
+				JSON.stringify({
+					v: 1,
+					key: "work-background",
+					sessions: held.map(([sessionId]) => ({
+						sessionId,
+						file: `/sessions/${sessionId}.jsonl`,
+						cwd: "/work",
+						attended: false,
+						since: "2026-11-21T08:00:00.000Z",
+					})),
+				}),
+			);
+			// The lock names this test process, which started within the
+			// grace: vitest runs each file in a fresh worker, and no file runs
+			// for 20 minutes.
+			writeFileSync(
+				`${rosterPath("work-background", rosters)}.lock`,
+				JSON.stringify({
+					key: "work-background",
+					owner: await tickedOwnerNow(),
+				}),
+			);
+			const { tools } = await startSession();
+			const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+			const text = listed?.content[0]?.text ?? "";
+			expect(text).toContain("#aquifer/trust: Q9SDM1");
+			expect(text).not.toContain("Ended, so left out");
+			expect(text).toContain(
+				"Resuming, as their host starts again, still theirs: Q9SDM1.",
+			);
+			expect(text).toContain(
+				"Q9SDM1, resuming as its host starts again: the trust hub",
+			);
+			expect(text).not.toContain("AGAIN1, resuming");
+			expect(
+				text,
+				"the resuming presence and the session running again are one member",
+			).toMatch(/^#optimus: AGAIN1$/m);
+			expect(
+				text,
+				"a group only its past was in is not the live session's",
+			).not.toMatch(/^#old:/m);
+			const joined = await tools
+				.get("mesh_join")
+				?.execute("call-2", { group: "#old" });
+			expect(
+				joined?.content[0]?.text ?? "",
+				"mesh_join counts members as mesh_groups does",
+			).not.toContain("AGAIN1");
+		} finally {
+			rmSync(rosterPath("work-background", rosters), { force: true });
+			rmSync(`${rosterPath("work-background", rosters)}.lock`, {
+				force: true,
+			});
+		}
 	});
 
 	it("lists an ended address once, and not while a live session answers to it", async () => {

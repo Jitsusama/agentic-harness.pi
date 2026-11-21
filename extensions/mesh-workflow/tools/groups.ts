@@ -192,6 +192,8 @@ function standsText(peer: Peer): string {
 }
 
 export function groupsText(standing: Census, peer: Peer): string {
+	// The census already reads a resuming past of a running session as
+	// gone, so every member here is a session that is there or coming back.
 	const members = new Map<string, string[]>();
 	for (const one of standing.present) {
 		const signature = one.addresses[0];
@@ -222,6 +224,18 @@ export function groupsText(standing: Census, peer: Peer): string {
 		ended.length > 0
 			? `\nEnded, so left out until restored: ${ended.join(", ")}.`
 			: "";
+	// Listed as the Ended line lists, of those in a group.
+	const back = [
+		...new Set(
+			standing.resuming
+				.filter((one) => one.groups.length > 0 && one.addresses[0])
+				.map((one) => one.addresses[0] as string),
+		),
+	];
+	const resuming =
+		back.length > 0
+			? `\nResuming, as their host starts again, still theirs: ${back.join(", ")}.`
+			: "";
 	const stopping =
 		peer.stops.length > 0
 			? `\nStopped by this peer: ${peer.stops.map((one) => one.address).join(", ")}.`
@@ -229,7 +243,7 @@ export function groupsText(standing: Census, peer: Peer): string {
 	const stops = stoppedBy(peer, standing.present);
 	const stoppedHere = stops.length > 0 ? `\n${stopsText(stops)}` : "";
 	const waiting = wantsText(standing.present);
-	const more = `${gone}${stopping}${stoppedHere}${waiting}`;
+	const more = `${gone}${resuming}${stopping}${stoppedHere}${waiting}`;
 	return lines.length > 0
 		? `${own}\nGroups:\n${lines.join("\n")}${more}`
 		: `${own} No other groups yet.${more}`;
@@ -249,7 +263,9 @@ export function peersText(
 	present: readonly Presence[],
 	peer: Peer,
 	now: number,
+	resuming: readonly Presence[] = [],
 ): string {
+	const back = new Set(resuming.map((one) => one.session));
 	const lines = present.flatMap((one) => {
 		const address = one.addresses[0];
 		if (one.session === peer.session || !address) return [];
@@ -257,7 +273,10 @@ export function peersText(
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
 		const where = one.machine ? ` on ${one.machine}` : "";
-		return [`${address}${where}, ${runText(one, now)}: ${cut}`];
+		const run = back.has(one.session)
+			? "resuming as its host starts again"
+			: runText(one, now);
+		return [`${address}${where}, ${run}: ${cut}`];
 	});
 	return lines.length > 0 ? `\nPeers:\n${lines.join("\n")}` : "";
 }

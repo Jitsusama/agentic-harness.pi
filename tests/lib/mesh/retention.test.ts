@@ -304,6 +304,7 @@ describe("the sweep", () => {
 		await sweep(at, now, async (everyone) => ({
 			present: everyone.filter((one) => one.session === "quiet"),
 			gone: everyone.filter((one) => one.session !== "quiet"),
+			resuming: [],
 		}));
 
 		expect(
@@ -341,6 +342,7 @@ describe("the sweep", () => {
 		await sweep(at, now, async (everyone) => ({
 			present: [...everyone],
 			gone: [],
+			resuming: [],
 		}));
 
 		expect(readdirSync(inboxes).sort()).toEqual([
@@ -363,7 +365,7 @@ describe("the sweep", () => {
 		writeFileSync(join(needs, "notes.txt"), "not a day's needs");
 		const at = { ...kept(), needs: root };
 
-		await sweep(at, now, async () => ({ present: [], gone: [] }));
+		await sweep(at, now, async () => ({ present: [], gone: [], resuming: [] }));
 
 		expect(readdirSync(needs).sort()).toEqual(
 			[day(KEEP_MS - DAY), day(KEEP_MS), "notes.txt"].sort(),
@@ -382,6 +384,7 @@ describe("the sweep", () => {
 		await sweep(at, now, async (everyone) => ({
 			present: [],
 			gone: [...everyone],
+			resuming: [],
 		}));
 
 		expect(at.presences.all().map((one) => one.session)).toEqual([
