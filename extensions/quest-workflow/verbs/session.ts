@@ -76,11 +76,13 @@ import {
 } from "./spawn-command.ts";
 import {
 	agentCommand,
+	askAgents,
 	isThisMachine,
 	machineByDefault,
 	machineFor,
 	spawnHeld,
 	startsPi,
+	swapsAgent,
 } from "./spawn-held.ts";
 import { hostTargetOf, reachedInHost, spawnByHost } from "./spawn-host.ts";
 import {
@@ -244,9 +246,15 @@ async function spawnNaming(
 	const resumable = pickResumeSession(
 		sessions.filter((s) => s.id !== currentId),
 	);
+	// The realm's agents, asked once before it is placed, since one that
+	// runs no pi may be where it lands: the claim told the node, and the
+	// command it starts, both follow the one answer.
+	const realmAgents = params.command?.trim() ? undefined : await askAgents();
+	const agentsHere = async () => realmAgents;
 	const placementClaim = placementFence(fence, {
 		command: params.command,
 		resumes: resumable !== undefined && "id" in resumable,
+		swapped: swapsAgent(realmAgents),
 	});
 	const chosen = await machineFor(
 		named,
@@ -322,7 +330,7 @@ async function spawnNaming(
 		...(machine !== undefined && !isThisMachine(machine)
 			? { elsewhere: machine }
 			: {}),
-		agent: () => agentCommand("pi", here),
+		agent: () => agentCommand("pi", here, agentsHere),
 		spawn: {
 			questId: questIdForSpawn,
 			cwd,
@@ -365,7 +373,7 @@ async function spawnNaming(
 	// as Joel's personal one declares pi-claude, starts that instead.
 	const spawnsPi = !params.command?.trim();
 	const agents = spawnsPi
-		? await agentCommand(spawned.command, here)
+		? await agentCommand(spawned.command, here, agentsHere)
 		: spawned.command;
 	fence = claimRunning(fence, spawned.command, agents);
 	said.fence = fence;

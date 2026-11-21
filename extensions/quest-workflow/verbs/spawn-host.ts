@@ -618,7 +618,7 @@ interface Shed {
  * declared fences reached hosts knows the token but not the mark, and
  * one before the stage knows neither, so each loses only what it must.
  * An adopt is sent again too, since its variables come from its
- * session's record, not the spawn. A session started without either
+ * session's record, not the spawn; only its mark can be lost. A session started without either
  * beats none (fence-stage.ts); still invalid without both, it is
  * refused as before.
  */
@@ -639,7 +639,12 @@ async function sendShedding(
 		shed = { ...shed, [part]: true };
 		reply = await call(socket, sent, OPEN_PATIENCE_MS);
 	}
-	return { reply, shed };
+	// An adopted session was listed by id as it first started with its
+	// token (fence-stage.ts), so going without the token loses it nothing.
+	return {
+		reply,
+		shed: request.op === "adopt" ? { ...shed, token: false } : shed,
+	};
 }
 
 /** The newer variables an older host's request goes without, newest first. */

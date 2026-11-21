@@ -383,14 +383,15 @@ describe("spawn into a host", () => {
 		if (again?.op !== "open") throw new Error("expected a second open");
 		expect(
 			again.env?.PI_FENCE_STAGE,
-			"the token was dropped with the mark",
+			"the token is kept past the mark",
 		).toEqual(expect.any(String));
-		expect(again.env?.PI_FENCE_DECLARED, "the mark was sent again").toBe(
-			undefined,
-		);
+		expect(again.env?.PI_FENCE_DECLARED, "the mark is dropped").toBe(undefined);
+		expect(result, "it says it went without the mark alone").toMatchObject({
+			details: { unstaged: false, unmarked: true },
+		});
 		expect(
 			recordUnlisted,
-			"a session that kept its token was counted as missed",
+			"a session that kept its token is no miss",
 		).not.toHaveBeenCalled();
 	});
 
@@ -617,6 +618,55 @@ describe("spawn into a host", () => {
 			expect.objectContaining({ op: "adopt" }),
 			expect.objectContaining({ op: "adopt", env: { PI_SANDBOX: "fence" } }),
 		]);
+		expect(result, "it says it went without the mark alone").toMatchObject({
+			details: { unstaged: false, unmarked: true },
+		});
+		expect(recordUnlisted, "a dropped mark is no miss").not.toHaveBeenCalled();
+	});
+
+	it("adopts without its recorded token in a host that knows neither, counting no miss, since its session was listed by id", async () => {
+		await serveHost("home", "background");
+		const resumed = randomUUID();
+		const { state, id } = await questWithSession(resumed, 60 * 60 * 1000);
+		saveRecord(
+			openRecord({
+				sessionId: resumed,
+				instanceId: "inst",
+				cwd: tmpRoot,
+				questId: id,
+				env: {
+					PI_SANDBOX: "fence",
+					PI_FENCE_DECLARED: "1",
+					PI_FENCE_STAGE: "0197a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+				},
+				now: new Date(),
+			}),
+		);
+		answer = async (request) => {
+			if (
+				request.op === "adopt" &&
+				(request.env?.PI_FENCE_DECLARED || request.env?.PI_FENCE_STAGE)
+			)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return { ...identityFor(request), sessionId: resumed };
+		};
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({
+			ok: true,
+			details: { unstaged: false, unmarked: true },
+		});
+		expect(received.at(-1), "adopted at last with neither").toMatchObject({
+			op: "adopt",
+			env: { PI_SANDBOX: "fence" },
+		});
+		expect(said(result), "it never says it left the stage").not.toContain(
+			"starts outside the stage",
+		);
+		expect(recordUnlisted, "nothing was lost to count").not.toHaveBeenCalled();
 	});
 
 	it("refuses to adopt with a note, or a session still live, sending nothing", async () => {

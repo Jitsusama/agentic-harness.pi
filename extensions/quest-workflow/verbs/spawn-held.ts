@@ -328,7 +328,19 @@ export type AgentsOnNode = () => Promise<
 	ReadonlyMap<string, string> | undefined
 >;
 
-const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+/** The agent command each machine in this session's realm declares. */
+export const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+
+/**
+ * Whether any machine in `agents` starts another agent in pi's place, so
+ * a spawn asked where it runs, before it is known where, can't vouch for
+ * a fence only pi keeps.
+ */
+export function swapsAgent(
+	agents: ReadonlyMap<string, string> | undefined,
+): boolean {
+	return [...(agents?.values() ?? [])].some((agent) => agent !== "pi");
+}
 
 /**
  * `command` as `machine` starts an agent session in this session's realm:

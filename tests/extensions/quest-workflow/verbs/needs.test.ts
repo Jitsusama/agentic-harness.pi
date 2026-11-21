@@ -393,25 +393,31 @@ describe("the fence a quest's spawns declare", () => {
 		expect(result.message, "it says the sandbox it still hands on").toContain(
 			"It is handed the strict sandbox, but claimed as unfenced",
 		);
+		expect(
+			result.message,
+			"strict, which no pi lifts, gives only a program's reason",
+		).not.toContain("a Mac may lift it");
 	});
 
-	it("claims none once the realm's own agent starts in pi's place, still handing it the fence", async () => {
+	it("claims none once the realm's own agent starts in pi's place, still handing it the sandbox", async () => {
 		const { id, run } = await quest("Alpha");
 		nodeAgents = new Map([[hostname().split(".")[0] ?? "", "pi-claude"]]);
 
+		// Strict, which every platform keeps for pi, so the claim's lowering
+		// is the realm's agent's alone.
 		const result = succeeded(
-			await run({ action: "spawn-tab", id, fence: "fence" }),
+			await run({ action: "spawn-tab", id, fence: "strict" }),
 		);
 
 		expect(spawned, "the realm's agent starts").toMatch(/^pi-claude\b/);
-		expect(spawnedEnv?.PI_SANDBOX, "it is still handed the fence").toBe(
-			"fence",
+		expect(spawnedEnv?.PI_SANDBOX, "it is still handed the sandbox").toBe(
+			"strict",
 		);
 		expect(result.details, "but claims none").toMatchObject({
 			fence: { kind: "none", from: "default" },
 		});
 		expect(result.message, "and says why").toContain(
-			"It is handed the fence sandbox, but claimed as unfenced",
+			"It is handed the strict sandbox, but claimed as unfenced",
 		);
 	});
 
@@ -542,6 +548,26 @@ describe("the fence a whole spawn tells the realm's node", () => {
 		});
 		expect(asked[1], "the held start claims what it settled to").toMatchObject({
 			Start: { work: { fence: { kind: "strict", from: "default" } } },
+		});
+	});
+
+	it("tells it none, placing and starting, where the realm starts its own agent in pi's place", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", ref: "reach=home" });
+		process.env.PI_SANDBOX = "strict";
+		nodeAgents = new Map([[here, "pi-claude"]]);
+		const asked = await nodeHere();
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked[0], "the placement ask claims none").toMatchObject({
+			Place: { fence: { kind: "none", from: "default" } },
+		});
+		expect(asked[1], "and so does the held start").toMatchObject({
+			Start: { work: { fence: { kind: "none", from: "default" } } },
+		});
+		expect(result.details, "and its answer").toMatchObject({
+			fence: { kind: "none", from: "default" },
 		});
 	});
 
