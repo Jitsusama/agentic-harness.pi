@@ -16,6 +16,7 @@ import {
 	fixture,
 	fromElsewhere,
 	judging,
+	noNode,
 	onQuest,
 	peer,
 	send,
@@ -389,7 +390,7 @@ describe("sending", () => {
 	it("refuses a send to an orchestrator nobody is, and drops the word beside other groups", async () => {
 		onQuest();
 		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);
-		const { tools } = await startSession();
+		const { tools } = await startSession(noNode());
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 
 		const refused = await send(tools, "orchestrator", "question", "May I?");

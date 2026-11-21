@@ -99,7 +99,7 @@ export type Answer = ReturnType<typeof answer>;
  * Every peer, answering only to its own addresses, sorted by whether
  * it is still on the mesh.
  */
-export function peers(at: Local): Promise<Census> {
+export function peers(at: Pick<Local, "presences">): Promise<Census> {
 	const everyone = at.presences.all();
 	return census(
 		everyone.map((one) => ({
