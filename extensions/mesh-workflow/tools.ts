@@ -419,7 +419,7 @@ export function registerTools(
 		exposure: "deferred",
 		label: "Mesh",
 		description:
-			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest, or joins a live quest already holding the work beside whoever works there, and asks the map to tie it to this one; the tie is there only once the map shows it. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
+			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest and asks the map to tie it to this one, there only once the map shows it; or it joins a live quest already holding the work beside whoever works there, which stays untied. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
 		parameters: Type.Object({
 			words: Type.String({
 				description:

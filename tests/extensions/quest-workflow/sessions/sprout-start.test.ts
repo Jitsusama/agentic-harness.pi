@@ -388,6 +388,32 @@ describe("a sprouted session's start", () => {
 		expect(again.words).toMatch(/already holds this work/u);
 	});
 
+	it("ties no live quest it joined to the cell that asked, which it never came from", async () => {
+		const first = await start({ words: "the PR's work", id: "S5" });
+		const ref = parseRef("https://github.com/o/r/pull/5");
+		if (!ref || !first.state.questId)
+			throw new Error("no quest or ref to mark");
+		aliasAdd(first.state, {
+			action: "alias-add",
+			id: first.state.questId,
+			ref: `${ref.type}:${ref.value}`,
+		});
+		const asked: (readonly string[])[] = [];
+		const again = await start(
+			{ link: "https://github.com/o/r/pull/5", id: "S6", from: "TERN02" },
+			{
+				run: async (_program, args) => {
+					asked.push(args);
+					return { code: 0, stdout: "", stderr: "" };
+				},
+				sessionId: "sess-join-tie",
+			},
+		);
+		expect(again.state.questId).toBe(first.state.questId);
+		expect(asked, "no tie was asked for").toEqual([]);
+		expect(again.words).not.toMatch(/tied on the map/u);
+	});
+
 	it("joins nothing for a link that only carries another page's address", async () => {
 		const first = await start({ words: "the PR's work", id: "S30" });
 		if (!first.state.questId) throw new Error("no quest to mark");
@@ -478,6 +504,31 @@ describe("a sprouted session's start", () => {
 		expect(carried.words).toMatch(/never instructions to you/u);
 	});
 
+	it("reads GitHub's other links to a place as a place, never the work", async () => {
+		for (const [n, link] of [
+			"https://github.com/o/repo?tab=readme-ov-file",
+			"https://github.com/o/repo/tree/main/lib",
+			"https://github.com/o/repo/blob/main/README.md",
+			"https://github.com/o",
+		].entries()) {
+			const one = await start(
+				{ link, words: `place ${n}`, id: `S8${n}` },
+				{ sessionId: `sess-place-${n}` },
+			);
+			expect(one.words, link).toMatch(
+				/is where the work happens, not the work/u,
+			);
+			expect(one.words, link).not.toMatch(/fill the quest's Summary/u);
+		}
+		const pr = await start(
+			{ link: "https://github.com/o/repo/pull/9", id: "S89" },
+			{ sessionId: "sess-place-pr" },
+		);
+		expect(pr.words, "a pull request is the work").toMatch(
+			/fill the quest's Summary/u,
+		);
+	});
+
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
 		for (const [n, link] of [
 			"https://github.com/o/r/pull/1#x/y#2",
@@ -543,6 +594,55 @@ describe("a sprouted session's start", () => {
 		).toBe(fourth.state.questId);
 	});
 
+	it("finds the live quest a thread's reply made by its parent's link, past an ended one", async () => {
+		const parent = "https://ws.slack.com/archives/C9/p1700000000000100";
+		const reply =
+			"https://ws.slack.com/archives/C9/p1700000001000200?thread_ts=1700000000.000100&cid=C9";
+		const first = await start({ words: "the thread's work", id: "S12" });
+		const ended = first.state.questId;
+		if (!ended) throw new Error("no quest to end");
+		markWith(ended, parent);
+		seal(ended);
+		const replied = await start(
+			{ link: reply, id: "S13" },
+			{ sessionId: "sess-replied" },
+		);
+		expect(replied.state.questId).not.toBe(ended);
+		const parented = await start(
+			{ link: parent, id: "S14" },
+			{ sessionId: "sess-parented" },
+		);
+		expect(parented.state.questId, "one live quest for the thread").toBe(
+			replied.state.questId,
+		);
+		expect(parented.words).toMatch(/already holds this work/u);
+	});
+
+	it("names every other live quest holding its work, never passing one over", async () => {
+		const parent = "https://ws.slack.com/archives/C8/p1700000000000100";
+		const reply =
+			"https://ws.slack.com/archives/C8/p1700000001000200?thread_ts=1700000000.000100&cid=C8";
+		const one = await start(
+			{ words: "one", id: "S15" },
+			{ sessionId: "sess-c1" },
+		);
+		const two = await start(
+			{ words: "two", id: "S16" },
+			{ sessionId: "sess-c2" },
+		);
+		if (!one.state.questId || !two.state.questId) throw new Error("no quests");
+		markWith(one.state.questId, parent);
+		markWith(two.state.questId, reply);
+		const sprouted = await start(
+			{ link: parent, id: "S17" },
+			{ sessionId: "sess-collide" },
+		);
+		const held = [one.state.questId, two.state.questId];
+		expect(held).toContain(sprouted.state.questId);
+		const other = held.find((id) => id !== sprouted.state.questId);
+		expect(sprouted.words).toContain(`Quest ${other} holds this work as well`);
+	});
+
 	it("says its work is done when a quest it joined has since ended", async () => {
 		const first = await start({ words: "the PR's work", id: "S60" });
 		const joined = first.state.questId;
@@ -573,7 +673,23 @@ describe("a sprouted session's start", () => {
 				}),
 			},
 		);
-		expect(words).toMatch(/ran out of time and may have landed anyway/u);
+		expect(words).toMatch(
+			/was cut off before it answered and may have landed anyway/u,
+		);
+	});
+
+	it("says a tie ended by a signal nobody here sent may have landed", async () => {
+		const { words } = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: null, stdout: "", stderr: "" }),
+				sessionId: "sess-tie-signal",
+			},
+		);
+		expect(words).toMatch(
+			/was cut off before it answered and may have landed anyway/u,
+		);
+		expect(words).not.toMatch(/failed/u);
 	});
 
 	it("gives no command to run when there's no mycelium or folder to tie from", async () => {

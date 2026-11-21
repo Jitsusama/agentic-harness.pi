@@ -185,7 +185,9 @@ describe("a sprouted session's first words", () => {
 			{ words: "tea", from: "TERN02" },
 			{ kind: "unsure", from: "TERN02" },
 		);
-		expect(words).toMatch(/ran out of time and may have landed anyway/u);
+		expect(words).toMatch(
+			/was cut off before it answered and may have landed anyway/u,
+		);
 		expect(words).toMatch(
 			/only if the map shows no tie to TERN02, run `mycelium web/u,
 		);

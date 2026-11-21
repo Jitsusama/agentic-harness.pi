@@ -156,7 +156,10 @@ export type Tied =
 			/** Whether running the tie by hand can help: not without mycelium. */
 			readonly retry?: boolean;
 	  }
-	/** It ran out of time, after which the node may have tied it anyway. */
+	/**
+	 * It was cut off before it answered, by our patience or a signal nobody
+	 * here sent, after which the node may have tied it anyway.
+	 */
 	| { readonly kind: "unsure"; readonly from: string };
 
 /** What the first words say of how the tie to the cell went. */
@@ -167,7 +170,7 @@ function tieSaid(questId: string, tied: Tied): string {
 	}
 	const command = `\`mycelium ${tieArguments(questId, tied.from).join(" ")}\``;
 	if (tied.kind === "unsure") {
-		return ` Tying it to the cell it came from, ${tied.from}, ran out of time and may have landed anyway; only if the map shows no tie to ${tied.from}, run ${command} once.`;
+		return ` Tying it to the cell it came from, ${tied.from}, was cut off before it answered and may have landed anyway; only if the map shows no tie to ${tied.from}, run ${command} once.`;
 	}
 	const retry = tied.retry === false ? "" : `; run ${command} once`;
 	return ` Tying it to the cell it came from, ${tied.from}, failed (${tied.why})${retry}.`;
@@ -180,13 +183,18 @@ function tieSaid(questId: string, tied: Tied): string {
  * never instructions; the words may be an agent's (mesh_sprout) as well
  * as the person's, so they are framed as what the work was asked with,
  * granting nothing beyond the work itself. A link naming a place work
- * happens (linkIs "place") is never called the work.
+ * happens (linkIs "place") is never called the work. Other live
+ * quests holding the same work (joined.also) are named, never passed
+ * over in silence, since one work belongs on one quest.
  */
 export function sproutedWords(
 	questId: string,
 	seed: SproutSeed,
 	tied: Tied,
-	joined?: { readonly peers?: string | undefined },
+	joined?: {
+		readonly peers?: string | undefined;
+		readonly also?: readonly string[];
+	},
 	linkIs: "work" | "place" = "work",
 ): string {
 	// Quoted as a JSON string, so no quote in the words can close it and
@@ -205,7 +213,10 @@ export function sproutedWords(
 	const tie = tieSaid(questId, tied);
 	if (joined) {
 		const peers = joined.peers ? ` ${joined.peers}` : "";
-		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${peers} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;
+		const also = joined.also?.length
+			? ` Quest ${joined.also.join(" and ")} holds this work as well, where one quest should: tell the person, so the two can be made one.`
+			: "";
+		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${peers}${also} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;
 	}
 	return `This session was sprouted, and quest ${questId} is made and loaded for it${source}${seed.words ? whose : ""}${tie} The whole quest is yours: retitle it if its title says the work badly, plan it, build it, merge what passes its checks, and tell the person what it needs from them as it comes, each line saying the work, why it exists, where it stands and what you ask. Nobody else loads it.`;
 }

@@ -110,7 +110,8 @@ export async function startSprouted(
 		const said = loaded.details?.peers;
 		peers = typeof said === "string" ? said : undefined;
 	}
-	const joined = held !== undefined ? { peers } : undefined;
+	const also = !replayed && linked ? linked.also : [];
+	const joined = held !== undefined ? { peers, also } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
@@ -138,7 +139,13 @@ export async function startSprouted(
 		});
 	}
 	servesNeed(state, id, seed);
-	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
+	// Only a quest it made, or its own replayed, is sprouted from the cell
+	// that asked: a live one it joined predates it, and may be that very
+	// cell's own, so the map is left saying where it really came from.
+	const tied =
+		held !== undefined && !replayed
+			? ({ kind: "none" } as const)
+			: await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
 }
 
@@ -290,12 +297,26 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
 /**
  * Whether the seed's link, read as pageRead reads it, names a place
  * work happens (PLACES), so its first words never call the page the
- * work. A link merely carrying a place's address is no place.
+ * work. A link merely carrying a place's address is no place. GitHub's
+ * own ways of linking a place count too, which parseRef reads as no
+ * ref: an organisation, a repository with a query such as
+ * ?tab=readme-ov-file, and a branch or file in one (/tree, /blob).
  */
 function linkIsPlace(seed: SproutSeed): boolean {
 	const read = pageRead(seed);
-	return read ? PLACES.has(read.ref.type) : false;
+	if (read) return PLACES.has(read.ref.type);
+	const url = seed.link ? webAddress(seed.link) : undefined;
+	if (!url || siteOf(url) !== "github.com") return false;
+	const path = url.pathname.split("/").filter((part) => part !== "");
+	return (
+		path.length === 1 ||
+		path.length === 2 ||
+		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
+	);
 }
+
+/** Where in a GitHub repository its own code is, never a piece of work. */
+const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "blob"]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
@@ -350,14 +371,28 @@ function markOf(ref: Ref): { type: string; value: string } {
  * it took when the quest holding it had ended, each under any ref naming
  * the same work (sameWork).
  */
-function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
+function linkedQuest(
+	state: QuestState,
+	seed: SproutSeed,
+): (Found & { also: string[] }) | undefined {
 	const ref = linkRef(seed);
 	if (!ref) return undefined;
 	const all = sameWork(ref).flatMap((one) => [
 		...questsWith(state, one),
 		...questsWith(state, markOf(one)),
 	]);
-	return all.find((one) => !one.sealed) ?? all[0];
+	const found = all.find((one) => !one.sealed) ?? all[0];
+	if (!found) return undefined;
+	// Two live quests holding one work is a collision the alias index
+	// would refuse; joined, the others are named rather than passed over.
+	const also = [
+		...new Set(
+			all
+				.filter((one) => !one.sealed && one.id !== found.id)
+				.map((one) => one.id),
+		),
+	];
+	return { ...found, also };
 }
 
 /**
@@ -401,7 +436,14 @@ async function tie(
 		timeoutMs: TIE_PATIENCE_MS,
 	});
 	if (ran.code === 0) return { kind: "tied", from };
-	if (ran.timedOut) return { kind: "unsure", from };
+	// Ended by our patience, or by a signal nobody here sent (the OOM
+	// killer's), its ask may already be with the node, as a sprout's is.
+	if (
+		ran.timedOut ||
+		(ran.code === null && !ran.neverRan && !ran.missing && !ran.noFolder)
+	) {
+		return { kind: "unsure", from };
+	}
 	if (ran.neverRan) {
 		return {
 			kind: "failed",
