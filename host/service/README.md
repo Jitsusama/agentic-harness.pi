@@ -313,8 +313,10 @@ input pipeline or screen. No unit or running host is installed yet.
   then their units: a running host starts a child again at its
   conversation's next wake. The host runs a
   conversation itself only once every child that ran it has gone and
-  its own slot is free, unless a child there answered as or became
-  another conversation (`left`); while one still runs, the resume fails.
+  its own slot is free, unless a child there became another
+  conversation, as the host heard it or as a child taken up says, and
+  the roster holds what it became (`left`); while one still runs, the
+  resume fails.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,

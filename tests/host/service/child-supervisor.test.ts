@@ -296,7 +296,9 @@ describe("a resumed conversation", () => {
 		units.next = {
 			answers: (result) => ({ ...result, conversation: conversation(b) }),
 		};
-		await expect(supervisor.resume(entry(a))).rejects.toThrow("not");
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`not ${a} as asked`,
+		);
 		const [unit] = units.started;
 
 		await expect(supervisor.left(a)).rejects.toThrow(
@@ -420,6 +422,59 @@ describe("what a child says", () => {
 
 		await expect(supervisor.left(b), "b runs there").rejects.toThrow(
 			"still runs",
+		);
+	});
+
+	it("says a conversation has left only once the roster holds what it became", async () => {
+		await supervisor.resume(entry(a));
+		let write = (): void => undefined;
+		roster.written = new Promise((done) => {
+			write = done;
+		});
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		await new Promise((done) => setTimeout(done, LISTENS_AFTER_MS));
+		expect(hasLeft, "left before the roster replaced it").toBe(false);
+		write();
+		await leaving;
+
+		expect(roster.held, "a wake of it now holds afresh").toEqual([entry(b)]);
+	});
+
+	it("says a conversation has not left a slot it became another in once a child of it lingers there again", async () => {
+		await supervisor.resume(entry(a));
+		const last = childOf(a);
+		const slotA = slotOf(folder, key, a);
+		last.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(roster.held).toEqual([entry(b)]));
+		last.say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[b, "parked"]]));
+		void last.exit();
+		await vi.waitFor(() => expect(units.forgotten).toContain(slotA.unit));
+
+		units.lingers = true;
+		units.next = { silent: true };
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			"no answer within",
+		);
+
+		await expect(supervisor.left(a)).rejects.toThrow(
+			`${a} still runs in ${slotA.unit}`,
 		);
 	});
 

@@ -175,7 +175,8 @@ export interface ChildSupervisor {
 	adopt(): Promise<number>;
 	/**
 	 * Settles once no child runs this conversation: every one that ran it
-	 * has gone and its own slot is free, or runs what it became. Fails
+	 * has gone and its own slot is free, or runs what it became once the
+	 * roster holds that. Fails
 	 * while one still runs it, or once the host stops watching.
 	 */
 	left(sessionId: string): Promise<void>;
@@ -1218,6 +1219,13 @@ export function childSupervisor(options: {
 			await listing;
 			await takingFor.get(keyed(sessionId));
 			await leftBy.get(keyed(sessionId));
+			// A slot it moved off writes what it became into the roster after
+			// the move is heard; until that lands, a resume of it would be held
+			// and then replaced away.
+			const moved = `${keyed(sessionId)} `;
+			for (const off of [...movedOff])
+				if (off.startsWith(moved))
+					await writing.get(off.slice(moved.length))?.();
 			// Every slot that ran it, whichever way its child left, until that
 			// slot is free: one whose unit still runs refuses, as a start does.
 			for (const last of [...(ranIn.get(keyed(sessionId))?.values() ?? [])]) {
