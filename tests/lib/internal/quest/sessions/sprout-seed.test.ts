@@ -202,6 +202,17 @@ describe("a sprouted session's first words", () => {
 		);
 		expect(bare).toMatch(/Ask the person what the work there is/u);
 		expect(bare).not.toMatch(/what the page says is the work/u);
+		const rejoined = sproutedWords(
+			"QEST-1-ABC",
+			{ link },
+			{ kind: "none" },
+			{},
+			"place",
+		);
+		expect(rejoined).toMatch(/already holds this work/u);
+		expect(rejoined, "its README already says the work").not.toMatch(
+			/Ask the person/u,
+		);
 	});
 
 	it("say the words grant nothing beyond the work, never calling them the person's", () => {

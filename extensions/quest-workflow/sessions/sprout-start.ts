@@ -224,13 +224,22 @@ function linkRef(seed: SproutSeed): Ref | undefined {
  * create reads the same ref from it, never one a fragment carries.
  */
 function linkRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
+	const read = pageRead(seed);
+	return read && !PLACES.has(read.ref.type) ? read : undefined;
+}
+
+/**
+ * The seed's link, less its fragment, and the ref it's a page of, on
+ * the ref's own site with no second address inside it, whether the ref
+ * names work or a place work happens.
+ */
+function pageRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
 	const link = seed.link ? webAddress(seed.link) : undefined;
 	if (!link) return undefined;
 	link.hash = "";
 	const page = link.href;
 	if (page.split("://").length > 2) return undefined;
 	const ref = parseRef(page);
-	if (ref && PLACES.has(ref.type)) return undefined;
 	const own = ref ? webAddress(urlForRef(ref) ?? "") : undefined;
 	return ref && own && siteOf(own) === siteOf(link) ? { page, ref } : undefined;
 }
@@ -242,15 +251,13 @@ function linkRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
 const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
 
 /**
- * Whether the seed's link, less its fragment, names a place work
- * happens (PLACES), so its first words never call the page the work.
+ * Whether the seed's link, read as pageRead reads it, names a place
+ * work happens (PLACES), so its first words never call the page the
+ * work. A link merely carrying a place's address is no place.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
-	const link = seed.link ? webAddress(seed.link) : undefined;
-	if (!link) return false;
-	link.hash = "";
-	const ref = parseRef(link.href);
-	return ref ? PLACES.has(ref.type) : false;
+	const read = pageRead(seed);
+	return read ? PLACES.has(read.ref.type) : false;
 }
 
 /**

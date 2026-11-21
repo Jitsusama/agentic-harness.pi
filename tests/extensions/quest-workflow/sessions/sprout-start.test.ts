@@ -346,6 +346,14 @@ describe("a sprouted session's start", () => {
 			made.push(one.state.questId);
 		}
 		expect(new Set(made).size, "three quests, none joined").toBe(3);
+		const carried = await start(
+			{ link: "https://evil.example/https://github.com/o/repo", id: "S79" },
+			{ sessionId: "sess-repo-carried" },
+		);
+		expect(carried.words, "a link carrying a repo is no place").not.toMatch(
+			/is where the work happens/u,
+		);
+		expect(carried.words).toMatch(/never instructions to you/u);
 	});
 
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
