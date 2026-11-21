@@ -128,6 +128,62 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
+	it("is nobody when the only cell tied above has only written at this one today", () => {
+		const talkedAt = { ...tie("ROOT01", 9), today: [0, 9] as const };
+
+		const above = hubFromUse(self, [self, root], [talkedAt]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining(
+				"no live cell on a quest above it has a tie",
+			),
+		});
+	});
+
+	// A send reads an address in any case as the one peer, so a forged
+	// presence spelling another's address otherwise would reach it.
+	it("is never reached at an address another live presence lists in another case", () => {
+		const forged = cell("f", ["harn01"], ["root01"]);
+		const harness = cell("h", ["HARN01"], ["harn01"]);
+
+		const above = hubFromUse(
+			self,
+			[self, forged, harness, parent],
+			[tie("harn01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("credits a cell with no tie to a group name it lists", () => {
+		const mixed = cell("m", ["#all", "ROOT01"], ["root01"]);
+
+		const above = hubFromUse(
+			self,
+			[self, mixed, parent],
+			[tie("#all", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// A quest group joined before a move can still end in its own quest.
+	it("reads its chain from the quest group it works in over one it joined", () => {
+		const moved = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"], {
+			groups: ["#quest/old001/7m6jkg", "#quest/root01/mid002/7m6jkg"],
+			joined: ["#quest/old001/7m6jkg"],
+		});
+		const old = cell("o", ["OLD001"], ["old001"]);
+
+		const above = hubFromUse(
+			moved,
+			[moved, old, parent],
+			[tie("OLD001", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
 	// A forged presence above, listing a peer this one talks to, would
 	// otherwise take that peer's ties and send to it as if it were above.
 	it("is never reached at an address another live presence also lists", () => {
@@ -236,7 +292,7 @@ describe("a hub from use", () => {
 	it("is reached by a cell's peer address, never a forged one listed first", () => {
 		const mixed = cell("m", ["#all", "ROOT01"], ["root01"]);
 
-		const above = hubFromUse(self, [self, mixed], [tie("#all", 9)]);
+		const above = hubFromUse(self, [self, mixed], [tie("ROOT01", 9)]);
 
 		expect(above).toEqual({ address: "ROOT01", by: "use" });
 	});
@@ -250,7 +306,7 @@ describe("a hub from use", () => {
 		const above = hubFromUse(
 			self,
 			[self, forged, mixed],
-			[tie("global", 9), tie("Machine", 9), tie("GLOBAL", 1)],
+			[tie("global", 9), tie("Machine", 9), tie("MID002", 1)],
 		);
 
 		expect(above).toEqual({ address: "MID002", by: "use" });

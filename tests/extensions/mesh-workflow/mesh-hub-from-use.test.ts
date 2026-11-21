@@ -1,7 +1,7 @@
 /**
  * `orchestrator` on a quest with no orchestrator mark: it reaches the
- * hub from use, the live cell on a quest above this one that its ties
- * are strongest to, and says so; with no such cell it refuses, naming
+ * hub from use, the live cell on a quest above this one that it talks
+ * with most, and says so; with no such cell it refuses, naming
  * the quest, and never sends wider.
  */
 

@@ -43,9 +43,11 @@ const QUEST_GROUP = "#quest/";
 
 /**
  * The hub from use of a cell whose quest carries no orchestrator mark:
- * the live cell on a quest above its own that it is most tied to, its
+ * the live cell on a quest above its own that it talks with most, its
  * ties to each of that cell's addresses added up, since one cell can be
- * written to by its signature and by its quest's address. Equal ties go
+ * written to by its signature and by its quest's address. Only a tie to
+ * an address that could be the hub's counts, never one to a group or an
+ * address two live presences list. Equal ties go
  * to the cell whose single tie is strongest. A cell that has stopped
  * this one is never its hub, since it would not be written to, and nor
  * is one this cell has stopped, whose answer it would drop.
@@ -93,9 +95,10 @@ export function hubFromUse(
 	const stoppers = new Set(
 		stoppedBy(self, live).map(({ stopper }) => stopper.session),
 	);
-	// Held by exactly one live presence, so the cell it names is that one.
+	// Held by exactly one live presence, so the cell it names is that one,
+	// in any case, since a send reads an address upper-cased.
 	const alone = (address: string) =>
-		live.filter((one) => one.addresses.includes(address)).length === 1;
+		live.filter((one) => lists(one, address)).length === 1;
 	const writable = (address: string) => isHub(address) && alone(address);
 	const candidates = live.filter((one) => {
 		if (
@@ -111,10 +114,11 @@ export function hubFromUse(
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
 	const strength = new Map<Presence, number>();
 	for (const tie of ties) {
-		if (!alone(tie.other)) continue;
-		const hub = candidates.find((one) => one.addresses.includes(tie.other));
+		const share = ownShare(tie);
+		if (share <= 0 || !writable(tie.other)) continue;
+		const hub = candidates.find((one) => lists(one, tie.other));
 		if (hub !== undefined) {
-			strength.set(hub, (strength.get(hub) ?? 0) + ownShare(tie));
+			strength.set(hub, (strength.get(hub) ?? 0) + share);
 		}
 	}
 	let best: { hub: Presence; strength: number } | undefined;
@@ -131,8 +135,10 @@ export function hubFromUse(
 
 /**
  * A tie's strength, counted for the share of today's messages on it
- * this cell sent, so a cell that only writes at this one gains nothing.
- * A tie with no messages today is faded already and counts whole.
+ * this cell sent, so a cell that has only written at this one today
+ * gains nothing. A tie with no messages today counts whole, since the
+ * node keeps no longer count of each end's: talk from before today,
+ * one-sided or not, still counts, faded, until either end writes.
  */
 function ownShare(tie: Tie): number {
 	const [mine, theirs] = tie.today;
@@ -146,9 +152,14 @@ function stoppedHere(
 	one: Pick<Presence, "session" | "addresses">,
 ): boolean {
 	return (self.stops ?? []).some(
-		(stop) =>
-			stop.session === one.session || one.addresses.includes(stop.address),
+		(stop) => stop.session === one.session || lists(one, stop.address),
 	);
+}
+
+/** Whether `one` lists `address`, in any case, as a send reads it. */
+function lists(one: Pick<Presence, "addresses">, address: string): boolean {
+	const wanted = address.toUpperCase();
+	return one.addresses.some((listed) => listed.toUpperCase() === wanted);
 }
 
 /**
@@ -165,8 +176,9 @@ function isHub(address: string): boolean {
 /**
  * A cell's quest chain, root first, as the quest group its work puts it
  * in spells it. Where it says its quest, the chain is the group ending
- * in it, joined or not, since a group joined before the quest was loaded
- * stays joined, and one joined only to hear ends in another's quest.
+ * in it, the one it works in over one it joined, since a group joined
+ * before the quest was loaded stays joined, as may one joined before a
+ * move, and one joined only to hear ends in another's quest.
  * Where it doesn't, it is its one quest group not joined to hear. An
  * older presence that lists no joined groups had joined every group it
  * is in, as the peer reads it (peer.ts), so it then has no chain and is
@@ -179,11 +191,13 @@ function questChainOf(
 		group.slice(QUEST_GROUP.length).split("/").filter(Boolean);
 	if (one.joined === undefined) return [];
 	const quests = one.groups.filter((group) => group.startsWith(QUEST_GROUP));
+	const joined = new Set(one.joined);
 	if (one.quest) {
 		const own = questAddress(one.quest).toLowerCase();
-		return quests.map(chainOf).find((chain) => chain.at(-1) === own) ?? [];
+		const ending = quests.filter((group) => chainOf(group).at(-1) === own);
+		const chosen = ending.find((group) => !joined.has(group)) ?? ending[0];
+		return chosen === undefined ? [] : chainOf(chosen);
 	}
-	const joined = new Set(one.joined);
 	const worked = quests.filter((group) => !joined.has(group));
 	return worked.length === 1 ? chainOf(worked[0] ?? "") : [];
 }

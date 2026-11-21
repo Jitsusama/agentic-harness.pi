@@ -346,7 +346,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
 			: "",
 		above !== undefined && "by" in above && above.by === "use"
-			? `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, its ties are strongest to that one, and as only an address it grants nothing an orchestrator's mark does`
+			? `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, it talks with that one most, and as only an address it grants nothing an orchestrator's mark does`
 			: "",
 		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`
