@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -26,6 +26,7 @@ import {
 	useRunFolderForTests,
 	withQuestLock,
 } from "../../../lib/internal/quest/io.ts";
+import { journalIn } from "../../../lib/internal/quest/write-journal.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 let dir: string;
@@ -353,9 +354,12 @@ describe("withQuestLock on the login's runtime folder", () => {
 		await new Promise<void>((resolve) => bus.close(() => resolve()));
 	});
 
+	/** What the lock folder holds, but for the journal of quest writes. */
 	const locks = (): string[] => {
 		const folder = join(run, "agentic-harness.pi", "quest-locks");
-		return existsSync(folder) ? readdirSync(folder) : [];
+		const journal = basename(journalIn(folder));
+		const names = existsSync(folder) ? readdirSync(folder) : [];
+		return names.filter((name) => name !== journal);
 	};
 
 	const quest = (id: string): string => {
