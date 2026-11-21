@@ -47,7 +47,7 @@ const QUEST_GROUP = "#quest/";
  * ties to each of that cell's addresses added up, since one cell can be
  * written to by its signature and by its quest's address. Only a tie to
  * an address that could be the hub's counts, never one to a group or an
- * address two live presences list. Equal ties go
+ * address two presences list. Equal ties go
  * to the cell whose single tie is strongest. A cell that has stopped
  * this one is never its hub, since it would not be written to, and nor
  * is one this cell has stopped, whose answer it would drop.
@@ -60,8 +60,10 @@ const QUEST_GROUP = "#quest/";
  * cell's presence says; one that isn't shaped as a peer's address, or
  * that a send reads as a group, as it reads `machine` and `global`, is
  * never a hub, so a presence can't widen where `orchestrator` reaches.
- * Nor is an address another live presence also lists, which a forged
- * presence could take to point the send at a peer that isn't above.
+ * Nor is an address another presence also lists, live or `ended`,
+ * which a forged presence could take to point the send at a peer that
+ * isn't above: a send to an ended peer's address still reaches it once
+ * it is restored.
  *
  * `ties` is this cell's, strongest first, as the node keeps them;
  * missing when no node answered.
@@ -73,6 +75,7 @@ export function hubFromUse(
 	>,
 	live: readonly Presence[],
 	ties: readonly Tie[] | undefined,
+	ended: readonly Presence[] = [],
 ): Above {
 	if (self.quest === undefined) {
 		return {
@@ -95,10 +98,10 @@ export function hubFromUse(
 	const stoppers = new Set(
 		stoppedBy(self, live).map(({ stopper }) => stopper.session),
 	);
-	// Held by exactly one live presence, so the cell it names is that one,
-	// in any case, since a send reads an address upper-cased.
+	// Held by exactly one presence, live or ended, so the cell it names is
+	// that one, in any case, since a send reads an address upper-cased.
 	const alone = (address: string) =>
-		live.filter((one) => lists(one, address)).length === 1;
+		[...live, ...ended].filter((one) => lists(one, address)).length === 1;
 	const writable = (address: string) => isHub(address) && alone(address);
 	const candidates = live.filter((one) => {
 		if (
@@ -136,14 +139,14 @@ export function hubFromUse(
 /**
  * A tie's strength, counted for the share of today's messages on it
  * this cell sent, so a cell that has only written at this one today
- * gains nothing. A tie with no messages today counts whole, since the
- * node keeps no longer count of each end's: talk from before today,
- * one-sided or not, still counts, faded, until either end writes.
+ * gains nothing. Today is the last 24 hours, and the node keeps no tie
+ * without a message in them, so one that reads none counts nothing
+ * rather than letting talk of unknown sides through.
  */
 function ownShare(tie: Tie): number {
 	const [mine, theirs] = tie.today;
 	const total = mine + theirs;
-	return total > 0 ? (tie.strength * mine) / total : tie.strength;
+	return total > 0 ? (tie.strength * mine) / total : 0;
 }
 
 /** Whether `self` has stopped `one`, by its session or an address. */

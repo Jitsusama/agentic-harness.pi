@@ -32,12 +32,15 @@ function cell(
 	};
 }
 
-/** A tie from the cell under test to `other`, this strong. */
+/**
+ * A tie from the cell under test to `other`, this strong, every one of
+ * today's messages on it the cell's own, so it counts whole.
+ */
 const tie = (other: string, strength: number): Tie => ({
 	other,
 	strength,
 	hour: [0, 0],
-	today: [0, 0],
+	today: [1, 0],
 	intents: [],
 });
 
@@ -140,6 +143,20 @@ describe("a hub from use", () => {
 		});
 	});
 
+	// The node keeps no tie without a message in the last day, so one
+	// that reads none can't say whose talk it was.
+	it("is nobody when the only tie above reads no messages today", () => {
+		const quiet = { ...tie("ROOT01", 9), today: [0, 0] as const };
+
+		const above = hubFromUse(self, [self, root], [quiet]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining(
+				"no live cell on a quest above it has a tie",
+			),
+		});
+	});
+
 	// A send reads an address in any case as the one peer, so a forged
 	// presence spelling another's address otherwise would reach it.
 	it("is never reached at an address another live presence lists in another case", () => {
@@ -194,6 +211,21 @@ describe("a hub from use", () => {
 			self,
 			[self, forged, harness, parent],
 			[tie("HARN01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// A send to an ended peer's address still reaches it once restored.
+	it("is never reached at an address an ended presence also lists", () => {
+		const forged = cell("f", ["HARN01"], ["root01"]);
+		const ended = cell("h", ["HARN01"], ["harn01"]);
+
+		const above = hubFromUse(
+			self,
+			[self, forged, parent],
+			[tie("HARN01", 9), tie("MID002", 1)],
+			[ended],
 		);
 
 		expect(above).toEqual({ address: "MID002", by: "use" });
@@ -301,7 +333,7 @@ describe("a hub from use", () => {
 	// machine's group, so either would reach every session.
 	it("is never written to by a name a send reads as the machine's group", () => {
 		const forged = cell("g", ["global", "Machine"], ["root01"]);
-		const mixed = cell("m", ["GLOBAL", "MID002"], ["root01", "mid002"]);
+		const mixed = cell("m", ["MID002"], ["root01", "mid002"]);
 
 		const above = hubFromUse(
 			self,

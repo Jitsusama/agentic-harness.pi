@@ -39,5 +39,5 @@ export async function aboveFor(at: HubReading): Promise<Above> {
 			none: "this peer has no presence on the mesh yet, so no orchestrator or hub from use is above it",
 		};
 	}
-	return hubFromUse(self, standing.present, ties);
+	return hubFromUse(self, standing.present, ties, standing.gone);
 }
