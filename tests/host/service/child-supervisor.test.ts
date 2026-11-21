@@ -705,7 +705,7 @@ describe("what a child says", () => {
 		expect(said).toEqual([expect.stringContaining("couldn't be held")]);
 	});
 
-	it("says a conversation has left once the roster refused what it became", async () => {
+	it("says a conversation has left once the roster has refused what it became, not before", async () => {
 		await supervisor.resume(entry(a));
 		const write = deferred();
 		roster.written = write.promise;
@@ -718,10 +718,14 @@ describe("what a child says", () => {
 		});
 		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
 
-		const leaving = supervisor.left(a);
-		// A fixed wait, since nothing outside says left is waiting on the
-		// write: long enough for it to have reached that wait.
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
 		await pause(LISTENS_AFTER_MS);
+		expect(hasLeft, "left before the roster answered").toBe(false);
 		write.settle();
 
 		await expect(

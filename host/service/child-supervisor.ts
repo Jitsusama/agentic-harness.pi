@@ -1240,7 +1240,6 @@ export function childSupervisor(options: {
 			await listing;
 			await takingFor.get(keyed(sessionId));
 			await leftBy.get(keyed(sessionId));
-			await movesLanded(sessionId);
 			// Every slot that ran it, whichever way its child left, until that
 			// slot is free: one whose unit still runs refuses, as a start does.
 			for (const last of [...(ranIn.get(keyed(sessionId))?.values() ?? [])]) {
@@ -1264,7 +1263,8 @@ export function childSupervisor(options: {
 				if (!(await claimed(own.unit, () => free(own))))
 					throw new Error(`${sessionId} still runs in ${own.unit}`);
 			}
-			// A became heard while it waited on a claim writes after it too.
+			// Last, so a became heard while it waited on a claim is waited out
+			// too: what it moved off stays named until its write has landed.
 			await movesLanded(sessionId);
 			stillWatching();
 		},
