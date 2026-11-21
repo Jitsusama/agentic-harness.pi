@@ -204,6 +204,15 @@ function questsWith(
  * Slack thread, naming the thread in its query, still reads as it.
  */
 function linkRef(seed: SproutSeed): Ref | undefined {
+	return linkRead(seed)?.ref;
+}
+
+/**
+ * The seed's link as linkRef reads it: the page, less its fragment, and
+ * the ref it's a page of. The page is what the quest is made from, so
+ * create reads the same ref from it, never one a fragment carries.
+ */
+function linkRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
 	const link = seed.link ? webAddress(seed.link) : undefined;
 	if (!link) return undefined;
 	link.hash = "";
@@ -211,8 +220,24 @@ function linkRef(seed: SproutSeed): Ref | undefined {
 	if (page.split("://").length > 2) return undefined;
 	const ref = parseRef(page);
 	const own = ref ? webAddress(urlForRef(ref) ?? "") : undefined;
-	return own && siteOf(own) === siteOf(link) ? ref : undefined;
+	return ref && own && siteOf(own) === siteOf(link) ? { page, ref } : undefined;
 }
+
+/**
+ * The refs naming the same work as `ref`: itself, and for a Slack thread
+ * its parent message's own, and the reverse, since a reply's link reads
+ * as the thread and the parent's link as the message, under one value.
+ */
+function sameWork(ref: Ref): Ref[] {
+	const twin = SLACK_TWINS[ref.type];
+	return twin ? [ref, { type: twin, value: ref.value }] : [ref];
+}
+
+/** Each Slack ref type and the one naming the same thread under its value. */
+const SLACK_TWINS: Readonly<Record<string, string>> = {
+	"slack-message": "slack-thread",
+	"slack-thread": "slack-message",
+};
 
 /** `text` as a web address, or nothing where it isn't one. */
 function webAddress(text: string): URL | undefined {
@@ -237,21 +262,27 @@ function sproutLink(
 	seed: SproutSeed,
 ): { type: string; value: string } | undefined {
 	const ref = linkRef(seed);
-	return ref
-		? { type: "sprout-link", value: `${ref.type}:${ref.value}` }
-		: undefined;
+	return ref ? markOf(ref) : undefined;
+}
+
+/** The mark a sprout's own quest takes for `ref`. */
+function markOf(ref: Ref): { type: string; value: string } {
+	return { type: "sprout-link", value: `${ref.type}:${ref.value}` };
 }
 
 /**
  * The quest already holding the seed's link, a live one before one
  * ended: by the link's own alias, else by the mark an earlier sprout of
- * it took when the quest holding it had ended.
+ * it took when the quest holding it had ended, each under any ref naming
+ * the same work (sameWork).
  */
 function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
 	const ref = linkRef(seed);
-	const mark = sproutLink(seed);
-	if (!ref || !mark) return undefined;
-	const all = [...questsWith(state, ref), ...questsWith(state, mark)];
+	if (!ref) return undefined;
+	const all = sameWork(ref).flatMap((one) => [
+		...questsWith(state, one),
+		...questsWith(state, markOf(one)),
+	]);
 	return all.find((one) => !one.sealed) ?? all[0];
 }
 
@@ -272,11 +303,12 @@ async function makeQuest(
 		priority: "driving",
 	} as const;
 	const title = (seed.words ? titleFromWords(seed.words) : seed.link) ?? "";
-	if (linkable && seed.link && linkRef(seed)) {
+	const read = linkable ? linkRead(seed) : undefined;
+	if (read) {
 		const note = seed.words ? { note: seed.words } : {};
-		const linked = await make({ ...base, url: seed.link, ...note });
+		const linked = await make({ ...base, url: read.page, ...note });
 		if (linked.ok) return linked;
-		return make({ ...base, url: seed.link, title, ...note });
+		return make({ ...base, url: read.page, title, ...note });
 	}
 	const note = [seed.words, seed.link].filter(Boolean).join("\n\n");
 	return make({ ...base, title, note });

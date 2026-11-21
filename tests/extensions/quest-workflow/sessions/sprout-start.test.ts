@@ -291,18 +291,47 @@ describe("a sprouted session's start", () => {
 		);
 	});
 
-	it("joins the quest holding a Slack thread from a reply's link in it", async () => {
-		const reply =
-			"https://ws.slack.com/archives/C1/p1700000001000200?thread_ts=1700000000.000100&cid=C1";
-		const first = await start({ words: "the thread's work", id: "S40" });
-		if (!first.state.questId) throw new Error("no quest to mark");
-		markWith(first.state.questId, reply);
-		const again = await start(
-			{ link: reply, id: "S41" },
-			{ sessionId: "sess-thread" },
-		);
-		expect(again.state.questId).toBe(first.state.questId);
-		expect(again.words).toMatch(/already holds this work/u);
+	it("joins the quest holding a Slack thread by its parent's link or any reply's", async () => {
+		// A channel a case, since an alias goes on one quest only.
+		const parent = (c: string) =>
+			`https://ws.slack.com/archives/${c}/p1700000000000100`;
+		const reply = (c: string, ts: string) =>
+			`https://ws.slack.com/archives/${c}/p${ts}?thread_ts=1700000000.000100&cid=${c}`;
+		const cases: [string, string][] = [
+			[parent("C1"), reply("C1", "1700000001000200")],
+			[reply("C2", "1700000001000200"), parent("C2")],
+			[reply("C3", "1700000001000200"), reply("C3", "1700000002000300")],
+		];
+		for (const [n, [held, sprouted]] of cases.entries()) {
+			const first = await start(
+				{ words: "the thread's work", id: `S4${n}0` },
+				{ sessionId: `sess-held-${n}` },
+			);
+			if (!first.state.questId) throw new Error("no quest to mark");
+			markWith(first.state.questId, held);
+			const again = await start(
+				{ link: sprouted, id: `S4${n}1` },
+				{ sessionId: `sess-thread-${n}` },
+			);
+			expect(again.state.questId, `${held} then ${sprouted}`).toBe(
+				first.state.questId,
+			);
+			expect(again.words).toMatch(/already holds this work/u);
+		}
+	});
+
+	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
+		for (const [n, link] of [
+			"https://github.com/o/r/pull/1#x/y#2",
+			"https://github.com/o/r/pull/1#https://github.com/x/y/issues/9",
+		].entries()) {
+			const asked: { url?: string }[] = [];
+			await start(
+				{ link, id: `S5${n}` },
+				{ asked, sessionId: `sess-fragment-${n}` },
+			);
+			expect(asked[0]?.url, link).toBe("https://github.com/o/r/pull/1");
+		}
 	});
 
 	it("makes its own quest when the one holding its link has ended, never carrying it on", async () => {
