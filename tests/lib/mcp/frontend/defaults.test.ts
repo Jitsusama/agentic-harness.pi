@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { unattendedRefusal } from "../../../../lib/guardian/apply.ts";
 import {
 	defaultWriteSignal,
 	identityShape,
@@ -420,7 +421,7 @@ describe("toAgentContent", () => {
 });
 
 describe("makeDefaultWrap", () => {
-	const ctx = {} as never;
+	const ctx = { hasUI: true } as never;
 	const okResult = result([{ type: "text", text: "done" }]);
 
 	it("calls straight through when the tool is not a write", async () => {
@@ -448,7 +449,7 @@ describe("makeDefaultWrap", () => {
 		expect(invoke).toHaveBeenCalledWith({ a: 2 }, undefined);
 	});
 
-	it("returns the cancel sentinel and does not invoke when cancelled", async () => {
+	it("returns the cancel sentinel and does not invoke when cancelled with a UI", async () => {
 		const invoke = vi.fn(async () => okResult);
 		const showGate = vi.fn(async () => null);
 		const wrapped = makeDefaultWrap({ writeSignal: () => true, showGate })(
@@ -458,6 +459,59 @@ describe("makeDefaultWrap", () => {
 		const out = await wrapped({ a: 1 }, ctx);
 		expect(invoke).not.toHaveBeenCalled();
 		expect(out.content).toEqual([{ type: "text", text: CANCELLED_TEXT }]);
+	});
+
+	it("says no one was asked when the gate answers nothing with no UI, never a cancel", async () => {
+		const invoke = vi.fn(async () => okResult);
+		const showGate = vi.fn(async () => null);
+		const wrapped = makeDefaultWrap({ writeSignal: () => true, showGate })(
+			invoke,
+			tool("write_thing"),
+		);
+		const out = await wrapped({ a: 1 }, { hasUI: false } as never);
+		expect(showGate).toHaveBeenCalledOnce();
+		expect(invoke).not.toHaveBeenCalled();
+		expect(out.content).toEqual([
+			{ type: "text", text: unattendedRefusal("write_thing on s") },
+		]);
+		expect(JSON.stringify(out.content)).toContain(
+			"Not done: write_thing on s waits on the person's yes",
+		);
+	});
+
+	it("leaves a write with no UI to its gate, which may approve it", async () => {
+		const invoke = vi.fn(async () => okResult);
+		const showGate = vi.fn(async () => ({
+			approved: true as const,
+			data: { a: 2 },
+		}));
+		const wrapped = makeDefaultWrap({ writeSignal: () => true, showGate })(
+			invoke,
+			tool("write_thing"),
+		);
+		await wrapped({ a: 1 }, { hasUI: false } as never);
+		expect(showGate).toHaveBeenCalledOnce();
+		expect(invoke).toHaveBeenCalledWith({ a: 2 }, undefined);
+	});
+
+	it("runs a read with no UI, asking no gate", async () => {
+		const read = vi.fn(async () => okResult);
+		const showGate = vi.fn();
+		await makeDefaultWrap({ writeSignal: () => false, showGate })(
+			read,
+			tool("read_thing"),
+		)({}, { hasUI: false } as never);
+		expect(showGate).not.toHaveBeenCalled();
+		expect(read).toHaveBeenCalledOnce();
+	});
+
+	it("runs a write no gate is given for with no UI", async () => {
+		const ungated = vi.fn(async () => okResult);
+		await makeDefaultWrap({ writeSignal: () => true })(
+			ungated,
+			tool("write_thing"),
+		)({}, { hasUI: false } as never);
+		expect(ungated).toHaveBeenCalledOnce();
 	});
 
 	it("returns the redirect note and does not invoke when redirected", async () => {

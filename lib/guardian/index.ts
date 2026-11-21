@@ -14,6 +14,7 @@ export {
 	fenced,
 	forgetRedirects,
 	refusalUnder,
+	unattendedRefusal,
 } from "./apply.ts";
 export {
 	ALL_GUARDS,

@@ -1,4 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import { unattendedRefusal } from "../../guardian/apply.ts";
 import { truncateForDisplay } from "../content.ts";
 import { renderDefaultCall } from "../render/call.ts";
 import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.ts";
@@ -283,11 +284,15 @@ export function toAgentContent(
 }
 
 /**
- * The default execution wrapper. Non-write calls pass straight through. A write
- * runs the injected gate first: cancel returns the cancel sentinel, a redirect
- * returns the note for the model to act on, and approval invokes with the
- * (possibly edited) args. The transport-shaped result is returned unchanged;
- * the core shapes and converts it afterwards.
+ * The default execution wrapper. Non-write calls pass straight through. A
+ * write runs the injected gate first, which keeps its own policy: one whose
+ * guard is off may approve with no one to ask. A redirect returns the note for
+ * the model to act on, and approval invokes with the (possibly edited) args.
+ * A gate that answers nothing in a session with no UI asked no one, so the
+ * write is refused in the words the Slack, Google and review-batch gates use
+ * for it (`unattendedRefusal`), never told to the model as its person's
+ * cancel; with a UI, nothing is the person's cancel. The transport-shaped
+ * result is returned unchanged; the core shapes and converts it afterwards.
  */
 export function makeDefaultWrap(opts: {
 	writeSignal: (tool: McpTool) => boolean;
@@ -296,12 +301,16 @@ export function makeDefaultWrap(opts: {
 		args: Record<string, unknown>,
 	) => Promise<ConfirmResult<Record<string, unknown>>>;
 }): NonNullable<FrontEndProvider["wrap"]> {
-	return (invoke, tool) => async (args, _ctx, signal) => {
+	return (invoke, tool) => async (args, ctx, signal) => {
 		let effectiveArgs = args;
 		if (opts.writeSignal(tool) && opts.showGate) {
 			const decision = await opts.showGate(tool, args);
-			if (decision === null)
-				return { content: [{ type: "text", text: CANCELLED_TEXT }] };
+			if (decision === null) {
+				const text = ctx.hasUI
+					? CANCELLED_TEXT
+					: unattendedRefusal(`${tool.name} on ${tool.serverId}`);
+				return { content: [{ type: "text", text }] };
+			}
 			if (!decision.approved)
 				return {
 					content: [{ type: "text", text: `Redirected: ${decision.redirect}` }],
