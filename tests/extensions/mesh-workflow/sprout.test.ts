@@ -65,7 +65,7 @@ describe("mesh_sprout", () => {
 		const { run, args } = answering({ code: 0, stdout: STARTED, stderr: "" });
 		const answer = await sproutFrom({ words: "tea" }, "/", undefined, run);
 		expect(args[0]?.some((arg) => arg.startsWith("--from"))).toBe(false);
-		expect(said(answer)).not.toMatch(/tied/u);
+		expect(said(answer)).not.toMatch(/tie|this cell/u);
 	});
 
 	it("says why nothing was sprouted, in mycelium's words", async () => {

@@ -273,7 +273,7 @@ describe("a sprouted session's start", () => {
 		for (const [n, link] of [
 			"https://evil.example/https://github.com/o/r/pull/1",
 			"https://github.com/x/https://github.com/o/r/pull/1",
-			"https://evil.example/#o/r#1",
+			"https://evil.example/#https://github.com/o/r/pull/1",
 		].entries()) {
 			const again = await start(
 				{ link, id: `S3${n + 1}` },
@@ -289,6 +289,20 @@ describe("a sprouted session's start", () => {
 		expect(own.state.questId, "its own page, deeper in").toBe(
 			first.state.questId,
 		);
+	});
+
+	it("joins the quest holding a Slack thread from a reply's link in it", async () => {
+		const reply =
+			"https://ws.slack.com/archives/C1/p1700000001000200?thread_ts=1700000000.000100&cid=C1";
+		const first = await start({ words: "the thread's work", id: "S40" });
+		if (!first.state.questId) throw new Error("no quest to mark");
+		markWith(first.state.questId, reply);
+		const again = await start(
+			{ link: reply, id: "S41" },
+			{ sessionId: "sess-thread" },
+		);
+		expect(again.state.questId).toBe(first.state.questId);
+		expect(again.words).toMatch(/already holds this work/u);
 	});
 
 	it("makes its own quest when the one holding its link has ended, never carrying it on", async () => {

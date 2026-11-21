@@ -197,29 +197,36 @@ function questsWith(
 }
 
 /**
- * The ref the seed's link is the page of: only where the link begins
- * with the ref's own address, so a link merely carrying another page's
- * address in its path or fragment joins no quest and takes no mark.
+ * The ref the seed's link is a page of: read from the link less its
+ * fragment, on the ref's own site, with no second address inside it. So
+ * a link merely carrying another page's address in its path, query or
+ * fragment joins no quest and takes no mark, while a reply's link in a
+ * Slack thread, naming the thread in its query, still reads as it.
  */
 function linkRef(seed: SproutSeed): Ref | undefined {
-	if (!seed.link) return undefined;
-	const ref = parseRef(seed.link);
-	const own = ref ? placeOf(urlForRef(ref)) : undefined;
-	const link = placeOf(seed.link);
-	if (!own || !link) return undefined;
-	return link === own || link.startsWith(`${own}/`) ? ref : undefined;
+	const link = seed.link ? webAddress(seed.link) : undefined;
+	if (!link) return undefined;
+	link.hash = "";
+	const page = link.href;
+	if (page.split("://").length > 2) return undefined;
+	const ref = parseRef(page);
+	const own = ref ? webAddress(urlForRef(ref) ?? "") : undefined;
+	return own && siteOf(own) === siteOf(link) ? ref : undefined;
 }
 
-/** A web address's host, less any www., and its path, to compare by. */
-function placeOf(url: string | undefined): string | undefined {
-	if (!url) return undefined;
+/** `text` as a web address, or nothing where it isn't one. */
+function webAddress(text: string): URL | undefined {
 	try {
-		const { host, pathname } = new URL(url);
-		return `${host.replace(/^www\./u, "")}${pathname.replace(/\/$/u, "")}`;
+		return new URL(text);
 	} catch {
-		// Not a web address, so no page to be the ref's own.
+		// Not a web address, so no page to be a ref's.
 		return undefined;
 	}
+}
+
+/** A web address's host, less any www., to compare sites by. */
+function siteOf(url: URL): string {
+	return url.host.replace(/^www\./u, "");
 }
 
 /**
