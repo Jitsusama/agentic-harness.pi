@@ -591,9 +591,10 @@ function actsIn(
 	const machine = `(?:${objects})\\b`;
 	const acts: Act[] = [];
 	const notOfADevice = `(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`;
-	// A soft reboot keeps the kernel's boot, so it is an act of its own.
+	// A soft reboot keeps the kernel's boot, so it is an act of its own,
+	// and so is a soft restart, systemd's userspace reboot by another name.
 	const softReboot = new RegExp(
-		`${NOT_A_TIME}\\bsoft[\\s-]?re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+		`${NOT_A_TIME}\\bsoft[\\s-]?re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (softReboot.test(plain)) acts.push("soft-reboot");
 	const reboot = new RegExp(
@@ -618,7 +619,9 @@ function actsIn(
 		`\\b${machine}\\s+(?:needs|requires|wants|will\\s+need|has\\s+to|must|should)\\s+(?:a\\s+restart|restarting|to\\s+(?:be\\s+)?restart(?:ed)?)`,
 		`\\b${machine}\\s+a\\s+restart\\b`,
 	];
-	if (restart.some((pattern) => new RegExp(pattern).test(plain))) {
+	// A soft restart was read above; joined into one word, it is no restart.
+	const hard = plain.replace(/\bsoft[\s-]?(?=restart)/g, "soft");
+	if (restart.some((pattern) => new RegExp(pattern).test(hard))) {
 		acts.push("restart");
 	}
 	const shutAlone =
@@ -1016,21 +1019,23 @@ const SIGNAL = String.raw`(?:(?:-s|-n|--signal)\s+\S+|-\S+)`;
 const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	[
 		new RegExp(
-			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+soft-reboot\.target)`,
+			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}isolate\s+soft-reboot(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+soft-reboot\.target|${LOGIN1}\brebootwithflags\b)`,
 		),
 		// It ends every process but keeps the kernel and its boot, so what
-		// a boot clears outlives it.
+		// a boot clears outlives it. logind's RebootWithFlags is read as one
+		// whatever its flags, since one of them makes it soft. isolate takes
+		// a bare name as a target; start would take it as a service.
 		"soft-reboot",
 	],
 	[
 		new RegExp(
-			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|kexec)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
+			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|kexec)(?=\s|$)|${SYSTEMCTL}isolate\s+(?:reboot|kexec)(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+(?:reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
 		),
 		"reboot",
 	],
 	[
 		new RegExp(
-			String.raw`^(?:(?:shutdown(?![^|;&]*\s-c\b)|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)\b|qdbus\s.*\blogoutandshutdown\b)`,
+			String.raw`^(?:(?:shutdown(?![^|;&]*\s-c\b)|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}isolate\s+(?:poweroff|halt)(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)(?:withflags)?\b|qdbus\s.*\blogoutandshutdown\b)`,
 		),
 		"shut down",
 	],

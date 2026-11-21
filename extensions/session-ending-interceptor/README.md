@@ -105,8 +105,10 @@ machine, read without a deadline.
   session a pi host runs here whose presence and marker both say so,
   and that the node reads as idle, doesn't count, whoever asks. Any
   other ending, such as a log-out without linger or an end of the
-  user's processes, or a soft reboot (`systemctl soft-reboot`, or one
-  asked for in words), which keeps the kernel and its boot, takes its host down with no new boot, leaving its
+  user's processes, or a soft reboot (`systemctl soft-reboot`,
+  logind's `RebootWithFlags`, or a soft reboot or restart asked for in
+  words), which keeps the kernel and its boot, takes its host down
+  with no new boot, leaving its
   marker to say it is parked where nothing will wake it, so it still
   counts for those. Where the boot
   can't be told, as on a Mac, no marker counts, since one from an
@@ -183,7 +185,7 @@ object ("restart now"), so restarting the shell or pi is left alone; a
 reboot of another device, as a router, is too, and so is a log-out out
 of something else, as gh. A sentence that names only this machine,
 your laptop or the MacBook names none, so every machine is checked. A session-ending command (`sudo reboot`,
-`systemctl poweroff` with any options or by `.target`, `systemctl
+`systemctl poweroff` with any options or by target, `systemctl
 soft-reboot`, `loginctl
 terminate-user`, `kill-user`, `terminate-session` or `terminate-seat`,
 logind over `busctl`, stopping the display manager or the compositor,
