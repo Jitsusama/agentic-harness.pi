@@ -29,6 +29,7 @@ import {
 	cutRunning,
 	forgetGoneEntry,
 	GUARD_WORDS,
+	handLocked,
 	looksCut,
 	plainWords,
 	strandedWhy,
@@ -67,6 +68,9 @@ function unreadTree(
 				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	if (handLocked(path)) {
+		return `${where} Somebody locked it with \`git worktree lock\`, so it stays until they unlock it, and nothing here takes that lock away.`;
+	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
 	}

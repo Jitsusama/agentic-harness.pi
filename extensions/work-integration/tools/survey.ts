@@ -426,6 +426,8 @@ async function surveyRepo(
 							"to cut again. Its .git is kept as .git-was, since the git entry",
 							"it named may by then belong to a tree cut at its name, so copy",
 							"out what is wanted and delete it once nothing in it is wanted.",
+							"Run no git in it, nor in any repository inside it: a command in",
+							"the sandbox may have written the settings and hooks git would run.",
 						]
 					: []),
 			].join("\n"),

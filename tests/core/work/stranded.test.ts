@@ -25,6 +25,7 @@ import {
 	CANT_SAY,
 	CUT_GRACE_MS,
 	cutRunning,
+	HAND_LOCKED,
 	LOCK_STALE_MS,
 	plainWords,
 	type StrandedRecords,
@@ -251,6 +252,32 @@ describe("splitStranded", () => {
 
 		expect(cutRunning(path), "the lock is long past").toBe(false);
 		expect(split).toEqual({ free: [{ path, why: REFUSED }], kept: [] });
+	});
+
+	it("keeps a tree somebody locked by hand, however old", async () => {
+		// A re-cut never forgets a hand lock, so setting the tree aside
+		// would only leave its name uncuttable.
+		const gitDir = standingGitDir("snapshot-h");
+		const path = treeNaming("snapshot-h", gitDir);
+		const at = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "on a drive away\n");
+		utimesSync(join(gitDir, "locked"), at, at);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+	});
+
+	it("reads a fresh hand lock as no cut running", () => {
+		const gitDir = standingGitDir("snapshot-f");
+		const path = treeNaming("snapshot-f", gitDir);
+		writeFileSync(join(gitDir, "locked"), "");
+
+		expect(cutRunning(path), "a hand lock is no cut running").toBe(false);
 	});
 
 	it("keeps a tree cut lately, whose record may not be written yet", async () => {

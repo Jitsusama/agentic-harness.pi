@@ -193,12 +193,17 @@ export const WORKED_IN =
 export const CANT_SAY =
 	"git won't read it, but this machine can't say whether something works in it, so it stays";
 
+/** Why a stranded tree somebody locked with `git worktree lock` stays. */
+export const HAND_LOCKED =
+	"git won't read it, but somebody locked it with `git worktree lock`, so it stays until they unlock it";
+
 /**
  * Why a tree may still be being cut, or nothing: git marks a worktree
  * locked while `worktree add` fills it, and a cut writes its record
  * only once it ends.
  */
 function makingWhy(path: string, now: number): string | undefined {
+	if (handLocked(path)) return HAND_LOCKED;
 	if (cutRunning(path, now)) {
 		return "git won't read it, but git marks it locked, as it does while a cut runs, so it stays";
 	}
@@ -220,7 +225,18 @@ function makingWhy(path: string, now: number): string | undefined {
  */
 export function cutRunning(path: string, now = Date.now()): boolean {
 	const gitDir = namedGitDir(path);
-	return gitDir !== undefined && lockedSince(gitDir, now);
+	return (
+		gitDir !== undefined && lockedSince(gitDir, now) && !lockedByHand(gitDir)
+	);
+}
+
+/**
+ * Whether somebody locked the worktree at `path` with `git worktree
+ * lock`, which nothing here takes away, however old the lock.
+ */
+export function handLocked(path: string): boolean {
+	const gitDir = namedGitDir(path);
+	return gitDir !== undefined && lockedByHand(gitDir);
 }
 
 /**
