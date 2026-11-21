@@ -16,8 +16,14 @@
  */
 
 import { execFile } from "node:child_process";
-import { constants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import {
+	accessSync,
+	closeSync,
+	constants,
+	fstatSync,
+	openSync,
+	readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -94,11 +100,14 @@ async function resolveIn(folder: string, name: string): Promise<BudgetAnswer> {
 	let text: string;
 	let from: string;
 	try {
-		text = await readFile(file, "utf8");
+		const read = readAtOnce(file);
+		if (typeof read !== "string")
+			return { kind: "unavailable", reason: read.why };
+		text = read;
 		from = file;
 	} catch {
 		// No file; a program of the name may answer instead.
-		if (!(await executable(program))) return { kind: "unknown" };
+		if (!executable(program)) return { kind: "unknown" };
 		try {
 			text = (await run(program, [], { timeout: PROGRAM_TIMEOUT_MS })).stdout;
 			from = program;
@@ -149,9 +158,37 @@ function howItFailed(error: unknown): string {
 
 const MS_PER_SECOND = 1000;
 
-async function executable(path: string): Promise<boolean> {
+/** The most a budget file of a few lines may hold, read at once. */
+const LARGEST_BUDGET_FILE = 64 * 1024;
+
+/**
+ * `file`'s text, read at once rather than through libuv's pool of four
+ * threads, which a busy pi host shares with every conversation it
+ * holds: a file of a few lines queued behind their reads missed the
+ * draw's deadline, and left calls on the person's own key. A read at
+ * once has no deadline to end it, so only a plain file of a few lines
+ * is read: a pipe or a device, opened without waiting, is refused with
+ * why, as one too large is. A folder on a hung mount still holds the
+ * open, as it holds pi's own settings, which it reads the same way
+ * from the same home. Throws when there is no file to open.
+ */
+function readAtOnce(file: string): string | { readonly why: string } {
+	const fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
 	try {
-		await access(path, constants.X_OK);
+		const stat = fstatSync(fd);
+		if (!stat.isFile()) return { why: `${file} isn't a plain file.` };
+		if (stat.size > LARGEST_BUDGET_FILE)
+			return { why: `${file} is larger than a budget file is.` };
+		return readFileSync(fd, "utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/** Whether `path` is a program to run, asked at once as the file is read. */
+function executable(path: string): boolean {
+	try {
+		accessSync(path, constants.X_OK);
 		return true;
 	} catch {
 		// Missing or not executable: either way, not a program to run.

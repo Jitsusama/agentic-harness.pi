@@ -404,7 +404,9 @@ async function askWork(
 			cutoff.abort();
 			resolve(undefined);
 		};
-		timer = setTimeout(end, deadlineMs);
+		const ending = end;
+		// One more turn, as `within` gives, for a judgement read meanwhile.
+		timer = setTimeout(() => setImmediate(ending), deadlineMs);
 		signal?.addEventListener("abort", end, { once: true });
 	});
 	try {
@@ -475,12 +477,11 @@ async function askFolder(
 	folder: string,
 	deadlineMs: number,
 ): Promise<string | { readonly why: string } | undefined> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<typeof LATE>((resolve) => {
-		timer = setTimeout(() => resolve(LATE), deadlineMs);
-	});
 	try {
-		const name = await Promise.race([provider.budgetFor?.(folder), late]);
+		const name = await within(
+			Promise.resolve(provider.budgetFor?.(folder)),
+			deadlineMs,
+		);
 		if (name === LATE) {
 			return {
 				why: `it didn't answer within ${deadlineMs / MS_PER_SECOND} s`,
@@ -494,8 +495,6 @@ async function askFolder(
 	} catch (error) {
 		// Passed over, as one that names none, and said why.
 		return { why: `it failed: ${whatFailed(error)}` };
-	} finally {
-		clearTimeout(timer);
 	}
 }
 
@@ -507,7 +506,10 @@ async function within<T>(
 ): Promise<T | typeof LATE> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<typeof LATE>((resolve) => {
-		timer = setTimeout(() => resolve(LATE), withinMs);
+		// After the loop stalls, Node runs its due timers before the I/O
+		// that finished meanwhile, so a deadline fired straight away calls
+		// late an answer already read. One more turn hands that I/O on.
+		timer = setTimeout(() => setImmediate(() => resolve(LATE)), withinMs);
 		// The late wait runs long, so it mustn't keep a process up that has
 		// nothing else to do; a caller's own deadline keeps it, as before.
 		if (long) timer.unref();
