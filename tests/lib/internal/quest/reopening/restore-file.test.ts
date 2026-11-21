@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	bootEndedBefore,
 	carriedEntry,
@@ -17,6 +17,7 @@ import {
 	openRecord,
 	reopenRecord,
 } from "../../../../../lib/internal/quest/sessions/session-registry.ts";
+import { CARRIED_VARIABLES } from "../../../../../lib/internal/session/carried-environment.ts";
 
 /** A session's record as it stood when its pi last ran, in `boot`. */
 function ranIn(sessionId: string, boot: string, questId?: string) {
@@ -32,6 +33,7 @@ function ranIn(sessionId: string, boot: string, questId?: string) {
 
 const dirs: string[] = [];
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -130,6 +132,9 @@ describe("the restore file", () => {
 	});
 
 	it("gives a hosted session the words its viewer runs, so its window can wait while its host is down", () => {
+		// The writer runs fenced, so its own variables would show in an
+		// unfenced session's words if they ever leaked into them.
+		for (const name of CARRIED_VARIABLES) vi.stubEnv(name, "writer");
 		const hosted = (sessionId: string, env?: Record<string, string>) => ({
 			...openRecord({
 				sessionId,
