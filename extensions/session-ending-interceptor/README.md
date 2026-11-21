@@ -105,8 +105,8 @@ machine, read without a deadline.
   session a pi host runs here whose presence and marker both say so,
   and that the node reads as idle, doesn't count, whoever asks. Any
   other ending, such as a log-out without linger or an end of the
-  user's processes, or a `systemctl soft-reboot`, which keeps the
-  kernel and its boot, takes its host down with no new boot, leaving its
+  user's processes, or a soft reboot (`systemctl soft-reboot`, or one
+  asked for in words), which keeps the kernel and its boot, takes its host down with no new boot, leaving its
   marker to say it is parked where nothing will wake it, so it still
   counts for those. Where the boot
   can't be told, as on a Mac, no marker counts, since one from an

@@ -91,7 +91,7 @@ export function asksInCommand(
 }
 
 const FIRST_LOOK =
-	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+(?:\S+\s+){1,3}down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|power(?:s|ed|ing)?\s+(?:\S+\s+){1,2}(?:off|down)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
+	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+(?:\S+\s+){1,3}down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|power(?:s|ed|ing)?\s+(?:\S+\s+){1,2}(?:off|down)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:\S+\s+)*?-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
 
 /**
  * A text with its typography folded to what the patterns read: every
@@ -590,8 +590,14 @@ function actsIn(
 ): Act[] {
 	const machine = `(?:${objects})\\b`;
 	const acts: Act[] = [];
+	const notOfADevice = `(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`;
+	// A soft reboot keeps the kernel's boot, so it is an act of its own.
+	const softReboot = new RegExp(
+		`${NOT_A_TIME}\\bsoft[\\s-]?re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+	);
+	if (softReboot.test(plain)) acts.push("soft-reboot");
 	const reboot = new RegExp(
-		`${NOT_A_TIME}${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`,
+		`${NOT_A_TIME}(?<!\\bsoft\\s+)${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (reboot.test(plain)) acts.push("reboot");
 	const alone =
@@ -669,7 +675,7 @@ const LEAD_IN = /^([^,:;]{1,80}?)(?:[,:]|\s-{1,2})\s+/;
 
 /** A noun of the act after a verb that does it: "do a reboot". */
 const DO_NOUN =
-	/\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+)?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b/;
+	/\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard|soft)\s+)?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b/;
 
 /**
  * A noun after an act word that the act only qualifies: "the reboot
@@ -860,7 +866,7 @@ const RUN = "(?:run|type|paste|execute|enter)\\b";
 
 /** A need for an act, which asks for it as plainly. */
 const NEED = new RegExp(
-	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+)?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
+	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full|soft)\\s+)?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
 );
 
 /**
@@ -994,6 +1000,18 @@ const SYSTEMCTL = String.raw`systemctl(?:\s+-\S+)*\s+`;
 /** logind's manager over D-Bus, as busctl, dbus-send or gdbus call it. */
 const LOGIN1 = String.raw`(?:busctl|dbus-send|gdbus)\s.*login1.*`;
 
+/**
+ * The end of a command, but for a redirect or a comment, after a pattern
+ * that more words would make another command.
+ */
+const ENDS_HERE = String.raw`\s*(?:$|[<>#]|\d+[<>])`;
+
+/**
+ * kill's signal, which only its first argument can be: after it, a -1
+ * is the pid that means every process.
+ */
+const SIGNAL = String.raw`(?:(?:-s|-n|--signal)\s+\S+|-\S+)`;
+
 /** Session-ending commands, by the act each is, macOS's and Linux's. */
 const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	[
@@ -1018,7 +1036,7 @@ const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill(?:\s+-\S+)*\s+-1\s*(?:$|[<>|;&#]|\d+[<>]))`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*${ENDS_HERE}|kill\s+${SIGNAL}\s+(?:\S+\s+)*?-1(?=[\s<>#]|$)|kill\s+(?!-)(?:\S+\s+)*?-1(?=[\s<>#]|$)|kill\s+-1${ENDS_HERE})`,
 		),
 		// These end the user's manager or every process the user owns, so
 		// what outlives a log-out ends too.

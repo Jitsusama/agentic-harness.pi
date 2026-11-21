@@ -28,6 +28,8 @@ describe("a reply that asks", () => {
 		["Could you shut down equilibrius tonight?", "shut down"],
 		["You'll need to switch users to test the second account.", "switch users"],
 		["The new kernel needs a reboot to take.", "reboot"],
+		["optimus needs a soft reboot to pick it up.", "soft-reboot"],
+		["Could you do a soft reboot of optimus tonight?", "soft-reboot"],
 		["May I ask Joel to reboot optimus?", "reboot"],
 		["1. Restart the machine.", "restart"],
 		["Once you've rebooted, check the mic.", "reboot"],
@@ -250,6 +252,11 @@ describe("a command in fenced code", () => {
 		["```sh\nsudo launchctl reboot\n```", "reboot"],
 		["```sh\nsudo fdesetup authrestart\n```", "reboot"],
 		["```sh\nsudo pkill -KILL -u joel\n```", "end the user's processes"],
+		["```sh\npkill -KILL -u joel 2>/dev/null\n```", "end the user's processes"],
+		["```sh\nkill -9 -1 1234\n```", "end the user's processes"],
+		["```sh\nkill -9 1234 -1\n```", "end the user's processes"],
+		["```sh\nkill -s KILL -1\n```", "end the user's processes"],
+		["```sh\nkill -n 9 -1\n```", "end the user's processes"],
 		["```sh\nkill -9 -1\n```", "end the user's processes"],
 		["```sh\nkill -- -1\n```", "end the user's processes"],
 		["```sh\nkill -9 -1 2>/dev/null\n```", "end the user's processes"],
@@ -321,6 +328,8 @@ describe("a command in fenced code", () => {
 		// Signal 1 to one process, not every process.
 		expect(acts("```sh\nkill -1 1234\n```")).toEqual([]);
 		expect(acts("```sh\nsudo kill -1 $(pidof nginx)\n```")).toEqual([]);
+		// A process group, not every process.
+		expect(acts("```sh\nkill -9 -12345\n```")).toEqual([]);
 		expect(acts("```sh\n# reboot once this lands\nls\n```")).toEqual([]);
 		expect(acts("```\nshutdown of the old node is done.\n```")).toEqual([]);
 	});
