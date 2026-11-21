@@ -34,6 +34,7 @@ import {
 	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
+	sayParked,
 	tellHolderSteers,
 	WAKE_ENV,
 	whyNotPark,
@@ -476,6 +477,7 @@ export function watch(
 			return;
 		}
 		endedProcess = true;
+		sayParked(env, options.pid ?? process.pid);
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
@@ -605,6 +607,7 @@ export function watch(
 				((code: number) => {
 					process.exitCode = code;
 				});
+			sayParked(env, options.pid ?? process.pid);
 			setCode(PARKED_EXIT);
 		};
 		parked = true;

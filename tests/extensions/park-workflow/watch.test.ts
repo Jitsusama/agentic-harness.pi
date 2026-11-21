@@ -7,6 +7,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -177,6 +178,23 @@ describe("parking a session", () => {
 		// Asked again before pi has gone, it doesn't park twice.
 		expect(watched.look()).toBe("parking already");
 		expect(shutdowns).toBe(1);
+	});
+
+	// 21 November, P10876: parked, its exit hung on a name lookup and
+	// ended by a signal, so its holder, seeing no 75, let the window go.
+	it("tells a holder that names a file for it that the run parked, before pi ends", () => {
+		const parked = join(folder, "held.parked");
+		const watched = watching(session(), {
+			...holder(),
+			MYCELIUM_PARKED: parked,
+		});
+		clock = NAMED_PARK_AFTER_MS - 1;
+		expect(watched.look()).toBe("not idle long enough");
+		expect(existsSync(parked), "awake, it says nothing").toBe(false);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readFileSync(parked, "utf8"), "parked, it says so").toBe("");
+		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
 	it("names its holder the command that opens its log, to wake with", () => {
@@ -717,6 +735,16 @@ describe("starting again on a fresh log", () => {
 		expect(
 			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
 		).toMatchObject({ session: SESSION, restart: fresh() });
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("tells its holder the run parked only once it ends for its holder to start it again", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		asked();
+		expect(existsSync(parked), "in place, the holder sees no exit").toBe(false);
+		fallbacks[0]?.();
+		expect(readFileSync(parked, "utf8"), "ending for its holder").toBe("");
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 

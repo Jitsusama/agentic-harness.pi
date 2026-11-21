@@ -133,7 +133,10 @@ keeps it awake.
    nothing remembered, no window closes.
 5. pi shuts down as `/quit` would and exits with code 75
    (EX_TEMPFAIL), which tells its holder this is a park, not an end.
-   It writes nothing of its own and leaves out pi's "To resume this
+   Where its holder names a file for it (`MYCELIUM_PARKED`), it first
+   writes that file, empty, so a park whose exit then hangs, as on a
+   name lookup, and ends by a signal still counts as a park. It
+   writes nothing of its own and leaves out pi's "To resume this
    session" hint: the holder says in the window that it parked and
    that a key or a message wakes it, and once was enough.
 
