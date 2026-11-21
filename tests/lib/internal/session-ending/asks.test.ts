@@ -205,6 +205,23 @@ describe("a reply that asks", () => {
 		).toBe(true);
 	});
 
+	it.each([
+		"Reboot optimus. Then `ssh eq sudo reboot`.",
+		"Reboot optimus, and run `ssh joel@10.0.0.7 sudo reboot`.",
+		"Reboot optimus to take the BIOS. On equilibrius, `sudo reboot` once it's up.",
+		"Reboot optimus. Then the same on equilibrius: `sudo reboot`.",
+	])("%s asks for its code's reboot beyond optimus", (text) => {
+		const asks = asksInProse(text, MACHINES);
+		expect(
+			asks.some(
+				(one) =>
+					one.act === "reboot" &&
+					(one.machines.length === 0 || one.machines.includes("equilibrius")),
+			),
+			`no reboot reaches past optimus in ${JSON.stringify(asks)}`,
+		).toBe(true);
+	});
+
 	it("places code that names no machine on the machines its reply names", () => {
 		expect(
 			asksInProse(

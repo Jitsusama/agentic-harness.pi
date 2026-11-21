@@ -87,8 +87,9 @@ export function asksInLabel(
  * already makes, once it makes any: "log out. The quickest way is
  * `loginctl terminate-user`" asks for what that command does too,
  * wherever the code sits, in this text or another field said with it,
- * so a spare chosen from the words can't let it through. Code naming
- * no machine is placed on the machines the asks name.
+ * so a spare chosen from the words can't let it through. Code run
+ * here is placed on every machine the asks or these texts name; an ssh
+ * to a host none of `machines` is stays on every machine.
  */
 export function codeBesideAsks(
 	texts: readonly string[],
@@ -98,16 +99,20 @@ export function codeBesideAsks(
 	if (found.length === 0) return [];
 	const named = found.some((one) => one.machines.length === 0)
 		? []
-		: [...new Set(found.flatMap((one) => one.machines))];
+		: [
+				...new Set([
+					...found.flatMap((one) => one.machines),
+					...texts.flatMap((text) => namedIn(plainOf(text), machines)),
+				]),
+			];
 	const asked = [...found];
 	const more: SessionEndingAsk[] = [];
 	for (const text of texts) {
 		for (const part of parts(folded(text))) {
 			if (!part.prose) continue;
 			for (const code of codeSpans(part.lines.join("\n"))) {
-				for (const one of commandAsks(code, machines)) {
-					const ask =
-						one.machines.length > 0 ? one : { ...one, machines: named };
+				for (const { ask: one, here } of placedAsks(code, machines)) {
+					const ask = here ? { ...one, machines: named } : one;
 					if (covered(ask, asked)) continue;
 					asked.push(ask);
 					more.push(ask);
@@ -300,8 +305,8 @@ function sentenceAsks(
 	}
 	const found = [...byAct.values()];
 	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
-		for (const one of commandAsks(code, machines)) {
-			const where = one.machines.length > 0 ? one.machines : named;
+		for (const { ask: one, here } of placedAsks(code, machines)) {
+			const where = here ? named : one.machines;
 			const ask = { act: one.act, machines: where, said };
 			if (!covered(ask, found)) found.push(ask);
 		}
@@ -1208,7 +1213,19 @@ function commandAsks(
 	line: string,
 	machines: readonly string[],
 ): SessionEndingAsk[] {
-	const found: SessionEndingAsk[] = [];
+	return placedAsks(line, machines).map(({ ask }) => ask);
+}
+
+/**
+ * The asks of one command line, each with whether it runs here, with
+ * no ssh in front: only such code takes the machines its words name,
+ * since an ssh to a host none of `machines` is may reach any of them.
+ */
+function placedAsks(
+	line: string,
+	machines: readonly string[],
+): { ask: SessionEndingAsk; here: boolean }[] {
+	const found: { ask: SessionEndingAsk; here: boolean }[] = [];
 	for (const piece of line.replace(PROMPT, "").split(/&&|\|\||[;|&]/)) {
 		let command = unwrapped(piece);
 		let machine: string | undefined;
@@ -1222,7 +1239,10 @@ function commandAsks(
 		)?.[1];
 		if (!act) continue;
 		const known = machine ? knownAs(machine, machines) : undefined;
-		found.push({ act, machines: known ? [known] : [], said: line.trim() });
+		found.push({
+			ask: { act, machines: known ? [known] : [], said: line.trim() },
+			here: machine === undefined,
+		});
 	}
 	return found;
 }

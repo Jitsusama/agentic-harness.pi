@@ -168,6 +168,27 @@ describe("what spares this machine's sessions", () => {
 		).toMatchObject({ block: true });
 	});
 
+	it.each([
+		"Reboot optimus. Then `ssh joel@10.0.0.7 sudo reboot` for it",
+		"Reboot optimus. Then the same on equilibrius: `sudo reboot`",
+	])(
+		"refuses %s past parked sessions, with another machine busy",
+		async (ask) => {
+			const there: NodeSession = {
+				id: "there",
+				address: "T00001",
+				machine: "equilibrius",
+				state: "busy",
+			};
+			interceptorOver(
+				[hosted("idle"), there, me],
+				answering(false, ["hosted"]),
+			);
+
+			expect(await look(ask)).toMatchObject({ block: true });
+		},
+	);
+
 	it("still withholds a reboot of hosted sessions", async () => {
 		interceptorOver([hosted("busy"), me], answering(true));
 
