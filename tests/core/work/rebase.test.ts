@@ -62,6 +62,22 @@ describe("replaying a branch", () => {
 		});
 	});
 
+	it("reads none of the base's commits to find what it already holds", async () => {
+		// On 21 November a World rebase of two commits read 83 GB over 16
+		// minutes before it started, matching patches against every commit
+		// main had gained. With this flag it reached its first pick in
+		// seconds; a commit the base holds still drops, as empty.
+		const { exec, calls } = fakeExec([
+			...ready,
+			{ when: ["rebase", "main"], code: 0 },
+		]);
+
+		await createGitRebaser({ exec }).rebase(TREE, "main");
+
+		const replay = calls.find((call) => call.args.includes("rebase"));
+		expect(replay?.args).toContain("--reapply-cherry-picks");
+	});
+
 	it("says nothing needed replaying rather than replaying nothing", async () => {
 		const { exec } = fakeExec([
 			...settled,

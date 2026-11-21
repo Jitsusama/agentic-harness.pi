@@ -7,6 +7,8 @@
  * as there is git's history to say.
  */
 
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnExec } from "../../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
@@ -41,6 +43,30 @@ describe("a branch with no commits of its own", () => {
 
 		expect(outcome).toMatchObject({ kind: "replayed", commits: 0 });
 		expect(await head()).toBe(await head("base"));
+	});
+
+	it("drops a commit its base already carries", async () => {
+		// The replay no longer looks for these ahead of time, since in World
+		// that look read 83 GB; the commit applies empty and git drops it.
+		await git(repo, "checkout", "-q", "-b", "topic");
+		writeFileSync(join(repo, "mine.txt"), "only on topic\n");
+		await git(repo, "add", "mine.txt");
+		await git(repo, "commit", "-q", "-m", "marker");
+		writeFileSync(join(repo, "both.txt"), "the same change\n");
+		await git(repo, "add", "both.txt");
+		await git(repo, "commit", "-q", "-m", "carried");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "topic");
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).toMatchObject({ kind: "replayed" });
+		const above = await git(repo, "log", "--format=%s", "base..HEAD");
+		expect(above.trim().split("\n")).toEqual(["marker"]);
 	});
 
 	it("stays put on the base it sits on", async () => {

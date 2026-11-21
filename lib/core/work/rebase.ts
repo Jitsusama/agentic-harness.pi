@@ -40,6 +40,16 @@ import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
 /**
+ * The flag every replay passes so git skips its search of the base for
+ * commits that already carry the branch's patches. That search reads
+ * every commit the base gained since the branch left it: in World, on 21
+ * November, a two-commit rebase read 83 GB over 16 minutes before its
+ * first pick, and with this flag it reached it in seconds. A commit the
+ * base already holds then applies empty, and git drops it all the same.
+ */
+export const REAPPLY_CHERRY_PICKS = "--reapply-cherry-picks";
+
+/**
  * What a replay settled by itself on the way: files where both sides only
  * added (see `appends.ts`), files whose citations it rewrote for a number an
  * earlier halt moved, and, once it finished, lines the branch added that
@@ -586,7 +596,7 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 
 			const result = await exec(
 				"git",
-				unattended(["-C", treePath, "rebase", onto]),
+				unattended(["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS, onto]),
 			);
 			if (result.code === 0) {
 				return {

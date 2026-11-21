@@ -29,6 +29,7 @@ import type { SettledFile, StaleCitation } from "./appends.ts";
 import {
 	type CarriedOn,
 	carryOn,
+	REAPPLY_CHERRY_PICKS,
 	recordOnto,
 	settlingOf,
 	type WorkRebaser,
@@ -612,7 +613,7 @@ export function createGitStacks(deps: {
 					};
 				}
 
-				const args = ["-C", treePath, "rebase"];
+				const args = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
 				// The boundary is what separates this branch's commits from its
 				// parent's. Without it the branch is handed copies of
 				// everything the parent already carries.
