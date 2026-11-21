@@ -12,9 +12,10 @@
  * because its owners have ended asks this first.
  */
 
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { HeldTree, TreeBroker } from "./broker.ts";
+import { readPlain } from "./plain-file.ts";
 
 /** What tells a tree is in use beyond its record's owners. */
 export interface UseSigns {
@@ -192,7 +193,7 @@ function gitDirOf(checkout: string): string | undefined {
 	const dotGit = join(checkout, ".git");
 	try {
 		if (statSync(dotGit).isDirectory()) return dotGit;
-		const said = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1];
+		const said = /^gitdir: (.+)$/m.exec(readPlain(dotGit) ?? "")?.[1];
 		return said === undefined ? undefined : resolve(checkout, said.trim());
 	} catch {
 		// No checkout here, so there is no git to have moved.

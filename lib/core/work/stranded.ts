@@ -17,21 +17,17 @@
 
 import { randomBytes } from "node:crypto";
 import {
-	closeSync,
-	constants,
 	existsSync,
-	fstatSync,
 	lstatSync,
 	mkdirSync,
-	openSync,
 	readdirSync,
-	readSync,
 	renameSync,
 	rmSync,
 	statSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { resolvedPath } from "./in-use.ts";
+import { readPlain } from "./plain-file.ts";
 import { goneGitDir } from "./sweep-orphan.ts";
 
 /** A tree nothing can use, and why git can't read it. */
@@ -206,7 +202,7 @@ export const CANT_SAY =
  * files hold rather than who put it there.
  */
 export const HAND_LOCKED =
-	"git won't read it, but the git entry it names is locked for a reason no cut gives, as `git worktree lock` leaves, so it stays until that lock is taken away";
+	"git won't read it, but the git entry it names is locked for a reason no cut gives, as `git worktree lock` leaves, so it stays until `git worktree unlock`, run from the clone that cut it, takes that lock away";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or
@@ -321,39 +317,6 @@ export function forgetGoneEntry(
 function lockedByHand(entry: string): boolean {
 	const reason = readPlain(join(entry, "locked"));
 	return reason !== undefined && reason.trim() !== "initializing";
-}
-
-/** The most of a file of git's that {@link readPlain} reads. */
-const PLAIN_LIMIT = 4096;
-
-/**
- * The start of the plain file at `path`, or nothing when no plain file
- * stands there. A tree's `.git`, and so every git file it names, is a
- * path whatever ran in the tree could choose, and a fifo or a device
- * there would hold reclaim for good on a read that never ends, so the
- * file is opened without waiting and read only once it is plain.
- */
-function readPlain(path: string): string | undefined {
-	let fd: number;
-	try {
-		fd = openSync(
-			path,
-			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-		);
-	} catch {
-		// Nothing there to read, or a link, which git never writes.
-		return undefined;
-	}
-	try {
-		if (!fstatSync(fd).isFile()) return undefined;
-		const buffer = Buffer.alloc(PLAIN_LIMIT);
-		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, PLAIN_LIMIT, 0));
-	} catch {
-		// It went or changed as it was read: nothing plain to say.
-		return undefined;
-	} finally {
-		closeSync(fd);
-	}
 }
 
 /** Whether anything stands at `path` other than an empty folder. */

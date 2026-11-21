@@ -69,7 +69,7 @@ function unreadTree(
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
 	if (handLocked(path)) {
-		return `${where} The git entry it names is locked for a reason no cut gives, as \`git worktree lock\` leaves, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from the clone that cut it, never inside it, and \`work reclaim\` can then set it aside.`;
+		return `${where} The git entry it names is locked for a reason no cut gives, as \`git worktree lock\` leaves, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from the clone that cut it, never inside it, and \`work reclaim\` can then set it aside. Where that clone doesn't know it, its \`.git\` names a lock of no clone's, so move it aside by hand.`;
 	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
@@ -266,14 +266,16 @@ const GENERAL = 0;
  */
 export function createGitTreeProvider(deps: {
 	/**
-	 * Runs git for a call nobody can stop. It must run git in its own
-	 * English, as the broker's does with `LANGUAGE=en`: a cut's lock
-	 * holds the word git writes while it fills a tree, which a re-cut
-	 * and reclaim read to tell a killed cut's lock from a hand lock.
+	 * Runs git for a call nobody can stop. It, and `execFor`'s git too,
+	 * must run git in its own English, as the broker's do with
+	 * `LANGUAGE=en`: a cut's lock holds the word git writes while it
+	 * fills a tree, which a re-cut and reclaim read to tell a killed
+	 * cut's lock from a hand lock.
 	 */
 	exec: Exec;
 	/**
-	 * Runs git for a call that can be stopped, stopping git with it.
+	 * Runs git for a call that can be stopped, stopping git with it, in
+	 * English as `exec` does.
 	 * Without it every call uses `exec`, and a stop reaches only the
 	 * promise waiting on git rather than git itself.
 	 */

@@ -3,7 +3,7 @@
  * against real folders and, where a cut is the claim, real git.
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -37,6 +37,7 @@ import {
 } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import { type LateWriter, lateWriter } from "../../support/late-writer.ts";
 
 /** What the guard says of a tree whose repository it doesn't guard. */
 const REFUSED = "it is a worktree of a repository the fence doesn't guard.";
@@ -48,7 +49,9 @@ beforeEach(() => {
 	trees = join(root, "work", "trees");
 	mkdirSync(trees, { recursive: true });
 });
+const writers: LateWriter[] = [];
 afterEach(() => {
+	for (const writer of writers.splice(0)) writer.stop();
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -272,21 +275,36 @@ describe("splitStranded", () => {
 		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
 	});
 
-	it("reads no lock from a fifo where one should be", async () => {
+	it("reads no hand lock from a fifo where a lock should be", async () => {
 		// What ran in the tree chooses where its `.git` points, and a read
-		// of a fifo with no writer would hold reclaim for good.
+		// waiting on a fifo's writer would hold reclaim for good. One that
+		// waits reads the hand lock written a second on, and fails here.
 		const gitDir = standingGitDir("snapshot-p");
 		const path = treeNaming("snapshot-p", gitDir);
 		const at = (Date.now() - LONG_AGO) / 1000;
 		utimesSync(join(path, ".git"), at, at);
-		execFileSync("mkfifo", [join(gitDir, "locked")]);
+		writers.push(lateWriter(join(gitDir, "locked"), "on a drive away"));
 
 		const split = await splitStranded([{ path, why: REFUSED }], {
 			busyAmong: nobody,
 		});
 
-		expect(split.kept[0]?.why).not.toBe(HAND_LOCKED);
 		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+	});
+
+	it("reads no git folder from a fifo where a tree's .git should be", async () => {
+		// A read that waits gets a `.git` naming a hand lock, and fails here.
+		const gitDir = standingGitDir("snapshot-g");
+		writeFileSync(join(gitDir, "locked"), "on a drive away\n");
+		const path = join(trees, "snapshot-g");
+		mkdirSync(path);
+		writers.push(lateWriter(join(path, ".git"), `gitdir: ${gitDir}\n`));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).toMatch(/cut in the last ten minutes/);
 	});
 
 	it("reads a fresh hand lock as no cut running", () => {

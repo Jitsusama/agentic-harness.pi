@@ -9,9 +9,9 @@
  * config, which every git command there read.
  */
 
-import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { HeldTree } from "./broker.ts";
+import { readPlain } from "./plain-file.ts";
 import { dropSettledMergedBranches } from "./merged-branch.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
 import { mainCheckoutOf } from "./sweep-idle.ts";
@@ -59,19 +59,12 @@ export async function dropSettledBranches(
  * it of every held tree, hundreds on a busy machine.
  */
 function checkoutNamedBy(tree: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(tree, ".git"), "utf8"),
-		)?.[1];
-		if (said === undefined) return undefined;
-		const gitDir = resolve(tree, said.trim());
-		const common = resolve(
-			gitDir,
-			readFileSync(join(gitDir, "commondir"), "utf8").trim(),
-		);
-		return basename(common) === ".git" ? dirname(common) : common;
-	} catch {
-		// No `.git` file or no `commondir`: git is asked instead.
-		return undefined;
-	}
+	// No plain `.git` file or `commondir` leaves git to be asked instead.
+	const said = /^gitdir: (.+)$/m.exec(readPlain(join(tree, ".git")) ?? "")?.[1];
+	if (said === undefined) return undefined;
+	const gitDir = resolve(tree, said.trim());
+	const named = readPlain(join(gitDir, "commondir"))?.trim();
+	if (named === undefined) return undefined;
+	const common = resolve(gitDir, named);
+	return basename(common) === ".git" ? dirname(common) : common;
 }

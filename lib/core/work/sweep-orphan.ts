@@ -9,10 +9,11 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { ProcessFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
+import { readPlain } from "./plain-file.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
 
 /**
@@ -21,17 +22,11 @@ import type { SweepDeps, SweepOutcome } from "./sweep.ts";
  * isn't a worktree at all.
  */
 export function goneGitDir(path: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(path, ".git"), "utf8"),
-		)?.[1];
-		if (said === undefined) return undefined;
-		const gitDir = resolve(path, said.trim());
-		return existsSync(gitDir) ? undefined : gitDir;
-	} catch {
-		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
-		return undefined;
-	}
+	// No plain `.git` file, as a `.git` folder: no worktree of a lost clone.
+	const said = /^gitdir: (.+)$/m.exec(readPlain(join(path, ".git")) ?? "")?.[1];
+	if (said === undefined) return undefined;
+	const gitDir = resolve(path, said.trim());
+	return existsSync(gitDir) ? undefined : gitDir;
 }
 
 /**
