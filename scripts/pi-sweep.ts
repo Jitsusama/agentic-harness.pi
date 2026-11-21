@@ -30,6 +30,9 @@
  * sweep's answers couldn't be trusted: git that won't run, processes it
  * can't all see, a config it can't read, or a realm or quest it can't
  * read, either of the last two having it claim by the wrong quests.
+ * That guards only its own sweep: once its stamp is two hours old the
+ * hosts sweep again, and a host's claims read the same quests without
+ * this check, so such a quest's trees can still go there.
  *
  * Providers other than git come from the modules PI_SWEEP_PROVIDERS
  * names, colon-separated and absolute, each one's default export a

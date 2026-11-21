@@ -32,6 +32,7 @@ import {
 	discoverQuestsAfresh,
 	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
+import { README_MISSING } from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
 	removeTreeFromQuest,
@@ -128,9 +129,11 @@ export function whyQuestsUnread(questsRoot: string): string | undefined {
 		}
 		// A quest whose README can't be read drops out of the walk, so the
 		// trees it lists would go as nobody's; the claims read the same walk.
-		const hidden = discoverQuests(store).errors.find(
-			(error) => basename(error.path) === QUEST_README,
+		const walk = discoverQuests(store);
+		const walked = new Set(
+			[...walk.index.quests.values()].map((quest) => quest.dir),
 		);
+		const hidden = walk.errors.find((error) => hidesClaims(error, walked));
 		if (hidden !== undefined) {
 			return `the quest at ${dirname(hidden.path)} can't be read for its claims: ${hidden.message}`;
 		}
@@ -140,6 +143,29 @@ export function whyQuestsUnread(questsRoot: string): string | undefined {
 
 /** The file a quest is read from, beside the documents in its folder. */
 const QUEST_README = "README.md";
+
+/**
+ * Whether a walk's error left out a quest that may list trees. A quest
+ * the walk still indexed, such as one whose folder is named apart from
+ * its id, has its claims read, and one still being made, with no README
+ * or an empty one, lists none; one whose README stands but won't read or
+ * parse, or can't even be looked at, may list any.
+ */
+function hidesClaims(
+	error: { path: string; message: string },
+	walked: ReadonlySet<string>,
+): boolean {
+	if (basename(error.path) !== QUEST_README) return false;
+	if (walked.has(dirname(error.path))) return false;
+	if (error.message !== README_MISSING) return true;
+	try {
+		const readme = statSync(error.path, { throwIfNoEntry: false });
+		return readme !== undefined && readme.size > 0;
+	} catch {
+		// A README that can't be looked at may list any tree.
+		return true;
+	}
+}
 
 /**
  * Push every tree a live quest in `walks` lists onto `into`, once, so

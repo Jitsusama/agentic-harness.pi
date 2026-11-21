@@ -13,6 +13,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -716,6 +717,43 @@ it("fails before sweeping when a quest can't be read for its claims", async () =
 	} finally {
 		chmodSync(quest, 0o700);
 	}
+});
+
+it("fails before sweeping when a quest's README won't parse", async () => {
+	// Its front matter may list any tree, and none of them can be read.
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	mkdirSync(quest);
+	writeFileSync(
+		join(quest, "README.md"),
+		"# A quest whose front matter went\n",
+	);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${quest} can't be read for its claims`,
+	);
+});
+
+it("sweeps past a quest named apart from its id, and ones still being made", async () => {
+	// The first is still read for its claims; the others list no trees.
+	questListing(SPENT);
+	renameSync(
+		join(seen.quests, "QEST-20260731-AAAAAA"),
+		join(seen.quests, "QEST-20260731-BBBBBB"),
+	);
+	mkdirSync(join(seen.quests, "QEST-20260731-CCCCCC"));
+	mkdirSync(join(seen.quests, "QEST-20260731-DDDDDD"));
+	writeFileSync(join(seen.quests, "QEST-20260731-DDDDDD", "README.md"), "");
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").not.toBe("failed");
+	expect(seen.claims, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [SPENT] },
+	]);
 });
 
 it("fails before sweeping when the realms can't be listed", async () => {
