@@ -96,6 +96,65 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
+	// Its answer would be dropped as it arrives, so the question would
+	// wait on nobody.
+	it("passes over a cell this one has stopped, by address or by session", () => {
+		const at = new Date(0).toISOString();
+		const byAddress = { ...self, stops: [{ address: "ROOT01", at }] };
+		const bySession = {
+			...self,
+			stops: [{ address: "OLD999", session: "r", at }],
+		};
+		const ties = [tie("ROOT01", 9), tie("MID002", 1)];
+
+		expect(hubFromUse(byAddress, [byAddress, root, parent], ties)).toEqual({
+			address: "MID002",
+			by: "use",
+		});
+		expect(hubFromUse(bySession, [bySession, root, parent], ties)).toEqual({
+			address: "MID002",
+			by: "use",
+		});
+	});
+
+	// Strength counts both ends' messages, so without the share a cell
+	// above that only writes at this one would win.
+	it("counts a tie for this cell's own share of today's messages on it", () => {
+		const talkedAt = { ...tie("ROOT01", 9), today: [0, 9] as const };
+		const talkedTo = { ...tie("MID002", 2), today: [2, 0] as const };
+
+		const above = hubFromUse(self, [self, root, parent], [talkedAt, talkedTo]);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// A forged presence above, listing a peer this one talks to, would
+	// otherwise take that peer's ties and send to it as if it were above.
+	it("is never reached at an address another live presence also lists", () => {
+		const forged = cell("f", ["HARN01"], ["root01"]);
+		const harness = cell("h", ["HARN01"], ["harn01"]);
+
+		const above = hubFromUse(
+			self,
+			[self, forged, harness, parent],
+			[tie("HARN01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// A group joined before the quest was loaded stays joined, and still
+	// ends in this cell's own quest.
+	it("reads its own quest's chain from a group it had joined before", () => {
+		const rejoined = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"], {
+			joined: ["#harness", "#quest/root01/mid002/7m6jkg"],
+		});
+
+		const above = hubFromUse(rejoined, [rejoined, parent], [tie("MID002", 1)]);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
 	// Neither quest group is joined, so both count as work and only the
 	// own-quest match can choose; the listener's case below bites on the
 	// joined filter.

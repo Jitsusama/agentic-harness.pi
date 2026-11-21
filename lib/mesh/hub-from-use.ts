@@ -13,7 +13,9 @@
  * The hub from use is only an address. It grants nothing: a pivot, an
  * end, a carry or a view over another cell's questions is still the
  * marked orchestrator's alone, since a cell becomes a hub by being
- * talked to, and being talked to is no warrant.
+ * talked to, and being talked to is no warrant. Nor is talking at a
+ * cell a way to become its hub: a tie counts for the share of today's
+ * messages on it that this cell sent.
  */
 
 import { questAddress } from "./address.ts";
@@ -45,7 +47,8 @@ const QUEST_GROUP = "#quest/";
  * ties to each of that cell's addresses added up, since one cell can be
  * written to by its signature and by its quest's address. Equal ties go
  * to the cell whose single tie is strongest. A cell that has stopped
- * this one is never its hub, since it would not be written to.
+ * this one is never its hub, since it would not be written to, and nor
+ * is one this cell has stopped, whose answer it would drop.
  *
  * Only the quests its quest group spells are above it, and that group
  * names at most the six nearest levels, its own among them (scope.ts),
@@ -55,12 +58,17 @@ const QUEST_GROUP = "#quest/";
  * cell's presence says; one that isn't shaped as a peer's address, or
  * that a send reads as a group, as it reads `machine` and `global`, is
  * never a hub, so a presence can't widen where `orchestrator` reaches.
+ * Nor is an address another live presence also lists, which a forged
+ * presence could take to point the send at a peer that isn't above.
  *
  * `ties` is this cell's, strongest first, as the node keeps them;
  * missing when no node answered.
  */
 export function hubFromUse(
-	self: Pick<Presence, "session" | "addresses" | "groups" | "joined" | "quest">,
+	self: Pick<
+		Presence,
+		"session" | "addresses" | "groups" | "joined" | "quest" | "stops"
+	>,
 	live: readonly Presence[],
 	ties: readonly Tie[] | undefined,
 ): Above {
@@ -85,19 +93,28 @@ export function hubFromUse(
 	const stoppers = new Set(
 		stoppedBy(self, live).map(({ stopper }) => stopper.session),
 	);
+	// Held by exactly one live presence, so the cell it names is that one.
+	const alone = (address: string) =>
+		live.filter((one) => one.addresses.includes(address)).length === 1;
+	const writable = (address: string) => isHub(address) && alone(address);
 	const candidates = live.filter((one) => {
-		if (one.session === self.session || stoppers.has(one.session)) {
+		if (
+			one.session === self.session ||
+			stoppers.has(one.session) ||
+			stoppedHere(self, one)
+		) {
 			return false;
 		}
 		const own = questChainOf(one).at(-1);
-		return own !== undefined && above.has(own) && one.addresses.some(isHub);
+		return own !== undefined && above.has(own) && one.addresses.some(writable);
 	});
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
 	const strength = new Map<Presence, number>();
 	for (const tie of ties) {
+		if (!alone(tie.other)) continue;
 		const hub = candidates.find((one) => one.addresses.includes(tie.other));
 		if (hub !== undefined) {
-			strength.set(hub, (strength.get(hub) ?? 0) + tie.strength);
+			strength.set(hub, (strength.get(hub) ?? 0) + ownShare(tie));
 		}
 	}
 	let best: { hub: Presence; strength: number } | undefined;
@@ -105,11 +122,33 @@ export function hubFromUse(
 		if (best === undefined || sum > best.strength)
 			best = { hub, strength: sum };
 	}
-	const address = best?.hub.addresses.find(isHub);
+	const address = best?.hub.addresses.find(writable);
 	if (address !== undefined) return { address, by: "use" };
 	return {
 		none: `${unmarked} and no live cell on a quest above it has a tie to this peer yet`,
 	};
+}
+
+/**
+ * A tie's strength, counted for the share of today's messages on it
+ * this cell sent, so a cell that only writes at this one gains nothing.
+ * A tie with no messages today is faded already and counts whole.
+ */
+function ownShare(tie: Tie): number {
+	const [mine, theirs] = tie.today;
+	const total = mine + theirs;
+	return total > 0 ? (tie.strength * mine) / total : tie.strength;
+}
+
+/** Whether `self` has stopped `one`, by its session or an address. */
+function stoppedHere(
+	self: Pick<Presence, "stops">,
+	one: Pick<Presence, "session" | "addresses">,
+): boolean {
+	return (self.stops ?? []).some(
+		(stop) =>
+			stop.session === one.session || one.addresses.includes(stop.address),
+	);
 }
 
 /**
@@ -125,22 +164,26 @@ function isHub(address: string): boolean {
 
 /**
  * A cell's quest chain, root first, as the quest group its work puts it
- * in spells it: never a quest group it joined to hear, and the one that
- * ends in its own quest where it says which that is. An older presence
- * that lists no joined groups had joined every group it is in, as the
- * peer reads it (peer.ts), so it has no chain and is never a hub.
+ * in spells it. Where it says its quest, the chain is the group ending
+ * in it, joined or not, since a group joined before the quest was loaded
+ * stays joined, and one joined only to hear ends in another's quest.
+ * Where it doesn't, it is its one quest group not joined to hear. An
+ * older presence that lists no joined groups had joined every group it
+ * is in, as the peer reads it (peer.ts), so it then has no chain and is
+ * never a hub.
  */
 function questChainOf(
 	one: Pick<Presence, "groups" | "joined" | "quest">,
 ): string[] {
-	const joined = new Set(one.joined ?? one.groups);
-	const chains = one.groups
-		.filter((group) => group.startsWith(QUEST_GROUP) && !joined.has(group))
-		.map((group) => group.slice(QUEST_GROUP.length).split("/").filter(Boolean));
-	const own = one.quest ? questAddress(one.quest).toLowerCase() : undefined;
-	return (
-		chains.find((chain) => own !== undefined && chain.at(-1) === own) ??
-		(own === undefined && chains.length === 1 ? chains[0] : undefined) ??
-		[]
-	);
+	const chainOf = (group: string) =>
+		group.slice(QUEST_GROUP.length).split("/").filter(Boolean);
+	if (one.joined === undefined) return [];
+	const quests = one.groups.filter((group) => group.startsWith(QUEST_GROUP));
+	if (one.quest) {
+		const own = questAddress(one.quest).toLowerCase();
+		return quests.map(chainOf).find((chain) => chain.at(-1) === own) ?? [];
+	}
+	const joined = new Set(one.joined);
+	const worked = quests.filter((group) => !joined.has(group));
+	return worked.length === 1 ? chainOf(worked[0] ?? "") : [];
 }
