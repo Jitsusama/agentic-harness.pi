@@ -57,10 +57,13 @@ describe("the mesh on screen", () => {
 		);
 	});
 
-	it("names the orchestrator a delivery says to tell, or the reply when there is none", () => {
+	it("names the orchestrator a delivery says to tell, its hub from use, or the reply when there is neither", () => {
 		const messages = [message()];
-		expect(noted(messages, [], "WCJQSG")).toContain(
+		expect(noted(messages, [], { address: "WCJQSG", by: "mark" })).toContain(
 			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
+		);
+		expect(noted(messages, [], { address: "5GV2AH", by: "use" })).toContain(
+			"otherwise to your hub from use, 5GV2AH, as a question (mesh_send to: orchestrator)",
 		);
 		expect(noted(messages)).toContain(
 			"otherwise in your next reply, since no orchestrator is above your quest",

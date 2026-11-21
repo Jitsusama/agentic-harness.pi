@@ -37,6 +37,7 @@ import { wantFrom } from "../../../lib/mesh/want.ts";
 import { tellRepository } from "../landing-notes.ts";
 import { ended } from "../talks.ts";
 import { tellOrchestrator } from "../tells.ts";
+import { keptAbove } from "../tools/above.ts";
 import { meshWakers, type Own } from "../wakers.ts";
 import type { Handing } from "./handing.ts";
 import { endLooksOfQuests, resolveLooksAt } from "./looks.ts";
@@ -105,6 +106,7 @@ export function onBus(m: MeshState, f: Handing) {
 		onConcluded(m.pi.events, (event) => {
 			const message = tellOrchestrator(
 				m.peer,
+				keptAbove(m.peer?.orchestratedBy, m.hub)?.address,
 				m.transport,
 				event,
 				m.presences.all(),

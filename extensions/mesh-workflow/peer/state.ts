@@ -393,6 +393,7 @@ export function createState(
 		caughtUpFrom: undefined,
 		front: createReadFront(),
 		lookClock: undefined,
+		hub: undefined,
 		looksClock: undefined,
 		steering: undefined,
 		steerRoot: undefined,

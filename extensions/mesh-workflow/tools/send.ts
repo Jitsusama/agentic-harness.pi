@@ -320,11 +320,19 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const needed = await needRead(at, params);
 	if ("refused" in needed) return needed.refused;
 	// Only a send naming the word asks who is above, since a quest with
-	// no mark finds its hub from use over the node.
-	const above = namesOrchestrator(needed.to) ? await aboveFor(at) : undefined;
+	// no mark finds its hub from use over the node; the hub this peer
+	// keeps answers first, so the node is asked only when none is kept.
+	const keptHub = at.peer.orchestratedBy === undefined ? at.hub?.() : undefined;
+	const above = !namesOrchestrator(needed.to)
+		? undefined
+		: keptHub !== undefined
+			? ({ address: keptHub, by: "use" } as const)
+			: await aboveFor(at);
+	// A question for the person's hands, sent to the hub by its address
+	// rather than the word, is counted as one sent with the word.
 	const orchestrator =
 		above === undefined
-			? at.peer.orchestratedBy
+			? (at.peer.orchestratedBy ?? keptHub)
 			: "address" in above
 				? above.address
 				: undefined;
