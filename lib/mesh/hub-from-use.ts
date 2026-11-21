@@ -39,9 +39,15 @@ const QUEST_GROUP = "#quest/";
 
 /**
  * The hub from use of a cell whose quest carries no orchestrator mark:
- * the live cell on a quest above its own that its strongest tie goes
- * to. A cell that has stopped this one is never its hub, since it would
- * not be written to.
+ * the live cell on a quest above its own that it is most tied to, its
+ * ties to each of that cell's addresses added up, since one cell can be
+ * written to by its signature and by its quest's address. Equal ties go
+ * to the cell whose single tie is strongest. A cell that has stopped
+ * this one is never its hub, since it would not be written to.
+ *
+ * Only the quests its quest group spells are above it, and that group
+ * names at most the six nearest levels (scope.ts), so an ancestor
+ * further up than that is never searched.
  *
  * `ties` is this cell's, strongest first, as the node keeps them;
  * missing when no node answered.
@@ -79,12 +85,21 @@ export function hubFromUse(
 		const own = questChainOf(one).at(-1);
 		return own !== undefined && above.has(own);
 	});
+	// Strongest first, so the first cell to reach a sum keeps it on a tie.
+	const strength = new Map<Presence, number>();
 	for (const tie of ties) {
 		const hub = candidates.find((one) => one.addresses.includes(tie.other));
 		if (hub !== undefined) {
-			return { address: hub.addresses[0] ?? tie.other, by: "use" };
+			strength.set(hub, (strength.get(hub) ?? 0) + tie.strength);
 		}
 	}
+	let best: { hub: Presence; strength: number } | undefined;
+	for (const [hub, sum] of strength) {
+		if (best === undefined || sum > best.strength)
+			best = { hub, strength: sum };
+	}
+	const address = best?.hub.addresses[0];
+	if (address !== undefined) return { address, by: "use" };
 	return {
 		none: `${unmarked} and no live cell on a quest above it has a tie to this peer yet`,
 	};
@@ -93,12 +108,14 @@ export function hubFromUse(
 /**
  * A cell's quest chain, root first, as the quest group its work puts it
  * in spells it: never a quest group it joined to hear, and the one that
- * ends in its own quest where it says which that is.
+ * ends in its own quest where it says which that is. An older presence
+ * that lists no joined groups had joined every group it is in, as the
+ * peer reads it (peer.ts), so it has no chain and is never a hub.
  */
 function questChainOf(
 	one: Pick<Presence, "groups" | "joined" | "quest">,
 ): string[] {
-	const joined = new Set(one.joined ?? []);
+	const joined = new Set(one.joined ?? one.groups);
 	const chains = one.groups
 		.filter((group) => group.startsWith(QUEST_GROUP) && !joined.has(group))
 		.map((group) => group.slice(QUEST_GROUP.length).split("/").filter(Boolean));

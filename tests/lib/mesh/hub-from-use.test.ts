@@ -20,6 +20,7 @@ function cell(
 		session,
 		addresses,
 		groups: chain.length > 0 ? [`#quest/${chain.join("/")}`, "#harness"] : [],
+		joined: ["#harness"],
 		...(chain.length > 0
 			? { quest: `QEST-20261021-${chain.at(-1)?.toUpperCase()}` }
 			: {}),
@@ -106,6 +107,43 @@ describe("a hub from use", () => {
 			listening,
 			[listening, elsewhere, parent],
 			[tie("OTHER9", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is never a cell that only joined a quest group above to listen", () => {
+		const listener = cell("l", ["LISTEN"], [], {
+			groups: ["#quest/root01"],
+			joined: ["#quest/root01"],
+		});
+
+		const above = hubFromUse(
+			self,
+			[self, listener, parent],
+			[tie("LISTEN", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is never a cell whose older presence lists no joined groups, which reads as all joined", () => {
+		const { joined: _, ...older } = root;
+
+		const above = hubFromUse(
+			self,
+			[self, older, parent],
+			[tie("ROOT01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("adds up a cell's ties across its addresses before choosing", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent, root],
+			[tie("ROOT01", 5), tie("MID002", 3), tie("AAAAAA", 3)],
 		);
 
 		expect(above).toEqual({ address: "MID002", by: "use" });

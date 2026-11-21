@@ -13,6 +13,7 @@ import {
 	homeOf,
 	MACHINE,
 	machineTakes,
+	namesOrchestrator,
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
@@ -320,29 +321,28 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	if ("refused" in needed) return needed.refused;
 	// Only a send naming the word asks who is above, since a quest with
 	// no mark finds its hub from use over the node.
-	const above = orchestratorNamed(needed.to, undefined).missing
-		? await aboveFor(at)
-		: undefined;
+	const above = namesOrchestrator(needed.to) ? await aboveFor(at) : undefined;
 	const orchestrator =
-		above !== undefined
-			? "address" in above
+		above === undefined
+			? at.peer.orchestratedBy
+			: "address" in above
 				? above.address
-				: undefined
-			: at.peer.orchestratedBy;
-	const target = orchestratorNamed(needed.to, orchestrator);
-	const named = groupsNamed(target.to);
-	const nobody = above !== undefined && "none" in above ? above.none : "";
-	// Meant for one recipient that is not there: routed by rule, it would
-	// land in a group that may have nobody listening.
-	if (target.missing && named.length === 0) {
+				: undefined;
+	const named = groupsNamed(orchestratorNamed(needed.to, orchestrator).to);
+	const unnamed = named.filter((group) => groupNamed(group) === undefined);
+	const nobody =
+		above !== undefined && "none" in above ? above.none : undefined;
+	// Meant for one recipient that is not there, with nothing that can be
+	// a group beside it: routed by rule, it would land in a group that
+	// may have nobody listening.
+	if (nobody !== undefined && named.every((group) => unnamed.includes(group))) {
 		return answer(
 			`Not sent: ${nobody}. Tell the person in your reply, or name the peers it is for by address.`,
 			{ sent: false } satisfies SendDetails,
 		);
 	}
-	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
-		target.missing
+		nobody !== undefined
 			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
 			: "",
 		above !== undefined && "by" in above && above.by === "use"

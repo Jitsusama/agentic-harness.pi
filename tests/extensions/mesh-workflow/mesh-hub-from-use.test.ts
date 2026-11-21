@@ -8,16 +8,16 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	noNode,
 	onQuest,
-	peer,
 	send,
 	startSession,
 } from "./support/mesh.ts";
-import { closeNodes, node } from "./support/node.ts";
+import { closeNodes, node, nodeAsked } from "./support/node.ts";
 
 afterEach(closeNodes);
 
@@ -33,6 +33,31 @@ const tieTo = (other: string, strength: number) => ({
 	today: [strength, strength],
 });
 
+/**
+ * A live peer whose work puts it in these groups, as a presence written
+ * today says it: none of them joined.
+ */
+function cellIn(session: string, address: string, groups: string[]) {
+	createPresences(join(fixture.paths.mesh, "presence")).publish({
+		session,
+		addresses: [address],
+		groups,
+		joined: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: new Date().toISOString(),
+	});
+}
+
+/** The fixture's parent quest, 5GV2AH, given the orchestrator mark. */
+function markedParent() {
+	writeFileSync(
+		join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+		"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+	);
+}
+
 /** The last message on the mesh, as the transport keeps it. */
 function lastSent() {
 	const transport = folderTransport(join(fixture.paths.mesh, "messages"));
@@ -42,8 +67,8 @@ function lastSent() {
 describe("orchestrator, on a quest with no mark", () => {
 	it("reaches the hub from use above this peer's quest, and says it was read so", async () => {
 		onQuest();
-		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah"]);
-		peer("session-h", ["HARN01"], ["#harness"]);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
+		cellIn("session-h", "HARN01", ["#harness"]);
 		const env = await node(
 			[asker, { key: "cell:5GV2AH" }, { key: "cell:HARN01" }],
 			[tieTo("HARN01", 9), tieTo("5GV2AH", 2)],
@@ -58,30 +83,46 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(lastSent()).toMatchObject({ to: ["@5GV2AH"], text: "May I?" });
 	});
 
-	it("still reaches the marked orchestrator over a stronger tie elsewhere above", async () => {
+	it("counts the person's acts in a question for his hands put to the hub", async () => {
 		onQuest();
-		writeFileSync(
-			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
-			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
+		const env = await node([asker], [tieTo("5GV2AH", 2)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"orchestrator",
+			"question",
+			"May Joel touch the key at 02:00?",
 		);
-		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah"]);
-		peer("session-w", ["WIDE01"], ["#quest/5gv2ah"]);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	});
+
+	it("still reaches the marked orchestrator over a stronger tie, without asking the node", async () => {
+		onQuest();
+		markedParent();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
+		cellIn("session-w", "WIDE01", ["#quest/5gv2ah"]);
 		const env = await node(
 			[asker, { key: "cell:5GV2AH" }, { key: "cell:WIDE01" }],
 			[tieTo("WIDE01", 9)],
 		);
 		const { tools } = await startSession(env);
+		nodeAsked.length = 0;
 
 		const answer = await send(tools, "orchestrator", "fyi", "Landed.");
 
 		expect(lastSent()).toMatchObject({ to: ["@5GV2AH"] });
 		expect(answer).not.toContain("hub from use");
+		expect(nodeAsked).not.toContain("tie");
 	});
 
 	it("refuses, naming the quest, when no live cell above is tied to this peer", async () => {
 		onQuest();
-		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah"]);
-		peer("session-h", ["HARN01"], ["#harness"]);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
+		cellIn("session-h", "HARN01", ["#harness"]);
 		const env = await node([asker], [tieTo("HARN01", 9)]);
 		const { tools } = await startSession(env);
 
@@ -95,12 +136,29 @@ describe("orchestrator, on a quest with no mark", () => {
 
 	it("refuses when no node answers, rather than sending wider", async () => {
 		onQuest();
-		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah"]);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
 		const { tools } = await startSession(noNode());
 
 		const refused = await send(tools, "orchestrator", "question", "May I?");
 
 		expect(refused).toContain("no node answered");
+		expect(lastSent()).toBeUndefined();
+	});
+
+	it("refuses when all that is beside the word cannot be a group", async () => {
+		onQuest();
+		const { tools } = await startSession(noNode());
+
+		const refused = await send(
+			tools,
+			"orchestrator, not a group!",
+			"question",
+			"May I?",
+		);
+
+		expect(refused).toContain(
+			"Not sent: no orchestrator is above this peer's quest",
+		);
 		expect(lastSent()).toBeUndefined();
 	});
 });

@@ -16,9 +16,7 @@ export async function aboveFor(at: Local): Promise<Above> {
 		peers(at),
 		at.ties ? at.ties() : Promise.resolve(undefined),
 	]);
-	const self = at.presences
-		.all()
-		.find((one) => one.session === at.peer.session);
+	const self = standing.present.find((one) => one.session === at.peer.session);
 	if (self === undefined) {
 		return {
 			none: "this peer has no presence on the mesh yet, so no orchestrator or hub from use is above it",
