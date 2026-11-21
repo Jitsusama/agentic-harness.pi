@@ -3,80 +3,165 @@
  *
  * A subagent's pi runs outside the fence its parent's commands run in,
  * and an extension it loads runs there too, as the person. So the model
- * may not name the extensions it loads: a fenced command could write one
- * anywhere it may write, and a subagent asked to load it would run it
- * unfenced. Only this package's own files may be named, since the fence
- * holds the install. Nor may the model lift isolation in a folder whose
- * `.pi` holds code, since the subagent's pi would load that code as its
- * own, unpinned.
+ * may not name an extension a fenced command could have written: only
+ * one inside pi's installed packages, which the fence holds read-only
+ * (`fence-home.ts`). Not this package's own folder, since a session
+ * reloaded onto a worktree runs from a tree its commands may write.
+ *
+ * Each named path is followed to where it really lies, and the child is
+ * handed that, so a link swapped between this check and the start can't
+ * point it somewhere else. A folder's own `.pi` is kept out another way:
+ * the tool starts every subagent ignoring project-local files.
+ *
+ * And a fenced session's subagents are fenced too. The fence holds a
+ * pi's commands through this package's own bash, which an isolated
+ * child, started without extensions, would never load: its bash would
+ * be pi's plain one, run as the person. So in a fenced or strict
+ * session each child is told its sandbox by name, since a session the
+ * fence's first stage lists has none in its environment to pass on, and
+ * an isolated one loads the fence's bash and file guards by path.
  */
 
-import { existsSync, realpathSync } from "node:fs";
-import { join, sep } from "node:path";
+import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { askedSandbox } from "../../lib/internal/fence/fence-stage.ts";
+import {
+	SANDBOX_NAMES,
+	SANDBOX_VARIABLE,
+} from "../../lib/internal/sandbox/sandbox.ts";
+import type { FleetAssignment } from "./run.ts";
 
 /** One job as the model asked for it, as far as this reads it. */
 interface AskedJob {
 	readonly id: string;
-	readonly cwd: string;
-	readonly isolated?: boolean;
 	readonly extraExtensions?: readonly string[];
-	readonly verify?: { readonly extensionPath: string };
+	readonly verify?: {
+		readonly extensionPath: string;
+		readonly skillPath?: string;
+	};
 }
 
-/** What in a folder's `.pi` a pi would load as code. */
-const PROJECT_CODE = ["extensions", "settings.json"] as const;
+/** The jobs, each named extension followed to where it lies, or why not. */
+export type Kept<T> =
+	| { readonly ok: true; readonly jobs: T[] }
+	| { readonly ok: false; readonly refusal: string };
 
-/** This package's own folder, the one place a named extension may lie. */
-function packageRoot(): string {
-	return realpathSync(fileURLToPath(new URL("../..", import.meta.url)));
+/**
+ * The extensions that fence a pi: its bash, which runs each command in
+ * the sandbox, its file tools' guard and the scrub of what they answer.
+ */
+const FENCE_PACKS = [
+	"extensions/shell-workflow/index.ts",
+	"extensions/sandbox-file-interceptor/index.ts",
+	"extensions/secret-scrub-interceptor/index.ts",
+] as const;
+
+/** The fence's extensions, where this package has them. */
+function fencePacks(): string[] {
+	const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+	return FENCE_PACKS.map((path) => join(root, ...path.split("/")));
 }
 
-/** Whether `path`, links followed, lies inside `root`. */
-function liesIn(path: string, root: string): boolean {
+/** Where pi's packages are installed, which the fence holds read-only. */
+function installRoot(): string | null {
 	try {
-		const real = realpathSync(path);
-		return real === root || real.startsWith(root + sep);
+		return realpathSync(join(homedir(), ".local", "share", "pi-packages"));
 	} catch {
-		// A path that can't be followed can't be shown to be the
-		// package's own, so it counts as lying outside it.
-		return false;
+		return null;
 	}
 }
 
-/** What in `cwd`'s `.pi` a pi would load as code, by name. */
-function projectCodeIn(cwd: string): string[] {
-	return PROJECT_CODE.filter((name) => existsSync(join(cwd, ".pi", name)));
+/** What runs when the model wants to try code it wrote, said in each refusal. */
+const TRY_IT =
+	"To try one you wrote, run pi on it as a command (pi -p --extension <path>), which the fence holds";
+
+/** Where `path` really lies inside `root`, or why it can't be loaded. */
+function follow(
+	path: string,
+	root: string | null,
+): { real: string } | { why: string } {
+	if (!isAbsolute(path)) {
+		return { why: `${path} isn't an absolute path` };
+	}
+	let real: string;
+	try {
+		real = realpathSync(path);
+	} catch {
+		return { why: `${path} can't be found` };
+	}
+	if (root === null) {
+		return {
+			why: `${path} can't be loaded, since pi's installed packages can't be found`,
+		};
+	}
+	if (real !== root && !real.startsWith(root + sep)) {
+		return {
+			why: `${path} lies outside pi's installed packages, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
+		};
+	}
+	return { real };
 }
 
 /**
- * Why these jobs may not run, or undefined when each keeps the fence:
- * every extension it names is this package's own, and it keeps
- * isolation wherever the folder's `.pi` holds code.
+ * Each job with every extension it names followed to where it lies, or
+ * why none may start: one names an extension outside pi's installed
+ * packages, or one that isn't there.
  */
-export function fenceRefusal(
-	jobs: readonly AskedJob[],
-	root: string = packageRoot(),
-): string | undefined {
+export function keepFence<T extends AskedJob>(
+	jobs: readonly T[],
+	root: string | null = installRoot(),
+): Kept<T> {
 	const reasons: string[] = [];
-	for (const job of jobs) {
-		const named = [
-			...(job.extraExtensions ?? []),
-			...(job.verify ? [job.verify.extensionPath] : []),
-		];
-		for (const path of named.filter((each) => !liesIn(each, root))) {
-			reasons.push(
-				`${job.id}: ${path} isn't this package's own, and a subagent's pi runs outside the fence, so it can't load an extension from anywhere else.`,
-			);
-		}
-		const code = job.isolated === false ? projectCodeIn(job.cwd) : [];
-		if (code.length > 0) {
-			reasons.push(
-				`${job.id}: ${join(job.cwd, ".pi")} holds ${code.join(" and ")}, which an unisolated subagent would load outside the fence; keep it isolated.`,
-			);
-		}
-	}
+	const kept = jobs.map((job) => {
+		const real = (path: string): string => {
+			const followed = follow(path, root);
+			if ("why" in followed) {
+				reasons.push(`${job.id}: ${followed.why}.`);
+				return path;
+			}
+			return followed.real;
+		};
+		const extraExtensions = job.extraExtensions?.map(real);
+		const verify = job.verify && {
+			...job.verify,
+			extensionPath: real(job.verify.extensionPath),
+		};
+		return {
+			...job,
+			...(extraExtensions ? { extraExtensions } : {}),
+			...(verify ? { verify } : {}),
+		};
+	});
 	return reasons.length === 0
-		? undefined
-		: `No subagent started:\n${reasons.join("\n")}`;
+		? { ok: true, jobs: kept }
+		: { ok: false, refusal: `No subagent started:\n${reasons.join("\n")}` };
+}
+
+/**
+ * Each assignment fenced as this session is: told the sandbox `sandbox`
+ * names, and, when isolated, loading the fence's own extensions first.
+ * Left as it is when this session runs unfenced.
+ */
+export function fenceChildren(
+	assignments: readonly FleetAssignment[],
+	sandbox: string | undefined = askedSandbox(process.env, SANDBOX_NAMES).name,
+	packs: readonly string[] = fencePacks(),
+): FleetAssignment[] {
+	if (sandbox === undefined) return [...assignments];
+	return assignments.map(({ spec, job }) => {
+		const named = job.extraExtensions ?? [];
+		const extraExtensions = job.isolated
+			? [...packs.filter((pack) => !named.includes(pack)), ...named]
+			: job.extraExtensions;
+		return {
+			spec,
+			job: {
+				...job,
+				env: { ...job.env, [SANDBOX_VARIABLE]: sandbox },
+				...(extraExtensions ? { extraExtensions } : {}),
+			},
+		};
+	});
 }

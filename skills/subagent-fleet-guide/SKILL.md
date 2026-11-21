@@ -135,6 +135,14 @@ tool palette instead. Inheritance plus a narrow palette
 costs almost nothing compared to losing every guardian
 for speed.
 
+Either way, a subagent never loads the working folder's own
+`.pi`, and `extraExtensions` and `verify.extensionPath` take
+only absolute paths inside pi's installed packages: a
+subagent's pi runs outside the fence, so code a fenced
+command wrote can't ride in. To try an extension you wrote,
+run `pi -p --extension <path>` as a command, inside the
+fence.
+
 ## Always-load defaults
 
 Some extensions need to be present in *every* subagent

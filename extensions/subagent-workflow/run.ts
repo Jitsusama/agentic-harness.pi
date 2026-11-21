@@ -98,6 +98,10 @@ export function buildAssignment(job: ToolJobInput): FleetAssignment {
 		userPrompt: job.userPrompt,
 		cwd: job.cwd,
 		isolated,
+		// A folder's `.pi` is code a fenced command may have written, and a
+		// subagent's pi runs outside the fence, so the model's subagents
+		// never load it, isolated or not.
+		ignoreProject: true,
 		...(job.systemPrompt ? { systemPrompt: job.systemPrompt } : {}),
 		...(job.extraExtensions ? { extraExtensions: job.extraExtensions } : {}),
 		...(job.extraSkills ? { extraSkills: job.extraSkills } : {}),

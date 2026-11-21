@@ -40,6 +40,17 @@ becomes pi's `--system-prompt`, `skills` and
 `verify` injects a verify pack so the subagent must call
 `verify_output` before ending.
 
+A subagent's pi runs outside the fence its parent's commands
+run in, so the tool keeps a fenced command's code out of it
+(`fence-keep.ts`). Every extension a job names, `verify`'s
+included, must be an absolute path inside pi's installed
+packages, which the fence holds read-only; the child is
+handed the path as followed, links and all, so a link swapped
+since can't move it. And every job starts with `--no-approve`,
+isolated or not, so a folder's own `.pi` is never loaded as
+code. To try an extension the model wrote, run pi on it as a
+fenced command instead.
+
 The tool returns:
 
 ```ts

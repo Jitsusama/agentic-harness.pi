@@ -83,12 +83,13 @@ export const SUBAGENT_PARAMETERS = Type.Object({
 			isolated: Type.Optional(
 				Type.Boolean({
 					description:
-						"Defaults to true: the subagent sees only what you attach, not your skills, context files or extensions.",
+						"Defaults to true: the subagent sees only what you attach, not your skills, context files or extensions. A folder's own .pi is never loaded either way.",
 				}),
 			),
 			extraExtensions: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Absolute extension paths to load.",
+					description:
+						"Absolute extension paths to load, only from pi's installed packages.",
 				}),
 			),
 			extraSkills: Type.Optional(
@@ -116,7 +117,8 @@ export const SUBAGENT_PARAMETERS = Type.Object({
 				Type.Object(
 					{
 						extensionPath: Type.String({
-							description: "Absolute path to the verify extension entry file.",
+							description:
+								"Absolute path to the verify extension entry file, in pi's installed packages.",
 						}),
 						skillPath: Type.Optional(
 							Type.String({

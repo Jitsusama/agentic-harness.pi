@@ -76,7 +76,7 @@ import {
 	SUBAGENT_PARAMETERS,
 	SUBAGENT_PROMPT_SNIPPET,
 } from "./declaration.ts";
-import { fenceRefusal } from "./fence-keep.ts";
+import { fenceChildren, keepFence } from "./fence-keep.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
@@ -311,14 +311,18 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					details: { ok: false },
 				};
 			}
-			const kept = fenceRefusal(sized.jobs);
-			if (kept !== undefined) {
+			const kept = keepFence(sized.jobs);
+			if (!kept.ok) {
 				return {
-					content: [{ type: "text" as const, text: kept }],
+					content: [{ type: "text" as const, text: kept.refusal }],
 					details: { ok: false },
 				};
 			}
-			const assignments: FleetAssignment[] = sized.jobs.map(buildAssignment);
+			// The extensions as followed, never as named, so a link swapped
+			// since can't point a child elsewhere.
+			const assignments: FleetAssignment[] = fenceChildren(
+				kept.jobs.map(buildAssignment),
+			);
 			// Held apart, since the fleet below runs in a function of its own,
 			// where the narrowing above does not reach.
 			const ranOn = sized.ranOn;

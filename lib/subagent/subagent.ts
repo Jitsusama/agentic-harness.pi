@@ -229,6 +229,7 @@ export async function startReviewer(
 			...(options.ask === undefined ? {} : { ask: options.ask }),
 			systemPrompt: options.systemPrompt,
 			isolated: options.isolated,
+			ignoreProject: options.ignoreProject,
 			...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 			...(extraSkills.length > 0 ? { extraSkills } : {}),
 		}),
@@ -327,6 +328,7 @@ export async function runReviewer(
 		...(options.ask === undefined ? {} : { ask: options.ask }),
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
+		ignoreProject: options.ignoreProject,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 	});
@@ -494,6 +496,17 @@ export interface SubagentJob {
 	 * opt in explicitly.
 	 */
 	readonly isolated?: boolean;
+	/**
+	 * When true, the subprocess ignores project-local files
+	 * (`--no-approve`) even when not isolated, so a folder's
+	 * `.pi` is never loaded as its code.
+	 */
+	readonly ignoreProject?: boolean;
+	/**
+	 * Variables the subprocess takes on top of the session's,
+	 * such as `PI_SANDBOX`, given as it starts.
+	 */
+	readonly env?: Readonly<Record<string, string>>;
 	/** Absolute paths to inject via `--extension`. */
 	readonly extraExtensions?: readonly string[];
 	/** Absolute paths to inject via `--skill`. */
@@ -580,6 +593,8 @@ export async function runSubagent(opts: {
 		cwd: job.cwd,
 		...(job.systemPrompt ? { systemPrompt: job.systemPrompt } : {}),
 		...(job.isolated ? { isolated: true } : {}),
+		...(job.ignoreProject ? { ignoreProject: true } : {}),
+		...(job.env === undefined ? {} : { env: job.env }),
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
 		...(verify ? { requiresVerification: true } : {}),
