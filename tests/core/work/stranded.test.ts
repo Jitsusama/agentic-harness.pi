@@ -522,6 +522,30 @@ describe("a snapshot at a stranded tree's commit", () => {
 		).toContain("snapshot-other");
 	});
 
+	it("is cut again whatever language git refuses the name in", async () => {
+		const cut = await killedCut(LOCK_STALE_MS + 60_000);
+		await setAside([{ path: cut.path, why: REFUSED }], {
+			into: strandedDir(trees),
+		});
+		const inEnglish = guarded(cut.path);
+		// As a git in another language says it: none of git's English.
+		const elsewhere: Exec = async (command, args) => {
+			const ran = await inEnglish(command, args);
+			return args.includes("add") && ran.code !== 0
+				? { ...ran, stderr: "fatal: «arbre déjà inscrit»\n" }
+				: ran;
+		};
+		const provider = createGitTreeProvider({
+			exec: elsewhere,
+			stateDir: trees,
+			subvolumes: async () => false,
+		});
+
+		await expect(provider.ensure(cut.request)).resolves.toEqual({
+			path: cut.path,
+		});
+	});
+
 	it("is cut again into the empty folder a subvolume makes first", async () => {
 		// Where each tree is a subvolume, the cut makes it at the tree's
 		// name before git runs, so git's gone entry meets an empty folder.

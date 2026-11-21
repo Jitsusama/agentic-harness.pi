@@ -425,10 +425,9 @@ export function createGitTreeProvider(deps: {
 			// killed cut left it, and git then refuses the name. That one
 			// entry is forgotten and the cut asked once more, rather than a
 			// prune, which would forget every gone tree's entry in the clone.
-			if (
-				cut.code !== 0 &&
-				/missing but (already registered|locked) worktree/.test(cut.stderr)
-			) {
+			// Which entry it is is read from the clone's own files rather than
+			// git's words, which a git in another language says otherwise.
+			if (cut.code !== 0) {
 				const common = await exec("git", [
 					"-C",
 					source.path,

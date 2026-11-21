@@ -409,7 +409,7 @@ async function surveyRepo(
 				...(unmoved === undefined
 					? []
 					: [
-							`${GLYPH.refused} Setting aside the trees git won't read failed, so each stays where it was: ${unmoved}`,
+							`${GLYPH.refused} Setting aside the trees git won't read stopped partway, so some may be in ${displayPath(strandedDir(treeDir()))} and the rest where they were, as \`work tidy\` shows: ${unmoved}`,
 						]),
 				...orphans.strandedKept.map(keptLine),
 				...(kept
