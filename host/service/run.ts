@@ -256,6 +256,7 @@ const ENDED_AS: Record<ResumeEnd, string> = {
 	resumed: "resumed",
 	parked: "left parked",
 	unresumed: "could not resume",
+	gone: "passed over, no longer held,",
 };
 
 /**
@@ -290,7 +291,7 @@ function childPlaces(
 export function slotResumed(
 	serving: Pick<ServingHost, "held" | "dropped" | "unresumed">,
 	slot: Pick<ChildSlot, "held">,
-): ResumeEnd {
+): Exclude<ResumeEnd, "gone"> {
 	const id = slot.held?.sessionId;
 	// First, since a resume whose build fails once registered stays listed, parked.
 	const failed =

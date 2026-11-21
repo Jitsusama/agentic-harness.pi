@@ -382,32 +382,34 @@ describe("a start's resume of what the host held", () => {
 		]);
 	});
 
-	it("leaves one whose child became another while it waited, as the roster now holds", async () => {
+	it.each([
+		["became another", (id: string) => roster.replace(id, entry())],
+		["closed", (id: string) => roster.drop(id)],
+	])("passes over one whose child %s while it waited", async (_, gone) => {
 		const staying = entry();
-		const became = entry();
 		await roster.hold(staying);
 		const inHost = engine();
 		const moved = children([]);
-		// The child's became lands its replace while the host waits to run it.
+		// The child's write lands while the host waits to run it.
 		moved.fake.left.mockImplementationOnce(async () => {
-			await roster.replace(staying.sessionId, became);
+			await gone(staying.sessionId);
 		});
+		const ends: string[] = [];
 
 		const { unresumed, resumed } = await resumeHeld({
 			roster,
 			engine: inHost,
 			children: moved.fake,
+			finished: (_step, end) => ends.push(end),
 		});
 
 		expect(
 			inHost.resume,
-			"never what the roster replaced",
+			"never what the roster no longer holds",
 		).not.toHaveBeenCalled();
 		expect(unresumed).toEqual([]);
-		expect(resumed, "runs on in its child").toEqual([staying.sessionId]);
-		expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([
-			became.sessionId,
-		]);
+		expect(resumed, "nothing resumed it").toEqual([]);
+		expect(ends).toEqual(["gone"]);
 	});
 
 	it("leaves a moved one resting parked, for its wake to start its child", async () => {
