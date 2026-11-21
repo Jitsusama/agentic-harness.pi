@@ -233,6 +233,44 @@ describe("a commit's check", () => {
 		expect(failure?.problems).toHaveLength(2);
 	});
 
+	it("holds a commit on no run git retired when its project was asked again", async () => {
+		const lib = { ...RUN, root: "/src/repo/lib", command: "pnpm lint" };
+		record(lib);
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitSays("judged");
+		await gitAsked();
+		record(NEXT);
+		await gitSays("judged");
+		// Asked again for its newest run, which a write since has moved.
+		await gitSays("moved on");
+		const { failure } = await checking;
+		expect(failure?.problems).toEqual([
+			expect.stringContaining("pnpm lint failed in /src/repo/lib"),
+		]);
+		expect(repoRun(), "retired").toBeUndefined();
+	});
+
+	it("asks no more about a project overtaken past the bound, though it records again", async () => {
+		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		for (const next of [NEXT, { ...NEXT }, { ...NEXT }]) {
+			await gitAsked();
+			record(next);
+			await gitSays("now");
+		}
+		// Now lib's turn; a verify of the repository records once more.
+		await gitAsked();
+		record({ ...NEXT, command: "pnpm build" });
+		await gitSays("judged");
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("now");
+		const { failure } = await checking;
+		expect(after, "fingerprints asked after the bound").toBe(0);
+		expect(failure?.problems).toHaveLength(2);
+	});
+
 	it("asks git after one project's run at a time", async () => {
 		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);

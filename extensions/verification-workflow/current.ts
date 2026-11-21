@@ -99,14 +99,18 @@ export async function failureNow(
 
 	const judged: Judged[] = [];
 	const leave = new Set<string>();
+	// Each project's problem as git last answered for it, so asking one
+	// again replaces what it said before rather than adding to it.
+	const runProblems = new Map<string, string>();
 	// One project at a time, so a commit's check never sets several git
 	// statuses on the disk it waits on at once; a run recorded while
 	// others are asked about, in a new project or one already asked
 	// about, is asked about in its turn.
 	const asked = new Map<string, FailedRun | undefined>();
 	for (;;) {
+		// One overtaken past the bound is asked about no more.
 		const next = [...state.failedRuns].find(
-			([key, run]) => asked.get(key) !== run,
+			([key, run]) => !leave.has(key) && asked.get(key) !== run,
 		);
 		if (next === undefined) break;
 		const [at, run] = next;
@@ -116,6 +120,8 @@ export async function failureNow(
 			continue;
 		}
 		const one = await askAfter(state, at, scope.signal);
+		if (one?.problem) runProblems.set(at, one.problem);
+		else runProblems.delete(at);
 		if (!one) continue;
 		if ("judged" in one) {
 			asked.set(at, one.judged.run);
@@ -125,8 +131,8 @@ export async function failureNow(
 			asked.set(at, state.failedRuns.get(at));
 			leave.add(one.overtaken);
 		}
-		if (one.problem) problems.push(one.problem);
 	}
+	problems.push(...runProblems.values());
 	const failure = problems.length > 0 ? { problems } : undefined;
 	return { failure, judged, leave };
 }
@@ -165,7 +171,7 @@ async function askAfter(
 function unchanged(run: FailedRun): string {
 	return (
 		`${run.command} failed in ${run.root}, and nothing there has ` +
-		"changed since. Run verify again once it is fixed."
+		`changed since. Run verify with path ${run.root} once it is fixed.`
 	);
 }
 
@@ -173,7 +179,7 @@ function unchanged(run: FailedRun): string {
 function recordedMeanwhile(run: FailedRun): string {
 	return (
 		`${run.command} failed in ${run.root} while this commit was ` +
-		"checked. Run verify again once it is fixed."
+		`checked. Run verify with path ${run.root} once it is fixed.`
 	);
 }
 
