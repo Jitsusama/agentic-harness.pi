@@ -16,6 +16,7 @@ import {
 	fenceChildren,
 	fencePacks,
 	keepFence,
+	packsHome,
 } from "../../../extensions/subagent-workflow/fence-keep.ts";
 import type { FleetAssignment } from "../../../extensions/subagent-workflow/run.ts";
 
@@ -132,7 +133,10 @@ describe("a fenced session's subagent keeps the fence", () => {
 			extraExtensions: [link],
 			verify: { extensionPath: link, skillPath: "/s" },
 		};
-		expect(keepFence([job], "fence", root)).toEqual({
+		const kept = keepFence([job], "fence", root);
+		await rm(link);
+		await symlink(join(outside, "planted.ts"), link);
+		expect(kept).toEqual({
 			ok: true,
 			jobs: [
 				{
@@ -142,6 +146,35 @@ describe("a fenced session's subagent keeps the fence", () => {
 				},
 			],
 		});
+	});
+
+	it("takes a package's own folder named versions for no install's", async () => {
+		const own = join(root, "packs", "versions", "x", "own.ts");
+		await mkdir(join(own, ".."), { recursive: true });
+		await writeFile(own, "");
+		expect(
+			refusal(keepFence([{ id: "a", extraExtensions: [own] }], "fence", root)),
+		).toBeUndefined();
+	});
+
+	it("judges a file by its install's version, not a folder named versions within it", async () => {
+		const at = await install(["old", "new"]);
+		const deep = (version: string) =>
+			join(at, "versions", version, "lib", "versions", "z", "a.ts");
+		for (const version of ["old", "new"]) {
+			await mkdir(join(deep(version), ".."), { recursive: true });
+			await writeFile(deep(version), "");
+		}
+		const kept = (version: string) =>
+			refusal(
+				keepFence(
+					[{ id: "a", extraExtensions: [deep(version)] }],
+					"fence",
+					root,
+				),
+			);
+		expect(kept("new")).toBeUndefined();
+		expect(kept("old")).toContain("a.ts");
 	});
 
 	it("refuses an extension from a version its install has moved on from", async () => {
@@ -210,6 +243,17 @@ describe("whether a session's subagents are fenced", () => {
 
 	it("leaves them unfenced when neither says so", () => {
 		expect(childSandbox({ PI_SANDBOX: "off" }, () => false)).toBeUndefined();
+	});
+});
+
+describe("where the fence's own extensions are taken from", () => {
+	it("is the install's current version, for a session started on an older one", async () => {
+		const at = await install(["old", "new"]);
+		expect(packsHome(join(at, "versions", "old"))).toBe(join(at, "current"));
+	});
+
+	it("is the package's own folder when it is no install's version", () => {
+		expect(packsHome(outside)).toBe(outside);
 	});
 });
 

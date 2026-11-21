@@ -28,14 +28,17 @@
  * fence's bash and file guards from the install, held as a named one is.
  */
 
-import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { lstatSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import {
 	askedSandbox,
 	spawnsJoin,
 } from "../../lib/internal/fence/fence-stage.ts";
+import {
+	inside,
+	installedPackages,
+	packageRoot,
+} from "../../lib/internal/fence/installed-only.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import {
 	SANDBOX_NAMES,
@@ -83,16 +86,13 @@ const FENCE_PACKS = [
 	"extensions/secret-scrub-interceptor/index.ts",
 ] as const;
 
-/** This package's own folder, as loaded. */
-const OWN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
 /**
  * Where to take the fence's extensions from: the current version of the
  * install this package was loaded from, which a session that started on
  * an older one still finds after the install moves, or this package's
  * own folder, which `follow` then refuses unless it is installed.
  */
-function packsHome(own: string = OWN_ROOT): string {
+export function packsHome(own: string = packageRoot()): string {
 	let real: string;
 	try {
 		real = realpathSync(own);
@@ -103,31 +103,27 @@ function packsHome(own: string = OWN_ROOT): string {
 	return install === undefined ? real : join(install, "current");
 }
 
-/** Where pi's packages are installed, which the fence holds read-only. */
-function installRoot(): string | null {
-	try {
-		return realpathSync(join(homedir(), ".local", "share", "pi-packages"));
-	} catch {
-		return null;
-	}
-}
-
 /** What runs when the model wants to try code it wrote, said in each refusal. */
 const TRY_IT =
 	"To try one you wrote, run pi on it as a command (pi -p --extension <path>), which the fence holds";
 
 /**
  * Why `real`, inside the install, lies in a version its install's
- * `current` link has left, or nothing when it doesn't.
+ * `current` link has left, or nothing when it doesn't. The install is
+ * the shallowest folder holding a `current` link beside a version
+ * folder, so a folder named versions inside a package is never taken
+ * for one.
  */
 function olderVersion(real: string, root: string): string | undefined {
-	for (
-		let folder = dirname(real);
-		folder !== root && folder.startsWith(root + sep);
-		folder = dirname(folder)
-	) {
+	const steps = relative(root, real).split(sep);
+	for (let depth = 1; depth < steps.length; depth += 1) {
+		const folder = join(root, ...steps.slice(0, depth));
 		const install = installOfVersion(folder);
-		if (install === undefined) continue;
+		// The link itself, followed or not: one left dangling still marks
+		// an install, whose versions then all count as left behind.
+		if (install === undefined || !lstatExists(join(install, "current"))) {
+			continue;
+		}
 		let current: string | undefined;
 		try {
 			current = realpathSync(join(install, "current"));
@@ -139,6 +135,16 @@ function olderVersion(real: string, root: string): string | undefined {
 			: `lies in a version of ${relative(root, install)} its install has moved on from, which may lack a fix the current one has; name the one under ${join(install, "current")}`;
 	}
 	return undefined;
+}
+
+/** Whether anything, a dangling link included, is at `path`. */
+function lstatExists(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /** Where `path` really lies inside `root`, or why it can't be loaded. */
@@ -160,7 +166,7 @@ function follow(
 			why: `${path} can't be loaded, since pi's installed packages can't be found`,
 		};
 	}
-	if (real !== root && !real.startsWith(root + sep)) {
+	if (!inside(real, root)) {
 		return {
 			why: `${path} lies outside pi's installed packages, and a subagent's pi runs outside the fence, so it can load an extension only from there. ${TRY_IT}`,
 		};
@@ -179,7 +185,7 @@ function follow(
 export function keepFence<T extends AskedJob>(
 	jobs: readonly T[],
 	sandbox: string | undefined,
-	root: string | null = installRoot(),
+	root: string | null = installedPackages(),
 ): Kept<T> {
 	if (sandbox === undefined) return { ok: true, jobs: [...jobs] };
 	const reasons: string[] = [];
@@ -214,7 +220,7 @@ export function keepFence<T extends AskedJob>(
  */
 export function fencePacks(
 	home: string = packsHome(),
-	root: string | null = installRoot(),
+	root: string | null = installedPackages(),
 ): { readonly packs: string[] } | { readonly why: string } {
 	const packs: string[] = [];
 	for (const pack of FENCE_PACKS) {

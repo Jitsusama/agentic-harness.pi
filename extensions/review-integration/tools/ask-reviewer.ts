@@ -29,9 +29,15 @@ import {
 	reviewerBudget,
 } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { askedSandbox } from "../../../lib/internal/fence/fence-stage.ts";
+import {
+	fencedChildrenRefusal,
+	packageRoot,
+} from "../../../lib/internal/fence/installed-only.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
+	SANDBOX_NAMES,
 	SANDBOX_VARIABLE,
 	STRICT,
 } from "../../../lib/internal/sandbox/sandbox.ts";
@@ -242,19 +248,34 @@ export const FENCED = { [SANDBOX_VARIABLE]: STRICT } as const;
 
 /**
  * The extensions that hold a reviewer to that sandbox, by their place
- * in this package. `ISOLATED` loads none of the session's, and a
- * reviewer runs no commands, so the sandbox alone would fence nothing:
- * these hold its file tools to the fence and scrub credentials from
- * what they answer, before a finding could quote one onto the change.
+ * in this package. `ISOLATED` loads none of the session's, so the
+ * sandbox alone would fence nothing: these run its commands inside the
+ * fence, hold its file tools to it and scrub credentials from what they
+ * answer, before a finding could quote one onto the change. The shell
+ * is first: a reviewer that names no tools gets pi's default palette,
+ * whose own bash runs as the person, and until 21 November every
+ * reviewer's did, since nothing loaded this package's in its place.
  */
 const FENCE_EXTENSIONS = [
+	"extensions/shell-workflow/index.ts",
 	"extensions/sandbox-file-interceptor/index.ts",
 	"extensions/secret-scrub-interceptor/index.ts",
 ] as const;
 
-/** The fence's extensions, where this package has them. */
+/**
+ * The fence's extensions, where this package has them: refused, as a
+ * fenced session's subagents are, when that session runs this package
+ * from outside the install, where its fenced commands could have
+ * written the fence's own code.
+ */
 export function fencePacks(): string[] {
-	const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+	if (askedSandbox(process.env, SANDBOX_NAMES).name !== undefined) {
+		const outside = fencedChildrenRefusal(false);
+		if (outside !== undefined) {
+			throw new Error(`No reviewer started: ${outside}`);
+		}
+	}
+	const root = packageRoot();
 	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
 }
 

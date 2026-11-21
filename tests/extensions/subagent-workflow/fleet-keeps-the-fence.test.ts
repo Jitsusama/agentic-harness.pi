@@ -25,6 +25,46 @@ import { activateWith } from "../support/review-extension.ts";
 const started: string[][] = [];
 const given: (Readonly<Record<string, string>> | undefined)[] = [];
 
+/**
+ * Where this package runs from and where the person's settings load it,
+ * as the fleet sees them: the fixture's install unless a case says not,
+ * since these tests themselves run from a tree.
+ */
+const place = vi.hoisted(() => ({
+	own: "",
+	harness: undefined as string | undefined,
+}));
+
+vi.mock(
+	"../../../lib/internal/fence/installed-only.ts",
+	async (
+		importOriginal: () => Promise<
+			typeof import("../../../lib/internal/fence/installed-only.ts")
+		>,
+	) => {
+		const real = await importOriginal();
+		return {
+			...real,
+			packageRoot: () => place.own,
+			settingsHarness: () => place.harness,
+			fencedChildrenRefusal: (unisolated: boolean) =>
+				real.fencedChildrenRefusal(
+					unisolated,
+					real.installedPackages(),
+					place.own,
+					() => place.harness,
+				),
+		};
+	},
+);
+
+/** The fence's own extensions, as a fixture install holds them. */
+const PACKS = [
+	"shell-workflow",
+	"sandbox-file-interceptor",
+	"secret-scrub-interceptor",
+] as const;
+
 vi.mock("../../../lib/subagent/runpi/supervisor.ts", () => ({
 	createSupervisorRunPi: (): RunPi => async (input) => {
 		started.push([...input.args]);
@@ -45,6 +85,14 @@ beforeEach(() => {
 	installed = join(root, ".local", "share", "pi-packages", "own.ts");
 	mkdirSync(join(root, ".local", "share", "pi-packages"), { recursive: true });
 	writeFileSync(installed, "");
+	const harness = join(root, ".local", "share", "pi-packages", "harness");
+	place.own = join(harness, "versions", "a");
+	place.harness = place.own;
+	for (const pack of PACKS) {
+		mkdirSync(join(place.own, "extensions", pack), { recursive: true });
+		writeFileSync(join(place.own, "extensions", pack, "index.ts"), "");
+	}
+	symlinkSync(join("versions", "a"), join(harness, "current"));
 	writeFileSync(join(root, "planted.ts"), "");
 	vi.stubEnv("PI_SANDBOX", "off");
 	started.length = 0;
@@ -136,8 +184,37 @@ describe("a fleet's children and a folder's own .pi", () => {
 });
 
 describe("a fenced session's fleet", () => {
-	it("starts no isolated child when this session runs code outside the install, whose fence it can't hand on", async () => {
+	it("starts no child when this session runs the harness from a tree, whose files each child would load outside the fence", async () => {
 		vi.stubEnv("PI_SANDBOX", "fence");
+		place.own = join(root, "src", "harness");
+		const text = await fleet([job("a"), job("b", { isolated: false })]);
+		expect(text).toContain(`runs the harness from ${place.own}`);
+		expect(started).toEqual([]);
+	});
+
+	it("starts no unisolated child while the person's settings load the harness from a tree", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		place.harness = join(root, "src", "harness");
+		const text = await fleet([job("a", { isolated: false })]);
+		expect(text).toContain(`which name ${place.harness}`);
+		expect(started).toEqual([]);
+	});
+
+	it("starts an isolated child with the fence's own extensions from the install's current version", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		await fleet([job("a")]);
+		expect(each(started[0], "--extension").slice(0, PACKS.length)).toEqual(
+			PACKS.map((pack) => join(place.own, "extensions", pack, "index.ts")),
+		);
+		expect(started[0]).toContain("--no-extensions");
+		expect(given[0]).toMatchObject({ PI_SANDBOX: "fence" });
+	});
+
+	it("starts no isolated child when the install lacks the fence's own extensions", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		rmSync(join(place.own, "extensions", "shell-workflow"), {
+			recursive: true,
+		});
 		const text = await fleet([job("a")]);
 		expect(text).toContain("needs the fence's own extensions");
 		expect(started).toEqual([]);
@@ -168,6 +245,8 @@ describe("a fenced session's fleet", () => {
 		vi.stubEnv("PI_SANDBOX", "strict");
 		await fleet([job("a", { isolated: false })]);
 		expect(given[0]).toMatchObject({ PI_SANDBOX: "strict" });
+		expect(started[0]).toContain("--no-approve");
+		expect(started[0]).not.toContain("--no-extensions");
 		expect(
 			each(started[0], "--extension").filter((path) =>
 				path.includes("shell-workflow"),

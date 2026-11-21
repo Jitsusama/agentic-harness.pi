@@ -39,6 +39,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { fencedChildrenRefusal } from "../../lib/internal/fence/installed-only.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
@@ -312,6 +313,22 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			const sandbox = childSandbox();
+			// Every child loads this package's own files outside the fence,
+			// and an unisolated one the harness its person's settings name.
+			const outside =
+				sandbox === undefined
+					? undefined
+					: fencedChildrenRefusal(
+							sized.jobs.some((job) => job.isolated === false),
+						);
+			if (outside !== undefined) {
+				return {
+					content: [
+						{ type: "text" as const, text: `No subagent started: ${outside}` },
+					],
+					details: { ok: false },
+				};
+			}
 			const kept = keepFence(sized.jobs, sandbox);
 			if (!kept.ok) {
 				return {

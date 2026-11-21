@@ -79,6 +79,10 @@ would miss what another binds over it.
 - **`fence-lifted.ts`**: the fence lifted from every session but a
   fleet's subagents until it relands, since the default from 13
   November stayed in each running pi's own environment.
+- **`installed-only.ts`**: whether a fenced session's children and
+  reviewers may start, which they do only while this package runs
+  from pi's installed packages, since each loads its files outside
+  the fence.
 - **`fence-run.ts`**: one command in the fence for a caller outside
   pi, such as the mycelium node's `runs` prefix: the agent fence, or
   the strict profile inside the fence's bubblewrap root, refusing a

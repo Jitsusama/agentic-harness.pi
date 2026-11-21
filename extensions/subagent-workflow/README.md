@@ -51,8 +51,13 @@ child starts with `--no-approve`, isolated or not, so a
 folder's own `.pi` is never loaded as code, and is told its
 sandbox by name; an isolated one loads the fence's own bash and
 file guards from the install, and none starts when they aren't
-there. To try an extension the model wrote, run pi on it as a
-fenced command instead. An unfenced session's children, whose
+there. Each child also loads this package's own files, its
+packs and supervisor among them, outside the fence, so none
+starts while the session runs the harness from a tree; an
+unisolated one also needs the person's settings to load the
+harness from the install (`installed-only.ts`). Reload onto the
+install first. To try an extension the model wrote, run pi on
+it as a fenced command instead. An unfenced session's children, whose
 parent's commands already run as the person, load what they
 are told, as before.
 
