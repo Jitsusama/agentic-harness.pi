@@ -744,8 +744,11 @@ describe("starting again on a fresh log", () => {
 		mkdirSync(join(folder, "held.again"));
 		restarting();
 		const ask = asked();
-		expect(ask.why).toMatch(
-			/^its holder couldn't be told how to start it again: EISDIR.*held\.again/,
+		expect(
+			ask.why,
+			"it names the command's own file, the rename's target, not the staged one",
+		).toMatch(
+			/^its holder couldn't be told how to start it again: EISDIR.*-> '[^']*\/held\.again'/,
 		);
 		expect(ask.restarting, "the rollover is told it stays").toBeUndefined();
 		expect(restarts).toEqual([]);
