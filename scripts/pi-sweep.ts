@@ -16,19 +16,26 @@
  * log are found by the same XDG folders as the hosts', so its timer sets
  * none of them.
  *
- * A quest's trees are read from the quests on disk, held until spent as a
- * host holds them, and a tree it takes is dropped from every live quest
- * that listed it. Its git holds to the fence's guard in every repository,
- * as a fenced session's does, since it runs in every session's trees with
- * no sandbox of its own. It fails before sweeping where a sweep's answers
- * couldn't be trusted: git that won't run, processes it can't all see, a
- * config it can't read or a quests folder that isn't there, either of
- * which would have it claim by the wrong quests.
+ * A quest's trees are read from every realm's quests on disk, held until
+ * spent as a host holds them, and a tree it takes is dropped from every
+ * live quest that listed it. Only quests claim trees here: a host hears
+ * claims from whatever answers it on the bus, but quest-workflow is the
+ * only claimant today, so a new one must be read here too, or the trees
+ * it claims go as nobody's while the hosts stand down. Its git holds to
+ * the fence's guard in every repository, as a fenced session's does,
+ * since it runs in every session's trees with no sandbox of its own; a
+ * host's git refuses the same trees, as each is cut under the trees
+ * folder, so the two judge alike. It fails before sweeping where a
+ * sweep's answers couldn't be trusted: git that won't run, processes it
+ * can't all see, a config it can't read, or a realm's quests it can't
+ * list, either of the last two having it claim by the wrong quests.
  *
  * Providers other than git come from the modules PI_SWEEP_PROVIDERS
  * names, colon-separated and absolute, each one's default export a
  * function giving the providers to load. A module that won't load, or
- * gives anything but providers, is passed over whole. A provider that
+ * gives anything but providers, is passed over whole. A module runs with
+ * the account's own rights, outside the fence, as it does in a host, so
+ * the setting names only modules the account installed. A provider that
  * took past fifteen minutes to judge a tree is told to stop, asked
  * nothing more that run, and left out of the stamp, as is one whose
  * judging or taking failed for every tree it tried, so the hosts go on
