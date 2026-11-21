@@ -1,11 +1,4 @@
-/**
- * Conversation ownership installed before pi loads any hosted extensions.
- *
- * Long because nearly all of it is SessionHost, the one Host every hosted
- * extension calls through, whose methods share its conversations, its
- * registry record and the records' folder as it last closed it; the
- * folder helpers below it serve only those methods.
- */
+/** Conversation ownership installed before pi loads any hosted extensions. */
 import { randomUUID } from "node:crypto";
 import {
 	closeSync,
@@ -41,7 +34,11 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import type { FenceKind } from "../../lib/mesh/presence.ts";
-import { HOST_READS, installConversationEnv } from "./process-env.ts";
+import {
+	HOST_READS,
+	installConversationEnv,
+	sessionEnvironment,
+} from "./process-env.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
 export interface ConversationRegistration {
@@ -791,30 +788,4 @@ function closeToOthers(folder: string, closed: string): void {
 			closeSync(opened);
 		}
 	}
-}
-
-/** A conversation's private environment: `input` under its own id, never process.env. */
-export function sessionEnvironment(
-	input: NodeJS.ProcessEnv,
-	id: string,
-): SessionEnvironment {
-	const values: NodeJS.ProcessEnv = { ...input, PI_SESSION_ID: id };
-	// Listed again only after a write or delete changes what it holds.
-	let names: readonly string[] | undefined;
-	return {
-		get: (name) => values[name],
-		set: (name, value) => {
-			if (!(name in values)) names = undefined;
-			values[name] = value;
-		},
-		delete: (name) => {
-			if (name in values) names = undefined;
-			delete values[name];
-		},
-		snapshot: () => ({ ...values }),
-		names: () => {
-			names ??= Object.keys(values);
-			return names;
-		},
-	};
 }

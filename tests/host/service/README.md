@@ -2,10 +2,11 @@
 
 Protocol validation, byte framing and session-scoped engine dispatch.
 
-Many entries because the tests mirror host/service, a file for each
-module they test, and the child supervisor's tests split by what they watch
-(starting, claims, leaving, opens and what a child says) so that none
-grows past 800 lines.
+Many entries because each file holds one behaviour of the host's
+service: most a module of host/service, some a whole host run one way
+(killed, faulting, stopped past its backstop, its own threads), and the child
+supervisor's split by what they watch (starting, claims, leaving,
+opens and what a child says) so that none grows past 800 lines.
 
 socket.test.ts checks real private sockets, strict replies and bounded
 transport with H1 ownership and V Terminals, including reconnect. These

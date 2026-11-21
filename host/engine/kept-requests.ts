@@ -44,7 +44,7 @@ import {
 } from "./parked-warming.ts";
 import type { ModelRuntime, PiSessions } from "./pi-session.ts";
 import type { AssistantMessage } from "./pi-types.ts";
-import { sessionEnvironment } from "./session-host.ts";
+import { sessionEnvironment } from "./process-env.ts";
 
 export { KEY_VARIABLES } from "./budget-keys.ts";
 

@@ -447,6 +447,8 @@ describe("what a child says", () => {
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
 		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+		// A stop asked at once, after the ending was taken, would come within this.
+		await pause(LISTENS_AFTER_MS);
 		expect(units.stopped, "given its while to exit").toEqual([]);
 	});
 

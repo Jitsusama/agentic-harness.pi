@@ -179,3 +179,29 @@ export function installConversationEnv(host: Host): () => void {
 			});
 	};
 }
+
+/** A conversation's private environment: `input` under its own id, never process.env. */
+export function sessionEnvironment(
+	input: NodeJS.ProcessEnv,
+	id: string,
+): SessionEnvironment {
+	const values: NodeJS.ProcessEnv = { ...input, PI_SESSION_ID: id };
+	// Listed again only after a write or delete changes what it holds.
+	let names: readonly string[] | undefined;
+	return {
+		get: (name) => values[name],
+		set: (name, value) => {
+			if (!(name in values)) names = undefined;
+			values[name] = value;
+		},
+		delete: (name) => {
+			if (name in values) names = undefined;
+			delete values[name];
+		},
+		snapshot: () => ({ ...values }),
+		names: () => {
+			names ??= Object.keys(values);
+			return names;
+		},
+	};
+}
