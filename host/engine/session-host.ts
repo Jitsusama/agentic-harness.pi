@@ -1,4 +1,11 @@
-/** Conversation ownership installed before pi loads any hosted extensions. */
+/**
+ * Conversation ownership installed before pi loads any hosted extensions.
+ *
+ * Long because nearly all of it is SessionHost, the one Host every hosted
+ * extension calls through, whose methods share its conversations, its
+ * registry record and the records' folder as it last closed it; the
+ * folder helpers below it serve only those methods.
+ */
 import { randomUUID } from "node:crypto";
 import {
 	closeSync,

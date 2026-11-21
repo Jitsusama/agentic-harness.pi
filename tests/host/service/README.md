@@ -1,6 +1,12 @@
 # Service Tests
 
 Protocol validation, byte framing and session-scoped engine dispatch.
+
+Many entries because the tests mirror host/service, a file for each
+module they test, and the child supervisor's tests split by what they watch
+(starting, claims, leaving, opens and what a child says) so that none
+grows past 800 lines.
+
 socket.test.ts checks real private sockets, strict replies and bounded
 transport with H1 ownership and V Terminals, including reconnect. These
 tests use an injected engine with two sessions in one process.
@@ -41,11 +47,12 @@ resume's slot naming its roster entry, one child for two resumes, a
 child ending before it listens or never listening given up, a host's
 stop at each step of a start, a slow watch included, a unit systemd
 won't start, a child running another conversation refused and one
-naming its own in another case taken, state, a new id and an ending
-each kept in the routes, a child whose new id is held or run elsewhere
-or can't be held stopped, with a start of that id waiting on it, what
-a newer child adds passed over, an unreadable line and a silent exit
-as failed, and a folder too long refused.
+naming its own in another case taken, and a folder too long refused.
+child-says.test.ts runs them for what a child says: state, a new id
+and an ending each kept in the routes, a child whose new id is held or
+run elsewhere or can't be held stopped, with a start of that id
+waiting on it, what a newer child adds passed over, and an unreadable
+line and a silent exit as failed.
 child-claims.test.ts runs them for whose conversation a child holds:
 the roster's hold spelled in capitals replaced by what it became and
 let go on a close, a became followed in another case, and a resume
