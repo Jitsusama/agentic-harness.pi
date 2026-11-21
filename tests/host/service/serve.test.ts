@@ -1,6 +1,6 @@
 /** A host's life: refuse before listening, resume what it holds, keep holds on stop. */
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -647,5 +647,53 @@ describe("serveHost with children", () => {
 			for (const child of units.children.values()) await child?.exit();
 		}
 		expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
+	});
+
+	it("runs every conversation itself when no child's socket would fit, saying so", async () => {
+		// Long enough that a child's socket, 39 bytes further down than the
+		// host's, passes the limit while the host's still fits.
+		const long = join(run, "x".repeat(60 - run.length));
+		await mkdir(long, { mode: 0o700 });
+		const at = { ...places(), runtimeDir: long };
+		const first = await serveHost({ ...at, engine: async (h) => engine(h) });
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		const units = fakeUnits(
+			slotFolder(long, "work-attended"),
+			"work-attended",
+			report,
+		);
+		const said: string[] = [];
+		const closed = vi.fn();
+		const inHost = vi.fn();
+		const second = await serveHost({
+			...at,
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: (id: string) => id === sessionId,
+					opens: () => true,
+					close: closed,
+				}),
+			},
+			engine: async (h) => ({ ...engine(h), resume: inHost }),
+		});
+		try {
+			expect(second.unresumed, "every one resumed").toEqual([]);
+			expect(inHost, "the host resumed it itself").toHaveBeenCalledTimes(1);
+			expect(units.started, "no child started").toEqual([]);
+			expect(second.inChildren?.() ?? 0, "none counted as a child's").toBe(0);
+			expect(closed, "the policy let go").toHaveBeenCalled();
+			expect(said).toContain(
+				"runs every conversation itself, since no child could be set up",
+			);
+			expect(report, "the reason is reported").toHaveBeenCalledTimes(1);
+		} finally {
+			await second.stop();
+		}
 	});
 });

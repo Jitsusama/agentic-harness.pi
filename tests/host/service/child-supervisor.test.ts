@@ -215,10 +215,11 @@ describe("a resumed conversation", () => {
 		await expect(supervisor.resume(entry(a))).rejects.toThrow("Unit not found");
 		// Freed by the failed start's own leave, not by the next start's ask.
 		const slot = slotOf(folder, key, a);
-		await vi.waitFor(() =>
-			expect(existsSync(slot.file), "its slot is cleared").toBe(false),
-		);
-		expect(units.forgotten, "its unit forgotten").toEqual([slot.unit]);
+		// The leave clears the slot and then forgets the unit, so wait for both.
+		await vi.waitFor(() => {
+			expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+			expect(units.forgotten, "its unit forgotten").toEqual([slot.unit]);
+		});
 
 		const resumed = await supervisor.resume(entry(a));
 		expect(resumed.sessionId, "started once systemd would").toBe(a);
