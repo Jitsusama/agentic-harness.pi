@@ -10,9 +10,12 @@
 
 import {
 	type DeclarationRead,
+	type DeclaredFence,
+	declarationSettled,
 	type FenceDeclaration,
 	fenceDeclared,
 	type SpawnSettled,
+	sandboxFor,
 	UNFENCED,
 	undeclaredRuns,
 } from "../../../lib/internal/fence/fence-declaration.ts";
@@ -109,17 +112,22 @@ export interface PlacementAsked {
 /** What a shell reads as more than one program, or as a word it fills in. */
 const SHELL_OPERATOR = /[;&|`$()<>\n]/;
 
+/** pi's flags that load none of the package, its fence included. */
+const WITHOUT_EXTENSIONS = new Set(["--no-extensions", "-ne"]);
+
 /**
  * Whether `command` runs pi alone, the one program the fence's variables
  * reach: none given starts pi, and else its first word must name it and
- * nothing may follow it in another program (`pi && bash`). A command
- * that starts pi another way (through env or a wrapper) counts as not,
- * so it claims less than it may run, never more.
+ * nothing may follow it in another program (`pi && bash`), nor may it
+ * leave out the extensions that lay the fence (`pi --no-extensions`). A
+ * command that starts pi another way (through env or a wrapper) counts
+ * as not, so it claims less than it may run, never more.
  */
 export function runsPi(command: string | undefined): boolean {
 	const trimmed = command?.trim() ?? "";
 	if (SHELL_OPERATOR.test(trimmed)) return false;
-	const first = trimmed.split(/\s+/)[0] ?? "";
+	const [first = "", ...flags] = trimmed.split(/\s+/);
+	if (flags.some((flag) => WITHOUT_EXTENSIONS.has(flag))) return false;
 	return first === "" || first.split("/").pop() === "pi";
 }
 
@@ -171,6 +179,32 @@ export function spawnSettled(
 		reopens: reopens(spawn),
 		pi: runsPi(spawn.command),
 		kept: spawn.here && platform === "linux",
+	};
+}
+
+/** A started spawn's fence: what it claims, and the sandbox it is handed. */
+export interface SpawnFenced {
+	/** The fence it tells the node, never more than is sure to run. */
+	readonly claim: FenceDeclaration;
+	/** The `PI_SANDBOX` it starts with, if any. */
+	readonly sandbox: DeclaredFence | undefined;
+}
+
+/**
+ * The fence a started spawn claims and the sandbox it is handed. They
+ * part where a pi may lift what it was given: a declared fence held on
+ * another machine or opened on a Mac is still handed on, so whatever
+ * keeps it there does, but claimed as none. A reopen keeps its own, as
+ * the stage leaves a reopen alone, so it is handed nothing.
+ */
+export function spawnFenced(
+	declared: FenceDeclaration,
+	spawn: StartedSpawn,
+	platform: NodeJS.Platform = process.platform,
+): SpawnFenced {
+	return {
+		claim: declarationSettled(declared, spawnSettled(spawn, platform)),
+		sandbox: reopens(spawn) ? undefined : sandboxFor(declared),
 	};
 }
 

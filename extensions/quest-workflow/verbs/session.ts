@@ -13,7 +13,6 @@ import {
 	declarationSaid,
 	declarationSettled,
 	type FenceDeclaration,
-	sandboxFor,
 } from "../../../lib/internal/fence/fence-declaration.ts";
 import { declaredSandbox } from "../../../lib/internal/fence/fence-lifted.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
@@ -91,9 +90,8 @@ import {
 } from "./spawn-launcher.ts";
 import {
 	placementFence,
-	reopens,
 	spawnFence,
-	spawnSettled,
+	spawnFenced,
 	stagedById,
 	stagedSpawn,
 } from "./spawn-stage.ts";
@@ -296,20 +294,15 @@ async function spawnNaming(
 	const { command: asks, dryRun } = params; // a reopen isn't staged
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
-	const reopening = reopens(stage);
-	fence = declarationSettled(
-		fence,
-		spawnSettled({
-			...stage,
-			listed: staged !== undefined,
-			held: machine !== undefined,
-			here: machine === undefined || isThisMachine(machine),
-		}),
-	);
+	const started = spawnFenced(fence, {
+		...stage,
+		listed: staged !== undefined,
+		held: machine !== undefined,
+		here: machine === undefined || isThisMachine(machine),
+	});
+	fence = started.claim;
 	said.fence = fence;
-	// A declared fence runs a fresh session's commands; a reopen keeps its
-	// own, as the stage leaves a reopen alone (spawn-stage.ts).
-	const sandbox = reopening ? undefined : sandboxFor(fence);
+	const { sandbox } = started;
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
 		...declaredSandbox(sandbox),

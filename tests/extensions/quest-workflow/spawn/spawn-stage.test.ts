@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	placementFence,
 	runsPi,
+	spawnFenced,
 	spawnSettled,
 } from "../../../../extensions/quest-workflow/verbs/spawn-stage.ts";
 import { declarationSettled } from "../../../../lib/internal/fence/fence-declaration.ts";
@@ -146,6 +147,46 @@ describe("how a spawn starts, for the claim it settles", () => {
 	});
 });
 
+describe("the fence a started spawn claims and is handed", () => {
+	const here = { questId: "QEST-1", listed: true, held: false, here: true };
+	const elsewhere = { ...here, held: true, here: false };
+	const strict = { kind: "strict", from: "default" } as const;
+
+	it("hands a declared fence on wherever it lands, claiming it only where its pi keeps it", () => {
+		expect(
+			spawnFenced(declared, here, "linux"),
+			"opened here on Linux",
+		).toEqual({ claim: declared, sandbox: "fence" });
+		expect(
+			spawnFenced(declared, elsewhere, "linux"),
+			"held on another machine",
+		).toEqual({ claim: unfenced, sandbox: "fence" });
+		expect(spawnFenced(declared, here, "darwin"), "opened on a Mac").toEqual({
+			claim: unfenced,
+			sandbox: "fence",
+		});
+	});
+
+	it("hands a strict parent's child strict wherever it lands, and claims it", () => {
+		expect(spawnFenced(strict, elsewhere, "darwin")).toEqual({
+			claim: strict,
+			sandbox: "strict",
+		});
+	});
+
+	it("hands a reopen nothing and the stage's fence nothing, which the token carries", () => {
+		expect(
+			spawnFenced(declared, { ...here, resuming: session }, "linux"),
+			"a reopen keeps its own",
+		).toEqual({ claim: unfenced, sandbox: undefined });
+		const staged = { kind: "fence", from: "default" } as const;
+		expect(spawnFenced(staged, here, "linux"), "the stage's fence").toEqual({
+			claim: staged,
+			sandbox: undefined,
+		});
+	});
+});
+
 describe("whether a spawn's command runs pi", () => {
 	it("counts no command, and one whose first word names pi", () => {
 		for (const command of [
@@ -172,6 +213,8 @@ describe("whether a spawn's command runs pi", () => {
 			"pi | tee log",
 			"pi $(cat flags)",
 			"pi\nbash",
+			"pi --no-extensions",
+			"pi -ne -e ./x.ts",
 		]) {
 			expect(runsPi(command), `${command} counted as pi`).toBe(false);
 		}
