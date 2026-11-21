@@ -23,6 +23,7 @@ import {
 	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
+	viewsIn,
 	writeRestoreFile,
 } from "../../../lib/internal/quest/reopening/restore-file.ts";
 import {
@@ -177,6 +178,7 @@ export function refreshRestoreFile(
 				workspaceOf: workspaceReader(questsRoot),
 				parentOf: logParents(logs),
 				logOf: (sessionId) => logs.get(sessionId),
+				viewsBefore: viewsIn(restoreFilePath(stateHome)),
 			},
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);

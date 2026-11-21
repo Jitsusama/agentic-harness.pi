@@ -207,7 +207,10 @@ const JOIN_LASTS = LASTING_JOIN_SCRIPT !== JOIN_SCRIPT;
  * {@link viewWords}, for words kept past this process, as the restore
  * file a launcher reads after a crash: none where the join's path
  * doesn't outlast this tree (`lasts`), so the reader does what it did
- * without them rather than run a script that may be gone.
+ * without them rather than run a script that may be gone. It also keeps
+ * the launcher, which runs these words outside any fence, from running a
+ * script in a worktree a fenced session can write; the install's link
+ * sits where the fence lets nothing write.
  */
 export function lastingViewWords(
 	session: string,

@@ -230,7 +230,7 @@ export function restoreFileOf(
 			: ((placing.viewWordsOf ?? lastingViewWords)(
 					record.sessionId,
 					holderCommand(log, [], record.env ?? {}),
-				));
+				) ?? placing.viewsBefore?.get(record.sessionId));
 	};
 	const letGo = new Set(released.map((entry) => entry.id));
 	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
