@@ -16,6 +16,7 @@ import {
 import type { WindowStanding } from "../../../host/cutover/windows.ts";
 import type { HostKind } from "../../../host/service/address.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
+import type { MoveOff } from "../../../lib/mesh/moving.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
 const presence = (session: string, over: Partial<Presence> = {}): Presence => ({
@@ -214,6 +215,14 @@ const move = (session: string, to: HostKind, parked = false): MoveStep => ({
 	parked,
 });
 
+/** A move to the background host called off at `ms` on the fake clock. */
+const offAt = (ms: number, why: string): MoveOff => ({
+	to: "background",
+	since: new Date(ms).toISOString(),
+	at: new Date(ms).toISOString(),
+	why,
+});
+
 /**
  * A machine whose sessions end as the script says: each look, the
  * sessions in `ending` write their note and their pi goes.
@@ -235,6 +244,8 @@ function fakeMachine(script: {
 	windows?: Record<string, WindowStanding>;
 	/** Whether Joel is away at each ask, in turn; absent, nobody asks. */
 	away?: boolean[];
+	/** The move each session's presence says was called off. */
+	calledOff?: Record<string, MoveOff>;
 }) {
 	const away = script.away === undefined ? undefined : [...script.away];
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
@@ -300,6 +311,7 @@ function fakeMachine(script: {
 			return undefined;
 		},
 		holds: async (session) => script.holds?.[session],
+		calledOff: async (session) => script.calledOff?.[session],
 		now: () => clock,
 		pause: async (ms) => {
 			clock += ms;
@@ -325,6 +337,7 @@ describe("carryOut", () => {
 			waiting: [],
 			refused: [],
 			takenBack: [],
+			calledOff: [],
 			places: [
 				{ address: "A", said: "kept" },
 				{ address: "B", said: "no window to keep" },
@@ -415,9 +428,41 @@ describe("carryOut", () => {
 			waiting: [{ address: "A", holds: "background jobs are out" }],
 			refused: [],
 			takenBack: [],
+			calledOff: [],
 			places: [{ address: "A", said: "kept" }],
 			spared: [],
 		});
+	});
+
+	it("settles a move called off since its tell, saying why, rather than waiting out the deadline", async () => {
+		const why = "its holder couldn't be told the join: EISDIR";
+		const machine = fakeMachine({
+			ending: [],
+			calledOff: { a: offAt(0, why) },
+		});
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			600_000,
+		);
+		expect(report.calledOff).toEqual([{ address: "A", why }]);
+		expect(report.waiting, "not said to be still waiting").toEqual([]);
+		expect(machine.facts.now(), "settled at the first look").toBe(0);
+		expect(machine.said).toContain(`A called its move off: ${why}`);
+	});
+
+	it("still waits on a session whose move was called off before this tell", async () => {
+		const machine = fakeMachine({
+			ending: [],
+			calledOff: { a: offAt(-60_000, "an earlier move waited too long") },
+		});
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			4_000,
+		);
+		expect(report.calledOff).toEqual([]);
+		expect(report.waiting).toEqual([{ address: "A" }]);
 	});
 
 	it("keeps asking a host that refused, saying each new reason once", async () => {
@@ -455,6 +500,7 @@ describe("carryOut", () => {
 			waiting: [],
 			refused: [{ address: "A", why: "no work-attended host is listening" }],
 			takenBack: [],
+			calledOff: [],
 			places: [{ address: "A", said: "kept" }],
 			spared: [],
 		});
