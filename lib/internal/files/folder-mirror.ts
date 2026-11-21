@@ -20,17 +20,19 @@
  *
  * While its folder is watched, a change the watch names is read alone,
  * and the whole folder is listed again only every half minute, in case
- * the watch missed one. Unwatched, it lists the folder each second.
- * Every conversation became a process of its own on 20 November, each
- * with its own mirror of the mesh's presence: on 21 November seventy
- * idle children listed its 163 files each second, about 11,000 stats a
- * second on one folder, and held the disk in btrfs's directory locks.
- * Reading only what changed costs a stat and a parse for each publish.
+ * the watch missed one, and at once whenever a new watch replaces one
+ * lost or moved away with its folder. Unwatched, it lists the folder
+ * each second. Every conversation became a process of its own on 20
+ * November, each with its own mirror of the mesh's presence: on 21
+ * November seventy idle children listed its 163 files each second, and
+ * held the disk in btrfs's directory locks. One such mirror, benched,
+ * made 404 stats a second; reading only what changed made 12.5. The
+ * folders mirrored are local state, where a watch hears every writer.
  */
 
 import { type FSWatcher, readdirSync, watch } from "node:fs";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { readStamped, readStampedOff, type Stamped } from "./stamped-read.ts";
 
 /** How often a mirror reads its folder again while it is asked. */
@@ -194,6 +196,12 @@ function mirrorOf<T>(
 	let asked = 0;
 	let clock: ReturnType<typeof setInterval> | undefined;
 	let watcher: FSWatcher | undefined;
+	// The folder the watch follows, by inode, and a look at it under way: a
+	// watch keeps following a folder renamed away, hearing nothing new.
+	let watched: number | undefined;
+	let looking = false;
+	// A watch being made.
+	let making = false;
 	let flight: Promise<Mirrored<T>> | undefined;
 	// The files a watch named since they were last read, and their read.
 	const touched = new Set<string>();
@@ -298,12 +306,18 @@ function mirrorOf<T>(
 		await Promise.all(
 			paths.map((path) => readStampedOff(fresh, path, kind.readOff)),
 		);
+		// A read that failed on a file still there leaves what was kept,
+		// rather than dropping a live peer until its next publish.
+		const gone = new Set<string>();
+		for (const path of paths)
+			if (!fresh.has(path) && (await missing(path))) gone.add(path);
 		// The thread read the folder meanwhile: what it read is the newer.
 		if (fills !== filled || order === undefined) return;
 		for (const path of paths) {
 			// This process's own write stands until a listing settles it.
 			if (written.has(path)) continue;
 			const one = fresh.get(path);
+			if (one === undefined && !gone.has(path)) continue;
 			if (one === undefined) {
 				kept.delete(path);
 				order = order.filter((listed) => listed !== path);
@@ -334,21 +348,69 @@ function mirrorOf<T>(
 	const unwatch = (): void => {
 		watcher?.close();
 		watcher = undefined;
+		watched = undefined;
 	};
+	// The folder is read before its watch is made, off the thread: one
+	// moved between the two is then a folder the next look finds changed,
+	// never one the watch follows unnoticed.
 	const rewatch = (): void => {
-		if (watcher !== undefined) return;
-		try {
-			watcher = watch(dir, { persistent: false }, (_kind, name) => {
-				// A file of its kind is read alone; a staged one is passed over
-				// until it is renamed in; an event naming none lists them all.
-				if (name === null) void refresh().catch(nothing);
-				else if (name.endsWith(kind.suffix)) readNamed(join(dir, name));
+		if (watcher !== undefined || making) return;
+		making = true;
+		void stat(dir)
+			.then(
+				(folder) => watchFolder(folder.ino),
+				() => {
+					// No folder yet: the poll alone lists until one is made.
+				},
+			)
+			.catch(() => {
+				// No watch on this filesystem: the poll alone lists it.
+			})
+			.finally(() => {
+				making = false;
 			});
-			// A watch that fails or overflows leaves the poll to keep up.
-			watcher.on("error", unwatch);
-		} catch {
-			// No folder yet, or no watch on this filesystem: the poll alone.
-		}
+	};
+	const watchFolder = (inode: number): void => {
+		// Put down meanwhile, or watched already: nothing to make.
+		if (clock === undefined || watcher !== undefined) return;
+		watcher = watch(dir, { persistent: false }, (_kind, name) => {
+			// A file of its kind is read alone; a staged one is passed over
+			// until it is renamed in; an event naming none lists them all.
+			if (name === null) void refresh().catch(nothing);
+			else if (name.endsWith(kind.suffix) && basename(name) === name)
+				readNamed(join(dir, name));
+		});
+		// A watch that fails is made again on the next tick, and lists the
+		// folder; one that overflows says nothing, so the backstop lists what
+		// it dropped.
+		watcher.on("error", unwatch);
+		watched = inode;
+		void listAfterWatching().catch(nothing);
+	};
+	// What changed before the watch heard it, since the last listing or
+	// the watch lost: one listing begun after it was made, so not one under
+	// way, which may have read the folder before.
+	const listAfterWatching = async (): Promise<void> => {
+		await flight?.catch(nothing);
+		await refresh();
+	};
+	// One stat of the folder a tick, off the thread: one renamed away, or
+	// made again, drops the watch, so the next tick follows the new one.
+	const look = (): void => {
+		if (looking || watcher === undefined || watched === undefined) return;
+		looking = true;
+		const following = watched;
+		void stat(dir)
+			.then(
+				(folder) => folder.ino !== following,
+				(error: unknown) => isMissing(error),
+			)
+			.then((moved) => {
+				if (moved && watched === following) unwatch();
+			})
+			.finally(() => {
+				looking = false;
+			});
 	};
 	const tick = (): void => {
 		if (Date.now() - asked > idleMs) {
@@ -358,7 +420,9 @@ function mirrorOf<T>(
 			return;
 		}
 		rewatch();
-		// Watched, the folder is listed again only for what the watch missed.
+		look();
+		// Watched, the folder is listed again only at the backstop, for what
+		// the watch missed; a new watch lists what the one lost missed.
 		if (watcher !== undefined && Date.now() - landed < backstopMs) return;
 		void refresh().catch(nothing);
 	};
@@ -406,6 +470,14 @@ function mirrorOf<T>(
 			if (order !== undefined) order = order.filter((one) => one !== path);
 		},
 	};
+}
+
+/** Whether a file is gone, rather than unreadable for now. */
+async function missing(path: string): Promise<boolean> {
+	return stat(path).then(
+		() => false,
+		(error: unknown) => isMissing(error),
+	);
 }
 
 /** Whether a failed read found no folder, rather than one unreadable. */

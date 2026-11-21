@@ -10,6 +10,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	watch,
 	writeFileSync,
 } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
@@ -28,9 +29,41 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	return { ...real, readdir: vi.fn(real.readdir) };
 });
 
+// Wrapped, so a test can fail a mirror's watch, or have none be made.
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	return { ...real, watch: vi.fn(real.watch) };
+});
+const realWatch = (await vi.importActual<typeof import("node:fs")>("node:fs"))
+	.watch;
+
+/** The watches made on this test's folder, newest last. */
+function watchesOfDir(): ReturnType<typeof watch>[] {
+	const made = vi.mocked(watch).mock;
+	return made.calls.flatMap(([path], index) => {
+		const result = made.results[index];
+		return path === dir && result?.type === "return" ? [result.value] : [];
+	});
+}
+
 /** How often this test's folder was listed off the thread. */
 function listings(): number {
 	return vi.mocked(readdir).mock.calls.filter(([path]) => path === dir).length;
+}
+
+/**
+ * Asks of a new mirror until its watch is made, then waits for the
+ * listing the watch begins, so a test counts from a settled mirror.
+ */
+async function watching(folder: MirroredFiles<string>): Promise<void> {
+	await vi.waitFor(
+		() => {
+			folder.files();
+			expect(watchesOfDir().length, "a watch made").toBeGreaterThan(0);
+		},
+		{ timeout: 2000 },
+	);
+	await folder.refresh();
 }
 
 let dir: string;
@@ -40,6 +73,7 @@ beforeEach(() => {
 	offReads = 0;
 });
 afterEach(() => {
+	vi.mocked(watch).mockImplementation(realWatch);
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -351,9 +385,9 @@ describe("a host's mirror of a folder", () => {
 	});
 
 	it("keeps up by its poll when its folder is renamed out from under the watch", async () => {
-		const folder = mirror({ pollMs: 100, backstopMs: 100 });
+		const folder = mirror({ pollMs: 100 });
 		put("a.txt", "old folder");
-		folder.files();
+		await watching(folder);
 		// The watch follows the folder it was given, renamed away; a new
 		// folder at the path is one it never hears.
 		renameSync(dir, `${dir}-moved`);
@@ -374,7 +408,7 @@ describe("a host's mirror of a folder", () => {
 	it("lists a watched folder again only once its backstop has passed, however often it polls", async () => {
 		put("a.txt", "here");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
-		folder.files();
+		await watching(folder);
 		const before = listings();
 		// Long enough for a dozen polls, each asked for.
 		for (let poll = 0; poll < 12; poll += 1) {
@@ -384,18 +418,201 @@ describe("a host's mirror of a folder", () => {
 		expect(listings() - before, "no listing within the backstop").toBe(0);
 	});
 
+	it("lists a watched folder again once its backstop has passed", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 100 });
+		await watching(folder);
+		const before = listings();
+		await vi.waitFor(
+			() => {
+				folder.files();
+				expect(listings() - before, "listed at the backstop").toBeGreaterThan(
+					0,
+				);
+			},
+			{ timeout: 2000 },
+		);
+	});
+
+	// The council on #1933: a watch made after the folder was listed heard
+	// nothing of what changed between, which then waited half a minute for
+	// the backstop.
+	it("reads what changed before its watch was made, with no poll to list it", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 60_000, backstopMs: 60_000 });
+		folder.files();
+		put("b.txt", "before the watch");
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()).sort(), "the gap read").toEqual([
+					"before the watch",
+					"here",
+				]),
+			{ timeout: 2000 },
+		);
+	});
+
+	it("watches again, and reads the gap, when its watch fails", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [first] = watchesOfDir();
+		if (first === undefined) throw new Error("expected a watch on the folder");
+		first.emit("error", new Error("the watch was lost"));
+		put("b.txt", "in the gap");
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()).sort(), "the gap read").toEqual([
+					"here",
+					"in the gap",
+				]),
+			{ timeout: 2000 },
+		);
+		expect(watchesOfDir(), "a new watch made").toHaveLength(2);
+	});
+
+	it("lists an unwatched folder at each poll", async () => {
+		vi.mocked(watch).mockImplementation(() => {
+			throw new Error("no watch on this filesystem");
+		});
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		folder.files();
+		const before = listings();
+		await vi.waitFor(
+			() => {
+				folder.files();
+				expect(listings() - before, "a listing a poll").toBeGreaterThan(2);
+			},
+			{ timeout: 2000 },
+		);
+	});
+
+	it("passes over a staged file the watch names until it is renamed in", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		writeFileSync(join(dir, "b.txt.41.staged"), "half written");
+		put("c.txt", "after it");
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()).sort(), "the later file read").toEqual([
+					"after it",
+					"here",
+				]),
+			{ timeout: 2000 },
+		);
+		expect(
+			[...folder.files().keys()].some((path) => path.endsWith(".staged")),
+			"the staged file is not kept",
+		).toBe(false);
+	});
+
+	// The council on #1933: a name the watch gives is a file of the folder's
+	// own, never one in a folder below it, which a listing never keeps.
+	it("passes over a name the watch gives in a folder below its own", async () => {
+		put("a.txt", "here");
+		mkdirSync(join(dir, "below"));
+		writeFileSync(join(dir, "below", "b.txt"), "below");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const [made] = watchesOfDir();
+		if (made === undefined) throw new Error("expected a watch on the folder");
+		made.emit("change", "rename", join("below", "b.txt"));
+		put("c.txt", "after it");
+		await vi.waitFor(
+			() =>
+				expect(folder.file(join(dir, "c.txt")), "the later file read").toBe(
+					"after it",
+				),
+			{ timeout: 2000 },
+		);
+		expect(wordsOf(folder.files()).sort(), "only the folder's own").toEqual([
+			"after it",
+			"here",
+		]);
+	});
+
+	// The council on #1933: a named read that landed while a listing was
+	// reading could be overwritten by that listing's older read.
+	it("reads a named file only once a listing under way has landed", async () => {
+		put("a.txt", "before");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const real =
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			);
+		const stall = stalling();
+		vi.mocked(readdir).mockImplementationOnce(async (path) => {
+			await stall.here();
+			return real.readdir(path);
+		});
+		const listing = folder.refresh();
+		await stall.reached;
+		put("a.txt", "changed");
+		// Long enough for a named read that didn't wait to land.
+		await new Promise((done) => setTimeout(done, 200));
+		expect(folder.file(join(dir, "a.txt")), "held behind the listing").toBe(
+			"before",
+		);
+		stall.release();
+		await listing;
+		await vi.waitFor(
+			() =>
+				expect(folder.file(join(dir, "a.txt")), "then read").toBe("changed"),
+			{ timeout: 2000 },
+		);
+	});
+
+	it("keeps its own write over another's the watch names, until a listing", async () => {
+		put("own.txt", "before");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const path = join(dir, "own.txt");
+		folder.put(path, "mine");
+		put("own.txt", "theirs");
+		put("other.txt", "after it");
+		await vi.waitFor(
+			() =>
+				expect(folder.file(join(dir, "other.txt")), "the watch heard").toBe(
+					"after it",
+				),
+			{ timeout: 2000 },
+		);
+		expect(folder.file(path), "this process's write stands").toBe("mine");
+	});
+
+	// The council on #1933: a stat that failed on a file still there
+	// dropped a live peer until it published again.
+	it("keeps a named file whose read fails while the file is still there", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		put("a.txt", "rewritten");
+		// Before the watch's event is read, so the named read can't stat it.
+		chmodSync(dir, 0o000);
+		try {
+			// Long enough for the named read to land.
+			await new Promise((done) => setTimeout(done, 200));
+			expect(folder.file(join(dir, "a.txt")), "what was kept").toBe("here");
+		} finally {
+			chmodSync(dir, 0o700);
+		}
+	});
+
 	// A listing stats every file, so only a file the watch names is read.
 	it("reads a file its watch names alone, without listing the folder", async () => {
 		for (const name of ["a", "b", "c", "d", "e"]) put(`${name}.txt`, name);
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
-		folder.files();
+		await watching(folder);
 		const before = listings();
 		put("c.txt", "c changed");
 		put("f.txt", "f new");
 		rmSync(join(dir, "a.txt"));
 		await vi.waitFor(
 			() =>
-				expect(wordsOf(folder.files()), "each change seen").toEqual([
+				expect(wordsOf(folder.files()).sort(), "each change seen").toEqual([
 					"b",
 					"c changed",
 					"d",
