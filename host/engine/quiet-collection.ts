@@ -32,9 +32,11 @@
  * and its viewer, which costs more than the pages it would give back.
  * One runs again once the heap has fallen within it.
  *
- * A pace is forgotten PACE_KEPT_MS after its collection, and with none
- * kept the next look collects and measures one afresh, as the first look
- * does. A skip measures nothing, so one pause slowed by swap would
+ * A child, which holds one conversation, forgets a pace PACE_KEPT_MS
+ * after its collection, and with none kept the next look collects and
+ * measures one afresh, as the first look does. The shared host keeps its
+ * paces, since there a long pause stalls every conversation and viewer.
+ * In a child it holds only that conversation, quiet as it is. A skip measures nothing, so one pause slowed by swap would
  * otherwise skip every later look while the heap only grew: on 21
  * November 19 children logged "Left uncollected" 31 times, holding a
  * mean of 265 MB each. Foretelling a nominal pace with none kept would
@@ -129,6 +131,11 @@ export function quietCollection(options: {
 	readonly report?: (said: string) => void;
 	/** What times the pause, in ms; performance.now by default. */
 	readonly clock?: () => number;
+	/**
+	 * Whether a pace is forgotten PACE_KEPT_MS after its collection, as a
+	 * child holding one conversation does; the shared host keeps them.
+	 */
+	readonly forgetsPaces?: boolean;
 }): QuietCollection {
 	const collect = options.collect ?? lastResortCollect(options.exposeGc);
 	if (!collect) {
@@ -195,7 +202,12 @@ export function quietCollection(options: {
 		dueSince = undefined;
 		lastCollected = now;
 		const heapBefore = heap();
-		while (paces[0] && now - paces[0].at >= PACE_KEPT_MS) paces.shift();
+		while (
+			options.forgetsPaces &&
+			paces[0] &&
+			now - paces[0].at >= PACE_KEPT_MS
+		)
+			paces.shift();
 		const pace =
 			paces.length > 0 ? Math.max(...paces.map((one) => one.pace)) : undefined;
 		if (
