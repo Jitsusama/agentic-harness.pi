@@ -9,6 +9,7 @@ import {
 	ONE_WALK_FROM_PRESSURE,
 	RAMP_MS,
 	skipsWorldPushHooks,
+	WALK_SETTLES_MS,
 	WALKS_AT_ONCE,
 	waitingInOrder,
 	waitReasons,
@@ -41,6 +42,7 @@ describe("a walk of World's objects", () => {
 			"git -C ~/world/trees/w-main/src rebase --continue",
 			"git rebase --skip",
 			"git cherry-pick abc123",
+			"git revert abc123",
 			"git merge origin/main",
 			"git sparse-checkout add areas/tools",
 		]) {
@@ -61,7 +63,7 @@ describe("a walk of World's objects", () => {
 			"git clone ~/world/git /tmp/copy",
 			"git fetch file:///home/j/world/git main",
 			"git --git-dir=/home/j/world/git fetch origin",
-			// The work tool runs its git from outside the tree, naming it.
+			// Run from outside the tree, naming it.
 			"git -C /home/j/world/trees/w-main/src rebase origin/main",
 		]) {
 			expect(kindOf(walking, elsewhere), walking).toBe("world-walk");
@@ -106,6 +108,9 @@ describe("a walk of World's objects", () => {
 			"git merge --abort",
 			"git cherry-pick --abort",
 			"git sparse-checkout list",
+			"git sparse-checkout check-rules",
+			"git rebase --help",
+			"git cherry-pick -h",
 			"echo git push",
 			"gh pr create --title 'git push it'",
 			"rg 'git fetch' scripts",
@@ -124,10 +129,29 @@ describe("a walk of World's objects", () => {
 	it("reads a long run of options in time that grows with it, not past it", () => {
 		// Each option reads one way, so a run of them with no walk after
 		// fails at once rather than trying every way to split them.
-		const options = "--a-b ".repeat(400);
-		const started = performance.now();
-		expect(kindOf(`git ${options}status`, inWorld)).toBeUndefined();
-		expect(performance.now() - started).toBeLessThan(1_000);
+		for (const options of ["--a-b ".repeat(400), "-c ".repeat(60)]) {
+			const started = performance.now();
+			expect(kindOf(`git ${options}status`, inWorld)).toBeUndefined();
+			expect(performance.now() - started).toBeLessThan(1_000);
+		}
+	});
+
+	it("starts no walk beside one that started within the minute, however calm it reads", () => {
+		// The minute's pressure lags the walk that causes it: a second asked
+		// seconds after the first would read the calm from before either.
+		const jobs = [
+			job("one", {
+				kind: "world-walk",
+				what: "git rebase",
+				started: startedAgo(10_000),
+			}),
+			job("two", { kind: "world-walk", what: "git push" }),
+		];
+		const calm = { ...ROOMY, availableGib: 100, memoryFullMinute: 0 };
+		expect(nextTurn(jobs, calm, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, calm, NOW).get("two")).toBe("walks");
+		const later = NOW + WALK_SETTLES_MS;
+		expect(nextTurn(jobs, calm, later)?.id).toBe("two");
 	});
 
 	it("runs at most two at once while memory flows, and lets others past", () => {

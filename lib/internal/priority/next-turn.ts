@@ -277,9 +277,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * {@link LIGHT_GIB} or less, builds aside, starts while memory is short.
  * 13: walks of World's objects one at a time from needs.ts's
  * `ONE_WALK_FROM_PRESSURE`, and git's rebase, cherry-pick, merge and
- * sparse-checkout in a World checkout read as walks.
+ * sparse-checkout in a World checkout read as walks. 14: no walk starts
+ * beside one started within {@link WALK_SETTLES_MS}, and git's revert in
+ * a World checkout reads as a walk.
  */
-export const RULES_VERSION = 13;
+export const RULES_VERSION = 14;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -472,18 +474,35 @@ export function waitReasons(
  * evening of 5 November four fetches of main waited up to 75 minutes
  * behind one already running, each to fetch the same commits again
  * (80ECO2). The walks allowed are needs.ts's `walksAtOnce` for the
- * memory pressure `room` reads. Like a VM held to its count, it lets the
- * jobs behind it past.
+ * memory pressure `room` reads, and one while a walk started within
+ * {@link WALK_SETTLES_MS} runs, since the pressure a walk causes shows in
+ * the minute's figure only once it has mapped its packs. Like a VM held to
+ * its count, it lets the jobs behind it past.
  */
 function walkWaits(
 	job: Job,
-	walks: number,
+	walks: Walks,
 	fetching: boolean,
 	room: Room,
 ): boolean {
 	if (job.kind !== "world-walk") return false;
-	const allowed = walksAtOnce(room.memoryFullMinute);
-	return walks >= allowed || (job.walk === "main-fetch" && fetching);
+	const allowed = walks.settling ? 1 : walksAtOnce(room.memoryFullMinute);
+	return walks.running >= allowed || (job.walk === "main-fetch" && fetching);
+}
+
+/**
+ * How long after its start a walk of World's objects keeps a second from
+ * starting beside it, however the minute's pressure reads: the figure is
+ * an average over a minute, so a walk asking seconds after another would
+ * read the calm from before it.
+ */
+export const WALK_SETTLES_MS = 60_000;
+
+/** The walks of World's objects running, and whether one is settling. */
+interface Walks {
+	readonly running: number;
+	/** One started within {@link WALK_SETTLES_MS}. */
+	readonly settling: boolean;
 }
 
 /**
@@ -530,7 +549,7 @@ function standing(
 	settling: boolean;
 	builds: number;
 	quick: { running: number; left: number };
-	walks: number;
+	walks: Walks;
 } {
 	// An answered fetch walks nothing and holds no memory to speak of.
 	const running = jobs.filter(
@@ -585,7 +604,14 @@ function standing(
 		settling: vmSettling(running, now),
 		builds,
 		quick,
-		walks: running.filter((job) => job.kind === "world-walk").length,
+		walks: {
+			running: running.filter((job) => job.kind === "world-walk").length,
+			settling: running.some(
+				(job) =>
+					job.kind === "world-walk" &&
+					now - Date.parse(job.started as string) < WALK_SETTLES_MS,
+			),
+		},
 	};
 }
 

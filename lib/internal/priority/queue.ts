@@ -131,6 +131,7 @@ export {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
+	WALK_SETTLES_MS,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
