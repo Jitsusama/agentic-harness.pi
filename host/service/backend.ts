@@ -159,7 +159,11 @@ export interface BackendChildren {
 	 * before its route did, answering as the child does or with its refusal.
 	 */
 	ask(sessionId: string, request: ControlRequest): Promise<unknown>;
-	/** Settles once the child that last ran this conversation has gone. */
+	/**
+	 * Settles once no child runs this conversation: every one that ran it
+	 * has gone and its slot is free. Fails while one still runs it, or
+	 * once the host stops watching, so the host never runs it beside one.
+	 */
 	left(sessionId: string): Promise<void>;
 }
 

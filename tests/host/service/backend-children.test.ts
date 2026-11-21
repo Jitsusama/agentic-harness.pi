@@ -346,6 +346,27 @@ describe("a start's resume of what the host held", () => {
 		);
 	});
 
+	it("resumes one that no longer moves in the host only once no child runs it", async () => {
+		const staying = entry();
+		await roster.hold(staying);
+		const inHost = engine();
+		const moved = children([]);
+		const still = new Error(`${staying.sessionId} still runs in its unit`);
+		moved.fake.left.mockRejectedValueOnce(still);
+
+		const { unresumed } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+		});
+
+		expect(moved.fake.left).toHaveBeenCalledWith(staying.sessionId);
+		expect(inHost.resume, "never beside its child").not.toHaveBeenCalled();
+		expect(unresumed).toEqual([
+			{ sessionId: staying.sessionId, reason: still },
+		]);
+	});
+
 	it("leaves a moved one resting parked, for its wake to start its child", async () => {
 		const moving = entry();
 		await roster.hold(moving);

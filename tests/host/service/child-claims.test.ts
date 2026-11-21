@@ -179,6 +179,33 @@ describe("whose conversation a child holds", () => {
 		expect(units.started, "no second child on a's file").toEqual([slotB.unit]);
 	});
 
+	// The host resumes a conversation itself only once this settles, so a
+	// forsaken child an earlier host left never runs beside it.
+	it("says a conversation has left only once a forsaken child running it has gone", async () => {
+		roster.held = [entry(a), entry(b)];
+		await supervisor.resume(entry(b));
+		const slotB = slotOf(folder, key, b);
+		units.lingers = true;
+		childOf(b).say({
+			type: "became",
+			previousId: b,
+			conversation: conversation(a),
+			entry: entry(a),
+		});
+		await vi.waitFor(() => expect(units.stopped).toContain(slotB.unit));
+		superviseAgain({ nextHost: true });
+		expect(await supervisor.adopt(), "none taken up").toBe(0);
+
+		await expect(supervisor.left(a)).rejects.toThrow(
+			`${a} still runs in ${slotB.unit}`,
+		);
+
+		await units.children.get(slotB.unit)?.exit();
+		units.children.delete(slotB.unit);
+		await supervisor.left(a);
+		expect(existsSync(slotB.file), "its slot cleared").toBe(false);
+	});
+
 	it("keeps the forsaken mark over a slot write queued before it", async () => {
 		await supervisor.resume(entry(a));
 		const slotA = slotOf(folder, key, a);

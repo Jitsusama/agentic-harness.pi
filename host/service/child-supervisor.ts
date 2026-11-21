@@ -173,7 +173,11 @@ export interface ChildSupervisor {
 	 * second call while one runs settles with the first's count.
 	 */
 	adopt(): Promise<number>;
-	/** Settles once the child that last ran this conversation has gone. */
+	/**
+	 * Settles once no child runs this conversation: every one that ran it
+	 * has gone and its slot is free. Fails while one still runs it, or
+	 * once the host stops watching.
+	 */
 	left(sessionId: string): Promise<void>;
 	/**
 	 * Stop watching every child, leaving each running, one still being
@@ -1186,8 +1190,24 @@ export function childSupervisor(options: {
 			});
 			return adopting;
 		},
-		left(sessionId) {
-			return leftBy.get(keyed(sessionId)) ?? Promise.resolve();
+		async left(sessionId) {
+			await listing;
+			await takingFor.get(keyed(sessionId));
+			await leftBy.get(keyed(sessionId));
+			// Every slot that ran it, whichever way its child left, until that
+			// slot is free: one whose unit still runs refuses, as a start does.
+			for (const last of [...(ranIn.get(keyed(sessionId))?.values() ?? [])]) {
+				stillWatching();
+				if (
+					!(await claimed(
+						last.unit,
+						async () =>
+							!ranIn.get(keyed(sessionId))?.has(last.unit) || free(last),
+					))
+				)
+					throw new Error(`${sessionId} still runs in ${last.unit}`);
+			}
+			stillWatching();
 		},
 		close() {
 			closing = true;

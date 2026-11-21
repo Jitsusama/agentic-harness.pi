@@ -188,7 +188,12 @@ export async function resumeHeld(options: {
 			mark("gate");
 			if (options.children?.moves(sessionId))
 				await options.children.resume(entry, false);
-			else await options.engine.resume(entry, false, mark);
+			else {
+				// A child an earlier host left, which the adopt couldn't take
+				// up, may run it still: never two processes on one file.
+				await options.children?.left(sessionId);
+				await options.engine.resume(entry, false, mark);
+			}
 			resumed.push(sessionId);
 			end = "resumed";
 		} catch (reason) {

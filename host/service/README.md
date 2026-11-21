@@ -279,7 +279,11 @@ input pipeline or screen. No unit or running host is installed yet.
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:
   `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, to
-  resume at the next start.
+  resume at the next start. Stop them too before rolling back to a host
+  without children, which neither takes them up nor knows they run, so
+  would resume their conversations beside them. The host runs a
+  conversation itself only once every child that ran it has gone and
+  its slot is free (`left`); while one still runs, the resume fails.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,
@@ -291,7 +295,10 @@ input pipeline or screen. No unit or running host is installed yet.
 - child-hosting.ts: the routes, supervisor and policy put together for
   serve.ts. A child that ends parked or failed leaves its conversation
   held and resting, its wake watched by the host again, so no process
-  runs for a parked conversation.
+  runs for a parked conversation. That needs a child's park marker to
+  name the host's own wake file, as `parked.wakeFile` gives it under
+  the host's key; one naming another is woken by nothing until a
+  window attaches.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

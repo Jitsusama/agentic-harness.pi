@@ -152,14 +152,22 @@ describe("a host's children", () => {
 		).rejects.toThrow("as children.json says");
 	});
 
-	it("says once the child that ran one has gone", async () => {
+	it("says once the child that ran one has gone, and not while its unit runs on", async () => {
 		await children.backend.resume(held[0] as RosterEntry, false);
 		const [unit] = units.started;
+		// Its socket closes, but systemd says its unit still runs.
+		let lingering = true;
+		const gone = units.gone;
+		units.gone = async (named) => !lingering && gone(named);
 		await units.childOf(a).exit();
 		await vi.waitFor(() => expect(rested).toHaveLength(1));
 
-		await children.backend.left(a);
+		await expect(children.backend.left(a)).rejects.toThrow(
+			`${a} still runs in ${unit}`,
+		);
 
+		lingering = false;
+		await children.backend.left(a);
 		expect(units.children.has(unit as string), "its unit is gone").toBe(false);
 	});
 
