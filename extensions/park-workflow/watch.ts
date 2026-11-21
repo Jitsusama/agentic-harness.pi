@@ -432,7 +432,11 @@ export function watch(
 			const host = hosted()?.key;
 			noteWake(
 				session,
-				{ parkedAt: marker.parkedAt, ...(host ? { host } : {}) },
+				{
+					parkedAt: marker.parkedAt,
+					afterMs: marker.afterMs,
+					...(host ? { host } : {}),
+				},
 				folder,
 				now,
 			);
@@ -556,6 +560,8 @@ export function watch(
 			addresses: parking.addresses,
 			...(parking.quest ? { quest: parking.quest } : {}),
 			parkedAt: new Date(now()).toISOString(),
+			// What it parked under, so a drain's wakes aren't the rule's churn.
+			...(afterMs === undefined ? {} : { afterMs }),
 			pid: process.pid,
 			wake,
 		};

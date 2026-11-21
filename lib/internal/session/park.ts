@@ -346,6 +346,11 @@ export interface Wake {
 	readonly parkedAt: string;
 	/** The host it woke in, as `realm-kind`, when a host holds it. */
 	readonly host?: string;
+	/**
+	 * The idle limit it parked under, as its marker said: 0 for a host's
+	 * drain, so a restart's wakes aren't counted against a rule.
+	 */
+	readonly afterMs?: number;
 	/** When it started again, as an ISO time. */
 	readonly wokeAt: string;
 	/** How long it rested parked, in milliseconds. */
@@ -512,6 +517,8 @@ export interface Parked {
 	readonly quest?: string;
 	/** When it parked, as an ISO time. */
 	readonly parkedAt: string;
+	/** The idle limit it parked under, in milliseconds: 0 in a drain. */
+	readonly afterMs?: number;
 	/** The process that parked, gone once it has. */
 	readonly pid: number;
 	/** The file its holder wakes it on, written to by a sender. */
@@ -689,7 +696,8 @@ function isWake(value: unknown): value is Wake {
 		typeof value.parkedAt === "string" &&
 		typeof value.wokeAt === "string" &&
 		typeof value.restedMs === "number" &&
-		(value.host === undefined || typeof value.host === "string")
+		(value.host === undefined || typeof value.host === "string") &&
+		(value.afterMs === undefined || typeof value.afterMs === "number")
 	);
 }
 
@@ -711,14 +719,19 @@ export function readWakes(
 
 /**
  * Note that this session woke from the park its marker records, in the
- * host named when one holds it, keeping only the last day's wakes, and
+ * host named when one holds it and under the limit the marker names,
+ * keeping only the last day's wakes, and
  * sweep away other sessions' wakes a day old; answers the wake noted.
  * A marker that never said when it parked still counts as a wake, one
  * whose rest reads 0.
  */
 export function noteWake(
 	session: string,
-	parked: { readonly parkedAt?: unknown; readonly host?: string },
+	parked: {
+		readonly parkedAt?: unknown;
+		readonly afterMs?: unknown;
+		readonly host?: string;
+	},
 	folder: string = parkFolder(),
 	now: () => number = Date.now,
 ): Wake {
@@ -728,6 +741,7 @@ export function noteWake(
 	const wake: Wake = {
 		parkedAt,
 		...(parked.host === undefined ? {} : { host: parked.host }),
+		...(typeof parked.afterMs === "number" ? { afterMs: parked.afterMs } : {}),
 		wokeAt: new Date(at).toISOString(),
 		restedMs: Number.isNaN(since) ? 0 : Math.max(0, at - since),
 	};

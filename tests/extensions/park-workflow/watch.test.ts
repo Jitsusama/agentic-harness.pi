@@ -1160,7 +1160,13 @@ describe("why a session stays awake", () => {
 					PARK_AFTER_MS,
 				]) {
 					clock = at;
-					if (watched.look() === undefined && asked.length > 0) return at;
+					if (watched.look() === undefined && asked.length > 0) {
+						expect(
+							readParked(SESSION, folder)?.afterMs,
+							"its marker names the limit it parked under",
+						).toBe(at);
+						return at;
+					}
 				}
 				return undefined;
 			} finally {
@@ -1183,6 +1189,7 @@ describe("why a session stays awake", () => {
 		host.host.draining = () => draining;
 		try {
 			writeFileSync(parkSwitch(folder), "\n");
+			clock = 0;
 			const switchedOff = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 			});
@@ -1191,6 +1198,7 @@ describe("why a session stays awake", () => {
 			expect(asked, "nothing asked with the switch off").toEqual([]);
 			switchedOff.stop();
 			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
 			const off = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 				PI_PARK: "off",
@@ -1209,6 +1217,10 @@ describe("why a session stays awake", () => {
 			draining = true;
 			expect(drained.look(), "drained, it parks at once").toBeUndefined();
 			expect(asked).toEqual([SESSION]);
+			expect(
+				readParked(SESSION, folder)?.afterMs,
+				"a drain's park says so, and its wake isn't the rule's",
+			).toBe(0);
 		} finally {
 			host.dispose();
 		}
@@ -1260,14 +1272,15 @@ describe("why a session stays awake", () => {
 		).toEqual([30_000, 5_000]);
 	});
 
-	it("notes a wake in a host with the host's key, and one whose marker never said when it parked", () => {
+	it("notes a wake in a host with the host's key and the limit it parked under, and one whose marker never said when it parked", () => {
 		const host = installTestHost("one-background");
-		// A marker as an older pi might leave it, saying nothing of when.
+		// A drain's marker, saying nothing of when, as an older pi left it.
 		const undated = {
 			session: SESSION,
 			sessionFile: logOf(),
 			cwd: "/src",
 			addresses: [],
+			afterMs: 0,
 			pid: HELD_PID,
 			wake: join(folder, "held.wake"),
 		};
@@ -1285,6 +1298,7 @@ describe("why a session stays awake", () => {
 				{
 					parkedAt: "",
 					host: "one-background",
+					afterMs: 0,
 					wokeAt: new Date(61_000).toISOString(),
 					restedMs: 0,
 				},

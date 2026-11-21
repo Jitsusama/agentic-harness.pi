@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	askWake,
 	clearOutlivedParks,
@@ -23,6 +23,7 @@ import {
 	holderRecord,
 	isParked,
 	NAMED_PARK_AFTER_MS,
+	noteWake,
 	PARK_AFTER_MS,
 	type Parked,
 	parkAfterMs,
@@ -77,6 +78,27 @@ describe("the wakes kept", () => {
 			existsSync(join(folder, "wakes", "note.txt")),
 			"only wakes are swept",
 		).toBe(true);
+	});
+
+	it("sweeps as a wake is noted", async () => {
+		const at = Date.now();
+		mkdirSync(join(folder, "wakes"), { recursive: true });
+		writeFileSync(wakesPath("day-old", folder), "[]\n");
+		const old = (at - WAKES_KEPT_MS) / 1000;
+		utimesSync(wakesPath("day-old", folder), old, old);
+		noteWake(
+			"waking",
+			{ parkedAt: new Date(at).toISOString() },
+			folder,
+			() => at,
+		);
+		await vi.waitFor(() =>
+			expect(
+				existsSync(wakesPath("day-old", folder)),
+				"the wake swept the day-old file",
+			).toBe(false),
+		);
+		expect(existsSync(wakesPath("waking", folder)), "its own stays").toBe(true);
 	});
 
 	it("sweeps nothing, and says nothing, where no wakes were ever kept", async () => {
