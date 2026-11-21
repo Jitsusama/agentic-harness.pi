@@ -198,6 +198,43 @@ it("answers a use as gone, and leaves no record on disk, once a sweep took the t
 	).toBe(false);
 });
 
+it("given a tree's key, reads and removes its record's own file and no other", async () => {
+	// A sweep taking hundreds would otherwise list every record three
+	// times a take. So a record filed under another name is neither read
+	// nor removed, and a key whose file names another tree takes nothing.
+	const memory = memoryAt();
+	const held = tree("snap");
+	memory.remember(held);
+	memory.remember({ ...held, identity: { key: "copy", shareable: true } });
+	memory.remember(tree("elsewhere"));
+	const long = Date.now() + 1000;
+
+	const wrongKey = await memory.whileUnusedSince(
+		held.path,
+		long,
+		async () => true,
+		"elsewhere",
+	);
+	const taken = await memory.whileUnusedSince(
+		held.path,
+		long,
+		async () => true,
+		"snap",
+	);
+
+	expect(wrongKey, "a key naming another tree took this one").toBeUndefined();
+	expect(taken?.identity.key, "the tree its key names wasn't taken").toBe(
+		"snap",
+	);
+	expect(existsSync(join(root, "cut", "snap.json")), "its record stayed").toBe(
+		false,
+	);
+	expect(
+		existsSync(join(root, "cut", "copy.json")),
+		"a record under another name was removed",
+	).toBe(true);
+});
+
 it("finds this session's own trees by their records, as a resumed session's are", async () => {
 	// A broker made afresh, as after a restart, cut none of them, so
 	// only the records can say which are ours; another process's,

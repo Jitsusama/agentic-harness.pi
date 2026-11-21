@@ -621,8 +621,8 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		...(outcome.idleUnjudged === undefined
 			? {}
 			: { idleUnjudged: outcome.idleUnjudged }),
-		// A run its time cut short says how many it left, so it reads apart
-		// from one that found no more idle.
+		// A run its count or time cut short says how many it left, so it
+		// reads apart from one that found no more idle.
 		...(outcome.idleLeft === undefined ? {} : { idleLeft: outcome.idleLeft }),
 	};
 }

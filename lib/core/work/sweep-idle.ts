@@ -80,8 +80,10 @@ export interface IdleChoice extends UseSigns {
 	 */
 	spent?(): boolean;
 	/**
-	 * Told how many aged, unclaimed snapshots were left unjudged when
-	 * `spent` stopped the choosing, so a sweep can say its time ran out.
+	 * Told how many aged, unclaimed snapshots nothing was seen working in
+	 * were left unjudged, when `most` or `spent` stopped the choosing with
+	 * any left, so a sweep can say a backlog remains. Judging may yet
+	 * refuse some of them, as one holding changes.
 	 */
 	left?(count: number): void;
 }
@@ -162,10 +164,15 @@ export async function* eachIdleSnapshot(
 	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
 	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
 	let given = 0;
+	const leaving = (at: number): void => {
+		const left = unclaimed
+			.slice(at)
+			.filter(({ path }) => !busyBefore.has(path)).length;
+		if (left > 0) choice.left?.(left);
+	};
 	for (const [at, { tree, usedAt, path }] of unclaimed.entries()) {
-		if (given >= most) return;
-		if (given >= floor && choice.spent?.() === true) {
-			choice.left?.(unclaimed.length - at);
+		if (given >= most || (given >= floor && choice.spent?.() === true)) {
+			leaving(at);
 			return;
 		}
 		if (busyBefore.has(path)) continue;

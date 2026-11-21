@@ -255,11 +255,20 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 	expect(seen.idleWithin[0]).toBeLessThan(60 * 60 * 1000);
 	// A gap of a second or more between removals, yet short enough that a
 	// run's ten minutes still hold many takes.
-	const began = performance.now();
-	await seen.betweenIdleTakes[0]?.();
-	const gap = performance.now() - began;
-	expect(gap, "the pause between its takes").toBeGreaterThanOrEqual(1000);
-	expect(gap).toBeLessThan(10 * 1000);
+	vi.useFakeTimers();
+	try {
+		let paused = true;
+		const pausing = seen.betweenIdleTakes[0]?.().then(() => {
+			paused = false;
+		});
+		await vi.advanceTimersByTimeAsync(999);
+		expect(paused, "still pausing after under a second").toBe(true);
+		await vi.advanceTimersByTimeAsync(4001);
+		expect(paused, "still pausing after five seconds").toBe(false);
+		await pausing;
+	} finally {
+		vi.useRealTimers();
+	}
 	expect(
 		liveQuestTrees(seen.quests),
 		"the trees its quest still lists",

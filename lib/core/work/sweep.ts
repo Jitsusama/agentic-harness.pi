@@ -137,8 +137,9 @@ export interface SweepDeps extends UseSigns {
 	 * How long after it starts, in milliseconds of awake time, a sweep may
 	 * go on judging those snapshots past the `IDLE_TAKES_PER_SWEEP` a host
 	 * takes, so a loaded machine, where each is slow, gets fewer rather
-	 * than a longer sweep; no limit by default. It stops new judging only,
-	 * never a take begun, which runs to its end.
+	 * than a longer sweep; no limit by default. It stops new judging only:
+	 * a judgement or take begun runs to its end, each git call within its
+	 * own limit, so the bound is soft by as long as one of those takes.
 	 */
 	idleWithinMs?: number;
 	/**
@@ -214,8 +215,8 @@ export interface SweepOutcome {
 	 */
 	idleUnjudged?: string;
 	/**
-	 * How many aged snapshots its time left unjudged, when `idleWithinMs`
-	 * ran out before they were.
+	 * How many aged snapshots nothing was seen working in it left
+	 * unjudged, when its count or `idleWithinMs` stopped it with some left.
 	 */
 	idleLeft?: number;
 }
@@ -715,17 +716,24 @@ async function takeIdle(
 		// every process holds the lock for under a second, where an ask
 		// waits ten.
 		(take) =>
-			deps.memory.whileUnusedSince(tree.path, usedAt, async () => {
-				const path = resolved(tree.path);
-				const busy = await deps.busyAmong?.([path]);
-				return (
-					busy !== undefined &&
-					!busy.has(path) &&
-					lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
-						usedAt &&
-					take()
-				);
-			}),
+			deps.memory.whileUnusedSince(
+				tree.path,
+				usedAt,
+				async () => {
+					const path = resolved(tree.path);
+					const busy = await deps.busyAmong?.([path]);
+					return (
+						busy !== undefined &&
+						!busy.has(path) &&
+						lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
+							usedAt &&
+						take()
+					);
+				},
+				// Its own record only, read and removed by name, so a run of
+				// hundreds of takes never lists the records folder for one.
+				tree.identity.key,
+			),
 	);
 }
 

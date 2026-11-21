@@ -65,7 +65,6 @@
  */
 
 import { isAbsolute } from "node:path";
-import { setTimeout as pause } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import {
 	forgetTrees,
@@ -129,9 +128,10 @@ const OUTSIDE_IDLE_TAKES = 200;
 /**
  * How long, from its start, a run may go on judging them past a host's
  * 20, so a loaded machine gets fewer rather than a longer run. It stops
- * new judging only: a take begun runs to its end. On 21 November,
- * with a host's sessions all starting at once, the 05:00 run took 21
- * minutes for 20 takes, as Joel's windows stalled on the same disk.
+ * new judging only: a judgement or take begun runs to its end. On 21
+ * November, with a host's sessions all starting at once, the 05:00 run
+ * took 21 minutes for 20 takes, as Joel's windows stalled on the same
+ * disk.
  */
 const OUTSIDE_IDLE_WITHIN_MS = 10 * 60 * 1000;
 
@@ -225,7 +225,8 @@ export async function sweepOutside({
 		fencedGit: true,
 		idleTakes: OUTSIDE_IDLE_TAKES,
 		idleWithinMs: OUTSIDE_IDLE_WITHIN_MS,
-		betweenIdleTakes: () => pause(OUTSIDE_IDLE_PAUSE_MS),
+		betweenIdleTakes: () =>
+			new Promise((done) => setTimeout(done, OUTSIDE_IDLE_PAUSE_MS)),
 		told: (why) => tell(`sweep ${why}`),
 	});
 	// Any call that failed shows in the unit's state. A tree whose call

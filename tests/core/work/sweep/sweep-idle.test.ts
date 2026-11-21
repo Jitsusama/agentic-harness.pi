@@ -256,41 +256,28 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
-	it("takes no more than a host's share once its time is spent, saying how many it left", async () => {
+	it("stops judging past a host's share once its awake time since it began runs out, saying how many it left", async () => {
+		// The clock it is given moves a step each reading, from a start far
+		// from zero, so its time runs out at the second judgement past the
+		// share: one more is taken, and the newest waits.
 		const setup = await setUp();
 		const trees: string[] = [];
-		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP; at += 1) {
+		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP + 1; at += 1) {
 			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
 			trees.push(tree);
 		}
+		let clock = 100;
 
 		const outcome = await sweepWhileOpen(setup, {
 			idleTakes: 200,
-			idleWithinMs: 0,
-		});
-
-		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP);
-		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
-		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
-		// Twenty-one real worktrees took 128 s on a machine at load 170.
-	}, 300_000);
-
-	it("counts its time on the clock that stands still while the machine sleeps", async () => {
-		// However long the wall clock runs while it works, a run whose awake
-		// time stands still has spent none of it.
-		const setup = await setUp();
-		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP; at += 1) {
-			await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
-		}
-
-		const outcome = await sweepWhileOpen(setup, {
-			idleTakes: 200,
-			idleWithinMs: 1,
-			awake: () => 0,
+			idleWithinMs: 2,
+			awake: () => clock++,
 		});
 
 		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
-		expect(outcome.idleLeft).toBe(undefined);
+		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
+		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
+		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);
 
 	it("keeps one a session asked for within the window, though its files sat still", async () => {
@@ -672,17 +659,57 @@ describe("choosing the snapshots to take", () => {
 		);
 	});
 
-	it("chooses past a host's share when its runner says, oldest first", async () => {
+	it("chooses past a host's share when its runner says, oldest first, saying how many its count left", async () => {
 		const many = idleFakes(IDLE_TAKES_PER_SWEEP + 2);
+		const left: number[] = [];
 
 		const chosen = await idleSnapshots(many.trees, {
 			...many.choice,
 			most: IDLE_TAKES_PER_SWEEP + 1,
+			left: (count) => left.push(count),
 		});
 
 		expect(chosen.map((one) => one.tree.path)).toEqual(
 			many.oldestFirst.slice(0, IDLE_TAKES_PER_SWEEP + 1),
 		);
+		expect(left, "the one its count left").toEqual([1]);
+	});
+
+	it("says nothing is left when its count stops it with only busy ones after", async () => {
+		const many = idleFakes(4);
+		const left: number[] = [];
+
+		await idleSnapshots(many.trees, {
+			...many.choice,
+			most: 3,
+			busyAmong: async () => new Set(many.oldestFirst.slice(-1)),
+			left: (count) => left.push(count),
+		});
+
+		expect(left).toEqual([]);
+	});
+
+	it("stops judging when its time runs out partway past a host's share, leaving those seen busy out of what it left", async () => {
+		const many = idleFakes(IDLE_TAKES_PER_SWEEP + 10);
+		const busy = new Set(many.oldestFirst.slice(-2));
+		const left: number[] = [];
+		let asked = 0;
+
+		const chosen = await idleSnapshots(many.trees, {
+			...many.choice,
+			most: 200,
+			busyAmong: async () => busy,
+			// Asked first once the share is given: spent at the fourth asking.
+			spent: () => asked++ >= 3,
+			left: (count) => left.push(count),
+		});
+
+		const judged = many.oldestFirst.slice(0, IDLE_TAKES_PER_SWEEP + 3);
+		expect(chosen.map((one) => one.tree.path)).toEqual(judged);
+		expect([...many.judgedIn], "git asked only in those chosen").toEqual(
+			judged,
+		);
+		expect(left, "the seven after them, less the two seen busy").toEqual([5]);
 	});
 
 	it("judges no more past a host's share once its time is spent, saying how many it left", async () => {
