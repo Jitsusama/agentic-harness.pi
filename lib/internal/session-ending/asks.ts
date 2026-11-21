@@ -123,10 +123,24 @@ const PICKED_BEFORE = new RegExp(
 	"i",
 );
 
-/** Prose with each quote a quote, but what it says to pick or run. */
+/** The words that make a reboot or restart soft: "userspace" too. */
+const SOFT_WORD = String.raw`(?:soft|user[\s-]?space)`;
+
+/** A soft word quoted for emphasis, right before what it qualifies. */
+const QUOTED_SOFT = new RegExp(String.raw`^"${SOFT_WORD}"$`);
+const QUALIFIED_AFTER = /^(?:\s+|-)?re-?(?:boot|start)/;
+
+/**
+ * Prose with each quote a quote, but what it says to pick or run, and
+ * a soft word quoted for emphasis, as in a "soft" reboot.
+ */
 function withoutQuotes(plain: string): string {
 	return plain.replace(QUOTED, (quote, at: number) =>
-		PICKED_BEFORE.test(plain.slice(0, at)) ? quote : '""',
+		PICKED_BEFORE.test(plain.slice(0, at)) ||
+		(QUOTED_SOFT.test(quote) &&
+			QUALIFIED_AFTER.test(plain.slice(at + quote.length)))
+			? quote
+			: '""',
 	);
 }
 
@@ -581,7 +595,7 @@ const NOT_A_TIME =
  * not, whatever whitespace a wrapped line leaves after it: "soft" or
  * "userspace", in one word or two. It brings its own word boundary.
  */
-const SOFT = String.raw`['"]?\b(?:soft|user[\s-]?space)\b['"]?(?:\s+|-)?`;
+const SOFT = String.raw`['"]?\b${SOFT_WORD}\b['"]?(?:\s+|-)?`;
 
 /**
  * The acts in a sentence read as an ask. With no object, a restart or
@@ -688,7 +702,7 @@ const LEAD_IN = /^([^,:;]{1,80}?)(?:[,:]|\s-{1,2})\s+/;
 
 /** A noun of the act after a verb that does it: "do a reboot". */
 const DO_NOUN = new RegExp(
-	String.raw`\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+|${SOFT})?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b`,
+	String.raw`\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+)?(?:${SOFT})?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b`,
 );
 
 /**
@@ -880,7 +894,7 @@ const RUN = "(?:run|type|paste|execute|enter)\\b";
 
 /** A need for an act, which asks for it as plainly. */
 const NEED = new RegExp(
-	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+|${SOFT})?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
+	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+)?(?:${SOFT})?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:${SOFT})?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
 );
 
 /**
