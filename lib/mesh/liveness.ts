@@ -56,7 +56,15 @@
  * reads gone there, while children run on through a stop. A holder whose
  * standing can't be told is taken as running, as reclaiming callers must
  * take doubt. The grace is wall-clock time since the host started, so a
- * suspend during a start shortens it; it is a bound, not a measure.
+ * suspend during a start shortens it; it is a bound, not a measure. Its
+ * known gaps, each bounded by the grace: a child the new host adopted
+ * rather than started, which then fails, reads resuming until the grace
+ * ends, since only the host knows what its start still owes; starts are
+ * compared in wall-clock ms, which a clock step moves by seconds; and a
+ * host restarting over and over keeps its sessions resuming, as each
+ * start brings them back again. A host stopped gently forgets the
+ * presences of the conversations it doesn't park, so this reads what a
+ * host killed or crashed left behind.
  */
 
 import { readFile } from "node:fs/promises";

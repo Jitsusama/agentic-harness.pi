@@ -473,8 +473,9 @@ describe("groups", () => {
 			["01a1f92f-2616-7076-a389-ed92252551f1", "Q9SDM1", ["#aquifer/trust"]],
 			// In no group, as the Ended line leaves such a peer out.
 			["01a1f92f-2616-7076-a389-ed92252551f2", "NOGRP1", []],
-			// A session already running answers to this address again.
-			["01a1f92f-2616-7076-a389-ed92252551f3", "AGAIN1", ["#optimus"]],
+			// A session already running answers to this address again, and
+			// has left #old since.
+			["01a1f92f-2616-7076-a389-ed92252551f3", "AGAIN1", ["#optimus", "#old"]],
 		] as const;
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));
 		for (const [conversation, address, groups] of held)
@@ -535,6 +536,10 @@ describe("groups", () => {
 				text,
 				"the resuming presence and the session running again are one member",
 			).toMatch(/^#optimus: AGAIN1$/m);
+			expect(
+				text,
+				"a group only its past was in is not the live session's",
+			).not.toMatch(/^#old:/m);
 		} finally {
 			rmSync(rosterPath("work-background", rosters), { force: true });
 			rmSync(`${rosterPath("work-background", rosters)}.lock`, {

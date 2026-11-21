@@ -192,20 +192,28 @@ function standsText(peer: Peer): string {
 }
 
 export function groupsText(standing: Census, peer: Peer): string {
-	// A set, since a resuming presence and the session running again
-	// under its address are one member.
-	const members = new Map<string, Set<string>>();
+	// A resuming presence whose address a session already running answers
+	// to again is that session's past: it is no member of the groups it
+	// was in, as Peers and the Resuming line leave it out too.
+	const coming = new Set(standing.resuming);
+	const running = new Set(
+		standing.present
+			.filter((one) => !coming.has(one))
+			.flatMap((one) => one.addresses.slice(0, 1)),
+	);
+	const members = new Map<string, string[]>();
 	for (const one of standing.present) {
 		const signature = one.addresses[0];
 		if (!signature) continue;
+		if (coming.has(one) && running.has(signature)) continue;
 		const groups = one.session === peer.session ? peer.groups : one.groups;
 		for (const group of groups) {
-			members.set(group, (members.get(group) ?? new Set()).add(signature));
+			members.set(group, [...(members.get(group) ?? []), signature]);
 		}
 	}
 	const lines = [...members.keys()]
 		.sort()
-		.map((group) => `${group}: ${[...(members.get(group) ?? [])].join(", ")}`);
+		.map((group) => `${group}: ${members.get(group)?.join(", ")}`);
 	const own = standsText(peer);
 	// An address a live session answers to again (a quest's peer restarted
 	// under a new session) has not ended, so it is not listed as ended.
@@ -226,12 +234,6 @@ export function groupsText(standing: Census, peer: Peer): string {
 			: "";
 	// Listed as the Ended line lists, of those in a group, and only while
 	// no session already running answers to the address again.
-	const coming = new Set(standing.resuming);
-	const running = new Set(
-		standing.present
-			.filter((one) => !coming.has(one))
-			.flatMap((one) => one.addresses.slice(0, 1)),
-	);
 	const back = [
 		...new Set(
 			standing.resuming

@@ -488,15 +488,18 @@ it("says a conversation its restarting host is bringing back is resuming, not en
 	const { self, end, groups } = orchestrator(a.ctx.cwd, presences, {
 		wakeParked: () => false,
 		endProcess: async () => "gone",
-		heldAsk: async (conversation, key) => {
-			asked.push(`${key}/${conversation}`);
+		// With when the process that last ran it started, which each asks with.
+		heldAsk: async (conversation, key, ranFrom) => {
+			asked.push(`${key}/${conversation}@${ranFrom}`);
 			return bringing;
 		},
 	});
 	expect(await end("BBBBBBBB")).toContain(
 		"is resuming as its host starts again, so nothing was signalled",
 	);
-	expect(asked).toEqual(["work-background/bravo-BBBBBBBB"]);
+	expect(asked).toEqual([
+		`work-background/bravo-BBBBBBBB@${host.owner.startedAt}`,
+	]);
 	// Its process gone, as mesh_groups reads it while the host restarts.
 	presences.publish({
 		...bravo,
@@ -509,8 +512,8 @@ it("says a conversation its restarting host is bringing back is resuming, not en
 		"mesh_groups asks as mesh_end does, so the two agree",
 	).toContain("BBBBBBBB, resuming as its host starts again");
 	expect(asked).toEqual([
-		"work-background/bravo-BBBBBBBB",
-		"work-background/bravo-BBBBBBBB",
+		`work-background/bravo-BBBBBBBB@${host.owner.startedAt}`,
+		"work-background/bravo-BBBBBBBB@1",
 	]);
 	bringing = false;
 	expect(await end("BBBBBBBB")).toContain("had already ended");

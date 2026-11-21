@@ -337,6 +337,11 @@ describe("whether a restarting host is bringing a conversation back", () => {
 			await ask(running)(CONVERSATION, "work-background", NOW - 30_000),
 			"brought back by this host already, then ended",
 		).toBe(false);
+		// A conversation in the host's own process carries the host's start.
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - 60_000),
+			"run in this host's own process, then ended",
+		).toBe(false);
 		expect(
 			await ask(running)(CONVERSATION, "work-background", NOW - PAST),
 			"run before this host started, so still to come back",
