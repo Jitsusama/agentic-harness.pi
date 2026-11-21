@@ -27,6 +27,7 @@ import {
 	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
+import { installedExtension } from "./support/installed-extension.ts";
 import { CARRIED_FLEET, SCRIPTED } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { startTerminalPi, type TerminalPi } from "./support/terminal-pi.ts";
@@ -96,7 +97,8 @@ async function fleetInPlainPi(
 ): Promise<{ file: string; held: string }> {
 	plain = await startHeldPi(sealed, pi, name);
 	const work = join(sealed.home, "w");
-	await plain.prompt(`fleet-carry ${work} ${PROVIDER}`);
+	const provider = await installedExtension(sealed, PROVIDER);
+	await plain.prompt(`fleet-carry ${work} ${provider}`);
 	await untilAnswered(
 		"the turn that dispatched the fleet ends, naming its job",
 		async () =>

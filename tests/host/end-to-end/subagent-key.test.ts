@@ -23,6 +23,7 @@ import {
 	toolAnswer,
 	untilAnswered,
 } from "./support/hosted-case.ts";
+import { installedExtension } from "./support/installed-extension.ts";
 import { SCRIPTED } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
@@ -79,7 +80,7 @@ it(
 				await mkdir(work, { recursive: true });
 				const asking = await host.open(work, {
 					model: SCRIPTED,
-					first: `fleet ${work} ${KEYED}`,
+					first: `fleet ${work} ${await installedExtension(sealed, KEYED)}`,
 				});
 				await untilAnswered(
 					"the subagent call answers",
