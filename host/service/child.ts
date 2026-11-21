@@ -560,7 +560,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		},
 		left(stop) {
 			if (ended || options.conversations().length > 0) return;
-			if (!answered) {
+			// One resting parked was never answered, as it hadn't woken, and
+			// leaves as it was asked to rather than failing.
+			if (!answered && !resting) {
 				end("failed");
 				return;
 			}
