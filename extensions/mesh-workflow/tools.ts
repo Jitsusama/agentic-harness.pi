@@ -443,13 +443,7 @@ export function registerTools(
 			// session as it stands now.
 			const at = local();
 			at?.peer.refresh();
-			return sproutFrom(
-				params,
-				ctx.cwd,
-				at?.peer.signature,
-				undefined,
-				signal,
-			);
+			return sproutFrom(params, ctx.cwd, at?.peer.signature, undefined, signal);
 		},
 	});
 
