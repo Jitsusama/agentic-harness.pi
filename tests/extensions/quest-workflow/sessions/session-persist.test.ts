@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -302,6 +308,47 @@ describe("persist + restore", () => {
 		const restored = restore(next, pi, fakeCtx(tmpRoot));
 		expect(restored, "a quest gone from disk is not restored").toBe(false);
 		expect(next.questId).toBeNull();
+	});
+
+	// 20 November: a host restart's signings timed out, the start read a
+	// walk without the quest, and the session's next tool wrote
+	// questId null over a quest it had held for two days.
+	it("keeps the log's quest while it can't load, and loads it once it can", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		expect(restore(next, pi, fakeCtx(tmpRoot)), "not found yet").toBe(false);
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as { questId?: string } | undefined;
+		expect(last?.questId).toBe(a.id);
+
+		renameSync(aside, a.dir);
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(next.questId).toBe(a.id);
+		expect(next.pendingQuest).toBeUndefined();
+	});
+
+	it("lets go of a quest still waiting to load when the session unloads", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const unloaded = await handle(next, pi, fakeCtx(tmpRoot), {
+			action: "unload",
+		});
+		expect(unloaded).toMatchObject({ ok: true });
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as
+			| { questId?: string | null }
+			| undefined;
+		expect(last?.questId ?? null).toBeNull();
 	});
 });
 

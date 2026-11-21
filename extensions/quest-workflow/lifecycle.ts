@@ -310,6 +310,11 @@ export function persist(
 	pi: ExtensionAPI,
 	ctx?: ExtensionContext,
 ): void {
+	// A quest the log names that hasn't loaded yet is tried again, and
+	// until it loads nothing is written over the log's word for it.
+	if (state.questId) delete state.pendingQuest;
+	else if (state.pendingQuest && !hydrate(state, pi, state.pendingQuest))
+		return;
 	const current = snapshot(state, ctx?.cwd ?? null);
 	const key = snapshotKey(current);
 	if (state.lastPersistedKey === key) return;
@@ -357,8 +362,29 @@ export function restore(
 ): boolean {
 	const saved = getLastEntry<PersistedState>(ctx, SESSION_KEY);
 	if (!saved?.questId) return false;
-	const result = loadQuest(state, pi, saved.questId);
-	if (!result.ok) return false;
+	const named = {
+		questId: saved.questId,
+		...(saved.documentPath ? { documentPath: saved.documentPath } : {}),
+		...(saved.unfocused ? { unfocused: true } : {}),
+	};
+	if (hydrate(state, pi, named)) return true;
+	// The walk a start reads may be stale, as a host's is when its
+	// signings time out: the quest is held, not forgotten.
+	state.pendingQuest = named;
+	return false;
+}
+
+/**
+ * Load the quest a session's log names and focus what it focused,
+ * saying whether the quest loaded; one that did is no longer pending.
+ */
+function hydrate(
+	state: QuestState,
+	pi: ExtensionAPI,
+	saved: NonNullable<QuestState["pendingQuest"]>,
+): boolean {
+	if (!loadQuest(state, pi, saved.questId).ok) return false;
+	delete state.pendingQuest;
 	if (saved.documentPath) {
 		// The quest is loaded; try to restore the focused
 		// document. A missing or unparsable document is not
@@ -428,8 +454,9 @@ export function resolveStartup(
 	// it never chose. When the user disables it, a fresh session
 	// stays idle rather than adopting whatever quest happens to
 	// own the working tree, which keeps unrelated sessions off the
-	// quest's session list.
-	if (state.autoloadFromCwd) {
+	// quest's session list. A session whose log names a quest not yet
+	// loaded keeps waiting for it rather than taking its folder's.
+	if (state.autoloadFromCwd && !state.pendingQuest) {
 		restoreFromCwd(state, pi, ctx);
 		autoFocusPlan(state);
 	}
