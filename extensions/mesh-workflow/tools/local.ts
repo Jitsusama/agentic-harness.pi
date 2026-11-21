@@ -82,6 +82,11 @@ export interface Local {
 	 * (lib/orchestration/done-acts.ts); none, and nothing is judged.
 	 */
 	readonly doneProbes?: DoneProbes;
+	/**
+	 * The parts of a text the classifier judges to state an untested cause
+	 * as settled (lib/prose/claims.ts); none, and nothing is judged.
+	 */
+	readonly untested?: (text: string) => Promise<readonly string[]>;
 }
 
 /**

@@ -174,7 +174,7 @@ and can answer a question or a gate left open on screen.
   question too. A send is not refused
   for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Four sends are refused for what they say: one to the home of a
+  out and said. Five sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;
@@ -198,7 +198,16 @@ and can answer a question or a gate left open on screen.
   question through
   ([`done-acts.ts`](../../lib/orchestration/done-acts.ts)).
   On 16 November at 19:24 he was asked to post a draft he
-  had posted at 19:18.
+  had posted at 19:18. And a message stating why something
+  happened as settled fact, with no test behind it: the
+  classifier judges each paragraph and bullet within 2.5
+  seconds, and the send is refused, quoting what it found,
+  under the `untested-cause` guard
+  ([`claims.ts`](../../lib/prose/claims.ts)). It redirects,
+  so the same message sent again goes; with no classifier,
+  nothing is judged. On 20 November an untested cause went
+  from a cell to the orchestrator to the person, who knew it
+  was wrong.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it

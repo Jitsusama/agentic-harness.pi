@@ -3,6 +3,8 @@
  * what is refused, here or across into another realm.
  */
 
+import { refusalUnder } from "../../../lib/guardian/apply.ts";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { namedAtStart } from "../../../lib/mesh/address.ts";
 import type { Crossed } from "../../../lib/mesh/flow.ts";
 import {
@@ -32,6 +34,7 @@ import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
+import { untestedCauseReason } from "../../../lib/prose/claims.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
@@ -278,6 +281,29 @@ function messageNamed(at: Local, written: string): string | undefined {
 	);
 }
 
+/**
+ * Why a text may not go for stating an untested cause as settled, under
+ * the `untested-cause` guard's mode, or nothing. Sent again unchanged, a
+ * redirected text goes, and the person is shown it was let through.
+ * The text alone stands for the call, since the classifier may quote
+ * other parts of the same text the second time.
+ */
+async function untestedRefusal(
+	at: Local,
+	text: string,
+): Promise<string | undefined> {
+	const found = at.untested ? await at.untested(text) : [];
+	if (found.length === 0) return undefined;
+	const verdict = refusalUnder(
+		GUARDS.untestedCause.name,
+		{ block: true, reason: untestedCauseReason(found) },
+		"A mesh message stating an untested cause",
+		text,
+		GUARDS.untestedCause.name,
+	);
+	return verdict?.reason;
+}
+
 export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	const reNamed = params.re ? messageNamed(at, params.re) : undefined;
@@ -395,6 +421,14 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			: undefined;
 	if (done !== undefined) {
 		return answer(`Not sent: ${done}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
+	// A cause stated as settled with no test behind it is passed on as
+	// settled, so it is refused before anyone reads it (lib/prose/claims.ts).
+	const untested = await untestedRefusal(at, params.text);
+	if (untested !== undefined) {
+		return answer(`Not sent: ${untested}`, {
 			sent: false,
 		} satisfies SendDetails);
 	}

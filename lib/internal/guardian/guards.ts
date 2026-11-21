@@ -331,6 +331,19 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["send"],
 	}),
+	// A cause told as settled is passed on as settled: on the night of 20
+	// November an untested one went from a cell to the orchestrator to the
+	// person, who knew it was wrong. A classifier judges it, and one can be wrong
+	// about a sentence, so this redirects: the same message sent again
+	// unchanged goes, and the person is shown it was let through.
+	untestedCause: declare({
+		name: "untested-cause",
+		class: "form",
+		description:
+			"Refuses a mesh message stating why something happened as settled fact, with no test behind it",
+		defaultMode: "redirect",
+		groups: ["send"],
+	}),
 	vmHere: declare({
 		name: "vm-here",
 		class: "form",

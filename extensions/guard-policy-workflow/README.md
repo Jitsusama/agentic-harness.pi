@@ -57,7 +57,9 @@ refusal tells the agent exactly what to do instead:
   `history-destructive` blocks with the safe form, and leases a
   bare force push rather than refusing it.
 
-Two guards are exceptions. `git-cli` splits chained commands so
+Three guards are exceptions. `untested-cause` is a form guard
+that redirects, since a classifier judges it: a mesh message it
+misjudges goes when sent again unchanged. `git-cli` splits chained commands so
 each panel sees one command, so it follows `commit`, `pr` and
 `issue`: it blocks when any of them blocks and is off
 otherwise, since a chain no panel will read needs no splitting.

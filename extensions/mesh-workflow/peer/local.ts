@@ -15,6 +15,7 @@ import {
 	PROBE_WITHIN_MS,
 } from "../../../lib/orchestration/done-acts.ts";
 import { slackOfThePerson } from "../../../lib/orchestration/done-acts-slack.ts";
+import { untestedCauses } from "../../../lib/prose/claims.ts";
 import { confirmEnd } from "../end-hold.ts";
 import { queueJobs } from "../leases.ts";
 import { type Local, registerTools } from "../tools.ts";
@@ -94,6 +95,16 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 							m.pi.exec(command, args, { timeout: PROBE_WITHIN_MS }),
 						slackOfThePerson,
 					),
+					untested: async (text) => {
+						try {
+							const found = await m.classifier;
+							return found?.ok ? untestedCauses(text, found.classify) : [];
+						} catch {
+							// With no classifier to be had, nothing is judged and the
+							// message goes as written.
+							return [];
+						}
+					},
 					...(m.paths.looks ? { looks: m.paths.looks } : {}),
 					...(m.waiting ? { waiting: m.waiting } : {}),
 				}
