@@ -33,6 +33,10 @@ describe("a reply that asks", () => {
 		["Could you do a soft reboot of optimus tonight?", "soft-reboot"],
 		["Could you do a soft restart of optimus tonight?", "soft-reboot"],
 		["optimus needs a soft  reboot to pick it up.", "soft-reboot"],
+		["optimus needs a userspace reboot to pick it up.", "soft-reboot"],
+		["optimus needs a user space reboot to pick it up.", "soft-reboot"],
+		["Could you do a userspace reboot now?", "soft-reboot"],
+		["Could you do a 'soft' reboot of optimus tonight?", "soft-reboot"],
 		["- Could you do a soft\n  restart of optimus tonight?", "soft-reboot"],
 		["- Could you do a soft\n  reboot of optimus tonight?", "soft-reboot"],
 		["May I ask Joel to reboot optimus?", "reboot"],
@@ -425,6 +429,7 @@ describe("a label, choice or title, which is the ask itself", () => {
 		["Go with the reboot", "reboot"],
 		["Kernel reboot on equilibrius", "reboot"],
 		["Userspace reboot now", "soft-reboot"],
+		["User space reboot now", "soft-reboot"],
 		["Apple menu \u2192 Log Out", "log out"],
 	])("%s asks", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);

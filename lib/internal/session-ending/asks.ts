@@ -577,10 +577,11 @@ const NOT_A_TIME =
 	"(?<!\\b(?:after|before|since|until|till|during|from|following)\\s+(?:(?:the|a|an|that|this|your|my|its|our|each|every)\\s+)?(?:(?:last|next|previous|recent|latest|first)\\s+)?|\\b(?:last|next|previous|recent|latest)\\s+)";
 
 /**
- * The word before a reboot or restart that makes it soft, whatever
- * whitespace a wrapped line leaves after it: "soft" or "userspace".
+ * The word before a reboot or restart that makes it soft, quoted or
+ * not, whatever whitespace a wrapped line leaves after it: "soft" or
+ * "userspace", in one word or two. It brings its own word boundary.
  */
-const SOFT = String.raw`(?:soft|user-?space)(?:\s+|-)?`;
+const SOFT = String.raw`['"]?\b(?:soft|user[\s-]?space)\b['"]?(?:\s+|-)?`;
 
 /**
  * The acts in a sentence read as an ask. With no object, a restart or
@@ -600,11 +601,11 @@ function actsIn(
 	// A soft reboot keeps the kernel's boot, so it is an act of its own,
 	// and so is a soft restart or a userspace reboot, its other names.
 	const softReboot = new RegExp(
-		`${NOT_A_TIME}\\b${SOFT}re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+		`${NOT_A_TIME}${SOFT}re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (softReboot.test(plain)) acts.push("soft-reboot");
 	const reboot = new RegExp(
-		`${NOT_A_TIME}(?<!\\b${SOFT})${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+		`${NOT_A_TIME}(?<!${SOFT})${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (reboot.test(plain)) acts.push("reboot");
 	const alone =
@@ -627,7 +628,7 @@ function actsIn(
 	];
 	// A soft restart was read above; joined into one word, it is no restart.
 	const hard = plain.replace(
-		new RegExp(String.raw`\b${SOFT}(?=restart)`, "g"),
+		new RegExp(String.raw`${SOFT}(?=restart)`, "g"),
 		"soft",
 	);
 	if (restart.some((pattern) => new RegExp(pattern).test(hard))) {
@@ -686,8 +687,9 @@ const OPENING = new RegExp(
 const LEAD_IN = /^([^,:;]{1,80}?)(?:[,:]|\s-{1,2})\s+/;
 
 /** A noun of the act after a verb that does it: "do a reboot". */
-const DO_NOUN =
-	/\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard|soft)\s+)?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b/;
+const DO_NOUN = new RegExp(
+	String.raw`\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+|${SOFT})?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b`,
+);
 
 /**
  * A noun after an act word that the act only qualifies: "the reboot
@@ -878,7 +880,7 @@ const RUN = "(?:run|type|paste|execute|enter)\\b";
 
 /** A need for an act, which asks for it as plainly. */
 const NEED = new RegExp(
-	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full|soft)\\s+)?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
+	`${NOT_BEFORE}(?:\\b(?:needs?|requires?|wants?|calls?\\s+for|due\\s+for|takes?|recommend|suggest|propose|advise)\\s+(?:a|another|one\\s+more)\\s+(?:(?:quick|full)\\s+|${SOFT})?(?:re-?boot|restart|log[\\s-]*out|logout|shutdown)\\b|\\b(?:re-?boot|restart|log[\\s-]*out|logout)\\s+(?:is|'s)\\s+(?:needed|required|due|recommended)\\b|\\bneeds?\\s+(?:to\\s+be\\s+)?(?:re-?boot(?:ed|ing)|restart(?:ed|ing)|shut\\s*down|powered\\s+(?:off|down)))`,
 );
 
 /**
