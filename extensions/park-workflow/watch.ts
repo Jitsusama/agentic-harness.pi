@@ -10,6 +10,7 @@ import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import { whyWriting } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
+	BACKGROUND_PARK_AFTER_MS,
 	clearAwake,
 	clearOutlivedParks,
 	clearParked,
@@ -18,6 +19,7 @@ import {
 	holderCommand,
 	holderRecord,
 	isRestartAsk,
+	noteWake,
 	OLD_PARK_AFTER_MS,
 	OLD_PI_MS,
 	opensOnlyItself,
@@ -68,6 +70,17 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
 	const host = hosted();
 	const park = host?.park;
 	return host && park ? { park: (id) => park.call(host, id) } : undefined;
+}
+
+/**
+ * Whether this conversation's host is a background one, whose key ends
+ * in its kind as `realm-background`, and parks it alone.
+ */
+function inBackgroundHost(): boolean {
+	return (
+		parkingHost() !== undefined &&
+		hosted()?.key.endsWith("-background") === true
+	);
 }
 
 /** How often a session asks itself whether it may park. */
@@ -410,7 +423,28 @@ export function watch(
 	const session = ctx.sessionManager.getSessionId();
 	const folder = options.folder;
 	// Started again, it is parked no more; its holder clears the wake.
-	const woke = readParked(session, folder) !== undefined;
+	const marker = readParked(session, folder);
+	const woke = marker !== undefined;
+	// Kept for a day, so how often a park rule wakes its sessions can be
+	// counted, and how long each rested.
+	if (marker) {
+		try {
+			const host = hosted()?.key;
+			noteWake(
+				session,
+				{
+					parkedAt: marker.parkedAt,
+					afterMs: marker.afterMs,
+					...(host ? { host } : {}),
+				},
+				folder,
+				now,
+			);
+		} catch {
+			// A wake it couldn't note is one fewer counted, never a start
+			// that fails with its marker still saying it is parked.
+		}
+	}
 	clearParked(session, folder);
 	// Markers a reboot outlived name sessions no holder will wake.
 	clearOutlivedParks(folder);
@@ -458,11 +492,16 @@ export function watch(
 		const usual = parkAfterMs(session, options.env, options.switchPath);
 		if (env[PARK_ENV] === "off") return usual;
 		if (parkingHost()) {
-			return hosted()?.draining?.(session) === true ? 0 : usual;
+			if (hosted()?.draining?.(session) === true) return 0;
+			if (usual === undefined || !inBackgroundHost()) return usual;
+			// Nobody watches a background conversation wake, and what it holds
+			// goes as it parks: its own process in a child, its share of the
+			// host's in the host.
+			return Math.min(usual, BACKGROUND_PARK_AFTER_MS);
 		}
 		if (usual === undefined) return usual;
 		// A plain pi parks sooner once its process is old, since its wake
-		// starts a fresh one; a host's conversation keeps the host's process.
+		// starts a fresh one.
 		return now() - startedAt >= OLD_PI_MS
 			? Math.min(usual, OLD_PARK_AFTER_MS)
 			: usual;
@@ -521,6 +560,8 @@ export function watch(
 			addresses: parking.addresses,
 			...(parking.quest ? { quest: parking.quest } : {}),
 			parkedAt: new Date(now()).toISOString(),
+			// What it parked under, so a drain's wakes aren't the rule's churn.
+			...(afterMs === undefined ? {} : { afterMs }),
 			pid: process.pid,
 			wake,
 		};
