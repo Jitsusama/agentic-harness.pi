@@ -11,6 +11,13 @@
  * every session on a watch, then each one changed or forgotten, each
  * carrying its presence whole. So a change is read once however many
  * processes follow it, and reaches them over a socket, not the disk.
+ *
+ * The watch is mycelium's: `Node::watch` and the `Event` it sends in its
+ * `src/node/mod.rs`, each session a `Session` of its `src/record.rs`,
+ * whose `presence` is the body its store read from the folder's file
+ * (`src/store/folders.rs`), so another machine's comes with `machine` set
+ * and `owner` taken out, and an ended one stays until its file goes, just
+ * as reading the folder found them.
  */
 
 import { createConnection, type Socket } from "node:net";
@@ -39,7 +46,7 @@ export interface SessionFiles<T> {
  * Follow the sessions the node at `socket` holds, telling `events` each
  * session's presence as its file, then each change. A node that isn't
  * there, refuses, goes or lets go of a watch that fell behind ends the
- * feed as lost, so its mirror reads the folder and asks again later.
+ * feed, so its mirror reads the folder and asks again later.
  */
 export function watchSessions<T>(
 	socket: string,
@@ -51,7 +58,7 @@ export function watchSessions<T>(
 		if (ended) return;
 		ended = true;
 		connection.destroy();
-		events.ended("lost");
+		events.ended();
 	};
 	const hearing = sessionsHeard(files, events, end);
 	const connection: Socket = createConnection(socket);
@@ -59,17 +66,10 @@ export function watchSessions<T>(
 	connection.unref();
 	connection.setEncoding("utf8");
 	connection.on("connect", () => connection.write(WATCH_SESSIONS));
-	let partial = "";
-	connection.on("data", (chunk: string) => {
-		partial += chunk;
-		let newline = partial.indexOf("\n");
-		while (newline >= 0 && !ended) {
-			hearing(partial.slice(0, newline));
-			partial = partial.slice(newline + 1);
-			newline = partial.indexOf("\n");
-		}
-		if (partial.length > LONGEST_LINE) end();
-	});
+	const lines = linesOf((line) => {
+		if (!ended) hearing(line);
+	}, end);
+	connection.on("data", lines);
 	// No socket, or a node that went: lost, so the mirror reads the folder.
 	connection.on("error", end);
 	connection.on("close", end);
@@ -82,10 +82,46 @@ export function watchSessions<T>(
 }
 
 /**
+ * What takes a socket's text a chunk at a time and hears each whole line,
+ * calling `overlong` once one passes LONGEST_LINE. A chunk is searched
+ * only for its own newline, and a line's pieces joined once, so the whole
+ * state, which arrives in many chunks, costs its length and no more.
+ */
+export function linesOf(
+	hear: (line: string) => void,
+	overlong: () => void,
+): (chunk: string) => void {
+	let pieces: string[] = [];
+	let length = 0;
+	return (chunk) => {
+		let from = 0;
+		let newline = chunk.indexOf("\n");
+		while (newline >= 0) {
+			pieces.push(chunk.slice(from, newline));
+			const line = pieces.join("");
+			pieces = [];
+			length = 0;
+			hear(line);
+			from = newline + 1;
+			newline = chunk.indexOf("\n", from);
+		}
+		if (from < chunk.length) {
+			pieces.push(chunk.slice(from));
+			length += chunk.length - from;
+		}
+		if (length > LONGEST_LINE) {
+			pieces = [];
+			length = 0;
+			overlong();
+		}
+	};
+}
+
+/**
  * What hears each line a watch says, telling `events`: its answer, the
  * whole state, then each session changed or forgotten. Messages, which a
- * watch naming no groups never says, are passed over; anything it can't
- * read ends the feed.
+ * watch naming no groups never says, and any event a newer node adds are
+ * passed over; a line it can't read ends the feed.
  */
 export function sessionsHeard<T>(
 	files: SessionFiles<T>,
@@ -151,11 +187,8 @@ export function sessionsHeard<T>(
 			const name = files.nameOf(forgotten.id);
 			held.delete(name);
 			events.gone(name);
-		} else if (
-			said.MessagesChanged === undefined &&
-			said.Message === undefined
-		) {
-			end();
 		}
+		// Anything else is an event this reader doesn't follow: messages,
+		// or one a newer node says, which leaves the sessions as they stand.
 	};
 }

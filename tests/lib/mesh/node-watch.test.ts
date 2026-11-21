@@ -1,8 +1,9 @@
 /**
  * The machine's sessions as its node's watch says them: the whole state
  * then each change, a presence file a session, and a node that isn't
- * there, refuses or says what this reader can't read ends the feed as
- * lost.
+ * there, refuses or says what this reader can't read ends the feed. The
+ * shapes are mycelium's (`Event` in its `src/node/mod.rs`, `Session` in
+ * its `src/record.rs`), copied here as the node says them.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FeedEvents } from "../../../lib/internal/files/folder-mirror.ts";
 import {
+	linesOf,
 	type SessionFiles,
 	sessionsHeard,
 	watchSessions,
@@ -34,7 +36,7 @@ function told(): { events: FeedEvents<string>; said: string[] } {
 			put: (name, value) => said.push(`put ${name} ${value ?? "none"}`),
 			gone: (name) => said.push(`gone ${name}`),
 			ready: () => said.push("ready"),
-			ended: (how) => said.push(`ended ${how}`),
+			ended: () => said.push("ended"),
 		},
 	};
 }
@@ -105,7 +107,6 @@ describe("what a node's watch says, heard", () => {
 		],
 		["a session with no id", line({ SessionChanged: { session: {} } }), true],
 		["a forgetting with no id", line({ SessionForgotten: {} }), true],
-		["an event it doesn't know", line({ Weather: {} }), true],
 	])("ends on %s", (_name, said, afterWatching) => {
 		const { events } = told();
 		const end = vi.fn();
@@ -113,6 +114,45 @@ describe("what a node's watch says, heard", () => {
 		if (afterWatching) hear(line({ Ok: "Watching" }));
 		hear(said);
 		expect(end, "the feed ends").toHaveBeenCalledTimes(1);
+	});
+
+	it("passes over an event a newer node says, and hears on", () => {
+		const { events, said } = told();
+		const end = vi.fn();
+		const hear = sessionsHeard(FILES, events, end);
+		hear(line({ Ok: "Watching" }));
+		hear(line({ SessionsChanged: { sessions: [] } }));
+		hear(line({ Weather: { sunny: true } }));
+		hear(line({ SessionChanged: { session: session("a", "after") } }));
+		expect(said).toEqual(["ready", "put a.json after"]);
+		expect(end, "the feed goes on").not.toHaveBeenCalled();
+	});
+});
+
+describe("a socket's text, taken as lines", () => {
+	it("joins a line said across chunks, and hears several in one", () => {
+		const heard: string[] = [];
+		const overlong = vi.fn();
+		const take = linesOf((one) => heard.push(one), overlong);
+		take('{"a":');
+		take("1");
+		take('}\n{"b":2}\n{"c"');
+		take(":3}\n");
+		expect(heard).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
+		expect(overlong, "none too long").not.toHaveBeenCalled();
+	});
+
+	it("says a line too long once, and hears none of it", () => {
+		const heard: string[] = [];
+		const overlong = vi.fn();
+		const take = linesOf((one) => heard.push(one), overlong);
+		const piece = "x".repeat(8 * 1024 * 1024);
+		take(piece);
+		take(piece);
+		take("x");
+		expect(overlong, "past sixteen mebibytes").toHaveBeenCalledTimes(1);
+		take("tail\n");
+		expect(heard, "the rest of it alone").toEqual(["tail"]);
 	});
 });
 
@@ -165,10 +205,28 @@ describe("a watch on a node's socket", () => {
 		]);
 		clients[0]?.write(`${line({ SessionForgotten: { id: "a" } })}\n`);
 		await vi.waitFor(() => expect(said.at(-1)).toBe("gone a.json"));
+		const hungUp = new Promise((done) => clients[0]?.once("close", done));
 		feed.close();
-		expect(said, "a close it asked for ends nothing").not.toContain(
-			"ended lost",
-		);
+		await hungUp;
+		// Long enough for the feed's own socket to say it closed.
+		await new Promise((done) => setTimeout(done, 50));
+		expect(said, "a close it asked for ends nothing").not.toContain("ended");
+	});
+
+	it("hears the whole state though the node says it in pieces", async () => {
+		const socket = await node([]);
+		const { events, said } = told();
+		watchSessions(socket, FILES, events);
+		await vi.waitFor(() => expect(asks.length).toBe(1));
+		const whole = `${line({ Ok: "Watching" })}\n${line({
+			SessionsChanged: { sessions: [session("a", "one")] },
+		})}\n`;
+		const half = Math.floor(whole.length / 2);
+		clients[0]?.write(whole.slice(0, half));
+		// Apart, so the reader takes them as two chunks.
+		await new Promise((done) => setTimeout(done, 20));
+		clients[0]?.write(whole.slice(half));
+		await vi.waitFor(() => expect(said).toEqual(["put a.json one", "ready"]));
 	});
 
 	it("is lost when the node goes", async () => {
@@ -177,12 +235,12 @@ describe("a watch on a node's socket", () => {
 		watchSessions(socket, FILES, events);
 		await vi.waitFor(() => expect(clients.length).toBe(1));
 		clients[0]?.destroy();
-		await vi.waitFor(() => expect(said).toEqual(["ended lost"]));
+		await vi.waitFor(() => expect(said).toEqual(["ended"]));
 	});
 
 	it("is lost where no node listens", async () => {
 		const { events, said } = told();
 		watchSessions(join(dir, "none.sock"), FILES, events);
-		await vi.waitFor(() => expect(said).toEqual(["ended lost"]));
+		await vi.waitFor(() => expect(said).toEqual(["ended"]));
 	});
 });

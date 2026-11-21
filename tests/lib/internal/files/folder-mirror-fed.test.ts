@@ -39,13 +39,18 @@ interface Fed {
 let dir: string;
 let offReads: number;
 let asked: Fed[];
-// Whether the fake follows the folder at all.
+// Whether the fake follows the folder at all, and how often it was asked.
 let follows: boolean;
+let feedCalls: number;
+// Held, a read off the thread waits for it.
+let gate: Promise<void> | undefined;
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "folder-mirror-fed-"));
 	offReads = 0;
 	asked = [];
 	follows = true;
+	feedCalls = 0;
+	gate = undefined;
 });
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
@@ -57,9 +62,11 @@ const FED: MirroredFiles<string> = {
 	read: (path) => readFileSync(path, "utf8"),
 	readOff: async (path) => {
 		offReads += 1;
+		if (gate !== undefined) await gate;
 		return readFile(path, "utf8");
 	},
 	feed(folder, events) {
+		if (folder === dir) feedCalls += 1;
 		if (!follows || folder !== dir) return undefined;
 		const one: Fed = { events, closed: false };
 		asked.push(one);
@@ -154,7 +161,7 @@ describe("a mirror its kind's feed follows", () => {
 		folder.files();
 		const fed = await feedAsked();
 		fed.events.ready();
-		fed.events.ended("lost");
+		fed.events.ended();
 		expect(fed.closed, "the lost feed is closed").toBe(true);
 		put("a.txt", "seen without the feed");
 		await vi.waitFor(
@@ -183,13 +190,25 @@ describe("a mirror its kind's feed follows", () => {
 		expect(wordsOf(folder.files()), "the new feed's listing alone").toEqual([
 			"the new feed's",
 		]);
+		// Read from the disk meanwhile, it watched the folder: ready drops it.
+		const listed = listings();
+		const read = offReads;
+		put("behind.txt", "written behind the new feed's back");
+		// Long enough for a watch's named read and many polls.
+		await new Promise((done) => setTimeout(done, 300));
+		folder.files();
+		expect(listings() - listed, "no listing once fed again").toBe(0);
+		expect(offReads - read, "no file read once fed again").toBe(0);
 	});
 
-	it("never asks again a feed that refused its folder, and reads it itself", async () => {
-		const folder = fedMirror({ feedAgainMs: 20 });
+	it("drops a feed that doesn't say every file in time, reads the folder, and asks again", async () => {
+		const folder = fedMirror({ feedReadyMs: 100, feedAgainMs: 100 });
 		folder.files();
 		const fed = await feedAsked();
-		fed.events.ended("refused");
+		await vi.waitFor(
+			() => expect(fed.closed, "the silent feed closed").toBe(true),
+			{ timeout: 2000 },
+		);
 		put("a.txt", "read here");
 		await vi.waitFor(
 			() =>
@@ -198,13 +217,122 @@ describe("a mirror its kind's feed follows", () => {
 				]),
 			{ timeout: 2000 },
 		);
-		// Many times its wait to ask again.
-		await new Promise((done) => setTimeout(done, 200));
-		folder.files();
-		expect(asked.length, "asked once").toBe(1);
+		await feedAsked(2);
 	});
 
-	it("reads the folder itself where nothing follows it", async () => {
+	it("asks a ready feed again now and then, keeping the old one until the new says every file", async () => {
+		const folder = fedMirror({ feedRefreshMs: 100 });
+		folder.files();
+		const fed = await feedAsked();
+		fed.events.put("a.txt", "first");
+		fed.events.ready();
+		const again = await feedAsked(2);
+		expect(fed.closed, "the old one serves meanwhile").toBe(false);
+		fed.events.put("b.txt", "said while the new one lists");
+		expect(wordsOf(folder.files()), "the old one's word stands").toEqual([
+			"first",
+			"said while the new one lists",
+		]);
+		again.events.put("c.txt", "as the new one has it");
+		again.events.ready();
+		expect(fed.closed, "the old one closed once replaced").toBe(true);
+		expect(wordsOf(folder.files()), "the new one's listing, whole").toEqual([
+			"as the new one has it",
+		]);
+		fed.events.put("d.txt", "the replaced one, late");
+		expect(wordsOf(folder.files()), "the replaced one is passed over").toEqual([
+			"as the new one has it",
+		]);
+	});
+
+	it("goes back to the folder when a node stops answering, though its feed never ended", async () => {
+		const folder = fedMirror({ feedRefreshMs: 50, feedReadyMs: 100 });
+		folder.files();
+		const fed = await feedAsked();
+		fed.events.put("a.txt", "as the stuck node said");
+		fed.events.ready();
+		const again = await feedAsked(2);
+		await vi.waitFor(
+			() => {
+				folder.files();
+				expect(again.closed, "the unanswered one closed").toBe(true);
+			},
+			{ timeout: 2000 },
+		);
+		expect(fed.closed, "the stuck one closed too").toBe(true);
+		put("b.txt", "read here");
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()), "read from the disk").toEqual([
+					"read here",
+				]),
+			{ timeout: 2000 },
+		);
+	});
+
+	it("keeps its own write made while the feed was still listing", async () => {
+		const folder = fedMirror();
+		folder.files();
+		const fed = await feedAsked();
+		const path = join(dir, "own.txt");
+		folder.put(path, "mine");
+		fed.events.put("a.txt", "fed");
+		fed.events.ready();
+		expect(folder.file(path), "its write, which the listing predates").toBe(
+			"mine",
+		);
+		expect(wordsOf(folder.files()), "beside the feed's listing").toEqual([
+			"fed",
+			"mine",
+		]);
+	});
+
+	it("closes its feed once nobody asks, and comes back fed when asked again", async () => {
+		const folder = fedMirror({ idleMs: 100 });
+		folder.files();
+		const fed = await feedAsked();
+		fed.events.ready();
+		await vi.waitFor(() => expect(fed.closed, "closed when idle").toBe(true), {
+			timeout: 2000,
+		});
+		folder.files();
+		const again = await feedAsked(2);
+		again.events.put("a.txt", "fed again");
+		again.events.ready();
+		expect(wordsOf(folder.files()), "the new feed's").toEqual(["fed again"]);
+	});
+
+	it("lands no listing begun after the feed came ready, though it was asked for before", async () => {
+		const folder = fedMirror();
+		folder.files();
+		const fed = await feedAsked();
+		// Watched once a listing begun after the watch has been asked for.
+		await vi.waitFor(() => expect(listings(), "listed").toBeGreaterThan(0), {
+			timeout: 2000,
+		});
+		let release = (): void => undefined;
+		gate = new Promise((done) => {
+			release = done;
+		});
+		const read = offReads;
+		put("named.txt", "named by the watch");
+		await vi.waitFor(
+			() => expect(offReads, "the named read began").toBeGreaterThan(read),
+			{ timeout: 2000 },
+		);
+		// Queued behind the named read, so it lists only once that ends.
+		const refreshed = folder.refresh();
+		fed.events.put("a.txt", "fed");
+		fed.events.ready();
+		gate = undefined;
+		release();
+		await refreshed;
+		expect(wordsOf(folder.files()), "the feed's listing stands").toEqual([
+			"fed",
+		]);
+	});
+
+	it("reads the folder itself where nothing follows it, and never asks again", async () => {
 		follows = false;
 		const folder = fedMirror({ feedAgainMs: 20 });
 		folder.files();
@@ -216,6 +344,9 @@ describe("a mirror its kind's feed follows", () => {
 				]),
 			{ timeout: 2000 },
 		);
-		expect(asked.length, "no feed").toBe(0);
+		// Many times its wait to ask again.
+		await new Promise((done) => setTimeout(done, 200));
+		folder.files();
+		expect(feedCalls, "asked once").toBe(1);
 	});
 });

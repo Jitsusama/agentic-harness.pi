@@ -134,11 +134,18 @@ describe("presence on a host, where the node follows its folder", () => {
 		);
 		const dir = homeFolder();
 		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "on-disk.json"),
+			JSON.stringify(presence({ session: "on-disk" })),
+		);
 		const presences = createPresences(dir);
 		presences.all();
 		// Several of the mirror's polls, any of which would ask a feed.
 		await new Promise((done) => setTimeout(done, 1500));
-		presences.all();
+		expect(
+			presences.all().map((one) => one.session),
+			"read from its folder",
+		).toEqual(["on-disk"]);
 		expect(clients.length, "no watch asked").toBe(0);
 	});
 });
