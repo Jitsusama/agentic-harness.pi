@@ -118,6 +118,23 @@ describe("a peer's liveness", () => {
 		expect(standing.gone.map((peer) => peer.session)).toEqual(["s-1"]);
 	});
 
+	it("tells the roster when the process that last ran it started", async () => {
+		const starts: (number | undefined)[] = [];
+		const ask: HeldAsk = async (_conversation, _host, ranFrom) => {
+			starts.push(ranFrom);
+			return true;
+		};
+
+		await livenessOf(
+			hostedPresence(),
+			machine({}),
+			undefined,
+			() => false,
+			ask,
+		);
+		expect(starts).toEqual([1000]);
+	});
+
 	it("asks no roster of a hosted peer still running or parked", async () => {
 		const { ask, asked } = holding(false);
 		const running: TickFacts = {
@@ -218,6 +235,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 		agoMs: number,
 		open: readonly string[] = [],
 		key = "work-background",
+		state: "busy" | "parked" = "busy",
 	) =>
 		writeFileSync(
 			join(hosts, `${pid}-${NOW - agoMs}.json`),
@@ -226,7 +244,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 				owner: { pid, startedAt: NOW - agoMs },
 				sessions: open.map((id) => ({
 					id,
-					state: "busy",
+					state,
 					since: "2026-11-21T09:00:00.000Z",
 				})),
 			}),
@@ -299,6 +317,57 @@ describe("whether a restarting host is bringing a conversation back", () => {
 		).toBe(false);
 	});
 
+	it("is not past the grace when the host's list keeps it parked, as a start that failed leaves it", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(HOST_PID, PAST, [CONVERSATION], "work-background", "parked");
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST })(CONVERSATION, "work-background"),
+			"a failed resume, kept parked, is not open",
+		).toBe(false);
+	});
+
+	it("is not when the process that last ran it started after the host did", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
+
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - 30_000),
+			"brought back by this host already, then ended",
+		).toBe(false);
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - PAST),
+			"run before this host started, so still to come back",
+		).toBe(true);
+	});
+
+	it("takes a host or a listing process that can't be told as running", async () => {
+		keep("work-background", [CONVERSATION]);
+		const untold = {
+			alive: () => true,
+			startedAt: async () => undefined,
+		};
+		hostStarted(60_000);
+		expect(
+			await heldOnce(untold, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"a holder that can't be told is not taken as gone",
+		).toBe(true);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+		expect(
+			await heldOnce(untold, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"nor a listing process that can't be told",
+		).toBe(true);
+	});
+
 	it("counts only what processes under its own key, still running, have open", async () => {
 		keep("work-background", [CONVERSATION]);
 		hostStarted(PAST);
@@ -335,33 +404,48 @@ describe("whether a restarting host is bringing a conversation back", () => {
 			"a new census reads the lists again",
 		).toBe(false);
 		mkdirSync(hosts);
-		writeFileSync(join(hosts, "garbled.json"), "{ half");
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
 		hostStarted(60_000);
+		const within = machine({
+			[HOST_PID]: NOW - 60_000,
+			[CHILD_PID]: NOW - 30_000,
+		});
 		expect(
-			await ask({ [HOST_PID]: NOW - 60_000 })(CONVERSATION, "work-background"),
-			"within the grace, no list is needed",
+			await heldOnce(within, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"resuming within the grace",
 		).toBe(true);
+		expect(
+			within.asked,
+			"within the grace no listing process is asked about",
+		).not.toContain(CHILD_PID);
 	});
 
+	// With the host running within its grace, only the roster can say no.
 	it("reads only the named host's roster, not another host's", async () => {
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
 		keep("work-attended", [CONVERSATION]);
 
 		expect(
-			await ask()(CONVERSATION, "work-background"),
+			await ask(running)(CONVERSATION, "work-background"),
 			"another host's roster says nothing of this one",
 		).toBe(false);
 		keep("work-background", []);
 		expect(
-			await ask()(CONVERSATION, "work-background"),
+			await ask(running)(CONVERSATION, "work-background"),
 			"the named roster not holding it",
 		).toBe(false);
 	});
 
 	it("is not when the roster can't be read", async () => {
+		hostStarted(60_000);
 		writeFileSync(join(rosters, "work-background.json"), "{ half");
 
 		expect(
-			await ask()(CONVERSATION, "work-background"),
+			await ask({ [HOST_PID]: NOW - 60_000 })(CONVERSATION, "work-background"),
 			"an unreadable roster holds nothing",
 		).toBe(false);
 	});

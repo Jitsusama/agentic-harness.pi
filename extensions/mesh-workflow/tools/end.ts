@@ -65,7 +65,7 @@ export async function end(
 function resuming(at: Local, owner: TickedOwner): Promise<boolean> {
 	if (owner.host === undefined || owner.session === undefined)
 		return Promise.resolve(false);
-	return (at.heldAsk ?? heldOnce())(owner.session, owner.host);
+	return (at.heldAsk ?? heldOnce())(owner.session, owner.host, owner.startedAt);
 }
 
 /** Whether a parked session was woken for mesh_end, rather than ended. */

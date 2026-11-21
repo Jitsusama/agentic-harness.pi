@@ -508,6 +508,9 @@ describe("groups", () => {
 					})),
 				}),
 			);
+			// The lock names this test process, which started within the
+			// grace: vitest runs each file in a fresh worker, and no file runs
+			// for 20 minutes.
 			writeFileSync(
 				`${rosterPath("work-background", rosters)}.lock`,
 				JSON.stringify({
@@ -528,6 +531,10 @@ describe("groups", () => {
 				"Q9SDM1, resuming as its host starts again: the trust hub",
 			);
 			expect(text).not.toContain("AGAIN1, resuming");
+			expect(
+				text,
+				"the resuming presence and the session running again are one member",
+			).toMatch(/^#optimus: AGAIN1$/m);
 		} finally {
 			rmSync(rosterPath("work-background", rosters), { force: true });
 			rmSync(`${rosterPath("work-background", rosters)}.lock`, {

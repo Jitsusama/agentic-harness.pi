@@ -47,8 +47,16 @@
  * host runs and started within {@link RESUME_GRACE_MS}, or while a
  * process listed under the key, its own child among them, has it open.
  * Past that, a held conversation it never brought back (a start that
- * failed) is gone, not resuming for as long as its hold stands; and
- * with no host running under the key, none is bringing it back.
+ * failed, which the host's list keeps as parked) is gone, not resuming
+ * for as long as its hold stands; so is one whose process started after
+ * that host did, since the host already brought it back once and it
+ * ended. With no host running under the key, none is bringing it back,
+ * which also holds in the short gap between one host letting go of its
+ * lock and the next taking it: a conversation in the host's own process
+ * reads gone there, while children run on through a stop. A holder whose
+ * standing can't be told is taken as running, as reclaiming callers must
+ * take doubt. The grace is wall-clock time since the host started, so a
+ * suspend during a start shortens it; it is a bound, not a measure.
  */
 
 import { readFile } from "node:fs/promises";
@@ -77,8 +85,16 @@ import type { Presence } from "./presence.ts";
 /** Whether a session's parked marker stands. */
 export type ParkedAsk = (session: string) => boolean;
 
-/** Whether the host keyed `host` is bringing `conversation` back as it starts again. */
-export type HeldAsk = (conversation: string, host: string) => Promise<boolean>;
+/**
+ * Whether the host keyed `host` is bringing `conversation` back as it
+ * starts again; `ranFrom` is when the process that last ran it started,
+ * where its presence says.
+ */
+export type HeldAsk = (
+	conversation: string,
+	host: string,
+	ranFrom?: number,
+) => Promise<boolean>;
 
 /**
  * How long a host that started again has to bring back what its roster
@@ -115,12 +131,14 @@ export function heldOnce(
 			facts,
 		);
 	});
-	return async (conversation, host) => {
+	return async (conversation, host, ranFrom) => {
 		const roster = await rosters(host);
 		if (!roster?.sessions.some((entry) => entry.sessionId === conversation))
 			return false;
 		const holder = await holders(host);
 		if (holder === undefined) return false;
+		// Run since this host started: it brought it back, and it ended.
+		if (ranFrom !== undefined && ranFrom >= holder.startedAt) return false;
 		if (now - holder.startedAt < RESUME_GRACE_MS) return true;
 		return (await opened(host)).has(conversation);
 	};
@@ -155,8 +173,9 @@ async function rosterAt(
 }
 
 /**
- * The host its roster's lock names, while it runs, judged by its ticks;
- * nothing when the lock is missing, can't be read or names one gone.
+ * The host its roster's lock names, while it runs or can't be told,
+ * judged by its ticks; nothing when the lock is missing, can't be read
+ * or names one gone.
  */
 async function runningHolder(
 	host: string,
@@ -174,10 +193,14 @@ async function runningHolder(
 		return undefined;
 	if (!isOwner(said.owner)) return undefined;
 	const owner = keepTicks(said.owner);
-	return (await tickedStanding(owner, facts)) === "running" ? owner : undefined;
+	return (await tickedStanding(owner, facts)) === "gone" ? undefined : owner;
 }
 
-/** The conversations open in those of a key's host lists whose process runs now. */
+/**
+ * The conversations open in those of a key's host lists whose process
+ * runs now, or can't be told; one the list keeps parked, as a start that
+ * failed leaves it, is not open.
+ */
 async function openIn(
 	lists: readonly HostRegistry[],
 	facts: TickFacts,
@@ -186,8 +209,9 @@ async function openIn(
 	for (const list of lists) {
 		// Asked of the listing process alone: the list says what it holds.
 		const { session: _session, ...listing } = list.owner;
-		if ((await tickedStanding(listing, facts)) !== "running") continue;
-		for (const one of list.sessions) open.add(one.id);
+		if ((await tickedStanding(listing, facts)) === "gone") continue;
+		for (const one of list.sessions)
+			if (one.state !== "parked") open.add(one.id);
 	}
 	return open;
 }
@@ -240,7 +264,9 @@ export async function livenessOf(
 	if (presence.state === "parked" && parked(presence.session)) return "present";
 	if (!presence.hosted) return "gone";
 	const { host, conversation } = presence.hosted;
-	return (await held(conversation, host)) ? "resuming" : "gone";
+	return (await held(conversation, host, presence.owner?.startedAt))
+		? "resuming"
+		: "gone";
 }
 
 /**

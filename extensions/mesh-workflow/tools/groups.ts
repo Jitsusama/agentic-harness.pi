@@ -192,18 +192,20 @@ function standsText(peer: Peer): string {
 }
 
 export function groupsText(standing: Census, peer: Peer): string {
-	const members = new Map<string, string[]>();
+	// A set, since a resuming presence and the session running again
+	// under its address are one member.
+	const members = new Map<string, Set<string>>();
 	for (const one of standing.present) {
 		const signature = one.addresses[0];
 		if (!signature) continue;
 		const groups = one.session === peer.session ? peer.groups : one.groups;
 		for (const group of groups) {
-			members.set(group, [...(members.get(group) ?? []), signature]);
+			members.set(group, (members.get(group) ?? new Set()).add(signature));
 		}
 	}
 	const lines = [...members.keys()]
 		.sort()
-		.map((group) => `${group}: ${members.get(group)?.join(", ")}`);
+		.map((group) => `${group}: ${[...(members.get(group) ?? [])].join(", ")}`);
 	const own = standsText(peer);
 	// An address a live session answers to again (a quest's peer restarted
 	// under a new session) has not ended, so it is not listed as ended.
