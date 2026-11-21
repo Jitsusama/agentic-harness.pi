@@ -249,25 +249,42 @@ function restartWith(
 		const env = { ...process.env };
 		for (const name of FIRST_START_ONLY) delete env[name];
 		const [script = ""] = process.argv.slice(1);
-		try {
-			// Node calls execve experimental and would print so in the window.
-			process.removeAllListeners("warning");
-			if (process.execve !== undefined) inPlace();
-			process.execve?.(
+		// Node calls execve experimental and would print so in the window.
+		process.removeAllListeners("warning");
+		replaceInPlace(
+			process.execve?.bind(process),
+			[
 				process.execPath,
-				[
-					process.execPath,
-					...process.execArgv,
-					script,
-					...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
-				],
-				env,
-			);
-		} catch {
-			// Not replaced: its holder starts it again instead, below.
-		}
+				...process.execArgv,
+				script,
+				...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
+			],
+			env,
+			inPlace,
+		);
+		// Not replaced: its holder starts it again instead.
 		fallback();
 	});
+}
+
+/**
+ * Replaces this process with `argv` by `execve`, running `inPlace` just
+ * before. It returns only when it couldn't, as on a Node without
+ * execve or when execve refuses, for the caller to start it another way.
+ */
+export function replaceInPlace(
+	execve: NodeJS.Process["execve"],
+	argv: readonly [string, ...string[]],
+	env: NodeJS.ProcessEnv,
+	inPlace: () => void,
+): void {
+	if (execve === undefined) return;
+	inPlace();
+	try {
+		execve(argv[0], argv, env);
+	} catch {
+		// Not replaced: the process runs on as it was, and the caller knows.
+	}
 }
 
 /**

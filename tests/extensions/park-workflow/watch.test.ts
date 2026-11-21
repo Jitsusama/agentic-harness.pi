@@ -24,6 +24,7 @@ import {
 	mayPark,
 	noteNeverParks,
 	type Parkable,
+	replaceInPlace,
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
@@ -776,9 +777,19 @@ describe("starting again on a fresh log", () => {
 		const parked = join(folder, "held.parked");
 		restarting({ ...holder(), MYCELIUM_PARKED: parked });
 		asked();
+		expect(readFileSync(parked, "utf8"), "said as it commits").toBe("");
 		inPlaces[0]?.();
 		expect(existsSync(parked), "up again, it hasn't parked").toBe(false);
-		expect(exits, "nor exited").toEqual([]);
+	});
+
+	it("says again that it parked when it can't be replaced in place after all", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		asked();
+		inPlaces[0]?.();
+		fallbacks[0]?.();
+		expect(readFileSync(parked, "utf8"), "ending for its holder").toBe("");
+		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
 	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {
@@ -982,6 +993,48 @@ describe("starting again on a fresh log", () => {
 		events.emit(RESTART_ASK, other);
 		expect(other).not.toHaveProperty("restarting");
 		expect(shutdowns).toBe(0);
+	});
+});
+
+describe("replacing the process in place", () => {
+	const argv = ["/bin/node", "pi.js", "--session", "s.jsonl"] as const;
+
+	it("takes back what it told its holder just before it is replaced", () => {
+		const steps: string[] = [];
+		replaceInPlace(
+			(file, args, env) => {
+				steps.push(`execve ${file} ${args?.join(" ")} ${env?.HOME}`);
+				return undefined as never;
+			},
+			argv,
+			{ HOME: "/home/joel" },
+			() => steps.push("in place"),
+		);
+		expect(steps).toEqual([
+			"in place",
+			"execve /bin/node /bin/node pi.js --session s.jsonl /home/joel",
+		]);
+	});
+
+	it("takes back nothing where Node has no execve, so its holder starts it", () => {
+		const steps: string[] = [];
+		replaceInPlace(undefined, argv, {}, () => steps.push("in place"));
+		expect(steps).toEqual([]);
+	});
+
+	it("returns, never throwing, when execve refuses", () => {
+		const steps: string[] = [];
+		expect(() =>
+			replaceInPlace(
+				() => {
+					throw new Error("ENOENT: no such file, execve");
+				},
+				argv,
+				{},
+				() => steps.push("in place"),
+			),
+		).not.toThrow();
+		expect(steps, "its caller says it parked again").toEqual(["in place"]);
 	});
 });
 
