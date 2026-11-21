@@ -145,6 +145,16 @@ async function carrying(
 		async () => textOf(file).includes(CARRYING) && turnEnded(file),
 		ROUND_TRIP_MS,
 	);
+	// The call's .pid is made empty before its shell starts, and the stub
+	// writes the pid only as it runs, which can come after the turn ends:
+	// read at once, 1 in 3 runs on 21 November found it empty.
+	await untilAnswered(
+		"the carried command's shell to write its pid",
+		async () => keptShell() !== undefined,
+		ROUND_TRIP_MS,
+	)
+		// A pid never written is said just below, with what the host wrote.
+		.catch(() => undefined);
 	const shell = keptShell();
 	if (shell === undefined || !alive(shell.pid))
 		throw new Error(`the carried command isn't running; ${said()}`);
