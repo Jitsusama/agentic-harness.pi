@@ -435,19 +435,19 @@ describe("pi-carry", () => {
 			byAnotherNode,
 			byNodeInOtherLetters,
 		]) {
-			expect(asked.code).toBe(2);
+			expect(asked.code).toBe(64);
 			expect(asked.lines).toEqual([
 				{ kind: "failed", why: expect.stringContaining("--by") },
 			]);
 		}
 	});
 
-	it("exits 2, saying why, when it is asked wrongly", async () => {
+	it("exits 64, saying why, when it is asked wrongly", async () => {
 		const one = machine("asked", folder(made, "cache"));
 
 		const asked = await piCarry(one.env, "not-a-quest", "--to", "penelope");
 
-		expect(asked.code).toBe(2);
+		expect(asked.code).toBe(64);
 		expect(asked.lines).toEqual([
 			{ kind: "failed", why: expect.stringContaining("Say which quest") },
 		]);
