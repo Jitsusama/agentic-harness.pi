@@ -14,6 +14,7 @@ import {
 } from "../../lib/mesh/message.ts";
 import { RECEPTOR_SIGNAL, readsAsReceptor } from "../../lib/mesh/receptor.ts";
 import type { HoldEnd } from "./leases.ts";
+import type { Reached } from "./tools/above.ts";
 
 /** The customType of messages delivered in full. */
 export const NOTED = "mesh";
@@ -49,11 +50,17 @@ export const GLANCE_CHARS = 160;
  * took that as leave to sit on questions put to them and on what the
  * person had to do, so it now says which messages are to be acted on
  * at once, and that the person hears at once what waits on them.
+ *
+ * `above` is who `orchestrator` reaches: the mark's orchestrator, or
+ * the hub from use of a quest with no mark (tools/above.ts).
  */
-export function advisory(orchestrator?: string): string {
-	const otherwise = orchestrator
-		? `otherwise to your orchestrator, ${orchestrator}, as a question (mesh_send to: orchestrator)`
-		: "otherwise in your next reply, since no orchestrator is above your quest";
+export function advisory(above?: Reached): string {
+	const otherwise =
+		above === undefined
+			? "otherwise in your next reply, since no orchestrator is above your quest"
+			: above.by === "use"
+				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: orchestrator)`
+				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
 
@@ -110,7 +117,7 @@ export function crossedText(realm: string): string {
 export function noted(
 	messages: readonly Message[],
 	glances: readonly Message[] = [],
-	orchestrator?: string,
+	above?: Reached,
 ): string {
 	const each = messages.map((message) => {
 		const threads = [
@@ -137,7 +144,7 @@ export function noted(
 		...each,
 		asks.join(" "),
 		...(glances.length > 0 ? [digest(glances)] : []),
-		advisory(orchestrator),
+		advisory(above),
 	].join("\n\n");
 }
 

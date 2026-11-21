@@ -24,6 +24,7 @@ import {
 import type { HoldEnd } from "../leases.ts";
 import { folds, QUIET_STATUS, quietStatus } from "../quiet.ts";
 import { tellOnNoModel } from "../tells.ts";
+import { keptAbove } from "../tools/above.ts";
 import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
 
 /**
@@ -81,6 +82,7 @@ export function createHanding(m: MeshState) {
 		m.onNoModelUntold = undefined;
 		const message = tellOnNoModel(
 			m.peer,
+			keptAbove(m.peer.orchestratedBy, m.hub)?.address,
 			m.transport,
 			event,
 			m.presences.all(),
@@ -183,7 +185,11 @@ export function createHanding(m: MeshState) {
 			}
 		}
 		const carried = m.glances.take();
-		const content = noted(messages, carried, m.peer?.orchestratedBy);
+		const content = noted(
+			messages,
+			carried,
+			keptAbove(m.peer?.orchestratedBy, m.hub),
+		);
 		// What asked for a turn, or answers this peer, shows on a quiet
 		// screen though a pause held its turn back.
 		const forThisPeer =

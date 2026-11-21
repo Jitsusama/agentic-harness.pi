@@ -8,6 +8,10 @@
  * behind. The quest workflow says each ending on pi's bus
  * (lib/internal/quest/fields/concluded.ts); this sends it on, one line, to the
  * orchestrator's home group, as an fyi.
+ *
+ * Where the quest carries no mark, the one told is its hub from use
+ * (tools/above.ts), the cell above it its own talk has chosen, so a
+ * quest needs no orchestration for its endings to be heard.
  */
 
 import type { ConcludedEvent } from "../../lib/internal/quest/fields/concluded.ts";
@@ -24,18 +28,21 @@ import type { Transport } from "../../lib/mesh/transport.ts";
 const SAID_CHARS = 240;
 
 /**
- * Tell this peer's orchestrator that something ended, and answer the
- * message sent; nothing, when no orchestrator is above its quest or the
- * orchestrator has stopped this peer, since a stop is absolute.
+ * Tell `above`, this peer's orchestrator or its hub from use, that
+ * something ended, and answer the message sent; nothing, when nobody is
+ * above its quest or the one above has stopped this peer, since a stop
+ * is absolute.
  */
 export function tellOrchestrator(
 	peer: Peer | undefined,
+	above: string | undefined,
 	transport: Transport,
 	event: ConcludedEvent,
 	everyone: readonly Presence[],
 ): Message | undefined {
 	return told(
 		peer,
+		above,
 		transport,
 		everyone,
 		"fyi",
@@ -44,12 +51,13 @@ export function tellOrchestrator(
 }
 
 /**
- * Tell this peer's orchestrator, as a finding, that its session is on
- * no model and so answers nothing it is sent, until someone chooses one
- * in its window or starts it again; nothing, as `tellOrchestrator`.
+ * Tell `above`, as a finding, that this peer's session is on no model
+ * and so answers nothing it is sent, until someone chooses one in its
+ * window or starts it again; nothing, as `tellOrchestrator`.
  */
 export function tellOnNoModel(
 	peer: Peer | undefined,
+	above: string | undefined,
 	transport: Transport,
 	event: NoModelEvent,
 	everyone: readonly Presence[],
@@ -59,6 +67,7 @@ export function tellOnNoModel(
 		: "";
 	return told(
 		peer,
+		above,
 		transport,
 		everyone,
 		"finding",
@@ -68,12 +77,12 @@ export function tellOnNoModel(
 
 function told(
 	peer: Peer | undefined,
+	orchestrator: string | undefined,
 	transport: Transport,
 	everyone: readonly Presence[],
 	intent: "fyi" | "finding",
 	said: string,
 ): Message | undefined {
-	const orchestrator = peer?.orchestratedBy;
 	if (!peer || !orchestrator) return undefined;
 	const stopped = stoppedBy(peer, everyone).some(({ stopper }) =>
 		stopper.addresses.includes(orchestrator),
