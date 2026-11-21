@@ -98,8 +98,10 @@ holding three backticks or tildes that isn't a fence line indented
 three spaces at most, with no backtick after a backtick fence's
 opening: a fence on one line, in a blockquote, on a list's marker or
 indented further is drawn as code by some renderers and not others.
-A reply's own text counts beside each call it makes, an ask, look or
-wait, until the person next speaks, since they read the two together. Reading each spelling of each act widened what the
+Every fence is read line by line, a `md` or `markdown` one too, since
+it is drawn as code. What the run's replies said, their text and
+every ask, look or wait they made, counts beside each call until the
+person next speaks or the run ends, since they read it all together. Reading each spelling of each act widened what the
 guard let through one spelling at a time, so code that isn't on that
 short list isn't read. Prose can't be held to a list, so it is held
 only to a list of words: one naming a command (`sudo`, `systemctl`,
@@ -107,7 +109,8 @@ only to a list of words: one naming a command (`sudo`, `systemctl`,
 a next root, linger or `KillUserProcesses`, spares nothing. So "run
 sudo reboot" written without code spares nothing either. A plain
 command shown as code, indented, prompted or in a quote it asks to
-run is taken out of the prose first, so its own `sudo` doesn't count. A wait's
+run is taken out of the prose first, where it sits, so its own
+`sudo` doesn't count, while the same words written bare still do. A wait's
 checks, run by the machine rather than typed, are read as commands
 as before.
 

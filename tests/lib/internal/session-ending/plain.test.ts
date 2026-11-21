@@ -68,6 +68,11 @@ describe("plainlySaid", () => {
 		"Reboot optimus. If it hangs, ``reboot`bootctl set-oneshot rescue`.",
 		"Reboot optimus. Then:\n\n    bootctl set-oneshot rescue\n",
 		'Reboot optimus, then run "bootctl set-oneshot rescue".',
+		"Reboot optimus: run `systemctl reboot`. For rescue, systemctl reboot --boot-loader-entry=rescue.conf.",
+		"Reboot optimus: run `sudo reboot`, or if it hangs, sudo reboot -f.",
+		'Reboot optimus: run "sudo reboot", or if it hangs, sudo reboot -f.',
+		"Please reboot optimus:\n\n```md\necho b > /proc/sysrq-trigger\n```",
+		"Please reboot optimus:\n\n```markdown\nbootctl set-oneshot rescue.conf\n```",
 	])("is not plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(false);
 	});

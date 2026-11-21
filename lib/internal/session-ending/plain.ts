@@ -6,7 +6,14 @@
  * this short list spares nothing rather than being read.
  */
 
-import { codeSpans, folded, type Part, parts, spansToRun } from "./asks.ts";
+import {
+	codeSpans,
+	folded,
+	type Part,
+	parts,
+	spansToRun,
+	withoutSpansToRun,
+} from "./asks.ts";
 
 /**
  * The commands a spare may stand beside, each read whole, after a
@@ -111,9 +118,13 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
 	return undefined;
 }
 
-/** What first stops one part of a text, prose or fenced, being plain. */
+/**
+ * What first stops one part of a text, prose or fenced, being plain.
+ * Every fence is read line by line, a markdown one too, since it is
+ * drawn as code whatever its language.
+ */
 function notPlainPart(part: Part): string | undefined {
-	if (!part.prose || part.commands !== "none") {
+	if (part.fenced || !part.prose || part.commands !== "none") {
 		const comments = part.commands === "every";
 		return part.lines
 			.filter((line) => !BLANK.test(line))
@@ -123,19 +134,17 @@ function notPlainPart(part: Part): string | undefined {
 	}
 	const written = part.lines.join("\n");
 	const shownLines = part.lines.filter((line) => SHOWN_LINE.test(line));
-	const toRun = spansToRun(written);
-	const shown = [...codeSpans(written), ...toRun, ...shownLines].find(
-		(one) => !plainCommand(one),
-	);
+	const shown = [
+		...codeSpans(written),
+		...spansToRun(written),
+		...shownLines,
+	].find((one) => !plainCommand(one));
 	if (shown !== undefined) return shown.trim();
-	// What was shown is plain, so its own words are no command in prose.
-	const rest = toRun.reduce(
-		(left, span) => left.split(span).join(" "),
-		part.lines
-			.filter((line) => !SHOWN_LINE.test(line))
-			.join("\n")
-			.replace(CODE_SPAN, " "),
-	);
+	// What was shown is plain, so its own words, cut where they sit, are
+	// no command in prose; the same words written bare still are.
+	const rest = withoutSpansToRun(
+		part.lines.filter((line) => !SHOWN_LINE.test(line)).join("\n"),
+	).replace(CODE_SPAN, " ");
 	// A backtick left unpaired may open code a renderer shows, unchecked.
 	if (rest.includes("`")) return UNPAIRED;
 	return COMMAND_WORD.exec(rest)?.[0];

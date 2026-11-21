@@ -112,6 +112,11 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 	mesh_wait: saidByWait,
 };
 
+/** What reads the tool `name`, its own key only, never the prototype's. */
+function readerOf(name: string): ((input: unknown) => Said) | undefined {
+	return Object.hasOwn(READERS, name) ? READERS[name] : undefined;
+}
+
 /**
  * How often the model has been told of a withheld reply in this run,
  * so a rephrase withheld again is said too, up to TELLS_PER_RUN and no
@@ -126,8 +131,9 @@ interface Told {
 }
 
 /**
- * The text of the reply making the calls now being read, which the
- * person reads beside them, until they speak or the run settles.
+ * What the run's replies have said, their text and every call they
+ * made, which the person reads beside each call now being read, until
+ * they speak or the run settles.
  */
 interface Beside {
 	texts: readonly string[];
@@ -280,7 +286,7 @@ async function refuseCall(
 	traced: (trace: SpareTrace) => void,
 	beside: readonly string[],
 ) {
-	const read = READERS[toolName];
+	const read = readerOf(toolName);
 	if (!read) return undefined;
 	const refusal = await refusalFor(
 		read(input),
@@ -300,15 +306,30 @@ async function refuseCall(
 }
 
 /**
- * Keeps what an assistant's reply says, refused or not, as what the
- * calls it makes are read beside, since pi ends the message before its
- * calls run; a person's message forgets it, since they have answered.
+ * Adds what an assistant's reply says, refused or not, to what later
+ * calls are read beside: its text, and what each call it makes says,
+ * since pi ends the message before its calls run, in whatever order.
+ * A person's message forgets it all, since they have answered.
  */
 function noteBeside(beside: Beside, message: { role: string }): void {
 	if (message.role === "user") beside.texts = [];
 	if (message.role !== "assistant" || !("content" in message)) return;
-	const said = saidInReply(message.content);
-	beside.texts = [...said.prose, ...said.labels];
+	const blocks: unknown[] = Array.isArray(message.content)
+		? message.content
+		: [];
+	const calls = blocks.flatMap((block) => {
+		if (!isRecord(block) || block.type !== "toolCall") return [];
+		const read =
+			typeof block.name === "string" ? readerOf(block.name) : undefined;
+		return read ? [read(block.arguments)] : [];
+	});
+	beside.texts = [
+		...beside.texts,
+		...[saidInReply(message.content), ...calls].flatMap((said) => [
+			...said.prose,
+			...said.labels,
+		]),
+	];
 }
 
 /**

@@ -357,6 +357,14 @@ export function spansToRun(sentence: string): string[] {
 }
 
 /**
+ * `text` with each quote or span it asks to run cut out where it sits,
+ * and nowhere else, so the same words written bare stay to be read.
+ */
+export function withoutSpansToRun(text: string): string {
+	return text.replace(RUN_SPAN, " ");
+}
+
+/**
  * How a part of the text is read: as prose, and for commands on every
  * line, only on a line opening with a prompt, or not at all.
  */
@@ -364,6 +372,8 @@ export interface Part {
 	readonly prose: boolean;
 	readonly commands: "every" | "prompted" | "none";
 	readonly lines: readonly string[];
+	/** Set on a part inside a fence, which a renderer draws as code. */
+	readonly fenced?: true;
 }
 
 /** Fences of commands to type, each line one. */
@@ -424,7 +434,7 @@ export function parts(text: string): Part[] {
 			if (open) {
 				flush();
 				fence = open[1] ?? "```";
-				how = fenced((open[2] ?? "").toLowerCase());
+				how = { ...fenced((open[2] ?? "").toLowerCase()), fenced: true };
 				continue;
 			}
 		} else {

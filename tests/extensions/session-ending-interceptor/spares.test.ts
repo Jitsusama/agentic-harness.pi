@@ -100,6 +100,30 @@ const reply = (said: string) =>
 		ctx,
 	);
 
+/** A reply making `calls`, with `said` as its text, or none. */
+const replyCalling = (
+	said: string | undefined,
+	calls: readonly { name: string; arguments: Record<string, unknown> }[],
+) =>
+	handler("message_end")(
+		{
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					...(said === undefined ? [] : [{ type: "text", text: said }]),
+					...calls.map((call, at) => ({
+						type: "toolCall",
+						id: `t${at}`,
+						...call,
+					})),
+				],
+				stopReason: "toolUse",
+			},
+		},
+		ctx,
+	);
+
 const personSays = (said: string) =>
 	handler("message_end")(
 		{
@@ -402,6 +426,82 @@ describe("what a spare leaves in the session's log", () => {
 		expect(traces()).toMatchObject([
 			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
 		]);
+	});
+
+	it("keeps a reply's commands through the run, past a reply that says none", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await replyCalling(undefined, [
+			{ name: "read", arguments: { path: "notes.md" } },
+		]);
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads each call beside the others the same reply makes", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await replyCalling(undefined, [
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/rescue",
+					title: "Rescue",
+					why: "If it hangs, `sudo kexec -e` brings it back.",
+				},
+			},
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/bios",
+					title: "BIOS 1.13.0",
+					ask: "Reboot optimus to install it",
+				},
+			},
+		]);
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads no call by a name only an object's prototype holds", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+		const call = {
+			name: "constructor",
+			arguments: { prompt: "Reboot optimus" },
+		};
+
+		await replyCalling("Reboot optimus to install it.", [call]);
+		const verdict = await handler("tool_call")(
+			{
+				type: "tool_call",
+				toolName: call.name,
+				toolCallId: "c9",
+				input: call.arguments,
+			},
+			ctx,
+		);
+
+		expect(verdict).toBeUndefined();
+	});
+
+	it("forgets a reply's commands once the run settles", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await handler("agent_settled")({ type: "agent_settled" }, ctx);
+
+		expect(await look("Reboot optimus to install it")).toBeUndefined();
 	});
 
 	it("forgets a reply's commands once the person speaks", async () => {
