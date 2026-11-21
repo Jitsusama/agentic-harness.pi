@@ -54,6 +54,7 @@
  */
 
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { type Booted, machineBooted } from "../machine/booted.ts";
 import { stateDir } from "../paths.ts";
@@ -341,8 +342,10 @@ export const WAKES_KEPT_MS = 24 * 60 * 60 * 1000;
 
 /** One wake of a parked session, and how long it rested before it. */
 export interface Wake {
-	/** When it parked, as its marker said, as an ISO time. */
+	/** When it parked, as its marker said, as an ISO time; empty when it didn't say. */
 	readonly parkedAt: string;
+	/** The host it woke in, as `realm-kind`, when a host holds it. */
+	readonly host?: string;
 	/** When it started again, as an ISO time. */
 	readonly wokeAt: string;
 	/** How long it rested parked, in milliseconds. */
@@ -681,12 +684,12 @@ export function wakesPath(
 
 /** Whether a value reads as a wake. */
 function isWake(value: unknown): value is Wake {
-	if (typeof value !== "object" || value === null) return false;
-	const wake: Record<string, unknown> = { ...value };
 	return (
-		typeof wake.parkedAt === "string" &&
-		typeof wake.wokeAt === "string" &&
-		typeof wake.restedMs === "number"
+		isRecord(value) &&
+		typeof value.parkedAt === "string" &&
+		typeof value.wokeAt === "string" &&
+		typeof value.restedMs === "number" &&
+		(value.host === undefined || typeof value.host === "string")
 	);
 }
 
@@ -707,21 +710,26 @@ export function readWakes(
 }
 
 /**
- * Note that this session woke from the park its marker records, keeping
- * only the last day's wakes; answers the wake noted.
+ * Note that this session woke from the park its marker records, in the
+ * host named when one holds it, keeping only the last day's wakes, and
+ * sweep away other sessions' wakes a day old; answers the wake noted.
+ * A marker that never said when it parked still counts as a wake, one
+ * whose rest reads 0.
  */
 export function noteWake(
 	session: string,
-	parkedAt: string,
+	parked: { readonly parkedAt?: unknown; readonly host?: string },
 	folder: string = parkFolder(),
 	now: () => number = Date.now,
 ): Wake {
 	const at = now();
-	const parked = Date.parse(parkedAt);
+	const parkedAt = typeof parked.parkedAt === "string" ? parked.parkedAt : "";
+	const since = Date.parse(parkedAt);
 	const wake: Wake = {
 		parkedAt,
+		...(parked.host === undefined ? {} : { host: parked.host }),
 		wokeAt: new Date(at).toISOString(),
-		restedMs: Number.isNaN(parked) ? 0 : Math.max(0, at - parked),
+		restedMs: Number.isNaN(since) ? 0 : Math.max(0, at - since),
 	};
 	const kept = readWakes(session, folder).filter(
 		(earlier) => at - Date.parse(earlier.wokeAt) < WAKES_KEPT_MS,
@@ -730,7 +738,41 @@ export function noteWake(
 		wakesPath(session, folder),
 		`${JSON.stringify([...kept, wake])}\n`,
 	);
+	void sweepWakes(folder, at).catch(() => {
+		// What it couldn't sweep now, the next wake sweeps.
+	});
 	return wake;
+}
+
+/**
+ * Remove the wakes of every session that hasn't woken for a day, off the
+ * thread, since a session that never wakes again would keep its file for
+ * good, and listing and statting the folder on an attended host's thread
+ * would hold every conversation it serves.
+ */
+export async function sweepWakes(
+	folder: string = parkFolder(),
+	at: number = Date.now(),
+): Promise<void> {
+	const wakes = join(folder, "wakes");
+	let names: string[];
+	try {
+		names = await readdir(wakes);
+	} catch {
+		// No wakes kept yet is nothing to sweep.
+		return;
+	}
+	for (const name of names) {
+		if (!name.endsWith(".json")) continue;
+		const path = join(wakes, name);
+		try {
+			if (at - (await stat(path)).mtimeMs >= WAKES_KEPT_MS) {
+				await rm(path, { force: true });
+			}
+		} catch {
+			// Gone since the listing, which is what the sweep is for.
+		}
+	}
 }
 
 /** Say this session is parked no more, as it says on starting. */

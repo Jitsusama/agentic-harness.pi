@@ -4,6 +4,7 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -30,6 +31,9 @@ import {
 	promptIn,
 	readParked,
 	type Stillness,
+	sweepWakes,
+	WAKES_KEPT_MS,
+	wakesPath,
 	whyNotPark,
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
@@ -48,6 +52,37 @@ const switchSays = (...lines: string[]) => {
 	writeFileSync(parkSwitch(folder), `${lines.join("\n")}\n`);
 	return parkSwitch(folder);
 };
+
+describe("the wakes kept", () => {
+	it("sweeps away a session's wakes once it hasn't woken for a day, keeping the rest", async () => {
+		const at = Date.now();
+		mkdirSync(join(folder, "wakes"), { recursive: true });
+		const kept = (session: string, ageMs: number) => {
+			writeFileSync(wakesPath(session, folder), "[]\n");
+			const when = (at - ageMs) / 1000;
+			utimesSync(wakesPath(session, folder), when, when);
+		};
+		kept("day-old", WAKES_KEPT_MS);
+		kept("younger", WAKES_KEPT_MS - 60_000);
+		writeFileSync(join(folder, "wakes", "note.txt"), "");
+		utimesSync(join(folder, "wakes", "note.txt"), 0, 0);
+		await sweepWakes(folder, at);
+		expect(existsSync(wakesPath("day-old", folder)), "a day old goes").toBe(
+			false,
+		);
+		expect(existsSync(wakesPath("younger", folder)), "younger stays").toBe(
+			true,
+		);
+		expect(
+			existsSync(join(folder, "wakes", "note.txt")),
+			"only wakes are swept",
+		).toBe(true);
+	});
+
+	it("sweeps nothing, and says nothing, where no wakes were ever kept", async () => {
+		await expect(sweepWakes(folder)).resolves.toBeUndefined();
+	});
+});
 
 describe("whether a session parks, and after how long", () => {
 	it("never parks with no switch and nothing in the environment", () => {

@@ -427,7 +427,20 @@ export function watch(
 	const woke = marker !== undefined;
 	// Kept for a day, so how often a park rule wakes its sessions can be
 	// counted, and how long each rested.
-	if (marker) noteWake(session, marker.parkedAt, folder, now);
+	if (marker) {
+		try {
+			const host = hosted()?.key;
+			noteWake(
+				session,
+				{ parkedAt: marker.parkedAt, ...(host ? { host } : {}) },
+				folder,
+				now,
+			);
+		} catch {
+			// A wake it couldn't note is one fewer counted, never a start
+			// that fails with its marker still saying it is parked.
+		}
+	}
 	clearParked(session, folder);
 	// Markers a reboot outlived name sessions no holder will wake.
 	clearOutlivedParks(folder);
@@ -477,7 +490,9 @@ export function watch(
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
 			if (usual === undefined || !inBackgroundHost()) return usual;
-			// Its own process ends as it parks, and nobody watches it wake.
+			// Nobody watches a background conversation wake, and what it holds
+			// goes as it parks: its own process in a child, its share of the
+			// host's in the host.
 			return Math.min(usual, BACKGROUND_PARK_AFTER_MS);
 		}
 		if (usual === undefined) return usual;

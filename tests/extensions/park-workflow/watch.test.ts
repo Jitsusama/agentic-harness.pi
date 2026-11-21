@@ -1145,13 +1145,20 @@ describe("why a session stays awake", () => {
 		writeFileSync(parkSwitch(folder), "on\n");
 		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
 		const parksAfter = (key: string): number | undefined => {
+			// Each starts unparked, not woken from the one before's marker.
+			rmSync(join(folder, "parked"), { recursive: true, force: true });
 			const host = installTestHost(key);
 			const asked: string[] = [];
 			host.host.park = (id) => asked.push(id);
 			try {
 				clock = 0;
 				const watched = watching(session(), conversation);
-				for (const at of [BACKGROUND_PARK_AFTER_MS, PARK_AFTER_MS]) {
+				for (const at of [
+					BACKGROUND_PARK_AFTER_MS - 1,
+					BACKGROUND_PARK_AFTER_MS,
+					PARK_AFTER_MS - 1,
+					PARK_AFTER_MS,
+				]) {
 					clock = at;
 					if (watched.look() === undefined && asked.length > 0) return at;
 				}
@@ -1168,18 +1175,22 @@ describe("why a session stays awake", () => {
 		);
 	});
 
-	it("keeps a background host's conversation awake short of five idle minutes, and when PI_PARK is off for it", () => {
-		writeFileSync(parkSwitch(folder), "on\n");
+	it("keeps a background host's conversation awake when PI_PARK is off for it or the switch is off, and parks it at once in a drain", () => {
 		const host = installTestHost("one-background");
 		const asked: string[] = [];
+		let draining = false;
 		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => draining;
 		try {
-			const early = watching(session(), {
+			writeFileSync(parkSwitch(folder), "\n");
+			const switchedOff = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 			});
-			clock = BACKGROUND_PARK_AFTER_MS - 1;
-			expect(early.look()).toBe("not idle long enough");
-			early.stop();
+			clock = PARK_AFTER_MS;
+			expect(switchedOff.look(), "no switch, no park").not.toBeUndefined();
+			expect(asked, "nothing asked with the switch off").toEqual([]);
+			switchedOff.stop();
+			writeFileSync(parkSwitch(folder), "on\n");
 			const off = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 				PI_PARK: "off",
@@ -1187,6 +1198,17 @@ describe("why a session stays awake", () => {
 			clock = PARK_AFTER_MS;
 			expect(off.look()).toBe("parking is off");
 			expect(asked).toEqual([]);
+			off.stop();
+			clock = 0;
+			const drained = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(drained.look(), "undrained, it waits").toBe(
+				"not idle long enough",
+			);
+			draining = true;
+			expect(drained.look(), "drained, it parks at once").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
 		} finally {
 			host.dispose();
 		}
@@ -1221,14 +1243,80 @@ describe("why a session stays awake", () => {
 			readWakes(SESSION, folder),
 			"a start with no marker is no wake",
 		).toHaveLength(1);
+		park(100_000);
+		clock = 130_000;
+		watching().stop();
+		expect(
+			readWakes(SESSION, folder).map((wake) => wake.restedMs),
+			"a second wake joins the first",
+		).toEqual([60_000, 30_000]);
 		const later = 61_000 + WAKES_KEPT_MS;
 		park(later - 5_000);
 		clock = later;
 		watching().stop();
 		expect(
 			readWakes(SESSION, folder).map((wake) => wake.restedMs),
-			"a wake a day old goes",
-		).toEqual([5_000]);
+			"a wake a day old goes, and a younger one stays",
+		).toEqual([30_000, 5_000]);
+	});
+
+	it("notes a wake in a host with the host's key, and one whose marker never said when it parked", () => {
+		const host = installTestHost("one-background");
+		// A marker as an older pi might leave it, saying nothing of when.
+		const undated = {
+			session: SESSION,
+			sessionFile: logOf(),
+			cwd: "/src",
+			addresses: [],
+			pid: HELD_PID,
+			wake: join(folder, "held.wake"),
+		};
+		mkdirSync(join(folder, "parked"), { recursive: true });
+		writeFileSync(
+			join(folder, "parked", `${SESSION}.json`),
+			JSON.stringify(undated),
+		);
+		try {
+			clock = 61_000;
+			watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			}).stop();
+			expect(readWakes(SESSION, folder)).toEqual([
+				{
+					parkedAt: "",
+					host: "one-background",
+					wokeAt: new Date(61_000).toISOString(),
+					restedMs: 0,
+				},
+			]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("starts, and is parked no more, when its wake can't be noted", () => {
+		writeParked(
+			{
+				session: SESSION,
+				sessionFile: logOf(),
+				cwd: "/src",
+				addresses: [],
+				parkedAt: new Date(1_000).toISOString(),
+				pid: HELD_PID,
+				wake: join(folder, "held.wake"),
+			},
+			folder,
+		);
+		// A folder where its file goes: no wake can be written there.
+		mkdirSync(join(folder, "wakes", `${SESSION}.json`), { recursive: true });
+		const woken: unknown[] = [];
+		events.on(SESSION_WOKEN, (data) => woken.push(data));
+		clock = 61_000;
+		expect(() => watching().stop(), "the start goes on").not.toThrow();
+		expect(readParked(SESSION, folder), "its marker is cleared").toBe(
+			undefined,
+		);
+		expect(woken, "it says it woke").toEqual([{ session: SESSION }]);
 	});
 
 	it("keeps a hosted conversation awake through a drain when PI_PARK is off for it", () => {
