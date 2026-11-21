@@ -9,14 +9,15 @@ import {
 
 /**
  * Make a two-conversation host, leaving installation and disposal to
- * the test. Closing a conversation releases only its slots.
+ * the test, under `key`, which a real host gives as `realm-kind`.
+ * Closing a conversation releases only its slots.
  */
-export function sessionHost(owner: SessionOwner) {
+export function sessionHost(owner: SessionOwner, key = "test-host") {
 	const open = new Set(["a", "b"]);
 	const environments = new Map<string, SessionEnvironment>();
 	const host: Host = {
 		kind: "pi-durable",
-		key: "test-host",
+		key,
 		owner,
 		holds: (id) => (open.has(id) ? "idle" : undefined),
 		env(id) {
@@ -48,9 +49,15 @@ export function sessionHost(owner: SessionOwner) {
 	return { host, open };
 }
 
-/** Install an in-process host; closing a conversation releases only its slots. */
-export function installTestHost() {
-	const { host } = sessionHost({ pid: process.pid, startedAt: Date.now() });
+/**
+ * Install an in-process host under `key`; closing a conversation
+ * releases only its slots.
+ */
+export function installTestHost(key?: string) {
+	const { host } = sessionHost(
+		{ pid: process.pid, startedAt: Date.now() },
+		key,
+	);
 	const uninstall = installHost(host);
 	return {
 		host,

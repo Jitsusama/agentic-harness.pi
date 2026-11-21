@@ -328,6 +328,28 @@ export const OLD_PARK_AFTER_MS = 10 * 60 * 1000;
 export const NAMED_PARK_AFTER_MS = 2 * 60 * 1000;
 
 /**
+ * How long a background host's conversation waits idle before it parks.
+ * Since 20 November each runs in a process of its own, which parking
+ * ends: at 06:58 on 21 November 75 background conversations held about
+ * 20 GB, and 37 of them had sent nothing for five minutes. Nobody
+ * watches one, so a wake's 38 s falls on an agent, never on Joel.
+ */
+export const BACKGROUND_PARK_AFTER_MS = 5 * 60 * 1000;
+
+/** How long a session's wakes are kept, to count how often it wakes. */
+export const WAKES_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/** One wake of a parked session, and how long it rested before it. */
+export interface Wake {
+	/** When it parked, as its marker said, as an ISO time. */
+	readonly parkedAt: string;
+	/** When it started again, as an ISO time. */
+	readonly wokeAt: string;
+	/** How long it rested parked, in milliseconds. */
+	readonly restedMs: number;
+}
+
+/**
  * Asked on the bus before a session parks. The payload names the
  * session and carries `refusals`, into which any extension holding
  * something the session must stay for (an open hold, a lease) pushes
@@ -644,6 +666,71 @@ export function clearAwake(
 	folder: string = parkFolder(),
 ): void {
 	rmSync(awakePath(session, folder), { force: true });
+}
+
+/**
+ * Where a session keeps its wakes of the last day, so a park rule that
+ * wakes its sessions too often shows as a count rather than a guess.
+ */
+export function wakesPath(
+	session: string,
+	folder: string = parkFolder(),
+): string {
+	return join(folder, "wakes", `${session}.json`);
+}
+
+/** Whether a value reads as a wake. */
+function isWake(value: unknown): value is Wake {
+	if (typeof value !== "object" || value === null) return false;
+	const wake: Record<string, unknown> = { ...value };
+	return (
+		typeof wake.parkedAt === "string" &&
+		typeof wake.wokeAt === "string" &&
+		typeof wake.restedMs === "number"
+	);
+}
+
+/** A session's wakes of the last day, oldest first. */
+export function readWakes(
+	session: string,
+	folder: string = parkFolder(),
+): Wake[] {
+	try {
+		const value: unknown = JSON.parse(
+			readFileSync(wakesPath(session, folder), "utf8"),
+		);
+		return Array.isArray(value) ? value.filter(isWake) : [];
+	} catch {
+		// None kept yet, or a file half written, is no wakes to count.
+		return [];
+	}
+}
+
+/**
+ * Note that this session woke from the park its marker records, keeping
+ * only the last day's wakes; answers the wake noted.
+ */
+export function noteWake(
+	session: string,
+	parkedAt: string,
+	folder: string = parkFolder(),
+	now: () => number = Date.now,
+): Wake {
+	const at = now();
+	const parked = Date.parse(parkedAt);
+	const wake: Wake = {
+		parkedAt,
+		wokeAt: new Date(at).toISOString(),
+		restedMs: Number.isNaN(parked) ? 0 : Math.max(0, at - parked),
+	};
+	const kept = readWakes(session, folder).filter(
+		(earlier) => at - Date.parse(earlier.wokeAt) < WAKES_KEPT_MS,
+	);
+	writeWhole(
+		wakesPath(session, folder),
+		`${JSON.stringify([...kept, wake])}\n`,
+	);
+	return wake;
 }
 
 /** Say this session is parked no more, as it says on starting. */

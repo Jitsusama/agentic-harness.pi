@@ -28,6 +28,7 @@ import {
 } from "../../../extensions/park-workflow/watch.ts";
 import {
 	awakePath,
+	BACKGROUND_PARK_AFTER_MS,
 	flagsLost,
 	isParkAsk,
 	isParking,
@@ -43,7 +44,9 @@ import {
 	RESTART_ASK,
 	type RestartAsk,
 	readParked,
+	readWakes,
 	SESSION_WOKEN,
+	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
@@ -1133,6 +1136,99 @@ describe("why a session stays awake", () => {
 		} finally {
 			host.dispose();
 		}
+	});
+
+	// 21 November: 75 background conversations, each its own process since
+	// the day before, held about 20 GB, and 37 had sent nothing for five
+	// minutes while the half hour kept them (A2VLJN [ebe376a1]).
+	it("parks a background host's conversation after five idle minutes, while an attended host's waits its half hour", () => {
+		writeFileSync(parkSwitch(folder), "on\n");
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		const parksAfter = (key: string): number | undefined => {
+			const host = installTestHost(key);
+			const asked: string[] = [];
+			host.host.park = (id) => asked.push(id);
+			try {
+				clock = 0;
+				const watched = watching(session(), conversation);
+				for (const at of [BACKGROUND_PARK_AFTER_MS, PARK_AFTER_MS]) {
+					clock = at;
+					if (watched.look() === undefined && asked.length > 0) return at;
+				}
+				return undefined;
+			} finally {
+				host.dispose();
+			}
+		};
+		expect(parksAfter("one-background"), "background parks at five").toBe(
+			BACKGROUND_PARK_AFTER_MS,
+		);
+		expect(parksAfter("one-attended"), "attended waits its half hour").toBe(
+			PARK_AFTER_MS,
+		);
+	});
+
+	it("keeps a background host's conversation awake short of five idle minutes, and when PI_PARK is off for it", () => {
+		writeFileSync(parkSwitch(folder), "on\n");
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		try {
+			const early = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			clock = BACKGROUND_PARK_AFTER_MS - 1;
+			expect(early.look()).toBe("not idle long enough");
+			early.stop();
+			const off = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+				PI_PARK: "off",
+			});
+			clock = PARK_AFTER_MS;
+			expect(off.look()).toBe("parking is off");
+			expect(asked).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("notes each wake with how long it rested, keeping a day of them", () => {
+		const park = (parkedAt: number) =>
+			writeParked(
+				{
+					session: SESSION,
+					sessionFile: logOf(),
+					cwd: "/src",
+					addresses: [],
+					parkedAt: new Date(parkedAt).toISOString(),
+					pid: HELD_PID,
+					wake: join(folder, "held.wake"),
+				},
+				folder,
+			);
+		park(1_000);
+		clock = 61_000;
+		watching().stop();
+		expect(readWakes(SESSION, folder)).toEqual([
+			{
+				parkedAt: new Date(1_000).toISOString(),
+				wokeAt: new Date(61_000).toISOString(),
+				restedMs: 60_000,
+			},
+		]);
+		watching().stop();
+		expect(
+			readWakes(SESSION, folder),
+			"a start with no marker is no wake",
+		).toHaveLength(1);
+		const later = 61_000 + WAKES_KEPT_MS;
+		park(later - 5_000);
+		clock = later;
+		watching().stop();
+		expect(
+			readWakes(SESSION, folder).map((wake) => wake.restedMs),
+			"a wake a day old goes",
+		).toEqual([5_000]);
 	});
 
 	it("keeps a hosted conversation awake through a drain when PI_PARK is off for it", () => {

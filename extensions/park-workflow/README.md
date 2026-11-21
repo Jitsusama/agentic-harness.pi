@@ -57,7 +57,15 @@ It is off until one of these turns it on:
   process (one over a day old held 481 MiB on 15 November, against
   267 MiB for one under an hour). A line holding a session's id
   parks that one after two minutes, to prove parking on one session.
+  A background host's conversation parks after five minutes idle,
+  since each runs in a process of its own that parking ends, and
+  nobody watches it wake (75 of them held about 20 GB on 21
+  November, 37 idle for five minutes).
 - **`PI_PARK=on`,** read at start, as the line `on` does.
+
+Each wake is kept for a day in `wakes/<session>.json` beside the
+switch, with how long the session rested parked, so how often a rule
+wakes its sessions can be counted.
 
 `PI_PARK=off` keeps a session out, whatever the switch says. A
 session parks only when a holder keeps it and has said where it
