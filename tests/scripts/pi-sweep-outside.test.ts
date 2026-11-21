@@ -262,7 +262,7 @@ it("claims the quests' trees on disk, never rests, takes more idle snapshots tha
 			paused = false;
 		});
 		await vi.advanceTimersByTimeAsync(999);
-		expect(paused, "still pausing after under a second").toBe(true);
+		expect(paused, "done pausing within a second").toBe(true);
 		await vi.advanceTimersByTimeAsync(4001);
 		expect(paused, "still pausing after five seconds").toBe(false);
 		await pausing;

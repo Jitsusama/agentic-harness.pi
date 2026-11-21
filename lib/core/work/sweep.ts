@@ -210,8 +210,9 @@ export interface SweepOutcome {
 	branches: DroppedBranches[];
 	/**
 	 * Why the snapshots open sessions hold went unjudged this sweep, all
-	 * of them kept: a record's lock held too long, or the machine unable
-	 * to say which processes hold trees.
+	 * of them kept: the machine unable to say which processes hold trees,
+	 * or a judgement throwing as it chose. One whose record's lock is held too long
+	 * is kept alone, under `kept`, and the rest go on.
 	 */
 	idleUnjudged?: string;
 	/**
@@ -332,11 +333,18 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			for await (const idle of eachIdleSnapshot(live, choice)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
-				await takeIdle(deps, facts, idle, now, outcome);
+				try {
+					await takeIdle(deps, facts, idle, now, outcome);
+				} catch (error) {
+					// One record's lock held too long keeps that snapshot alone:
+					// ending a run of hundreds there would cost the outside stamp
+					// and send the hosts back to sweeping on their own threads.
+					outcome.kept.push({ path: idle.tree.path, why: messageOf(error) });
+				}
 			}
 		} catch (error) {
-			// A record's lock held too long or a census failing leaves the
-			// other providers' trees and the dev shells' roots to go as before.
+			// A census failing leaves the other providers' trees and the dev
+			// shells' roots to go as before.
 			outcome.idleUnjudged = messageOf(error);
 		}
 		const others = deps.memory

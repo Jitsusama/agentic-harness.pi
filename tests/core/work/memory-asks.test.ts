@@ -5,6 +5,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -234,6 +235,33 @@ it("given a tree's key, reads and removes its record's own file and no other", a
 		"a record under another name was removed",
 	).toBe(true);
 });
+
+// Root reads a folder whatever its mode, so only another user sees it refused.
+it.skipIf(process.getuid?.() === 0)(
+	"given a tree's key, takes it from a records folder it may not list",
+	async () => {
+		// Write and search but no read: a named file opens, a listing
+		// throws, so a take that listed the folder can't pass.
+		const memory = memoryAt();
+		const held = tree("snap");
+		memory.remember(held);
+		const cut = join(root, "cut");
+		chmodSync(cut, 0o300);
+		let taken: HeldTree | undefined;
+		try {
+			taken = await memory.whileUnusedSince(
+				held.path,
+				Date.now() + 1000,
+				async () => true,
+				"snap",
+			);
+		} finally {
+			chmodSync(cut, 0o700);
+		}
+
+		expect(taken?.identity.key, "a take by key listed the folder").toBe("snap");
+	},
+);
 
 it("finds this session's own trees by their records, as a resumed session's are", async () => {
 	// A broker made afresh, as after a restart, cut none of them, so

@@ -172,6 +172,7 @@ function sweepWhileOpen(
 			| "claims"
 			| "idleTakes"
 			| "idleWithinMs"
+			| "memory"
 		>
 	> = {},
 ) {
@@ -257,9 +258,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 	});
 
 	it("stops judging past a host's share once its awake time since it began runs out, saying how many it left", async () => {
-		// The clock it is given moves a step each reading, from a start far
-		// from zero, so its time runs out at the second judgement past the
-		// share: one more is taken, and the newest waits.
+		// Its clock, started far from zero, moves only as it pauses between
+		// takes, so taking is what spends its time: it runs out once the
+		// share and one more are taken, and the newest waits. A run that
+		// chose every one before taking any would take them all.
 		const setup = await setUp();
 		const trees: string[] = [];
 		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP + 1; at += 1) {
@@ -270,8 +272,11 @@ describe("taking the snapshots a live session pinned and left", () => {
 
 		const outcome = await sweepWhileOpen(setup, {
 			idleTakes: 200,
-			idleWithinMs: 2,
-			awake: () => clock++,
+			idleWithinMs: IDLE_TAKES_PER_SWEEP,
+			awake: () => clock,
+			betweenIdleTakes: async () => {
+				clock += 1;
+			},
 		});
 
 		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
@@ -279,6 +284,47 @@ describe("taking the snapshots a live session pinned and left", () => {
 		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
 		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);
+
+	it("keeps one whose record's lock it can't get and takes the rest, each by its own record's name", async () => {
+		// A lock held too long on one of hundreds must not end the run,
+		// which would cost the outside stamp; and each take names its
+		// record, so none lists the records folder.
+		const setup = await setUp();
+		const trees: string[] = [];
+		for (let at = 0; at < 3; at += 1) {
+			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+			trees.push(tree);
+		}
+		const real = setup.memory;
+		const keys: (string | undefined)[] = [];
+		const held = "its record's lock has been held for over 10s";
+		const memory: typeof real = Object.create(real);
+		memory.whileUnusedSince = (path, since, take, key) => {
+			keys.push(key);
+			if (keys.length === 2) throw new Error(held);
+			return real.whileUnusedSince(path, since, take, key);
+		};
+		const named = real
+			.recall()
+			.filter((one) => trees.includes(one.path))
+			.map((one) => one.identity.key);
+
+		const outcome = await sweepWhileOpen(setup, { memory });
+
+		const middle = trees[1] ?? "";
+		expect(outcome.taken.map((one) => one.path).sort()).toEqual(
+			[trees[0], trees[2]].sort(),
+		);
+		expect(outcome.kept, "the one it couldn't lock").toContainEqual({
+			path: middle,
+			why: held,
+		});
+		expect(outcome.idleUnjudged, "one lock ended the run").toBeUndefined();
+		expect(existsSync(middle), "the one it couldn't lock went").toBe(true);
+		expect(keys.sort(), "a take that didn't name its record").toEqual(
+			named.sort(),
+		);
+	});
 
 	it("keeps one a session asked for within the window, though its files sat still", async () => {
 		const setup = await setUp();

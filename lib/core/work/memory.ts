@@ -163,9 +163,12 @@ export interface TreeMemory {
 	 * it forgot, or nothing when `take` didn't run or didn't take it.
 	 * Given the tree's `key`, only its record's own file is read and
 	 * removed, as for {@link askedAt}: listing every record three times a
-	 * take, with a stat of every tree, cost a sweep taking hundreds millions
-	 * of reads in the folders Joel's windows wait on. A record written under
-	 * another name then reads as none, which keeps its tree.
+	 * take, with a stat of every tree, cost a sweep taking hundreds of trees
+	 * millions of reads in the folders Joel's windows wait on. A record
+	 * written under another name then reads as none, which keeps its tree.
+	 * Another record naming the same path is left: none names a git
+	 * snapshot (the paths two records share are World's, under its two
+	 * keys), and one would read as live again only were the path cut anew.
 	 */
 	whileUnusedSince(
 		path: string,
