@@ -43,10 +43,16 @@
  * are a cache direnv rebuilds on the next entry, and left alone they
  * keep their store paths from the collector for as long as the tree
  * stands.
+ *
+ * Long because the steps left here share one lock, one reading of the
+ * records and one outcome: each step that stands alone already lives
+ * beside it, and splitting the rest would pass all three through every
+ * call.
  */
 
 import { randomBytes } from "node:crypto";
 import type { Exec } from "../exec/index.ts";
+import { isLockHeld } from "../internal/file-lock.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
 import { dropIdleDevShellRoots } from "./dev-shell-roots.ts";
@@ -209,10 +215,12 @@ export interface SweepOutcome {
 	 */
 	branches: DroppedBranches[];
 	/**
-	 * Why the snapshots open sessions hold went unjudged this sweep, all
-	 * of them kept: the machine unable to say which processes hold trees,
-	 * or a judgement throwing as it chose. One whose record's lock is held too long
-	 * is kept alone, under `kept`, and the rest go on.
+	 * Why the snapshots open sessions hold went unjudged this sweep, those
+	 * not yet taken kept: the machine unable to say which processes hold
+	 * trees, a judgement throwing as it chose, or a take failing, such as
+	 * on a records folder that refuses writes. One whose record's lock a
+	 * live writer holds too long is kept alone, under `kept`, and the rest
+	 * go on.
 	 */
 	idleUnjudged?: string;
 	/**
@@ -339,12 +347,16 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 					// One record's lock held too long keeps that snapshot alone:
 					// ending a run of hundreds there would cost the outside stamp
 					// and send the hosts back to sweeping on their own threads.
+					// Any other failure, which every take may meet or which may
+					// leave a tree moved aside, ends the run unjudged, so the run
+					// says so and leaves no stamp.
+					if (!isLockHeld(error)) throw error;
 					outcome.kept.push({ path: idle.tree.path, why: messageOf(error) });
 				}
 			}
 		} catch (error) {
-			// A census failing leaves the other providers' trees and the dev
-			// shells' roots to go as before.
+			// A census or a take failing leaves the other providers' trees
+			// and the dev shells' roots to go as before.
 			outcome.idleUnjudged = messageOf(error);
 		}
 		const others = deps.memory

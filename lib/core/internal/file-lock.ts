@@ -37,6 +37,28 @@ const RETRY_MS = 20;
  */
 const STALE_MS = 30_000;
 
+/** The code a live holder keeping the lock past {@link WAIT_MS} throws with. */
+const LOCK_HELD = "ELOCKHELD";
+
+/**
+ * A live holder kept the lock past {@link WAIT_MS}, so nothing was
+ * written and nothing else went wrong: a caller may give up on what it
+ * was writing for and go on with the rest.
+ */
+class LockHeld extends Error {
+	/** Read by {@link isLockHeld}, since another copy of this module has another class. */
+	readonly code = LOCK_HELD;
+}
+
+/**
+ * Whether an error is a live holder keeping the lock past the wait,
+ * rather than the lock's folder or the writer failing. Told by its code,
+ * so an error from any copy of this module counts.
+ */
+export function isLockHeld(error: unknown): boolean {
+	return hasCode(error, LOCK_HELD);
+}
+
 /**
  * The writers waiting on each path, one queue for the whole process. Pi
  * loads a fresh copy of this module for each extension, and a host for
@@ -106,7 +128,7 @@ async function acquire(lockPath: string): Promise<number> {
 		if (await takeOverIfStale(lockPath)) continue;
 		if (Date.now() >= deadline) {
 			const holder = await holderOf(lockPath);
-			throw new Error(
+			throw new LockHeld(
 				`${lockPath} has been held for over ${WAIT_MS / 1000}s by ${holder === undefined ? "a process that did not say which" : `pid ${holder}`}, which is still running. Nothing was written. If that process is not writing, delete the lock file and try again.`,
 			);
 		}
