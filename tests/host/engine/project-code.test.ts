@@ -235,6 +235,23 @@ describe("the code a folder's .pi holds", () => {
 		).not.toBe(before);
 	});
 
+	it("counts the words folders where a setting names .pi itself, as pi may load code there", () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/settings.json", JSON.stringify({ extensions: ["*/index.ts"] }));
+		const before = projectCode(folder)?.digest;
+		write(".pi/skills/index.ts", "planted");
+		expect(
+			projectCode(folder)?.digest,
+			"an extension the pattern matches under skills",
+		).not.toBe(before);
+	});
+
+	it("walks a user@host: source, which pi reads as a path", () => {
+		write(".pi/me@host:tools/index.ts", "one");
+		write(".pi/settings.json", JSON.stringify({ packages: ["me@host:tools"] }));
+		expect(projectCode(folder)?.files).toContain(".pi/me@host:tools/index.ts");
+	});
+
 	it("is none for settings that change how pi behaves, not what runs", () => {
 		write(
 			".pi/settings.json",
@@ -390,8 +407,12 @@ describe("whether a folder's code may load", () => {
 				expect(codeStanding(folder, agentDir, later).kind).toBe("unpinned");
 				const code = projectCode(folder);
 				if (!code) throw new Error("the folder should hold code");
-				pin(folder, agentDir, code);
+				expect(pin(folder, agentDir, code)).toContain("couldn't write");
 				expect(readdirSync(agentDir)).toEqual([]);
+				expect(
+					codeStanding(folder, agentDir, later).kind,
+					"the yes holds for the host's life",
+				).toBe("pinned");
 			} finally {
 				chmodSync(agentDir, 0o700);
 			}
@@ -406,9 +427,11 @@ describe("whether a folder's code may load", () => {
 		mkdirSync(file);
 		const code = projectCode(folder);
 		if (!code) throw new Error("the folder should hold code");
-		pin(folder, agentDir, code);
+		expect(
+			pin(folder, agentDir, code),
+			"left alone rather than written over",
+		).toContain("couldn't read");
 		expect(existsSync(`${file}.damaged`), "set aside as damaged").toBe(false);
-		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
 	});
 
 	it("loads the same code in another tree once it was allowed in one", () => {

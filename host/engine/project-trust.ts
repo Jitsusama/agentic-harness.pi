@@ -165,7 +165,11 @@ export function projectTrust(
 								return false;
 							}
 							if (changedSince(cwd, standing, asking)) return false;
-							pin(cwd, agentDir, standing.code);
+							const unwritten = pin(cwd, agentDir, standing.code);
+							if (unwritten)
+								asking.warn(
+									`${printable(cwd)}'s code is allowed until the host restarts, since ${unwritten}; after that you are asked again.`,
+								);
 						}
 						const context = asking.context ?? questionContext(cwd, asking);
 						const trusted = await pi.resolveProjectTrusted({
@@ -207,8 +211,9 @@ function changedSince(
 	standing: CodeStanding,
 	asking: TrustAsking,
 ): boolean {
-	if (standing.kind === "none") return false;
-	if (projectCode(cwd)?.digest === standing.code.digest) return false;
+	// A folder that held no code when asked about has changed if it holds any now.
+	const before = standing.kind === "none" ? undefined : standing.code.digest;
+	if (projectCode(cwd)?.digest === before) return false;
 	asking.warn(
 		`${printable(cwd)}'s .pi code changed while you were asked, so this conversation leaves out its own .pi settings and extensions. Open another there to be asked about it as it is now.`,
 	);

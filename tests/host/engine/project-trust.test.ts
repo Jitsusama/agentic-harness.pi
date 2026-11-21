@@ -4,7 +4,13 @@
  * folder's code and its pins are real files, so each case shows what the
  * decision does with the person's answers and the code as it changes.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -149,6 +155,37 @@ it("loads nothing when the code changed while pi's own question waited", async (
 	expect(warned.join("\n")).toContain("changed while you were asked");
 });
 
+it("loads nothing when code was planted while pi's own question waited in a folder that held none", async () => {
+	startPins(agentDir, () => 0);
+	write(".pi/skills/a/SKILL.md", "words");
+	piAnswers = async () => {
+		write(".pi/extensions/planted.ts", "planted");
+		return true;
+	};
+	const trust = projectTrust(modules());
+	expect((await opened(trust, answering("Yes"))).trusted).toBe(false);
+	expect(warned.join("\n")).toContain("changed while you were asked");
+});
+
+it.skipIf(process.getuid?.() === 0)(
+	"holds a yes whose pins can't be written for the host's life, and says so",
+	async () => {
+		startPins(agentDir, () => 0);
+		write(".pi/extensions/lint.ts", "one");
+		chmodSync(agentDir, 0o500);
+		try {
+			const trust = projectTrust(modules());
+			const { settings, trusted } = await opened(trust, answering("Yes"));
+			expect(trusted).toBe(true);
+			expect(warned.join("\n")).toContain("until the host restarts");
+			await settings.reload();
+			expect(settings.trusted, "the next load keeps the yes").toBe(true);
+		} finally {
+			chmodSync(agentDir, 0o700);
+		}
+	},
+);
+
 it("keeps the person's no over a yes this host gave the folder before it held code", async () => {
 	write(".pi/skills/a/SKILL.md", "words");
 	const trust = projectTrust(modules());
@@ -164,7 +201,10 @@ it("keeps the person's no over a yes this host gave the folder before it held co
 
 it("checks a conversation still trusted after the person said no, before each load", async () => {
 	write(".pi/extensions/lint.ts", "one");
-	const { settings } = await opened(projectTrust(modules()), answering("Yes"));
+	// Nobody at the screen, so only the first look's pin can trust it.
+	const { settings } = await opened(projectTrust(modules()), {
+		warn: (message) => warned.push(message),
+	});
 	expect(
 		settings.trusted,
 		"code there at the host's first look is pinned",
@@ -200,5 +240,23 @@ it("gives back the trust it took once the code is pinned again, and none someone
 	expect(
 		settings.trusted,
 		"a no set since is the setter's, not the guard's",
+	).toBe(false);
+});
+
+it("keeps a folder untrusted when its code is pinned again after the person's no", async () => {
+	write(".pi/extensions/lint.ts", "one");
+	const trust = projectTrust(modules());
+	const { settings } = await opened(trust, answering("Yes"));
+	write(".pi/extensions/more.ts", "two");
+	await settings.reload();
+	expect(settings.trusted).toBe(false);
+	stored = false;
+	const code = projectCode(folder);
+	if (!code) throw new Error("the folder should hold code");
+	pin(folder, agentDir, code);
+	await settings.reload();
+	expect(
+		settings.trusted,
+		"the person's no outranks the guard's give-back",
 	).toBe(false);
 });

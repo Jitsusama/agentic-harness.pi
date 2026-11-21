@@ -81,8 +81,12 @@ const CODE_SETTINGS = [
 /** The settings whose entries name extensions or packages on the disk. */
 const PATH_SETTINGS = ["packages", "extensions"] as const;
 
-/** Sources pi fetches rather than reads from the disk, as pi's isLocalPath tells them. */
-const FETCHED = /^(npm|git|github|http|https|ssh|builtin):|^[\w.-]+@[\w.-]+:/;
+/**
+ * Sources pi fetches rather than reads from the disk, as pi's isLocalPath
+ * tells them: by these prefixes alone, so a `user@host:` source is a path
+ * to pi, and is walked.
+ */
+const FETCHED = /^(npm|git|github|http|https|ssh|builtin):/;
 
 /** How deep a link may lead before the walk stops following it. */
 const MOST_FOLDERS_DEEP = 24;
@@ -192,6 +196,8 @@ function walker(cwd: string): Walker {
 	const lines: string[] = [];
 	const files: string[] = [];
 	const folders = new Set<string>();
+	// Folders walked leaving some names out, so a later walk reaching one takes those too.
+	const partly = new Map<string, (name: string) => boolean>();
 	let newest = 0;
 	let entries = 0;
 	let bytes = 0;
@@ -227,9 +233,15 @@ function walker(cwd: string): Walker {
 				const key = `${seen.dev}:${seen.ino}`;
 				if (folders.has(key)) {
 					line("again", place, "");
+					const skipped = partly.get(key);
+					if (!skipped) return;
+					partly.delete(key);
+					const left = readdirSync(path).filter(skipped).sort();
+					for (const name of left) take(join(path, name), depth + 1);
 					return;
 				}
 				folders.add(key);
+				if (skip) partly.set(key, skip);
 				if (depth >= MOST_FOLDERS_DEEP) {
 					// What lies below goes unread, so a change there would go unseen.
 					line("too-deep", place, "");
@@ -322,7 +334,9 @@ function regularFile(path: string, room: number): Buffer | number | undefined {
 		const chunks: Buffer[] = [];
 		let total = 0;
 		for (;;) {
-			const chunk = Buffer.alloc(Math.min(MIB, room + 1 - total));
+			// Sized to the file at first, so a small file costs no more than itself.
+			const want = chunks.length === 0 ? seen.size + 1 : MIB;
+			const chunk = Buffer.allocUnsafe(Math.min(want, MIB, room + 1 - total));
 			// Past the room: what was read says how far.
 			if (chunk.length === 0) return total;
 			const got = readSync(fd, chunk, 0, chunk.length, null);
@@ -518,18 +532,41 @@ export function codeStanding(
 	const code = projectCode(cwd);
 	if (!code) return { kind: "none" };
 	if (!code.complete) return { kind: "unpinned", code };
-	if (pins.folders[cwd] === code.digest || pins.allowed.includes(code.digest))
-		return { kind: "pinned", code };
-	if (code.newest < pins.since) {
+	const pinned =
+		pins.folders[cwd] === code.digest ||
+		pins.allowed.includes(code.digest) ||
+		heldForLife.has(lifeKey(agentDir, code.digest));
+	if (pinned) return { kind: "pinned", code };
+	// The start is whole milliseconds and a change's time finer, so the same millisecond counts as before.
+	if (Math.floor(code.newest) <= pins.since) {
 		pin(cwd, agentDir, code);
 		return { kind: "pinned", code };
 	}
 	return { kind: "unpinned", code };
 }
 
-/** Pin `code` as `cwd`'s, and as allowed wherever it is found; code too large to check never is. */
-export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
-	if (!code.complete) return;
+/**
+ * Digests allowed in this host's life, by agent folder: a yes holds
+ * until the host stops even when its pins can't be written.
+ */
+const heldForLife = new Set<string>();
+
+function lifeKey(agentDir: string, digest: string): string {
+	return `${agentDir}\0${digest}`;
+}
+
+/**
+ * Pin `code` as `cwd`'s, and as allowed wherever it is found; code too
+ * large to check never is. Says why when the pins couldn't be written,
+ * and the yes then holds for the host's life alone.
+ */
+export function pin(
+	cwd: string,
+	agentDir: string,
+	code: ProjectCode,
+): string | undefined {
+	if (!code.complete) return undefined;
+	heldForLife.add(lifeKey(agentDir, code.digest));
 	// Pins started before this yes keep the host's first look as it was.
 	startPins(agentDir);
 	const file = join(agentDir, PINS_FILE);
@@ -538,8 +575,8 @@ export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
 		// Damaged pins are copied beside, for whoever looks at why they broke, and the new
 		// ones renamed over them, so no moment finds the file gone and starts it afresh.
 		if (damaged) copyFileSync(file, `${file}.damaged`);
-		// Not over pins it couldn't read: a yes then holds for the host's life alone.
-		else if (!writable) return;
+		// Not over pins it couldn't read.
+		else if (!writable) return `the host couldn't read ${printable(file)}`;
 		writePins(file, {
 			since: pins.since,
 			folders: { ...pins.folders, [cwd]: code.digest },
@@ -548,8 +585,10 @@ export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
 				...pins.allowed.filter((digest) => digest !== code.digest),
 			].slice(0, MOST_ALLOWED),
 		});
-	} catch {
-		// A full disk or a read-only agent folder: the yes holds for the host's life alone.
+		return undefined;
+	} catch (error) {
+		// A full disk or a read-only agent folder.
+		return `the host couldn't write ${printable(file)} (${errorCode(error)})`;
 	}
 }
 
