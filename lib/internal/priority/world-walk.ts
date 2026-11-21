@@ -113,11 +113,17 @@ function narrowest(
 
 /**
  * What a walk of World's objects does, for its place among the walks
- * waiting: `push`, every walk it runs is a push or a fetch of origin's
- * main, at least one a push; `main-fetch`, every one is a plain fetch
- * of origin's main, which a fetch of main just made can answer (see
- * fetched.ts); `other`, it walks for anything else, as a fetch of
- * another person's branch does. Nothing for a command that walks none.
+ * waiting: `push`, every walk it runs is a push; `main-fetch`, every one
+ * is a plain fetch of origin's main, which a fetch of main just made can
+ * answer (see fetched.ts); `branch`, every one is a push, a fetch of
+ * main or a branch's own work, and they aren't all pushes or all fetches:
+ * a rebase, cherry-pick, revert, merge or `sparse-checkout`, or a fetch
+ * of main beside a push; `other`, it walks for anything else, as a fetch
+ * of another person's branch does. Nothing for a command that walks
+ * none. A rebase or a fetch chained before a push is `branch`, since a
+ * push's quick turn and small hold (job.ts's `isQuick`, needs.ts's
+ * `PUSH_GIB`) would let the walk before it past every walk's limit. Its
+ * push still leaves out its LFS scan ({@link pushesWorld}).
  */
 export function walkOf(
 	command: string,
@@ -126,7 +132,23 @@ export function walkOf(
 	const walks = worldWalks(runSteps(command), where).map(walkDoes);
 	if (walks.length === 0) return undefined;
 	if (walks.every((walk) => walk === "main-fetch")) return "main-fetch";
-	return walks.every((walk) => walk !== "other") ? "push" : "other";
+	if (walks.includes("other")) return "other";
+	return walks.every((walk) => walk === "push") ? "push" : "branch";
+}
+
+/**
+ * Whether a command pushes to World, alone or after other walks: such a
+ * command is given the queue's push hooks (pushes.ts), so its push
+ * leaves out the LFS scan when it holds no LFS file, whatever it's
+ * chained after.
+ */
+export function pushesWorld(
+	command: string,
+	where: Where = { home: homedir() },
+): boolean {
+	return worldWalks(runSteps(command), where).some(
+		(walk) => walk[2] === "push",
+	);
 }
 
 /**
@@ -158,9 +180,24 @@ function lastSayOnHooks(rest: string): string | undefined {
 		.pop();
 }
 
+/**
+ * The subcommands that work on a branch of one's own, which wait among
+ * pushes rather than behind them: with one walk let run while memory
+ * stalls, a rebase ranked behind pushes would wait for as long as
+ * pushes kept arriving.
+ */
+const BRANCH_WORK: ReadonlySet<string> = new Set([
+	"rebase",
+	"cherry-pick",
+	"revert",
+	"merge",
+	"sparse-checkout",
+]);
+
 /** What one walk does, from its git subcommand and what follows it. */
 function walkDoes(walk: RegExpExecArray): Walk {
 	if (walk[2] === "push") return "push";
+	if (BRANCH_WORK.has(walk[2] ?? "")) return "branch";
 	return walk[2] === "fetch" && answersFetch(walk) ? "main-fetch" : "other";
 }
 
@@ -212,12 +249,25 @@ const WORLD_FOLDER = "world";
  * A git command that walks a repository's objects, past options such as
  * `-C <dir>` and `-c <key>=<value>`: a push (the LFS pre-push hook runs
  * `git rev-list --objects` over what it sends), a fetch or pull, a
- * clone, and the repacks. Options are kept, to read the folder `-C`
- * names, then the subcommand, and the rest, to read a path it fetches
- * from or clones and what it fetches.
+ * clone, the repacks, and what merges trees or fills a sparse checkout:
+ * a rebase, a cherry-pick, a revert, a merge and `sparse-checkout`. Two World
+ * rebases held 3.8 and 3.9 GB each beside other walks at 06:08 on 21
+ * November, with no turn (80ECO2). What only steers one of those or
+ * reads where it stands walks nothing, and goes free, so a checkout
+ * stuck mid-rebase can be put back while memory is pressed: `--abort`,
+ * `--quit`, `--show-current-patch` and `--edit-todo`, `sparse-checkout`
+ * alone, its `list` and `check-rules`, and help, asked before or after
+ * any of these subcommands. `--continue` and `--skip` go on applying
+ * commits, so they walk. Options are kept, to read the folders `-C`,
+ * `--git-dir` and `--work-tree` name, then the subcommand, and the rest,
+ * to read a path it fetches from or clones and what it fetches. Each
+ * option reads one way only: `-c`, `-C`, `--git-dir`, `--work-tree` and
+ * `--namespace` take the word after them unless they hold it after an
+ * `=`, and no other option is read as one of them, so a long run of
+ * options can't make the match backtrack.
  */
 export const GIT_WALK =
-	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects)(?![\w.=-])(.*)$/;
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--(?:git-dir|work-tree|namespace)(?:=\S+|\s+\S+)|--(?!(?:git-dir|work-tree|namespace|help)(?![\w-]))\w[\w-]*(?:=\S+)?|-(?![cCh](?:\s|$))\w[\w-]*(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|(?:rebase|cherry-pick|revert|merge)(?!\s+--(?:abort|quit|show-current-patch|edit-todo)(?![\w-]))|sparse-checkout(?!\s+(?:list|check-rules)(?![\w-])|\s*$))(?!\s+(?:--help|-h)(?![\w-]))(?![\w.=-])(.*)$/;
 
 /** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
 const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;
@@ -279,7 +329,11 @@ export function worldWalks(
 		let at = folder;
 		const named: (string | undefined)[] = [];
 		options.forEach((option, index) => {
-			if (option === "-C") at = pathOf(options[index + 1] ?? "", at);
+			const next = options[index + 1] ?? "";
+			if (option === "-C") at = pathOf(next, at);
+			if (option === "--git-dir" || option === "--work-tree") {
+				named.push(pathOf(next, at));
+			}
 			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option)?.[1];
 			if (dir !== undefined) named.push(pathOf(dir, at));
 		});
