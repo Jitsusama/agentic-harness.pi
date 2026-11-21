@@ -212,8 +212,9 @@ tree cut again at its name takes back. Cutting again from the
 clone that cut a tree set aside forgets git's entry for that one
 gone folder, a lock on it included once it is an hour old, and
 tries once more; the clone's other entries stay for git's prune.
-A lock somebody put there with `git worktree lock` is never
-forgotten, so reclaim leaves that tree where it is. Nothing here
+A lock `git worktree lock` left, or a cut killed before git was
+told English, is never forgotten, so reclaim leaves that tree
+where it is until it is unlocked from the clone that cut it. Nothing here
 runs git in a tree set aside, nor should a person: a command in
 the sandbox may have written the settings and hooks git, or a
 repository inside it, would run.

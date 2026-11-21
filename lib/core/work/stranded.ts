@@ -203,7 +203,7 @@ export const CANT_SAY =
  * files hold rather than who put it there.
  */
 export const HAND_LOCKED =
-	"git won't read it, but the git entry it names is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it, takes that lock away; where that clone doesn't know it, move it aside by hand";
+	"git won't read it, but the git entry it names is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; where that clone doesn't know it, move it aside by hand";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or

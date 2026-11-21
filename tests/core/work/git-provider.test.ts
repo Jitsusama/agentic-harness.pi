@@ -872,7 +872,7 @@ describe("a tree standing where git won't read it", () => {
 
 		await expect(cut).rejects.toThrow("nothing here takes that lock away");
 		await expect(cut).rejects.toThrow(
-			"from the clone that cut it, never inside it",
+			"from /src/world, the clone this cut comes from, never inside it or in a folder its `.git` names",
 		);
 		await expect(cut).rejects.toThrow(
 			"`work tidy` says whether `work reclaim` can set it aside",
