@@ -185,7 +185,7 @@ describe("a fenced session's subagent keeps the fence", () => {
 	});
 
 	it("lets a job that names no extension run", () => {
-		expect(keepFence([{ id: "a" }], "fence", null).ok).toBe(true);
+		expect(keepFence([{ id: "a" }], "fence", null)).toMatchObject({ ok: true });
 	});
 });
 
@@ -271,7 +271,9 @@ describe("a fenced session's children", () => {
 			"/x.ts",
 		]);
 		expect(out?.job.env).toEqual({ PI_SANDBOX: "fence" });
-		expect(out?.job.ignoreProject).toBe(true);
+		expect(out?.job, "a fenced child ignores the folder's .pi").toMatchObject({
+			ignoreProject: true,
+		});
 	});
 
 	it("names the sandbox to an unisolated child, ignores the folder's .pi and loads nothing more", () => {
@@ -284,7 +286,9 @@ describe("a fenced session's children", () => {
 		);
 		expect(out?.job.extraExtensions).toBeUndefined();
 		expect(out?.job.env).toEqual({ A: "1", PI_SANDBOX: "strict" });
-		expect(out?.job.ignoreProject).toBe(true);
+		expect(out?.job, "a fenced child ignores the folder's .pi").toMatchObject({
+			ignoreProject: true,
+		});
 	});
 
 	it("starts no child when an isolated one can't have the fence's extensions", () => {

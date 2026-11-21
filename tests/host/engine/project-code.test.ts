@@ -146,14 +146,24 @@ describe("the code a folder's .pi holds", () => {
 		const deep = join(folder, ".pi/extensions", ...Array(30).fill("d"));
 		mkdirSync(deep, { recursive: true });
 		writeFileSync(join(deep, "hidden.ts"), "planted");
-		expect(projectCode(folder)?.complete).toBe(false);
+		expect(
+			projectCode(folder),
+			"a folder too deep is never complete",
+		).toMatchObject({
+			complete: false,
+		});
 	});
 
 	it("is never complete past the most entries it checks", () => {
 		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
 		for (let n = 0; n <= MOST_ENTRIES; n += 1)
 			writeFileSync(join(folder, ".pi/extensions", `${n}.ts`), "");
-		expect(projectCode(folder)?.complete).toBe(false);
+		expect(
+			projectCode(folder),
+			"past the most entries is never complete",
+		).toMatchObject({
+			complete: false,
+		});
 		// Ten thousand files take seconds to write on a busy disk.
 	}, 60_000);
 
@@ -208,16 +218,16 @@ describe("the code a folder's .pi holds", () => {
 		write(".pi/extensions/lint.ts", "one");
 		execFileSync("mkfifo", [join(folder, ".pi/extensions/piped.ts")]);
 		const piped = projectCode(folder);
-		expect(piped?.complete).toBe(false);
 		expect(piped).toMatchObject({
+			complete: false,
 			unchecked: expect.stringContaining("neither a file nor a folder"),
 		});
 		rmSync(join(folder, ".pi"), { recursive: true });
 		mkdirSync(join(folder, ".pi"));
 		execFileSync("mkfifo", [join(folder, ".pi/settings.json")]);
 		const settings = projectCode(folder);
-		expect(settings?.complete).toBe(false);
 		expect(settings).toMatchObject({
+			complete: false,
 			unchecked: expect.stringContaining("aren't a file"),
 		});
 	});

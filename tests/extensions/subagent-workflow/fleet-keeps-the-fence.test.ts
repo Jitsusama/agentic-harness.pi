@@ -169,10 +169,11 @@ describe("a fenced session's fleet", () => {
 		await fleet([job("a", { isolated: false })]);
 		expect(given[0]).toMatchObject({ PI_SANDBOX: "strict" });
 		expect(
-			each(started[0], "--extension").some((path) =>
+			each(started[0], "--extension").filter((path) =>
 				path.includes("shell-workflow"),
 			),
-		).toBe(false);
+			"an unisolated child loads its own shell-workflow, so none is named",
+		).toEqual([]);
 	});
 
 	it("leaves an unfenced session's children as they were", async () => {
