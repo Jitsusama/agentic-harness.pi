@@ -108,10 +108,12 @@ const watching = (
 	ctx: Parkable = session(),
 	env: NodeJS.ProcessEnv = holder(),
 	args: readonly string[] = [],
+	platform?: NodeJS.Platform,
 ) =>
 	watch(ctx, events, {
 		env,
 		args,
+		...(platform === undefined ? {} : { platform }),
 		pid: HELD_PID,
 		switchPath: parkSwitch(folder),
 		folder,
@@ -1147,6 +1149,7 @@ describe("why a session stays awake", () => {
 			key: string,
 			line = "on",
 			viewed = false,
+			platform: NodeJS.Platform = "linux",
 		): number | undefined => {
 			writeFileSync(parkSwitch(folder), `${line}\n`);
 			// Each starts unparked, not woken from the one before's marker.
@@ -1157,7 +1160,7 @@ describe("why a session stays awake", () => {
 			host.host.viewed = () => viewed;
 			try {
 				clock = 0;
-				const watched = watching(session(), conversation);
+				const watched = watching(session(), conversation, [], platform);
 				for (const at of [
 					NAMED_PARK_AFTER_MS - 1,
 					NAMED_PARK_AFTER_MS,
@@ -1194,6 +1197,12 @@ describe("why a session stays awake", () => {
 			parksAfter("one-background", SESSION),
 			"named in the switch, background parks at its two minutes",
 		).toBe(NAMED_PARK_AFTER_MS);
+		// 21 November: four Mac holders were lost as their sessions parked
+		// (WCJQSG [1cf71a07]), so a Mac keeps its half hour.
+		expect(
+			parksAfter("one-background", "on", false, "darwin"),
+			"background on macOS waits its half hour",
+		).toBe(PARK_AFTER_MS);
 	});
 
 	it("keeps a background host's conversation awake when PI_PARK is off for it or the switch is off, and parks it at once in a drain", () => {

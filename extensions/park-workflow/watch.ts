@@ -74,10 +74,13 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
 
 /**
  * Whether this conversation's host is a background one, whose key ends
- * in its kind as `realm-background`, and parks it alone.
+ * in its kind as `realm-background`, and parks it alone. Never on macOS:
+ * on 21 November four Mac holders were lost as their sessions parked,
+ * so a Mac keeps the usual limit until its holder survives a park.
  */
-function inBackgroundHost(): boolean {
+function inBackgroundHost(platform: NodeJS.Platform = process.platform): boolean {
 	return (
+		platform !== "darwin" &&
 		parkingHost() !== undefined &&
 		hosted()?.key.endsWith("-background") === true
 	);
@@ -197,6 +200,8 @@ export interface WatchOptions {
 	readonly clock?: boolean;
 	/** This process, which its holder's record must name to park. */
 	readonly pid?: number;
+	/** The operating system it runs on, which a background limit weighs. */
+	readonly platform?: NodeJS.Platform;
 	/** When this process started, by `now`'s clock, which an old one parks sooner by. */
 	readonly startedAt?: number;
 	/**
@@ -493,7 +498,8 @@ export function watch(
 		if (env[PARK_ENV] === "off") return usual;
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
-			if (usual === undefined || !inBackgroundHost()) return usual;
+			if (usual === undefined || !inBackgroundHost(options.platform))
+				return usual;
 			// One a window views may be read by the person, whose next key
 			// would wait out its wake, so it waits as an attended one does.
 			if (hosted()?.viewed?.(session) === true) return usual;
