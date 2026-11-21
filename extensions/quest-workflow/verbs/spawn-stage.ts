@@ -106,23 +106,30 @@ export interface PlacementAsked {
 	readonly resumes: boolean;
 }
 
+/** What a shell reads as more than one program, or as a word it fills in. */
+const SHELL_OPERATOR = /[;&|`$()<>\n]/;
+
 /**
- * Whether `command` runs pi, the one program the fence's variables
- * reach: none given starts pi, and else its first word must name it. A
- * command that starts pi another way (through env or a wrapper) counts
- * as not, so it claims less than it may run, never more.
+ * Whether `command` runs pi alone, the one program the fence's variables
+ * reach: none given starts pi, and else its first word must name it and
+ * nothing may follow it in another program (`pi && bash`). A command
+ * that starts pi another way (through env or a wrapper) counts as not,
+ * so it claims less than it may run, never more.
  */
 export function runsPi(command: string | undefined): boolean {
-	const first = command?.trim().split(/\s+/)[0] ?? "";
+	const trimmed = command?.trim() ?? "";
+	if (SHELL_OPERATOR.test(trimmed)) return false;
+	const first = trimmed.split(/\s+/)[0] ?? "";
 	return first === "" || first.split("/").pop() === "pi";
 }
 
 /**
  * The fence a spawn tells the node when asking where it runs, asked
- * before it is known whether it reopens or is held: one that may reopen,
- * which is given no sandbox, or runs something other than pi claims
- * none, and so does an undeclared fence, which a held start runs
- * without, since under-claiming is safe.
+ * before it is known whether it reopens or where it lands: one that may
+ * reopen, which is given no sandbox, or runs something other than pi
+ * claims none, and so does the fence, declared or not, which a start on
+ * another machine may run without (an older pi there, or a Mac, lifts
+ * it), since under-claiming is safe. Strict, which no pi lifts, stays.
  */
 export function placementFence(
 	fence: FenceDeclaration,
@@ -131,8 +138,8 @@ export function placementFence(
 	const command = asked.command?.trim() ?? "";
 	const mayReopen =
 		resumedBy(command) !== undefined || (asked.resumes && command === "");
-	const mayBeHeld = fence.from === "default" && fence.kind === "fence";
-	return mayReopen || mayBeHeld || !runsPi(command) ? UNFENCED : fence;
+	const mayLandElsewhere = fence.kind === "fence";
+	return mayReopen || mayLandElsewhere || !runsPi(command) ? UNFENCED : fence;
 }
 
 /** A spawn once it is known where it starts and what listed it. */
@@ -141,22 +148,29 @@ export interface StartedSpawn extends StagedSpawn {
 	readonly listed: boolean;
 	/** Whether a node holds it, on this machine or another. */
 	readonly held: boolean;
+	/** Whether it starts on this machine, held or not. */
+	readonly here: boolean;
 }
 
 /**
  * How `spawn` starts, for the claim it settles: a dry run is staged as
  * the stage would list it; the token reaches what opens here, in a
  * terminal, the launcher or a host, but never a held start, even on this
- * machine; and a declared fence's mark goes wherever its `PI_SANDBOX`
- * does.
+ * machine. A declared fence's mark goes wherever its `PI_SANDBOX` does,
+ * but is kept only by a pi of this install on Linux: a start on another
+ * machine may meet an older pi, which lifts it, and on a Mac this
+ * package's fence refuses every command, so pi-fence lays it instead.
  */
-export function spawnSettled(spawn: StartedSpawn): SpawnSettled {
+export function spawnSettled(
+	spawn: StartedSpawn,
+	platform: NodeJS.Platform = process.platform,
+): SpawnSettled {
 	return {
 		staged: spawn.dryRun ? wouldStage(spawn) : spawn.listed,
 		carried: !spawn.held,
 		reopens: reopens(spawn),
 		pi: runsPi(spawn.command),
-		kept: true,
+		kept: spawn.here && platform === "linux",
 	};
 }
 

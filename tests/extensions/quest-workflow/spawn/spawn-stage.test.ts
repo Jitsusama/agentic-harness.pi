@@ -12,15 +12,27 @@ const unfenced = { kind: "none", from: "default" };
 const session = "019a0000-0000-7000-8000-000000000001";
 
 describe("the fence a spawn tells the node when asking where it runs", () => {
-	it("is the one declared for a fresh spawn", () => {
+	const strictDeclared = { kind: "strict", from: "spawn" } as const;
+
+	it("is the strict one declared for a fresh spawn, which no pi lifts", () => {
+		expect(
+			placementFence(strictDeclared, { resumes: false }),
+			"nothing to resume",
+		).toEqual(strictDeclared);
+		expect(
+			placementFence(strictDeclared, {
+				command: "pi --model x",
+				resumes: true,
+			}),
+			"a command of the caller's own resumes nothing",
+		).toEqual(strictDeclared);
+	});
+
+	it("is none for a declared fence, which a pi on another machine may lift", () => {
 		expect(
 			placementFence(declared, { resumes: false }),
-			"nothing to resume",
-		).toEqual(declared);
-		expect(
-			placementFence(declared, { command: "pi --model x", resumes: true }),
-			"a command of the caller's own resumes nothing",
-		).toEqual(declared);
+			"before it's known where it lands",
+		).toEqual(unfenced);
 	});
 
 	it("is none for one that may reopen, which is given no sandbox", () => {
@@ -65,11 +77,11 @@ describe("the fence a spawn tells the node when asking where it runs", () => {
 });
 
 describe("how a spawn starts, for the claim it settles", () => {
-	const fresh = { questId: "QEST-1", listed: true, held: false };
+	const fresh = { questId: "QEST-1", listed: true, held: false, here: true };
 	const staged = { kind: "fence", from: "default" } as const;
 
 	it("carries no token to a held start, so an undeclared staged fence claims none there", () => {
-		const held = spawnSettled({ ...fresh, held: true });
+		const held = spawnSettled({ ...fresh, held: true, here: false });
 		expect(held.carried, "a held start carried the token").toBe(false);
 		expect(
 			declarationSettled(staged, held),
@@ -101,11 +113,36 @@ describe("how a spawn starts, for the claim it settles", () => {
 			spawnSettled({ ...fresh, command: "bash" }),
 			"a shell",
 		).toMatchObject({ pi: false });
-		expect(spawnSettled(fresh), "a fresh pi").toMatchObject({
+		expect(spawnSettled(fresh, "linux"), "a fresh pi").toMatchObject({
 			reopens: false,
 			pi: true,
 			kept: true,
 		});
+	});
+
+	it("keeps a declared fence only in a pi of this install on Linux", () => {
+		const settledFor = (spawn: typeof fresh, platform: NodeJS.Platform) =>
+			declarationSettled(declared, spawnSettled(spawn, platform));
+		expect(
+			settledFor({ ...fresh, held: true }, "linux"),
+			"held by the node on this machine, which runs this install",
+		).toEqual(declared);
+		expect(
+			settledFor({ ...fresh, held: true, here: false }, "linux"),
+			"held on another machine, whose pi may be older and lift it",
+		).toEqual(unfenced);
+		expect(
+			settledFor(fresh, "darwin"),
+			"opened on a Mac, whose pi lifts it",
+		).toEqual(unfenced);
+		const strict = { kind: "strict", from: "spawn" } as const;
+		expect(
+			declarationSettled(
+				strict,
+				spawnSettled({ ...fresh, held: true, here: false }, "darwin"),
+			),
+			"strict, which no pi lifts and a Mac's refuses all under",
+		).toEqual(strict);
 	});
 });
 
@@ -124,7 +161,18 @@ describe("whether a spawn's command runs pi", () => {
 	});
 
 	it("counts nothing else, even a command that starts pi another way", () => {
-		for (const command of ["bash", "env X=1 pi", "pip install x", "./pirate"]) {
+		for (const command of [
+			"bash",
+			"env X=1 pi",
+			"pip install x",
+			"./pirate",
+			"pi && bash",
+			"pi; make",
+			"pi || sh",
+			"pi | tee log",
+			"pi $(cat flags)",
+			"pi\nbash",
+		]) {
 			expect(runsPi(command), `${command} counted as pi`).toBe(false);
 		}
 	});

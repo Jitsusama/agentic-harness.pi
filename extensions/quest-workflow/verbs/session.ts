@@ -303,6 +303,7 @@ async function spawnNaming(
 			...stage,
 			listed: staged !== undefined,
 			held: machine !== undefined,
+			here: machine === undefined || isThisMachine(machine),
 		}),
 	);
 	said.fence = fence;
