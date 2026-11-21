@@ -28,12 +28,15 @@ afterEach(() => {
 	}
 });
 
-/** A tie from the peer under test to `other`, this strong. */
+/**
+ * A tie from the peer under test to `other`, this strong, with a message
+ * of its own on it today, since a tie quiet all day counts nothing.
+ */
 const tie = (other: string, strength: number): Tie => ({
 	other,
 	strength,
 	hour: [0, 0],
-	today: [0, 0],
+	today: [1, 0],
 	intents: [],
 });
 
