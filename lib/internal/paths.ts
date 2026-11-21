@@ -37,7 +37,7 @@
  * responsible for `mkdir -p` when they first write.
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { realmSegments } from "./machine/realm.ts";
@@ -112,6 +112,31 @@ export function everyRealmsDir(kind: "data" | "state", slug: string): string[] {
 		// No other realm has kept anything here.
 	}
 	return [join(root, slug), ...others];
+}
+
+/**
+ * Why `everyRealmsDir` may not have named every realm, or nothing: it
+ * reads a realms folder it can't list as holding none, and passes over
+ * a realm reached through a link. For a reader that must see every
+ * realm or none, as the sweep outside the hosts reading their claims.
+ */
+export function whyRealmsUnlisted(kind: "data" | "state"): string | undefined {
+	const realms = join(xdgRoot(kind), "pi", PACKAGE_DIR, "realms");
+	try {
+		// A machine that never kept another realm has no realms folder; one
+		// that is a link to nothing may lead to realms elsewhere.
+		if (lstatSync(realms, { throwIfNoEntry: false }) === undefined)
+			return undefined;
+		const linked = readdirSync(realms, { withFileTypes: true }).find((entry) =>
+			entry.isSymbolicLink(),
+		);
+		return linked === undefined
+			? undefined
+			: `${join(realms, linked.name)} is a link, which no realm's reading follows`;
+	} catch (error) {
+		const why = error instanceof Error ? error.message : String(error);
+		return `the realms at ${realms} can't be looked at: ${why}`;
+	}
 }
 
 let darwinTemporary: string | undefined;

@@ -13,7 +13,9 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +97,9 @@ beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "pi-sweep-outside-"));
 	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
 	vi.stubEnv("XDG_DATA_HOME", join(root, "data"));
+	// The quests' scratch is its own, as a session's TMPDIR may lie in the
+	// real one, and a module there would be passed over.
+	vi.stubEnv("XDG_CACHE_HOME", join(root, "cache"));
 	seen.quests = join(root, "quests");
 	mkdirSync(seen.quests);
 	seen.unreadable = undefined;
@@ -120,13 +125,33 @@ function work(): string {
 	return join(root, "state", "pi", "agentic-harness.pi", "work");
 }
 
-/** One active quest on disk that lists `path`. */
-function questListing(path: string): void {
-	const id = "QEST-20260731-AAAAAA";
-	mkdirSync(join(seen.quests, id), { recursive: true });
+/** The quests store another realm, `work`, keeps on this machine. */
+function otherRealmsQuests(): string {
+	return join(
+		root,
+		"data",
+		"pi",
+		"agentic-harness.pi",
+		"realms",
+		"work",
+		"quest-workflow",
+		"quests",
+	);
+}
+
+/** One quest on disk in `store`, active unless said, that lists `path`. */
+function questListing(
+	path: string,
+	{
+		store = seen.quests,
+		id = "QEST-20260731-AAAAAA",
+		status = "active",
+	}: { store?: string; id?: string; status?: string } = {},
+): void {
+	mkdirSync(join(store, id), { recursive: true });
 	writeFileSync(
-		join(seen.quests, id, "README.md"),
-		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+		join(store, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			`trees:\n  - path: ${path}\n    providerId: git-worktree\n` +
 			`    repoRoot: ${path}\n    origin: cut\n` +
@@ -202,6 +227,22 @@ it("claims the quests' trees on disk, never rests, and drops what it took", asyn
 		"the trees its quest still lists",
 	).toEqual([]);
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("claims the trees another realm's live quests list, and no sealed one's", async () => {
+	const sealed = "/src/repo/.worktrees/sealed";
+	questListing(SPENT, { store: otherRealmsQuests() });
+	questListing(sealed, {
+		store: otherRealmsQuests(),
+		id: "QEST-20260731-BBBBBB",
+		status: "concluded",
+	});
+
+	await sweepOutside({ env: {} });
+
+	expect(seen.claims, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [SPENT] },
+	]);
 });
 
 it("holds its git to the fence in every repository", async () => {
@@ -473,6 +514,33 @@ it("exits 0 only after a sweep that ran or met another's, with no trouble beside
 	});
 });
 
+it.each([
+	["a work tree", () => join(work(), "trees", "someone")],
+	[
+		"a quest's scratch",
+		() =>
+			join(root, "cache", "pi", "agentic-harness.pi", "quest-workspace", "Q"),
+	],
+])(
+	"passes over a module in %s, where a sandboxed command writes",
+	async (_, folder) => {
+		const planted = join(folder(), "providers.mjs");
+		mkdirSync(folder(), { recursive: true });
+		writeFileSync(
+			planted,
+			`export default () => [${providerSource("world-dev-tree")}];\n`,
+		);
+		vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+		const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: planted } });
+
+		expect(ran.troubles, "what went wrong beside").toEqual([
+			`${planted}: it sits where a sandboxed command can write, and it would run outside the fence`,
+		]);
+		expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	},
+);
+
 it("passes over a module whole when it gives anything but providers", async () => {
 	const mixed = module(
 		"mixed",
@@ -620,6 +688,231 @@ it("fails before sweeping when the quests can't be looked at", async () => {
 	} finally {
 		chmodSync(locked, 0o700);
 	}
+});
+
+it("fails before sweeping when another realm's quests can't be listed", async () => {
+	// Its trees are the machine's, so a store read as empty would have the
+	// sweep take them as nobody's.
+	const realm = otherRealmsQuests();
+	mkdirSync(realm, { recursive: true });
+	chmodSync(realm, 0o000);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			`the quests at ${realm} can't be looked at`,
+		);
+		expect(stamp(), "the stamp it left").toBeUndefined();
+	} finally {
+		chmodSync(realm, 0o700);
+	}
+});
+
+it("fails before sweeping when a quest can't be read for its claims", async () => {
+	// The walk leaves such a quest out, so the trees it lists would go.
+	questListing(SPENT);
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	chmodSync(quest, 0o000);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			`the quest at ${quest} can't be read for its claims`,
+		);
+	} finally {
+		chmodSync(quest, 0o700);
+	}
+});
+
+it("fails before sweeping when a quest's README won't parse", async () => {
+	// Its front matter may list any tree, and none of them can be read.
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	mkdirSync(quest);
+	writeFileSync(
+		join(quest, "README.md"),
+		"# A quest whose front matter went\n",
+	);
+	const told = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${quest} can't be read for its claims: Front-matter invalid`,
+	);
+	// The hosts take sweeping back, but miss the same quest's claims.
+	expect(told.mock.calls.join(""), "what it told the journal").toContain(
+		"the hosts sweep again once the last stamp is 2 hours old, and their claims miss the same quests",
+	);
+});
+
+it("sweeps past a quest named apart from its id, and ones still being made", async () => {
+	// The first is still read for its claims; the others list no trees.
+	questListing(SPENT);
+	renameSync(
+		join(seen.quests, "QEST-20260731-AAAAAA"),
+		join(seen.quests, "QEST-20260731-BBBBBB"),
+	);
+	mkdirSync(join(seen.quests, "QEST-20260731-CCCCCC"));
+	mkdirSync(join(seen.quests, "QEST-20260731-DDDDDD"));
+	writeFileSync(join(seen.quests, "QEST-20260731-DDDDDD", "README.md"), "");
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").not.toBe("failed");
+	expect(seen.claims, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [SPENT] },
+	]);
+});
+
+it("fails before sweeping when the realms can't be listed", async () => {
+	// A realms folder read as empty hides every other realm's quests.
+	const realms = join(otherRealmsQuests(), "..", "..", "..");
+	mkdirSync(otherRealmsQuests(), { recursive: true });
+	chmodSync(realms, 0o000);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			`the realms at ${realms} can't be looked at`,
+		);
+	} finally {
+		chmodSync(realms, 0o700);
+	}
+});
+
+it("fails before sweeping when the realms folder is a link to nothing", async () => {
+	// It may lead to realms elsewhere, whose quests would claim nothing.
+	const realms = join(root, "data", "pi", "agentic-harness.pi", "realms");
+	mkdirSync(join(realms, ".."), { recursive: true });
+	symlinkSync(join(root, "realms-gone"), realms);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the realms at ${realms} can't be looked at`,
+	);
+});
+
+it("says a README that won't parse, though another folder holds its id", async () => {
+	// Nothing took its place: a README that won't parse is never indexed.
+	questListing(SPENT);
+	const broken = join(seen.quests, "QEST-20260731-AAAAAA");
+	writeFileSync(
+		join(broken, "README.md"),
+		"# A quest whose front matter went\n",
+	);
+	questListing("/src/repo/.worktrees/copy", { id: "QEST-20260731-BBBBBB" });
+	const copy = join(seen.quests, "QEST-20260731-BBBBBB", "README.md");
+	writeFileSync(
+		copy,
+		readFileSync(copy, "utf8").replace(
+			"id: QEST-20260731-BBBBBB",
+			"id: QEST-20260731-AAAAAA",
+		),
+	);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${broken} can't be read for its claims: Front-matter invalid`,
+	);
+});
+
+it("fails before sweeping when another folder's README takes a quest's id", async () => {
+	// The walk keeps one quest per id, so the other's trees would go.
+	questListing(SPENT);
+	questListing("/src/repo/.worktrees/copy", { id: "QEST-20260731-BBBBBB" });
+	const copy = join(seen.quests, "QEST-20260731-BBBBBB", "README.md");
+	writeFileSync(
+		copy,
+		readFileSync(copy, "utf8").replace(
+			"id: QEST-20260731-BBBBBB",
+			"id: QEST-20260731-AAAAAA",
+		),
+	);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	// Whichever folder the walk read last keeps the id; the reason names
+	// the other folder's quest either way.
+	expect(String(logLines()[0]?.failed), "the line it logged").toMatch(
+		/can't be read for its claims: (the README at .* names its id|its README names another folder's quest)/,
+	);
+});
+
+it("fails before sweeping when a quest's folder is a link to nothing", async () => {
+	// It may lead to a quest elsewhere, so it isn't one being made.
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	symlinkSync(join(root, "quest-gone"), quest);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${quest} can't be read for its claims: it is a link`,
+	);
+});
+
+it("fails before sweeping when a quest's folder is a link", async () => {
+	// The walk doesn't follow it, so the trees it lists would go.
+	const kept = join(root, "kept");
+	questListing(SPENT, { store: kept });
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	symlinkSync(join(kept, "QEST-20260731-AAAAAA"), quest);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${quest} can't be read for its claims: it is a link`,
+	);
+});
+
+it("fails before sweeping when a realm is reached through a link", async () => {
+	// No realm's reading follows the link, so its quests would claim nothing.
+	const kept = mkdtempSync(join(tmpdir(), "realm-kept-"));
+	const realm = join(otherRealmsQuests(), "..", "..");
+	mkdirSync(join(realm, ".."), { recursive: true });
+	symlinkSync(kept, realm);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			"is a link",
+		);
+	} finally {
+		rmSync(kept, { recursive: true, force: true });
+	}
+});
+
+it("fails before sweeping when another realm's quests are a link to nothing", async () => {
+	// The quests may stand where the link points once it's back.
+	const store = otherRealmsQuests();
+	mkdirSync(join(store, ".."), { recursive: true });
+	symlinkSync(join(root, "unmounted"), store);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quests aren't at ${store}`,
+	);
 });
 
 it("says a stamp it couldn't write", async () => {

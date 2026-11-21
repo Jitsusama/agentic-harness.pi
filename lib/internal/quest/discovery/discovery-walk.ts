@@ -48,6 +48,9 @@ import { pendingStampOf } from "./off-thread.ts";
 /** What a walk says of a quest folder with no README, as one being made. */
 export const README_MISSING = "README.md missing";
 
+/** What a walk says of a quest whose README stands but won't parse. */
+export const FRONT_MATTER_INVALID = "Front-matter invalid or absent.";
+
 function safeRealpath(path: string, pass: Pass): string | undefined {
 	if (pass.reals.has(path)) return pass.reals.get(path);
 	try {
@@ -350,10 +353,7 @@ function walkEntries(
 			return;
 		}
 		if (!("doc" in reading)) {
-			errors.push({
-				path: readmePath,
-				message: "Front-matter invalid or absent.",
-			});
+			errors.push({ path: readmePath, message: FRONT_MATTER_INVALID });
 			return;
 		}
 		const { doc } = reading;

@@ -13,17 +13,21 @@ import {
 	lstatSync,
 	lutimesSync,
 	mkdirSync,
+	mkdtempSync,
+	realpathSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import { guardedExec } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
@@ -418,6 +422,72 @@ describe("trees whose repository is gone", () => {
 			{ path: tree, why: "its repository is gone" },
 		]);
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("says only git's entry went when the repository stands", async () => {
+		// As `git worktree prune` leaves a tree whose folder it missed.
+		const { main, cut, sweep } = await setUp();
+		const tree = await cut("pruned", ["--detach", "@", "main"]);
+		rmSync(join(main, ".git", "worktrees", "pruned"), { recursive: true });
+
+		const outcome = await sweep([], () => false);
+
+		expect(outcome.kept).toEqual([
+			{
+				path: tree,
+				why: `git's entry for it in ${join(main, ".git")} is gone, though the repository stands`,
+			},
+		]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+});
+
+describe("trees whose git pi won't run", () => {
+	it("says git was refused there, not that its repository is gone", async () => {
+		const { state, memory, lockPath, cut } = await setUp();
+		const tree = await cut("unguarded", ["--detach", "@", "main"]);
+		// A home holding none of the test's repositories, so the fence guards
+		// none of them, and pi's git refuses each tree cut where trees go.
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "sweep-home-")));
+		try {
+			const outcome = await sweepEndedTrees({
+				exec: guardedExec(exec, () => ({ home, fenced: false, trees: state })),
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+			});
+
+			expect(outcome.kept).toEqual([
+				{ path: tree, why: "pi won't run git there, so it can't be judged" },
+			]);
+			expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("says a lost clone's repository is gone, though pi's git refuses its tree", async () => {
+		// pi's git refuses a tree no worktree names back, as one whose clone
+		// went, so only the git folder's absence can say it went.
+		const { state, memory, lockPath, lostClone } = await setUp();
+		const { tree } = await lostClone("lost");
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "sweep-home-")));
+		try {
+			const outcome = await sweepEndedTrees({
+				exec: guardedExec(exec, () => ({ home, fenced: false, trees: state })),
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+			});
+
+			expect(outcome.kept).toEqual([
+				{ path: tree, why: "its repository is gone" },
+			]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });
 

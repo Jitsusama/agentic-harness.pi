@@ -16,19 +16,33 @@
  * log are found by the same XDG folders as the hosts', so its timer sets
  * none of them.
  *
- * A quest's trees are read from the quests on disk, held until spent as a
- * host holds them, and a tree it takes is dropped from every live quest
- * that listed it. Its git holds to the fence's guard in every repository,
- * as a fenced session's does, since it runs in every session's trees with
- * no sandbox of its own. It fails before sweeping where a sweep's answers
- * couldn't be trusted: git that won't run, processes it can't all see, a
- * config it can't read or a quests folder that isn't there, either of
- * which would have it claim by the wrong quests.
+ * A quest's trees are read from every realm's quests on disk, held until
+ * spent as a host holds them, and a tree it takes is dropped from every
+ * live quest that listed it. Only quests claim trees here: a host hears
+ * claims from whatever answers it on the bus, but quest-workflow is the
+ * only claimant today, and one in this package or any other must be read
+ * here too, or the trees it claims go as nobody's while the hosts stand
+ * down. Its git holds to
+ * the fence's guard in every repository, as a fenced session's does,
+ * since it runs in every session's trees with no sandbox of its own; a
+ * host's git refuses the same trees, as each is cut under the trees
+ * folder, so the two judge alike. It fails before sweeping where a
+ * sweep's answers couldn't be trusted: git that won't run, processes it
+ * can't all see, a config it can't read, or a realm or quest it can't
+ * read, either of the last two having it claim by the wrong quests.
+ * That guards only its own sweep: once its stamp is two hours old the
+ * hosts sweep again, and a host's claims read the same quests without
+ * this check, so such a quest's trees can still go there.
  *
  * Providers other than git come from the modules PI_SWEEP_PROVIDERS
  * names, colon-separated and absolute, each one's default export a
  * function giving the providers to load. A module that won't load, or
- * gives anything but providers, is passed over whole. A provider that
+ * gives anything but providers, is passed over whole. A module runs with
+ * the account's own rights, outside the fence, as it does in a host, so
+ * one in a work tree or a quest's scratch, two of the places a sandboxed
+ * command writes, is passed over too. Those two are all it checks, so
+ * the setting must name a module no sandboxed command can write. A
+ * provider that
  * took past fifteen minutes to judge a tree is told to stop, asked
  * nothing more that run, and left out of the stamp, as is one whose
  * judging or taking failed for every tree it tried, so the hosts go on
@@ -50,12 +64,12 @@
  *   PI_SWEEP_PROVIDERS=/path/to/providers.ts node scripts/pi-sweep.ts
  */
 
-import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	forgetTrees,
 	liveQuestTrees,
+	whyQuestsUnread,
 } from "../extensions/quest-workflow/claims.ts";
 import { questsRootNow } from "../extensions/quest-workflow/config.ts";
 import {
@@ -72,11 +86,25 @@ import {
 	isTreeProvider,
 	registerTreeProvider,
 } from "../lib/core/work/register.ts";
-import { markSweptOutside } from "../lib/core/work/sweep-rest.ts";
+import {
+	markSweptOutside,
+	OUTSIDE_SWEEP_HOLDS_MS,
+} from "../lib/core/work/sweep-rest.ts";
+import { questWorkspacesRoot } from "../lib/internal/quest/workspace/workspace-root.ts";
+import { within as liesWithin } from "../lib/internal/sandbox/tree-git.ts";
 import { unattendedExec } from "../lib/internal/sandbox/unattended-exec.ts";
+import { cutTreeDir } from "../lib/internal/work-records.ts";
 
 /** The setting that names the modules giving providers other than git. */
 const PROVIDER_MODULES = "PI_SWEEP_PROVIDERS";
+
+/**
+ * Two of the folders a fenced session's commands write in, its trees and
+ * its scratch; the fence lets them write elsewhere too.
+ */
+function fencedWrites(): string[] {
+	return [cutTreeDir(), questWorkspacesRoot()];
+}
 
 /**
  * How long one provider module may take to load and give its providers:
@@ -84,6 +112,9 @@ const PROVIDER_MODULES = "PI_SWEEP_PROVIDERS";
  * unit's two hours ran out, and every hourly run after it with it.
  */
 const LOAD_WITHIN_MS = 60 * 1000;
+
+/** An hour, to say the hosts' wait in. */
+const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * How long a provider may take to judge one tree before the run goes on
@@ -135,9 +166,12 @@ export async function sweepOutside({
 		calls,
 	);
 	if (troubles.length > 0) logSweep({ passedOver: troubles });
-	const refused = (why: string): SweptOutside => {
+	const hours = OUTSIDE_SWEEP_HOLDS_MS / HOUR_MS;
+	const refused = (why: string, hostsToo = ""): SweptOutside => {
 		logSweep({ ms: 0, failed: why });
-		tell(`didn't sweep: ${why}`);
+		tell(
+			`didn't sweep: ${why}; the hosts sweep again once the last stamp is ${hours} hours old${hostsToo}`,
+		);
 		return { end: "failed", troubles };
 	};
 	const untrusted = await whyUntrusted();
@@ -149,9 +183,15 @@ export async function sweepOutside({
 		return refused(`the quests can't be found: ${said(error)}`);
 	}
 	// A quests root that isn't there claims nothing, as a wrong one would,
-	// and one that can't be looked at may claim anything.
-	const unseen = whyQuestsUnseen(questsRoot);
-	if (unseen !== undefined) return refused(unseen);
+	// and a store, this realm's or another's, that can't be listed claims
+	// nothing it holds.
+	const unseen = whyQuestsUnread(questsRoot);
+	if (unseen !== undefined) {
+		return refused(
+			unseen,
+			", and their claims miss the same quests, so mend them first",
+		);
+	}
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),
@@ -205,18 +245,6 @@ function unjudgedOf(calls: ProviderCalls, id: string): boolean {
 /** Say `line` in the unit's journal, where its failure is read. */
 function tell(line: string): void {
 	process.stderr.write(`pi-sweep: ${line}\n`);
-}
-
-/** Why the quests at `root` can't be read for their claims, or nothing. */
-function whyQuestsUnseen(root: string): string | undefined {
-	try {
-		if (statSync(root, { throwIfNoEntry: false })?.isDirectory() === true) {
-			return undefined;
-		}
-		return `the quests aren't at ${root}`;
-	} catch (error) {
-		return `the quests at ${root} can't be looked at: ${said(error)}`;
-	}
 }
 
 /**
@@ -273,6 +301,13 @@ async function providersOf(
 ): Promise<TreeProvider[]> {
 	// The unit's working folder is no setting of the machine's.
 	if (!isAbsolute(path)) throw new Error("it isn't an absolute path");
+	// It runs outside the fence, so a module a sandboxed command could
+	// write would let that command out.
+	if (fencedWrites().some((folder) => liesWithin(path, folder))) {
+		throw new Error(
+			"it sits where a sandboxed command can write, and it would run outside the fence",
+		);
+	}
 	const loaded: unknown = await within(
 		withinMs,
 		import(pathToFileURL(path).href),
