@@ -129,6 +129,71 @@ describe("the restore file", () => {
 		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("hosted");
 	});
 
+	it("gives a hosted session the words its viewer runs, so its window can wait while its host is down", () => {
+		const hosted = (sessionId: string, env?: Record<string, string>) => ({
+			...openRecord({
+				sessionId,
+				instanceId: "inst-host",
+				cwd: "/home/me/src/hosted",
+				process: {
+					hostId: "here",
+					pid: 1,
+					startToken: "t",
+					bootToken: "last",
+					hosted: {
+						host: "home-background",
+						session: sessionId,
+						owner: { pid: 1, startedAt: 1, startTicks: 1 },
+					},
+				},
+				now: new Date("2026-10-28T20:40:00Z"),
+			}),
+			...(env ? { env } : {}),
+		});
+		const file = restoreFileOf(
+			[
+				{
+					record: hosted("01a1eeee-ffff"),
+					heartbeatAt: "2026-10-29T05:00:00Z",
+				},
+				{
+					record: hosted("01a1abab-cdcd", { PI_SANDBOX: "fence" }),
+					heartbeatAt: "2026-10-29T05:00:00Z",
+				},
+				{
+					record: ranIn("01a1cccc-dddd", "last"),
+					heartbeatAt: "2026-10-29T05:00:00Z",
+				},
+			],
+			"this",
+		);
+		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
+		const view = byId.get("01a1eeee-ffff")?.view ?? [];
+		expect(view[0], "the view runs under this node").toBe(process.execPath);
+		expect(
+			view.find((word) => word.endsWith("/scripts/host-join.ts")),
+		).toBeDefined();
+		expect(view.slice(view.indexOf("--view"))).toEqual([
+			"--view",
+			"--session",
+			"01a1eeee-ffff",
+			"--",
+			"pi",
+			"--session",
+			"01a1eeee-ffff",
+		]);
+		const fenced = byId.get("01a1abab-cdcd")?.view ?? [];
+		expect(fenced.slice(fenced.indexOf("--"))).toEqual([
+			"--",
+			"env",
+			"PI_SANDBOX=fence",
+			"pi",
+			"--session",
+			"01a1abab-cdcd",
+		]);
+		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("view");
+	});
+
 	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {
 		const parked = (sessionId: string, questId: string, at: string) =>
 			closeRecord(ranIn(sessionId, "last", questId), "parked", new Date(at));
