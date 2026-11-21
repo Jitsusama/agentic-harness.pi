@@ -25,6 +25,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { GIT_REFUSED } from "../../internal/sandbox/tree-git.ts";
 import type { Exec } from "../exec/index.ts";
 import type { HeldTree } from "./broker.ts";
 import {
@@ -191,12 +192,6 @@ export async function mainCheckoutOf(
 	const found = await checkoutOf(exec, path);
 	return "main" in found ? found.main : undefined;
 }
-
-/**
- * What pi's guarded git answers where it won't run git, as a shell
- * answers for a command it won't run (`tree-git.ts`).
- */
-const GIT_REFUSED = 126;
 
 /**
  * The main checkout of the repository a tree was cut from, or why git

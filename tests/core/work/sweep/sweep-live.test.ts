@@ -449,6 +449,29 @@ describe("trees whose git pi won't run", () => {
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
+
+	it("says a lost clone's repository is gone, though pi's git refuses its tree", async () => {
+		// pi's git refuses a tree no worktree names back, as one whose clone
+		// went, so only the git folder's absence can say it went.
+		const { state, memory, lockPath, lostClone } = await setUp();
+		const { tree } = await lostClone("lost");
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "sweep-home-")));
+		try {
+			const outcome = await sweepEndedTrees({
+				exec: guardedExec(exec, () => ({ home, fenced: false, trees: state })),
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+			});
+
+			expect(outcome.kept).toEqual([
+				{ path: tree, why: "its repository is gone" },
+			]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("trees a session still uses, whatever their owners say", () => {

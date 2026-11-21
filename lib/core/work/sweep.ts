@@ -354,7 +354,10 @@ async function byRepository(
 			if (gitDir !== undefined && deps.wentWithFinishedWork?.(gitDir)) {
 				orphans.push(tree);
 			} else {
-				outcome.kept.push({ path: tree.path, why: unreadWhy(found.unread) });
+				outcome.kept.push({
+					path: tree.path,
+					why: unreadWhy(found.unread, gitDir !== undefined),
+				});
 			}
 			continue;
 		}
@@ -365,14 +368,18 @@ async function byRepository(
 }
 
 /**
- * Why a tree whose repository git couldn't name is kept: pi's git
- * refusing to run there, as in a tree whose repository the fence doesn't
- * guard, is no sign the repository went, and the sweep log says which.
+ * Why a tree whose repository git couldn't name is kept. Its repository
+ * is gone only when the git folder its `.git` file names is: pi's git
+ * refuses such a tree too, as no worktree names it back, so the code git
+ * answered can't say. Where the folder stands, a refusal, as in a tree
+ * whose repository the fence doesn't guard, is told from git failing,
+ * as it does when it times out, and the sweep log says which.
  */
-function unreadWhy(unread: "refused" | "failed"): string {
+function unreadWhy(unread: "refused" | "failed", gone: boolean): string {
+	if (gone) return "its repository is gone";
 	return unread === "refused"
 		? "pi won't run git there, so it can't be judged"
-		: "its repository is gone";
+		: "git couldn't name its repository";
 }
 
 /**

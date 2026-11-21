@@ -27,15 +27,16 @@
  * host's git refuses the same trees, as each is cut under the trees
  * folder, so the two judge alike. It fails before sweeping where a
  * sweep's answers couldn't be trusted: git that won't run, processes it
- * can't all see, a config it can't read, or a realm's quests it can't
- * list, either of the last two having it claim by the wrong quests.
+ * can't all see, a config it can't read, or a realm or quest it can't
+ * read, either of the last two having it claim by the wrong quests.
  *
  * Providers other than git come from the modules PI_SWEEP_PROVIDERS
  * names, colon-separated and absolute, each one's default export a
  * function giving the providers to load. A module that won't load, or
  * gives anything but providers, is passed over whole. A module runs with
  * the account's own rights, outside the fence, as it does in a host, so
- * the setting names only modules the account installed. A provider that
+ * one in a work tree or a quest's scratch, where a sandboxed command
+ * writes, is passed over too. A provider that
  * took past fifteen minutes to judge a tree is told to stop, asked
  * nothing more that run, and left out of the stamp, as is one whose
  * judging or taking failed for every tree it tried, so the hosts go on
@@ -80,10 +81,18 @@ import {
 	registerTreeProvider,
 } from "../lib/core/work/register.ts";
 import { markSweptOutside } from "../lib/core/work/sweep-rest.ts";
+import { questWorkspacesRoot } from "../lib/internal/quest/workspace/workspace-root.ts";
+import { within as liesWithin } from "../lib/internal/sandbox/tree-git.ts";
 import { unattendedExec } from "../lib/internal/sandbox/unattended-exec.ts";
+import { cutTreeDir } from "../lib/internal/work-records.ts";
 
 /** The setting that names the modules giving providers other than git. */
 const PROVIDER_MODULES = "PI_SWEEP_PROVIDERS";
+
+/** The folders a fenced session's commands write in: its trees and scratch. */
+function fencedWrites(): string[] {
+	return [cutTreeDir(), questWorkspacesRoot()];
+}
 
 /**
  * How long one provider module may take to load and give its providers:
@@ -269,6 +278,13 @@ async function providersOf(
 ): Promise<TreeProvider[]> {
 	// The unit's working folder is no setting of the machine's.
 	if (!isAbsolute(path)) throw new Error("it isn't an absolute path");
+	// It runs outside the fence, so a module a sandboxed command could
+	// write would let that command out.
+	if (fencedWrites().some((folder) => liesWithin(path, folder))) {
+		throw new Error(
+			"it sits where a sandboxed command can write, and it would run outside the fence",
+		);
+	}
 	const loaded: unknown = await within(
 		withinMs,
 		import(pathToFileURL(path).href),

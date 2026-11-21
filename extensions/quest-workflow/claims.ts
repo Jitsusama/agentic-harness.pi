@@ -15,8 +15,8 @@
  * side importing the other.
  */
 
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -25,7 +25,7 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
-import { everyRealmsDir } from "../../lib/internal/paths.ts";
+import { everyRealmsDir, whyRealmsUnlisted } from "../../lib/internal/paths.ts";
 import {
 	type DiscoveryResult,
 	discoverQuests,
@@ -101,26 +101,45 @@ export function liveQuestTrees(questsRoot: string): string[] {
 }
 
 /**
- * Why the quests can't all be read for their claims, or nothing: the
- * quests root this realm's config names must be a folder, and every
- * realm's store that stands must list. A store read as empty claims
- * nothing, so its quests' trees would be taken as nobody's.
+ * Why the quests can't all be read for their claims, or nothing: every
+ * realm must be listed, the quests root this realm's config names must
+ * be a folder, and every other realm's store that stands, or is a link,
+ * must list, with every quest's README in each read. A store read as
+ * empty, or a quest left out of it, claims nothing, so those quests'
+ * trees would be taken as nobody's.
  */
 export function whyQuestsUnread(questsRoot: string): string | undefined {
+	const realms = whyRealmsUnlisted("data");
+	if (realms !== undefined) return realms;
 	for (const store of storesOf(questsRoot)) {
 		try {
 			const found = statSync(store, { throwIfNoEntry: false });
-			// Another realm that never kept a quest has nothing to claim.
-			if (found === undefined && store !== questsRoot) continue;
+			// Another realm that never kept a quest has nothing to claim; one
+			// whose store is a link to nothing may have quests elsewhere.
+			const absent =
+				found === undefined &&
+				lstatSync(store, { throwIfNoEntry: false }) === undefined;
+			if (absent && store !== questsRoot) continue;
 			if (found?.isDirectory() !== true) return `the quests aren't at ${store}`;
 			readdirSync(store);
 		} catch (error) {
 			const why = error instanceof Error ? error.message : String(error);
 			return `the quests at ${store} can't be looked at: ${why}`;
 		}
+		// A quest whose README can't be read drops out of the walk, so the
+		// trees it lists would go as nobody's; the claims read the same walk.
+		const hidden = discoverQuests(store).errors.find(
+			(error) => basename(error.path) === QUEST_README,
+		);
+		if (hidden !== undefined) {
+			return `the quest at ${dirname(hidden.path)} can't be read for its claims: ${hidden.message}`;
+		}
 	}
 	return undefined;
 }
+
+/** The file a quest is read from, beside the documents in its folder. */
+const QUEST_README = "README.md";
 
 /**
  * Push every tree a live quest in `walks` lists onto `into`, once, so
