@@ -86,7 +86,10 @@ import {
 	isTreeProvider,
 	registerTreeProvider,
 } from "../lib/core/work/register.ts";
-import { markSweptOutside } from "../lib/core/work/sweep-rest.ts";
+import {
+	markSweptOutside,
+	OUTSIDE_SWEEP_HOLDS_MS,
+} from "../lib/core/work/sweep-rest.ts";
 import { questWorkspacesRoot } from "../lib/internal/quest/workspace/workspace-root.ts";
 import { within as liesWithin } from "../lib/internal/sandbox/tree-git.ts";
 import { unattendedExec } from "../lib/internal/sandbox/unattended-exec.ts";
@@ -109,6 +112,9 @@ function fencedWrites(): string[] {
  * unit's two hours ran out, and every hourly run after it with it.
  */
 const LOAD_WITHIN_MS = 60 * 1000;
+
+/** An hour, to say the hosts' wait in. */
+const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * How long a provider may take to judge one tree before the run goes on
@@ -160,10 +166,11 @@ export async function sweepOutside({
 		calls,
 	);
 	if (troubles.length > 0) logSweep({ passedOver: troubles });
-	const refused = (why: string): SweptOutside => {
+	const hours = OUTSIDE_SWEEP_HOLDS_MS / HOUR_MS;
+	const refused = (why: string, hostsToo = ""): SweptOutside => {
 		logSweep({ ms: 0, failed: why });
 		tell(
-			`didn't sweep: ${why}; the hosts sweep again once the last stamp is two hours old`,
+			`didn't sweep: ${why}; the hosts sweep again once the last stamp is ${hours} hours old${hostsToo}`,
 		);
 		return { end: "failed", troubles };
 	};
@@ -179,7 +186,12 @@ export async function sweepOutside({
 	// and a store, this realm's or another's, that can't be listed claims
 	// nothing it holds.
 	const unseen = whyQuestsUnread(questsRoot);
-	if (unseen !== undefined) return refused(unseen);
+	if (unseen !== undefined) {
+		return refused(
+			unseen,
+			", and their claims miss the same quests, so mend them first",
+		);
+	}
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),

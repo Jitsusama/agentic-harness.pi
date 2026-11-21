@@ -736,13 +736,18 @@ it("fails before sweeping when a quest's README won't parse", async () => {
 		join(quest, "README.md"),
 		"# A quest whose front matter went\n",
 	);
+	const told = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: {} });
 
 	expect(ran.end, "how the run ended").toBe("failed");
 	expect(seen.claims, "the sweeps it ran").toEqual([]);
 	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
-		`the quest at ${quest} can't be read for its claims`,
+		`the quest at ${quest} can't be read for its claims: Front-matter invalid`,
+	);
+	// The hosts take sweeping back, but miss the same quest's claims.
+	expect(told.mock.calls.join(""), "what it told the journal").toContain(
+		"the hosts sweep again once the last stamp is 2 hours old, and their claims miss the same quests",
 	);
 });
 
@@ -815,8 +820,23 @@ it("fails before sweeping when another folder's README takes a quest's id", asyn
 
 	expect(ran.end, "how the run ended").toBe("failed");
 	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	// Whichever folder the walk read last keeps the id; the reason names
+	// the other folder's quest either way.
+	expect(String(logLines()[0]?.failed), "the line it logged").toMatch(
+		/can't be read for its claims: (the README at .* names its id|its README names another folder's quest)/,
+	);
+});
+
+it("fails before sweeping when a quest's folder is a link to nothing", async () => {
+	// It may lead to a quest elsewhere, so it isn't one being made.
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	symlinkSync(join(root, "quest-gone"), quest);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
 	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
-		"can't be read for its claims",
+		`the quest at ${quest} can't be read for its claims: it is a link`,
 	);
 });
 

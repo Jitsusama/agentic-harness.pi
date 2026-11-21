@@ -23,7 +23,7 @@ import {
 	readdirSync,
 	statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -40,7 +40,10 @@ import {
 	discoverQuestsAfresh,
 	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
-import { README_MISSING } from "../../lib/internal/quest/discovery/discovery-walk.ts";
+import {
+	FRONT_MATTER_INVALID,
+	README_MISSING,
+} from "../../lib/internal/quest/discovery/discovery-walk.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
 	removeTreeFromQuest,
@@ -195,12 +198,21 @@ function whyLeftOut(dir: string, walk: DiscoveryResult): string {
 		const why = error instanceof Error ? error.message : String(error);
 		return `its README can't be read: ${why}`;
 	}
+	// The walk keeps one quest per id, the folder it read last.
+	const taker = walk.index.quests.get(basename(dir));
+	if (taker !== undefined && taker.dir !== dir) {
+		return `the README at ${taker.dir} names its id, and took its place`;
+	}
 	const said = walk.errors.find(
 		(error) => error.path === readme && error.message !== README_MISSING,
 	);
-	return (
-		said?.message ?? "another folder's README names its id, and took its place"
-	);
+	if (said?.message === FRONT_MATTER_INVALID) return said.message;
+	// A folder named apart from its id is only left out when another
+	// folder holds that id.
+	if (said !== undefined) {
+		return `its README names another folder's quest, which took its place: ${said.message}`;
+	}
+	return "the walk couldn't read its README, as when it changes during the walk";
 }
 
 /**
