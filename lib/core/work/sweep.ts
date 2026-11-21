@@ -127,6 +127,19 @@ export interface SweepDeps extends UseSigns {
 	 * provider that can't say whether a tree is spent, every one is kept.
 	 */
 	providers?(): readonly TreeProvider[];
+	/**
+	 * How many snapshots a live session holds and nothing has used for
+	 * hours one sweep may take; `IDLE_TAKES_PER_SWEEP` by default, which
+	 * keeps a sweep on a host's thread short.
+	 */
+	idleTakes?: number;
+	/**
+	 * How long after it starts, in milliseconds, a sweep may go on
+	 * choosing and taking those snapshots, so a loaded machine, where
+	 * each is slow, gets fewer rather than a longer sweep; no limit by
+	 * default.
+	 */
+	idleWithinMs?: number;
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
 }
@@ -272,6 +285,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			outcome,
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
+		const clock = deps.now ?? Date.now;
+		const { idleWithinMs } = deps;
+		const spent = () =>
+			idleWithinMs !== undefined && clock() - now >= idleWithinMs;
 		try {
 			const askedAt = (path: string, key?: string) =>
 				deps.memory.askedAt(path, key);
@@ -282,8 +299,11 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				claims: [...claims, ...untilSpent],
 				now,
 				askedAt,
+				...(deps.idleTakes === undefined ? {} : { most: deps.idleTakes }),
+				spent,
 			};
 			for (const idle of await idleSnapshots(live, choice)) {
+				if (spent()) break;
 				await takeIdle(deps, facts, idle, now, outcome);
 			}
 		} catch (error) {

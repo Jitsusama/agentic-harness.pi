@@ -43,10 +43,10 @@ import { pinnedCommit } from "./tree.ts";
 export const IDLE_HELD_MS = 4 * 60 * 60 * 1000;
 
 /**
- * How many such snapshots one sweep takes at most, oldest first, so a
- * sweep holds the lock and the host's time for no longer than that many
- * removals. Who works where is read again for each, just before its
- * take.
+ * How many such snapshots one sweep takes at most, oldest first, unless
+ * its caller says otherwise, so a sweep on a host's thread holds the
+ * lock and the host's time for no longer than that many removals. Who
+ * works where is read again for each, just before its take.
  */
 export const IDLE_TAKES_PER_SWEEP = 20;
 
@@ -70,6 +70,13 @@ export interface IdleChoice extends UseSigns {
 	 * from the record `key` names when it is given.
 	 */
 	askedAt(path: string, key?: string): number | undefined;
+	/** How many to take at most; {@link IDLE_TAKES_PER_SWEEP} by default. */
+	most?: number;
+	/**
+	 * Whether the sweep has run as long as it may take these for, asked
+	 * before each is judged; never, by default.
+	 */
+	spent?(): boolean;
 }
 
 /**
@@ -93,7 +100,7 @@ export function lastUsed(tree: HeldTree, asked: number | undefined): number {
 /**
  * The snapshots among `held`, which live sessions hold, that nothing has
  * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
- * most {@link IDLE_TAKES_PER_SWEEP} of them, least recently used first.
+ * most `choice.most` of them, least recently used first.
  * Throws when there are some to judge and the machine can't say which
  * processes hold them, so the sweep says why it took none.
  */
@@ -130,9 +137,10 @@ export async function idleSnapshots(
 	);
 	if (busyBefore === undefined)
 		throw new Error("the machine can't say which processes hold its trees");
+	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
 	const chosen: IdleSnapshot[] = [];
 	for (const { tree, usedAt, path } of unclaimed) {
-		if (chosen.length >= IDLE_TAKES_PER_SWEEP) break;
+		if (chosen.length >= most || choice.spent?.() === true) break;
 		if (busyBefore.has(path)) continue;
 		const commit = pinnedCommit(tree.identity);
 		if (

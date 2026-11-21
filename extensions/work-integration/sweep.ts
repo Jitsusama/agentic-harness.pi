@@ -193,6 +193,16 @@ export interface SweepAsks {
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
 	/**
+	 * How many idle snapshots a live session holds the sweep may take, for
+	 * a runner off every host's thread; the sweep's own few by default.
+	 */
+	idleTakes?: number;
+	/**
+	 * How long, in milliseconds, the sweep may go on taking them; no
+	 * limit by default.
+	 */
+	idleWithinMs?: number;
+	/**
 	 * Whether its git holds to the fence's guard in every repository, as
 	 * a fenced session's does, whatever this process's own sandbox.
 	 */
@@ -226,6 +236,10 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			claims: () => asks.claimed(),
 			lockPath: sweepLockPath(),
 			...(asks.restMs === undefined ? {} : { restMs: asks.restMs }),
+			...(asks.idleTakes === undefined ? {} : { idleTakes: asks.idleTakes }),
+			...(asks.idleWithinMs === undefined
+				? {}
+				: { idleWithinMs: asks.idleWithinMs }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			...useSigns(),

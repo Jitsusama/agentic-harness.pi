@@ -119,7 +119,12 @@ function find(setup: Setup, tree: string) {
  */
 function sweepWhileOpen(
 	setup: Setup,
-	known: Partial<Pick<SweepDeps, "busyAmong" | "claims">> = {},
+	known: Partial<
+		Pick<
+			SweepDeps,
+			"busyAmong" | "claims" | "idleTakes" | "idleWithinMs" | "now"
+		>
+	> = {},
 ) {
 	return sweepEndedTrees({
 		exec,
@@ -150,6 +155,53 @@ describe("taking the snapshots a live session pinned and left", () => {
 		]);
 		expect(existsSync(tree), `${tree} is still there`).toBe(false);
 		expect(setup.memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("takes as many as its runner says, oldest first, keeping the rest for the next", async () => {
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, { idleTakes: 1 });
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([older.tree]);
+		expect(existsSync(newer.tree), "the newer waits for the next sweep").toBe(
+			true,
+		);
+	});
+
+	it("chooses none once the sweep has run as long as its runner gave it", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "left", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, { idleWithinMs: 0 });
+
+		expect(outcome.taken).toEqual([]);
+		expect(existsSync(tree), `${tree} is gone`).toBe(true);
+	});
+
+	it("takes no more once its time runs out between takes, keeping the rest", async () => {
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+		const started = Date.now();
+		let late = false;
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleWithinMs: HOUR,
+			// The clock runs past the hour once the first take has asked who
+			// works in its tree, after both were chosen.
+			now: () => (late ? started + 2 * HOUR : started),
+			busyAmong: async (paths) => {
+				if (paths.length === 1) late = true;
+				return new Set();
+			},
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([older.tree]);
+		expect(existsSync(newer.tree), "the newer waits for the next sweep").toBe(
+			true,
+		);
 	});
 
 	it("keeps one a session asked for within the window, though its files sat still", async () => {
@@ -529,6 +581,49 @@ describe("choosing the snapshots to take", () => {
 				.reverse()
 				.map((tree) => tree.path),
 		);
+	});
+
+	it("judges no more once its time is spent, choosing only those judged before", async () => {
+		const commit = "a".repeat(40);
+		const now = Date.now();
+		const snapshot = (name: string, ago: number): HeldTree => ({
+			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
+			path: `/nowhere/${name}`,
+			providerId: "git-worktree",
+			owners: [RUNNING],
+			usedAt: now - ago,
+		});
+		const older = snapshot("older", IDLE + 2 * HOUR);
+		const newer = snapshot("newer", IDLE + HOUR);
+		const answers: Record<string, string> = {
+			"rev-parse HEAD": commit,
+			"reflog --format=%H HEAD": commit,
+			"rev-parse --absolute-git-dir": "/nowhere/.git",
+			"status --porcelain=v1 --untracked-files=all": "",
+		};
+		const judgedIn = new Set<string>();
+		let asked = 0;
+
+		const chosen = await idleSnapshots([newer, older], {
+			exec: async (_command, args) => {
+				const where = args[1];
+				if (where !== undefined) judgedIn.add(where);
+				return {
+					code: 0,
+					stdout: answers[args.slice(3).join(" ")] ?? "unasked",
+					stderr: "",
+				};
+			},
+			claims: [],
+			now,
+			askedAt: (path) => (path === older.path ? older.usedAt : newer.usedAt),
+			busyAmong: async () => new Set(),
+			// Spent once the first has been judged.
+			spent: () => asked++ > 0,
+		});
+
+		expect(chosen.map((one) => one.tree.path)).toEqual([older.path]);
+		expect([...judgedIn], "git asked in the newer").not.toContain(newer.path);
 	});
 
 	it("keeps one whose record can't date its last ask, however old its own date", async () => {

@@ -3,6 +3,10 @@
  * held to the fence, what it took dropped from the quests that listed it,
  * the providers its setting names loaded and named in its stamp only once
  * they judged, and no sweep at all where its answers couldn't be trusted.
+ *
+ * Long because every case drives the one run through the same mocked
+ * sweep and quest store, hoisted for the whole file, which a second file
+ * would have to copy and keep in step.
  */
 
 import { execFileSync } from "node:child_process";
@@ -27,6 +31,7 @@ import type { Exec } from "../../lib/core/exec/index.ts";
 import type { TreeProvider } from "../../lib/core/work/broker.ts";
 import { clearTreeProviders } from "../../lib/core/work/register.ts";
 import type { SweepClaims } from "../../lib/core/work/sweep.ts";
+import { IDLE_TAKES_PER_SWEEP } from "../../lib/core/work/sweep-idle.ts";
 import { exitCodeOf, sweepOutside } from "../../scripts/pi-sweep.ts";
 
 const SPENT = "/src/repo/.worktrees/spent";
@@ -43,6 +48,8 @@ const seen = vi.hoisted(() => ({
 	fails: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
+	idleTakes: [] as (number | undefined)[],
+	idleWithin: [] as (number | undefined)[],
 	execs: [] as Exec[],
 }));
 
@@ -63,11 +70,15 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
 		claims: () => SweepClaims;
 		restMs?: number;
+		idleTakes?: number;
+		idleWithinMs?: number;
 		exec: Exec;
 		providers: () => readonly TreeProvider[];
 	}) => {
 		seen.claims.push(deps.claims());
 		seen.rests.push(deps.restMs);
+		seen.idleTakes.push(deps.idleTakes);
+		seen.idleWithin.push(deps.idleWithinMs);
 		seen.execs.push(deps.exec);
 		if (seen.fails !== undefined) throw new Error(seen.fails);
 		// As the library does: each provider that can is asked about a tree
@@ -111,6 +122,8 @@ beforeEach(() => {
 	seen.fails = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
+	seen.idleTakes.length = 0;
+	seen.idleWithin.length = 0;
 	seen.execs.length = 0;
 });
 afterEach(() => {
@@ -212,7 +225,7 @@ function module(name: string, give: string): string {
 	return path;
 }
 
-it("claims the quests' trees on disk, never rests, and drops what it took", async () => {
+it("claims the quests' trees on disk, never rests, takes more idle snapshots than a host for a bounded time, and drops what it took", async () => {
 	questListing(SPENT);
 
 	const ran = await sweepOutside({ env: {} });
@@ -222,6 +235,14 @@ it("claims the quests' trees on disk, never rests, and drops what it took", asyn
 		{ held: [], untilSpent: [SPENT] },
 	]);
 	expect(seen.rests, "the rest it was asked for").toEqual([undefined]);
+	expect(
+		seen.idleTakes[0],
+		"idle snapshots it may take, past a host's few, as it holds no host's thread",
+	).toBeGreaterThan(IDLE_TAKES_PER_SWEEP);
+	expect(
+		seen.idleWithin[0],
+		"how long it may take them for, so a loaded machine gets fewer",
+	).toBeGreaterThan(0);
 	expect(
 		liveQuestTrees(seen.quests),
 		"the trees its quest still lists",
