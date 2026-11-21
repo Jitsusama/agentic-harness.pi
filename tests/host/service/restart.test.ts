@@ -551,9 +551,9 @@ describe("restartWhenSettled", () => {
 
 	// One turn that never ends would otherwise hold every parked
 	// conversation and its wakes for as long as it runs.
-	it("lifts the heap's drain a ceiling on with a turn still running, and drains again only once the heap was under half", async () => {
+	it("lifts the heap's drain a ceiling on with a turn still running, and drains again pressed again", async () => {
 		let pressure: "pressed" | undefined = "pressed";
-		let pastHalf = true;
+		const pastHalf = true;
 		let clock = NOW;
 		const timers = manualTimers();
 		const drains: boolean[] = [];
@@ -579,23 +579,70 @@ describe("restartWhenSettled", () => {
 			"report: A turn kept the heap's drain standing past its ceiling: the drain the heap started lifts, and parked conversations wake as asked",
 		);
 
+		// Waiting on turns alone let wakes grow the heap to three-quarters.
 		pressure = "pressed";
 		await timers.fire();
 		await timers.fire();
-		expect(drains, "not drained again while past half").toEqual([true, false]);
+		expect(drains, "drained again, pressed again").toEqual([true, false, true]);
+	});
 
-		pastHalf = false;
-		pressure = undefined;
+	it("keeps the drain a heap still pressed past its ceiling stands, and says so once", async () => {
+		let clock = NOW;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => "pressed",
+			heapRestarts: () => true,
+			drain: (on) => drains.push(on),
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
 		await timers.fire();
-		pastHalf = true;
-		pressure = "pressed";
+
+		clock += SETTLE_CEILING_MS;
 		await timers.fire();
 		await timers.fire();
-		expect(drains, "drained again once it was under half").toEqual([
-			true,
-			false,
-			true,
+
+		expect(drains, "still drains").toEqual([true]);
+		const past = said.filter((line) => line.includes("past its"));
+		expect(past).toEqual([
+			"report: Heap short of room past its drain's ceiling: a turn still runs, so held wakes wait until the turns end, the heap has room or it passes three-quarters",
 		]);
+	});
+
+	it("keeps the drain past its ceiling while a call, not a turn, holds the restart", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		let turns: readonly Held[] = [{ state: "busy", since: lately }];
+		let clock = NOW;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => turns,
+			pressure: () => pressure,
+			heapRestarts: () => true,
+			drain: (on) => drains.push(on),
+			quiet: async () => "a call is on",
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(drains).toEqual([true]);
+
+		// The turns ended as it drained; its parks took it under three-fifths.
+		turns = [{ state: "idle", since: lately }];
+		pressure = undefined;
+		clock += SETTLE_CEILING_MS;
+		await timers.fire();
+		await timers.fire();
+
+		expect(drains, "no turn holds it, so it stands").toEqual([true]);
+		expect(
+			said.some((line) => line.includes("past its ceiling")),
+			"no turn blamed",
+		).toBe(false);
 	});
 
 	it("lifts the heap's drain once the heap is under half, and waits on another difference under the ordinary rules", async () => {

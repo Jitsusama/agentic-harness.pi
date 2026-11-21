@@ -190,8 +190,9 @@ input pipeline or screen. No unit or running host is installed yet.
   another difference, such as a moved install, then waits under the
   ordinary rules. A turn still running half an hour after the drain
   started lifts it once the heap is under three-fifths, so one turn
-  that never ends can't hold parked work, and the heap drains again
-  only once it has been under half.
+  that never ends can't hold parked work; pressed again, it drains
+  again. A call holding the restart once the turns end lifts nothing.
+  Still pressed past that half hour, it stands, saying so once.
   A drain standing by hand before the heap was pressed is left to
   its asker; one asked while the heap's stands lifts with it. One
   lifted by hand while the heap is still pressed is started again at
