@@ -122,10 +122,13 @@ export interface GitRules {
 	readonly disk?: Disk;
 }
 
-/** How git may run: with these arguments, or not at all, and why. */
+/**
+ * How git may run: with these arguments, or not at all, and why, with
+ * the top of the repository it found, which a refusal still knows.
+ */
 export type GitRun =
 	| { readonly args: readonly string[] }
-	| { readonly refused: string };
+	| { readonly refused: string; readonly top: string };
 
 /** The git `folder` answers to, as git would find it walking up. */
 type FoundGit =
@@ -189,6 +192,7 @@ function redirected(top: string, git: string): GitRun | undefined {
 	return kindOf(join(git, "commondir")) === undefined
 		? undefined
 		: {
+				top,
 				refused: `${top}'s git folder ${git} holds a commondir, which would have git read the settings of another folder, so git won't run there.`,
 			};
 }
@@ -215,6 +219,7 @@ export function gitRun(
 	if (found.kind === "none") return outside(args);
 	if (found.kind === "link") {
 		return {
+			top: found.top,
 			refused: `${found.top}'s .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to.`,
 		};
 	}
@@ -223,6 +228,7 @@ export function gitRun(
 		if (elsewhere) return elsewhere;
 		if (within(found.top, rules.trees)) {
 			return {
+				top: found.top,
 				refused: `${found.top} lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there. Release it and cut it again.`,
 			};
 		}
@@ -231,6 +237,7 @@ export function gitRun(
 			!guardsGitFolder(real(found.git), rules.home, rules.disk)
 		) {
 			return {
+				top: found.top,
 				refused: `${found.top} is a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
 			};
 		}
@@ -239,6 +246,7 @@ export function gitRun(
 	const tree = treeGit(found.top, rules.home);
 	if (!tree) {
 		return {
+			top: found.top,
 			refused: `${found.top}'s .git file names no worktree whose repository names it back, so git won't run there: a command may have pointed it at a git folder of its own. Release the tree and cut it again.`,
 		};
 	}
@@ -254,6 +262,7 @@ export function gitRun(
 		!guardsGitFolder(real(tree.common), rules.home, rules.disk)
 	) {
 		return {
+			top: found.top,
 			refused: `${found.top} is a worktree of ${tree.common}, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox. ${CUT_ELSEWHERE}`,
 		};
 	}
@@ -264,8 +273,18 @@ export function gitRun(
 	]);
 }
 
+/**
+ * The top of the repository whose git `gitRun` won't run in `folder`,
+ * or undefined where it may: where `folder`'s work lives, which a
+ * refused git can't say for itself.
+ */
+export function refusedIn(folder: string, rules: GitRules): string | undefined {
+	const run = gitRun(folder, [], rules);
+	return "refused" in run ? run.top : undefined;
+}
+
 /** The exit code a refused git answers with, as a shell's for a command it won't run. */
-const GIT_REFUSED = 126;
+export const GIT_REFUSED = 126;
 
 /**
  * The folder git would run in for `args`, each leading `-C` taken in

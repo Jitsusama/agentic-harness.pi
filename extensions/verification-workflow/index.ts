@@ -82,14 +82,12 @@ function isTheWork(path: string): boolean {
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
-	// How many verify runs have said how a project stands, which said so
-	// last of each, and which run each record holds, so a failure is
-	// recorded only if no later run of its project said otherwise, no
-	// later failure holds the one record, and no edit landed in its
-	// project from the run's start until it was recorded.
+	// How many verify runs have said how a project stands, and which said
+	// so last of each, so a failure is recorded only if no later run of
+	// its project said otherwise and no edit landed in its project from
+	// the run's start until it was recorded.
 	let verdicts = 0;
 	const latest = new Map<string, number>();
-	const runOf = new WeakMap<FailedRun, number>();
 	// The paths edited while each verify runs and is recorded.
 	const watchingEdits = new Set<string[]>();
 
@@ -146,8 +144,8 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		for (const edited of watchingEdits) edited.push(absolute);
 		// An edit under a failed run's project means the run judged a
 		// tree that no longer exists.
-		if (state.failedRun && within(state.failedRun.root, absolute)) {
-			state.failedRun = undefined;
+		for (const [root, run] of state.failedRuns) {
+			if (within(run.root, absolute)) state.failedRuns.delete(root);
 		}
 	});
 
@@ -333,14 +331,10 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 					// an edit, so a tree too wide to list never turns the gate off.
 					const fingerprint = await treeFingerprint(root);
 					// A run of the project that ended while git answered, or an
-					// edit there since the run began, says more of the tree now; a
-					// failure still recorded that ended later holds the record, as
-					// the last to end does.
-					const holder = state.failedRun && runOf.get(state.failedRun);
+					// edit there since the run began, says more of the tree now.
 					unkept = whyUnkept({
 						later: latest.get(root) !== mine,
 						edited: edited.some((p) => within(root, p)),
-						outranked: holder !== undefined && holder > mine,
 					});
 					if (unkept === undefined) {
 						const run: FailedRun = {
@@ -348,20 +342,15 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 							command: result.command,
 							...(fingerprint === undefined ? {} : { fingerprint }),
 						};
-						runOf.set(run, mine);
-						state.failedRun = run;
+						state.failedRuns.set(root, run);
 						recorded = { run, standing: "same" };
 					}
-				} else if (
-					verdict.outcome === "clean" &&
-					state.failedRun?.root === root
-				) {
-					state.failedRun = undefined;
+				} else if (verdict.outcome === "clean") {
+					state.failedRuns.delete(root);
 				}
-				watchingEdits.delete(edited);
 				// A check that could not start leaves what else is known as it
 				// was; with nothing else known it says nothing was checked.
-				const settled = await settle(state, recorded, signal);
+				const settled = await settle(state, recorded ? [recorded] : [], signal);
 				state.outcome =
 					verdict.outcome === "deferred" && settled === "clean"
 						? "deferred"
@@ -398,19 +387,16 @@ interface VerifyDetails {
 
 /**
  * Why a failed run is left unrecorded: a `later` run of its project has
- * the say, an edit there landed before it was recorded (`edited`), or a failure
- * elsewhere that ended later `outranked` it. Nothing when it is kept.
+ * the say, or an edit there landed before it was recorded (`edited`).
+ * Nothing when it is kept.
  */
 function whyUnkept(meanwhile: {
 	readonly later: boolean;
 	readonly edited: boolean;
-	readonly outranked: boolean;
 }): string | undefined {
 	if (meanwhile.later) return "a later run of this project has the say";
 	if (meanwhile.edited)
 		return "an edit landed in this project before it could be recorded";
-	if (meanwhile.outranked)
-		return "a failure in another project that ended later holds the record";
 	return undefined;
 }
 

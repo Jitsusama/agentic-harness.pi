@@ -26,7 +26,11 @@ import {
 	spawnExec,
 } from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
+import {
+	GIT_REFUSED,
+	guardedExec,
+	refusedIn,
+} from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
@@ -67,13 +71,19 @@ export function directoryOf(path: string): string {
 	return dirname(absolute);
 }
 
-/** The top of the git repository holding dir, or undefined outside one. */
+/**
+ * The top of the git repository holding dir, or undefined outside one
+ * or when git gives no answer. A git the guard refused never ran, but
+ * the guard found the repository it refused, so that is the answer.
+ */
 export async function gitRoot(
 	dir: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	const out = await git(dir, ["rev-parse", "--show-toplevel"], signal);
-	return out === undefined ? undefined : out.trim() || undefined;
+	const asked = await ask(dir, ["rev-parse", "--show-toplevel"], signal);
+	if (!asked.answered) return undefined;
+	if (asked.code === 0) return asked.stdout.trim() || undefined;
+	return asked.code === GIT_REFUSED ? refusedIn(dir, gitRules()) : undefined;
 }
 
 /** Whether path is root or lies inside it, with links resolved. */
@@ -84,12 +94,14 @@ export function within(root: string, path: string): boolean {
 }
 
 /**
- * A fingerprint of what a tree holds: the commit it sits on, and the
- * size and modification time of every file that differs from it,
- * untracked ones included. Staging leaves it alone, since it moves no
- * file. Undefined outside git, when git does not answer in time or
- * says too much, or once `signal` fires. A tree with no commit yet is
- * told by git saying so, never by git saying nothing.
+ * A fingerprint of what the tree at `root` holds: what the commit it
+ * sits on holds there, and the size and modification time of every
+ * file under it that differs, untracked ones included. Only `root` is
+ * read, so work elsewhere in its repository, such as another project's,
+ * leaves it alone; staging does too, since it moves no file. Undefined
+ * outside git, when git does not answer in time or says too much, or
+ * once `signal` fires. A folder no commit holds yet is told by git
+ * saying so, never by git saying nothing.
  */
 export async function treeFingerprint(
 	root: string,
@@ -102,18 +114,20 @@ export async function treeFingerprint(
 		"--porcelain=v1",
 		"-z",
 		"--untracked-files=all",
+		"--",
+		".",
 	];
 	const [head, changed, top] = await Promise.all([
-		ask(root, ["rev-parse", "HEAD^{tree}"], signal),
+		ask(root, ["rev-parse", "HEAD:./"], signal),
 		git(root, status, signal, STATUS_MOST_CHARS),
 		ask(root, ["rev-parse", "--show-toplevel"], signal),
 	]);
 	const topDir = top.answered && top.code === 0 ? top.stdout.trim() : "";
 	if (!head.answered || changed === undefined || !topDir) return undefined;
-	const unborn = saysFatally(head, NO_COMMIT);
+	const uncommitted = saysFatally(head, NO_COMMIT);
 	// Any other failure says nothing of what the tree sits on.
-	if (head.code !== 0 && !unborn) return undefined;
-	const commit = unborn ? undefined : head.stdout;
+	if (head.code !== 0 && !uncommitted) return undefined;
+	const commit = uncommitted ? undefined : head.stdout;
 	const print = await fingerprintOf(commit, changed, topDir);
 	// Stopped while stamping: what it read is no answer.
 	return signal?.aborted ? undefined : print;
@@ -132,8 +146,12 @@ function saysFatally(asked: Asked, message: RegExp): boolean {
 /** The code git exits with when it can't do what it was asked. */
 const GIT_FATAL = 128;
 
-/** What git says, in the C locale, of a HEAD with no commit yet. */
-const NO_COMMIT = /^fatal: .*(unknown revision|ambiguous argument)/m;
+/**
+ * What git says, in the C locale, of a folder no commit holds yet: a
+ * HEAD with no commit, or one whose commit has nothing there.
+ */
+const NO_COMMIT =
+	/^fatal: (.*(unknown revision|ambiguous argument)|invalid object name 'HEAD'|path '.*' exists on disk, but not in 'HEAD')/m;
 
 /** Git's messages untranslated, so what it says can be told apart. */
 const UNTRANSLATED = { LC_ALL: "C" };

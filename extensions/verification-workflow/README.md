@@ -79,10 +79,11 @@ never read from an earlier pass:
   those in the repository the commit lands in, worked out from
   its `cd` segments and `git -C`. A file the server does not
   reach within ten seconds is not held against the commit.
-- A failed verify run counts while its tree is the one it
-  judged: the same HEAD, and the same size and modification
-  time on every changed file. Staging moves no file, so it does
-  not count as a change. Git is asked in its own untranslated
+- A failed verify run counts while its project's folder is the
+  one it judged: what HEAD holds there, and the same size and
+  modification time on every changed file under it. Work in
+  another project of the repository leaves it standing. Staging
+  moves no file, so it does not count as a change. Git is asked in its own untranslated
   words, off the thread: each question within five seconds and a
   status within a mebibyte. A check asks a few, so it can wait
   several times that, and longer on a git that holds its output
@@ -100,15 +101,25 @@ never read from an earlier pass:
     for now lets the commit through, since nothing confirms it,
     and stays recorded for the next ask. So does a run above the
     commit's folder when git names no repository for it, since
-    that run may be another repository's.
-  - A check that verify runs keep overtaking asks git three
-    times, then holds the commit on the newest run as it was
-    recorded, in scope, and says it failed while the commit was
-    checked.
+    that run may be another repository's. Where the guard refuses
+    git, the repository it found walking up is taken as the
+    commit's, so a commit from a folder below the run is held too.
+    That holds as far as the guard's walk matches git's own.
+  - A commit's check asks git after one project at a time, and
+    only those in the commit's repository, including one recorded
+    while it asks; a run elsewhere waits for the next verify to be
+    asked after. No wall bounds the check as a whole, since one
+    ending it would let the commit through unjudged.
+  - A check asks git after each project three times at most,
+    however verify runs overtake it, then holds the commit on
+    that project's newest run as it was recorded, in scope, and
+    says it failed while the commit was checked. A run an edit or
+    a clean verify retires while others are asked after holds
+    nothing.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
-  - Of two failed runs ending close together, in any projects,
-    the one that ended last is kept. A failure is not kept when a
+  - Each project keeps its own last failed run, so a failure in
+    one never displaces another's. A failure is not kept when a
     later run of its project ended first, or an edit landed in
     its project between the run's start and its record, and
     verify's answer says why.

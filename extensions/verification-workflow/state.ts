@@ -3,8 +3,8 @@
  * touched during the current run, the errors still
  * outstanding, how many times the fast layer has asked the
  * agent to fix them in a row, what each checked file last
- * answered, the last check run that failed, and the last
- * outcome for the status line.
+ * answered, each project's last check run if it failed, and
+ * the last outcome for the status line.
  */
 
 import type { FileError } from "../../lib/verification/index.ts";
@@ -41,8 +41,12 @@ export interface VerificationState {
 	 * that had any. A commit re-checks these rather than trusting them.
 	 */
 	known: Map<string, FileError[]>;
-	/** The last check run that found the code failing, if any. */
-	failedRun?: FailedRun;
+	/**
+	 * Each project's last check run, by its root, where it found the code
+	 * failing: one project's failure says nothing of another's, so neither
+	 * displaces the other.
+	 */
+	failedRuns: Map<string, FailedRun>;
 	/** The file edited most recently, which says where the work is. */
 	lastEdited?: string;
 	/** Last outcome, for the status line. */
@@ -91,6 +95,7 @@ export function createVerificationState(): VerificationState {
 		pending: [],
 		attempts: 0,
 		known: new Map(),
+		failedRuns: new Map(),
 		outcome: "unknown",
 	};
 }

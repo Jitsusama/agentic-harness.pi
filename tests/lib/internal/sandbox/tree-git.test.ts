@@ -22,6 +22,7 @@ import {
 	type GitRules,
 	gitRun,
 	guardedExec,
+	refusedIn,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
@@ -114,6 +115,7 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(answer.code, answer.stderr).toBe(126);
 		expect(answer.stderr).toContain("names no worktree");
 		expect(existsSync(ran), "the forged monitor never ran").toBe(false);
+		expect(refusedIn(cut, rules()), "the tree refused").toBe(cut);
 	});
 
 	it("won't run in a cut tree whose repository lies outside the guard, laid out to agree", async () => {
@@ -129,6 +131,7 @@ describe("git that pi runs outside the sandbox", () => {
 		writeFileSync(join(cut, ".git"), `gitdir: ${own}\n`);
 
 		expect(gitRun(cut, ["status"], rules())).toMatchObject({
+			top: cut,
 			refused: expect.stringContaining(`a worktree of ${forged}`),
 		});
 	});
@@ -165,8 +168,10 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(answer.stderr).toContain("holds a commondir");
 		expect(existsSync(ran), "the forged monitor never ran").toBe(false);
 		expect(gitRun(cut, ["status"], rules())).toMatchObject({
+			top: cut,
 			refused: expect.stringContaining("holds a commondir"),
 		});
+		expect(refusedIn(repo, rules()), "the repository refused").toBe(repo);
 	});
 
 	it("won't run in a repository of its own where trees are cut", () => {
@@ -175,6 +180,7 @@ describe("git that pi runs outside the sandbox", () => {
 		cpSync(template, own, { recursive: true });
 
 		expect(gitRun(own, ["status"], rules())).toMatchObject({
+			top: own,
 			refused: expect.stringContaining("rather than a worktree"),
 		});
 	});
@@ -187,6 +193,15 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(gitRun(folder, ["status"], rules())).toMatchObject({
 			refused: expect.stringContaining("is a link"),
 		});
+	});
+
+	it("names the repository it refuses, from any folder below it", () => {
+		const folder = join(home, "linked");
+		mkdirSync(join(folder, "src"), { recursive: true });
+		symlinkSync(join(template, ".git"), join(folder, ".git"));
+
+		expect(refusedIn(join(folder, "src"), rules())).toBe(folder);
+		expect(refusedIn(template, rules()), "git may run there").toBeUndefined();
 	});
 
 	it("holds a sandboxed session to repositories the fence guards", async () => {
@@ -203,9 +218,11 @@ describe("git that pi runs outside the sandbox", () => {
 			"a repository in another entry of the home folder, which a command can make",
 		).toMatchObject({ refused: expect.stringContaining("doesn't keep") });
 		expect(gitRun(scratch, ["status"], fenced)).toMatchObject({
+			top: scratch,
 			refused: expect.stringContaining("doesn't keep read-only"),
 		});
 		expect(gitRun(scratchTree, ["status"], fenced)).toMatchObject({
+			top: scratchTree,
 			refused: expect.stringContaining(`a worktree of ${scratch}/.git`),
 		});
 		expect(
