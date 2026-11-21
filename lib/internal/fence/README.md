@@ -7,6 +7,11 @@ a Mac, the census of who runs fenced, the pre-flight checks that prove
 it still lets the work through, which pis it takes, the line each
 refusal leaves in the system's log, and its one exemption.
 
+Many entries because each is one piece of the fence that every other
+reads against: split into folders, a path's way from hidden to let
+through to read-only would cross folders, and a reviewer reading one
+would miss what another binds over it.
+
 ## Files
 
 - **`fence.ts`**: the agent fence, as bubblewrap's and landrun's
