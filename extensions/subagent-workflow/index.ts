@@ -76,6 +76,7 @@ import {
 	SUBAGENT_PARAMETERS,
 	SUBAGENT_PROMPT_SNIPPET,
 } from "./declaration.ts";
+import { fenceRefusal } from "./fence-keep.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
@@ -307,6 +308,13 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			if ("refusal" in sized) {
 				return {
 					content: [{ type: "text" as const, text: sized.refusal }],
+					details: { ok: false },
+				};
+			}
+			const kept = fenceRefusal(sized.jobs);
+			if (kept !== undefined) {
+				return {
+					content: [{ type: "text" as const, text: kept }],
 					details: { ok: false },
 				};
 			}
