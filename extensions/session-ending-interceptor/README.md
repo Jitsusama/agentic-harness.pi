@@ -99,9 +99,10 @@ machine, read without a deadline.
   `graphical-session.target`), reads as a log-out, so a host or holder
   the spare passes over has to outlive the desktop, as a host wanted
   by `default.target`, or a holder's scope in `agents.slice`, bound to
-  nothing graphical does. A reply that names an act in words and a
-  command in inline code asks for both, so "log out with `loginctl
-  terminate-user`" counts as ending the user's processes too.
+  nothing graphical does. A reply that asks for an act also asks for
+  what each command in its inline code does, wherever in the reply it
+  sits, so "log out. The quickest way is `loginctl terminate-user`"
+  counts as ending the user's processes too.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
   or unsent text); its presence then says `parked`, and its marker

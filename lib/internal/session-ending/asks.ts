@@ -186,7 +186,8 @@ function asksIn(
 ): SessionEndingAsk[] {
 	const words = machineWords(machines);
 	const found: SessionEndingAsk[] = [];
-	for (const part of parts(folded(text))) {
+	const split = parts(folded(text));
+	for (const part of split) {
 		for (const line of commandLines(part)) {
 			found.push(...commandAsks(line, machines));
 		}
@@ -198,7 +199,35 @@ function asksIn(
 			});
 		}
 	}
-	return found;
+	return found.length > 0
+		? [...found, ...codeBesideAnAsk(split, found, machines)]
+		: found;
+}
+
+/**
+ * The acts of every inline code span in a reply that asks, beyond those
+ * it already asks for: "log out. The quickest way is `loginctl
+ * terminate-user`" asks for what that command does too, wherever the
+ * code sits, so a spare chosen from the words can't let it through.
+ */
+function codeBesideAnAsk(
+	split: readonly Part[],
+	found: readonly SessionEndingAsk[],
+	machines: readonly string[],
+): SessionEndingAsk[] {
+	const acts = new Set(found.map((one) => one.act));
+	const more: SessionEndingAsk[] = [];
+	for (const part of split) {
+		if (!part.prose) continue;
+		for (const code of codeSpans(part.lines.join("\n"))) {
+			for (const one of commandAsks(code, machines)) {
+				if (acts.has(one.act)) continue;
+				acts.add(one.act);
+				more.push(one);
+			}
+		}
+	}
+	return more;
 }
 
 /**
@@ -243,13 +272,7 @@ function sentenceAsks(
 			byAct.set(act, { act, machines: named, said });
 		}
 	}
-	// An ask in words reads its code too, so "log out with `loginctl
-	// terminate-user`" asks for what that command does, not only a log-out.
-	const spans = new Set([
-		...(asksToRun(plain) ? inlineCode(sentence) : []),
-		...(byAct.size > 0 ? codeSpans(sentence) : []),
-	]);
-	for (const code of spans) {
+	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
 		for (const one of commandAsks(code, machines)) {
 			if (byAct.has(one.act)) continue;
 			const where = one.machines.length > 0 ? one.machines : named;
@@ -289,7 +312,7 @@ function withoutBoldLabel(sentence: string, words: string): string {
 const RUN_SPAN =
 	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
 
-/** Every inline code span of a sentence, as written. */
+/** Every inline code span of some prose, as written. */
 function codeSpans(sentence: string): string[] {
 	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
 }

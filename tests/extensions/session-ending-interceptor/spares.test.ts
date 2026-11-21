@@ -124,6 +124,24 @@ describe("what spares this machine's sessions", () => {
 		expect(asked).toBe(1);
 	});
 
+	it("withholds a log-out whose command, said after it, ends the hosts too", async () => {
+		interceptorOver([hosted("busy"), me], answering(true));
+
+		expect(
+			await reply(
+				"Please log out of niri on optimus. The quickest way is `loginctl terminate-user joel`.",
+			),
+		).toBeDefined();
+	});
+
+	it("refuses a reboot past parked sessions whose command keeps the boot", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		expect(
+			await look("Reboot optimus. Use `sudo systemctl soft-reboot` for it"),
+		).toMatchObject({ block: true });
+	});
+
 	it("still withholds a reboot of hosted sessions", async () => {
 		interceptorOver([hosted("busy"), me], answering(true));
 

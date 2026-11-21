@@ -171,8 +171,32 @@ describe("a reply that asks", () => {
 		],
 		["Reboot optimus with `sudo systemctl soft-reboot`.", "soft-reboot"],
 		["Please reboot optimus (`systemctl soft-reboot`).", "soft-reboot"],
+		[
+			"Please log out of niri on optimus. The quickest way is `loginctl terminate-user joel`.",
+			"end the user's processes",
+		],
+		[
+			"Reboot optimus. Use `sudo systemctl soft-reboot` so the kernel stays.",
+			"soft-reboot",
+		],
+		[
+			"Please log out of niri on optimus:\n\n- `loginctl terminate-user joel`",
+			"end the user's processes",
+		],
+		["Reboot optimus with:\n\n`sudo systemctl soft-reboot`", "soft-reboot"],
+		[
+			"Log out of niri on optimus with `loginctl terminate-user joel; echo done`.",
+			"end the user's processes",
+		],
 	])("%s asks for what its code does too", (text, act) => {
 		expect(acts(text)).toContain(act);
+	});
+
+	it("reads code once beside a worded ask, and none where nothing asks", () => {
+		expect(acts("Please run `sudo reboot` on optimus.")).toEqual(["reboot"]);
+		expect(
+			acts("The guard now refuses `loginctl terminate-user joel` here."),
+		).toEqual([]);
 	});
 });
 
