@@ -95,6 +95,11 @@
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
+ *
+ * Long because restartWhenSettled is one wait whose rules share one
+ * state: the settling, the ceiling, the heap's pressure, held work, the
+ * calls and the drain each read what the others last saw, and split
+ * apart they would pass that state between files at every look.
  */
 
 import { realpath } from "node:fs/promises";
