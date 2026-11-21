@@ -283,6 +283,35 @@ export function forgetGoneEntry(
 	// An empty folder is as gone to git, and is what the cut makes first
 	// where each tree is a subvolume of its own.
 	if (holdsSomething(path)) return false;
+	const entry = entryNaming(commonDir, path);
+	if (entry === undefined) return false;
+	if (lockedSince(entry, now) || lockedByHand(entry)) return false;
+	try {
+		rmSync(entry, { recursive: true, force: true });
+		return true;
+	} catch {
+		// One going as it is forgotten: git's to finish.
+		return false;
+	}
+}
+
+/**
+ * Whether the repository whose common folder is `commonDir` holds an
+ * entry for a worktree at `path` locked for a reason other than a
+ * cut's English one. This is git's own view of the lock, which still
+ * stands where the tree's `.git` names some other folder, as it does
+ * once the clone has moved, and where {@link handLocked} so sees none.
+ */
+export function handLockedIn(commonDir: string, path: string): boolean {
+	const entry = entryNaming(commonDir, path);
+	return entry !== undefined && lockedByHand(entry);
+}
+
+/**
+ * Git's entry, in the repository whose common folder is `commonDir`,
+ * whose way back names a worktree at `path`, or nothing.
+ */
+function entryNaming(commonDir: string, path: string): string | undefined {
 	const entries = join(commonDir, "worktrees");
 	// git writes the real path, which only the folder's parent still has.
 	const wanted = new Set([
@@ -293,32 +322,47 @@ export function forgetGoneEntry(
 	try {
 		names = readdirSync(entries);
 	} catch {
-		// No worktrees folder: git has no entry to forget.
-		return false;
+		// No worktrees folder: git has no entry for it.
+		return undefined;
 	}
 	for (const name of names) {
 		const entry = join(entries, name);
 		try {
 			if (!lstatSync(entry).isDirectory()) continue;
 			const named = readPlain(join(entry, "gitdir"))?.trim();
-			if (named === undefined || !wanted.has(resolve(entry, named))) continue;
-			if (lockedSince(entry, now) || lockedByHand(entry)) return false;
-			rmSync(entry, { recursive: true, force: true });
-			return true;
+			if (named !== undefined && wanted.has(resolve(entry, named))) {
+				return entry;
+			}
 		} catch {
 			// An entry git can't have written, or one going as it is read.
 		}
 	}
-	return false;
+	return undefined;
 }
 
 /**
  * Whether git's entry `entry` is locked for a reason of somebody's own
- * rather than the word `worktree add` writes while it fills a tree.
+ * rather than the word `worktree add` writes while it fills a tree. Git
+ * writes its lock as a plain file, so a lock that is a link, a fifo or
+ * a folder is no cut's either, and is never read as one still running,
+ * which would only ask again in a minute for as long as it stands.
  */
 function lockedByHand(entry: string): boolean {
-	const reason = readPlain(join(entry, "locked"));
-	return reason !== undefined && reason.trim() !== "initializing";
+	const lock = join(entry, "locked");
+	const reason = readPlain(lock);
+	if (reason !== undefined) return reason.trim() !== "initializing";
+	return standsAt(lock);
+}
+
+/** Whether anything at all stands at `path`, a link included. */
+function standsAt(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		// Nothing there.
+		return false;
+	}
 }
 
 /** Whether anything stands at `path` other than an empty folder. */
