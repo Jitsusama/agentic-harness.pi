@@ -106,6 +106,50 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(lastSent()).toBeUndefined();
 	});
 
+	// A send reads the address upper-cased, and no session goes by it in
+	// that case, so a question never reaches such a hub past its checks.
+	it("sends nothing to a hub whose presence spells its address in lower case", async () => {
+		onQuest();
+		cellIn("session-q", "5gv2ah", ["#quest/5gv2ah"]);
+		const env = await node([asker], [tieTo("5gv2ah", 2)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"orchestrator",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain(
+			"Not sent: no session in this realm goes by 5GV2AH",
+		);
+		expect(lastSent()).toBeUndefined();
+	});
+
+	// Its owner is this process under another start, so it has ended.
+	it("never picks a cell whose session has ended", async () => {
+		onQuest();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5GV2AH"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		});
+		const env = await node([asker], [tieTo("5GV2AH", 9)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(tools, "orchestrator", "question", "May I?");
+
+		expect(refused).toContain("has a tie to this peer yet");
+		expect(lastSent()?.text).not.toBe("May I?");
+	});
+
 	it("still reaches the marked orchestrator over a stronger tie, without asking the node", async () => {
 		onQuest();
 		markedParent();
