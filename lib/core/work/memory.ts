@@ -161,11 +161,20 @@ export interface TreeMemory {
 	 * carries a stale `usedAt` but rewrites the record on every ask.
 	 * `take` must be quick, as for {@link whileUnheld}. Answers the record
 	 * it forgot, or nothing when `take` didn't run or didn't take it.
+	 * Given the tree's `key`, only its record's own file is read and
+	 * removed, as for {@link askedAt}: listing every record three times a
+	 * take, with a stat of every tree, cost a sweep taking hundreds of trees
+	 * millions of reads in the folders Joel's windows wait on. A record
+	 * written under another name then reads as none, which keeps its tree.
+	 * Another record naming the same path is left: none names a git
+	 * snapshot (the paths two records share are World's, under its two
+	 * keys), and one would read as live again only were the path cut anew.
 	 */
 	whileUnusedSince(
 		path: string,
 		since: number,
 		take: () => Promise<boolean>,
+		key?: string,
 	): Promise<HeldTree | undefined>;
 	/**
 	 * When the record of the tree at `path` was last written, in
@@ -300,6 +309,24 @@ export function createTreeMemory(
 
 	const fileFor = (key: string): string =>
 		join(dir, `${key.replaceAll("/", "-")}.json`);
+
+	/**
+	 * The record filed under `key`, when it names the tree at `path` and
+	 * that tree stands, read from its one file. A rename over it is atomic,
+	 * so the old record or the new one is read, never neither.
+	 */
+	function recordAt(key: string, path: string): HeldTree | undefined {
+		let written: Written;
+		try {
+			written = JSON.parse(readFileSync(fileFor(key), "utf8"));
+		} catch {
+			// No record, or one half-written: either reads as no record.
+			return undefined;
+		}
+		return usable(written) && written.path === path && existsSync(path)
+			? (written as unknown as HeldTree)
+			: undefined;
+	}
 
 	/** Run a rewrite of one record with every other session held off it. */
 	async function underLock(
@@ -504,12 +531,16 @@ export function createTreeMemory(
 			return taken;
 		},
 
-		async whileUnusedSince(path, since, take) {
-			const found = this.recall().find((one) => one.path === path);
+		async whileUnusedSince(path, since, take, key) {
+			const find = (): HeldTree | undefined =>
+				key === undefined
+					? this.recall().find((one) => one.path === path)
+					: recordAt(key, path);
+			const found = find();
 			if (found === undefined) return undefined;
 			let taken: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
-				const tree = this.recall().find((one) => one.path === path);
+				const tree = find();
 				const asked = this.askedAt(path, found.identity.key);
 				if (
 					tree === undefined ||
@@ -518,7 +549,10 @@ export function createTreeMemory(
 				)
 					return;
 				if (!(await take())) return;
-				this.forget(path);
+				if (key === undefined) this.forget(path);
+				// One filed under another name names a tree now gone, which the
+				// next listing drops.
+				else rmSync(fileFor(key), { force: true });
 				taken = tree;
 			});
 			return taken;

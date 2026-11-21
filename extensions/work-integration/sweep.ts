@@ -193,6 +193,18 @@ export interface SweepAsks {
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
 	/**
+	 * How many idle snapshots a live session holds the sweep may take, for
+	 * a runner off every host's thread; the sweep's own few by default.
+	 */
+	idleTakes?: number;
+	/**
+	 * How long, in milliseconds of awake time, the sweep may go on judging
+	 * them past a host's share; no limit by default.
+	 */
+	idleWithinMs?: number;
+	/** Waited on before each idle take but the first; nothing by default. */
+	betweenIdleTakes?: () => Promise<void>;
+	/**
 	 * Whether its git holds to the fence's guard in every repository, as
 	 * a fenced session's does, whatever this process's own sandbox.
 	 */
@@ -226,6 +238,13 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 			claims: () => asks.claimed(),
 			lockPath: sweepLockPath(),
 			...(asks.restMs === undefined ? {} : { restMs: asks.restMs }),
+			...(asks.idleTakes === undefined ? {} : { idleTakes: asks.idleTakes }),
+			...(asks.idleWithinMs === undefined
+				? {}
+				: { idleWithinMs: asks.idleWithinMs }),
+			...(asks.betweenIdleTakes === undefined
+				? {}
+				: { betweenIdleTakes: asks.betweenIdleTakes }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			...useSigns(),
@@ -602,6 +621,9 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		...(outcome.idleUnjudged === undefined
 			? {}
 			: { idleUnjudged: outcome.idleUnjudged }),
+		// A run its count or time cut short says how many it left, so it
+		// reads apart from one that found no more idle.
+		...(outcome.idleLeft === undefined ? {} : { idleLeft: outcome.idleLeft }),
 	};
 }
 

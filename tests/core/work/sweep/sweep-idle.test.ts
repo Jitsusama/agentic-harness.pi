@@ -1,6 +1,7 @@
 /**
  * Taking back the snapshots a live session pinned and left, out of a
- * real repository, as the sweep's live tests do.
+ * real repository, as the sweep's live tests do. How it chooses them,
+ * against git's answers made up, is in `sweep-idle-choosing.test.ts`.
  */
 
 import { existsSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -12,7 +13,6 @@ import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
 import {
 	IDLE_HELD_MS,
 	IDLE_TAKES_PER_SWEEP,
-	idleSnapshots,
 } from "../../../../lib/core/work/sweep-idle.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -119,7 +119,18 @@ function find(setup: Setup, tree: string) {
  */
 function sweepWhileOpen(
 	setup: Setup,
-	known: Partial<Pick<SweepDeps, "busyAmong" | "claims">> = {},
+	known: Partial<
+		Pick<
+			SweepDeps,
+			| "awake"
+			| "betweenIdleTakes"
+			| "busyAmong"
+			| "claims"
+			| "idleTakes"
+			| "idleWithinMs"
+			| "memory"
+		>
+	> = {},
 ) {
 	return sweepEndedTrees({
 		exec,
@@ -150,6 +161,161 @@ describe("taking the snapshots a live session pinned and left", () => {
 		]);
 		expect(existsSync(tree), `${tree} is still there`).toBe(false);
 		expect(setup.memory.recall().map((one) => one.path)).not.toContain(tree);
+	});
+
+	it("takes as many as its runner says, oldest first, keeping the rest for the next", async () => {
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, { idleTakes: 1 });
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([older.tree]);
+		expect(existsSync(newer.tree), "the newer waits for the next sweep").toBe(
+			true,
+		);
+	});
+
+	it("waits between its takes, never before the first", async () => {
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+		const atEachWait: boolean[][] = [];
+
+		const outcome = await sweepWhileOpen(setup, {
+			betweenIdleTakes: async () => {
+				atEachWait.push([existsSync(older.tree), existsSync(newer.tree)]);
+			},
+		});
+
+		expect(outcome.taken).toHaveLength(2);
+		expect(atEachWait, "which stood at each wait").toEqual([[false, true]]);
+	});
+
+	it("takes a host's share though its time is spent before it starts, leaving none it could take", async () => {
+		// A loaded machine gets fewer than its runner allows, never fewer than
+		// a host would take.
+		const setup = await setUp();
+		const older = await leftAlone(setup, "older", IDLE + HOUR);
+		const newer = await leftAlone(setup, "newer", IDLE);
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 200,
+			idleWithinMs: 0,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([
+			older.tree,
+			newer.tree,
+		]);
+		expect(outcome.idleLeft, "none left that its share couldn't take").toBe(
+			undefined,
+		);
+	});
+
+	it("stops judging past a host's share once its awake time since it began runs out, saying how many it left", async () => {
+		// Its clock, started far from zero, moves only as it pauses between
+		// takes, so taking is what spends its time: it runs out once the
+		// share and one more are taken, and the newest waits. A run that
+		// chose every one before taking any would take them all.
+		const setup = await setUp();
+		const trees: string[] = [];
+		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP + 1; at += 1) {
+			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+			trees.push(tree);
+		}
+		let clock = 100;
+
+		const outcome = await sweepWhileOpen(setup, {
+			idleTakes: 200,
+			idleWithinMs: IDLE_TAKES_PER_SWEEP,
+			awake: () => clock,
+			betweenIdleTakes: async () => {
+				clock += 1;
+			},
+		});
+
+		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
+		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
+		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
+		// Twenty-one real worktrees took 128 s on a machine at load 170.
+	}, 300_000);
+
+	it("keeps one whose record's lock it can't get and takes the rest, each by its own record's name", async () => {
+		// A lock held too long on one of hundreds must not end the run,
+		// which would cost the outside stamp; and each take names its
+		// record, so none lists the records folder.
+		const setup = await setUp();
+		const trees: string[] = [];
+		for (let at = 0; at < 3; at += 1) {
+			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+			trees.push(tree);
+		}
+		const real = setup.memory;
+		const keys: (string | undefined)[] = [];
+		const held = "its record's lock has been held for over 10s";
+		const memory: typeof real = Object.create(real);
+		memory.whileUnusedSince = (path, since, take, key) => {
+			keys.push(key);
+			// Coded as file-lock's own throw is, which its test pins.
+			if (keys.length === 2) {
+				throw Object.assign(new Error(held), { code: "ELOCKHELD" });
+			}
+			return real.whileUnusedSince(path, since, take, key);
+		};
+		const named = real
+			.recall()
+			.filter((one) => trees.includes(one.path))
+			.map((one) => one.identity.key);
+
+		const outcome = await sweepWhileOpen(setup, { memory });
+
+		const middle = trees[1] ?? "";
+		expect(outcome.taken.map((one) => one.path).sort()).toEqual(
+			[trees[0], trees[2]].sort(),
+		);
+		expect(outcome.kept, "the one it couldn't lock").toContainEqual({
+			path: middle,
+			why: held,
+		});
+		expect(outcome.idleUnjudged, "one lock ended the run").toBeUndefined();
+		expect(existsSync(middle), "the one it couldn't lock went").toBe(true);
+		expect(keys.sort(), "a take that didn't name its record").toEqual(
+			named.sort(),
+		);
+	});
+
+	it("ends the run unjudged when a take fails other than on a held lock, keeping the rest", async () => {
+		// A records folder refusing writes fails every take alike, so filing
+		// each as kept would end a run that judged nothing as one that ran,
+		// stamped, and the hosts stood down on it.
+		const setup = await setUp();
+		const trees: string[] = [];
+		for (let at = 0; at < 2; at += 1) {
+			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
+			trees.push(tree);
+		}
+		const real = setup.memory;
+		let asked = 0;
+		const refused = "EACCES: permission denied, open 'cut/left.json.lock'";
+		const memory: typeof real = Object.create(real);
+		memory.whileUnusedSince = () => {
+			asked += 1;
+			throw Object.assign(new Error(refused), { code: "EACCES" });
+		};
+
+		const outcome = await sweepWhileOpen(setup, { memory });
+
+		expect(outcome.idleUnjudged, "the run read as judged").toBe(refused);
+		expect(outcome.taken, "a snapshot was taken").toEqual([]);
+		expect(
+			outcome.kept.filter((one) => one.why === refused),
+			"a refused take was filed as kept",
+		).toEqual([]);
+		expect(asked, "it went on taking past the failure").toBe(1);
+		for (const tree of trees) {
+			expect(existsSync(tree), `${tree} went`).toBe(true);
+		}
 	});
 
 	it("keeps one a session asked for within the window, though its files sat still", async () => {
@@ -475,98 +641,5 @@ describe("taking the snapshots a live session pinned and left", () => {
 		expect(existsSync(undated), "a tree whose use went undated went").toBe(
 			true,
 		);
-	});
-});
-
-describe("choosing the snapshots to take", () => {
-	it("chooses at most a sweep's takes, oldest first, none of them busy, though the busy are older", async () => {
-		const commit = "a".repeat(40);
-		const now = Date.now();
-		// Paths nothing stands at, so only the asks date them: the busy
-		// ones oldest, so a cap read before busy would hold only them.
-		const snapshot = (name: string, ago: number): HeldTree => ({
-			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
-			path: `/nowhere/${name}`,
-			providerId: "git-worktree",
-			owners: [RUNNING],
-			usedAt: now - ago,
-		});
-		const count = IDLE_TAKES_PER_SWEEP + 1;
-		const busy = Array.from({ length: count }, (_, at) =>
-			snapshot(`busy-${at}`, IDLE + (count + at) * HOUR),
-		);
-		const free = Array.from({ length: count }, (_, at) =>
-			snapshot(`free-${at}`, IDLE + at * HOUR),
-		);
-		const asked = new Map(
-			[...busy, ...free].map((tree) => [tree.path, tree.usedAt]),
-		);
-		const answers: Record<string, string> = {
-			"rev-parse HEAD": commit,
-			"reflog --format=%H HEAD": commit,
-			"rev-parse --absolute-git-dir": "/nowhere/.git",
-			"status --porcelain=v1 --untracked-files=all": "",
-		};
-
-		const chosen = await idleSnapshots([...busy, ...free], {
-			exec: async (_command, args) => ({
-				code: 0,
-				stdout: answers[args.slice(3).join(" ")] ?? "unasked",
-				stderr: "",
-			}),
-			claims: [],
-			now,
-			askedAt: (path) => asked.get(path),
-			busyAmong: async () => new Set(busy.map((tree) => tree.path)),
-		});
-
-		expect(
-			chosen.map((one) => one.tree.path),
-			"not the oldest free snapshots, up to a sweep's takes",
-		).toEqual(
-			free
-				.slice(count - IDLE_TAKES_PER_SWEEP)
-				.reverse()
-				.map((tree) => tree.path),
-		);
-	});
-
-	it("keeps one whose record can't date its last ask, however old its own date", async () => {
-		// A record filed under another name, or unreadable, says nothing
-		// of when it was last asked for, so it reads as used now.
-		const commit = "a".repeat(40);
-		const now = Date.now();
-		const snapshot = (name: string): HeldTree => ({
-			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
-			path: `/nowhere/${name}`,
-			providerId: "git-worktree",
-			owners: [RUNNING],
-			usedAt: now - IDLE - 10 * HOUR,
-		});
-		const dated = snapshot("dated");
-		const undated = snapshot("undated");
-		const answers: Record<string, string> = {
-			"rev-parse HEAD": commit,
-			"reflog --format=%H HEAD": commit,
-			"rev-parse --absolute-git-dir": "/nowhere/.git",
-			"status --porcelain=v1 --untracked-files=all": "",
-		};
-
-		const chosen = await idleSnapshots([undated, dated], {
-			exec: async (_command, args) => ({
-				code: 0,
-				stdout: answers[args.slice(3).join(" ")] ?? "unasked",
-				stderr: "",
-			}),
-			claims: [],
-			now,
-			askedAt: (path) => (path === dated.path ? dated.usedAt : undefined),
-			busyAmong: async () => new Set(),
-		});
-
-		expect(
-			chosen.map((one) => one.tree.path),
-			"an undated snapshot was chosen, or the dated one beside it wasn't",
-		).toEqual([dated.path]);
 	});
 });
