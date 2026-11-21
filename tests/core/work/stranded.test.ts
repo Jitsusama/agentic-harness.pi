@@ -371,6 +371,12 @@ describe("splitStranded", () => {
 			mkdirSync(entry, { recursive: true });
 			writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
 		}
+		writeFileSync(join(clone, "worktrees", "b", "locked"), "initializing\n");
+
+		expect(handLockedIn(clone, path), "neither, one a cut's").toBe(false);
+
+		rmSync(join(clone, "worktrees", "b", "locked"));
+
 		writeFileSync(join(clone, "worktrees", "a", "locked"), "on a drive\n");
 
 		expect(handLockedIn(clone, path), "the first locked").toBe(true);

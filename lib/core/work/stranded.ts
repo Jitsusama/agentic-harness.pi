@@ -205,7 +205,7 @@ export const CANT_SAY =
  * and reclaim leaves every tree it lists to git.
  */
 export const HAND_LOCKED =
-	"git won't read it, but git's entry for it is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that is neither a plain file nor a link to one, such as a fifo, which git never writes, would hold `git worktree unlock` and `git worktree list` waiting, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
+	"git won't read it, but git's entry for it is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that is neither a plain file nor a link to one, such as a fifo or a folder, which git never writes, may hold `git worktree unlock` and `git worktree list` waiting or fail them, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
 
 /**
  * Why a tree may still be being cut, or must stay where it is, or
@@ -375,9 +375,11 @@ function entriesNaming(commonDir: string, path: string): string[] {
  */
 function lockedByHand(entry: string): boolean {
 	const lock = join(entry, "locked");
+	// Asked in this order, a cut's lock written between the two reads is
+	// read as the cut's, and one gone between them keeps the tree.
+	if (!standsAt(lock)) return false;
 	const reason = readPlain(lock);
-	if (reason !== undefined) return reason.trim() !== "initializing";
-	return standsAt(lock);
+	return reason === undefined || reason.trim() !== "initializing";
 }
 
 /** Whether anything at all stands at `path`, a link included. */

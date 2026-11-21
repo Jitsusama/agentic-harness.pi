@@ -177,4 +177,25 @@ describe("a re-cut's cleanup", () => {
 		);
 		expect(existsSync(own), "the entry stays").toBe(true);
 	});
+
+	it("keeps every entry naming a gone tree while one is locked, else forgets all", () => {
+		// Forgetting the unlocked one alone would let a cut go over a tree
+		// somebody locked, and forgetting only one would leave git a second.
+		const { repo, own } = layout("recut-two");
+		const other = join(repo, "worktrees", "recut-two-1");
+		mkdirSync(other, { recursive: true });
+		const gone = join(root, "trees", "gone-two");
+		for (const entry of [own, other]) {
+			writeFileSync(join(entry, "gitdir"), `${join(gone, ".git")}\n`);
+		}
+		writeFileSync(join(other, "locked"), "on a drive\n");
+
+		expect(forgetGoneEntry(repo, gone), "kept while one is locked").toBe(false);
+		expect([existsSync(own), existsSync(other)]).toEqual([true, true]);
+
+		rmSync(join(other, "locked"));
+
+		expect(forgetGoneEntry(repo, gone), "forgotten once none is").toBe(true);
+		expect([existsSync(own), existsSync(other)]).toEqual([false, false]);
+	});
 });
