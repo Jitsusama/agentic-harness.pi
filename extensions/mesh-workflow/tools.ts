@@ -438,8 +438,19 @@ export function registerTools(
 				}),
 			),
 		}),
-		execute: (_id, params: SproutParams, _signal, _onUpdate, ctx) =>
-			sproutFrom(params, ctx.cwd, local()?.peer.signature),
+		execute: (_id, params: SproutParams, signal, _onUpdate, ctx) => {
+			// Refreshed first, as every mesh tool is, so --from names this
+			// session as it stands now.
+			const at = local();
+			at?.peer.refresh();
+			return sproutFrom(
+				params,
+				ctx.cwd,
+				at?.peer.signature,
+				undefined,
+				signal,
+			);
+		},
 	});
 
 	pi.registerTool({

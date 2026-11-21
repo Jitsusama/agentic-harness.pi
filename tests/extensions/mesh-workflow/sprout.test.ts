@@ -47,10 +47,8 @@ describe("mesh_sprout", () => {
 			"sprout",
 			"-o",
 			"json",
-			"--on",
-			"skiff",
-			"--from",
-			"42P0R4",
+			"--on=skiff",
+			"--from=42P0R4",
 			"--",
 			"make the launcher faster",
 		]);

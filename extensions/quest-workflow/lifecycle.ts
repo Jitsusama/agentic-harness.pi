@@ -488,12 +488,14 @@ export function sayFirstWords(
 	delete slot.hints;
 	const token = hints.firstWordsToken;
 	const putOff = pending();
-	const words =
-		hints.firstWords ??
-		takeFirstWords([token, sessionId], dir, Date.now(), {
-			...(sessionId ? { sessionId } : {}),
-			said: !putOff,
-		});
+	// The node's file is taken even when words were settled already (a
+	// sprout's, or none on a replay), so it's removed and its .taken
+	// record left, rather than waiting to be said to another start.
+	const taken = takeFirstWords([token, sessionId], dir, Date.now(), {
+		...(sessionId ? { sessionId } : {}),
+		said: !putOff,
+	});
+	const words = hints.firstWords ?? taken;
 	if (!words || putOff) return undefined;
 	return () => {
 		const idle = ctx.isIdle?.() ?? true;

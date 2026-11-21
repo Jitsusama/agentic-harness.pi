@@ -224,10 +224,15 @@ export function followSessionLife(
 			return source === "sprout";
 		});
 		if (!sprouting) return;
-		await startSprouted(state, pi, ctx, currentSessionId(ctx, undefined));
-		// The quest it made is one the start's walk never read.
-		refreshQuests(state.questsRoot, [state.questId]);
-		withDiscoveryHeld(finish);
+		try {
+			await startSprouted(state, pi, ctx, currentSessionId(ctx, undefined));
+		} finally {
+			// Whatever the sprout came to, the start finishes: a throw there
+			// still leaves its words said, its session tracked and kept.
+			// The quest it made is one the start's walk never read.
+			refreshQuests(state.questsRoot, [state.questId]);
+			withDiscoveryHeld(finish);
+		}
 	});
 
 	// pi asks for resources once every extension's session_start has

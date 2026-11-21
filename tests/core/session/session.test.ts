@@ -200,6 +200,15 @@ describe("plain pi", () => {
 		).toBeUndefined();
 	});
 
+	it("hands a sprout's seed over once and leaves none to replay", () => {
+		vi.stubEnv("QUEST_WORKFLOW_SPROUT", '{"v":1,"words":"tea"}');
+		expect(launchHints().sprout, "the seed as the node set it").toBe(
+			'{"v":1,"words":"tea"}',
+		);
+		expect(process.env.QUEST_WORKFLOW_SPROUT, "seed consumed").toBeUndefined();
+		expect(launchHints().sprout, "no seed the second time").toBeUndefined();
+	});
+
 	it("takes the id and cwd from ctx and names the ordinary process owner", async () => {
 		expect(sessionKeyOf(context("a")), "pi session id").toBe("a");
 		expect(

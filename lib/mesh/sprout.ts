@@ -36,13 +36,19 @@ export interface Ran {
 	readonly missing?: boolean;
 	/** It ran past its patience and was stopped. */
 	readonly timedOut?: boolean;
+	/** Whoever asked for it stopped it first. */
+	readonly stopped?: boolean;
 }
 
 /** Runs a program with its arguments, never through a shell. */
 export type RunProgram = (
 	program: string,
 	args: readonly string[],
-	options: { readonly cwd: string; readonly timeoutMs: number },
+	options: {
+		readonly cwd: string;
+		readonly timeoutMs: number;
+		readonly signal?: AbortSignal;
+	},
 ) => Promise<Ran>;
 
 /**
@@ -55,12 +61,13 @@ export const SPROUT_PATIENCE_MS = START_PATIENCE_MS + 10_000;
 const MOST_SAID = 500;
 
 /**
- * The arguments `mycelium sprout` is run with: its answer as JSON, and
- * the words after `--`, so words that open with a dash start no option.
+ * The arguments `mycelium sprout` is run with: its answer as JSON, each
+ * named value joined to its flag by `=`, and the words after `--`, so
+ * no value a model writes that opens with a dash starts an option.
  */
 export function sproutArguments(sprouting: Sprouting): string[] {
 	const named = (flag: string, value: string | undefined): string[] =>
-		value?.trim() ? [flag, value.trim()] : [];
+		value?.trim() ? [`${flag}=${value.trim()}`] : [];
 	return [
 		"sprout",
 		"-o",
@@ -81,6 +88,7 @@ export async function sprout(
 	sprouting: Sprouting,
 	cwd: string,
 	run: RunProgram = runProgram,
+	signal?: AbortSignal,
 ): Promise<StartAnswer> {
 	if (!sprouting.words.trim()) {
 		return {
@@ -91,6 +99,7 @@ export async function sprout(
 	const ran = await run("mycelium", sproutArguments(sprouting), {
 		cwd,
 		timeoutMs: SPROUT_PATIENCE_MS,
+		...(signal ? { signal } : {}),
 	});
 	if (ran.missing) {
 		return {
@@ -105,9 +114,20 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
+	if (ran.stopped) {
+		return {
+			ok: false,
+			reason:
+				"the turn was stopped before mycelium sprout answered; the start may still land, so look for it before asking again",
+			mayLand: true,
+		};
+	}
 	const line = ran.stdout.trim().split("\n").at(-1);
-	if (line) return startedFrom(line);
 	const said = ran.stderr.trim().slice(0, MOST_SAID);
+	// A failed run whose last line isn't the node's JSON says why on
+	// stderr, which beats saying its stdout can't be read.
+	if (line && (ran.code === 0 || !said || isJson(line)))
+		return startedFrom(line);
 	return {
 		ok: false,
 		reason:
@@ -116,13 +136,29 @@ export async function sprout(
 	};
 }
 
+/** Whether `line` parses as JSON. */
+function isJson(line: string): boolean {
+	try {
+		JSON.parse(line);
+		return true;
+	} catch {
+		// Not JSON, which is the answer asked for.
+		return false;
+	}
+}
+
 /** Runs a program as {@link RunProgram} says, through node's execFile. */
 export const runProgram: RunProgram = (program, args, options) =>
 	new Promise((resolve) => {
 		execFile(
 			program,
 			[...args],
-			{ cwd: options.cwd, timeout: options.timeoutMs, encoding: "utf8" },
+			{
+				cwd: options.cwd,
+				timeout: options.timeoutMs,
+				encoding: "utf8",
+				...(options.signal ? { signal: options.signal } : {}),
+			},
 			(error, stdout, stderr) => {
 				const code =
 					error === null
@@ -135,7 +171,11 @@ export const runProgram: RunProgram = (program, args, options) =>
 					stdout,
 					stderr,
 					...(error?.code === "ENOENT" ? { missing: true } : {}),
-					...(error?.killed === true ? { timedOut: true } : {}),
+					...(error?.name === "AbortError"
+						? { stopped: true }
+						: error?.killed === true
+							? { timedOut: true }
+							: {}),
 				});
 			},
 		);

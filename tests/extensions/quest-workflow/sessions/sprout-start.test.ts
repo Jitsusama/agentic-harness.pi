@@ -49,7 +49,12 @@ function ctxOf(sessionId = "sess-1") {
 /** A start as session_start runs it: resolve, then sprout. */
 async function start(
 	seed: Record<string, unknown> | undefined,
-	options: { run?: RunProgram; asked?: unknown[]; sessionId?: string } = {},
+	options: {
+		run?: RunProgram;
+		asked?: unknown[];
+		sessionId?: string;
+		linkFails?: boolean;
+	} = {},
 ) {
 	if (seed) process.env[SEED] = JSON.stringify({ v: 1, ...seed });
 	process.env[PROSE] = "the node's prose";
@@ -61,6 +66,9 @@ async function start(
 	// quest from its title alone and keeps what it was asked.
 	const make: Create = (params) => {
 		options.asked?.push(params);
+		if (options.linkFails && params.url) {
+			return Promise.resolve({ ok: false, guidance: "no page there" });
+		}
 		return create(state, pi, ctx, {
 			...params,
 			url: undefined,
@@ -115,7 +123,9 @@ describe("a sprouted session's start", () => {
 		expect(source).toBe("sprout");
 		expect(state.questId).toMatch(/^QEST-/);
 		expect(sproutedQuest("S1")).toBe(state.questId);
-		expect(words).toMatch(/is made and loaded for it from the person's words/u);
+		expect(words).toMatch(
+			/is made and loaded for it from the words it was asked with/u,
+		);
 		expect(words).not.toMatch(/quest create/u);
 	});
 
@@ -169,10 +179,30 @@ describe("a sprouted session's start", () => {
 		expect(words).toMatch(/failed \(no such cell\); run `mycelium web /u);
 	});
 
-	it("makes no second quest when its environment is replayed", async () => {
+	it("makes it from the words and the link when the link's page makes none", async () => {
+		const asked: { url?: string; title?: string }[] = [];
+		const { state, words } = await start(
+			{ link: "https://github.com/o/r/pull/1", words: "tidy the rows" },
+			{ asked, linkFails: true },
+		);
+		expect(asked.map((one) => one.url ?? one.title)).toEqual([
+			"https://github.com/o/r/pull/1",
+			"Tidy the rows",
+		]);
+		expect(state.questId).toMatch(/^QEST-/);
+		expect(words).toMatch(/is made and loaded for it from https/u);
+	});
+
+	it("makes no second quest when its environment is replayed onto another session", async () => {
 		await start({ words: "tea", id: "S2" });
 		const before = questIds();
-		const again = await start({ words: "tea", id: "S2" });
+		// Another session's id, so no record of the first restores its quest
+		// and only the sprout's own alias stands between it and a second.
+		const again = await start(
+			{ words: "tea", id: "S2" },
+			{ sessionId: "sess-2" },
+		);
+		expect(again.state.questId, "the replay restored a quest").toBeFalsy();
 		expect(questIds()).toEqual(before);
 		expect(again.words).toBe("");
 	});

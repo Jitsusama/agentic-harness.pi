@@ -29,6 +29,7 @@ export async function sproutFrom(
 	cwd: string,
 	address: string | undefined,
 	run: RunProgram = runProgram,
+	signal?: AbortSignal,
 ): Promise<Answer> {
 	const sprouting: Sprouting = {
 		words: params.words,
@@ -36,7 +37,7 @@ export async function sproutFrom(
 		...(params.machine !== undefined ? { on: params.machine } : {}),
 		...(address ? { from: address } : {}),
 	};
-	const answered = await sprout(sprouting, cwd, run);
+	const answered = await sprout(sprouting, cwd, run, signal);
 	if (!answered.ok) {
 		return answer(
 			`⊘ Nothing was sprouted: ${answered.reason}`,

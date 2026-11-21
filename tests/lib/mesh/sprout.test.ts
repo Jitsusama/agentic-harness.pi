@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type Ran,
 	type RunProgram,
+	runProgram,
 	sprout,
 	sproutArguments,
 } from "../../../lib/mesh/sprout.ts";
@@ -60,15 +61,18 @@ describe("a sprout's arguments", () => {
 			"sprout",
 			"-o",
 			"json",
-			"--in",
-			"~/src/core.nix",
-			"--on",
-			"skiff",
-			"--from",
-			"42P0R4",
+			"--in=~/src/core.nix",
+			"--on=skiff",
+			"--from=42P0R4",
 			"--",
 			"make the launcher faster",
 		]);
+	});
+
+	it("joins a value that opens with a dash to its flag, so it starts no option", () => {
+		expect(
+			sproutArguments({ words: "tea", folder: "--help", on: "-x" }),
+		).toEqual(["sprout", "-o", "json", "--in=--help", "--on=-x", "--", "tea"]);
 	});
 
 	it("leaves out a folder or machine given as blank", () => {
@@ -127,6 +131,30 @@ describe("sprouting", () => {
 		});
 	});
 
+	it("says mycelium's own reason when a failed run's last stdout line isn't JSON", async () => {
+		const { run } = answering({
+			code: 2,
+			stdout: "judging the folder\n",
+			stderr: "mycelium sprout: no such folder ~/src/nowhere\n",
+		});
+		expect(await sprout({ words: "tea" }, "/", run)).toEqual({
+			ok: false,
+			reason: "mycelium sprout: no such folder ~/src/nowhere",
+		});
+	});
+
+	it("says a sprout stopped with its turn may still start", async () => {
+		const { run } = answering({
+			code: null,
+			stdout: "",
+			stderr: "",
+			stopped: true,
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(!answer.ok && answer.reason).toMatch(/turn was stopped/u);
+	});
+
 	it("says mycelium isn't here when there's no such program", async () => {
 		const { run } = answering({
 			code: null,
@@ -155,5 +183,35 @@ describe("sprouting", () => {
 		const answer = await sprout({ words: "  " }, "/", run);
 		expect(answer).toMatchObject({ ok: false });
 		expect(asked).toEqual([]);
+	});
+});
+
+describe("running a program", () => {
+	const patience = { cwd: "/", timeoutMs: 5000 };
+
+	it("answers a real exit's code and what it said on each stream", async () => {
+		const ran = await runProgram(
+			"sh",
+			["-c", "echo out; echo err >&2; exit 3"],
+			patience,
+		);
+		expect(ran).toEqual({ code: 3, stdout: "out\n", stderr: "err\n" });
+	});
+
+	it("says a program that isn't here is missing", async () => {
+		const ran = await runProgram("no-such-program-here", [], patience);
+		expect(ran).toMatchObject({ code: null, missing: true });
+	});
+
+	it("says one its asker stopped was stopped, not timed out", async () => {
+		const stopping = new AbortController();
+		const running = runProgram("sleep", ["5"], {
+			...patience,
+			signal: stopping.signal,
+		});
+		stopping.abort();
+		const ran = await running;
+		expect(ran).toMatchObject({ code: null, stopped: true });
+		expect(ran).not.toHaveProperty("timedOut");
 	});
 });
