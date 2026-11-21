@@ -78,7 +78,9 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
  * on 21 November four Mac holders were lost as their sessions parked,
  * so a Mac keeps the usual limit until its holder survives a park.
  */
-function inBackgroundHost(platform: NodeJS.Platform = process.platform): boolean {
+function inBackgroundHost(
+	platform: NodeJS.Platform = process.platform,
+): boolean {
 	return (
 		platform !== "darwin" &&
 		parkingHost() !== undefined &&

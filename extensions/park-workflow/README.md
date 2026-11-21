@@ -63,7 +63,8 @@ It is off until one of these turns it on:
   nobody watches it wake (75 of them held about 20 GB on 21
   November, 37 idle for five minutes). One a window views waits its
   usual time, since the person may be reading it and would wait out
-  its wake at their next key.
+  its wake at their next key. On macOS every conversation keeps the
+  usual limit until a Mac's host survives a park.
 - **`PI_PARK=on`,** read at start, as the line `on` does.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the

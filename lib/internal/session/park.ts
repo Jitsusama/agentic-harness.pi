@@ -335,6 +335,8 @@ export const NAMED_PARK_AFTER_MS = 2 * 60 * 1000;
  * 20 GB, and 37 of them had sent nothing for five minutes. One no
  * window views is read by no one, so a wake's 38 s falls on an agent;
  * one a window views waits its usual time, as the person may be reading it.
+ * Never on macOS, which keeps the usual limit until a Mac's host survives
+ * a park.
  */
 export const BACKGROUND_PARK_AFTER_MS = 5 * 60 * 1000;
 
