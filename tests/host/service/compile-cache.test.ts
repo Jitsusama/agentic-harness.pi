@@ -62,7 +62,30 @@ function folderOf(cache: ReturnType<typeof start>): string {
 }
 
 describe("a host's compile cache", () => {
-	it("lies in pi's state by default, which the fence holds read-only, not its cache", () => {
+	it("lies in the runtime folder by default, which no fenced command sees, not on disk", () => {
+		// A flush into pi's state held a host's thread 50 s on a contended
+		// disk (21 November); a tmpfs waits on none.
+		const runtime = join(dir, "run");
+		mkdirSync(runtime, { mode: 0o700 });
+		const folder = folderOf(
+			startCompileCache({
+				argv: ["attended"],
+				env: {
+					MYCELIUM_REALM: "work",
+					PI_PACKAGE_DIR: pi,
+					XDG_RUNTIME_DIR: runtime,
+				},
+				harnessRoot: harness,
+				enable,
+			}),
+		);
+		expect(
+			folder.startsWith(`${join(runtime, "pi-compile", "host")}/`),
+			`the cache folder ${folder} sits in the runtime folder's pi-compile/host`,
+		).toBe(true);
+	});
+
+	it("lies in pi's state without a runtime folder, which the fence holds read-only, not its cache", () => {
 		// node runs what it reads back from here at the next start, outside
 		// the fence, and ~/.cache is writable inside (04TNWT, 19 November).
 		const state = join(dir, "state");

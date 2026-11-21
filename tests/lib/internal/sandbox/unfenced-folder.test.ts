@@ -6,7 +6,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	SANDBOX_VARIABLE,
 	STRICT,
@@ -77,6 +77,22 @@ describe("a working folder the sandbox won't let commands write", () => {
 				home,
 			),
 		).toBeUndefined();
+	});
+
+	it("is one holding or inside the code compiled into the runtime folder", () => {
+		vi.stubEnv("XDG_RUNTIME_DIR", "/run/user/1000");
+		try {
+			for (const at of [
+				"/run/user/1000/pi-compile",
+				"/run/user/1000/pi-compile/host",
+				"/run/user/1000/pi-compile/node/v1",
+			]) {
+				expect(unfencedFolder(at, home), at).toContain("compiled");
+			}
+			expect(unfencedFolder("/run/user/1000/pi-fence", home)).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("names the sandbox as the variable that asks for it", () => {
