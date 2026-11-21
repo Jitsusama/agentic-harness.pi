@@ -17,13 +17,22 @@ import {
 	startSprouted,
 } from "../../../../extensions/quest-workflow/sessions/sprout-start.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
-import { create } from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
+import {
+	create,
+	load,
+} from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
+import { aliasAdd } from "../../../../lib/core/quest/verbs/alias.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../../lib/internal/quest/creation/alias-index.ts";
 import { discoverQuests } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
+import {
+	clearRefTypes,
+	parseRef,
+	registerBuiltinRefTypes,
+} from "../../../../lib/refs/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
@@ -66,7 +75,7 @@ async function start(
 	// quest from its title alone and keeps what it was asked.
 	const make: Create = (params) => {
 		options.asked?.push(params);
-		if (options.linkFails && params.url) {
+		if (options.linkFails && params.url && !params.title) {
 			return Promise.resolve({ ok: false, guidance: "no page there" });
 		}
 		return create(state, pi, ctx, {
@@ -77,8 +86,9 @@ async function start(
 	};
 	const run: RunProgram =
 		options.run ?? (async () => ({ code: 0, stdout: "", stderr: "" }));
-	await startSprouted(state, pi, ctx, options.sessionId ?? "sess-1", {
+	await startSprouted(state, pi, ctx, {
 		create: make,
+		load: (id) => load(state, pi, ctx, { action: "load", id }),
 		run,
 	});
 	return { state, source, words: pendingWords(ctx).hints?.firstWords };
@@ -100,6 +110,8 @@ function sproutedQuest(value: string): string | undefined {
 }
 
 beforeEach(() => {
+	// The extension registers them as it loads; a link reads by them.
+	registerBuiltinRefTypes();
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "sprout-start-"));
 	savedHome = process.env.HOME;
@@ -112,6 +124,7 @@ afterEach(() => {
 	delete process.env[PROSE];
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
+	clearRefTypes();
 });
 
 describe("a sprouted session's start", () => {
@@ -179,22 +192,22 @@ describe("a sprouted session's start", () => {
 		expect(words).toMatch(/failed \(no such cell\); run `mycelium web /u);
 	});
 
-	it("makes it from the words and the link when the link's page makes none", async () => {
+	it("names it from the words, keeping the link, when the link's page gives no title", async () => {
 		const asked: { url?: string; title?: string }[] = [];
 		const { state, words } = await start(
 			{ link: "https://github.com/o/r/pull/1", words: "tidy the rows" },
 			{ asked, linkFails: true },
 		);
-		expect(asked.map((one) => one.url ?? one.title)).toEqual([
-			"https://github.com/o/r/pull/1",
-			"Tidy the rows",
+		expect(asked.map((one) => [one.url, one.title])).toEqual([
+			["https://github.com/o/r/pull/1", undefined],
+			["https://github.com/o/r/pull/1", "Tidy the rows"],
 		]);
 		expect(state.questId).toMatch(/^QEST-/);
 		expect(words).toMatch(/is made and loaded for it from https/u);
 	});
 
-	it("makes no second quest when its environment is replayed onto another session", async () => {
-		await start({ words: "tea", id: "S2" });
+	it("loads the quest it made when its environment is replayed onto another session", async () => {
+		const first = await start({ words: "tea", id: "S2" });
 		const before = questIds();
 		// Another session's id, so no record of the first restores its quest
 		// and only the sprout's own alias stands between it and a second.
@@ -202,9 +215,36 @@ describe("a sprouted session's start", () => {
 			{ words: "tea", id: "S2" },
 			{ sessionId: "sess-2" },
 		);
-		expect(again.state.questId, "the replay restored a quest").toBeFalsy();
+		expect(again.state.questId).toBe(first.state.questId);
 		expect(questIds()).toEqual(before);
-		expect(again.words).toBe("");
+		expect(again.words).toMatch(/already holds this work, is loaded for it/u);
+		expect(again.words).not.toMatch(/quest create/u);
+	});
+
+	it("joins the quest already holding its link rather than making a second", async () => {
+		const first = await start({ words: "the PR's work", id: "S3" });
+		const ref = parseRef("https://github.com/o/r/pull/1");
+		if (!ref || !first.state.questId)
+			throw new Error("no quest or ref to mark");
+		aliasAdd(first.state, {
+			action: "alias-add",
+			id: first.state.questId,
+			ref: `${ref.type}:${ref.value}`,
+		});
+		const before = questIds();
+		const again = await start(
+			{ link: "https://github.com/o/r/pull/1", id: "S4" },
+			{ sessionId: "sess-2" },
+		);
+		expect(again.state.questId).toBe(first.state.questId);
+		expect(questIds()).toEqual(before);
+		expect(again.words).toMatch(/already holds this work/u);
+	});
+
+	it("makes one from a seed with no id, marking none, even with no session id", async () => {
+		const { state, words } = await start({ words: "tea" }, { sessionId: "" });
+		expect(state.questId).toMatch(/^QEST-/);
+		expect(words).toMatch(/is made and loaded for it/u);
 	});
 
 	it("leaves the prose path when from isn't an address", async () => {

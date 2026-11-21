@@ -225,7 +225,7 @@ export function followSessionLife(
 		});
 		if (!sprouting) return;
 		try {
-			await startSprouted(state, pi, ctx, currentSessionId(ctx, undefined));
+			await startSprouted(state, pi, ctx);
 		} finally {
 			// Whatever the sprout came to, the start finishes: a throw there
 			// still leaves its words said, its session tracked and kept.

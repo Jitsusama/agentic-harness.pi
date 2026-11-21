@@ -12,6 +12,8 @@
  */
 
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { isRecord } from "../internal/record.ts";
 import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
 
 /** New work to sprout, as the person or the session says it. */
@@ -72,7 +74,10 @@ export function sproutArguments(sprouting: Sprouting): string[] {
 		"sprout",
 		"-o",
 		"json",
-		...named("--in", sprouting.folder),
+		...named(
+			"--in",
+			sprouting.folder?.trim().replace(/^~(?=\/|$)/u, homedir()),
+		),
 		...named("--on", sprouting.on),
 		...named("--from", sprouting.from),
 		"--",
@@ -126,14 +131,45 @@ export async function sprout(
 	const said = ran.stderr.trim().slice(0, MOST_SAID);
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
-	if (line && (ran.code === 0 || !said || isJson(line)))
-		return startedFrom(line);
+	if (ran.code === 0) return startedOrMayLand(line);
+	if (line && (!said || isJson(line))) return startedFrom(line);
 	return {
 		ok: false,
 		reason:
 			said ||
 			`mycelium sprout ended with ${ran.code ?? "no code"} and said nothing`,
 	};
+}
+
+/**
+ * What a sprout that ended well answered: started, or the node's own
+ * refusal, else a reply this harness can't read, which may still have
+ * started a cell, so the model looks before asking again.
+ */
+function startedOrMayLand(line: string | undefined): StartAnswer {
+	const answer = line
+		? startedFrom(line)
+		: {
+				ok: false as const,
+				reason: "mycelium sprout ended with 0 and said nothing",
+			};
+	if (answer.ok || (line && refusedByNode(line))) return answer;
+	return {
+		ok: false,
+		reason: `${answer.reason}; the start may still have landed, so look for it before asking again`,
+		mayLand: true,
+	};
+}
+
+/** Whether `line` is the node's own refusal, `{ "Err": ... }`. */
+function refusedByNode(line: string): boolean {
+	try {
+		const reply: unknown = JSON.parse(line);
+		return isRecord(reply) && typeof reply.Err === "string";
+	} catch {
+		// Not JSON, so not the node's refusal.
+		return false;
+	}
 }
 
 /** Whether `line` parses as JSON. */

@@ -3,6 +3,7 @@
  * session, and what it answered read.
  */
 
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
 	type Ran,
@@ -61,7 +62,7 @@ describe("a sprout's arguments", () => {
 			"sprout",
 			"-o",
 			"json",
-			"--in=~/src/core.nix",
+			`--in=${homedir()}/src/core.nix`,
 			"--on=skiff",
 			"--from=42P0R4",
 			"--",
@@ -105,6 +106,27 @@ describe("sprouting", () => {
 				attach: ["mycelium", "attach", "01JHELD"],
 			},
 		});
+	});
+
+	it("says a start may have landed when a clean exit answers what it can't read", async () => {
+		for (const stdout of ["", '{"Ok":{"Something":1}}\n']) {
+			const { run } = answering({ code: 0, stdout, stderr: "" });
+			const answer = await sprout({ words: "tea" }, "/home/joel/src", run);
+			expect(answer, `after ${JSON.stringify(stdout)}`).toMatchObject({
+				ok: false,
+				mayLand: true,
+			});
+		}
+	});
+
+	it("says no start landed when a clean exit is the node's refusal", async () => {
+		const { run } = answering({
+			code: 0,
+			stdout: '{"Err":"no such machine"}\n',
+			stderr: "",
+		});
+		const answer = await sprout({ words: "tea" }, "/home/joel/src", run);
+		expect(answer).toEqual({ ok: false, reason: "no such machine" });
 	});
 
 	it("says the node's refusal", async () => {

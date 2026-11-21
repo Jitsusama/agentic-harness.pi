@@ -108,15 +108,12 @@ describe("a sprouted quest's title", () => {
 });
 
 describe("a sprouted quest's alias and tie", () => {
-	it("goes by the sprout's id, else the session's", () => {
-		expect(sproutAlias({ words: "tea", id: "S1" }, "sess")).toEqual({
+	it("goes by the sprout's id, and a seed with none has no mark", () => {
+		expect(sproutAlias({ words: "tea", id: "S1" })).toEqual({
 			type: "sprout",
 			value: "S1",
 		});
-		expect(sproutAlias({ words: "tea" }, "sess")).toEqual({
-			type: "sprout",
-			value: "sess",
-		});
+		expect(sproutAlias({ words: "tea" })).toBeUndefined();
 	});
 
 	it("ties as the node's first words asked", () => {

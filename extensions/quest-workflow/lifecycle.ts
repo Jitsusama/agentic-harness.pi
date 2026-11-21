@@ -490,10 +490,11 @@ export function sayFirstWords(
 	const putOff = pending();
 	// The node's file is taken even when words were settled already (a
 	// sprout's, or none on a replay), so it's removed and its .taken
-	// record left, rather than waiting to be said to another start.
+	// record left, rather than waiting to be said to another start. It
+	// records a turn said only when one goes out: none on a hushed replay.
 	const taken = takeFirstWords([token, sessionId], dir, Date.now(), {
 		...(sessionId ? { sessionId } : {}),
-		said: !putOff,
+		said: !putOff && hints.firstWords !== "",
 	});
 	const words = hints.firstWords ?? taken;
 	if (!words || putOff) return undefined;
