@@ -320,6 +320,24 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("reads a repository's link as no work, so each sprout of it makes its own quest", async () => {
+		const made: (string | null)[] = [];
+		for (const [n, link] of [
+			"https://github.com/o/repo",
+			"https://github.com/o/repo/",
+		].entries()) {
+			const asked: unknown[] = [];
+			const one = await start(
+				{ link, words: `job ${n}`, id: `S7${n}` },
+				{ asked, sessionId: `sess-repo-${n}` },
+			);
+			expect(one.words, link).not.toMatch(/already holds this work/u);
+			expect(asked[0], link).not.toHaveProperty("url");
+			made.push(one.state.questId);
+		}
+		expect(made[1]).not.toBe(made[0]);
+	});
+
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
 		for (const [n, link] of [
 			"https://github.com/o/r/pull/1#x/y#2",
@@ -383,6 +401,24 @@ describe("a sprouted session's start", () => {
 			fifth.state.questId,
 			"the mark moved off the ended second quest to the live one",
 		).toBe(fourth.state.questId);
+	});
+
+	it("says its work is done when a quest it joined has since ended", async () => {
+		const first = await start({ words: "the PR's work", id: "S60" });
+		const joined = first.state.questId;
+		if (!joined) throw new Error("no quest to join");
+		markWith(joined, "https://github.com/o/r/pull/3");
+		const seed = { link: "https://github.com/o/r/pull/3", id: "S61" };
+		const join = await start(seed, { sessionId: "sess-join" });
+		expect(join.state.questId).toBe(joined);
+		seal(joined);
+		const before = questIds();
+		const again = await start(seed, { sessionId: "sess-join-again" });
+		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
+		expect(questIds()).toEqual(before);
+		expect(again.words).toMatch(
+			new RegExp(`sprouted for quest ${joined}, which has since ended`, "u"),
+		);
 	});
 
 	it("says a tie that ran out of time may have landed", async () => {

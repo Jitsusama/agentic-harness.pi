@@ -122,6 +122,14 @@ export async function startSprouted(
 				ref: `${mark.type}:${mark.value}`,
 			});
 		}
+	} else if (!replayed && alias) {
+		// A live quest it joined takes its mark too, so a replay after that
+		// quest ends is told its work is done, never starts it again.
+		aliasAdd(state, {
+			action: "alias-add",
+			id,
+			ref: `${alias.type}:${alias.value}`,
+		});
 	}
 	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined);
@@ -201,7 +209,9 @@ function questsWith(
  * fragment, on the ref's own site, with no second address inside it. So
  * a link merely carrying another page's address in its path, query or
  * fragment joins no quest and takes no mark, while a reply's link in a
- * Slack thread, naming the thread in its query, still reads as it.
+ * Slack thread, naming the thread in its query, still reads as it. A
+ * place work happens in, such as a repository, is no piece of work, so
+ * its link reads as no ref either.
  */
 function linkRef(seed: SproutSeed): Ref | undefined {
 	return linkRead(seed)?.ref;
@@ -219,9 +229,16 @@ function linkRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
 	const page = link.href;
 	if (page.split("://").length > 2) return undefined;
 	const ref = parseRef(page);
+	if (ref && PLACES.has(ref.type)) return undefined;
 	const own = ref ? webAddress(urlForRef(ref) ?? "") : undefined;
 	return ref && own && siteOf(own) === siteOf(link) ? { page, ref } : undefined;
 }
+
+/**
+ * Ref types naming where work happens rather than a piece of it: every
+ * sprout of a repository would otherwise join the first one's quest.
+ */
+const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
