@@ -12,7 +12,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +21,17 @@ import {
 	folderRead,
 	type MirroredFiles,
 } from "../../../../lib/internal/files/folder-mirror.ts";
+
+// Counted, so a test sees when a mirror lists its whole folder again.
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs/promises")>();
+	return { ...real, readdir: vi.fn(real.readdir) };
+});
+
+/** How often this test's folder was listed off the thread. */
+function listings(): number {
+	return vi.mocked(readdir).mock.calls.filter(([path]) => path === dir).length;
+}
 
 let dir: string;
 let offReads: number;
@@ -340,7 +351,7 @@ describe("a host's mirror of a folder", () => {
 	});
 
 	it("keeps up by its poll when its folder is renamed out from under the watch", async () => {
-		const folder = mirror({ pollMs: 100 });
+		const folder = mirror({ pollMs: 100, backstopMs: 100 });
 		put("a.txt", "old folder");
 		folder.files();
 		// The watch follows the folder it was given, renamed away; a new
@@ -356,6 +367,44 @@ describe("a host's mirror of a folder", () => {
 			{ timeout: 2000 },
 		);
 		rmSync(`${dir}-moved`, { recursive: true, force: true });
+	});
+
+	// On 21 November seventy children each listed the mesh's presence each
+	// second, and held the disk in btrfs's directory locks.
+	it("lists a watched folder again only once its backstop has passed, however often it polls", async () => {
+		put("a.txt", "here");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		folder.files();
+		const before = listings();
+		// Long enough for a dozen polls, each asked for.
+		for (let poll = 0; poll < 12; poll += 1) {
+			await new Promise((done) => setTimeout(done, 25));
+			folder.files();
+		}
+		expect(listings() - before, "no listing within the backstop").toBe(0);
+	});
+
+	// A listing stats every file, so only a file the watch names is read.
+	it("reads a file its watch names alone, without listing the folder", async () => {
+		for (const name of ["a", "b", "c", "d", "e"]) put(`${name}.txt`, name);
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		folder.files();
+		const before = listings();
+		put("c.txt", "c changed");
+		put("f.txt", "f new");
+		rmSync(join(dir, "a.txt"));
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()), "each change seen").toEqual([
+					"b",
+					"c changed",
+					"d",
+					"e",
+					"f new",
+				]),
+			{ timeout: 2000 },
+		);
+		expect(listings() - before, "the folder not listed").toBe(0);
 	});
 
 	it("stops reading once nobody has asked within its idle spell", async () => {

@@ -11,13 +11,21 @@
  * It spends only while asked. The first ask in a process reads the folder
  * at once, since an empty answer before the mirror fills would read as
  * nobody there, and so does the first after a spell in which nothing
- * listed it, whose last listing could be an hour old. Between, a poll reads it again each
- * second while a synchronous reader has asked within the last minute,
- * and stops once none has. A folder that can't be read keeps the last
- * listing rather than answering that it holds nothing. fs.watch brings a refresh forward, but only as a hint, since
- * some filesystems miss renames: the poll stands on its own. A refresh
+ * listed it, whose last listing could be an hour old. Between, it keeps
+ * up while a synchronous reader has asked within the last minute, and
+ * stops once none has. A folder that can't be read keeps the last
+ * listing rather than answering that it holds nothing. A refresh
  * already reading is joined, never run beside itself. What the process
  * writes itself is put in at once.
+ *
+ * While its folder is watched, a change the watch names is read alone,
+ * and the whole folder is listed again only every half minute, in case
+ * the watch missed one. Unwatched, it lists the folder each second.
+ * Every conversation became a process of its own on 20 November, each
+ * with its own mirror of the mesh's presence: on 21 November seventy
+ * idle children listed its 163 files each second, about 11,000 stats a
+ * second on one folder, and held the disk in btrfs's directory locks.
+ * Reading only what changed costs a stat and a parse for each publish.
  */
 
 import { type FSWatcher, readdirSync, watch } from "node:fs";
@@ -27,6 +35,12 @@ import { readStamped, readStampedOff, type Stamped } from "./stamped-read.ts";
 
 /** How often a mirror reads its folder again while it is asked. */
 const POLL_MS = 1000;
+
+/**
+ * How often a watched mirror lists its whole folder again, for a change
+ * its watch missed, as some filesystems miss renames.
+ */
+const BACKSTOP_MS = 30_000;
 
 /** How long a mirror keeps polling after its last synchronous ask. */
 const IDLE_MS = 60_000;
@@ -52,6 +66,7 @@ export interface MirroredFiles<T> {
 export interface MirrorTimes {
 	readonly pollMs?: number;
 	readonly idleMs?: number;
+	readonly backstopMs?: number;
 }
 
 /** A folder's files as last read, by path, in the folder's own order. */
@@ -173,12 +188,16 @@ function mirrorOf<T>(
 ): FolderMirror<T> {
 	const pollMs = times.pollMs ?? POLL_MS;
 	const idleMs = times.idleMs ?? IDLE_MS;
+	const backstopMs = times.backstopMs ?? BACKSTOP_MS;
 	const kept = new Map<string, Stamped<T>>();
 	let order: string[] | undefined;
 	let asked = 0;
 	let clock: ReturnType<typeof setInterval> | undefined;
 	let watcher: FSWatcher | undefined;
 	let flight: Promise<Mirrored<T>> | undefined;
+	// The files a watch named since they were last read, and their read.
+	const touched = new Set<string>();
+	let naming: Promise<void> | undefined;
 	// A write counts up, so a read that began before it keeps what it put
 	// or removed, rather than landing what the file was before.
 	let writes = 0;
@@ -260,10 +279,57 @@ function mirrorOf<T>(
 		}
 	};
 	const refresh = (): Promise<Mirrored<T>> => {
-		flight ??= readAgain().finally(() => {
+		// After the named reads under way, so neither lands over the other.
+		flight ??= (naming ?? Promise.resolve()).then(readAgain).finally(() => {
 			flight = undefined;
 		});
 		return flight;
+	};
+	// The files the watch named, each read alone off the thread.
+	const readTouched = async (): Promise<void> => {
+		const paths = [...touched];
+		touched.clear();
+		const filled = fills;
+		const fresh = new Map<string, Stamped<T>>();
+		for (const path of paths) {
+			const was = kept.get(path);
+			if (was !== undefined) fresh.set(path, was);
+		}
+		await Promise.all(
+			paths.map((path) => readStampedOff(fresh, path, kind.readOff)),
+		);
+		// The thread read the folder meanwhile: what it read is the newer.
+		if (fills !== filled || order === undefined) return;
+		for (const path of paths) {
+			// This process's own write stands until a listing settles it.
+			if (written.has(path)) continue;
+			const one = fresh.get(path);
+			if (one === undefined) {
+				kept.delete(path);
+				order = order.filter((listed) => listed !== path);
+			} else {
+				kept.set(path, one);
+				if (!order.includes(path)) order = [...order, path];
+			}
+		}
+	};
+	const readNamed = (path: string): void => {
+		touched.add(path);
+		if (naming !== undefined) return;
+		// After a listing under way, so neither lands over the other.
+		naming = (flight ?? Promise.resolve())
+			.catch(nothing)
+			.then(readTouched)
+			.catch(nothing)
+			.finally(() => {
+				naming = undefined;
+				// Named while these were read: read them next.
+				const next = touched.values().next();
+				if (!next.done) {
+					touched.delete(next.value);
+					readNamed(next.value);
+				}
+			});
 	};
 	const unwatch = (): void => {
 		watcher?.close();
@@ -272,8 +338,11 @@ function mirrorOf<T>(
 	const rewatch = (): void => {
 		if (watcher !== undefined) return;
 		try {
-			watcher = watch(dir, { persistent: false }, () => {
-				void refresh().catch(nothing);
+			watcher = watch(dir, { persistent: false }, (_kind, name) => {
+				// A file of its kind is read alone; a staged one is passed over
+				// until it is renamed in; an event naming none lists them all.
+				if (name === null) void refresh().catch(nothing);
+				else if (name.endsWith(kind.suffix)) readNamed(join(dir, name));
 			});
 			// A watch that fails or overflows leaves the poll to keep up.
 			watcher.on("error", unwatch);
@@ -289,6 +358,8 @@ function mirrorOf<T>(
 			return;
 		}
 		rewatch();
+		// Watched, the folder is listed again only for what the watch missed.
+		if (watcher !== undefined && Date.now() - landed < backstopMs) return;
 		void refresh().catch(nothing);
 	};
 	const ask = (): void => {

@@ -10,8 +10,9 @@ points.
   process last read it, asked again only once the file changes, so a
   ledger asked at every conversation's start reads only what moved.
 - **`folder-mirror.ts`**: a folder's files and their parses, kept for a
-  host's synchronous readers and read again off the thread each second
-  while asked, so a stalled disk holds none of its conversations.
+  host's synchronous readers and read again off the thread while asked,
+  a file at a time as its watch names one, so a stalled disk holds none
+  of its conversations.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.
