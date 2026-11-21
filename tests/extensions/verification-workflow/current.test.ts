@@ -211,8 +211,6 @@ describe("a commit's check", () => {
 		expect(state.failedRuns.get(elsewhere.root)).toBe(elsewhere);
 	});
 
-	// Each asks for a status of its project's tree; several at once only
-	// load the disk the check waits on.
 	it("holds back a commit on a run recorded in another of its projects while git answered", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		await gitAsked();
@@ -237,6 +235,23 @@ describe("a commit's check", () => {
 		const { failure } = await checking;
 		expect(failure?.problems.join("\n")).toContain("pnpm test failed");
 		expect(failure?.problems).toHaveLength(2);
+	});
+
+	it("holds a commit on no run git couldn't answer for when its project was asked again", async () => {
+		const lib = { ...RUN, root: "/src/repo/lib", command: "pnpm lint" };
+		record(lib);
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitSays("judged");
+		await gitAsked();
+		record(NEXT);
+		await gitSays("judged");
+		// Asked again for its newest run, which git gives no answer for.
+		await gitSays(undefined);
+		const { failure } = await checking;
+		expect(failure?.problems).toEqual([
+			expect.stringContaining("pnpm lint failed in /src/repo/lib"),
+		]);
+		expect(repoRun(), "kept").toBe(NEXT);
 	});
 
 	it("holds a commit on no run git retired when its project was asked again", async () => {
@@ -316,6 +331,8 @@ describe("a commit's check", () => {
 		);
 	});
 
+	// Each asks for a status of its project's tree; several at once only
+	// load the disk the check waits on.
 	it("asks git after one project's run at a time", async () => {
 		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
