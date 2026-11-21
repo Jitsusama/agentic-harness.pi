@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
 	agentCommand,
@@ -142,6 +143,47 @@ describe("the words a held spawn uses", () => {
 			isThisMachine("equilibrius", "optimus"),
 			"another machine's name is not this one",
 		).toBe(false);
+	});
+});
+
+describe("spawning held on this machine", () => {
+	const here = hostname().split(".")[0] ?? "";
+	const local = {
+		ok: true,
+		started: {
+			machine: here,
+			held: "d41a0c2e",
+			folder: "/home/joel/src/core.nix",
+			attach: ["mycelium", "attach", "d41a0c2e"],
+		},
+	} as const;
+
+	it("opens no window when asked for none, and says how to join it", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(local);
+		const outcome = await spawnHeld(
+			{ ...asked(kitty), machine: here, window: false },
+			start,
+			shares,
+		);
+		expect(starts).toHaveLength(1);
+		expect(kitty.calls.spawned, "no window opened").toEqual([]);
+		expect(kitty.calls.typed).toEqual([]);
+		expect(outcome.ok && outcome.message).toContain(
+			"No window was opened; join it with: 'mycelium' 'attach' 'd41a0c2e'",
+		);
+	});
+
+	it("plans no window on a dry run asked for none", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(local);
+		const outcome = await spawnHeld(
+			{ ...asked(kitty, true), machine: here, window: false },
+			start,
+			shares,
+		);
+		expect(starts).toEqual([]);
+		expect(outcome.ok && outcome.message).toContain("and open no window");
 	});
 });
 

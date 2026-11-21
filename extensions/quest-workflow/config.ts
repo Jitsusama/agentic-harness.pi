@@ -12,6 +12,7 @@ import {
 	type QuestWorkflowConfig,
 	resolveQuestsRoot,
 	type SpawnHostSetting,
+	type SpawnWindowSetting,
 	type StartHostSetting,
 } from "../../lib/core/quest/config.ts";
 import {
@@ -73,6 +74,19 @@ export function spawnHostSetting(): Promise<{
 	unreadable?: string;
 }> {
 	return hostSetting((config) => config.spawnHost);
+}
+
+/**
+ * The spawnWindow setting as the config says it now, read at each spawn:
+ * `never` when unset, and `open` when the config can't be read, since a
+ * window is how spawns opened before the setting.
+ */
+export async function spawnWindowSetting(): Promise<SpawnWindowSetting> {
+	const { setting, unreadable } = await hostSetting(
+		(config) => config.spawnWindow,
+	);
+	if (unreadable !== undefined) return "open";
+	return setting ?? "never";
 }
 
 /**

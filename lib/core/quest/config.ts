@@ -48,6 +48,15 @@ export interface QuestWorkflowConfig {
 	 */
 	spawnHost?: SpawnHostSetting;
 	/**
+	 * Whether a spawn this machine's mycelium node holds here opens a
+	 * window joined to it: `never`, the default, starts it held with no
+	 * window, to be joined from the launcher or the words spawn answers;
+	 * `open` opens one as before. A spawn that names a terminal, a layout
+	 * or a nesting opens one either way. Agents spawn sessions all day, and
+	 * each window they opened landed on Joel's screen.
+	 */
+	spawnWindow?: SpawnWindowSetting;
+	/**
 	 * Where the launcher's own Start a Session and Orchestrate open a
 	 * session: `off`, the default, in a window of its own as ever;
 	 * `attended`, in the realm's attended host, with its viewer opened at
@@ -71,6 +80,16 @@ export type SpawnHostSetting = (typeof SPAWN_HOST_SETTINGS)[number];
 
 function isSpawnHostSetting(value: unknown): value is SpawnHostSetting {
 	return (SPAWN_HOST_SETTINGS as readonly unknown[]).includes(value);
+}
+
+/** The choices `spawnWindow` takes. */
+export const SPAWN_WINDOW_SETTINGS = ["never", "open"] as const;
+
+/** Whether a spawn held here opens a window: `never` or `open`. */
+export type SpawnWindowSetting = (typeof SPAWN_WINDOW_SETTINGS)[number];
+
+function isSpawnWindowSetting(value: unknown): value is SpawnWindowSetting {
+	return (SPAWN_WINDOW_SETTINGS as readonly unknown[]).includes(value);
 }
 
 /** The choices `startHost` takes. */
@@ -130,6 +149,10 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 			error: "spawnHost must be off, attended or background",
 		};
 	}
+	const spawnWindow = record.spawnWindow;
+	if (spawnWindow !== undefined && !isSpawnWindowSetting(spawnWindow)) {
+		return { ok: false, error: "spawnWindow must be never or open" };
+	}
 	const startHost = record.startHost;
 	if (startHost !== undefined && !isStartHostSetting(startHost)) {
 		return { ok: false, error: "startHost must be off or attended" };
@@ -152,6 +175,7 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
 	if (retention !== undefined) parsed.sessionRetentionDays = retention;
 	if (spawnHost !== undefined) parsed.spawnHost = spawnHost;
+	if (spawnWindow !== undefined) parsed.spawnWindow = spawnWindow;
 	if (startHost !== undefined) parsed.startHost = startHost;
 	if (whenCapped !== undefined) parsed.budgetWhenCapped = whenCapped.trim();
 	return { ok: true, value: parsed };
@@ -179,6 +203,8 @@ export interface QuestConfigSummary {
 	sessionRetentionDaysSource: "config" | "default";
 	spawnHost: SpawnHostSetting;
 	spawnHostSource: "config" | "default";
+	spawnWindow: SpawnWindowSetting;
+	spawnWindowSource: "config" | "default";
 	startHost: StartHostSetting;
 	startHostSource: "config" | "default";
 }
@@ -208,6 +234,9 @@ export function summarizeQuestConfig(opts: {
 			opts.config.sessionRetentionDays !== undefined ? "config" : "default",
 		spawnHost: opts.config.spawnHost ?? "off",
 		spawnHostSource: opts.config.spawnHost !== undefined ? "config" : "default",
+		spawnWindow: opts.config.spawnWindow ?? "never",
+		spawnWindowSource:
+			opts.config.spawnWindow !== undefined ? "config" : "default",
 		startHost: opts.config.startHost ?? "off",
 		startHostSource: opts.config.startHost !== undefined ? "config" : "default",
 	};

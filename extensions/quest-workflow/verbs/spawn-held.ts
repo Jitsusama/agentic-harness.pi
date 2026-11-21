@@ -22,7 +22,9 @@
  * its first words in the start, since the file spawn leaves here names
  * nothing there, and opens no window, even when asked: one opened here
  * for a session there lands on Joel's screen (WM4KSZ [a124c9cb]; Joel,
- * 18:45 on 15 November).
+ * 18:45 on 15 November). One held here opens none either, unless
+ * quest-workflow's spawnWindow says `open` or the spawn names a terminal,
+ * layout or nesting.
  */
 
 import { randomUUID } from "node:crypto";
@@ -84,6 +86,11 @@ export interface HeldSpawn {
 	readonly firstText?: string;
 	readonly layout?: TerminalLayout;
 	readonly options: OpenOptions;
+	/**
+	 * Whether a session held here opens a window joined to it; true when
+	 * unsaid. One held on another machine never does.
+	 */
+	readonly window?: boolean;
 }
 
 /** What came of a held spawn, for spawn to say. */
@@ -422,7 +429,7 @@ export async function spawnHeld(
 	const here = isThisMachine(asked.machine);
 	const folder = folderFor(asked.cwd, asked.home, here);
 	const where = folder ?? "its home";
-	const window = here;
+	const window = here && asked.window !== false;
 	if (asked.options.dryRun) {
 		const sharing = here ? "" : `run mycelium share ${asked.questId}, then `;
 		if (!window) {
@@ -496,8 +503,9 @@ export async function spawnHeld(
 }
 
 /**
- * Says where a session started held on another machine runs, with no
- * window opened: one opened here would land on Joel's screen.
+ * Says where a session started held runs, with no window opened: one
+ * opened for a session on another machine, or one spawnWindow keeps
+ * shut, would land on Joel's screen.
  */
 function leftHeld(asked: HeldSpawn, started: NodeStarted): HeldSpawnOutcome {
 	const line = joinLine(started.attach);

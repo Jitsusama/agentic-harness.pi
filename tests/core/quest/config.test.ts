@@ -64,6 +64,21 @@ describe("parseQuestWorkflowConfig", () => {
 		}
 	});
 
+	it("accepts each spawnWindow choice, and refuses another", () => {
+		for (const spawnWindow of ["never", "open"] as const) {
+			expect(parseQuestWorkflowConfig({ spawnWindow })).toEqual({
+				ok: true,
+				value: { spawnWindow },
+			});
+		}
+		for (const spawnWindow of ["always", true, 1]) {
+			expect(parseQuestWorkflowConfig({ spawnWindow })).toEqual({
+				ok: false,
+				error: "spawnWindow must be never or open",
+			});
+		}
+	});
+
 	it("accepts each startHost choice", () => {
 		for (const startHost of ["off", "attended"] as const) {
 			expect(parseQuestWorkflowConfig({ startHost })).toEqual({
@@ -143,8 +158,22 @@ describe("summarizeQuestConfig", () => {
 			sessionRetentionDaysSource: "default",
 			spawnHost: "off",
 			spawnHostSource: "default",
+			spawnWindow: "never",
+			spawnWindowSource: "default",
 			startHost: "off",
 			startHostSource: "default",
+		});
+	});
+
+	it("marks a configured spawnWindow as sourced from config", () => {
+		const summary = summarizeQuestConfig({
+			config: { spawnWindow: "open" },
+			configPath: "/cfg/config.json",
+			dataDir: "/data",
+		});
+		expect(summary).toMatchObject({
+			spawnWindow: "open",
+			spawnWindowSource: "config",
 		});
 	});
 
