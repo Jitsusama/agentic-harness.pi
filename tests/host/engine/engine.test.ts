@@ -967,6 +967,30 @@ describe("the host's engine", () => {
 		HOST_LIFE_MS,
 	);
 
+	// F35: a child's start on a key its siblings share must not end what
+	// their tools left running; the supervisor sweeps for the dead.
+	it(
+		"spares at a child's start what a host on its key left running",
+		async () => {
+			const folder = hostFolder();
+			expect(await killedStep(folder, "crash")).toBe("SIGKILL");
+			const left = leftRunning(folder);
+			expect(left.filter(alive), "both outlive the killed host").toHaveLength(
+				2,
+			);
+			const child = await step(folder, "child-start");
+			expect(child.childrenAlive, "a child reaps nothing of its key's").toEqual(
+				left,
+			);
+			const started = await step(folder, "start");
+			expect(
+				started.childrenAlive,
+				"a realm host's start still ends them",
+			).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
 	it(
 		"keeps through a park and the next host's start what an ended command left under its call's mark",
 		async () => {

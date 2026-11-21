@@ -231,6 +231,7 @@ export async function serveHost(options: {
 			admitAnother,
 			held: order,
 			...(options.say ? { say: options.say } : {}),
+			...(options.changes ? { changes: options.changes } : {}),
 			...slowAfter,
 		});
 		const control = await listenControl({

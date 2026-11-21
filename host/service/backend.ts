@@ -7,6 +7,7 @@
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import { type ControlBackend, hostRefusal } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
@@ -210,6 +211,12 @@ export function hostBackend(options: {
 	now?: () => Date;
 	/** Writes a line to the host's journal, as each close of one held but not running. */
 	say?: (line: string) => void;
+	/**
+	 * Hears a close or release of one held but not running, which no
+	 * conversation's end brings, as a child whose one conversation parked
+	 * away must, to end as closed or released rather than parked.
+	 */
+	changes?: Pick<HostChanges, "left">;
 	/**
 	 * The start's order, when the host listens while it resumes: a window,
 	 * wake, end or abort of one the start still owes brings it forward and
@@ -431,6 +438,7 @@ export function hostBackend(options: {
 				// Said first: the roster has let it go, whatever its screen does.
 				options.say?.(endedLine(sessionId, `${asked}, held but not running`));
 				await engine.dropped?.(sessionId, asked);
+				options.changes?.left(why, asked);
 			}
 			return { sessionId };
 		});

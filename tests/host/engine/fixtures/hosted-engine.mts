@@ -380,6 +380,8 @@ interface Scenario {
 	keyVariable?: string;
 	/** What the host's own process holds beyond the sealed environment it runs in. */
 	hostEnv?: Readonly<Record<string, string>>;
+	/** The engine runs one conversation, as a child's does, its notes kept apart. */
+	oneConversation?: true;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -1144,6 +1146,12 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => [],
 		run: async () => ({}),
 	},
+	/** A child's start on the same key: its siblings' work is the supervisor's. */
+	"child-start": {
+		responses: () => [],
+		oneConversation: true,
+		run: async () => ({}),
+	},
 	/** The host's next start: resume what the last run held, then talk. */
 	resume: {
 		responses: () => [say("after the restart"), say("and again")],
@@ -1311,6 +1319,13 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 			return { [OPENED_AS]: request.op, ...scenario.launch };
 		},
 		resources: { extensions: [flaggedExtension] },
+		...(scenario.oneConversation
+			? {
+					oneConversation: {
+						keptIn: () => join(folder, "state", "child"),
+					},
+				}
+			: {}),
 		...(scenario.screens ? { screens: scenario.screens() } : {}),
 		report: (error) => reported.push(String(error)),
 	});

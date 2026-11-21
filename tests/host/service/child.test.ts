@@ -400,6 +400,40 @@ describe("a child's life", () => {
 		await expect(answer).rejects.toThrow("The child ended: failed");
 	});
 
+	// F39: a resume slow under load ended its child as failed, which then
+	// parked what had just come up; its own end settles it instead.
+	it("keeps no first wait for a slot it resumes, however long the resume takes", async () => {
+		const { life, timers, hold } = following({ resumes: true });
+		expect(timers.has(1), "no first wait for a resume").toBe(false);
+		const answer = life.watch.answer();
+		hold(conversation(A));
+		life.resumed("resumed");
+		expect(parseWatchResult(await answer).conversation.sessionId).toBe(A);
+	});
+
+	// F38: a supervisor restarted after a became was told the old one.
+	it("answers a later watch with what its conversation became", async () => {
+		const { life, hold } = following();
+		hold(conversation(A));
+		await life.watch.answer();
+		life.becoming(A, B);
+		hold(conversation(A), conversation(B));
+		hold(conversation(B));
+		const later = parseWatchResult(await life.watch.answer());
+		expect(later.conversation.sessionId).toBe(B);
+		expect(later.entry).toEqual(entry(B));
+	});
+
+	// F34: the backend tells it of a close of one parked away.
+	it("ends closed at once when its conversation parked away is closed", async () => {
+		const child = following({ aloneWithin: 2 });
+		child.hold(conversation(A));
+		parkAway(child);
+		child.life.left("closed", "closed, asked by the launcher");
+		expect(await child.life.ending).toBe("closed");
+		expect(child.timers.has(2), "its grace ends with it").toBe(false);
+	});
+
 	it("waits for the wake of a conversation that rests parked for its grace, then ends parked without one", async () => {
 		const { life, timers } = following({ aloneWithin: 2 });
 		life.resumed("parked");

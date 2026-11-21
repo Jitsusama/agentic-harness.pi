@@ -79,9 +79,12 @@ import type { WatchBridge } from "./server.ts";
 export const HEAP_EVERY_MS = 30_000;
 
 /**
- * How long, in ms, a child waits for the conversation it was started
- * for before it ends as failed: an open the supervisor never sent, or
- * one that failed, leaves nothing to hold.
+ * How long, in ms, a child started for an open waits for its
+ * conversation before it ends as failed: an open the supervisor never
+ * sent, or one that failed, leaves nothing to hold. A child that resumes
+ * its slot keeps no such wait, since its resume's own end says how it
+ * went, and one slow under load would otherwise end failed and then park
+ * what had just come up.
  */
 export const FIRST_WITHIN_MS = 5 * 60_000;
 
@@ -245,6 +248,7 @@ export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
 			hosted ? { key: hosted.key, owner: hosted.owner } : undefined,
 		conversations: () => hosted?.list() ?? [],
 		entry: childEntry(slot),
+		resumes: slot.held !== undefined,
 	});
 	return {
 		slot,
@@ -308,6 +312,8 @@ export interface ChildLifeOptions {
 	readonly after?: (ms: number, run: () => void) => () => void;
 	/** How long it waits for its first conversation; FIRST_WITHIN_MS by default. */
 	readonly firstWithin?: number;
+	/** It resumes its slot's conversation, so keeps no first wait. */
+	readonly resumes?: boolean;
 	/** How long it stays parked with nobody viewing; ALONE_WITHIN_MS by default. */
 	readonly aloneWithin?: number;
 }
@@ -455,9 +461,11 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		endWith(why);
 	}
 
-	const stopFirst = after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
-		if (!answered) end(resting ? "parked" : "failed");
-	});
+	const stopFirst = options.resumes
+		? () => undefined
+		: after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
+				if (!answered) end(resting ? "parked" : "failed");
+			});
 	const stopHeap = every(HEAP_EVERY_MS, () => {
 		const held = current();
 		if (held && answered) stateLine(held);
@@ -493,6 +501,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			});
 			pending = undefined;
 			sent = { id: held.id, state: held.state };
+			// A watch that comes later, as a supervisor restarted meanwhile
+			// sends, is told what the conversation became, not what it was.
+			answered = { ...answered, conversation: identityOf(held), entry };
 			return;
 		}
 		if (held.id !== sent?.id || held.state !== sent.state) stateLine(held);
@@ -502,7 +513,15 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		ending,
 		watch: {
 			answer() {
-				if (answered) return Promise.resolve(answered);
+				if (answered) {
+					// As it stands now, its state among it, for a watch that comes late.
+					const held = current();
+					const now =
+						held && held.id === answered.conversation.sessionId
+							? { ...answered, conversation: identityOf(held) }
+							: answered;
+					return Promise.resolve(now);
+				}
 				if (ended)
 					return Promise.reject(
 						hostRefusal("ending", `The child ended: ${ended}`),
