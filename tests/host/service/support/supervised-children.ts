@@ -167,6 +167,8 @@ export interface FakeUnits extends Units {
 	refusesStart?: boolean;
 	/** How many of the next asks whether a unit has gone fail. */
 	goneFails?: number;
+	/** The next ask whether a unit has gone answers only once this settles. */
+	goneAnswers?: Promise<void>;
 	/** How many of the next stops fail once their unit has gone. */
 	stopFails?: number;
 	/** The next stop returns, or fails, only once this settles. */
@@ -357,6 +359,9 @@ function fakeUnits(): FakeUnits {
 				fake.goneFails -= 1;
 				throw new Error("systemd would not say");
 			}
+			const answers = fake.goneAnswers;
+			fake.goneAnswers = undefined;
+			await answers;
 			return !fake.children.has(unit);
 		},
 		async stop(unit) {

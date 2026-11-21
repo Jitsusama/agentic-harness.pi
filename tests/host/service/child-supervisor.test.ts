@@ -458,6 +458,40 @@ describe("what a child says", () => {
 		expect(roster.held, "the roster holds what it became").toEqual([entry(b)]);
 	});
 
+	it("says a conversation has left only once the roster holds what it became, heard while it waited on its slot", async () => {
+		await supervisor.resume(entry(a));
+		// The first leave's look at the slot holds every later claim on it.
+		const looked = deferred();
+		units.goneAnswers = looked.promise;
+		const first = supervisor.left(a);
+		const write = deferred();
+		roster.written = write.promise;
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+		looked.settle();
+		await expect(first, "a still ran when it looked").rejects.toThrow(
+			"still runs",
+		);
+
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
+		await pause(LISTENS_AFTER_MS);
+		expect(hasLeft, "left before the roster replaced it").toBe(false);
+		write.settle();
+		await leaving;
+
+		expect(roster.held, "the roster holds what it became").toEqual([entry(b)]);
+	});
+
 	it("says a conversation has not left a slot it became another in once a child of it lingers there again", async () => {
 		await supervisor.resume(entry(a));
 		const last = childOf(a);
@@ -669,6 +703,32 @@ describe("what a child says", () => {
 		expect(routes.listed(), "routed to nothing").toEqual([]);
 		expect(String(reported[0])).toContain("can't be written");
 		expect(said).toEqual([expect.stringContaining("couldn't be held")]);
+	});
+
+	it("says a conversation has left once the roster refused what it became", async () => {
+		await supervisor.resume(entry(a));
+		const write = deferred();
+		roster.written = write.promise;
+		roster.refuses = true;
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+
+		const leaving = supervisor.left(a);
+		// A fixed wait, since nothing outside says left is waiting on the
+		// write: long enough for it to have reached that wait.
+		await pause(LISTENS_AFTER_MS);
+		write.settle();
+
+		await expect(
+			leaving,
+			"a refused write is let go, not thrown at whoever waits to leave",
+		).resolves.toBeUndefined();
+		expect(String(reported[0])).toContain("can't be written");
 	});
 
 	it("takes no became onto another child's conversation spelled in capitals", async () => {
