@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	claimRunning,
 	placementFence,
 	runsPi,
 	spawnFenced,
@@ -218,5 +219,25 @@ describe("whether a spawn's command runs pi", () => {
 		]) {
 			expect(runsPi(command), `${command} counted as pi`).toBe(false);
 		}
+	});
+});
+
+describe("the claim once what a spawn runs is known", () => {
+	it("stays what was settled when it runs the pi it asked for", () => {
+		expect(
+			claimRunning(declared, "pi", "pi"),
+			"nothing was swapped in",
+		).toEqual(declared);
+	});
+
+	it("is none once a realm's own agent is swapped in, which may not pass pi's variables on", () => {
+		expect(
+			claimRunning(declared, "pi", "pi-claude"),
+			"a realm's agent claims nothing",
+		).toEqual(unfenced);
+		expect(
+			claimRunning({ kind: "strict", from: "quest" }, "pi -c", "pi-claude -c"),
+			"strict as well",
+		).toEqual(unfenced);
 	});
 });

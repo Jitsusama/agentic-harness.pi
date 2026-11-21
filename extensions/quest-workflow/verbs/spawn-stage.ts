@@ -107,6 +107,8 @@ export interface PlacementAsked {
 	readonly command?: string | undefined;
 	/** Whether a session of the quest would resume, if nothing else is said. */
 	readonly resumes: boolean;
+	/** Whether a machine in the realm starts its own agent in pi's place. */
+	readonly swapped?: boolean;
 }
 
 /** What a shell reads as more than one program, or as a word it fills in. */
@@ -137,7 +139,9 @@ export function runsPi(command: string | undefined): boolean {
  * reopen, which is given no sandbox, or runs something other than pi
  * claims none, and so does the fence, declared or not, which a start on
  * another machine may run without (an older pi there, or a Mac, lifts
- * it), since under-claiming is safe. Strict, which no pi lifts, stays.
+ * it), since under-claiming is safe. Strict, which no pi lifts, stays,
+ * unless a machine in the realm starts its own agent in pi's place, which
+ * may be where it lands (`claimRunning`).
  */
 export function placementFence(
 	fence: FenceDeclaration,
@@ -147,7 +151,12 @@ export function placementFence(
 	const mayReopen =
 		resumedBy(command) !== undefined || (asked.resumes && command === "");
 	const mayLandElsewhere = fence.kind === "fence";
-	return mayReopen || mayLandElsewhere || !runsPi(command) ? UNFENCED : fence;
+	return mayReopen ||
+		mayLandElsewhere ||
+		asked.swapped === true ||
+		!runsPi(command)
+		? UNFENCED
+		: fence;
 }
 
 /** A spawn once it is known where it starts and what listed it. */
@@ -206,6 +215,21 @@ export function spawnFenced(
 		claim: declarationSettled(declared, spawnSettled(spawn, platform)),
 		sandbox: reopens(spawn) ? undefined : sandboxFor(declared),
 	};
+}
+
+/**
+ * A started spawn's claim once what it runs is known: a realm's node may
+ * declare its own agent in pi's place (pi-claude, on Joel's own plan),
+ * and nothing here sees whether that hands pi's variables on, so a spawn
+ * whose `runs` was swapped from `asked` claims none. Its sandbox is still
+ * handed on.
+ */
+export function claimRunning(
+	claim: FenceDeclaration,
+	asked: string,
+	runs: string,
+): FenceDeclaration {
+	return runs === asked ? claim : UNFENCED;
 }
 
 /** Whether the stage would list `spawn`, dry run or not. */

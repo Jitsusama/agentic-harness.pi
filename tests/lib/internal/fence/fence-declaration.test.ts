@@ -219,4 +219,22 @@ describe("the declaration said", () => {
 			"nothing declared, unfenced",
 		).toBe("It runs unfenced, declared by nobody.");
 	});
+
+	it("says a sandbox handed on past the claim as handed but not sure, never as unfenced", () => {
+		const said = declarationSaid({ kind: "none", from: "default" }, "fence");
+
+		expect(said, "it names the sandbox it was handed").toContain(
+			"It is handed the fence sandbox, but claimed as unfenced",
+		);
+		expect(said, "it never says it runs unfenced").not.toContain(
+			"It runs unfenced",
+		);
+	});
+
+	it("says only the claim when the sandbox handed on is the one claimed", () => {
+		expect(
+			declarationSaid({ kind: "strict", from: "quest" }, "strict"),
+			"strict handed and claimed",
+		).toBe("It runs strict, as its quest declares.");
+	});
 });

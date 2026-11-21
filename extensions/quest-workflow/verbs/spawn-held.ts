@@ -328,7 +328,19 @@ export type AgentsOnNode = () => Promise<
 	ReadonlyMap<string, string> | undefined
 >;
 
-const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+/** The agent command each machine in this session's realm declares. */
+export const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+
+/**
+ * Whether any machine in `agents` starts another agent in pi's place, so
+ * a spawn asked where it runs, before it is known where, can't vouch for
+ * a fence only pi keeps.
+ */
+export function swapsAgent(
+	agents: ReadonlyMap<string, string> | undefined,
+): boolean {
+	return [...(agents?.values() ?? [])].some((agent) => agent !== "pi");
+}
 
 /**
  * `command` as `machine` starts an agent session in this session's realm:
@@ -343,13 +355,18 @@ export async function agentCommand(
 	machine: string,
 	agents: AgentsOnNode = askAgents,
 ): Promise<string> {
-	if (!runsPi(command)) return command;
+	if (!opensWithPi(command)) return command;
 	const agent = (await agents())?.get(machine);
 	return agent && agent !== "pi" ? `${agent}${command.slice(2)}` : command;
 }
 
-/** Whether a command starts pi itself, as `pi` or `pi` with its flags. */
-export function runsPi(command: string): boolean {
+/**
+ * Whether a command opens with the word `pi`, alone or with flags: the
+ * word a node's agent takes the place of, and what a holder's `--` must
+ * be followed by. Not whether a fence reaches what it runs, which
+ * spawn-stage.ts's `runsPi` answers more strictly.
+ */
+function opensWithPi(command: string): boolean {
 	return command === "pi" || command.startsWith("pi ");
 }
 
@@ -365,11 +382,11 @@ const HOLDERS = new Set(["mycelium"]);
  * 11-07 two sessions spawned that way were never told their notes.
  */
 export function startsPi(command: string): boolean {
-	if (runsPi(command)) return true;
+	if (opensWithPi(command)) return true;
 	const [program] = command.trim().split(/\s+/);
 	if (!program || !HOLDERS.has(program)) return false;
 	const after = command.indexOf(" -- ");
-	return after >= 0 && runsPi(command.slice(after + 4).trim());
+	return after >= 0 && opensWithPi(command.slice(after + 4).trim());
 }
 
 /** What a spawn's machine was chosen for, as a sentence, or nothing. */
