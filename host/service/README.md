@@ -279,14 +279,15 @@ input pipeline or screen. No unit or running host is installed yet.
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:
   `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, so
-  a running host starts it again at its next wake, and a stopped one at
-  its next start. Before rolling back to a host without
+  a host starting resumes it, and a running one starts it again at a
+  wake when the child parked it naming the host's wake file. Before rolling back to a host without
   children, which neither takes them up nor knows they run, so would
   resume their conversations beside them, stop the host first and
   then their units: a running host starts a child again at its
   conversation's next wake. The host runs a
   conversation itself only once every child that ran it has gone and
-  its slot is free (`left`); while one still runs, the resume fails.
+  its own slot is free, unless a child there answered as or became
+  another conversation (`left`); while one still runs, the resume fails.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,

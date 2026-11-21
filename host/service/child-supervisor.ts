@@ -175,8 +175,8 @@ export interface ChildSupervisor {
 	adopt(): Promise<number>;
 	/**
 	 * Settles once no child runs this conversation: every one that ran it
-	 * has gone and its slot is free. Fails while one still runs it, or
-	 * once the host stops watching.
+	 * has gone and its own slot is free, or runs what it became. Fails
+	 * while one still runs it, or once the host stops watching.
 	 */
 	left(sessionId: string): Promise<void>;
 	/**
@@ -350,20 +350,24 @@ export function childSupervisor(options: {
 
 	/** Count `sessionId` as running in `slot`, beside wherever else. */
 	function runsIn(sessionId: string, slot: Slot): void {
+		movedOff.delete(moveOf(sessionId, slot.unit));
 		const slots = ranIn.get(keyed(sessionId)) ?? new Map<string, Slot>();
 		slots.set(slot.unit, slot);
 		ranIn.set(keyed(sessionId), slots);
 	}
 
-	/** Whether a conversation other than `sessionId` runs in `unit`. */
-	function runsAnother(unit: string, sessionId: string): boolean {
-		for (const [id, slots] of ranIn)
-			if (id !== keyed(sessionId) && slots.has(unit)) return true;
-		return false;
+	// Each conversation a trusted answer or became moved off a slot, by
+	// `moveOf`, so `left` passes a slot that now runs another one.
+	const movedOff = new Set<string>();
+
+	/** The key `movedOff` holds `sessionId` moved off `unit` by. */
+	function moveOf(sessionId: string, unit: string): string {
+		return `${keyed(sessionId)} ${unit}`;
 	}
 
-	/** Count `sessionId` as running in `slot` no longer. */
+	/** Count `sessionId` as running in `slot` no longer, since it moved off. */
 	function runsNoLongerIn(sessionId: string, slot: Slot): void {
+		movedOff.add(moveOf(sessionId, slot.unit));
 		const slots = ranIn.get(keyed(sessionId));
 		slots?.delete(slot.unit);
 		if (slots?.size === 0) ranIn.delete(keyed(sessionId));
@@ -516,6 +520,8 @@ export function childSupervisor(options: {
 			await clearSlot(slot);
 			await units.forget(slot.unit);
 			inUse.delete(slot.unit);
+			for (const moved of [...movedOff])
+				if (moved.endsWith(` ${slot.unit}`)) movedOff.delete(moved);
 			for (const [sessionId, slots] of ranIn) {
 				slots.delete(slot.unit);
 				if (slots.size === 0) ranIn.delete(sessionId);
@@ -1227,9 +1233,10 @@ export function childSupervisor(options: {
 			}
 			// Its own slot too: a child that failed before its first answer
 			// ran in no slot the host heard of, and may be stopping still. One
-			// whose child became another conversation runs that one, not this.
+			// whose child answered as, or became, another conversation runs
+			// that one, not this; a refused answer moves nothing off it.
 			const own = ownSlot(sessionId);
-			if (own !== undefined && !runsAnother(own.unit, sessionId)) {
+			if (own !== undefined && !movedOff.has(moveOf(sessionId, own.unit))) {
 				stillWatching();
 				if (!(await claimed(own.unit, () => free(own))))
 					throw new Error(`${sessionId} still runs in ${own.unit}`);

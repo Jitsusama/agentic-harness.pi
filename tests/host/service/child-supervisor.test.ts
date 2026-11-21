@@ -291,6 +291,19 @@ describe("a resumed conversation", () => {
 		expect(routes.listed()).toEqual([]);
 	});
 
+	it("says a conversation has not left while a child refused for answering as another still runs in its slot", async () => {
+		units.lingers = true;
+		units.next = {
+			answers: (result) => ({ ...result, conversation: conversation(b) }),
+		};
+		await expect(supervisor.resume(entry(a))).rejects.toThrow("not");
+		const [unit] = units.started;
+
+		await expect(supervisor.left(a)).rejects.toThrow(
+			`${a} still runs in ${unit}`,
+		);
+	});
+
 	it("is refused when its child names one conversation and holds another", async () => {
 		units.next = { answers: (result) => ({ ...result, entry: entry(b) }) };
 
