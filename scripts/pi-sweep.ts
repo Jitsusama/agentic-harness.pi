@@ -50,12 +50,12 @@
  *   PI_SWEEP_PROVIDERS=/path/to/providers.ts node scripts/pi-sweep.ts
  */
 
-import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	forgetTrees,
 	liveQuestTrees,
+	whyQuestsUnread,
 } from "../extensions/quest-workflow/claims.ts";
 import { questsRootNow } from "../extensions/quest-workflow/config.ts";
 import {
@@ -149,8 +149,9 @@ export async function sweepOutside({
 		return refused(`the quests can't be found: ${said(error)}`);
 	}
 	// A quests root that isn't there claims nothing, as a wrong one would,
-	// and one that can't be looked at may claim anything.
-	const unseen = whyQuestsUnseen(questsRoot);
+	// and a store, this realm's or another's, that can't be listed claims
+	// nothing it holds.
+	const unseen = whyQuestsUnread(questsRoot);
 	if (unseen !== undefined) return refused(unseen);
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
@@ -205,18 +206,6 @@ function unjudgedOf(calls: ProviderCalls, id: string): boolean {
 /** Say `line` in the unit's journal, where its failure is read. */
 function tell(line: string): void {
 	process.stderr.write(`pi-sweep: ${line}\n`);
-}
-
-/** Why the quests at `root` can't be read for their claims, or nothing. */
-function whyQuestsUnseen(root: string): string | undefined {
-	try {
-		if (statSync(root, { throwIfNoEntry: false })?.isDirectory() === true) {
-			return undefined;
-		}
-		return `the quests aren't at ${root}`;
-	} catch (error) {
-		return `the quests at ${root} can't be looked at: ${said(error)}`;
-	}
 }
 
 /**

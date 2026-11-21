@@ -622,6 +622,35 @@ it("fails before sweeping when the quests can't be looked at", async () => {
 	}
 });
 
+it("fails before sweeping when another realm's quests can't be listed", async () => {
+	// Its trees are the machine's, so a store read as empty would have the
+	// sweep take them as nobody's.
+	const realm = join(
+		root,
+		"data",
+		"pi",
+		"agentic-harness.pi",
+		"realms",
+		"work",
+		"quest-workflow",
+		"quests",
+	);
+	mkdirSync(realm, { recursive: true });
+	chmodSync(realm, 0o000);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			`the quests at ${realm} can't be looked at`,
+		);
+		expect(stamp(), "the stamp it left").toBeUndefined();
+	} finally {
+		chmodSync(realm, 0o700);
+	}
+});
+
 it("says a stamp it couldn't write", async () => {
 	// A folder where the stamp goes, which no file can be renamed over.
 	mkdirSync(join(work(), "sweep.lock.outside"), { recursive: true });

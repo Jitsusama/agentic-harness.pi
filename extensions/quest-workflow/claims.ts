@@ -15,7 +15,7 @@
  * side importing the other.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
@@ -98,6 +98,28 @@ export function liveQuestTrees(questsRoot: string): string[] {
 		paths,
 	);
 	return paths;
+}
+
+/**
+ * Why the quests can't all be read for their claims, or nothing: the
+ * quests root this realm's config names must be a folder, and every
+ * realm's store that stands must list. A store read as empty claims
+ * nothing, so its quests' trees would be taken as nobody's.
+ */
+export function whyQuestsUnread(questsRoot: string): string | undefined {
+	for (const store of storesOf(questsRoot)) {
+		try {
+			const found = statSync(store, { throwIfNoEntry: false });
+			// Another realm that never kept a quest has nothing to claim.
+			if (found === undefined && store !== questsRoot) continue;
+			if (found?.isDirectory() !== true) return `the quests aren't at ${store}`;
+			readdirSync(store);
+		} catch (error) {
+			const why = error instanceof Error ? error.message : String(error);
+			return `the quests at ${store} can't be looked at: ${why}`;
+		}
+	}
+	return undefined;
 }
 
 /**
