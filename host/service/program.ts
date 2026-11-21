@@ -26,6 +26,8 @@ import {
 } from "../engine/index.ts";
 import { CHILD_FLAG, hostRealm } from "./address.ts";
 import { type ChildHost, childHost, type Ending } from "./child.ts";
+import { childPolicyFile, watchedChildPolicy } from "./child-policy.ts";
+import { systemdUnits } from "./child-units.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
 import { followWhatStarts } from "./restart.ts";
@@ -223,6 +225,11 @@ export async function startHostProgram(
 		},
 		// A viewer's key or resize holds the quiet collection off for a while.
 		viewer: () => noticingInput(screens.viewer, () => engine?.viewed()),
+		// Each moves to a process of its own only as its key's policy file says.
+		children: {
+			units: systemdUnits,
+			policy: (key) => watchedChildPolicy(childPolicyFile(key), report),
+		},
 		// One conversation's throw ends only it, never the host's other conversations.
 		faults: process,
 		contain: (sessionId, error) => screens.faulted(sessionId, error),
@@ -246,6 +253,18 @@ export async function startHostProgram(
 					`Restart past its ceiling: the drain lets wakes through from now, staying for a gap; ${woken} held until now woken`,
 				);
 		},
+		// A pressed heap's wait for a moment with no turn found none on 20
+		// November, as wakes kept starting turns, so it drains the host.
+		drain: (on) => {
+			if (!engine?.drain) throw new Error("This host can't drain");
+			const heavy = engine.drain(on);
+			// Unlike a drain by hand, the heap's restart waits on no heavy run.
+			if (on && heavy.length > 0)
+				report(
+					`The heap's drain leaves heavy runs going, which its restart won't wait for: ${heavy.join("; ")}`,
+				);
+		},
+		draining: () => engine?.drains?.(),
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {

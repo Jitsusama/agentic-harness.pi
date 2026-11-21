@@ -31,6 +31,16 @@ describe("readyStatus", () => {
 			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
 		);
 	});
+
+	it("says how many run in processes of their own, when any do", () => {
+		const apart = { loaded: 1, parked: 2, dropped: 0, unresumed: 0 };
+		expect(readyStatus({ ...apart, children: 4 })).toBe(
+			"ready: loaded 1, parked 2, 4 in processes of their own, dropped 0",
+		);
+		expect(readyStatus({ ...apart, children: 0 })).toBe(
+			"ready: loaded 1, parked 2, dropped 0",
+		);
+	});
 });
 
 describe("stoppingStatus", () => {
@@ -55,7 +65,25 @@ describe("readyCount", () => {
 			resting: () => 2,
 			stillUnresumed: () => 1,
 		});
-		expect(count).toEqual({ loaded: 1, parked: 3, dropped: 1, unresumed: 1 });
+		expect(count).toEqual({
+			loaded: 1,
+			parked: 3,
+			dropped: 1,
+			unresumed: 1,
+			children: 0,
+		});
+	});
+
+	it("counts the conversations children run apart from those the host runs", () => {
+		const count = readyCount({
+			held: () => [],
+			unresumed: [],
+			dropped: [],
+			resting: () => 0,
+			stillUnresumed: () => 0,
+			inChildren: () => 3,
+		});
+		expect(count).toMatchObject({ loaded: 0, parked: 0, children: 3 });
 	});
 });
 

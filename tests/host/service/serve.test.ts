@@ -1,6 +1,6 @@
 /** A host's life: refuse before listening, resume what it holds, keep holds on stop. */
 import { randomUUID } from "node:crypto";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import type {
 	ConversationEngine,
 	ConversationEvents,
 } from "../../../host/service/backend.ts";
+import { slotFolder } from "../../../host/service/child-units.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import {
 	parseListResult,
@@ -18,6 +19,7 @@ import {
 import { serveHost } from "../../../host/service/serve.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { until } from "../../support/until.ts";
+import { fakeUnits } from "./support/fake-children.ts";
 
 // The net is process-wide, so the worker running these tests keeps its
 // own handling; what is checked is that a host sets it, and where.
@@ -27,20 +29,26 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 }));
 
 let dir: string;
+// The runtime folder, made apart from `dir` and short, since a child's
+// socket sits three names below it and a Unix socket's path can't pass
+// 107 bytes.
+let run: string;
 let report: ReturnType<typeof vi.fn<(error: unknown) => void>>;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-serve-"));
+	run = await mkdtemp(join(tmpdir(), "r"));
 	report = vi.fn();
 });
 afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
+	await rm(run, { recursive: true, force: true });
 });
 
 function places() {
 	return {
 		realm: "work",
 		kind: "attended" as const,
-		runtimeDir: join(dir, "run"),
+		runtimeDir: run,
 		rosterDir: join(dir, "rosters"),
 		registryDir: join(dir, "hosts"),
 		rejectionLog: join(dir, "stale-rejections.jsonl"),
@@ -138,7 +146,7 @@ describe("serveHost", () => {
 			}),
 		).rejects.toBe(refused);
 		expect(
-			await exists(join(dir, "run", "pi-host", "work-attended.sock")),
+			await exists(join(run, "pi-host", "work-attended.sock")),
 			"a refused host left no socket",
 		).toBe(false);
 		const next = await serveHost({
@@ -514,7 +522,7 @@ describe("serveHost", () => {
 				};
 			},
 		});
-		const path = join(dir, "run", "pi-host", "work-attended.sock");
+		const path = join(run, "pi-host", "work-attended.sock");
 		// The file appears at bind, but the host drops a connection until it
 		// has set the socket's mode, so wait for an answer, not the file.
 		await until("the host to answer as it starts", () =>
@@ -580,6 +588,117 @@ describe("serveHost", () => {
 			expect(
 				await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
 			).toBe("unheld");
+		} finally {
+			await second.stop();
+		}
+	});
+});
+
+describe("serveHost with children", () => {
+	it("resumes a moved conversation in a child, leaves it running through a stop, and takes it up again", async () => {
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		const units = fakeUnits(
+			slotFolder(run, "work-attended"),
+			"work-attended",
+			report,
+		);
+		const said: string[] = [];
+		const withChildren = {
+			...places(),
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: (id: string) => id === sessionId,
+					opens: () => false,
+					close: () => undefined,
+				}),
+			},
+		};
+		const inHost = vi.fn();
+		const second = await serveHost({
+			...withChildren,
+			engine: async (h) => ({ ...engine(h), resume: inHost }),
+		});
+		try {
+			expect(second.unresumed, "every one resumed").toEqual([]);
+			expect(units.started, "its child started").toHaveLength(1);
+			expect(inHost, "the host resumed none of it").not.toHaveBeenCalled();
+			expect(second.inChildren?.(), "counted as a child's").toBe(1);
+			expect(second.stillUnresumed(), "resumed, in its child").toBe(0);
+		} finally {
+			await second.stop();
+		}
+		expect(units.stopped, "no child stopped with the host").toEqual([]);
+		expect(units.childOf(sessionId), "its child runs on").toBeDefined();
+
+		const third = await serveHost({
+			...withChildren,
+			engine: async (h) => ({ ...engine(h), resume: inHost }),
+		});
+		try {
+			expect(units.started, "taken up, not started again").toHaveLength(1);
+			expect(inHost).not.toHaveBeenCalled();
+			expect(said).toContain("took up 1 child an earlier host left running");
+			expect(third.inChildren?.()).toBe(1);
+		} finally {
+			await third.stop();
+			for (const child of units.children.values()) await child?.exit();
+		}
+		expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
+	});
+
+	it("runs every conversation itself when no child's socket would fit, saying so", async () => {
+		// Long enough that a child's socket, 39 bytes further down than the
+		// host's, passes the limit while the host's still fits.
+		const long = join(run, "x".repeat(60 - run.length));
+		await mkdir(long, { mode: 0o700 });
+		const at = { ...places(), runtimeDir: long };
+		const first = await serveHost({ ...at, engine: async (h) => engine(h) });
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		const units = fakeUnits(
+			slotFolder(long, "work-attended"),
+			"work-attended",
+			report,
+		);
+		const said: string[] = [];
+		const closed = vi.fn();
+		const inHost = vi.fn();
+		const second = await serveHost({
+			...at,
+			say: (words: string) => said.push(words),
+			children: {
+				units,
+				policy: async () => ({
+					moves: (id: string) => id === sessionId,
+					opens: () => true,
+					close: closed,
+				}),
+			},
+			engine: async (h) => ({ ...engine(h), resume: inHost }),
+		});
+		try {
+			expect(second.unresumed, "every one resumed").toEqual([]);
+			expect(inHost, "the host resumed it itself").toHaveBeenCalledTimes(1);
+			expect(units.started, "no child started").toEqual([]);
+			expect(second.inChildren?.() ?? 0, "none counted as a child's").toBe(0);
+			expect(closed, "the policy let go").toHaveBeenCalled();
+			expect(said).toContain(
+				"runs every conversation itself, since no child could be set up",
+			);
+			expect(report, "the reason is reported").toHaveBeenCalledTimes(1);
 		} finally {
 			await second.stop();
 		}

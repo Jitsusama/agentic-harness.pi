@@ -21,6 +21,8 @@ export interface ReadyCount {
 	readonly dropped: number;
 	/** Holds it keeps but could not resume. */
 	readonly unresumed: number;
+	/** Conversations it holds that run in processes of their own. */
+	readonly children?: number;
 }
 
 /**
@@ -31,7 +33,12 @@ export interface ReadyCount {
 export function readyCount(
 	serving: Pick<
 		ServingHost,
-		"held" | "unresumed" | "dropped" | "resting" | "stillUnresumed"
+		| "held"
+		| "unresumed"
+		| "dropped"
+		| "resting"
+		| "stillUnresumed"
+		| "inChildren"
 	>,
 ): ReadyCount {
 	const held = serving.held();
@@ -46,6 +53,7 @@ export function readyCount(
 		parked: asleep + serving.resting(),
 		dropped: serving.dropped.length,
 		unresumed: serving.stillUnresumed(),
+		children: serving.inChildren?.() ?? 0,
 	};
 }
 
@@ -55,9 +63,10 @@ export function readyCount(
  * not resumed.
  */
 export function readyStatus(count: ReadyCount): string {
-	const { loaded, parked, dropped, unresumed } = count;
+	const { loaded, parked, dropped, unresumed, children = 0 } = count;
+	const apart = children > 0 ? `, ${children} in processes of their own` : "";
 	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
-	return `ready: loaded ${loaded}, parked ${parked}, dropped ${dropped}${held}`;
+	return `ready: loaded ${loaded}, parked ${parked}${apart}, dropped ${dropped}${held}`;
 }
 
 /**

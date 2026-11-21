@@ -12,11 +12,8 @@ import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ConversationEngine,
 	conversationEvents,
-	heldOrder,
 	hostBackend,
 	type Prepared,
-	RESUME_AT_ONCE,
-	resumeHeld,
 } from "../../../host/service/backend.ts";
 import { controlRequest, drainHost } from "../../../host/service/client.ts";
 import {
@@ -26,6 +23,11 @@ import {
 	parseOpenResult,
 	parseSessionResult,
 } from "../../../host/service/protocol.ts";
+import {
+	heldOrder,
+	RESUME_AT_ONCE,
+	resumeHeld,
+} from "../../../host/service/resume-held.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { ambientSession, sessionEnv } from "../../../lib/core/session/index.ts";

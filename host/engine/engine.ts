@@ -434,6 +434,8 @@ export async function createEngine(
 
 		letWakesThrough: (on) => parked.letThrough(on),
 
+		drains: () => host.drains(),
+
 		drain(on) {
 			host.drain(on);
 			if (!on) parked.release();
@@ -574,6 +576,14 @@ export async function createEngine(
 		},
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
+
+		// What restsParked took on, given up to the child that runs it now.
+		movedOut(sessionId) {
+			parked.unwatch(sessionId);
+			warming.stop(sessionId);
+			logs.release(sessionId);
+			requests.forget(sessionId);
+		},
 
 		handsOn(sessionId) {
 			stopping.handsOn(sessionId);

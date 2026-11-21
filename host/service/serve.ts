@@ -14,7 +14,7 @@
  * start sets the package's net for those before any conversation exists.
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
@@ -33,15 +33,20 @@ import {
 	type ConversationEngine,
 	conversationEvents,
 	type HostBackend,
-	heldOrder,
 	hostBackend,
-	type ResumeEnd,
 	type ResumePhase,
-	type Resuming,
-	resumeHeld,
 	type Unresumed,
 } from "./backend.ts";
+import { type HostedChildren, hostChildren } from "./child-hosting.ts";
+import type { ChildPolicy } from "./child-policy.ts";
+import { slotFolder, type Units } from "./child-units.ts";
 import type { ControlBackend } from "./dispatch.ts";
+import {
+	heldOrder,
+	type ResumeEnd,
+	type Resuming,
+	resumeHeld,
+} from "./resume-held.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster, type RosterWait } from "./roster.ts";
 import {
@@ -81,6 +86,8 @@ export interface ServingHost {
 	 * restart rests: held, not running, and not among those that failed.
 	 */
 	resting(): number;
+	/** How many conversations it holds run in processes of their own. */
+	inChildren?(): number;
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
 	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
@@ -151,6 +158,15 @@ export async function serveHost(options: {
 	 * after it, before the journal says so: attach-waits.ts's ATTACH_SLOW_MS.
 	 */
 	attachSlowMs?: number;
+	/**
+	 * Where conversations may run in a process each: the units that start
+	 * them, and the policy, read for the host's key, saying which move.
+	 * Without it, or while the policy moves none, this host runs them all.
+	 */
+	children?: {
+		units: Units;
+		policy: (key: string) => Promise<ChildPolicy>;
+	};
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -177,6 +193,7 @@ export async function serveHost(options: {
 	});
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
+	let children: HostedChildren | undefined;
 	try {
 		host = new SessionHost({
 			key,
@@ -217,6 +234,30 @@ export async function serveHost(options: {
 					}
 				: events,
 		);
+		if (options.children) {
+			const policy = await options.children.policy(key);
+			try {
+				children = hostChildren({
+					key,
+					// Beside the socket, in the runtime folder it was checked under.
+					folder: slotFolder(dirname(dirname(path)), key),
+					units: options.children.units,
+					policy,
+					roster,
+					restsParked: (entry) => engine.restsParked?.(entry) ?? false,
+					report: options.report,
+					...(options.say ? { say: options.say } : {}),
+				});
+			} catch (error) {
+				// A runtime folder too long for a child's socket moves nothing:
+				// the host runs every conversation itself, as with no policy.
+				policy.close();
+				options.report(error);
+				options.say?.(
+					"runs every conversation itself, since no child could be set up",
+				);
+			}
+		}
 		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
 		const slowAfter =
@@ -230,6 +271,7 @@ export async function serveHost(options: {
 			engine,
 			admitAnother,
 			held: order,
+			...(children ? { children: children.backend } : {}),
 			...(options.say ? { say: options.say } : {}),
 			...(options.changes ? { changes: options.changes } : {}),
 			...slowAfter,
@@ -239,6 +281,7 @@ export async function serveHost(options: {
 			backend,
 			viewer: options.viewer?.(host),
 			...(options.watch ? { watch: options.watch } : {}),
+			...(children ? { children: children.routes } : {}),
 			report: options.report,
 			...(options.say ? { say: options.say } : {}),
 			...slowAfter,
@@ -246,6 +289,16 @@ export async function serveHost(options: {
 		listener = control;
 		wakes = backend.wake;
 		listening(backend.wake);
+		// Before the resumes, so one a child an earlier host left running
+		// still runs is taken up there rather than started again here. One
+		// that can't read which children run fails the start, since resuming
+		// regardless could run a conversation in two processes at once.
+		if (children) {
+			const taken = await children.adopt();
+			options.say?.(
+				`took up ${taken} ${taken === 1 ? "child" : "children"} an earlier host left running`,
+			);
+		}
 		const { unresumed, dropped } = await resumeHeld({
 			roster,
 			engine,
@@ -255,6 +308,7 @@ export async function serveHost(options: {
 			finished: options.finished,
 			order,
 			...(options.woken ? { woken: options.woken } : {}),
+			...(children ? { children: children.backend } : {}),
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
@@ -269,17 +323,22 @@ export async function serveHost(options: {
 				const live = new Map(running.list().map((c) => [c.id, c.state]));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
 				return unresumed.filter(({ sessionId }) => {
+					if (children?.routes.routeOf(sessionId)) return false;
 					const state = live.get(sessionId);
 					return held.has(sessionId) && (state ?? "parked") === "parked";
 				}).length;
 			},
+			inChildren: () => children?.routes.listed().length ?? 0,
 			resting: () => {
 				const live = new Set(running.list().map(({ id }) => id));
 				const failed = new Set(unresumed.map(({ sessionId }) => sessionId));
 				return roster
 					.entries()
 					.filter(
-						({ sessionId }) => !live.has(sessionId) && !failed.has(sessionId),
+						({ sessionId }) =>
+							!live.has(sessionId) &&
+							!failed.has(sessionId) &&
+							!children?.routes.routeOf(sessionId),
 					).length;
 			},
 			held: () => running.list(),
@@ -297,6 +356,9 @@ export async function serveHost(options: {
 						);
 					if (restarting) await control.restarting();
 					await control.close();
+					// Each child runs on through the stop, for the next host to adopt,
+					// and one still starting is let go at once rather than waited on.
+					children?.close();
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
@@ -315,6 +377,7 @@ export async function serveHost(options: {
 			},
 		};
 	} catch (error) {
+		children?.close();
 		await listener?.close().catch(options.report);
 		if (host) {
 			await park(host).catch(options.report);

@@ -54,6 +54,30 @@
  * drain's held wakes still held, wakes no parked conversation onto a
  * heap already short.
  *
+ * Waiting alone found no such moment, though. On 20 November the
+ * background host was pressed at 15:22 and waited 52 minutes, as wakes
+ * kept starting turns, until its heap passed three-quarters and the
+ * restart ended 57 turns. So a pressed host whose turns run drains
+ * itself, as a drain asked by hand does: each conversation parks as its
+ * turn ends, idle time aside, and a wake waits for the next host, so
+ * the turns run out and the moment comes. It stays while a call holds
+ * the restart, since the heap is no less short, and while the heap is
+ * past half, where the host still means to restart for it. While it
+ * stands the heap counts as pressed, though its parks take it under
+ * three-fifths: otherwise the ordinary rules would let its held wakes
+ * through past the ceiling and wait on heavy runs, and the wakes would
+ * grow the heap again. A turn running since the drain began that
+ * still runs half an hour on lifts it once the heap is under
+ * three-fifths, so one turn that never ends can't hold parked work, and
+ * a heap pressed again drains again. Once the heap is under half, the drain lifts,
+ * waking what it held, and any other difference, such as a moved
+ * install, waits under the ordinary rules rather than ending
+ * background work and screens as a short heap would. A drain standing by hand before the heap
+ * was pressed is neither taken over nor lifted; one asked by hand
+ * while the heap's stands lifts with it, since the host keeps one
+ * drain. One lifted by hand is started again at the next look while
+ * the heap is still pressed.
+ *
  * The heap is read as the last major collection left it, which counts
  * no garbage: V8's used heap between collections can stand well past
  * what is live, and one such reading could end every turn for nothing.
@@ -83,7 +107,6 @@ import {
 import { getHeapStatistics } from "node:v8";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
-import type { SessionIdentity } from "./protocol.ts";
 import { quietFrom, RESTART_WAITS_ON_VARIABLE } from "./quiet.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
@@ -200,6 +223,8 @@ export interface Held {
 	readonly state: "busy" | "idle" | "parked";
 	/** When it last changed state, as an ISO time. */
 	readonly since: string;
+	/** Its conversation, for a line naming what holds a drain. */
+	readonly sessionId?: string;
 }
 
 /**
@@ -234,6 +259,24 @@ export interface RestartFacts {
 	resting(): boolean;
 	/** How short the heap runs, or nothing while it has room. */
 	pressure?(): HeapPressure | undefined;
+	/**
+	 * Whether the heap alone would have the host restart, past half its
+	 * limit. While the heap's own drain stands and it would not, the drain
+	 * lifts at once, so another difference waits under the ordinary rules;
+	 * with no say, the drain lifts only once nothing differs.
+	 */
+	heapRestarts?(): boolean;
+	/**
+	 * Start or lift the host's drain for a pressed heap: while it lasts
+	 * each conversation parks as its turn ends and a wake waits for the
+	 * next host. A throw is reported.
+	 */
+	drain?(on: boolean): void;
+	/**
+	 * Whether the host drains now, whoever asked, or nothing when it can't
+	 * tell; then the loop goes by the drains it asked for itself.
+	 */
+	draining?(): boolean | undefined;
 	/**
 	 * Why the person can't take a restart now, such as "a call is on", or
 	 * nothing when they can. A throw means it can't tell, which holds it.
@@ -314,6 +357,20 @@ export function restartWhenSettled(
 	let short: HeapPressure | undefined;
 	// The pressure a wait for a moment with no turn was last said for.
 	let saidPressed: HeapPressure | undefined;
+	// Whether this loop drained the host for a pressed heap, not yet lifted,
+	// and since when.
+	let drained = false;
+	let drainedAt: number | undefined;
+	// When this drain was last said to stand past its ceiling on a heap
+	// still pressed, so the journal says it once an hour while it stands.
+	let saidPastCeilingAt: number | undefined;
+	// Whether starting the heap's drain threw since the heap last had room,
+	// so a host that can't drain says so once rather than every second.
+	let drainRefused = false;
+	// Whether only the heap's own drain keeps it pressed, and when the host
+	// last asked what differs, so such a heap is asked about each minute.
+	let pressedByDrain = false;
+	let differsAskedAt: number | undefined;
 	// Why a restart was last said to be held for the person, and when.
 	let saidQuiet: string | undefined;
 	let saidQuietAt: number | undefined;
@@ -404,6 +461,7 @@ export function restartWhenSettled(
 		const turns = facts.held().filter(({ state }) => state === "busy").length;
 		if (pressure === "pressed" && turns > 0) {
 			sayPressed(pressure, turns);
+			startHeapDrain();
 			return undefined;
 		}
 		const ending = facts.background() > 0 ? (facts.holding?.() ?? []) : [];
@@ -422,6 +480,52 @@ export function restartWhenSettled(
 		saidPressed = pressure;
 		facts.report(
 			`Heap short of room: restarting at the first moment no conversation has a turn, whatever background work or screens hold; ${turns} running now`,
+		);
+	}
+
+	// Whether the host drains now, by whoever asked.
+	function hostDrains(): boolean {
+		return facts.draining?.() ?? drained;
+	}
+
+	// Drain the host while a pressed heap waits on turns, unless a drain
+	// already stands; said once it has started. A throw is reported once.
+	function startHeapDrain(): void {
+		if (facts.drain === undefined || drainRefused || hostDrains()) return;
+		try {
+			facts.drain(true);
+		} catch (error) {
+			facts.report(error);
+			// A drain that took before its throw is the heap's, to lift.
+			if (facts.draining?.() !== true) {
+				drainRefused = true;
+				return;
+			}
+		}
+		drained = true;
+		drainedAt = facts.now();
+		saidPastCeilingAt = undefined;
+		facts.report(
+			"Heap short of room: the host drains, so each conversation parks as its turn ends and wakes wait for the next host",
+		);
+	}
+
+	// Lift the drain this loop started, saying why; one lifted by hand
+	// meanwhile is left as it is.
+	function liftHeapDrain(why: string): void {
+		if (facts.drain === undefined || !drained) return;
+		drained = false;
+		// A heap pressed again says so again.
+		saidPressed = undefined;
+		if (facts.draining?.() === false) return;
+		try {
+			facts.drain(false);
+		} catch (error) {
+			facts.report(error);
+			return;
+		}
+		facts.report(
+			`${why}: the drain the heap started lifts, and parked conversations wake as asked`,
 		);
 	}
 
@@ -451,10 +555,61 @@ export function restartWhenSettled(
 		return why !== undefined;
 	}
 
-	// Read how short the heap runs, once for each decision, so the rule and its journal line agree.
+	// Read how short the heap runs, once for each decision, so the rule
+	// and its journal line agree. The heap's own drain standing keeps it
+	// pressed while the heap would still restart the host, so its parks
+	// never undo it; once it would not, the drain lifts.
 	function readPressure(): void {
-		short = facts.pressure?.();
-		if (short === undefined) saidPressed = undefined;
+		// A drain lifted by hand is no longer the heap's, so a drain asked
+		// by hand after it is its asker's, never taken for a short heap.
+		if (drained && facts.draining?.() === false) drained = false;
+		const read = facts.pressure?.();
+		const pastHalf = facts.heapRestarts?.();
+		if (read === undefined && pastHalf === false)
+			liftHeapDrain("The heap is under half its limit again");
+		// Only a turn running since the drain began holds it past its
+		// ceiling: a call holding the restart once the turns end, or a turn
+		// begun since, neither lifts it nor is blamed.
+		const since = drainedAt;
+		const pastCeiling =
+			drained && since !== undefined && facts.now() - since >= ceilingMs;
+		const turns = pastCeiling
+			? facts.held().filter(({ state }) => state === "busy")
+			: [];
+		const oldTurns = turns.filter(
+			({ since: changed }) => Date.parse(changed) <= (since ?? 0),
+		);
+		// Under three-fifths, the drain lifts and the restart waits for a
+		// moment with no turn, as before drains; pressed again, it drains
+		// again, since waiting on turns alone let wakes grow the heap until
+		// three-quarters ended every turn mid-answer.
+		if (read === undefined && oldTurns.length > 0)
+			liftHeapDrain("A turn kept the heap's drain standing past its ceiling");
+		// With no turn running, what holds the restart says so itself.
+		else if (
+			turns.length > 0 &&
+			(saidPastCeilingAt === undefined ||
+				facts.now() - saidPastCeilingAt >= HELD_SAY_MS)
+		) {
+			saidPastCeilingAt = facts.now();
+			facts.report(pastCeilingLine(oldTurns));
+		}
+		const heapDrains = drained && facts.draining?.() !== false;
+		pressedByDrain = read === undefined && heapDrains;
+		short = read ?? (heapDrains ? "pressed" : undefined);
+		if (short === undefined) {
+			saidPressed = undefined;
+			drainRefused = false;
+		}
+	}
+
+	// Whether a heap only the drain keeps pressed is due to be asked
+	// about, so a recovered one lifts within a minute, not at a gap.
+	function liftDue(): boolean {
+		return (
+			pressedByDrain &&
+			(differsAskedAt === undefined || facts.now() - differsAskedAt >= lookMs)
+		);
 	}
 
 	// Whether the next look comes in a second, for a gap, rather than a minute.
@@ -465,10 +620,12 @@ export function restartWhenSettled(
 	async function consider(): Promise<Next> {
 		readPressure();
 		// Past the ceiling, a look with no gap asks nothing more.
-		if (looksForGap() && mayRestart() === undefined) return "gap";
+		if (!liftDue() && looksForGap() && mayRestart() === undefined) return "gap";
+		differsAskedAt = facts.now();
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
+			liftHeapDrain("Nothing left to restart for");
 			differingSince = undefined;
 			heldSaidAt = undefined;
 			saidQuiet = undefined;
@@ -511,7 +668,7 @@ type Next = "restarting" | "look" | "gap";
 export interface Following {
 	readonly serving: Pick<ServingHost, "restartComing" | "stopping"> & {
 		/** Each conversation the host runs, by its state and when that last changed. */
-		held(): readonly Pick<SessionIdentity, "state" | "since">[];
+		held(): readonly Held[];
 	};
 	/** How much background work the conversations hold (the engine's). */
 	background(): number;
@@ -521,6 +678,10 @@ export interface Following {
 	resting(): boolean;
 	/** Whether the restart waits for a gap past its ceiling (restartWhenSettled). */
 	waitsForGap?(waiting: boolean): void;
+	/** Start or lift the host's drain for a pressed heap (restartWhenSettled). */
+	drain?(on: boolean): void;
+	/** Whether the host drains now, whoever asked, or nothing when it can't tell (restartWhenSettled). */
+	draining?(): boolean | undefined;
 	/** Why the person can't take a restart now; the unit's probes by default (quiet.ts). */
 	readonly quiet?: () => Promise<string | undefined>;
 	report(error: unknown): void;
@@ -609,8 +770,11 @@ export async function followWhatStarts(
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
 			...(options.waitsForGap ? { waitsForGap: options.waitsForGap } : {}),
+			...(options.drain ? { drain: options.drain } : {}),
+			...(options.draining ? { draining: options.draining } : {}),
 			resting: options.resting,
 			pressure,
+			heapRestarts: () => heapPastShare(heap()) !== undefined,
 			...(quiet ? { quiet } : {}),
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
@@ -645,6 +809,16 @@ function getHeapUse(): HeapUse {
 }
 
 /** How far past a share of V8's limit a heap stands, in words, or nothing while under half. */
+// The hourly line for a heap's drain standing past its ceiling, naming
+// each turn from before the drain that holds it, or the turns begun since.
+function pastCeilingLine(oldTurns: readonly Held[]): string {
+	const holding =
+		oldTurns.length === 0
+			? "turns begun since the drain keep it standing"
+			: `${oldTurns.map((turn) => `${turn.sessionId ?? "a turn"} (busy since ${turn.since})`).join(", ")} ${oldTurns.length === 1 ? "runs" : "run"} on from before the drain`;
+	return `Heap short of room past its drain's ceiling: ${holding}, so held wakes wait until the host restarts or its heap has room again`;
+}
+
 function heapPastShare({ usedBytes, limitBytes }: HeapUse): string | undefined {
 	const past =
 		usedBytes > limitBytes * HEAP_URGENT_SHARE

@@ -15,6 +15,7 @@
  * without asking.
  */
 
+import { readdirSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { displayPath } from "../../../ui/path.ts";
@@ -24,7 +25,73 @@ import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
+import {
+	cutRunning,
+	forgetGoneEntry,
+	GUARD_WORDS,
+	looksCut,
+	plainWords,
+	strandedWhy,
+} from "../stranded.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
+
+/**
+ * The exit code the fence's guard answers a git it won't run with, as a
+ * shell's for a command it won't run. Said again here rather than shared
+ * with the guard, since the work core imports nothing of the sandbox's.
+ */
+const GUARD_REFUSED = 126;
+
+/**
+ * Why a tree at `path` git didn't read can be neither handed over nor
+ * cut over, and the way out that fits it. Only a worktree whose git
+ * folder is gone, or one the guard won't run git in, is what tidy lists
+ * and reclaim sets aside; anything else, a git that failed or timed
+ * out, or a folder that isn't a cut worktree, may read next time, or is
+ * somebody's to move by hand.
+ */
+function unreadTree(
+	path: string,
+	standing: { code: number; stderr: string },
+	intent: string,
+): string {
+	const gone = strandedWhy(path, () => undefined);
+	// The guard's own words name a path a fenced command can choose, so
+	// what it refused is said in words of ours rather than repeated.
+	const said =
+		gone ??
+		(standing.code === GUARD_REFUSED
+			? GUARD_WORDS
+			: plainWords(
+					standing.stderr.trim() || `git exited ${standing.code} reading it`,
+				));
+	const why = /[.!?]$/.test(said) ? said : `${said}.`;
+	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	if (cutRunning(path)) {
+		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
+	}
+	if (
+		looksCut(path) &&
+		(gone !== undefined || standing.code === GUARD_REFUSED)
+	) {
+		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut. Where a record from before trees named their owners names it, or this machine can't say what works in a folder, reclaim keeps it, so move it aside by hand.`;
+	}
+	return `${where} If git was only slow or stopped, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
+}
+
+/**
+ * Whether anything stands in the folder at `path`. git cuts into an
+ * empty folder as readily as a missing one, as it does into a subvolume
+ * made for the tree, so only a folder with something in it is in the way.
+ */
+function holdsAnything(path: string): boolean {
+	try {
+		return readdirSync(path).length > 0;
+	} catch {
+		// Nothing there, or not a folder git could cut into either way.
+		return false;
+	}
+}
 
 /**
  * Whether a tree standing at `head` is the commit asked for. A short id
@@ -290,6 +357,13 @@ export function createGitTreeProvider(deps: {
 				}
 				return { path };
 			}
+			// Something stands there that git won't read, so cutting over it
+			// can only fail: on 20 November a snapshot cut from a clone the
+			// fence doesn't guard made every later one at its commit die on
+			// git's bare `already exists`, which says neither why nor what to do.
+			if (holdsAnything(path)) {
+				throw new Error(unreadTree(path, standing, request.intent));
+			}
 
 			const git = (...args: string[]) =>
 				exec("git", ["-C", source.path, ...args]);
@@ -343,13 +417,28 @@ export function createGitTreeProvider(deps: {
 			const apart =
 				(await subvolumes(deps.stateDir)) &&
 				(await exec("btrfs", ["subvolume", "create", path])).code === 0;
-			const cut = await exec("git", [
-				"-C",
-				source.path,
-				"worktree",
-				"add",
-				...at,
-			]);
+			const add = () =>
+				exec("git", ["-C", source.path, "worktree", "add", ...at]);
+			let cut = await add();
+			// A tree set aside from under this checkout leaves git's entry for
+			// it naming a folder that is no longer there, locked too when a
+			// killed cut left it, and git then refuses the name. That one
+			// entry is forgotten and the cut asked once more, rather than a
+			// prune, which would forget every gone tree's entry in the clone.
+			// Which entry it is is read from the clone's own files rather than
+			// git's words, which a git in another language says otherwise.
+			if (cut.code !== 0) {
+				const common = await exec("git", [
+					"-C",
+					source.path,
+					"rev-parse",
+					"--path-format=absolute",
+					"--git-common-dir",
+				]);
+				if (common.code === 0 && forgetGoneEntry(common.stdout.trim(), path)) {
+					cut = await add();
+				}
+			}
 			if (cut.code !== 0) {
 				// An empty subvolume goes with rmdir, as its owner.
 				if (apart) await exec("rmdir", [path]);

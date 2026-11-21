@@ -5,12 +5,18 @@
  * dropped only after a deliberate close or release commits, so a crash at any
  * step leaves it held for the next start rather than lost.
  */
+import { resolve } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
-import { type ControlBackend, hostRefusal } from "./dispatch.ts";
+import {
+	type ControlBackend,
+	type ControlReply,
+	hostRefusal,
+} from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
 
@@ -107,6 +113,8 @@ export interface ConversationEngine {
 	 * now, a line each. An engine that can't drain leaves it out.
 	 */
 	drain?(on: boolean): readonly string[];
+	/** Whether a drain stands now, whoever asked for it. */
+	drains?(): boolean;
 	/**
 	 * Once a park of the conversation under way has settled, at once when
 	 * none is: until then it is still held, though it is no longer running.
@@ -126,6 +134,40 @@ export interface ConversationEngine {
 	 * ends it.
 	 */
 	handsOn?(sessionId: string): void;
+	/**
+	 * A conversation this host held parked now runs in a child of its own:
+	 * stop watching for its wake, warming its cache and holding its log,
+	 * since the child does each now.
+	 */
+	movedOut?(sessionId: string): void;
+}
+
+/**
+ * The conversations that run in children of their own (children.ts), as
+ * the backend starts and wakes them; the host runs the rest itself.
+ */
+export interface BackendChildren {
+	/** Whether this conversation goes to a child as it next wakes. */
+	moves(sessionId: string): boolean;
+	/** Whether a conversation opened or adopted now starts in a child. */
+	opens(): boolean;
+	/** The conversation as the child running it lists it; nothing when none does. */
+	running(sessionId: string): SessionIdentity | undefined;
+	/** Run a held conversation in a child, `woken` when its park's wake asked. */
+	resume(entry: RosterEntry, woken: boolean): Promise<SessionIdentity>;
+	/** Start a conversation in a child, settling with the child's answer. */
+	begin(request: OpenRequest | AdoptRequest): Promise<ControlReply>;
+	/**
+	 * Ask the child running a conversation a request that reached the host
+	 * before its route did, answering as the child does or with its refusal.
+	 */
+	ask(sessionId: string, request: ControlRequest): Promise<unknown>;
+	/**
+	 * Settles once no child runs this conversation: every one that ran it
+	 * has gone and its own slot is free, or runs what it became. Fails
+	 * while one still runs it, or once the host stops watching, so the host never runs it beside one.
+	 */
+	left(sessionId: string): Promise<void>;
 }
 
 /**
@@ -212,21 +254,23 @@ export function hostBackend(options: {
 	/** Writes a line to the host's journal, as each close of one held but not running. */
 	say?: (line: string) => void;
 	/**
-	 * Hears a close or release of one held but not running, which no
-	 * conversation's end brings, as a child whose one conversation parked
-	 * away must, to end as closed or released rather than parked.
-	 */
-	changes?: Pick<HostChanges, "left">;
-	/**
 	 * The start's order, when the host listens while it resumes: a window,
 	 * wake, end or abort of one the start still owes brings it forward and
 	 * waits for the start's own resume, so none resumes twice.
 	 */
 	held?: Pick<HeldOrder, "ahead">;
+	/**
+	 * Hears a close or release of one held but not running, which no
+	 * conversation's end brings, as a child whose one conversation parked
+	 * away must, to end as closed or released rather than parked.
+	 */
+	changes?: Pick<HostChanges, "left">;
 	/** How long an attach waits before the journal says on what: attach-waits.ts's ATTACH_SLOW_MS. */
 	attachSlowMs?: number;
+	/** Children to run conversations in; without, the host runs every one. */
+	children?: BackendChildren;
 }): HostBackend {
-	const { host, roster, engine } = options;
+	const { host, roster, engine, children } = options;
 	const now = options.now ?? (() => new Date());
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
@@ -271,7 +315,10 @@ export function hostBackend(options: {
 				throw new Error(
 					`Conversation ${sessionId} is held but not running, since its last start or park failed; close it and open it again`,
 				);
-			if (holds !== undefined) return;
+			if (holds !== undefined || children?.running(sessionId)) return;
+			// A child that just failed may still be writing its file, whichever
+			// process runs the conversation next.
+			await children?.left(sessionId);
 			const entry = roster
 				.entries()
 				.find((held) => held.sessionId === sessionId);
@@ -282,7 +329,12 @@ export function hostBackend(options: {
 			beginning += 1;
 			try {
 				if (another) await options.admitAnother?.("wake");
-				await engine.resume(entry, true);
+				if (children?.moves(sessionId)) {
+					await children.resume(entry, true);
+					// One whose child already ended was rested again as it ended,
+					// so the host keeps watching its wake.
+					if (children.running(sessionId)) engine.movedOut?.(sessionId);
+				} else await engine.resume(entry, true);
 			} finally {
 				beginning -= 1;
 			}
@@ -305,11 +357,12 @@ export function hostBackend(options: {
 			await starts.get(sessionId);
 			waits.next("its park to settle");
 			await engine.parkSettled?.(sessionId);
-			if (host.holds(sessionId) === undefined && rostered(sessionId)) {
+			const inHost = host.holds(sessionId) !== undefined;
+			if (!inHost && !children?.running(sessionId) && rostered(sessionId)) {
 				waits.next("its wake");
 				await wake(sessionId);
 			}
-			const shown = live(sessionId);
+			const shown = children?.running(sessionId) ?? live(sessionId);
 			waits.answered();
 			return shown;
 		} catch (refusal) {
@@ -331,11 +384,15 @@ export function hostBackend(options: {
 	}
 
 	// Held but not running, as after a failed resume: listed parked, so a
-	// person can see it and close it.
+	// person can see it and close it. One a child runs is the child's to list.
 	function stranded(): SessionIdentity[] {
 		return roster
 			.entries()
-			.filter((held) => host.holds(held.sessionId) === undefined)
+			.filter(
+				(held) =>
+					host.holds(held.sessionId) === undefined &&
+					!children?.running(held.sessionId),
+			)
 			.map(({ sessionId, file, cwd, since }) => ({
 				sessionId,
 				file,
@@ -349,17 +406,44 @@ export function hostBackend(options: {
 		return roster.entries().some((held) => held.sessionId === sessionId);
 	}
 
-	async function begin(
-		request: OpenRequest | AdoptRequest,
-	): Promise<SessionIdentity> {
+	async function begin(request: OpenRequest | AdoptRequest): Promise<unknown> {
 		const another = roster.entries().length + beginning > 0;
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
+			if (children?.opens()) {
+				heldElsewhere(request);
+				return await inChild(children, request);
+			}
 			return await started(request);
 		} finally {
 			beginning -= 1;
 		}
+	}
+
+	// The engine refuses an adopt of a file it holds; a child holds
+	// nothing yet, so the host refuses one its roster holds, wherever it
+	// runs, rather than start a second pi on one file.
+	function heldElsewhere(request: OpenRequest | AdoptRequest): void {
+		if (request.op !== "adopt") return;
+		const file = resolve(request.sessionFile);
+		const holder = roster.entries().find((held) => resolve(held.file) === file);
+		// Said to the requester, who can then attach to the one held.
+		if (holder)
+			throw hostRefusal(
+				"already_held",
+				`Conversation already held: ${holder.sessionId}`,
+			);
+	}
+
+	// The child answers as a host would, so its answer is the caller's.
+	async function inChild(
+		moved: BackendChildren,
+		request: OpenRequest | AdoptRequest,
+	): Promise<unknown> {
+		const reply = await moved.begin(request);
+		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
+		return reply.result;
 	}
 
 	async function started(
@@ -416,11 +500,9 @@ export function hostBackend(options: {
 	// The reason it closes with names the caller, so the journal line the
 	// engine's ended brings says who asked; one not running (parked, or
 	// stranded) has no end to bring it, so it is said here.
-	function end(
-		sessionId: string,
-		why: "closed" | "released",
-		by: string | undefined,
-	) {
+	function end(request: Extract<ControlRequest, { op: "close" | "release" }>) {
+		const { sessionId, by } = request;
+		const why = request.op === "close" ? "closed" : "released";
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
@@ -428,6 +510,9 @@ export function hostBackend(options: {
 			// it is closed as a parked one, its viewers told and the end said.
 			await engine.parkSettled?.(sessionId);
 			const running = host.holds(sessionId) !== undefined;
+			// Moved into a child while this waited: the child ends it.
+			if (!running && children?.running(sessionId))
+				return children.ask(sessionId, request);
 			if (!running && !rostered(sessionId))
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
 			const asked = `${why}, asked by ${askedBy(by)}`;
@@ -462,8 +547,16 @@ export function hostBackend(options: {
 			parked: count("parked"),
 			heavy: [...heavy],
 		};
+		// Children outlive a restart, so a drain neither parks nor counts them.
+		const inChildren = roster
+			.entries()
+			.filter((held) => children?.running(held.sessionId)).length;
+		const apart =
+			inChildren > 0
+				? `; ${inChildren} in processes of their own, which run on`
+				: "";
 		options.say?.(
-			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked; heavy runs: ${heavy.length > 0 ? heavy.join("; ") : "none"}`,
+			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked${apart}; heavy runs: ${heavy.length > 0 ? heavy.join("; ") : "none"}`,
 		);
 		return result;
 	}
@@ -488,9 +581,8 @@ export function hostBackend(options: {
 						host: options.identity,
 					};
 				case "close":
-					return end(request.sessionId, "closed", request.by);
 				case "release":
-					return end(request.sessionId, "released", request.by);
+					return end(request);
 				case "drain":
 					return drain(request.on, request.by);
 				case "watch":
@@ -498,6 +590,11 @@ export function hostBackend(options: {
 					throw hostRefusal("unsupported", "This host has no watch");
 				case "abort":
 					await startOwes(request.sessionId);
+					if (
+						host.holds(request.sessionId) === undefined &&
+						children?.running(request.sessionId)
+					)
+						return children.ask(request.sessionId, request);
 					live(request.sessionId);
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };
@@ -578,229 +675,3 @@ export type ResumePhase =
 	| "runtime"
 	| "screen"
 	| "recovery";
-
-/** How a resume a start began ended: built, left parked, or still held unbuilt. */
-export type ResumeEnd = "resumed" | "parked" | "unresumed";
-
-/** A held conversation a starting host is about to resume, counted from one. */
-export interface Resuming {
-	readonly step: "resume";
-	readonly number: number;
-	readonly of: number;
-	readonly sessionId: string;
-}
-
-/**
- * The order a start resumes what its roster held as it began: as held,
- * apart from those asked for (`ahead`), which go first, first asked
- * first. Only the start takes from it (`next`), says each it is done
- * with (`settled`), and ends it (`end`).
- */
-export interface HeldOrder {
-	/** How many the start owes as it begins. */
-	readonly total: number;
-	/**
-	 * Bring it forward if the start still owes it, and settle once the
-	 * start has resumed it or left it, failed included; at once for one it
-	 * owes nothing, or once the start has ended.
-	 */
-	ahead(sessionId: string): Promise<void>;
-	/** The next the start resumes, or none once it owes no more. */
-	next(): RosterEntry | undefined;
-	/** The start is done with it, resumed or not. */
-	settled(sessionId: string): void;
-	/** The start is over: whoever still waits is answered. */
-	end(): void;
-}
-
-/** The order a start resumes what `roster` holds now. */
-export function heldOrder(roster: HostRoster): HeldOrder {
-	const rest = [...roster.entries()];
-	const asked: RosterEntry[] = [];
-	const owed = new Set(rest.map(({ sessionId }) => sessionId));
-	const waiting = new Map<
-		string,
-		{ done: Promise<void>; settle: () => void }
-	>();
-
-	function settled(sessionId: string): void {
-		owed.delete(sessionId);
-		waiting.get(sessionId)?.settle();
-		waiting.delete(sessionId);
-	}
-
-	return {
-		total: rest.length,
-		ahead(sessionId) {
-			if (!owed.has(sessionId)) return Promise.resolve();
-			const queued = rest.findIndex((held) => held.sessionId === sessionId);
-			if (queued >= 0) asked.push(...rest.splice(queued, 1));
-			let wait = waiting.get(sessionId);
-			if (!wait) {
-				let settle = (): void => undefined;
-				const done = new Promise<void>((resolve) => {
-					settle = resolve;
-				});
-				wait = { done, settle };
-				waiting.set(sessionId, wait);
-			}
-			return wait.done;
-		},
-		next: () => asked.shift() ?? rest.shift(),
-		settled,
-		end() {
-			for (const sessionId of [...owed]) settled(sessionId);
-			rest.length = 0;
-			asked.length = 0;
-		},
-	};
-}
-
-/**
- * How many conversations a start resumes together once one has resumed
- * alone. On 18 November a start of 81, one at a time, took 479 s, each
- * resume mostly waiting, its host's thread busy 43% of the time; more
- * than a few at once would only queue on that thread.
- */
-export const RESUME_AT_ONCE = 4;
-
-/**
- * Resume every held conversation at start, in the order they were held,
- * or as `order` brings one forward: alone until one has resumed, then
- * RESUME_AT_ONCE at a time, each taking the next as it ends. One that parked before the start and
- * rests parked (`restsParked`), which builds nothing, so passes no gate
- * and counts as parked rather than resumed. One whose session file is
- * gone (`lost`) can never resume, so it is dropped from the roster and
- * named in `dropped`: on 17 November a start kept 32 such holds that only
- * a person could have closed. Any other that can't resume stays held,
- * since only a deliberate close or release may drop a hold, and is
- * reported for a person to close or repair. With `admitAnother`, each
- * after the first that resumed must pass it, so the same one runs alone after every
- * restart and a refused one is parked with the open path's reason.
- * `starting` hears each one before it begins, so whoever waits on the
- * start knows it still moves; if it throws, that conversation stays held
- * and is reported like one that couldn't resume, and the rest go on.
- * `mark` hears each phase as it ends and `finished` each one's end,
- * resumed, parked or failed with why, under its own step, since several
- * run at once. A throw from `mark` at the phases this marks itself (ask
- * and gate) fails that conversation's resume; the engine's build hears it
- * too, so it must not throw there. One from `finished` fails the start,
- * once no resume is still building.
- * The runs a restart cut off wait until the last has resumed
- * (`resuming`, then `resumed`, also when one throws), so a few go at a
- * time in the whole start's order rather than racing the resumes; that
- * order is the one they asked in, roughly the order held, since a few
- * resume at once.
- * One no longer held when its turn comes, closed while the start ran,
- * is passed over. One `woken` names was woken from a rest kept outside
- * this process, by a child's supervisor, so it is resumed as woken
- * rather than asked whether it rests parked, which would rest it again.
- */
-export async function resumeHeld(options: {
-	roster: HostRoster;
-	engine: ConversationEngine;
-	woken?: (entry: RosterEntry) => boolean;
-	admitAnother?: AdmitAnother;
-	starting?: (step: Resuming) => Promise<void>;
-	mark?: (step: Resuming, phase: ResumePhase) => void;
-	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
-	order?: HeldOrder;
-}): Promise<HeldResumed> {
-	const resumed: string[] = [];
-	const parked: string[] = [];
-	const dropped: string[] = [];
-	const unresumed: Unresumed[] = [];
-	const order = options.order ?? heldOrder(options.roster);
-	let number = 0;
-
-	async function resumeOne(entry: RosterEntry): Promise<void> {
-		number += 1;
-		const { sessionId } = entry;
-		const step: Resuming = {
-			step: "resume",
-			number,
-			of: order.total,
-			sessionId,
-		};
-		const mark = (phase: ResumePhase) => options.mark?.(step, phase);
-		let began = false;
-		let end: ResumeEnd = "unresumed";
-		let failure: unknown;
-		try {
-			if (
-				!options.roster.entries().some((held) => held.sessionId === sessionId)
-			)
-				return;
-			// Dropped before it is said as resuming, since nothing resumes.
-			if (options.engine.lost?.(entry)) {
-				await options.roster.drop(sessionId);
-				dropped.push(sessionId);
-				return;
-			}
-			began = true;
-			await options.starting?.(step);
-			mark("ask");
-			const woken = options.woken?.(entry) ?? false;
-			if (!woken && options.engine.restsParked?.(entry)) {
-				parked.push(sessionId);
-				end = "parked";
-				return;
-			}
-			if (resumed.length > 0) await options.admitAnother?.();
-			mark("gate");
-			await options.engine.resume(entry, woken, mark);
-			resumed.push(sessionId);
-			end = "resumed";
-		} catch (reason) {
-			unresumed.push({ sessionId, reason });
-			failure = reason;
-		} finally {
-			order.settled(sessionId);
-			if (began) options.finished?.(step, end, failure);
-		}
-	}
-
-	/** Take the next as each ends, until the order owes no more. */
-	async function resumeRest(): Promise<void> {
-		for (let entry = order.next(); entry; entry = order.next())
-			await resumeOne(entry);
-	}
-
-	options.engine.resuming?.(
-		options.roster.entries().map((entry) => entry.sessionId),
-	);
-	try {
-		// Alone until one resumes, so the rollout gate's first runs by itself.
-		while (resumed.length === 0) {
-			const entry = order.next();
-			if (!entry) break;
-			await resumeOne(entry);
-		}
-		// Every worker ends before the start does, so one that throws (a
-		// listener's fault, since each resume's own is caught) leaves none
-		// still building as the runs a restart cut off are let go.
-		const rest = await Promise.allSettled(
-			Array.from({ length: RESUME_AT_ONCE }, () => resumeRest()),
-		);
-		const failed = rest.find(
-			(worker): worker is PromiseRejectedResult => worker.status === "rejected",
-		);
-		if (failed) throw failed.reason;
-	} finally {
-		order.end();
-		options.engine.resumed?.();
-	}
-	return { resumed, parked, dropped, unresumed };
-}
-
-/** What a start did with each conversation the host held. */
-export interface HeldResumed {
-	/** Built and running again, in the order they finished. */
-	readonly resumed: string[];
-	/** Left parked as their last process parked them, building nothing. */
-	readonly parked: string[];
-	/** Dropped from the roster, since their session files are gone. */
-	readonly dropped: string[];
-	/** Still held but not running, each with why it would not resume. */
-	readonly unresumed: Unresumed[];
-}

@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
+import { GUARD_WORDS } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { fakeExec } from "../../support/fake-exec.ts";
 
@@ -706,5 +710,151 @@ describe("a tree that is already there", () => {
 		await provider.ensure(snapshot());
 
 		expect(addition(standing.calls)).toBeDefined();
+	});
+});
+
+describe("a tree standing where git won't read it", () => {
+	const REFUSED =
+		"/state/x is a worktree of /elsewhere/.git, which the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox.";
+	let stateDir = "";
+	beforeEach(() => {
+		stateDir = mkdtempSync(join(tmpdir(), "git-provider-stranded-"));
+	});
+	afterEach(() => {
+		rmSync(stateDir, { recursive: true, force: true });
+	});
+
+	/**
+	 * A worktree's folder at the snapshot's name, its `.git` naming a git
+	 * folder that stands, as a clone's would.
+	 */
+	function standingTree(): string {
+		const path = join(stateDir, treeIdentity(snapshot()).key);
+		mkdirSync(gitDirOf(), { recursive: true });
+		mkdirSync(path);
+		writeFileSync(join(path, ".git"), `gitdir: ${gitDirOf()}\n`);
+		return path;
+	}
+
+	/** The git folder a standing tree's `.git` names. */
+	function gitDirOf(): string {
+		return join(stateDir, "elsewhere", ".git", "worktrees", "x");
+	}
+
+	it("says why and what to do, rather than cutting over it", async () => {
+		// The guard answers git's refusal with 126, which `ensure` read as no
+		// tree there, and git's `worktree add` then said only `already exists`.
+		const { exec, calls } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+			{ when: ["worktree"], code: 128, stderr: "fatal: already exists" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("which git here won't read");
+		// The guard's own words name a path a fenced command can choose, so
+		// ours are said in their place.
+		await expect(cut).rejects.toThrow(GUARD_WORDS);
+		await expect(cut).rejects.not.toThrow("/elsewhere/.git");
+		await expect(cut).rejects.toThrow(
+			"`work tidy` lists it and `work reclaim` moves it aside whole",
+		);
+		expect(addition(calls), "nothing is cut over it").toBeUndefined();
+	});
+
+	it("sends a git that only failed back to ask again, not to reclaim", async () => {
+		// A timeout or a stopped call fails the same read, and reclaim
+		// would never move a tree git reads, so it isn't named.
+		const { exec, calls } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow(
+			"won't read: git exited 128 reading it. If git was only slow or stopped, ask again.",
+		);
+		await expect(cut).rejects.not.toThrow("work reclaim");
+		expect(addition(calls), "nothing is cut over it").toBeUndefined();
+	});
+
+	it("says git's words as one line, ending as a sentence", async () => {
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "refused\nhere\n" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+
+		await expect(provider.ensure(snapshot())).rejects.toThrow(
+			"won't read: refused here. If git was only slow or stopped",
+		);
+	});
+
+	it("names reclaim for a cut tree whose git folder is gone", async () => {
+		// Whatever git answered, a git folder that is gone won't come back.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "fatal: not a git" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+		rmSync(gitDirOf(), { recursive: true });
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow(
+			"the git folder its .git file names is gone",
+		);
+		await expect(cut).rejects.toThrow("`work reclaim` moves it aside whole");
+	});
+
+	it("names no reclaim for a refused folder that is no cut tree", async () => {
+		// A clone of its own, its `.git` a folder: reclaim never lists one.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		mkdirSync(join(stateDir, treeIdentity(snapshot()).key, ".git"), {
+			recursive: true,
+		});
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("move it aside by hand");
+		await expect(cut).rejects.not.toThrow("work reclaim");
+	});
+
+	it("asks again in a minute while git marks the tree locked", async () => {
+		// Another session's cut is filling it, and will be done shortly.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+		writeFileSync(join(gitDirOf(), "locked"), "initializing\n");
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("so ask again in a minute");
+		await expect(cut).rejects.not.toThrow("work reclaim");
+	});
+
+	it("cuts into an empty folder, as git does", async () => {
+		const { exec, calls } = fakeExec(ok);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		mkdirSync(join(stateDir, treeIdentity(snapshot()).key));
+
+		await provider.ensure(snapshot());
+
+		expect(addition(calls)).toBeDefined();
 	});
 });
