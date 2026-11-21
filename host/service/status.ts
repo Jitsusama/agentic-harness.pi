@@ -115,6 +115,28 @@ export function phaseTimes(
 	return ` (${parts.join(", ")})`;
 }
 
+/**
+ * The first line of why something failed that says anything, to keep a
+ * journal entry on one line, or nothing for a reason with no message;
+ * the start's report says the rest, stack and all.
+ */
+export function firstLine(reason: unknown): string {
+	let text: unknown;
+	try {
+		text = reason instanceof Error ? reason.message : reason;
+	} catch {
+		// A message getter that throws says nothing; the report still has the reason.
+		text = "";
+	}
+	if (typeof text !== "string") return "";
+	return (
+		text
+			.split(/\r?\n|\r/)
+			.map((line) => line.trim())
+			.find((line) => line.length > 0) ?? ""
+	);
+}
+
 /** A start step in words, as the journal and systemd's status show it. */
 export function describeStep(step: StartStep): string {
 	if (step.step === "roster")
