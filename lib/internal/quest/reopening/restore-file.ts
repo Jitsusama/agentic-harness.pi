@@ -47,7 +47,9 @@ import {
 	sessionRealm,
 } from "../../machine/realm.ts";
 import type { CarriedEnvironment } from "../../session/carried-environment.ts";
+import { viewWords } from "../../session/host-holds.ts";
 import type { MoveNote } from "../../session/move.ts";
+import { holderCommand } from "../../session/park.ts";
 import { atomicWriteFile } from "../io.ts";
 import {
 	carriedOnElsewhere,
@@ -102,6 +104,17 @@ export interface RestoreEntry {
 	 * own: the host keeps it, so no window reopens it.
 	 */
 	readonly hosted?: true;
+	/**
+	 * For a hosted session, the words its viewer runs (viewWords), as its
+	 * presence gives them while it runs. A crash takes its host down too,
+	 * and while the host comes back the session has no presence, so the
+	 * launcher's walk had no words to open its viewer with and kept its
+	 * place instead; the viewer then opened by itself nearly two hours
+	 * later, where Joel had moved on (20 November, 15:03). With these the
+	 * walk opens it at once, and the join waits for the host the roster
+	 * names, saying so in the window.
+	 */
+	readonly view?: readonly string[];
 	/**
 	 * For a session its host let go to plain pi: that host's key, such as
 	 * `work-attended`, and when. It reopens like any session here, in
@@ -320,7 +333,16 @@ function entryOf(
 		...(record.quest ? { quest: record.quest } : {}),
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
-		...(record.process?.hosted ? { hosted: true as const } : {}),
+		...(record.process?.hosted
+			? {
+					hosted: true as const,
+					// The session's own variables, never this writer's.
+					view: viewWords(
+						record.sessionId,
+						holderCommand(record.sessionId, [], record.env ?? {}),
+					),
+				}
+			: {}),
 		...(record.env ? { env: record.env } : {}),
 	};
 }
