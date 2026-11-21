@@ -6,11 +6,15 @@ import { describe, expect, it } from "vitest";
 import { NO_OVERRIDES } from "../../../host/cutover/attended.ts";
 import {
 	type CutoverFacts,
+	carriedOutWhole,
 	carryOut,
 	goesBy,
+	LOOK_EVERY_MS,
 	type MoveFacts,
+	type MoveReport,
 	type MoveStep,
 	planCutover,
+	reportLines,
 	stepLine,
 } from "../../../host/cutover/cutover.ts";
 import type { WindowStanding } from "../../../host/cutover/windows.ts";
@@ -215,11 +219,14 @@ const move = (session: string, to: HostKind, parked = false): MoveStep => ({
 	parked,
 });
 
-/** A move to the background host called off at `ms` on the fake clock. */
-const offAt = (ms: number, why: string): MoveOff => ({
+/**
+ * A move to the background host asked at `since` on the fake clock and
+ * called off at `at`, by default the same instant.
+ */
+const offAt = (since: number, why: string, at: number = since): MoveOff => ({
 	to: "background",
-	since: new Date(ms).toISOString(),
-	at: new Date(ms).toISOString(),
+	since: new Date(since).toISOString(),
+	at: new Date(at).toISOString(),
 	why,
 });
 
@@ -246,6 +253,11 @@ function fakeMachine(script: {
 	away?: boolean[];
 	/** The move each session's presence says was called off. */
 	calledOff?: Record<string, MoveOff>;
+	/**
+	 * When on the fake clock each call-off first shows, as a session
+	 * reads its steer only after the tell; absent, from the start.
+	 */
+	calledOffFrom?: Record<string, number>;
 }) {
 	const away = script.away === undefined ? undefined : [...script.away];
 	const notes = new Map((script.notes ?? []).map((one) => [one.session, one]));
@@ -311,7 +323,10 @@ function fakeMachine(script: {
 			return undefined;
 		},
 		holds: async (session) => script.holds?.[session],
-		calledOff: async (session) => script.calledOff?.[session],
+		calledOff: async (session) =>
+			clock >= (script.calledOffFrom?.[session] ?? 0)
+				? script.calledOff?.[session]
+				: undefined,
 		now: () => clock,
 		pause: async (ms) => {
 			clock += ms;
@@ -434,11 +449,13 @@ describe("carryOut", () => {
 		});
 	});
 
-	it("settles a move called off since its tell, saying why, rather than waiting out the deadline", async () => {
+	it("settles a move called off since its tell, saying why, at the look it shows, rather than waiting out the deadline", async () => {
 		const why = "its holder couldn't be told the join: EISDIR";
+		const shows = 2 * LOOK_EVERY_MS;
 		const machine = fakeMachine({
 			ending: [],
-			calledOff: { a: offAt(0, why) },
+			calledOff: { a: offAt(LOOK_EVERY_MS, why, shows) },
+			calledOffFrom: { a: shows },
 		});
 		const report = await carryOut(
 			[move("a", "background")],
@@ -447,14 +464,16 @@ describe("carryOut", () => {
 		);
 		expect(report.calledOff).toEqual([{ address: "A", why }]);
 		expect(report.waiting, "not said to be still waiting").toEqual([]);
-		expect(machine.facts.now(), "settled at the first look").toBe(0);
+		expect(machine.facts.now(), "settled at the look it showed").toBe(shows);
 		expect(machine.said).toContain(`A called its move off: ${why}`);
 	});
 
-	it("still waits on a session whose move was called off before this tell", async () => {
+	it("still waits on a session whose move was called off before this tell, not saying the earlier move's why as this one's", async () => {
+		const why = "an earlier move waited too long";
 		const machine = fakeMachine({
 			ending: [],
-			calledOff: { a: offAt(-60_000, "an earlier move waited too long") },
+			calledOff: { a: offAt(-60_000, why) },
+			holds: { a: `called itself off: ${why}` },
 		});
 		const report = await carryOut(
 			[move("a", "background")],
@@ -462,7 +481,28 @@ describe("carryOut", () => {
 			4_000,
 		);
 		expect(report.calledOff).toEqual([]);
-		expect(report.waiting).toEqual([{ address: "A" }]);
+		expect(report.waiting).toEqual([
+			{
+				address: "A",
+				holds: `it hasn't taken up this move; an earlier one called itself off: ${why}`,
+			},
+		]);
+	});
+
+	it("still waits on an earlier move that is called off after this tell, since the tell replaces it", async () => {
+		// Asked before the tell, called off at its first look: the steer
+		// starting this run's move hasn't been read yet.
+		const machine = fakeMachine({
+			ending: [],
+			calledOff: { a: offAt(-60_000, "it waited 45 minutes", 0) },
+		});
+		const report = await carryOut(
+			[move("a", "background")],
+			machine.facts,
+			4_000,
+		);
+		expect(report.calledOff, "not this run's").toEqual([]);
+		expect(report.waiting.map((one) => one.address)).toEqual(["A"]);
 	});
 
 	it("keeps asking a host that refused, saying each new reason once", async () => {
@@ -606,5 +646,43 @@ describe("carryOut", () => {
 		expect(machine.adopted).toEqual([]);
 		expect(report.waiting).toEqual([{ address: "HOP" }]);
 		expect([...machine.notes.keys()], "its note kept").toEqual(["hop"]);
+	});
+});
+
+describe("what host-cutover says of a report", () => {
+	const settled: MoveReport = {
+		moved: ["A"],
+		waiting: [],
+		refused: [],
+		takenBack: [],
+		calledOff: [],
+		places: [{ address: "A", said: "kept" }],
+		spared: [],
+	};
+
+	it("says a move called off, and counts it as not carried out", () => {
+		const report = { ...settled, calledOff: [{ address: "B", why: "EISDIR" }] };
+		expect(reportLines(report)).toContain("called its move off: B, EISDIR");
+		expect(carriedOutWhole(report)).toBe(false);
+	});
+
+	it("counts a report with each moved and none left over as carried out", () => {
+		expect(reportLines(settled)).toEqual(["1 moved."]);
+		expect(carriedOutWhole(settled)).toBe(true);
+	});
+
+	it("counts each kind left over as not carried out, and a session taken back as carried out", () => {
+		const one = { address: "B", why: "no" };
+		for (const left of [
+			{ waiting: [{ address: "B" }] },
+			{ refused: [one] },
+			{ spared: [one] },
+		]) {
+			expect(
+				carriedOutWhole({ ...settled, ...left }),
+				JSON.stringify(left),
+			).toBe(false);
+		}
+		expect(carriedOutWhole({ ...settled, takenBack: ["B"] })).toBe(true);
 	});
 });
