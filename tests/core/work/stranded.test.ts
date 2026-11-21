@@ -20,11 +20,13 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import { readPlain } from "../../../lib/core/work/plain-file.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
 	CANT_SAY,
 	CUT_GRACE_MS,
 	cutRunning,
+	HAND_LOCKED,
 	LOCK_STALE_MS,
 	plainWords,
 	type StrandedRecords,
@@ -36,6 +38,12 @@ import {
 } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import {
+	LATE_MS,
+	type LateWriter,
+	lateWriter,
+	timed,
+} from "../../support/late-writer.ts";
 
 /** What the guard says of a tree whose repository it doesn't guard. */
 const REFUSED = "it is a worktree of a repository the fence doesn't guard.";
@@ -47,7 +55,9 @@ beforeEach(() => {
 	trees = join(root, "work", "trees");
 	mkdirSync(trees, { recursive: true });
 });
+const writers: LateWriter[] = [];
 afterEach(() => {
+	for (const writer of writers.splice(0)) writer.stop();
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -251,6 +261,93 @@ describe("splitStranded", () => {
 
 		expect(cutRunning(path), "the lock is long past").toBe(false);
 		expect(split).toEqual({ free: [{ path, why: REFUSED }], kept: [] });
+	});
+
+	it("keeps a tree somebody locked by hand, however old", async () => {
+		// A re-cut never forgets a hand lock, so setting the tree aside
+		// would only leave its name uncuttable.
+		const gitDir = standingGitDir("snapshot-h");
+		const path = treeNaming("snapshot-h", gitDir);
+		const at = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "on a drive away\n");
+		utimesSync(join(gitDir, "locked"), at, at);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+	});
+
+	it("keeps an old cut's lock git wrote in French, saying a cut may have", async () => {
+		// A cut killed before git was told English left its reason translated,
+		// which reads as no cut's, so the reason kept says a cut may have.
+		const gitDir = standingGitDir("snapshot-f");
+		const path = treeNaming("snapshot-f", gitDir);
+		const at = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "initialisation\n");
+		utimesSync(join(gitDir, "locked"), at, at);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toContain(
+			"a cut killed before git here was told English",
+		);
+	});
+
+	it("reads no hand lock from a fifo where a lock should be", async () => {
+		// What ran in the tree chooses where its `.git` points, and a read
+		// waiting on a fifo's writer would hold reclaim for good. One that
+		// waits takes as long as the writer is late, and reads a hand lock.
+		const gitDir = standingGitDir("snapshot-p");
+		const path = treeNaming("snapshot-p", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writers.push(lateWriter(join(gitDir, "locked"), "on a drive away"));
+
+		const started = performance.now();
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(performance.now() - started, "no read waited").toBeLessThan(
+			LATE_MS / 2,
+		);
+		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+	});
+
+	it("reads no git folder from a fifo where a tree's .git should be", async () => {
+		// A read that waits takes as long as the writer is late, and gets a
+		// `.git` naming a hand lock.
+		const gitDir = standingGitDir("snapshot-g");
+		writeFileSync(join(gitDir, "locked"), "on a drive away\n");
+		const path = join(trees, "snapshot-g");
+		mkdirSync(path);
+		writers.push(lateWriter(join(path, ".git"), `gitdir: ${gitDir}\n`));
+
+		const started = performance.now();
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(performance.now() - started, "no read waited").toBeLessThan(
+			LATE_MS / 2,
+		);
+		expect(split.kept[0]?.why).toMatch(/cut in the last ten minutes/);
+	});
+
+	it("reads a fresh hand lock as no cut running", () => {
+		const gitDir = standingGitDir("snapshot-f");
+		const path = treeNaming("snapshot-f", gitDir);
+		writeFileSync(join(gitDir, "locked"), "");
+
+		expect(cutRunning(path), "a hand lock is no cut running").toBe(false);
 	});
 
 	it("keeps a tree cut lately, whose record may not be written yet", async () => {
@@ -625,5 +722,47 @@ describe("a snapshot at a stranded tree's commit", () => {
 		expect(existsSync(join(cut.entry, "locked")), "git's entry stays").toBe(
 			true,
 		);
+	});
+});
+
+// Every git file a stranded tree names is read this way, at a path
+// whatever ran in the tree could choose.
+describe("readPlain", () => {
+	it("reads a plain file", () => {
+		writeFileSync(join(root, "locked"), "initializing\n");
+
+		expect(readPlain(join(root, "locked"))).toBe("initializing\n");
+	});
+
+	it("reads nothing where nothing stands", () => {
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing through a link, which git never writes", () => {
+		writeFileSync(join(root, "elsewhere"), "on a drive away\n");
+		symlinkSync(join(root, "elsewhere"), join(root, "locked"));
+
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing from a folder", () => {
+		mkdirSync(join(root, "locked"));
+
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing from a fifo, never waiting for its writer", () => {
+		writers.push(lateWriter(join(root, "locked"), "on a drive away"));
+
+		const read = timed(() => readPlain(join(root, "locked")));
+
+		expect(read.tookMs, "the read never waited").toBeLessThan(LATE_MS / 2);
+		expect(read.value).toBeUndefined();
+	});
+
+	it("reads no more than the start of a file grown huge", () => {
+		writeFileSync(join(root, "gitdir"), "x".repeat(1 << 20));
+
+		expect(readPlain(join(root, "gitdir"))).toHaveLength(4096);
 	});
 });

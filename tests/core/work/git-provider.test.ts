@@ -858,6 +858,28 @@ describe("a tree standing where git won't read it", () => {
 		await expect(cut).rejects.not.toThrow("work reclaim");
 	});
 
+	it("says a lock no cut gives stays until it is taken away", async () => {
+		// Nothing here takes a hand lock away, so asking again never helps.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+		writeFileSync(join(gitDirOf(), "locked"), "on a drive away\n");
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("nothing here takes that lock away");
+		await expect(cut).rejects.toThrow(
+			"from /src/world, the clone this cut comes from, never inside it or in a folder its `.git` names",
+		);
+		await expect(cut).rejects.toThrow(
+			"`work tidy` says whether `work reclaim` can set it aside",
+		);
+		await expect(cut).rejects.not.toThrow("ask again");
+	});
+
 	it("cuts into an empty folder, as git does", async () => {
 		const { exec, calls } = fakeExec(ok);
 		const provider = createGitTreeProvider({ exec, stateDir });

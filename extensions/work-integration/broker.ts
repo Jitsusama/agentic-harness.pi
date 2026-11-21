@@ -17,7 +17,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
+import {
+	type Exec,
+	type SpawnExecOptions,
+	spawnExec,
+} from "../../lib/core/exec/index.ts";
 import { sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	createTreeBroker,
@@ -84,14 +88,35 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 export function treeExec(signal?: AbortSignal): Exec {
 	const stoppedBy = signal ? { signal } : {};
 	return treeExecOver(
-		spawnExec({
+		gitInEnglish({
 			...stoppedBy,
 			timeoutMs: UNATTENDED_LIMIT_MS,
 			turn: WORLD_PUSH_TURN,
 		}),
-		spawnExec({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
+		gitInEnglish({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
 	);
 }
+
+/**
+ * A spawned git told {@link GIT_IN_ENGLISH}, the one way both the direct
+ * and the queued git are made, so neither can lose it alone.
+ */
+function gitInEnglish(options: SpawnExecOptions): Exec {
+	return spawnExec({ ...options, env: GIT_IN_ENGLISH });
+}
+
+/**
+ * What the tree provider's git is told so it writes and says its own
+ * English words whatever the person's language. A cut's lock holds the
+ * word git writes while it fills a tree, and the broker tells a killed
+ * cut's lock from one a person placed by that word, so a git writing it
+ * in French left a killed cut's tree refused for good. A language git
+ * has no translation for keeps git's own words and changes nothing
+ * else, as the person's locale and its charset stand.
+ */
+const GIT_IN_ENGLISH: Readonly<Record<string, string>> = {
+	LANGUAGE: "en",
+};
 
 /**
  * Git run through `direct`, or through `queued` as the queue's shell

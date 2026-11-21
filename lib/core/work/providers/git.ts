@@ -29,6 +29,7 @@ import {
 	cutRunning,
 	forgetGoneEntry,
 	GUARD_WORDS,
+	handLocked,
 	looksCut,
 	plainWords,
 	strandedWhy,
@@ -48,12 +49,15 @@ const GUARD_REFUSED = 126;
  * folder is gone, or one the guard won't run git in, is what tidy lists
  * and reclaim sets aside; anything else, a git that failed or timed
  * out, or a folder that isn't a cut worktree, may read next time, or is
- * somebody's to move by hand.
+ * somebody's to move by hand. A hand lock's way out names `clone`, the
+ * checkout the cut comes from, since the tree's `.git` names a folder a
+ * sandboxed command could have written, where git would run its hooks.
  */
 function unreadTree(
 	path: string,
 	standing: { code: number; stderr: string },
 	intent: string,
+	clone: string | undefined,
 ): string {
 	const gone = strandedWhy(path, () => undefined);
 	// The guard's own words name a path a fenced command can choose, so
@@ -67,6 +71,9 @@ function unreadTree(
 				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	if (handLocked(path)) {
+		return `${where} The git entry it names is locked for a reason other than the English one a cut gives, as \`git worktree lock\` leaves or a cut killed before git here was told English, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from ${clone === undefined ? "the clone that cut it" : `${displayPath(clone)}, the clone this cut comes from`}, never inside it or in a folder its \`.git\` names, which a sandboxed command could have written, then \`work tidy\` says whether \`work reclaim\` can set it aside. Where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose \`git worktree list\` names it, never one found through its \`.git\`, or move it aside by hand.`;
+	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
 	}
@@ -261,10 +268,17 @@ const GENERAL = 0;
  * specificity.
  */
 export function createGitTreeProvider(deps: {
-	/** Runs git for a call nobody can stop. */
+	/**
+	 * Runs git for a call nobody can stop. It, and `execFor`'s git too,
+	 * must run git in its own English, as the broker's do with
+	 * `LANGUAGE=en`: a cut's lock holds the word git writes while it
+	 * fills a tree, which a re-cut and reclaim read to tell a killed
+	 * cut's lock from a hand lock.
+	 */
 	exec: Exec;
 	/**
-	 * Runs git for a call that can be stopped, stopping git with it.
+	 * Runs git for a call that can be stopped, stopping git with it, in
+	 * English as `exec` does.
 	 * Without it every call uses `exec`, and a stop reaches only the
 	 * promise waiting on git rather than git itself.
 	 */
@@ -362,7 +376,9 @@ export function createGitTreeProvider(deps: {
 			// fence doesn't guard made every later one at its commit die on
 			// git's bare `already exists`, which says neither why nor what to do.
 			if (holdsAnything(path)) {
-				throw new Error(unreadTree(path, standing, request.intent));
+				throw new Error(
+					unreadTree(path, standing, request.intent, request.repo.localPath),
+				);
 			}
 
 			const git = (...args: string[]) =>

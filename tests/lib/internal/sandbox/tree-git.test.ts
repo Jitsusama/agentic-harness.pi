@@ -23,8 +23,15 @@ import {
 	gitRun,
 	guardedExec,
 	refusedIn,
+	treeGit,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
+import {
+	LATE_MS,
+	type LateWriter,
+	lateWriter,
+	timed,
+} from "../../../support/late-writer.ts";
 
 let home: string;
 let trees: string;
@@ -245,5 +252,76 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(
 			gitRun(plain, ["--git-dir=/x", "status"], rules({ fenced: true })),
 		).toEqual({ args: [...NO_MONITOR, "--git-dir=/x", "status"] });
+	});
+});
+
+// A fenced command chooses what stands at a tree's `.git`, and the guard
+// reads it before every git pi runs and in reclaim's survey, so a read
+// waiting on a fifo would hold them all. Each writer is late and names
+// what a good tree's file would, so a read that waits is slow and finds
+// the tree's git.
+describe("a tree's git where a fifo stands", () => {
+	const writers: LateWriter[] = [];
+	afterEach(() => {
+		for (const writer of writers.splice(0)) writer.stop();
+	});
+
+	/** A tree at `trees/<name>` and its own folder in a repository's git. */
+	function layout(name: string): { tree: string; own: string } {
+		const repo = join(home, "src", name, ".git");
+		const own = join(repo, "worktrees", name);
+		const tree = join(trees, name);
+		mkdirSync(join(repo, "objects"), { recursive: true });
+		mkdirSync(own, { recursive: true });
+		mkdirSync(tree);
+		return { tree, own };
+	}
+
+	it("is none, at once, where the tree's .git is a fifo", () => {
+		const { tree, own } = layout("fifo-dot-git");
+		writeFileSync(join(own, "gitdir"), `${join(tree, ".git")}\n`);
+		writeFileSync(join(own, "commondir"), "../..\n");
+		writers.push(lateWriter(join(tree, ".git"), `gitdir: ${own}\n`));
+
+		const read = timed(() => treeGit(tree, "/nowhere-home"));
+
+		expect(read.tookMs, "no read waited").toBeLessThan(LATE_MS / 2);
+		expect(read.value).toBeUndefined();
+	});
+
+	it("is none, at once, where its way back is a fifo", () => {
+		const { tree, own } = layout("fifo-gitdir");
+		writeFileSync(join(tree, ".git"), `gitdir: ${own}\n`);
+		writeFileSync(join(own, "commondir"), "../..\n");
+		writers.push(lateWriter(join(own, "gitdir"), `${join(tree, ".git")}\n`));
+
+		const read = timed(() => treeGit(tree, "/nowhere-home"));
+
+		expect(read.tookMs, "no read waited").toBeLessThan(LATE_MS / 2);
+		expect(read.value).toBeUndefined();
+	});
+
+	it("is none, at once, where its commondir is a fifo", () => {
+		const { tree, own } = layout("fifo-commondir");
+		writeFileSync(join(tree, ".git"), `gitdir: ${own}\n`);
+		writeFileSync(join(own, "gitdir"), `${join(tree, ".git")}\n`);
+		writers.push(lateWriter(join(own, "commondir"), "../..\n"));
+
+		const read = timed(() => treeGit(tree, "/nowhere-home"));
+
+		expect(read.tookMs, "no read waited").toBeLessThan(LATE_MS / 2);
+		expect(read.value).toBeUndefined();
+	});
+
+	it("is the tree's git where every file is plain", () => {
+		const { tree, own } = layout("plain");
+		writeFileSync(join(tree, ".git"), `gitdir: ${own}\n`);
+		writeFileSync(join(own, "gitdir"), `${join(tree, ".git")}\n`);
+		writeFileSync(join(own, "commondir"), "../..\n");
+
+		expect(treeGit(tree, "/nowhere-home")).toEqual({
+			gitDir: own,
+			common: join(home, "src", "plain", ".git"),
+		});
 	});
 });

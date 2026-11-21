@@ -414,9 +414,13 @@ stays, and so does every one where the machine can't say what
 works in a folder. A refusal that says git marks the tree locked
 means another session is cutting it: ask again in a minute. A
 lock an hour old is taken as one a killed cut left, which reclaim
-may then set aside. A tree set aside keeps its `.git` as
-`.git-was`: copy out what is wanted rather than joining it to git
-again.
+may then set aside; one `git worktree lock` left, or a cut
+killed before git was told English, stays until it is unlocked
+from the clone that cut it, never from a folder the tree's `.git`
+names. A tree set aside keeps its
+`.git` as `.git-was`: copy out what is wanted rather than joining
+it to git again, and run no git in it or in any repository inside
+it, whose settings and hooks a sandboxed command may have written.
 
 ## Where This Ends and Review Begins
 
