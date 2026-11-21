@@ -316,8 +316,9 @@ input pipeline or screen. No unit or running host is installed yet.
   conversation itself only once every child that ran it has gone and
   its own slot is free, unless a child there became another
   conversation, as the host heard it or as a child taken up says, and
-  the roster holds what it became (`left`); while one still runs, the
-  resume fails.
+  the roster's write of what it became has landed (`left`), one that
+  fails being reported and let go; while one still runs, the resume
+  fails.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,

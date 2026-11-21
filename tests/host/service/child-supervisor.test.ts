@@ -427,10 +427,8 @@ describe("what a child says", () => {
 
 	it("says a conversation has left only once the roster holds what it became", async () => {
 		await supervisor.resume(entry(a));
-		let write = (): void => undefined;
-		roster.written = new Promise((done) => {
-			write = done;
-		});
+		const write = deferred();
+		roster.written = write.promise;
 		childOf(a).say({
 			type: "became",
 			previousId: a,
@@ -443,12 +441,14 @@ describe("what a child says", () => {
 		const leaving = supervisor.left(a).then(() => {
 			hasLeft = true;
 		});
-		await new Promise((done) => setTimeout(done, LISTENS_AFTER_MS));
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
+		await pause(LISTENS_AFTER_MS);
 		expect(hasLeft, "left before the roster replaced it").toBe(false);
-		write();
+		write.settle();
 		await leaving;
 
-		expect(roster.held, "a wake of it now holds afresh").toEqual([entry(b)]);
+		expect(roster.held, "the roster holds what it became").toEqual([entry(b)]);
 	});
 
 	it("says a conversation has not left a slot it became another in once a child of it lingers there again", async () => {
