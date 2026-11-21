@@ -118,7 +118,6 @@ function put(name: string, words: string): void {
 	renameSync(join(dir, `${name}.tmp`), join(dir, name));
 }
 
-/** The words of a folder's files, in the order it gives them. */
 /**
  * A read held until released: `reached` settles once one is held, so a
  * test knows the refresh listed the folder and stalled.
@@ -142,6 +141,7 @@ function stalling() {
 	};
 }
 
+/** The words of a folder's files, in the order it gives them. */
 function wordsOf(files: ReadonlyMap<string, string | undefined>): string[] {
 	return [...files.values()].filter((one) => one !== undefined);
 }
@@ -469,8 +469,8 @@ describe("a host's mirror of a folder", () => {
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
 		const before = listings();
-		// Long enough for a dozen polls, each asked for.
 		for (let poll = 0; poll < 12; poll += 1) {
+			// Long enough for a poll, a dozen in all, each asked for.
 			await new Promise((done) => setTimeout(done, 25));
 			folder.files();
 		}
