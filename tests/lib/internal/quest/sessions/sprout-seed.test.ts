@@ -102,7 +102,14 @@ describe("a sprout's seed", () => {
 		expect(needAsker(need), "its first part names the asker").toBe("TERN02");
 	});
 
-	it("takes none of it when the need isn't a need's id", () => {
+	it("reads every id the mesh mints as a need's, whatever its stamp", () => {
+		for (const at of [0, Date.parse("2026-11-21T12:00:00Z"), 8.64e15]) {
+			const need = needId("TERN02", at);
+			expect(needAsker(need), `minted at ${at}: ${need}`).toBe("TERN02");
+		}
+	});
+
+	it("keeps the rest of the seed when the need isn't a need's id", () => {
 		for (const need of [
 			"TERN02",
 			"TERN 02/mi1x.0123456789ab",
@@ -112,8 +119,8 @@ describe("a sprout's seed", () => {
 		]) {
 			expect(
 				sproutSeedFrom(seed({ words: "tea", need })),
-				`an out-of-shape need drops the whole seed: ${need}`,
-			).toBeUndefined();
+				`an out-of-shape need is left out alone: ${need}`,
+			).toEqual({ words: "tea" });
 		}
 		expect(
 			sproutSeedFrom(seed({ words: "tea", need: 7 })),

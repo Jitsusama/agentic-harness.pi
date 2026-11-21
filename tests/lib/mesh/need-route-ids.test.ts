@@ -11,7 +11,7 @@ import {
 	subjectWords,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
-import { asked, cells, routeNeed, ties } from "./support/needs.ts";
+import { asked, cells, numbered, routeNeed, ties } from "./support/needs.ts";
 
 describe("the ids a need or a cell's work is matched by", () => {
 	it("keeps a spirit property whole, which its words alone lose", () => {
@@ -43,6 +43,19 @@ describe("the ids a need or a cell's work is matched by", () => {
 	it("reads a leg named in prose as its id, as the id itself is read", () => {
 		expect(wordsOf("Leg 26 is red"), "leg in prose").toContain("leg-26");
 		expect(wordsOf("leg-26"), "the id as written").toContain("leg-26");
+	});
+
+	it("reads any word with a number after it as their id, whatever the number's length", () => {
+		expect(wordsOf("postgres 15 is slow"), "a short number").toContain(
+			"postgres-15",
+		);
+		expect(wordsOf("issue 1234 again"), "a long number").toContain(
+			"issue-1234",
+		);
+		expect(
+			wordsOf("pulse-sampler 3"),
+			"no id from a joined id's last part",
+		).not.toContain("sampler-3");
 	});
 
 	it("keeps a CamelCase spec node one word, as it always was", () => {
@@ -180,11 +193,68 @@ describe("a hub whose subject names an id", () => {
 	});
 
 	it("never takes a need naming another leg, whose number it doesn't say", () => {
+		// No holder of leg-27, so its own hub can't answer first.
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("Leg 27 is red")), fromText: true },
-			legHubs,
+			{
+				...legHubs,
+				foragers: cells({ A: [], H26: wordsOf("leg-26") }),
+				hubs: [{ subject: "aquifer:leg-26", hub: "H26", fits: ["H26"] }],
+			},
 		);
 
-		expect(found.path, "no hub of leg-26 for leg 27").not.toContain("H26");
+		expect(found, "no cell of leg-26 for leg 27").toMatchObject({
+			fit: null,
+			path: [],
+		});
+	});
+
+	it("never walks a tie to another leg's holder on the word leg", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 is red")), fromText: true },
+			{
+				foragers: cells({ A: [], L26: wordsOf("leg-26") }),
+				ties: ties(["A", "L26", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "leg 26's holder, tied, never takes leg 27's").toMatchObject({
+			fit: null,
+			path: [],
+		});
+	});
+
+	it("still walks a tie to a holder of the word leg alone", () => {
+		const found = routeNeed(
+			{ ...asked("A", ...wordsOf("Leg 27 is red")), fromText: true },
+			{
+				foragers: cells({ A: [], L: wordsOf("leg") }),
+				ties: ties(["A", "L", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found, "a holder of no other leg's number").toMatchObject({
+			fit: "L",
+		});
+	});
+
+	it("puts a need naming its leg inside a longer id to that leg's hub over a bare one", () => {
+		const reach = {
+			foragers: cells({ A: [], H26: wordsOf("leg-26"), L: wordsOf("leg") }),
+			ties: ties(),
+			hubs: [
+				{ subject: "aquifer:leg-26", hub: "H26", fits: ["H26"] },
+				{ subject: "aquifer:leg", hub: "L", fits: ["L"] },
+			],
+		};
+		const fits = numbered("A", ...wordsOf("the leg-26-follow-up is red")).map(
+			(need) => routeNeed({ ...need, fromText: true }, reach).fit,
+		);
+
+		expect(new Set(fits), "every need to leg-26's hub").toEqual(
+			new Set(["H26"]),
+		);
 	});
 });

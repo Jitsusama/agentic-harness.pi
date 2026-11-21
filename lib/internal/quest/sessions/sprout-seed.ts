@@ -66,8 +66,11 @@ function webLink(text: string): string | undefined {
  * The seed in `raw`, or nothing when there is none or any part of it is
  * out of shape: not JSON, another version, a field of the wrong type,
  * neither words nor a link, a link that isn't a web URL, a from that
- * isn't an address, an id that can't be an alias, or a need that isn't
- * a need's id. Keys it doesn't know are left alone.
+ * isn't an address, or an id that can't be an alias. A need that isn't
+ * a need's id is left out alone, since the quest and its tie to whoever
+ * sprouted it matter more than its lineage, and a mesh that mints ids
+ * another way would otherwise lose every sprout. Keys it doesn't know
+ * are left alone.
  */
 export function sproutSeedFrom(
 	raw: string | undefined,
@@ -92,7 +95,7 @@ export function sproutSeedFrom(
 	const n = text(need);
 	if (w === false || l === false || f === false || i === false || n === false)
 		return undefined;
-	if (n && !needAsker(n)) return undefined;
+	const served = n && needAsker(n) ? n : undefined;
 	if (!w && !l) return undefined;
 	if (w && w.length > MOST_WORDS) return undefined;
 	const href = l ? webLink(l) : undefined;
@@ -104,7 +107,7 @@ export function sproutSeedFrom(
 		...(href ? { link: href } : {}),
 		...(f ? { from: f } : {}),
 		...(i ? { id: i } : {}),
-		...(n ? { need: n } : {}),
+		...(served ? { need: served } : {}),
 	};
 }
 
