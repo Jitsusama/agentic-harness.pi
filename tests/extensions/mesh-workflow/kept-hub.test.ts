@@ -89,8 +89,7 @@ const QUICK: HubKeeping = { every: 5, retry: 5 };
 /** Long enough for a few quick finds to have come and gone. */
 const A_FEW_FINDS_MS = 60;
 
-const pause = (ms: number) =>
-	new Promise<void>((done) => setTimeout(done, ms));
+const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /** Keep the hub of what `at` reads, stopped after the test. */
 function keep(

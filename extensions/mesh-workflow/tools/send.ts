@@ -17,6 +17,7 @@ import {
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
+import type { Above } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
 	heading,
@@ -34,7 +35,6 @@ import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
-import type { Above } from "../../../lib/mesh/hub-from-use.ts";
 import { aboveFor } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
