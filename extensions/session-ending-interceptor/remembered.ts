@@ -7,19 +7,23 @@
  * Every session on the machine writes the one file, so each addition
  * reads and writes it under the package's file lock: two processes
  * adding at once would otherwise each lay their list over the other's
- * and drop a machine.
+ * and drop a machine. A writer killed between its write and its rename
+ * leaves its temporary file, so each write under the lock sweeps those
+ * old enough that no writer can still be at them.
  */
 
 import { randomUUID } from "node:crypto";
 import {
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { withFileLock } from "../../lib/core/internal/file-lock.ts";
 import { isMachineName } from "../../lib/internal/machine/machine.ts";
 
@@ -35,6 +39,38 @@ export function rememberedMachinesFile(
 		"session-ending",
 		"machines.json",
 	);
+}
+
+/**
+ * How old a temporary file beside the list must be to be swept: far
+ * past any write, which takes milliseconds, and past the lock's own
+ * patience, so a writer whose lock was taken as stale has given up.
+ */
+const LEFTOVER_AGE_MS = 5 * 60_000;
+
+/** Sweep the temporary files writers of `file` were killed beside. */
+function sweepLeftovers(file: string): void {
+	const prefix = `${basename(file)}.`;
+	const folder = dirname(file);
+	const before = Date.now() - LEFTOVER_AGE_MS;
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// A folder that can't be listed leaves nothing to sweep: the sweep
+		// only bounds what is left, so the write goes on.
+		return;
+	}
+	for (const name of names) {
+		if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+		const path = join(folder, name);
+		try {
+			if (statSync(path).mtimeMs < before) rmSync(path, { force: true });
+		} catch {
+			// Gone since the folder was read, or not ours to remove: the sweep
+			// only bounds what is left, so the write goes on.
+		}
+	}
 }
 
 /** The machines kept in `file`; none when it can't be read. */
@@ -72,6 +108,7 @@ export async function rememberMachines(
 			// What was read before the lock goes in too, should the file have
 			// been lost or spoilt since.
 			const now = together([...machinesKept(file), ...all], read);
+			sweepLeftovers(file);
 			const writing = `${file}.${randomUUID()}.tmp`;
 			try {
 				writeFileSync(writing, `${JSON.stringify(now)}\n`);

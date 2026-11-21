@@ -49,6 +49,12 @@ const hosted = (state: string): NodeSession => ({
 	host: "work-background",
 });
 
+/**
+ * Patience for a read of this machine's files in a test, long enough
+ * that a loaded run reads them rather than timing out.
+ */
+const UNHURRIED_MS = 30_000;
+
 let pi: FakePi;
 let asked = 0;
 
@@ -93,6 +99,49 @@ const reply = (said: string) =>
 		},
 		ctx,
 	);
+
+/** A reply making `calls`, with `said` as its text, or none. */
+const replyCalling = (
+	said: string | undefined,
+	calls: readonly { name: string; arguments: Record<string, unknown> }[],
+) =>
+	handler("message_end")(
+		{
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					...(said === undefined ? [] : [{ type: "text", text: said }]),
+					...calls.map((call, at) => ({
+						type: "toolCall",
+						id: `t${at}`,
+						...call,
+					})),
+				],
+				stopReason: "toolUse",
+			},
+		},
+		ctx,
+	);
+
+/** A user message, which an extension may send as well as the person. */
+const userMessage = (said: string) =>
+	handler("message_end")(
+		{
+			type: "message_end",
+			message: { role: "user", content: [{ type: "text", text: said }] },
+		},
+		ctx,
+	);
+
+/** The person's own input, typed or through the host, then its message. */
+const personSays = async (
+	said: string,
+	source: "interactive" | "rpc" = "interactive",
+) => {
+	await handler("input")({ type: "input", text: said, source }, ctx);
+	return userMessage(said);
+};
 
 const look = (ask: string, why?: string) =>
 	handler("tool_call")(
@@ -237,6 +286,366 @@ describe("what spares this machine's sessions", () => {
 	});
 });
 
+describe("a spare beside the commands a reply shows", () => {
+	const parked = () =>
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+	const lingering = () =>
+		interceptorOver([hosted("busy"), me], answering(true));
+
+	it.each([
+		"Please reboot optimus.",
+		"Please reboot optimus with `sudo systemctl reboot`.",
+		"Please reboot optimus:\n\n```sh\n# from a terminal\n$ sudo reboot\n```",
+	])(
+		"lets a parked reboot through beside only plain commands: %s",
+		async (said) => {
+			parked();
+
+			expect(await reply(said)).toBeUndefined();
+		},
+	);
+
+	it.each([
+		"Please reboot optimus. First run `sudo systemctl rescue`.",
+		"Please reboot optimus, or `sudo init 1` if it hangs.",
+		"Please reboot optimus. If it hangs, sudo kexec -e brings it back.",
+		"Please reboot optimus:\n\n```sh\nsudo systemctl isolate rescue.target\n```",
+	])("spares nothing beside a command off the plain list: %s", async (said) => {
+		parked();
+
+		expect(await reply(said)).toBeDefined();
+		expect(
+			pi.recorded.entries.map((entry) => entry.data),
+			"refused for its commands, not for nothing being parked",
+		).toMatchObject([{ outcome: "not plain" }]);
+	});
+
+	it("says nothing of commands where no spare would have stood anyway", async () => {
+		interceptorOver([hosted("busy"), me], answering(false));
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/isn't a plain|None here was spared/),
+		});
+		expect(pi.recorded.entries).toEqual([]);
+	});
+
+	it("lets a log-out through beside a plain command", async () => {
+		lingering();
+
+		expect(
+			await reply(
+				"Please log out of niri on optimus with `loginctl terminate-session`.",
+			),
+		).toBeUndefined();
+	});
+
+	it("spares nothing for a log-out beside one that ends the user manager", async () => {
+		lingering();
+
+		expect(
+			await reply(
+				"Please log out of niri on optimus, then `systemctl --user exit`.",
+			),
+		).toBeDefined();
+	});
+});
+
+describe("what a spare leaves in the session's log", () => {
+	const traces = () =>
+		pi.recorded.entries.filter(
+			(entry) => entry.customType === "session-ending-spare",
+		);
+
+	it("names the sessions a spare let an ask past, and why", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await look("Reboot optimus to install it");
+
+		expect(traces()).toEqual([
+			{
+				customType: "session-ending-spare",
+				data: {
+					outcome: "spared",
+					asks: [{ act: "reboot", machines: ["optimus"] }],
+					spared: [{ address: "H00001", why: "parked" }],
+				},
+			},
+		]);
+	});
+
+	it("says, and logs, that what spares couldn't be read", async () => {
+		interceptorOver([hosted("idle"), me], async () => {
+			throw new Error("logind went away");
+		});
+
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(/None here was spared: logind went away\./),
+		});
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "unread", error: "logind went away" } },
+		]);
+	});
+
+	it("says, and logs, that a command off the plain list spared nothing", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(
+				/shows or names a command that isn't a plain reboot, shut-down or log-out \("sudo systemctl rescue"\), so none was spared/,
+			),
+		});
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo systemctl rescue" } },
+		]);
+	});
+
+	it("blames what isn't plain, not what wasn't read, where both stood", async () => {
+		interceptorOver([hosted("idle"), me], async () => {
+			throw new Error("logind went away");
+		});
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(/isn't a plain reboot/),
+		});
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/logind went away/),
+		});
+	});
+
+	it("spares nothing beside a command the reply's own text showed", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		expect(
+			await reply("If it hangs, `sudo kexec -e` brings it back."),
+		).toBeUndefined();
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("keeps a reply's commands through the run, past a reply that says none", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await replyCalling(undefined, [
+			{ name: "read", arguments: { path: "notes.md" } },
+		]);
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("keeps a reply's commands through the run, beside a later reply's ask", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await replyCalling("If it hangs, `sudo kexec -e` brings it back.", [
+			{ name: "read", arguments: { path: "notes.md" } },
+		]);
+		const withheld = await reply("Please reboot optimus.");
+
+		expect(withheld, "the later reply is withheld").toBeDefined();
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads a reply's ask beside the calls it makes", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		const withheld = await replyCalling("Please reboot optimus.", [
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/rescue",
+					title: "Rescue",
+					why: "If it hangs, `sudo kexec -e` brings it back.",
+				},
+			},
+		]);
+
+		expect(withheld, "the reply is withheld").toBeDefined();
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads each call beside the others the same reply makes", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await replyCalling(undefined, [
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/rescue",
+					title: "Rescue",
+					why: "If it hangs, `sudo kexec -e` brings it back.",
+				},
+			},
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/bios",
+					title: "BIOS 1.13.0",
+					ask: "Reboot optimus to install it",
+				},
+			},
+		]);
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads no call by a name only an object's prototype holds", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+		const call = {
+			name: "constructor",
+			arguments: { prompt: "Reboot optimus" },
+		};
+
+		await replyCalling("Reboot optimus to install it.", [call]);
+		const verdict = await handler("tool_call")(
+			{
+				type: "tool_call",
+				toolName: call.name,
+				toolCallId: "c9",
+				input: call.arguments,
+			},
+			ctx,
+		);
+
+		expect(verdict).toBeUndefined();
+	});
+
+	it("forgets a reply's commands once the run settles", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await handler("agent_settled")({ type: "agent_settled" }, ctx);
+
+		expect(await look("Reboot optimus to install it")).toBeUndefined();
+	});
+
+	it.each(["interactive", "rpc"] as const)(
+		"forgets a reply's commands once the person speaks (%s)",
+		async (source) => {
+			interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+			await reply("If it hangs, `sudo kexec -e` brings it back.");
+			await personSays("Go ahead.", source);
+
+			expect(await look("Reboot optimus to install it")).toBeUndefined();
+		},
+	);
+
+	it("keeps a reply's commands past a message an extension sends", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await handler("input")(
+			{ type: "input", text: "Job j7 finished.", source: "extension" },
+			ctx,
+		);
+		await userMessage("Job j7 finished.");
+
+		expect(await look("Reboot optimus to install it")).toMatchObject({
+			block: true,
+		});
+	});
+
+	it("says nothing of what wasn't read where nothing here could have spared", async () => {
+		interceptorOver(
+			[{ ...hosted("idle"), machine: "equilibrius" }, me],
+			async () => {
+				throw new Error("logind went away");
+			},
+		);
+
+		const verdict = await look("Reboot equilibrius to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/None here was spared/),
+		});
+		expect(traces()).toMatchObject([{ data: { outcome: "unread" } }]);
+	});
+
+	it("says nothing of the parked read where the session left could never be spared", async () => {
+		const terminal: NodeSession = {
+			id: "terminal",
+			address: "T00002",
+			machine: "optimus",
+			state: "idle",
+		};
+		interceptorOver([terminal, me], async () => ({
+			lingers: true,
+			parked: new Set<string>(),
+			unread: "the host list 7-1.json can't be read",
+		}));
+
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/None here was spared/),
+		});
+	});
+
+	it("still spares a log-out where only the parked read failed, and says so of a reboot", async () => {
+		const spares = async () => ({
+			lingers: true,
+			parked: new Set<string>(),
+			unread: "the host list 7-1.json can't be read",
+		});
+		interceptorOver([hosted("idle"), me], spares);
+
+		expect(await reply("Please log out of niri on optimus.")).toBeUndefined();
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(
+				/None here was spared: the host list 7-1\.json can't be read\./,
+			),
+		});
+		expect(traces().map((entry) => entry.data)).toMatchObject([
+			{ outcome: "spared" },
+			{ outcome: "unread", error: "the host list 7-1.json can't be read" },
+		]);
+	});
+
+	it("logs nothing for an ask nothing spared or refused", async () => {
+		interceptorOver([me], answering(false));
+
+		await reply("Please reboot optimus.");
+
+		expect(traces()).toEqual([]);
+	});
+});
+
 describe("what spares, read by default", () => {
 	let bin: string;
 	beforeEach(() => {
@@ -311,10 +720,10 @@ describe("what spares, read by default", () => {
 				],
 			}),
 		);
-		const deps = nodeDeps({
-			MYCELIUM_REALM: "work",
-			PATH: `${bin}:/usr/bin:/bin`,
-		});
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			{ nextRoot: join(bin, "no-next-root"), patienceMs: UNHURRIED_MS },
+		);
 
 		expect(await deps.spares?.()).toEqual({
 			lingers: true,
@@ -325,5 +734,43 @@ describe("what spares, read by default", () => {
 			readFileSync(ran, "utf8").split("\n").filter(Boolean).sort(),
 			"the stubs on the PATH it is given answered, not the machine's logind",
 		).toEqual(["busctl", "loginctl"]);
+	});
+
+	it("says what lingers though the parked sessions can't be read", async () => {
+		vi.stubEnv("XDG_STATE_HOME", bin);
+		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
+		stub("busctl", 'echo "b false"');
+		mkdirSync(stateDir("hosts"), { recursive: true });
+		// Named for this process, which runs, so its host can't be gone.
+		const torn = `${process.pid}-1.json`;
+		writeFileSync(join(stateDir("hosts"), torn), "{");
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			{ nextRoot: join(bin, "no-next-root"), patienceMs: UNHURRIED_MS },
+		);
+
+		expect(await deps.spares?.()).toEqual({
+			lingers: true,
+			parked: new Set(),
+			unread: expect.stringContaining(`${torn} can't be read`),
+		});
+	});
+
+	it("reads the next root it is given, and says when it holds a tree", async () => {
+		vi.stubEnv("XDG_STATE_HOME", bin);
+		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
+		stub("busctl", 'echo "b false"');
+		const nextRoot = join(bin, "nextroot");
+		mkdirSync(join(nextRoot, "usr"), { recursive: true });
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			{ nextRoot, patienceMs: UNHURRIED_MS },
+		);
+
+		expect(await deps.spares?.()).toEqual({
+			lingers: true,
+			parked: new Set(),
+			unread: expect.stringContaining(`${nextRoot} holds a tree`),
+		});
 	});
 });

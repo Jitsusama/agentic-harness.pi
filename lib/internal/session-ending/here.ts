@@ -19,16 +19,30 @@
  * answered (council of 20 November, round 3).
  *
  * Anything that can't be read spares nothing, as on a Mac, where there
- * is no logind, or a presence that can't be read: a guess that spared
- * a session would be the one that ends its run.
+ * is no logind, or a presence or host list that can't be read, or a
+ * read past its patience: a guess that spared a session would be the
+ * one that ends its run. A `systemctl reboot` goes soft, keeping the
+ * boot, while /run/nextroot holds a tree, so then the parked can't be
+ * told, and the refusal says why.
  */
 
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	lstatSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	type Stats,
+} from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
-import { hostRegistries } from "../../core/session/registry.ts";
+import type { HostRegistry } from "../../core/session/host.ts";
+import { hostRegistryOf } from "../../core/session/registry.ts";
 import { createPresences } from "../../mesh/presence.ts";
 import { type Booted, machineBooted } from "../machine/booted.ts";
-import { everyRealmsDir } from "../paths.ts";
+import { everyRealmsDir, stateDir } from "../paths.ts";
 import {
 	type Standing,
 	type TickedOwner,
@@ -62,11 +76,16 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
  * conversation on one. `marked` reads the marker. A session a host
  * still runs is left out: a park closes its conversation, so a host
  * listing it busy or idle has woken it, or its park never landed.
+ * It fails, saying why, while `nextRoot` holds a tree or can't be read,
+ * since a reboot then keeps the boot and every marker with it.
  */
 export async function parkedHere(
 	marked: (session: string) => boolean = (session) => markedThisBoot(session),
 	running: () => Promise<Set<string>> = () => runningInHosts(),
+	nextRoot = "/run/nextroot",
 ): Promise<Set<string>> {
+	const soft = softensAReboot(nextRoot);
+	if (soft) throw new Error(soft);
 	const [each, hosted] = await Promise.all([
 		Promise.all(
 			everyRealmsDir("state", "mesh-workflow").map((mesh) =>
@@ -92,18 +111,19 @@ export async function parkedHere(
  * The conversations a host lists busy or idle, from every host's list
  * whose process isn't known to be gone: one that can't be judged still
  * counts, since a host it can't rule out may be running them. A file
- * that doesn't read as a host's list is passed over, as every reader of
- * the lists passes it over, so it rules out nothing.
+ * that doesn't read as a host's list can't be told apart from a list
+ * of every session, so it fails the read, and nothing is spared; unless
+ * it was last written before `booted`, when its host went with that
+ * boot, as a crash can leave a list torn.
  */
 export async function runningInHosts(
-	dir?: string,
+	dir: string = stateDir("hosts"),
 	standing: (owner: TickedOwner) => Promise<Standing> = (owner) =>
 		tickedStanding(owner),
+	booted: Booted = machineBooted,
 ): Promise<Set<string>> {
 	const running = new Set<string>();
-	for (const list of dir === undefined
-		? hostRegistries()
-		: hostRegistries(dir)) {
+	for (const list of hostLists(dir, booted)) {
 		const { session: _session, ...hostProcess } = list.owner;
 		if ((await standing(hostProcess)) === "gone") continue;
 		for (const one of list.sessions) {
@@ -126,6 +146,141 @@ export function markedThisBoot(
 ): boolean {
 	const boot = booted();
 	return boot !== undefined && isParked(session, folder, () => boot);
+}
+
+/**
+ * Every host list in `dir`, failing on one that can't be read, or isn't
+ * a file: its host may run any session. Each is opened without blocking
+ * or following a link, and judged a file on what was opened, so no read
+ * can hang on a pipe put in its place. A list gone since the folder was
+ * read went with its host, one written before `booted` with that boot's,
+ * and one whose host's process, named in its name, is gone with it, so
+ * each is passed over.
+ */
+function hostLists(dir: string, booted: Booted): HostRegistry[] {
+	let names: string[];
+	try {
+		names = readdirSync(dir).filter((name) => name.endsWith(".json"));
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return [];
+		throw error;
+	}
+	return names.flatMap((name) => {
+		const path = join(dir, name);
+		// Only a name's own characters, so a name can't speak in a refusal.
+		const shown = join(dir, name.replace(/[^\w.-]/g, "?"));
+		const text = listText(path, shown);
+		if (text === undefined) return [];
+		const list = hostRegistryOf(text);
+		if (list) return [list];
+		const now = statOf(path);
+		if (!now) return [];
+		const boot = booted();
+		if (boot !== undefined && now.mtimeMs < boot) return [];
+		if (hostGone(name)) return [];
+		throw new Error(`the host list ${shown} can't be read`);
+	});
+}
+
+/**
+ * What the list at `path` holds, read through one descriptor opened
+ * without blocking or following a link, or nothing once it is gone.
+ * Anything but a file fails, said as `shown`.
+ */
+function listText(path: string, shown: string): string | undefined {
+	let fd: number;
+	try {
+		fd = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+		);
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return undefined;
+		if (codeOf(error) === "ELOOP")
+			throw new Error(`the host list ${shown} isn't a file`);
+		throw new Error(`the host list ${shown} can't be read`);
+	}
+	try {
+		if (!fstatSync(fd).isFile())
+			throw new Error(`the host list ${shown} isn't a file`);
+		return readFileSync(fd, "utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * Whether the host a list's `name` names, as `<pid>-<start>.json`, is
+ * provably gone: no process has its pid. A pid since reused leaves it
+ * counted, which spares nothing.
+ */
+function hostGone(name: string): boolean {
+	const pid = Number(/^(\d+)-\d+\.json$/.exec(name)?.[1]);
+	if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch (error) {
+		return codeOf(error) === "ESRCH";
+	}
+}
+
+/** What `path` is, unfollowed, or nothing once it is gone. */
+function statOf(path: string): Stats | undefined {
+	try {
+		return lstatSync(path);
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return undefined;
+		throw error;
+	}
+}
+
+/**
+ * Why a reboot might go soft into `root`, a next root: it holds a tree,
+ * or can't be read and so might. Nothing where it is empty or absent.
+ */
+function softensAReboot(root: string): string | undefined {
+	try {
+		return readdirSync(root).length > 0
+			? `${root} holds a tree, so a reboot would keep this boot`
+			: undefined;
+	} catch (error) {
+		return codeOf(error) === "ENOENT"
+			? undefined
+			: `${root} can't be read, so a reboot might keep this boot`;
+	}
+}
+
+/** The code a failed file call carries, such as ENOENT. */
+function codeOf(error: unknown): unknown {
+	return error instanceof Error && "code" in error ? error.code : undefined;
+}
+
+/**
+ * What `read` answers within `patienceMs`, its clock started before the
+ * read is, failing once that is out, so a read stuck on a slow disk
+ * spares nothing rather than holding up the reply. A read that holds
+ * the thread, as a synchronous file read does, can't be cut short, but
+ * one that answers past its patience fails all the same.
+ */
+export async function withinPatience<T>(
+	read: () => Promise<T>,
+	patienceMs: number,
+): Promise<T> {
+	const late = () => new Error(`what spares wasn't read in ${patienceMs} ms`);
+	// The monotonic clock, which a step of the wall clock can't move.
+	const started = performance.now();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const out = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(late()), patienceMs);
+	});
+	try {
+		const answer = await Promise.race([Promise.resolve().then(read), out]);
+		if (performance.now() - started > patienceMs) throw late();
+		return answer;
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** What `command` printed, trimmed, or nothing when it failed or can't run. */
