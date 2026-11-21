@@ -43,6 +43,7 @@ import {
 	openTerminal,
 } from "../../../lib/terminal/index.ts";
 import { count } from "../../../lib/ui/count.ts";
+import { spawnWindowSetting } from "../config.ts";
 import { offerReopen } from "../first-turn-watch.ts";
 import {
 	attachSessionInQuestDir,
@@ -548,6 +549,16 @@ async function spawnNaming(
 		// elsewhere carries them in its start, and opens no window.
 		const local = isThisMachine(machine);
 		const token = local ? leftUnder(uuidv7()) : undefined;
+		// A held pi needs no window to run, and agents spawn all day, so one
+		// opens only where spawnWindow says or the call names how.
+		const named = Boolean(
+			params.terminal?.trim() || asked || params.nesting?.trim(),
+		);
+		const windowless =
+			local &&
+			!named &&
+			startsPi(command) &&
+			(await spawnWindowSetting()) === "never";
 		const held = await spawnHeld({
 			machine,
 			needs,
@@ -559,6 +570,7 @@ async function spawnNaming(
 			...(!local && firstWords ? { firstText: firstWords } : {}),
 			...(read.layout ? { layout: read.layout } : {}),
 			options: read.options,
+			...(windowless ? { window: false } : {}),
 		});
 		if (!held.ok) return refuse(held.refusal);
 		const resumed = held.planned

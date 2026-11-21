@@ -269,6 +269,7 @@ async function configReport(): Promise<QuestResult> {
 		`Quests root: ${summary.questsRoot} (${summary.questsRootSource})`,
 		`Auto-load from cwd: ${summary.autoloadFromCwd} (${summary.autoloadFromCwdSource})`,
 		`Spawn into a host: ${summary.spawnHost} (${summary.spawnHostSource})`,
+		`Window for a held spawn: ${summary.spawnWindow} (${summary.spawnWindowSource})`,
 		`Start into a host: ${summary.startHost} (${summary.startHostSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
