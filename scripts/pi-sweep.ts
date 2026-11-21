@@ -20,8 +20,9 @@
  * spent as a host holds them, and a tree it takes is dropped from every
  * live quest that listed it. Only quests claim trees here: a host hears
  * claims from whatever answers it on the bus, but quest-workflow is the
- * only claimant today, so a new one must be read here too, or the trees
- * it claims go as nobody's while the hosts stand down. Its git holds to
+ * only claimant today, and one in this package or any other must be read
+ * here too, or the trees it claims go as nobody's while the hosts stand
+ * down. Its git holds to
  * the fence's guard in every repository, as a fenced session's does,
  * since it runs in every session's trees with no sandbox of its own; a
  * host's git refuses the same trees, as each is cut under the trees
