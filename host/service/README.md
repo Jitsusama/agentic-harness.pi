@@ -16,11 +16,7 @@ input pipeline or screen. No unit or running host is installed yet.
   failed stays held. Close and release drop the hold only after the
   engine's close commits, closing with a reason that names the caller
   as the request does (`by`); a close of one held but not running is
-  journalled here, since no end of the engine's says it. resumeHeld
-  resumes each hold at start, keeping one that won't resume held and
-  listed parked for a person to close, apart from one whose session
-  file is gone, which nothing could resume: it is dropped, and the
-  journal's ready line names it.
+  journalled here, since no end of the engine's says it.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
   conversationEvents is what the engine, watched once before anything
   resumes, tells the service of a change made inside pi: a conversation
@@ -38,6 +34,13 @@ input pipeline or screen. No unit or running host is installed yet.
   busy conversation lets go only between runs (mesh-workflow
   moving.ts), what was queued behind its run waits in its log for
   plain pi (E27), and away mode holds its send-back meanwhile (E28).
+- resume-held.ts: what a start does with each hold it begins with.
+  resumeHeld resumes them alone until one has resumed, then
+  RESUME_AT_ONCE at a time, in the order `heldOrder` keeps, which a
+  window or wake brings one forward in. One that won't resume stays
+  held and listed parked for a person to close, apart from one whose
+  session file is gone, which nothing could resume: it is dropped, and
+  the journal's ready line names it.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,
@@ -54,7 +57,7 @@ input pipeline or screen. No unit or running host is installed yet.
   held, so a second host, an unreadable roster or a pi the engine
   refuses never reaches a socket. A window, wake, close or abort of one
   the start has yet to resume brings it forward and waits for that
-  resume (backend.ts's `heldOrder`), so a person's conversation is back
+  resume (resume-held.ts's `heldOrder`), so a person's conversation is back
   first and none resumes twice; a list shows those still to come as
   parked. The host is ready only once the last has resumed. Stop closes
   the socket, parks every conversation as signalled and releases the
@@ -273,7 +276,33 @@ input pipeline or screen. No unit or running host is installed yet.
   go with the slot as the child ends. A child that never listens or
   refuses its first request is stopped; a host starting takes up the
   children an earlier one left running, and a host stopping leaves
-  them. Nothing starts it yet.
+  them, so stopping the host halts none of its children's
+  conversations. To halt those too, stop their units:
+  `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, so
+  a host starting resumes it, and a running one starts it again at a
+  wake when the child parked it naming the host's wake file. Before rolling back to a host without
+  children, which neither takes them up nor knows they run, so would
+  resume their conversations beside them, stop the host first and
+  then their units: a running host starts a child again at its
+  conversation's next wake. The host runs a
+  conversation itself only once every child that ran it has gone and
+  its own slot is free, unless a child there answered as or became
+  another conversation (`left`); while one still runs, the resume fails.
+- child-policy.ts: which conversations move to children, read from
+  `host-service/KEY/children.json` as it changes, never per decision:
+  `{"v":1,"sessions":[ids]}` moves those as they next wake or start,
+  and `"all":true` moves every one and every open. A missing file
+  moves nothing, so deleting it or emptying its list moves them back;
+  one it can't read keeps the last it read, so write it beside and
+  rename it into place. A folder it can't watch moves nothing, and
+  says so, rather than failing the host.
+- child-hosting.ts: the routes, supervisor and policy put together for
+  serve.ts. A child that ends parked or failed leaves its conversation
+  held and resting, its wake watched by the host again, so no process
+  runs for a parked conversation. That needs a child's park marker to
+  name the host's own wake file, as `parked.wakeFile` gives it under
+  the host's key; one naming another is woken by nothing until a
+  window attaches.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

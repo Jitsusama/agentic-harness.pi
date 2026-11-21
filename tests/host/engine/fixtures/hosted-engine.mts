@@ -520,6 +520,17 @@ const scenarios: Record<string, Scenario> = {
 			return { rests, logs: { resting: logHolds(entry.file) } };
 		},
 	},
+	/** Rest one parked before, then give it up to a child that runs it now. */
+	"moved-out": {
+		responses: () => [],
+		run: async (engine) => {
+			const entry = readEntry();
+			const rests = engine.restsParked?.(entry) ?? false;
+			const resting = logHolds(entry.file);
+			engine.movedOut?.(entry.sessionId);
+			return { rests, logs: { resting, movedOut: logHolds(entry.file) } };
+		},
+	},
 	/** The gateway refuses the first key; the request goes again on the next. */
 	renew: {
 		responses: () => [

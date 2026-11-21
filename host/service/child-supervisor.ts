@@ -174,8 +174,14 @@ export interface ChildSupervisor {
 	 */
 	adopt(): Promise<number>;
 	/**
+	 * Settles once no child runs this conversation: every one that ran it
+	 * has gone and its own slot is free, or runs what it became. Fails
+	 * while one still runs it, or once the host stops watching.
+	 */
+	left(sessionId: string): Promise<void>;
+	/**
 	 * Stop watching every child, leaving each running, one still being
-	 * set up among them, whose start then fails as the host's stop.
+	 * set up among them, whose start then fails at once as the host's stop.
 	 */
 	close(): void;
 }
@@ -315,6 +321,9 @@ export function childSupervisor(options: {
 	const inUse = new Set<string>();
 	// Each slot whose child is leaving, until its unit has gone.
 	const leaving = new Map<string, Promise<void>>();
+	// The leave of the child that last ran each conversation, until its
+	// unit has gone, which a wake of that conversation waits out.
+	const leftBy = new Map<string, Promise<void>>();
 	// Each forsaken slot's mark, by its unit, until it has been written or
 	// failed to be, which its stop and the clearing of its slot wait on.
 	const marking = new Map<string, Promise<void>>();
@@ -341,13 +350,24 @@ export function childSupervisor(options: {
 
 	/** Count `sessionId` as running in `slot`, beside wherever else. */
 	function runsIn(sessionId: string, slot: Slot): void {
+		movedOff.delete(moveOf(sessionId, slot.unit));
 		const slots = ranIn.get(keyed(sessionId)) ?? new Map<string, Slot>();
 		slots.set(slot.unit, slot);
 		ranIn.set(keyed(sessionId), slots);
 	}
 
-	/** Count `sessionId` as running in `slot` no longer. */
+	// Each conversation a trusted answer or became moved off a slot, by
+	// `moveOf`, so `left` passes a slot that now runs another one.
+	const movedOff = new Set<string>();
+
+	/** The key `movedOff` holds `sessionId` moved off `unit` by. */
+	function moveOf(sessionId: string, unit: string): string {
+		return `${keyed(sessionId)} ${unit}`;
+	}
+
+	/** Count `sessionId` as running in `slot` no longer, since it moved off. */
 	function runsNoLongerIn(sessionId: string, slot: Slot): void {
+		movedOff.add(moveOf(sessionId, slot.unit));
 		const slots = ranIn.get(keyed(sessionId));
 		slots?.delete(slot.unit);
 		if (slots?.size === 0) ranIn.delete(keyed(sessionId));
@@ -500,6 +520,8 @@ export function childSupervisor(options: {
 			await clearSlot(slot);
 			await units.forget(slot.unit);
 			inUse.delete(slot.unit);
+			for (const moved of [...movedOff])
+				if (moved.endsWith(` ${slot.unit}`)) movedOff.delete(moved);
 			for (const [sessionId, slots] of ranIn) {
 				slots.delete(slot.unit);
 				if (slots.size === 0) ranIn.delete(sessionId);
@@ -627,6 +649,17 @@ export function childSupervisor(options: {
 	 * it, and its unit, if the slot is still in use, is asked again and
 	 * found gone, which frees it.
 	 */
+	// The slot a start of this conversation would take, or nothing for an
+	// id no slot can be named by, which no child of this host ever ran.
+	function ownSlot(sessionId: string): Slot | undefined {
+		try {
+			return slotOf(options.folder, options.key, sessionId);
+		} catch {
+			// slotOf refuses only a name that isn't a conversation's id.
+			return undefined;
+		}
+	}
+
 	async function free(slot: Slot): Promise<boolean> {
 		await takingUnit.get(slot.unit);
 		await leaving.get(slot.unit);
@@ -835,9 +868,17 @@ export function childSupervisor(options: {
 							if (forsaken) return;
 							if (current) dropOwn(current);
 							// One refused as it ended may run on: it is stopped.
-							void leave(slot, why === "failed" || refused !== undefined);
+							const left = leave(
+								slot,
+								why === "failed" || refused !== undefined,
+							);
 							if (!current) return;
 							const gone = current;
+							leftBy.set(keyed(gone), left);
+							void left.then(() => {
+								if (leftBy.get(keyed(gone)) === left)
+									leftBy.delete(keyed(gone));
+							});
 							if (why === "closed" || why === "released")
 								keep(() => roster.drop(heldAs(gone) ?? gone));
 							options.say?.(
@@ -1172,6 +1213,35 @@ export function childSupervisor(options: {
 				adopting = undefined;
 			});
 			return adopting;
+		},
+		async left(sessionId) {
+			await listing;
+			await takingFor.get(keyed(sessionId));
+			await leftBy.get(keyed(sessionId));
+			// Every slot that ran it, whichever way its child left, until that
+			// slot is free: one whose unit still runs refuses, as a start does.
+			for (const last of [...(ranIn.get(keyed(sessionId))?.values() ?? [])]) {
+				stillWatching();
+				if (
+					!(await claimed(
+						last.unit,
+						async () =>
+							!ranIn.get(keyed(sessionId))?.has(last.unit) || free(last),
+					))
+				)
+					throw new Error(`${sessionId} still runs in ${last.unit}`);
+			}
+			// Its own slot too: a child that failed before its first answer
+			// ran in no slot the host heard of, and may be stopping still. One
+			// whose child answered as, or became, another conversation runs
+			// that one, not this; a refused answer moves nothing off it.
+			const own = ownSlot(sessionId);
+			if (own !== undefined && !movedOff.has(moveOf(sessionId, own.unit))) {
+				stillWatching();
+				if (!(await claimed(own.unit, () => free(own))))
+					throw new Error(`${sessionId} still runs in ${own.unit}`);
+			}
+			stillWatching();
 		},
 		close() {
 			closing = true;

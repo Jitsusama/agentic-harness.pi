@@ -67,6 +67,14 @@ a conversation stopped, and a start waiting on one it couldn't take up
 under another id.
 support/supervised-children.ts is their fake units, roster and
 children, each child's traits set by the test that starts it.
+child-policy.test.ts checks the policy file read as it changes: one
+named, all, a missing file and an unreadable one each moving nothing.
+child-hosting.test.ts puts the routes, supervisor and policy together
+over fake children: the policy read as it stands, a child's
+conversation listed until it ends, one ended parked or failed rested so
+its wake is watched, one closed not, and a close leaving children
+running. support/fake-children.ts holds its children in this process
+and the fake units that start them.
 child-units.test.ts checks a slot's paths and unit, and that a name
 reaching another path or unit is refused.
 own-threads.test.ts runs the host and two children as node processes
@@ -114,4 +122,4 @@ unreadable roster, in a private temporary folder. They do not
 start a production host, copy credential files or use Joel's screen.
 
 - `support/`: helpers these tests share, such as the fake units,
-  roster and children the supervisor's tests run.
+  roster and children the supervisor's and hosting's tests run.

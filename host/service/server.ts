@@ -17,7 +17,12 @@ import {
 	MAX_ANSWER_BYTES,
 	reach,
 } from "./child-requests.ts";
-import { type ChildRoutes, listingChildren, passedOn } from "./children.ts";
+import {
+	type ChildRoute,
+	type ChildRoutes,
+	listingChildren,
+	passedOn,
+} from "./children.ts";
 import {
 	type ControlBackend,
 	dispatchControl,
@@ -359,6 +364,50 @@ export async function listenControl(options: {
 			if (rest.length) child.write(rest);
 			socket.pipe(child);
 		}
+		/**
+		 * Ask the child at `route` what `request` asks, under the child's own
+		 * name: an attach hands the window over, anything else has one answer.
+		 */
+		async function routed(
+			request: ControlRequest,
+			route: ChildRoute,
+		): Promise<PassedOn | undefined> {
+			// The caller named this host, so this host checks it.
+			if (
+				request.expectedHost &&
+				!sameHost(request.expectedHost, backend.identity)
+			) {
+				send(staleHost(request.id));
+				return;
+			}
+			let child: Socket;
+			try {
+				child = await reach(route.socket);
+			} catch (error) {
+				options.report(error);
+				send(childUnreachable(request.id));
+				return;
+			}
+			if (socket.destroyed || ended) {
+				child.destroy();
+				return;
+			}
+			const line = `${JSON.stringify(passedOn(request, route))}\n`;
+			if (request.op === "attach")
+				return {
+					child,
+					line,
+					id: request.id,
+					sessionId: request.sessionId,
+				};
+			// Any other request has one answer, and the connection is the
+			// host's again once it comes, for whatever is asked next.
+			const gone = () => child.destroy();
+			socket.once("close", gone);
+			send(await askOnce(child, line, request.id, options.report));
+			socket.off("close", gone);
+			return undefined;
+		}
 		async function receive(value: unknown): Promise<PassedOn | undefined> {
 			if (viewer && sessionId) {
 				const input = parseViewer(value);
@@ -399,44 +448,7 @@ export async function listenControl(options: {
 				"sessionId" in request
 					? options.children?.routeOf(request.sessionId)
 					: undefined;
-			if (route) {
-				// The caller named this host, so this host checks it; the child
-				// is asked under its own name.
-				if (
-					request.expectedHost &&
-					!sameHost(request.expectedHost, backend.identity)
-				) {
-					send(staleHost(request.id));
-					return;
-				}
-				let child: Socket;
-				try {
-					child = await reach(route.socket);
-				} catch (error) {
-					options.report(error);
-					send(childUnreachable(request.id));
-					return;
-				}
-				if (socket.destroyed || ended) {
-					child.destroy();
-					return;
-				}
-				const line = `${JSON.stringify(passedOn(request, route))}\n`;
-				if (request.op === "attach")
-					return {
-						child,
-						line,
-						id: request.id,
-						sessionId: request.sessionId,
-					};
-				// Any other request has one answer, and the connection is the
-				// host's again once it comes, for whatever is asked next.
-				const gone = () => child.destroy();
-				socket.once("close", gone);
-				send(await askOnce(child, line, request.id, options.report));
-				socket.off("close", gone);
-				return;
-			}
+			if (route) return routed(request, route);
 			if (request.op === "attach" && !options.viewer) {
 				send({
 					v: 1,
@@ -451,6 +463,13 @@ export async function listenControl(options: {
 			}
 			const asked = Date.now();
 			const reply = await dispatchControl(request, backend, options.report);
+			// An attach whose wake started its conversation in a child is the
+			// child's to answer and draw, not this host's viewer.
+			const woke =
+				reply.ok && request.op === "attach"
+					? options.children?.routeOf(request.sessionId)
+					: undefined;
+			if (woke) return routed(request, woke);
 			send(reply);
 			const gone = socket.destroyed || ended;
 			const slow =

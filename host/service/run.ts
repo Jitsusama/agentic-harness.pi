@@ -48,13 +48,9 @@ import { withPi } from "../../lib/internal/priority/place.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
-import type {
-	ConversationEngine,
-	ResumeEnd,
-	ResumePhase,
-	Resuming,
-} from "./backend.ts";
+import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
+import type { ResumeEnd, Resuming } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
@@ -255,6 +251,8 @@ export interface HostRunOptions {
 	 * whether it could; one it can't stops the host.
 	 */
 	contain?: (sessionId: string, error: unknown) => boolean;
+	/** Where conversations may run in a process each, passed on to serveHost. */
+	children?: Parameters<typeof serveHost>[0]["children"];
 	/**
 	 * Passed on to serveHost, for tests: a host run from a tree is given
 	 * its rollout gate, since it has no install to read one from.
@@ -399,6 +397,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
+			...(options.children ? { children: options.children } : {}),
 			report,
 			say,
 			starting,
