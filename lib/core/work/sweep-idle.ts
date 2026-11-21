@@ -188,6 +188,25 @@ export async function mainCheckoutOf(
 	exec: Exec,
 	path: string,
 ): Promise<string | undefined> {
+	const found = await checkoutOf(exec, path);
+	return "main" in found ? found.main : undefined;
+}
+
+/**
+ * What pi's guarded git answers where it won't run git, as a shell
+ * answers for a command it won't run (`tree-git.ts`).
+ */
+const GIT_REFUSED = 126;
+
+/**
+ * The main checkout of the repository a tree was cut from, or why git
+ * couldn't say: pi refused to run git there, as it does in a tree whose
+ * repository the fence doesn't guard, or git ran and failed.
+ */
+export async function checkoutOf(
+	exec: Exec,
+	path: string,
+): Promise<{ main: string } | { unread: "refused" | "failed" }> {
 	const common = await exec("git", [
 		"-C",
 		path,
@@ -195,7 +214,8 @@ export async function mainCheckoutOf(
 		"--path-format=absolute",
 		"--git-common-dir",
 	]);
-	if (common.code !== 0) return undefined;
+	if (common.code === GIT_REFUSED) return { unread: "refused" };
+	if (common.code !== 0) return { unread: "failed" };
 	const dir = common.stdout.trim();
-	return basename(dir) === ".git" ? dirname(dir) : dir;
+	return { main: basename(dir) === ".git" ? dirname(dir) : dir };
 }

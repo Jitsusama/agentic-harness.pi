@@ -62,6 +62,7 @@ import type { TreeMemory } from "./memory.ts";
 import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
+	checkoutOf,
 	type IdleSnapshot,
 	idleSnapshots,
 	lastUsed,
@@ -347,19 +348,31 @@ async function byRepository(
 	const repositories = new Map<string, HeldTree[]>();
 	const orphans: HeldTree[] = [];
 	for (const tree of trees) {
-		const main = await mainCheckoutOf(deps.exec, tree.path);
-		if (main === undefined) {
+		const found = await checkoutOf(deps.exec, tree.path);
+		if ("unread" in found) {
 			const gitDir = goneGitDir(tree.path);
 			if (gitDir !== undefined && deps.wentWithFinishedWork?.(gitDir)) {
 				orphans.push(tree);
 			} else {
-				outcome.kept.push({ path: tree.path, why: "its repository is gone" });
+				outcome.kept.push({ path: tree.path, why: unreadWhy(found.unread) });
 			}
 			continue;
 		}
+		const { main } = found;
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
 	return { byMain: repositories, orphans };
+}
+
+/**
+ * Why a tree whose repository git couldn't name is kept: pi's git
+ * refusing to run there, as in a tree whose repository the fence doesn't
+ * guard, is no sign the repository went, and the sweep log says which.
+ */
+function unreadWhy(unread: "refused" | "failed"): string {
+	return unread === "refused"
+		? "pi won't run git there, so it can't be judged"
+		: "its repository is gone";
 }
 
 /**
