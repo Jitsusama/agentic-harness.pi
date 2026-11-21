@@ -13,7 +13,8 @@
  * still under way then was cut off; a run the person stopped with
  * Escape has settled long before. When a signal ends the session with
  * a run or a job under way, an entry records it, and the restored
- * session is told where it stopped until a prompt takes it up. An
+ * session is told where it stopped until a prompt, or an answer a run
+ * saw through, takes it up. An
  * uncaught error ends pi with no signal, so the same entry is left as
  * it dies (`lib/internal/session/crash-record.ts`); on 11 November five
  * lanes waiting on jobs died so and came back idle for two hours. A
@@ -141,6 +142,22 @@ function roleOf(entry: unknown): string | undefined {
 }
 
 /**
+ * Whether `entry` took up what came before it: a prompt, or an answer a
+ * run saw through since. A session driven by mesh and job messages may
+ * never see a prompt: on 20 November dozens of background sessions had
+ * run up to 130 answers since the 20:12 restart's record, and each
+ * reopen after the 22:00 reset told them again they ended at 20:12. An
+ * answer stopped short, failed, or refused is no run seen through.
+ */
+function tookUp(entry: unknown): boolean {
+	const role = roleOf(entry);
+	if (role === "user") return true;
+	if (role !== "assistant") return false;
+	const message = field(entry, "message");
+	return field(message, "stopReason") === "stop" && !isRefusedRun(message);
+}
+
+/**
  * Whether a session's history says it was cut off and nothing has
  * taken it up since: what was under way, or nothing. Returning in a
  * host, a run its host carries on has been taken up, so only a job dead
@@ -153,8 +170,9 @@ export function cutOffIn(
 ): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		// A prompt since the record took it up; a later kill is read below.
-		if (roleOf(entry) === "user") break;
+		// A prompt or an answer since the record took it up; a later kill
+		// is read below.
+		if (tookUp(entry)) break;
 		if (
 			field(entry, "type") === "custom" &&
 			field(entry, "customType") === CUT_OFF_ENTRY
@@ -196,8 +214,9 @@ export function leftDead(
 export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		// A prompt since the record took it up; a later kill is read below.
-		if (roleOf(entry) === "user") break;
+		// A prompt or an answer since the record took it up; a later kill
+		// is read below.
+		if (tookUp(entry)) break;
 		if (
 			field(entry, "type") === "custom" &&
 			field(entry, "customType") === CUT_OFF_ENTRY

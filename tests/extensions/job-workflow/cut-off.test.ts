@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
+	carriedRunIn,
 	cutOffIn,
 	endedRecord,
 	resumeText,
@@ -35,6 +36,8 @@ import {
 	killedLog,
 	message,
 	noticeSeen,
+	refused,
+	stoppedShort,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
@@ -54,6 +57,35 @@ describe("a session cut off when it ended", () => {
 		expect(cutOffIn([message("user"), ended(record), aborted])).toEqual(record);
 		// A prompt since, the person's or the turn this gives, has taken it up.
 		expect(cutOffIn([ended(record), aborted, message("user")])).toBeUndefined();
+	});
+
+	it("is taken up by an answer since its record, with no prompt typed", () => {
+		// A background session driven by mesh messages, as on 20 November:
+		// the 20:12 record, then answers, then the 22:00 reset.
+		const record = { at: Date.parse(AT), running: true, jobs: [] };
+		const carried = { ...record, runCarried: true };
+		const mesh = { type: "custom_message", customType: "mesh" };
+		const answered = message("assistant", { stopReason: "stop" });
+		for (const cut of [record, carried]) {
+			const branch = [ended(cut), aborted, mesh, answered, mesh, answered];
+			expect(cutOffIn(branch), "an answer took it up").toBeUndefined();
+			expect(carriedRunIn(branch), "no carried run owed").toBeUndefined();
+		}
+		const later = "2026-10-24T20:00:00.000Z";
+		const killed = [
+			ended(carried),
+			answered,
+			mesh,
+			{ ...message("assistant", { stopReason: "toolUse" }), timestamp: later },
+		];
+		expect(cutOffIn(killed), "cut where its log stops").toEqual({
+			at: Date.parse(later),
+			running: true,
+			jobs: [],
+		});
+		// Stopped short, failed or refused, a run saw nothing through.
+		for (const short of [stoppedShort, aborted, refused])
+			expect(cutOffIn([ended(record), short])).toEqual(record);
 	});
 
 	it("is found from a log that stops mid-run when it was killed outright", () => {

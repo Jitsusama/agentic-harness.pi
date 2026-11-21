@@ -330,7 +330,10 @@ the record is left as it dies too, through the crash record's slot
 (`lib/internal/session/crash-record.ts`). A session killed outright
 writes nothing, so a log that stops on a tool call or its result is
 read the same way. A prompt after the record, the person's or that
-turn's, takes it up, so the turn comes once. The turn asks the session
+turn's, takes it up, so the turn comes once; so does an answer a run
+saw through, since a session driven only by mesh and job messages
+never sees a prompt. A kill after that is read from where the log
+stops, not from the old record's time. The turn asks the session
 to tell its orchestrator, once, that it came back and what it carries
 on with. A move back to plain pi that waited 5 minutes on a run ends
 it and leaves the same record
