@@ -744,11 +744,11 @@ describe("starting again on a fresh log", () => {
 		mkdirSync(join(folder, "held.again"));
 		restarting();
 		const ask = asked();
-		expect(
-			ask.why,
-			"it names the command's own file, the rename's target, not the staged one",
-		).toMatch(
-			/^its holder couldn't be told how to start it again: EISDIR.*-> '[^']*\/held\.again'/,
+		expect(ask.why, "it says why").toMatch(
+			/^its holder couldn't be told how to start it again: EISDIR/,
+		);
+		expect(ask.why, "it names the command's own file").toContain(
+			join(folder, "held.again"),
 		);
 		expect(ask.restarting, "the rollover is told it stays").toBeUndefined();
 		expect(restarts).toEqual([]);
@@ -758,6 +758,25 @@ describe("starting again on a fresh log", () => {
 			"the failed write leaves nothing staged",
 		).toEqual([]);
 		expect(readdirSync(folder)).not.toContain("held.wake");
+		expect(exits).toEqual([]);
+	});
+
+	// A rename's error names its target by itself, so only a write that
+	// fails before it, here at staging, shows whether the why names the
+	// command's own file rather than the staged one or none.
+	it("names the command's own file when its write fails before naming it", () => {
+		writeFileSync(join(folder, WRITING), "");
+		restarting();
+		const ask = asked();
+		expect(
+			ask.why,
+			"the error names only the staging folder, so the why adds the file",
+		).toMatch(/^its holder couldn't be told how to start it again: E/);
+		expect(
+			ask.why?.endsWith(`, to ${join(folder, "held.again")}`),
+			`it ends naming the command's own file: ${ask.why}`,
+		).toBe(true);
+		expect(restarts).toEqual([]);
 		expect(exits).toEqual([]);
 	});
 
