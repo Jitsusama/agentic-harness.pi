@@ -192,15 +192,31 @@ const COMMON = new Set([
 ]);
 
 /**
+ * An id written as letters or digits joined by hyphens or underscores,
+ * as Aquifer's spec writes what a cell holds as its resident need: a
+ * spirit property (I-5, XIII-2), a leg (leg-26), a seam's folder
+ * (node_kubelet_cri) or a zone (cert-request), IKQ63G's forms of 21
+ * November. Split into words, I-5 gives none and a seam gives words
+ * half the realm holds, so each is also kept whole.
+ */
+const JOINED_ID = /[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
+
+/** A leg named in prose, "leg 26", which is the id leg-26. */
+const LEG_IN_PROSE = /\bleg\s+(\d+)\b/gu;
+
+/**
  * The words a need or a cell's work is matched by: lowercased, once
- * each, leaving out the short and the common.
+ * each, leaving out the short and the common, then each joined id whole
+ * (`JOINED_ID`) and each leg named in prose as its id.
  */
 export function wordsOf(text: string): string[] {
-	const words = text
-		.toLowerCase()
+	const lower = text.toLowerCase();
+	const words = lower
 		.split(/[^\p{L}\p{N}]+/u)
 		.filter((word) => word.length >= SHORTEST_WORD && !COMMON.has(word));
-	return [...new Set(words)];
+	const ids = [...lower.matchAll(JOINED_ID)].map(([id]) => id);
+	const legs = [...lower.matchAll(LEG_IN_PROSE)].map(([, n]) => `leg-${n}`);
+	return [...new Set([...words, ...ids, ...legs])];
 }
 
 /** What a cell says it works on, as the node lists each one. */
@@ -594,14 +610,33 @@ function hubsFor(
 	const ranked = hubs.flatMap((hub) => {
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
-		if (!words.every((one) => saying.has(one))) return [];
-		const says = words.length;
+		if (!words.every((one) => saysWord(one, saying))) return [];
+		const says = words.filter((one) => saying.has(one)).length;
 		const depth = subjectParts(hub.subject).length;
 		return [{ hub, says, depth, lot: lot(hub) }];
 	});
 	return ranked.sort(
 		(a, b) => b.says - a.says || b.depth - a.depth || byLot(a.lot, b.lot),
 	);
+}
+
+/**
+ * Whether a need `saying` these words says `word` of a subject: said
+ * whole, or, for a joined id, said part by part, so `easing lines`
+ * says easing-lines and `host` says pi-host, whose pi is too short to
+ * be a word. A part all digits is always needed, and a need never says
+ * one alone, so `leg 27` never says leg-26.
+ */
+function saysWord(word: string, saying: ReadonlySet<string>): boolean {
+	if (saying.has(word)) return true;
+	const parts = word.split(/[-_]/u);
+	if (parts.length < 2) return false;
+	const needed = parts.filter(
+		(part) =>
+			/^\p{N}+$/u.test(part) ||
+			(part.length >= SHORTEST_WORD && !COMMON.has(part)),
+	);
+	return needed.length > 0 && needed.every((part) => saying.has(part));
 }
 
 /** A hub a need may be put to, with what ranks it. */
