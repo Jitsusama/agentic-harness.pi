@@ -62,7 +62,7 @@ describe("mesh_sprout", () => {
 	it("ties nothing from a session off the mesh", async () => {
 		const { run, args } = answering({ code: 0, stdout: STARTED, stderr: "" });
 		const answer = await sproutFrom({ words: "tea" }, "/", undefined, run);
-		expect(args[0]).not.toContain("--from");
+		expect(args[0]?.some((arg) => arg.startsWith("--from"))).toBe(false);
 		expect(said(answer)).not.toMatch(/tied/u);
 	});
 
@@ -92,5 +92,7 @@ describe("mesh_sprout", () => {
 		});
 		const answer = await sproutFrom({ words: "tea" }, "/", "42P0R4", run);
 		expect(answer.details).toEqual({ mayLand: true });
+		expect(said(answer)).toMatch(/^The sprout may have started: /u);
+		expect(said(answer)).not.toMatch(/Nothing was sprouted/u);
 	});
 });

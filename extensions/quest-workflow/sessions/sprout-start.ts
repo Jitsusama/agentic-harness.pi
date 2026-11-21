@@ -33,6 +33,7 @@ import {
 	tieArguments,
 	titleFromWords,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -82,21 +83,28 @@ export async function startSprouted(
 		return;
 	}
 	const alias = sproutAlias(seed);
-	const held = (alias && questWith(state, alias)) ?? linkedQuest(state, seed);
-	const id = held ?? (await madeId(seed, deps.create));
+	const replayed = alias ? questWith(state, alias) : undefined;
+	if (replayed?.sealed) {
+		// Its quest was made and has since ended: the work is done.
+		hints.firstWords = "";
+		return;
+	}
+	// A sealed quest holding the link is finished work, never carried on:
+	// the sprout makes its own, holding the link in its note.
+	const linked = linkedQuest(state, seed);
+	const held = replayed?.id ?? (linked?.sealed ? undefined : linked?.id);
+	const id = held ?? (await madeId(seed, deps.create, linked?.sealed !== true));
 	if (!id) return;
+	let peers: string | undefined;
 	if (held) {
 		const loaded = await deps.load(held);
 		if (!loaded.ok) return;
+		peers = peersIn(loaded.message);
 	}
+	const joined = held !== undefined ? { peers } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
-	hints.firstWords = sproutedWords(
-		id,
-		seed,
-		{ kind: "none" },
-		held !== undefined,
-	);
+	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined);
 	if (alias && held === undefined) {
 		aliasAdd(state, {
 			action: "alias-add",
@@ -105,15 +113,30 @@ export async function startSprouted(
 		});
 	}
 	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
-	hints.firstWords = sproutedWords(id, seed, tied, held !== undefined);
+	hints.firstWords = sproutedWords(id, seed, tied, joined);
 }
 
-/** The id of the quest made for `seed`, or nothing when none was. */
+/**
+ * What a load said of other live sessions on the quest (peers.ts's
+ * peersSaid), so a sprout joining it is told who else is there.
+ */
+function peersIn(message: string): string | undefined {
+	return message.match(
+		/(?:Another live pi session is|\d+ other live pi sessions are) on [^\n]*/u,
+	)?.[0];
+}
+
+/**
+ * The id of the quest made for `seed`, or nothing when none was; made
+ * from its link's page only while `linkable`, since a link a sealed
+ * quest holds can't mark another.
+ */
 async function madeId(
 	seed: SproutSeed,
 	make: Create,
+	linkable: boolean,
 ): Promise<string | undefined> {
-	const made = await makeQuest(seed, make);
+	const made = await makeQuest(seed, make, linkable);
 	const id = made.ok ? made.details?.id : undefined;
 	return typeof id === "string" ? id : undefined;
 }
@@ -133,18 +156,26 @@ export function hushReplayedSprout(
 	}
 }
 
+/** A quest found holding an alias, and whether it has ended. */
+interface Found {
+	readonly id: string;
+	readonly sealed: boolean;
+}
+
 /** The one quest carrying `alias`, if exactly one does. */
 function questWith(
 	state: QuestState,
 	alias: { type: string; value: string },
-): string | undefined {
+): Found | undefined {
 	const { index } = discoverQuests(state.questsRoot);
 	const found = lookupAliasDetail(buildAliasIndex(index), alias);
-	return found.kind === "hit" ? found.questId : undefined;
+	if (found.kind !== "hit") return undefined;
+	const status = index.quests.get(found.questId)?.doc.frontMatter.status;
+	return { id: found.questId, sealed: isSealedStatus(status) };
 }
 
 /** The quest already holding the seed's link, if one does. */
-function linkedQuest(state: QuestState, seed: SproutSeed): string | undefined {
+function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
 	const ref = seed.link ? parseRef(seed.link) : undefined;
 	return ref ? questWith(state, ref) : undefined;
 }
@@ -155,14 +186,18 @@ function linkedQuest(state: QuestState, seed: SproutSeed): string | undefined {
  * words, or the link itself, as its title, still marked with the link's
  * alias; a link no ref type reads makes it from those alone.
  */
-async function makeQuest(seed: SproutSeed, make: Create): Promise<QuestResult> {
+async function makeQuest(
+	seed: SproutSeed,
+	make: Create,
+	linkable: boolean,
+): Promise<QuestResult> {
 	const base = {
 		action: "create",
 		kind: "quest",
 		priority: "driving",
 	} as const;
 	const title = (seed.words ? titleFromWords(seed.words) : seed.link) ?? "";
-	if (seed.link && parseRef(seed.link)) {
+	if (linkable && seed.link && parseRef(seed.link)) {
 		const note = seed.words ? { note: seed.words } : {};
 		const linked = await make({ ...base, url: seed.link, ...note });
 		if (linked.ok) return linked;

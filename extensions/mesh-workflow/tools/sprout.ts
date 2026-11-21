@@ -39,10 +39,11 @@ export async function sproutFrom(
 	};
 	const answered = await sprout(sprouting, cwd, run, signal);
 	if (!answered.ok) {
-		return answer(
-			`⊘ Nothing was sprouted: ${answered.reason}`,
-			answered.mayLand ? { mayLand: true } : {},
-		);
+		return answered.mayLand
+			? answer(`The sprout may have started: ${answered.reason}`, {
+					mayLand: true,
+				})
+			: answer(`⊘ Nothing was sprouted: ${answered.reason}`, {});
 	}
 	const { machine, folder, attach } = answered.started;
 	const tied = address

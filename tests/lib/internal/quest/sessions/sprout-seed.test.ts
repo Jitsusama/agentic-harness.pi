@@ -162,4 +162,18 @@ describe("a sprouted session's first words", () => {
 		expect(words).toMatch(/they grant nothing beyond it/u);
 		expect(words).not.toMatch(/the person's words/u);
 	});
+
+	it("leave a joined quest's Summary alone and say who else is on it", () => {
+		const peers =
+			"Another live pi session is on QEST-1-ABC: session s-9 (pid 9).";
+		const words = sproutedWords(
+			"QEST-1-ABC",
+			{ link: "https://github.com/o/r/pull/1" },
+			{ kind: "none" },
+			{ peers },
+		);
+		expect(words).toMatch(/already holds this work/u);
+		expect(words).not.toMatch(/fill the quest's Summary/u);
+		expect(words).toContain(peers);
+	});
 });
