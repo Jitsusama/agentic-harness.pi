@@ -32,6 +32,9 @@ describe("a reply that asks", () => {
 		["optimus needs a soft restart to pick it up.", "soft-reboot"],
 		["Could you do a soft reboot of optimus tonight?", "soft-reboot"],
 		["Could you do a soft restart of optimus tonight?", "soft-reboot"],
+		["optimus needs a soft  reboot to pick it up.", "soft-reboot"],
+		["- Could you do a soft\n  restart of optimus tonight?", "soft-reboot"],
+		["- Could you do a soft\n  reboot of optimus tonight?", "soft-reboot"],
 		["May I ask Joel to reboot optimus?", "reboot"],
 		["1. Restart the machine.", "restart"],
 		["Once you've rebooted, check the mic.", "reboot"],
@@ -274,6 +277,10 @@ describe("a command in fenced code", () => {
 			"soft-reboot",
 		],
 		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduleShutdown st soft-reboot 0\n```",
+			"soft-reboot",
+		],
+		[
 			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager PowerOffWithFlags t 0\n```",
 			"shut down",
 		],
@@ -417,6 +424,7 @@ describe("a label, choice or title, which is the ask itself", () => {
 		["Yes, a restart tonight", "restart"],
 		["Go with the reboot", "reboot"],
 		["Kernel reboot on equilibrius", "reboot"],
+		["Userspace reboot now", "soft-reboot"],
 		["Apple menu \u2192 Log Out", "log out"],
 	])("%s asks", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);

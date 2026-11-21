@@ -106,8 +106,9 @@ machine, read without a deadline.
   and that the node reads as idle, doesn't count, whoever asks. Any
   other ending, such as a log-out without linger or an end of the
   user's processes, or a soft reboot (`systemctl soft-reboot`,
-  logind's `RebootWithFlags`, or a soft reboot or restart asked for in
-  words), which keeps the kernel and its boot, takes its host down
+  logind's `RebootWithFlags` or a soft-reboot `ScheduleShutdown`, or a
+  soft reboot, soft restart or userspace reboot asked for in words),
+  which keeps the kernel and its boot, takes its host down
   with no new boot, leaving its
   marker to say it is parked where nothing will wake it, so it still
   counts for those. Where the boot

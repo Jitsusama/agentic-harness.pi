@@ -577,6 +577,12 @@ const NOT_A_TIME =
 	"(?<!\\b(?:after|before|since|until|till|during|from|following)\\s+(?:(?:the|a|an|that|this|your|my|its|our|each|every)\\s+)?(?:(?:last|next|previous|recent|latest|first)\\s+)?|\\b(?:last|next|previous|recent|latest)\\s+)";
 
 /**
+ * The word before a reboot or restart that makes it soft, whatever
+ * whitespace a wrapped line leaves after it: "soft" or "userspace".
+ */
+const SOFT = String.raw`(?:soft|user-?space)(?:\s+|-)?`;
+
+/**
  * The acts in a sentence read as an ask. With no object, a restart or
  * shutdown counts as a verb ("restart now", "try restarting"), and as a
  * noun ("a restart tonight") only where `nouns` says the sentence asks
@@ -592,13 +598,13 @@ function actsIn(
 	const acts: Act[] = [];
 	const notOfADevice = `(?!\\s+${DETERMINERS}(?:${NOT_MACHINES})\\b)`;
 	// A soft reboot keeps the kernel's boot, so it is an act of its own,
-	// and so is a soft restart, systemd's userspace reboot by another name.
+	// and so is a soft restart or a userspace reboot, its other names.
 	const softReboot = new RegExp(
-		`${NOT_A_TIME}\\bsoft[\\s-]?re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+		`${NOT_A_TIME}\\b${SOFT}re-?(?:boot|start)(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (softReboot.test(plain)) acts.push("soft-reboot");
 	const reboot = new RegExp(
-		`${NOT_A_TIME}(?<!\\bsoft\\s+)${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
+		`${NOT_A_TIME}(?<!\\b${SOFT})${WORD_START}re-?boot(?:s|ed|ing)?\\b${WORD_END}${notOfADevice}`,
 	);
 	if (reboot.test(plain)) acts.push("reboot");
 	const alone =
@@ -620,7 +626,10 @@ function actsIn(
 		`\\b${machine}\\s+a\\s+restart\\b`,
 	];
 	// A soft restart was read above; joined into one word, it is no restart.
-	const hard = plain.replace(/\bsoft[\s-]?(?=restart)/g, "soft");
+	const hard = plain.replace(
+		new RegExp(String.raw`\b${SOFT}(?=restart)`, "g"),
+		"soft",
+	);
 	if (restart.some((pattern) => new RegExp(pattern).test(hard))) {
 		acts.push("restart");
 	}
@@ -1019,7 +1028,7 @@ const SIGNAL = String.raw`(?:(?:-s|-n|--signal)\s+\S+|-\S+)`;
 const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	[
 		new RegExp(
-			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}isolate\s+soft-reboot(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+soft-reboot\.target|${LOGIN1}\brebootwithflags\b)`,
+			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}isolate\s+soft-reboot(?:\.target)?(?=\s|$)|${SYSTEMCTL}start\s+soft-reboot\.target|${LOGIN1}\b(?:rebootwithflags|soft-reboot)\b)`,
 		),
 		// It ends every process but keeps the kernel and its boot, so what
 		// a boot clears outlives it. logind's RebootWithFlags is read as one
