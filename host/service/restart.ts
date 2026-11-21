@@ -96,7 +96,7 @@
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
  *
- * Long because restartWhenSettled alone runs some 380 lines, one wait
+ * Long because restartWhenSettled alone runs about 340 lines, one wait
  * whose rules (the settling, the ceiling, the heap's pressure, held
  * work, the calls and the drain) each read what the others last saw,
  * and followWhatStarts, which feeds it, changes with it: each of those
