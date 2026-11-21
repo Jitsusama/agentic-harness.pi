@@ -63,8 +63,8 @@ import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
 import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	checkoutOf,
+	eachIdleSnapshot,
 	type IdleSnapshot,
-	idleSnapshots,
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
@@ -127,6 +127,34 @@ export interface SweepDeps extends UseSigns {
 	 * provider that can't say whether a tree is spent, every one is kept.
 	 */
 	providers?(): readonly TreeProvider[];
+	/**
+	 * How many snapshots a live session holds and nothing has used for
+	 * hours one sweep may take; `IDLE_TAKES_PER_SWEEP` by default, which
+	 * keeps a sweep on a host's thread short.
+	 */
+	idleTakes?: number;
+	/**
+	 * How long after it starts, in milliseconds of awake time, a sweep may
+	 * go on judging those snapshots past the `IDLE_TAKES_PER_SWEEP` a host
+	 * takes, so a loaded machine, where each is slow, gets fewer rather
+	 * than a longer sweep; no limit by default. It stops new judging only:
+	 * a judgement or take begun runs to its end, each git call within its
+	 * own limit, so the bound is soft by as long as one of those takes.
+	 */
+	idleWithinMs?: number;
+	/**
+	 * Milliseconds on a clock that stands still while the machine sleeps,
+	 * as the sweep lock's freshness counts, so a suspend or a clock set
+	 * back neither spends `idleWithinMs` nor stretches it;
+	 * `performance.now` by default.
+	 */
+	awake?: () => number;
+	/**
+	 * Waited on before each idle snapshot's take but the first, so a sweep
+	 * taking many leaves the disk's directory locks free between its
+	 * removals; nothing by default. Its time counts against `idleWithinMs`.
+	 */
+	betweenIdleTakes?: () => Promise<void>;
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
 }
@@ -182,10 +210,16 @@ export interface SweepOutcome {
 	branches: DroppedBranches[];
 	/**
 	 * Why the snapshots open sessions hold went unjudged this sweep, all
-	 * of them kept: a record's lock held too long, or the machine unable
-	 * to say which processes hold trees.
+	 * of them kept: the machine unable to say which processes hold trees,
+	 * or a judgement throwing as it chose. One whose record's lock is held too long
+	 * is kept alone, under `kept`, and the rest go on.
 	 */
 	idleUnjudged?: string;
+	/**
+	 * How many aged snapshots nothing was seen working in it left
+	 * unjudged, when its count or `idleWithinMs` stopped it with some left.
+	 */
+	idleLeft?: number;
 }
 
 /**
@@ -222,6 +256,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		branches: [],
 	};
 	const now = deps.now?.() ?? Date.now();
+	const awake = deps.awake ?? (() => performance.now());
+	const began = awake();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
 	const release = sweepLock(deps.lockPath, deps.lockFresh);
@@ -272,6 +308,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			outcome,
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
+		const { idleWithinMs } = deps;
+		const spent = () =>
+			idleWithinMs !== undefined && awake() - began >= idleWithinMs;
 		try {
 			const askedAt = (path: string, key?: string) =>
 				deps.memory.askedAt(path, key);
@@ -282,13 +321,30 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				claims: [...claims, ...untilSpent],
 				now,
 				askedAt,
+				...(deps.idleTakes === undefined ? {} : { most: deps.idleTakes }),
+				spent,
+				left: (count: number) => {
+					outcome.idleLeft = count;
+				},
 			};
-			for (const idle of await idleSnapshots(live, choice)) {
-				await takeIdle(deps, facts, idle, now, outcome);
+			// Each is taken before the next is judged, so the time judging
+			// takes always buys takes.
+			let before = false;
+			for await (const idle of eachIdleSnapshot(live, choice)) {
+				if (before) await deps.betweenIdleTakes?.();
+				before = true;
+				try {
+					await takeIdle(deps, facts, idle, now, outcome);
+				} catch (error) {
+					// One record's lock held too long keeps that snapshot alone:
+					// ending a run of hundreds there would cost the outside stamp
+					// and send the hosts back to sweeping on their own threads.
+					outcome.kept.push({ path: idle.tree.path, why: messageOf(error) });
+				}
 			}
 		} catch (error) {
-			// A record's lock held too long or a census failing leaves the
-			// other providers' trees and the dev shells' roots to go as before.
+			// A census failing leaves the other providers' trees and the dev
+			// shells' roots to go as before.
 			outcome.idleUnjudged = messageOf(error);
 		}
 		const others = deps.memory
@@ -668,17 +724,24 @@ async function takeIdle(
 		// every process holds the lock for under a second, where an ask
 		// waits ten.
 		(take) =>
-			deps.memory.whileUnusedSince(tree.path, usedAt, async () => {
-				const path = resolved(tree.path);
-				const busy = await deps.busyAmong?.([path]);
-				return (
-					busy !== undefined &&
-					!busy.has(path) &&
-					lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
-						usedAt &&
-					take()
-				);
-			}),
+			deps.memory.whileUnusedSince(
+				tree.path,
+				usedAt,
+				async () => {
+					const path = resolved(tree.path);
+					const busy = await deps.busyAmong?.([path]);
+					return (
+						busy !== undefined &&
+						!busy.has(path) &&
+						lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
+							usedAt &&
+						take()
+					);
+				},
+				// Its own record only, read and removed by name, so a run of
+				// hundreds of takes never lists the records folder for one.
+				tree.identity.key,
+			),
 	);
 }
 

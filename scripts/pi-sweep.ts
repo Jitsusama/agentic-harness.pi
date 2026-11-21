@@ -117,6 +117,33 @@ const LOAD_WITHIN_MS = 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
+ * How many idle snapshots a live session holds one run may take. The
+ * sweep's own 20 keeps a host's thread free, and holds no thread here:
+ * on 21 November about 1,690 waited behind it while some 20 more came
+ * each hour, so the count of trees never fell. Runs that took 20 were
+ * no slower than those that took none, all between 80 and 360 seconds.
+ */
+const OUTSIDE_IDLE_TAKES = 200;
+
+/**
+ * How long, from its start, a run may go on judging them past a host's
+ * 20, so a loaded machine gets fewer rather than a longer run. It stops
+ * new judging only: a judgement or take begun runs to its end. On 21
+ * November, with a host's sessions all starting at once, the 05:00 run
+ * took 21 minutes for 20 takes, as Joel's windows stalled on the same
+ * disk.
+ */
+const OUTSIDE_IDLE_WITHIN_MS = 10 * 60 * 1000;
+
+/**
+ * The pause before each idle take but the first. A take removes a tree's
+ * folders under the disk's directory locks, the locks Joel's windows
+ * stalled on through the morning of 21 November, so many in a row would
+ * hold them with no gap for his.
+ */
+const OUTSIDE_IDLE_PAUSE_MS = 2 * 1000;
+
+/**
  * How long a provider may take to judge one tree before the run goes on
  * without it: past World's ten minutes for one dev command, and
  * short of the unit's two hours, which one call that never settled
@@ -196,6 +223,10 @@ export async function sweepOutside({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),
 		fencedGit: true,
+		idleTakes: OUTSIDE_IDLE_TAKES,
+		idleWithinMs: OUTSIDE_IDLE_WITHIN_MS,
+		betweenIdleTakes: () =>
+			new Promise((done) => setTimeout(done, OUTSIDE_IDLE_PAUSE_MS)),
 		told: (why) => tell(`sweep ${why}`),
 	});
 	// Any call that failed shows in the unit's state. A tree whose call
