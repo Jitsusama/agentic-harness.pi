@@ -571,6 +571,23 @@ describe("the fence a whole spawn tells the realm's node", () => {
 		});
 	});
 
+	it("claims none placing where another machine of the realm starts its own agent, though this one runs pi", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", ref: "reach=home" });
+		process.env.PI_SANDBOX = "strict";
+		nodeAgents = new Map([
+			[here, "pi"],
+			["elsewhere", "pi-claude"],
+		]);
+		const asked = await nodeHere();
+
+		succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked[0], "the placement ask claims none").toMatchObject({
+			Place: { fence: { kind: "none", from: "default" } },
+		});
+	});
+
 	it("starts a staged fence held with none, since no token reaches a held start", async () => {
 		const { id, run } = await quest("Alpha");
 		await run({ action: "need-add", ref: "reach=home" });
