@@ -17,6 +17,7 @@ move is tested beside that step, pause or move.
 | `kept.test.ts`          | the groups, stops and landings it keeps across a reload |
 | `trees.test.ts`         | the trees its session holds, named by repository        |
 | `subjects.test.ts`      | the subjects it says it works on, owned and declared    |
+| `serves.test.ts`        | the needs its quest took, as the node reads them        |
 
 - `support/`: what they share, this session's id, a peer's presence and
   the surroundings its own peer runs in.

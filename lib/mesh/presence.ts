@@ -42,6 +42,7 @@ import {
 	orchestrationOf,
 	windowWorkspaceOf,
 } from "../internal/quest/fields/orchestration.ts";
+import { type Served, servedFrom } from "../internal/quest/fields/serves.ts";
 import { type Doing, isDoing } from "../internal/quest/sessions/doing.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
@@ -303,6 +304,13 @@ export interface Presence {
 	 */
 	readonly subjects?: readonly string[];
 	/**
+	 * The needs its quest took from other cells (see
+	 * internal/quest/fields/serves.ts), which mycelium's node shows on its
+	 * forage as what it serves. Missing while it took none, while its
+	 * quest is sealed or the session has ended, and from an older presence.
+	 */
+	readonly serves?: readonly Served[];
+	/**
 	 * The folders it works in with others, each named alike on every
 	 * machine: its quest's shared folder, beside its scratch, while its
 	 * quest isn't sealed, the folder is there, at a path a node would draw
@@ -426,6 +434,8 @@ export interface PeerWork {
 	readonly standsAtTop?: StandsAtTop;
 	/** The subjects its quest's README lists, which presence says after those it owns. */
 	readonly subjects?: readonly string[];
+	/** The needs its quest took from other cells (see Presence). */
+	readonly serves?: readonly Served[];
 	/** The folders it works in with others (see Presence). */
 	readonly shares?: readonly Share[];
 }
@@ -498,7 +508,18 @@ export function workOf(
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
 		...subjectsSaid(declaredSubjects(parsed.frontMatter._extra?.subjects)),
+		// A sealed quest serves nobody now, as it shares nothing.
+		...(isSealedStatus(parsed.frontMatter.status)
+			? {}
+			: servesSaid(servedFrom(parsed.frontMatter._extra?.serves))),
 	};
+}
+
+/** The needs taken as a presence or its work says them: left out when none. */
+function servesSaid(serves: readonly Served[]): {
+	serves?: readonly Served[];
+} {
+	return serves.length > 0 ? { serves } : {};
 }
 
 /** Subjects as a presence or its work says them: left out when none. */
@@ -753,6 +774,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...standingAtTop(one.standsAtTop),
 		...subjectsSaid(subjectsOf([], declaredSubjects(one.subjects))),
+		...servesSaid(servedFrom(one.serves)),
 		...sharesSaid(one.shares),
 		at: typeof one.at === "string" ? one.at : "",
 	};

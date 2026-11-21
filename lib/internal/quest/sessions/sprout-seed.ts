@@ -12,6 +12,7 @@
  */
 
 import { isRecord } from "../../record.ts";
+import { needAsker } from "../fields/serves.ts";
 
 /** The one shape of it this reads. */
 const SPROUT_VERSION = 1;
@@ -41,6 +42,8 @@ export interface SproutSeed {
 	readonly from?: string;
 	/** The sprout's own id, which makes it once only. */
 	readonly id?: string;
+	/** The id of the mesh need this sprout takes on, when one sent it. */
+	readonly need?: string;
 }
 
 /**
@@ -63,8 +66,11 @@ function webLink(text: string): string | undefined {
  * The seed in `raw`, or nothing when there is none or any part of it is
  * out of shape: not JSON, another version, a field of the wrong type,
  * neither words nor a link, a link that isn't a web URL, a from that
- * isn't an address, or an id that can't be an alias. Keys it doesn't
- * know are left alone.
+ * isn't an address, or an id that can't be an alias. A need that isn't
+ * a need's id is left out alone, since the quest and its tie to whoever
+ * sprouted it matter more than its lineage, and a mesh that mints ids
+ * another way would otherwise lose every sprout. Keys it doesn't know
+ * are left alone.
  */
 export function sproutSeedFrom(
 	raw: string | undefined,
@@ -78,7 +84,7 @@ export function sproutSeedFrom(
 		return undefined;
 	}
 	if (!isRecord(parsed) || parsed.v !== SPROUT_VERSION) return undefined;
-	const { words, link, from, id } = parsed;
+	const { words, link, from, id, need } = parsed;
 	const text = (value: unknown): string | undefined | false =>
 		value === undefined
 			? undefined
@@ -86,8 +92,10 @@ export function sproutSeedFrom(
 				? value.trim()
 				: false;
 	const [w, l, f, i] = [text(words), text(link), text(from), text(id)];
-	if (w === false || l === false || f === false || i === false)
+	const n = text(need);
+	if (w === false || l === false || f === false || i === false || n === false)
 		return undefined;
+	const served = n && needAsker(n) ? n : undefined;
 	if (!w && !l) return undefined;
 	if (w && w.length > MOST_WORDS) return undefined;
 	const href = l ? webLink(l) : undefined;
@@ -99,6 +107,7 @@ export function sproutSeedFrom(
 		...(href ? { link: href } : {}),
 		...(f ? { from: f } : {}),
 		...(i ? { id: i } : {}),
+		...(served ? { need: served } : {}),
 	};
 }
 
