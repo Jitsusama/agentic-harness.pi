@@ -458,8 +458,16 @@ async function headOf(directory: string): Promise<string | undefined> {
 
 /**
  * Where a round goes when no tree could be cut at the commit: the
- * fallback when it already has that commit checked out, and otherwise
- * a refusal naming why and what to do.
+ * ground when it already has that commit checked out, then the
+ * checkout the caller named when git says it is this repo and it is
+ * at the commit, and otherwise a refusal naming why and what to do.
+ *
+ * The named checkout is tried second, not ignored. The ground is the
+ * configured checkout whenever one is configured, which is right for
+ * cutting a snapshot, and the refusal's own advice is to name a
+ * checkout that has the commit. A caller who did exactly that was
+ * refused anyway, with the configured path in the message and the one
+ * it named nowhere (XY9H5C, 21 Nov, core.nix's PR read from a tree).
  *
  * This used to read the fallback at whatever commit it stood on, with
  * a caveat. Two councils did that and returned fifty-nine findings
@@ -469,16 +477,21 @@ async function headOf(directory: string): Promise<string | undefined> {
  * left is rare and worth stopping for.
  */
 async function fallbackAt(
-	fallback: string,
+	choice: { repo: RepoLocator; ground: string; named: string },
 	commit: string,
 	why: string,
 ): Promise<RoundTree> {
-	const head = await headOf(fallback);
-	if (head?.startsWith(commit)) return { path: fallback };
+	const { repo, ground, named } = choice;
+	const head = await headOf(ground);
+	if (head?.startsWith(commit)) return { path: ground };
+	if (named !== ground && (await isCheckoutOf(named, repo))) {
+		const namedHead = await headOf(named);
+		if (namedHead?.startsWith(commit)) return { path: named };
+	}
 	const standing =
 		head === undefined ? "a commit git would not name" : head.slice(0, 12);
 	return {
-		refusal: `${why} The checkout left to read, ${fallback}, is at ${standing} rather than ${commit}, and findings about other code read as plausibly as real ones. Fetch ${commit} there or check it out, or name a checkout that has it as the repo parameter, then ask again.`,
+		refusal: `${why} The checkout left to read, ${ground}, is at ${standing} rather than ${commit}, and findings about other code read as plausibly as real ones. Fetch ${commit} there or check it out, or name a checkout that has it as the repo parameter, then ask again.`,
 	};
 }
 
@@ -510,6 +523,7 @@ export async function treeForRound(
 	// does not contain, at $75.63. Every one of them read plausibly.
 	const ground = await groundFor(repo, fallback);
 	if ("refusal" in ground) return ground;
+	const choice = { repo, ground: ground.path, named: fallback };
 	fallback = ground.path;
 
 	if (commit === undefined) {
@@ -521,7 +535,7 @@ export async function treeForRound(
 	const { work } = standing();
 	if (work === undefined) {
 		return fallbackAt(
-			fallback,
+			choice,
 			commit,
 			"No working layer is loaded to cut a tree at the commit under review; load the work integration to have one cut.",
 		);
@@ -546,14 +560,14 @@ export async function treeForRound(
 		purpose: "review",
 		commit,
 	});
-	if ("refusal" in asked) return fallbackAt(fallback, commit, asked.refusal);
+	if ("refusal" in asked) return fallbackAt(choice, commit, asked.refusal);
 
 	try {
 		const held = await work.broker().ensure(asked.request);
 		return { path: held.path };
 	} catch (error) {
 		return fallbackAt(
-			fallback,
+			choice,
 			commit,
 			error instanceof Error ? error.message : String(error),
 		);

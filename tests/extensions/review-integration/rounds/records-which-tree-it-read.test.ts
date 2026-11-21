@@ -95,6 +95,28 @@ async function checkoutAt(
 	return { path, head: git("rev-parse", "HEAD") };
 }
 
+/** The same checkout one commit on, as a tree cut at a PR's head is. */
+function movedOn(checkout: { path: string }): { path: string; head: string } {
+	const git = (...args: string[]) =>
+		execFileSync("git", ["-C", checkout.path, ...args], {
+			encoding: "utf8",
+		}).trim();
+	git(
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"commit.gpgsign=false",
+		"commit",
+		"-q",
+		"--allow-empty",
+		"-m",
+		"the change under review",
+	);
+	return { path: checkout.path, head: git("rev-parse", "HEAD") };
+}
+
 /** Where the package config lives under the stubbed home. */
 function configPath(): string {
 	const dir = join(home, "pi", "agentic-harness.pi");
@@ -162,6 +184,82 @@ describe("what a round records about the tree it read", () => {
 		// than in whatever the caller was sitting in.
 		if ("refusal" in tree) throw new Error(tree.refusal);
 		expect(tree.path).toBe(elsewhere);
+	});
+
+	it("reads the checkout the caller named when the configured one is at another commit", async () => {
+		// XY9H5C, 21 Nov: a core.nix PR asked about from a tree at its
+		// head was refused, naming the configured checkout at main and
+		// telling it to name a checkout that has the commit, which is what
+		// it had done. The configured path is still the ground for a
+		// snapshot; when none can be cut, the named one is tried too.
+		const configured = await checkoutAt("elsewhere/other");
+		const named = await movedOn(await checkoutAt("elsewhere/other"));
+		writeFileSync(
+			configPath(),
+			JSON.stringify({
+				sections: {
+					review: {
+						repos: [
+							{
+								match: "elsewhere/other",
+								providers: [],
+								path: configured.path,
+							},
+						],
+					},
+				},
+			}),
+			"utf8",
+		);
+		expect(
+			named.head,
+			"the two fixtures stand on different commits, or the case proves nothing",
+		).not.toBe(configured.head);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			named.head,
+			named.path,
+		);
+
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
+		expect(tree, "the named checkout, at the commit, is read").toEqual({
+			path: named.path,
+		});
+	});
+
+	it("still refuses when neither the configured nor the named checkout is at the commit", async () => {
+		// Trying the named checkout must not turn into reading it anyway.
+		const configured = await checkoutAt("elsewhere/other");
+		const named = await checkoutAt("elsewhere/other");
+		writeFileSync(
+			configPath(),
+			JSON.stringify({
+				sections: {
+					review: {
+						repos: [
+							{
+								match: "elsewhere/other",
+								providers: [],
+								path: configured.path,
+							},
+						],
+					},
+				},
+			}),
+			"utf8",
+		);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			"d7205e3c",
+			named.path,
+		);
+
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(tree.refusal, "the refusal names the commit to fetch").toContain(
+			"Fetch d7205e3c",
+		);
 	});
 
 	it("refuses a configured path git will not vouch for", async () => {
