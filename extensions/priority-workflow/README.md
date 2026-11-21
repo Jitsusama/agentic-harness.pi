@@ -101,26 +101,37 @@ does, so the wait never uses it up (see
 | stamp | a deploy's whole suite: `node deploy/suite.mjs` or `node estero/suite.mjs`, and `npm test` run in a folder of Acceluary's; only the capped build starts beside one | timed | 4 GiB |
 | timed-run | one of Acceluary's paired timings: `node tools/timed.mjs` run in a folder of Acceluary's, whatever it times | timed | 4 GiB |
 | build | Nix builds and checks, evaluations of a whole machine or home (`nix eval` or `nix-instantiate` naming nixosSystem, nixosConfigurations, system.build or toplevel), `rg` and `git grep` over a whole World checkout, `nixos-rebuild`, `home-manager switch`, `darwin-rebuild`, cargo's builds and tests (aliases, toolchains and flags too), `make -j`, `cmake --build`, `go build` and `go test`, vitest and the pnpm scripts that run it (`pnpm check`, `pnpm test`, `pnpm test:<lane>`), type checks (`tsc`, `vue-tsc` and `tsgo` by name or a bin folder's path, and a `typecheck` or `type-check` script run by pnpm, yarn, bun or `npm run`; not a version, help, `--init`, `--showConfig`, `--clean` or watch run), `changed-checks`, `nix-fast-build`, `nix eval` of every check | bulk | 4 GiB |
-| world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack` or `pack-objects` in or against a World checkout | bulk | 6 GiB |
+| world-walk | `git push`, `fetch`, `pull`, `clone`, `gc`, `repack`, `pack-objects`, `rebase`, `cherry-pick`, `revert`, `merge` or `sparse-checkout` in or against a World checkout; not `-h` or `--help` given just before or after the subcommand, nor a rebase's, pick's, revert's or merge's `--abort`, `--quit`, `--show-current-patch` or `--edit-todo`, nor `sparse-checkout` alone, its `list` or `check-rules` | bulk | 6 GiB |
 
 A world-walk is git walking World's objects: the folder it runs in,
-a `cd` before it, its `-C`, or a path it names is under `~/world`,
+a `cd` before it, its `-C`, `--git-dir` or `--work-tree`, or a path
+it names is under `~/world`,
 where World's git and every World tree live. At most two run at once,
 however much memory reads free: on 4 November 3 to 5 ran at once from
 different sessions, each mapping 3 to 6 GB of packs and evicting the
 others', and the kernel killed six times in 18 minutes with 18.9 GB of
 page cache it couldn't reclaim, which the memory the queue reads counts
-as free. A third waits with `waitingOn: "walks"` and lets the work
+as free. Only one runs while memory has stalled everything for 5% of
+the last minute (`full avg60`), or while another walk started within
+the last minute, since that figure shows a walk's stall only once it
+has mapped its packs: at 06:08 on 21 November two rebases of 3.8 and
+3.9 GB ran beside a push and a `git log -S` with it at 13.6 to 17.8.
+A walk that has ended holds none back, since its stall is in the
+figure by then. One always starts with none running. A walk past those
+waits with `waitingOn: "walks"` and lets the work
 behind it past. Git in any other repository, and git's reads of
 history (`log`, `diff`, `rev-parse`, `rev-list`), take no turn. A
 walk is not a build: it never waits for a VM check or a builder being
 lent, and is never capped. Walks run by a script, or by the work
-tool's own push and fetch, which run git from pi rather than a bash
-call, take no turn.
+tool's own push, rebase, resume, restack and sync, which run git from
+pi rather than a bash call, take no turn.
 
-Among themselves, pushes and fetches of origin's `main` take the next
-free walk ahead of other walks, which keep their order; work that is
-not a walk keeps its place. On 5 November walks waited a median 28
+Among themselves, pushes, fetches of origin's `main`, and a branch's
+own rebases, cherry-picks, reverts, merges and sparse-checkouts take
+the next free walk ahead of other walks, such as fetches of other
+people's branches, each group in the order it asked; work that is not
+a walk keeps its place. With one walk let run, a rebase behind every
+push would wait for as long as pushes kept arriving. On 5 November walks waited a median 28
 minutes, and four fetches of main waited behind one already running. So
 a fetch of main waits while another runs (up to 20 minutes), and once
 one has moved `origin/main` every fetch of main waiting, and any asked
