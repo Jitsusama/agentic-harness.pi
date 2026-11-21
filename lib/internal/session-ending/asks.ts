@@ -82,6 +82,61 @@ export function asksInLabel(
 	return asksIn(text, machines, "label");
 }
 
+/**
+ * The asks of every inline code span in `texts` beyond those `found`
+ * already makes, once it makes any: "log out. The quickest way is
+ * `loginctl terminate-user`" asks for what that command does too,
+ * wherever the code sits, in this text or another field said with it,
+ * so a spare chosen from the words can't let it through. Code naming
+ * no machine is placed on the machines the asks name.
+ */
+export function codeBesideAsks(
+	texts: readonly string[],
+	found: readonly SessionEndingAsk[],
+	machines: readonly string[],
+): SessionEndingAsk[] {
+	if (found.length === 0) return [];
+	const named = found.some((one) => one.machines.length === 0)
+		? []
+		: [...new Set(found.flatMap((one) => one.machines))];
+	const asked = [...found];
+	const more: SessionEndingAsk[] = [];
+	for (const text of texts) {
+		for (const part of parts(folded(text))) {
+			if (!part.prose) continue;
+			for (const code of codeSpans(part.lines.join("\n"))) {
+				for (const one of commandAsks(code, machines)) {
+					const ask =
+						one.machines.length > 0 ? one : { ...one, machines: named };
+					if (covered(ask, asked)) continue;
+					asked.push(ask);
+					more.push(ask);
+				}
+			}
+		}
+	}
+	return more;
+}
+
+/**
+ * Whether `asks` already ask for `one`: its act, on every machine, or on
+ * each machine it names.
+ */
+function covered(
+	one: SessionEndingAsk,
+	asks: readonly SessionEndingAsk[],
+): boolean {
+	return asks.some((ask) => {
+		if (ask.act !== one.act) return false;
+		if (ask.machines.length === 0) return true;
+		const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
+		return (
+			one.machines.length > 0 &&
+			one.machines.every((name) => reach.has(name.toLowerCase()))
+		);
+	});
+}
+
 /** The asks of one command line, as a check a wait is done by. */
 export function asksInCommand(
 	line: string,
@@ -186,8 +241,7 @@ function asksIn(
 ): SessionEndingAsk[] {
 	const words = machineWords(machines);
 	const found: SessionEndingAsk[] = [];
-	const split = parts(folded(text));
-	for (const part of split) {
+	for (const part of parts(folded(text))) {
 		for (const line of commandLines(part)) {
 			found.push(...commandAsks(line, machines));
 		}
@@ -199,35 +253,7 @@ function asksIn(
 			});
 		}
 	}
-	return found.length > 0
-		? [...found, ...codeBesideAnAsk(split, found, machines)]
-		: found;
-}
-
-/**
- * The acts of every inline code span in a reply that asks, beyond those
- * it already asks for: "log out. The quickest way is `loginctl
- * terminate-user`" asks for what that command does too, wherever the
- * code sits, so a spare chosen from the words can't let it through.
- */
-function codeBesideAnAsk(
-	split: readonly Part[],
-	found: readonly SessionEndingAsk[],
-	machines: readonly string[],
-): SessionEndingAsk[] {
-	const acts = new Set(found.map((one) => one.act));
-	const more: SessionEndingAsk[] = [];
-	for (const part of split) {
-		if (!part.prose) continue;
-		for (const code of codeSpans(part.lines.join("\n"))) {
-			for (const one of commandAsks(code, machines)) {
-				if (acts.has(one.act)) continue;
-				acts.add(one.act);
-				more.push(one);
-			}
-		}
-	}
-	return more;
+	return [...found, ...codeBesideAsks([text], found, machines)];
 }
 
 /**
@@ -272,14 +298,15 @@ function sentenceAsks(
 			byAct.set(act, { act, machines: named, said });
 		}
 	}
+	const found = [...byAct.values()];
 	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
 		for (const one of commandAsks(code, machines)) {
-			if (byAct.has(one.act)) continue;
 			const where = one.machines.length > 0 ? one.machines : named;
-			byAct.set(one.act, { act: one.act, machines: where, said });
+			const ask = { act: one.act, machines: where, said };
+			if (!covered(ask, found)) found.push(ask);
 		}
 	}
-	return [...byAct.values()];
+	return found;
 }
 
 /**

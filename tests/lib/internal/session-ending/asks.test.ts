@@ -192,6 +192,33 @@ describe("a reply that asks", () => {
 		expect(acts(text)).toContain(act);
 	});
 
+	it.each([
+		"Reboot optimus to take the BIOS. Then `ssh equilibrius sudo reboot`.",
+		"Reboot optimus, and run `ssh equilibrius sudo reboot`.",
+	])("%s asks for its code's act on the code's machine too", (text) => {
+		const asks = asksInProse(text, MACHINES);
+		expect(
+			asks.some(
+				(one) => one.act === "reboot" && one.machines.includes("equilibrius"),
+			),
+			`no reboot reaches equilibrius in ${JSON.stringify(asks)}`,
+		).toBe(true);
+	});
+
+	it("places code that names no machine on the machines its reply names", () => {
+		expect(
+			asksInProse(
+				"Please log out of niri on optimus. The quickest way is `loginctl terminate-user joel`.",
+				MACHINES,
+			),
+		).toContainEqual(
+			expect.objectContaining({
+				act: "end the user's processes",
+				machines: ["optimus"],
+			}),
+		);
+	});
+
 	it("reads code once beside a worded ask, and none where nothing asks", () => {
 		expect(acts("Please run `sudo reboot` on optimus.")).toEqual(["reboot"]);
 		expect(

@@ -9,6 +9,7 @@ import {
 	asksInCommand,
 	asksInLabel,
 	asksInProse,
+	codeBesideAsks,
 	mayAsk,
 	type SessionEndingAsk,
 } from "../../lib/internal/session-ending/asks.ts";
@@ -184,7 +185,7 @@ export async function refusalFor(
 		deps.machines(),
 	]);
 	const machines = machinesSoFar(deps, sessions, listed);
-	const asks: SessionEndingAsk[] = [
+	const read: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) =>
 			asksInLabel(text, machines).map((ask) =>
@@ -192,6 +193,11 @@ export async function refusalFor(
 			),
 		),
 		...commands.flatMap((line) => asksInCommand(line, machines)),
+	];
+	// Code in one field asks beside the words of another said with it.
+	const asks = [
+		...read,
+		...codeBesideAsks([...said.prose, ...said.labels], read, machines),
 	];
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;

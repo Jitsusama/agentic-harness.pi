@@ -94,7 +94,7 @@ const reply = (said: string) =>
 		ctx,
 	);
 
-const look = (ask: string) =>
+const look = (ask: string, why?: string) =>
 	handler("tool_call")(
 		{
 			type: "tool_call",
@@ -105,6 +105,7 @@ const look = (ask: string) =>
 				target: "https://example.org/bios",
 				title: "BIOS 1.13.0",
 				ask,
+				...(why === undefined ? {} : { why }),
 			},
 		},
 		ctx,
@@ -139,6 +140,31 @@ describe("what spares this machine's sessions", () => {
 
 		expect(
 			await look("Reboot optimus. Use `sudo systemctl soft-reboot` for it"),
+		).toMatchObject({ block: true });
+	});
+
+	it("refuses a look whose command, in another field, keeps the boot", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		expect(
+			await look(
+				"Reboot optimus to install it",
+				"The quickest way is `sudo systemctl soft-reboot`, which keeps the kernel.",
+			),
+		).toMatchObject({ block: true });
+	});
+
+	it("refuses a reboot past parked sessions whose code reboots another machine", async () => {
+		const there: NodeSession = {
+			id: "there",
+			address: "T00001",
+			machine: "equilibrius",
+			state: "busy",
+		};
+		interceptorOver([hosted("idle"), there, me], answering(false, ["hosted"]));
+
+		expect(
+			await look("Reboot optimus. Then `ssh equilibrius sudo reboot` for it"),
 		).toMatchObject({ block: true });
 	});
 
