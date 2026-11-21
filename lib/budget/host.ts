@@ -507,7 +507,10 @@ async function within<T>(
 ): Promise<T | typeof LATE> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<typeof LATE>((resolve) => {
-		timer = setTimeout(() => resolve(LATE), withinMs);
+		// After the loop stalls, Node runs its due timers before the I/O
+		// that finished meanwhile, so a deadline fired straight away calls
+		// late an answer already read. One more turn hands that I/O on.
+		timer = setTimeout(() => setImmediate(() => resolve(LATE)), withinMs);
 		// The late wait runs long, so it mustn't keep a process up that has
 		// nothing else to do; a caller's own deadline keeps it, as before.
 		if (long) timer.unref();
