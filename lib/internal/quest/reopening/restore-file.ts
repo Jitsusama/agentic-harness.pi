@@ -20,7 +20,10 @@
  * One marked `hosted` ran in a shared pi host, which brings the
  * conversation back itself, so the launcher's Reopen Them All opens only
  * its viewer where it was, never a pi that would start it twice (N4S6OF
- * and Y2YBTS, 9 November; core.nix #3316, 11 November). One marked
+ * and Y2YBTS, 9 November; core.nix #3316, 11 November). Its `view` says
+ * the words that viewer runs, so a launcher that reads them opens it at
+ * once to wait for a host still coming back; one that doesn't keeps its
+ * place until the host serves it. One marked
  * `released` was let go by its host to
  * be opened in plain pi from the same file, and is offered whatever the
  * boot until a plain pi starts it (KP0L6A, 10 November).
@@ -155,6 +158,11 @@ export interface RestorePlacing {
 		session: string,
 		plainPi: readonly string[],
 	) => readonly string[] | undefined;
+	/**
+	 * The words the file said before, by session (viewsIn), kept where
+	 * this writer has none of its own to keep.
+	 */
+	readonly viewsBefore?: ReadonlyMap<string, readonly string[]>;
 }
 
 /** The whole file. */
@@ -211,15 +219,18 @@ export function restoreFileOf(
 ): RestoreFile {
 	// A hosted session's viewer words resume its log, as its presence's
 	// do, with the session's own variables, never this writer's; one pi
-	// never saved has no log to fall back on, so it has none.
+	// never saved has no log to fall back on, so it has none. A writer
+	// whose words wouldn't last, as a pi reloaded onto a worktree, keeps
+	// those an earlier writer's lasted with, since every pi rewrites the
+	// file whole and the last to start would otherwise take them all.
 	const viewOf = (record: SessionRecord) => {
 		const log = placing.logOf?.(record.sessionId);
 		return log === undefined
 			? undefined
-			: (placing.viewWordsOf ?? lastingViewWords)(
+			: ((placing.viewWordsOf ?? lastingViewWords)(
 					record.sessionId,
 					holderCommand(log, [], record.env ?? {}),
-				);
+				));
 	};
 	const letGo = new Set(released.map((entry) => entry.id));
 	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
@@ -389,6 +400,32 @@ export function bootEndedBefore(
 		// No file, or not one this shape: the records decide.
 		return undefined;
 	}
+}
+
+/**
+ * The view words the file at `path` says, by session id: none for a
+ * file missing or not this shape, and none for an entry whose words
+ * aren't all strings.
+ */
+export function viewsIn(path: string): Map<string, readonly string[]> {
+	const views = new Map<string, readonly string[]>();
+	try {
+		const sessions: unknown = JSON.parse(readFileSync(path, "utf8"))?.sessions;
+		if (!Array.isArray(sessions)) return views;
+		for (const entry of sessions) {
+			const view: unknown = entry?.view;
+			if (
+				typeof entry?.id === "string" &&
+				Array.isArray(view) &&
+				view.length > 0 &&
+				view.every((word) => typeof word === "string")
+			)
+				views.set(entry.id, view);
+		}
+	} catch {
+		// No file yet, or not one this shape: there are no words to keep.
+	}
+	return views;
 }
 
 /**

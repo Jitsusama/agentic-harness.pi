@@ -10,6 +10,7 @@ import {
 	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
+	viewsIn,
 	writeRestoreFile,
 } from "../../../../../lib/internal/quest/reopening/restore-file.ts";
 import {
@@ -238,6 +239,50 @@ describe("the restore file", () => {
 		const hosted = file.sessions.find((entry) => entry.id === "01a1eeee-ffff");
 		expect(hosted?.hosted, "still hosted").toBe(true);
 		expect(hosted).not.toHaveProperty("view");
+	});
+
+	it("keeps the words an earlier writer's lasted with, where this one's wouldn't, as the file read back says them", () => {
+		// A writer from an install writes the words; a pi reloaded onto a
+		// worktree, starting later, rewrites the file whole.
+		const home = mkdtempSync(join(tmpdir(), "restore-file-"));
+		dirs.push(home);
+		const path = join(home, "restore.json");
+		const lasting = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewWordsOf: viewWords },
+		);
+		writeRestoreFile(path, lasting);
+		const before = viewsIn(path);
+		const written = lasting.sessions.find((one) => one.id === "01a1eeee-ffff");
+		expect(before.get("01a1eeee-ffff"), "read back as written").toEqual(
+			written?.view,
+		);
+		expect(before.has("01a1cccc-dddd"), "a plain session has none").toBe(false);
+		const later = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewsBefore: before },
+		);
+		const kept = later.sessions.find((one) => one.id === "01a1eeee-ffff");
+		expect(kept?.view, "the worktree writer keeps the lasting words").toEqual(
+			written?.view,
+		);
+		expect(viewsIn(join(home, "none.json")).size, "no file, no words").toBe(0);
 	});
 
 	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {
