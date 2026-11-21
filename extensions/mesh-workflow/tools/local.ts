@@ -9,7 +9,11 @@ import { answeringTo } from "../../../lib/mesh/address.ts";
 import type { CrossAnswer, Crossing } from "../../../lib/mesh/flow.ts";
 import { homeOf } from "../../../lib/mesh/group.ts";
 import type { Board } from "../../../lib/mesh/lease.ts";
-import { type Census, census } from "../../../lib/mesh/liveness.ts";
+import {
+	type Census,
+	census,
+	type HeldAsk,
+} from "../../../lib/mesh/liveness.ts";
 import { type Message, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { NeedAsked, NeedRecord } from "../../../lib/mesh/need-route.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
@@ -77,6 +81,8 @@ export interface Local {
 	readonly endProcess?: EndProcess;
 	/** Ask a parked session's holder to wake it; whether it was parked. */
 	readonly wakeParked?: (session: string, why: string) => boolean;
+	/** Whether a host is bringing a conversation back as it starts again; its roster by default. */
+	readonly heldAsk?: HeldAsk;
 	/**
 	 * The records that say whether an act of the person's hands is done
 	 * (lib/orchestration/done-acts.ts); none, and nothing is judged.
@@ -97,7 +103,8 @@ export type Answer = ReturnType<typeof answer>;
 
 /**
  * Every peer, answering only to its own addresses, sorted by whether
- * it is still on the mesh.
+ * it is still on the mesh, and whether a restarting host is bringing it
+ * back as mesh_end asks.
  */
 export function peers(at: Local): Promise<Census> {
 	const everyone = at.presences.all();
@@ -106,6 +113,10 @@ export function peers(at: Local): Promise<Census> {
 			...one,
 			addresses: answeringTo(one, everyone),
 		})),
+		undefined,
+		undefined,
+		undefined,
+		at.heldAsk,
 	);
 }
 

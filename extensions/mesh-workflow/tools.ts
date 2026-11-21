@@ -456,7 +456,7 @@ export function registerTools(
 		execute: using(async (at) => {
 			const [standing, ties] = await Promise.all([peers(at), at.ties?.()]);
 			return answer(
-				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
+				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now(), standing.resuming)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
 				{ groups: at.peer.groups },
 			);
 		}),

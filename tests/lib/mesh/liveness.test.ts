@@ -2,13 +2,22 @@
  * Liveness: whether a peer is still on the mesh, asked of the machine.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProcessFacts } from "../../../lib/core/process/index.ts";
 import {
 	type TickFacts,
 	tickedOwnerNow,
 } from "../../../lib/internal/process-ticks.ts";
-import { census, livenessOf } from "../../../lib/mesh/liveness.ts";
+import {
+	census,
+	type HeldAsk,
+	heldOnce,
+	livenessOf,
+	RESUME_GRACE_MS,
+} from "../../../lib/mesh/liveness.ts";
 import type { AskNode, Held } from "../../../lib/mesh/node.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
@@ -81,6 +90,418 @@ describe("a peer's liveness", () => {
 
 	it("cannot be told for a presence that names no process", async () => {
 		expect(await livenessOf(presence(), machine({}))).toBe("unknown");
+	});
+
+	it("is resuming while its host restarts, as long as its host brings it back", async () => {
+		const one = hostedPresence();
+		const { ask, asked } = holding(true);
+
+		const gone = machine({});
+		expect(await livenessOf(one, gone, undefined, () => false, ask)).toBe(
+			"resuming",
+		);
+		expect(asked).toEqual(["work-background/c-1"]);
+		// Closed, released, never brought back, or a roster that can't be read.
+		expect(
+			await livenessOf(one, gone, undefined, () => false, holding(false).ask),
+		).toBe("gone");
+
+		const standing = await census(
+			[one, presence({ owner: { pid: 41, startedAt: 1000 } })],
+			gone,
+			undefined,
+			() => false,
+			holding(true).ask,
+		);
+		expect(standing.present.map((peer) => peer.session)).toEqual(["c-1"]);
+		expect(standing.resuming.map((peer) => peer.session)).toEqual(["c-1"]);
+		expect(standing.gone.map((peer) => peer.session)).toEqual(["s-1"]);
+	});
+
+	it("is gone once a running session answers to its address again", async () => {
+		const past = hostedPresence({ addresses: ["AGAIN1"] });
+		const still = hostedPresence({
+			session: "c-2",
+			addresses: ["BACK01"],
+			hosted: { host: "work-background", conversation: "c-2" },
+		});
+		const live = presence({
+			session: "s-2",
+			addresses: ["AGAIN1"],
+			owner: { pid: 41, startedAt: 1000 },
+		});
+
+		const standing = await census(
+			[past, still, live],
+			machine({ 41: 1000 }),
+			undefined,
+			() => false,
+			holding(true).ask,
+		);
+		expect(
+			standing.present.map((peer) => peer.session),
+			"its past is no peer for joins, sends or pivots to count",
+		).toEqual(["c-2", "s-2"]);
+		expect(standing.resuming.map((peer) => peer.session)).toEqual(["c-2"]);
+		expect(standing.gone.map((peer) => peer.session)).toEqual(["c-1"]);
+	});
+
+	it("tells the roster when the process that last ran it started", async () => {
+		const starts: (number | undefined)[] = [];
+		const ask: HeldAsk = async (_conversation, _host, ranFrom) => {
+			starts.push(ranFrom);
+			return true;
+		};
+
+		await livenessOf(
+			hostedPresence(),
+			machine({}),
+			undefined,
+			() => false,
+			ask,
+		);
+		expect(starts).toEqual([1000]);
+	});
+
+	it("asks no roster of a hosted peer still running or parked", async () => {
+		const { ask, asked } = holding(false);
+		const running: TickFacts = {
+			...machine({ 40: 1000 }),
+			sessionStanding: () => "running",
+		};
+		expect(
+			await livenessOf(hostedPresence(), running, undefined, () => false, ask),
+		).toBe("present");
+		const parked = hostedPresence({ state: "parked" });
+		expect(
+			await livenessOf(parked, machine({}), undefined, () => true, ask),
+		).toBe("present");
+		expect(asked).toEqual([]);
+	});
+
+	it("never asks a roster of a peer no host holds", async () => {
+		const one = presence({ owner: { pid: 40, startedAt: 1000 } });
+		const { ask, asked } = holding(true);
+
+		expect(
+			await livenessOf(one, machine({}), undefined, () => false, ask),
+		).toBe("gone");
+		expect(asked).toEqual([]);
+	});
+});
+
+/** A presence on conversation c-1 that the work-background host holds. */
+function hostedPresence(over: Partial<Presence> = {}): Presence {
+	return presence({
+		session: "c-1",
+		owner: { pid: 40, startedAt: 1000 },
+		state: "busy",
+		hosted: { host: "work-background", conversation: "c-1" },
+		...over,
+	});
+}
+
+/** A roster answering `answer`, keeping each host and conversation asked. */
+function holding(answer: boolean): { ask: HeldAsk; asked: string[] } {
+	const asked: string[] = [];
+	return {
+		asked,
+		ask: async (conversation, host) => {
+			asked.push(`${host}/${conversation}`);
+			return answer;
+		},
+	};
+}
+
+describe("whether a restarting host is bringing a conversation back", () => {
+	const CONVERSATION = "01a1f23f-0000-7000-8000-000000000001";
+	const NOW = 2_000_000_000_000;
+	const HOST_PID = 700;
+	const CHILD_PID = 701;
+	let root: string;
+	let rosters: string;
+	let hosts: string;
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "held-once-"));
+		rosters = join(root, "rosters");
+		hosts = join(root, "hosts");
+		mkdirSync(rosters);
+		mkdirSync(hosts);
+	});
+
+	afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+	const keep = (key: string, ids: readonly string[]) =>
+		writeFileSync(
+			join(rosters, `${key}.json`),
+			JSON.stringify({
+				v: 1,
+				key,
+				sessions: ids.map((sessionId) => ({
+					sessionId,
+					file: `/sessions/${sessionId}.jsonl`,
+					cwd: "/work",
+					attended: false,
+					since: "2026-11-21T09:00:00.000Z",
+				})),
+			}),
+		);
+	// The host holds its roster's lock for its whole run.
+	const hostStarted = (agoMs: number) =>
+		writeFileSync(
+			join(rosters, "work-background.json.lock"),
+			JSON.stringify({
+				key: "work-background",
+				owner: { pid: HOST_PID, startedAt: NOW - agoMs },
+			}),
+		);
+	// A process listing what it has open, as each child does under its
+	// host's key.
+	const listed = (
+		pid: number,
+		agoMs: number,
+		open: readonly string[] = [],
+		key = "work-background",
+		state: "busy" | "parked" = "busy",
+	) =>
+		writeFileSync(
+			join(hosts, `${pid}-${NOW - agoMs}.json`),
+			JSON.stringify({
+				key,
+				owner: { pid, startedAt: NOW - agoMs },
+				sessions: open.map((id) => ({
+					id,
+					state,
+					since: "2026-11-21T09:00:00.000Z",
+				})),
+			}),
+		);
+	const ask = (running: Record<number, number> = {}) =>
+		heldOnce(machine(running), { rosters, hosts, now: NOW });
+	const PAST = RESUME_GRACE_MS * 3;
+
+	it("is not while no host runs under its key, however long it holds it", async () => {
+		keep("work-background", [CONVERSATION]);
+
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"not resuming with no lock, as a host stopped leaves it",
+		).toBe(false);
+		hostStarted(60_000);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"not resuming while the lock names a host gone",
+		).toBe(false);
+	});
+
+	it("is while the host running again started within the grace", async () => {
+		keep("work-background", [CONVERSATION]);
+		const ago = RESUME_GRACE_MS - 60_000;
+		hostStarted(ago);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+			"resuming while the running host is within the grace",
+		).toBe(true);
+	});
+
+	it("is not once the host running again is past the grace and never brought it back", async () => {
+		keep("work-background", [CONVERSATION]);
+		const ago = RESUME_GRACE_MS + 60_000;
+		hostStarted(ago);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
+			"not resuming once the running host is past the grace",
+		).toBe(false);
+	});
+
+	it("is while a process under the key past the grace has it open, its presence not yet written again", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"resuming while its own child has it open",
+		).toBe(true);
+	});
+
+	it("measures the grace from the host, not a child that started under its key since", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 60_000, ["01a1f23f-0000-7000-8000-000000000002"]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 60_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"another conversation's new child gives no grace",
+		).toBe(false);
+	});
+
+	it("is not past the grace when the host's list keeps it parked, as a start that failed leaves it", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(HOST_PID, PAST, [CONVERSATION], "work-background", "parked");
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST })(CONVERSATION, "work-background"),
+			"a failed resume, kept parked, is not open",
+		).toBe(false);
+	});
+
+	it("is not when the process that last ran it started after the host did", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
+
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - 30_000),
+			"brought back by this host already, then ended",
+		).toBe(false);
+		// A conversation in the host's own process carries the host's start.
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - 60_000),
+			"run in this host's own process, then ended",
+		).toBe(false);
+		expect(
+			await ask(running)(CONVERSATION, "work-background", NOW - PAST),
+			"run before this host started, so still to come back",
+		).toBe(true);
+	});
+
+	it("takes a host or a listing process that can't be told as running", async () => {
+		keep("work-background", [CONVERSATION]);
+		const untold = {
+			alive: () => true,
+			startedAt: async () => undefined,
+		};
+		hostStarted(60_000);
+		expect(
+			await heldOnce(untold, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"a holder that can't be told is not taken as gone",
+		).toBe(true);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+		expect(
+			await heldOnce(untold, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"nor a listing process that can't be told",
+		).toBe(true);
+	});
+
+	it("counts only what processes under its own key, still running, have open", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION], "work-attended");
+		listed(702, 30_000, [CONVERSATION]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"another key's list, or a listing process gone, says nothing",
+		).toBe(false);
+	});
+
+	it("reads the host lists once a census, and not at all within the grace", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+		const running = { [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 };
+		const once = ask(running);
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the first ask reads the lists",
+		).toBe(true);
+
+		rmSync(hosts, { recursive: true });
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the same census answers from the lists it read",
+		).toBe(true);
+		expect(
+			await ask(running)(CONVERSATION, "work-background"),
+			"a new census reads the lists again",
+		).toBe(false);
+		mkdirSync(hosts);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+		hostStarted(60_000);
+		const within = machine({
+			[HOST_PID]: NOW - 60_000,
+			[CHILD_PID]: NOW - 30_000,
+		});
+		expect(
+			await heldOnce(within, { rosters, hosts, now: NOW })(
+				CONVERSATION,
+				"work-background",
+			),
+			"resuming within the grace",
+		).toBe(true);
+		expect(
+			within.asked,
+			"within the grace no listing process is asked about",
+		).not.toContain(CHILD_PID);
+	});
+
+	// With the host running within its grace, only the roster can say no.
+	it("reads only the named host's roster, not another host's", async () => {
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
+		keep("work-attended", [CONVERSATION]);
+
+		expect(
+			await ask(running)(CONVERSATION, "work-background"),
+			"another host's roster says nothing of this one",
+		).toBe(false);
+		keep("work-background", []);
+		expect(
+			await ask(running)(CONVERSATION, "work-background"),
+			"the named roster not holding it",
+		).toBe(false);
+	});
+
+	it("is not when the roster can't be read", async () => {
+		hostStarted(60_000);
+		writeFileSync(join(rosters, "work-background.json"), "{ half");
+
+		expect(
+			await ask({ [HOST_PID]: NOW - 60_000 })(CONVERSATION, "work-background"),
+			"an unreadable roster holds nothing",
+		).toBe(false);
+	});
+
+	it("reads each roster once however many it is asked about", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
+		const once = ask(running);
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the first ask reads the roster",
+		).toBe(true);
+
+		rmSync(join(rosters, "work-background.json"));
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the same census answers from the roster it read",
+		).toBe(true);
+		expect(
+			await ask(running)(CONVERSATION, "work-background"),
+			"a new census reads the roster again",
+		).toBe(false);
 	});
 });
 
