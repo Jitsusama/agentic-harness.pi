@@ -81,12 +81,7 @@ import {
 	SUBAGENT_PARAMETERS,
 	SUBAGENT_PROMPT_SNIPPET,
 } from "./declaration.ts";
-import {
-	childSandbox,
-	fenceChildren,
-	keepFence,
-	sessionSandbox,
-} from "./fence-keep.ts";
+import { childSandbox, fenceChildren, keepFence } from "./fence-keep.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
@@ -324,13 +319,13 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 			const sandbox = childSandbox();
 			// Every child loads this package's own files and the registered
 			// defaults outside the fence, and an unisolated one whatever the
-			// person's settings name. That matters where this session's own
-			// commands are fenced, since they may write a tree; an unfenced
-			// session's commands already run as the person, whose children
-			// may load its tree as a reload onto it would.
+			// person's settings name. That matters wherever the children are
+			// fenced: a fenced child may write the tree it works in, and the
+			// next child would load what it planted there, outside the fence,
+			// even where this session's own commands run as the person.
 			const unisolated = sized.jobs.some((job) => job.isolated === false);
 			const outside =
-				sessionSandbox() === undefined
+				sandbox === undefined
 					? undefined
 					: (fencedChildrenRefusal(
 							unisolated,

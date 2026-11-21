@@ -54,19 +54,19 @@ file guards from the install, and none starts when they aren't
 there. Each child also loads this package's own files, its
 packs and supervisor among them, and every extension a package
 registered as every subagent's default, outside the fence. So
-while the session's own commands are fenced, none starts while
-it runs the harness from a tree or a default lies outside the
-install; an unisolated one also needs the person's settings to
-load the harness, and every other extension they name, from the
-install (`installed-only.ts`). Reload onto the install first.
-To try an extension the model wrote, run pi on it as a fenced
-command instead. An unfenced session's commands already run as
-the person, so its children may load its tree, as a reload onto
-it would. Once subagents join the first stage they still run
-fenced, with `--no-approve`, and only extensions from the
-install; an isolated one then takes the fence's own bash from
-the install the person's settings name. Otherwise they load
-what they are told, as before.
+while the children are fenced, none starts while the session
+runs the harness from a tree, since a fenced child could write
+the tree the next one loads, or while a default lies where a
+fenced command may write. An unisolated one also needs the
+person's settings to load the harness, its fenced bash among
+it, from the install, and every other extension they name, pi's
+agent folder's included, from the install, the agent folder or
+the Nix store (`installed-only.ts`). Reload onto the install
+first. To try an extension the model wrote, run pi on it as a
+fenced command instead. The children are fenced where the
+session is, and, once subagents join the first stage, where it
+isn't, with `--no-approve` and only extensions from the
+install. Otherwise they load what they are told, as before.
 
 The tool returns:
 

@@ -16,6 +16,11 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
+import {
+	inside,
+	installedPackages,
+	settingsHarness,
+} from "../../lib/internal/fence/installed-only.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	checkLoad,
@@ -174,13 +179,23 @@ export function treeToLoad(
  * reload onto `tree`, or nothing. A reload runs the code it loads in
  * this pi, outside the fence, and a tree is a folder the fenced commands
  * may have written, so the model may only take the session back onto
- * the install. The person still loads a tree by starting a pi on it.
+ * the install. The person still loads a tree by starting a pi on it. A
+ * reload onto the install loads what pi's settings name, which a reload
+ * onto a tree that couldn't put them back leaves naming the tree, so
+ * that one is refused too until they name the install again.
  */
 export function fencedReloadRefusal(
 	tree: string | undefined,
 	sandbox: string | undefined,
+	named: () => string | undefined = settingsHarness,
+	root: () => string | null = installedPackages,
 ): string | undefined {
-	if (sandbox === undefined || tree === undefined) return undefined;
+	if (sandbox === undefined) return undefined;
+	if (tree === undefined) {
+		const harness = named();
+		if (harness !== undefined && inside(harness, root())) return undefined;
+		return `This session's commands run in the ${sandbox} sandbox, and pi's settings load the harness from ${harness === undefined ? "nowhere" : homely(harness)}, not pi's installed packages, so a reload onto "${INSTALLED}" would run that code outside it. Point the settings' entry back at the install first.`;
+	}
 	return `This session's commands run in the ${sandbox} sandbox, and a reload would run ${homely(tree)}'s code outside it, where a fenced command may have written it. Reload onto "${INSTALLED}", or try the tree as a fenced command (pi -p -e <tree>).`;
 }
 

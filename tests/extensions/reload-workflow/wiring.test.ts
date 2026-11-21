@@ -38,6 +38,24 @@ import { quietFor, until } from "../../support/until.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
+// In this fixture the install is this checkout, so pi's installed
+// packages are the folder holding it, where a fenced session's reload
+// onto "installed" checks the settings' entry lies.
+vi.mock(
+	"../../../lib/internal/fence/installed-only.ts",
+	async (
+		importOriginal: () => Promise<
+			typeof import("../../../lib/internal/fence/installed-only.ts")
+		>,
+	) => {
+		const { realpathSync } = await import("node:fs");
+		const { dirname, join } = await import("node:path");
+		const real = await importOriginal();
+		const checkout = realpathSync(join(import.meta.dirname, "..", "..", ".."));
+		return { ...real, installedPackages: () => dirname(checkout) };
+	},
+);
+
 interface Tool {
 	execute: (
 		id: string,

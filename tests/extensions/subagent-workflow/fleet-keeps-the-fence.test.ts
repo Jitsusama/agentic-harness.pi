@@ -105,6 +105,9 @@ beforeEach(() => {
 		writeFileSync(join(place.own, "extensions", pack, "index.ts"), "");
 	}
 	symlinkSync(join("versions", "a"), join(harness, "current"));
+	// The person's settings load the harness from the install, its bash
+	// among it, as core's do.
+	place.loaded = [join(place.own, "extensions", "shell-workflow", "index.ts")];
 	writeFileSync(join(root, "planted.ts"), "");
 	vi.stubEnv("PI_SANDBOX", "off");
 	started.length = 0;
@@ -209,7 +212,9 @@ describe("a fenced session's fleet", () => {
 		vi.stubEnv("PI_SANDBOX", "fence");
 		registerSubagentDefaultExtension(join(root, "planted.ts"));
 		const text = await fleet([job("a")]);
-		expect(text).toContain("registered for every subagent lies outside");
+		expect(text).toContain(
+			"registered for every subagent lies where fenced commands may write",
+		);
 		expect(started).toEqual([]);
 	});
 
@@ -292,18 +297,21 @@ describe("a fenced session's fleet", () => {
 		).toEqual([]);
 	});
 
-	it("lets an unfenced session on a tree fence its children once subagents join, with the fence's extensions from the install its settings name", async () => {
+	it("refuses an unfenced session on a tree its children once subagents join, since a fenced child could write what the next one loads", async () => {
 		place.own = join(root, "src", "harness");
 		mkdirSync(place.own, { recursive: true });
 		joinSpawns("a test");
 		const text = await fleet([job("a")]);
-		expect(started, text).toHaveLength(1);
-		expect(given[0]).toMatchObject({ PI_SANDBOX: "fence" });
-		expect(each(started[0], "--extension").slice(0, PACKS.length)).toEqual(
-			PACKS.map((pack) =>
-				join(place.harness ?? "", "extensions", pack, "index.ts"),
-			),
-		);
+		expect(text).toContain("Reload onto the install");
+		expect(started).toEqual([]);
+	});
+
+	it("refuses an unisolated child whose settings load no fence's bash, which a package filter could drop", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		place.loaded = [];
+		const text = await fleet([job("a", { isolated: false })]);
+		expect(text).toContain("load no fence's bash");
+		expect(started).toEqual([]);
 	});
 
 	it("leaves an unfenced session's children as they were", async () => {
