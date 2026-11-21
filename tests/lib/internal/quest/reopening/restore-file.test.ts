@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	bootEndedBefore,
 	carriedEntry,
@@ -10,6 +10,7 @@ import {
 	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
+	viewsIn,
 	writeRestoreFile,
 } from "../../../../../lib/internal/quest/reopening/restore-file.ts";
 import {
@@ -17,6 +18,8 @@ import {
 	openRecord,
 	reopenRecord,
 } from "../../../../../lib/internal/quest/sessions/session-registry.ts";
+import { CARRIED_VARIABLES } from "../../../../../lib/internal/session/carried-environment.ts";
+import { viewWords } from "../../../../../lib/internal/session/host-holds.ts";
 
 /** A session's record as it stood when its pi last ran, in `boot`. */
 function ranIn(sessionId: string, boot: string, questId?: string) {
@@ -30,8 +33,51 @@ function ranIn(sessionId: string, boot: string, questId?: string) {
 	});
 }
 
+/** A record of `sessionId` as a shared pi host ran it in the last boot. */
+function hostedIn(sessionId: string, env?: Record<string, string>) {
+	return {
+		...openRecord({
+			sessionId,
+			instanceId: "inst-host",
+			cwd: "/home/me/src/hosted",
+			process: {
+				hostId: "here",
+				pid: 1,
+				startToken: "t",
+				bootToken: "last",
+				hosted: {
+					host: "home-background",
+					session: sessionId,
+					owner: { pid: 1, startedAt: 1, startTicks: 1 },
+				},
+			},
+			now: new Date("2026-10-28T20:40:00Z"),
+		}),
+		...(env ? { env } : {}),
+	};
+}
+
+/**
+ * Three sessions a host ran (one fenced, one pi never saved) and one a
+ * pi of its own ran, all in the last boot.
+ */
+function hostedRecords() {
+	return [
+		hostedIn("01a1eeee-ffff"),
+		hostedIn("01a1abab-cdcd", { PI_SANDBOX: "fence" }),
+		hostedIn("01a1eded-0000"),
+		ranIn("01a1cccc-dddd", "last"),
+	].map((record) => ({ record, heartbeatAt: "2026-10-29T05:00:00Z" }));
+}
+
+/** The log pi saved each of {@link hostedRecords}' saved sessions in. */
+function hostedLog(sessionId: string): string | undefined {
+	return sessionId === "01a1eded-0000" ? undefined : `/logs/${sessionId}.jsonl`;
+}
+
 const dirs: string[] = [];
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -127,6 +173,116 @@ describe("the restore file", () => {
 		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
 		expect(byId.get("01a1eeee-ffff")).toMatchObject({ hosted: true });
 		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("hosted");
+	});
+
+	it("gives a saved hosted session its viewer's words, resuming its log with its own variables, never the writer's", () => {
+		// The writer runs fenced, so its own variables would show in an
+		// unfenced session's words if they ever leaked into them.
+		for (const name of CARRIED_VARIABLES) vi.stubEnv(name, "writer");
+		const file = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			(id) => id !== "01a1eded-0000",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewWordsOf: viewWords },
+		);
+		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
+		const view = byId.get("01a1eeee-ffff")?.view ?? [];
+		expect(view[0], "the view runs under this node").toBe(process.execPath);
+		expect(
+			view.find((word) => word.endsWith("/scripts/host-join.ts")),
+		).toBeDefined();
+		expect(view.slice(view.indexOf("--view"))).toEqual([
+			"--view",
+			"--session",
+			"01a1eeee-ffff",
+			"--",
+			"pi",
+			"--session",
+			"/logs/01a1eeee-ffff.jsonl",
+		]);
+		const fenced = byId.get("01a1abab-cdcd")?.view ?? [];
+		expect(fenced.slice(fenced.indexOf("--"))).toEqual([
+			"--",
+			"env",
+			"PI_SANDBOX=fence",
+			"pi",
+			"--session",
+			"/logs/01a1abab-cdcd.jsonl",
+		]);
+		const unsaved = byId.get("01a1eded-0000");
+		expect(unsaved?.fresh, "one pi never saved starts afresh").toBe(true);
+		expect(unsaved, "with no log to fall back on").not.toHaveProperty("view");
+		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("view");
+	});
+
+	it("gives no viewer words where the writer's join wouldn't outlast its tree", () => {
+		// These tests run from a tree, not an install, as a pi reloaded
+		// onto a worktree does.
+		const file = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog },
+		);
+		const hosted = file.sessions.find((entry) => entry.id === "01a1eeee-ffff");
+		expect(hosted?.hosted, "still hosted").toBe(true);
+		expect(hosted).not.toHaveProperty("view");
+	});
+
+	it("keeps the words an earlier writer's lasted with, where this one's wouldn't, as the file read back says them", () => {
+		// A writer from an install writes the words; a pi reloaded onto a
+		// worktree, starting later, rewrites the file whole.
+		const home = mkdtempSync(join(tmpdir(), "restore-file-"));
+		dirs.push(home);
+		const path = join(home, "restore.json");
+		const lasting = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewWordsOf: viewWords },
+		);
+		writeRestoreFile(path, lasting);
+		const before = viewsIn(path);
+		const written = lasting.sessions.find((one) => one.id === "01a1eeee-ffff");
+		expect(before.get("01a1eeee-ffff"), "read back as written").toEqual(
+			written?.view,
+		);
+		expect(before.has("01a1cccc-dddd"), "a plain session has none").toBe(false);
+		const later = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewsBefore: before },
+		);
+		const kept = later.sessions.find((one) => one.id === "01a1eeee-ffff");
+		expect(kept?.view, "the worktree writer keeps the lasting words").toEqual(
+			written?.view,
+		);
+		expect(viewsIn(join(home, "none.json")).size, "no file, no words").toBe(0);
 	});
 
 	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {

@@ -190,9 +190,35 @@ export const JOIN_QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
  * the version that wrote them: on 19 November three windows closed as a
  * host died because their words named a version since removed.
  */
-const LASTING_JOIN_SCRIPT = lastingPath(
-	fileURLToPath(new URL("../../../scripts/host-join.ts", import.meta.url)),
+const JOIN_SCRIPT = fileURLToPath(
+	new URL("../../../scripts/host-join.ts", import.meta.url),
 );
+const LASTING_JOIN_SCRIPT = lastingPath(JOIN_SCRIPT);
+
+/**
+ * Whether the join's path outlasts this tree: named through the
+ * install's link, not a tree of its own, as a pi reloaded onto a
+ * worktree runs from, which may be given back before anything reads
+ * words kept past this process.
+ */
+const JOIN_LASTS = LASTING_JOIN_SCRIPT !== JOIN_SCRIPT;
+
+/**
+ * {@link viewWords}, for words kept past this process, as the restore
+ * file a launcher reads after a crash: none where the join's path
+ * doesn't outlast this tree (`lasts`), so the reader does what it did
+ * without them rather than run a script that may be gone. It also keeps
+ * the launcher, which runs these words outside any fence, from running a
+ * script in a worktree a fenced session can write; the install's link
+ * sits where the fence lets nothing write.
+ */
+export function lastingViewWords(
+	session: string,
+	plainPi: readonly string[],
+	lasts: boolean = JOIN_LASTS,
+): string[] | undefined {
+	return lasts ? viewWords(session, plainPi) : undefined;
+}
 
 /**
  * The words a window on hosted conversation `session` runs: the join,

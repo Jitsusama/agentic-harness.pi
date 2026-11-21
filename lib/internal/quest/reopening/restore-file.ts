@@ -20,7 +20,10 @@
  * One marked `hosted` ran in a shared pi host, which brings the
  * conversation back itself, so the launcher's Reopen Them All opens only
  * its viewer where it was, never a pi that would start it twice (N4S6OF
- * and Y2YBTS, 9 November; core.nix #3316, 11 November). One marked
+ * and Y2YBTS, 9 November; core.nix #3316, 11 November). Its `view` says
+ * the words that viewer runs, so a launcher that reads them opens it at
+ * once to wait for a host still coming back; one that doesn't keeps its
+ * place until the host serves it. One marked
  * `released` was let go by its host to
  * be opened in plain pi from the same file, and is offered whatever the
  * boot until a plain pi starts it (KP0L6A, 10 November).
@@ -47,7 +50,9 @@ import {
 	sessionRealm,
 } from "../../machine/realm.ts";
 import type { CarriedEnvironment } from "../../session/carried-environment.ts";
+import { lastingViewWords } from "../../session/host-holds.ts";
 import type { MoveNote } from "../../session/move.ts";
+import { holderCommand } from "../../session/park.ts";
 import { atomicWriteFile } from "../io.ts";
 import {
 	carriedOnElsewhere,
@@ -99,9 +104,24 @@ export interface RestoreEntry {
 	readonly parked?: true;
 	/**
 	 * For a session that ran in a shared pi host rather than a pi of its
-	 * own: the host keeps it, so no window reopens it.
+	 * own: the host keeps it, so no pi reopens it; a window opens only
+	 * its viewer, by `view`.
 	 */
 	readonly hosted?: true;
+	/**
+	 * For a hosted session pi saved, the words its viewer runs
+	 * (viewWords), as its presence gives them while it runs: its join,
+	 * then plain pi on its log. A crash takes its host down too,
+	 * and while the host comes back the session has no presence, so the
+	 * launcher's walk had no words to open its viewer with and kept its
+	 * place instead; the viewer then opened by itself nearly two hours
+	 * later, where Joel had moved on (20 November, 15:03). With these the
+	 * walk opens it at once. While the host the roster names isn't back,
+	 * the join's attach fails and it looks again, saying so in the window,
+	 * until the host shows the conversation. None where the writer's join
+	 * wouldn't outlast its tree (lastingViewWords).
+	 */
+	readonly view?: readonly string[];
 	/**
 	 * For a session its host let go to plain pi: that host's key, such as
 	 * `work-attended`, and when. It reopens like any session here, in
@@ -131,6 +151,18 @@ export interface RestorePlacing {
 	readonly workspaceOf?: (questId: string) => string | undefined;
 	/** The session a session's log carried on from, for `carriedOnElsewhere`. */
 	readonly parentOf?: (sessionId: string) => string | undefined;
+	/** The log pi saved a session in, for a hosted entry's `view`. */
+	readonly logOf?: (sessionId: string) => string | undefined;
+	/** The words a viewer keeps past this process, by lastingViewWords. */
+	readonly viewWordsOf?: (
+		session: string,
+		plainPi: readonly string[],
+	) => readonly string[] | undefined;
+	/**
+	 * The words the file said before, by session (viewsIn), kept where
+	 * this writer has none of its own to keep.
+	 */
+	readonly viewsBefore?: ReadonlyMap<string, readonly string[]>;
 }
 
 /** The whole file. */
@@ -185,6 +217,21 @@ export function restoreFileOf(
 	released: readonly RestoreEntry[] = [],
 	placing: RestorePlacing = {},
 ): RestoreFile {
+	// A hosted session's viewer words resume its log, as its presence's
+	// do, with the session's own variables, never this writer's; one pi
+	// never saved has no log to fall back on, so it has none. A writer
+	// whose words wouldn't last, as a pi reloaded onto a worktree, keeps
+	// those an earlier writer's lasted with, since every pi rewrites the
+	// file whole and the last to start would otherwise take them all.
+	const viewOf = (record: SessionRecord) => {
+		const log = placing.logOf?.(record.sessionId);
+		return log === undefined
+			? undefined
+			: ((placing.viewWordsOf ?? lastingViewWords)(
+					record.sessionId,
+					holderCommand(log, [], record.env ?? {}),
+				) ?? placing.viewsBefore?.get(record.sessionId));
+	};
 	const letGo = new Set(released.map((entry) => entry.id));
 	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
 	// A record exists only once a pi has run the session on this machine.
@@ -229,11 +276,11 @@ export function restoreFileOf(
 					.filter(uncarried)
 					.map((record) =>
 						saved(record.sessionId)
-							? entryOf(record, titleOf)
-							: { ...entryOf(record, titleOf), fresh: true as const },
+							? entryOf(record, titleOf, viewOf)
+							: { ...entryOf(record, titleOf, viewOf), fresh: true as const },
 					),
 				...parked.filter(uncarried).map((record) => ({
-					...entryOf(record, titleOf),
+					...entryOf(record, titleOf, viewOf),
 					parked: true as const,
 				})),
 				...(joins?.windows ?? []).map(
@@ -309,7 +356,9 @@ export function carriedEntry(
 function entryOf(
 	record: SessionRecord,
 	titleOf: (questId: string) => string | undefined,
+	viewOf: (record: SessionRecord) => readonly string[] | undefined,
 ): RestoreEntry {
+	const view = record.process?.hosted ? viewOf(record) : undefined;
 	const folder = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
 	return {
 		id: record.sessionId,
@@ -320,7 +369,9 @@ function entryOf(
 		...(record.quest ? { quest: record.quest } : {}),
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
-		...(record.process?.hosted ? { hosted: true as const } : {}),
+		...(record.process?.hosted
+			? { hosted: true as const, ...(view ? { view } : {}) }
+			: {}),
 		...(record.env ? { env: record.env } : {}),
 	};
 }
@@ -349,6 +400,32 @@ export function bootEndedBefore(
 		// No file, or not one this shape: the records decide.
 		return undefined;
 	}
+}
+
+/**
+ * The view words the file at `path` says, by session id: none for a
+ * file missing or not this shape, and none for an entry whose words
+ * aren't all strings.
+ */
+export function viewsIn(path: string): Map<string, readonly string[]> {
+	const views = new Map<string, readonly string[]>();
+	try {
+		const sessions: unknown = JSON.parse(readFileSync(path, "utf8"))?.sessions;
+		if (!Array.isArray(sessions)) return views;
+		for (const entry of sessions) {
+			const view: unknown = entry?.view;
+			if (
+				typeof entry?.id === "string" &&
+				Array.isArray(view) &&
+				view.length > 0 &&
+				view.every((word) => typeof word === "string")
+			)
+				views.set(entry.id, view);
+		}
+	} catch {
+		// No file yet, or not one this shape: there are no words to keep.
+	}
+	return views;
 }
 
 /**

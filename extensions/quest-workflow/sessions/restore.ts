@@ -23,6 +23,7 @@ import {
 	releasedEntry,
 	restoreFileOf,
 	restoreFilePath,
+	viewsIn,
 	writeRestoreFile,
 } from "../../../lib/internal/quest/reopening/restore-file.ts";
 import {
@@ -126,8 +127,9 @@ export function lastBootRestorable(
  * a rollover or a fork carried on from. Logs are found once, when this
  * is made, and each header read when asked.
  */
-function logParents(): (sessionId: string) => string | undefined {
-	const logs = indexSessionFiles(sessionsDir());
+function logParents(
+	logs: ReadonlyMap<string, string> = indexSessionFiles(sessionsDir()),
+): (sessionId: string) => string | undefined {
 	return (sessionId) => {
 		const log = logs.get(sessionId);
 		const parentLog = log ? sessionLogHeader(log)?.parentSession : undefined;
@@ -160,6 +162,7 @@ export function refreshRestoreFile(
 ): void {
 	try {
 		const thisBoot = currentBootToken();
+		const logs = indexSessionFiles(sessionsDir());
 		const note = readWindowsNote(windowsNotePath(stateDir("quest-workflow")));
 		const file = restoreFileOf(
 			loadRecords(),
@@ -173,7 +176,9 @@ export function refreshRestoreFile(
 			releasedHome(questsRoot),
 			{
 				workspaceOf: workspaceReader(questsRoot),
-				parentOf: logParents(),
+				parentOf: logParents(logs),
+				logOf: (sessionId) => logs.get(sessionId),
+				viewsBefore: viewsIn(restoreFilePath(stateHome)),
 			},
 		);
 		writeRestoreFile(restoreFilePath(stateHome), file);
