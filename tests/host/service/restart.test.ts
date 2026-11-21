@@ -506,6 +506,9 @@ describe("restartWhenSettled", () => {
 		});
 		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
 		await timers.fire();
+		// Drained a second after the ceiling started counting, so it stands
+		// short of its own ceiling once the host's is passed.
+		clock += 1000;
 		pressure = "pressed";
 		await timers.fire();
 		await timers.fire();
@@ -519,7 +522,7 @@ describe("restartWhenSettled", () => {
 		// still means to restart for its heap.
 		pressure = undefined;
 		differs = "its heap is past half";
-		clock += SETTLE_CEILING_MS;
+		clock += SETTLE_CEILING_MS - 1000;
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "kept while the heap is past half").toEqual([true]);
@@ -544,6 +547,55 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "drained again, pressed again").toEqual([true, false, true]);
+	});
+
+	// One turn that never ends would otherwise hold every parked
+	// conversation and its wakes for as long as it runs.
+	it("lifts the heap's drain a ceiling on with a turn still running, and drains again only once the heap was under half", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		let pastHalf = true;
+		let clock = NOW;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => pressure,
+			heapRestarts: () => pastHalf,
+			drain: (on) => drains.push(on),
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(drains, "drained while the turn runs").toEqual([true]);
+
+		// Its parks took it under three-fifths, and the turn runs on.
+		pressure = undefined;
+		clock += SETTLE_CEILING_MS;
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "lifted at its ceiling").toEqual([true, false]);
+		expect(said).toContain(
+			"report: A turn kept the heap's drain standing past its ceiling: the drain the heap started lifts, and parked conversations wake as asked",
+		);
+
+		pressure = "pressed";
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "not drained again while past half").toEqual([true, false]);
+
+		pastHalf = false;
+		pressure = undefined;
+		await timers.fire();
+		pastHalf = true;
+		pressure = "pressed";
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "drained again once it was under half").toEqual([
+			true,
+			false,
+			true,
+		]);
 	});
 
 	it("lifts the heap's drain once the heap is under half, and waits on another difference under the ordinary rules", async () => {

@@ -188,9 +188,14 @@ input pipeline or screen. No unit or running host is installed yet.
   stands the heap counts as pressed, so its own parks never let its
   held wakes through; it lifts once the heap is under half, and
   another difference, such as a moved install, then waits under the
-  ordinary rules.
+  ordinary rules. A turn still running half an hour after the drain
+  started lifts it once the heap is under three-fifths, so one turn
+  that never ends can't hold parked work, and the heap drains again
+  only once it has been under half.
   A drain standing by hand before the heap was pressed is left to
-  its asker; one asked while the heap's stands lifts with it. Past
+  its asker; one asked while the heap's stands lifts with it. One
+  lifted by hand while the heap is still pressed is started again at
+  the next look. Past
   three-quarters it restarts at once, turns and all, since on 18
   November a host whose councils held its restart ran out
   of heap and ended everything anyway. The heap is read as the last
