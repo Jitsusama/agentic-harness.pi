@@ -1,3 +1,12 @@
+/**
+ * The git tree provider against a git that answers as each case says:
+ * cutting, reusing, releasing and refusing trees and snapshots.
+ *
+ * Long because each way git can answer a cut is a case of one provider,
+ * all sharing one fake git and one tree layout, so a split would copy
+ * that setup into every file without making a case easier to find.
+ */
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
