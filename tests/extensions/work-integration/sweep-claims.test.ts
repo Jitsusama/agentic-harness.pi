@@ -335,6 +335,42 @@ it("still says a sweep ran when forgetting what it took throws", async () => {
 	);
 });
 
+it("ends only once whoever listed what it took has forgotten it", async () => {
+	// A sweep outside the hosts exits when its sweep ends, so one that
+	// didn't wait would leave its quests listing trees that are gone.
+	vi.useRealTimers();
+	const order: string[] = [];
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept: async () => {
+			// A real wait, as a quest's write takes, so forgetting settles
+			// only after the sweep would have ended had it not waited.
+			await new Promise((settled) => setTimeout(settled, 20));
+			order.push("forgotten");
+		},
+	});
+	order.push("ended");
+
+	expect(order, "what happened first").toEqual(["forgotten", "ended"]);
+});
+
+it("says how many it couldn't tell when forgetting fails later", async () => {
+	vi.useRealTimers();
+	const end = await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept: async () => {
+			// A real wait, so the failure comes after the sweep's own line.
+			await new Promise((settled) => setTimeout(settled, 20));
+			throw new Error("a quest's folder was locked");
+		},
+	});
+
+	expect(end, "how the sweep said it ended").toBe("ran");
+	expect(readFileSync(sweepLog(), "utf8"), "the sweep's log").toContain(
+		'"why":"a quest\'s folder was locked"',
+	);
+});
+
 it("holds its git to the fence in every repository only when asked", async () => {
 	vi.stubEnv("PI_SANDBOX", "off");
 	const repository = realpathSync(mkdtempSync(join(tmpdir(), "unguarded-")));

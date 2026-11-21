@@ -120,13 +120,33 @@ function work(): string {
 	return join(root, "state", "pi", "agentic-harness.pi", "work");
 }
 
-/** One active quest on disk that lists `path`. */
-function questListing(path: string): void {
-	const id = "QEST-20260731-AAAAAA";
-	mkdirSync(join(seen.quests, id), { recursive: true });
+/** The quests store another realm, `work`, keeps on this machine. */
+function otherRealmsQuests(): string {
+	return join(
+		root,
+		"data",
+		"pi",
+		"agentic-harness.pi",
+		"realms",
+		"work",
+		"quest-workflow",
+		"quests",
+	);
+}
+
+/** One quest on disk in `store`, active unless said, that lists `path`. */
+function questListing(
+	path: string,
+	{
+		store = seen.quests,
+		id = "QEST-20260731-AAAAAA",
+		status = "active",
+	}: { store?: string; id?: string; status?: string } = {},
+): void {
+	mkdirSync(join(store, id), { recursive: true });
 	writeFileSync(
-		join(seen.quests, id, "README.md"),
-		`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\n` +
+		join(store, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
 			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
 			`trees:\n  - path: ${path}\n    providerId: git-worktree\n` +
 			`    repoRoot: ${path}\n    origin: cut\n` +
@@ -202,6 +222,22 @@ it("claims the quests' trees on disk, never rests, and drops what it took", asyn
 		"the trees its quest still lists",
 	).toEqual([]);
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("claims the trees another realm's live quests list, and no sealed one's", async () => {
+	const sealed = "/src/repo/.worktrees/sealed";
+	questListing(SPENT, { store: otherRealmsQuests() });
+	questListing(sealed, {
+		store: otherRealmsQuests(),
+		id: "QEST-20260731-BBBBBB",
+		status: "concluded",
+	});
+
+	await sweepOutside({ env: {} });
+
+	expect(seen.claims, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [SPENT] },
+	]);
 });
 
 it("holds its git to the fence in every repository", async () => {
@@ -625,16 +661,7 @@ it("fails before sweeping when the quests can't be looked at", async () => {
 it("fails before sweeping when another realm's quests can't be listed", async () => {
 	// Its trees are the machine's, so a store read as empty would have the
 	// sweep take them as nobody's.
-	const realm = join(
-		root,
-		"data",
-		"pi",
-		"agentic-harness.pi",
-		"realms",
-		"work",
-		"quest-workflow",
-		"quests",
-	);
+	const realm = otherRealmsQuests();
 	mkdirSync(realm, { recursive: true });
 	chmodSync(realm, 0o000);
 	try {
