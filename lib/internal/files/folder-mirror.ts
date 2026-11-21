@@ -380,13 +380,20 @@ function mirrorOf<T>(
 	const watchFolder = (folder: string): void => {
 		// Put down meanwhile, or watched already: nothing to make.
 		if (clock === undefined || watcher !== undefined) return;
-		watcher = watch(dir, { persistent: false }, (_kind, name) => {
+		const made = watch(dir, { persistent: false }, (_kind, name) => {
+			// The folder itself removed or renamed away, as libuv names it: the
+			// watch hears nothing more, so the next tick makes one and lists.
+			if (name === basename(dir)) {
+				if (watcher === made) unwatch();
+				return;
+			}
 			// A file of its kind is read alone; a staged one is passed over
 			// until it is renamed in; an event naming none lists them all.
 			if (name === null) void refresh().catch(nothing);
 			else if (name.endsWith(kind.suffix) && basename(name) === name)
 				readNamed(join(dir, name));
 		});
+		watcher = made;
 		// A watch that fails is made again on the next tick, and lists the
 		// folder; one that overflows says nothing, so the backstop lists what
 		// it dropped.
@@ -403,10 +410,10 @@ function mirrorOf<T>(
 	};
 	// One stat of the folder a tick, off the thread: one renamed away, or
 	// made again, drops the watch, so the next tick follows the new one.
-	// A folder made again with its inode back, as some filesystems hand
-	// one, looks the same: the backstop lists it within half a minute.
-	// Its birth would tell them apart, but where libuv can't use statx
-	// it reports the folder's ctime, which every publish moves.
+	// A folder made again with its inode back looks the same here, so the
+	// watch's own word that its folder went drops it as well. Birth would
+	// tell them apart, but where libuv can't use statx it reports the
+	// folder's ctime, which every publish moves.
 	const look = (): void => {
 		if (looking || watcher === undefined || watched === undefined) return;
 		looking = true;

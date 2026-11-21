@@ -7,9 +7,11 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	type PathLike,
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
@@ -426,6 +428,40 @@ describe("a host's mirror of a folder", () => {
 		rmSync(`${dir}-moved`, { recursive: true, force: true });
 	});
 
+	// The council on #1933: ext4 can hand a removed folder's inode to the
+	// next one made, which a stat of the path can't tell apart.
+	it("watches again when its folder is removed and made again with its inode back", async () => {
+		put("a.txt", "old folder");
+		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+		await watching(folder);
+		const old = statSync(dir);
+		const stats = vi.mocked(stat);
+		const was = stats.getMockImplementation();
+		// The new folder at the path stats as the removed one did.
+		stats.mockImplementation(async (path: PathLike) => {
+			const found = statSync(path);
+			if (path !== dir) return found;
+			return Object.assign(found, { dev: old.dev, ino: old.ino });
+		});
+		try {
+			rmSync(dir, { recursive: true });
+			mkdirSync(dir);
+			put("b.txt", "new folder");
+			await vi.waitFor(
+				() =>
+					expect(
+						wordsOf(folder.files()),
+						"read well before the backstop",
+					).toEqual(["new folder"]),
+				{ timeout: 2000 },
+			);
+		} finally {
+			stats.mockImplementation(
+				was ?? (async (path: PathLike) => statSync(path)),
+			);
+		}
+	});
+
 	// On 21 November seventy children each listed the mesh's presence each
 	// second, and held the disk in btrfs's directory locks.
 	it("lists a watched folder again only once its backstop has passed, however often it polls", async () => {
@@ -650,9 +686,9 @@ describe("a host's mirror of a folder", () => {
 			const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 			await watching(folder);
 			const path = join(dir, "a.txt");
-			// The mirror asks whether a file is gone only once its named read
-			// failed; the read's own stat, in stamped-read.ts, is loaded by the
-			// setup files before this mock and so isn't counted.
+			// Only the named read stats the file once the folder is locked: its
+			// own stat, where this mock reaches stamped-read.ts, and the mirror's
+			// ask whether the file is gone, which follows only a failed read.
 			const asked = () =>
 				vi.mocked(stat).mock.calls.filter(([one]) => one === path).length;
 			const before = asked();
@@ -664,7 +700,7 @@ describe("a host's mirror of a folder", () => {
 					() =>
 						expect(
 							asked(),
-							"asked whether the file is gone, its named read failed",
+							"the named read's stat of the locked file",
 						).toBeGreaterThan(before),
 					{ timeout: 2000 },
 				);
