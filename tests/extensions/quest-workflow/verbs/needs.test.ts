@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
@@ -15,6 +16,16 @@ import {
 } from "../../../../lib/terminal/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
+
+// The agent each machine's node declares; none unless a test names one.
+let nodeAgents: ReadonlyMap<string, string> | undefined;
+vi.mock("../../../../lib/mesh/node.ts", async (original) => ({
+	...(await original<typeof import("../../../../lib/mesh/node.ts")>()),
+	agentsAt: async () => nodeAgents,
+}));
+
+// A declared fence's claim holds only where this package keeps its mark.
+const KEPT_HERE = process.platform === "linux";
 
 let tmpRoot: string;
 let spawned: string | undefined;
@@ -49,6 +60,7 @@ beforeEach(() => {
 	delete process.env.PI_SANDBOX;
 	spawned = undefined;
 	spawnedEnv = undefined;
+	nodeAgents = undefined;
 	clearTerminalDrivers();
 	registerTerminalDriver({
 		id: "fake",
@@ -271,24 +283,27 @@ describe("the fence a quest's spawns declare", () => {
 		);
 	});
 
-	it("starts a fresh spawn here in the sandbox its quest declares, and says so", async () => {
-		const { id, run } = await quest("Alpha");
-		await run({ action: "need-add", fence: "fence" });
+	it.runIf(KEPT_HERE)(
+		"starts a fresh spawn here in the sandbox its quest declares, and says so",
+		async () => {
+			const { id, run } = await quest("Alpha");
+			await run({ action: "need-add", fence: "fence" });
 
-		const result = succeeded(await run({ action: "spawn-tab", id }));
+			const result = succeeded(await run({ action: "spawn-tab", id }));
 
-		expect(spawnedEnv?.PI_SANDBOX, "its commands run fenced").toBe("fence");
-		expect(
-			spawnedEnv?.PI_FENCE_DECLARED,
-			"the mark that keeps it from the lift goes with it",
-		).toBe("1");
-		expect(result.message, "it says who declared it").toContain(
-			"It runs fence, as its quest declares.",
-		);
-		expect(result.details, "the details carry it").toMatchObject({
-			fence: { kind: "fence", from: "quest" },
-		});
-	});
+			expect(spawnedEnv?.PI_SANDBOX, "its commands run fenced").toBe("fence");
+			expect(
+				spawnedEnv?.PI_FENCE_DECLARED,
+				"the mark that keeps it from the lift goes with it",
+			).toBe("1");
+			expect(result.message, "it says who declared it").toContain(
+				"It runs fence, as its quest declares.",
+			);
+			expect(result.details, "the details carry it").toMatchObject({
+				fence: { kind: "fence", from: "quest" },
+			});
+		},
+	);
 
 	it("gives way to the fence a spawn names", async () => {
 		const { id, run } = await quest("Alpha");
@@ -375,6 +390,29 @@ describe("the fence a quest's spawns declare", () => {
 		expect(result.details, "a shell reads no fence variable").toMatchObject({
 			fence: { kind: "none", from: "default" },
 		});
+		expect(result.message, "it says the sandbox it still hands on").toContain(
+			"It is handed the strict sandbox, but claimed as unfenced",
+		);
+	});
+
+	it("claims none once the realm's own agent starts in pi's place, still handing it the fence", async () => {
+		const { id, run } = await quest("Alpha");
+		nodeAgents = new Map([[hostname().split(".")[0] ?? "", "pi-claude"]]);
+
+		const result = succeeded(
+			await run({ action: "spawn-tab", id, fence: "fence" }),
+		);
+
+		expect(spawned, "the realm's agent starts").toMatch(/^pi-claude\b/);
+		expect(spawnedEnv?.PI_SANDBOX, "it is still handed the fence").toBe(
+			"fence",
+		);
+		expect(result.details, "but claims none").toMatchObject({
+			fence: { kind: "none", from: "default" },
+		});
+		expect(result.message, "and says why").toContain(
+			"It is handed the fence sandbox, but claimed as unfenced",
+		);
 	});
 
 	it("says on a dry run what the spawn it previews would claim", async () => {
@@ -403,5 +441,123 @@ describe("the fence a quest's spawns declare", () => {
 		refused(await run({ action: "spawn-tab", id, fence: "off" }));
 
 		expect(spawned, "no terminal was opened").toBeUndefined();
+	});
+});
+
+describe("the fence a whole spawn tells the realm's node", () => {
+	let server: Server | undefined;
+	const here = hostname().split(".")[0] ?? "";
+
+	beforeEach(() => {
+		vi.stubEnv("XDG_RUNTIME_DIR", tmpRoot);
+		vi.stubEnv("MYCELIUM_REALM", "work");
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		await new Promise((closed) => (server ? server.close(closed) : closed(0)));
+		server = undefined;
+	});
+
+	/**
+	 * The realm's node, placing everything on this machine and starting
+	 * there what it is asked to start, keeping each ask.
+	 */
+	async function nodeHere(): Promise<unknown[]> {
+		const asked: unknown[] = [];
+		mkdirSync(join(tmpRoot, "mycelium"));
+		server = createServer((client) => {
+			client.setEncoding("utf8");
+			client.on("data", (line: string) => {
+				const ask: unknown = JSON.parse(line.trim());
+				asked.push(ask);
+				const answer =
+					typeof ask === "object" && ask !== null && "Start" in ask
+						? {
+								Started: {
+									machine: here,
+									held: "c97b4852",
+									folder: tmpRoot,
+									attach: ["mycelium", "attach", "c97b4852"],
+								},
+							}
+						: { Placement: { placed: { machine: here, passed: [] } } };
+				client.write(`${JSON.stringify({ Ok: answer })}\n`);
+			});
+		});
+		const listening = server;
+		await new Promise<void>((done) =>
+			listening.listen(join(tmpRoot, "mycelium", "work.sock"), done),
+		);
+		return asked;
+	}
+
+	it("tells it none for a staged fence, which a start elsewhere may lift, and claims the fence once it starts here", async () => {
+		const { id, run } = await quest("Alpha");
+		joinSpawns("the test lets spawns join");
+		const asked = await nodeHere();
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked, "the placement ask claims none").toEqual([
+			{
+				PlaceToStart: { needs: [], fence: { kind: "none", from: "default" } },
+			},
+		]);
+		expect(result.details, "started here, it claims what runs").toMatchObject({
+			fence: { kind: "fence", from: "default" },
+		});
+	});
+
+	it("tells it strict for a strict session's spawn, which no pi lifts", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+		const asked = await nodeHere();
+
+		succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked, "the placement ask claims strict").toEqual([
+			{
+				PlaceToStart: {
+					needs: [],
+					fence: { kind: "strict", from: "default" },
+				},
+			},
+		]);
+	});
+
+	it("tells it the same claim beside the needs its quest names, and starts it held with the settled one", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", ref: "reach=home" });
+		process.env.PI_SANDBOX = "strict";
+		const asked = await nodeHere();
+
+		succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked[0], "the needs' ask claims strict too").toEqual({
+			Place: {
+				needs: [{ reach: "home" }],
+				fence: { kind: "strict", from: "default" },
+			},
+		});
+		expect(asked[1], "the held start claims what it settled to").toMatchObject({
+			Start: { work: { fence: { kind: "strict", from: "default" } } },
+		});
+	});
+
+	it("starts a staged fence held with none, since no token reaches a held start", async () => {
+		const { id, run } = await quest("Alpha");
+		await run({ action: "need-add", ref: "reach=home" });
+		joinSpawns("the test lets spawns join");
+		const asked = await nodeHere();
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(asked[1], "the held start claims none").toMatchObject({
+			Start: { work: { fence: { kind: "none", from: "default" } } },
+		});
+		expect(result.details, "and so does its answer").toMatchObject({
+			fence: { kind: "none", from: "default" },
+		});
 	});
 });

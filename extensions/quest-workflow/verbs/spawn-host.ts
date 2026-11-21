@@ -345,9 +345,9 @@ export async function spawnInHost(
 			request,
 		});
 	}
-	let reply: Awaited<ReturnType<ControlCall>>;
+	let sent: Shedding;
 	try {
-		reply = await call(socket, request, OPEN_PATIENCE_MS);
+		sent = await sendShedding(call, socket, request);
 	} catch (error) {
 		if (neverSent(error)) {
 			return refuse(
@@ -356,10 +356,8 @@ export async function spawnInHost(
 		}
 		return refuse(unknownOutcome(key, messageOf(error)));
 	}
+	const { reply, shed } = sent;
 	if (!reply.ok) {
-		const unstaged = olderHost(spawn, reply.error.code);
-		if (unstaged)
-			return openedUnstaged(await spawnInHost(unstaged, call), spawn);
 		return refuse(
 			`The ${key} host refused to ${what}: ${reply.error.code}, ${reply.error.message}. Nothing else was opened.`,
 		);
@@ -386,7 +384,7 @@ export async function spawnInHost(
 		request.op === "adopt"
 			? `The ${key} host adopted session ${held.sessionId}, which picks up its own history in ${held.cwd}; it isn't told anything, so it waits where its log stopped. ${screen}`
 			: `The ${key} host opened session ${held.sessionId} in ${held.cwd} (${spawn.chosenBy}), which loads ${spawn.questId} and ${spawn.untold ? "waits for its first words" : "was told to carry on"}. ${screen}`;
-	return ok(said, {
+	const opened = ok(said, {
 		how: "host",
 		host: key,
 		sessionId: held.sessionId,
@@ -399,6 +397,7 @@ export async function spawnInHost(
 		...(attach ? { attach } : {}),
 		...(request.op === "adopt" ? { resumedSessionId: held.sessionId } : {}),
 	});
+	return shedSaid(opened, shed, spawn.questId);
 }
 
 /** What /quest-resume in a hosted conversation needs to carry a session on. */
@@ -518,7 +517,7 @@ export function reachedInHost(sessionId: string, hold: HostHold): QuestResult {
  */
 function requestFor(
 	spawn: HostSpawn,
-): { ok: true; request: ControlRequest } | { ok: false; refusal: string } {
+): { ok: true; request: SpawnRequest } | { ok: false; refusal: string } {
 	const envelope = { v: 1 as const, id: uuidv7() };
 	const attended = spawn.kind === "attended";
 	const resumed = spawn.resume;
@@ -588,55 +587,90 @@ function requestFor(
 /** What a host answers a request its protocol doesn't take (dispatch.ts). */
 const INVALID_REQUEST = "invalid_request";
 
-/** What a spawn a host too old for the stage's token opened says. */
-const OLDER_HOST =
-	"Its host runs code from before the fence's first stage and declared fences reached hosts, so the session starts outside the stage, and without a declared fence, until the host restarts onto the installed harness.";
+/** What a spawn a host too old for what it carried took says. */
+function olderHostSaid(shed: Shed): string {
+	const lost = shed.token
+		? `the fence's first stage, so the session starts outside the stage${shed.mark ? ", and its pi lifts the fence it declared," : ""}`
+		: "declared fences reached hosts, so the session's pi lifts the fence it declared";
+	return `Its host runs code from before ${lost} until the host restarts onto the installed harness.`;
+}
 
-/**
- * The spawn again without the first stage's token and the mark of a
- * declared fence, when its host refused the request as invalid: a host
- * started before either was a carried variable refuses the open whole,
- * and a session started unstaged, and logged as missed, beats none
- * (fence-stage.ts); its pi then lifts a declared fence, which its claim
- * says (`declarationSettled`). Sent again without them, a request still
- * invalid is refused as before.
- */
-function olderHost(spawn: HostSpawn, code: string): HostSpawn | undefined {
-	const carried = spawn.carried ?? {};
-	const newer = [STAGE_VARIABLE, DECLARED_VARIABLE].some(
-		(name) => carried[name] !== undefined,
-	);
-	if (!newer || code !== INVALID_REQUEST) return undefined;
-	const {
-		[STAGE_VARIABLE]: _token,
-		[DECLARED_VARIABLE]: _mark,
-		...rest
-	} = carried;
-	const { carried: _carried, ...without } = spawn;
-	return Object.keys(rest).length > 0 ? { ...without, carried: rest } : without;
+/** A request a host opens or adopts a session by. */
+type SpawnRequest = Extract<ControlRequest, { op: "open" | "adopt" }>;
+
+/** A host's answer, and which newer variables the request was sent without. */
+interface Shedding {
+	readonly reply: Awaited<ReturnType<ControlCall>>;
+	readonly shed: Shed;
+}
+
+/** Which newer variables an older host's request went without. */
+interface Shed {
+	/** The declared fence's mark, so its pi lifts the fence. */
+	readonly mark: boolean;
+	/** The first stage's token, so it starts outside the stage. */
+	readonly token: boolean;
 }
 
 /**
- * What the spawn sent again without the token answers. Only an open is
- * an older host's, said, and logged as the stage's miss where the token
- * was dropped, so the count the
- * everyone stage's pre-flight reads holds no request refused for another
- * reason. Its details say it started unstaged, so the fence it claims
- * says what that runs.
+ * Send `request`, and again without the newer variables a host refused
+ * it as invalid for, one at a time, newest first: a host on main before
+ * declared fences reached hosts knows the token but not the mark, and
+ * one before the stage knows neither, so each loses only what it must.
+ * An adopt is sent again too, since its variables come from its
+ * session's record, not the spawn. A session started without either
+ * beats none (fence-stage.ts); still invalid without both, it is
+ * refused as before.
  */
-function openedUnstaged(result: QuestResult, spawn: HostSpawn): QuestResult {
-	if (!result.ok) return result;
-	if (spawn.carried?.[STAGE_VARIABLE] !== undefined) {
+async function sendShedding(
+	call: ControlCall,
+	socket: string,
+	request: SpawnRequest,
+): Promise<Shedding> {
+	let sent = request;
+	let reply = await call(socket, sent, OPEN_PATIENCE_MS);
+	let shed: Shed = { mark: false, token: false };
+	for (const [name, part] of SHED_ORDER) {
+		if (reply.ok || reply.error.code !== INVALID_REQUEST) break;
+		const { [name]: dropped, ...rest } = sent.env ?? {};
+		if (dropped === undefined) continue;
+		const env = Object.keys(rest).length > 0 ? rest : undefined;
+		sent = { ...sent, id: uuidv7(), env };
+		shed = { ...shed, [part]: true };
+		reply = await call(socket, sent, OPEN_PATIENCE_MS);
+	}
+	return { reply, shed };
+}
+
+/** The newer variables an older host's request goes without, newest first. */
+const SHED_ORDER: readonly (readonly [string, keyof Shed])[] = [
+	[DECLARED_VARIABLE, "mark"],
+	[STAGE_VARIABLE, "token"],
+];
+
+/**
+ * What a session an older host took answers: said once, and logged as
+ * the stage's miss only where the token was dropped, so the count the
+ * everyone stage's pre-flight reads holds no request refused for another
+ * reason and no dropped mark. Its details say what it went without, so
+ * the fence it claims says what that runs.
+ */
+function shedSaid(result: QuestResult, shed: Shed, quest: string): QuestResult {
+	if (!result.ok || (!shed.mark && !shed.token)) return result;
+	if (shed.token) {
 		void recordUnlisted({
 			kind: "host",
 			session: process.env.PI_SESSION_ID,
-			quest: spawn.questId,
+			quest,
 			error: "older-host",
 		});
 	}
-	const said = noted(result, OLDER_HOST);
+	const said = noted(result, olderHostSaid(shed));
 	return said.ok
-		? { ...said, details: { ...said.details, unstaged: true } }
+		? {
+				...said,
+				details: { ...said.details, unstaged: shed.token, unmarked: shed.mark },
+			}
 		: said;
 }
 

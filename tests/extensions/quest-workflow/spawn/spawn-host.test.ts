@@ -35,6 +35,9 @@ vi.mock("../../../../lib/internal/fence/fence-log.ts", async (original) => ({
 	recordUnlisted: vi.fn(async () => undefined),
 }));
 
+// A declared fence's claim holds only where this package keeps its mark.
+const KEPT_HERE = process.platform === "linux";
+
 const SAVED = [
 	"HOME",
 	"MYCELIUM_REALM",
@@ -295,27 +298,30 @@ describe("spawn into a host", () => {
 		);
 	});
 
-	it("hands a declared fence to the host with the mark that keeps it, and claims it", async () => {
-		await serveHost("home", "background");
-		const { state, id } = await questNamed("Alpha");
-		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
-			action: "spawn",
-			id,
-			host: "background",
-			fence: "fence",
-		});
-		expect(result, said(result)).toMatchObject({ ok: true });
-		const [open] = received;
-		if (open?.op !== "open") throw new Error("expected an open");
-		expect(open.env, "the open lacks the fence or its mark").toEqual({
-			PI_SANDBOX: "fence",
-			PI_FENCE_DECLARED: "1",
-		});
-		expect(
-			result.ok && result.details?.fence,
-			"it claims the fence it declared",
-		).toEqual({ kind: "fence", from: "spawn" });
-	});
+	it.runIf(KEPT_HERE)(
+		"hands a declared fence to the host with the mark that keeps it, and claims it",
+		async () => {
+			await serveHost("home", "background");
+			const { state, id } = await questNamed("Alpha");
+			const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+				action: "spawn",
+				id,
+				host: "background",
+				fence: "fence",
+			});
+			expect(result, said(result)).toMatchObject({ ok: true });
+			const [open] = received;
+			if (open?.op !== "open") throw new Error("expected an open");
+			expect(open.env, "the open lacks the fence or its mark").toEqual({
+				PI_SANDBOX: "fence",
+				PI_FENCE_DECLARED: "1",
+			});
+			expect(
+				result.ok && result.details?.fence,
+				"it claims the fence it declared",
+			).toEqual({ kind: "fence", from: "spawn" });
+		},
+	);
 
 	it("opens a declared fence without its mark in a host too old for it, claiming none", async () => {
 		await serveHost("home", "background");
@@ -341,10 +347,93 @@ describe("spawn into a host", () => {
 			result.ok && result.details?.fence,
 			"it claims the fence its pi lifts",
 		).toEqual({ kind: "none", from: "default" });
+		expect(said(result), "it says the fence is lifted").toContain(
+			"lifts the fence it declared",
+		);
+		expect(said(result), "a mark alone never loses the stage").not.toContain(
+			"starts outside the stage",
+		);
 		expect(
 			recordUnlisted,
 			"a dropped mark was counted as the stage's miss",
 		).not.toHaveBeenCalled();
+	});
+
+	it("keeps the token for a host that knows it but not the mark, counting no miss", async () => {
+		joinSpawns("stage 1");
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (request.op === "open" && request.env?.PI_FENCE_DECLARED)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return identityFor(request);
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+			fence: "fence",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		expect(
+			received.map((r) => r.op),
+			"asked once more, without the mark alone",
+		).toEqual(["open", "open"]);
+		const again = received.at(1);
+		if (again?.op !== "open") throw new Error("expected a second open");
+		expect(
+			again.env?.PI_FENCE_STAGE,
+			"the token was dropped with the mark",
+		).toEqual(expect.any(String));
+		expect(again.env?.PI_FENCE_DECLARED, "the mark was sent again").toBe(
+			undefined,
+		);
+		expect(
+			recordUnlisted,
+			"a session that kept its token was counted as missed",
+		).not.toHaveBeenCalled();
+	});
+
+	it("drops the token after the mark for a host that knows neither, counting one miss", async () => {
+		joinSpawns("stage 1");
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (
+				request.op === "open" &&
+				(request.env?.PI_FENCE_DECLARED || request.env?.PI_FENCE_STAGE)
+			)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return identityFor(request);
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+			fence: "fence",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		expect(
+			received.map((r) => r.op),
+			"without the mark, then without the token",
+		).toEqual(["open", "open", "open"]);
+		const last = received.at(2);
+		if (last?.op !== "open") throw new Error("expected a third open");
+		expect(last.env, "only the sandbox is left").toEqual({
+			PI_SANDBOX: "fence",
+		});
+		expect(
+			new Set(received.map((r) => r.id)).size,
+			"each try is a request of its own",
+		).toBe(3);
+		expect(
+			said(result).match(/Its host runs code from before/g),
+			"the older host is said once",
+		).toHaveLength(1);
+		expect(
+			recordUnlisted,
+			"the dropped token is one miss",
+		).toHaveBeenCalledTimes(1);
 	});
 
 	it("counts no older host when the open without the token is refused too", async () => {
@@ -495,6 +584,37 @@ describe("spawn into a host", () => {
 			host: "background",
 		});
 		expect(received, "the adopt says the fence its record kept").toEqual([
+			expect.objectContaining({ op: "adopt", env: { PI_SANDBOX: "fence" } }),
+		]);
+	});
+
+	it("adopts without its mark in a host too old for it, as an open is opened", async () => {
+		await serveHost("home", "background");
+		const resumed = randomUUID();
+		const { state, id } = await questWithSession(resumed, 60 * 60 * 1000);
+		saveRecord(
+			openRecord({
+				sessionId: resumed,
+				instanceId: "inst",
+				cwd: tmpRoot,
+				questId: id,
+				env: { PI_SANDBOX: "fence", PI_FENCE_DECLARED: "1" },
+				now: new Date(),
+			}),
+		);
+		answer = async (request) => {
+			if (request.op === "adopt" && request.env?.PI_FENCE_DECLARED)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return { ...identityFor(request), sessionId: resumed };
+		};
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		expect(received, "adopted again without the mark").toEqual([
+			expect.objectContaining({ op: "adopt" }),
 			expect.objectContaining({ op: "adopt", env: { PI_SANDBOX: "fence" } }),
 		]);
 	});

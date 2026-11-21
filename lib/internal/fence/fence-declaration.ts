@@ -163,8 +163,19 @@ export function declarationSettled(
 	return lost ? UNFENCED : declaration;
 }
 
-/** The declaration said in a sentence, for a spawn's answer. */
-export function declarationSaid(declaration: FenceDeclaration): string {
+/**
+ * The declaration said in a sentence, for a spawn's answer. A sandbox
+ * `handed` on past what is claimed is said in its place, as handed but
+ * not sure to hold, so the answer never calls a fenced start unfenced
+ * nor promises a fence that may be lifted where it starts.
+ */
+export function declarationSaid(
+	declaration: FenceDeclaration,
+	handed?: DeclaredFence,
+): string {
+	if (handed && handed !== declaration.kind) {
+		return `It is handed the ${handed} sandbox, but claimed as unfenced, since nothing here is sure it holds where it starts: an older pi, as another machine may run, or a Mac may lift it, and a program other than pi, a realm's own agent included, may not read it.`;
+	}
 	const by =
 		declaration.from === "spawn"
 			? "as the spawn declared"

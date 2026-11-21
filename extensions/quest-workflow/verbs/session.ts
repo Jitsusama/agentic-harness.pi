@@ -10,6 +10,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
 import {
+	type DeclaredFence,
 	declarationSaid,
 	declarationSettled,
 	type FenceDeclaration,
@@ -89,6 +90,7 @@ import {
 	spawnedByLauncher,
 } from "./spawn-launcher.ts";
 import {
+	claimRunning,
 	placementFence,
 	spawnFence,
 	spawnFenced,
@@ -100,6 +102,7 @@ import {
 interface SpawnSaid {
 	budget?: FolderBudget;
 	fence?: FenceDeclaration;
+	handed?: DeclaredFence;
 }
 
 /**
@@ -116,6 +119,7 @@ export async function spawn(
 	const result = withFence(
 		await spawnNaming(state, ctx, params, said),
 		said.fence,
+		said.handed,
 	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
@@ -134,28 +138,31 @@ export async function spawn(
 
 /**
  * A spawn's answer saying the fence it runs in, which it told the node
- * where it asked one. A host too old for the stage's token opened it
- * without, and without a declared fence's mark, so either settles to
- * what that runs.
+ * where it asked one, and the sandbox it was `handed` where that claims
+ * more. A host too old for the stage's token or a declared fence's
+ * mark took it without, so the claim settles to what that runs.
  */
 function withFence(
 	result: QuestResult,
 	asked: FenceDeclaration | undefined,
+	handed: DeclaredFence | undefined,
 ): QuestResult {
 	if (!result.ok || !asked) return result;
+	const unstaged = result.details?.unstaged === true;
+	const unmarked = result.details?.unmarked === true;
 	const fence =
-		result.details?.unstaged === true
+		unstaged || unmarked
 			? declarationSettled(asked, {
-					staged: false,
+					staged: !unstaged,
 					carried: true,
 					reopens: false,
 					pi: true,
-					kept: false,
+					kept: !unmarked,
 				})
 			: asked;
 	return {
 		...result,
-		message: `${result.message} ${declarationSaid(fence)}`,
+		message: `${result.message} ${declarationSaid(fence, handed)}`,
 		details: { ...result.details, fence },
 	};
 }
@@ -303,6 +310,7 @@ async function spawnNaming(
 	fence = started.claim;
 	said.fence = fence;
 	const { sandbox } = started;
+	if (sandbox) said.handed = sandbox;
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
 		...declaredSandbox(sandbox),
@@ -359,6 +367,8 @@ async function spawnNaming(
 	const agents = spawnsPi
 		? await agentCommand(spawned.command, here)
 		: spawned.command;
+	fence = claimRunning(fence, spawned.command, agents);
+	said.fence = fence;
 	// The pi it starts runs on the asking session's model. Another agent a
 	// realm declares keeps its own, since its models aren't this one's.
 	const command =
