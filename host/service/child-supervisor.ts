@@ -636,6 +636,17 @@ export function childSupervisor(options: {
 	 * it, and its unit, if the slot is still in use, is asked again and
 	 * found gone, which frees it.
 	 */
+	// The slot a start of this conversation would take, or nothing for an
+	// id no slot can be named by, which no child of this host ever ran.
+	function ownSlot(sessionId: string): Slot | undefined {
+		try {
+			return slotOf(options.folder, options.key, sessionId);
+		} catch {
+			// slotOf refuses only a name that isn't a conversation's id.
+			return undefined;
+		}
+	}
+
 	async function free(slot: Slot): Promise<boolean> {
 		await takingUnit.get(slot.unit);
 		await leaving.get(slot.unit);
@@ -1206,6 +1217,14 @@ export function childSupervisor(options: {
 					))
 				)
 					throw new Error(`${sessionId} still runs in ${last.unit}`);
+			}
+			// Its own slot too: a child that failed before its first answer
+			// ran in no slot the host heard of, and may be stopping still.
+			const own = ownSlot(sessionId);
+			if (own !== undefined) {
+				stillWatching();
+				if (!(await claimed(own.unit, () => free(own))))
+					throw new Error(`${sessionId} still runs in ${own.unit}`);
 			}
 			stillWatching();
 		},

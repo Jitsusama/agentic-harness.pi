@@ -166,9 +166,31 @@ describe("a host's children", () => {
 			`${a} still runs in ${unit}`,
 		);
 
+		expect(units.forgotten, "its slot still held").not.toContain(unit);
+
 		lingering = false;
 		await children.backend.left(a);
-		expect(units.children.has(unit as string), "its unit is gone").toBe(false);
+		expect(units.forgotten, "freed by left").toContain(unit);
+	});
+
+	it("says one whose child failed before its first answer has left only once its unit has gone", async () => {
+		units.next = { silent: true };
+		let lingering = true;
+		const gone = units.gone;
+		units.gone = async (named) => !lingering && gone(named);
+
+		await expect(
+			children.backend.resume(held[0] as RosterEntry, false),
+		).rejects.toThrow();
+		const [unit] = units.started;
+
+		await expect(children.backend.left(a)).rejects.toThrow(
+			`${a} still runs in ${unit}`,
+		);
+
+		lingering = false;
+		await units.children.get(unit as string)?.exit();
+		await children.backend.left(a);
 	});
 
 	it("refuses to ask a child of one no child runs", async () => {

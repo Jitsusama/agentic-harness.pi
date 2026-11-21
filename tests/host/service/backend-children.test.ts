@@ -191,6 +191,21 @@ describe("a conversation that moves into a child", () => {
 		expect(inHost.resume).toHaveBeenCalledExactlyOnceWith(held, true);
 	});
 
+	it("fails a wake, running nothing in the host, while a child still runs it", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const inHost = engine();
+		const moved = children([]);
+		moved.fake.left.mockRejectedValueOnce(
+			new Error(`${held.sessionId} still runs in its unit`),
+		);
+
+		await expect(
+			backendWith(inHost, moved.fake).wake(held.sessionId),
+		).rejects.toThrow("still runs");
+		expect(inHost.resume).not.toHaveBeenCalled();
+	});
+
 	it("is woken in the host when it hasn't moved, as before", async () => {
 		const held = entry();
 		await roster.hold(held);
