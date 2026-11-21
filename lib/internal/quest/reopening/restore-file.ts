@@ -47,7 +47,7 @@ import {
 	sessionRealm,
 } from "../../machine/realm.ts";
 import type { CarriedEnvironment } from "../../session/carried-environment.ts";
-import { viewWords } from "../../session/host-holds.ts";
+import { lastingViewWords } from "../../session/host-holds.ts";
 import type { MoveNote } from "../../session/move.ts";
 import { holderCommand } from "../../session/park.ts";
 import { atomicWriteFile } from "../io.ts";
@@ -101,18 +101,22 @@ export interface RestoreEntry {
 	readonly parked?: true;
 	/**
 	 * For a session that ran in a shared pi host rather than a pi of its
-	 * own: the host keeps it, so no window reopens it.
+	 * own: the host keeps it, so no pi reopens it; a window opens only
+	 * its viewer, by `view`.
 	 */
 	readonly hosted?: true;
 	/**
-	 * For a hosted session, the words its viewer runs (viewWords), as its
-	 * presence gives them while it runs. A crash takes its host down too,
+	 * For a hosted session pi saved, the words its viewer runs
+	 * (viewWords), as its presence gives them while it runs: its join,
+	 * then plain pi on its log. A crash takes its host down too,
 	 * and while the host comes back the session has no presence, so the
 	 * launcher's walk had no words to open its viewer with and kept its
 	 * place instead; the viewer then opened by itself nearly two hours
 	 * later, where Joel had moved on (20 November, 15:03). With these the
-	 * walk opens it at once, and the join waits for the host the roster
-	 * names, saying so in the window.
+	 * walk opens it at once. While the host the roster names isn't back,
+	 * the join's attach fails and it looks again, saying so in the window,
+	 * until the host shows the conversation. None where the writer's join
+	 * wouldn't outlast its tree (lastingViewWords).
 	 */
 	readonly view?: readonly string[];
 	/**
@@ -144,6 +148,13 @@ export interface RestorePlacing {
 	readonly workspaceOf?: (questId: string) => string | undefined;
 	/** The session a session's log carried on from, for `carriedOnElsewhere`. */
 	readonly parentOf?: (sessionId: string) => string | undefined;
+	/** The log pi saved a session in, for a hosted entry's `view`. */
+	readonly logOf?: (sessionId: string) => string | undefined;
+	/** The words a viewer keeps past this process, by lastingViewWords. */
+	readonly viewWordsOf?: (
+		session: string,
+		plainPi: readonly string[],
+	) => readonly string[] | undefined;
 }
 
 /** The whole file. */
@@ -198,6 +209,18 @@ export function restoreFileOf(
 	released: readonly RestoreEntry[] = [],
 	placing: RestorePlacing = {},
 ): RestoreFile {
+	// A hosted session's viewer words resume its log, as its presence's
+	// do, with the session's own variables, never this writer's; one pi
+	// never saved has no log to fall back on, so it has none.
+	const viewOf = (record: SessionRecord) => {
+		const log = placing.logOf?.(record.sessionId);
+		return log === undefined
+			? undefined
+			: (placing.viewWordsOf ?? lastingViewWords)(
+					record.sessionId,
+					holderCommand(log, [], record.env ?? {}),
+				);
+	};
 	const letGo = new Set(released.map((entry) => entry.id));
 	const unreleased = (entry: RestoreEntry) => !letGo.has(entry.id);
 	// A record exists only once a pi has run the session on this machine.
@@ -242,11 +265,11 @@ export function restoreFileOf(
 					.filter(uncarried)
 					.map((record) =>
 						saved(record.sessionId)
-							? entryOf(record, titleOf)
-							: { ...entryOf(record, titleOf), fresh: true as const },
+							? entryOf(record, titleOf, viewOf)
+							: { ...entryOf(record, titleOf, viewOf), fresh: true as const },
 					),
 				...parked.filter(uncarried).map((record) => ({
-					...entryOf(record, titleOf),
+					...entryOf(record, titleOf, viewOf),
 					parked: true as const,
 				})),
 				...(joins?.windows ?? []).map(
@@ -322,7 +345,9 @@ export function carriedEntry(
 function entryOf(
 	record: SessionRecord,
 	titleOf: (questId: string) => string | undefined,
+	viewOf: (record: SessionRecord) => readonly string[] | undefined,
 ): RestoreEntry {
+	const view = record.process?.hosted ? viewOf(record) : undefined;
 	const folder = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
 	return {
 		id: record.sessionId,
@@ -334,14 +359,7 @@ function entryOf(
 		cwd: record.cwd,
 		lostAt: record.closedAt ?? "",
 		...(record.process?.hosted
-			? {
-					hosted: true as const,
-					// The session's own variables, never this writer's.
-					view: viewWords(
-						record.sessionId,
-						holderCommand(record.sessionId, [], record.env ?? {}),
-					),
-				}
+			? { hosted: true as const, ...(view ? { view } : {}) }
 			: {}),
 		...(record.env ? { env: record.env } : {}),
 	};

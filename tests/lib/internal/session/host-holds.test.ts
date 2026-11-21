@@ -24,6 +24,7 @@ import {
 	heldByHost,
 	holdOf,
 	hostHold,
+	lastingViewWords,
 	RELEASED_EXIT,
 	rosterHolds,
 	viewingWords,
@@ -243,6 +244,22 @@ describe("the words a window on a hosted conversation runs", () => {
 			"--session",
 			"/logs/01a1.jsonl",
 		]);
+	});
+
+	it("are kept past this process only where the join outlasts its tree", () => {
+		const plainPi = ["pi", "--session", "/logs/01a1.jsonl"];
+
+		expect(lastingViewWords("01a1", plainPi, true)).toEqual(
+			viewWords("01a1", plainPi),
+		);
+		expect(
+			lastingViewWords("01a1", plainPi, false),
+			"none from a tree that may be given back",
+		).toBeUndefined();
+		expect(
+			lastingViewWords("01a1", plainPi),
+			"none from this tree, which no install's link names",
+		).toBeUndefined();
 	});
 });
 

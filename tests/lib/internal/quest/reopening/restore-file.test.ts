@@ -18,6 +18,7 @@ import {
 	reopenRecord,
 } from "../../../../../lib/internal/quest/sessions/session-registry.ts";
 import { CARRIED_VARIABLES } from "../../../../../lib/internal/session/carried-environment.ts";
+import { viewWords } from "../../../../../lib/internal/session/host-holds.ts";
 
 /** A session's record as it stood when its pi last ran, in `boot`. */
 function ranIn(sessionId: string, boot: string, questId?: string) {
@@ -29,6 +30,48 @@ function ranIn(sessionId: string, boot: string, questId?: string) {
 		process: { hostId: "here", pid: 1, startToken: "t", bootToken: boot },
 		now: new Date("2026-10-28T20:40:00Z"),
 	});
+}
+
+/** A record of `sessionId` as a shared pi host ran it in the last boot. */
+function hostedIn(sessionId: string, env?: Record<string, string>) {
+	return {
+		...openRecord({
+			sessionId,
+			instanceId: "inst-host",
+			cwd: "/home/me/src/hosted",
+			process: {
+				hostId: "here",
+				pid: 1,
+				startToken: "t",
+				bootToken: "last",
+				hosted: {
+					host: "home-background",
+					session: sessionId,
+					owner: { pid: 1, startedAt: 1, startTicks: 1 },
+				},
+			},
+			now: new Date("2026-10-28T20:40:00Z"),
+		}),
+		...(env ? { env } : {}),
+	};
+}
+
+/**
+ * Three sessions a host ran (one fenced, one pi never saved) and one a
+ * pi of its own ran, all in the last boot.
+ */
+function hostedRecords() {
+	return [
+		hostedIn("01a1eeee-ffff"),
+		hostedIn("01a1abab-cdcd", { PI_SANDBOX: "fence" }),
+		hostedIn("01a1eded-0000"),
+		ranIn("01a1cccc-dddd", "last"),
+	].map((record) => ({ record, heartbeatAt: "2026-10-29T05:00:00Z" }));
+}
+
+/** The log pi saved each of {@link hostedRecords}' saved sessions in. */
+function hostedLog(sessionId: string): string | undefined {
+	return sessionId === "01a1eded-0000" ? undefined : `/logs/${sessionId}.jsonl`;
 }
 
 const dirs: string[] = [];
@@ -131,46 +174,21 @@ describe("the restore file", () => {
 		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("hosted");
 	});
 
-	it("gives a hosted session the words its viewer runs, so its window can wait while its host is down", () => {
+	it("gives a saved hosted session its viewer's words, resuming its log with its own variables, never the writer's", () => {
 		// The writer runs fenced, so its own variables would show in an
 		// unfenced session's words if they ever leaked into them.
 		for (const name of CARRIED_VARIABLES) vi.stubEnv(name, "writer");
-		const hosted = (sessionId: string, env?: Record<string, string>) => ({
-			...openRecord({
-				sessionId,
-				instanceId: "inst-host",
-				cwd: "/home/me/src/hosted",
-				process: {
-					hostId: "here",
-					pid: 1,
-					startToken: "t",
-					bootToken: "last",
-					hosted: {
-						host: "home-background",
-						session: sessionId,
-						owner: { pid: 1, startedAt: 1, startTicks: 1 },
-					},
-				},
-				now: new Date("2026-10-28T20:40:00Z"),
-			}),
-			...(env ? { env } : {}),
-		});
 		const file = restoreFileOf(
-			[
-				{
-					record: hosted("01a1eeee-ffff"),
-					heartbeatAt: "2026-10-29T05:00:00Z",
-				},
-				{
-					record: hosted("01a1abab-cdcd", { PI_SANDBOX: "fence" }),
-					heartbeatAt: "2026-10-29T05:00:00Z",
-				},
-				{
-					record: ranIn("01a1cccc-dddd", "last"),
-					heartbeatAt: "2026-10-29T05:00:00Z",
-				},
-			],
+			hostedRecords(),
 			"this",
+			undefined,
+			(id) => id !== "01a1eded-0000",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog, viewWordsOf: viewWords },
 		);
 		const byId = new Map(file.sessions.map((entry) => [entry.id, entry]));
 		const view = byId.get("01a1eeee-ffff")?.view ?? [];
@@ -185,7 +203,7 @@ describe("the restore file", () => {
 			"--",
 			"pi",
 			"--session",
-			"01a1eeee-ffff",
+			"/logs/01a1eeee-ffff.jsonl",
 		]);
 		const fenced = byId.get("01a1abab-cdcd")?.view ?? [];
 		expect(fenced.slice(fenced.indexOf("--"))).toEqual([
@@ -194,9 +212,32 @@ describe("the restore file", () => {
 			"PI_SANDBOX=fence",
 			"pi",
 			"--session",
-			"01a1abab-cdcd",
+			"/logs/01a1abab-cdcd.jsonl",
 		]);
+		const unsaved = byId.get("01a1eded-0000");
+		expect(unsaved?.fresh, "one pi never saved starts afresh").toBe(true);
+		expect(unsaved, "with no log to fall back on").not.toHaveProperty("view");
 		expect(byId.get("01a1cccc-dddd")).not.toHaveProperty("view");
+	});
+
+	it("gives no viewer words where the writer's join wouldn't outlast its tree", () => {
+		// These tests run from a tree, not an install, as a pi reloaded
+		// onto a worktree does.
+		const file = restoreFileOf(
+			hostedRecords(),
+			"this",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ logOf: hostedLog },
+		);
+		const hosted = file.sessions.find((entry) => entry.id === "01a1eeee-ffff");
+		expect(hosted?.hosted, "still hosted").toBe(true);
+		expect(hosted).not.toHaveProperty("view");
 	});
 
 	it("offers a session parked when the boot ended, marked parked, unless its quest is done", () => {
