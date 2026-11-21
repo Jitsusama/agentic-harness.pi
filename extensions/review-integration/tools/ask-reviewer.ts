@@ -10,6 +10,7 @@
  * differing in what they get.
  */
 
+import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lensFor } from "../../../lib/core/review/ask/prompt.ts";
@@ -32,6 +33,7 @@ import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { askedSandbox } from "../../../lib/internal/fence/fence-stage.ts";
 import {
 	fencedChildrenRefusal,
+	inside,
 	packageRoot,
 } from "../../../lib/internal/fence/installed-only.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
@@ -282,13 +284,38 @@ export function reviewersRefused(
 }
 
 /**
+ * Why reviewers working in `folder` may not load this package's code: a
+ * reviewer runs strict, which writes its own folder, so a folder that
+ * holds this package, or lies inside it, would let one reviewer write the
+ * fence the next one loads outside it. A round reads a snapshot, so this
+ * is only met where none could be cut and the round reads the checkout
+ * this session runs.
+ */
+export function reviewerFolderRefusal(
+	folder: string,
+	root: string = packageRoot(),
+): string | undefined {
+	let real = folder;
+	try {
+		real = realpathSync(folder);
+	} catch {
+		// A folder that can't be followed is compared as named.
+	}
+	if (!inside(real, root) && !inside(root, real)) return undefined;
+	return `No reviewer started: it would work in ${real}, which holds the code it loads outside its fence (${root}), so one reviewer could write what the next runs. Review a snapshot of the change, or run the round from a session on the install.`;
+}
+
+/**
  * The fence's extensions, where this package has them: refused, as a
  * fenced session's subagents are, when that session runs this package
  * from outside the install, where its fenced commands could have
- * written the fence's own code.
+ * written the fence's own code, and when the reviewer's `folder` holds
+ * that code (reviewerFolderRefusal).
  */
-export function fencePacks(): string[] {
-	const refused = reviewersRefused();
+export function fencePacks(folder?: string): string[] {
+	const refused =
+		reviewersRefused() ??
+		(folder === undefined ? undefined : reviewerFolderRefusal(folder));
 	if (refused !== undefined) throw new Error(refused);
 	const root = packageRoot();
 	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
@@ -405,7 +432,7 @@ export function deps(
 			// only exists if the reviewer reached the end.
 			extraExtensions: [
 				...(RECORDS_FINDINGS.has(watch.round) ? [journalPack()] : []),
-				...fencePacks(),
+				...fencePacks(cwd),
 			],
 			env: FENCED,
 			// The charter is a standing instruction, and the system prompt

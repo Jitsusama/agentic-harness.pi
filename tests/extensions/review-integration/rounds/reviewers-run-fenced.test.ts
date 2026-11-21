@@ -5,13 +5,17 @@
  * isolated reviewer would otherwise lack.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	fencePacks,
+	reviewerFolderRefusal,
 	reviewersRefused,
 } from "../../../../extensions/review-integration/tools/ask-reviewer.ts";
 import { rosterOrThrow } from "../../../../extensions/review-integration/tools/ask-roster.ts";
+import { packageRoot } from "../../../../lib/internal/fence/installed-only.ts";
 
 afterEach(() => {
 	vi.unstubAllEnvs();
@@ -54,6 +58,29 @@ describe("the extensions a reviewer is fenced with", () => {
 	it("aren't refused to an unfenced session, whose commands already run as the person", () => {
 		vi.stubEnv("PI_SANDBOX", "off");
 		expect(reviewersRefused()).toBeUndefined();
+	});
+
+	it("aren't handed to a reviewer working in the folder they load from, which it could write", () => {
+		vi.stubEnv("PI_SANDBOX", "off");
+		const root = packageRoot();
+		for (const folder of [root, join(root, "extensions"), dirname(root)]) {
+			expect(() => fencePacks(folder), folder).toThrow(
+				/No reviewer started: it would work in .*, which holds the code it loads outside its fence/,
+			);
+		}
+	});
+
+	it("are handed to a reviewer working in a snapshot beside them", () => {
+		vi.stubEnv("PI_SANDBOX", "off");
+		const snapshot = mkdtempSync(join(tmpdir(), "snapshot-"));
+		try {
+			expect(fencePacks(snapshot)).toHaveLength(3);
+			expect(reviewerFolderRefusal(snapshot, "/elsewhere/harness")).toBe(
+				undefined,
+			);
+		} finally {
+			rmSync(snapshot, { recursive: true, force: true });
+		}
 	});
 
 	it("each load as an extension does", async () => {
