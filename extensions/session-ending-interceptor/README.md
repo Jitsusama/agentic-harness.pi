@@ -94,8 +94,11 @@ machine, read without a deadline.
   `KillUser` over `busctl`, `pkill -u` or `killall -u` of a user,
   `kill -9 -1`), which takes the services with it: it reads as an end
   of the user's processes rather than a log-out, and nothing spares a
-  session from it, parked or not. Only ending a session or a seat
-  reads as a log-out.
+  session from it, parked or not. Only ending a session or a seat,
+  or stopping the desktop logged in to (its compositor or
+  `graphical-session.target`), reads as a log-out, so a host the
+  spare passes over has to outlive the desktop, as one wanted by
+  `default.target` and bound to nothing graphical does.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
   or unsent text); its presence then says `parked`, and its marker

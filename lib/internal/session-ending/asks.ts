@@ -132,16 +132,17 @@ const QUALIFIED_AFTER = /^(?:\s+|-)?re-?(?:boot|start)/;
 
 /**
  * Prose with each quote a quote, but what it says to pick or run, and
- * a soft word quoted for emphasis, as in a "soft" reboot.
+ * a soft word quoted for emphasis, as in a "soft" reboot, which reads
+ * as though it were never quoted.
  */
 function withoutQuotes(plain: string): string {
-	return plain.replace(QUOTED, (quote, at: number) =>
-		PICKED_BEFORE.test(plain.slice(0, at)) ||
-		(QUOTED_SOFT.test(quote) &&
-			QUALIFIED_AFTER.test(plain.slice(at + quote.length)))
-			? quote
-			: '""',
-	);
+	return plain.replace(QUOTED, (quote, at: number) => {
+		if (PICKED_BEFORE.test(plain.slice(0, at))) return quote;
+		const emphasis =
+			QUOTED_SOFT.test(quote) &&
+			QUALIFIED_AFTER.test(plain.slice(at + quote.length));
+		return emphasis ? quote.slice(1, -1) : '""';
+	});
 }
 
 /**
