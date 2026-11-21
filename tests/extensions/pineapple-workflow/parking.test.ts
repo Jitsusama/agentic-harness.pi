@@ -23,6 +23,7 @@ function world(initial: Stop[] = []) {
 		wouldPark: [] as Parked[],
 		parked: [] as Parked[],
 		looked: 0,
+		repos: ["example/shop"],
 	};
 	const parking = createParking({
 		stops: () => seen.stops,
@@ -31,7 +32,7 @@ function world(initial: Stop[] = []) {
 			return {
 				realm: "work",
 				quests: ["QEST-CHILD", "QEST-PARENT"],
-				repos: ["example/shop"],
+				repos: seen.repos,
 				dirs: ["/work/shop"],
 			};
 		},
@@ -173,6 +174,16 @@ describe("parking", () => {
 		expect(seen.looked, "a new stop is asked afresh").toBe(2);
 		await parking.started();
 		expect(seen.looked, "a run may move it").toBe(3);
+	});
+
+	it("asks again at a turn's end, so a run that moved into a stopped repository parks", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.started();
+		expect(seen.aborts, "a run outside the repository was ended").toBe(0);
+		seen.repos = ["example/shop"];
+		await parking.turnEnded();
+		expect(seen.aborts, "the run that moved into it went on").toBe(1);
 	});
 
 	it("leaves a busy session to park at its turn's end", async () => {

@@ -148,6 +148,13 @@ describe("writesInBash", () => {
 		held("setsid nohup pi", "pi");
 		held("mycelium run --need machine=mac -- pi", "pi");
 		held("bash -c 'pi -p hi'", "pi");
+		held("bash -lc 'pi -p hi'", "pi");
+		held("sh -ec pi", "pi");
+		held("env -i pi", "pi");
+		held("env -u HOME -C /tmp pi", "pi");
+		held("systemd-run --user --on-active 30 pi", "pi");
+		held("stdbuf -o L pi -p go", "pi");
+		held("mycelium start --need machine=mac -- worker", "mycelium start");
 		held("mycelium carry QEST-X --to mac", "mycelium carry");
 		held("mycelium --realm personal sprout QEST-X", "mycelium sprout");
 		held("mycelium start --need machine=mac", "mycelium start");
@@ -159,6 +166,19 @@ describe("writesInBash", () => {
 		held("systemctl --user enable pi-conversation@x", "pi host enable");
 		expect(start("pi --version")).toEqual([]);
 		expect(start("pip install x")).toEqual([]);
+	});
+
+	it("reads pi started by a program that runs it its own way as a start", () => {
+		const start = (command: string) =>
+			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
+		const held = (command: string, action: string) =>
+			expect(start(command), command).toEqual([{ action, kind: "start" }]);
+		held("tmux new-window -d 'pi -p go'", "pi");
+		held("xargs -n1 pi -p", "xargs pi");
+		held("npx pi", "npx pi");
+		held("pnpm exec pi", "pnpm pi");
+		held("ssh mac pi", "ssh pi");
+		held("screen -dm pi", "screen pi");
 	});
 
 	it("lets what takes agents away, or only names a host, go", () => {
@@ -176,6 +196,11 @@ describe("writesInBash", () => {
 			"mycelium sessions",
 			"mycelium starts list",
 			"mycelium sessions --realm start",
+			"tmux new-window -d 'htop'",
+			"ssh mac uptime",
+			"xargs -n1 echo",
+			"pnpm exec vitest run",
+			"mycelium run --need machine=mac -- uptime",
 		]) {
 			expect(start(command), command).toEqual([]);
 		}
@@ -196,6 +221,30 @@ describe("writesInBash", () => {
 		expect(
 			actions("for u in a b; do systemctl --user status pi-host-$u; done"),
 		).toEqual([]);
+		expect(actions('for i in 1 2; do pi -p "go $i" & done')).toContain("pi");
+		expect(actions("for i in 1; do nohup pi-host; done")).toContain("pi");
+		expect(actions("for i in 1; do pi --version; done")).toEqual([]);
+		expect(actions("cd ~/src/pi; for i in 1; do ls; done")).toEqual([]);
+	});
+
+	it("reads every write of a shell's line, and where it runs only if known", () => {
+		expect(
+			writesInBash("bash -c 'pi -p go; git push origin fix'", HERE),
+		).toEqual([
+			{ action: "pi", kind: "start" },
+			{
+				action: "git push",
+				kind: "change",
+				dir: HERE,
+				remote: "origin",
+				branch: "fix",
+			},
+		]);
+		expect(
+			writesInBash('cd "$REPO" && bash -c "git push origin fix"', HERE),
+		).toEqual([
+			{ action: "git push", kind: "change", remote: "origin", branch: "fix" },
+		]);
 	});
 
 	it("reads a pi host started, stopped or moved as a start of agents", () => {

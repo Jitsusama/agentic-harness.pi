@@ -1,7 +1,8 @@
 /**
  * Parking a session a stop reaches: the turn it is on finishes, nothing
- * new starts, and once Joel resumes the stop it carries on, told to look
- * at what changed before it writes.
+ * new starts, and once Joel resumes the stop a session whose run the stop
+ * ended carries on, told to look at what changed before it writes. One
+ * the stop found idle stays idle, as it was.
  *
  * This is the session parking itself rather than a steer's pause, since
  * a pause ends when the person talks to the session and a stop must not:
@@ -55,7 +56,10 @@ export interface Parking {
 	started(): Promise<void>;
 	/** A turn ended: end the run when a stop landed while it went. */
 	turnEnded(): Promise<void>;
-	/** The clock: carry on once the stops parking the session are gone. */
+	/**
+	 * The clock: park an idle session a stop reaches, and once the stops
+	 * parking it are gone, carry on a run the stop ended.
+	 */
 	tick(): Promise<void>;
 	/** Whether the session is parked now. */
 	readonly parked: boolean;

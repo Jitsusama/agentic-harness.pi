@@ -24,9 +24,14 @@ writes it reaches:
   `review_offer`, `review_say` and a published `review_draft`;
 - switches and deploys (`switch-system`, `nixos-rebuild switch` and
   the like), for a stop on a quest, a realm or everything only;
-- starts of more agents, for the same stops: `systemctl` starting,
-  stopping or restarting a `pi-host-*`, `pi-conversation-*` or
-  `mycelium-pi-*` unit, the scripts that move conversations into or
+- starts of more agents, for the same stops: `pi`, `pi-host` or
+  `pi-carry` run, however wrapped or launched (a shell's `-c` line,
+  `systemd-run`, `tmux`, `ssh`, `xargs`, `npx` and the like), short of
+  asking its version or help; `mycelium carry`, `start` or `sprout`;
+  `systemctl` starting, restarting or enabling a `pi-host-*`,
+  `pi-conversation-*` or `mycelium-pi-*` unit, though stopping, killing
+  or disabling one goes, since it only takes agents away; the scripts
+  that move conversations into or
   out of a host (`host-cutover.ts`, `host-drain.ts`,
   `host-release.ts`, `host-take-up.ts`, `host-join.ts`),
   `pi-packages update`, which restarts every host onto the install it

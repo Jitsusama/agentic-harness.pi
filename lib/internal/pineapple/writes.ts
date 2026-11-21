@@ -20,6 +20,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
 import type { SimpleCommand } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
+import { PI_PROGRAMS, startIn } from "./starts.ts";
 
 /**
  * What a write lands on: one change (a push, a comment, a merge), a
@@ -240,6 +241,9 @@ const MACHINE: ReadonlyArray<
 	["colmena", new Set(["apply"])],
 ];
 
+/** env's options that take a value, so it isn't read as the program. */
+const ENV_VALUED = new Set(["-u", "--unset", "-C", "--chdir", "-S"]);
+
 /** Words that run the command after them, and how many words they take. */
 const WRAPPERS = new Map<string, number>([
 	["command", 0],
@@ -258,14 +262,25 @@ const WRAPPERS = new Map<string, number>([
  * about where it goes.
  */
 export function writesInBash(command: string, cwd: string): WriteCall[] {
+	return writesInLine(command, cwd);
+}
+
+/**
+ * As {@link writesInBash}, where `cwd` may be unknown, as a shell's `-c`
+ * line's is when its own shell's can't be told: every write in it is then
+ * left without a directory, rather than read from this process's own.
+ */
+function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
 	const line = tokenize(command);
 	if (!line.supported) return patternWrites(command);
 	const writes: WriteCall[] = [];
 	for (const simple of line.commands) {
-		const here = effectiveCwd(line, cwd, simple.span.start);
-		const dir = "dir" in here ? here.dir : undefined;
-		const write = writeIn(words(simple), dir);
-		if (write) writes.push(write);
+		const here =
+			cwd === undefined
+				? undefined
+				: effectiveCwd(line, cwd, simple.span.start);
+		const dir = here !== undefined && "dir" in here ? here.dir : undefined;
+		writes.push(...writeIn(words(simple), dir));
 	}
 	return writes;
 }
@@ -282,11 +297,13 @@ function unwrapped(argv: string[]): string[] {
 		const word = argv[at] ?? "";
 		if (word === "env") {
 			at += 1;
-			while (
-				at < argv.length &&
-				/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[at] ?? "")
-			)
-				at += 1;
+			while (at < argv.length) {
+				const next = argv[at] ?? "";
+				if (ENV_VALUED.has(next)) at += 2;
+				else if (next.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(next))
+					at += 1;
+				else break;
+			}
 			continue;
 		}
 		if (word === "direnv" && argv[at + 1] === "exec") {
@@ -302,18 +319,28 @@ function unwrapped(argv: string[]): string[] {
 	return argv.slice(at);
 }
 
-function writeIn(
-	argv: string[],
+/** The writes one command makes, with those of any command it runs. */
+function writeIn(argv: string[], dir: string | undefined): WriteCall[] {
+	const [program, ...rest] = argv;
+	if (program === undefined) return [];
+	const name = program.split("/").at(-1) ?? program;
+	const launched = launchedBy(name, rest)?.(dir) ?? [];
+	// A launcher's own verb still counts when what it runs writes nothing,
+	// as `mycelium start ... -- program` does.
+	if (launched.length > 0) return launched;
+	const write = ownWrite(name, rest, dir);
+	return write === undefined ? [] : [write];
+}
+
+/** What a command writes itself, apart from any command it runs. */
+function ownWrite(
+	name: string,
+	rest: string[],
 	dir: string | undefined,
 ): WriteCall | undefined {
-	const [program, ...rest] = argv;
-	if (program === undefined) return undefined;
-	const name = program.split("/").at(-1) ?? program;
 	if (name === "git") return gitPush(rest, dir);
 	if (name === "gh") return ghWrite(rest, dir);
 	if (name === "dt") return dtWrite(rest, dir);
-	const launched = launchedBy(name, rest);
-	if (launched !== undefined) return launched(dir);
 	const start = startIn(name, rest);
 	if (start) return start;
 	for (const [machine, verbs] of MACHINE) {
@@ -356,11 +383,31 @@ const LAUNCHERS = new Map<string, ReadonlySet<string>>([
 			"--uid",
 			"--gid",
 			"--nice",
+			"--on-active",
+			"--on-boot",
+			"--on-startup",
+			"--on-unit-active",
+			"--on-unit-inactive",
+			"--on-calendar",
+			"--timer-property",
+			"--service-type",
 		]),
 	],
 	["setsid", new Set()],
 	["nice", new Set(["-n", "--adjustment"])],
+	["stdbuf", new Set(["-i", "-o", "-e"])],
 ]);
+
+/**
+ * Programs that run a command handed to them some way this can't follow
+ * word for word: in a terminal multiplexer, on another host, once per
+ * input, or from a package. Each is judged a start when any of its words
+ * is a pi program, or any of them, read as a line, starts one.
+ */
+const OPAQUE = new Set(["tmux", "screen", "ssh", "xargs", "npx", "pnpm"]);
+
+/** A shell's options word that holds `-c`, alone or among others. */
+const RUNS_LINE = /^-[A-Za-z]*c[A-Za-z]*$/;
 
 /**
  * What a command that runs another command writes: a shell's `-c` line,
@@ -370,11 +417,26 @@ const LAUNCHERS = new Map<string, ReadonlySet<string>>([
 function launchedBy(
 	name: string,
 	args: string[],
-): ((dir: string | undefined) => WriteCall | undefined) | undefined {
+): ((dir: string | undefined) => WriteCall[]) | undefined {
 	if (SHELLS.has(name)) {
-		const line = args.at(args.indexOf("-c") + 1);
-		if (!args.includes("-c") || line === undefined) return undefined;
-		return (dir) => writesInBash(line, dir ?? ".")[0];
+		const flag = args.findIndex((word) => RUNS_LINE.test(word));
+		const line = flag < 0 ? undefined : args[flag + 1];
+		if (line === undefined) return undefined;
+		return (dir) => writesInLine(line, dir);
+	}
+	if (OPAQUE.has(name)) {
+		return () => {
+			const named = args.find((word) =>
+				PI_PROGRAMS.has(word.split("/").at(-1) ?? word),
+			);
+			if (named !== undefined) {
+				return [{ action: `${name} ${named}`, kind: "start" }];
+			}
+			return args
+				.filter((word) => /\s/.test(word))
+				.flatMap((word) => writesInLine(word, undefined))
+				.filter((write) => write.kind === "start");
+		};
 	}
 	if (name === "mycelium") {
 		const after = args.indexOf("--");
@@ -394,124 +456,6 @@ function launchedBy(
 		at += valued.has(word) ? 2 : 1;
 	}
 	return (dir) => writeIn(unwrapped(args.slice(at)), dir);
-}
-
-/**
- * systemctl's verbs that start a unit or make it start. Stopping, killing
- * or disabling one only takes agents away, which a stop never holds back.
- */
-const START_VERBS = new Set([
-	"start",
-	"restart",
-	"try-restart",
-	"reload-or-restart",
-	"try-reload-or-restart",
-	"enable",
-	"reenable",
-]);
-
-/** systemctl's options that take a value, so it isn't read as the verb. */
-const SYSTEMCTL_VALUED = new Set([
-	"-H",
-	"--host",
-	"-M",
-	"--machine",
-	"-p",
-	"--property",
-	"-t",
-	"--type",
-	"--state",
-	"-s",
-	"--signal",
-	"--kill-whom",
-	"-n",
-	"--lines",
-	"-o",
-	"--output",
-	"--root",
-	"--job-mode",
-]);
-
-/** The units a pi host or a hosted conversation runs as, globs included. */
-const HOST_UNIT = /^(?:pi-host|pi-conversation|mycelium-pi)[-*@]|^pi-\*/;
-
-/** The harness's scripts that start a host or move conversations into one. */
-const HOST_SCRIPT =
-	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts$/;
-
-/** Programs that start pi, a host of conversations, or a carried session. */
-const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
-
-/** What a pi program is asked that starts nothing. */
-const PI_ASKS = new Set(["--version", "-v", "--help", "-h"]);
-
-/** Programs that run a script named after their options. */
-const RUNNERS = new Set(["node", "tsx", "bun", "deno"]);
-
-/**
- * mycelium's verbs that start a session: carrying a quest's sessions to
- * another machine, starting a program held there, or sprouting one.
- */
-const MYCELIUM_STARTS = new Set(["carry", "start", "sprout"]);
-
-/**
- * A command that starts agents: pi itself, a host or a carried session;
- * systemctl starting or restarting a host's unit; a script that starts a
- * host or moves conversations, run as the program; or `pi-packages
- * update`, which restarts every host onto the install it moves; or a
- * mycelium verb that starts a session. A script only named, as `cat` or
- * `git diff` name one, starts nothing.
- */
-function startIn(name: string, args: string[]): WriteCall | undefined {
-	if (name === "systemctl") return unitStart(args);
-	if (name === "mycelium") return myceliumStart(args);
-	if (name === "pi-packages" && args.includes("update")) {
-		return { action: "pi-packages update", kind: "start" };
-	}
-	if (PI_PROGRAMS.has(name)) {
-		if (args.length > 0 && args.every((word) => PI_ASKS.has(word))) {
-			return undefined;
-		}
-		return { action: name, kind: "start" };
-	}
-	const script = RUNNERS.has(name) ? scriptRun(args) : name;
-	if (script === undefined || !HOST_SCRIPT.test(script)) return undefined;
-	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
-	return { action: `pi ${moves}`, kind: "start" };
-}
-
-/**
- * The script a runner runs: its first word named as a script, so an
- * option's value (`--env-file x`) isn't taken for it.
- */
-function scriptRun(args: string[]): string | undefined {
-	return args.find(
-		(word) => !word.startsWith("-") && /\.[cm]?[jt]s$/.test(word),
-	);
-}
-
-/** `mycelium [--realm name] <verb>` starting a session somewhere. */
-function myceliumStart(args: string[]): WriteCall | undefined {
-	const words = args.filter(
-		(word, at) => !word.startsWith("-") && args[at - 1] !== "--realm",
-	);
-	const verb = words[0];
-	if (verb === undefined || !MYCELIUM_STARTS.has(verb)) return undefined;
-	return { action: `mycelium ${verb}`, kind: "start" };
-}
-
-/** `systemctl [options] <verb> <unit...>` starting a host's unit. */
-function unitStart(args: string[]): WriteCall | undefined {
-	const found: string[] = [];
-	for (let at = 0; at < args.length; at += 1) {
-		const word = args[at] ?? "";
-		if (SYSTEMCTL_VALUED.has(word)) at += 1;
-		else if (!word.startsWith("-")) found.push(word);
-	}
-	const [verb, ...units] = found;
-	if (verb === undefined || !START_VERBS.has(verb)) return undefined;
-	if (!units.some((unit) => HOST_UNIT.test(unit))) return undefined;
-	return { action: `pi host ${verb}`, kind: "start" };
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */
@@ -757,6 +701,11 @@ function patternWrites(command: string): WriteCall[] {
 			"start",
 		],
 		[/\bpi-packages\s+update\b/, "pi-packages update", "start"],
+		[
+			/(?:^|[;&|(`]|\b(?:do|then|else|nohup|exec|setsid|command|time|sudo)\b)\s*(?:[\w.~-]*\/)*pi(?:-host|-carry)?(?=[\s;&|)`]|$)(?!\s+(?:--version|-v|--help|-h)\s*(?:$|[;&|)]))/,
+			"pi",
+			"start",
+		],
 		[/\bmycelium\s+(?:carry|start|sprout)\b/, "mycelium start", "start"],
 	];
 	for (const [pattern, action, kind] of patterns) {
