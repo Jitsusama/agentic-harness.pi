@@ -233,6 +233,10 @@ describe("spawn into a host", () => {
 		const token = open.env?.PI_FENCE_STAGE;
 		expect(token, "the open carried no stage token").toMatch(/^[0-9a-f-]{36}$/);
 		expect(listedForStage(token), "its token wasn't listed").toBe(true);
+		expect(
+			result.ok && result.details?.fence,
+			"it claims the fence its token runs",
+		).toEqual({ kind: "fence", from: "default" });
 	});
 
 	it("hands a fresh session no token until spawns join the stage", async () => {
@@ -282,6 +286,10 @@ describe("spawn into a host", () => {
 			"the second open still carried the token",
 		).toBeUndefined();
 		expect(said(result)).toContain("starts outside the stage");
+		expect(
+			result.ok && result.details?.fence,
+			"it claims what runs without the token",
+		).toEqual({ kind: "none", from: "default" });
 		expect(recordUnlisted, "the miss was not counted").toHaveBeenCalledWith(
 			expect.objectContaining({ kind: "host", error: "older-host" }),
 		);

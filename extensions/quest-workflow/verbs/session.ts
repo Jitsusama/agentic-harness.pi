@@ -89,7 +89,14 @@ import {
 	resumedBy,
 	spawnedByLauncher,
 } from "./spawn-launcher.ts";
-import { spawnFence, stagedById, stagedSpawn } from "./spawn-stage.ts";
+import {
+	placementFence,
+	reopens,
+	spawnFence,
+	stagedById,
+	stagedSpawn,
+	wouldStage,
+} from "./spawn-stage.ts";
 
 /** What a spawn settled on its way, for its answer to say. */
 interface SpawnSaid {
@@ -127,12 +134,24 @@ export async function spawn(
 	};
 }
 
-/** A spawn's answer saying the fence it told the node, once it did. */
+/**
+ * A spawn's answer saying the fence it runs in, which it told the node
+ * where it asked one. A host too old for the stage's token opened it
+ * without, so an undeclared fence settles to what that runs.
+ */
 function withFence(
 	result: QuestResult,
-	fence: FenceDeclaration | undefined,
+	asked: FenceDeclaration | undefined,
 ): QuestResult {
-	if (!result.ok || !fence) return result;
+	if (!result.ok || !asked) return result;
+	const fence =
+		result.details?.unstaged === true
+			? declarationSettled(asked, {
+					staged: false,
+					carried: true,
+					reopens: false,
+				})
+			: asked;
 	return {
 		...result,
 		message: `${result.message} ${declarationSaid(fence)}`,
@@ -211,30 +230,33 @@ async function spawnNaming(
 		fence: params.fence,
 		quest: fm._extra?.fence,
 		parent: sessionEnv(ctx).snapshot(),
-		dryRun: params.dryRun,
 	});
 	if (!declared.ok) return refuse(declared.refusal);
 	let fence = declared.declaration;
+	const resumable = pickResumeSession(
+		sessions.filter((s) => s.id !== currentId),
+	);
+	const placementClaim = placementFence(fence, {
+		command: params.command,
+		resumes: resumable !== undefined && "id" in resumable,
+	});
 	const chosen = await machineFor(
 		named,
 		named !== undefined || params.needs !== undefined
 			? (params.needs ?? [])
 			: needsOf(fm),
 		undefined,
-		fence,
+		placementClaim,
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { needs } = chosen;
-	const resumable = pickResumeSession(
-		sessions.filter((s) => s.id !== currentId),
-	);
 	// Naming neither, it goes where the node places work, unless it resumes.
 	const machine = await machineByDefault(chosen.machine, needs, {
 		resumes: Boolean(resumable && "id" in resumable),
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),
-		fence,
+		fence: placementClaim,
 	});
 	const resume =
 		machine === undefined || isThisMachine(machine) ? resumable : undefined;
@@ -271,12 +293,18 @@ async function spawnNaming(
 	const { command: asks, dryRun } = params; // a reopen isn't staged
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
-	const startsHere = machine === undefined || isThisMachine(machine);
-	fence = declarationSettled(fence, { staged: !!staged, here: startsHere });
+	const reopening = reopens(stage);
+	// The stage's token reaches what opens here, in a terminal, the
+	// launcher or a host; a held start, even on this machine, carries none.
+	fence = declarationSettled(fence, {
+		staged: dryRun ? wouldStage(stage) : staged !== undefined,
+		carried: machine === undefined,
+		reopens: reopening,
+	});
 	said.fence = fence;
 	// A declared fence runs a fresh session's commands; a reopen keeps its
 	// own, as the stage leaves a reopen alone (spawn-stage.ts).
-	const sandbox = picked ? undefined : sandboxFor(fence);
+	const sandbox = reopening ? undefined : sandboxFor(fence);
 	const carried = {
 		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
 		...(sandbox ? { [SANDBOX_VARIABLE]: sandbox } : {}),
@@ -308,7 +336,6 @@ async function spawnNaming(
 	const settingNote = byHost.terminalNote;
 	const spawned = resolveSpawnCommand(params.command, resume);
 	const { resumedSessionId } = spawned;
-	const freshSandbox = resumedSessionId ? undefined : sandbox;
 	// A reopen starts where its session ran, since pi finds a session by
 	// id only among the logs of the folder it starts in, even over a
 	// folder the call named: on 14 November two of WJATIN's four reopens
@@ -394,7 +421,7 @@ async function spawnNaming(
 			machine,
 			needs,
 			fence,
-			...(freshSandbox ? { sandbox: freshSandbox } : {}),
+			...(sandbox ? { sandbox } : {}),
 			command,
 			cwd,
 			home: homedir(),
@@ -456,6 +483,7 @@ async function spawnNaming(
 		cwd,
 		questId: questIdForSpawn,
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
+		sandboxed: sandbox !== undefined,
 		...(asking ? { fromSessionId: asking } : {}),
 		place: handedPlaceFor(questIdForSpawn, index),
 	});
@@ -465,7 +493,7 @@ async function spawnNaming(
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
 	if (staged) env[STAGE_VARIABLE] = staged;
-	if (freshSandbox) env[SANDBOX_VARIABLE] = freshSandbox;
+	if (sandbox) env[SANDBOX_VARIABLE] = sandbox;
 	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the

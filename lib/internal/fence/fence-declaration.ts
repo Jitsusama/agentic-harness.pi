@@ -44,7 +44,10 @@ export interface UndeclaredStart {
 /**
  * What a spawn nobody declared a fence for runs: strict when the session
  * spawning it runs strict, since its child keeps that, the fence when the
- * first stage takes it, and none otherwise.
+ * first stage takes it, and none otherwise. A terminal launched as a new
+ * process inherits the spawner's own `PI_SANDBOX`, so a fenced session's
+ * child may run the fence while this says none: less than runs, which
+ * the node's judge never trusts, rather than more.
  */
 export function undeclaredRuns(start: UndeclaredStart): FenceKind {
 	if (start.parent.PI_SANDBOX?.trim() === "strict") return "strict";
@@ -103,7 +106,8 @@ export function fenceDeclared(
 /**
  * The `PI_SANDBOX` a fresh child is given for `declaration`: the kind
  * declared, and strict for an undeclared child of a strict parent, which
- * no spawn's environment would otherwise hand on. Any other undeclared
+ * a host, a held start or a window kitty opens would otherwise not hand
+ * on. Any other undeclared
  * child gets none, so its commands run as the fence's stage says rather
  * than every spawn losing its credentials at once.
  */
@@ -116,20 +120,37 @@ export function sandboxFor(
 	return declaration.kind === "strict" ? "strict" : undefined;
 }
 
+/** How a spawn starts, as far as what it runs goes. */
+export interface SpawnSettled {
+	/** Whether the first stage listed it, or would on a dry run. */
+	readonly staged: boolean;
+	/** Whether what starts it carries the stage's token to it. */
+	readonly carried: boolean;
+	/** Whether it reopens a session, which is given no sandbox. */
+	readonly reopens: boolean;
+}
+
+/** What a spawn runs given no sandbox, claimed by nobody's word. */
+export const UNFENCED: FenceDeclaration = { kind: "none", from: "default" };
+
 /**
- * `declaration` once it is known where the spawn starts and whether the
- * first stage took it: an undeclared fence the stage didn't take, or one
- * started on another machine, which no listing here reaches, runs none.
+ * `declaration` once it is known how the spawn starts. A reopen is given
+ * no sandbox, so whatever was declared, it claims none rather than a
+ * fence it may not run; an undeclared fence the stage didn't list, or
+ * listed under a token nothing carries to it, runs none too. Claiming
+ * less than runs is safe, since the node's judge trusts no default; more
+ * would have it trust a fence that isn't there (ISXEG8 [8d401568]).
  */
 export function declarationSettled(
 	declaration: FenceDeclaration,
-	settled: { readonly staged: boolean; readonly here: boolean },
+	settled: SpawnSettled,
 ): FenceDeclaration {
-	const unstaged = !settled.staged || !settled.here;
+	if (settled.reopens) return UNFENCED;
+	const unstaged = !settled.staged || !settled.carried;
 	return declaration.from === "default" &&
 		declaration.kind === "fence" &&
 		unstaged
-		? { kind: "none", from: "default" }
+		? UNFENCED
 		: declaration;
 }
 
@@ -140,7 +161,7 @@ export function declarationSaid(declaration: FenceDeclaration): string {
 			? "as the spawn declared"
 			: declaration.from === "quest"
 				? "as its quest declares"
-				: "since nothing declared a fence";
+				: "declared by nobody";
 	const runs = declaration.kind === "none" ? "unfenced" : declaration.kind;
-	return `It tells the node it runs ${runs}, ${by}.`;
+	return `It runs ${runs}, ${by}.`;
 }

@@ -10,7 +10,9 @@
 
 import {
 	type DeclarationRead,
+	type FenceDeclaration,
 	fenceDeclared,
+	UNFENCED,
 	undeclaredRuns,
 } from "../../../lib/internal/fence/fence-declaration.ts";
 import {
@@ -42,24 +44,28 @@ export interface AskedFence {
 	readonly quest: unknown;
 	/** The environment of the session spawning it. */
 	readonly parent: Readonly<Record<string, string | undefined>>;
-	readonly dryRun?: boolean | undefined;
 }
 
 /**
  * The fence a spawn tells the node it runs in, as it would start fresh
  * here: what the call or its quest declares, else what it runs, which
- * counts the stage taking it once spawns join. Asked before the node
- * places it, so it lists nothing; `declarationSettled` corrects it once
- * the stage has listed it, or not.
+ * counts the stage taking it once spawns join, on a dry run too, so it
+ * says what the spawn it previews would. Asked before the node places
+ * it, so it lists nothing; `declarationSettled` corrects it once it is
+ * known how the spawn starts.
  */
 export function spawnFence(asked: AskedFence): DeclarationRead {
-	const staged = !asked.dryRun && spawnsJoin();
-	const runs = undeclaredRuns({ parent: asked.parent, staged });
+	const runs = undeclaredRuns({ parent: asked.parent, staged: spawnsJoin() });
 	return fenceDeclared(asked.fence, asked.quest, runs);
 }
 
-/** Whether a spawn reopens a session, picked or by its command. */
-function reopens(spawn: StagedSpawn): boolean {
+/**
+ * Whether a spawn reopens a session, picked or by its command: the one
+ * test for both the stage and the sandbox a fresh spawn is given, so
+ * neither a reopen by command gains a sandbox nor a fresh pi with a
+ * command of its own loses one.
+ */
+export function reopens(spawn: StagedSpawn): boolean {
 	return (
 		spawn.resuming !== undefined || resumedBy(spawn.command ?? "") !== undefined
 	);
@@ -76,7 +82,7 @@ function whyOf(spawn: StagedSpawn): string {
  * reopen, a dry run or a listing that couldn't be written.
  */
 export function stagedSpawn(spawn: StagedSpawn): string | undefined {
-	if (reopens(spawn) || spawn.dryRun || !spawnsJoin()) return undefined;
+	if (spawn.dryRun || !wouldStage(spawn)) return undefined;
 	try {
 		return listSpawnForStage(whyOf(spawn));
 	} catch (error) {
@@ -89,6 +95,34 @@ export function stagedSpawn(spawn: StagedSpawn): string | undefined {
 		});
 		return undefined;
 	}
+}
+
+/** What a spawn's placement ask knows of whether it reopens. */
+export interface PlacementAsked {
+	/** The command the call gives, if any. */
+	readonly command?: string | undefined;
+	/** Whether a session of the quest would resume, if nothing else is said. */
+	readonly resumes: boolean;
+}
+
+/**
+ * The fence a spawn tells the node when asking where it runs: asked
+ * before it is known whether it reopens, which is given no sandbox, one
+ * that may reopen claims none, since under-claiming is safe.
+ */
+export function placementFence(
+	fence: FenceDeclaration,
+	asked: PlacementAsked,
+): FenceDeclaration {
+	const command = asked.command?.trim() ?? "";
+	const mayReopen =
+		resumedBy(command) !== undefined || (asked.resumes && command === "");
+	return mayReopen ? UNFENCED : fence;
+}
+
+/** Whether the stage would list `spawn`, dry run or not. */
+export function wouldStage(spawn: StagedSpawn): boolean {
+	return !reopens(spawn) && spawnsJoin();
 }
 
 /** List a fresh spawn the launcher starts by the id it hands on alone. */

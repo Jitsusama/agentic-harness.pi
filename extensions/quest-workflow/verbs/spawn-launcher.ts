@@ -36,6 +36,11 @@ export interface LauncherSpawn {
 	readonly questId: string;
 	/** Whether the call named a terminal, a layout or a nesting. */
 	readonly named: boolean;
+	/**
+	 * Whether it must start in a sandbox, which the launcher, handing on
+	 * a session's id alone, would drop, so the window opens here instead.
+	 */
+	readonly sandboxed?: boolean;
 	/** The session asking for it, which its window goes beside. */
 	readonly fromSessionId?: string;
 	/** The orchestrator, workspace and title its window is placed by (window-place.ts). */
@@ -75,7 +80,9 @@ export function resumedBy(
 export function launcherSession(
 	spawn: LauncherSpawn,
 ): HandedSession | undefined {
-	if (spawn.named || realmSegments().length > 0) return undefined;
+	if (spawn.named || spawn.sandboxed || realmSegments().length > 0) {
+		return undefined;
+	}
 	if (process.env.PI_LAUNCHER === "off") return undefined;
 	const resumed = resumedBy(spawn.command);
 	const [starting, model] = STARTING.exec(spawn.command.trim()) ?? [];

@@ -610,7 +610,8 @@ function olderHost(spawn: HostSpawn, code: string): HostSpawn | undefined {
  * What the spawn sent again without the token answers. Only an open is
  * an older host's, said and logged as the stage's miss, so the count the
  * everyone stage's pre-flight reads holds no request refused for another
- * reason.
+ * reason. Its details say it started unstaged, so the fence it claims
+ * says what that runs.
  */
 function openedUnstaged(result: QuestResult, spawn: HostSpawn): QuestResult {
 	if (!result.ok) return result;
@@ -620,7 +621,10 @@ function openedUnstaged(result: QuestResult, spawn: HostSpawn): QuestResult {
 		quest: spawn.questId,
 		error: "older-host",
 	});
-	return noted(result, OLDER_HOST);
+	const said = noted(result, OLDER_HOST);
+	return said.ok
+		? { ...said, details: { ...said.details, unstaged: true } }
+		: said;
 }
 
 /** A result with a note after what it says. */

@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import {
+	joinSpawns,
+	STAGE_VARIABLE,
+} from "../../../../lib/internal/fence/fence-stage.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import {
 	clearTerminalDrivers,
@@ -262,7 +266,7 @@ describe("the fence a quest's spawns declare", () => {
 		);
 
 		expect(fenceIn(dir), "no fence key is left").toBeUndefined();
-		expect(removed.message, "it says strict is what follows").toContain(
+		expect(removed.message, "it says none is declared now").toContain(
 			"declares no fence now",
 		);
 	});
@@ -275,7 +279,7 @@ describe("the fence a quest's spawns declare", () => {
 
 		expect(spawnedEnv?.PI_SANDBOX, "its commands run fenced").toBe("fence");
 		expect(result.message, "it says who declared it").toContain(
-			"It tells the node it runs fence, as its quest declares.",
+			"It runs fence, as its quest declares.",
 		);
 		expect(result.details, "the details carry it").toMatchObject({
 			fence: { kind: "fence", from: "quest" },
@@ -298,8 +302,44 @@ describe("the fence a quest's spawns declare", () => {
 
 		expect(spawnedEnv?.PI_SANDBOX, "no sandbox is named").toBeUndefined();
 		expect(result.message, "it says what truly runs").toContain(
-			"It tells the node it runs unfenced, since nothing declared a fence.",
+			"It runs unfenced, declared by nobody.",
 		);
+	});
+
+	it("claims the fence for an undeclared spawn the stage takes, which its token carries", async () => {
+		const { id, run } = await quest("Alpha");
+		joinSpawns("the test lets spawns join");
+
+		const result = succeeded(await run({ action: "spawn-tab", id }));
+
+		expect(spawnedEnv?.[STAGE_VARIABLE], "it carries its listing").toEqual(
+			expect.any(String),
+		);
+		expect(spawnedEnv?.PI_SANDBOX, "the stage, not a name, fences it").toBe(
+			undefined,
+		);
+		expect(result.details, "it claims what the stage runs").toMatchObject({
+			fence: { kind: "fence", from: "default" },
+		});
+	});
+
+	it("gives a reopen by command no sandbox and claims none, whatever was declared", async () => {
+		const { id, run } = await quest("Alpha");
+		const session = "019a0000-0000-7000-8000-000000000001";
+
+		const result = succeeded(
+			await run({
+				action: "spawn-tab",
+				id,
+				fence: "fence",
+				command: `pi --session ${session}`,
+			}),
+		);
+
+		expect(spawnedEnv?.PI_SANDBOX, "a reopen keeps its own").toBe(undefined);
+		expect(result.details, "it claims what a reopen runs").toMatchObject({
+			fence: { kind: "none", from: "default" },
+		});
 	});
 
 	it("keeps an undeclared spawn of a strict session strict, and only a declared fence lowers it", async () => {
@@ -308,7 +348,7 @@ describe("the fence a quest's spawns declare", () => {
 
 		const kept = succeeded(await run({ action: "spawn-tab", id }));
 		expect(spawnedEnv?.PI_SANDBOX, "the child keeps strict").toBe("strict");
-		expect(kept.details, "it says so to the node").toMatchObject({
+		expect(kept.details, "the answer claims strict").toMatchObject({
 			fence: { kind: "strict", from: "default" },
 		});
 

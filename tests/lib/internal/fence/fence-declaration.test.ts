@@ -94,30 +94,47 @@ describe("what a spawn nobody declared a fence for runs", () => {
 describe("the declaration once the spawn has started", () => {
 	const staged = { kind: "fence", from: "default" } as const;
 
-	it("is unfenced for an undeclared fence the stage didn't take, or one started elsewhere", () => {
+	const fresh = { staged: true, carried: true, reopens: false };
+	const unfenced = { kind: "none", from: "default" };
+
+	it("is unfenced for an undeclared fence the stage didn't take, or whose token nothing carries", () => {
 		expect(
-			declarationSettled(staged, { staged: false, here: true }),
+			declarationSettled(staged, { ...fresh, staged: false }),
 			"unlisted",
-		).toEqual({ kind: "none", from: "default" });
+		).toEqual(unfenced);
 		expect(
-			declarationSettled(staged, { staged: true, here: false }),
-			"no listing here reaches another machine",
-		).toEqual({ kind: "none", from: "default" });
+			declarationSettled(staged, { ...fresh, carried: false }),
+			"a held start carries no token",
+		).toEqual(unfenced);
 	});
 
-	it("is unchanged for one staged here, or one declared", () => {
-		expect(
-			declarationSettled(staged, { staged: true, here: true }),
-			"staged here",
-		).toEqual(staged);
+	it("is unfenced for a reopen, whatever was declared, since a reopen is given no sandbox", () => {
+		for (const declared of [
+			{ kind: "fence", from: "spawn" },
+			{ kind: "strict", from: "quest" },
+			{ kind: "strict", from: "default" },
+			staged,
+		] as const) {
+			expect(
+				declarationSettled(declared, { ...fresh, reopens: true }),
+				`a reopen declared ${declared.kind} from ${declared.from}`,
+			).toEqual(unfenced);
+		}
+	});
+
+	it("is unchanged for one staged and carried, or one declared", () => {
+		expect(declarationSettled(staged, fresh), "staged and carried").toEqual(
+			staged,
+		);
+		const neither = { staged: false, carried: false, reopens: false };
 		const declared = { kind: "fence", from: "quest" } as const;
 		expect(
-			declarationSettled(declared, { staged: false, here: false }),
+			declarationSettled(declared, neither),
 			"a declared fence stands",
 		).toEqual(declared);
 		const strict = { kind: "strict", from: "default" } as const;
 		expect(
-			declarationSettled(strict, { staged: false, here: false }),
+			declarationSettled(strict, neither),
 			"a strict parent's child stays strict",
 		).toEqual(strict);
 	});
@@ -157,12 +174,10 @@ describe("the declaration said", () => {
 		expect(
 			declarationSaid({ kind: "fence", from: "spawn" }),
 			"a spawn's fence",
-		).toBe("It tells the node it runs fence, as the spawn declared.");
+		).toBe("It runs fence, as the spawn declared.");
 		expect(
 			declarationSaid({ kind: "none", from: "default" }),
 			"nothing declared, unfenced",
-		).toBe(
-			"It tells the node it runs unfenced, since nothing declared a fence.",
-		);
+		).toBe("It runs unfenced, declared by nobody.");
 	});
 });

@@ -166,7 +166,7 @@ function changeFence(
 	if (was === now) {
 		return ok(
 			now === undefined
-				? `${quest} declares no fence; its spawns tell the node strict unless they name one.`
+				? `${quest} declares no fence; its spawns claim what they run unless they name one.`
 				: `${quest} already declares ${String(now)}.`,
 			{ fence: now ?? null, changed: false },
 		);
@@ -174,12 +174,12 @@ function changeFence(
 	appendJourneyByPath(
 		target.questDir,
 		now === undefined
-			? "Declares no fence: its spawns tell the node strict unless they name one."
+			? "Declares no fence: its spawns claim what they run unless they name one."
 			: `Declares ${String(now)}: its spawns tell the node so unless they name another.`,
 	);
 	return ok(
 		now === undefined
-			? `${quest} declares no fence now; its spawns tell the node strict unless they name one.`
+			? `${quest} declares no fence now; its spawns claim what they run unless they name one.`
 			: `${quest} declares ${String(now)}; its spawns tell the node so unless they name another.`,
 		{ fence: now ?? null, changed: true },
 	);
