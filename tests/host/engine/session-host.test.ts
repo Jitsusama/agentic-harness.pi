@@ -155,7 +155,7 @@ it("publishes changes in call order and protects list snapshots", () => {
 	).toEqual([]);
 });
 
-it("keeps when a conversation turned busy through each run of one turn", () => {
+it("keeps when a conversation turned busy when it is said busy again", () => {
 	vi.useFakeTimers({ now: Date.parse("2026-11-20T20:00:00Z") });
 	try {
 		const host = start();

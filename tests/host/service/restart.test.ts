@@ -632,7 +632,8 @@ describe("restartWhenSettled", () => {
 		const drains: boolean[] = [];
 		const { facts: given, said } = facts({
 			differs: async () => "its heap is short",
-			held: () => [{ sessionId: "a", state: "busy", since: lately }],
+			// As the host lists it, by its conversation's id.
+			held: () => [{ id: "a", state: "busy", since: lately }],
 			pressure: () => "pressed",
 			heapRestarts: () => true,
 			drain: (on) => drains.push(on),

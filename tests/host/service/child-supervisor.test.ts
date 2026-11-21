@@ -1,4 +1,11 @@
-/** The host starting and watching the children that run its resumed conversations, and letting each go. */
+/**
+ * The host starting and watching the children that run its resumed
+ * conversations, and letting each go.
+ *
+ * Long because each case races two of the supervisor's steps over the
+ * same slots and routes, as child-supervisor.ts is long for; its opens,
+ * claims and leavings already have files of their own.
+ */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -296,7 +303,9 @@ describe("a resumed conversation", () => {
 		units.next = {
 			answers: (result) => ({ ...result, conversation: conversation(b) }),
 		};
-		await expect(supervisor.resume(entry(a))).rejects.toThrow("not");
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`not ${a} as asked`,
+		);
 		const [unit] = units.started;
 
 		await expect(supervisor.left(a)).rejects.toThrow(
@@ -420,6 +429,93 @@ describe("what a child says", () => {
 
 		await expect(supervisor.left(b), "b runs there").rejects.toThrow(
 			"still runs",
+		);
+	});
+
+	it("says a conversation has left only once the roster holds what it became", async () => {
+		await supervisor.resume(entry(a));
+		const write = deferred();
+		roster.written = write.promise;
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
+		await pause(LISTENS_AFTER_MS);
+		expect(hasLeft, "left before the roster replaced it").toBe(false);
+		write.settle();
+		await leaving;
+
+		expect(roster.held, "the roster holds what it became").toEqual([entry(b)]);
+	});
+
+	it("says a conversation has left only once the roster holds what it became, heard while it waited on its slot", async () => {
+		await supervisor.resume(entry(a));
+		// The first leave's look at the slot holds every later claim on it.
+		const looked = deferred();
+		units.goneAnswers = looked.promise;
+		const first = supervisor.left(a);
+		const write = deferred();
+		roster.written = write.promise;
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+		looked.settle();
+		await expect(first, "a still ran when it looked").rejects.toThrow(
+			"still runs",
+		);
+
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
+		await pause(LISTENS_AFTER_MS);
+		expect(hasLeft, "left before the roster replaced it").toBe(false);
+		write.settle();
+		await leaving;
+
+		expect(roster.held, "the roster holds what it became").toEqual([entry(b)]);
+	});
+
+	it("says a conversation has not left a slot it became another in once a child of it lingers there again", async () => {
+		await supervisor.resume(entry(a));
+		const last = childOf(a);
+		const slotA = slotOf(folder, key, a);
+		last.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(roster.held).toEqual([entry(b)]));
+		last.say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[b, "parked"]]));
+		void last.exit();
+		await vi.waitFor(() => expect(units.forgotten).toContain(slotA.unit));
+
+		units.lingers = true;
+		units.next = { silent: true };
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			"no answer within",
+		);
+
+		await expect(supervisor.left(a)).rejects.toThrow(
+			`${a} still runs in ${slotA.unit}`,
 		);
 	});
 
@@ -607,6 +703,36 @@ describe("what a child says", () => {
 		expect(routes.listed(), "routed to nothing").toEqual([]);
 		expect(String(reported[0])).toContain("can't be written");
 		expect(said).toEqual([expect.stringContaining("couldn't be held")]);
+	});
+
+	it("says a conversation has left once the roster has refused what it became, not before", async () => {
+		await supervisor.resume(entry(a));
+		const write = deferred();
+		roster.written = write.promise;
+		roster.refuses = true;
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+
+		let hasLeft = false;
+		const leaving = supervisor.left(a).then(() => {
+			hasLeft = true;
+		});
+		// A fixed wait, since what it shows is that nothing settles: long
+		// enough for a left that didn't wait on the write to have settled.
+		await pause(LISTENS_AFTER_MS);
+		expect(hasLeft, "left before the roster answered").toBe(false);
+		write.settle();
+
+		await expect(
+			leaving,
+			"a refused write is let go, not thrown at whoever waits to leave",
+		).resolves.toBeUndefined();
+		expect(String(reported[0])).toContain("can't be written");
 	});
 
 	it("takes no became onto another child's conversation spelled in capitals", async () => {

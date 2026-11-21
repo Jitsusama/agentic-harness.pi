@@ -95,6 +95,11 @@
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
+ *
+ * Long because the install, the heap, its drain and the person's quiet
+ * are each a reason to restart that the same one look weighs against
+ * the same holds (turns, background work, screens, calls): split by
+ * reason, each would decide alone what the others must let pass.
  */
 
 import { realpath } from "node:fs/promises";
@@ -223,8 +228,11 @@ export interface Held {
 	readonly state: "busy" | "idle" | "parked";
 	/** When it last changed state, as an ISO time. */
 	readonly since: string;
-	/** Its conversation, for a line naming what holds a drain. */
-	readonly sessionId?: string;
+	/**
+	 * Its conversation, as the host lists it, for a line naming what holds
+	 * a drain.
+	 */
+	readonly id?: string;
 }
 
 /**
@@ -815,7 +823,7 @@ function pastCeilingLine(oldTurns: readonly Held[]): string {
 	const holding =
 		oldTurns.length === 0
 			? "turns begun since the drain keep it standing"
-			: `${oldTurns.map((turn) => `${turn.sessionId ?? "a turn"} (busy since ${turn.since})`).join(", ")} ${oldTurns.length === 1 ? "runs" : "run"} on from before the drain`;
+			: `${oldTurns.map((turn) => `${turn.id ?? "a turn"} (busy since ${turn.since})`).join(", ")} ${oldTurns.length === 1 ? "runs" : "run"} on from before the drain`;
 	return `Heap short of room past its drain's ceiling: ${holding}, so held wakes wait until the host restarts or its heap has room again`;
 }
 

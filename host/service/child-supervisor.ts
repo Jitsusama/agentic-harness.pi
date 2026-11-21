@@ -175,7 +175,9 @@ export interface ChildSupervisor {
 	adopt(): Promise<number>;
 	/**
 	 * Settles once no child runs this conversation: every one that ran it
-	 * has gone and its own slot is free, or runs what it became. Fails
+	 * has gone and its own slot is free, or runs what it became once the
+	 * roster's write of that has landed (one that fails is reported and
+	 * let go). Fails
 	 * while one still runs it, or once the host stops watching.
 	 */
 	left(sessionId: string): Promise<void>;
@@ -347,6 +349,26 @@ export function childSupervisor(options: {
 	// Each watch's queued slot and roster writes, by its unit, which a
 	// clearing of its slot waits out, so none lands in the next child's.
 	const writing = new Map<string, () => Promise<void>>();
+	/**
+	 * Wait out the roster writes of every slot `sessionId` moved off,
+	 * those heard while waiting among them: a slot writes what it became
+	 * after the move is heard, and until that lands a resume of it would
+	 * be held and then replaced away.
+	 */
+	async function movesLanded(sessionId: string): Promise<void> {
+		const moved = `${keyed(sessionId)} `;
+		const waited = new Set<string>();
+		for (;;) {
+			const pending = [...movedOff].filter(
+				(off) => off.startsWith(moved) && !waited.has(off),
+			);
+			if (pending.length === 0) return;
+			for (const off of pending) {
+				waited.add(off);
+				await writing.get(off.slice(moved.length))?.();
+			}
+		}
+	}
 
 	/** Count `sessionId` as running in `slot`, beside wherever else. */
 	function runsIn(sessionId: string, slot: Slot): void {
@@ -1241,6 +1263,9 @@ export function childSupervisor(options: {
 				if (!(await claimed(own.unit, () => free(own))))
 					throw new Error(`${sessionId} still runs in ${own.unit}`);
 			}
+			// Last, so a became heard while it waited on a claim is waited out
+			// too: what it moved off stays named until its write has landed.
+			await movesLanded(sessionId);
 			stillWatching();
 		},
 		close() {

@@ -164,7 +164,9 @@ export interface BackendChildren {
 	ask(sessionId: string, request: ControlRequest): Promise<unknown>;
 	/**
 	 * Settles once no child runs this conversation: every one that ran it
-	 * has gone and its own slot is free, or runs what it became. Fails
+	 * has gone and its own slot is free, or runs what it became once the
+	 * roster's write of that has landed (one that fails is reported and
+	 * let go). Fails
 	 * while one still runs it, or once the host stops watching, so the host never runs it beside one.
 	 */
 	left(sessionId: string): Promise<void>;

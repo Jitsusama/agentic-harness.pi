@@ -206,7 +206,8 @@ input pipeline or screen. No unit or running host is installed yet.
   a turn begun since, lifts nothing. Still pressed past that half
   hour while a turn runs, it stands, saying once an hour which turn
   from before the drain holds it, or that turns begun since do. A
-  turn's busy time counts from when it began, through each run of it.
+  turn's busy time counts from its run's start: pi's retries and
+  continues start runs of their own, so each counts as begun anew.
   A drain standing by hand before the heap was pressed is left to
   its asker; one asked while the heap's stands lifts with it. One
   lifted by hand while the heap is still pressed is started again at
@@ -313,8 +314,11 @@ input pipeline or screen. No unit or running host is installed yet.
   then their units: a running host starts a child again at its
   conversation's next wake. The host runs a
   conversation itself only once every child that ran it has gone and
-  its own slot is free, unless a child there answered as or became
-  another conversation (`left`); while one still runs, the resume fails.
+  its own slot is free, unless a child there became another
+  conversation, as the host heard it or as a child taken up says, and
+  the roster's write of what it became has landed (`left`), one that
+  fails being reported and let go; while one still runs, the resume
+  fails.
 - child-policy.ts: which conversations move to children, read from
   `host-service/KEY/children.json` as it changes, never per decision:
   `{"v":1,"sessions":[ids]}` moves those as they next wake or start,

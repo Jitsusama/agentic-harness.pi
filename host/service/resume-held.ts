@@ -14,8 +14,11 @@ import type {
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
 
-/** How a resume a start began ended: built, left parked, or still held unbuilt. */
-export type ResumeEnd = "resumed" | "parked" | "unresumed";
+/**
+ * How a resume a start began ended: built, left parked, still held
+ * unbuilt, or no longer held, passed over.
+ */
+export type ResumeEnd = "resumed" | "parked" | "unresumed" | "gone";
 
 /** A held conversation a starting host is about to resume, counted from one. */
 export interface Resuming {
@@ -197,6 +200,14 @@ export async function resumeHeld(options: {
 				// A child an earlier host left, which the adopt couldn't take
 				// up, may run it still: never two processes on one file.
 				await options.children?.left(sessionId);
+				// One its child replaced or closed while it waited is no longer
+				// held, and is passed over, as one closed before it began is.
+				if (
+					!options.roster.entries().some((held) => held.sessionId === sessionId)
+				) {
+					end = "gone";
+					return;
+				}
 				await options.engine.resume(entry, woken, mark);
 			}
 			resumed.push(sessionId);

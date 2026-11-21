@@ -3,21 +3,17 @@ import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	constants,
-	fchmodSync,
 	fstatSync,
 	ftruncateSync,
-	lstatSync,
 	mkdirSync,
 	openSync,
-	realpathSync,
 	renameSync,
 	rmSync,
-	type Stats,
 	writeFileSync,
 	writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isOwner } from "../../lib/core/process/index.ts";
 import {
 	type FenceTeller,
@@ -34,6 +30,7 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import type { FenceKind } from "../../lib/mesh/presence.ts";
+import { closedIn, closeToOthers } from "./closed-folders.ts";
 import { HOST_READS, installConversationEnv } from "./process-env.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
@@ -518,8 +515,9 @@ export class SessionHost implements Host {
 		if (conversation.state === "parked" && state !== "parked")
 			this.wokenInDrain?.add(conversation.id);
 		const previous = { state: conversation.state, since: conversation.since };
-		// Each run of one turn says busy again; it keeps when the turn began,
-		// which a restart's ceiling counts from.
+		// A state said again is no change, so it keeps when it began, which a
+		// restart's ceiling counts from. Pi's retries and continues end one
+		// run and start another, so each of those counts from its own start.
 		const since =
 			conversation.state === state
 				? conversation.since
@@ -704,45 +702,6 @@ function loosest(
 }
 
 /**
- * Whether `folder` lies in `closed`, spelled as it really is, through no
- * link, and it and each folder from `closed` down to it are this
- * account's own, which no other may write: another account could
- * otherwise rename one away and put its own, holding its own record, there.
- */
-function closedIn(folder: string, closed: string): boolean {
-	const folders = downTo(folder, closed);
-	return folders !== undefined && folders.every(ownAlone);
-}
-
-/** `closed` and each folder below it down to `folder`; none outside it. */
-function downTo(folder: string, closed: string): string[] | undefined {
-	const at = relative(closed, folder);
-	if (at === "" || at.startsWith("..") || isAbsolute(at)) return undefined;
-	const steps = at.split(sep);
-	return [
-		closed,
-		...steps.map((_, i) => join(closed, ...steps.slice(0, i + 1))),
-	];
-}
-
-function ownAlone(folder: string): boolean {
-	let real: string;
-	let held: Stats;
-	try {
-		real = realpathSync(folder);
-		held = lstatSync(folder);
-	} catch {
-		return false;
-	}
-	return (
-		real === folder &&
-		held.isDirectory() &&
-		held.uid === process.getuid?.() &&
-		(held.mode & 0o022) === 0
-	);
-}
-
-/**
  * Count a runner whose shell or file guard told a fence and the other
  * didn't as unfenced: pi ran the other's tools as its own, and what
  * they started may still run.
@@ -750,40 +709,6 @@ function ownAlone(folder: string): boolean {
 function untold(conversation: Conversation): void {
 	if (Boolean(conversation.shellTold) !== Boolean(conversation.filesTold))
 		conversation.fence = "none";
-}
-
-/**
- * Clear group and other write from each folder from `closed` down to
- * `folder` that is this account's own and no link, as code before this
- * host may have made them under a looser umask; closedIn then judges
- * them as they stand. The walk stops at the first that isn't at its
- * real path, so nothing past a link is changed; a link swapped in at
- * the last part after that look is refused by the open, though one
- * higher up may still be followed.
- */
-function closeToOthers(folder: string, closed: string): void {
-	for (const each of downTo(folder, closed) ?? []) {
-		let opened: number;
-		try {
-			if (realpathSync(each) !== each) return;
-			opened = openSync(
-				each,
-				constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-			);
-		} catch {
-			// closedIn names no fence for a folder it can't read.
-			return;
-		}
-		try {
-			const held = fstatSync(opened);
-			if (held.uid === process.getuid?.() && (held.mode & 0o022) !== 0)
-				fchmodSync(opened, held.mode & 0o7755);
-		} catch {
-			// As above: left as it is, closedIn judges it.
-		} finally {
-			closeSync(opened);
-		}
-	}
 }
 
 /** A conversation's private environment: `input` under its own id, never process.env. */
