@@ -15,12 +15,18 @@ export type HubReading = Pick<Local, "peer" | "presences" | "ties">;
 export async function aboveFor(at: HubReading): Promise<Above> {
 	const mark = at.peer.orchestratedBy;
 	if (mark !== undefined) return { address: mark, by: "mark" };
-	// The head of an orchestration carries the mark itself, so its
-	// quest has an orchestrator, and it is that one: a hub above it would
-	// be a second voice over the work it leads.
+	// A quest that heads an orchestration carries the mark itself, so it
+	// has an orchestrator, its head: a hub above it would be a second
+	// voice over the work it leads, for the head and for any other
+	// session on the quest alike.
 	if (at.peer.orchestrates !== undefined) {
 		return {
 			none: "this peer heads its own orchestration, so nothing is above it for `orchestrator` to reach",
+		};
+	}
+	if (at.peer.questHeads !== undefined) {
+		return {
+			none: `this peer's quest heads its own orchestration, whose head is ${at.peer.questHeads}, so nothing is above it for \`orchestrator\` to reach; write to ${at.peer.questHeads} by its address`,
 		};
 	}
 	const [standing, ties] = await Promise.all([

@@ -147,7 +147,9 @@ describe("orchestrator, on a quest with no mark", () => {
 
 		const refused = await send(tools, "orchestrator", "question", "May I?");
 
-		expect(refused).toContain("no ties came from the node");
+		expect(refused).toContain(
+			"no ties came from the node (none answered in time, or it keeps none)",
+		);
 		expect(lastSent()).toBeUndefined();
 	});
 
@@ -168,6 +170,36 @@ describe("orchestrator, on a quest with no mark", () => {
 			"Not sent: this peer heads its own orchestration",
 		);
 		expect(lastSent()).toBeUndefined();
+		expect(nodeAsked).not.toContain("tie");
+	});
+
+	it("refuses for another session on a quest heading an orchestration, naming its head", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: QEST-20261021-5GV2AH\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
+		);
+		// The head already signs as the quest, so this session leaves the
+		// address to it and plays no role.
+		cellIn(
+			"session-h",
+			"7M6JKG",
+			["#quest/5gv2ah/7m6jkg"],
+			"QEST-20261021-7M6JKG",
+		);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		const env = await node([asker], [tieTo("5GV2AH", 9)]);
+		const { tools } = await startSession(env);
+		nodeAsked.length = 0;
+
+		const refused = await send(tools, "orchestrator", "question", "May I?");
+
+		expect(refused).toContain(
+			"Not sent: this peer's quest heads its own orchestration, whose head is 7M6JKG",
+		);
+		// The mesh's own note that two sessions share the quest is on the
+		// mesh already; only the refused question must not be.
+		expect(lastSent()?.text).not.toBe("May I?");
 		expect(nodeAsked).not.toContain("tie");
 	});
 

@@ -107,6 +107,12 @@ export interface Peer {
 	 * orchestrates and this is the session playing the role.
 	 */
 	readonly orchestrates: string | undefined;
+	/**
+	 * The address of the orchestration its quest heads, whether this
+	 * session plays the role or another on the quest does; a hub from use
+	 * above it would be a second voice over that work.
+	 */
+	readonly questHeads?: string;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;
 	/**
@@ -411,6 +417,9 @@ export function localPeer(at: Surroundings): Peer {
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
+	// Kept beside the roles rather than in them, since the roles are said
+	// in the presence and this is for the peer's own sends.
+	let questHeads: string | undefined;
 	let quest: string | undefined;
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
@@ -567,6 +576,9 @@ export function localPeer(at: Surroundings): Peer {
 			...(work.hears ? { hears: work.hears } : {}),
 		};
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
+		questHeads = work.orchestration.heads
+			? questAddress(work.orchestration.heads)
+			: undefined;
 		quest = work.quest;
 		workspace = work.workspace;
 		questInfo = work.questInfo;
@@ -639,6 +651,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get orchestrates() {
 			return roles.orchestrates;
+		},
+		get questHeads() {
+			return questHeads;
 		},
 		get wants() {
 			return longestStanding(personal());

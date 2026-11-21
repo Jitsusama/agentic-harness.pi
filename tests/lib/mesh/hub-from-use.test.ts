@@ -96,12 +96,13 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
-	// The joined filter itself is what the listener's case below bites
-	// on; here the own-quest match alone picks the chain.
+	// Neither quest group is joined, so both count as work and only the
+	// own-quest match can choose; the listener's case below bites on the
+	// joined filter.
 	it("reads the quest chain that ends in its own quest, over another it is in", () => {
 		const listening = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"], {
 			groups: ["#quest/other9", "#quest/root01/mid002/7m6jkg"],
-			joined: ["#quest/other9"],
+			joined: [],
 		});
 		const elsewhere = cell("o", ["OTHER9"], ["other9"]);
 
@@ -181,7 +182,22 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "ROOT01", by: "use" });
 	});
 
-	it("passes over a tie to a cell that is not live", () => {
+	// Both are shaped as a peer's address, and a send reads each as the
+	// machine's group, so either would reach every session.
+	it("is never written to by a name a send reads as the machine's group", () => {
+		const forged = cell("g", ["global", "Machine"], ["root01"]);
+		const mixed = cell("m", ["GLOBAL", "MID002"], ["root01", "mid002"]);
+
+		const above = hubFromUse(
+			self,
+			[self, forged, mixed],
+			[tie("global", 9), tie("Machine", 9), tie("GLOBAL", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("passes over a tie to an address no presence lists", () => {
 		const above = hubFromUse(
 			self,
 			[self, parent],
@@ -206,7 +222,7 @@ describe("a hub from use", () => {
 
 		expect(above).toMatchObject({
 			none: expect.stringMatching(
-				/^no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no ties came from the node \(none answered, or it listed none\)/,
+				/^no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no ties came from the node \(none answered in time, or it keeps none\)/,
 			),
 		});
 	});
