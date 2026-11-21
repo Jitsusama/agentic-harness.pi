@@ -34,6 +34,7 @@ import {
 	type MirroredFiles,
 } from "../internal/files/folder-mirror.ts";
 import { readStamped, type Stamped } from "../internal/files/stamped-read.ts";
+import { everyRealmsDir, stateDir } from "../internal/paths.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { parsedFiles } from "../internal/quest/documents/parsed-file.ts";
 import { shownReadme } from "../internal/quest/documents/quest-doc.ts";
@@ -74,6 +75,8 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
+import { nodeSocket } from "./node.ts";
+import { watchSessions } from "./node-watch.ts";
 import { oneLine } from "./one-line.ts";
 import { questShared, type Share, sharesSaid } from "./presence-shares.ts";
 import {
@@ -603,8 +606,7 @@ export function createPresences(
 	dir: string,
 	options: Pick<WholeWritesOptions, "failed" | "write"> = {},
 ): Presences {
-	const file = (session: string) =>
-		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
+	const file = (session: string) => join(dir, presenceFileName(session));
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
@@ -690,7 +692,43 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 	suffix: ".json",
 	read,
 	readOff,
+	feed(dir, events) {
+		const socket = nodeSocket();
+		if (socket === undefined || dir !== nodesPresenceFolder()) return undefined;
+		return watchSessions(
+			socket,
+			{
+				nameOf: presenceFileName,
+				parse(presence) {
+					try {
+						return presenceFrom(presence);
+					} catch {
+						// Not a presence this reader knows: none, as a torn file gives.
+						return undefined;
+					}
+				},
+			},
+			events,
+		);
+	},
 };
+
+/** A session's presence file's name, by its id. */
+function presenceFileName(session: string): string {
+	return `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`;
+}
+
+/**
+ * The presence folder the machine's node follows, which is the home
+ * realm's: none for a session of another realm, whose node may follow
+ * a folder of its own, so its mirror reads its folder itself.
+ */
+function nodesPresenceFolder(): string | undefined {
+	const home = everyRealmsDir("state", "mesh-workflow")[0];
+	return home !== undefined && stateDir("mesh-workflow") === home
+		? join(home, "presence")
+		: undefined;
+}
 
 /** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
