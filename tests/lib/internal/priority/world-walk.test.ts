@@ -339,10 +339,13 @@ describe("walks of World's objects among themselves", () => {
 			"git fetch origin main && git rebase origin/main",
 			"git cherry-pick abc123",
 			"git sparse-checkout add areas/tools",
+			// A push after branch work leaves it no quick turn to walk past
+			// every walk's limit with.
+			"git rebase origin/main && git push",
+			"git merge x; git push origin HEAD:x",
 		]) {
 			expect(walkOf(own, inWorld), own).toBe("branch");
 		}
-		expect(walkOf("git rebase origin/main && git push", inWorld)).toBe("push");
 		expect(
 			walkOf("git fetch origin main", { cwd: `${home}/src/core.nix`, home }),
 		).toBeUndefined();
