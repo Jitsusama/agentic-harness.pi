@@ -197,6 +197,15 @@ export async function resumeHeld(options: {
 				// A child an earlier host left, which the adopt couldn't take
 				// up, may run it still: never two processes on one file.
 				await options.children?.left(sessionId);
+				// One whose child became another while it waited is gone from the
+				// roster, and runs on as that in its child, as one running is.
+				if (
+					!options.roster.entries().some((held) => held.sessionId === sessionId)
+				) {
+					resumed.push(sessionId);
+					end = "resumed";
+					return;
+				}
 				await options.engine.resume(entry, woken, mark);
 			}
 			resumed.push(sessionId);

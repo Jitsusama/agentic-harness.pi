@@ -382,6 +382,34 @@ describe("a start's resume of what the host held", () => {
 		]);
 	});
 
+	it("leaves one whose child became another while it waited, as the roster now holds", async () => {
+		const staying = entry();
+		const became = entry();
+		await roster.hold(staying);
+		const inHost = engine();
+		const moved = children([]);
+		// The child's became lands its replace while the host waits to run it.
+		moved.fake.left.mockImplementationOnce(async () => {
+			await roster.replace(staying.sessionId, became);
+		});
+
+		const { unresumed, resumed } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+		});
+
+		expect(
+			inHost.resume,
+			"never what the roster replaced",
+		).not.toHaveBeenCalled();
+		expect(unresumed).toEqual([]);
+		expect(resumed, "runs on in its child").toEqual([staying.sessionId]);
+		expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([
+			became.sessionId,
+		]);
+	});
+
 	it("leaves a moved one resting parked, for its wake to start its child", async () => {
 		const moving = entry();
 		await roster.hold(moving);
