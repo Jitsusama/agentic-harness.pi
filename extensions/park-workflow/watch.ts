@@ -494,6 +494,9 @@ export function watch(
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
 			if (usual === undefined || !inBackgroundHost()) return usual;
+			// One a window views may be read by the person, whose next key
+			// would wait out its wake, so it waits as an attended one does.
+			if (hosted()?.viewed?.(session) === true) return usual;
 			// Nobody watches a background conversation wake, and what it holds
 			// goes as it parks: its own process in a child, its share of the
 			// host's in the host.

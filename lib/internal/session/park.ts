@@ -332,8 +332,9 @@ export const NAMED_PARK_AFTER_MS = 2 * 60 * 1000;
  * How long a background host's conversation waits idle before it parks.
  * Since 20 November each runs in a process of its own, which parking
  * ends: at 06:58 on 21 November 75 background conversations held about
- * 20 GB, and 37 of them had sent nothing for five minutes. Nobody
- * watches one, so a wake's 38 s falls on an agent, never on Joel.
+ * 20 GB, and 37 of them had sent nothing for five minutes. One no
+ * window views is read by no one, so a wake's 38 s falls on an agent;
+ * one a window views waits its usual time, as the person may be reading it.
  */
 export const BACKGROUND_PARK_AFTER_MS = 5 * 60 * 1000;
 

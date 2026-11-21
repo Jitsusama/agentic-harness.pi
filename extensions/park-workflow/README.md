@@ -61,7 +61,9 @@ It is off until one of these turns it on:
   and five minutes idle, since parking gives back what it holds (its
   own process in a child, its share of the host's in the host) and
   nobody watches it wake (75 of them held about 20 GB on 21
-  November, 37 idle for five minutes).
+  November, 37 idle for five minutes). One a window views waits its
+  usual time, since the person may be reading it and would wait out
+  its wake at their next key.
 - **`PI_PARK=on`,** read at start, as the line `on` does.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the

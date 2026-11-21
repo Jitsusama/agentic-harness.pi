@@ -112,6 +112,8 @@ export async function serveHost(options: {
 	/** Writes a line to the host's journal, as each conversation's end. */
 	say?: (line: string) => void;
 	viewer?: (host: SessionHost) => ViewerBridge;
+	/** Whether a window views a conversation now, as the screens say. */
+	viewed?: (sessionId: string) => boolean;
 	runtimeDir?: string;
 	/** The socket to listen on, rather than the realm-kind host's own, as a child's slot names. */
 	socketPath?: string;
@@ -200,6 +202,7 @@ export async function serveHost(options: {
 			owner,
 			registryDir: options.registryDir,
 			...(options.changes ? { changes: options.changes } : {}),
+			...(options.viewed ? { viewed: options.viewed } : {}),
 		});
 		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);

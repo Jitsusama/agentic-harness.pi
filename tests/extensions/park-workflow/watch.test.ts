@@ -1143,13 +1143,18 @@ describe("why a session stays awake", () => {
 	// minutes while the half hour kept them (A2VLJN [ebe376a1]).
 	it("parks a background host's conversation after five idle minutes, or sooner where its own limit is, while an attended host's waits its half hour", () => {
 		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
-		const parksAfter = (key: string, line = "on"): number | undefined => {
+		const parksAfter = (
+			key: string,
+			line = "on",
+			viewed = false,
+		): number | undefined => {
 			writeFileSync(parkSwitch(folder), `${line}\n`);
 			// Each starts unparked, not woken from the one before's marker.
 			rmSync(join(folder, "parked"), { recursive: true, force: true });
 			const host = installTestHost(key);
 			const asked: string[] = [];
 			host.host.park = (id) => asked.push(id);
+			host.host.viewed = () => viewed;
 			try {
 				clock = 0;
 				const watched = watching(session(), conversation);
@@ -1181,6 +1186,10 @@ describe("why a session stays awake", () => {
 		expect(parksAfter("one-attended"), "attended waits its half hour").toBe(
 			PARK_AFTER_MS,
 		);
+		expect(
+			parksAfter("one-background", "on", true),
+			"background with a window on it waits its half hour",
+		).toBe(PARK_AFTER_MS);
 		expect(
 			parksAfter("one-background", SESSION),
 			"named in the switch, background parks at its two minutes",
