@@ -189,9 +189,9 @@ describe("a host's children", () => {
 		);
 
 		lingering = false;
-		await units.children.get(unit as string)?.exit();
 		await children.backend.left(a);
-	});
+		expect(units.forgotten, "its slot let go").toContain(unit);
+	}, 15_000);
 
 	it("refuses to ask a child of one no child runs", async () => {
 		await expect(

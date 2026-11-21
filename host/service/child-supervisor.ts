@@ -355,6 +355,13 @@ export function childSupervisor(options: {
 		ranIn.set(keyed(sessionId), slots);
 	}
 
+	/** Whether a conversation other than `sessionId` runs in `unit`. */
+	function runsAnother(unit: string, sessionId: string): boolean {
+		for (const [id, slots] of ranIn)
+			if (id !== keyed(sessionId) && slots.has(unit)) return true;
+		return false;
+	}
+
 	/** Count `sessionId` as running in `slot` no longer. */
 	function runsNoLongerIn(sessionId: string, slot: Slot): void {
 		const slots = ranIn.get(keyed(sessionId));
@@ -1219,9 +1226,10 @@ export function childSupervisor(options: {
 					throw new Error(`${sessionId} still runs in ${last.unit}`);
 			}
 			// Its own slot too: a child that failed before its first answer
-			// ran in no slot the host heard of, and may be stopping still.
+			// ran in no slot the host heard of, and may be stopping still. One
+			// whose child became another conversation runs that one, not this.
 			const own = ownSlot(sessionId);
-			if (own !== undefined) {
+			if (own !== undefined && !runsAnother(own.unit, sessionId)) {
 				stillWatching();
 				if (!(await claimed(own.unit, () => free(own))))
 					throw new Error(`${sessionId} still runs in ${own.unit}`);

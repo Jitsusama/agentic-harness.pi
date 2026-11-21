@@ -278,8 +278,9 @@ input pipeline or screen. No unit or running host is installed yet.
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:
-  `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, to
-  resume at the next start. Before rolling back to a host without
+  `systemctl --user stop 'pi-conversation-KEY@*'`; each stays held, so
+  a running host starts it again at its next wake, and a stopped one at
+  its next start. Before rolling back to a host without
   children, which neither takes them up nor knows they run, so would
   resume their conversations beside them, stop the host first and
   then their units: a running host starts a child again at its

@@ -393,6 +393,23 @@ describe("what a child says", () => {
 		);
 	});
 
+	it("says a conversation has left once its child became another, which runs on in its slot", async () => {
+		await supervisor.resume(entry(a));
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(() => expect(routes.routeOf(b)).toBeDefined());
+
+		await supervisor.left(a);
+
+		await expect(supervisor.left(b), "b runs there").rejects.toThrow(
+			"still runs",
+		);
+	});
+
 	it("holds what its conversation became when the roster no longer held it", async () => {
 		await supervisor.resume(entry(a));
 		roster.held = [];
