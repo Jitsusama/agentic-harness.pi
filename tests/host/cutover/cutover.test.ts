@@ -663,12 +663,14 @@ describe("what host-cutover says of a report", () => {
 	it("says a move called off, and counts it as not carried out", () => {
 		const report = { ...settled, calledOff: [{ address: "B", why: "EISDIR" }] };
 		expect(reportLines(report)).toContain("called its move off: B, EISDIR");
-		expect(carriedOutWhole(report)).toBe(false);
+		expect(carriedOutWhole(report), "a call-off counted as carried out").toBe(
+			false,
+		);
 	});
 
 	it("counts a report with each moved and none left over as carried out", () => {
 		expect(reportLines(settled)).toEqual(["1 moved."]);
-		expect(carriedOutWhole(settled)).toBe(true);
+		expect(carriedOutWhole(settled), "a whole move counted as not").toBe(true);
 	});
 
 	it("counts each kind left over as not carried out, and a session taken back as carried out", () => {
@@ -683,6 +685,9 @@ describe("what host-cutover says of a report", () => {
 				JSON.stringify(left),
 			).toBe(false);
 		}
-		expect(carriedOutWhole({ ...settled, takenBack: ["B"] })).toBe(true);
+		expect(
+			carriedOutWhole({ ...settled, takenBack: ["B"] }),
+			"a session taken back counted as left over",
+		).toBe(true);
 	});
 });
