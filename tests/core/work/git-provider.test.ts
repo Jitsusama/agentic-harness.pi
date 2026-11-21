@@ -880,6 +880,30 @@ describe("a tree standing where git won't read it", () => {
 		await expect(cut).rejects.not.toThrow("ask again");
 	});
 
+	it("reads a lock in the clone's own entry where the tree's .git points elsewhere", async () => {
+		// Once the clone has moved, the tree's `.git` names its old place,
+		// and only the clone's entry still says the lock is there.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "fatal: not a git" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		const clone = join(stateDir, "moved");
+		const request = snapshot({ ...checkedOut, localPath: clone });
+		const path = join(stateDir, treeIdentity(request).key);
+		mkdirSync(path);
+		writeFileSync(join(path, ".git"), `gitdir: ${gitDirOf()}\n`);
+		const entry = join(clone, ".git", "worktrees", "x");
+		mkdirSync(entry, { recursive: true });
+		writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+		writeFileSync(join(entry, "locked"), "on a drive away\n");
+
+		const cut = provider.ensure(request);
+
+		await expect(cut).rejects.toThrow("nothing here takes that lock away");
+		await expect(cut).rejects.toThrow("the clone this cut comes from");
+	});
+
 	it("cuts into an empty folder, as git does", async () => {
 		const { exec, calls } = fakeExec(ok);
 		const provider = createGitTreeProvider({ exec, stateDir });

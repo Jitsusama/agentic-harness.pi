@@ -301,15 +301,17 @@ describe("splitStranded", () => {
 		);
 	});
 
-	it("reads no hand lock from a fifo where a lock should be", async () => {
+	it("reads a fifo where a lock should be as a hand lock, never waiting", async () => {
 		// What ran in the tree chooses where its `.git` points, and a read
 		// waiting on a fifo's writer would hold reclaim for good. One that
-		// waits takes as long as the writer is late, and reads a hand lock.
+		// waits takes as long as the writer is late, and reads a cut's word.
+		// Git writes no fifo, so it's no cut running, which would only say
+		// to ask again in a minute for as long as it stands.
 		const gitDir = standingGitDir("snapshot-p");
 		const path = treeNaming("snapshot-p", gitDir);
 		const at = (Date.now() - LONG_AGO) / 1000;
 		utimesSync(join(path, ".git"), at, at);
-		writers.push(lateWriter(join(gitDir, "locked"), "on a drive away"));
+		writers.push(lateWriter(join(gitDir, "locked"), "initializing"));
 
 		const started = performance.now();
 		const split = await splitStranded([{ path, why: REFUSED }], {
@@ -319,7 +321,26 @@ describe("splitStranded", () => {
 		expect(performance.now() - started, "no read waited").toBeLessThan(
 			LATE_MS / 2,
 		);
-		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a fifo is no cut's lock").toBe(false);
+	});
+
+	it("reads a link where a lock should be as a hand lock", async () => {
+		// Git writes no link either, though the file it leads to says a
+		// cut's word.
+		const gitDir = standingGitDir("snapshot-k");
+		const path = treeNaming("snapshot-k", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(root, "cut-word"), "initializing\n");
+		symlinkSync(join(root, "cut-word"), join(gitDir, "locked"));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a link is no cut's lock").toBe(false);
 	});
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {
