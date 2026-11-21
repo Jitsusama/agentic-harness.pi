@@ -94,6 +94,26 @@ function readSettings(agentDir: string): SettingsManager {
 	throw new Error(`pi's settings couldn't be read: ${failure}`);
 }
 
+/**
+ * Every extension file the personal settings load into a pi, from their
+ * packages and their own list, as pi's package manager resolves them:
+ * patterns, overrides and package filters applied, pi's built-in ones
+ * left out, since they load no file. A package not installed is skipped,
+ * as a pi started then would skip it.
+ */
+export async function settingsExtensions(
+	agentDir = getAgentDir(),
+): Promise<string[]> {
+	const resolved = await new DefaultPackageManager({
+		cwd: agentDir,
+		agentDir,
+		settingsManager: readSettings(agentDir),
+	}).resolve(async () => "skip");
+	return resolved.extensions
+		.filter(({ enabled, path }) => enabled && !path.startsWith("builtin:"))
+		.map(({ path }) => path);
+}
+
 /** The personal settings of the pi this process runs. */
 export function piPackageSettings(agentDir = getAgentDir()): PackageSettings {
 	// Where a package is installed comes from its source and the agent

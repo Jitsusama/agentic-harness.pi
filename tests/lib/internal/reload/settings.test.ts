@@ -18,6 +18,7 @@ import {
 	type PackageSettings,
 	piPackageSettings,
 	pointEntryAt,
+	settingsExtensions,
 } from "../../../../lib/internal/reload/settings.ts";
 
 const NAME = "agentic-harness.pi";
@@ -134,6 +135,42 @@ describe("pointing the package's entry at a tree", () => {
 			JSON.stringify({ packages: ["npm:other"] }),
 		);
 		await expect(pointEntryAt(settings, NAME, tree)).rejects.toThrow(/-e /);
+	});
+});
+
+describe("every extension the settings load", () => {
+	it("is each package's and each of their own, as pi resolves them, leaving out what they switch off", async () => {
+		const own = join(dir, "own.ts");
+		const off = join(dir, "off.ts");
+		writeFileSync(own, "");
+		writeFileSync(off, "");
+		mkdirSync(join(tree, "extensions", "web"), { recursive: true });
+		writeFileSync(join(tree, "extensions", "web", "index.ts"), "");
+		writeFileSync(
+			join(tree, "package.json"),
+			JSON.stringify({
+				name: NAME,
+				pi: { extensions: ["./extensions/web/index.ts"] },
+			}),
+		);
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ packages: [tree], extensions: [own, off, `-${off}`] }),
+		);
+
+		const loaded = await settingsExtensions(agentDir);
+
+		expect(loaded).toContain(join(tree, "extensions", "web", "index.ts"));
+		expect(loaded).toContain(own);
+		expect(loaded).not.toContain(off);
+	});
+
+	it("skips a package that isn't installed, as a pi started then would", async () => {
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ packages: ["npm:not-installed-here"] }),
+		);
+		expect(await settingsExtensions(agentDir)).toEqual([]);
 	});
 });
 

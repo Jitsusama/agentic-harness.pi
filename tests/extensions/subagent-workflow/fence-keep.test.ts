@@ -17,6 +17,7 @@ import {
 	fencePacks,
 	keepFence,
 	packsHome,
+	sessionSandbox,
 } from "../../../extensions/subagent-workflow/fence-keep.ts";
 import type { FleetAssignment } from "../../../extensions/subagent-workflow/run.ts";
 
@@ -246,14 +247,41 @@ describe("whether a session's subagents are fenced", () => {
 	});
 });
 
+describe("whether a session's own commands are fenced", () => {
+	it("follows its own sandbox", () => {
+		expect(sessionSandbox({ PI_SANDBOX: "fence" })).toBe("fence");
+	});
+
+	it("is not, for an unfenced session, whatever its subagents join", () => {
+		expect(sessionSandbox({ PI_SANDBOX: "off" })).toBeUndefined();
+	});
+});
+
 describe("where the fence's own extensions are taken from", () => {
 	it("is the install's current version, for a session started on an older one", async () => {
 		const at = await install(["old", "new"]);
-		expect(packsHome(join(at, "versions", "old"))).toBe(join(at, "current"));
+		expect(packsHome(join(at, "versions", "old"), () => undefined)).toBe(
+			join(at, "current"),
+		);
 	});
 
-	it("is the package's own folder when it is no install's version", () => {
-		expect(packsHome(outside)).toBe(outside);
+	it("is the install's current version, for a session started on one newer than current", async () => {
+		const at = await install(["b", "a"]);
+		expect(packsHome(join(at, "versions", "b"), () => undefined)).toBe(
+			join(at, "current"),
+		);
+	});
+
+	it("is the install the person's settings name, for a session running a tree", async () => {
+		const at = await install(["a"]);
+		expect(packsHome(outside, () => join(at, "versions", "a"))).toBe(
+			join(at, "current"),
+		);
+	});
+
+	it("is the package's own folder when neither it nor the settings' harness is an install's version", () => {
+		expect(packsHome(outside, () => undefined)).toBe(outside);
+		expect(packsHome(outside, () => outside)).toBe(outside);
 	});
 });
 

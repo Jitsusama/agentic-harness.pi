@@ -38,6 +38,7 @@ import {
 	inside,
 	installedPackages,
 	packageRoot,
+	settingsHarness,
 } from "../../lib/internal/fence/installed-only.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import {
@@ -61,6 +62,13 @@ export type Kept<T> =
 	| { readonly ok: true; readonly jobs: T[] }
 	| { readonly ok: false; readonly refusal: string };
 
+/** The sandbox this session's own commands run in, by name, or nothing. */
+export function sessionSandbox(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	return askedSandbox(env, SANDBOX_NAMES).name;
+}
+
 /**
  * The sandbox this session's subagents run in, by name, or nothing when
  * they run unfenced: this session's own, or, once subagents join the
@@ -70,10 +78,7 @@ export function childSandbox(
 	env: NodeJS.ProcessEnv = process.env,
 	joined: () => boolean = spawnsJoin,
 ): string | undefined {
-	return (
-		askedSandbox(env, SANDBOX_NAMES).name ??
-		(joined() ? SANDBOX_NAMES.fence : undefined)
-	);
+	return sessionSandbox(env) ?? (joined() ? SANDBOX_NAMES.fence : undefined);
 }
 
 /**
@@ -89,17 +94,22 @@ const FENCE_PACKS = [
 /**
  * Where to take the fence's extensions from: the current version of the
  * install this package was loaded from, which a session that started on
- * an older one still finds after the install moves, or this package's
- * own folder, which `follow` then refuses unless it is installed.
+ * an older one still finds after the install moves. A session running
+ * a tree, which only an unfenced one may start children from, takes them
+ * from the install its settings name; failing both, this package's own
+ * folder, which `follow` then refuses unless it is installed.
  */
-export function packsHome(own: string = packageRoot()): string {
+export function packsHome(
+	own: string = packageRoot(),
+	harness: () => string | undefined = settingsHarness,
+): string {
 	let real: string;
 	try {
 		real = realpathSync(own);
 	} catch {
 		return own;
 	}
-	const install = installOfVersion(real);
+	const install = installOfVersion(real) ?? installOfVersion(harness() ?? real);
 	return install === undefined ? real : join(install, "current");
 }
 

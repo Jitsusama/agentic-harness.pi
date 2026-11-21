@@ -19,6 +19,10 @@ import {
 	joinSpawns,
 	listForStage,
 } from "../../../lib/internal/fence/fence-stage.ts";
+import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+} from "../../../lib/subagent/defaults.ts";
 import type { RunPi } from "../../../lib/subagent/subagent.ts";
 import { activateWith } from "../support/review-extension.ts";
 
@@ -33,6 +37,7 @@ const given: (Readonly<Record<string, string>> | undefined)[] = [];
 const place = vi.hoisted(() => ({
 	own: "",
 	harness: undefined as string | undefined,
+	loaded: [] as string[],
 }));
 
 vi.mock(
@@ -47,13 +52,19 @@ vi.mock(
 			...real,
 			packageRoot: () => place.own,
 			settingsHarness: () => place.harness,
-			fencedChildrenRefusal: (unisolated: boolean) =>
-				real.fencedChildrenRefusal(
-					unisolated,
-					real.installedPackages(),
-					place.own,
-					() => place.harness,
-				),
+			fencedChildrenRefusal: (
+				unisolated: boolean,
+				defaults: readonly string[],
+			) =>
+				real.fencedChildrenRefusal(unisolated, defaults, {
+					root: real.installedPackages(),
+					own: place.own,
+					harness: () => place.harness,
+				}),
+			settingsRefusal: () =>
+				real.settingsRefusal(real.installedPackages(), async () => [
+					...place.loaded,
+				]),
 		};
 	},
 );
@@ -88,6 +99,7 @@ beforeEach(() => {
 	const harness = join(root, ".local", "share", "pi-packages", "harness");
 	place.own = join(harness, "versions", "a");
 	place.harness = place.own;
+	place.loaded = [];
 	for (const pack of PACKS) {
 		mkdirSync(join(place.own, "extensions", pack), { recursive: true });
 		writeFileSync(join(place.own, "extensions", pack, "index.ts"), "");
@@ -100,6 +112,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	clearSubagentDefaults();
 	vi.unstubAllEnvs();
 	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });
@@ -192,6 +205,30 @@ describe("a fenced session's fleet", () => {
 		expect(started).toEqual([]);
 	});
 
+	it("starts no child while an extension registered for every subagent lies outside the install", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		registerSubagentDefaultExtension(join(root, "planted.ts"));
+		const text = await fleet([job("a")]);
+		expect(text).toContain("registered for every subagent lies outside");
+		expect(started).toEqual([]);
+	});
+
+	it("starts no unisolated child while the person's settings load an extension from outside the install", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		place.loaded = [join(root, "planted.ts")];
+		const text = await fleet([job("a", { isolated: false })]);
+		expect(text).toContain("every extension the person's settings name");
+		expect(text).toContain("planted.ts");
+		expect(started).toEqual([]);
+	});
+
+	it("starts an isolated child whatever the person's settings load, since it loads none of them", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		place.loaded = [join(root, "planted.ts")];
+		await fleet([job("a")]);
+		expect(started).toHaveLength(1);
+	});
+
 	it("starts no unisolated child while the person's settings load the harness from a tree", async () => {
 		vi.stubEnv("PI_SANDBOX", "fence");
 		place.harness = join(root, "src", "harness");
@@ -253,6 +290,20 @@ describe("a fenced session's fleet", () => {
 			),
 			"an unisolated child loads its own shell-workflow, so none is named",
 		).toEqual([]);
+	});
+
+	it("lets an unfenced session on a tree fence its children once subagents join, with the fence's extensions from the install its settings name", async () => {
+		place.own = join(root, "src", "harness");
+		mkdirSync(place.own, { recursive: true });
+		joinSpawns("a test");
+		const text = await fleet([job("a")]);
+		expect(started, text).toHaveLength(1);
+		expect(given[0]).toMatchObject({ PI_SANDBOX: "fence" });
+		expect(each(started[0], "--extension").slice(0, PACKS.length)).toEqual(
+			PACKS.map((pack) =>
+				join(place.harness ?? "", "extensions", pack, "index.ts"),
+			),
+		);
 	});
 
 	it("leaves an unfenced session's children as they were", async () => {

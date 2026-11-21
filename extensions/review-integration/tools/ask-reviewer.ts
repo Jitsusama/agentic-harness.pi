@@ -45,6 +45,7 @@ import { firstResponseBegun } from "../../../lib/subagent/first-response.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
+	getSubagentDefaults,
 	JOURNAL_PACK_PATH,
 	ReviewerArtifactsStore,
 	runReviewer,
@@ -263,18 +264,32 @@ const FENCE_EXTENSIONS = [
 ] as const;
 
 /**
+ * Why this session may start no reviewer, or nothing: it is fenced and
+ * runs this package, or an extension registered for every subagent,
+ * from outside the install. Asked as a round begins, before it claims
+ * an identity or opens on the ledger, and again as each reviewer is
+ * given the fence's extensions.
+ */
+export function reviewersRefused(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (askedSandbox(env, SANDBOX_NAMES).name === undefined) return undefined;
+	const outside = fencedChildrenRefusal(
+		false,
+		getSubagentDefaults().extensions,
+	);
+	return outside === undefined ? undefined : `No reviewer started: ${outside}`;
+}
+
+/**
  * The fence's extensions, where this package has them: refused, as a
  * fenced session's subagents are, when that session runs this package
  * from outside the install, where its fenced commands could have
  * written the fence's own code.
  */
 export function fencePacks(): string[] {
-	if (askedSandbox(process.env, SANDBOX_NAMES).name !== undefined) {
-		const outside = fencedChildrenRefusal(false);
-		if (outside !== undefined) {
-			throw new Error(`No reviewer started: ${outside}`);
-		}
-	}
+	const refused = reviewersRefused();
+	if (refused !== undefined) throw new Error(refused);
 	const root = packageRoot();
 	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
 }

@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { wrapUpAsked } from "../../../lib/subagent/follow-up.ts";
 import {
 	clearSubagentDefaults,
 	registerSubagentDefaultExtension,
@@ -13,12 +14,54 @@ import type {
 	RunPiResult,
 } from "../../../lib/subagent/subagent.ts";
 import { at } from "../../support/at.ts";
-import { review, scriptedRun } from "./fake-runs.ts";
+import { REVIEWER, review, scriptedRun } from "./fake-runs.ts";
 
 const TRANSIENT: ReviewerError = {
 	stopReason: "error",
 	message: "OpenAI Responses stream ended before a terminal response event",
 };
+
+// A fenced session's child reopened is still one whose folder's `.pi` a
+// fenced command may have written, so each follow-up keeps ignoring it.
+describe("a fenced session's child followed up", () => {
+	it("keeps ignoring the folder's own .pi when it is resumed", async () => {
+		const { runPi, calls } = scriptedRun([
+			{
+				exitCode: 0,
+				finalAssistantText: "",
+				error: TRANSIENT,
+				artifacts: {
+					runDir: "/r",
+					reviewerDir: "/r/rev",
+					eventsPath: "/r/rev/events.ndjson",
+					stderrPath: "/r/rev/stderr.log",
+					progressPath: "/r/rev/progress.json",
+					resultPath: "/r/rev/result.json",
+					verifiedOutputPath: "/r/rev/verified-output.json",
+					sessionDir: "/r/rev/session",
+					sessionPath: "/r/rev/session/s.jsonl",
+				},
+			},
+			{ exitCode: 0, finalAssistantText: "done" },
+		]);
+		await review(runPi, { ignoreProject: true });
+		expect(calls).toHaveLength(2);
+		expect(at(calls, 0).args).toContain("--no-approve");
+		expect(at(calls, 1).args).toContain("--session");
+		expect(at(calls, 1).args).toContain("--no-approve");
+	});
+
+	it("keeps ignoring the folder's own .pi when it is asked to wrap up", () => {
+		const asked = wrapUpAsked(
+			{ reviewer: REVIEWER, ignoreProject: true },
+			"/r/rev/session/s.jsonl",
+			[],
+			[],
+		);
+		expect(asked.args).toContain("--session");
+		expect(asked.args).toContain("--no-approve");
+	});
+});
 
 describe("runReviewer: auto-resume", () => {
 	it("resumes once from the session after a transient error and returns the verified outcome", async () => {

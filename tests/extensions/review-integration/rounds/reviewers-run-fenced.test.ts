@@ -7,7 +7,11 @@
 
 import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fencePacks } from "../../../../extensions/review-integration/tools/ask-reviewer.ts";
+import {
+	fencePacks,
+	reviewersRefused,
+} from "../../../../extensions/review-integration/tools/ask-reviewer.ts";
+import { rosterOrThrow } from "../../../../extensions/review-integration/tools/ask-roster.ts";
 
 afterEach(() => {
 	vi.unstubAllEnvs();
@@ -32,6 +36,24 @@ describe("the extensions a reviewer is fenced with", () => {
 		expect(() => fencePacks()).toThrow(
 			/No reviewer started: This session runs the harness from .*, outside pi's installed packages/,
 		);
+	});
+
+	it("are refused before a round chooses its roster, so nothing opens on the ledger", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		const refused = reviewersRefused();
+		expect(refused).toMatch(
+			/^No reviewer started: This session runs the harness from /,
+		);
+		for (const asks of ["reviewers", "judge", "everybody"] as const) {
+			await expect(
+				rosterOrThrow({}, asks, { cwd: "/tmp", place: {}, said: [] }),
+			).rejects.toThrow(refused);
+		}
+	});
+
+	it("aren't refused to an unfenced session, whose commands already run as the person", () => {
+		vi.stubEnv("PI_SANDBOX", "off");
+		expect(reviewersRefused()).toBeUndefined();
 	});
 
 	it("each load as an extension does", async () => {

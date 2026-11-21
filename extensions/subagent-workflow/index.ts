@@ -39,12 +39,16 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { fencedChildrenRefusal } from "../../lib/internal/fence/installed-only.ts";
+import {
+	fencedChildrenRefusal,
+	settingsRefusal,
+} from "../../lib/internal/fence/installed-only.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
+	getSubagentDefaults,
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.ts";
@@ -77,7 +81,12 @@ import {
 	SUBAGENT_PARAMETERS,
 	SUBAGENT_PROMPT_SNIPPET,
 } from "./declaration.ts";
-import { childSandbox, fenceChildren, keepFence } from "./fence-keep.ts";
+import {
+	childSandbox,
+	fenceChildren,
+	keepFence,
+	sessionSandbox,
+} from "./fence-keep.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
@@ -313,14 +322,20 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			const sandbox = childSandbox();
-			// Every child loads this package's own files outside the fence,
-			// and an unisolated one the harness its person's settings name.
+			// Every child loads this package's own files and the registered
+			// defaults outside the fence, and an unisolated one whatever the
+			// person's settings name. That matters where this session's own
+			// commands are fenced, since they may write a tree; an unfenced
+			// session's commands already run as the person, whose children
+			// may load its tree as a reload onto it would.
+			const unisolated = sized.jobs.some((job) => job.isolated === false);
 			const outside =
-				sandbox === undefined
+				sessionSandbox() === undefined
 					? undefined
-					: fencedChildrenRefusal(
-							sized.jobs.some((job) => job.isolated === false),
-						);
+					: (fencedChildrenRefusal(
+							unisolated,
+							getSubagentDefaults().extensions,
+						) ?? (unisolated ? await settingsRefusal() : undefined));
 			if (outside !== undefined) {
 				return {
 					content: [
