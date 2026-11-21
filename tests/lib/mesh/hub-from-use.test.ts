@@ -96,7 +96,9 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
-	it("reads the quest chain its work puts it in, never a quest group it joined", () => {
+	// The joined filter itself is what the listener's case below bites
+	// on; here the own-quest match alone picks the chain.
+	it("reads the quest chain that ends in its own quest, over another it is in", () => {
 		const listening = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"], {
 			groups: ["#quest/other9", "#quest/root01/mid002/7m6jkg"],
 			joined: ["#quest/other9"],
@@ -149,6 +151,36 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "MID002", by: "use" });
 	});
 
+	it("gives equal sums to the cell whose single tie is strongest", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent, root],
+			[tie("ROOT01", 5), tie("MID002", 3), tie("AAAAAA", 2)],
+		);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
+	it("is never a cell whose presence gives no peer's address, so a forged one can't widen a send", () => {
+		const forged = cell("f", ["#all", "all"], ["root01"]);
+
+		const above = hubFromUse(
+			self,
+			[self, forged, parent],
+			[tie("#all", 9), tie("all", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is reached by a cell's peer address, never a forged one listed first", () => {
+		const mixed = cell("m", ["#all", "ROOT01"], ["root01"]);
+
+		const above = hubFromUse(self, [self, mixed], [tie("#all", 9)]);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
 	it("passes over a tie to a cell that is not live", () => {
 		const above = hubFromUse(
 			self,
@@ -169,12 +201,12 @@ describe("a hub from use", () => {
 		});
 	});
 
-	it("is nobody, saying why, when no node answered with ties", () => {
+	it("is nobody, saying why, when no ties came from the node", () => {
 		const above = hubFromUse(self, [self, parent], undefined);
 
 		expect(above).toMatchObject({
 			none: expect.stringMatching(
-				/^no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no node answered/,
+				/^no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no ties came from the node \(none answered, or it listed none\)/,
 			),
 		});
 	});

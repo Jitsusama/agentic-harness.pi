@@ -35,14 +35,20 @@ const tieTo = (other: string, strength: number) => ({
 
 /**
  * A live peer whose work puts it in these groups, as a presence written
- * today says it: none of them joined.
+ * today says it: none of them joined, and on its own quest when given.
  */
-function cellIn(session: string, address: string, groups: string[]) {
+function cellIn(
+	session: string,
+	address: string,
+	groups: string[],
+	quest?: string,
+) {
 	createPresences(join(fixture.paths.mesh, "presence")).publish({
 		session,
 		addresses: [address],
 		groups,
 		joined: [],
+		...(quest ? { quest } : {}),
 		worksOn: "",
 		owns: [],
 		busy: false,
@@ -67,7 +73,7 @@ function lastSent() {
 describe("orchestrator, on a quest with no mark", () => {
 	it("reaches the hub from use above this peer's quest, and says it was read so", async () => {
 		onQuest();
-		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"]);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
 		cellIn("session-h", "HARN01", ["#harness"]);
 		const env = await node(
 			[asker, { key: "cell:5GV2AH" }, { key: "cell:HARN01" }],
@@ -141,8 +147,28 @@ describe("orchestrator, on a quest with no mark", () => {
 
 		const refused = await send(tools, "orchestrator", "question", "May I?");
 
-		expect(refused).toContain("no node answered");
+		expect(refused).toContain("no ties came from the node");
 		expect(lastSent()).toBeUndefined();
+	});
+
+	it("refuses for the head of an orchestration, without asking the node", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-7M6JKG", "README.md"),
+			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: QEST-20261021-5GV2AH\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-7M6JKG\n",
+		);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		const env = await node([asker], [tieTo("5GV2AH", 9)]);
+		const { tools } = await startSession(env);
+		nodeAsked.length = 0;
+
+		const refused = await send(tools, "orchestrator", "question", "May I?");
+
+		expect(refused).toContain(
+			"Not sent: this peer heads its own orchestration",
+		);
+		expect(lastSent()).toBeUndefined();
+		expect(nodeAsked).not.toContain("tie");
 	});
 
 	it("refuses when all that is beside the word cannot be a group", async () => {

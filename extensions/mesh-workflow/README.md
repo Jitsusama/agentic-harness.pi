@@ -72,7 +72,12 @@ and can answer a question or a gate left open on screen.
   next marked one. Those sessions are in
   `#orchestration/<address>`, and their presence names it as
   `orchestratedBy`; `to: orchestrator` reaches it without its
-  address. The tree is walked on the quest side; the mesh reads
+  address. On a quest with no orchestrator above it,
+  `orchestrator` reaches its hub from use instead: the live
+  cell on a quest above its own that its ties are strongest to
+  (`lib/mesh/hub-from-use.ts`). That is an address only, and
+  grants nothing the mark does; with no such cell, or for the
+  head of an orchestration, the send is refused. The tree is walked on the quest side; the mesh reads
   only presence. Within a mission, an unaddressed message now
   usually goes to the orchestration's group, since another
   peer is nearly always in it: the same reach `#quest/<root>`

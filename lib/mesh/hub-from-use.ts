@@ -19,6 +19,7 @@
 import { questAddress } from "./address.ts";
 import type { Tie } from "./node.ts";
 import type { Presence } from "./presence.ts";
+import { isAddress } from "./steer-who.ts";
 import { stoppedBy } from "./stop.ts";
 
 /** Where a cell's `orchestrator` points, and why it points there. */
@@ -46,8 +47,13 @@ const QUEST_GROUP = "#quest/";
  * this one is never its hub, since it would not be written to.
  *
  * Only the quests its quest group spells are above it, and that group
- * names at most the six nearest levels (scope.ts), so an ancestor
- * further up than that is never searched.
+ * names at most the six nearest levels, its own among them (scope.ts),
+ * so at most five quests above it are searched.
+ *
+ * A hub is written to by the address it signs with, which another
+ * cell's presence says; one that isn't shaped as a peer's address, such
+ * as a group's name, is never a hub, so a presence can't widen where
+ * `orchestrator` reaches.
  *
  * `ties` is this cell's, strongest first, as the node keeps them;
  * missing when no node answered.
@@ -72,7 +78,7 @@ export function hubFromUse(
 	}
 	if (ties === undefined) {
 		return {
-			none: `${unmarked} and no node answered with its ties to find its hub from use`,
+			none: `${unmarked} and no ties came from the node (none answered, or it listed none) to find its hub from use`,
 		};
 	}
 	const stoppers = new Set(
@@ -83,7 +89,7 @@ export function hubFromUse(
 			return false;
 		}
 		const own = questChainOf(one).at(-1);
-		return own !== undefined && above.has(own);
+		return own !== undefined && above.has(own) && one.addresses.some(isAddress);
 	});
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
 	const strength = new Map<Presence, number>();
@@ -98,7 +104,7 @@ export function hubFromUse(
 		if (best === undefined || sum > best.strength)
 			best = { hub, strength: sum };
 	}
-	const address = best?.hub.addresses[0];
+	const address = best?.hub.addresses.find(isAddress);
 	if (address !== undefined) return { address, by: "use" };
 	return {
 		none: `${unmarked} and no live cell on a quest above it has a tie to this peer yet`,

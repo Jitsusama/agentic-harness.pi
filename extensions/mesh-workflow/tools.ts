@@ -71,7 +71,7 @@ export function registerTools(
 			to: Type.Optional(
 				Type.String({
 					description:
-						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, need for the live cell that works on what it is about, orchestrator for the orchestrator above this peer's quest, or machine. Leave it out and the mesh picks, saying where and why",
+						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, need for the live cell that works on what it is about, orchestrator for the orchestrator above this peer's quest (or, where its quest has none, its hub from use: the live cell above it is most tied to, an address only), or machine. Leave it out and the mesh picks, saying where and why",
 				}),
 			),
 			intent: StringEnum(INTENTS, {
