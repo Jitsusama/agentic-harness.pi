@@ -249,6 +249,38 @@ describe("a child host", () => {
 			await run.stopped;
 		}
 	});
+
+	// The other side of the guard: a realm host keeps its children, so a
+	// guard that dropped them for every host would fail here.
+	it("leaves a realm host asking its key's policy what moves to a child", async () => {
+		const runtime = join(dir, "run");
+		const folder = join(runtime, "pi-host", "work-background.d");
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		const units = fakeUnits(folder, "work-background", vi.fn());
+		const policy = vi.fn(async () => ({
+			moves: () => false,
+			opens: () => false,
+			close: () => undefined,
+		}));
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
+			engine,
+			signals,
+			ready: async () => {},
+			report: vi.fn(),
+			children: { units, policy },
+			places: { registryDir: join(dir, "hosts") },
+		});
+		// Its start asks the policy, before anything opens.
+		try {
+			expect(policy).toHaveBeenCalledExactlyOnceWith("work-background");
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
 });
 
 /** When each ping came, in ms since the run began. */
