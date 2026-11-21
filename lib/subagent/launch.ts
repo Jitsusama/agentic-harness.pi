@@ -50,6 +50,8 @@ interface ComposeArgsInput {
 	readonly ask?: string;
 	readonly systemPrompt?: string;
 	readonly isolated?: boolean;
+	/** Ignore project-local files (`--no-approve`) even when not isolated. */
+	readonly ignoreProject?: boolean;
 	readonly extraExtensions?: readonly string[];
 	readonly extraSkills?: readonly string[];
 	/**
@@ -273,6 +275,11 @@ export function composeArgs(input: ComposeArgsInput): string[] {
 			"--no-extensions",
 			"--no-approve",
 		);
+	} else if (input.ignoreProject) {
+		// The rest of the person's setup still loads, but a folder's
+		// `.pi` doesn't, whatever its trust says: a fenced command may
+		// have written it, and this pi runs outside the fence.
+		args.push("--no-approve");
 	}
 	if (input.extraExtensions) {
 		for (const path of input.extraExtensions) {

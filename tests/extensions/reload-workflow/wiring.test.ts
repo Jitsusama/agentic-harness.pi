@@ -20,7 +20,7 @@ import {
 	type EventBus,
 	type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import reloadWorkflow from "../../../extensions/reload-workflow/index.ts";
 import {
 	PACKAGE_ROOT,
@@ -37,6 +37,24 @@ import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
+
+// In this fixture the install is this checkout, so pi's installed
+// packages are the folder holding it, where a fenced session's reload
+// onto "installed" checks the settings' entry lies.
+vi.mock(
+	"../../../lib/internal/fence/installed-only.ts",
+	async (
+		importOriginal: () => Promise<
+			typeof import("../../../lib/internal/fence/installed-only.ts")
+		>,
+	) => {
+		const { realpathSync } = await import("node:fs");
+		const { dirname, join } = await import("node:path");
+		const real = await importOriginal();
+		const checkout = realpathSync(join(import.meta.dirname, "..", "..", ".."));
+		return { ...real, installedPackages: () => dirname(checkout) };
+	},
+);
 
 interface Tool {
 	execute: (
@@ -204,6 +222,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const dispose of disposers.splice(0)) dispose();
 	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
@@ -392,6 +411,39 @@ describe("the agent asking for a reload", LANDS, () => {
 			now.ask({ reason: "x", onto: join(dir, "elsewhere") }),
 		).rejects.toThrow(/is not a checkout of agentic-harness\.pi/);
 		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("refuses a tree in a fenced session, whose commands may have written it", async () => {
+		vi.stubEnv("PI_SANDBOX", "fence");
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		// Another checkout of this package, since in this fixture this
+		// checkout is the install.
+		const tree = join(dir, "tree");
+		mkdirSync(tree);
+		writeFileSync(
+			join(tree, "package.json"),
+			JSON.stringify({ name: "agentic-harness.pi" }),
+		);
+
+		await expect(now.ask({ reason: "x", onto: tree })).rejects.toThrow(
+			/run in the fence sandbox, and a reload would run/,
+		);
+		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("still takes a fenced session back onto the install", async () => {
+		vi.stubEnv("PI_SANDBOX", "strict");
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+
+		const answer = await now.ask({ reason: "x", onto: "installed" });
+
+		expect(answer.content[0]?.text).toMatch(
+			/^Reload queued onto the install\./,
+		);
 	});
 });
 

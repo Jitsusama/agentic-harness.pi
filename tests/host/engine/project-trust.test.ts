@@ -146,8 +146,14 @@ it("asks again at the next open when the code question closed unanswered, and no
 	startPins(agentDir, () => 0);
 	write(".pi/extensions/lint.ts", "one");
 	const trust = projectTrust(modules());
-	expect((await opened(trust, answering(undefined))).trusted).toBe(false);
-	expect((await opened(trust, answering("No"))).trusted).toBe(false);
+	expect(
+		(await opened(trust, answering(undefined))).trusted,
+		"code nobody said yes to loads nothing",
+	).toBe(false);
+	expect(
+		(await opened(trust, answering("No"))).trusted,
+		"a no loads nothing",
+	).toBe(false);
 	expect(
 		asked,
 		"a question closed unanswered is not a no, so it is asked again",
@@ -164,7 +170,10 @@ it("loads nothing when the code changed while pi's own question waited", async (
 		return true;
 	};
 	const trust = projectTrust(modules());
-	expect((await opened(trust, answering("Yes"))).trusted).toBe(false);
+	expect(
+		(await opened(trust, answering("Yes"))).trusted,
+		"a yes to code that changed since loads nothing",
+	).toBe(false);
 	expect(warned.join("\n")).toContain("changed while you were asked");
 });
 
@@ -176,7 +185,10 @@ it("loads nothing when code was planted while pi's own question waited in a fold
 		return true;
 	};
 	const trust = projectTrust(modules());
-	expect((await opened(trust, answering("Yes"))).trusted).toBe(false);
+	expect(
+		(await opened(trust, answering("Yes"))).trusted,
+		"a yes to a folder that held no code loads nothing planted since",
+	).toBe(false);
 	expect(warned.join("\n")).toContain("changed while you were asked");
 });
 
@@ -189,7 +201,9 @@ it.skipIf(process.getuid?.() === 0)(
 		try {
 			const trust = projectTrust(modules());
 			const { settings, trusted } = await opened(trust, answering("Yes"));
-			expect(trusted).toBe(true);
+			expect(trusted, "a yes holds though its pins can't be written").toBe(
+				true,
+			);
 			expect(warned.join("\n")).toContain("until the host restarts");
 			await settings.reload();
 			expect(settings.trusted, "the next load keeps the yes").toBe(true);
@@ -202,7 +216,10 @@ it.skipIf(process.getuid?.() === 0)(
 it("keeps the person's no over a yes this host gave the folder before it held code", async () => {
 	write(".pi/skills/a/SKILL.md", "words");
 	const trust = projectTrust(modules());
-	expect((await opened(trust, answering("Yes"))).trusted).toBe(true);
+	expect(
+		(await opened(trust, answering("Yes"))).trusted,
+		"a folder with no code is trusted on a yes",
+	).toBe(true);
 	stored = false;
 	write(".pi/extensions/planted.ts", "planted");
 	expect(
@@ -238,7 +255,7 @@ it("gives back the trust it took once the code is pinned again, and none someone
 	firstLookDone();
 	write(".pi/extensions/more.ts", "two");
 	await settings.reload();
-	expect(settings.trusted).toBe(false);
+	expect(settings.trusted, "new code drops the trust").toBe(false);
 	const code = projectCode(folder);
 	if (!code) throw new Error("the folder should hold code");
 	pin(folder, agentDir, code);
@@ -265,7 +282,7 @@ it("keeps a folder untrusted when its code is pinned again after the person's no
 	firstLookDone();
 	write(".pi/extensions/more.ts", "two");
 	await settings.reload();
-	expect(settings.trusted).toBe(false);
+	expect(settings.trusted, "new code drops the trust").toBe(false);
 	stored = false;
 	const code = projectCode(folder);
 	if (!code) throw new Error("the folder should hold code");

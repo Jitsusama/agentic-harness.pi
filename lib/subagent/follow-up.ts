@@ -140,6 +140,7 @@ export function wrapUpAsked(
 		| "reviewer"
 		| "systemPrompt"
 		| "isolated"
+		| "ignoreProject"
 		| "autoResume"
 		| "wrapUpReserveMs"
 		| "timeoutMs"
@@ -154,6 +155,9 @@ export function wrapUpAsked(
 		prompt: WRAP_UP_PROMPT,
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
+		// A fenced session's child reopened is still one whose folder's
+		// `.pi` a fenced command may have written.
+		ignoreProject: options.ignoreProject,
 		resumeSessionPath: sessionPath,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),
@@ -310,6 +314,7 @@ export async function dispatchResume(
 		prompt: RESUME_CONTINUATION_PROMPT,
 		systemPrompt: options.systemPrompt,
 		isolated: options.isolated,
+		ignoreProject: options.ignoreProject,
 		resumeSessionPath: sessionPath,
 		...(extraExtensions.length > 0 ? { extraExtensions } : {}),
 		...(extraSkills.length > 0 ? { extraSkills } : {}),

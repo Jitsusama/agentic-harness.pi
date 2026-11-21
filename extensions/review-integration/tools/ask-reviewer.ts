@@ -10,6 +10,7 @@
  * differing in what they get.
  */
 
+import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lensFor } from "../../../lib/core/review/ask/prompt.ts";
@@ -29,9 +30,16 @@ import {
 	reviewerBudget,
 } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { askedSandbox } from "../../../lib/internal/fence/fence-stage.ts";
+import {
+	fencedChildrenRefusal,
+	inside,
+	packageRoot,
+} from "../../../lib/internal/fence/installed-only.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
+	SANDBOX_NAMES,
 	SANDBOX_VARIABLE,
 	STRICT,
 } from "../../../lib/internal/sandbox/sandbox.ts";
@@ -39,6 +47,7 @@ import { firstResponseBegun } from "../../../lib/subagent/first-response.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {
 	getParentPiInstall,
+	getSubagentDefaults,
 	JOURNAL_PACK_PATH,
 	ReviewerArtifactsStore,
 	runReviewer,
@@ -242,19 +251,73 @@ export const FENCED = { [SANDBOX_VARIABLE]: STRICT } as const;
 
 /**
  * The extensions that hold a reviewer to that sandbox, by their place
- * in this package. `ISOLATED` loads none of the session's, and a
- * reviewer runs no commands, so the sandbox alone would fence nothing:
- * these hold its file tools to the fence and scrub credentials from
- * what they answer, before a finding could quote one onto the change.
+ * in this package. `ISOLATED` loads none of the session's, so the
+ * sandbox alone would fence nothing: these run its commands inside the
+ * fence, hold its file tools to it and scrub credentials from what they
+ * answer, before a finding could quote one onto the change. The shell
+ * is first: a reviewer that names no tools gets pi's default palette,
+ * whose own bash runs as the person, and until 21 November every
+ * reviewer's did, since nothing loaded this package's in its place.
  */
 const FENCE_EXTENSIONS = [
+	"extensions/shell-workflow/index.ts",
 	"extensions/sandbox-file-interceptor/index.ts",
 	"extensions/secret-scrub-interceptor/index.ts",
 ] as const;
 
-/** The fence's extensions, where this package has them. */
-export function fencePacks(): string[] {
-	const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+/**
+ * Why this session may start no reviewer, or nothing: it is fenced and
+ * runs this package, or an extension registered for every subagent,
+ * from outside the install. Asked as a round begins, before it claims
+ * an identity or opens on the ledger, and again as each reviewer is
+ * given the fence's extensions.
+ */
+export function reviewersRefused(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (askedSandbox(env, SANDBOX_NAMES).name === undefined) return undefined;
+	const outside = fencedChildrenRefusal(
+		false,
+		getSubagentDefaults().extensions,
+	);
+	return outside === undefined ? undefined : `No reviewer started: ${outside}`;
+}
+
+/**
+ * Why reviewers working in `folder` may not load this package's code: a
+ * reviewer runs strict, which writes its own folder, so a folder that
+ * holds this package, or lies inside it, would let one reviewer write the
+ * fence the next one loads outside it. A round reads a snapshot, so this
+ * is only met where none could be cut and the round reads the checkout
+ * this session runs.
+ */
+export function reviewerFolderRefusal(
+	folder: string,
+	root: string = packageRoot(),
+): string | undefined {
+	let real = folder;
+	try {
+		real = realpathSync(folder);
+	} catch {
+		// A folder that can't be followed is compared as named.
+	}
+	if (!inside(real, root) && !inside(root, real)) return undefined;
+	return `No reviewer started: it would work in ${real}, which holds the code it loads outside its fence (${root}), so one reviewer could write what the next runs. Review a snapshot of the change, or run the round from a session on the install.`;
+}
+
+/**
+ * The fence's extensions, where this package has them: refused, as a
+ * fenced session's subagents are, when that session runs this package
+ * from outside the install, where its fenced commands could have
+ * written the fence's own code, and when the reviewer's `folder` holds
+ * that code (reviewerFolderRefusal).
+ */
+export function fencePacks(folder?: string): string[] {
+	const refused =
+		reviewersRefused() ??
+		(folder === undefined ? undefined : reviewerFolderRefusal(folder));
+	if (refused !== undefined) throw new Error(refused);
+	const root = packageRoot();
 	return FENCE_EXTENSIONS.map((path) => join(root, ...path.split("/")));
 }
 
@@ -369,7 +432,7 @@ export function deps(
 			// only exists if the reviewer reached the end.
 			extraExtensions: [
 				...(RECORDS_FINDINGS.has(watch.round) ? [journalPack()] : []),
-				...fencePacks(),
+				...fencePacks(cwd),
 			],
 			env: FENCED,
 			// The charter is a standing instruction, and the system prompt
