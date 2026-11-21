@@ -36,7 +36,11 @@ writes it reaches:
   `host-release.ts`, `host-take-up.ts`, `host-join.ts`),
   `pi-packages update`, which restarts every host onto the install it
   moves, the quest tool's spawns and a forced `reopen-sessions`, a
-  `subagent` fleet, and a `review_ask` round. Joel's
+  `subagent` fleet, and a `review_ask` round. Each is held however a
+  command runs it: behind a wrapper, through a launcher or a runner
+  such as `ssh` or `tmux`, in a loop or a substitution, or fed to a
+  shell, while a runner that only names pi, as `tmux attach -t pi`
+  does, goes. Joel's
   `pineapple stop all`, before a demo, is a stop on everything, so a
   parked session can't start more agents to carry on for it.
 
