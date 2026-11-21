@@ -125,6 +125,14 @@ interface Told {
 	readonly keys: Set<string>;
 }
 
+/**
+ * The text of the reply making the calls now being read, which the
+ * person reads beside them, until they speak or the run settles.
+ */
+interface Beside {
+	texts: readonly string[];
+}
+
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
@@ -143,14 +151,17 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
 		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
+		const beside: Beside = { texts: [] };
 		const traced = (trace: SpareTrace) => pi.appendEntry(SPARE_ENTRY, trace);
 		pi.on("tool_call", (event, ctx) =>
-			refuseCall(event.toolName, event.input, ctx, deps, traced),
+			refuseCall(event.toolName, event.input, ctx, deps, traced, beside.texts),
 		);
-		pi.on("message_end", (event, ctx) =>
-			withholdReply(pi, event.message, ctx, deps, told, traced),
-		);
+		pi.on("message_end", (event, ctx) => {
+			noteBeside(beside, event.message);
+			return withholdReply(pi, event.message, ctx, deps, told, traced);
+		});
 		pi.on("agent_settled", () => {
+			beside.texts = [];
 			told.tells = 0;
 			told.run = randomUUID();
 			told.keys.clear();
@@ -166,11 +177,15 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
  * node when any one can't be read.
  * logind is asked on `env`'s PATH; presences are read where every store
  * of the package keeps its state, from the process's own environment,
- * and none counts while `nextRoot` holds a tree.
+ * and none can be told while `nextRoot` holds a tree. Each read has
+ * `patienceMs` to answer.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
-	nextRoot = "/run/nextroot",
+	{
+		nextRoot = "/run/nextroot",
+		patienceMs = SPARES_PATIENCE_MS,
+	}: { nextRoot?: string; patienceMs?: number } = {},
 ): SessionEndingDeps {
 	return {
 		onMesh: () => realmNamed(env),
@@ -191,7 +206,7 @@ export function nodeDeps(
 		here: () => thisMachine(),
 		spares: async () => {
 			const exec = spawnExec({
-				timeoutMs: SPARES_PATIENCE_MS,
+				timeoutMs: patienceMs,
 				killGraceMs: SPARES_KILL_GRACE_MS,
 				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
 			});
@@ -199,7 +214,7 @@ export function nodeDeps(
 				lingersHere(exec),
 				withinPatience(
 					() => parkedHere(undefined, undefined, nextRoot),
-					SPARES_PATIENCE_MS,
+					patienceMs,
 				).then(
 					(sessions) => ({ sessions }),
 					(error: unknown) => ({
@@ -263,10 +278,17 @@ async function refuseCall(
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
 	traced: (trace: SpareTrace) => void,
+	beside: readonly string[],
 ) {
 	const read = READERS[toolName];
 	if (!read) return undefined;
-	const refusal = await refusalFor(read(input), selfOf(ctx), deps, traced);
+	const refusal = await refusalFor(
+		read(input),
+		selfOf(ctx),
+		deps,
+		traced,
+		beside,
+	);
 	if (!refusal) return undefined;
 	return refusalUnder(
 		GUARD.name,
@@ -275,6 +297,18 @@ async function refuseCall(
 		JSON.stringify(input),
 		refusal.key,
 	);
+}
+
+/**
+ * Keeps what an assistant's reply says, refused or not, as what the
+ * calls it makes are read beside, since pi ends the message before its
+ * calls run; a person's message forgets it, since they have answered.
+ */
+function noteBeside(beside: Beside, message: { role: string }): void {
+	if (message.role === "user") beside.texts = [];
+	if (message.role !== "assistant" || !("content" in message)) return;
+	const said = saidInReply(message.content);
+	beside.texts = [...said.prose, ...said.labels];
 }
 
 /**

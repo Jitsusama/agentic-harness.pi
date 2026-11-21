@@ -75,11 +75,26 @@ export function hostRegistries(dir = stateDir("hosts")): HostRegistry[] {
  * read as one, for a reader that must know which list it passed over.
  */
 export function hostRegistryAt(path: string): HostRegistry | undefined {
+	let text: string;
 	try {
-		const read: unknown = JSON.parse(readFileSync(path, "utf8"));
+		text = readFileSync(path, "utf8");
+	} catch {
+		// An unreadable list cannot prove a session closed.
+		return undefined;
+	}
+	return hostRegistryOf(text);
+}
+
+/**
+ * The host list `text` holds, or nothing when it doesn't read as one,
+ * for a reader that read the file itself, as one opening it with care.
+ */
+export function hostRegistryOf(text: string): HostRegistry | undefined {
+	try {
+		const read: unknown = JSON.parse(text);
 		return isRegistry(read) ? withKnownFences(read) : undefined;
 	} catch {
-		// An unreadable or malformed list cannot prove a session closed.
+		// A malformed list cannot prove a session closed.
 		return undefined;
 	}
 }

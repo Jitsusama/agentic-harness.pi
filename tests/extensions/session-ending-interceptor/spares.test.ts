@@ -49,6 +49,12 @@ const hosted = (state: string): NodeSession => ({
 	host: "work-background",
 });
 
+/**
+ * Patience for a read of this machine's files in a test, long enough
+ * that a loaded run reads them rather than timing out.
+ */
+const UNHURRIED_MS = 30_000;
+
 let pi: FakePi;
 let asked = 0;
 
@@ -90,6 +96,15 @@ const reply = (said: string) =>
 				content: [{ type: "text", text: said }],
 				stopReason: "stop",
 			},
+		},
+		ctx,
+	);
+
+const personSays = (said: string) =>
+	handler("message_end")(
+		{
+			type: "message_end",
+			message: { role: "user", content: [{ type: "text", text: said }] },
 		},
 		ctx,
 	);
@@ -278,7 +293,7 @@ describe("a spare beside the commands a reply shows", () => {
 
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict).not.toMatchObject({
-			reason: expect.stringMatching(/isn't a plain|none was spared/),
+			reason: expect.stringMatching(/isn't a plain|None here was spared/),
 		});
 		expect(pi.recorded.entries).toEqual([]);
 	});
@@ -336,9 +351,7 @@ describe("what a spare leaves in the session's log", () => {
 
 		expect(verdict).toMatchObject({
 			block: true,
-			reason: expect.stringMatching(
-				/couldn't be read \(logind went away\), so none was spared/,
-			),
+			reason: expect.stringMatching(/None here was spared: logind went away\./),
 		});
 		expect(traces()).toMatchObject([
 			{ data: { outcome: "unread", error: "logind went away" } },
@@ -353,10 +366,51 @@ describe("what a spare leaves in the session's log", () => {
 		expect(verdict).toMatchObject({
 			block: true,
 			reason: expect.stringMatching(
-				/shows or names a command that isn't a plain reboot, shut-down or log-out, so none was spared/,
+				/shows or names a command that isn't a plain reboot, shut-down or log-out \("sudo systemctl rescue"\), so none was spared/,
 			),
 		});
-		expect(traces()).toMatchObject([{ data: { outcome: "not plain" } }]);
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo systemctl rescue" } },
+		]);
+	});
+
+	it("blames what isn't plain, not what wasn't read, where both stood", async () => {
+		interceptorOver([hosted("idle"), me], async () => {
+			throw new Error("logind went away");
+		});
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(/isn't a plain reboot/),
+		});
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/logind went away/),
+		});
+	});
+
+	it("spares nothing beside a command the reply's own text showed", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		expect(
+			await reply("If it hangs, `sudo kexec -e` brings it back."),
+		).toBeUndefined();
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("forgets a reply's commands once the person speaks", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await reply("If it hangs, `sudo kexec -e` brings it back.");
+		await personSays("Go ahead.");
+
+		expect(await look("Reboot optimus to install it")).toBeUndefined();
 	});
 
 	it("says nothing of what wasn't read where nothing here could have spared", async () => {
@@ -371,7 +425,7 @@ describe("what a spare leaves in the session's log", () => {
 
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict).not.toMatchObject({
-			reason: expect.stringMatching(/couldn't be read/),
+			reason: expect.stringMatching(/None here was spared/),
 		});
 		expect(traces()).toMatchObject([{ data: { outcome: "unread" } }]);
 	});
@@ -393,7 +447,7 @@ describe("what a spare leaves in the session's log", () => {
 
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict).not.toMatchObject({
-			reason: expect.stringMatching(/couldn't be read/),
+			reason: expect.stringMatching(/None here was spared/),
 		});
 	});
 
@@ -411,7 +465,7 @@ describe("what a spare leaves in the session's log", () => {
 		expect(verdict).toMatchObject({
 			block: true,
 			reason: expect.stringMatching(
-				/the host list 7-1\.json can't be read.*so none was spared/,
+				/None here was spared: the host list 7-1\.json can't be read\./,
 			),
 		});
 		expect(traces().map((entry) => entry.data)).toMatchObject([
@@ -505,7 +559,7 @@ describe("what spares, read by default", () => {
 		);
 		const deps = nodeDeps(
 			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
-			join(bin, "no-next-root"),
+			{ nextRoot: join(bin, "no-next-root"), patienceMs: UNHURRIED_MS },
 		);
 
 		expect(await deps.spares?.()).toEqual({
@@ -524,16 +578,36 @@ describe("what spares, read by default", () => {
 		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
 		stub("busctl", 'echo "b false"');
 		mkdirSync(stateDir("hosts"), { recursive: true });
-		writeFileSync(join(stateDir("hosts"), "7-1.json"), "{");
+		// Named for this process, which runs, so its host can't be gone.
+		const torn = `${process.pid}-1.json`;
+		writeFileSync(join(stateDir("hosts"), torn), "{");
 		const deps = nodeDeps(
 			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
-			join(bin, "no-next-root"),
+			{ nextRoot: join(bin, "no-next-root"), patienceMs: UNHURRIED_MS },
 		);
 
 		expect(await deps.spares?.()).toEqual({
 			lingers: true,
 			parked: new Set(),
-			unread: expect.stringMatching(/7-1\.json can't be read/),
+			unread: expect.stringContaining(`${torn} can't be read`),
+		});
+	});
+
+	it("reads the next root it is given, and says when it holds a tree", async () => {
+		vi.stubEnv("XDG_STATE_HOME", bin);
+		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
+		stub("busctl", 'echo "b false"');
+		const nextRoot = join(bin, "nextroot");
+		mkdirSync(join(nextRoot, "usr"), { recursive: true });
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			{ nextRoot, patienceMs: UNHURRIED_MS },
+		);
+
+		expect(await deps.spares?.()).toEqual({
+			lingers: true,
+			parked: new Set(),
+			unread: expect.stringContaining(`${nextRoot} holds a tree`),
 		});
 	});
 });

@@ -50,9 +50,23 @@ const COMMENT = /^\s*#/;
 
 /**
  * A line in prose a reader takes as a command: indented as code, or
- * opening with a shell's prompt.
+ * opening with a shell's prompt, in a blockquote or not.
  */
-const SHOWN_LINE = /^(?:(?: {4}|\t)\s*\S|\s*[$%]\s+\S)/;
+const SHOWN_LINE = /^(?:\s*>)*(?:(?: {4}|\t)\s*\S|\s*[$%]\s+\S)/;
+
+/** A line holding what may open or close a fence. */
+const FENCE_MARK = /`{3,}|~{3,}/;
+
+/**
+ * The one shape of a fence line read as one: indented three spaces at
+ * most, and a backtick fence's info holding no backtick. A fence in a
+ * blockquote, on a list's marker, or indented further is drawn by some
+ * renderers and not others, so it is not plain.
+ */
+const FENCE_LINE = /^ {0,3}(?:`{3,}[^`]*|~{3,}.*)$/;
+
+/** What names a backtick left unpaired, which has no text of its own. */
+const UNPAIRED = "an unpaired backtick";
 
 /**
  * Inline code, paired as `codeSpans` pairs it, so what is hidden from
@@ -74,27 +88,55 @@ function plainCommand(line: string): boolean {
  * command at all is plain.
  */
 export function plainlySaid(texts: readonly string[]): boolean {
-	return texts.every((text) => parts(folded(text)).every(plainPart));
+	return notPlainIn(texts) === undefined;
 }
 
-/** Whether one part of a text, prose or fenced, is plain. */
-function plainPart(part: Part): boolean {
+/**
+ * What first stops `texts` being plainly said, as `plainlySaid` reads
+ * them: the command shown, the fence line or the word in prose, or
+ * that a backtick was left unpaired. Nothing where all is plain.
+ */
+export function notPlainIn(texts: readonly string[]): string | undefined {
+	for (const text of texts) {
+		const said = folded(text);
+		const fence = said
+			.split("\n")
+			.find((line) => FENCE_MARK.test(line) && !FENCE_LINE.test(line));
+		if (fence !== undefined) return fence.trim();
+		for (const part of parts(said)) {
+			const offence = notPlainPart(part);
+			if (offence !== undefined) return offence;
+		}
+	}
+	return undefined;
+}
+
+/** What first stops one part of a text, prose or fenced, being plain. */
+function notPlainPart(part: Part): string | undefined {
 	if (!part.prose || part.commands !== "none") {
 		const comments = part.commands === "every";
 		return part.lines
 			.filter((line) => !BLANK.test(line))
 			.filter((line) => !(comments && COMMENT.test(line)))
-			.every(plainCommand);
+			.find((line) => !plainCommand(line))
+			?.trim();
 	}
 	const written = part.lines.join("\n");
-	const shown = [
-		...codeSpans(written),
-		...spansToRun(written),
-		...part.lines.filter((line) => SHOWN_LINE.test(line)),
-	];
-	const rest = written.replace(CODE_SPAN, " ");
-	// A backtick left unpaired may open code a renderer shows, unchecked.
-	return (
-		shown.every(plainCommand) && !rest.includes("`") && !COMMAND_WORD.test(rest)
+	const shownLines = part.lines.filter((line) => SHOWN_LINE.test(line));
+	const toRun = spansToRun(written);
+	const shown = [...codeSpans(written), ...toRun, ...shownLines].find(
+		(one) => !plainCommand(one),
 	);
+	if (shown !== undefined) return shown.trim();
+	// What was shown is plain, so its own words are no command in prose.
+	const rest = toRun.reduce(
+		(left, span) => left.split(span).join(" "),
+		part.lines
+			.filter((line) => !SHOWN_LINE.test(line))
+			.join("\n")
+			.replace(CODE_SPAN, " "),
+	);
+	// A backtick left unpaired may open code a renderer shows, unchecked.
+	if (rest.includes("`")) return UNPAIRED;
+	return COMMAND_WORD.exec(rest)?.[0];
 }

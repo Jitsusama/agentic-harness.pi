@@ -22,14 +22,24 @@
  * is no logind, or a presence or host list that can't be read, or a
  * read past its patience: a guess that spared a session would be the
  * one that ends its run. A `systemctl reboot` goes soft, keeping the
- * boot, while /run/nextroot holds a tree, so then no marker counts.
+ * boot, while /run/nextroot holds a tree, so then the parked can't be
+ * told, and the refusal says why.
  */
 
-import { lstatSync, readdirSync, type Stats } from "node:fs";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	lstatSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	type Stats,
+} from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import type { HostRegistry } from "../../core/session/host.ts";
-import { hostRegistryAt } from "../../core/session/registry.ts";
+import { hostRegistryOf } from "../../core/session/registry.ts";
 import { createPresences } from "../../mesh/presence.ts";
 import { type Booted, machineBooted } from "../machine/booted.ts";
 import { everyRealmsDir, stateDir } from "../paths.ts";
@@ -66,15 +76,16 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
  * conversation on one. `marked` reads the marker. A session a host
  * still runs is left out: a park closes its conversation, so a host
  * listing it busy or idle has woken it, or its park never landed.
- * None counts while `nextRoot` holds a tree, since a reboot then keeps
- * the boot and every marker with it.
+ * It fails, saying why, while `nextRoot` holds a tree or can't be read,
+ * since a reboot then keeps the boot and every marker with it.
  */
 export async function parkedHere(
 	marked: (session: string) => boolean = (session) => markedThisBoot(session),
 	running: () => Promise<Set<string>> = () => runningInHosts(),
 	nextRoot = "/run/nextroot",
 ): Promise<Set<string>> {
-	if (holdsATree(nextRoot)) return new Set();
+	const soft = softensAReboot(nextRoot);
+	if (soft) throw new Error(soft);
 	const [each, hosted] = await Promise.all([
 		Promise.all(
 			everyRealmsDir("state", "mesh-workflow").map((mesh) =>
@@ -139,9 +150,12 @@ export function markedThisBoot(
 
 /**
  * Every host list in `dir`, failing on one that can't be read, or isn't
- * a file whose read can't hang: its host may run any session. A list
- * gone since the folder was read went with its host, and one written
- * before `booted` with that boot's, so each is passed over.
+ * a file: its host may run any session. Each is opened without blocking
+ * or following a link, and judged a file on what was opened, so no read
+ * can hang on a pipe put in its place. A list gone since the folder was
+ * read went with its host, one written before `booted` with that boot's,
+ * and one whose host's process, named in its name, is gone with it, so
+ * each is passed over.
  */
 function hostLists(dir: string, booted: Booted): HostRegistry[] {
 	let names: string[];
@@ -153,17 +167,62 @@ function hostLists(dir: string, booted: Booted): HostRegistry[] {
 	}
 	return names.flatMap((name) => {
 		const path = join(dir, name);
-		const before = statOf(path);
-		if (!before) return [];
-		if (!before.isFile()) throw new Error(`the host list ${path} isn't a file`);
-		const list = hostRegistryAt(path);
+		// Only a name's own characters, so a name can't speak in a refusal.
+		const shown = join(dir, name.replace(/[^\w.-]/g, "?"));
+		const text = listText(path, shown);
+		if (text === undefined) return [];
+		const list = hostRegistryOf(text);
 		if (list) return [list];
 		const now = statOf(path);
 		if (!now) return [];
 		const boot = booted();
 		if (boot !== undefined && now.mtimeMs < boot) return [];
-		throw new Error(`the host list ${path} can't be read`);
+		if (hostGone(name)) return [];
+		throw new Error(`the host list ${shown} can't be read`);
 	});
+}
+
+/**
+ * What the list at `path` holds, read through one descriptor opened
+ * without blocking or following a link, or nothing once it is gone.
+ * Anything but a file fails, said as `shown`.
+ */
+function listText(path: string, shown: string): string | undefined {
+	let fd: number;
+	try {
+		fd = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+		);
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return undefined;
+		if (codeOf(error) === "ELOOP")
+			throw new Error(`the host list ${shown} isn't a file`);
+		throw new Error(`the host list ${shown} can't be read`);
+	}
+	try {
+		if (!fstatSync(fd).isFile())
+			throw new Error(`the host list ${shown} isn't a file`);
+		return readFileSync(fd, "utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * Whether the host a list's `name` names, as `<pid>-<start>.json`, is
+ * provably gone: no process has its pid. A pid since reused leaves it
+ * counted, which spares nothing.
+ */
+function hostGone(name: string): boolean {
+	const pid = Number(/^(\d+)-\d+\.json$/.exec(name)?.[1]);
+	if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch (error) {
+		return codeOf(error) === "ESRCH";
+	}
 }
 
 /** What `path` is, unfollowed, or nothing once it is gone. */
@@ -177,14 +236,18 @@ function statOf(path: string): Stats | undefined {
 }
 
 /**
- * Whether `root` holds anything, as a next root a reboot would soft-boot
- * into; one that can't be read might, so it does.
+ * Why a reboot might go soft into `root`, a next root: it holds a tree,
+ * or can't be read and so might. Nothing where it is empty or absent.
  */
-function holdsATree(root: string): boolean {
+function softensAReboot(root: string): string | undefined {
 	try {
-		return readdirSync(root).length > 0;
+		return readdirSync(root).length > 0
+			? `${root} holds a tree, so a reboot would keep this boot`
+			: undefined;
 	} catch (error) {
-		return codeOf(error) !== "ENOENT";
+		return codeOf(error) === "ENOENT"
+			? undefined
+			: `${root} can't be read, so a reboot might keep this boot`;
 	}
 }
 

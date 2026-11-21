@@ -90,23 +90,34 @@ plain reboot, shut-down or log-out, read whole after a prompt and a
 terminate-session` with or without a session, or `niri msg action
 quit`, a session given by its id and never by an option such as
 `-H`. Any other command, in inline code, a quote it asks to run, an
-indented or prompted line or any fence (a `#` line in a fence that
-may be a terminal's session is root's prompt, not a comment), or a
-backtick left unpaired, spares nothing, and every session counts as
-without a spare. Reading each spelling of each act widened what the
+indented or prompted line, in a blockquote or not, or any fence (a
+`#` line in a fence that may be a terminal's session is root's
+prompt, not a comment), or a backtick left unpaired, spares nothing,
+and every session counts as without a spare. So does any line
+holding three backticks or tildes that isn't a fence line indented
+three spaces at most, with no backtick after a backtick fence's
+opening: a fence on one line, in a blockquote, on a list's marker or
+indented further is drawn as code by some renderers and not others.
+A reply's own text counts beside each call it makes, an ask, look or
+wait, until the person next speaks, since they read the two together. Reading each spelling of each act widened what the
 guard let through one spelling at a time, so code that isn't on that
 short list isn't read. Prose can't be held to a list, so it is held
 only to a list of words: one naming a command (`sudo`, `systemctl`,
 `kexec`, `init 1`, `ssh`, any kill), or a soft or user space reboot,
 a next root, linger or `KillUserProcesses`, spares nothing. So "run
-sudo reboot" written without code spares nothing either. A wait's
+sudo reboot" written without code spares nothing either. A plain
+command shown as code, indented, prompted or in a quote it asks to
+run is taken out of the prose first, so its own `sudo` doesn't count. A wait's
 checks, run by the machine rather than typed, are read as commands
 as before.
 
-The refusal says when the parked sessions couldn't be read, and
-what, where a full read might have spared those left; or when a spare
-would have stood but a command wasn't plain, so none was spared. A
-logind that can't be asked reads as one that doesn't linger. Each of those, and each ask a
+Where a full read might have spared those left, the refusal ends
+"None here was spared:" and says what couldn't be read, such as a
+host list or a next root holding a tree. Where a spare would have
+stood, or a full read might have let one, but what the reply shows
+isn't plain, it says so instead and quotes the command, fence line or
+word that tripped it. A logind that can't be asked reads as one that
+doesn't linger. Each of those, and each ask a
 spare let past, leaves a `session-ending-spare` entry in the
 session's log, not sent to the model, naming the asks and the
 sessions spared and why.
@@ -159,10 +170,16 @@ sessions spared and why.
   its presence says; a host's list counts unless its process is
   known to be gone, and a list that doesn't read as one, as from a
   host of another version, or one that isn't a file, spares nothing,
-  since its host may run any of them. A list last written before this
-  boot, as a crash can leave one torn, is passed over: its host went
-  with that boot. A `systemctl reboot` goes soft while `/run/nextroot` holds
-  a tree, so then no session counts as parked. That is how a
+  since its host may run any of them. Each list is opened without
+  blocking or following a link and judged a file on what was opened,
+  so a pipe in its place can't hang the read. A list that doesn't
+  read as one is passed over where it was last written before this
+  boot, as a crash can leave one torn, or where no process has the
+  pid its name gives: its host is gone. A refusal names a list in its
+  name's own characters only. A `systemctl reboot` goes soft while
+  `/run/nextroot` holds a tree, so then, and while it can't be read,
+  the parked sessions can't be told and none counts as parked; the
+  refusal says which. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one
   the node reads idle in a holder or a plain terminal is running,

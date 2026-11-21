@@ -4,7 +4,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { plainlySaid } from "../../../../lib/internal/session-ending/plain.ts";
+import {
+	notPlainIn,
+	plainlySaid,
+} from "../../../../lib/internal/session-ending/plain.ts";
 
 describe("plainlySaid", () => {
 	it.each([
@@ -19,6 +22,9 @@ describe("plainlySaid", () => {
 		"Reboot optimus to finish the software update.",
 		"Reboot optimus - the update is staged.",
 		"Reboot:\n\n```\n# reboot\n```",
+		"Reboot:\n\n    sudo reboot\n",
+		'Reboot optimus, then run "sudo reboot".',
+		"Reboot optimus:\n$ sudo systemctl reboot",
 	])("is plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(true);
 	});
@@ -54,8 +60,29 @@ describe("plainlySaid", () => {
 		"Then `shutdown -r now +5`.",
 		"Log out with `loginctl terminate-session 3 4`.",
 		"Log out with `niri msg action quit -s now`.",
+		"Please reboot optimus with:\n```sudo kexec -e```",
+		"Please reboot optimus:\n\n> ~~~\n> # bootctl set-oneshot rescue.conf\n> # reboot\n> ~~~",
+		"Reboot:\n\n1. ~~~\n   # bootctl set-oneshot rescue.conf\n   ~~~",
+		"Please reboot optimus:\n\n```sh\nsudo reboot\n    ```\n# bootctl set-oneshot rescue.conf\n```",
+		"Reboot optimus:\n\n>     bootctl set-oneshot rescue",
+		"Reboot optimus. If it hangs, ``reboot`bootctl set-oneshot rescue`.",
+		"Reboot optimus. Then:\n\n    bootctl set-oneshot rescue\n",
+		'Reboot optimus, then run "bootctl set-oneshot rescue".',
 	])("is not plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(false);
+	});
+
+	it.each([
+		["Reboot, or `sudo systemctl rescue`.", "sudo systemctl rescue"],
+		["Soft-reboot optimus.", "Soft"],
+		["Reboot:\n\n```sh\nsudo reboot\nkexec -e\n```", "kexec -e"],
+		["Reboot optimus. If it hangs, ``reboot`x`.", "an unpaired backtick"],
+	])("names what isn't plain: %s", (said, what) => {
+		expect(notPlainIn([said])).toBe(what);
+	});
+
+	it("names nothing where all is plain", () => {
+		expect(notPlainIn(["Please reboot optimus."])).toBeUndefined();
 	});
 
 	it("reads every text it is given, a label as much as prose", () => {

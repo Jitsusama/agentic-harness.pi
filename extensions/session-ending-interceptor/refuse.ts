@@ -23,7 +23,7 @@ import {
 	type Spared,
 	sparedBy,
 } from "../../lib/internal/session-ending/judge.ts";
-import { plainlySaid } from "../../lib/internal/session-ending/plain.ts";
+import { notPlainIn } from "../../lib/internal/session-ending/plain.ts";
 import type { NodeSession } from "../../lib/mesh/node.ts";
 
 /** Where the interceptor reads the node and names this machine. */
@@ -84,15 +84,29 @@ export type SpareTrace =
 			readonly asks: readonly AskTraced[];
 			readonly error: string;
 	  }
-	| { readonly outcome: "not plain"; readonly asks: readonly AskTraced[] };
+	| {
+			readonly outcome: "not plain";
+			readonly asks: readonly AskTraced[];
+			/** What wasn't plain: a command, a fence line or a word. */
+			readonly shown: string;
+	  };
 
 /** Said in a refusal when what spares sessions couldn't be read. */
-const unreadBecause = (error: string) =>
-	`What would spare sessions here couldn't be read (${error}), so none was spared.`;
+const unreadBecause = (why: string) => `None here was spared: ${why}.`;
 
-/** Said in a refusal when a command it shows isn't on the plain list. */
-const NOT_PLAIN =
-	"It shows or names a command that isn't a plain reboot, shut-down or log-out, so none was spared.";
+/** How much of what wasn't plain a refusal quotes. */
+const SHOWN_AT_MOST = 60;
+
+/**
+ * Said in a refusal when what it shows isn't on the plain list, quoting
+ * what wasn't on one line, cut short.
+ */
+const notPlainBecause = (shown: string) => {
+	const line = shown.replace(/\s+/g, " ").trim();
+	const quoted =
+		line.length > SHOWN_AT_MOST ? `${line.slice(0, SHOWN_AT_MOST)}...` : line;
+	return `It shows or names a command that isn't a plain reboot, shut-down or log-out ("${quoted}"), so none was spared.`;
+};
 
 /**
  * What a call or reply says to the person: prose, read for the form of
@@ -216,13 +230,16 @@ function machinesSoFar(
 
 /**
  * Why what was said may not go to the person, or nothing when it may.
- * The node is asked only when a word in it could open an ask.
+ * The node is asked only when a word in it could open an ask. What is
+ * `beside` it, as the text of the reply making a call, must be as
+ * plain as what it says for a spare to stand: the person reads both.
  */
 export async function refusalFor(
 	said: Said,
 	self: string | undefined,
 	deps: SessionEndingDeps,
 	traced: (trace: SpareTrace) => void = () => {},
+	beside: readonly string[] = [],
 ): Promise<Refusal | undefined> {
 	const commands = said.commands ?? [];
 	const all = [...said.prose, ...said.labels, ...commands];
@@ -249,6 +266,30 @@ export async function refusalFor(
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;
 	const named = tracedAsks(asks);
+	let notPlain: string | undefined | null = null;
+	const shownNotPlain = () => {
+		if (notPlain === null)
+			notPlain = notPlainIn([...said.prose, ...said.labels, ...beside]);
+		return notPlain;
+	};
+	/**
+	 * `base` where what wasn't read couldn't lift it even at its best;
+	 * else blamed on what isn't plain, which would refuse a full read
+	 * too, or else on what wasn't read.
+	 */
+	const unreadOr = (base: Refusal, best: Here, why: string): Refusal => {
+		if (refusalOf(asks, sessions, self, best)) {
+			traced({ outcome: "unread", asks: named, error: why });
+			return base;
+		}
+		const shown = shownNotPlain();
+		if (shown !== undefined) {
+			traced({ outcome: "not plain", asks: named, shown });
+			return because(base, notPlainBecause(shown));
+		}
+		traced({ outcome: "unread", asks: named, error: why });
+		return because(base, unreadBecause(why));
+	};
 	let here: Here;
 	let unread: string | undefined;
 	try {
@@ -258,23 +299,18 @@ export async function refusalFor(
 	} catch (error) {
 		// What spares a session couldn't be read, so it spares none.
 		const message = error instanceof Error ? error.message : String(error);
-		traced({ outcome: "unread", asks: named, error: message });
 		const best = atBest({ machine: deps.here(), lingers: true }, sessions);
-		return refusalOf(asks, sessions, self, best)
-			? refusal
-			: because(refusal, unreadBecause(message));
+		return unreadOr(refusal, best, message);
 	}
 	const left = refusalOf(asks, sessions, self, here);
 	if (left) {
 		if (unread === undefined) return left;
-		traced({ outcome: "unread", asks: named, error: unread });
-		return refusalOf(asks, sessions, self, atBest(here, sessions))
-			? left
-			: because(left, unreadBecause(unread));
+		return unreadOr(left, atBest(here, sessions), unread);
 	}
-	if (!plainlySaid([...said.prose, ...said.labels])) {
-		traced({ outcome: "not plain", asks: named });
-		return because(refusal, NOT_PLAIN);
+	const shown = shownNotPlain();
+	if (shown !== undefined) {
+		traced({ outcome: "not plain", asks: named, shown });
+		return because(refusal, notPlainBecause(shown));
 	}
 	const spared = sparedBy(asks, sessions, self, here);
 	traced({ outcome: "spared", asks: named, spared });

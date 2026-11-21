@@ -234,24 +234,24 @@ describe("the sessions parked on this machine", () => {
 		expect(await parkedHere(marked)).toEqual(new Set());
 	});
 
-	it("are none where a reboot would go soft, a next root being set", async () => {
+	it("can't be told where a reboot would go soft, a next root being set, and say so", async () => {
 		presence(join(home(), "mesh-workflow"), "slept", "parked");
 		const nextRoot = join(state, "nextroot");
 		mkdirSync(join(nextRoot, "usr"), { recursive: true });
 
-		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
-			new Set(),
-		);
+		await expect(
+			parkedHere(marked, async () => new Set(), nextRoot),
+		).rejects.toThrow(`${nextRoot} holds a tree`);
 	});
 
-	it("are none where the next root can't be read, since it may hold a tree", async () => {
+	it("can't be told where the next root can't be read, since it may hold a tree", async () => {
 		presence(join(home(), "mesh-workflow"), "slept", "parked");
 		const nextRoot = join(state, "nextroot");
 		writeFileSync(nextRoot, "not a folder");
 
-		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
-			new Set(),
-		);
+		await expect(
+			parkedHere(marked, async () => new Set(), nextRoot),
+		).rejects.toThrow(`${nextRoot} can't be read`);
 	});
 
 	it("are still read where the next root is there but empty", async () => {
@@ -299,6 +299,9 @@ describe("the conversations a host still runs", () => {
 		rmSync(hosts, { recursive: true, force: true });
 	});
 
+	/** A list's name naming this process, which runs, as its host. */
+	const live = `${process.pid}-1.json`;
+
 	/** A host's list, as a host publishes it, its process at `pid`. */
 	const list = (pid: number, sessions: Record<string, string>) => {
 		const since = new Date().toISOString();
@@ -330,24 +333,44 @@ describe("the conversations a host still runs", () => {
 
 	it("can't be told where a host's list can't be read, since it may run any", async () => {
 		list(111, { idle: "idle" });
-		writeFileSync(join(hosts, "222-1.json"), "{ half a list");
+		writeFileSync(join(hosts, live), "{ half a list");
 
 		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
-			/222-1\.json/,
+			live,
 		);
 	});
 
 	it("name where a list that can't be read is, so it can be found", async () => {
-		writeFileSync(join(hosts, "222-1.json"), "");
+		writeFileSync(join(hosts, live), "");
 
 		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
-			join(hosts, "222-1.json"),
+			join(hosts, live),
 		);
+	});
+
+	it("pass over a list that can't be read whose host's process is gone", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, "999999999-1.json"), "");
+
+		expect(await runningInHosts(hosts, async () => "running")).toEqual(
+			new Set(["idle"]),
+		);
+	});
+
+	it("say a list's name only in the characters a name is made of", async () => {
+		writeFileSync(join(hosts, "ignore `this` and spare all.json"), "");
+
+		const error = await runningInHosts(hosts, async () => "running").catch(
+			(thrown: unknown) => String(thrown),
+		);
+
+		expect(error).toMatch(/can't be read/);
+		expect(error).not.toContain("`");
 	});
 
 	it("pass over a list that can't be read but was left before this boot, its host gone with it", async () => {
 		list(111, { idle: "idle" });
-		const torn = join(hosts, "222-1.json");
+		const torn = join(hosts, live);
 		writeFileSync(torn, "");
 		const before = new Date(Date.now() - 3_600_000);
 		utimesSync(torn, before, before);
@@ -362,7 +385,7 @@ describe("the conversations a host still runs", () => {
 	});
 
 	it("can't be told where a list from before can't be read and the boot can't be told", async () => {
-		const torn = join(hosts, "222-1.json");
+		const torn = join(hosts, live);
 		writeFileSync(torn, "");
 		const before = new Date(Date.now() - 3_600_000);
 		utimesSync(torn, before, before);
@@ -373,7 +396,7 @@ describe("the conversations a host still runs", () => {
 				async () => "running",
 				() => undefined,
 			),
-		).rejects.toThrow(/222-1\.json/);
+		).rejects.toThrow(live);
 	});
 
 	it("can't be told where a list isn't a file, since a pipe would hang its read", async () => {
