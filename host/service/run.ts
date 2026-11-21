@@ -215,7 +215,10 @@ export interface HostRunOptions {
 	 * whether it could; one it can't stops the host.
 	 */
 	contain?: (sessionId: string, error: unknown) => boolean;
-	/** Where conversations may run in a process each, passed on to serveHost. */
+	/**
+	 * Where conversations may run in a process each, passed on to
+	 * serveHost; a child, which runs only its own, never passes it.
+	 */
 	children?: Parameters<typeof serveHost>[0]["children"];
 	/**
 	 * Passed on to serveHost, for tests: a host run from a tree is given
@@ -409,7 +412,9 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			...(options.viewer ? { viewer: options.viewer } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
 			...(child ? childPlaces(child.slot, child.life) : {}),
-			...(options.children ? { children: options.children } : {}),
+			// A child shares its supervisor's key, so that key's policy would
+			// move the child's own conversation on again: a child moves none.
+			...(options.children && !child ? { children: options.children } : {}),
 			report,
 			say,
 			starting,
