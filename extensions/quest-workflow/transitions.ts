@@ -76,13 +76,13 @@ import {
 import { queueOrder } from "./verbs/queue.ts";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.ts";
 import { reopenQuest } from "./verbs/seal.ts";
+import { spawn } from "./verbs/session.ts";
 import {
 	sessionAttach,
 	sessionAudit,
 	sessionDetach,
 	sessionRename,
-	spawn,
-} from "./verbs/session.ts";
+} from "./verbs/session-membership.ts";
 import {
 	currentSessionId,
 	type QuestResult,

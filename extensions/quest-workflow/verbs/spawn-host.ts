@@ -29,6 +29,7 @@ import {
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
+import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
 import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
@@ -589,38 +590,54 @@ const INVALID_REQUEST = "invalid_request";
 
 /** What a spawn a host too old for the stage's token opened says. */
 const OLDER_HOST =
-	"Its host runs code from before the fence's first stage reached hosts, so the session starts outside the stage until the host restarts onto the installed harness.";
+	"Its host runs code from before the fence's first stage and declared fences reached hosts, so the session starts outside the stage, and without a declared fence, until the host restarts onto the installed harness.";
 
 /**
- * The spawn again without the first stage's token, when its host
- * refused the request as invalid: a host started before the token was a
- * carried variable refuses the open whole, and a session started
- * unstaged, and logged as missed, beats none (fence-stage.ts). Sent
- * again without it, a request still invalid is refused as before.
+ * The spawn again without the first stage's token and the mark of a
+ * declared fence, when its host refused the request as invalid: a host
+ * started before either was a carried variable refuses the open whole,
+ * and a session started unstaged, and logged as missed, beats none
+ * (fence-stage.ts); its pi then lifts a declared fence, which its claim
+ * says (`declarationSettled`). Sent again without them, a request still
+ * invalid is refused as before.
  */
 function olderHost(spawn: HostSpawn, code: string): HostSpawn | undefined {
-	const token = spawn.carried?.[STAGE_VARIABLE];
-	if (token === undefined || code !== INVALID_REQUEST) return undefined;
-	const { [STAGE_VARIABLE]: _token, ...rest } = spawn.carried ?? {};
+	const carried = spawn.carried ?? {};
+	const newer = [STAGE_VARIABLE, DECLARED_VARIABLE].some(
+		(name) => carried[name] !== undefined,
+	);
+	if (!newer || code !== INVALID_REQUEST) return undefined;
+	const {
+		[STAGE_VARIABLE]: _token,
+		[DECLARED_VARIABLE]: _mark,
+		...rest
+	} = carried;
 	const { carried: _carried, ...without } = spawn;
 	return Object.keys(rest).length > 0 ? { ...without, carried: rest } : without;
 }
 
 /**
  * What the spawn sent again without the token answers. Only an open is
- * an older host's, said and logged as the stage's miss, so the count the
+ * an older host's, said, and logged as the stage's miss where the token
+ * was dropped, so the count the
  * everyone stage's pre-flight reads holds no request refused for another
- * reason.
+ * reason. Its details say it started unstaged, so the fence it claims
+ * says what that runs.
  */
 function openedUnstaged(result: QuestResult, spawn: HostSpawn): QuestResult {
 	if (!result.ok) return result;
-	void recordUnlisted({
-		kind: "host",
-		session: process.env.PI_SESSION_ID,
-		quest: spawn.questId,
-		error: "older-host",
-	});
-	return noted(result, OLDER_HOST);
+	if (spawn.carried?.[STAGE_VARIABLE] !== undefined) {
+		void recordUnlisted({
+			kind: "host",
+			session: process.env.PI_SESSION_ID,
+			quest: spawn.questId,
+			error: "older-host",
+		});
+	}
+	const said = noted(result, OLDER_HOST);
+	return said.ok
+		? { ...said, details: { ...said.details, unstaged: true } }
+		: said;
 }
 
 /** A result with a note after what it says. */

@@ -127,6 +127,25 @@ describe("the words a held spawn uses", () => {
 		]);
 	});
 
+	it("names the sandbox a declared fence runs its commands in, and none otherwise", () => {
+		expect(
+			heldWords("pi", "QEST-1", undefined, undefined, "fence"),
+			"a declared fence sets PI_SANDBOX and the mark that keeps it",
+		).toEqual([
+			"env",
+			"QUEST_WORKFLOW_AUTOLOAD_ID=QEST-1",
+			"PI_SANDBOX=fence",
+			"PI_FENCE_DECLARED=1",
+			"sh",
+			"-c",
+			"pi",
+		]);
+		expect(
+			heldWords("pi", "QEST-1").join(" "),
+			"no sandbox sets nothing",
+		).not.toContain("PI_SANDBOX");
+	});
+
 	it("quotes each attach word so the shell runs them as given", () => {
 		expect(joinLine(["ssh", "-t", "it's here"])).toBe(
 			"'ssh' '-t' 'it'\\''s here'",
@@ -168,6 +187,25 @@ describe("spawning on a machine", () => {
 			machine: "equilibrius",
 			held: "c97b4852",
 		});
+	});
+
+	it("tells the node the fence it declares, and starts it in that sandbox", async () => {
+		const kitty = fakeDriver("kitty");
+		const { asked: starts, start } = node(equilibrius);
+		const fence = { kind: "fence", from: "quest" } as const;
+		const outcome = await spawnHeld(
+			{ ...asked(kitty), fence, sandbox: "fence" },
+			start,
+			shares,
+		);
+		expect(starts[0]?.fence, "the start declares the fence").toEqual(fence);
+		expect(starts[0]?.command, "its commands run fenced").toContain(
+			"PI_SANDBOX=fence",
+		);
+		expect(
+			outcome.ok && outcome.details,
+			"the details say the fence",
+		).toMatchObject({ fence });
 	});
 
 	it("asks the node nothing and opens nothing on a dry run, saying what it would do", async () => {
@@ -368,6 +406,17 @@ describe("the machine a spawn starts on", () => {
 				{ kind: "machine", value: "equilibrius" },
 			],
 		]);
+	});
+
+	it("tells the node the fence it declares, whatever is needed", async () => {
+		const fences: unknown[] = [];
+		const place: PlaceOnNode = async (_needs, fence) => {
+			fences.push(fence);
+			return { ok: true, machine: "optimus" };
+		};
+		const fence = { kind: "strict", from: "spawn" } as const;
+		await machineFor(undefined, ["reach=home"], place, fence);
+		expect(fences, "the place asked carries the fence").toEqual([fence]);
 	});
 
 	it("refuses with the node's reasons, or the words that aren't a need", async () => {

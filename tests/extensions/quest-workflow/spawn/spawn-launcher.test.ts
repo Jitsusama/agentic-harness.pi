@@ -566,6 +566,19 @@ describe("spawn through the desktop's launcher", () => {
 		expect(opened).toBe("pi");
 	});
 
+	it("opens a spawn that must start in a sandbox itself, since the launcher hands on only its id", async () => {
+		const { state, id } = await quest();
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			fence: "fence",
+		});
+		if (!result.ok) throw new Error(result.guidance);
+		expect(handed(), "nothing goes to the launcher").toBeUndefined();
+		expect(opened, "the window opens here").toBe("pi");
+		expect(openedEnv?.PI_SANDBOX, "its sandbox goes with it").toBe("fence");
+	});
+
 	it("asks nothing on a dry run, saying the launcher goes first", async () => {
 		const { state, id } = await quest();
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {

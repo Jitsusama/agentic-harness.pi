@@ -233,6 +233,10 @@ describe("spawn into a host", () => {
 		const token = open.env?.PI_FENCE_STAGE;
 		expect(token, "the open carried no stage token").toMatch(/^[0-9a-f-]{36}$/);
 		expect(listedForStage(token), "its token wasn't listed").toBe(true);
+		expect(
+			result.ok && result.details?.fence,
+			"it claims the fence its token runs",
+		).toEqual({ kind: "fence", from: "default" });
 	});
 
 	it("hands a fresh session no token until spawns join the stage", async () => {
@@ -282,9 +286,65 @@ describe("spawn into a host", () => {
 			"the second open still carried the token",
 		).toBeUndefined();
 		expect(said(result)).toContain("starts outside the stage");
+		expect(
+			result.ok && result.details?.fence,
+			"it claims what runs without the token",
+		).toEqual({ kind: "none", from: "default" });
 		expect(recordUnlisted, "the miss was not counted").toHaveBeenCalledWith(
 			expect.objectContaining({ kind: "host", error: "older-host" }),
 		);
+	});
+
+	it("hands a declared fence to the host with the mark that keeps it, and claims it", async () => {
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+			fence: "fence",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		const [open] = received;
+		if (open?.op !== "open") throw new Error("expected an open");
+		expect(open.env, "the open lacks the fence or its mark").toEqual({
+			PI_SANDBOX: "fence",
+			PI_FENCE_DECLARED: "1",
+		});
+		expect(
+			result.ok && result.details?.fence,
+			"it claims the fence it declared",
+		).toEqual({ kind: "fence", from: "spawn" });
+	});
+
+	it("opens a declared fence without its mark in a host too old for it, claiming none", async () => {
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (request.op === "open" && request.env?.PI_FENCE_DECLARED)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return identityFor(request);
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+			fence: "fence",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		const again = received.at(1);
+		if (again?.op !== "open") throw new Error("expected a second open");
+		expect(again.env, "the second open still carried the mark").toEqual({
+			PI_SANDBOX: "fence",
+		});
+		expect(
+			result.ok && result.details?.fence,
+			"it claims the fence its pi lifts",
+		).toEqual({ kind: "none", from: "default" });
+		expect(
+			recordUnlisted,
+			"a dropped mark was counted as the stage's miss",
+		).not.toHaveBeenCalled();
 	});
 
 	it("counts no older host when the open without the token is refused too", async () => {

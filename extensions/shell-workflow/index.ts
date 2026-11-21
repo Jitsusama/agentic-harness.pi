@@ -173,7 +173,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// in, and pi's description names none.
 	const shape = createBashToolDefinition(SHAPE_ONLY);
 	// Asked for when the session starts, by its environment (sandbox.ts),
-	// with the fence lifted from all but subagents until it relands.
+	// with the fence lifted from all but subagents and spawns that declared
+	// it, until it relands.
 	liftFence();
 	const sandbox = sandboxFor();
 	// Said to a host, whose record a mycelium node carrying it reads, once
