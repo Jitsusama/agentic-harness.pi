@@ -7,6 +7,7 @@ import {
 	needsGibOfCommand,
 	nextTurn,
 	ONE_WALK_FROM_PRESSURE,
+	pushesWorld,
 	RAMP_MS,
 	skipsWorldPushHooks,
 	WALK_SETTLES_MS,
@@ -177,6 +178,23 @@ describe("a walk of World's objects", () => {
 		expect(nextTurn(ended, calm, NOW)?.id).toBe("two");
 	});
 
+	it("lets a quick push start with no minute to settle after it", () => {
+		// A push that leaves out its LFS scan maps no packs, so a stream of
+		// them would otherwise keep a rebase waiting a minute at a time.
+		const jobs = [
+			job("push", {
+				kind: "world-walk",
+				what: "git push",
+				walk: "push",
+				quick: true,
+				started: startedAgo(10_000),
+			}),
+			job("rebase", { kind: "world-walk", what: "git rebase", walk: "branch" }),
+		];
+		const calm = { ...ROOMY, availableGib: 100, memoryFullMinute: 0 };
+		expect(nextTurn(jobs, calm, NOW)?.id).toBe("rebase");
+	});
+
 	it("runs at most two at once while memory flows, and lets others past", () => {
 		const long = startedAgo(RAMP_MS + 60_000);
 		const walk = (id: string, over: Partial<Job> = {}) =>
@@ -273,16 +291,29 @@ describe("walks of World's objects among themselves", () => {
 		).toBe("main-fetch");
 	});
 
-	it("reads a push, alone or after a fetch of main, as a push", () => {
+	it("reads pushes alone as a push, and one after other walks as given its hooks", () => {
 		expect(walkOf("git push origin x", inWorld)).toBe("push");
 		// One that leaves out the stale-cutoff hook runs through the queue's
 		// hooks too, which is where it is left out (push-hooks.mjs).
 		expect(
 			walkOf("PI_PUSH_SKIPS_STALE_CUTOFF=1 git push origin x", inWorld),
 		).toBe("push");
+		// A fetch before it would walk past every walk's limit on the push's
+		// quick turn, so the two wait as a branch's own work.
 		expect(
 			walkOf("git fetch origin main && git push origin HEAD:x", inWorld),
-		).toBe("push");
+		).toBe("branch");
+		for (const pushing of [
+			"git push origin x",
+			"git fetch origin main && git push origin HEAD:x",
+			"git rebase origin/main && git push",
+		]) {
+			expect(pushesWorld(pushing, inWorld), pushing).toBe(true);
+		}
+		expect(pushesWorld("git rebase origin/main", inWorld)).toBe(false);
+		expect(pushesWorld("git push", { cwd: `${home}/src/core.nix`, home })).toBe(
+			false,
+		);
 	});
 
 	it("knows a push of World that skips its pre-push hooks", () => {

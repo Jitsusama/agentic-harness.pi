@@ -281,9 +281,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * `ONE_WALK_FROM_PRESSURE`, and git's rebase, cherry-pick, merge and
  * sparse-checkout in a World checkout read as walks. 14: no walk starts
  * beside one started within {@link WALK_SETTLES_MS}, and git's revert in
- * a World checkout reads as a walk.
+ * a World checkout reads as a walk. 15: a quick push opens no settling
+ * window, and a command chaining another walk before a push is no quick
+ * push, though its push still leaves out its LFS scan.
  */
-export const RULES_VERSION = 14;
+export const RULES_VERSION = 15;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -608,9 +610,11 @@ function standing(
 		quick,
 		walks: {
 			running: running.filter((job) => job.kind === "world-walk").length,
+			// A quick push maps no packs, so it has no pressure to settle.
 			settling: running.some(
 				(job) =>
 					job.kind === "world-walk" &&
+					!isQuick(job) &&
 					now - Date.parse(job.started as string) < WALK_SETTLES_MS,
 			),
 		},

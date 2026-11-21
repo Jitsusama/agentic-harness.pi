@@ -38,6 +38,7 @@ import {
 	NEEDS_GIB,
 	needsGibOfCommand,
 	PUSH_GIB,
+	pushesWorld,
 	walkOf,
 	whatOf,
 } from "./queue.ts";
@@ -190,14 +191,20 @@ export function queuedCommand(
 		(queueing.sendsWholeRun?.(command, cwd) ?? false);
 	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
 	// A push of World leaves out its LFS scan when it holds no LFS file
-	// (pushes.ts); without the hooks placed it runs them as it would.
+	// (pushes.ts), chained after a rebase or not; without the hooks placed
+	// it runs them as it would.
 	const hooks =
-		walk === "push" && placePushHooks(queueing.folder.dir)
+		walk !== undefined &&
+		pushesWorld(command, where) &&
+		placePushHooks(queueing.folder.dir)
 			? pushesLine(queueing.folder.dir)
 			: undefined;
-	// A push that leaves out its scan walks no packs, so it is held to
-	// what it uses rather than to a walk's (needs.ts's `PUSH_GIB`).
-	const walkGib = hooks
+	// A command of pushes alone that leave out their scan walks no packs,
+	// so it is held to what it uses rather than to a walk's (needs.ts's
+	// `PUSH_GIB`), and goes quick. A push after a rebase is held to the
+	// rebase's walk.
+	const lightPush = walk === "push" && hooks !== undefined;
+	const walkGib = lightPush
 		? Math.max(PUSH_GIB, seen ?? 0)
 		: Math.max(NEEDS_GIB[kind], seen ?? 0);
 	// A step that runs a zone's evaluation tests holds the command to
@@ -213,7 +220,7 @@ export function queuedCommand(
 	// A step past the one named that needs more, as changed-checks after a
 	// check's build does, is no seconds-long job, whatever the first is.
 	const quick =
-		hooks !== undefined ||
+		lightPush ||
 		(needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what));
 	const lastRanS = queueing.folder.ranFor(what);
 	const quest = offeredShellEnvironment()[QUEST_VARIABLE];

@@ -113,16 +113,17 @@ function narrowest(
 
 /**
  * What a walk of World's objects does, for its place among the walks
- * waiting: `push`, every walk it runs is a push or a fetch of origin's
- * main, at least one a push; `main-fetch`, every one is a plain fetch of
- * origin's main, which a fetch of main just made can answer (see
- * fetched.ts); `branch`, every one is a push, a fetch of main or a
- * branch's own work, at least one the latter: a rebase, cherry-pick,
- * revert, merge or `sparse-checkout`; `other`, it walks for anything
- * else, as a fetch of another person's branch does. Nothing for a
- * command that walks none. A rebase chained before a push is `branch`,
- * since a push's quick turn and small hold (job.ts's `isQuick`, needs.ts's
- * `PUSH_GIB`) would let the rebase walk past every walk's limit.
+ * waiting: `push`, every walk it runs is a push; `main-fetch`, every one
+ * is a plain fetch of origin's main, which a fetch of main just made can
+ * answer (see fetched.ts); `branch`, every one is a push, a fetch of
+ * main or a branch's own work, and they aren't all pushes or all fetches:
+ * a rebase, cherry-pick, revert, merge or `sparse-checkout`, or a fetch
+ * of main beside a push; `other`, it walks for anything else, as a fetch
+ * of another person's branch does. Nothing for a command that walks
+ * none. A rebase or a fetch chained before a push is `branch`, since a
+ * push's quick turn and small hold (job.ts's `isQuick`, needs.ts's
+ * `PUSH_GIB`) would let the walk before it past every walk's limit. Its
+ * push still leaves out its LFS scan ({@link pushesWorld}).
  */
 export function walkOf(
 	command: string,
@@ -132,8 +133,22 @@ export function walkOf(
 	if (walks.length === 0) return undefined;
 	if (walks.every((walk) => walk === "main-fetch")) return "main-fetch";
 	if (walks.includes("other")) return "other";
-	if (walks.includes("branch")) return "branch";
-	return walks.includes("push") ? "push" : "branch";
+	return walks.every((walk) => walk === "push") ? "push" : "branch";
+}
+
+/**
+ * Whether a command pushes to World, alone or after other walks: such a
+ * command is given the queue's push hooks (pushes.ts), so its push
+ * leaves out the LFS scan when it holds no LFS file, whatever it's
+ * chained after.
+ */
+export function pushesWorld(
+	command: string,
+	where: Where = { home: homedir() },
+): boolean {
+	return worldWalks(runSteps(command), where).some(
+		(walk) => walk[2] === "push",
+	);
 }
 
 /**

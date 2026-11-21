@@ -138,6 +138,7 @@ export {
 } from "./next-turn.ts";
 export { stepsOf } from "./steps.ts";
 export {
+	pushesWorld,
 	skipsWorldPushHooks,
 	type Where,
 	walkOf,
