@@ -78,11 +78,18 @@ export function createHanding(m: MeshState) {
 			m.onNoModelUntold = event;
 			return;
 		}
+		const above = keptAbove(m.peer.orchestratedBy, m.hub)?.address;
+		// No hub found yet on a quest with no mark: kept until one is
+		// (start.ts), rather than counted told when nobody heard it.
+		if (above === undefined) {
+			m.onNoModelUntold = event;
+			return;
+		}
 		m.toldOnNoModel = true;
 		m.onNoModelUntold = undefined;
 		const message = tellOnNoModel(
 			m.peer,
-			keptAbove(m.peer.orchestratedBy, m.hub)?.address,
+			above,
 			m.transport,
 			event,
 			m.presences.all(),

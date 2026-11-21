@@ -276,16 +276,23 @@ export function onSessionStart(
 		m.lookClock = setInterval(f.lookAgain, m.lookAgainMs);
 		m.lookClock.unref?.();
 		// Where the mesh's own tells and notices go on a quest with no
-		// mark, found now and kept, since they are said without waiting.
+		// mark, found now and kept, since they are said without waiting. A
+		// finding kept for want of anyone to hear it is told once one is.
 		m.hub?.stop();
-		m.hub = keepHub(() =>
-			m.peer
-				? {
-						peer: m.peer,
-						presences: m.presences,
-						ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
-					}
-				: undefined,
+		m.hub = keepHub(
+			() =>
+				m.peer
+					? {
+							peer: m.peer,
+							presences: m.presences,
+							ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
+						}
+					: undefined,
+			{
+				found: () => {
+					if (m.onNoModelUntold) f.tellNoModel(m.onNoModelUntold);
+				},
+			},
 		);
 		clearInterval(m.looksClock);
 		const looksDir = m.paths.looks;

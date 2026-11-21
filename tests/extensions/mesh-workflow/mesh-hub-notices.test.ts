@@ -1,8 +1,10 @@
 /**
  * What the mesh says by itself on a quest with no orchestrator mark: an
  * ending and a session on no model are told to the hub from use this
- * peer keeps, and a question for the person's hands sent to the hub by
- * its address is counted as one sent with the word.
+ * peer keeps, the second once one is found if none was yet; a send
+ * finds the hub afresh rather than reading the kept one; and a question
+ * for the person's hands sent to the hub by its address is counted as
+ * one sent with the word, whether or not a hub was kept.
  */
 
 import { join } from "node:path";
@@ -28,14 +30,17 @@ const tieTo = (other: string, strength: number) => ({
 	today: [strength, strength],
 });
 
-/** The parent quest's cell, 5GV2AH, live above the fixture's quest. */
-function parentLive() {
+/**
+ * The parent quest's cell, 5GV2AH, live above the fixture's quest, or
+ * on `chain` instead.
+ */
+function parentLive(chain = "5gv2ah") {
 	createPresences(join(fixture.paths.mesh, "presence")).publish({
 		session: "session-q",
 		addresses: ["5GV2AH"],
-		groups: ["#quest/5gv2ah"],
+		groups: [`#quest/${chain}`],
 		joined: [],
-		quest: "QEST-20261021-5GV2AH",
+		quest: `QEST-20261021-${chain.split("/").at(-1)?.toUpperCase()}`,
 		worksOn: "",
 		owns: [],
 		busy: false,
@@ -101,6 +106,53 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		);
 
 		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(1);
+	});
+
+	// The kept hub is minutes old by the time a send reads it, and a send
+	// can wait for the node, so it finds the hub as things stand.
+	it("finds the hub afresh for a send, rather than the one it keeps", async () => {
+		const { tools } = await keptHub();
+		parentLive("zz9zzz");
+
+		const answer = await send(tools, "orchestrator", "fyi", "The run ended.");
+
+		expect(answer).toContain("Not sent:");
+		expect(sent()).toHaveLength(1);
+	});
+
+	it("counts the person's acts in a question to the hub by address with no hub kept yet", async () => {
+		onQuest();
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { tools } = await startSession(env);
+		// Live only once the first find has come up empty, so none is kept.
+		parentLive();
+
+		const refused = await send(
+			tools,
+			"5GV2AH",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(0);
+	});
+
+	it("tells a session on no model to the hub once one is found, when it came first", async () => {
+		onQuest();
+		parentLive();
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { emit } = await startSession(env);
+
+		emit(SESSION_ON_NO_MODEL, { when: "before a turn" });
+
+		await vi.waitFor(() =>
+			expect(sent().at(-1)).toMatchObject({
+				to: ["@5GV2AH"],
+				intent: "finding",
+			}),
+		);
 		expect(sent()).toHaveLength(1);
 	});
 });
