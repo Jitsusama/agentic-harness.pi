@@ -36,8 +36,10 @@ would miss what another binds over it.
   with a placeholder token and the session's trust bundle, and the
   door's control socket kept out.
 - **`compile-cache-place.ts`**: where every pi process keeps node's
-  compile cache, a folder of pi's state the fence holds read-only, so
-  no fenced command can plant code that node runs outside the fence.
+  compile cache and the host's, a private folder of the login's
+  runtime folder that the fence's root empties, or else a folder of
+  pi's state the fence holds read-only, so no fenced command can plant
+  code that node runs outside the fence.
 - **`fence-dev.ts`**: the session's own writable copies of dev's
   settings and git's global settings, one set for each pi process,
   made outside and bound over the person's, so a fenced `dev up` can

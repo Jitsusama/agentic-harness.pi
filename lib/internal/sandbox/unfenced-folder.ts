@@ -12,7 +12,7 @@
  */
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { compileCacheFolder } from "../fence/compile-cache-place.ts";
+import { runtimeCompileFolders } from "../fence/compile-cache-place.ts";
 import { tempCodeCaches } from "../fence/fence-temp-caches.ts";
 import { cacheDir, stateDir } from "../paths.ts";
 import { within } from "./tree-git.ts";
@@ -41,18 +41,23 @@ export function nodeRecords(home: string): string[] {
 /**
  * Where pi and its host keep the code they compiled, which the next one
  * started outside every sandbox runs as its own (ISXEG8, 19 November):
- * the host's cache and node's in pi's state, where they now lie, and
- * in the cache folder, where an older install kept the host's, and
- * node's and jiti's in the temporary folder, where a pi left to itself
- * keeps them. The fence holds each closed to its other commands; strict
- * would make one writable as a command's own folder.
+ * the host's cache and node's in the login's runtime folder, where they
+ * now lie on Linux, and in pi's state, where they lie on a Mac and lay
+ * before, and in the cache folder, where an older install kept the
+ * host's, and node's and jiti's in the temporary folder, where a pi left
+ * to itself keeps them. The fence holds each closed to its other
+ * commands; strict would make one writable as a command's own folder.
  */
-export function compiledCode(home: string): string[] {
+export function compiledCode(
+	home: string,
+	env: NodeJS.ProcessEnv = process.env,
+): string[] {
 	return unique([
+		...runtimeCompileFolders(env),
 		join(home, ".local/state/pi/agentic-harness.pi/host-compile"),
 		join(home, ".local/state/pi/agentic-harness.pi/node-compile-cache"),
 		stateDir("host-compile"),
-		compileCacheFolder(),
+		stateDir("node-compile-cache"),
 		join(home, ".cache/pi/agentic-harness.pi/host-compile"),
 		cacheDir("host-compile"),
 		...tempCodeCaches(),

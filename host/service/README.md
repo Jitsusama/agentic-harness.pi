@@ -243,8 +243,10 @@ input pipeline or screen. No unit or running host is installed yet.
   enables before anything else loads, so a start reads back what an
   earlier start of the same install compiled rather than compiling
   pi's and the harness's modules again. Each realm, kind and install
-  has its own folder in the harness's state (`host-compile`), which
-  the fence keeps read-only, and a
+  has its own folder in the login's runtime folder (`pi-compile/host`),
+  a private tmpfs no fenced command sees, so a flush waits on no disk;
+  without one, as on a Mac, in the harness's state (`host-compile`),
+  which the fence keeps read-only. A
   host removes its own earlier installs' folders as it starts. It is
   flushed once the host serves, since a killed host never reaches the
   exit where node would write it. A cache that can't be had is said

@@ -5,8 +5,9 @@
  * host's code loads, in a folder of the realm, kind and install, since
  * an install's files never change and another install's never apply;
  * starting, a host removes its own earlier installs' folders and keeps
- * every other host's. A cache that can't be had is said, and the host
- * starts without it.
+ * every other host's. The folders lie in the login's runtime folder
+ * where it can be had, and in pi's state else (compile-cache-place.ts).
+ * A cache that can't be had is said, and the host starts without it.
  */
 
 import { createHash } from "node:crypto";
@@ -19,7 +20,7 @@ import {
 } from "node:fs";
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
-import { stateDir } from "../../lib/internal/paths.ts";
+import { compileFolderOf } from "../../lib/internal/fence/compile-cache-place.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
 /** How many hex characters of the install's hash name its folder. */
@@ -40,9 +41,10 @@ export interface CompileCacheOptions {
 	/** The harness the host runs from, reached through any link. */
 	readonly harnessRoot: string;
 	/**
-	 * Where every host's folder sits; the harness's state by default,
-	 * which the fence holds read-only: node runs what it reads back
-	 * from here outside the fence, so no fenced command may write it.
+	 * Where every host's folder sits; by default the login's runtime
+	 * folder's, which no fenced command sees, or the harness's state,
+	 * which the fence holds read-only: node runs what it reads back from
+	 * here outside the fence, so no fenced command may write it.
 	 */
 	readonly root?: string;
 	/** Enables node's cache in a folder; node's own by default. */
@@ -99,7 +101,7 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 	try {
 		const key = keyOf(options);
 		if (!key) return { state: "unkeyed" };
-		const root = options.root ?? stateDir("host-compile");
+		const root = options.root ?? compileFolderOf("host", options.env);
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
 		for (const entry of readdirSync(root))
