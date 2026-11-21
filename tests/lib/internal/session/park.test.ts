@@ -4,7 +4,9 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	utimesSync,
@@ -30,6 +32,8 @@ import {
 	promptIn,
 	readParked,
 	type Stillness,
+	sayParked,
+	unsayParked,
 	whyNotPark,
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
@@ -158,6 +162,52 @@ describe("the record its holder keeps beside the wake file", () => {
 			holderFiles({ MYCELIUM_WAKE: wake() }, 4242),
 			"a holder taking no next command",
 		).toBeUndefined();
+	});
+});
+
+describe("saying a run parked", () => {
+	const held = () => {
+		writeFileSync(join(folder, "held.json"), JSON.stringify({ pid: 4242 }));
+		return { MYCELIUM_WAKE: join(folder, "held.wake") };
+	};
+	const parked = () => join(folder, "held.parked");
+
+	it("writes the file its holder named, run by that holder itself", () => {
+		sayParked({ ...held(), MYCELIUM_PARKED: parked() }, 4242);
+
+		expect(readFileSync(parked(), "utf8")).toBe("");
+	});
+
+	// A subagent inherits its parent's variables, and parks nothing.
+	it("writes nothing for a process its holder doesn't run itself", () => {
+		sayParked({ ...held(), MYCELIUM_PARKED: parked() }, 4243);
+
+		expect(existsSync(parked())).toBe(false);
+	});
+
+	it("writes nothing where its holder names no file, and never throws", () => {
+		const env = held();
+		const before = readdirSync(folder);
+
+		expect(() => sayParked(env, 4242), "none named").not.toThrow();
+		expect(readdirSync(folder), "none named, none written").toEqual(before);
+
+		mkdirSync(parked());
+		expect(
+			() => sayParked({ ...env, MYCELIUM_PARKED: parked() }, 4242),
+			"a folder where the file should be",
+		).not.toThrow();
+	});
+
+	it("takes it back for a run that stays up, and never throws", () => {
+		const env = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(env, 4242);
+
+		unsayParked(env);
+
+		expect(existsSync(parked()), "up, it hasn't parked").toBe(false);
+		expect(() => unsayParked(env), "already gone").not.toThrow();
+		expect(() => unsayParked({}), "none named").not.toThrow();
 	});
 });
 

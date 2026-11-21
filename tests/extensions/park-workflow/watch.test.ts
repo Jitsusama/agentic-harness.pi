@@ -184,16 +184,34 @@ describe("parking a session", () => {
 	// ended by a signal, so its holder, seeing no 75, let the window go.
 	it("tells a holder that names a file for it that the run parked, before pi ends", () => {
 		const parked = join(folder, "held.parked");
-		const watched = watching(session(), {
-			...holder(),
-			MYCELIUM_PARKED: parked,
+		const saidAtExit: boolean[] = [];
+		let refusing = true;
+		events.on(PARK_ASK, (data) => {
+			if (refusing && isParkAsk(data)) data.refusals.push("a run is on");
+		});
+		const watched = watch(session(), events, {
+			env: { ...holder(), MYCELIUM_PARKED: parked },
+			args: [],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code) => {
+				saidAtExit.push(existsSync(parked));
+				exits.push(code);
+			},
+			clock: false,
 		});
 		clock = NAMED_PARK_AFTER_MS - 1;
 		expect(watched.look()).toBe("not idle long enough");
 		expect(existsSync(parked), "awake, it says nothing").toBe(false);
 		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("a run is on");
+		expect(existsSync(parked), "refused when due, it says nothing").toBe(false);
+		refusing = false;
 		expect(watched.look()).toBeUndefined();
 		expect(readFileSync(parked, "utf8"), "parked, it says so").toBe("");
+		expect(saidAtExit, "said before pi's exit is set").toEqual([true]);
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
@@ -660,6 +678,7 @@ describe("starting again on a fresh log", () => {
 	};
 	let restarts: string[];
 	let fallbacks: (() => void)[];
+	let inPlaces: (() => void)[];
 	let focused: string | null;
 	let said: string[];
 	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
@@ -671,9 +690,10 @@ describe("starting again on a fresh log", () => {
 			folder,
 			now: () => clock,
 			exitWith: (code) => exits.push(code),
-			restartWith: (sessionFile, fallback) => {
+			restartWith: (sessionFile, fallback, inPlace) => {
 				restarts.push(sessionFile);
 				fallbacks.push(fallback);
+				inPlaces.push(inPlace);
 			},
 			setExitCode: (code) => exits.push(code),
 			say: (line) => said.push(line),
@@ -698,6 +718,7 @@ describe("starting again on a fresh log", () => {
 	beforeEach(() => {
 		restarts = [];
 		fallbacks = [];
+		inPlaces = [];
 		said = [];
 		focused = "pi-session.3";
 		writeFileSync(fresh(), "");
@@ -738,14 +759,26 @@ describe("starting again on a fresh log", () => {
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
-	it("tells its holder the run parked only once it ends for its holder to start it again", () => {
+	// A shutdown that hangs before the exit, where the restart runs, ends
+	// by a signal: said only there, the holder would let the window go.
+	it("tells its holder the run parked as it commits to starting again, before pi ends", () => {
 		const parked = join(folder, "held.parked");
 		restarting({ ...holder(), MYCELIUM_PARKED: parked });
 		asked();
-		expect(existsSync(parked), "in place, the holder sees no exit").toBe(false);
+		expect(shutdowns, "pi is asked to end").toBe(1);
+		expect(readFileSync(parked, "utf8"), "said before it exits").toBe("");
 		fallbacks[0]?.();
 		expect(readFileSync(parked, "utf8"), "ending for its holder").toBe("");
 		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("takes back that it parked once it is replaced in place, which its holder never sees", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		asked();
+		inPlaces[0]?.();
+		expect(existsSync(parked), "up again, it hasn't parked").toBe(false);
+		expect(exits, "nor exited").toEqual([]);
 	});
 
 	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {

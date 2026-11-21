@@ -36,6 +36,7 @@ import {
 	STEERS_ENV,
 	sayParked,
 	tellHolderSteers,
+	unsayParked,
 	WAKE_ENV,
 	whyNotPark,
 	writeAwake,
@@ -192,8 +193,15 @@ export interface WatchOptions {
 	 * can't be told; asked only as a restart is weighed.
 	 */
 	readonly focusedWindow?: () => string | null;
-	/** Start this process again in place on `sessionFile`, once pi exits. */
-	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
+	/**
+	 * Start this process again in place on `sessionFile`, once pi exits,
+	 * running `inPlace` just before it is replaced.
+	 */
+	readonly restartWith?: (
+		sessionFile: string,
+		fallback: () => void,
+		inPlace: () => void,
+	) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
 	/** Say a line in its window, from within its exit; stdout unless given. */
@@ -227,10 +235,15 @@ const FIRST_START_ONLY = [
 /**
  * Once pi exits, replace this process with a fresh pi on `sessionFile`,
  * in place: the same pid, terminal and holder, so the holder never sees
- * an exit and says nothing of a park. One that can't be replaced runs
- * `fallback`, which has its holder start it again instead.
+ * an exit and says nothing of a park, after `inPlace`, which takes back
+ * what it told the holder. One that can't be replaced runs `fallback`,
+ * which has its holder start it again instead.
  */
-function restartWith(sessionFile: string, fallback: () => void): void {
+function restartWith(
+	sessionFile: string,
+	fallback: () => void,
+	inPlace: () => void,
+): void {
 	process.once("exit", () => {
 		process.stdout.write(`\r\n${RESTART_LINE}\r\n`);
 		const env = { ...process.env };
@@ -239,6 +252,7 @@ function restartWith(sessionFile: string, fallback: () => void): void {
 		try {
 			// Node calls execve experimental and would print so in the window.
 			process.removeAllListeners("warning");
+			if (process.execve !== undefined) inPlace();
 			process.execve?.(
 				process.execPath,
 				[
@@ -612,7 +626,13 @@ export function watch(
 		};
 		parked = true;
 		endedProcess = true;
-		(options.restartWith ?? restartWith)(fresh, throughHolder);
+		// Said now, so a shutdown that hangs and ends by a signal before
+		// the exit still leaves its holder a park, as a park says it;
+		// replaced in place, it stays up, so it takes that back first.
+		sayParked(env, options.pid ?? process.pid);
+		(options.restartWith ?? restartWith)(fresh, throughHolder, () =>
+			unsayParked(env),
+		);
 		void ctx.shutdown();
 		return undefined;
 	};

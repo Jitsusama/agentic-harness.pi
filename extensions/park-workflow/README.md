@@ -135,10 +135,12 @@ keeps it awake.
    (EX_TEMPFAIL), which tells its holder this is a park, not an end.
    Where its holder names a file for it (`MYCELIUM_PARKED`), it first
    writes that file, empty, so a park whose exit then hangs, as on a
-   name lookup, and ends by a signal still counts as a park. It
-   writes nothing of its own and leaves out pi's "To resume this
-   session" hint: the holder says in the window that it parked and
-   that a key or a message wakes it, and once was enough.
+   name lookup, and ends by a signal still counts as a park. A
+   restart writes it as it commits, before pi ends, and takes it
+   back if it is replaced in place. In the window it says nothing
+   and leaves out pi's "To resume this session" hint: the holder
+   says in the window that it parked and that a key or a message
+   wakes it, and once was enough.
 
 Sessions that parked before this closed their windows keep them
 open. `scripts/park-windows.ts` lists, by the same checks, which of

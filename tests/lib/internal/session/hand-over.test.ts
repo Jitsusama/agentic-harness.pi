@@ -20,10 +20,7 @@ import {
 	untellHolder,
 	whyWriting,
 } from "../../../../lib/internal/session/hand-over.ts";
-import {
-	PARKED_EXIT,
-	sayParked,
-} from "../../../../lib/internal/session/park.ts";
+import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
 const dirs: string[] = [];
 
@@ -190,16 +187,17 @@ describe("telling the holder what starts next", () => {
 		expect(existsSync(parked), "called off, it hasn't parked").toBe(false);
 	});
 
-	it("says nothing parked when the wake can't be written", () => {
+	it("says nothing parked when the wake can't be written, taking back a mark left from before", () => {
 		const { files } = holderFor(4242);
 		const parked = join(dirname(files.wake), "s.parked");
+		writeFileSync(parked, "");
 		mkdirSync(files.wake);
 
 		expect(tellHolder({ ...files, parked }, ["pi"], { view: true })).toEqual({
 			told: false,
 			why: expect.stringMatching(/EISDIR/),
 		});
-		expect(existsSync(parked), "untold, it stays").toBe(false);
+		expect(existsSync(parked), "untold, it hasn't parked").toBe(false);
 	});
 
 	it("takes back what it can when one file won't go", () => {
@@ -209,39 +207,6 @@ describe("telling the holder what starts next", () => {
 
 		expect(() => untellHolder(files), "a folder it can't remove").not.toThrow();
 		expect(existsSync(files.wake), "the wake still goes").toBe(false);
-	});
-});
-
-describe("saying a run parked", () => {
-	it("writes the file its holder named, run by that holder itself", () => {
-		const { env, files } = holderFor(4242);
-		const parked = join(dirname(files.wake), "s.parked");
-
-		sayParked({ ...env, MYCELIUM_PARKED: parked }, 4242);
-
-		expect(readFileSync(parked, "utf8")).toBe("");
-	});
-
-	// A subagent inherits its parent's variables, and parks nothing.
-	it("writes nothing for a process its holder doesn't run itself", () => {
-		const { env, files } = holderFor(4242);
-		const parked = join(dirname(files.wake), "s.parked");
-
-		sayParked({ ...env, MYCELIUM_PARKED: parked }, 4243);
-
-		expect(existsSync(parked)).toBe(false);
-	});
-
-	it("writes nothing where its holder names no file, and never throws", () => {
-		const { env, files } = holderFor(4242);
-		const parked = join(dirname(files.wake), "s.parked");
-		mkdirSync(parked);
-
-		expect(() => sayParked(env, 4242), "none named").not.toThrow();
-		expect(
-			() => sayParked({ ...env, MYCELIUM_PARKED: parked }, 4242),
-			"a folder where the file should be",
-		).not.toThrow();
 	});
 });
 

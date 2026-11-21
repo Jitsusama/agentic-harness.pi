@@ -321,6 +321,22 @@ export function sayParked(env: NodeJS.ProcessEnv, pid: number): void {
 	sayParkedIn(parked);
 }
 
+/**
+ * Takes back what {@link sayParked} wrote for a run that stays up after
+ * all, as one replaced in place, whose holder sees no exit and so never
+ * clears it: left, a later quit whose exit hangs would count as a park.
+ * Only a run its holder runs itself got this far, so it reads no record.
+ */
+export function unsayParked(env: NodeJS.ProcessEnv): void {
+	const parked = env[PARKED_ENV] ?? "";
+	if (parked === "") return;
+	try {
+		rmSync(parked, { force: true });
+	} catch {
+		// Left in place, only a quit whose exit then hangs is misread.
+	}
+}
+
 /** Writes the holder's parked file `parked`, empty. */
 export function sayParkedIn(parked: string): void {
 	try {
