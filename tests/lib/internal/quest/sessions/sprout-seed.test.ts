@@ -180,6 +180,30 @@ describe("a sprouted session's first words", () => {
 		expect(words).not.toMatch(/tied/u);
 	});
 
+	it("say a place's link is not the work, taking the work from the words or the person", () => {
+		const link = "https://github.com/o/repo";
+		const said = sproutedWords(
+			"QEST-1-ABC",
+			{ link, words: "fix the flaky login test" },
+			{ kind: "none" },
+			undefined,
+			"place",
+		);
+		expect(said).toMatch(
+			/from the words it was asked with: "fix the flaky login test"\. https:\/\/github\.com\/o\/repo is where the work happens, not the work/u,
+		);
+		expect(said).not.toMatch(/fill the quest's Summary/u);
+		const bare = sproutedWords(
+			"QEST-1-ABC",
+			{ link },
+			{ kind: "none" },
+			undefined,
+			"place",
+		);
+		expect(bare).toMatch(/Ask the person what the work there is/u);
+		expect(bare).not.toMatch(/what the page says is the work/u);
+	});
+
 	it("say the words grant nothing beyond the work, never calling them the person's", () => {
 		const words = sproutedWords(
 			"QEST-1-ABC",

@@ -108,7 +108,8 @@ export async function startSprouted(
 	const joined = held !== undefined ? { peers } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
-	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined);
+	const linkIs = linkIsPlace(seed) ? "place" : "work";
+	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined, linkIs);
 	if (held === undefined) {
 		const link = linked ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
@@ -132,7 +133,7 @@ export async function startSprouted(
 		});
 	}
 	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
-	hints.firstWords = sproutedWords(id, seed, tied, joined);
+	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
 }
 
 /**
@@ -239,6 +240,18 @@ function linkRead(seed: SproutSeed): { page: string; ref: Ref } | undefined {
  * sprout of a repository would otherwise join the first one's quest.
  */
 const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
+
+/**
+ * Whether the seed's link, less its fragment, names a place work
+ * happens (PLACES), so its first words never call the page the work.
+ */
+function linkIsPlace(seed: SproutSeed): boolean {
+	const link = seed.link ? webAddress(seed.link) : undefined;
+	if (!link) return false;
+	link.hash = "";
+	const ref = parseRef(link.href);
+	return ref ? PLACES.has(ref.type) : false;
+}
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread

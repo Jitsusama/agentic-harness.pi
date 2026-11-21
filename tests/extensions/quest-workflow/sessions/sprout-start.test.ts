@@ -321,7 +321,13 @@ describe("a sprouted session's start", () => {
 	});
 
 	it("reads a repository's link as no work, so each sprout of it makes its own quest", async () => {
-		const made: (string | null)[] = [];
+		const first = await start(
+			{ words: "the repo's work", id: "S69" },
+			{ sessionId: "sess-repo-held" },
+		);
+		if (!first.state.questId) throw new Error("no quest to mark");
+		markWith(first.state.questId, "https://github.com/o/repo");
+		const made: (string | null)[] = [first.state.questId];
 		for (const [n, link] of [
 			"https://github.com/o/repo",
 			"https://github.com/o/repo/",
@@ -332,10 +338,14 @@ describe("a sprouted session's start", () => {
 				{ asked, sessionId: `sess-repo-${n}` },
 			);
 			expect(one.words, link).not.toMatch(/already holds this work/u);
+			expect(one.words, link).not.toMatch(/fill the quest's Summary/u);
+			expect(one.words, link).toMatch(
+				/is where the work happens, not the work/u,
+			);
 			expect(asked[0], link).not.toHaveProperty("url");
 			made.push(one.state.questId);
 		}
-		expect(made[1]).not.toBe(made[0]);
+		expect(new Set(made).size, "three quests, none joined").toBe(3);
 	});
 
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
