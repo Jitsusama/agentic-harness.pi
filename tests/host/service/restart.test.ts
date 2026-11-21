@@ -621,19 +621,18 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 
 		expect(drains, "a fresh turn lifts nothing").toEqual([true]);
-		expect(
-			said.some((line) => line.includes("past its")),
-			"no turn blamed",
-		).toBe(false);
+		expect(said.filter((line) => line.includes("past its"))).toEqual([
+			"report: Heap short of room past its drain's ceiling: turns begun since the drain keep it standing, so held wakes wait until the host restarts or its heap has room again",
+		]);
 	});
 
-	it("keeps the drain a heap still pressed past its ceiling stands, and says so once", async () => {
+	it("keeps the drain a heap still pressed past its ceiling stands, and says so hourly", async () => {
 		let clock = NOW;
 		const timers = manualTimers();
 		const drains: boolean[] = [];
 		const { facts: given, said } = facts({
 			differs: async () => "its heap is short",
-			held: () => [{ state: "busy", since: lately }],
+			held: () => [{ sessionId: "a", state: "busy", since: lately }],
 			pressure: () => "pressed",
 			heapRestarts: () => true,
 			drain: (on) => drains.push(on),
@@ -647,10 +646,19 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 
 		expect(drains, "still drains").toEqual([true]);
-		const past = said.filter((line) => line.includes("past its"));
-		expect(past).toEqual([
-			"report: Heap short of room past its drain's ceiling: a turn running since the drain began still runs, so held wakes wait until the host restarts, the heap falls under three-fifths or it passes three-quarters",
+		const past = () => said.filter((line) => line.includes("past its"));
+		expect(past()).toEqual([
+			`report: Heap short of room past its drain's ceiling: a (busy since ${lately}) runs on from before the drain, so held wakes wait until the host restarts or its heap has room again`,
 		]);
+
+		clock += HELD_SAY_MS - 1;
+		await timers.fire();
+		await timers.fire();
+		expect(past(), "not again within the hour").toHaveLength(1);
+		clock += 1;
+		await timers.fire();
+		await timers.fire();
+		expect(past(), "again an hour on").toHaveLength(2);
 	});
 
 	it("keeps the drain past its ceiling while a call, not a turn, holds the restart", async () => {
