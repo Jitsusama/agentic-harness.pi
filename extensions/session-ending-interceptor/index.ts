@@ -15,8 +15,11 @@
  * session on this machine in a pi host, whose presence says it parked,
  * whose park marker is from this boot and which no live host still
  * runs, doesn't count for a reboot, restart or shut-down, which is how
- * a disruption once scheduled goes through. Every realm's node on the machine is read,
- * since a reboot ends the sessions of all of them. So is a
+ * a disruption once scheduled goes through. Either spare stands only
+ * where every command shown beside the ask is a plain reboot, shut-down
+ * or log-out, and what it let past is kept in the session's log. Every
+ * realm's node on the machine is read, since a reboot ends the sessions
+ * of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without
  * mycelium, there is no node and nothing is refused; where one is named
@@ -52,6 +55,7 @@ import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
 	logOutSpares,
 	parkedHere,
+	withinPatience,
 } from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
@@ -65,6 +69,7 @@ import {
 	refusalFor,
 	type Said,
 	type SessionEndingDeps,
+	type SpareTrace,
 	saidByAsk,
 	saidByLook,
 	saidByWait,
@@ -75,6 +80,12 @@ import { rememberedMachinesFile, rememberMachines } from "./remembered.ts";
 export type { SessionEndingDeps } from "./refuse.ts";
 
 const GUARD = GUARDS.noSessionEndingAskWhileLive;
+
+/**
+ * What a spare's trace is kept in the session's log as: kept, never
+ * sent to the model, so what a spare let past can be read after.
+ */
+export const SPARE_ENTRY = "session-ending-spare";
 
 /** What the refusal of a reply is sent as, after the withheld reply. */
 export const WITHHELD_MESSAGE = "session-ending-withheld";
@@ -117,7 +128,7 @@ interface Told {
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
-/** How long logind has to say what spares a session. */
+/** How long logind, and the read of parked sessions, have to answer. */
 const SPARES_PATIENCE_MS = 2000;
 
 /**
@@ -132,11 +143,12 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
 		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
+		const traced = (trace: SpareTrace) => pi.appendEntry(SPARE_ENTRY, trace);
 		pi.on("tool_call", (event, ctx) =>
-			refuseCall(event.toolName, event.input, ctx, deps),
+			refuseCall(event.toolName, event.input, ctx, deps, traced),
 		);
 		pi.on("message_end", (event, ctx) =>
-			withholdReply(pi, event.message, ctx, deps, told),
+			withholdReply(pi, event.message, ctx, deps, told, traced),
 		);
 		pi.on("agent_settled", () => {
 			told.tells = 0;
@@ -183,7 +195,7 @@ export function nodeDeps(
 			});
 			const [lingers, parked] = await Promise.all([
 				lingersHere(exec),
-				parkedHere(),
+				withinPatience(parkedHere(), SPARES_PATIENCE_MS),
 			]);
 			return { lingers, parked };
 		},
@@ -237,10 +249,11 @@ async function refuseCall(
 	input: unknown,
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
+	traced: (trace: SpareTrace) => void,
 ) {
 	const read = READERS[toolName];
 	if (!read) return undefined;
-	const refusal = await refusalFor(read(input), selfOf(ctx), deps);
+	const refusal = await refusalFor(read(input), selfOf(ctx), deps, traced);
 	if (!refusal) return undefined;
 	return refusalUnder(
 		GUARD.name,
@@ -265,10 +278,11 @@ async function withholdReply<M extends { role: string }>(
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
 	told: Told,
+	traced: (trace: SpareTrace) => void,
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
-	const refusal = await refusalFor(said, selfOf(ctx), deps);
+	const refusal = await refusalFor(said, selfOf(ctx), deps, traced);
 	if (!refusal) return undefined;
 	const stopped =
 		"stopReason" in message &&

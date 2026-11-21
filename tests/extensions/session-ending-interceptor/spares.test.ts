@@ -237,6 +237,117 @@ describe("what spares this machine's sessions", () => {
 	});
 });
 
+describe("a spare beside the commands a reply shows", () => {
+	const parked = () =>
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+	const lingering = () =>
+		interceptorOver([hosted("busy"), me], answering(true));
+
+	it.each([
+		"Please reboot optimus.",
+		"Please reboot optimus with `sudo systemctl reboot`.",
+		"Please reboot optimus:\n\n```sh\n# from a terminal\n$ sudo reboot\n```",
+	])(
+		"lets a parked reboot through beside only plain commands: %s",
+		async (said) => {
+			parked();
+
+			expect(await reply(said)).toBeUndefined();
+		},
+	);
+
+	it.each([
+		"Please reboot optimus. First run `sudo systemctl rescue`.",
+		"Please reboot optimus, or `sudo init 1` if it hangs.",
+		"Please reboot optimus. If it hangs, sudo kexec -e brings it back.",
+		"Please reboot optimus:\n\n```sh\nsudo systemctl isolate rescue.target\n```",
+	])("spares nothing beside a command off the plain list: %s", async (said) => {
+		parked();
+
+		expect(await reply(said)).toBeDefined();
+	});
+
+	it("lets a log-out through beside a plain command", async () => {
+		lingering();
+
+		expect(
+			await reply(
+				"Please log out of niri on optimus with `loginctl terminate-session`.",
+			),
+		).toBeUndefined();
+	});
+
+	it("spares nothing for a log-out beside one that ends the user manager", async () => {
+		lingering();
+
+		expect(
+			await reply(
+				"Please log out of niri on optimus, then `systemctl --user exit`.",
+			),
+		).toBeDefined();
+	});
+});
+
+describe("what a spare leaves in the session's log", () => {
+	const traces = () =>
+		pi.recorded.entries.filter(
+			(entry) => entry.customType === "session-ending-spare",
+		);
+
+	it("names the sessions a spare let an ask past, and why", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await look("Reboot optimus to install it");
+
+		expect(traces()).toEqual([
+			{
+				customType: "session-ending-spare",
+				data: {
+					outcome: "spared",
+					asks: [{ act: "reboot", machines: ["optimus"] }],
+					spared: [{ address: "H00001", why: "parked" }],
+				},
+			},
+		]);
+	});
+
+	it("says, and logs, that what spares couldn't be read", async () => {
+		interceptorOver([hosted("idle"), me], async () => {
+			throw new Error("logind went away");
+		});
+
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(/couldn't be read, so none was spared/),
+		});
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "unread", error: "logind went away" } },
+		]);
+	});
+
+	it("says, and logs, that a command off the plain list spared nothing", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(/not all plain/),
+		});
+		expect(traces()).toMatchObject([{ data: { outcome: "not plain" } }]);
+	});
+
+	it("logs nothing for an ask nothing spared or refused", async () => {
+		interceptorOver([me], answering(false));
+
+		await reply("Please reboot optimus.");
+
+		expect(traces()).toEqual([]);
+	});
+});
+
 describe("what spares, read by default", () => {
 	let bin: string;
 	beforeEach(() => {

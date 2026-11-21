@@ -157,7 +157,7 @@ const FIRST_LOOK =
  * A text with its typography folded to what the patterns read: every
  * hyphen and dash a hyphen, every space a space, every quote straight.
  */
-function folded(text: string): string {
+export function folded(text: string): string {
 	return text
 		.replace(/[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]/g, "-")
 		.replace(/[\u00a0\u2007\u202f]/g, " ")
@@ -345,7 +345,7 @@ const RUN_SPAN =
 	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
 
 /** Every inline code span of some prose, as written. */
-function codeSpans(sentence: string): string[] {
+export function codeSpans(sentence: string): string[] {
 	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
 }
 
@@ -360,7 +360,7 @@ function inlineCode(sentence: string): string[] {
  * How a part of the text is read: as prose, and for commands on every
  * line, only on a line opening with a prompt, or not at all.
  */
-interface Part {
+export interface Part {
 	readonly prose: boolean;
 	readonly commands: "every" | "prompted" | "none";
 	readonly lines: readonly string[];
@@ -409,7 +409,7 @@ const OUTSIDE: Omit<Part, "lines"> = { prose: true, commands: "none" };
  * a run of its own mark at least as long, so a fence of four backticks
  * holds one of three.
  */
-function parts(text: string): Part[] {
+export function parts(text: string): Part[] {
 	const out: Part[] = [];
 	let lines: string[] = [];
 	let how = OUTSIDE;

@@ -141,6 +141,34 @@ export function refusalOf(
 	};
 }
 
+/** A session a spare let an ask past, by address, and which spare. */
+export interface Spared {
+	readonly address: string;
+	readonly why: "parked" | "outlives a log-out";
+}
+
+/**
+ * The sessions `here` spares from `asks`, each once, that would
+ * otherwise have counted, for a trace of what a spare let through.
+ */
+export function sparedBy(
+	asks: readonly SessionEndingAsk[],
+	sessions: readonly NodeSession[],
+	self: string | undefined,
+	here: Here,
+): Spared[] {
+	const spared = new Map<string, Spared>();
+	for (const ask of asks) {
+		for (const one of liveFor(ask, sessions, self, undefined)) {
+			const why = spareOf(here, ask, one);
+			if (why && !spared.has(one.id)) {
+				spared.set(one.id, { address: one.address ?? one.id, why });
+			}
+		}
+	}
+	return [...spared.values()];
+}
+
 /** The sessions other than `self` that `ask` would end. */
 function liveFor(
 	ask: SessionEndingAsk,
@@ -157,18 +185,18 @@ function liveFor(
 				reach.has(one.machine.toLowerCase())) &&
 			one.state !== "ended" &&
 			one.id !== self &&
-			!spares(here, ask, one),
+			spareOf(here, ask, one) === undefined,
 	);
 }
 
-/** Whether what `here` knows of itself says `ask` leaves `one` running. */
-function spares(
+/** Which of what `here` knows of itself says `ask` leaves `one` running. */
+function spareOf(
 	here: Here | undefined,
 	ask: SessionEndingAsk,
 	one: NodeSession,
-): boolean {
+): Spared["why"] | undefined {
 	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
-		return false;
+		return undefined;
 	}
 	if (
 		ENDS_THE_BOOT.has(ask.act) &&
@@ -176,12 +204,12 @@ function spares(
 		one.host !== undefined &&
 		here.parked.has(one.id)
 	)
-		return true;
-	return (
-		here.lingers &&
+		return "parked";
+	return here.lingers &&
 		ENDS_A_LOG_IN.has(ask.act) &&
 		(one.host !== undefined || one.held !== undefined)
-	);
+		? "outlives a log-out"
+		: undefined;
 }
 
 /** The other asks refused beside the first, said after it. */

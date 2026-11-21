@@ -77,8 +77,29 @@ Two things on this machine let an ask through that would otherwise be
 refused. Both are read only for an ask that would be refused, so an
 ordinary reply pays nothing, and anything that can't be read spares
 nothing, as on a Mac, with no logind. logind is given about two
-seconds to answer; the presences and markers are files on this
-machine, read without a deadline.
+seconds to answer, and so is the read of the presences, markers and
+host lists, files on this machine.
+
+A spare stands only beside plain commands. Once a reply, look, ask
+or wait asks for an act, every command it shows the person must be a
+plain reboot, shut-down or log-out, read whole after a prompt and a
+`sudo`: `systemctl reboot`, `systemctl poweroff`, `reboot`,
+`poweroff`, `shutdown now` with `-r`, `-h` or `-P`, `loginctl
+terminate-session` with or without a session, or `niri msg action
+quit`. Any other command, in inline code or any fence, or prose
+naming one (`sudo`, `systemctl`, `kexec`, `init 1`, `ssh`, a kill
+with an option), or naming a soft or user space reboot, linger or
+`KillUserProcesses`, spares nothing, and every session counts as
+without a spare. Reading each spelling of each act widened what the
+guard let through one spelling at a time, so what isn't on that
+short list isn't read; a wait's checks, run by the machine rather
+than typed, are read as commands as before.
+
+The refusal says when what spares couldn't be read, or a command
+wasn't plain, so none was spared. Each of those, and each ask a
+spare let past, leaves a `session-ending-spare` entry in the
+session's log, not sent to the model, naming the asks and the
+sessions spared and why.
 
 - **A log-out that leaves the user's services running.** When logind
   says the user lingers and kills no user processes at a log-out
@@ -126,8 +147,10 @@ machine, read without a deadline.
   closes a host's conversation, so a session a host still lists busy
   or idle has woken, or its park never landed, and counts whatever
   its presence says; a host's list counts unless its process is
-  known to be gone, though a list that doesn't read as one, as from a
-  host of another version, is passed over. That is how a
+  known to be gone, and a list that doesn't read as one, as from a
+  host of another version, spares nothing, since its host may run any
+  of them. A `systemctl reboot` goes soft while `/run/nextroot` holds
+  a tree, so then no session counts as parked. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one
   the node reads idle in a holder or a plain terminal is running,

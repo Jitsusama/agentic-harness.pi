@@ -1,7 +1,9 @@
 /**
  * What an ask, a look or a reply says to the person, read for asks to
  * end a machine's sessions, and the refusal of one the node says would
- * end others.
+ * end others. A spare stands only where every command shown to the
+ * person is plain (plain.ts), and each spare, or a spare that couldn't
+ * stand, is traced.
  */
 
 import { isRecord } from "../../lib/internal/record.ts";
@@ -18,7 +20,10 @@ import {
 	machinesKnown,
 	type Refusal,
 	refusalOf,
+	type Spared,
+	sparedBy,
 } from "../../lib/internal/session-ending/judge.ts";
+import { plainlySaid } from "../../lib/internal/session-ending/plain.ts";
 import type { NodeSession } from "../../lib/mesh/node.ts";
 
 /** Where the interceptor reads the node and names this machine. */
@@ -47,6 +52,38 @@ export interface SessionEndingDeps {
 	 */
 	readonly spares?: () => Promise<Omit<Here, "machine">>;
 }
+
+/** An ask as a trace names it: its act and the machines it names. */
+interface AskTraced {
+	readonly act: SessionEndingAsk["act"];
+	readonly machines: readonly string[];
+}
+
+/**
+ * What a spare did with an ask that would otherwise be refused: let it
+ * past these sessions, or stand on nothing, its read having failed or
+ * a command shown not being plain.
+ */
+export type SpareTrace =
+	| {
+			readonly outcome: "spared";
+			readonly asks: readonly AskTraced[];
+			readonly spared: readonly Spared[];
+	  }
+	| {
+			readonly outcome: "unread";
+			readonly asks: readonly AskTraced[];
+			readonly error: string;
+	  }
+	| { readonly outcome: "not plain"; readonly asks: readonly AskTraced[] };
+
+/** Said in a refusal when what spares sessions couldn't be read. */
+const UNREAD =
+	"What would spare sessions here couldn't be read, so none was spared.";
+
+/** Said in a refusal when a command it shows isn't on the plain list. */
+const NOT_PLAIN =
+	"Its commands are not all plain reboots, shut-downs or log-outs, so none was spared.";
 
 /**
  * What a call or reply says to the person: prose, read for the form of
@@ -176,6 +213,7 @@ export async function refusalFor(
 	said: Said,
 	self: string | undefined,
 	deps: SessionEndingDeps,
+	traced: (trace: SpareTrace) => void = () => {},
 ): Promise<Refusal | undefined> {
 	const commands = said.commands ?? [];
 	const all = [...said.prose, ...said.labels, ...commands];
@@ -201,13 +239,40 @@ export async function refusalFor(
 	];
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;
-	try {
-		const here = { machine: deps.here(), ...(await deps.spares()) };
-		return refusalOf(asks, sessions, self, here);
-	} catch {
-		// What spares a session couldn't be read, so it spares none.
-		return refusal;
+	const named = tracedAsks(asks);
+	if (!plainlySaid([...said.prose, ...said.labels])) {
+		traced({ outcome: "not plain", asks: named });
+		return because(refusal, NOT_PLAIN);
 	}
+	let here: Here;
+	try {
+		here = { machine: deps.here(), ...(await deps.spares()) };
+	} catch (error) {
+		// What spares a session couldn't be read, so it spares none.
+		const message = error instanceof Error ? error.message : String(error);
+		traced({ outcome: "unread", asks: named, error: message });
+		return because(refusal, UNREAD);
+	}
+	const left = refusalOf(asks, sessions, self, here);
+	if (!left) {
+		const spared = sparedBy(asks, sessions, self, here);
+		traced({ outcome: "spared", asks: named, spared });
+	}
+	return left;
+}
+
+/** `refusal` with `why` said after its reason, known by the same key. */
+function because(refusal: Refusal, why: string): Refusal {
+	return { ...refusal, reason: `${refusal.reason} ${why}` };
+}
+
+/** `asks` as a trace names them, each act and machines once. */
+function tracedAsks(asks: readonly SessionEndingAsk[]): AskTraced[] {
+	const each = new Map<string, AskTraced>();
+	for (const { act, machines } of asks) {
+		each.set(`${act}:${machines.join(",")}`, { act, machines });
+	}
+	return [...each.values()];
 }
 
 /**
