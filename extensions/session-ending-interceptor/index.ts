@@ -112,6 +112,15 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 	mesh_wait: saidByWait,
 };
 
+/**
+ * Forgets what the run showed once the person speaks, typed or through
+ * a host, since they have answered it. An extension's message, a job's
+ * result or a peer's nudge, is no word of theirs, so it forgets nothing.
+ */
+function forgetOnThePersonsWord(beside: Beside, source: string): void {
+	if (source !== "extension") beside.texts = [];
+}
+
 /** What reads the tool `name`, its own key only, never the prototype's. */
 function readerOf(name: string): ((input: unknown) => Said) | undefined {
 	return Object.hasOwn(READERS, name) ? READERS[name] : undefined;
@@ -162,9 +171,12 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 		pi.on("tool_call", (event, ctx) =>
 			refuseCall(event.toolName, event.input, ctx, deps, traced, beside.texts),
 		);
+		pi.on("input", (event) => {
+			forgetOnThePersonsWord(beside, event.source);
+		});
 		pi.on("message_end", (event, ctx) => {
 			noteBeside(beside, event.message);
-			return withholdReply(pi, event.message, ctx, deps, told, traced);
+			return withholdReply(pi, event.message, ctx, deps, told, traced, beside);
 		});
 		pi.on("agent_settled", () => {
 			beside.texts = [];
@@ -309,10 +321,8 @@ async function refuseCall(
  * Adds what an assistant's reply says, refused or not, to what later
  * calls are read beside: its text, and what each call it makes says,
  * since pi ends the message before its calls run, in whatever order.
- * A person's message forgets it all, since they have answered.
  */
 function noteBeside(beside: Beside, message: { role: string }): void {
-	if (message.role === "user") beside.texts = [];
 	if (message.role !== "assistant" || !("content" in message)) return;
 	const blocks: unknown[] = Array.isArray(message.content)
 		? message.content
@@ -347,10 +357,17 @@ async function withholdReply<M extends { role: string }>(
 	deps: SessionEndingDeps,
 	told: Told,
 	traced: (trace: SpareTrace) => void,
+	beside: Beside,
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
-	const refusal = await refusalFor(said, selfOf(ctx), deps, traced);
+	const refusal = await refusalFor(
+		said,
+		selfOf(ctx),
+		deps,
+		traced,
+		beside.texts,
+	);
 	if (!refusal) return undefined;
 	const stopped =
 		"stopReason" in message &&

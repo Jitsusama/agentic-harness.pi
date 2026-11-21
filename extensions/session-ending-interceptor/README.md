@@ -92,7 +92,8 @@ quit`, a session given by its id and never by an option such as
 `-H`. Any other command, in inline code, a quote it asks to run, an
 indented or prompted line, in a blockquote or not, or any fence (a
 `#` line in a fence that may be a terminal's session is root's
-prompt, not a comment), or a backtick left unpaired, spares nothing,
+prompt, not a comment, and a shell fence's comment is held to the
+prose check below), or a backtick left unpaired, spares nothing,
 and every session counts as without a spare. So does any line
 holding three backticks or tildes that isn't a fence line indented
 three spaces at most, with no backtick after a backtick fence's
@@ -100,8 +101,13 @@ opening: a fence on one line, in a blockquote, on a list's marker or
 indented further is drawn as code by some renderers and not others.
 Every fence is read line by line, a `md` or `markdown` one too, since
 it is drawn as code. What the run's replies said, their text and
-every ask, look or wait they made, counts beside each call until the
-person next speaks or the run ends, since they read it all together. Reading each spelling of each act widened what the
+every ask, look or wait they made, counts beside each later reply
+and call until the person next speaks, typed or through a host, or
+the run ends, since they read it all together. A job's result or a
+peer's nudge comes as a message too, but isn't theirs, so it forgets
+nothing. A spare is judged against what came before it: what the run
+shows after a spare stood isn't held to the list. Reading each
+spelling of each act widened what the
 guard let through one spelling at a time, so code that isn't on that
 short list isn't read. Prose can't be held to a list, so it is held
 only to a list of words: one naming a command (`sudo`, `systemctl`,

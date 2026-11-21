@@ -124,7 +124,8 @@ const replyCalling = (
 		ctx,
 	);
 
-const personSays = (said: string) =>
+/** A user message, which an extension may send as well as the person. */
+const userMessage = (said: string) =>
 	handler("message_end")(
 		{
 			type: "message_end",
@@ -132,6 +133,15 @@ const personSays = (said: string) =>
 		},
 		ctx,
 	);
+
+/** The person's own input, typed or through the host, then its message. */
+const personSays = async (
+	said: string,
+	source: "interactive" | "rpc" = "interactive",
+) => {
+	await handler("input")({ type: "input", text: said, source }, ctx);
+	return userMessage(said);
+};
 
 const look = (ask: string, why?: string) =>
 	handler("tool_call")(
@@ -443,6 +453,41 @@ describe("what a spare leaves in the session's log", () => {
 		]);
 	});
 
+	it("keeps a reply's commands through the run, beside a later reply's ask", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		await replyCalling("If it hangs, `sudo kexec -e` brings it back.", [
+			{ name: "read", arguments: { path: "notes.md" } },
+		]);
+		const withheld = await reply("Please reboot optimus.");
+
+		expect(withheld, "the later reply is withheld").toBeDefined();
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
+	it("reads a reply's ask beside the calls it makes", async () => {
+		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+		const withheld = await replyCalling("Please reboot optimus.", [
+			{
+				name: "show_person",
+				arguments: {
+					kind: "page",
+					target: "https://example.org/rescue",
+					title: "Rescue",
+					why: "If it hangs, `sudo kexec -e` brings it back.",
+				},
+			},
+		]);
+
+		expect(withheld, "the reply is withheld").toBeDefined();
+		expect(traces()).toMatchObject([
+			{ data: { outcome: "not plain", shown: "sudo kexec -e" } },
+		]);
+	});
+
 	it("reads each call beside the others the same reply makes", async () => {
 		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
 
@@ -504,13 +549,31 @@ describe("what a spare leaves in the session's log", () => {
 		expect(await look("Reboot optimus to install it")).toBeUndefined();
 	});
 
-	it("forgets a reply's commands once the person speaks", async () => {
+	it.each(["interactive", "rpc"] as const)(
+		"forgets a reply's commands once the person speaks (%s)",
+		async (source) => {
+			interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
+
+			await reply("If it hangs, `sudo kexec -e` brings it back.");
+			await personSays("Go ahead.", source);
+
+			expect(await look("Reboot optimus to install it")).toBeUndefined();
+		},
+	);
+
+	it("keeps a reply's commands past a message an extension sends", async () => {
 		interceptorOver([hosted("idle"), me], answering(false, ["hosted"]));
 
 		await reply("If it hangs, `sudo kexec -e` brings it back.");
-		await personSays("Go ahead.");
+		await handler("input")(
+			{ type: "input", text: "Job j7 finished.", source: "extension" },
+			ctx,
+		);
+		await userMessage("Job j7 finished.");
 
-		expect(await look("Reboot optimus to install it")).toBeUndefined();
+		expect(await look("Reboot optimus to install it")).toMatchObject({
+			block: true,
+		});
 	});
 
 	it("says nothing of what wasn't read where nothing here could have spared", async () => {

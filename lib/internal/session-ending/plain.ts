@@ -51,7 +51,8 @@ const BLANK = /^\s*$/;
 /**
  * A shell's comment, which runs nothing only in a fence of commands: in
  * a terminal's session, or a fence that may be one, `#` is root's
- * prompt.
+ * prompt. A reader still follows what a comment says, so its words are
+ * held to prose's check.
  */
 const COMMENT = /^\s*#/;
 
@@ -126,11 +127,13 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
 function notPlainPart(part: Part): string | undefined {
 	if (part.fenced || !part.prose || part.commands !== "none") {
 		const comments = part.commands === "every";
-		return part.lines
-			.filter((line) => !BLANK.test(line))
-			.filter((line) => !(comments && COMMENT.test(line)))
-			.find((line) => !plainCommand(line))
-			?.trim();
+		for (const line of part.lines.filter((one) => !BLANK.test(one))) {
+			if (comments && COMMENT.test(line)) {
+				const offence = notPlainPart(proseOf(line.replace(COMMENT, "")));
+				if (offence !== undefined) return offence;
+			} else if (!plainCommand(line)) return line.trim();
+		}
+		return undefined;
 	}
 	const written = part.lines.join("\n");
 	const shownLines = part.lines.filter((line) => SHOWN_LINE.test(line));
@@ -148,4 +151,9 @@ function notPlainPart(part: Part): string | undefined {
 	// A backtick left unpaired may open code a renderer shows, unchecked.
 	if (rest.includes("`")) return UNPAIRED;
 	return COMMAND_WORD.exec(rest)?.[0];
+}
+
+/** One line read as prose, as a comment's words are. */
+function proseOf(line: string): Part {
+	return { prose: true, commands: "none", lines: [line] };
 }

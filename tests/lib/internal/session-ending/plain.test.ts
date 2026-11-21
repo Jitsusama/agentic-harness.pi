@@ -73,6 +73,8 @@ describe("plainlySaid", () => {
 		'Reboot optimus: run "sudo reboot", or if it hangs, sudo reboot -f.',
 		"Please reboot optimus:\n\n```md\necho b > /proc/sysrq-trigger\n```",
 		"Please reboot optimus:\n\n```markdown\nbootctl set-oneshot rescue.conf\n```",
+		"Please reboot optimus:\n\n```sh\nsudo reboot\n# if it hangs, run: sudo kexec -e\n```",
+		"Please reboot optimus:\n\n```bash\n# then `bootctl set-oneshot rescue`\nsudo reboot\n```",
 	])("is not plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(false);
 	});
@@ -82,6 +84,7 @@ describe("plainlySaid", () => {
 		["Soft-reboot optimus.", "Soft"],
 		["Reboot:\n\n```sh\nsudo reboot\nkexec -e\n```", "kexec -e"],
 		["Reboot optimus. If it hangs, ``reboot`x`.", "an unpaired backtick"],
+		["Reboot:\n\n```sh\nsudo reboot\n# or kexec -e\n```", "kexec"],
 	])("names what isn't plain: %s", (said, what) => {
 		expect(notPlainIn([said])).toBe(what);
 	});
