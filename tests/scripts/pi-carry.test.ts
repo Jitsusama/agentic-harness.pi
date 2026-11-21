@@ -453,7 +453,7 @@ describe("pi-carry", () => {
 		]);
 	});
 
-	it("exits 64 when settle is asked wrongly, the exit mycelium's settle reads", async () => {
+	it("exits 64 when settle is asked wrongly, as every form does", async () => {
 		const one = machine("settle-asked", folder(made, "cache"));
 
 		const asked = await piCarry(one.env, "settle", QUEST);
