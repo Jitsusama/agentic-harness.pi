@@ -152,6 +152,7 @@ interface Seen {
 	readonly closingHeld?: string;
 	/** What the conversation with nobody to ask was told as it started. */
 	readonly nobodySaid?: readonly { type: string; message: string }[];
+	readonly swappedSaid?: readonly { type: string; message: string }[];
 	readonly built?: readonly boolean[];
 	/** What a conversation's screen was told failed after its start answered, and whether it was the one meant to. */
 	readonly screenFailures?: readonly { lost: boolean; message: string }[];
@@ -867,6 +868,61 @@ describe("the host's engine", () => {
 			).toEqual([
 				expect.stringMatching(/^Conversation [\w-]+: .*nobody is not trusted/),
 				expect.stringMatching(/^Error: .*closed before it was built$/),
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"loads code planted in a trusted folder after the host first looked only once a person allows it",
+		async () => {
+			const seen = await step(hostFolder(), "planted-code");
+			expect(
+				seen.projectLoads,
+				"the code found at the first look loads, planted code only once allowed, a reload leaves out code planted beside found code and the next loads it again once it is gone, and neither a no nor code changed while asked loads",
+			).toEqual([
+				{ loaded: "found" },
+				{ loaded: "found" },
+				{ loaded: "asked" },
+			]);
+			expect(seen.questionsFor, "only the attended opens are asked").toEqual([
+				"asked",
+				"refused",
+				"swapped",
+			]);
+			expect(seen.question).toMatchObject({
+				asked: true,
+				labels: ["Yes", "No"],
+			});
+			expect(seen.question?.title).toMatch(
+				/asked's \.pi holds code pi would run outside the sandbox \(1 file: \.pi\/extensions\/project\.ts\) that is new or changed since it was last allowed\.\nLoad it, as you would any program you run\?$/,
+			);
+			expect(seen.nobodySaid).toEqual([
+				{
+					type: "warning",
+					message: expect.stringMatching(
+						/planted's \.pi holds code .* only a conversation first opened there at a screen can allow it/,
+					),
+				},
+			]);
+			expect(seen.reported, "the reload's refusal reaches the journal").toEqual(
+				[
+					expect.stringMatching(
+						/^Conversation [\w-]+: .*planted's \.pi holds code/,
+					),
+					expect.stringMatching(
+						/^Conversation [\w-]+: .*found's \.pi holds code .*\.pi\/extensions\/beside\.ts.* loads leave out .* until it is allowed/,
+					),
+					expect.stringMatching(
+						/^Conversation [\w-]+: .*swapped's \.pi code changed while you were asked/,
+					),
+				],
+			);
+			expect(seen.swappedSaid, "the swapped screen is told why").toEqual([
+				{
+					type: "warning",
+					message: expect.stringMatching(/changed while you were asked/),
+				},
 			]);
 		},
 		HOST_LIFE_MS,

@@ -1,0 +1,537 @@
+import { execFileSync } from "node:child_process";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	truncateSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	codeStanding,
+	MOST_ENTRIES,
+	PINS_FILE,
+	pin,
+	projectCode,
+	unpinnedSaying,
+} from "../../../host/engine/project-code.ts";
+
+/** Root reads every folder whatever its mode, so a case about modes can't hold. */
+const asRoot = process.getuid?.() === 0;
+
+let root: string;
+let folder: string;
+let agentDir: string;
+
+beforeEach(() => {
+	root = mkdtempSync(join(tmpdir(), "project-code-"));
+	folder = join(root, "tree");
+	agentDir = join(root, "agent");
+	mkdirSync(folder);
+	mkdirSync(agentDir);
+});
+
+afterEach(() => {
+	rmSync(root, { recursive: true, force: true });
+});
+
+function write(place: string, text: string): void {
+	const path = join(folder, place);
+	mkdirSync(join(path, ".."), { recursive: true });
+	writeFileSync(path, text);
+}
+
+/** A clock that starts the pins after everything already written. */
+const later = () => Date.now() + 60_000;
+/** A clock that starts the pins before anything is written. */
+const earlier = () => 0;
+
+describe("the code a folder's .pi holds", () => {
+	it("is none for words alone: skills, prompts and themes", () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/prompts/dream.md", "words");
+		write(".pi/themes/dark.json", "{}");
+		expect(projectCode(folder)).toBeUndefined();
+	});
+
+	it("counts extensions, MCP servers, installed packages and settings that run code", () => {
+		write(".pi/extensions/lint.ts", "export default () => {}");
+		write(".pi/mcp.json", "{}");
+		write(".pi/npm/node_modules/p/index.js", "");
+		write(".pi/git/github.com/o/r/index.ts", "");
+		write(".pi/settings.json", JSON.stringify({ packages: ["npm:p"] }));
+		// Named the newest first, so read here as a set.
+		expect([...(projectCode(folder)?.files ?? [])].sort()).toEqual([
+			".pi/extensions/lint.ts",
+			".pi/git/github.com/o/r/index.ts",
+			".pi/mcp.json",
+			".pi/npm/node_modules/p/index.js",
+			".pi/settings.json",
+		]);
+	});
+
+	it("counts every file beside code, as an extension may read or run them, but not words", () => {
+		write(".pi/extensions/lint.ts", "export default () => {}");
+		write(".pi/auto-lint.json", '{"command": "bin/lint"}');
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/SYSTEM.md", "words");
+		expect(projectCode(folder)?.files).toEqual([
+			".pi/auto-lint.json",
+			".pi/extensions/lint.ts",
+		]);
+		const before = projectCode(folder)?.digest;
+		write(".pi/skills/a/SKILL.md", "other words");
+		expect(projectCode(folder)?.digest, "a skill is words").toBe(before);
+		write(".pi/auto-lint.json", '{"command": "planted"}');
+		expect(projectCode(folder)?.digest, "what the extension runs").not.toBe(
+			before,
+		);
+	});
+
+	it("counts what the settings name on the disk as extensions or packages, wherever it is", () => {
+		writeFileSync(join(root, "ext.ts"), "one");
+		mkdirSync(join(root, "pkg"));
+		writeFileSync(join(root, "pkg", "index.ts"), "one");
+		write(
+			".pi/settings.json",
+			JSON.stringify({
+				extensions: ["../../ext.ts"],
+				packages: [{ source: "../../pkg" }, "npm:p", "git@github.com:o/r"],
+			}),
+		);
+		expect([...(projectCode(folder)?.files ?? [])].sort()).toEqual([
+			"../ext.ts",
+			"../pkg/index.ts",
+			".pi/settings.json",
+		]);
+		const before = projectCode(folder)?.digest;
+		writeFileSync(join(root, "pkg", "index.ts"), "planted");
+		expect(projectCode(folder)?.digest).not.toBe(before);
+	});
+
+	it("counts each of the nine settings that start a program or move pi's traffic", () => {
+		for (const key of [
+			"packages",
+			"extensions",
+			"shellPath",
+			"shellCommandPrefix",
+			"npmCommand",
+			"selfUpdateCommand",
+			"externalEditor",
+			"httpProxy",
+			"sessionDir",
+		]) {
+			write(".pi/settings.json", JSON.stringify({ [key]: "a" }));
+			expect(projectCode(folder)?.files, key).toEqual([".pi/settings.json"]);
+		}
+	});
+
+	it("walks a folder linked back into itself once, and finishes", () => {
+		write(".pi/extensions/lint.ts", "one");
+		symlinkSync("..", join(folder, ".pi/extensions/loop"));
+		const code = projectCode(folder);
+		expect(code?.files).toEqual([".pi/extensions/lint.ts"]);
+		expect(code?.complete, "a loop is no reason to stop checking").toBe(true);
+	});
+
+	it("is never complete with a folder too deep to read", () => {
+		const deep = join(folder, ".pi/extensions", ...Array(30).fill("d"));
+		mkdirSync(deep, { recursive: true });
+		writeFileSync(join(deep, "hidden.ts"), "planted");
+		expect(projectCode(folder)?.complete).toBe(false);
+	});
+
+	it("is never complete past the most entries it checks", () => {
+		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
+		for (let n = 0; n <= MOST_ENTRIES; n += 1)
+			writeFileSync(join(folder, ".pi/extensions", `${n}.ts`), "");
+		expect(projectCode(folder)?.complete).toBe(false);
+		// Ten thousand files take seconds to write on a busy disk.
+	}, 60_000);
+
+	it.skipIf(asRoot)(
+		"is never complete with a folder it can enter but not list",
+		() => {
+			write(".pi/extensions/lint.ts", "one");
+			chmodSync(join(folder, ".pi/extensions"), 0o311);
+			try {
+				const code = projectCode(folder);
+				expect(code?.complete, "a file it can't list may load").toBe(false);
+				expect(code?.unchecked).toMatch(/can't read .*EACCES/);
+			} finally {
+				chmodSync(join(folder, ".pi/extensions"), 0o755);
+			}
+		},
+	);
+
+	it("is never complete past the most bytes it checks, reading none of a file past them", () => {
+		write(".pi/extensions/big.ts", "");
+		// Sparse, so the case costs no disk: a read of it all would still
+		// take seconds and the memory, which the size check spares.
+		truncateSync(join(folder, ".pi/extensions/big.ts"), 65 * 1024 * 1024);
+		const started = Date.now();
+		const code = projectCode(folder);
+		expect(code?.complete, "a file past the limit was pinned").toBe(false);
+		expect(code?.unchecked).toContain("over 64 MiB");
+		expect(Date.now() - started, "it read the file").toBeLessThan(2_000);
+	});
+
+	it("is never complete where its settings name a pattern it can't follow", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ extensions: ["../ext/{a,b}.ts"] }),
+		);
+		const code = projectCode(folder);
+		expect(code?.complete, "a brace may name a file it never read").toBe(false);
+		expect(code?.unchecked).toContain("a pattern it can't follow");
+	});
+
+	it("is never complete where its settings name a file URL it can't read, and doesn't throw", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ packages: ["file://elsewhere/x"] }),
+		);
+		const code = projectCode(folder);
+		expect(code?.complete, "a place it can't read was pinned").toBe(false);
+		expect(code?.unchecked).toContain("isn't a place it can read");
+	});
+
+	it("is never complete with a pipe in its .pi, read through or as its settings, and never waits on one", () => {
+		write(".pi/extensions/lint.ts", "one");
+		execFileSync("mkfifo", [join(folder, ".pi/extensions/piped.ts")]);
+		const piped = projectCode(folder);
+		expect(piped?.complete).toBe(false);
+		expect(piped).toMatchObject({
+			unchecked: expect.stringContaining("neither a file nor a folder"),
+		});
+		rmSync(join(folder, ".pi"), { recursive: true });
+		mkdirSync(join(folder, ".pi"));
+		execFileSync("mkfifo", [join(folder, ".pi/settings.json")]);
+		const settings = projectCode(folder);
+		expect(settings?.complete).toBe(false);
+		expect(settings).toMatchObject({
+			unchecked: expect.stringContaining("aren't a file"),
+		});
+	});
+
+	it("counts every file a wildcard inside a name may match, from the folder it sits in", () => {
+		writeFileSync(join(root, "tools-a.ts"), "one");
+		write(
+			".pi/settings.json",
+			JSON.stringify({ extensions: ["../../tools*.ts"] }),
+		);
+		expect(projectCode(folder)?.files).toContain("../tools-a.ts");
+		const before = projectCode(folder)?.digest;
+		writeFileSync(join(root, "tools-b.ts"), "planted");
+		expect(
+			projectCode(folder)?.digest,
+			"a file the wildcard matches later",
+		).not.toBe(before);
+	});
+
+	it("counts the words folders where a setting names .pi itself, as pi may load code there", () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		write(".pi/settings.json", JSON.stringify({ extensions: ["*/index.ts"] }));
+		const before = projectCode(folder)?.digest;
+		write(".pi/skills/index.ts", "planted");
+		expect(
+			projectCode(folder)?.digest,
+			"an extension the pattern matches under skills",
+		).not.toBe(before);
+	});
+
+	it("walks a user@host: source, which pi reads as a path", () => {
+		write(".pi/me@host:tools/index.ts", "one");
+		write(".pi/settings.json", JSON.stringify({ packages: ["me@host:tools"] }));
+		expect(projectCode(folder)?.files).toContain(".pi/me@host:tools/index.ts");
+	});
+
+	it("is none for settings that change how pi behaves, not what runs", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ compaction: { keepRecentTokens: 9 } }),
+		);
+		expect(projectCode(folder)).toBeUndefined();
+	});
+
+	it("changes when a setting that runs code changes, and not for one that doesn't", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ shellPath: "/bin/sh", theme: "a" }),
+		);
+		const before = projectCode(folder)?.digest;
+		write(
+			".pi/settings.json",
+			JSON.stringify({ shellPath: "/bin/sh", theme: "b" }),
+		);
+		expect(projectCode(folder)?.digest).toBe(before);
+		write(
+			".pi/settings.json",
+			JSON.stringify({ shellPath: "/tmp/sh", theme: "b" }),
+		);
+		expect(projectCode(folder)?.digest).not.toBe(before);
+	});
+
+	it("counts settings it can't read whole", () => {
+		write(".pi/settings.json", "{ not json");
+		expect(projectCode(folder)?.files).toEqual([".pi/settings.json"]);
+	});
+
+	it("changes when a file's contents change", () => {
+		write(".pi/extensions/lint.ts", "one");
+		const before = projectCode(folder)?.digest;
+		write(".pi/extensions/lint.ts", "two");
+		expect(projectCode(folder)?.digest).not.toBe(before);
+	});
+
+	it("follows a link to the file pi would load, and counts where it leads", () => {
+		writeFileSync(join(root, "one.ts"), "one");
+		writeFileSync(join(root, "two.ts"), "one");
+		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
+		const link = join(folder, ".pi/extensions/lint.ts");
+		symlinkSync(join(root, "one.ts"), link);
+		const before = projectCode(folder);
+		expect(before?.files).toEqual([".pi/extensions/lint.ts"]);
+		rmSync(link);
+		symlinkSync(join(root, "two.ts"), link);
+		expect(projectCode(folder)?.digest).not.toBe(before?.digest);
+	});
+});
+
+describe("whether a folder's code may load", () => {
+	it("needs nothing where there is no code", () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		expect(codeStanding(folder, agentDir, later).kind).toBe("none");
+	});
+
+	it("pins code already there when the host first looks, and starts its pins", () => {
+		write(".pi/extensions/lint.ts", "one");
+		expect(codeStanding(folder, agentDir, later).kind).toBe("pinned");
+		const pins: unknown = JSON.parse(
+			readFileSync(join(agentDir, PINS_FILE), "utf8"),
+		);
+		expect(pins).toMatchObject({
+			folders: { [folder]: projectCode(folder)?.digest },
+		});
+	});
+
+	it("doesn't pin code that arrived after the pins began", () => {
+		write(".pi/extensions/lint.ts", "one");
+		expect(codeStanding(folder, agentDir, earlier).kind).toBe("unpinned");
+	});
+
+	/** Pins begun before anything was written, with the folder's code as it stands allowed. */
+	function allowed(): void {
+		codeStanding(folder, agentDir, earlier);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		pin(folder, agentDir, code);
+	}
+
+	it("loads pinned code while it stays as it was", () => {
+		write(".pi/extensions/lint.ts", "one");
+		allowed();
+		expect(codeStanding(folder, agentDir).kind).toBe("pinned");
+	});
+
+	it("doesn't load pinned code once it changes", () => {
+		write(".pi/extensions/lint.ts", "one");
+		allowed();
+		write(".pi/extensions/lint.ts", "two");
+		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
+	});
+
+	it("doesn't load a file added beside pinned code", () => {
+		write(".pi/extensions/lint.ts", "one");
+		allowed();
+		write(".pi/extensions/more.ts", "planted");
+		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
+	});
+
+	it("doesn't load code planted in a folder that had none", () => {
+		write(".pi/skills/a/SKILL.md", "words");
+		codeStanding(folder, agentDir, earlier);
+		write(".pi/extensions/planted.ts", "planted");
+		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
+	});
+
+	it("reads pins it can't read as pinning nothing, rather than load past them", () => {
+		write(".pi/extensions/lint.ts", "one");
+		for (const damaged of [
+			"[]",
+			"{ not json",
+			'{"since": 0, "folders": {}, "allowed": [1]}',
+		]) {
+			writeFileSync(join(agentDir, PINS_FILE), damaged);
+			const standing = codeStanding(folder, agentDir, later);
+			expect(standing.kind, damaged).toBe("unpinned");
+			if (standing.kind !== "unpinned") return;
+			expect(
+				unpinnedSaying(folder, standing),
+				"it sends the reader to the pins, not to code that never changed",
+			).toContain(`${PINS_FILE} can't be read as pins`);
+		}
+	});
+
+	it("says it can't read the pins, rather than that the code changed, while a read fails", () => {
+		write(".pi/extensions/lint.ts", "one");
+		mkdirSync(join(agentDir, PINS_FILE));
+		const standing = codeStanding(folder, agentDir, later);
+		if (standing.kind !== "unpinned") throw new Error("it should not load");
+		const said = unpinnedSaying(folder, standing);
+		expect(said).toContain("since the host can't read ");
+		expect(said).toContain(PINS_FILE);
+		expect(said).not.toContain("new or changed");
+	});
+
+	it("sets damaged pins aside before pinning anew", () => {
+		write(".pi/extensions/lint.ts", "one");
+		const file = join(agentDir, PINS_FILE);
+		writeFileSync(file, "{ not json");
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		pin(folder, agentDir, code);
+		expect(readFileSync(`${file}.damaged`, "utf8")).toBe("{ not json");
+		expect(codeStanding(folder, agentDir).kind).toBe("pinned");
+	});
+
+	it("starts the pins at a yes given before the host first looked, rather than at nothing", () => {
+		write(".pi/extensions/lint.ts", "one");
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		pin(folder, agentDir, code);
+		const pins: unknown = JSON.parse(
+			readFileSync(join(agentDir, PINS_FILE), "utf8"),
+		);
+		expect(pins).toMatchObject({ since: expect.any(Number) });
+		expect((pins as { since: number }).since).toBeGreaterThan(0);
+	});
+
+	it.skipIf(asRoot)(
+		"neither throws nor pins where it can't write the pins, and leaves nothing staged",
+		() => {
+			write(".pi/extensions/lint.ts", "one");
+			chmodSync(agentDir, 0o500);
+			try {
+				expect(codeStanding(folder, agentDir, later).kind).toBe("unpinned");
+				const code = projectCode(folder);
+				if (!code) throw new Error("the folder should hold code");
+				expect(pin(folder, agentDir, code)).toContain("couldn't write");
+				expect(readdirSync(agentDir)).toEqual([]);
+				expect(
+					codeStanding(folder, agentDir, later).kind,
+					"the yes holds for the host's life",
+				).toBe("pinned");
+			} finally {
+				chmodSync(agentDir, 0o700);
+			}
+		},
+	);
+
+	it("never writes over pins it couldn't read for a moment", () => {
+		write(".pi/extensions/lint.ts", "one");
+		// A folder where the file belongs fails every read, as a moment's
+		// trouble with the disk would, without being damaged pins.
+		const file = join(agentDir, PINS_FILE);
+		mkdirSync(file);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		expect(
+			pin(folder, agentDir, code),
+			"left alone rather than written over",
+		).toContain("couldn't read");
+		expect(existsSync(`${file}.damaged`), "set aside as damaged").toBe(false);
+	});
+
+	it("loads the same code in another tree once it was allowed in one", () => {
+		write(".pi/extensions/lint.ts", "one");
+		allowed();
+		const other = join(root, "other");
+		mkdirSync(join(other, ".pi/extensions"), { recursive: true });
+		writeFileSync(join(other, ".pi/extensions/lint.ts"), "one");
+		expect(codeStanding(other, agentDir).kind).toBe("pinned");
+		writeFileSync(join(other, ".pi/extensions/lint.ts"), "two");
+		expect(codeStanding(other, agentDir).kind).toBe("unpinned");
+	});
+
+	it("never pins code too large to check, even when the host first looks", () => {
+		mkdirSync(join(folder, ".pi/extensions"), { recursive: true });
+		for (let n = 0; n <= MOST_ENTRIES; n += 1)
+			writeFileSync(join(folder, ".pi/extensions", `${n}.ts`), "");
+		const standing = codeStanding(folder, agentDir, later);
+		expect(standing.kind).toBe("unpinned");
+		if (standing.kind !== "unpinned") return;
+		pin(folder, agentDir, standing.code);
+		expect(codeStanding(folder, agentDir, later).kind).toBe("unpinned");
+	}, 60_000);
+});
+
+describe("what is said of code that may not load", () => {
+	it("says why code it can't check whole can't be allowed", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ extensions: ["../ext/{a,b}.ts"] }),
+		);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		expect(unpinnedSaying(folder, { code })).toBe(
+			`${folder}'s .pi holds code pi would run outside the sandbox that the host can't check whole, since its settings name ../ext/{a,b}.ts, a pattern it can't follow, so it can't be allowed until that changes`,
+		);
+	});
+
+	it("names the folder and a few of its files", () => {
+		for (const name of ["a", "b", "c", "d", "e"])
+			write(`.pi/extensions/${name}.ts`, name);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		// Written in one tick or several, so their order is the next case's to show.
+		const named = code.files.slice(0, 3).join(", ");
+		expect(unpinnedSaying(folder, { code })).toBe(
+			`${folder}'s .pi holds code pi would run outside the sandbox (5 files, the newest first: ${named} and 2 more) that is new or changed since it was last allowed`,
+		);
+	});
+
+	it("names a file planted among older ones first, whatever its name", () => {
+		for (const name of ["a", "b", "c", "d"])
+			write(`.pi/extensions/${name}.ts`, name);
+		const oldest = projectCode(folder)?.newest ?? 0;
+		// Written again until the disk's clock has moved on, which it does within a tick.
+		const planted = join(folder, ".pi/extensions/zz.ts");
+		do writeFileSync(planted, "planted");
+		while (statSync(planted).ctimeMs <= oldest);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		expect(code.files[0]).toBe(".pi/extensions/zz.ts");
+		expect(unpinnedSaying(folder, { code })).toContain(
+			"(5 files, the newest first: .pi/extensions/zz.ts, ",
+		);
+	});
+
+	it("shows a file's name only as printable text, cut short from the front", () => {
+		write(`.pi/extensions/a\u001b[2Jb${"x".repeat(100)}.ts`, "a");
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		const said = unpinnedSaying(folder, { code });
+		expect(said, "the name's end, which says what it is, stays").toMatch(
+			/\(1 file: \.\.\.x+\.ts\)/,
+		);
+		expect(said, "no control character reaches the screen").not.toMatch(
+			/[^\x20-\x7e]/,
+		);
+		const bad = ".pi/extensions/a\u001b[2Jb.ts";
+		write(bad, "b");
+		const both = projectCode(folder);
+		if (!both) throw new Error("the folder should hold code");
+		expect(unpinnedSaying(folder, { code: both })).toContain(
+			".pi/extensions/a?[2Jb.ts",
+		);
+	});
+});

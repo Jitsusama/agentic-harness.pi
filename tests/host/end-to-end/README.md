@@ -37,7 +37,10 @@ The host asks pi's startup questions as the program does, so a
 conversation in a folder with its own .pi/extensions asks whether to
 trust it, on its screen. The trust cases answer it yes, no, from a
 second viewer, and not at all when the conversation closes, and check
-whether the folder's extension loaded. Every other case's folder is
+whether the folder's extension loaded. Each case allows the code it
+writes into a folder first, as a person's yes would, since the host
+loads a folder's code only as it was allowed (the engine's planted-code
+step proves that). Every other case's folder is
 trusted in pi's store before it opens, so it asks nothing: pi counts any
 .agents/skills above a folder but HOME's as the project's, and a quest's
 TMPDIR is a link into a home that holds one. An extension that asks the

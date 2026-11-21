@@ -5,6 +5,10 @@
  * may sit under a home holding one, as a quest's TMPDIR does, so a folder
  * a case means to open without asking is trusted as its person would
  * have trusted it.
+ *
+ * The host loads code a folder's .pi holds only as it was allowed, so a
+ * case that writes code into a folder after its host first looked, and
+ * means it to load as a person's yes would let it, allows it first.
  */
 
 import {
@@ -15,6 +19,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pin, projectCode } from "../../../../host/engine/project-code.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import type { Seal } from "./seal.ts";
 
@@ -26,11 +31,14 @@ export interface Folders {
 	untrusted(): string;
 	/** What pi's store holds, by folder. */
 	store(): Record<string, unknown>;
+	/** Allow the code `cwd`'s .pi holds now, as a person's yes to it would. */
+	allowCode(cwd: string): string;
 }
 
 /** Working folders under `seal`'s root, judged by the trust store in its agent folder. */
 export function folders(seal: Seal): Folders {
-	const file = join(seal.home, ".pi", "agent", "trust.json");
+	const agentDir = join(seal.home, ".pi", "agent");
+	const file = join(agentDir, "trust.json");
 	let made = 0;
 	const store = (): Record<string, unknown> => {
 		if (!existsSync(file)) return {};
@@ -51,5 +59,12 @@ export function folders(seal: Seal): Folders {
 		},
 		untrusted,
 		store,
+		allowCode(cwd) {
+			const code = projectCode(cwd);
+			if (!code) throw new Error(`${cwd}'s .pi holds no code to allow`);
+			mkdirSync(agentDir, { recursive: true });
+			pin(cwd, agentDir, code);
+			return cwd;
+		},
 	};
 }

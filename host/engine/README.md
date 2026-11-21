@@ -212,6 +212,53 @@ ask, or unattended, a folder pi would ask about stays untrusted, and its
 start warns that its own settings and extensions were not loaded. A close
 while asking settles the question and builds nothing more.
 
+Trust alone isn't enough for code a folder's .pi holds, which pi runs
+outside the agents' sandbox: its extensions, MCP servers, installed
+packages and the settings that start a program (project-code.ts). A
+fenced command could write them into any folder under a trusted one,
+and the next build or reload would run them unfenced. So the host pins
+each folder's code, by its contents, in project-code.json in pi's agent
+folder, which the sandbox holds read-only. Once a .pi holds code, every
+file in it counts, since an extension may run what a file beside it
+says, as are the files its settings name as extensions or packages,
+wherever they are; skills, prompts, themes and the system prompt files
+are words pi reads, and stay under pi's trust alone. Code there at the
+host's first look is pinned as found, by its files' ctime, which
+nothing in userspace can set back. Code once allowed loads in any
+folder that holds the same, so a new tree of the same branch doesn't
+ask. New or changed code asks an attended start's screen first (Load
+it, as you would any program you run?), naming its files the newest
+first, and a yes pins it, unless the code changed while the question
+waited. Unattended, or at a later load, the folder loads untrusted and
+the journal says why, and a reload trusts it again once its code is
+pinned again. A later load, such as a /reload, tells its screen
+nothing: the folder's extensions leave it without a word there, and
+only the journal says why. Every load
+begins with pi reloading the settings, so the check runs there, before
+a reload's resources too. A .pi too large to check (past 10,000
+entries, 64 MiB or folders 24 deep), or holding a pipe or a device,
+never loads its code, nor does a .pi package installed with its
+dependencies, which outgrows those limits at once; pins that can't be
+read pin nothing, and what's said names the pins file rather than the
+code; and a
+folder pi doesn't ask trust for, or that the person said not to trust,
+is never asked about, though a conversation still trusted from before
+the no is checked at each load.
+
+What the pins don't cover: code outside .pi that pinned code imports
+or runs, such as a linter an extension starts from the repository; a
+file in .pi an extension already loaded reads again before the next
+load, which the check sees only then; a change between the check and
+pi's reading of the file, which a fenced command swapping a file to
+and fro can try at every reload the model asks for, since the guard
+gives trust back each time it reads the pinned contents again; two
+hosts writing the pins at once, where the last write wins; the
+hand-kept lists of pi's code entries and code settings, which a new
+pi may outgrow; a plain pi outside the host, which doesn't check the
+pins; and the subagent tool, whose pi runs outside the fence and
+loads the extensions the model names to it, or a trusted folder's
+.pi when not isolated, with no pins checked.
+
 An open answers once its first words are durable, so a failed prompt
 fails the open, except while something waits on the person no viewer can
 yet reach: the trust question, an extension command, or a dialog its

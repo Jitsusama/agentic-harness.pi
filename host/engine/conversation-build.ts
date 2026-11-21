@@ -270,13 +270,18 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			authContext: conversationAuthContext(env),
 		});
 		const trustSaid: StartupDiagnostic[] = [];
+		// Said with the start's diagnostics until they are reported; a later load's straight to the journal.
+		let started = false;
 		const ask = building.starting ? trustQuestion(record) : undefined;
 		const trusted = trust.services(target.cwd, target.agentDir, {
 			...(ask ? { ask } : {}),
 			...(target.projectTrustContext
 				? { context: target.projectTrustContext }
 				: {}),
-			warn: (message) => trustSaid.push({ type: "warning", message }),
+			warn: (message) =>
+				started
+					? report(`Conversation ${sessionId}: ${message}`)
+					: trustSaid.push({ type: "warning", message }),
 		});
 		const services = await sessions.createAgentSessionServices({
 			cwd: target.cwd,
@@ -300,6 +305,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		if (record.closing)
 			throw new Error(`Conversation ${sessionId} closed before it was built`);
 		const said = [...trustSaid, ...startupDiagnostics(services)];
+		started = true;
 		for (const { type, message } of said)
 			if (type !== "info") report(`Conversation ${sessionId}: ${message}`);
 		const conversation = await openHostedConversation({

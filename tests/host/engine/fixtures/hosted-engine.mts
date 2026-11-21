@@ -269,19 +269,31 @@ function refuseStore(sessionId: string): void {
 
 /** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
 function project(name: string): string {
+	const dir = emptyProject(name);
+	projectExtension(dir, "project", name);
+	return dir;
+}
+
+/** A project folder holding nothing yet, by its real path. */
+function emptyProject(name: string): string {
 	const dir = join(projects, name);
+	mkdirSync(dir, { recursive: true });
+	return realpathSync(dir);
+}
+
+/** Give `dir` an extension named `file` that notes each load in projectLoads as `loaded`. */
+function projectExtension(dir: string, file: string, loaded: string): void {
 	mkdirSync(join(dir, ".pi", "extensions"), { recursive: true });
 	writeFileSync(
-		join(dir, ".pi", "extensions", "project.ts"),
+		join(dir, ".pi", "extensions", `${file}.ts`),
 		[
 			'import { appendFileSync } from "node:fs";',
 			"export default function () {",
-			`\tappendFileSync(${JSON.stringify(projectLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded: name })}\n`)});`,
+			`\tappendFileSync(${JSON.stringify(projectLoads)}, ${JSON.stringify(`${JSON.stringify({ loaded })}\n`)});`,
 			"}",
 			"",
 		].join("\n"),
 	);
-	return realpathSync(dir);
 }
 
 /** Whether a probe line is something other than its input handler's answer. */
@@ -1117,6 +1129,86 @@ const scenarios: Record<string, Scenario> = {
 				),
 			};
 			for (const id of [nobody, stored, asked]) await host.close(id);
+			return { ...seen, projectLoads: lines(projectLoads) };
+		},
+	},
+	/**
+	 * Code planted in trusted folders after the host first looked: one
+	 * opened with nobody to ask; one beside code the host found there,
+	 * reloaded, then reloaded again once the planted file is gone; one
+	 * whose screen is asked and allows it; one whose screen says no; and
+	 * one whose code changes while its screen is asked, then says yes.
+	 */
+	"planted-code": {
+		responses: () => [],
+		screens: trustScreens,
+		run: async (engine, host) => {
+			const foundDir = project("found");
+			const names = ["planted", "asked", "refused", "swapped"] as const;
+			const [plantedDir, askedDir, refusedDir, swappedDir] = names.map((name) =>
+				emptyProject(name),
+			);
+			if (!plantedDir || !askedDir || !refusedDir || !swappedDir)
+				throw new Error("Every project folder should be made");
+			writeFileSync(
+				join(agentDir, "trust.json"),
+				JSON.stringify(
+					Object.fromEntries(
+						[foundDir, plantedDir, askedDir, refusedDir, swappedDir].map(
+							(dir) => [dir, true],
+						),
+					),
+				),
+			);
+			const found = await open(engine, {}, { cwd: foundDir });
+			for (const name of names) project(name);
+			const planted = await open(engine, {}, { cwd: plantedDir });
+			projectExtension(foundDir, "beside", "found beside");
+			const runtime = engine.view(found)?.runtime;
+			if (!runtime) throw new Error("The found conversation has no runtime");
+			await runtime.session.reload();
+			rmSync(join(foundDir, ".pi", "extensions", "beside.ts"));
+			await runtime.session.reload();
+			/** Open `dir` with a screen, and give its question `answer` once `meanwhile` has run. */
+			const answered = async (
+				dir: string,
+				answer: string,
+				meanwhile: () => void = () => {},
+			) => {
+				const before = trustAsked.length;
+				const id = await open(engine, {}, { cwd: dir, attended: true });
+				await until(
+					`${basename(dir)}'s screen to be asked`,
+					() => trustAsked.length > before,
+					UNTIL_MS,
+				);
+				meanwhile();
+				trustAsked[before]?.answer(answer);
+				await until(
+					`${basename(dir)}'s conversation to be built`,
+					() => screensOpened.has(id),
+					UNTIL_MS,
+				);
+				return id;
+			};
+			const asked = await answered(askedDir, "Yes");
+			const question = trustAsked[0];
+			const refused = await answered(refusedDir, "No");
+			const swapped = await answered(swappedDir, "Yes", () =>
+				projectExtension(swappedDir, "swapped", "swapped in"),
+			);
+			const seen = {
+				question: question && {
+					asked: question.sessionId === asked,
+					title: question.title,
+					labels: question.labels,
+				},
+				questionsFor: trustAsked.map(({ cwd }) => basename(cwd)),
+				nobodySaid: engine.view(planted)?.runtime.diagnostics,
+				swappedSaid: engine.view(swapped)?.runtime.diagnostics,
+			};
+			for (const id of [found, planted, asked, refused, swapped])
+				await host.close(id);
 			return { ...seen, projectLoads: lines(projectLoads) };
 		},
 	},
