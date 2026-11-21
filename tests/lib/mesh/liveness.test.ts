@@ -172,6 +172,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 	const CONVERSATION = "01a1f23f-0000-7000-8000-000000000001";
 	const NOW = 2_000_000_000_000;
 	const HOST_PID = 700;
+	const CHILD_PID = 701;
 	let root: string;
 	let rosters: string;
 	let hosts: string;
@@ -201,12 +202,28 @@ describe("whether a restarting host is bringing a conversation back", () => {
 				})),
 			}),
 		);
-	const hostStarted = (agoMs: number, open: readonly string[] = []) =>
+	// The host holds its roster's lock for its whole run.
+	const hostStarted = (agoMs: number) =>
 		writeFileSync(
-			join(hosts, `${HOST_PID}-${NOW - agoMs}.json`),
+			join(rosters, "work-background.json.lock"),
 			JSON.stringify({
 				key: "work-background",
 				owner: { pid: HOST_PID, startedAt: NOW - agoMs },
+			}),
+		);
+	// A process listing what it has open, as each child does under its
+	// host's key.
+	const listed = (
+		pid: number,
+		agoMs: number,
+		open: readonly string[] = [],
+		key = "work-background",
+	) =>
+		writeFileSync(
+			join(hosts, `${pid}-${NOW - agoMs}.json`),
+			JSON.stringify({
+				key,
+				owner: { pid, startedAt: NOW - agoMs },
 				sessions: open.map((id) => ({
 					id,
 					state: "busy",
@@ -216,15 +233,20 @@ describe("whether a restarting host is bringing a conversation back", () => {
 		);
 	const ask = (running: Record<number, number> = {}) =>
 		heldOnce(machine(running), { rosters, hosts, now: NOW });
+	const PAST = RESUME_GRACE_MS * 3;
 
-	it("is while its roster holds it and no host runs under its key", async () => {
+	it("is not while no host runs under its key, however long it holds it", async () => {
 		keep("work-background", [CONVERSATION]);
-		hostStarted(RESUME_GRACE_MS * 3);
 
 		expect(
 			await ask()(CONVERSATION, "work-background"),
-			"resuming while no host runs under its key",
-		).toBe(true);
+			"not resuming with no lock, as a host stopped leaves it",
+		).toBe(false);
+		hostStarted(60_000);
+		expect(
+			await ask()(CONVERSATION, "work-background"),
+			"not resuming while the lock names a host gone",
+		).toBe(false);
 	});
 
 	it("is while the host running again started within the grace", async () => {
@@ -249,14 +271,75 @@ describe("whether a restarting host is bringing a conversation back", () => {
 		).toBe(false);
 	});
 
-	it("is while a host past the grace has it open, its presence not yet written again", async () => {
+	it("is while a process under the key past the grace has it open, its presence not yet written again", async () => {
 		keep("work-background", [CONVERSATION]);
-		const ago = RESUME_GRACE_MS * 3;
-		hostStarted(ago, [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
 
 		expect(
-			await ask({ [HOST_PID]: NOW - ago })(CONVERSATION, "work-background"),
-			"resuming while the running host has it open",
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"resuming while its own child has it open",
+		).toBe(true);
+	});
+
+	it("measures the grace from the host, not a child that started under its key since", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 60_000, ["01a1f23f-0000-7000-8000-000000000002"]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 60_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"another conversation's new child gives no grace",
+		).toBe(false);
+	});
+
+	it("counts only what processes under its own key, still running, have open", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION], "work-attended");
+		listed(702, 30_000, [CONVERSATION]);
+
+		expect(
+			await ask({ [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 })(
+				CONVERSATION,
+				"work-background",
+			),
+			"another key's list, or a listing process gone, says nothing",
+		).toBe(false);
+	});
+
+	it("reads the host lists once a census, and not at all within the grace", async () => {
+		keep("work-background", [CONVERSATION]);
+		hostStarted(PAST);
+		listed(CHILD_PID, 30_000, [CONVERSATION]);
+		const running = { [HOST_PID]: NOW - PAST, [CHILD_PID]: NOW - 30_000 };
+		const once = ask(running);
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the first ask reads the lists",
+		).toBe(true);
+
+		rmSync(hosts, { recursive: true });
+		expect(
+			await once(CONVERSATION, "work-background"),
+			"the same census answers from the lists it read",
+		).toBe(true);
+		expect(
+			await ask(running)(CONVERSATION, "work-background"),
+			"a new census reads the lists again",
+		).toBe(false);
+		mkdirSync(hosts);
+		writeFileSync(join(hosts, "garbled.json"), "{ half");
+		hostStarted(60_000);
+		expect(
+			await ask({ [HOST_PID]: NOW - 60_000 })(CONVERSATION, "work-background"),
+			"within the grace, no list is needed",
 		).toBe(true);
 	});
 
@@ -285,7 +368,9 @@ describe("whether a restarting host is bringing a conversation back", () => {
 
 	it("reads each roster once however many it is asked about", async () => {
 		keep("work-background", [CONVERSATION]);
-		const once = ask();
+		hostStarted(60_000);
+		const running = { [HOST_PID]: NOW - 60_000 };
+		const once = ask(running);
 		expect(
 			await once(CONVERSATION, "work-background"),
 			"the first ask reads the roster",
@@ -297,7 +382,7 @@ describe("whether a restarting host is bringing a conversation back", () => {
 			"the same census answers from the roster it read",
 		).toBe(true);
 		expect(
-			await ask()(CONVERSATION, "work-background"),
+			await ask(running)(CONVERSATION, "work-background"),
 			"a new census reads the roster again",
 		).toBe(false);
 	});

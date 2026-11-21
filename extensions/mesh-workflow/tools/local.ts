@@ -103,7 +103,8 @@ export type Answer = ReturnType<typeof answer>;
 
 /**
  * Every peer, answering only to its own addresses, sorted by whether
- * it is still on the mesh.
+ * it is still on the mesh, and whether a restarting host is bringing it
+ * back as mesh_end asks.
  */
 export function peers(at: Local): Promise<Census> {
 	const everyone = at.presences.all();
@@ -112,6 +113,10 @@ export function peers(at: Local): Promise<Census> {
 			...one,
 			addresses: answeringTo(one, everyone),
 		})),
+		undefined,
+		undefined,
+		undefined,
+		at.heldAsk,
 	);
 }
 

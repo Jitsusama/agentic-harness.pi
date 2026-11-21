@@ -272,9 +272,17 @@ export function peersText(
 	resuming: readonly Presence[] = [],
 ): string {
 	const back = new Set(resuming.map((one) => one.session));
+	// As the Resuming line, a resuming one is left out once a session
+	// running answers to its address again.
+	const running = new Set(
+		present
+			.filter((one) => !back.has(one.session))
+			.flatMap((one) => one.addresses.slice(0, 1)),
+	);
 	const lines = present.flatMap((one) => {
 		const address = one.addresses[0];
 		if (one.session === peer.session || !address) return [];
+		if (back.has(one.session) && running.has(address)) return [];
 		const work = one.worksOn.replace(/\s+/g, " ").trim();
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;

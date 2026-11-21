@@ -28,7 +28,7 @@ export async function end(
 	// A parked session has no process to end, only a holder to wake it.
 	if (wokenToEnd(at, target.session)) {
 		return answer(
-			`${address} was parked, so nothing was signalled; it was woken instead. It ends itself within about two minutes if its quest has ended; otherwise it carries on, and mesh_end ends it once it runs.`,
+			`${address} was parked, so nothing was signalled; it was woken instead. It ends itself within about two minutes if its quest has ended; otherwise it carries on, and nothing is kept to end it later, so call mesh_end again once it runs.`,
 		);
 	}
 	const ended = await (at.endProcess ?? endByOwner)(
@@ -38,7 +38,7 @@ export async function end(
 	if (ended === "gone") {
 		if (await resuming(at, target.owner))
 			return answer(
-				`${address} is resuming as its host starts again, so nothing was signalled; mesh_end ends it once it runs.`,
+				`${address} is resuming as its host starts again, so nothing was signalled and nothing is kept to end it later; it carries on once back, so call mesh_end again once it runs.`,
 			);
 		return answer(`${address} had already ended; nothing was signalled.`);
 	}

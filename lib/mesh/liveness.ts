@@ -41,14 +41,18 @@
  * meanwhile, about 60 cells read as ended, which led to questions of who
  * owned their work and nearly to a push onto another cell's branch
  * (IKQ63G). Only that host's own roster holding it says so; one that
- * can't be read leaves it gone, as before. The host is starting again
- * while none runs under its key, or the one running started within
- * {@link RESUME_GRACE_MS} or has it open; past that, a held conversation
- * it never brought back (a start that failed) is gone, not resuming for
- * as long as its hold stands.
+ * can't be read leaves it gone, as before. The host is the process its
+ * roster's lock names, held for its whole run, since its children list
+ * themselves under its key too: a conversation resumes while that
+ * host runs and started within {@link RESUME_GRACE_MS}, or while a
+ * process listed under the key, its own child among them, has it open.
+ * Past that, a held conversation it never brought back (a start that
+ * failed) is gone, not resuming for as long as its hold stands; and
+ * with no host running under the key, none is bringing it back.
  */
 
 import { readFile } from "node:fs/promises";
+import { isOwner } from "../core/process/index.ts";
 import type { HostRegistry } from "../core/session/host.ts";
 import { hostRegistries } from "../core/session/registry.ts";
 import {
@@ -59,7 +63,9 @@ import {
 } from "../core/session/roster.ts";
 import {
 	askedOnceWithTicks,
+	keepTicks,
 	processKey,
+	type TickedOwner,
 	type TickFacts,
 	tickedStanding,
 	tickFacts,
@@ -89,49 +95,49 @@ export interface HeldLooking {
 }
 
 /**
- * A {@link HeldAsk} reading each host's roster, and the host lists, once
- * however many presences it is asked about, as one census asks.
+ * A {@link HeldAsk} reading each host's roster and lock, and the host
+ * lists, once however many presences it is asked about, as one census
+ * asks. The host lists are read only for a host past its grace.
  */
 export function heldOnce(
 	facts: TickFacts = tickFacts,
 	looking: HeldLooking = {},
 ): HeldAsk {
 	const now = looking.now ?? Date.now();
-	const rosters = new Map<string, Promise<Roster | undefined>>();
-	const live = new Map<string, Promise<HostRegistry | undefined>>();
+	const dir = looking.rosters ?? rosterDir();
+	const rosters = once((host) => rosterAt(host, dir));
+	const holders = once((host) => runningHolder(host, dir, facts));
 	let lists: readonly HostRegistry[] | undefined;
-	const rosterOf = (host: string) => {
-		let read = rosters.get(host);
-		if (!read) {
-			read = rosterAt(host, looking.rosters ?? rosterDir());
-			rosters.set(host, read);
-		}
-		return read;
-	};
-	const runningHost = (host: string) => {
-		let found = live.get(host);
-		if (!found) {
-			lists ??= looking.hosts
-				? hostRegistries(looking.hosts)
-				: hostRegistries();
-			found = running(
-				lists.filter((list) => list.key === host),
-				facts,
-			);
-			live.set(host, found);
-		}
-		return found;
-	};
+	const opened = once((host) => {
+		lists ??= looking.hosts ? hostRegistries(looking.hosts) : hostRegistries();
+		return openIn(
+			lists.filter((list) => list.key === host),
+			facts,
+		);
+	});
 	return async (conversation, host) => {
-		const roster = await rosterOf(host);
+		const roster = await rosters(host);
 		if (!roster?.sessions.some((entry) => entry.sessionId === conversation))
 			return false;
-		const up = await runningHost(host);
-		return (
-			up === undefined ||
-			now - up.owner.startedAt < RESUME_GRACE_MS ||
-			up.sessions.some((one) => one.id === conversation)
-		);
+		const holder = await holders(host);
+		if (holder === undefined) return false;
+		if (now - holder.startedAt < RESUME_GRACE_MS) return true;
+		return (await opened(host)).has(conversation);
+	};
+}
+
+/** `read`, run once for each host key however often it is asked. */
+function once<T>(
+	read: (host: string) => Promise<T>,
+): (host: string) => Promise<T> {
+	const done = new Map<string, Promise<T>>();
+	return (host) => {
+		let found = done.get(host);
+		if (!found) {
+			found = read(host);
+			done.set(host, found);
+		}
+		return found;
 	};
 }
 
@@ -148,17 +154,42 @@ async function rosterAt(
 	}
 }
 
-/** Of a key's host lists, the one whose process runs now, judged by its ticks. */
-async function running(
+/**
+ * The host its roster's lock names, while it runs, judged by its ticks;
+ * nothing when the lock is missing, can't be read or names one gone.
+ */
+async function runningHolder(
+	host: string,
+	dir: string,
+	facts: TickFacts,
+): Promise<TickedOwner | undefined> {
+	let said: unknown;
+	try {
+		said = JSON.parse(await readFile(`${rosterPath(host, dir)}.lock`, "utf8"));
+	} catch {
+		// Missing, as a host stopped lets it go, or unreadable: no host runs.
+		return undefined;
+	}
+	if (typeof said !== "object" || said === null || !("owner" in said))
+		return undefined;
+	if (!isOwner(said.owner)) return undefined;
+	const owner = keepTicks(said.owner);
+	return (await tickedStanding(owner, facts)) === "running" ? owner : undefined;
+}
+
+/** The conversations open in those of a key's host lists whose process runs now. */
+async function openIn(
 	lists: readonly HostRegistry[],
 	facts: TickFacts,
-): Promise<HostRegistry | undefined> {
+): Promise<ReadonlySet<string>> {
+	const open = new Set<string>();
 	for (const list of lists) {
-		// Asked of the host's process alone: the list says what it holds.
-		const { session: _session, ...hostProcess } = list.owner;
-		if ((await tickedStanding(hostProcess, facts)) === "running") return list;
+		// Asked of the listing process alone: the list says what it holds.
+		const { session: _session, ...listing } = list.owner;
+		if ((await tickedStanding(listing, facts)) !== "running") continue;
+		for (const one of list.sessions) open.add(one.id);
 	}
-	return undefined;
+	return open;
 }
 
 /**

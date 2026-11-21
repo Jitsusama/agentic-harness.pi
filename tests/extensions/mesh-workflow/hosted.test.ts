@@ -385,6 +385,7 @@ function orchestrator(
 ): {
 	self: ReturnType<typeof localPeer>;
 	end: (peer: string) => Promise<string | undefined>;
+	groups: () => Promise<string | undefined>;
 } {
 	const self = localPeer({
 		session: "alpha-AAAAAAAA",
@@ -408,7 +409,9 @@ function orchestrator(
 	);
 	const end = async (peer: string) =>
 		(await tools.get("mesh_end")?.execute("end", { peer }))?.content[0]?.text;
-	return { self, end };
+	const groups = async () =>
+		(await tools.get("mesh_groups")?.execute("groups", {}))?.content[0]?.text;
+	return { self, end, groups };
 }
 
 it("ends only the addressed conversation and refuses a foreign host without signalling it", async () => {
@@ -482,7 +485,7 @@ it("says a conversation its restarting host is bringing back is resuming, not en
 	});
 	const asked: string[] = [];
 	let bringing = true;
-	const { self, end } = orchestrator(a.ctx.cwd, presences, {
+	const { self, end, groups } = orchestrator(a.ctx.cwd, presences, {
 		wakeParked: () => false,
 		endProcess: async () => "gone",
 		heldAsk: async (conversation, key) => {
@@ -494,6 +497,21 @@ it("says a conversation its restarting host is bringing back is resuming, not en
 		"is resuming as its host starts again, so nothing was signalled",
 	);
 	expect(asked).toEqual(["work-background/bravo-BBBBBBBB"]);
+	// Its process gone, as mesh_groups reads it while the host restarts.
+	presences.publish({
+		...bravo,
+		orchestratedBy: "ORCHST",
+		owner: { pid: process.pid, startedAt: 1 },
+		hosted: { host: "work-background", conversation: bravo.session },
+	});
+	expect(
+		await groups(),
+		"mesh_groups asks as mesh_end does, so the two agree",
+	).toContain("BBBBBBBB, resuming as its host starts again");
+	expect(asked).toEqual([
+		"work-background/bravo-BBBBBBBB",
+		"work-background/bravo-BBBBBBBB",
+	]);
 	bringing = false;
 	expect(await end("BBBBBBBB")).toContain("had already ended");
 	self.dispose();

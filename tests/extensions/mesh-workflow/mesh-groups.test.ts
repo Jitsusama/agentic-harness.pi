@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
+import { tickedOwnerNow } from "../../../lib/internal/process-ticks.ts";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
@@ -465,8 +466,9 @@ describe("groups", () => {
 	});
 
 	it("says a conversation its restarting host still holds is resuming, not ended", async () => {
-		// Its host's process is gone, as while the host starts again, but the
-		// host's roster still holds the conversation for that start.
+		// The process it ran in is gone, as while its host starts again; the
+		// host running again, just started, holds the roster's lock, and the
+		// roster still holds the conversation for that start.
 		const held = [
 			["01a1f92f-2616-7076-a389-ed92252551f1", "Q9SDM1", ["#aquifer/trust"]],
 			// In no group, as the Ended line leaves such a peer out.
@@ -506,6 +508,13 @@ describe("groups", () => {
 					})),
 				}),
 			);
+			writeFileSync(
+				`${rosterPath("work-background", rosters)}.lock`,
+				JSON.stringify({
+					key: "work-background",
+					owner: await tickedOwnerNow(),
+				}),
+			);
 			const { tools } = await startSession();
 			const listed = await tools.get("mesh_groups")?.execute("call-1", {});
 
@@ -518,8 +527,12 @@ describe("groups", () => {
 			expect(text).toContain(
 				"Q9SDM1, resuming as its host starts again: the trust hub",
 			);
+			expect(text).not.toContain("AGAIN1, resuming");
 		} finally {
 			rmSync(rosterPath("work-background", rosters), { force: true });
+			rmSync(`${rosterPath("work-background", rosters)}.lock`, {
+				force: true,
+			});
 		}
 	});
 
