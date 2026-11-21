@@ -154,7 +154,12 @@ export async function createEngine(
 	const quiet: QuietCollection =
 		options.collectWhenQuiet === false
 			? { stirred() {}, parked() {}, viewed() {}, stop() {} }
-			: quietCollection({ reading: quietReading, report });
+			: quietCollection({
+					reading: quietReading,
+					report,
+					// A child's long pause holds only its own quiet conversation.
+					forgetsPaces: kept !== undefined,
+				});
 	const { build, view, failedAfterStart } = conversationBuilds({
 		parts: { pi, sessions, builtIns, trust, library },
 		options,

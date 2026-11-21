@@ -335,7 +335,11 @@ the model, and names a pause over a second as the loop held, as the
 watchdog names a late beat. Its pause grows with the heap, about a
 second a GB on the live hosts, so a collection whose heap, at the
 slowest pace of the last four, would hold the loop past a second is
-left uncollected and said, until the heap falls within it. The `host` section of the package's config
+left uncollected and said, until the heap falls within it. A child,
+holding one conversation, forgets a pace an hour after its collection
+and then collects to measure afresh, so one pause slowed by swap can't
+skip every later look; the shared host keeps its paces, since there a
+long pause stalls every conversation. The `host` section of the package's config
 file turns it off with `collectWhenQuiet: false` (service/settings.ts). Given
 screens, the engine hands each built conversation to them; without, it
 binds extensions with no interface, as pi's RPC mode does.
