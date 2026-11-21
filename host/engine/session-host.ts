@@ -485,7 +485,13 @@ export class SessionHost implements Host {
 		if (conversation.state === "parked" && state !== "parked")
 			this.wokenInDrain?.add(conversation.id);
 		const previous = { state: conversation.state, since: conversation.since };
-		Object.assign(conversation, { state, since: new Date().toISOString() });
+		// Each run of one turn says busy again; it keeps when the turn began,
+		// which a restart's ceiling counts from.
+		const since =
+			conversation.state === state
+				? conversation.since
+				: new Date().toISOString();
+		Object.assign(conversation, { state, since });
 		try {
 			this.publish();
 		} catch (error) {

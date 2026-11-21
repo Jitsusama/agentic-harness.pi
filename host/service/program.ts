@@ -233,6 +233,18 @@ export async function startHostProgram(
 					`Restart past its ceiling: the drain lets wakes through from now, staying for a gap; ${woken} held until now woken`,
 				);
 		},
+		// A pressed heap's wait for a moment with no turn found none on 20
+		// November, as wakes kept starting turns, so it drains the host.
+		drain: (on) => {
+			if (!engine?.drain) throw new Error("This host can't drain");
+			const heavy = engine.drain(on);
+			// Unlike a drain by hand, the heap's restart waits on no heavy run.
+			if (on && heavy.length > 0)
+				report(
+					`The heap's drain leaves heavy runs going, which its restart won't wait for: ${heavy.join("; ")}`,
+				);
+		},
+		draining: () => engine?.drains?.(),
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {

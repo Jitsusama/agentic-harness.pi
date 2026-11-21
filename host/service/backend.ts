@@ -112,6 +112,8 @@ export interface ConversationEngine {
 	 * now, a line each. An engine that can't drain leaves it out.
 	 */
 	drain?(on: boolean): readonly string[];
+	/** Whether a drain stands now, whoever asked for it. */
+	drains?(): boolean;
 	/**
 	 * Once a park of the conversation under way has settled, at once when
 	 * none is: until then it is still held, though it is no longer running.

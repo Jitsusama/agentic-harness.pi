@@ -155,6 +155,25 @@ it("publishes changes in call order and protects list snapshots", () => {
 	).toEqual([]);
 });
 
+it("keeps when a conversation turned busy through each run of one turn", () => {
+	vi.useFakeTimers({ now: Date.parse("2026-11-20T20:00:00Z") });
+	try {
+		const host = start();
+		host.register(registration("a"));
+		host.state("a", "busy");
+		const began = host.list()[0]?.since;
+
+		vi.setSystemTime(Date.parse("2026-11-20T20:40:00Z"));
+		host.state("a", "busy");
+
+		expect(host.list()[0]?.since, "still when it began").toBe(began);
+		host.state("a", "idle");
+		expect(host.list()[0]?.since).toBe("2026-11-20T20:40:00.000Z");
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
 it("closes one owner under its own context while siblings keep their resources", async () => {
 	const host = start();
 	const seen: unknown[] = [];

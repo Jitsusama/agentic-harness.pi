@@ -184,8 +184,27 @@ input pipeline or screen. No unit or running host is installed yet.
   running out. Past three-fifths of V8's limit the host takes the
   first moment no conversation has a turn running, whatever background
   work or screens hold, naming what it ends and letting no held wake
-  through; past three-quarters it restarts at once, turns and all,
-  since on 18 November a host whose councils held its restart ran out
+  through. While turns run it drains itself, as a drain asked by hand
+  does, so each conversation parks as its turn ends and a wake waits
+  for the next host: on 20 November a pressed host waited 52 minutes
+  for such a moment as wakes kept starting turns. While the drain
+  stands the heap counts as pressed, so its own parks never let its
+  held wakes through; it lifts once the heap is under half, and
+  another difference, such as a moved install, then waits under the
+  ordinary rules. A turn running since the drain began that still
+  runs half an hour on lifts it once the heap is under three-fifths,
+  so one turn that never ends can't hold parked work; pressed again,
+  it drains again. A call holding the restart once the turns end, or
+  a turn begun since, lifts nothing. Still pressed past that half
+  hour while a turn runs, it stands, saying once an hour which turn
+  from before the drain holds it, or that turns begun since do. A
+  turn's busy time counts from when it began, through each run of it.
+  A drain standing by hand before the heap was pressed is left to
+  its asker; one asked while the heap's stands lifts with it. One
+  lifted by hand while the heap is still pressed is started again at
+  the next look. Past
+  three-quarters it restarts at once, turns and all, since on 18
+  November a host whose councils held its restart ran out
   of heap and ended everything anyway. The heap is read as the last
   major collection left it, so garbage not yet collected never ends a
   turn. Any restart but one at three-quarters also waits while the
