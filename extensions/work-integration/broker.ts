@@ -88,10 +88,28 @@ export function treeExec(signal?: AbortSignal): Exec {
 			...stoppedBy,
 			timeoutMs: UNATTENDED_LIMIT_MS,
 			turn: WORLD_PUSH_TURN,
+			env: GIT_IN_ENGLISH,
 		}),
-		spawnExec({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
+		spawnExec({
+			...stoppedBy,
+			timeoutMs: QUEUED_LIMIT_MS,
+			env: GIT_IN_ENGLISH,
+		}),
 	);
 }
+
+/**
+ * What the tree provider's git is told so it writes and says its own
+ * English words whatever the person's language. A cut's lock holds the
+ * word git writes while it fills a tree, and the broker tells a killed
+ * cut's lock from one a person placed by that word, so a git writing it
+ * in French left a killed cut's tree refused for good. A language git
+ * has no translation for keeps git's own words and changes nothing
+ * else, as the person's locale and its charset stand.
+ */
+const GIT_IN_ENGLISH: Readonly<Record<string, string>> = {
+	LANGUAGE: "en",
+};
 
 /**
  * Git run through `direct`, or through `queued` as the queue's shell
