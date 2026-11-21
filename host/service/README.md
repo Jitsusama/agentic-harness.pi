@@ -206,7 +206,8 @@ input pipeline or screen. No unit or running host is installed yet.
   a turn begun since, lifts nothing. Still pressed past that half
   hour while a turn runs, it stands, saying once an hour which turn
   from before the drain holds it, or that turns begun since do. A
-  turn's busy time counts from when it began, through each run of it.
+  turn's busy time counts from its run's start: pi's retries and
+  continues start runs of their own, so each counts as begun anew.
   A drain standing by hand before the heap was pressed is left to
   its asker; one asked while the heap's stands lifts with it. One
   lifted by hand while the heap is still pressed is started again at

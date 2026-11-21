@@ -518,8 +518,9 @@ export class SessionHost implements Host {
 		if (conversation.state === "parked" && state !== "parked")
 			this.wokenInDrain?.add(conversation.id);
 		const previous = { state: conversation.state, since: conversation.since };
-		// Each run of one turn says busy again; it keeps when the turn began,
-		// which a restart's ceiling counts from.
+		// A state said again is no change, so it keeps when it began, which a
+		// restart's ceiling counts from. Pi's retries and continues end one
+		// run and start another, so each of those counts from its own start.
 		const since =
 			conversation.state === state
 				? conversation.since
