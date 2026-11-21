@@ -337,6 +337,62 @@ describe("the conversations a host still runs", () => {
 		);
 	});
 
+	it("name where a list that can't be read is, so it can be found", async () => {
+		writeFileSync(join(hosts, "222-1.json"), "");
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			join(hosts, "222-1.json"),
+		);
+	});
+
+	it("pass over a list that can't be read but was left before this boot, its host gone with it", async () => {
+		list(111, { idle: "idle" });
+		const torn = join(hosts, "222-1.json");
+		writeFileSync(torn, "");
+		const before = new Date(Date.now() - 3_600_000);
+		utimesSync(torn, before, before);
+
+		expect(
+			await runningInHosts(
+				hosts,
+				async () => "running",
+				() => Date.now() - 60_000,
+			),
+		).toEqual(new Set(["idle"]));
+	});
+
+	it("can't be told where a list from before can't be read and the boot can't be told", async () => {
+		const torn = join(hosts, "222-1.json");
+		writeFileSync(torn, "");
+		const before = new Date(Date.now() - 3_600_000);
+		utimesSync(torn, before, before);
+
+		await expect(
+			runningInHosts(
+				hosts,
+				async () => "running",
+				() => undefined,
+			),
+		).rejects.toThrow(/222-1\.json/);
+	});
+
+	it("can't be told where a list isn't a file, since a pipe would hang its read", async () => {
+		mkdirSync(join(hosts, "333-1.json"));
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			/333-1\.json isn't a file/,
+		);
+	});
+
+	it("pass over a host's half-written temporary", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, "222-1.json.new"), "{");
+
+		expect(await runningInHosts(hosts, async () => "running")).toEqual(
+			new Set(["idle"]),
+		);
+	});
+
 	it("are none where no host keeps a list", async () => {
 		expect(
 			await runningInHosts(join(hosts, "none"), async () => "running"),

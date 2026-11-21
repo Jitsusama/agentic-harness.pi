@@ -44,6 +44,16 @@ describe("plainlySaid", () => {
 		"Reboot optimus. Then:\n\n    kill 1234\n",
 		'Reboot optimus, then run "kill 1234".',
 		"Copy the tree into /run/nextroot, then reboot.",
+		"Reboot optimus. If it hangs, ``reboot`sudo kexec -e`.",
+		"Reboot optimus: `` `sudo kexec -e`",
+		"Log out of niri on optimus with `loginctl terminate-session -Hequilibrius`.",
+		"Log out of niri on optimus, then skill -KILL -u joel.",
+		"Reboot optimus, then:\n$ echo b > /proc/sysrq-trigger",
+		"Reboot with `sudo systemctl reboot -i`.",
+		"Reboot with `sudo reboot -f`.",
+		"Then `shutdown -r now +5`.",
+		"Log out with `loginctl terminate-session 3 4`.",
+		"Log out with `niri msg action quit -s now`.",
 	])("is not plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(false);
 	});

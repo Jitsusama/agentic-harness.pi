@@ -278,7 +278,7 @@ describe("a spare beside the commands a reply shows", () => {
 
 		expect(verdict).toMatchObject({ block: true });
 		expect(verdict).not.toMatchObject({
-			reason: expect.stringMatching(/not all plain|none was spared/),
+			reason: expect.stringMatching(/isn't a plain|none was spared/),
 		});
 		expect(pi.recorded.entries).toEqual([]);
 	});
@@ -352,9 +352,49 @@ describe("what a spare leaves in the session's log", () => {
 
 		expect(verdict).toMatchObject({
 			block: true,
-			reason: expect.stringMatching(/not all plain/),
+			reason: expect.stringMatching(
+				/shows or names a command that isn't a plain reboot, shut-down or log-out, so none was spared/,
+			),
 		});
 		expect(traces()).toMatchObject([{ data: { outcome: "not plain" } }]);
+	});
+
+	it("says nothing of what wasn't read where nothing here could have spared", async () => {
+		interceptorOver(
+			[{ ...hosted("idle"), machine: "equilibrius" }, me],
+			async () => {
+				throw new Error("logind went away");
+			},
+		);
+
+		const verdict = await look("Reboot equilibrius to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/couldn't be read/),
+		});
+		expect(traces()).toMatchObject([{ data: { outcome: "unread" } }]);
+	});
+
+	it("says nothing of the parked read where the session left could never be spared", async () => {
+		const terminal: NodeSession = {
+			id: "terminal",
+			address: "T00002",
+			machine: "optimus",
+			state: "idle",
+		};
+		interceptorOver([terminal, me], async () => ({
+			lingers: true,
+			parked: new Set<string>(),
+			unread: "the host list 7-1.json can't be read",
+		}));
+
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/couldn't be read/),
+		});
 	});
 
 	it("still spares a log-out where only the parked read failed, and says so of a reboot", async () => {
@@ -463,10 +503,10 @@ describe("what spares, read by default", () => {
 				],
 			}),
 		);
-		const deps = nodeDeps({
-			MYCELIUM_REALM: "work",
-			PATH: `${bin}:/usr/bin:/bin`,
-		});
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			join(bin, "no-next-root"),
+		);
 
 		expect(await deps.spares?.()).toEqual({
 			lingers: true,
@@ -485,10 +525,10 @@ describe("what spares, read by default", () => {
 		stub("busctl", 'echo "b false"');
 		mkdirSync(stateDir("hosts"), { recursive: true });
 		writeFileSync(join(stateDir("hosts"), "7-1.json"), "{");
-		const deps = nodeDeps({
-			MYCELIUM_REALM: "work",
-			PATH: `${bin}:/usr/bin:/bin`,
-		});
+		const deps = nodeDeps(
+			{ MYCELIUM_REALM: "work", PATH: `${bin}:/usr/bin:/bin` },
+			join(bin, "no-next-root"),
+		);
 
 		expect(await deps.spares?.()).toEqual({
 			lingers: true,

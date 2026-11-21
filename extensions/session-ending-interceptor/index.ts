@@ -165,10 +165,12 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
  * the mesh, so its node reads as one that can't be, and so does every
  * node when any one can't be read.
  * logind is asked on `env`'s PATH; presences are read where every store
- * of the package keeps its state, from the process's own environment.
+ * of the package keeps its state, from the process's own environment,
+ * and none counts while `nextRoot` holds a tree.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
+	nextRoot = "/run/nextroot",
 ): SessionEndingDeps {
 	return {
 		onMesh: () => realmNamed(env),
@@ -195,7 +197,10 @@ export function nodeDeps(
 			});
 			const [lingers, parked] = await Promise.all([
 				lingersHere(exec),
-				withinPatience(() => parkedHere(), SPARES_PATIENCE_MS).then(
+				withinPatience(
+					() => parkedHere(undefined, undefined, nextRoot),
+					SPARES_PATIENCE_MS,
+				).then(
 					(sessions) => ({ sessions }),
 					(error: unknown) => ({
 						sessions: new Set<string>(),

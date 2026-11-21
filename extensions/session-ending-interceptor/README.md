@@ -88,21 +88,25 @@ plain reboot, shut-down or log-out, read whole after a prompt and a
 `sudo`: `systemctl reboot`, `systemctl poweroff`, `reboot`,
 `poweroff`, `shutdown now` with `-r`, `-h` or `-P`, `loginctl
 terminate-session` with or without a session, or `niri msg action
-quit`. Any other command, in inline code, a quote it asks to run,
-an indented line or any fence (a `#` line in a fence that may be a
-terminal's session is root's prompt, not a comment), or prose naming
-one (`sudo`, `systemctl`, `kexec`, `init 1`, `ssh`, any kill), or
-naming a soft or user space reboot, a next root, linger or
-`KillUserProcesses`, spares nothing, and every session counts as
-without a spare. So "run sudo reboot" written without code spares
-nothing either. Reading each spelling of each act widened what the
-guard let through one spelling at a time, so what isn't on that
-short list isn't read; a wait's checks, run by the machine rather
-than typed, are read as commands as before.
+quit`, a session given by its id and never by an option such as
+`-H`. Any other command, in inline code, a quote it asks to run, an
+indented or prompted line or any fence (a `#` line in a fence that
+may be a terminal's session is root's prompt, not a comment), or a
+backtick left unpaired, spares nothing, and every session counts as
+without a spare. Reading each spelling of each act widened what the
+guard let through one spelling at a time, so code that isn't on that
+short list isn't read. Prose can't be held to a list, so it is held
+only to a list of words: one naming a command (`sudo`, `systemctl`,
+`kexec`, `init 1`, `ssh`, any kill), or a soft or user space reboot,
+a next root, linger or `KillUserProcesses`, spares nothing. So "run
+sudo reboot" written without code spares nothing either. A wait's
+checks, run by the machine rather than typed, are read as commands
+as before.
 
-The refusal says when what spares couldn't be read, and what, or
-when a spare would have stood but a command wasn't plain, so none
-was spared. Each of those, and each ask a
+The refusal says when the parked sessions couldn't be read, and
+what, where a full read might have spared those left; or when a spare
+would have stood but a command wasn't plain, so none was spared. A
+logind that can't be asked reads as one that doesn't linger. Each of those, and each ask a
 spare let past, leaves a `session-ending-spare` entry in the
 session's log, not sent to the model, naming the asks and the
 sessions spared and why.
@@ -154,8 +158,10 @@ sessions spared and why.
   or idle has woken, or its park never landed, and counts whatever
   its presence says; a host's list counts unless its process is
   known to be gone, and a list that doesn't read as one, as from a
-  host of another version, spares nothing, since its host may run any
-  of them. A `systemctl reboot` goes soft while `/run/nextroot` holds
+  host of another version, or one that isn't a file, spares nothing,
+  since its host may run any of them. A list last written before this
+  boot, as a crash can leave one torn, is passed over: its host went
+  with that boot. A `systemctl reboot` goes soft while `/run/nextroot` holds
   a tree, so then no session counts as parked. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one

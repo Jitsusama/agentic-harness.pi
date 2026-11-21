@@ -164,18 +164,22 @@ describe("the machines kept", () => {
 		expect(existsSync(other), "another file's is left alone").toBe(true);
 	});
 
-	it("still writes where its folder can't be listed for the sweep", async () => {
-		const folder = join(scratch, "session-ending");
-		mkdirSync(folder, { recursive: true });
-		chmodSync(folder, 0o300);
-		try {
-			await rememberMachines(file, ["optimus"]);
-		} finally {
-			chmodSync(folder, 0o700);
-		}
+	// Root lists any folder, whatever its mode, so there it tests nothing.
+	it.skipIf(process.getuid?.() === 0)(
+		"still writes where its folder can't be listed for the sweep",
+		async () => {
+			const folder = join(scratch, "session-ending");
+			mkdirSync(folder, { recursive: true });
+			chmodSync(folder, 0o300);
+			try {
+				await rememberMachines(file, ["optimus"]);
+			} finally {
+				chmodSync(folder, 0o700);
+			}
 
-		expect(kept()).toEqual(["optimus"]);
-	});
+			expect(kept()).toEqual(["optimus"]);
+		},
+	);
 
 	it("leaves no lock behind once it has written", async () => {
 		await rememberMachines(file, ["optimus"]);

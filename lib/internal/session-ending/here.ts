@@ -25,7 +25,7 @@
  * boot, while /run/nextroot holds a tree, so then no marker counts.
  */
 
-import { existsSync, readdirSync } from "node:fs";
+import { lstatSync, readdirSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import type { HostRegistry } from "../../core/session/host.ts";
@@ -101,15 +101,18 @@ export async function parkedHere(
  * whose process isn't known to be gone: one that can't be judged still
  * counts, since a host it can't rule out may be running them. A file
  * that doesn't read as a host's list can't be told apart from a list
- * of every session, so it fails the read, and nothing is spared.
+ * of every session, so it fails the read, and nothing is spared; unless
+ * it was last written before `booted`, when its host went with that
+ * boot, as a crash can leave a list torn.
  */
 export async function runningInHosts(
 	dir: string = stateDir("hosts"),
 	standing: (owner: TickedOwner) => Promise<Standing> = (owner) =>
 		tickedStanding(owner),
+	booted: Booted = machineBooted,
 ): Promise<Set<string>> {
 	const running = new Set<string>();
-	for (const list of hostLists(dir)) {
+	for (const list of hostLists(dir, booted)) {
 		const { session: _session, ...hostProcess } = list.owner;
 		if ((await standing(hostProcess)) === "gone") continue;
 		for (const one of list.sessions) {
@@ -135,11 +138,12 @@ export function markedThisBoot(
 }
 
 /**
- * Every host list in `dir`, failing on one that can't be read: its
- * host may run any session. A list gone since the folder was read went
- * with its host, so it is passed over.
+ * Every host list in `dir`, failing on one that can't be read, or isn't
+ * a file whose read can't hang: its host may run any session. A list
+ * gone since the folder was read went with its host, and one written
+ * before `booted` with that boot's, so each is passed over.
  */
-function hostLists(dir: string): HostRegistry[] {
+function hostLists(dir: string, booted: Booted): HostRegistry[] {
 	let names: string[];
 	try {
 		names = readdirSync(dir).filter((name) => name.endsWith(".json"));
@@ -149,11 +153,27 @@ function hostLists(dir: string): HostRegistry[] {
 	}
 	return names.flatMap((name) => {
 		const path = join(dir, name);
+		const before = statOf(path);
+		if (!before) return [];
+		if (!before.isFile()) throw new Error(`the host list ${path} isn't a file`);
 		const list = hostRegistryAt(path);
 		if (list) return [list];
-		if (!existsSync(path)) return [];
-		throw new Error(`the host list ${name} can't be read`);
+		const now = statOf(path);
+		if (!now) return [];
+		const boot = booted();
+		if (boot !== undefined && now.mtimeMs < boot) return [];
+		throw new Error(`the host list ${path} can't be read`);
 	});
+}
+
+/** What `path` is, unfollowed, or nothing once it is gone. */
+function statOf(path: string): Stats | undefined {
+	try {
+		return lstatSync(path);
+	} catch (error) {
+		if (codeOf(error) === "ENOENT") return undefined;
+		throw error;
+	}
 }
 
 /**
@@ -185,14 +205,15 @@ export async function withinPatience<T>(
 	patienceMs: number,
 ): Promise<T> {
 	const late = () => new Error(`what spares wasn't read in ${patienceMs} ms`);
-	const started = Date.now();
+	// The monotonic clock, which a step of the wall clock can't move.
+	const started = performance.now();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const out = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => reject(late()), patienceMs);
 	});
 	try {
 		const answer = await Promise.race([Promise.resolve().then(read), out]);
-		if (Date.now() - started > patienceMs) throw late();
+		if (performance.now() - started > patienceMs) throw late();
 		return answer;
 	} finally {
 		clearTimeout(timer);

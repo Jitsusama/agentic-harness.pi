@@ -17,7 +17,8 @@ const PLAIN: readonly RegExp[] = [
 	/^systemctl\s+(?:reboot|poweroff)$/,
 	/^(?:reboot|poweroff)$/,
 	/^shutdown\s+(?:-[rhP]\s+)?now$/,
-	/^loginctl\s+terminate-session(?:\s+[\w.-]+)?$/,
+	// A session's id, never an option such as `-H` naming another host.
+	/^loginctl\s+terminate-session(?:\s+(?!-)[\w.-]+)?$/,
 	/^niri\s+msg\s+action\s+quit(?:\s+(?:--skip-confirmation|-s))?$/,
 ];
 
@@ -35,7 +36,7 @@ const OPENING = /^(?:[$#%>]\s+)?(?:sudo\s+)?/;
  * read.
  */
 const COMMAND_WORD =
-	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w|now\b|\+)|reboot\s+-+\w|poweroff\s+-+\w|halt\b)/i;
+	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|skill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w|now\b|\+)|reboot\s+-+\w|poweroff\s+-+\w|halt\b)/i;
 
 /** A line with nothing on it, which runs nothing. */
 const BLANK = /^\s*$/;
@@ -47,8 +48,17 @@ const BLANK = /^\s*$/;
  */
 const COMMENT = /^\s*#/;
 
-/** Code indented in prose, which a reader takes as a command. */
-const INDENTED = /^(?: {4}|\t)\s*\S/;
+/**
+ * A line in prose a reader takes as a command: indented as code, or
+ * opening with a shell's prompt.
+ */
+const SHOWN_LINE = /^(?:(?: {4}|\t)\s*\S|\s*[$%]\s+\S)/;
+
+/**
+ * Inline code, paired as `codeSpans` pairs it, so what is hidden from
+ * the word check is exactly what was checked as code.
+ */
+const CODE_SPAN = /`[^`]+`/g;
 
 /** Whether `line` is one of the plain commands, whole. */
 function plainCommand(line: string): boolean {
@@ -80,10 +90,11 @@ function plainPart(part: Part): boolean {
 	const shown = [
 		...codeSpans(written),
 		...spansToRun(written),
-		...part.lines.filter((line) => INDENTED.test(line)),
+		...part.lines.filter((line) => SHOWN_LINE.test(line)),
 	];
+	const rest = written.replace(CODE_SPAN, " ");
+	// A backtick left unpaired may open code a renderer shows, unchecked.
 	return (
-		shown.every(plainCommand) &&
-		!COMMAND_WORD.test(written.replace(/`[^`]*`/g, " "))
+		shown.every(plainCommand) && !rest.includes("`") && !COMMAND_WORD.test(rest)
 	);
 }

@@ -92,7 +92,7 @@ const unreadBecause = (error: string) =>
 
 /** Said in a refusal when a command it shows isn't on the plain list. */
 const NOT_PLAIN =
-	"Its commands are not all plain reboots, shut-downs or log-outs, so none was spared.";
+	"It shows or names a command that isn't a plain reboot, shut-down or log-out, so none was spared.";
 
 /**
  * What a call or reply says to the person: prose, read for the form of
@@ -259,13 +259,18 @@ export async function refusalFor(
 		// What spares a session couldn't be read, so it spares none.
 		const message = error instanceof Error ? error.message : String(error);
 		traced({ outcome: "unread", asks: named, error: message });
-		return because(refusal, unreadBecause(message));
+		const best = atBest({ machine: deps.here(), lingers: true }, sessions);
+		return refusalOf(asks, sessions, self, best)
+			? refusal
+			: because(refusal, unreadBecause(message));
 	}
 	const left = refusalOf(asks, sessions, self, here);
 	if (left) {
 		if (unread === undefined) return left;
 		traced({ outcome: "unread", asks: named, error: unread });
-		return because(left, unreadBecause(unread));
+		return refusalOf(asks, sessions, self, atBest(here, sessions))
+			? left
+			: because(left, unreadBecause(unread));
 	}
 	if (!plainlySaid([...said.prose, ...said.labels])) {
 		traced({ outcome: "not plain", asks: named });
@@ -274,6 +279,18 @@ export async function refusalFor(
 	const spared = sparedBy(asks, sessions, self, here);
 	traced({ outcome: "spared", asks: named, spared });
 	return undefined;
+}
+
+/**
+ * What `here` would be had every session parked: what spares could do
+ * at its best. Only where that would lift a refusal does what wasn't
+ * read say why none was spared.
+ */
+function atBest(
+	here: Omit<Here, "parked">,
+	sessions: readonly NodeSession[],
+): Here {
+	return { ...here, parked: new Set(sessions.map((one) => one.id)) };
 }
 
 /** `refusal` with `why` said after its reason, known by the same key. */
