@@ -50,7 +50,7 @@ export async function sproutFrom(
 		? ` Its quest is tied to this cell, ${address}, on the map.`
 		: "";
 	return answer(
-		`Sprouted on ${machine} in ${folder}: a session of its own makes its quest and starts on the work.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: ${attach.join(" ")}`,
+		`Sprouted on ${machine} in ${folder}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: ${attach.join(" ")}`,
 		{ started: answered.started },
 	);
 }

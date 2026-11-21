@@ -299,6 +299,56 @@ describe("a sprouted session's start", () => {
 			"the next sprout of the link joins the live one",
 		).toBe(again.state.questId);
 		expect(third.words).toMatch(/already holds this work/u);
+		const second = again.state.questId;
+		if (!second) throw new Error("no second quest to end");
+		seal(second);
+		const fourth = await start(
+			{ link: "https://github.com/o/r/pull/2", words: "and again", id: "S10" },
+			{ sessionId: "sess-4" },
+		);
+		expect(fourth.state.questId).not.toBe(second);
+		const fifth = await start(
+			{ link: "https://github.com/o/r/pull/2", words: "last", id: "S11" },
+			{ sessionId: "sess-5" },
+		);
+		expect(
+			fifth.state.questId,
+			"the mark moved off the ended second quest to the live one",
+		).toBe(fourth.state.questId);
+	});
+
+	it("says a tie that ran out of time may have landed", async () => {
+		const { words } = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: null,
+					stdout: "",
+					stderr: "",
+					timedOut: true,
+				}),
+			},
+		);
+		expect(words).toMatch(/ran out of time and may have landed anyway/u);
+	});
+
+	it("gives no command to run when there's no mycelium or folder to tie from", async () => {
+		for (const [n, ran] of [{ missing: true }, { noFolder: true }].entries()) {
+			const { words } = await start(
+				{ words: "tea", from: "TERN02" },
+				{
+					run: async () => ({ code: null, stdout: "", stderr: "", ...ran }),
+					sessionId: `sess-tie-${n}`,
+				},
+			);
+			expect(words).toMatch(
+				ran.missing
+					? /failed \(there is no mycelium here\)\./u
+					: /failed \(this session's folder is gone\)\./u,
+			);
+			expect(words).not.toMatch(/run `mycelium/u);
+			delete process.env[SEED];
+		}
 	});
 
 	it("hushes a seed replayed onto a start that restored its quest, and only that", () => {

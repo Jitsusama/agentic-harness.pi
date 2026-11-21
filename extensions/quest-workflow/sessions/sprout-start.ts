@@ -17,6 +17,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { removeAliasesFromQuest } from "../../../lib/core/quest/front-matter.ts";
 import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
 import {
@@ -109,9 +110,11 @@ export async function startSprouted(
 	// there, never the prose that asks it to make one.
 	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined);
 	if (held === undefined) {
-		const marks = [alias, linked ? sproutLink(seed) : undefined].filter(
-			(one) => one !== undefined,
-		);
+		const link = linked ? sproutLink(seed) : undefined;
+		// The link's mark moves off any ended quest holding it, since an
+		// alias goes on one quest only, and the next sprout must find this.
+		if (link) unmarkEnded(state, link);
+		const marks = [alias, link].filter((one) => one !== undefined);
 		for (const mark of marks) {
 			aliasAdd(state, {
 				action: "alias-add",
@@ -154,10 +157,21 @@ export function hushReplayedSprout(
 	}
 }
 
-/** A quest found holding an alias, and whether it has ended. */
+/** A quest found holding an alias, its folder, and whether it has ended. */
 interface Found {
 	readonly id: string;
+	readonly dir: string | undefined;
 	readonly sealed: boolean;
+}
+
+/** Take `mark` off every ended quest carrying it. */
+function unmarkEnded(
+	state: QuestState,
+	mark: { type: string; value: string },
+): void {
+	for (const one of questsWith(state, mark)) {
+		if (one.sealed && one.dir) removeAliasesFromQuest(one.dir, [mark]);
+	}
 }
 
 /** Every quest carrying `alias`, live ones first. */
@@ -176,6 +190,7 @@ function questsWith(
 	return ids
 		.map((id) => ({
 			id,
+			dir: index.quests.get(id)?.dir,
 			sealed: isSealedStatus(index.quests.get(id)?.doc.frontMatter.status),
 		}))
 		.sort((a, b) => Number(a.sealed) - Number(b.sealed));
@@ -248,6 +263,13 @@ async function tie(
 	});
 	if (ran.code === 0) return { kind: "tied", from };
 	if (ran.timedOut) return { kind: "unsure", from };
+	if (ran.neverRan) {
+		return {
+			kind: "failed",
+			from,
+			why: `it couldn't be started (${ran.neverRan})`,
+		};
+	}
 	if (ran.missing || ran.noFolder) {
 		const why = ran.missing
 			? "there is no mycelium here"

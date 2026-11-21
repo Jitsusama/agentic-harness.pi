@@ -212,6 +212,29 @@ describe("sprouting", () => {
 		);
 	});
 
+	it("says one a signal ended after it wrote what can't be read may still start", async () => {
+		for (const stdout of ["judging the folder\n", '{"Ok":{"Something":1}}\n']) {
+			const { run } = answering({ code: null, stdout, stderr: "" });
+			const answer = await sprout({ words: "tea" }, "/", run);
+			expect(answer, stdout).toMatchObject({ ok: false, mayLand: true });
+		}
+	});
+
+	it("says nothing was sprouted when mycelium couldn't be started at all", async () => {
+		const { run } = answering({
+			code: null,
+			stdout: "",
+			stderr: "",
+			neverRan: "EAGAIN",
+		});
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toEqual({
+			ok: false,
+			reason:
+				"mycelium sprout couldn't be started here (EAGAIN), so nothing was sprouted",
+		});
+	});
+
 	it("says a session's folder that's gone, never that mycelium is missing", async () => {
 		const { run } = answering({
 			code: null,
@@ -276,6 +299,14 @@ describe("running a program", () => {
 		expect(ran).not.toHaveProperty("missing");
 	});
 
+	it("says one that couldn't be started never ran, with the system's reason", async () => {
+		const ran = await runProgram("sh", ["-c", "exit 0"], {
+			...patience,
+			cwd: "/etc/hostname",
+		});
+		expect(ran).toMatchObject({ code: null, neverRan: "ENOTDIR" });
+	});
+
 	it("says one that ran past its patience timed out", async () => {
 		const ran = await runProgram("sleep", ["5"], {
 			...patience,
@@ -295,5 +326,6 @@ describe("running a program", () => {
 		const ran = await running;
 		expect(ran).toMatchObject({ code: null, stopped: true });
 		expect(ran).not.toHaveProperty("timedOut");
+		expect(ran).not.toHaveProperty("neverRan");
 	});
 });

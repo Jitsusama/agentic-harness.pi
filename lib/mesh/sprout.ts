@@ -43,6 +43,8 @@ export interface Ran {
 	readonly timedOut?: boolean;
 	/** Whoever asked for it stopped it first. */
 	readonly stopped?: boolean;
+	/** Why it couldn't be started, as the system said, so it never ran. */
+	readonly neverRan?: string;
 }
 
 /** Runs a program with its arguments, never through a shell. */
@@ -138,6 +140,12 @@ export async function sprout(
 			reason: "mycelium isn't installed here, so nothing can be sprouted",
 		};
 	}
+	if (ran.neverRan) {
+		return {
+			ok: false,
+			reason: `mycelium sprout couldn't be started here (${ran.neverRan}), so nothing was sprouted`,
+		};
+	}
 	if (ran.timedOut) {
 		return {
 			ok: false,
@@ -157,8 +165,11 @@ export async function sprout(
 	// A failed run whose last line isn't the node's JSON says why on
 	// stderr, which beats saying its stdout can't be read.
 	if (ran.code === 0) return startedOrMayLand(line);
-	if (line && (!said || isJson(line))) return startedFrom(line);
 	if (ran.code === null) {
+		// What it wrote before the signal counts only when it says started
+		// or refused; anything else is a run cut short.
+		const answer = line ? startedFrom(line) : undefined;
+		if (answer && (answer.ok || (line && refusedByNode(line)))) return answer;
 		// Ended by a signal nobody here sent, as the OOM killer's: its ask
 		// may already be with the node.
 		return {
@@ -167,6 +178,7 @@ export async function sprout(
 			mayLand: true,
 		};
 	}
+	if (line && (!said || isJson(line))) return startedFrom(line);
 	return {
 		ok: false,
 		reason:
@@ -220,39 +232,66 @@ function isJson(line: string): boolean {
 /** Runs a program as {@link RunProgram} says, through node's execFile. */
 export const runProgram: RunProgram = (program, args, options) =>
 	new Promise((resolve) => {
-		execFile(
-			program,
-			[...args],
-			{
-				cwd: options.cwd,
-				timeout: options.timeoutMs,
-				encoding: "utf8",
-				...(options.signal ? { signal: options.signal } : {}),
-			},
-			(error, stdout, stderr) => {
-				const code =
-					error === null
-						? 0
-						: typeof error.code === "number"
-							? error.code
-							: null;
-				resolve({
-					code,
-					stdout,
-					stderr,
-					// A folder that's gone fails as ENOENT too, never
-					// running the program, which may well be installed.
-					...(error?.code === "ENOENT"
-						? existsSync(options.cwd)
-							? { missing: true }
-							: { noFolder: true }
-						: {}),
-					...(error?.name === "AbortError"
-						? { stopped: true }
-						: error?.killed === true
-							? { timedOut: true }
-							: {}),
-				});
-			},
-		);
+		try {
+			runFile(program, args, options, resolve);
+		} catch (error) {
+			// Node throws some spawn failures (ENOTDIR for a cwd that's a
+			// file) rather than handing them to the callback.
+			const why =
+				isRecord(error) && typeof error.code === "string" ? error.code : "";
+			resolve({
+				code: null,
+				stdout: "",
+				stderr: "",
+				neverRan: why || String(error),
+			});
+		}
 	});
+
+/** Runs `program` through execFile, resolving with what it came to. */
+function runFile(
+	program: string,
+	args: readonly string[],
+	options: Parameters<RunProgram>[2],
+	resolve: (ran: Ran) => void,
+): void {
+	execFile(
+		program,
+		[...args],
+		{
+			cwd: options.cwd,
+			timeout: options.timeoutMs,
+			encoding: "utf8",
+			...(options.signal ? { signal: options.signal } : {}),
+		},
+		(error, stdout, stderr) => {
+			// A string code is the spawn's own failure: the program never ran.
+			const failedToSpawn =
+				typeof error?.code === "string" &&
+				error.code !== "ENOENT" &&
+				error.name !== "AbortError"
+					? error.code
+					: undefined;
+			const code =
+				error === null ? 0 : typeof error.code === "number" ? error.code : null;
+			resolve({
+				code,
+				stdout,
+				stderr,
+				// A folder that's gone fails as ENOENT too, never
+				// running the program, which may well be installed.
+				...(error?.code === "ENOENT"
+					? existsSync(options.cwd)
+						? { missing: true }
+						: { noFolder: true }
+					: {}),
+				...(failedToSpawn ? { neverRan: failedToSpawn } : {}),
+				...(error?.name === "AbortError"
+					? { stopped: true }
+					: error?.killed === true
+						? { timedOut: true }
+						: {}),
+			});
+		},
+	);
+}
