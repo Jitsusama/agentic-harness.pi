@@ -261,6 +261,30 @@ describe("a kept hub", () => {
 		expect(hub.current()).toBeUndefined();
 	});
 
+	// A crashed session never says it ended, and its quest's next session
+	// signs with the same address: the find's census judges the dead one
+	// gone, and reading the kept hub holds to that judgment.
+	it("stays the hub when a dead session the find judged gone still lists its address", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		at.presences.publish({
+			session: "session-d",
+			addresses: ["ROOT01"],
+			groups: ["#quest/root01"],
+			joined: [],
+			quest: "QEST-20261021-ROOT01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			// This process under another start, so the census reads it gone.
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		});
+
+		const hub = keep(at);
+
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
 	it("finds nothing more once stopped, and keeps nothing a find still asking comes to", async () => {
 		let answer: (ties: readonly Tie[]) => void = () => undefined;
 		const { at, asked } = onMesh(

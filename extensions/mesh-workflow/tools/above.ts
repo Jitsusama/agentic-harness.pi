@@ -10,6 +10,7 @@
  * stand then.
  */
 
+import { answeringTo } from "../../../lib/mesh/address.ts";
 import {
 	type Above,
 	hubFromUse,
@@ -38,6 +39,12 @@ export interface Found {
 	readonly above: Above;
 	/** False when it should be tried again soon rather than in a while. */
 	readonly settled: boolean;
+	/**
+	 * The sessions the find's census judged no longer on the mesh, though
+	 * their presences may not say so: a crashed session never writes that
+	 * it ended. None where the find took no census.
+	 */
+	readonly gone: readonly string[];
 }
 
 /** Where this peer's `orchestrator` points, or why nowhere. */
@@ -53,7 +60,7 @@ export async function aboveFor(at: HubReading): Promise<Above> {
 export async function findAbove(at: HubReading): Promise<Found> {
 	const mark = at.peer.orchestratedBy;
 	if (mark !== undefined) {
-		return { above: { address: mark, by: "mark" }, settled: true };
+		return { above: { address: mark, by: "mark" }, settled: true, gone: [] };
 	}
 	// A quest that heads an orchestration carries the mark itself, so it
 	// has an orchestrator, its head: a hub above it would be a second
@@ -65,6 +72,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 				none: "this peer heads its own orchestration, so nothing is above it for `orchestrator` to reach",
 			},
 			settled: true,
+			gone: [],
 		};
 	}
 	if (at.peer.questHeads !== undefined) {
@@ -73,9 +81,11 @@ export async function findAbove(at: HubReading): Promise<Found> {
 				none: `this peer's quest heads its own orchestration, whose head is ${at.peer.questHeads}, so nothing is above it for \`orchestrator\` to reach; write to ${at.peer.questHeads} by its address`,
 			},
 			settled: true,
+			gone: [],
 		};
 	}
 	const standing = await peers(at);
+	const gone = standing.gone.map((one) => one.session);
 	const self = standing.present.find((one) => one.session === at.peer.session);
 	if (self === undefined) {
 		return {
@@ -83,6 +93,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 				none: "this peer has no presence on the mesh yet, so no orchestrator or hub from use is above it",
 			},
 			settled: false,
+			gone,
 		};
 	}
 	// A peer with nothing above it has no hub to find, so the node isn't
@@ -91,12 +102,14 @@ export async function findAbove(at: HubReading): Promise<Found> {
 		return {
 			above: hubFromUse(self, standing.present, undefined, standing.gone),
 			settled: true,
+			gone,
 		};
 	}
 	const ties = at.ties ? await at.ties() : undefined;
 	return {
 		above: hubFromUse(self, standing.present, ties, standing.gone),
 		settled: at.ties === undefined || ties !== undefined,
+		gone,
 	};
 }
 
@@ -141,14 +154,18 @@ export interface HubKeeping {
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
  * one whose quest is no longer below the hub's, nor one whose hub's
- * address is now listed by no live presence, or by more than one. A
- * hub that stopped without saying so is kept until the next find.
+ * address is now listed by no live presence, or by more than one. Live
+ * is as the last find's census judged it, less any presence that has
+ * said since that it ended, since a census can wait and a read can't:
+ * so a session that crashed is no second holder, and a hub that stopped
+ * without saying so is kept until the next find.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
 	{ every = HUB_KEEP_MS, retry = HUB_RETRY_MS, found }: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
+	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
 	let clock: ReturnType<typeof setTimeout> | undefined;
 	// Each find schedules the next once it ends, so two never overlap.
@@ -176,6 +193,7 @@ export function keepHub(
 			// peer's to keep.
 			if (stopped) return;
 			kept = "address" in finding.above ? finding.above.address : undefined;
+			gone = new Set(finding.gone);
 			if (!finding.settled) wait = retry;
 		} catch {
 			// The node or presences unreadable now: no hub is better than a
@@ -200,9 +218,12 @@ export function keepHub(
 			if (stopped || address === undefined) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
-			const live = reading.presences
-				.all()
-				.filter((one) => one.ended === undefined);
+			// Read as the find's census was: each presence answering only to
+			// the addresses no other signs with, as `peers` gives them.
+			const everyone = reading.presences.all();
+			const live = everyone
+				.filter((one) => one.ended === undefined && !gone.has(one.session))
+				.map((one) => ({ ...one, addresses: answeringTo(one, everyone) }));
 			const self = live.find((one) => one.session === reading.peer.session);
 			if (self === undefined) return undefined;
 			return stillAbove(self, live, address) ? address : undefined;

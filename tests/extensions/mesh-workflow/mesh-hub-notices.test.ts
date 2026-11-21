@@ -5,7 +5,8 @@
  * finds the hub afresh rather than reading the kept one; and a question
  * for the person's hands sent to the hub by its address is counted as
  * one sent with the word, whether or not a hub was kept, and when no
- * node answers to say whether it is the hub.
+ * node answers to say whether it is the hub, the word beside it or not;
+ * one by address to a peer that isn't the hub goes as any question.
  */
 
 import { join } from "node:path";
@@ -163,6 +164,48 @@ describe("the mesh's own word, on a quest with no mark", () => {
 
 		expect(refused).toContain("Not sent: this asks for the person's hands");
 		expect(sent()).toHaveLength(0);
+	});
+
+	// Naming the word asks the node too, and its silence leaves
+	// `orchestrator` out, but the address beside it may still be the hub.
+	it("counts the person's acts in a question to orchestrator and the hub's address when no node answers", async () => {
+		onQuest();
+		parentLive();
+		const { tools } = await startSession(noNode());
+
+		const refused = await send(
+			tools,
+			"orchestrator, 5GV2AH",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(0);
+	});
+
+	// Only the hub takes his hands to him, so a peer that isn't it is
+	// asked as any peer is.
+	it("sends a question for his hands by address to a peer that isn't the hub", async () => {
+		const { tools } = await keptHub();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-o",
+			addresses: ["OTHER1"],
+			groups: ["#quest/other1"],
+			joined: [],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+
+		await send(tools, "OTHER1", "question", "May Joel touch the key at 02:00?");
+
+		expect(sent().at(-1)).toMatchObject({
+			to: ["@OTHER1"],
+			text: "May Joel touch the key at 02:00?",
+		});
 	});
 
 	it("tells nobody of a session on no model once a model is chosen, though a hub is found after", async () => {
