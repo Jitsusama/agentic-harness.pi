@@ -20,6 +20,8 @@ import {
 const POOL_THREADS = Number(process.env.UV_THREADPOOL_SIZE) || 4;
 /** Far longer than a read of a few lines takes, held pool or not. */
 const ANSWER_WITHIN_MS = 2_000;
+/** Past the 64 KiB a budget file may hold. */
+const TOO_LARGE = 70 * 1024;
 
 let folder: string;
 beforeEach(() => {
@@ -92,25 +94,58 @@ describe("the file provider", () => {
 				),
 		);
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		let first: unknown;
+		try {
+			first = await Promise.race([
+				budgetFileProvider(folder).resolve("acme"),
+				new Promise<string>((done) => {
+					timer = setTimeout(() => done("the clock"), ANSWER_WITHIN_MS);
+				}),
+			]);
+		} finally {
+			clearTimeout(timer);
+			// Opened to read and write, the pipe has a writer, which lets every
+			// held opening go, and kept open until each has, late or not.
+			const writer = openSync(pipe, "r+");
+			await Promise.all(held);
+			closeSync(writer);
+		}
 
-		const first = await Promise.race([
-			budgetFileProvider(folder)
-				.resolve("acme")
-				.then(() => "the budget"),
-			new Promise<string>((done) => {
-				timer = setTimeout(() => done("the clock"), ANSWER_WITHIN_MS);
-			}),
-		]);
-		clearTimeout(timer);
-		// Opened to read and write, the pipe has a writer, which lets every
-		// held opening go, and kept open until each has, late or not.
-		const writer = openSync(pipe, "r+");
-		await Promise.all(held);
-		closeSync(writer);
+		expect(
+			first,
+			"the budget's drawing, while every pool thread is held",
+		).toEqual({
+			kind: "drawn",
+			env: { KEY: "one" },
+			label: "acme",
+		});
+	});
 
-		expect(first, "the budget answers while every pool thread is held").toBe(
-			"the budget",
-		);
+	it("refuses a budget file that is a pipe, at once and saying why", async () => {
+		// Read at once, a pipe nobody writes to would hold the host's loop
+		// with no deadline to end it.
+		const pipe = join(folder, "piped.env");
+		execFileSync("mkfifo", [pipe]);
+
+		const answer = await budgetFileProvider(folder).resolve("piped");
+
+		expect(answer, "a pipe, refused as no plain file").toEqual({
+			kind: "unavailable",
+			reason: `${pipe} isn't a plain file.`,
+		});
+	});
+
+	it("refuses a budget file far larger than a few lines", async () => {
+		const file = join(folder, "huge.env");
+		writeFileSync(file, `KEY=${"x".repeat(TOO_LARGE)}\n`);
+
+		expect(
+			await budgetFileProvider(folder).resolve("huge"),
+			"a file too large to be a budget's, refused",
+		).toEqual({
+			kind: "unavailable",
+			reason: `${file} is larger than a budget file is.`,
+		});
 	});
 
 	it("runs an executable <name> and reads what it prints", async () => {
