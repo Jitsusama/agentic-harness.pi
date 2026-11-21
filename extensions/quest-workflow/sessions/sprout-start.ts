@@ -26,9 +26,11 @@ import {
 } from "../../../lib/internal/quest/creation/alias-index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
-import { withServed } from "../../../lib/internal/quest/fields/serves.ts";
 import {
 	needAsker,
+	withServed,
+} from "../../../lib/internal/quest/fields/serves.ts";
+import {
 	type SproutSeed,
 	sproutAlias,
 	sproutedWords,
@@ -146,8 +148,9 @@ export async function startSprouted(
  * shows why it exists: the asker named by the need's id, what the words
  * asked (else the id), and since now. A quest it joined takes it too,
  * since its cell now serves that need as well; one already holding it
- * is left as it is. A README that can't be written leaves the quest
- * standing without it, since the work matters more than its lineage.
+ * is left as it is. A README that can't be written, or whose lock
+ * doesn't come, leaves the quest standing without it and the tie still
+ * made, since the work matters more than its lineage.
  */
 function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
 	const cell = seed.need ? needAsker(seed.need) : undefined;
@@ -159,14 +162,15 @@ function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
 		since: new Date().toISOString(),
 		id: seed.need,
 	};
-	mutateQuestFrontMatter(dir, (fm) => {
-		const before = fm._extra?.serves;
-		const serves = withServed(before, taken);
-		if (JSON.stringify(serves) === JSON.stringify(before ?? [])) {
-			return undefined;
-		}
-		return { ...fm, _extra: { ...fm._extra, serves } };
-	});
+	try {
+		mutateQuestFrontMatter(dir, (fm) => {
+			const serves = withServed(fm._extra?.serves, taken);
+			return serves ? { ...fm, _extra: { ...fm._extra, serves } } : undefined;
+		});
+	} catch {
+		// A lock that didn't come or a write that failed: the quest stands
+		// without its lineage, and the tie after this is still made.
+	}
 }
 
 /**
