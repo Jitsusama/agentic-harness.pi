@@ -15,7 +15,7 @@
  * without asking.
  */
 
-import { lstatSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { displayPath } from "../../../ui/path.ts";
@@ -26,6 +26,7 @@ import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
 import {
+	checkoutGitFolder,
 	cutRunning,
 	forgetGoneEntry,
 	GUARD_WORDS,
@@ -75,12 +76,12 @@ function unreadTree(
 				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
-	const cloneGit = clone === undefined ? undefined : gitFolderOf(clone);
+	const cloneGit = clone === undefined ? undefined : checkoutGitFolder(clone);
 	if (
 		handLocked(path) ||
 		(cloneGit !== undefined && handLockedIn(cloneGit, path))
 	) {
-		return `${where} Git's entry for it is locked for a reason other than the English one a cut gives, as \`git worktree lock\` leaves or a cut killed before git here was told English, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from ${clone === undefined ? "the clone that cut it" : `${displayPath(clone)}, the clone this cut comes from`}, never inside it or in a folder its \`.git\` names, which a sandboxed command could have written, then \`work tidy\` says whether \`work reclaim\` can set it aside. Where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose \`git worktree list\` names it, never one found through its \`.git\`, or move it aside by hand.`;
+		return `${where} Git's entry for it is locked for a reason other than the English one a cut gives, as \`git worktree lock\` leaves or a cut killed before git here was told English, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from ${clone === undefined ? "the clone that cut it" : `${displayPath(clone)}, the clone this cut comes from`}, never inside it or in a folder its \`.git\` names, which a sandboxed command could have written, then \`work tidy\` says whether \`work reclaim\`, run from there, can set it aside. A lock that isn't a plain file, which git never writes, stops unlock too, so delete it from that clone's entry by hand without reading it. Where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose \`git worktree list\` names it, never one found through its \`.git\`, or move it aside by hand.`;
 	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
@@ -92,21 +93,6 @@ function unreadTree(
 		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut. Where a record from before trees named their owners names it, or this machine can't say what works in a folder, reclaim keeps it, so move it aside by hand.`;
 	}
 	return `${where} If git was only slow or stopped, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
-}
-
-/**
- * The git folder of a main checkout, whose `.git` is a folder, or
- * nothing for one whose `.git` is a file or a link, which another could
- * have written.
- */
-function gitFolderOf(checkout: string): string | undefined {
-	const dotGit = join(checkout, ".git");
-	try {
-		return lstatSync(dotGit).isDirectory() ? dotGit : undefined;
-	} catch {
-		// No checkout there to read.
-		return undefined;
-	}
 }
 
 /**

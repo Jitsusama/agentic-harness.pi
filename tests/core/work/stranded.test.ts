@@ -25,6 +25,7 @@ import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
 	CANT_SAY,
 	CUT_GRACE_MS,
+	checkoutGitFolder,
 	cutRunning,
 	HAND_LOCKED,
 	LOCK_STALE_MS,
@@ -341,6 +342,47 @@ describe("splitStranded", () => {
 
 		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
 		expect(cutRunning(path), "a link is no cut's lock").toBe(false);
+	});
+
+	it("reads a folder where a lock should be as a hand lock", async () => {
+		// Git writes no folder there either, and one can't be read as a word.
+		const gitDir = standingGitDir("snapshot-d");
+		const path = treeNaming("snapshot-d", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		mkdirSync(join(gitDir, "locked"));
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(cutRunning(path), "a folder is no cut's lock").toBe(false);
+	});
+
+	it("keeps a tree the clone it runs from locks, where its .git names a moved one", async () => {
+		// Once the clone has moved, the tree's `.git` names a folder that
+		// is gone, and only the clone's own entry still says it's locked,
+		// as a cut from that clone reads it before refusing.
+		const clone = join(root, "moved-to", ".git");
+		const entry = join(clone, "worktrees", "snapshot-m");
+		mkdirSync(entry, { recursive: true });
+		const path = treeNaming("snapshot-m", join(root, "gone", "snapshot-m"));
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+		writeFileSync(join(entry, "locked"), "on a drive away\n");
+		const tree = { path, why: "the git folder its .git file names is gone" };
+
+		const read = await splitStranded([tree], {
+			busyAmong: nobody,
+			clones: [clone],
+		});
+		const unread = await splitStranded([tree], { busyAmong: nobody });
+
+		expect(read.free, "set aside by reclaim").toEqual([]);
+		expect(read.kept[0]?.why).toBe(HAND_LOCKED);
+		expect(unread.free, "seen only through the clone").toEqual([tree]);
 	});
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {
@@ -785,5 +827,27 @@ describe("readPlain", () => {
 		writeFileSync(join(root, "gitdir"), "x".repeat(1 << 20));
 
 		expect(readPlain(join(root, "gitdir"))).toHaveLength(4096);
+	});
+});
+
+describe("checkoutGitFolder", () => {
+	it("names a main checkout's git folder", () => {
+		mkdirSync(join(root, "main", ".git"), { recursive: true });
+
+		expect(checkoutGitFolder(join(root, "main"))).toBe(
+			join(root, "main", ".git"),
+		);
+	});
+
+	it("names none where .git is a link or a file, which another could write", () => {
+		mkdirSync(join(root, "real", ".git"), { recursive: true });
+		mkdirSync(join(root, "linked"));
+		symlinkSync(join(root, "real", ".git"), join(root, "linked", ".git"));
+		mkdirSync(join(root, "filed"));
+		writeFileSync(join(root, "filed", ".git"), "gitdir: ../real/.git\n");
+
+		expect(checkoutGitFolder(join(root, "linked"))).toBeUndefined();
+		expect(checkoutGitFolder(join(root, "filed"))).toBeUndefined();
+		expect(checkoutGitFolder(join(root, "none"))).toBeUndefined();
 	});
 });

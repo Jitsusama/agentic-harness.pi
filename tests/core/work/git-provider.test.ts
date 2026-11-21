@@ -875,7 +875,7 @@ describe("a tree standing where git won't read it", () => {
 			"from /src/world, the clone this cut comes from, never inside it or in a folder its `.git` names",
 		);
 		await expect(cut).rejects.toThrow(
-			"`work tidy` says whether `work reclaim` can set it aside",
+			"`work tidy` says whether `work reclaim`, run from there, can set it aside",
 		);
 		await expect(cut).rejects.not.toThrow("ask again");
 	});

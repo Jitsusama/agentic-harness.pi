@@ -11,10 +11,12 @@
  * stranded.test.ts.
  */
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,7 +25,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import { gitMovedAt } from "../../../lib/core/work/in-use.ts";
-import { forgetGoneEntry } from "../../../lib/core/work/stranded.ts";
+import {
+	forgetGoneEntry,
+	LOCK_STALE_MS,
+} from "../../../lib/core/work/stranded.ts";
 import { dropSettledBranches } from "../../../lib/core/work/sweep-branches.ts";
 import { goneGitDir } from "../../../lib/core/work/sweep-orphan.ts";
 import {
@@ -152,6 +157,24 @@ describe("a re-cut's cleanup", () => {
 		const read = timed(() => forgetGoneEntry(repo, gone));
 
 		expect(read.tookMs, "no read waited").toBeLessThan(LATE_MS / 2);
-		expect(read.value, "the entry stays").toBe(false);
+		expect(read.value, "none was forgotten").toBe(false);
+		expect(existsSync(own), "the entry stays").toBe(true);
+	});
+
+	it("forgets no entry whose lock is a link, however old", () => {
+		// Git writes its lock as a plain file, so a link is somebody's own
+		// and kept, though the file it leads to says a cut's word.
+		const { repo, own } = layout("recut-link");
+		const gone = join(root, "trees", "gone-link");
+		writeFileSync(join(own, "gitdir"), `${join(gone, ".git")}\n`);
+		writeFileSync(join(root, "cut-word"), "initializing\n");
+		symlinkSync(join(root, "cut-word"), join(own, "locked"));
+
+		const later = Date.now() + 2 * LOCK_STALE_MS;
+
+		expect(forgetGoneEntry(repo, gone, later), "none was forgotten").toBe(
+			false,
+		);
+		expect(existsSync(own), "the entry stays").toBe(true);
 	});
 });
