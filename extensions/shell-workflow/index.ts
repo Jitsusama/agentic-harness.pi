@@ -76,6 +76,7 @@ import {
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { runOrHandOff } from "./hand-off.ts";
 import { outlivingIt } from "./outliving.ts";
+import { projectExecIn, setsProjectExec } from "./project-exec.ts";
 
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
@@ -225,6 +226,14 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		keepCompileCacheOutOfReach(sessionEnv(ctx));
 		retireBash();
 		bashFor(ctx);
+		// A host's pi runs a folder's own extensions' commands only through
+		// the exec set here, and refuses them until one is, so it is set
+		// for every session, unfenced ones running them as pi would.
+		if (setsProjectExec(pi)) {
+			pi.setProjectExec(
+				projectExecIn(sandbox, () => sessionEnv(ctx).snapshot()),
+			);
+		}
 		toldHost(ctx);
 		tell = ctx.hasUI ? (why) => ctx.ui.notify(why, "warning") : onStderr;
 		sshGuard.start();

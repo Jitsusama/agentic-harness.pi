@@ -55,6 +55,14 @@ What it adds:
   `lib/internal/shell/environment.ts`, read as each command starts.
   The quest workflow offers `TMPDIR`, pointing at the loaded quest's
   scratch. No offer can turn a prompt back on.
+- **A folder's own extensions run where the agent's commands do.**
+  On a host, pi runs the commands a folder's own extensions start
+  (`pi.exec` from `.pi/extensions`, such as a linter after each edit)
+  only through an exec an extension sets, and refuses them until one
+  is. As each session starts, the shell sets one (`project-exec.ts`)
+  that wraps the command in the session's sandbox, with pi's time
+  limit, abort and output cap. An unfenced session runs them as pi
+  would. Plain pi, which has no such door, runs them as before.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
   not to sleep to wait for something. Where `JOBS_CGROUP` places its
