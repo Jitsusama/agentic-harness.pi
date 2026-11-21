@@ -122,13 +122,19 @@ function refusing() {
 	return { stale, gate: vi.fn(() => Promise.reject(stale)) };
 }
 
-const open = {
-	v: 1,
-	id: "o",
-	op: "open",
-	cwd: "/work",
-	attended: true,
-} as const;
+/**
+ * An open as a requester sends it, under an id of its own: the backend
+ * answers an id asked again with its first answer (repeats.ts).
+ */
+function anOpen() {
+	return {
+		v: 1,
+		id: randomUUID(),
+		op: "open",
+		cwd: "/work",
+		attended: true,
+	} as const;
+}
 
 async function ask(path: string, request: ControlRequest): Promise<unknown> {
 	const reply = await controlRequest(path, request);
@@ -143,8 +149,8 @@ describe("hostBackend", () => {
 			backgroundOf: (sessionId) => (working.has(sessionId) ? 1 : 0),
 		});
 		const backend = backendWith(fake);
-		const lingering = parseOpenResult(await backend.execute(open));
-		const quiet = parseOpenResult(await backend.execute({ ...open, id: "o2" }));
+		const lingering = parseOpenResult(await backend.execute(anOpen()));
+		const quiet = parseOpenResult(await backend.execute({ ...anOpen(), id: "o2" }));
 		working.add(lingering.sessionId);
 		const states = async () =>
 			Object.fromEntries(
@@ -166,7 +172,7 @@ describe("hostBackend", () => {
 
 	it("holds durably before start registers, and answers the live identity", async () => {
 		const { fake, seen } = engine();
-		const opened = parseOpenResult(await backendWith(fake).execute(open));
+		const opened = parseOpenResult(await backendWith(fake).execute(anOpen()));
 		expect(seen).toEqual(["held:held"]);
 		expect(opened).toMatchObject({ cwd: "/work", state: "idle" });
 		expect(roster.entries()).toEqual([
@@ -184,7 +190,7 @@ describe("hostBackend", () => {
 				throw new Error("extension load failed");
 			}),
 		});
-		await expect(backendWith(never.fake).execute(open)).rejects.toThrow(
+		await expect(backendWith(never.fake).execute(anOpen())).rejects.toThrow(
 			"extension load failed",
 		);
 		expect(never.fake.discard).toHaveBeenCalledOnce();
@@ -197,7 +203,7 @@ describe("hostBackend", () => {
 				throw new Error("first submit failed");
 			}),
 		});
-		await expect(backendWith(after.fake).execute(open)).rejects.toThrow(
+		await expect(backendWith(after.fake).execute(anOpen())).rejects.toThrow(
 			"first submit failed",
 		);
 		expect(after.fake.discard).not.toHaveBeenCalled();
@@ -215,10 +221,10 @@ describe("hostBackend", () => {
 			})),
 		});
 		const { sessionId } = parseOpenResult(
-			await backendWith(derived.fake).execute(open),
+			await backendWith(derived.fake).execute(anOpen()),
 		);
 		const plain = parseOpenResult(
-			await backendWith(engine().fake).execute(open),
+			await backendWith(engine().fake).execute(anOpen()),
 		).sessionId;
 		for (const { id } of host.list()) await host.stop(id);
 		await roster.close();
@@ -248,7 +254,7 @@ describe("hostBackend", () => {
 				launch: { SHOPIFY_EXP_ARM: "a", PI_PROXY_API_KEY: "sk-live" },
 			})),
 		});
-		await expect(backendWith(leaky.fake).execute(open)).rejects.toThrow(
+		await expect(backendWith(leaky.fake).execute(anOpen())).rejects.toThrow(
 			"never holds a credential, which the host gives per request: PI_PROXY_API_KEY",
 		);
 		expect(leaky.fake.discard).toHaveBeenCalledOnce();
@@ -267,7 +273,9 @@ describe("hostBackend", () => {
 		} as const;
 		const backend = backendWith(fake);
 		await backend.execute(adopt);
-		await expect(backend.execute(adopt)).rejects.toThrow("already held");
+		await expect(
+			backend.execute({ ...adopt, id: "a-again" }),
+		).rejects.toThrow("already held");
 		expect(fake.start).toHaveBeenCalledOnce();
 		expect(fake.discard).toHaveBeenCalledOnce();
 	});
@@ -277,7 +285,7 @@ describe("hostBackend", () => {
 		const backend = backendWith(fake);
 		const ids: string[] = [];
 		for (let i = 0; i < 3; i++)
-			ids.push(parseOpenResult(await backend.execute(open)).sessionId);
+			ids.push(parseOpenResult(await backend.execute(anOpen())).sessionId);
 		const [closed, released, stopped] = ids as [string, string, string];
 		await backend.execute({ v: 1, id: "c", op: "close", sessionId: closed });
 		await backend.execute({
@@ -305,8 +313,8 @@ describe("hostBackend", () => {
 			engine: fake,
 			say: (line) => said.push(line),
 		});
-		const running = parseOpenResult(await backend.execute(open)).sessionId;
-		const stranded = parseOpenResult(await backend.execute(open)).sessionId;
+		const running = parseOpenResult(await backend.execute(anOpen())).sessionId;
+		const stranded = parseOpenResult(await backend.execute(anOpen())).sessionId;
 		await host.stop(stranded);
 
 		await backend.execute({
@@ -353,7 +361,7 @@ describe("hostBackend", () => {
 				engine: fake,
 				changes: { left: (ending, why) => left.push([ending, why]) },
 			});
-			const stranded = parseOpenResult(await backend.execute(open)).sessionId;
+			const stranded = parseOpenResult(await backend.execute(anOpen())).sessionId;
 			await host.stop(stranded);
 			left.length = 0;
 
@@ -375,7 +383,7 @@ describe("hostBackend", () => {
 	it("keeps a hold whose close failed, so the next start still owes it", async () => {
 		const { fake } = engine();
 		const backend = backendWith(fake);
-		const { sessionId } = parseOpenResult(await backend.execute(open));
+		const { sessionId } = parseOpenResult(await backend.execute(anOpen()));
 		cleanup.mockImplementationOnce(() => {
 			throw new Error("shutdown hook failed");
 		});
@@ -388,8 +396,8 @@ describe("hostBackend", () => {
 	it("keeps a hold whose start step can't be said, and resumes the rest", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);
-		const a = parseOpenResult(await first.execute(open)).sessionId;
-		const b = parseOpenResult(await first.execute(open)).sessionId;
+		const a = parseOpenResult(await first.execute(anOpen())).sessionId;
+		const b = parseOpenResult(await first.execute(anOpen())).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
 		const unheard = new Error("nobody to tell");
@@ -414,8 +422,8 @@ describe("hostBackend", () => {
 	it("holds the runs a restart cut off from before the first resume until after the last, one failing or not", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);
-		const a = parseOpenResult(await first.execute(open)).sessionId;
-		const b = parseOpenResult(await first.execute(open)).sessionId;
+		const a = parseOpenResult(await first.execute(anOpen())).sessionId;
+		const b = parseOpenResult(await first.execute(anOpen())).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
 		const order: string[] = [];
@@ -446,7 +454,7 @@ describe("hostBackend", () => {
 			const opening = backendWith(engine().fake);
 			const held: string[] = [];
 			for (let n = 0; n < count; n++)
-				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+				held.push(parseOpenResult(await opening.execute(anOpen())).sessionId);
 			for (const id of held) await host.stop(id);
 			return held;
 		}
@@ -641,8 +649,8 @@ describe("hostBackend", () => {
 	it("resumes every hold at start and lists one that would not resume as parked", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);
-		const a = parseOpenResult(await first.execute(open)).sessionId;
-		const b = parseOpenResult(await first.execute(open)).sessionId;
+		const a = parseOpenResult(await first.execute(anOpen())).sessionId;
+		const b = parseOpenResult(await first.execute(anOpen())).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
 		const refused = new Error("pi would not open it");
@@ -687,8 +695,8 @@ describe("hostBackend", () => {
 	it("drops a hold whose session file is gone at start, building nothing for it", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);
-		const a = parseOpenResult(await first.execute(open)).sessionId;
-		const b = parseOpenResult(await first.execute(open)).sessionId;
+		const a = parseOpenResult(await first.execute(anOpen())).sessionId;
+		const b = parseOpenResult(await first.execute(anOpen())).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
 		const restart = engine({ lost: (entry) => entry.sessionId === b });
@@ -724,10 +732,10 @@ describe("hostBackend", () => {
 			const { fake } = engine();
 			const { stale, gate } = refusing();
 			const backend = backendWith(fake, gate);
-			const first = parseOpenResult(await backend.execute(open)).sessionId;
+			const first = parseOpenResult(await backend.execute(anOpen())).sessionId;
 			expect(gate).not.toHaveBeenCalled();
 
-			await expect(backend.execute(open)).rejects.toBe(stale);
+			await expect(backend.execute(anOpen())).rejects.toBe(stale);
 			await expect(
 				backend.execute({
 					v: 1,
@@ -747,8 +755,8 @@ describe("hostBackend", () => {
 		it("opens a second once the gate passes", async () => {
 			const gate = vi.fn(() => Promise.resolve());
 			const backend = backendWith(engine().fake, gate);
-			await backend.execute(open);
-			await backend.execute(open);
+			await backend.execute(anOpen());
+			await backend.execute(anOpen());
 			expect(gate).toHaveBeenCalledTimes(1);
 			expect(roster.entries()).toHaveLength(2);
 		});
@@ -757,8 +765,8 @@ describe("hostBackend", () => {
 			const { stale, gate } = refusing();
 			const backend = backendWith(engine().fake, gate);
 			const results = await Promise.allSettled([
-				backend.execute(open),
-				backend.execute(open),
+				backend.execute(anOpen()),
+				backend.execute(anOpen()),
 			]);
 			expect(results.map(({ status }) => status)).toEqual([
 				"fulfilled",
@@ -771,11 +779,11 @@ describe("hostBackend", () => {
 		it("counts a stranded hold as a conversation the host already has", async () => {
 			const { fake } = engine();
 			const a = parseOpenResult(
-				await backendWith(fake).execute(open),
+				await backendWith(fake).execute(anOpen()),
 			).sessionId;
 			await host.stop(a);
 			const { stale, gate } = refusing();
-			await expect(backendWith(fake, gate).execute(open)).rejects.toBe(stale);
+			await expect(backendWith(fake, gate).execute(anOpen())).rejects.toBe(stale);
 		});
 
 		it("leaves a hold that rests parked unbuilt, asking the gate only for each built after the first", async () => {
@@ -783,7 +791,7 @@ describe("hostBackend", () => {
 			const opening = backendWith(fake);
 			const held: string[] = [];
 			for (let n = 0; n < 3; n++)
-				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+				held.push(parseOpenResult(await opening.execute(anOpen())).sessionId);
 			for (const id of held) await host.stop(id);
 			const [resting, a, b] = held;
 
@@ -822,7 +830,7 @@ describe("hostBackend", () => {
 			const opening = backendWith(fake);
 			const held: string[] = [];
 			for (let n = 0; n < 3; n++)
-				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+				held.push(parseOpenResult(await opening.execute(anOpen())).sessionId);
 			for (const id of held) await host.stop(id);
 			const [a, b, c] = held;
 
@@ -998,7 +1006,7 @@ describe("hostBackend", () => {
 			say: (line) => said.push(line),
 			attachSlowMs: 20,
 		});
-		const opening = backend.execute(open);
+		const opening = backend.execute(anOpen());
 		await vi.waitFor(() => expect(roster.entries()).toHaveLength(1));
 		const attaching = backend.execute({
 			v: 1,
@@ -1033,7 +1041,7 @@ describe("hostBackend", () => {
 			say: (line) => said.push(line),
 			attachSlowMs: 1_000,
 		});
-		const { sessionId } = parseOpenResult(await backend.execute(open));
+		const { sessionId } = parseOpenResult(await backend.execute(anOpen()));
 		await backend.execute({
 			v: 1,
 			id: "t",
@@ -1058,7 +1066,7 @@ describe("hostBackend", () => {
 			),
 		});
 		const backend = backendWith(fake);
-		const opening = backend.execute(open);
+		const opening = backend.execute(anOpen());
 		await vi.waitFor(() => expect(roster.entries()).toHaveLength(1));
 		const attaching = backend.execute({
 			v: 1,
@@ -1110,8 +1118,8 @@ describe("hostBackend", () => {
 			engine: fake,
 			say: (line) => said.push(line),
 		});
-		const busy = parseOpenResult(await backend.execute(open));
-		await backend.execute({ ...open, id: "o2" });
+		const busy = parseOpenResult(await backend.execute(anOpen()));
+		await backend.execute({ ...anOpen(), id: "o2" });
 		host.state(busy.sessionId, "busy");
 
 		const drained = parseDrainResult(
@@ -1184,7 +1192,7 @@ describe("hostBackend", () => {
 		try {
 			const ids: string[] = [];
 			for (const id of ["o1", "o2"])
-				ids.push(parseOpenResult(await ask(path, { ...open, id })).sessionId);
+				ids.push(parseOpenResult(await ask(path, { ...anOpen(), id })).sessionId);
 			const expectedHost = { key: host.key, owner: host.owner };
 			const aborted = await Promise.all(
 				ids.map((sessionId, n) =>
@@ -1222,7 +1230,7 @@ describe("the order a start resumes what it held", () => {
 	async function heldThree() {
 		const first = backendWith(engine().fake);
 		const held = async (id: string) =>
-			parseOpenResult(await first.execute({ ...open, id })).sessionId;
+			parseOpenResult(await first.execute({ ...anOpen(), id })).sessionId;
 		const a = await held("a");
 		const b = await held("b");
 		const c = await held("c");
@@ -1329,7 +1337,7 @@ describe("conversationEvents", () => {
 			})),
 		});
 		const { sessionId } = parseOpenResult(
-			await backendWith(fake).execute({ ...open, quest: "QEST-1" }),
+			await backendWith(fake).execute({ ...anOpen(), quest: "QEST-1" }),
 		);
 		return sessionId;
 	}
