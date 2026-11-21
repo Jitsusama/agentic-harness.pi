@@ -39,6 +39,7 @@ describe("a walk of World's objects", () => {
 			// 11-21, 06:08: two rebases of 3.8 and 3.9 GB beside other walks.
 			"git rebase origin/main",
 			"git -C ~/world/trees/w-main/src rebase --continue",
+			"git rebase --skip",
 			"git cherry-pick abc123",
 			"git merge origin/main",
 			"git sparse-checkout add areas/tools",
@@ -60,6 +61,8 @@ describe("a walk of World's objects", () => {
 			"git clone ~/world/git /tmp/copy",
 			"git fetch file:///home/j/world/git main",
 			"git --git-dir=/home/j/world/git fetch origin",
+			// The work tool runs its git from outside the tree, naming it.
+			"git -C /home/j/world/trees/w-main/src rebase origin/main",
 		]) {
 			expect(kindOf(walking, elsewhere), walking).toBe("world-walk");
 		}
@@ -94,7 +97,15 @@ describe("a walk of World's objects", () => {
 			"git -c push.default=current status",
 			"git log --grep push",
 			"git merge-base HEAD origin/main",
-			"git log --grep rebase",
+			// What steers a rebase, merge or pick, or reads where it stands,
+			// walks nothing, so a stuck checkout is put back while pressed.
+			"git rebase --abort",
+			"git rebase --quit",
+			"git rebase --show-current-patch",
+			"git rebase --edit-todo",
+			"git merge --abort",
+			"git cherry-pick --abort",
+			"git sparse-checkout list",
 			"echo git push",
 			"gh pr create --title 'git push it'",
 			"rg 'git fetch' scripts",
@@ -110,7 +121,16 @@ describe("a walk of World's objects", () => {
 		expect(needsGibOfCommand("world-walk", "cd x && git push")).toBe(6);
 	});
 
-	it("runs at most two at once, whatever memory reads, and lets others past", () => {
+	it("reads a long run of options in time that grows with it, not past it", () => {
+		// Each option reads one way, so a run of them with no walk after
+		// fails at once rather than trying every way to split them.
+		const options = "--a-b ".repeat(400);
+		const started = performance.now();
+		expect(kindOf(`git ${options}status`, inWorld)).toBeUndefined();
+		expect(performance.now() - started).toBeLessThan(1_000);
+	});
+
+	it("runs at most two at once while memory flows, and lets others past", () => {
 		const long = startedAgo(RAMP_MS + 60_000);
 		const walk = (id: string, over: Partial<Job> = {}) =>
 			job(id, { kind: "world-walk", what: "git push", ...over });
@@ -156,6 +176,8 @@ describe("a walk of World's objects", () => {
 		// With none running, one starts however the minute reads.
 		const alone = jobs.filter((one) => one.id !== "one");
 		expect(nextTurn(alone, stalled, NOW)?.id).toBe("two");
+		const choked = { ...plenty, memoryFullMinute: 60 };
+		expect(nextTurn(alone, choked, NOW)?.id).toBe("two");
 	});
 
 	it("waits on memory like any job when its 6 GiB isn't free", () => {

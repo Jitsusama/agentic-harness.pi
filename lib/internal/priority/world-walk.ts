@@ -215,12 +215,19 @@ const WORLD_FOLDER = "world";
  * clone, the repacks, and what merges trees or fills a sparse checkout:
  * a rebase, a cherry-pick, a merge and `sparse-checkout`. Two World
  * rebases held 3.8 and 3.9 GB each beside other walks at 06:08 on 21
- * November, with no turn (80ECO2). Options are kept, to read the folder
- * `-C` names, then the subcommand, and the rest, to read a path it
- * fetches from or clones and what it fetches.
+ * November, with no turn (80ECO2). What only steers one of those or
+ * reads where it stands walks nothing, and goes free, so a checkout
+ * stuck mid-rebase can be put back while memory is pressed: `--abort`,
+ * `--quit`, `--show-current-patch` and `--edit-todo`, and
+ * `sparse-checkout list`. `--continue` and `--skip` go on applying
+ * commits, so they walk. Options are kept, to read the folder `-C`
+ * names, then the subcommand, and the rest, to read a path it fetches
+ * from or clones and what it fetches. Each option reads one way only
+ * (`-` and an optional second `-` before a word character), so a long
+ * run of them can't make the match backtrack.
  */
 export const GIT_WALK =
-	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|rebase|cherry-pick|merge|sparse-checkout)(?![\w.=-])(.*)$/;
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--?\w[\w-]*(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|(?:rebase|cherry-pick|merge)(?!\s+--(?:abort|quit|show-current-patch|edit-todo)(?![\w-]))|sparse-checkout(?!\s+list(?![\w-])))(?![\w.=-])(.*)$/;
 
 /** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
 const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;

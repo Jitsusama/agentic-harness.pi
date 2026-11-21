@@ -88,8 +88,9 @@ export const PUSH_GIB = 0.25;
 export const LIGHT_GIB = 1;
 
 /**
- * How many walks of World's git objects run at once, whatever memory
- * reads. From 08:04 to 08:22 on 4 November the kernel killed six times
+ * How many walks of World's git objects run at once while memory
+ * pressure stays under {@link ONE_WALK_FROM_PRESSURE}, past which one
+ * does ({@link walksAtOnce}). From 08:04 to 08:22 on 4 November the kernel killed six times
  * while 3 to 5 ran at once from different sessions' World trees, each
  * mapping 3 to 6 GB of packs: each evicted the others', 60.9M file pages
  * refaulted in 38 minutes, and at the 08:14:56 kill reclaim found

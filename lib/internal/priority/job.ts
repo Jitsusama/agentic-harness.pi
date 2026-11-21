@@ -135,7 +135,13 @@ export interface Room {
 	/**
 	 * The share of the last minute every task stalled on memory (`full
 	 * avg60`), in percent, which the walks of World's objects are held to.
-	 * Nothing where it isn't read.
+	 * It is the machine's figure rather than the felt one: a job pressing
+	 * on its own `memory.high` stalls itself, which `full` counts only
+	 * when every other task stalls too, while walks evict one another's
+	 * page cache across the machine. A pressure file that can't be read,
+	 * or has no `full` line, reads as 0, which leaves walks at
+	 * `WALKS_AT_ONCE`, as the other pressures fail open. Left out only by
+	 * records older than it and Rooms built by hand.
 	 */
 	readonly memoryFullMinute?: number;
 	/** VMs running on the machine, queued or not. */
