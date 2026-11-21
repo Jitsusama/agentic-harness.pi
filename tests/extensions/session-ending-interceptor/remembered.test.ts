@@ -144,6 +144,25 @@ describe("the machines kept", () => {
 		).toEqual([]);
 	});
 
+	it("sweeps what a writer killed mid-write left, and only once it is old", async () => {
+		mkdirSync(join(scratch, "session-ending"), { recursive: true });
+		const killed = `${file}.dead.tmp`;
+		const writing = `${file}.live.tmp`;
+		const other = join(scratch, "session-ending", "other.json.old.tmp");
+		for (const path of [killed, writing, other]) writeFileSync(path, "[]");
+		const longAgo = new Date(Date.now() - 10 * 60_000);
+		utimesSync(killed, longAgo, longAgo);
+		utimesSync(other, longAgo, longAgo);
+
+		await rememberMachines(file, ["optimus"]);
+
+		expect(existsSync(killed), "an old one is swept").toBe(false);
+		expect(existsSync(writing), "a fresh one may be another's write").toBe(
+			true,
+		);
+		expect(existsSync(other), "another file's is left alone").toBe(true);
+	});
+
 	it("leaves no lock behind once it has written", async () => {
 		await rememberMachines(file, ["optimus"]);
 
