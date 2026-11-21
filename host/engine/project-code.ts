@@ -113,7 +113,11 @@ export const PINS_FILE = "project-code.json";
 export interface ProjectCode {
 	/** What the code holds, by each file's place and contents. */
 	readonly digest: string;
-	/** Each file's place within the folder, for saying what changed. */
+	/**
+	 * Each file's place within the folder, the last to change status first,
+	 * for saying what changed: nobody can set a change time back, so code
+	 * planted among files allowed before is named ahead of them.
+	 */
 	readonly files: readonly string[];
 	/** The newest time any file of it, or a link to one, changed status. */
 	readonly newest: number;
@@ -127,7 +131,12 @@ export interface ProjectCode {
 export type CodeStanding =
 	| { readonly kind: "none" }
 	| { readonly kind: "pinned"; readonly code: ProjectCode }
-	| { readonly kind: "unpinned"; readonly code: ProjectCode };
+	| {
+			readonly kind: "unpinned";
+			readonly code: ProjectCode;
+			/** Why the pins couldn't be read, when they couldn't: the code may well be what was allowed. */
+			readonly pinsUnread?: string;
+	  };
 
 interface Pins {
 	/** When the host first pinned anything: code older than this was there before it. */
@@ -194,7 +203,7 @@ interface Walker {
 
 function walker(cwd: string): Walker {
 	const lines: string[] = [];
-	const files: string[] = [];
+	const files: { readonly place: string; time: number }[] = [];
 	const folders = new Set<string>();
 	// Folders walked leaving some names out, so a later walk reaching one takes those too.
 	const partly = new Map<string, (name: string) => boolean>();
@@ -266,7 +275,7 @@ function walker(cwd: string): Walker {
 			bytes += sum.size;
 			if (sum.digest === undefined) return;
 			line("file", place, sum.digest);
-			files.push(place);
+			files.push({ place, time: Math.max(own.ctimeMs, seen.ctimeMs) });
 		} catch (error) {
 			// pi may still load what lies behind it, by name, so it can't count as known.
 			line("unreadable", place, errorCode(error));
@@ -277,13 +286,17 @@ function walker(cwd: string): Walker {
 		take,
 		counted(kind, place, value) {
 			line(kind, place, value);
-			files.push(place);
+			files.push({ place, time: 0 });
 		},
 		stamp(path) {
 			try {
 				const own = lstatSync(path, { throwIfNoEntry: false });
 				const seen = statSync(path, { throwIfNoEntry: false });
-				newest = Math.max(newest, own?.ctimeMs ?? 0, seen?.ctimeMs ?? 0);
+				const time = Math.max(own?.ctimeMs ?? 0, seen?.ctimeMs ?? 0);
+				newest = Math.max(newest, time);
+				const place = relative(cwd, path);
+				for (const file of files)
+					if (file.place === place) file.time = Math.max(file.time, time);
 			} catch (error) {
 				const place = relative(cwd, path);
 				line("unreadable", place, errorCode(error));
@@ -296,9 +309,16 @@ function walker(cwd: string): Walker {
 			const digest = createHash("sha256")
 				.update(lines.join("\n"))
 				.digest("hex");
+			const named = [...files]
+				.sort(
+					(a, b) =>
+						b.time - a.time ||
+						(a.place < b.place ? -1 : a.place > b.place ? 1 : 0),
+				)
+				.map((file) => file.place);
 			return unchecked === undefined
-				? { digest, files, newest, complete: true }
-				: { digest, files, newest, complete: false, unchecked };
+				? { digest, files: named, newest, complete: true }
+				: { digest, files: named, newest, complete: false, unchecked };
 		},
 	};
 }
@@ -528,7 +548,8 @@ export function codeStanding(
 	now: () => number = Date.now,
 ): CodeStanding {
 	startPins(agentDir, now);
-	const { pins } = readPins(join(agentDir, PINS_FILE));
+	const file = join(agentDir, PINS_FILE);
+	const { pins, damaged } = readPins(file);
 	const code = projectCode(cwd);
 	if (!code) return { kind: "none" };
 	if (!code.complete) return { kind: "unpinned", code };
@@ -542,7 +563,12 @@ export function codeStanding(
 		pin(cwd, agentDir, code);
 		return { kind: "pinned", code };
 	}
-	return { kind: "unpinned", code };
+	if (pins !== DAMAGED) return { kind: "unpinned", code };
+	// Saying so sends whoever reads it to the pins, not hunting for planted code.
+	const pinsUnread = damaged
+		? `${printable(file)} can't be read as pins; a yes keeps it beside them as ${printable(`${file}.damaged`)} and starts them afresh`
+		: `the host can't read ${printable(file)}`;
+	return { kind: "unpinned", code, pinsUnread };
 }
 
 /**
@@ -592,16 +618,22 @@ export function pin(
 	}
 }
 
-/** What to say of code that may not load, naming a few of its files. */
-export function unpinnedSaying(cwd: string, code: ProjectCode): string {
+/** What to say of code that may not load, naming a few of its files, the newest first. */
+export function unpinnedSaying(
+	cwd: string,
+	standing: { readonly code: ProjectCode; readonly pinsUnread?: string },
+): string {
+	const { code, pinsUnread } = standing;
 	const where = printable(cwd);
 	if (!code.complete)
 		return `${where}'s .pi holds code pi would run outside the sandbox that the host can't check whole, since ${code.unchecked ?? "it is too large"}, so it can't be allowed until that changes`;
 	const count = code.files.length;
 	const named = code.files.slice(0, NAMED_FILES).map(printable).join(", ");
 	const more = count > NAMED_FILES ? ` and ${count - NAMED_FILES} more` : "";
-	const files = count === 1 ? "1 file" : `${count} files`;
+	const files = count === 1 ? "1 file" : `${count} files, the newest first`;
 	const which = named ? ` (${files}: ${named}${more})` : "";
+	if (pinsUnread)
+		return `${where}'s .pi holds code pi would run outside the sandbox${which} that the host can't tell was allowed before, since ${pinsUnread}`;
 	return `${where}'s .pi holds code pi would run outside the sandbox${which} that is new or changed since it was last allowed`;
 }
 

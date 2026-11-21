@@ -126,13 +126,13 @@ export function projectTrust(
 				unpinned && (asking.ask === undefined || !standing.code.complete);
 			if (unpinned && known === false && !refused)
 				asking.warn(
-					`${unpinnedSaying(cwd, standing.code)}, and you said not to load it, so its own .pi settings and extensions are not loaded. Change it, or restart the host, to be asked again.`,
+					`${unpinnedSaying(cwd, standing)}, and you said not to load it, so its own .pi settings and extensions are not loaded. Change it, or restart the host, to be asked again.`,
 				);
 			if (refused)
 				asking.warn(
 					standing.code.complete
-						? `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: only a conversation first opened there at a screen can allow it. Open one to be asked.`
-						: `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded.`,
+						? `${unpinnedSaying(cwd, standing)}, so its own .pi settings and extensions are not loaded: only a conversation first opened there at a screen can allow it. Open one to be asked.`
+						: `${unpinnedSaying(cwd, standing)}, so its own .pi settings and extensions are not loaded.`,
 				);
 			const resolving = !refused && known === undefined && requiring;
 			// The person's no outranks a yes this host remembers, which may be for the folder before
@@ -236,7 +236,7 @@ async function allowCode(
 ): Promise<boolean | undefined> {
 	if (!asking.ask) return undefined;
 	const answer = await asking.ask(
-		`${unpinnedSaying(cwd, standing.code)}.\nLoad it, as you would any program you run?`,
+		`${unpinnedSaying(cwd, standing)}.\nLoad it, as you would any program you run?`,
 		[YES, NO],
 	);
 	if (answer === YES) return true;
@@ -281,7 +281,7 @@ function guardLoads(
 				dropped = true;
 				if (said !== standing.code.digest)
 					asking.warn(
-						`${unpinnedSaying(cwd, standing.code)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there at a screen to be asked; this one picks it up at its next reload.`,
+						`${unpinnedSaying(cwd, standing)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there at a screen to be asked; this one picks it up at its next reload.`,
 					);
 				said = standing.code.digest;
 			} else if (dropped) {

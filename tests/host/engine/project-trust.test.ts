@@ -8,6 +8,7 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -16,6 +17,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { HostPiModules } from "../../../host/engine/host-pi.ts";
 import {
+	PINS_FILE,
 	pin,
 	projectCode,
 	startPins,
@@ -83,6 +85,17 @@ function write(place: string, text: string): void {
 	const path = join(folder, place);
 	mkdirSync(join(path, ".."), { recursive: true });
 	writeFileSync(path, text);
+}
+
+/**
+ * Move the pins' start back to nothing once the first look has pinned
+ * what it found, so a file planted after counts as new however close
+ * the disk's clock and the host's run.
+ */
+function firstLookDone(): void {
+	const file = join(agentDir, PINS_FILE);
+	const pins = JSON.parse(readFileSync(file, "utf8")) as object;
+	writeFileSync(file, JSON.stringify({ ...pins, since: 0 }));
 }
 
 /** A person at the screen who answers the code question `answer`. */
@@ -209,6 +222,7 @@ it("checks a conversation still trusted after the person said no, before each lo
 		settings.trusted,
 		"code there at the host's first look is pinned",
 	).toBe(true);
+	firstLookDone();
 	stored = false;
 	write(".pi/extensions/planted.ts", "planted");
 	await settings.reload();
@@ -221,6 +235,7 @@ it("gives back the trust it took once the code is pinned again, and none someone
 	write(".pi/extensions/lint.ts", "one");
 	const trust = projectTrust(modules());
 	const { settings } = await opened(trust, answering("Yes"));
+	firstLookDone();
 	write(".pi/extensions/more.ts", "two");
 	await settings.reload();
 	expect(settings.trusted).toBe(false);
@@ -247,6 +262,7 @@ it("keeps a folder untrusted when its code is pinned again after the person's no
 	write(".pi/extensions/lint.ts", "one");
 	const trust = projectTrust(modules());
 	const { settings } = await opened(trust, answering("Yes"));
+	firstLookDone();
 	write(".pi/extensions/more.ts", "two");
 	await settings.reload();
 	expect(settings.trusted).toBe(false);

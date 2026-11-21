@@ -7,6 +7,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	truncateSync,
 	writeFileSync,
@@ -67,7 +68,8 @@ describe("the code a folder's .pi holds", () => {
 		write(".pi/npm/node_modules/p/index.js", "");
 		write(".pi/git/github.com/o/r/index.ts", "");
 		write(".pi/settings.json", JSON.stringify({ packages: ["npm:p"] }));
-		expect(projectCode(folder)?.files).toEqual([
+		// Named the newest first, so read here as a set.
+		expect([...(projectCode(folder)?.files ?? [])].sort()).toEqual([
 			".pi/extensions/lint.ts",
 			".pi/git/github.com/o/r/index.ts",
 			".pi/mcp.json",
@@ -105,10 +107,10 @@ describe("the code a folder's .pi holds", () => {
 				packages: [{ source: "../../pkg" }, "npm:p", "git@github.com:o/r"],
 			}),
 		);
-		expect(projectCode(folder)?.files).toEqual([
-			".pi/settings.json",
-			"../pkg/index.ts",
+		expect([...(projectCode(folder)?.files ?? [])].sort()).toEqual([
 			"../ext.ts",
+			"../pkg/index.ts",
+			".pi/settings.json",
 		]);
 		const before = projectCode(folder)?.digest;
 		writeFileSync(join(root, "pkg", "index.ts"), "planted");
@@ -369,10 +371,25 @@ describe("whether a folder's code may load", () => {
 			'{"since": 0, "folders": {}, "allowed": [1]}',
 		]) {
 			writeFileSync(join(agentDir, PINS_FILE), damaged);
-			expect(codeStanding(folder, agentDir, later).kind, damaged).toBe(
-				"unpinned",
-			);
+			const standing = codeStanding(folder, agentDir, later);
+			expect(standing.kind, damaged).toBe("unpinned");
+			if (standing.kind !== "unpinned") return;
+			expect(
+				unpinnedSaying(folder, standing),
+				"it sends the reader to the pins, not to code that never changed",
+			).toContain(`${PINS_FILE} can't be read as pins`);
 		}
+	});
+
+	it("says it can't read the pins, rather than that the code changed, while a read fails", () => {
+		write(".pi/extensions/lint.ts", "one");
+		mkdirSync(join(agentDir, PINS_FILE));
+		const standing = codeStanding(folder, agentDir, later);
+		if (standing.kind !== "unpinned") throw new Error("it should not load");
+		const said = unpinnedSaying(folder, standing);
+		expect(said).toContain("since the host can't read ");
+		expect(said).toContain(PINS_FILE);
+		expect(said).not.toContain("new or changed");
 	});
 
 	it("sets damaged pins aside before pinning anew", () => {
@@ -465,7 +482,7 @@ describe("what is said of code that may not load", () => {
 		);
 		const code = projectCode(folder);
 		if (!code) throw new Error("the folder should hold code");
-		expect(unpinnedSaying(folder, code)).toBe(
+		expect(unpinnedSaying(folder, { code })).toBe(
 			`${folder}'s .pi holds code pi would run outside the sandbox that the host can't check whole, since its settings name ../ext/{a,b}.ts, a pattern it can't follow, so it can't be allowed until that changes`,
 		);
 	});
@@ -475,8 +492,26 @@ describe("what is said of code that may not load", () => {
 			write(`.pi/extensions/${name}.ts`, name);
 		const code = projectCode(folder);
 		if (!code) throw new Error("the folder should hold code");
-		expect(unpinnedSaying(folder, code)).toBe(
-			`${folder}'s .pi holds code pi would run outside the sandbox (5 files: .pi/extensions/a.ts, .pi/extensions/b.ts, .pi/extensions/c.ts and 2 more) that is new or changed since it was last allowed`,
+		// Written in one tick or several, so their order is the next case's to show.
+		const named = code.files.slice(0, 3).join(", ");
+		expect(unpinnedSaying(folder, { code })).toBe(
+			`${folder}'s .pi holds code pi would run outside the sandbox (5 files, the newest first: ${named} and 2 more) that is new or changed since it was last allowed`,
+		);
+	});
+
+	it("names a file planted among older ones first, whatever its name", () => {
+		for (const name of ["a", "b", "c", "d"])
+			write(`.pi/extensions/${name}.ts`, name);
+		const oldest = projectCode(folder)?.newest ?? 0;
+		// Written again until the disk's clock has moved on, which it does within a tick.
+		const planted = join(folder, ".pi/extensions/zz.ts");
+		do writeFileSync(planted, "planted");
+		while (statSync(planted).ctimeMs <= oldest);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		expect(code.files[0]).toBe(".pi/extensions/zz.ts");
+		expect(unpinnedSaying(folder, { code })).toContain(
+			"(5 files, the newest first: .pi/extensions/zz.ts, ",
 		);
 	});
 
@@ -484,7 +519,7 @@ describe("what is said of code that may not load", () => {
 		write(`.pi/extensions/a\u001b[2Jb${"x".repeat(100)}.ts`, "a");
 		const code = projectCode(folder);
 		if (!code) throw new Error("the folder should hold code");
-		const said = unpinnedSaying(folder, code);
+		const said = unpinnedSaying(folder, { code });
 		expect(said, "the name's end, which says what it is, stays").toMatch(
 			/\(1 file: \.\.\.x+\.ts\)/,
 		);
@@ -495,6 +530,8 @@ describe("what is said of code that may not load", () => {
 		write(bad, "b");
 		const both = projectCode(folder);
 		if (!both) throw new Error("the folder should hold code");
-		expect(unpinnedSaying(folder, both)).toContain(".pi/extensions/a?[2Jb.ts");
+		expect(unpinnedSaying(folder, { code: both })).toContain(
+			".pi/extensions/a?[2Jb.ts",
+		);
 	});
 });
