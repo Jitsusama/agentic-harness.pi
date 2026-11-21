@@ -304,7 +304,7 @@ function sentenceAsks(
 		}
 	}
 	const found = [...byAct.values()];
-	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
+	for (const code of asksToRun(plain) ? spansToRun(sentence) : []) {
 		for (const { ask: one, here } of placedAsks(code, machines)) {
 			const where = here ? named : one.machines;
 			const ask = { act: one.act, machines: where, said };
@@ -349,8 +349,8 @@ export function codeSpans(sentence: string): string[] {
 	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
 }
 
-/** The spans a sentence asks to run, as written. */
-function inlineCode(sentence: string): string[] {
+/** The spans, code or quoted, a sentence asks to run, as written. */
+export function spansToRun(sentence: string): string[] {
 	return [...sentence.matchAll(RUN_SPAN)].flatMap(
 		(one) => one[1] ?? one[2] ?? [],
 	);

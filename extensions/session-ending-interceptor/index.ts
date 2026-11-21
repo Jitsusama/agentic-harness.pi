@@ -195,9 +195,17 @@ export function nodeDeps(
 			});
 			const [lingers, parked] = await Promise.all([
 				lingersHere(exec),
-				withinPatience(parkedHere(), SPARES_PATIENCE_MS),
+				withinPatience(() => parkedHere(), SPARES_PATIENCE_MS).then(
+					(sessions) => ({ sessions }),
+					(error: unknown) => ({
+						sessions: new Set<string>(),
+						unread: error instanceof Error ? error.message : String(error),
+					}),
+				),
 			]);
-			return { lingers, parked };
+			return "unread" in parked
+				? { lingers, parked: parked.sessions, unread: parked.unread }
+				: { lingers, parked: parked.sessions };
 		},
 	};
 }

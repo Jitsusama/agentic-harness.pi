@@ -6,7 +6,7 @@
  * this short list spares nothing rather than being read.
  */
 
-import { codeSpans, folded, parts } from "./asks.ts";
+import { codeSpans, folded, type Part, parts, spansToRun } from "./asks.ts";
 
 /**
  * The commands a spare may stand beside, each read whole, after a
@@ -27,16 +27,28 @@ const OPENING = /^(?:[$#%>]\s+)?(?:sudo\s+)?/;
 /**
  * A word in prose that is a command or opens one, so prose holding it
  * says to run something nothing here reads whole: `sudo`, `systemctl`,
- * `kexec`, `init 1`, a kill with an option. A soft or userspace
- * reboot keeps the boot however it is spelt, so its word counts too,
- * and so does linger or KillUserProcesses: a reply changing either
- * changes what a log-out ends after logind was read.
+ * `kexec`, `init 1`, any kill, an option after a reboot (a hyphen with
+ * a space after it is a dash). A soft or userspace reboot keeps the
+ * boot however it is spelt, so its word counts too, and so does a next
+ * root, which makes a reboot soft; and linger or KillUserProcesses: a
+ * reply changing either changes what a log-out ends after logind was
+ * read.
  */
 const COMMAND_WORD =
-	/\b(?:soft|user[\s-]?space|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|kill\s+-|init\s+[0-6sS]\b|shutdown\s+(?:-|now\b|\+)|reboot\s+-|poweroff\s+-|halt\b)/i;
+	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w|now\b|\+)|reboot\s+-+\w|poweroff\s+-+\w|halt\b)/i;
 
-/** A shell comment, or a line with nothing on it, which runs nothing. */
-const NOTHING_RUN = /^\s*(?:#.*)?$/;
+/** A line with nothing on it, which runs nothing. */
+const BLANK = /^\s*$/;
+
+/**
+ * A shell's comment, which runs nothing only in a fence of commands: in
+ * a terminal's session, or a fence that may be one, `#` is root's
+ * prompt.
+ */
+const COMMENT = /^\s*#/;
+
+/** Code indented in prose, which a reader takes as a command. */
+const INDENTED = /^(?: {4}|\t)\s*\S/;
 
 /** Whether `line` is one of the plain commands, whole. */
 function plainCommand(line: string): boolean {
@@ -47,22 +59,31 @@ function plainCommand(line: string): boolean {
 /**
  * Whether every command in `texts`, a reply's prose and labels, is a
  * plain spelling of a reboot, shut-down or log-out: each span of inline
- * code and each line of fenced code on the list, and its prose holding
- * no command word. A reply with no command at all is plain.
+ * code, quote it asks to run, indented line and line of fenced code on
+ * the list, and its prose holding no command word. A reply with no
+ * command at all is plain.
  */
 export function plainlySaid(texts: readonly string[]): boolean {
-	for (const text of texts) {
-		for (const part of parts(folded(text))) {
-			const prose = part.prose && part.commands === "none";
-			if (!prose) {
-				const run = part.lines.filter((line) => !NOTHING_RUN.test(line));
-				if (!run.every(plainCommand)) return false;
-				continue;
-			}
-			const written = part.lines.join("\n");
-			if (!codeSpans(written).every(plainCommand)) return false;
-			if (COMMAND_WORD.test(written.replace(/`[^`]*`/g, " "))) return false;
-		}
+	return texts.every((text) => parts(folded(text)).every(plainPart));
+}
+
+/** Whether one part of a text, prose or fenced, is plain. */
+function plainPart(part: Part): boolean {
+	if (!part.prose || part.commands !== "none") {
+		const comments = part.commands === "every";
+		return part.lines
+			.filter((line) => !BLANK.test(line))
+			.filter((line) => !(comments && COMMENT.test(line)))
+			.every(plainCommand);
 	}
-	return true;
+	const written = part.lines.join("\n");
+	const shown = [
+		...codeSpans(written),
+		...spansToRun(written),
+		...part.lines.filter((line) => INDENTED.test(line)),
+	];
+	return (
+		shown.every(plainCommand) &&
+		!COMMAND_WORD.test(written.replace(/`[^`]*`/g, " "))
+	);
 }

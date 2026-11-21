@@ -50,7 +50,16 @@ export interface SessionEndingDeps {
 	 * says they parked. Asked only of an ask that would be refused
 	 * without it; without it, nothing is.
 	 */
-	readonly spares?: () => Promise<Omit<Here, "machine">>;
+	readonly spares?: () => Promise<Spares>;
+}
+
+/**
+ * What spares this machine's sessions, and what of it couldn't be read:
+ * a parked read that failed leaves none parked, while what lingers,
+ * read apart from it, still spares a log-out.
+ */
+export interface Spares extends Omit<Here, "machine"> {
+	readonly unread?: string;
 }
 
 /** An ask as a trace names it: its act and the machines it names. */
@@ -78,8 +87,8 @@ export type SpareTrace =
 	| { readonly outcome: "not plain"; readonly asks: readonly AskTraced[] };
 
 /** Said in a refusal when what spares sessions couldn't be read. */
-const UNREAD =
-	"What would spare sessions here couldn't be read, so none was spared.";
+const unreadBecause = (error: string) =>
+	`What would spare sessions here couldn't be read (${error}), so none was spared.`;
 
 /** Said in a refusal when a command it shows isn't on the plain list. */
 const NOT_PLAIN =
@@ -240,25 +249,31 @@ export async function refusalFor(
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;
 	const named = tracedAsks(asks);
-	if (!plainlySaid([...said.prose, ...said.labels])) {
-		traced({ outcome: "not plain", asks: named });
-		return because(refusal, NOT_PLAIN);
-	}
 	let here: Here;
+	let unread: string | undefined;
 	try {
-		here = { machine: deps.here(), ...(await deps.spares()) };
+		const { unread: missed, ...spares } = await deps.spares();
+		here = { machine: deps.here(), ...spares };
+		unread = missed;
 	} catch (error) {
 		// What spares a session couldn't be read, so it spares none.
 		const message = error instanceof Error ? error.message : String(error);
 		traced({ outcome: "unread", asks: named, error: message });
-		return because(refusal, UNREAD);
+		return because(refusal, unreadBecause(message));
 	}
 	const left = refusalOf(asks, sessions, self, here);
-	if (!left) {
-		const spared = sparedBy(asks, sessions, self, here);
-		traced({ outcome: "spared", asks: named, spared });
+	if (left) {
+		if (unread === undefined) return left;
+		traced({ outcome: "unread", asks: named, error: unread });
+		return because(left, unreadBecause(unread));
 	}
-	return left;
+	if (!plainlySaid([...said.prose, ...said.labels])) {
+		traced({ outcome: "not plain", asks: named });
+		return because(refusal, NOT_PLAIN);
+	}
+	const spared = sparedBy(asks, sessions, self, here);
+	traced({ outcome: "spared", asks: named, spared });
+	return undefined;
 }
 
 /** `refusal` with `why` said after its reason, known by the same key. */

@@ -265,6 +265,22 @@ describe("a spare beside the commands a reply shows", () => {
 		parked();
 
 		expect(await reply(said)).toBeDefined();
+		expect(
+			pi.recorded.entries.map((entry) => entry.data),
+			"refused for its commands, not for nothing being parked",
+		).toMatchObject([{ outcome: "not plain" }]);
+	});
+
+	it("says nothing of commands where no spare would have stood anyway", async () => {
+		interceptorOver([hosted("busy"), me], answering(false));
+
+		const verdict = await look("Reboot optimus with `sudo systemctl rescue`");
+
+		expect(verdict).toMatchObject({ block: true });
+		expect(verdict).not.toMatchObject({
+			reason: expect.stringMatching(/not all plain|none was spared/),
+		});
+		expect(pi.recorded.entries).toEqual([]);
 	});
 
 	it("lets a log-out through beside a plain command", async () => {
@@ -320,7 +336,9 @@ describe("what a spare leaves in the session's log", () => {
 
 		expect(verdict).toMatchObject({
 			block: true,
-			reason: expect.stringMatching(/couldn't be read, so none was spared/),
+			reason: expect.stringMatching(
+				/couldn't be read \(logind went away\), so none was spared/,
+			),
 		});
 		expect(traces()).toMatchObject([
 			{ data: { outcome: "unread", error: "logind went away" } },
@@ -337,6 +355,29 @@ describe("what a spare leaves in the session's log", () => {
 			reason: expect.stringMatching(/not all plain/),
 		});
 		expect(traces()).toMatchObject([{ data: { outcome: "not plain" } }]);
+	});
+
+	it("still spares a log-out where only the parked read failed, and says so of a reboot", async () => {
+		const spares = async () => ({
+			lingers: true,
+			parked: new Set<string>(),
+			unread: "the host list 7-1.json can't be read",
+		});
+		interceptorOver([hosted("idle"), me], spares);
+
+		expect(await reply("Please log out of niri on optimus.")).toBeUndefined();
+		const verdict = await look("Reboot optimus to install it");
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(
+				/the host list 7-1\.json can't be read.*so none was spared/,
+			),
+		});
+		expect(traces().map((entry) => entry.data)).toMatchObject([
+			{ outcome: "spared" },
+			{ outcome: "unread", error: "the host list 7-1.json can't be read" },
+		]);
 	});
 
 	it("logs nothing for an ask nothing spared or refused", async () => {
@@ -436,5 +477,23 @@ describe("what spares, read by default", () => {
 			readFileSync(ran, "utf8").split("\n").filter(Boolean).sort(),
 			"the stubs on the PATH it is given answered, not the machine's logind",
 		).toEqual(["busctl", "loginctl"]);
+	});
+
+	it("says what lingers though the parked sessions can't be read", async () => {
+		vi.stubEnv("XDG_STATE_HOME", bin);
+		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
+		stub("busctl", 'echo "b false"');
+		mkdirSync(stateDir("hosts"), { recursive: true });
+		writeFileSync(join(stateDir("hosts"), "7-1.json"), "{");
+		const deps = nodeDeps({
+			MYCELIUM_REALM: "work",
+			PATH: `${bin}:/usr/bin:/bin`,
+		});
+
+		expect(await deps.spares?.()).toEqual({
+			lingers: true,
+			parked: new Set(),
+			unread: expect.stringMatching(/7-1\.json can't be read/),
+		});
 	});
 });

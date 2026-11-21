@@ -26,7 +26,7 @@ import {
 import {
 	logOutSpares,
 	markedThisBoot,
-	parkedHere,
+	parkedHere as parkedHereAt,
 	runningInHosts,
 	withinPatience,
 } from "../../../../lib/internal/session-ending/here.ts";
@@ -148,6 +148,16 @@ describe("the sessions parked on this machine", () => {
 	/** Every session's marker reads as one from this boot. */
 	const marked = () => true;
 
+	/**
+	 * The parked sessions, read beside a next root of the test's own, so
+	 * one this machine has set changes nothing here.
+	 */
+	const parkedHere = (
+		markedBy: (session: string) => boolean,
+		running?: () => Promise<Set<string>>,
+		nextRoot = join(state, "no-next-root"),
+	) => parkedHereAt(markedBy, running, nextRoot);
+
 	/** A session's park marker, as parking writes it. */
 	const markerOf = (session: string): Parked => ({
 		session,
@@ -234,6 +244,16 @@ describe("the sessions parked on this machine", () => {
 		);
 	});
 
+	it("are none where the next root can't be read, since it may hold a tree", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		writeFileSync(nextRoot, "not a folder");
+
+		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
+			new Set(),
+		);
+	});
+
 	it("are still read where the next root is there but empty", async () => {
 		presence(join(home(), "mesh-workflow"), "slept", "parked");
 		const nextRoot = join(state, "nextroot");
@@ -247,13 +267,26 @@ describe("the sessions parked on this machine", () => {
 
 describe("a read of what spares, within its patience", () => {
 	it("answers what the read answers in time", async () => {
-		expect(await withinPatience(Promise.resolve("read"), 1000)).toBe("read");
+		expect(await withinPatience(async () => "read", 1000)).toBe("read");
 	});
 
 	it("fails once its patience is out, so the read spares nothing", async () => {
-		await expect(withinPatience(new Promise(() => {}), 20)).rejects.toThrow(
-			/20 ms/,
-		);
+		await expect(
+			withinPatience(() => new Promise(() => {}), 20),
+		).rejects.toThrow(/20 ms/);
+	});
+
+	it("fails a read that held the thread past its patience, though it answered", async () => {
+		const blocking = async () => {
+			// Holds the thread as a stuck synchronous file read would.
+			const until = Date.now() + 60;
+			while (Date.now() < until) {
+				// Busy on purpose: no timer can run until this returns.
+			}
+			return "late";
+		};
+
+		await expect(withinPatience(blocking, 20)).rejects.toThrow(/20 ms/);
 	});
 });
 

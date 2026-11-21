@@ -174,22 +174,29 @@ function codeOf(error: unknown): unknown {
 }
 
 /**
- * What `read` answers within `patienceMs`, failing once that is out, so
- * a read stuck on a slow disk spares nothing rather than holding up the
- * reply.
+ * What `read` answers within `patienceMs`, its clock started before the
+ * read is, failing once that is out, so a read stuck on a slow disk
+ * spares nothing rather than holding up the reply. A read that holds
+ * the thread, as a synchronous file read does, can't be cut short, but
+ * one that answers past its patience fails all the same.
  */
-export function withinPatience<T>(
-	read: Promise<T>,
+export async function withinPatience<T>(
+	read: () => Promise<T>,
 	patienceMs: number,
 ): Promise<T> {
+	const late = () => new Error(`what spares wasn't read in ${patienceMs} ms`);
+	const started = Date.now();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const out = new Promise<never>((_, reject) => {
-		timer = setTimeout(
-			() => reject(new Error(`what spares wasn't read in ${patienceMs} ms`)),
-			patienceMs,
-		);
+		timer = setTimeout(() => reject(late()), patienceMs);
 	});
-	return Promise.race([read, out]).finally(() => clearTimeout(timer));
+	try {
+		const answer = await Promise.race([Promise.resolve().then(read), out]);
+		if (Date.now() - started > patienceMs) throw late();
+		return answer;
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** What `command` printed, trimmed, or nothing when it failed or can't run. */

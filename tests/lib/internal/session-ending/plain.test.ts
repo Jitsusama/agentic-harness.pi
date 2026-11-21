@@ -16,6 +16,9 @@ describe("plainlySaid", () => {
 		"Log out with `loginctl terminate-session` or `niri msg action quit -s`.",
 		"Reboot:\n\n```sh\n# as root\n$ sudo  reboot\n\n```",
 		"The shutdown was clean, and a reboot follows.",
+		"Reboot optimus to finish the software update.",
+		"Reboot optimus - the update is staged.",
+		"Reboot:\n\n```\n# reboot\n```",
 	])("is plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(true);
 	});
@@ -34,6 +37,13 @@ describe("plainlySaid", () => {
 		"Reboot:\n\n```sh\nsudo systemctl isolate rescue.target\n```",
 		"Reboot:\n\n```console\n$ sudo reboot\n$ kexec -e\n```",
 		"Reboot:\n\n```yaml\nboot: rescue\n```",
+		"Reboot:\n\n```\n# kexec -e\n```",
+		"Reboot:\n\n```console\n# kexec -e\n```",
+		"Reboot:\n\n```text\n# kexec -e\n```",
+		"Log out, then kill $(pgrep -u joel).",
+		"Reboot optimus. Then:\n\n    kill 1234\n",
+		'Reboot optimus, then run "kill 1234".',
+		"Copy the tree into /run/nextroot, then reboot.",
 	])("is not plain: %s", (said) => {
 		expect(plainlySaid([said]), said).toBe(false);
 	});

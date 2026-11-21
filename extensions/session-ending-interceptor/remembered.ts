@@ -53,7 +53,15 @@ function sweepLeftovers(file: string): void {
 	const prefix = `${basename(file)}.`;
 	const folder = dirname(file);
 	const before = Date.now() - LEFTOVER_AGE_MS;
-	for (const name of readdirSync(folder)) {
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		// A folder that can't be listed leaves nothing to sweep: the sweep
+		// only bounds what is left, so the write goes on.
+		return;
+	}
+	for (const name of names) {
 		if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
 		const path = join(folder, name);
 		try {
