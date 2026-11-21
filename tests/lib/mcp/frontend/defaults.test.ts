@@ -4,6 +4,7 @@ import {
 	identityShape,
 	makeDefaultWrap,
 	makeTruncatingShape,
+	nameWords,
 	toAgentContent,
 	WRITE_VERBS,
 } from "../../../../lib/mcp/frontend/defaults.ts";
@@ -34,8 +35,8 @@ function result(
 
 /**
  * One real tool name for each word `WRITE_VERBS` lists, each holding no
- * other listed word, so taking any word out of the public list fails its
- * own row, and a word added without a row fails the pairing case.
+ * other listed word, so taking any word out of the list in `defaults.ts`
+ * fails its own row, and a word added without a row fails the pairing case.
  */
 const ONE_NAME_PER_WORD = [
 	"create_issue",
@@ -329,19 +330,42 @@ describe("defaultWriteSignal", () => {
 			ONE_NAME_PER_WORD,
 			"the table holds one name for each listed word",
 		).toHaveLength(WRITE_VERBS.size);
-		for (const word of [...WRITE_VERBS]) {
-			WRITE_VERBS.delete(word);
-			try {
-				const freed = ONE_NAME_PER_WORD.filter(
-					(name) => !defaultWriteSignal(tool(name)),
-				);
-				expect(
-					freed,
-					`taking "${word}" off the list leaves exactly one name ungated`,
-				).toHaveLength(1);
-			} finally {
-				WRITE_VERBS.add(word);
-			}
+		const gating = ONE_NAME_PER_WORD.map((name) =>
+			nameWords(name).filter((word) => WRITE_VERBS.has(word)),
+		);
+		for (const [at, words] of gating.entries()) {
+			expect(
+				words,
+				`${ONE_NAME_PER_WORD[at]} holds exactly one listed word`,
+			).toHaveLength(1);
+		}
+		// With as many names as words, each holding one, covering every word
+		// means each word is held once.
+		expect(new Set(gating.flat()), "the names hold every listed word").toEqual(
+			WRITE_VERBS,
+		);
+	});
+
+	it("refuses to change the exported list", () => {
+		const words: ReadonlySet<string> = WRITE_VERBS;
+		if (!(words instanceof Set)) throw new Error("WRITE_VERBS is a Set");
+		const before = [...words];
+		expect(() => words.add("provision")).toThrow(/read only.*writeSignal/);
+		expect(() => words.delete("delete")).toThrow(/read only/);
+		expect(() => words.clear()).toThrow(/read only/);
+		expect([...words], "the refusals leave the list whole").toEqual(before);
+	});
+
+	it("keeps its own words whatever an importer does to the list", () => {
+		Set.prototype.delete.call(WRITE_VERBS, "delete");
+		try {
+			expect(
+				defaultWriteSignal(tool("delete_branch")),
+				"delete_branch still gates after delete is taken off the exported list",
+			).toBe(true);
+		} finally {
+			// Back in the list, though at its end, so no case reads its order.
+			Set.prototype.add.call(WRITE_VERBS, "delete");
 		}
 	});
 
