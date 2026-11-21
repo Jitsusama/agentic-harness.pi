@@ -1,4 +1,11 @@
-/** The host starting and watching the children that run its resumed conversations, and letting each go. */
+/**
+ * The host starting and watching the children that run its resumed
+ * conversations, and letting each go.
+ *
+ * Long because each case races two of the supervisor's steps over the
+ * same slots and routes, as child-supervisor.ts is long for; its opens,
+ * claims and leavings already have files of their own.
+ */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
