@@ -871,7 +871,9 @@ describe("a tree standing where git won't read it", () => {
 		const cut = provider.ensure(snapshot());
 
 		await expect(cut).rejects.toThrow("nothing here takes that lock away");
-		await expect(cut).rejects.toThrow("from the clone that cut it, never inside it");
+		await expect(cut).rejects.toThrow(
+			"from the clone that cut it, never inside it",
+		);
 		await expect(cut).rejects.not.toThrow("ask again");
 	});
 

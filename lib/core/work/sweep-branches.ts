@@ -11,8 +11,8 @@
 
 import { basename, dirname, join, resolve } from "node:path";
 import type { HeldTree } from "./broker.ts";
-import { readPlain } from "./plain-file.ts";
 import { dropSettledMergedBranches } from "./merged-branch.ts";
+import { readPlain } from "./plain-file.ts";
 import type { SweepDeps, SweepOutcome } from "./sweep.ts";
 import { mainCheckoutOf } from "./sweep-idle.ts";
 

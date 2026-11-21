@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import { readPlain } from "../../../lib/core/work/plain-file.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
 	CANT_SAY,
@@ -687,5 +688,44 @@ describe("a snapshot at a stranded tree's commit", () => {
 		expect(existsSync(join(cut.entry, "locked")), "git's entry stays").toBe(
 			true,
 		);
+	});
+});
+
+// Every git file a stranded tree names is read this way, at a path
+// whatever ran in the tree could choose.
+describe("readPlain", () => {
+	it("reads a plain file", () => {
+		writeFileSync(join(root, "locked"), "initializing\n");
+
+		expect(readPlain(join(root, "locked"))).toBe("initializing\n");
+	});
+
+	it("reads nothing where nothing stands", () => {
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing through a link, which git never writes", () => {
+		writeFileSync(join(root, "elsewhere"), "on a drive away\n");
+		symlinkSync(join(root, "elsewhere"), join(root, "locked"));
+
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing from a folder", () => {
+		mkdirSync(join(root, "locked"));
+
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads nothing from a fifo, never waiting for its writer", () => {
+		writers.push(lateWriter(join(root, "locked"), "on a drive away"));
+
+		expect(readPlain(join(root, "locked"))).toBeUndefined();
+	});
+
+	it("reads no more than the start of a file grown huge", () => {
+		writeFileSync(join(root, "gitdir"), "x".repeat(1 << 20));
+
+		expect(readPlain(join(root, "gitdir"))).toHaveLength(4096);
 	});
 });
