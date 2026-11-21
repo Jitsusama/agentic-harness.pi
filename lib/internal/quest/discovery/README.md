@@ -23,6 +23,18 @@ quests it doesn't name, or that comes over a minute after the last walk,
 waits on a whole signing off the thread. An edit made through pi's write
 and edit tools, or by another process, shows by the next signing.
 
+Where the login has a runtime folder, as on optimus, every quest write
+in every process is noted in a journal beside the quest locks
+(`../write-journal.ts`), and each ask reads the journal's new lines and
+re-reads just the quests they name. Another process's writes then show
+at the next ask, so a host signs its tree whole only every five minutes,
+and an action acts on the journal for those five minutes rather than
+waiting on a signing after one. A journal that started afresh since the
+last read starts a whole signing. Hand edits, through pi's write and
+edit tools or anything but the workflow, now show by that five-minute
+signing. With no runtime folder, as on the Mac, there is no journal, and
+the timings above hold.
+
 What the walk finds wrong with the tree's layout, such as a quest folder
 with no README, goes to a record in the workflow's state folder
 (`layout-faults.ts`) rather than onto the screen at every start and

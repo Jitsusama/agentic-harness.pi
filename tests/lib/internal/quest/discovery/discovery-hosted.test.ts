@@ -15,7 +15,14 @@
  */
 
 import * as fs from "node:fs";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,8 +39,13 @@ import { ThreadsHeld } from "../../../../../lib/internal/quest/discovery/tree-th
 import { takeSeed } from "../../../../../lib/internal/quest/discovery-seed.ts";
 import {
 	atomicWriteFile,
+	useRunFolderForTests,
 	withQuestLock,
 } from "../../../../../lib/internal/quest/io.ts";
+import {
+	journalIn,
+	noteQuestWrite,
+} from "../../../../../lib/internal/quest/write-journal.ts";
 import { installTestHost } from "../../../../support/session-host.ts";
 import {
 	ID,
@@ -896,6 +908,91 @@ describe("discovery on a host", () => {
 		const fresh = await discoverQuestsAfresh(root);
 		expect(fresh.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
 		expect(listings.mock.calls).toEqual([]);
+	});
+});
+
+describe("discovery on a host, read on through the journal of quest writes", () => {
+	let run: string;
+	let journal: string;
+
+	beforeEach(() => {
+		host = installTestHost();
+		run = mkdtempSync(join(tmpdir(), "journal-run-"));
+		const locks = join(run, "agentic-harness.pi", "quest-locks");
+		mkdirSync(locks, { recursive: true, mode: 0o700 });
+		journal = journalIn(locks);
+		useRunFolderForTests(run);
+	});
+
+	afterEach(() => {
+		useRunFolderForTests(undefined);
+		rmSync(run, { recursive: true, force: true });
+	});
+
+	/** A write another process made to `quest` and noted, as io.ts notes one. */
+	function writtenElsewhere(status: string, quest = ID): void {
+		const path = join(root, quest, "README.md");
+		writeSettled(path, readme(status).replaceAll(ID, quest));
+		noteQuestWrite(journal, join(root, quest));
+	}
+
+	it("shows another process's noted write at the next ask, with no signing", () => {
+		expect(statusNow()).toBe("active");
+		writtenElsewhere("paused");
+		expect(statusNow()).toBe("paused");
+		later(6_000);
+		expect(statusNow()).toBe("paused");
+		expect(signing.walks, "no signing off the thread").toBe(0);
+	});
+
+	it("reads the journal's lines only, not the tree, to find the quest", () => {
+		settledOther();
+		discoverQuests(root);
+		clearCalls();
+		writtenElsewhere("paused", OTHER);
+		expect(otherStatus()).toBe("paused");
+		expect(touching(join(root, ID))).toEqual([]);
+		expect(rootListings()).toEqual([]);
+	});
+
+	it("signs the whole tree again only after five minutes", async () => {
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		later(4 * 60_000);
+		expect(statusNow()).toBe("active");
+		await discoverySettled(root);
+		expect(signing.walks, "no signing inside five minutes").toBe(0);
+		later(61_000);
+		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks).toBe(1);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("lets an action a minute on act on the journal rather than wait on a signing", async () => {
+		discoverQuests(root);
+		writtenElsewhere("paused");
+		later(90_000);
+		await readyQuests(root, [ID], false);
+		expect(signing.walks, "no signing waited on").toBe(0);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("signs the tree whole when the journal started afresh since its mark", async () => {
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		renameSync(journal, `${journal}.old`);
+		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks).toBe(1);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("notes this process's own quest writes in the journal", () => {
+		atomicWriteFile(readmePath, readme("paused"));
+		expect(readFileSync(journal, "utf8")).toBe(`${join(root, ID)}\n`);
 	});
 });
 
