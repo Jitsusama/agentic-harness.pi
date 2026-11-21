@@ -22,6 +22,12 @@ const ADDRESS = /^[A-Za-z0-9]{1,32}$/u;
 /** A sprout's id, as an alias value carries it. */
 const SPROUT_ID = /^[A-Za-z0-9._-]{1,64}$/u;
 
+/**
+ * A need's id as the mesh mints one (lib/mesh/need-route.ts `needId`):
+ * the asker's address, then a base-36 stamp and twelve hex digits.
+ */
+const NEED_ID = /^([A-Za-z0-9]{1,32})\/[0-9a-z]{1,16}\.[0-9a-f]{12}$/u;
+
 /** The most words read, past the map's 1000 and the launcher's line. */
 const MOST_WORDS = 4000;
 
@@ -41,6 +47,8 @@ export interface SproutSeed {
 	readonly from?: string;
 	/** The sprout's own id, which makes it once only. */
 	readonly id?: string;
+	/** The id of the mesh need this sprout takes on, when one sent it. */
+	readonly need?: string;
 }
 
 /**
@@ -63,8 +71,8 @@ function webLink(text: string): string | undefined {
  * The seed in `raw`, or nothing when there is none or any part of it is
  * out of shape: not JSON, another version, a field of the wrong type,
  * neither words nor a link, a link that isn't a web URL, a from that
- * isn't an address, or an id that can't be an alias. Keys it doesn't
- * know are left alone.
+ * isn't an address, an id that can't be an alias, or a need that isn't
+ * a need's id. Keys it doesn't know are left alone.
  */
 export function sproutSeedFrom(
 	raw: string | undefined,
@@ -78,7 +86,7 @@ export function sproutSeedFrom(
 		return undefined;
 	}
 	if (!isRecord(parsed) || parsed.v !== SPROUT_VERSION) return undefined;
-	const { words, link, from, id } = parsed;
+	const { words, link, from, id, need } = parsed;
 	const text = (value: unknown): string | undefined | false =>
 		value === undefined
 			? undefined
@@ -86,8 +94,10 @@ export function sproutSeedFrom(
 				? value.trim()
 				: false;
 	const [w, l, f, i] = [text(words), text(link), text(from), text(id)];
-	if (w === false || l === false || f === false || i === false)
+	const n = text(need);
+	if (w === false || l === false || f === false || i === false || n === false)
 		return undefined;
+	if (n && !NEED_ID.test(n)) return undefined;
 	if (!w && !l) return undefined;
 	if (w && w.length > MOST_WORDS) return undefined;
 	const href = l ? webLink(l) : undefined;
@@ -99,7 +109,13 @@ export function sproutSeedFrom(
 		...(href ? { link: href } : {}),
 		...(f ? { from: f } : {}),
 		...(i ? { id: i } : {}),
+		...(n ? { need: n } : {}),
 	};
+}
+
+/** The cell that put need `id`, its address being the id's first part. */
+export function needAsker(id: string): string | undefined {
+	return NEED_ID.exec(id)?.[1];
 }
 
 /**

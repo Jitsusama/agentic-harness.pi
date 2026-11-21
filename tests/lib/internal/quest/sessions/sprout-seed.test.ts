@@ -5,12 +5,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	needAsker,
 	sproutAlias,
 	sproutedWords,
 	sproutSeedFrom,
 	tieArguments,
 	titleFromWords,
 } from "../../../../../lib/internal/quest/sessions/sprout-seed.ts";
+import { needId } from "../../../../../lib/mesh/need-route.ts";
 
 const seed = (fields: Record<string, unknown>): string =>
 	JSON.stringify({ v: 1, ...fields });
@@ -89,6 +91,34 @@ describe("a sprout's seed", () => {
 	it("takes none of a field of the wrong type", () => {
 		expect(sproutSeedFrom(seed({ words: ["tea"] }))).toBeUndefined();
 		expect(sproutSeedFrom(seed({ words: "tea", id: 7 }))).toBeUndefined();
+	});
+
+	it("takes the need it was sent for, by the id the mesh minted, naming who asked", () => {
+		const need = needId("TERN02", Date.parse("2026-11-21T12:00:00Z"));
+
+		const read = sproutSeedFrom(seed({ words: "tea", need }));
+
+		expect(read, "the need's id is kept").toEqual({ words: "tea", need });
+		expect(needAsker(need), "its first part names the asker").toBe("TERN02");
+	});
+
+	it("takes none of it when the need isn't a need's id", () => {
+		for (const need of [
+			"TERN02",
+			"TERN 02/mi1x.0123456789ab",
+			"TERN02/mi1x.0123",
+			"TERN02/mi1x.0123456789ab extra",
+			"a/b/mi1x.0123456789ab",
+		]) {
+			expect(
+				sproutSeedFrom(seed({ words: "tea", need })),
+				`an out-of-shape need drops the whole seed: ${need}`,
+			).toBeUndefined();
+		}
+		expect(
+			sproutSeedFrom(seed({ words: "tea", need: 7 })),
+			"a need of the wrong type drops the seed",
+		).toBeUndefined();
 	});
 });
 
