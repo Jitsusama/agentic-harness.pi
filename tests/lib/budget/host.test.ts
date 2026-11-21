@@ -8,6 +8,7 @@
  * split by question, each file would rebuild the same fixture.
  */
 
+import { stat } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
@@ -143,6 +144,30 @@ describe("the budget host", () => {
 			provider: "stuck\nforged line",
 			reason: "It didn't answer within 0.02 s.",
 		});
+	});
+
+	it("takes an answer whose read finished while the loop stalled past the deadline", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		host.registerProvider({
+			id: "files",
+			precedence: 0,
+			// One read of the disk, which finishes while the loop is held.
+			resolve: () =>
+				new Promise((done) => stat(".", () => done(drawn("mine")))),
+		});
+
+		// Drawn from the check phase, as a turn after I/O is, so the loop's
+		// next phase is its timers: the order a stalled host meets them in.
+		await new Promise((next) => setImmediate(next));
+		const drawing = host.draw("delta");
+		// The loop held well past the deadline, as a busy host holds it.
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+
+		expect(
+			await drawing,
+			"the drawing read while the loop was held, not late",
+		).toMatchObject({ kind: "drawn", provider: "files" });
 	});
 
 	it("waits on a provider past its deadline, and says the name it drew on then", async () => {

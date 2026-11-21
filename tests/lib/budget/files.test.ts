@@ -1,4 +1,13 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+	chmodSync,
+	closeSync,
+	mkdtempSync,
+	open,
+	openSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +15,11 @@ import {
 	budgetFileProvider,
 	parseBudgetFile,
 } from "../../../lib/budget/files.ts";
+
+/** Every thread of libuv's pool: four unless the process was given more. */
+const POOL_THREADS = Number(process.env.UV_THREADPOOL_SIZE) || 4;
+/** Far longer than a read of a few lines takes, held pool or not. */
+const ANSWER_WITHIN_MS = 2_000;
 
 let folder: string;
 beforeEach(() => {
@@ -58,6 +72,45 @@ describe("the file provider", () => {
 			env: { KEY: "two" },
 			label: "plain",
 		});
+	});
+
+	it("answers while libuv's pool is busy, not queued behind its work", async () => {
+		writeFileSync(join(folder, "acme.env"), "KEY=one\n");
+		// Each opening of a pipe nobody writes to holds a pool thread, idle,
+		// as a busy pi host's queued reads do: a read sent through the pool
+		// waits behind them.
+		const pipe = join(folder, "held");
+		execFileSync("mkfifo", [pipe]);
+		const held = Array.from(
+			{ length: POOL_THREADS },
+			() =>
+				new Promise<void>((done) =>
+					open(pipe, "r", (_, fd) => {
+						if (fd !== undefined) closeSync(fd);
+						done();
+					}),
+				),
+		);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+
+		const first = await Promise.race([
+			budgetFileProvider(folder)
+				.resolve("acme")
+				.then(() => "the budget"),
+			new Promise<string>((done) => {
+				timer = setTimeout(() => done("the clock"), ANSWER_WITHIN_MS);
+			}),
+		]);
+		clearTimeout(timer);
+		// Opened to read and write, the pipe has a writer, which lets every
+		// held opening go, and kept open until each has, late or not.
+		const writer = openSync(pipe, "r+");
+		await Promise.all(held);
+		closeSync(writer);
+
+		expect(first, "the budget answers while every pool thread is held").toBe(
+			"the budget",
+		);
 	});
 
 	it("runs an executable <name> and reads what it prints", async () => {
