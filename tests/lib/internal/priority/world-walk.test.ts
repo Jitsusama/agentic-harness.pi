@@ -63,6 +63,9 @@ describe("a walk of World's objects", () => {
 			"git clone ~/world/git /tmp/copy",
 			"git fetch file:///home/j/world/git main",
 			"git --git-dir=/home/j/world/git fetch origin",
+			// git takes these long options' values as the next word too.
+			"git --git-dir ~/world/git rebase x",
+			"git --work-tree /home/j/world/trees/a/src --namespace n merge x",
 			// Run from outside the tree, naming it.
 			"git -C /home/j/world/trees/w-main/src rebase origin/main",
 		]) {
@@ -111,6 +114,15 @@ describe("a walk of World's objects", () => {
 			"git sparse-checkout check-rules",
 			"git rebase --help",
 			"git cherry-pick -h",
+			// Help goes free for every walk, asked before or after it.
+			"git push --help",
+			"git fetch -h",
+			"git gc --help",
+			"git --help rebase",
+			"git -h merge",
+			"git sparse-checkout --help",
+			// Alone, it only prints its usage.
+			"git sparse-checkout",
 			"echo git push",
 			"gh pr create --title 'git push it'",
 			"rg 'git fetch' scripts",
@@ -127,11 +139,18 @@ describe("a walk of World's objects", () => {
 	});
 
 	it("reads a long run of options in time that grows with it, not past it", () => {
-		// Each option reads one way, so a run of them with no walk after
-		// fails at once rather than trying every way to split them.
-		for (const options of ["--a-b ".repeat(400), "-c ".repeat(60)]) {
+		// Each option reads one way, so a run of them fails at once rather
+		// than trying every way to split them: past the reads, which a step
+		// that isn't one tries first, and to the walk itself.
+		const runs = ["--a-b ".repeat(400), "-c ".repeat(60), "-C x ".repeat(60)];
+		for (const options of runs) {
 			const started = performance.now();
+			expect(kindOf(`git ${options}rebase x`, inWorld)).toBe("world-walk");
+			expect(kindOf(`git ${options}nothing`, inWorld)).toBeUndefined();
 			expect(kindOf(`git ${options}status`, inWorld)).toBeUndefined();
+			expect(
+				kindOf(`timeout ${"--a-b ".repeat(400)}5 git ${options}x`, inWorld),
+			).toBeUndefined();
 			expect(performance.now() - started).toBeLessThan(1_000);
 		}
 	});
@@ -152,6 +171,10 @@ describe("a walk of World's objects", () => {
 		expect(waitReasons(jobs, calm, NOW).get("two")).toBe("walks");
 		const later = NOW + WALK_SETTLES_MS;
 		expect(nextTurn(jobs, calm, later)?.id).toBe("two");
+		// Only a walk still running holds the next back: one that has
+		// ended leaves the queue, and its stall is in the minute's figure.
+		const ended = jobs.filter((one) => one.id !== "one");
+		expect(nextTurn(ended, calm, NOW)?.id).toBe("two");
 	});
 
 	it("runs at most two at once while memory flows, and lets others past", () => {
@@ -307,9 +330,19 @@ describe("walks of World's objects among themselves", () => {
 			"git fetch origin main && git fetch origin x",
 			"git push origin x && git fetch origin x",
 			"git gc --auto",
+			"git fetch origin x && git rebase FETCH_HEAD",
 		]) {
 			expect(walkOf(other, inWorld), other).toBe("other");
 		}
+		for (const own of [
+			"git rebase origin/main",
+			"git fetch origin main && git rebase origin/main",
+			"git cherry-pick abc123",
+			"git sparse-checkout add areas/tools",
+		]) {
+			expect(walkOf(own, inWorld), own).toBe("branch");
+		}
+		expect(walkOf("git rebase origin/main && git push", inWorld)).toBe("push");
 		expect(
 			walkOf("git fetch origin main", { cwd: `${home}/src/core.nix`, home }),
 		).toBeUndefined();
@@ -339,6 +372,21 @@ describe("walks of World's objects among themselves", () => {
 		];
 		const after = busy.filter((one) => one.id !== "two" && one.id !== "build");
 		expect(nextTurn(after, plenty, NOW)?.id).toBe("push");
+	});
+
+	it("keeps a branch's own rebase among the pushes, in the order they asked", () => {
+		// With one walk let run while memory stalls, a rebase behind every
+		// push would wait for as long as pushes kept arriving.
+		const jobs = [
+			walk("review", { walk: "other", since: startedAgo(9_000) }),
+			walk("rebase", { walk: "branch", since: startedAgo(8_000) }),
+			walk("push", { walk: "push", since: startedAgo(6_000) }),
+		];
+		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+			"rebase",
+			"push",
+			"review",
+		]);
 	});
 
 	it("holds a fetch of main while one runs, letting other walks past", () => {

@@ -113,11 +113,14 @@ function narrowest(
 
 /**
  * What a walk of World's objects does, for its place among the walks
- * waiting: `push`, every walk it runs is a push or a fetch of origin's
- * main, at least one a push; `main-fetch`, every one is a plain fetch
- * of origin's main, which a fetch of main just made can answer (see
- * fetched.ts); `other`, it walks for anything else, as a fetch of
- * another person's branch does. Nothing for a command that walks none.
+ * waiting: `push`, every walk it runs is a push, a fetch of origin's
+ * main or a branch's own work, at least one a push; `main-fetch`, every
+ * one is a plain fetch of origin's main, which a fetch of main just made
+ * can answer (see fetched.ts); `branch`, every one is a fetch of main or
+ * a branch's own work, at least one the latter: a rebase, cherry-pick,
+ * revert, merge or `sparse-checkout`; `other`, it walks for anything
+ * else, as a fetch of another person's branch does. Nothing for a
+ * command that walks none.
  */
 export function walkOf(
 	command: string,
@@ -126,7 +129,8 @@ export function walkOf(
 	const walks = worldWalks(runSteps(command), where).map(walkDoes);
 	if (walks.length === 0) return undefined;
 	if (walks.every((walk) => walk === "main-fetch")) return "main-fetch";
-	return walks.every((walk) => walk !== "other") ? "push" : "other";
+	if (walks.includes("other")) return "other";
+	return walks.includes("push") ? "push" : "branch";
 }
 
 /**
@@ -158,9 +162,24 @@ function lastSayOnHooks(rest: string): string | undefined {
 		.pop();
 }
 
+/**
+ * The subcommands that work on a branch of one's own, which wait among
+ * pushes rather than behind them: with one walk let run while memory
+ * stalls, a rebase ranked behind pushes would wait for as long as
+ * pushes kept arriving.
+ */
+const BRANCH_WORK: ReadonlySet<string> = new Set([
+	"rebase",
+	"cherry-pick",
+	"revert",
+	"merge",
+	"sparse-checkout",
+]);
+
 /** What one walk does, from its git subcommand and what follows it. */
 function walkDoes(walk: RegExpExecArray): Walk {
 	if (walk[2] === "push") return "push";
+	if (BRANCH_WORK.has(walk[2] ?? "")) return "branch";
 	return walk[2] === "fetch" && answersFetch(walk) ? "main-fetch" : "other";
 }
 
@@ -218,17 +237,19 @@ const WORLD_FOLDER = "world";
  * November, with no turn (80ECO2). What only steers one of those or
  * reads where it stands walks nothing, and goes free, so a checkout
  * stuck mid-rebase can be put back while memory is pressed: `--abort`,
- * `--quit`, `--show-current-patch` and `--edit-todo`, their help, and
- * `sparse-checkout list` and `check-rules`. `--continue` and `--skip` go
- * on applying commits, so they walk. Options are kept, to read the
- * folder `-C` names, then the subcommand, and the rest, to read a path
- * it fetches from or clones and what it fetches. Each option reads one
- * way only: `-c` and `-C` take the word after them, and no other option
- * starts with either alone, so a long run of them can't make the match
- * backtrack.
+ * `--quit`, `--show-current-patch` and `--edit-todo`, `sparse-checkout`
+ * alone, its `list` and `check-rules`, and help, asked before or after
+ * any of these subcommands. `--continue` and `--skip` go on applying
+ * commits, so they walk. Options are kept, to read the folders `-C`,
+ * `--git-dir` and `--work-tree` name, then the subcommand, and the rest,
+ * to read a path it fetches from or clones and what it fetches. Each
+ * option reads one way only: `-c`, `-C`, `--git-dir`, `--work-tree` and
+ * `--namespace` take the word after them unless they hold it after an
+ * `=`, and no other option is read as one of them, so a long run of
+ * options can't make the match backtrack.
  */
 export const GIT_WALK =
-	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--\w[\w-]*(?:=\S+)?|-(?![cC](?:\s|$))\w[\w-]*(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|(?:rebase|cherry-pick|revert|merge)(?!\s+(?:--(?:abort|quit|show-current-patch|edit-todo|help)|-h)(?![\w-]))|sparse-checkout(?!\s+(?:list|check-rules|--help|-h)(?![\w-])))(?![\w.=-])(.*)$/;
+	/(?<![\w.-])git((?:\s+(?:-C\s+\S+|-c\s+\S+|--(?:git-dir|work-tree|namespace)(?:=\S+|\s+\S+)|--(?!(?:git-dir|work-tree|namespace|help)(?![\w-]))\w[\w-]*(?:=\S+)?|-(?![cCh](?:\s|$))\w[\w-]*(?:=\S+)?))*)\s+(push|fetch|pull|clone|gc|repack|pack-objects|(?:rebase|cherry-pick|revert|merge)(?!\s+--(?:abort|quit|show-current-patch|edit-todo)(?![\w-]))|sparse-checkout(?!\s+(?:list|check-rules)(?![\w-])|\s*$))(?!\s+(?:--help|-h)(?![\w-]))(?![\w.=-])(.*)$/;
 
 /** A variable set as a step's first word, as `T=~/world/trees/a/src`. */
 const SETS = /^(?:export\s+)?([A-Za-z_]\w*)=(\S*)(?:\s+|$)/;
@@ -290,7 +311,11 @@ export function worldWalks(
 		let at = folder;
 		const named: (string | undefined)[] = [];
 		options.forEach((option, index) => {
-			if (option === "-C") at = pathOf(options[index + 1] ?? "", at);
+			const next = options[index + 1] ?? "";
+			if (option === "-C") at = pathOf(next, at);
+			if (option === "--git-dir" || option === "--work-tree") {
+				named.push(pathOf(next, at));
+			}
 			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option)?.[1];
 			if (dir !== undefined) named.push(pathOf(dir, at));
 		});

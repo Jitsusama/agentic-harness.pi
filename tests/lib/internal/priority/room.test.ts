@@ -105,6 +105,19 @@ describe("the machine's room", () => {
 		expect(reading.memoryFullMinute).toBe(11.04);
 	});
 
+	it("reads the minute as calm when memory's file has no full line, so walks fail open", async () => {
+		const dir = proc(40);
+		writeFileSync(
+			join(dir, "pressure", "memory"),
+			"some avg10=19.66 avg60=14.15 avg300=11.66 total=3\n",
+		);
+		const reading = await readRoom([], {
+			proc: dir,
+			cgroups: join(root, "cgroups"),
+		});
+		expect(reading.memoryFullMinute).toBe(0);
+	});
+
 	it("reads the CPU pressure the person's own programs feel, apart from the machine's", async () => {
 		// 21:27 on 7 November: the machine read 63% and app.slice 0.3%.
 		const app = cgroup("app.slice", 8 * GIB);

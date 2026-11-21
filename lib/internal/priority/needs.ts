@@ -20,7 +20,7 @@ export type Kind =
  * What a walk of World's objects does, as world-walk.ts's `walkOf` reads
  * it.
  */
-export type Walk = "push" | "main-fetch" | "other";
+export type Walk = "push" | "main-fetch" | "branch" | "other";
 
 /**
  * How a kind is run: timed work's result depends on its timing, so it

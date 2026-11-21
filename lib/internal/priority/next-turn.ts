@@ -78,8 +78,10 @@ export function waitingInOrder(
 
 /**
  * The line, with its walks of World's objects reordered among the
- * places walks hold: pushes and fetches of main first, then the rest, as
- * fetches of other people's branches, each group in the order it had.
+ * places walks hold: pushes, fetches of main and a branch's own rebases,
+ * cherry-picks, reverts, merges and sparse-checkouts first, then the
+ * rest, as fetches of other people's branches, each group in the order
+ * it had.
  * Other work keeps its place. On 5 November a push of Joel's waited 61
  * minutes behind review fetches of single branches (80ECO2).
  */
@@ -88,7 +90,7 @@ function walksLeadingFirst(line: Job[]): Job[] {
 		job.kind === "world-walk" ? [at] : [],
 	);
 	const walks = line.filter((job) => job.kind === "world-walk");
-	const leads = (job: Job) => job.walk === "push" || job.walk === "main-fetch";
+	const leads = (job: Job) => job.walk !== undefined && job.walk !== "other";
 	const ordered = [
 		...walks.filter(leads),
 		...walks.filter((job) => !leads(job)),
