@@ -37,7 +37,7 @@
  * responsible for `mkdir -p` when they first write.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { realmSegments } from "./machine/realm.ts";
@@ -122,9 +122,11 @@ export function everyRealmsDir(kind: "data" | "state", slug: string): string[] {
  */
 export function whyRealmsUnlisted(kind: "data" | "state"): string | undefined {
 	const realms = join(xdgRoot(kind), "pi", PACKAGE_DIR, "realms");
-	// A machine that never kept another realm has no realms folder.
-	if (!existsSync(realms)) return undefined;
 	try {
+		// A machine that never kept another realm has no realms folder; one
+		// that is a link to nothing may lead to realms elsewhere.
+		if (lstatSync(realms, { throwIfNoEntry: false }) === undefined)
+			return undefined;
 		const linked = readdirSync(realms, { withFileTypes: true }).find((entry) =>
 			entry.isSymbolicLink(),
 		);

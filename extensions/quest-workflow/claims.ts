@@ -15,8 +15,15 @@
  * side importing the other.
  */
 
-import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import {
+	accessSync,
+	constants,
+	existsSync,
+	lstatSync,
+	readdirSync,
+	statSync,
+} from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
@@ -26,6 +33,7 @@ import {
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
 import { everyRealmsDir, whyRealmsUnlisted } from "../../lib/internal/paths.ts";
+import { isId, prefixOf } from "../../lib/internal/quest/creation/id.ts";
 import {
 	type DiscoveryResult,
 	discoverQuests,
@@ -105,7 +113,7 @@ export function liveQuestTrees(questsRoot: string): string[] {
  * Why the quests can't all be read for their claims, or nothing: every
  * realm must be listed, the quests root this realm's config names must
  * be a folder, and every other realm's store that stands, or is a link,
- * must list, with every quest's README in each read. A store read as
+ * must list, with every quest folder in each read. A store read as
  * empty, or a quest left out of it, claims nothing, so those quests'
  * trees would be taken as nobody's.
  */
@@ -113,6 +121,7 @@ export function whyQuestsUnread(questsRoot: string): string | undefined {
 	const realms = whyRealmsUnlisted("data");
 	if (realms !== undefined) return realms;
 	for (const store of storesOf(questsRoot)) {
+		let names: string[];
 		try {
 			const found = statSync(store, { throwIfNoEntry: false });
 			// Another realm that never kept a quest has nothing to claim; one
@@ -122,21 +131,37 @@ export function whyQuestsUnread(questsRoot: string): string | undefined {
 				lstatSync(store, { throwIfNoEntry: false }) === undefined;
 			if (absent && store !== questsRoot) continue;
 			if (found?.isDirectory() !== true) return `the quests aren't at ${store}`;
-			readdirSync(store);
+			names = readdirSync(store);
 		} catch (error) {
 			const why = error instanceof Error ? error.message : String(error);
 			return `the quests at ${store} can't be looked at: ${why}`;
 		}
-		// A quest whose README can't be read drops out of the walk, so the
-		// trees it lists would go as nobody's; the claims read the same walk.
-		const walk = discoverQuests(store);
-		const walked = new Set(
-			[...walk.index.quests.values()].map((quest) => quest.dir),
-		);
-		const hidden = walk.errors.find((error) => hidesClaims(error, walked));
-		if (hidden !== undefined) {
-			return `the quest at ${dirname(hidden.path)} can't be read for its claims: ${hidden.message}`;
-		}
+		const left = whyQuestLeftOut(store, names, discoverQuests(store));
+		if (left !== undefined) return left;
+	}
+	return undefined;
+}
+
+/**
+ * Why a quest folder in `store` is missing from `walk`, the walk the
+ * claims read, or nothing when each is a folder the walk read or one
+ * still being made. Folders are counted rather than errors read, since
+ * the walk leaves some out with no error: a link, or a quest whose id
+ * another folder's README also names, which takes its place.
+ */
+function whyQuestLeftOut(
+	store: string,
+	names: readonly string[],
+	walk: DiscoveryResult,
+): string | undefined {
+	const walked = new Set(
+		[...walk.index.quests.values()].map((quest) => quest.dir),
+	);
+	for (const name of names) {
+		if (!isId(name) || prefixOf(name) !== "QEST") continue;
+		const dir = join(store, name);
+		if (walked.has(dir) || beingMade(dir)) continue;
+		return `the quest at ${dir} can't be read for its claims: ${whyLeftOut(dir, walk)}`;
 	}
 	return undefined;
 }
@@ -145,26 +170,37 @@ export function whyQuestsUnread(questsRoot: string): string | undefined {
 const QUEST_README = "README.md";
 
 /**
- * Whether a walk's error left out a quest that may list trees. A quest
- * the walk still indexed, such as one whose folder is named apart from
- * its id, has its claims read, and one still being made, with no README
- * or an empty one, lists none; one whose README stands but won't read or
- * parse, or can't even be looked at, may list any.
+ * Whether `dir` is a quest still being made: a folder of its own with
+ * no README yet, or an empty one, so it lists no trees.
  */
-function hidesClaims(
-	error: { path: string; message: string },
-	walked: ReadonlySet<string>,
-): boolean {
-	if (basename(error.path) !== QUEST_README) return false;
-	if (walked.has(dirname(error.path))) return false;
-	if (error.message !== README_MISSING) return true;
+function beingMade(dir: string): boolean {
 	try {
-		const readme = statSync(error.path, { throwIfNoEntry: false });
-		return readme !== undefined && readme.size > 0;
+		if (!lstatSync(dir).isDirectory()) return false;
+		const readme = statSync(join(dir, QUEST_README), { throwIfNoEntry: false });
+		return readme === undefined || readme.size === 0;
 	} catch {
-		// A README that can't be looked at may list any tree.
-		return true;
+		// A folder or README that can't be looked at may list any tree.
+		return false;
 	}
+}
+
+/** What kept the walk from reading the quest at `dir`, in a few words. */
+function whyLeftOut(dir: string, walk: DiscoveryResult): string {
+	const readme = join(dir, QUEST_README);
+	try {
+		if (lstatSync(dir).isSymbolicLink())
+			return "it is a link, which the walk doesn't follow";
+		accessSync(readme, constants.R_OK);
+	} catch (error) {
+		const why = error instanceof Error ? error.message : String(error);
+		return `its README can't be read: ${why}`;
+	}
+	const said = walk.errors.find(
+		(error) => error.path === readme && error.message !== README_MISSING,
+	);
+	return (
+		said?.message ?? "another folder's README names its id, and took its place"
+	);
 }
 
 /**

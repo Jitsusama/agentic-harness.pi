@@ -514,23 +514,32 @@ it("exits 0 only after a sweep that ran or met another's, with no trouble beside
 	});
 });
 
-it("passes over a module in a work tree, where a sandboxed command writes", async () => {
-	const trees = join(work(), "trees", "someone");
-	mkdirSync(trees, { recursive: true });
-	const planted = join(trees, "providers.mjs");
-	writeFileSync(
-		planted,
-		`export default () => [${providerSource("world-dev-tree")}];\n`,
-	);
-	vi.spyOn(process.stderr, "write").mockReturnValue(true);
+it.each([
+	["a work tree", () => join(work(), "trees", "someone")],
+	[
+		"a quest's scratch",
+		() =>
+			join(root, "cache", "pi", "agentic-harness.pi", "quest-workspace", "Q"),
+	],
+])(
+	"passes over a module in %s, where a sandboxed command writes",
+	async (_, folder) => {
+		const planted = join(folder(), "providers.mjs");
+		mkdirSync(folder(), { recursive: true });
+		writeFileSync(
+			planted,
+			`export default () => [${providerSource("world-dev-tree")}];\n`,
+		);
+		vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
-	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: planted } });
+		const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: planted } });
 
-	expect(ran.troubles, "what went wrong beside").toEqual([
-		`${planted}: it sits where a sandboxed command can write, and it would run outside the fence`,
-	]);
-	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
-});
+		expect(ran.troubles, "what went wrong beside").toEqual([
+			`${planted}: it sits where a sandboxed command can write, and it would run outside the fence`,
+		]);
+		expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	},
+);
 
 it("passes over a module whole when it gives anything but providers", async () => {
 	const mixed = module(
@@ -767,11 +776,63 @@ it("fails before sweeping when the realms can't be listed", async () => {
 		expect(ran.end, "how the run ended").toBe("failed");
 		expect(seen.claims, "the sweeps it ran").toEqual([]);
 		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
-			"can't be looked at",
+			`the realms at ${realms} can't be looked at`,
 		);
 	} finally {
 		chmodSync(realms, 0o700);
 	}
+});
+
+it("fails before sweeping when the realms folder is a link to nothing", async () => {
+	// It may lead to realms elsewhere, whose quests would claim nothing.
+	const realms = join(root, "data", "pi", "agentic-harness.pi", "realms");
+	mkdirSync(join(realms, ".."), { recursive: true });
+	symlinkSync(join(root, "realms-gone"), realms);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the realms at ${realms} can't be looked at`,
+	);
+});
+
+it("fails before sweeping when another folder's README takes a quest's id", async () => {
+	// The walk keeps one quest per id, so the other's trees would go.
+	questListing(SPENT);
+	questListing("/src/repo/.worktrees/copy", { id: "QEST-20260731-BBBBBB" });
+	const copy = join(seen.quests, "QEST-20260731-BBBBBB", "README.md");
+	writeFileSync(
+		copy,
+		readFileSync(copy, "utf8").replace(
+			"id: QEST-20260731-BBBBBB",
+			"id: QEST-20260731-AAAAAA",
+		),
+	);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		"can't be read for its claims",
+	);
+});
+
+it("fails before sweeping when a quest's folder is a link", async () => {
+	// The walk doesn't follow it, so the trees it lists would go.
+	const kept = join(root, "kept");
+	questListing(SPENT, { store: kept });
+	const quest = join(seen.quests, "QEST-20260731-AAAAAA");
+	symlinkSync(join(kept, "QEST-20260731-AAAAAA"), quest);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+		`the quest at ${quest} can't be read for its claims: it is a link`,
+	);
 });
 
 it("fails before sweeping when a realm is reached through a link", async () => {

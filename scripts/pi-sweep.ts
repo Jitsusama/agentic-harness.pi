@@ -39,8 +39,10 @@
  * function giving the providers to load. A module that won't load, or
  * gives anything but providers, is passed over whole. A module runs with
  * the account's own rights, outside the fence, as it does in a host, so
- * one in a work tree or a quest's scratch, where a sandboxed command
- * writes, is passed over too. A provider that
+ * one in a work tree or a quest's scratch, two of the places a sandboxed
+ * command writes, is passed over too. Those two are all it checks, so
+ * the setting must name a module no sandboxed command can write. A
+ * provider that
  * took past fifteen minutes to judge a tree is told to stop, asked
  * nothing more that run, and left out of the stamp, as is one whose
  * judging or taking failed for every tree it tried, so the hosts go on
@@ -93,7 +95,10 @@ import { cutTreeDir } from "../lib/internal/work-records.ts";
 /** The setting that names the modules giving providers other than git. */
 const PROVIDER_MODULES = "PI_SWEEP_PROVIDERS";
 
-/** The folders a fenced session's commands write in: its trees and scratch. */
+/**
+ * Two of the folders a fenced session's commands write in, its trees and
+ * its scratch; the fence lets them write elsewhere too.
+ */
 function fencedWrites(): string[] {
 	return [cutTreeDir(), questWorkspacesRoot()];
 }
@@ -157,7 +162,9 @@ export async function sweepOutside({
 	if (troubles.length > 0) logSweep({ passedOver: troubles });
 	const refused = (why: string): SweptOutside => {
 		logSweep({ ms: 0, failed: why });
-		tell(`didn't sweep: ${why}`);
+		tell(
+			`didn't sweep: ${why}; the hosts sweep again once the last stamp is two hours old`,
+		);
 		return { end: "failed", troubles };
 	};
 	const untrusted = await whyUntrusted();
