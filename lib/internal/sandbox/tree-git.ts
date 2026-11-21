@@ -20,11 +20,16 @@
  * holds a `commondir` of its own is refused, since git would read its
  * settings from wherever that names, and every git that runs has
  * `core.fsmonitor` off.
+ *
+ * Each of git's files is read only when plain and without waiting,
+ * since a fenced command chooses what stands at a tree's `.git`, and a
+ * fifo there would hold every git pi runs and reclaim's survey.
  */
 
-import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
+import { readPlain } from "../../core/work/plain-file.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
 import type { Disk } from "../fence/fence-disk.ts";
 
@@ -47,11 +52,11 @@ export function within(path: string, folder: string): boolean {
 
 /**
  * The folder a `.git` file names, read from `tree`, as it really is;
- * throws when `tree` has no `.git` file.
+ * nothing when `tree` has no plain `.git` file naming one.
  */
 export function namedGitFolder(tree: string): string | undefined {
 	const named = /^gitdir: (.+)$/m.exec(
-		readFileSync(join(tree, ".git"), "utf8"),
+		readPlain(join(tree, ".git")) ?? "",
 	)?.[1];
 	return named ? real(resolve(tree, named.trim())) : undefined;
 }
@@ -74,7 +79,8 @@ export function worktreeRepository(
 		const own = namedGitFolder(cwd);
 		if (!own || basename(dirname(own)) !== "worktrees") return undefined;
 		const repository = dirname(dirname(own));
-		const back = readFileSync(join(own, "gitdir"), "utf8").trim();
+		const back = readPlain(join(own, "gitdir"))?.trim();
+		if (!back) return undefined;
 		if (real(resolve(own, back)) !== real(join(cwd, ".git"))) return undefined;
 		if (!statSync(join(repository, "objects")).isDirectory()) return undefined;
 		return within(home, repository) ? undefined : repository;
@@ -101,7 +107,8 @@ export function treeGit(tree: string, home: string): TreeGit | undefined {
 	try {
 		const own = namedGitFolder(tree);
 		if (!own) return undefined;
-		const named = readFileSync(join(own, "commondir"), "utf8").trim();
+		const named = readPlain(join(own, "commondir"))?.trim();
+		if (!named) return undefined;
 		return real(resolve(own, named)) === real(common)
 			? { gitDir: own, common }
 			: undefined;

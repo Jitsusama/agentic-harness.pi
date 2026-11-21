@@ -38,7 +38,12 @@ import {
 } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
-import { type LateWriter, lateWriter } from "../../support/late-writer.ts";
+import {
+	LATE_MS,
+	type LateWriter,
+	lateWriter,
+	timed,
+} from "../../support/late-writer.ts";
 
 /** What the guard says of a tree whose repository it doesn't guard. */
 const REFUSED = "it is a worktree of a repository the fence doesn't guard.";
@@ -279,32 +284,41 @@ describe("splitStranded", () => {
 	it("reads no hand lock from a fifo where a lock should be", async () => {
 		// What ran in the tree chooses where its `.git` points, and a read
 		// waiting on a fifo's writer would hold reclaim for good. One that
-		// waits reads the hand lock written a second on, and fails here.
+		// waits takes as long as the writer is late, and reads a hand lock.
 		const gitDir = standingGitDir("snapshot-p");
 		const path = treeNaming("snapshot-p", gitDir);
 		const at = (Date.now() - LONG_AGO) / 1000;
 		utimesSync(join(path, ".git"), at, at);
 		writers.push(lateWriter(join(gitDir, "locked"), "on a drive away"));
 
+		const started = performance.now();
 		const split = await splitStranded([{ path, why: REFUSED }], {
 			busyAmong: nobody,
 		});
 
+		expect(performance.now() - started, "no read waited").toBeLessThan(
+			LATE_MS / 2,
+		);
 		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
 	});
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {
-		// A read that waits gets a `.git` naming a hand lock, and fails here.
+		// A read that waits takes as long as the writer is late, and gets a
+		// `.git` naming a hand lock.
 		const gitDir = standingGitDir("snapshot-g");
 		writeFileSync(join(gitDir, "locked"), "on a drive away\n");
 		const path = join(trees, "snapshot-g");
 		mkdirSync(path);
 		writers.push(lateWriter(join(path, ".git"), `gitdir: ${gitDir}\n`));
 
+		const started = performance.now();
 		const split = await splitStranded([{ path, why: REFUSED }], {
 			busyAmong: nobody,
 		});
 
+		expect(performance.now() - started, "no read waited").toBeLessThan(
+			LATE_MS / 2,
+		);
 		expect(split.kept[0]?.why).toMatch(/cut in the last ten minutes/);
 	});
 
@@ -720,7 +734,10 @@ describe("readPlain", () => {
 	it("reads nothing from a fifo, never waiting for its writer", () => {
 		writers.push(lateWriter(join(root, "locked"), "on a drive away"));
 
-		expect(readPlain(join(root, "locked"))).toBeUndefined();
+		const read = timed(() => readPlain(join(root, "locked")));
+
+		expect(read.tookMs, "the read never waited").toBeLessThan(LATE_MS / 2);
+		expect(read.value).toBeUndefined();
 	});
 
 	it("reads no more than the start of a file grown huge", () => {
