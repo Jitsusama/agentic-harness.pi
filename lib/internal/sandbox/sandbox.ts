@@ -291,8 +291,9 @@ export function refusedCommand(reason: string): string {
 
 /**
  * How a session's commands run: as they are, fenced, or not at all. A
- * fenced command is handed a GitHub token from `github`, and a cloud
- * token and project from `gcloud`, when they give them.
+ * strict command is handed a GitHub token from `github`, and a command
+ * in either fence a cloud token and project from `gcloud`, when they
+ * give them.
  */
 export type Sandbox =
 	| { readonly kind: "none" }
@@ -311,6 +312,7 @@ export type Sandbox =
 			readonly githubDoor?: string;
 			/** Said once in the session, when the fence wasn't what it asked. */
 			readonly note?: string;
+			readonly gcloud?: CloudGrantSource;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -374,7 +376,9 @@ export function cloudVariables(
  * side by side don't all meet a token still on its way.
  */
 export function askTheCloudAhead(sandbox: Sandbox): void {
-	if (sandbox.kind === "strict") sandbox.gcloud?.();
+	if (sandbox.kind === "strict" || sandbox.kind === "fence") {
+		sandbox.gcloud?.();
+	}
 }
 
 /**
@@ -415,6 +419,7 @@ export function githubRules(): Rule[] {
 function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
+	gcloud: CloudGrantSource,
 ): Sandbox {
 	if (platform !== "linux") {
 		return {
@@ -438,6 +443,7 @@ function fenceFor(
 		kind: "fence",
 		bwrap,
 		landrun,
+		gcloud,
 		...(githubDoor ? { githubDoor } : {}),
 		...(program && env ? { offload: offloadAt(program, env) } : {}),
 	};
@@ -482,7 +488,7 @@ function askedFor(
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find);
+	if (asked === FENCE) return fenceFor(platform, find, gcloud);
 	if (platform !== "linux") {
 		return {
 			kind: "refused",
@@ -634,6 +640,13 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
+				// The person's cloud login stays hidden (fence-hidden.ts), so
+				// gcloud gets the agents' account's hour token, as in strict.
+				const grant = sandbox.gcloud?.();
+				const cloud = {
+					...made,
+					passed: cloudVariables(grant, home, place.env),
+				};
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
@@ -641,7 +654,7 @@ export function wrapFor(
 				);
 				const text = withAfterCheckIn(
 					fence.runtimeDir,
-					fencedCommand(withSecretNote(command), made),
+					fencedCommand(withCloudNote(withSecretNote(command), grant), cloud),
 					guarded,
 					planted,
 				);

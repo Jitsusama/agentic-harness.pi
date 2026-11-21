@@ -50,7 +50,11 @@ const ARGS_FD = 3;
  * `agent`, the proxy, GitHub is reached through `github`, its door,
  * `shims`, the fence's `wl-copy` and `wl-paste`, go first on
  * `PATH`, and `display`, the sandboxed display, is the one
- * `WAYLAND_DISPLAY` names, each when there is one. When `args` is the
+ * `WAYLAND_DISPLAY` names, each when there is one. Each of `passed`, the
+ * agents' cloud token among them, is set for bubblewrap alone and named
+ * to landrun, as `sandboxedCommand` hands strict's, so a token shows on
+ * no command line, and the same names from outside never go in. When
+ * `args` is the
  * file holding them (`fence-args-file.ts`), bubblewrap reads them from
  * it, so the text stays short however many there are.
  */
@@ -65,15 +69,19 @@ export function fencedCommand(
 		readonly agent?: string;
 		/** Where each of `OWN_HOMES` lives inside, and direnv's own settings (`fence-direnv.ts`), by its variable. */
 		readonly homes?: readonly (readonly [string, string])[];
+		/** Variables set for this command alone, by name, whatever the shell exports. */
+		readonly passed?: Readonly<Record<string, string>>;
 		readonly github?: GitHubDoor;
 		readonly shims?: string;
 		readonly display?: string;
 	},
 ): string {
 	const homes = fence.homes ?? [];
+	const passed = handedOn(fence.passed);
 	const unset = [
 		...UNSET,
 		...homes.map(([name]) => name),
+		...passed.map(([name]) => name),
 		...(fence.shims ? ["PATH"] : []),
 		SANDBOXED_COMMAND,
 	].join("|");
@@ -94,6 +102,7 @@ export function fencedCommand(
 		`if [ $((${known} + \${#__pi_env[@]})) -gt ${BWRAP_MOST_ARGS} ]; then printf '%s\\n' "The fence would hand bubblewrap $((${known} + \${#__pi_env[@]})) arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds and the variables it exports, so release the trees it is done with." >&2; exit 126; fi`,
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
+			...passed.map(([name, value]) => `${name}=${quoted(value)}`),
 			quoted(fence.bwrap),
 			...(file
 				? [`--args ${ARGS_FD} ${ARGS_FD}<${quoted(file)}`]
@@ -119,9 +128,19 @@ export function fencedCommand(
 				? [`--env ${quoted(`WAYLAND_DISPLAY=${fence.display}`)}`]
 				: []),
 			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
+			...passed.map(([name]) => `--env ${name}`),
 			`-- bash -c ${quoted(stub)}`,
 		].join(" "),
 	].join("\n");
+}
+
+/** Each of `passed` a variable's name may take, so nothing else reaches the shell. */
+function handedOn(
+	passed: Readonly<Record<string, string>> | undefined,
+): [string, string][] {
+	return Object.entries(passed ?? {}).filter(([name]) =>
+		/^[A-Z_][A-Z0-9_]*$/.test(name),
+	);
 }
 
 /** Each `--env NAME=value` the line passes landrun beside the variables. */
@@ -136,7 +155,14 @@ const ENV_WORDS = 2;
 export function bwrapWords(
 	fence: Pick<
 		Parameters<typeof fencedCommand>[1],
-		"args" | "rules" | "door" | "agent" | "homes" | "shims" | "display"
+		| "args"
+		| "rules"
+		| "door"
+		| "agent"
+		| "homes"
+		| "passed"
+		| "shims"
+		| "display"
 	>,
 ): number {
 	const own =
@@ -151,6 +177,7 @@ export function bwrapWords(
 		fence.shims,
 		fence.display,
 		...(fence.homes ?? []),
+		...handedOn(fence.passed),
 	].filter(Boolean).length;
 	const landrun = ["landrun", ...fence.rules].length;
 	return (
