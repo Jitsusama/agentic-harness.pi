@@ -173,7 +173,7 @@ describe("writesInBash", () => {
 			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
 		const held = (command: string, action: string) =>
 			expect(start(command), command).toEqual([{ action, kind: "start" }]);
-		held("tmux new-window -d 'pi -p go'", "pi");
+		held("tmux new-window -d 'pi -p go'", "tmux pi");
 		held("xargs -n1 pi -p", "xargs pi");
 		held("npx pi", "npx pi");
 		held("pnpm exec pi", "pnpm pi");
@@ -211,9 +211,9 @@ describe("writesInBash", () => {
 			writesInBash(command, HERE).map((write) => write.action);
 		expect(
 			actions("for u in a b; do systemctl --user restart pi-host-$u; done"),
-		).toContain("pi host start");
+		).toContain("pi host restart");
 		expect(actions("for q in a b; do mycelium carry $q; done")).toContain(
-			"mycelium start",
+			"mycelium carry",
 		);
 		expect(actions("for i in 1; do pi-packages update; done")).toContain(
 			"pi-packages update",
@@ -222,9 +222,96 @@ describe("writesInBash", () => {
 			actions("for u in a b; do systemctl --user status pi-host-$u; done"),
 		).toEqual([]);
 		expect(actions('for i in 1 2; do pi -p "go $i" & done')).toContain("pi");
-		expect(actions("for i in 1; do nohup pi-host; done")).toContain("pi");
+		expect(actions("for i in 1; do nohup pi-host; done")).toContain("pi-host");
 		expect(actions("for i in 1; do pi --version; done")).toEqual([]);
 		expect(actions("cd ~/src/pi; for i in 1; do ls; done")).toEqual([]);
+	});
+
+	it("reads each command of a line it can't read, through what runs it", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("for i in 1; do env A=1 pi -p go; done", "pi");
+		held("for i in 1; do timeout 60 pi; done", "pi");
+		held("for i in 1; do tmux new-window 'pi'; done", "tmux pi");
+		held("for i in 1; do bash -c 'pi -p go'; done", "pi");
+		held("for i in 1; do mycelium run --need machine=mac -- pi; done", "pi");
+		held("x=$(pi -p go)", "pi");
+		held("(cd /x && pi)", "pi");
+		for (const command of [
+			"git commit -m \"$(cat <<'EOF'\nthen pi (pi-host) restarts\nEOF\n)\" && for f in a; do ls; done",
+			'for f in a; do rg "(pi|host)" $f; done',
+			"for f in a; do echo 'and then pi restarts'; done",
+			"for u in $(systemctl --user list-units --plain); do systemctl --user status $u; done",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
+	it("reads what a double-quoted substitution, or a shell's stdin, runs", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held('out="$(pi -p go)"', "pi");
+		held('echo "`pi -p go`"', "pi");
+		held("bash <<'EOF'\npi -p go\nEOF", "pi");
+		held("echo 'pi -p go' | bash", "pi");
+		held("bash -s <<< 'pi -p go'", "pi");
+		for (const command of [
+			"git commit -m \"$(cat <<'EOF'\nthen pi (pi-host) restarts\nEOF\n)\"",
+			"cat <<'EOF' | wc -l\npi -p go\nEOF",
+			"echo 'pi -p go' | bash script.sh",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
+	it("reads what an opaque runner runs, not every word it names", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("ssh mac systemctl --user restart pi-host-x", "ssh pi host restart");
+		held("ssh -p 22 mac pi-packages update", "ssh pi-packages update");
+		held("ssh mac mycelium carry X", "ssh mycelium carry");
+		held("npx tsx scripts/pi-host.ts", "npx pi pi-host");
+		held("pnpm exec tsx scripts/host-cutover.ts", "pnpm pi host-cutover");
+		held("tmux send-keys -t w 'pi -p go' Enter", "tmux pi");
+		held(
+			"nix shell nixpkgs#nodejs_24 -c node scripts/pi-host.ts",
+			"pi pi-host",
+		);
+		held("nix-shell --run 'pi -p go'", "pi");
+		for (const command of [
+			"ssh mac ls ~/.local/state/pi",
+			"ssh pi uptime",
+			"ls | xargs grep -n pi",
+			"xargs grep -lw pi",
+			"tmux attach -t pi",
+			"tmux kill-session -t pi",
+			"screen -r pi",
+			"pnpm install",
+			"pnpm deploy out",
+			"nix shell nixpkgs#jq -c jq . x.json",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
+	it("sees past a wrapper's options that take a value", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		for (const command of [
+			"sudo -u joel pi",
+			"timeout -k 5 30 pi",
+			"env -S 'pi -p go'",
+			"run0 -u joel pi",
+		]) {
+			expect(actions(command), command).toEqual(["pi"]);
+		}
+		expect(actions("sudo -u pi true"), "a user named pi").toEqual([]);
 	});
 
 	it("reads every write of a shell's line, and where it runs only if known", () => {

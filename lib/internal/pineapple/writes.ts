@@ -18,9 +18,11 @@
 
 import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
-import type { SimpleCommand } from "../../command/types.ts";
+import type { CommandLine, SimpleCommand } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
-import { PI_PROGRAMS, startIn } from "./starts.ts";
+import { flatten } from "./flatten.ts";
+import { runs, SHELLS, unwrapped } from "./runs.ts";
+import { startIn } from "./starts.ts";
 
 /**
  * What a write lands on: one change (a push, a comment, a merge), a
@@ -241,23 +243,10 @@ const MACHINE: ReadonlyArray<
 	["colmena", new Set(["apply"])],
 ];
 
-/** env's options that take a value, so it isn't read as the program. */
-const ENV_VALUED = new Set(["-u", "--unset", "-C", "--chdir", "-S"]);
-
-/** Words that run the command after them, and how many words they take. */
-const WRAPPERS = new Map<string, number>([
-	["command", 0],
-	["exec", 0],
-	["nohup", 0],
-	["time", 0],
-	["sudo", 0],
-	["run0", 0],
-	["timeout", 1],
-]);
-
 /**
  * The writes a bash command makes, in order. A line the command model
- * can't read is searched by pattern instead, so a write hidden in a
+ * can't read is flattened into one it can (flatten.ts), and only one
+ * that still can't is searched by pattern, so a write hidden in a
  * construct it doesn't parse is still seen, though with nothing known
  * about where it goes.
  */
@@ -271,52 +260,77 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
  * left without a directory, rather than read from this process's own.
  */
 function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
+	const flat = flatten(command);
+	// What a double-quoted substitution runs, where isn't known.
+	const substituted = flat.substituted.flatMap((inner) =>
+		writesInLine(inner, undefined),
+	);
 	const line = tokenize(command);
-	if (!line.supported) return patternWrites(command);
+	if (line.supported) return [...writesOf(line, cwd), ...substituted];
+	const flattened = tokenize(flat.line);
+	if (!flattened.supported) return patternWrites(command);
+	// Its structure moves offsets and may move directories, so no
+	// command in it is said to run anywhere known.
+	return [...writesOf(flattened, undefined), ...substituted];
+}
+
+/** The writes of each command a readable line holds, in order. */
+function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 	const writes: WriteCall[] = [];
-	for (const simple of line.commands) {
+	line.commands.forEach((simple, at) => {
 		const here =
 			cwd === undefined
 				? undefined
 				: effectiveCwd(line, cwd, simple.span.start);
 		const dir = here !== undefined && "dir" in here ? here.dir : undefined;
-		writes.push(...writeIn(words(simple), dir));
-	}
+		const argv = words(simple);
+		writes.push(...writeIn(argv, dir));
+		const fed = fedToShell(line, at, argv);
+		if (fed !== undefined)
+			writes.push(...fed.flatMap((one) => writesInLine(one, dir)));
+	});
 	return writes;
+}
+
+/**
+ * What a shell reading its commands on stdin is fed, as lines to read: a
+ * heredoc's body, a here-string, or each word of the command piped into
+ * it. Nothing when the command is no such shell.
+ */
+function fedToShell(
+	line: CommandLine,
+	at: number,
+	argv: string[],
+): string[] | undefined {
+	const [program, ...args] = argv;
+	const name = program?.split("/").at(-1);
+	if (name === undefined || !SHELLS.has(name)) return undefined;
+	// The command model leaves a here-string among the words.
+	const here = args.findIndex((word) => word.startsWith("<<<"));
+	const own = here < 0 ? args : args.slice(0, here);
+	// A shell given a -c line or a script file reads neither from stdin.
+	if (own.some((word) => !word.startsWith("-") || /^-[A-Za-z]*c/.test(word)))
+		return undefined;
+	const simple = line.commands[at];
+	if (simple === undefined) return undefined;
+	const fed: string[] = [];
+	if (simple.heredoc) {
+		const { start, end } = simple.heredoc.bodySpan;
+		fed.push(line.source.slice(start, end));
+	}
+	const string = args[here]?.slice(3) || args[here + 1];
+	if (here >= 0 && string !== undefined) fed.push(string);
+	const pipe = line.connectors[at - 1]?.op;
+	const producer = line.commands[at - 1];
+	if ((pipe === "|" || pipe === "|&") && producer) {
+		fed.push(...words(producer).slice(1));
+	}
+	return fed;
 }
 
 /** A command's words, unquoted, from the program it runs past any wrapper. */
 export function words(simple: SimpleCommand): string[] {
 	return unwrapped(simple.argv.map((word) => unquote(word.text)));
-}
-
-/** Words from the program they run, past any wrapper. */
-function unwrapped(argv: string[]): string[] {
-	let at = 0;
-	while (at < argv.length) {
-		const word = argv[at] ?? "";
-		if (word === "env") {
-			at += 1;
-			while (at < argv.length) {
-				const next = argv[at] ?? "";
-				if (ENV_VALUED.has(next)) at += 2;
-				else if (next.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(next))
-					at += 1;
-				else break;
-			}
-			continue;
-		}
-		if (word === "direnv" && argv[at + 1] === "exec") {
-			at += 3;
-			continue;
-		}
-		const takes = WRAPPERS.get(word);
-		if (takes === undefined) break;
-		at += 1;
-		while (at < argv.length && (argv[at] ?? "").startsWith("-")) at += 1;
-		at += takes;
-	}
-	return argv.slice(at);
 }
 
 /** The writes one command makes, with those of any command it runs. */
@@ -356,106 +370,29 @@ function ownWrite(
 	return undefined;
 }
 
-/** Shells whose `-c` runs a line of its own. */
-const SHELLS = new Set(["sh", "bash", "zsh", "dash"]);
-
 /**
- * Programs that run another command after their own options, and those
- * of their options that take a value, so the command they run is found.
- */
-const LAUNCHERS = new Map<string, ReadonlySet<string>>([
-	[
-		"systemd-run",
-		new Set([
-			"-u",
-			"--unit",
-			"-p",
-			"--property",
-			"--slice",
-			"-E",
-			"--setenv",
-			"--description",
-			"--working-directory",
-			"-M",
-			"--machine",
-			"-H",
-			"--host",
-			"--uid",
-			"--gid",
-			"--nice",
-			"--on-active",
-			"--on-boot",
-			"--on-startup",
-			"--on-unit-active",
-			"--on-unit-inactive",
-			"--on-calendar",
-			"--timer-property",
-			"--service-type",
-		]),
-	],
-	["setsid", new Set()],
-	["nice", new Set(["-n", "--adjustment"])],
-	["stdbuf", new Set(["-i", "-o", "-e"])],
-]);
-
-/**
- * Programs that run a command handed to them some way this can't follow
- * word for word: in a terminal multiplexer, on another host, once per
- * input, or from a package. Each is judged a start when any of its words
- * is a pi program, or any of them, read as a line, starts one.
- */
-const OPAQUE = new Set(["tmux", "screen", "ssh", "xargs", "npx", "pnpm"]);
-
-/** A shell's options word that holds `-c`, alone or among others. */
-const RUNS_LINE = /^-[A-Za-z]*c[A-Za-z]*$/;
-
-/**
- * What a command that runs another command writes: a shell's `-c` line,
- * whatever a launcher runs, or what follows `--` in a `mycelium` call,
- * which runs it on a machine of the mycelium.
+ * What a command that runs another command writes (runs.ts): a shell's
+ * `-c` line, whatever a launcher runs, or what follows `--` in a
+ * `mycelium` call. Of what an opaque runner runs, only its starts count,
+ * named by the runner, as where it runs isn't known.
  */
 function launchedBy(
 	name: string,
 	args: string[],
 ): ((dir: string | undefined) => WriteCall[]) | undefined {
-	if (SHELLS.has(name)) {
-		const flag = args.findIndex((word) => RUNS_LINE.test(word));
-		const line = flag < 0 ? undefined : args[flag + 1];
-		if (line === undefined) return undefined;
-		return (dir) => writesInLine(line, dir);
-	}
-	if (OPAQUE.has(name)) {
-		return () => {
-			const named = args.find((word) =>
-				PI_PROGRAMS.has(word.split("/").at(-1) ?? word),
-			);
-			if (named !== undefined) {
-				return [{ action: `${name} ${named}`, kind: "start" }];
-			}
-			return args
-				.filter((word) => /\s/.test(word))
-				.flatMap((word) => writesInLine(word, undefined))
-				.filter((write) => write.kind === "start");
-		};
-	}
-	if (name === "mycelium") {
-		const after = args.indexOf("--");
-		if (after < 0) return undefined;
-		return (dir) => writeIn(unwrapped(args.slice(after + 1)), dir);
-	}
-	const valued = LAUNCHERS.get(name);
-	if (valued === undefined) return undefined;
-	let at = 0;
-	while (at < args.length) {
-		const word = args[at] ?? "";
-		if (word === "--") {
-			at += 1;
-			break;
-		}
-		if (!word.startsWith("-")) break;
-		at += valued.has(word) ? 2 : 1;
-	}
-	return (dir) => writeIn(unwrapped(args.slice(at)), dir);
+	const ran = runs(name, args);
+	if (ran === undefined) return undefined;
+	return (dir) => {
+		const at = ran.opaque === undefined ? dir : undefined;
+		const writes =
+			"line" in ran
+				? writesInLine(ran.line, at)
+				: writeIn(unwrapped(ran.argv), at);
+		if (ran.opaque === undefined) return writes;
+		return writes
+			.filter((write) => write.kind === "start")
+			.map((write) => ({ ...write, action: `${ran.opaque} ${write.action}` }));
+	};
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */

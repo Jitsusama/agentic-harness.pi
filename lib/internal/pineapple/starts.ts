@@ -54,7 +54,7 @@ const HOST_SCRIPT =
 	/(?:^|\/)(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts$/;
 
 /** Programs that start pi, a host of conversations, or a carried session. */
-export const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
+const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
 
 /** What a pi program is asked that starts nothing. */
 const PI_ASKS = new Set(["--version", "-v", "--help", "-h"]);
