@@ -183,6 +183,19 @@ describe("resolveStartup precedence", () => {
 		expect(resolution.questId).toBe(id);
 	});
 
+	it("waits for the log's quest rather than taking the cwd's while it can't load", async () => {
+		const id = await createQuest("Cwd Match");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir, persistedQuestId: "QEST-20260101-NOTYET" }),
+		);
+		expect(resolution.source).toBe("none");
+		expect(state.pendingQuest?.questId).toBe("QEST-20260101-NOTYET");
+	});
+
 	it("stays idle on a fresh session in a quest dir when cwd autoload is off", async () => {
 		const id = await createQuest("Cwd Match Off");
 		const questDir = join(tmpRoot, "quests", id);
