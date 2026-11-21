@@ -145,6 +145,9 @@ if (values["dry-run"]) {
 		),
 		...report.spared.map((one) => `left untold: ${one.address}, ${one.why}`),
 		...report.refused.map((one) => `not adopted: ${one.address}, ${one.why}`),
+		...report.calledOff.map(
+			(one) => `called its move off: ${one.address}, ${one.why}`,
+		),
 		...report.takenBack.map(
 			(address) => `taken back in its own window: ${address}`,
 		),
@@ -156,6 +159,7 @@ if (values["dry-run"]) {
 	process.exitCode =
 		report.waiting.length === 0 &&
 		report.refused.length === 0 &&
+		report.calledOff.length === 0 &&
 		report.spared.length === 0 &&
 		unknown.length === 0
 			? 0

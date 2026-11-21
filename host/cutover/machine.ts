@@ -46,6 +46,7 @@ import {
 import { askWake } from "../../lib/internal/session/park.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { census } from "../../lib/mesh/liveness.ts";
+import type { MoveOff } from "../../lib/mesh/moving.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { giveSteer } from "../../lib/mesh/steer.ts";
 import { type HostKind, hostKey, hostSocketPath } from "../service/address.ts";
@@ -120,6 +121,11 @@ function holdsSaid(presence: Presence | undefined): string | undefined {
 	return presence?.moveOff
 		? `called itself off: ${presence.moveOff.why}`
 		: undefined;
+}
+
+/** The move a presence says was called off, while it says none waits. */
+function calledOffOf(presence: Presence | undefined): MoveOff | undefined {
+	return presence?.moving === undefined ? presence?.moveOff : undefined;
 }
 
 /** Every conversation the realm's two hosts hold; one not listening holds none. */
@@ -407,6 +413,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			}
 		},
 		holds: async (session) => holdsSaid(presences.of(session)),
+		calledOff: async (session) => calledOffOf(presences.of(session)),
 		now: () => Date.now(),
 		pause,
 		say,
