@@ -272,7 +272,10 @@ async function forgetTaken(
 	taken: ReadonlySet<string>,
 ): Promise<void> {
 	const walks: DiscoveryResult[] = [];
-	for (const store of storesOf(questsRoot)) walks.push(await signed(store));
+	for (const store of storesOf(questsRoot)) {
+		const walk = await signed(store);
+		if (walk) walks.push(walk);
+	}
 	for (const entry of liveQuests(walks)) {
 		for (const tree of entry.doc.frontMatter.trees ?? []) {
 			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
@@ -305,8 +308,10 @@ function sayForgetFailed(where: string, error: unknown): void {
 /**
  * `store` signed afresh, or as its last walk stands when its disk gave
  * no answer in time: a tree left listed is dropped by the next sweep.
+ * Undefined on a host that never walked it, since its only walk then
+ * is a whole signing on the thread every conversation shares.
  */
-async function signed(store: string): Promise<DiscoveryResult> {
+async function signed(store: string): Promise<DiscoveryResult | undefined> {
 	try {
 		return await discoverQuestsAfresh(store);
 	} catch (error) {
@@ -316,6 +321,7 @@ async function signed(store: string): Promise<DiscoveryResult> {
 		process.stderr.write(
 			`[quest-workflow] tree claims in ${store} answer its last walk: ${why}\n`,
 		);
+		if (hosted() && !questsWalked(store)) return undefined;
 		return discoverQuests(store);
 	}
 }

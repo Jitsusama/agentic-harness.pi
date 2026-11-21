@@ -257,8 +257,12 @@ export function refreshQuests(
  * signed afresh off the thread and waited for when that can't be
  * enough: for an action `across` other quests than it names (a rank
  * among siblings, a parent's cycle check), a document id the last walk
- * holds in no quest, a tree never signed, and a last signing older than
- * `STALE_AFTER_MS`, so an action after an idle spell never reads one.
+ * holds in no quest, a tree never signed, a journal of writes that
+ * started afresh since the last signing, so other processes' writes
+ * between can't be known, and a last signing older than `staleAfter`:
+ * `STALE_AFTER_MS`, or `SIGN_AGAIN_JOURNALED_AFTER_MS` where the
+ * journal reads on since it, so an action after an idle spell never
+ * acts on one.
  * Throws as `discoverQuestsAfresh` does when the disk gives no answer,
  * and once `signal` fires, leaving the signing to finish unheard.
  * Plain pi signs every ask already, so this does nothing there.
@@ -278,7 +282,11 @@ export async function readyQuests(
 		slot && recent && !across
 			? questsNamed(questsRoot, slot.result, ids)
 			: undefined;
-	if (slot && named && caughtUp(questsRoot, slot, named)) return;
+	// Read before the catching up, which reads on past what it missed.
+	const missed =
+		slot?.journal !== undefined &&
+		journaledSince(questsRoot, slot) === "started afresh";
+	if (slot && named && !missed && caughtUp(questsRoot, slot, named)) return;
 	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
 }
 
@@ -454,9 +462,17 @@ function journalMark(): JournalMark | undefined {
 }
 
 /**
+ * The most quests a read of the journal brings up to date on the thread.
+ * More than this since the last read, as after a host sat busy while
+ * a sweep wrote hundreds, is read by a whole signing off the thread.
+ */
+const JOURNALED_MOST_QUESTS = 256;
+
+/**
  * The root entries of `questsRoot` the journal names since `slot`'s
  * mark, with the mark to read on from; "started afresh" when what came
- * between can't be known, and undefined where `slot` reads no journal.
+ * between can't be known or names more than `JOURNALED_MOST_QUESTS`,
+ * and undefined where `slot` reads no journal.
  */
 function journaledSince(
 	questsRoot: string,
@@ -476,6 +492,7 @@ function journaledSince(
 		const name = entryUnder(questsRoot, dir);
 		if (name) names.add(name);
 	}
+	if (names.size > JOURNALED_MOST_QUESTS) return "started afresh";
 	return { names, mark: read.mark };
 }
 

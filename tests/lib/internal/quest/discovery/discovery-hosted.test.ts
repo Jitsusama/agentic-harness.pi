@@ -21,6 +21,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	unlinkSync,
 	utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -970,21 +971,59 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 	});
 
 	it("lets an action a minute on act on the journal rather than wait on a signing", async () => {
+		settledOther();
 		discoverQuests(root);
 		writtenElsewhere("paused");
 		later(90_000);
-		await readyQuests(root, [ID], false);
+		await readyQuests(root, [OTHER], false);
 		expect(signing.walks, "no signing waited on").toBe(0);
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("signs the tree whole when the journal started afresh since its mark", async () => {
+	it("reads on through a journal moved aside since its mark, with no signing", async () => {
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		writtenElsewhere("paused");
+		renameSync(journal, `${journal}.old`);
+		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+		expect(statusNow()).toBe("paused");
+		await discoverySettled(root);
+		expect(signing.walks, "no signing for a journal moved aside").toBe(0);
+	});
+
+	it("signs the tree whole when the journal was replaced since its mark", async () => {
 		noteQuestWrite(journal, join(root, ID));
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
-		renameSync(journal, `${journal}.old`);
+		unlinkSync(journal);
 		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
 		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks).toBe(1);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("waits on a signing for an action when the journal was replaced since its mark", async () => {
+		settledOther();
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		unlinkSync(journal);
+		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+		await readyQuests(root, [OTHER], false);
+		expect(signing.walks, "a signing waited on").toBe(1);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("shows a write noted while a signing walked, once it ends", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(5 * 60_000 + 1_000);
+		discoverQuests(root);
+		await read;
+		writtenElsewhere("paused");
+		openSignings();
 		await discoverySettled(root);
 		expect(signing.walks).toBe(1);
 		expect(statusNow()).toBe("paused");
