@@ -13,7 +13,7 @@ import {
 	watch,
 	writeFileSync,
 } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,14 +25,14 @@ import {
 } from "../../../../lib/internal/files/folder-mirror.ts";
 
 // What the next listing waits on once it has read the folder's names,
-// and a folder whose stat says it was made again, once a test sets them.
+// once a test sets it.
 const listing = vi.hoisted(() => {
-	const next: { wait?: () => Promise<void>; reborn?: string } = {};
+	const next: { wait?: () => Promise<void> } = {};
 	return next;
 });
 
 // Counted, so a test sees when a mirror lists its whole folder again,
-// and held, so it can stall one; a stat can say a folder was made again.
+// and held, so it can stall one; each stat counted, so a test sees one.
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
 	const readdir = vi.fn(async (...args: Parameters<typeof real.readdir>) => {
@@ -42,13 +42,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		await wait?.();
 		return names;
 	});
-	const stat = vi.fn(async (path: string) => {
-		const found = await real.stat(path);
-		if (path !== listing.reborn) return found;
-		// The same inode, as a filesystem that hands it straight back gives.
-		found.birthtimeMs += 1;
-		return found;
-	});
+	const stat = vi.fn(async (path: string) => real.stat(path));
 	return { ...real, readdir, stat };
 });
 
@@ -103,7 +97,6 @@ beforeEach(() => {
 afterEach(() => {
 	vi.mocked(watch).mockImplementation(realWatch);
 	listing.wait = undefined;
-	listing.reborn = undefined;
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -482,7 +475,9 @@ describe("a host's mirror of a folder", () => {
 		);
 	});
 
-	it("watches again, and reads the gap, when its watch fails", async () => {
+	// The gap is read by the poll while no watch is made; the new watch's
+	// own listing is proven by the stalled-listing case below.
+	it("watches again when its watch fails, its poll reading the gap meanwhile", async () => {
 		put("a.txt", "here");
 		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
 		await watching(folder);
@@ -533,24 +528,6 @@ describe("a host's mirror of a folder", () => {
 				expect(folder.file(join(dir, "b.txt")), "the watch's own listing").toBe(
 					"after the stalled listing read",
 				),
-			{ timeout: 2000 },
-		);
-	});
-
-	// The council on #1933: a folder removed and made again can get its
-	// inode back, and a watch on the removed one hears nothing.
-	it("watches again when its folder is made again with the same inode", async () => {
-		put("a.txt", "here");
-		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
-		await watching(folder);
-		listing.reborn = dir;
-		await vi.waitFor(
-			() => {
-				folder.files();
-				expect(watchesOfDir(), "a watch on the folder made again").toHaveLength(
-					2,
-				);
-			},
 			{ timeout: 2000 },
 		);
 	});
@@ -637,7 +614,10 @@ describe("a host's mirror of a folder", () => {
 		await listed;
 		await vi.waitFor(
 			() =>
-				expect(folder.file(join(dir, "a.txt")), "then read").toBe("changed"),
+				expect(
+					folder.file(join(dir, "a.txt")),
+					"read once the listing landed, by it or the named read",
+				).toBe("changed"),
 			{ timeout: 2000 },
 		);
 	});
@@ -662,21 +642,40 @@ describe("a host's mirror of a folder", () => {
 
 	// The council on #1933: a stat that failed on a file still there
 	// dropped a live peer until it published again.
-	it("keeps a named file whose stat fails while the file is still there", async () => {
-		put("a.txt", "here");
-		const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
-		await watching(folder);
-		put("a.txt", "rewritten");
-		// Before the watch's event is read, so the named read can't stat it.
-		chmodSync(dir, 0o000);
-		try {
-			// Long enough for the named read to land.
-			await new Promise((done) => setTimeout(done, 200));
-			expect(folder.file(join(dir, "a.txt")), "what was kept").toBe("here");
-		} finally {
-			chmodSync(dir, 0o700);
-		}
-	});
+	// Root reads a folder whatever its mode, so it can't lock one.
+	it.skipIf(process.getuid?.() === 0)(
+		"keeps a named file whose stat fails while the file is still there",
+		async () => {
+			put("a.txt", "here");
+			const folder = mirror({ pollMs: 20, backstopMs: 60_000 });
+			await watching(folder);
+			const path = join(dir, "a.txt");
+			// The mirror asks whether a file is gone only once its named read
+			// failed; the read's own stat, in stamped-read.ts, is loaded by the
+			// setup files before this mock and so isn't counted.
+			const asked = () =>
+				vi.mocked(stat).mock.calls.filter(([one]) => one === path).length;
+			const before = asked();
+			put("a.txt", "rewritten");
+			// Before the watch's event is read, so the named read can't stat it.
+			chmodSync(dir, 0o000);
+			try {
+				await vi.waitFor(
+					() =>
+						expect(
+							asked(),
+							"asked whether the file is gone, its named read failed",
+						).toBeGreaterThan(before),
+					{ timeout: 2000 },
+				);
+				// Long enough for what the read kept to land.
+				await new Promise((done) => setTimeout(done, 200));
+				expect(folder.file(path), "what was kept").toBe("here");
+			} finally {
+				chmodSync(dir, 0o700);
+			}
+		},
+	);
 
 	// The council on #1933: a read that fails after its stat, as a parse
 	// of a torn file does, left a live peer as nothing.

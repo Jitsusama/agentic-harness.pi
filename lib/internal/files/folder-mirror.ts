@@ -26,7 +26,7 @@
  * November, each with its own mirror of the mesh's presence: on 21
  * November seventy idle children listed its 163 files each second, and
  * held the disk in btrfs's directory locks. One such mirror, benched,
- * made 404 stats a second; reading only what changed made 12.5. The
+ * made 281 stats a second; reading only what changed made 16. The
  * folders mirrored are local state, where a watch hears every writer.
  */
 
@@ -311,8 +311,8 @@ function mirrorOf<T>(
 			paths.map((path) => readStampedOff(fresh, path, kind.readOff)),
 		);
 		// A read that failed, at its stat or after, on a file still there
-		// leaves what was kept, rather than dropping a live peer until its
-		// next publish.
+		// leaves what was kept until the next listing settles it, rather
+		// than dropping a live peer on one torn read.
 		const gone = new Set<string>();
 		for (const path of paths) {
 			if (fresh.get(path)?.value !== undefined) continue;
@@ -403,8 +403,10 @@ function mirrorOf<T>(
 	};
 	// One stat of the folder a tick, off the thread: one renamed away, or
 	// made again, drops the watch, so the next tick follows the new one.
-	// A folder made again is told by its birth as well as its inode, which
-	// some filesystems hand straight back.
+	// A folder made again with its inode back, as some filesystems hand
+	// one, looks the same: the backstop lists it within half a minute.
+	// Its birth would tell them apart, but where libuv can't use statx
+	// it reports the folder's ctime, which every publish moves.
 	const look = (): void => {
 		if (looking || watcher === undefined || watched === undefined) return;
 		looking = true;
@@ -489,13 +491,12 @@ async function missing(path: string): Promise<boolean> {
 	);
 }
 
-/** Which folder a stat found: its device, inode and birth, together. */
+/** Which folder a stat found: its device and inode, together. */
 function identity(folder: {
 	readonly dev: number;
 	readonly ino: number;
-	readonly birthtimeMs: number;
 }): string {
-	return `${folder.dev}:${folder.ino}:${folder.birthtimeMs}`;
+	return `${folder.dev}:${folder.ino}`;
 }
 
 /** Whether a failed read found no folder, rather than one unreadable. */
