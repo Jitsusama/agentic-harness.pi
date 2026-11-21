@@ -584,6 +584,47 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "drained again, pressed again").toEqual([true, false, true]);
+
+		// The second drain has a ceiling of its own.
+		pressure = undefined;
+		clock += SETTLE_CEILING_MS - 1;
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "not lifted short of it").toEqual([true, false, true]);
+		clock += 1;
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "lifted at it").toEqual([true, false, true, false]);
+	});
+
+	it("keeps the drain past its ceiling when the turn running began after it", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		let turns: readonly Held[] = [{ state: "busy", since: lately }];
+		let clock = NOW;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => turns,
+			pressure: () => pressure,
+			heapRestarts: () => true,
+			drain: (on) => drains.push(on),
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+
+		pressure = undefined;
+		clock += SETTLE_CEILING_MS;
+		turns = [{ state: "busy", since: new Date(clock - 1_000).toISOString() }];
+		await timers.fire();
+		await timers.fire();
+
+		expect(drains, "a fresh turn lifts nothing").toEqual([true]);
+		expect(
+			said.some((line) => line.includes("past its")),
+			"no turn blamed",
+		).toBe(false);
 	});
 
 	it("keeps the drain a heap still pressed past its ceiling stands, and says so once", async () => {
@@ -608,7 +649,7 @@ describe("restartWhenSettled", () => {
 		expect(drains, "still drains").toEqual([true]);
 		const past = said.filter((line) => line.includes("past its"));
 		expect(past).toEqual([
-			"report: Heap short of room past its drain's ceiling: a turn still runs, so held wakes wait until the turns end, the heap has room or it passes three-quarters",
+			"report: Heap short of room past its drain's ceiling: a turn running since the drain began still runs, so held wakes wait until the host restarts, the heap falls under three-fifths or it passes three-quarters",
 		]);
 	});
 
@@ -639,8 +680,14 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 
 		expect(drains, "no turn holds it, so it stands").toEqual([true]);
+
+		// Pressed again, with the call still on and no turn: still no blame.
+		pressure = "pressed";
+		await timers.fire();
+		await timers.fire();
+		expect(drains).toEqual([true]);
 		expect(
-			said.some((line) => line.includes("past its ceiling")),
+			said.some((line) => line.includes("past its")),
 			"no turn blamed",
 		).toBe(false);
 	});

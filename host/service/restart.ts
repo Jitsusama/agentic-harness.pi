@@ -66,7 +66,10 @@
  * stands the heap counts as pressed, though its parks take it under
  * three-fifths: otherwise the ordinary rules would let its held wakes
  * through past the ceiling and wait on heavy runs, and the wakes would
- * grow the heap again. Once the heap is under half, the drain lifts,
+ * grow the heap again. A turn running since the drain began that
+ * still runs half an hour on lifts it once the heap is under
+ * three-fifths, so one turn that never ends can't hold parked work, and
+ * a heap pressed again drains again. Once the heap is under half, the drain lifts,
  * waking what it held, and any other difference, such as a moved
  * install, waits under the ordinary rules rather than ending
  * background work and screens as a short heap would. A drain standing by hand before the heap
@@ -357,9 +360,9 @@ export function restartWhenSettled(
 	// and since when.
 	let drained = false;
 	let drainedAt: number | undefined;
-	// Whether this drain was said to stand past its ceiling on a heap still
-	// pressed, so the journal says it once for each drain.
-	let saidPastCeiling = false;
+	// When this drain was last said to stand past its ceiling on a heap
+	// still pressed, so the journal says it once an hour while it stands.
+	let saidPastCeilingAt: number | undefined;
 	// Whether starting the heap's drain threw since the heap last had room,
 	// so a host that can't drain says so once rather than every second.
 	let drainRefused = false;
@@ -500,7 +503,7 @@ export function restartWhenSettled(
 		}
 		drained = true;
 		drainedAt = facts.now();
-		saidPastCeiling = false;
+		saidPastCeilingAt = undefined;
 		facts.report(
 			"Heap short of room: the host drains, so each conversation parks as its turn ends and wakes wait for the next host",
 		);
@@ -563,24 +566,35 @@ export function restartWhenSettled(
 		const pastHalf = facts.heapRestarts?.();
 		if (read === undefined && pastHalf === false)
 			liftHeapDrain("The heap is under half its limit again");
-		// Only a turn running holds a drain past its ceiling: a call holding
-		// the restart once the turns end neither lifts it nor blames a turn.
-		const turning = facts.held().some(({ state }) => state === "busy");
+		// Only a turn running since the drain began holds it past its
+		// ceiling: a call holding the restart once the turns end, or a turn
+		// begun since, neither lifts it nor is blamed.
+		const since = drainedAt;
 		const drainPastCeiling =
 			drained &&
-			turning &&
-			drainedAt !== undefined &&
-			facts.now() - drainedAt >= ceilingMs;
+			since !== undefined &&
+			facts.now() - since >= ceilingMs &&
+			facts
+				.held()
+				.some(
+					({ state, since: changed }) =>
+						state === "busy" && Date.parse(changed) <= since,
+				);
 		// Under three-fifths, the drain lifts and the restart waits for a
 		// moment with no turn, as before drains; pressed again, it drains
 		// again, since waiting on turns alone let wakes grow the heap until
 		// three-quarters ended every turn mid-answer.
 		if (read === undefined && drainPastCeiling)
 			liftHeapDrain("A turn kept the heap's drain standing past its ceiling");
-		else if (read === "pressed" && drainPastCeiling && !saidPastCeiling) {
-			saidPastCeiling = true;
+		else if (
+			read === "pressed" &&
+			drainPastCeiling &&
+			(saidPastCeilingAt === undefined ||
+				facts.now() - saidPastCeilingAt >= HELD_SAY_MS)
+		) {
+			saidPastCeilingAt = facts.now();
 			facts.report(
-				"Heap short of room past its drain's ceiling: a turn still runs, so held wakes wait until the turns end, the heap has room or it passes three-quarters",
+				"Heap short of room past its drain's ceiling: a turn running since the drain began still runs, so held wakes wait until the host restarts, the heap falls under three-fifths or it passes three-quarters",
 			);
 		}
 		const heapDrains = drained && facts.draining?.() !== false;

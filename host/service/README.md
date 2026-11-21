@@ -188,11 +188,12 @@ input pipeline or screen. No unit or running host is installed yet.
   stands the heap counts as pressed, so its own parks never let its
   held wakes through; it lifts once the heap is under half, and
   another difference, such as a moved install, then waits under the
-  ordinary rules. A turn still running half an hour after the drain
-  started lifts it once the heap is under three-fifths, so one turn
-  that never ends can't hold parked work; pressed again, it drains
-  again. A call holding the restart once the turns end lifts nothing.
-  Still pressed past that half hour, it stands, saying so once.
+  ordinary rules. A turn running since the drain began that still
+  runs half an hour on lifts it once the heap is under three-fifths,
+  so one turn that never ends can't hold parked work; pressed again,
+  it drains again. A call holding the restart once the turns end, or
+  a turn begun since, lifts nothing. Still pressed past that half
+  hour, it stands, saying so once an hour.
   A drain standing by hand before the heap was pressed is left to
   its asker; one asked while the heap's stands lifts with it. One
   lifted by hand while the heap is still pressed is started again at
