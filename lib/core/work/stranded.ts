@@ -17,11 +17,15 @@
 
 import { randomBytes } from "node:crypto";
 import {
+	closeSync,
+	constants,
 	existsSync,
+	fstatSync,
 	lstatSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
-	readFileSync,
+	readSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -145,7 +149,8 @@ export interface StrandedSplit {
 /**
  * Split stranded trees into those nothing is making or using, which
  * may be set aside, and those kept for now, each saying why: one git
- * marks locked, as it does while a cut runs; one cut within
+ * marks locked, as it does while a cut runs; one locked for a reason
+ * no cut gives, which nothing here takes away; one cut within
  * {@link CUT_GRACE_MS}, whose record may not be written yet; and one
  * a process works in, or every one when the machine can't say.
  */
@@ -193,14 +198,21 @@ export const WORKED_IN =
 export const CANT_SAY =
 	"git won't read it, but this machine can't say whether something works in it, so it stays";
 
-/** Why a stranded tree somebody locked with `git worktree lock` stays. */
+/**
+ * Why a stranded tree locked for a reason no cut gives stays: a re-cut
+ * never forgets such a lock, so setting the tree aside would leave its
+ * name uncuttable. The lock is read where the tree's own `.git` points,
+ * which whatever ran in it could have written, so this says what git's
+ * files hold rather than who put it there.
+ */
 export const HAND_LOCKED =
-	"git won't read it, but somebody locked it with `git worktree lock`, so it stays until they unlock it";
+	"git won't read it, but the git entry it names is locked for a reason no cut gives, as `git worktree lock` leaves, so it stays until that lock is taken away";
 
 /**
- * Why a tree may still be being cut, or nothing: git marks a worktree
- * locked while `worktree add` fills it, and a cut writes its record
- * only once it ends.
+ * Why a tree may still be being cut, or must stay where it is, or
+ * nothing: git marks a worktree locked while `worktree add` fills it,
+ * a cut writes its record only once it ends, and a lock no cut put
+ * there is never taken away here.
  */
 function makingWhy(path: string, now: number): string | undefined {
 	if (handLocked(path)) return HAND_LOCKED;
@@ -231,8 +243,9 @@ export function cutRunning(path: string, now = Date.now()): boolean {
 }
 
 /**
- * Whether somebody locked the worktree at `path` with `git worktree
- * lock`, which nothing here takes away, however old the lock.
+ * Whether the git entry the worktree at `path` names is locked for a
+ * reason no cut gives, as `git worktree lock` leaves, which nothing
+ * here takes away, however old the lock.
  */
 export function handLocked(path: string): boolean {
 	const gitDir = namedGitDir(path);
@@ -289,8 +302,8 @@ export function forgetGoneEntry(
 		const entry = join(entries, name);
 		try {
 			if (!lstatSync(entry).isDirectory()) continue;
-			const named = readFileSync(join(entry, "gitdir"), "utf8").trim();
-			if (!wanted.has(resolve(entry, named))) continue;
+			const named = readPlain(join(entry, "gitdir"))?.trim();
+			if (named === undefined || !wanted.has(resolve(entry, named))) continue;
 			if (lockedSince(entry, now) || lockedByHand(entry)) return false;
 			rmSync(entry, { recursive: true, force: true });
 			return true;
@@ -306,13 +319,40 @@ export function forgetGoneEntry(
  * rather than the word `worktree add` writes while it fills a tree.
  */
 function lockedByHand(entry: string): boolean {
+	const reason = readPlain(join(entry, "locked"));
+	return reason !== undefined && reason.trim() !== "initializing";
+}
+
+/** The most of a file of git's that {@link readPlain} reads. */
+const PLAIN_LIMIT = 4096;
+
+/**
+ * The start of the plain file at `path`, or nothing when no plain file
+ * stands there. A tree's `.git`, and so every git file it names, is a
+ * path whatever ran in the tree could choose, and a fifo or a device
+ * there would hold reclaim for good on a read that never ends, so the
+ * file is opened without waiting and read only once it is plain.
+ */
+function readPlain(path: string): string | undefined {
+	let fd: number;
 	try {
-		return (
-			readFileSync(join(entry, "locked"), "utf8").trim() !== "initializing"
+		fd = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
 		);
 	} catch {
-		// No lock on it.
-		return false;
+		// Nothing there to read, or a link, which git never writes.
+		return undefined;
+	}
+	try {
+		if (!fstatSync(fd).isFile()) return undefined;
+		const buffer = Buffer.alloc(PLAIN_LIMIT);
+		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, PLAIN_LIMIT, 0));
+	} catch {
+		// It went or changed as it was read: nothing plain to say.
+		return undefined;
+	} finally {
+		closeSync(fd);
 	}
 }
 
@@ -338,15 +378,8 @@ function lockedSince(entry: string, now: number): boolean {
 
 /** The git folder a worktree's `.git` file names, or nothing. */
 function namedGitDir(path: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(path, ".git"), "utf8"),
-		)?.[1];
-		return said === undefined ? undefined : resolve(path, said.trim());
-	} catch {
-		// No `.git` file to read: nothing names a git folder.
-		return undefined;
-	}
+	const said = /^gitdir: (.+)$/m.exec(readPlain(join(path, ".git")) ?? "")?.[1];
+	return said === undefined ? undefined : resolve(path, said.trim());
 }
 
 /** What became of one stranded tree. */

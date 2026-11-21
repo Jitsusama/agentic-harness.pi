@@ -858,7 +858,7 @@ describe("a tree standing where git won't read it", () => {
 		await expect(cut).rejects.not.toThrow("work reclaim");
 	});
 
-	it("says a lock put there by hand stays until it is unlocked", async () => {
+	it("says a lock no cut gives stays until it is taken away", async () => {
 		// Nothing here takes a hand lock away, so asking again never helps.
 		const { exec } = fakeExec([
 			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
@@ -870,9 +870,9 @@ describe("a tree standing where git won't read it", () => {
 
 		const cut = provider.ensure(snapshot());
 
-		await expect(cut).rejects.toThrow("until they unlock it");
+		await expect(cut).rejects.toThrow("nothing here takes that lock away");
+		await expect(cut).rejects.toThrow("from the clone that cut it");
 		await expect(cut).rejects.not.toThrow("ask again");
-		await expect(cut).rejects.not.toThrow("work reclaim");
 	});
 
 	it("cuts into an empty folder, as git does", async () => {

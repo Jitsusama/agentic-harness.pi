@@ -17,7 +17,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
+import {
+	type Exec,
+	type SpawnExecOptions,
+	spawnExec,
+} from "../../lib/core/exec/index.ts";
 import { sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	createTreeBroker,
@@ -84,18 +88,21 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 export function treeExec(signal?: AbortSignal): Exec {
 	const stoppedBy = signal ? { signal } : {};
 	return treeExecOver(
-		spawnExec({
+		gitInEnglish({
 			...stoppedBy,
 			timeoutMs: UNATTENDED_LIMIT_MS,
 			turn: WORLD_PUSH_TURN,
-			env: GIT_IN_ENGLISH,
 		}),
-		spawnExec({
-			...stoppedBy,
-			timeoutMs: QUEUED_LIMIT_MS,
-			env: GIT_IN_ENGLISH,
-		}),
+		gitInEnglish({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
 	);
+}
+
+/**
+ * A spawned git told {@link GIT_IN_ENGLISH}, the one way both the direct
+ * and the queued git are made, so neither can lose it alone.
+ */
+function gitInEnglish(options: SpawnExecOptions): Exec {
+	return spawnExec({ ...options, env: GIT_IN_ENGLISH });
 }
 
 /**

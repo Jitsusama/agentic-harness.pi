@@ -601,7 +601,7 @@ async function surveyRepo(
 			: [
 					"",
 					`${count(earlier, "tree", "trees")} set aside earlier wait in ${displayPath(strandedDir(treeDir()))}.`,
-					"Delete each once nothing in it is wanted.",
+					"Delete each once nothing in it is wanted, and run no git in it.",
 				]),
 	].join("\n");
 	return say(

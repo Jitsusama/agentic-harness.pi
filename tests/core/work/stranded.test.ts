@@ -3,7 +3,7 @@
  * against real folders and, where a cut is the claim, real git.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -270,6 +270,23 @@ describe("splitStranded", () => {
 
 		expect(split.free).toEqual([]);
 		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
+	});
+
+	it("reads no lock from a fifo where one should be", async () => {
+		// What ran in the tree chooses where its `.git` points, and a read
+		// of a fifo with no writer would hold reclaim for good.
+		const gitDir = standingGitDir("snapshot-p");
+		const path = treeNaming("snapshot-p", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		execFileSync("mkfifo", [join(gitDir, "locked")]);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.kept[0]?.why).not.toBe(HAND_LOCKED);
+		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
 	});
 
 	it("reads a fresh hand lock as no cut running", () => {

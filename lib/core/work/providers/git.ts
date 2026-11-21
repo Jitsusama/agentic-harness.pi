@@ -69,7 +69,7 @@ function unreadTree(
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
 	if (handLocked(path)) {
-		return `${where} Somebody locked it with \`git worktree lock\`, so it stays until they unlock it, and nothing here takes that lock away.`;
+		return `${where} The git entry it names is locked for a reason no cut gives, as \`git worktree lock\` leaves, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from the clone that cut it, never inside it, and \`work reclaim\` can then set it aside.`;
 	}
 	if (cutRunning(path)) {
 		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
@@ -265,7 +265,12 @@ const GENERAL = 0;
  * specificity.
  */
 export function createGitTreeProvider(deps: {
-	/** Runs git for a call nobody can stop. */
+	/**
+	 * Runs git for a call nobody can stop. It must run git in its own
+	 * English, as the broker's does with `LANGUAGE=en`: a cut's lock
+	 * holds the word git writes while it fills a tree, which a re-cut
+	 * and reclaim read to tell a killed cut's lock from a hand lock.
+	 */
 	exec: Exec;
 	/**
 	 * Runs git for a call that can be stopped, stopping git with it.
