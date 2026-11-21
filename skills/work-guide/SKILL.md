@@ -401,6 +401,23 @@ One tree git will not give up does not strand the ones behind
 it. Each is reported on its own line, in git's words, and the
 sweep carries on.
 
+A tree where the broker cuts them that git won't read, as one
+cut from a clone outside `~/src` whose settings the fence doesn't
+guard, can't be handed over, released or cut again, and no
+checkout's git lists it. A snapshot or tree asked for at its name
+is refused, naming it. `tidy` lists every such tree no running
+session holds, from whichever checkout it runs in, counted apart
+from that checkout's own, and `reclaim` moves each aside whole
+beside the trees, deleting nothing, so its name can be cut again.
+One something still works in, or cut in the last ten minutes,
+stays, and so does every one where the machine can't say what
+works in a folder. A refusal that says git marks the tree locked
+means another session is cutting it: ask again in a minute. A
+lock an hour old is taken as one a killed cut left, which reclaim
+may then set aside. A tree set aside keeps its `.git` as
+`.git-was`: copy out what is wanted rather than joining it to git
+again.
+
 ## Where This Ends and Review Begins
 
 `work` gets a branch into a state worth showing somebody.
