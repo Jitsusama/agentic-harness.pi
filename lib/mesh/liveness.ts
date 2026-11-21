@@ -327,9 +327,31 @@ export async function census(
 				] as const,
 		),
 	);
+	const settled = supersedeResuming(judged);
 	return {
-		present: judged.filter(([, at]) => at !== "gone").map(([one]) => one),
-		gone: judged.filter(([, at]) => at === "gone").map(([one]) => one),
-		resuming: judged.filter(([, at]) => at === "resuming").map(([one]) => one),
+		present: settled.filter(([, at]) => at !== "gone").map(([one]) => one),
+		gone: settled.filter(([, at]) => at === "gone").map(([one]) => one),
+		resuming: settled.filter(([, at]) => at === "resuming").map(([one]) => one),
 	};
+}
+
+/**
+ * A resuming presence whose address a session already running answers
+ * to again is that session's past, so it reads gone: every reader of
+ * the census (groups, peers, joins, sends, pivots) then leaves it out,
+ * rather than each renderer repeating the rule.
+ */
+function supersedeResuming(
+	judged: readonly (readonly [Presence, Liveness])[],
+): (readonly [Presence, Liveness])[] {
+	const running = new Set(
+		judged
+			.filter(([, at]) => at !== "gone" && at !== "resuming")
+			.flatMap(([one]) => one.addresses.slice(0, 1)),
+	);
+	return judged.map(([one, at]) =>
+		at === "resuming" && one.addresses[0] && running.has(one.addresses[0])
+			? [one, "gone"]
+			: [one, at],
+	);
 }

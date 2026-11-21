@@ -118,6 +118,34 @@ describe("a peer's liveness", () => {
 		expect(standing.gone.map((peer) => peer.session)).toEqual(["s-1"]);
 	});
 
+	it("is gone once a running session answers to its address again", async () => {
+		const past = hostedPresence({ addresses: ["AGAIN1"] });
+		const still = hostedPresence({
+			session: "c-2",
+			addresses: ["BACK01"],
+			hosted: { host: "work-background", conversation: "c-2" },
+		});
+		const live = presence({
+			session: "s-2",
+			addresses: ["AGAIN1"],
+			owner: { pid: 41, startedAt: 1000 },
+		});
+
+		const standing = await census(
+			[past, still, live],
+			machine({ 41: 1000 }),
+			undefined,
+			() => false,
+			holding(true).ask,
+		);
+		expect(
+			standing.present.map((peer) => peer.session),
+			"its past is no peer for joins, sends or pivots to count",
+		).toEqual(["c-2", "s-2"]);
+		expect(standing.resuming.map((peer) => peer.session)).toEqual(["c-2"]);
+		expect(standing.gone.map((peer) => peer.session)).toEqual(["c-1"]);
+	});
+
 	it("tells the roster when the process that last ran it started", async () => {
 		const starts: (number | undefined)[] = [];
 		const ask: HeldAsk = async (_conversation, _host, ranFrom) => {

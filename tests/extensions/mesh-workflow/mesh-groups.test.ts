@@ -540,6 +540,13 @@ describe("groups", () => {
 				text,
 				"a group only its past was in is not the live session's",
 			).not.toMatch(/^#old:/m);
+			const joined = await tools
+				.get("mesh_join")
+				?.execute("call-2", { group: "#old" });
+			expect(
+				joined?.content[0]?.text ?? "",
+				"mesh_join counts members as mesh_groups does",
+			).not.toContain("AGAIN1");
 		} finally {
 			rmSync(rosterPath("work-background", rosters), { force: true });
 			rmSync(`${rosterPath("work-background", rosters)}.lock`, {
