@@ -30,12 +30,19 @@ beforeEach(() => {
 	tmpRoot = mkdtempSync(join(tmpdir(), "needs-"));
 	// No realm is named here, so a spawn that asks the node is refused
 	// for want of one, which says it asked.
-	for (const key of ["HOME", "XDG_STATE_HOME", "MYCELIUM_REALM"]) {
+	// Nor does this test's own sandbox reach what it spawns.
+	for (const key of [
+		"HOME",
+		"XDG_STATE_HOME",
+		"MYCELIUM_REALM",
+		"PI_SANDBOX",
+	]) {
 		kept[key] = process.env[key];
 	}
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	delete process.env.MYCELIUM_REALM;
+	delete process.env.PI_SANDBOX;
 	spawned = undefined;
 	spawnedEnv = undefined;
 	clearTerminalDrivers();
@@ -290,9 +297,23 @@ describe("the fence a quest's spawns declare", () => {
 		const result = succeeded(await run({ action: "spawn-tab", id }));
 
 		expect(spawnedEnv?.PI_SANDBOX, "no sandbox is named").toBeUndefined();
-		expect(result.message, "it says strict is told").toContain(
-			"It tells the node it runs strict, since nothing declared a fence.",
+		expect(result.message, "it says what truly runs").toContain(
+			"It tells the node it runs unfenced, since nothing declared a fence.",
 		);
+	});
+
+	it("keeps an undeclared spawn of a strict session strict, and only a declared fence lowers it", async () => {
+		const { id, run } = await quest("Alpha");
+		process.env.PI_SANDBOX = "strict";
+
+		const kept = succeeded(await run({ action: "spawn-tab", id }));
+		expect(spawnedEnv?.PI_SANDBOX, "the child keeps strict").toBe("strict");
+		expect(kept.details, "it says so to the node").toMatchObject({
+			fence: { kind: "strict", from: "default" },
+		});
+
+		succeeded(await run({ action: "spawn-tab", id, fence: "fence" }));
+		expect(spawnedEnv?.PI_SANDBOX, "a declared fence lowers it").toBe("fence");
 	});
 
 	it("refuses a spawn naming no fence it may declare, starting nothing", async () => {

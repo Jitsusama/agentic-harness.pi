@@ -17,7 +17,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	id: Type.Optional(
 		Type.String({
 			description:
-				"The quest or document, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it, trees pruned; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document's id ends just that. locate: any quest, document, alias or session id. undo: reverses this session's newest change.",
+				"The quest or document, loaded or not (default: the focused document, else the README); comma-separated for reparent, conclude, retire and reopen-sessions. conclude/retire: the loaded quest's id seals it, trees pruned; another quest's id sweeps its status and removes its whole scratch folder (undo restores only status and priority); a document's id ends just that. locate: any id or alias. undo: reverses this session's newest change.",
 		}),
 	),
 	url: Type.Optional(
@@ -29,7 +29,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	title: Type.Optional(
 		Type.String({
 			description:
-				"create: the quest's title (its H1). draft: the document's. section: the heading to replace or add (a README's optional Milestones, Spirit, Outcomes or Context), no emoji. retitle: `id`'s new H1. show: the section to read.",
+				"create: the quest's title (its H1). draft: the document's. section: the heading to replace or add, no emoji. retitle: `id`'s new H1. show: the section to read.",
 		}),
 	),
 	parent: Type.Optional(
@@ -126,7 +126,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	host: Type.Optional(
 		Type.String({
 			description:
-				"spawn: attended or background, to open it in the shared pi host, not a terminal; left out, the spawnHost setting decides (off by default).",
+				"spawn: attended or background, to open it in the shared pi host, not a terminal; left out, the spawnHost setting decides.",
 		}),
 	),
 	nesting: Type.Optional(
@@ -144,13 +144,13 @@ export const QUEST_PARAMETERS = Type.Object({
 	needs: Type.Optional(
 		Type.Array(Type.String(), {
 			description:
-				"spawn: what the machine must be, kind=value (machine, system, arch, reach, accelerator), e.g. reach=home; the node picks one.",
+				"spawn: what the machine must be, kind=value, e.g. reach=home; the node picks one.",
 		}),
 	),
 	fence: Type.Optional(
 		Type.String({
 			description:
-				"spawn: fence or strict, the fence the session tells the node it runs in (left out: the quest's, else strict); fence may start it on another machine under a strict parent. need-add: the quest's own, which its spawns declare; need-remove with fence clears it. Declare fence only when both hold: (1) it needs none of optimus's own credentials: its TPM keys, the agents' proxy, or Joel's gcloud or World push; (2) its work reads no stranger's text: other people's PRs and issues, Slack, email, or web pages beyond docs. Strict when unsure.",
+				"spawn, need-add/remove: fence or strict. Fence only for work needing no optimus credentials, reading no stranger's text.",
 		}),
 	),
 	command: Type.Optional(
@@ -201,7 +201,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	dryRun: Type.Optional(
 		Type.Boolean({
 			description:
-				"Say what would change, doing nothing: reparent, spawn, reopen-sessions, budget-sweep, conclude/retire of quests not loaded here. Others refuse it.",
+				"Say what would change, doing nothing: reparent, spawn, reopen-sessions, budget-sweep, conclude/retire of quests not loaded here.",
 		}),
 	),
 	limit: Type.Optional(

@@ -346,14 +346,16 @@ shipped and tested.
   parent.
 - **The fence a spawn declares**: every spawn tells the node
   the fence it runs in, which the node judges where it may go
-  by: `fence` on the spawn, else the quest's own, else
-  `strict`. `need-add` and `need-remove` given `fence` (never
+  by: `fence` on the spawn, else the quest's own, else what
+  it truly runs, which the node never trusts to lower
+  anything. `need-add` and `need-remove` given `fence` (never
   with `ref`) keep the quest's as `fence` beside its `needs`.
-  A fresh session whose fence was declared starts with
-  `PI_SANDBOX` set to it, here or on a host; a reopened one
-  never does, and one nobody declared is left to the fence's
-  stage. `fence` is right only when the work needs none of
-  optimus's own credentials and reads no stranger's text.
+  A fresh session starts with `PI_SANDBOX` set to a declared
+  fence, here or on a host, and a strict session's undeclared
+  spawn stays strict; a reopened one never gets it, and any
+  other is left to the fence's stage. `fence` is right only
+  when the work needs none of optimus's own credentials and
+  reads no stranger's text.
 - **What a quest's model calls draw on**: `budget` with `ref`
   names a quest's budget (`none` for the session's default,
   `inherit` to take its own away), and without `ref` says what

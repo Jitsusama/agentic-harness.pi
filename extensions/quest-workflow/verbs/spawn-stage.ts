@@ -9,6 +9,11 @@
  */
 
 import {
+	type DeclarationRead,
+	fenceDeclared,
+	undeclaredRuns,
+} from "../../../lib/internal/fence/fence-declaration.ts";
+import {
 	codeOf,
 	recordUnlisted,
 } from "../../../lib/internal/fence/fence-log.ts";
@@ -27,6 +32,30 @@ export interface StagedSpawn {
 	/** The command the call names, which may reopen one itself. */
 	readonly command?: string | undefined;
 	readonly dryRun?: boolean | undefined;
+}
+
+/** What a spawn says of its fence, before it is known where it starts. */
+export interface AskedFence {
+	/** The word the call gives. */
+	readonly fence?: string | undefined;
+	/** The word its quest's README gives. */
+	readonly quest: unknown;
+	/** The environment of the session spawning it. */
+	readonly parent: Readonly<Record<string, string | undefined>>;
+	readonly dryRun?: boolean | undefined;
+}
+
+/**
+ * The fence a spawn tells the node it runs in, as it would start fresh
+ * here: what the call or its quest declares, else what it runs, which
+ * counts the stage taking it once spawns join. Asked before the node
+ * places it, so it lists nothing; `declarationSettled` corrects it once
+ * the stage has listed it, or not.
+ */
+export function spawnFence(asked: AskedFence): DeclarationRead {
+	const staged = !asked.dryRun && spawnsJoin();
+	const runs = undeclaredRuns({ parent: asked.parent, staged });
+	return fenceDeclared(asked.fence, asked.quest, runs);
 }
 
 /** Whether a spawn reopens a session, picked or by its command. */
