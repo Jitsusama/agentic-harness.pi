@@ -258,6 +258,42 @@ export interface MoveReport {
 	readonly spared: readonly { address: string; why: string }[];
 }
 
+/** What host-cutover prints of a carried-out report, a line each. */
+export function reportLines(report: MoveReport): string[] {
+	return [
+		`${report.moved.length} moved.`,
+		...report.waiting.map(
+			(one) =>
+				`still waiting: ${one.address}${one.holds ? `, ${one.holds}` : ""}`,
+		),
+		...report.spared.map((one) => `left untold: ${one.address}, ${one.why}`),
+		...report.refused.map((one) => `not adopted: ${one.address}, ${one.why}`),
+		...report.calledOff.map(
+			(one) => `called its move off: ${one.address}, ${one.why}`,
+		),
+		...report.takenBack.map(
+			(address) => `taken back in its own window: ${address}`,
+		),
+		...report.places
+			.filter((one) => !one.said.startsWith("kept"))
+			.map((one) => `window not kept: ${one.address}, ${one.said}`),
+	];
+}
+
+/**
+ * Whether a report leaves nothing for the person: none still waiting,
+ * refused, called off or left untold. A session its own window took
+ * back runs on in plain pi, as a release would leave it.
+ */
+export function carriedOutWhole(report: MoveReport): boolean {
+	return (
+		report.waiting.length === 0 &&
+		report.refused.length === 0 &&
+		report.calledOff.length === 0 &&
+		report.spared.length === 0
+	);
+}
+
 /** How often the cutover looks again while sessions are moving. */
 export const LOOK_EVERY_MS = 2_000;
 
@@ -265,10 +301,10 @@ export const LOOK_EVERY_MS = 2_000;
  * Carry out the moves: tell each session, wake the parked, then adopt
  * each as its pi goes, until all are held or the deadline passes. A
  * move that called itself off since its tell is settled at once, with
- * why, rather than waited out. A note left by an earlier run whose session isn't in this one is
- * finished too: adopted when its pi has gone, taken away when its
- * session is already held. A release's notes (to plain pi) are left to
- * the release.
+ * why, rather than waited out. A note left by an earlier run whose
+ * session isn't in this one is finished too: adopted when its pi has
+ * gone, taken away when its session is already held. A release's notes
+ * (to plain pi) are left to the release.
  */
 export async function carryOut(
 	steps: readonly MoveStep[],
@@ -310,17 +346,20 @@ export async function carryOut(
 	const calledOff: { address: string; why: string }[] = [];
 	const refused = new Map<string, string>();
 	const addressOf = (session: string) => addresses.get(session) ?? session;
-	// Why a session's move called itself off since this run told it, as
-	// when its holder couldn't be told the join: no note will come, so
-	// waiting out the deadline would only say it still waits. One called
-	// off before the tell is an earlier move's, which this tell replaces.
-	const offSinceTold = async (session: string) => {
+	// The move a session this run told says it called off, and whether it
+	// is the one this tell started, as when its holder couldn't be told
+	// the join: no note will come, so waiting out the deadline would only
+	// say it still waits. Which move it was is said by when it was asked,
+	// which the session stamps as it reads the tell's steer, on this
+	// machine's clock: one asked before the tell is an earlier move's,
+	// which the tell replaces, even if it was called off since.
+	const offOf = async (session: string) => {
 		const told = toldAt.get(session);
 		if (told === undefined) return undefined;
 		const off = await facts.calledOff(session);
-		return off !== undefined && Date.parse(off.at) >= told
-			? off.why
-			: undefined;
+		return off === undefined
+			? undefined
+			: { why: off.why, ours: Date.parse(off.since) >= told };
 	};
 	for (;;) {
 		const held = await facts.held();
@@ -339,8 +378,9 @@ export async function carryOut(
 				continue;
 			}
 			if (note === undefined) {
-				const why = await offSinceTold(session);
-				if (why === undefined) continue;
+				const off = await offOf(session);
+				if (off?.ours !== true) continue;
+				const { why } = off;
 				goes.delete(session);
 				calledOff.push({ address: addressOf(session), why });
 				facts.say(`${addressOf(session)} called its move off: ${why}`);
@@ -395,7 +435,13 @@ export async function carryOut(
 			.filter((session) => !refused.has(session))
 			.map(async (session) => {
 				const address = addressOf(session);
-				const holds = await facts.holds(session);
+				// A call-off of an earlier move says this tell wasn't taken
+				// up, not why this one stopped.
+				const off = await offOf(session);
+				const holds =
+					off === undefined || off.ours
+						? await facts.holds(session)
+						: `it hasn't taken up this move; an earlier one called itself off: ${off.why}`;
 				return holds ? { address, holds } : { address };
 			}),
 	);
