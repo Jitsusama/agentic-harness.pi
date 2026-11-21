@@ -28,8 +28,9 @@ afterEach(() => {
 });
 
 const LOOP = "QEST-20261121-SRVQST";
-const readme = (extra = "") =>
-	`---\nid: ${LOOP}\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-11-21\nupdated: 2026-11-21\n${extra}---\n# ${LOOP}\n`;
+const NEED = "IKQ63G/mi8z0a1.0123456789ab";
+const readme = (extra = "", status = "active") =>
+	`---\nid: ${LOOP}\nkind: quest\nparent: null\nstatus: ${status}\npriority: active\nrank: 1\nstarted: 2026-11-21\nupdated: 2026-11-21\n${extra}---\n# ${LOOP}\n`;
 const write = (text: string) => {
 	mkdirSync(join(root, "quests", LOOP), { recursive: true });
 	writeFileSync(join(root, "quests", LOOP, "README.md"), text);
@@ -55,7 +56,7 @@ const TAKEN = [
 	"  - cell: IKQ63G",
 	"    need: I-5 fails at the candidate",
 	"    since: 2026-11-21T11:00:00Z",
-	"    id: IKQ63G/1763722800.ab12",
+	`    id: ${NEED}`,
 	"",
 ].join("\n");
 
@@ -69,9 +70,26 @@ describe("the needs this session's peer says it serves", () => {
 				cell: "IKQ63G",
 				need: "I-5 fails at the candidate",
 				since: "2026-11-21T11:00:00.000Z",
-				id: "IKQ63G/1763722800.ab12",
+				id: NEED,
 			},
 		]);
+	});
+
+	it("says none while its quest is sealed, since it serves nobody now", () => {
+		write(readme(TAKEN, "concluded"));
+		localPeer(surroundingsAt(root));
+
+		expect(kept(), "a presence was written").toBeDefined();
+		expect(kept()?.serves, "a sealed quest serves none").toBeUndefined();
+	});
+
+	it("says none in an ended session's last word", () => {
+		write(readme(TAKEN));
+		const peer = localPeer(surroundingsAt(root));
+		peer.end();
+
+		expect(kept(), "the last word says it ended").toHaveProperty("ended");
+		expect(kept()?.serves, "an ended session serves none").toBeUndefined();
 	});
 
 	it("says none while its quest took none", () => {
@@ -122,7 +140,46 @@ describe("the needs this session's peer says it serves", () => {
 				cell: "IKQ63G",
 				need: "I-5 fails at the candidate",
 				since: "2026-11-21T11:00:00.000Z",
-				id: "IKQ63G/1763722800.ab12",
+				id: NEED,
+			},
+		]);
+	});
+
+	it("reads another peer's serves as the node would, passing over what it would", () => {
+		write(readme());
+		localPeer(surroundingsAt(root));
+		const other = "another-session";
+		writeFileSync(
+			join(root, "presence", `${other}.json`),
+			JSON.stringify({
+				...kept(),
+				session: other,
+				serves: [
+					{ cell: "a cell", need: "spaced", since: "2026-11-21T11:00:00Z" },
+					{ cell: "TERN02", need: "undated", since: "today" },
+					"not an entry",
+					{
+						cell: "TERN02",
+						need: "another's id",
+						since: "2026-11-21T11:00:00Z",
+						id: NEED,
+					},
+				],
+			}),
+		);
+
+		const read = createPresences(join(root, "presence"))
+			.all()
+			.find((one) => one.session === other);
+		expect(read, "the other peer is read").toBeDefined();
+		expect(
+			read?.serves,
+			"only the entry the node would read, its foreign id left off",
+		).toEqual([
+			{
+				cell: "TERN02",
+				need: "another's id",
+				since: "2026-11-21T11:00:00.000Z",
 			},
 		]);
 	});

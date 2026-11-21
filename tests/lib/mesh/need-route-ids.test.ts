@@ -122,18 +122,61 @@ describe("a need for the id a cell holds", () => {
 
 describe("a hub whose subject names an id", () => {
 	const legHubs = {
-		foragers: cells({ A: [], H26: wordsOf("leg-26"), L: wordsOf("leg") }),
+		foragers: cells({
+			A: [],
+			H26: wordsOf("leg-26"),
+			H27: wordsOf("leg-27"),
+			H100: wordsOf("leg-100"),
+			L: wordsOf("leg"),
+		}),
 		ties: ties(),
-		hubs: [{ subject: "aquifer:leg-26", hub: "H26", fits: ["H26"] }],
+		hubs: [
+			{ subject: "aquifer:leg-26", hub: "H26", fits: ["H26"] },
+			{ subject: "aquifer:leg-27", hub: "H27", fits: ["H27"] },
+			{ subject: "aquifer:leg-100", hub: "H100", fits: ["H100"] },
+		],
 	};
 
-	it("takes a need naming its leg in prose", () => {
+	it("takes a need naming its leg in prose, over another leg's hub", () => {
 		const found = routeNeed(
 			{ ...asked("A", ...wordsOf("Leg 26 is red")), fromText: true },
 			legHubs,
 		);
 
-		expect(found, "leg-26's hub").toMatchObject({ fit: "H26", path: ["H26"] });
+		expect(found, "leg-26's hub alone").toMatchObject({
+			fit: "H26",
+			path: ["H26"],
+		});
+	});
+
+	it("takes a need naming its leg inside a longer id", () => {
+		const found = routeNeed(
+			{
+				...asked("A", ...wordsOf("the leg-26-follow-up is red")),
+				fromText: true,
+			},
+			legHubs,
+		);
+
+		expect(found, "leg-26's hub, inside the longer id").toMatchObject({
+			fit: "H26",
+			path: ["H26"],
+		});
+	});
+
+	it("never takes a need whose number is said apart from the leg", () => {
+		const found = routeNeed(
+			{
+				...asked("A", ...wordsOf("Leg 27 is red in 100 runs")),
+				fromText: true,
+			},
+			legHubs,
+		);
+
+		expect(found.path, "no hub of leg-100 for a stray 100").not.toContain(
+			"H100",
+		);
+		expect(found, "leg-27's hub, which it names").toMatchObject({ fit: "H27" });
 	});
 
 	it("never takes a need naming another leg, whose number it doesn't say", () => {

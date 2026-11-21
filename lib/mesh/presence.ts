@@ -306,8 +306,8 @@ export interface Presence {
 	/**
 	 * The needs its quest took from other cells (see
 	 * internal/quest/fields/serves.ts), which mycelium's node shows on its
-	 * forage as what it serves. Missing while it took none, and from an
-	 * older presence.
+	 * forage as what it serves. Missing while it took none, while its
+	 * quest is sealed or the session has ended, and from an older presence.
 	 */
 	readonly serves?: readonly Served[];
 	/**
@@ -508,7 +508,10 @@ export function workOf(
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
 		...subjectsSaid(declaredSubjects(parsed.frontMatter._extra?.subjects)),
-		...servesSaid(servedFrom(parsed.frontMatter._extra?.serves)),
+		// A sealed quest serves nobody now, as it shares nothing.
+		...(isSealedStatus(parsed.frontMatter.status)
+			? {}
+			: servesSaid(servedFrom(parsed.frontMatter._extra?.serves))),
 	};
 }
 

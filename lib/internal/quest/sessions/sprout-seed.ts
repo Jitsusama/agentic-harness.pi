@@ -12,6 +12,7 @@
  */
 
 import { isRecord } from "../../record.ts";
+import { needAsker } from "../fields/serves.ts";
 
 /** The one shape of it this reads. */
 const SPROUT_VERSION = 1;
@@ -21,12 +22,6 @@ const ADDRESS = /^[A-Za-z0-9]{1,32}$/u;
 
 /** A sprout's id, as an alias value carries it. */
 const SPROUT_ID = /^[A-Za-z0-9._-]{1,64}$/u;
-
-/**
- * A need's id as the mesh mints one (lib/mesh/need-route.ts `needId`):
- * the asker's address, then a base-36 stamp and twelve hex digits.
- */
-const NEED_ID = /^([A-Za-z0-9]{1,32})\/[0-9a-z]{1,16}\.[0-9a-f]{12}$/u;
 
 /** The most words read, past the map's 1000 and the launcher's line. */
 const MOST_WORDS = 4000;
@@ -97,7 +92,7 @@ export function sproutSeedFrom(
 	const n = text(need);
 	if (w === false || l === false || f === false || i === false || n === false)
 		return undefined;
-	if (n && !NEED_ID.test(n)) return undefined;
+	if (n && !needAsker(n)) return undefined;
 	if (!w && !l) return undefined;
 	if (w && w.length > MOST_WORDS) return undefined;
 	const href = l ? webLink(l) : undefined;
@@ -111,11 +106,6 @@ export function sproutSeedFrom(
 		...(i ? { id: i } : {}),
 		...(n ? { need: n } : {}),
 	};
-}
-
-/** The cell that put need `id`, its address being the id's first part. */
-export function needAsker(id: string): string | undefined {
-	return NEED_ID.exec(id)?.[1];
 }
 
 /**

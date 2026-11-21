@@ -197,9 +197,11 @@ const COMMON = new Set([
  * spirit property (I-5, XIII-2), a leg (leg-26), a seam's folder
  * (node_kubelet_cri) or a zone (cert-request), IKQ63G's forms of 21
  * November. Split into words, I-5 gives none and a seam gives words
- * half the realm holds, so each is also kept whole.
+ * half the realm holds, so each is also kept whole. One starts only
+ * where a run of letters or digits does, so a long run with no hyphen
+ * is tried once, not from each of its letters.
  */
-const JOINED_ID = /[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
+const JOINED_ID = /(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
 
 /** A leg named in prose, "leg 26", which is the id leg-26. */
 const LEG_IN_PROSE = /\bleg\s+(\d+)\b/gu;
@@ -207,14 +209,17 @@ const LEG_IN_PROSE = /\bleg\s+(\d+)\b/gu;
 /**
  * The words a need or a cell's work is matched by: lowercased, once
  * each, leaving out the short and the common, then each joined id whole
- * (`JOINED_ID`) and each leg named in prose as its id.
+ * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
+ * past, and each leg named in prose as its id.
  */
 export function wordsOf(text: string): string[] {
 	const lower = text.toLowerCase();
 	const words = lower
 		.split(/[^\p{L}\p{N}]+/u)
 		.filter((word) => word.length >= SHORTEST_WORD && !COMMON.has(word));
-	const ids = [...lower.matchAll(JOINED_ID)].map(([id]) => id);
+	const ids = [...lower.matchAll(JOINED_ID)]
+		.map(([id]) => id)
+		.filter((id) => id.length <= LONGEST_WORD);
 	const legs = [...lower.matchAll(LEG_IN_PROSE)].map(([, n]) => `leg-${n}`);
 	return [...new Set([...words, ...ids, ...legs])];
 }
@@ -231,7 +236,11 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
  */
 const HUB_FIELDS = ["hub", "fits", "hubs"];
 
-/** The most words one cell's declared subjects give it, all together. */
+/**
+ * The most words one cell's declared subjects give it, all together,
+ * and apart from them the most joined ids, so an id a subject's words
+ * already route never pushes a later subject's words out.
+ */
 export const MOST_SUBJECT_WORDS = 12;
 
 /**
@@ -320,12 +329,15 @@ function wordsBeyond(
 ): string[] {
 	const seen = new Set(titled);
 	const beyond: string[] = [];
+	const taken = { words: 0, ids: 0 };
 	for (const subject of subjects) {
 		for (const word of subjectWords(subject)) {
-			if (seen.has(word)) continue;
+			const kind = isJoined(word) ? "ids" : "words";
+			if (seen.has(word) || taken[kind] === MOST_SUBJECT_WORDS) continue;
 			seen.add(word);
 			beyond.push(word);
-			if (beyond.length === MOST_SUBJECT_WORDS) return beyond;
+			taken[kind]++;
+			if (taken.words + taken.ids === 2 * MOST_SUBJECT_WORDS) return beyond;
 		}
 	}
 	return beyond;
@@ -624,19 +636,34 @@ function hubsFor(
  * Whether a need `saying` these words says `word` of a subject: said
  * whole, or, for a joined id, said part by part, so `easing lines`
  * says easing-lines and `host` says pi-host, whose pi is too short to
- * be a word. A part all digits is always needed, and a need never says
- * one alone, so `leg 27` never says leg-26.
+ * be a word; or inside a longer id said, so leg-26-follow-up says
+ * leg-26. An id with a part all digits is said only whole or inside
+ * another, since its number said apart may belong to anything, so
+ * neither `leg 27` nor `leg 27 in 100 runs` says leg-26 or leg-100.
  */
 function saysWord(word: string, saying: ReadonlySet<string>): boolean {
 	if (saying.has(word)) return true;
+	if (!isJoined(word)) return false;
+	const inside = bounded(word);
+	for (const said of saying) {
+		if (isJoined(said) && bounded(said).includes(inside)) return true;
+	}
 	const parts = word.split(/[-_]/u);
-	if (parts.length < 2) return false;
+	if (parts.some((part) => /^\p{N}+$/u.test(part))) return false;
 	const needed = parts.filter(
-		(part) =>
-			/^\p{N}+$/u.test(part) ||
-			(part.length >= SHORTEST_WORD && !COMMON.has(part)),
+		(part) => part.length >= SHORTEST_WORD && !COMMON.has(part),
 	);
 	return needed.length > 0 && needed.every((part) => saying.has(part));
+}
+
+/** Whether `word` is a joined id rather than a plain word. */
+function isJoined(word: string): boolean {
+	return /[-_]/u.test(word);
+}
+
+/** `id` with its joins alike and a hyphen at each end, to find it inside another. */
+function bounded(id: string): string {
+	return `-${id.replaceAll("_", "-")}-`;
 }
 
 /** A hub a need may be put to, with what ranks it. */

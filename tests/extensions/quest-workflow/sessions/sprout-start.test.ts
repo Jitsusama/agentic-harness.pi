@@ -7,7 +7,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	pendingWords,
 	resolveStartup,
@@ -39,6 +39,34 @@ import {
 } from "../../../../lib/refs/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
+
+/**
+ * Whether a README write that records a need fails, as a lock that
+ * never comes does; every other write goes through.
+ */
+const failing = vi.hoisted(() => ({ serves: false }));
+vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
+	const real =
+		await actual<
+			typeof import("../../../../lib/internal/quest/fields/mutate.ts")
+		>();
+	return {
+		...real,
+		mutateQuestFrontMatter: (
+			...[dir, transform, opts]: Parameters<typeof real.mutateQuestFrontMatter>
+		) =>
+			real.mutateQuestFrontMatter(
+				dir,
+				(fm) => {
+					const next = transform(fm);
+					if (failing.serves && next?._extra?.serves !== fm._extra?.serves)
+						throw new Error("the quest's lock didn't come");
+					return next;
+				},
+				opts,
+			),
+	};
+});
 
 const SEED = "QUEST_WORKFLOW_SPROUT";
 const PROSE = "QUEST_WORKFLOW_FIRST_TEXT";
@@ -231,6 +259,62 @@ describe("a sprouted session's start", () => {
 				id: need,
 			},
 		]);
+	});
+
+	it("records a second need on the quest it joins, beside the first", async () => {
+		const first = await start({
+			words: "the PR's work",
+			id: "S11",
+			need: "TERN02/mi1x.0123456789ab",
+		});
+		const id = first.state.questId ?? "";
+		markWith(id, "https://github.com/o/r/pull/9");
+		const again = await start(
+			{
+				link: "https://github.com/o/r/pull/9",
+				id: "S12",
+				need: "KESTRL/mi1y.ba9876543210",
+			},
+			{ sessionId: "sess-2" },
+		);
+		clearDiscoveryCache();
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(id);
+
+		expect(
+			again.state.questId,
+			"the second sprout joins the first's quest",
+		).toBe(id);
+		expect(
+			entry?.doc.frontMatter._extra?.serves,
+			"the joined quest serves both askers, the first first",
+		).toMatchObject([
+			{ cell: "TERN02", id: "TERN02/mi1x.0123456789ab" },
+			{ cell: "KESTRL", id: "KESTRL/mi1y.ba9876543210" },
+		]);
+	});
+
+	it("still ties to the cell it came from when the need can't be written", async () => {
+		const ran: string[][] = [];
+		failing.serves = true;
+		try {
+			const { state } = await start(
+				{ words: "tea", from: "TERN02", need: "TERN02/mi1x.0123456789ab" },
+				{
+					run: async (_program, args) => {
+						ran.push([...args]);
+						return { code: 0, stdout: "", stderr: "" };
+					},
+				},
+			);
+
+			expect(state.questId, "the quest still stands").toMatch(/^QEST-/u);
+			expect(
+				ran.map((args) => args[2]),
+				"the tie to the map is still made",
+			).toEqual(["tie"]);
+		} finally {
+			failing.serves = false;
+		}
 	});
 
 	it("records no need for a seed sent for none", async () => {

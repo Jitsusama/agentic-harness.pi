@@ -512,8 +512,9 @@ export function localPeer(at: Surroundings): Peer {
 			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
 			...(subjects.length > 0 ? { subjects } : {}),
-			...(serves.length > 0 ? { serves } : {}),
-			// An ended session works with nobody, so its last word shares none.
+			// An ended session works with nobody, so its last word serves and
+			// shares none.
+			...(serves.length > 0 && !ended ? { serves } : {}),
 			...(shares.length > 0 && !ended ? { shares } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),

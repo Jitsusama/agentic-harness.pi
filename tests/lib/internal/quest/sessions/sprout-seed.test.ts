@@ -4,8 +4,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { needAsker } from "../../../../../lib/internal/quest/fields/serves.ts";
 import {
-	needAsker,
 	sproutAlias,
 	sproutedWords,
 	sproutSeedFrom,
