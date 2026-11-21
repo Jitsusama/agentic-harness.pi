@@ -95,6 +95,17 @@ async function checkoutAt(
 	return { path, head: git("rev-parse", "HEAD") };
 }
 
+/** Point the review config's checkout for `match` at `path`. */
+function configureCheckout(match: string, path: string): void {
+	writeFileSync(
+		configPath(),
+		JSON.stringify({
+			sections: { review: { repos: [{ match, providers: [], path }] } },
+		}),
+		"utf8",
+	);
+}
+
 /** The same checkout one commit on, as a tree cut at a PR's head is. */
 function movedOn(checkout: { path: string }): { path: string; head: string } {
 	const git = (...args: string[]) =>
@@ -193,24 +204,8 @@ describe("what a round records about the tree it read", () => {
 		// it had done. The configured path is still the ground for a
 		// snapshot; when none can be cut, the named one is tried too.
 		const configured = await checkoutAt("elsewhere/other");
-		const named = await movedOn(await checkoutAt("elsewhere/other"));
-		writeFileSync(
-			configPath(),
-			JSON.stringify({
-				sections: {
-					review: {
-						repos: [
-							{
-								match: "elsewhere/other",
-								providers: [],
-								path: configured.path,
-							},
-						],
-					},
-				},
-			}),
-			"utf8",
-		);
+		const named = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
 		expect(
 			named.head,
 			"the two fixtures stand on different commits, or the case proves nothing",
@@ -228,27 +223,13 @@ describe("what a round records about the tree it read", () => {
 		});
 	});
 
-	it("still refuses when neither the configured nor the named checkout is at the commit", async () => {
-		// Trying the named checkout must not turn into reading it anyway.
+	it("refuses naming both checkouts when neither is at the commit", async () => {
+		// Trying the named checkout must not turn into reading it anyway,
+		// and the refusal says how the named one stands, which is the half
+		// of XY9H5C the old message left out.
 		const configured = await checkoutAt("elsewhere/other");
-		const named = await checkoutAt("elsewhere/other");
-		writeFileSync(
-			configPath(),
-			JSON.stringify({
-				sections: {
-					review: {
-						repos: [
-							{
-								match: "elsewhere/other",
-								providers: [],
-								path: configured.path,
-							},
-						],
-					},
-				},
-			}),
-			"utf8",
-		);
+		const named = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
 
 		const tree = await treeForRound(
 			{ key: "github:elsewhere/other" },
@@ -259,6 +240,58 @@ describe("what a round records about the tree it read", () => {
 		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
 		expect(tree.refusal, "the refusal names the commit to fetch").toContain(
 			"Fetch d7205e3c",
+		);
+		expect(
+			tree.refusal,
+			"the refusal says where the named checkout stands",
+		).toContain(`${named.path}, is at ${named.head.slice(0, 12)}`);
+	});
+
+	it("refuses a named checkout of another repo, even at the commit", async () => {
+		// The commit matching is no evidence of the repo: a checkout of a
+		// different project at the same id is still a different project.
+		const configured = await checkoutAt("elsewhere/other");
+		const stranger = movedOn(await checkoutAt("someone/different"));
+		configureCheckout("elsewhere/other", configured.path);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			stranger.head,
+			stranger.path,
+		);
+
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(
+			tree.refusal,
+			"the refusal says the named checkout is another repo",
+		).toContain(
+			`${stranger.path}, is not a checkout of github:elsewhere/other`,
+		);
+	});
+
+	it("refuses a named checkout at the commit with changes to its tracked files", async () => {
+		// A round records the commit it read, so a tree with edits on top
+		// would be recorded as a commit it is not.
+		const configured = await checkoutAt("elsewhere/other");
+		const named = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
+		const tracked = execFileSync("git", ["-C", named.path, "ls-files"], {
+			encoding: "utf8",
+		})
+			.split("\n")
+			.find((line) => line !== "");
+		if (tracked === undefined) throw new Error("the fixture tracks no file");
+		writeFileSync(join(named.path, tracked), "edited after the commit\n");
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			named.head,
+			named.path,
+		);
+
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(tree.refusal, "the refusal names the uncommitted changes").toContain(
+			"uncommitted changes to tracked files",
 		);
 	});
 

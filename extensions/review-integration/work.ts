@@ -457,10 +457,56 @@ async function headOf(directory: string): Promise<string | undefined> {
 }
 
 /**
+ * Whether a directory's tracked files are as its HEAD has them, by
+ * asking git. Untracked files are left out: a checkout routinely holds
+ * scratch nobody added, and a reviewer reading one is told the diff,
+ * which they are not in. Undefined from git counts as not clean.
+ */
+async function isClean(directory: string): Promise<boolean> {
+	const { host } = standing();
+	if (host === undefined) return false;
+	try {
+		const said = await host.exec(
+			"git",
+			["-C", directory, "status", "--porcelain", "--untracked-files=no"],
+			{ timeout: REMOTE_PROBE_MS },
+		);
+		return said.code === 0 && said.stdout.trim() === "";
+	} catch {
+		// A git that will not run cannot vouch for the tree, and a round
+		// is refused rather than reading what nobody vouched for.
+		return false;
+	}
+}
+
+/**
+ * Whether a checkout can stand in for the commit: undefined when its
+ * HEAD is the commit and its tracked files are unchanged, or else how
+ * it stands, said for a refusal.
+ */
+async function standingApart(
+	directory: string,
+	commit: string,
+): Promise<string | undefined> {
+	const head = await headOf(directory);
+	if (head === undefined) return "is at a commit git would not name";
+	if (!head.startsWith(commit)) {
+		return `is at ${head.slice(0, 12)} rather than ${commit}`;
+	}
+	return (await isClean(directory))
+		? undefined
+		: `is at ${commit} with uncommitted changes to tracked files`;
+}
+
+/**
  * Where a round goes when no tree could be cut at the commit: the
- * ground when it already has that commit checked out, then the
- * checkout the caller named when git says it is this repo and it is
- * at the commit, and otherwise a refusal naming why and what to do.
+ * ground when it stands cleanly at that commit, then the checkout the
+ * caller named when git says it is this repo and it stands cleanly at
+ * the commit, and otherwise a refusal naming each and how it stands.
+ *
+ * The named checkout is the repo parameter when one was given and the
+ * session's own directory when not, which is the same directory the
+ * ground falls back to with no checkout configured.
  *
  * The named checkout is tried second, not ignored. The ground is the
  * configured checkout whenever one is configured, which is right for
@@ -482,16 +528,20 @@ async function fallbackAt(
 	why: string,
 ): Promise<RoundTree> {
 	const { repo, ground, named } = choice;
-	const head = await headOf(ground);
-	if (head?.startsWith(commit)) return { path: ground };
-	if (named !== ground && (await isCheckoutOf(named, repo))) {
-		const namedHead = await headOf(named);
-		if (namedHead?.startsWith(commit)) return { path: named };
+	const groundApart = await standingApart(ground, commit);
+	if (groundApart === undefined) return { path: ground };
+	let namedApart = "";
+	if (named !== ground) {
+		if (await isCheckoutOf(named, repo)) {
+			const apart = await standingApart(named, commit);
+			if (apart === undefined) return { path: named };
+			namedApart = ` The checkout named for it, ${named}, ${apart}.`;
+		} else {
+			namedApart = ` The checkout named for it, ${named}, is not a checkout of ${repo.key}.`;
+		}
 	}
-	const standing =
-		head === undefined ? "a commit git would not name" : head.slice(0, 12);
 	return {
-		refusal: `${why} The checkout left to read, ${ground}, is at ${standing} rather than ${commit}, and findings about other code read as plausibly as real ones. Fetch ${commit} there or check it out, or name a checkout that has it as the repo parameter, then ask again.`,
+		refusal: `${why} The checkout left to read, ${ground}, ${groundApart}, and findings about other code read as plausibly as real ones.${namedApart} Fetch ${commit} there or check it out cleanly, or name a checkout that has it as the repo parameter, then ask again.`,
 	};
 }
 
