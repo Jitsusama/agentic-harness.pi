@@ -108,8 +108,14 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	const stopping = stopKeeping({ stateDir: options.stateDir, report });
-	await stopping.reapEarlier(host.key);
+	const kept = options.oneConversation;
+	const stopping = stopKeeping({
+		stateDir: options.stateDir,
+		...(kept ? { keptIn: kept.keptIn } : {}),
+		report,
+	});
+	// A child's siblings on the key run on: the supervisor sweeps for the dead.
+	if (!kept) await stopping.reapEarlier(host.key);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 	const logs = heldLogs(report);
@@ -118,11 +124,13 @@ export async function createEngine(
 	// The bash calls a restart carries to the next host, kept through its stop.
 	const shells = carriedShells({
 		stateDir: options.stateDir,
+		...(kept ? { keptIn: kept.keptIn } : {}),
 		say: report,
 		report,
 	});
-	// What an earlier restart kept and no conversation here took up is stopped once due.
-	shells.watch((sessionId) => live.has(sessionId));
+	// What an earlier restart kept and no conversation here took up is
+	// stopped once due; a child's are the supervisor's to look over.
+	if (!kept) shells.watch((sessionId) => live.has(sessionId));
 	let watched: ConversationEvents | undefined;
 	const requests = keptRequests({ engine: options, sessions, report });
 	const { warming } = requests;

@@ -1,6 +1,10 @@
 /** Versioned control requests and viewer frames for a realm's host socket. */
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+import {
+	isRosterEntry,
+	type RosterEntry,
+} from "../../lib/core/session/roster.ts";
 import { asCarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 
 const text = z.string().min(1);
@@ -59,6 +63,10 @@ const request = z.discriminatedUnion("op", [
 		env: carried,
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
+	// A child host's one conversation, followed for as long as the
+	// connection lasts (child.ts): what the supervisor that started it
+	// hears it by.
+	z.strictObject({ ...envelope, op: z.literal("watch") }),
 	// Who asks, as the caller names itself (the launcher, a command), for
 	// the line the host's journal writes as it lets the conversation go.
 	z.strictObject({ ...session, op: z.literal("release"), by: caller }),
@@ -135,6 +143,55 @@ export type SessionIdentity = z.infer<typeof identity>;
 
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
+
+// The child's roster entry for its conversation, launch and all, which
+// the supervisor holds in the shared roster so a later resume replays it.
+const entry = z.custom<RosterEntry>(isRosterEntry, "Invalid roster entry");
+
+const watched = z.strictObject({
+	version: text,
+	host: expectedHost,
+	conversation: identity,
+	entry,
+});
+
+/** Why a child host ends, as the last line its watch sends says. */
+export const ENDINGS = ["parked", "closed", "released", "failed"] as const;
+
+const watchLine = z.discriminatedUnion("type", [
+	z.strictObject({
+		type: z.literal("state"),
+		conversation: identity,
+		state: z.enum(["busy", "idle"]),
+		heap: z.strictObject({ used: count, limit: count }),
+		viewers: count,
+	}),
+	z.strictObject({
+		type: z.literal("became"),
+		previousId: sessionId,
+		conversation: identity,
+		entry,
+	}),
+	z.strictObject({ type: z.literal("ending"), why: z.enum(ENDINGS) }),
+]);
+
+/** Watch's answer: the child's harness version, its own identity and its conversation. */
+export type WatchAnswer = z.infer<typeof watched>;
+
+/** A line a child's watch sends after its answer. */
+export type WatchLine = z.infer<typeof watchLine>;
+
+/** Watch's result, sent once the child holds its conversation. */
+export function parseWatchResult(value: unknown): WatchAnswer {
+	return result(watched, value);
+}
+
+/** One line a child's watch sent, refused when it isn't one. */
+export function parseWatchLine(value: unknown): WatchLine {
+	const parsed = watchLine.safeParse(value);
+	if (!parsed.success) throw new Error("Invalid child watch line");
+	return parsed.data;
+}
 
 function result<T>(schema: z.ZodType<T>, value: unknown): T {
 	const parsed = schema.safeParse(value);

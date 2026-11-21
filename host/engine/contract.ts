@@ -120,6 +120,14 @@ export interface EngineOptions {
 	readonly packageDir: string;
 	/** Where each conversation's durable store is kept, a folder per conversation. */
 	readonly stateDir: string;
+	/**
+	 * Set for a child host, which runs one conversation beside others on
+	 * the same key (host/service/child.ts). Its engine reaps and watches
+	 * only what its own conversation left, never the key's whole table, and
+	 * keeps the commands it carries and leaves running in the folder this
+	 * answers at each use; the supervisor sweeps what no child holds.
+	 */
+	readonly oneConversation?: { readonly keptIn: () => string };
 	readonly host: SessionHost;
 	/** The realm's environment every conversation starts from. */
 	readonly env: NodeJS.ProcessEnv;

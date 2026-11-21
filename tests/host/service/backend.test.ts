@@ -339,6 +339,39 @@ describe("hostBackend", () => {
 		]);
 	});
 
+	// F34: a child whose conversation parked away heard nothing of its
+	// close or release, so it ended as parked 30 s later.
+	it.each(["close", "release"] as const)(
+		"tells what hears its changes of a %s of one held but not running",
+		async (op) => {
+			const { fake } = engine();
+			const left: [string, string][] = [];
+			const backend = hostBackend({
+				identity: { key: host.key, owner: host.owner },
+				host,
+				roster,
+				engine: fake,
+				changes: { left: (ending, why) => left.push([ending, why]) },
+			});
+			const stranded = parseOpenResult(await backend.execute(open)).sessionId;
+			await host.stop(stranded);
+			left.length = 0;
+
+			await backend.execute({
+				v: 1,
+				id: "s",
+				op,
+				sessionId: stranded,
+				by: "the launcher",
+			});
+
+			const ending = op === "close" ? "closed" : "released";
+			expect(left).toEqual([
+				[ending, `${ending}, asked by the launcher over the control socket`],
+			]);
+		},
+	);
+
 	it("keeps a hold whose close failed, so the next start still owes it", async () => {
 		const { fake } = engine();
 		const backend = backendWith(fake);
@@ -573,6 +606,35 @@ describe("hostBackend", () => {
 			expect([first, resting, failing].map((id) => ends.get(id ?? ""))).toEqual(
 				["resumed", "parked", "unresumed"],
 			);
+		});
+
+		it("resumes one woken elsewhere as woken, without asking whether it rests", async () => {
+			const [woke, resting] = await holding(2);
+			const restsParked = vi.fn((_entry: { sessionId: string }) => true);
+			const wokenAs = new Map<string, boolean>();
+			const restart = engine({
+				restsParked,
+				resume: vi.fn(async (entry, woken) => {
+					wokenAs.set(entry.sessionId, woken === true);
+					register(entry);
+				}),
+			});
+			const ends = new Map<string, string>();
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				woken: (entry) => entry.sessionId === woke,
+				finished: (step, end) => ends.set(step.sessionId, end),
+			});
+			expect(
+				[woke, resting].map((id) => ends.get(id ?? "")),
+				"the woken one resumed and the other still rests",
+			).toEqual(["resumed", "parked"]);
+			expect([...wokenAs], "resumed as woken").toEqual([[woke, true]]);
+			expect(
+				restsParked.mock.calls.map(([entry]) => entry.sessionId),
+				"asked only of the one not woken",
+			).toEqual([resting]);
 		});
 	});
 

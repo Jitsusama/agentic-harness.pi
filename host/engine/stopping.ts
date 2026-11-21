@@ -76,6 +76,8 @@ export interface StopKeeping {
 /** Keep what stops leave in the engine's state folder, saying in the journal what it keeps and ends. */
 export function stopKeeping(options: {
 	readonly stateDir: string;
+	/** The folder what parks keep goes in at each use, rather than `stateDir`, as a child host keeps its own. */
+	readonly keptIn?: () => string;
 	readonly report: (error: unknown) => void;
 	/**
 	 * The process table a conversation's reaps read; Linux's /proc by

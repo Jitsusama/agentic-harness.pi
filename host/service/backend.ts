@@ -8,6 +8,7 @@
 import { resolve } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import {
 	type ControlBackend,
@@ -196,7 +197,7 @@ export interface LiveHost {
 		readonly since: string;
 	}[];
 	holds(id: string): SessionIdentity["state"] | undefined;
-	close(id: string, why?: string): Promise<void>;
+	close(id: string, why?: string, handedOn?: boolean): Promise<void>;
 }
 
 // One conversation's end as the journal says it: its mesh address, its
@@ -258,6 +259,12 @@ export function hostBackend(options: {
 	 * waits for the start's own resume, so none resumes twice.
 	 */
 	held?: Pick<HeldOrder, "ahead">;
+	/**
+	 * Hears a close or release of one held but not running, which no
+	 * conversation's end brings, as a child whose one conversation parked
+	 * away must, to end as closed or released rather than parked.
+	 */
+	changes?: Pick<HostChanges, "left">;
 	/** How long an attach waits before the journal says on what: attach-waits.ts's ATTACH_SLOW_MS. */
 	attachSlowMs?: number;
 	/** Children to run conversations in; without, the host runs every one. */
@@ -510,12 +517,13 @@ export function hostBackend(options: {
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
 			const asked = `${why}, asked by ${askedBy(by)}`;
 			if (why === "released") engine.handsOn?.(sessionId);
-			if (running) await host.close(sessionId, asked);
+			if (running) await host.close(sessionId, asked, why === "released");
 			await roster.drop(sessionId);
 			if (!running) {
 				// Said first: the roster has let it go, whatever its screen does.
 				options.say?.(endedLine(sessionId, `${asked}, held but not running`));
 				await engine.dropped?.(sessionId, asked);
+				options.changes?.left(why, asked);
 			}
 			return { sessionId };
 		});
@@ -577,6 +585,9 @@ export function hostBackend(options: {
 					return end(request);
 				case "drain":
 					return drain(request.on, request.by);
+				case "watch":
+					// Only a child host, one conversation to a process, is watched.
+					throw hostRefusal("unsupported", "This host has no watch");
 				case "abort":
 					await startOwes(request.sessionId);
 					if (

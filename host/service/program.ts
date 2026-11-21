@@ -24,7 +24,8 @@ import {
 	lackingSeams,
 	loadHostPi,
 } from "../engine/index.ts";
-import { hostRealm } from "./address.ts";
+import { CHILD_FLAG, hostRealm } from "./address.ts";
+import { type ChildHost, childHost, type Ending } from "./child.ts";
 import { childPolicyFile, watchedChildPolicy } from "./child-policy.ts";
 import { systemdUnits } from "./child-units.ts";
 import { gatewayKey } from "./gateway-key.ts";
@@ -163,7 +164,7 @@ export function sayHostRuns(
  */
 export async function startHostProgram(
 	options: HostProgramOptions,
-): Promise<HostRun> {
+): Promise<ProgramRun> {
 	const { argv, env } = options;
 	const report = options.report ?? reportToJournal;
 	const configured = await configuration(options);
@@ -178,7 +179,13 @@ export async function startHostProgram(
 	// said as a refusal, not as a module that can't be found.
 	const { hostScreens, hostedModeOf } = await import("../screen/screens.ts");
 	const { hostedAskerOf } = await import("../screen/startup-ask.ts");
+	const { child } = configured;
 	const screens = hostScreens({
+		...(child
+			? {
+					viewers: (id: string, count: number) => child.life.viewers(id, count),
+				}
+			: {}),
 		create: hostedModeOf(configured.interactiveMode),
 		ask: hostedAskerOf(
 			configured.startupQuestions.selector,
@@ -191,10 +198,20 @@ export async function startHostProgram(
 		argv,
 		env,
 		report,
+		...(child ? { child: { slot: child.slot, life: child.life } } : {}),
 		engine: async (host) => {
+			const engineDir = join(stateDir("host-engine"), host.key);
+			child?.hosts(host);
 			engine = await createEngine({
 				packageDir: configured.packageDir,
-				stateDir: join(stateDir("host-engine"), host.key),
+				stateDir: engineDir,
+				...(child
+					? {
+							oneConversation: {
+								keptIn: () => join(engineDir, child.conversation()),
+							},
+						}
+					: {}),
 				host,
 				env: conversationBase(env),
 				conversationEnv: (_conversation, request) =>
@@ -217,6 +234,9 @@ export async function startHostProgram(
 		faults: process,
 		contain: (sessionId, error) => screens.faulted(sessionId, error),
 	});
+	// A child is started fresh for each conversation, on whatever its
+	// supervisor runs then: it never restarts itself.
+	if (child) return { ...run, ending: child.life.ending };
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
 	const unfollow = await followWhatStarts({
@@ -255,8 +275,19 @@ export async function startHostProgram(
 	return run;
 }
 
+/** A host process as it runs, and for a child, why it ends. */
+export interface ProgramRun extends HostRun {
+	/** A child's ending, as its watch's last line says it; none for a host. */
+	readonly ending?: Promise<Ending>;
+}
+
 /** Everything a restart can't change, judged before the host starts. */
 async function configuration(options: HostProgramOptions): Promise<{
+	/**
+	 * The child, its slot read and systemd's variables taken out before
+	 * anything else reads the environment; none for a realm-kind host.
+	 */
+	child: ChildHost | undefined;
 	packageDir: string;
 	interactiveMode: unknown;
 	startupQuestions: StartupQuestions;
@@ -265,12 +296,18 @@ async function configuration(options: HostProgramOptions): Promise<{
 	lacking: string | undefined;
 }> {
 	try {
-		hostKind(options.argv);
-		hostRealm(options.env);
+		const child = childArgv(options.argv)
+			? childHost(options.env, hostRoot())
+			: undefined;
+		if (!child) {
+			hostKind(options.argv);
+			hostRealm(options.env);
+		}
 		const packageDir = hostPackageDir(options.env);
 		hostProof(options.env, packageDir);
 		const pi = await loadHostPi(packageDir);
 		return {
+			child,
 			packageDir,
 			interactiveMode: pi.modules.codingAgent.InteractiveMode,
 			startupQuestions: startupQuestions(pi.modules),
@@ -283,6 +320,13 @@ async function configuration(options: HostProgramOptions): Promise<{
 	} catch (error) {
 		throw new HostMisconfigured(error);
 	}
+}
+
+/** Whether the command line starts a child, refusing anything after its flag. */
+function childArgv(argv: readonly string[]): boolean {
+	if (argv[0] !== CHILD_FLAG) return false;
+	if (argv.length > 1) throw new Error(`Usage: pi-host ${CHILD_FLAG}`);
+	return true;
 }
 
 /** What pi's CLI draws its startup questions with, as the host's pi exports them. */

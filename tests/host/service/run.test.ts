@@ -23,17 +23,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
 import { hostKey } from "../../../host/service/address.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
+import { childHost } from "../../../host/service/child.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type {
 	BeatOptions,
 	ProfileOptions,
 } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import { hostKind, runHost } from "../../../host/service/run.ts";
+import { hostKind, runHost, slotResumed } from "../../../host/service/run.ts";
 import type { BackstopOptions } from "../../../host/service/stop-backstop.ts";
 import { STEP_ALLOWANCE_MS } from "../../../host/service/systemd.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
+import { fakeUnits } from "./support/fake-children.ts";
 
 // The net is process-wide; serve.test.ts checks a host sets it.
 vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
@@ -157,6 +159,95 @@ describe("hostKind", () => {
 			expect(() => hostKind(argv)).toThrow(
 				"Usage: pi-host attended|background",
 			);
+	});
+});
+
+describe("slotResumed", () => {
+	const ID = "a0000000-0000-4000-8000-000000000001";
+	const slot = {
+		held: {
+			sessionId: ID,
+			file: `/s/${ID}.jsonl`,
+			cwd: "/w",
+			attended: false,
+			since: "2026-11-20T00:00:00.000Z",
+		},
+	};
+	const listed = [{ id: ID, state: "parked" as const, since: slot.held.since }];
+
+	it.each([
+		["resumed", { held: () => listed, dropped: [], unresumed: [] }],
+		["parked", { held: () => [], dropped: [], unresumed: [] }],
+		["unresumed", { held: () => [], dropped: [ID], unresumed: [] }],
+		[
+			"unresumed",
+			{
+				held: () => listed,
+				dropped: [],
+				unresumed: [{ sessionId: ID, reason: "its build threw" }],
+			},
+		],
+	] as const)(
+		"reads %s from what the start held, dropped and could not resume",
+		(end, serving) => {
+			expect(slotResumed(serving, slot)).toBe(end);
+		},
+	);
+});
+
+describe("a child host", () => {
+	// A child's key is its supervisor's, so the policy that started it
+	// moves its conversation too: asked, it would start another unit.
+	it("runs its own conversation, never asking its key's policy to move it", async () => {
+		const runtime = join(dir, "run");
+		const folder = join(runtime, "pi-host", "work-background.d");
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		await writeFile(join(folder, "s.json"), "{}");
+		const started = childHost(
+			{
+				PI_HOST_CHILD_KEY: "work-background",
+				PI_HOST_CHILD_SOCKET: join(folder, "s.sock"),
+				MYCELIUM_REALM: "work",
+				XDG_RUNTIME_DIR: runtime,
+			},
+			"/harness",
+		);
+		const units = fakeUnits(folder, "work-background", vi.fn());
+		const policy = vi.fn(async () => ({
+			moves: () => true,
+			opens: () => true,
+			close: () => undefined,
+		}));
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["--child"],
+			env: { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
+			child: { slot: started.slot, life: started.life },
+			engine: (host) => {
+				started.hosts(host);
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			report: vi.fn(),
+			children: { units, policy },
+			places: { registryDir: join(dir, "hosts") },
+		});
+		try {
+			const reply = await controlRequest(run.serving.path, {
+				v: 1,
+				id: "o",
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			expect(reply.ok, "the child opened its conversation").toBe(true);
+			expect(policy, "nobody asked the key's policy").not.toHaveBeenCalled();
+			expect(units.started, "no unit started for it").toEqual([]);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
 	});
 });
 

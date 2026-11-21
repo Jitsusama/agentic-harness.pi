@@ -177,6 +177,8 @@ export class ViewerTerminal implements Terminal {
 	private blocked: (() => void) | undefined;
 	/** Told what one of pi's callbacks threw, in place of the host's process. */
 	private faulted: ((error: unknown) => void) | undefined;
+	/** Told how many viewers it has, each time one joins or leaves. */
+	private viewed: ((count: number) => void) | undefined;
 	/** While its conversation is parked: who to tell of a key, and the keys held for its next screen. */
 	private sleeping: Sleeping | undefined;
 
@@ -267,6 +269,7 @@ export class ViewerTerminal implements Terminal {
 			throw new Error("Viewer output failed", { cause: error });
 		}
 		this.viewers.add(viewer);
+		this.viewed?.(this.viewers.size);
 		this.redraw();
 		return {
 			input: (data) => {
@@ -460,6 +463,14 @@ export class ViewerTerminal implements Terminal {
 	}
 
 	/**
+	 * Call `listener` with how many viewers it has, each time one joins or
+	 * leaves, and with none once it closes; undefined stops it.
+	 */
+	whenViewed(listener: ((count: number) => void) | undefined): void {
+		this.viewed = listener;
+	}
+
+	/**
 	 * Call `listener` with whatever one of pi's frames, keys or resizes
 	 * throws on this terminal, rather than letting it escape to the host's
 	 * process, where it would end every conversation the host holds.
@@ -527,6 +538,7 @@ export class ViewerTerminal implements Terminal {
 		// close, and that frame's throw is still this conversation's.
 		const viewers = [...this.viewers];
 		this.viewers.clear();
+		if (viewers.length > 0) this.viewed?.(0);
 		for (const viewer of viewers) {
 			viewer.stdin.destroy();
 			this.cancelEdit(viewer);
@@ -636,6 +648,7 @@ export class ViewerTerminal implements Terminal {
 
 	private remove(viewer: JoinedViewer): void {
 		if (!this.viewers.delete(viewer)) return;
+		this.viewed?.(this.viewers.size);
 		if (this.lastTyped === viewer) this.lastTyped = undefined;
 		viewer.stdin.destroy();
 		this.cancelEdit(viewer);

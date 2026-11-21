@@ -42,6 +42,12 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type { ConversationEngine, ResumePhase } from "./backend.ts";
+import {
+	type ChildLife,
+	type ChildSlot,
+	childRosterSeed,
+	oneConversation,
+} from "./child.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import type { ResumeEnd, Resuming } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -126,6 +132,13 @@ const CLOSED_PIPE_CODES: ReadonlySet<string> = new Set([
 export interface HostRunOptions {
 	/** The command line after the program: the host's kind. */
 	argv: readonly string[];
+	/**
+	 * The slot a child host was started for, and the life that follows its
+	 * one conversation (child.ts): its key, not the command line, names the
+	 * host, it serves on the slot's socket from the slot's own folder, and
+	 * it stops once its conversation ends.
+	 */
+	child?: { readonly slot: ChildSlot; readonly life: ChildLife };
 	/** The environment the unit gave the process. */
 	env: NodeJS.ProcessEnv;
 	/** Builds the engine over the host's ownership. */
@@ -202,7 +215,10 @@ export interface HostRunOptions {
 	 * whether it could; one it can't stops the host.
 	 */
 	contain?: (sessionId: string, error: unknown) => boolean;
-	/** Where conversations may run in a process each, passed on to serveHost. */
+	/**
+	 * Where conversations may run in a process each, passed on to
+	 * serveHost; a child, which runs only its own, never passes it.
+	 */
 	children?: Parameters<typeof serveHost>[0]["children"];
 	/**
 	 * Passed on to serveHost, for tests: a host run from a tree is given
@@ -225,7 +241,9 @@ export interface HostRun {
 	readonly serving: ServingHost;
 	/**
 	 * Settles once a stop signal has parked every conversation, or fails
-	 * once a throw nothing could contain has stopped the host.
+	 * once a throw nothing could contain has stopped the host. A child's
+	 * also fails when its stop ran out of time before its conversation
+	 * parked, since its watch already heard it parked.
 	 */
 	readonly stopped: Promise<void>;
 }
@@ -240,6 +258,48 @@ const ENDED_AS: Record<ResumeEnd, string> = {
 	unresumed: "could not resume",
 };
 
+/**
+ * What serveHost is given for a child: the slot's socket and folder, the
+ * roster its slot names, written under the roster's lock, the
+ * life that hears its changes and becomings and answers its watch, a
+ * gate that keeps it to one conversation, and whether its supervisor
+ * woke the conversation it resumes.
+ */
+function childPlaces(
+	slot: ChildSlot,
+	life: ChildLife,
+): Partial<Parameters<typeof serveHost>[0]> {
+	return {
+		socketPath: slot.socket,
+		rosterDir: slot.folder,
+		rosterSeed: childRosterSeed(slot),
+		rollout: oneConversation,
+		changes: life,
+		watch: life.watch,
+		becoming: life.becoming,
+		woken: (entry) =>
+			slot.woken === true && entry.sessionId === slot.held?.sessionId,
+	};
+}
+
+/**
+ * How the start's resume of a child's slot ended: resumed when it runs,
+ * failed when it couldn't be resumed or its file was gone, and left
+ * parked when it rests as it did before the start.
+ */
+export function slotResumed(
+	serving: Pick<ServingHost, "held" | "dropped" | "unresumed">,
+	slot: Pick<ChildSlot, "held">,
+): ResumeEnd {
+	const id = slot.held?.sessionId;
+	// First, since a resume whose build fails once registered stays listed, parked.
+	const failed =
+		serving.dropped.includes(id ?? "") ||
+		serving.unresumed.some(({ sessionId }) => sessionId === id);
+	if (failed) return "unresumed";
+	return serving.held().some((held) => held.id === id) ? "resumed" : "parked";
+}
+
 /** The host's kind from its command line, refusing anything else. */
 export function hostKind(argv: readonly string[]): HostKind {
 	const [kind, ...rest] = argv;
@@ -250,8 +310,9 @@ export function hostKind(argv: readonly string[]): HostKind {
 
 /** Start a host for this process and stop it on the first stop signal. */
 export async function runHost(options: HostRunOptions): Promise<HostRun> {
-	const kind = hostKind(options.argv);
-	const realm = hostRealm(options.env);
+	const { child } = options;
+	const kind = child ? child.slot.kind : hostKind(options.argv);
+	const realm = child ? child.slot.realm : hostRealm(options.env);
 	const report = options.report ?? reportToJournal;
 	const say = options.say ?? sayToJournal;
 	const toldWithin = options.toldWithin ?? TOLD_WITHIN_MS;
@@ -260,7 +321,9 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		((env: NodeJS.ProcessEnv, step: string) =>
 			notifyProgress(env, step, toldWithin));
 	const began = Date.now();
-	const unparked = unparkedMarks(realm, kind, report);
+	const unparked = child
+		? unparkedMarks(realm, kind, report, child.slot.folder)
+		: unparkedMarks(realm, kind, report);
 	const lastStop = unparked.read();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
@@ -348,7 +411,10 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
-			...(options.children ? { children: options.children } : {}),
+			...(child ? childPlaces(child.slot, child.life) : {}),
+			// A child shares its supervisor's key, so that key's policy would
+			// move the child's own conversation on again: a child moves none.
+			...(options.children && !child ? { children: options.children } : {}),
 			report,
 			say,
 			starting,
@@ -356,9 +422,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			finished,
 			runtimeDir: options.env.XDG_RUNTIME_DIR,
 		});
+	} catch (error) {
+		child?.life.fail();
+		throw error;
 	} finally {
 		stopRenewing();
 	}
+	if (child?.slot.held) child.life.resumed(slotResumed(serving, child.slot));
 	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
 		options.status
@@ -400,6 +470,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
 		if (stopping) return stopping;
+		// A child says why it ends before its socket closes, so its watch hears it.
+		child?.life.stopping();
 		following?.();
 		// Parking many can take a while; the status says so meanwhile, and
 		// the watchdog hears the loop still turns until every one is parked.
@@ -427,16 +499,24 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			BACKSTOP_TOLD_EVERY_MS,
 		);
 		telling.unref();
+		let outOfTime: string | undefined;
 		stopping = endWithin(parked, bound, (waited) => {
 			const held = serving.held();
-			say(unparkedLine(bound, waited, held));
+			outOfTime = unparkedLine(bound, waited, held);
+			say(outOfTime);
 			unparked.write(held.map(({ id }) => id));
-		}).finally(() => {
-			// The host exits as its stop ends, so nothing is left to end.
-			clearInterval(telling);
-			backstop.done();
-			unwatch();
-		});
+		})
+			.finally(() => {
+				// The host exits as its stop ends, so nothing is left to end.
+				clearInterval(telling);
+				backstop.done();
+				unwatch();
+			})
+			.then(() => {
+				// A host's next start resumes what it left; a child's supervisor
+				// knows only its exit that this one never parked.
+				if (child && outOfTime !== undefined) throw new Error(outOfTime);
+			});
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -444,12 +524,15 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			signals.once(signal, () => {
 				stop().then(resolve, reject);
 			});
+		// A child stops once its conversation ends, as a signal would stop it.
+		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
 			const failure = uncontained(error, options.contain);
 			if (!failure) return;
 			report(error);
 			// A stop under way ends as it began; a closed pipe ends nothing.
 			if (stopping || closedPipe(error)) return;
+			child?.life.fail();
 			const ended = () => reject(failure);
 			stop().then(ended, (stopFailed: unknown) => {
 				report(stopFailed);

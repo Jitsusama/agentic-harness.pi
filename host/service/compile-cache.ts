@@ -20,7 +20,7 @@ import {
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { hostKey, hostRealm } from "./address.ts";
+import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
 /** How many hex characters of the install's hash name its folder. */
 const INSTALL_KEY_CHARS = 16;
@@ -66,11 +66,19 @@ function keyOf(
 	if (!packageDir || !isAbsolute(packageDir) || !existsSync(packageDir))
 		return undefined;
 	const [kind, ...rest] = options.argv;
-	if ((kind !== "attended" && kind !== "background") || rest.length > 0)
+	const child = kind === CHILD_FLAG;
+	if (
+		(kind !== "attended" && kind !== "background" && !child) ||
+		rest.length > 0
+	)
 		return undefined;
 	let host: string;
 	try {
-		host = hostKey(hostRealm(options.env), kind);
+		// A child shares its host's cache, since it loads the same code.
+		if (child) {
+			host = options.env.PI_HOST_CHILD_KEY ?? "";
+			hostKeyParts(host);
+		} else host = hostKey(hostRealm(options.env), kind);
 	} catch {
 		// No realm or a bad one: the program refuses the host with the reason.
 		return undefined;

@@ -523,7 +523,14 @@ describe("serveHost", () => {
 			},
 		});
 		const path = join(run, "pi-host", "work-attended.sock");
-		await until("the host to listen as it starts", () => exists(path));
+		// The file appears at bind, but the host drops a connection until it
+		// has set the socket's mode, so wait for an answer, not the file.
+		await until("the host to answer as it starts", () =>
+			listed(path).then(
+				() => true,
+				() => false,
+			),
+		);
 		expect(
 			(await listed(path)).sessions.map(({ sessionId: id, state }) => [
 				id,

@@ -123,6 +123,31 @@ describe("private control listener", () => {
 		expect(host.list()).toHaveLength(2);
 		expect(cleanup).not.toHaveBeenCalled();
 	});
+	it("answers a request it is answering before a close ends its connection", async () => {
+		// A child's close ends its host, which closes the listener before
+		// the close it is answering has been answered.
+		let closing: Promise<void> | undefined;
+		backend.execute = vi.fn(async () => {
+			closing = listener?.close();
+			return { sessionId: a };
+		});
+		await start();
+		const reply = await controlRequest(path, {
+			v: 1,
+			id: "c",
+			op: "close",
+			sessionId: a,
+			expectedHost: { key: host.key, owner: host.owner },
+		});
+		expect(reply).toEqual({
+			v: 1,
+			id: "c",
+			ok: true,
+			result: { sessionId: a },
+		});
+		await closing;
+		listener = undefined;
+	});
 	it("refuses an existing live socket without unlinking it", async () => {
 		await start();
 		await expect(listenControl({ path, backend, report })).rejects.toThrow();

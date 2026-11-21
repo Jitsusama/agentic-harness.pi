@@ -146,6 +146,44 @@ describe("openRoster", () => {
 		await live.close();
 	});
 
+	it("writes a seed over what its file held only once the lock is its own, checked as a hold is", async () => {
+		const earlier = await openRoster({ key: KEY, dir, owner: first });
+		await earlier.hold(entry(A));
+		await expect(
+			openRoster({
+				key: KEY,
+				dir,
+				owner: second,
+				standing: judged("running"),
+				wait: clock().wait,
+				seed: [entry(B)],
+			}),
+		).rejects.toThrow("Another host holds this roster");
+		const untouched = JSON.parse(await readFile(rosterPath(KEY, dir), "utf8"));
+		expect(untouched.sessions, "the holder's roster, unwritten").toEqual([
+			entry(A),
+		]);
+		await earlier.close();
+		await expect(
+			openRoster({
+				key: KEY,
+				dir,
+				owner: second,
+				seed: [{ ...entry(B), launch: { "EXP ARM": "x" } }],
+			}),
+		).rejects.toThrow("takes only variable names: EXP ARM");
+		const seeded = await openRoster({
+			key: KEY,
+			dir,
+			owner: second,
+			seed: [entry(B)],
+		});
+		expect(seeded.entries().map((held) => held.sessionId)).toEqual([B]);
+		const written = JSON.parse(await readFile(rosterPath(KEY, dir), "utf8"));
+		expect(written.sessions).toEqual([entry(B)]);
+		await seeded.close();
+	});
+
 	it("takes over from a last host that ends within the minute", async () => {
 		const stopping = await openRoster({ key: KEY, dir, owner: first });
 		await stopping.hold(entry(A));

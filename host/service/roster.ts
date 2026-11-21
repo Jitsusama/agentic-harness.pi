@@ -107,13 +107,19 @@ export interface HostRoster {
 	close(): Promise<void>;
 }
 
-/** Acquire a key's lock and read its roster, refusing on any doubt. */
+/**
+ * Acquire a key's lock and read its roster, refusing on any doubt. With
+ * `seed`, the roster holds those entries in place of what its file held,
+ * written once the lock is taken and checked as a hold is, as a child's
+ * slot names what it holds whatever an earlier child of it left.
+ */
 export async function openRoster(options: {
 	key: string;
 	dir?: string;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
 	wait?: RosterWait;
+	seed?: readonly RosterEntry[];
 }): Promise<HostRoster> {
 	const dir = options.dir ?? rosterDir();
 	const path = rosterPath(options.key, dir);
@@ -125,8 +131,12 @@ export async function openRoster(options: {
 	await acquire(lock, mine, options.standing ?? tickedStanding, options.wait);
 	let sessions: RosterEntry[];
 	try {
-		sessions = [...(await existing(path, options.key))];
-		if (sessions.length === 0) persist(path, options.key, sessions);
+		const { seed } = options;
+		if (seed) {
+			sessions = [];
+			for (const entry of seed) sessions.push(writable(entry, sessions));
+		} else sessions = [...(await existing(path, options.key))];
+		if (seed || sessions.length === 0) persist(path, options.key, sessions);
 	} catch (error) {
 		await releaseLock(lock, mine);
 		throw error;
