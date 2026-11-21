@@ -12,6 +12,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isRecord } from "../internal/record.ts";
 import { START_PATIENCE_MS, type StartAnswer, startedFrom } from "./node.ts";
@@ -36,6 +37,8 @@ export interface Ran {
 	readonly stderr: string;
 	/** There is no such program here. */
 	readonly missing?: boolean;
+	/** The folder it was to run in is gone, so it never ran. */
+	readonly noFolder?: boolean;
 	/** It ran past its patience and was stopped. */
 	readonly timedOut?: boolean;
 	/** Whoever asked for it stopped it first. */
@@ -61,6 +64,13 @@ export const SPROUT_PATIENCE_MS = START_PATIENCE_MS + 10_000;
 
 /** The most of mycelium's own words a refusal says. */
 const MOST_SAID = 500;
+
+/**
+ * What a sprout that may have started says to do: a sprout has no name
+ * to join under, so another ask starts a second cell.
+ */
+const LOOK_FIRST =
+	"look for it in the launcher's Agents before asking again, since another ask starts a second cell";
 
 /**
  * The arguments `mycelium sprout` is run with: its answer as JSON, each
@@ -101,11 +111,27 @@ export async function sprout(
 			reason: "a sprout needs words or a link to start from",
 		};
 	}
+	if (
+		sprouting.on?.trim() &&
+		/^~(?:\/|$)/u.test(sprouting.folder?.trim() ?? "")
+	) {
+		// ~ here is this machine's home, which another's may not be.
+		return {
+			ok: false,
+			reason: `name the folder in full as it is on ${sprouting.on.trim()}, since ~ is read as this machine's home`,
+		};
+	}
 	const ran = await run("mycelium", sproutArguments(sprouting), {
 		cwd,
 		timeoutMs: SPROUT_PATIENCE_MS,
 		...(signal ? { signal } : {}),
 	});
+	if (ran.noFolder) {
+		return {
+			ok: false,
+			reason: `this session's folder, ${cwd}, is gone, so mycelium can't run from it`,
+		};
+	}
 	if (ran.missing) {
 		return {
 			ok: false,
@@ -115,15 +141,14 @@ export async function sprout(
 	if (ran.timedOut) {
 		return {
 			ok: false,
-			reason: `mycelium sprout answered nothing within ${SPROUT_PATIENCE_MS / 1000} s; the start may still land, so look for it before asking again`,
+			reason: `mycelium sprout answered nothing within ${SPROUT_PATIENCE_MS / 1000} s, so ${LOOK_FIRST}`,
 			mayLand: true,
 		};
 	}
 	if (ran.stopped) {
 		return {
 			ok: false,
-			reason:
-				"the turn was stopped before mycelium sprout answered; the start may still land, so look for it before asking again",
+			reason: `the turn was stopped before mycelium sprout answered, so ${LOOK_FIRST}`,
 			mayLand: true,
 		};
 	}
@@ -133,6 +158,15 @@ export async function sprout(
 	// stderr, which beats saying its stdout can't be read.
 	if (ran.code === 0) return startedOrMayLand(line);
 	if (line && (!said || isJson(line))) return startedFrom(line);
+	if (ran.code === null) {
+		// Ended by a signal nobody here sent, as the OOM killer's: its ask
+		// may already be with the node.
+		return {
+			ok: false,
+			reason: `mycelium sprout was ended before it answered${said ? ` (${said})` : ""}, so ${LOOK_FIRST}`,
+			mayLand: true,
+		};
+	}
 	return {
 		ok: false,
 		reason:
@@ -156,7 +190,7 @@ function startedOrMayLand(line: string | undefined): StartAnswer {
 	if (answer.ok || (line && refusedByNode(line))) return answer;
 	return {
 		ok: false,
-		reason: `${answer.reason}; the start may still have landed, so look for it before asking again`,
+		reason: `${answer.reason}, so ${LOOK_FIRST}`,
 		mayLand: true,
 	};
 }
@@ -206,7 +240,13 @@ export const runProgram: RunProgram = (program, args, options) =>
 					code,
 					stdout,
 					stderr,
-					...(error?.code === "ENOENT" ? { missing: true } : {}),
+					// A folder that's gone fails as ENOENT too, never
+					// running the program, which may well be installed.
+					...(error?.code === "ENOENT"
+						? existsSync(options.cwd)
+							? { missing: true }
+							: { noFolder: true }
+						: {}),
 					...(error?.name === "AbortError"
 						? { stopped: true }
 						: error?.killed === true

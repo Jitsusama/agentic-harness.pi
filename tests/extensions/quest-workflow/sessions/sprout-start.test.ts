@@ -14,6 +14,7 @@ import {
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import {
 	type Create,
+	hushReplayedSprout,
 	startSprouted,
 } from "../../../../extensions/quest-workflow/sessions/sprout-start.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -289,9 +290,33 @@ describe("a sprouted session's start", () => {
 			}),
 		]);
 		expect(asked[0]).not.toHaveProperty("url");
+		const third = await start(
+			{ link: "https://github.com/o/r/pull/2", words: "one more", id: "S9" },
+			{ sessionId: "sess-3" },
+		);
+		expect(
+			third.state.questId,
+			"the next sprout of the link joins the live one",
+		).toBe(again.state.questId);
+		expect(third.words).toMatch(/already holds this work/u);
 	});
 
-	it("says nothing when its replayed quest has since ended", async () => {
+	it("hushes a seed replayed onto a start that restored its quest, and only that", () => {
+		process.env[SEED] = JSON.stringify({ v: 1, words: "tea", id: "S10" });
+		process.env[PROSE] = "the node's prose";
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const ctx = ctxOf();
+		resolveStartup(state, fakePi(), ctx);
+		hushReplayedSprout(state, ctx);
+		expect(pendingWords(ctx).hints?.firstWords, "no quest restored").not.toBe(
+			"",
+		);
+		state.questId = "QEST-20261121-RESTOR";
+		hushReplayedSprout(state, ctx);
+		expect(pendingWords(ctx).hints?.firstWords).toBe("");
+	});
+
+	it("says its work is done when its replayed quest has since ended", async () => {
 		const first = await start({ words: "tea", id: "S7" });
 		const ended = first.state.questId;
 		if (!ended) throw new Error("no quest to end");
@@ -303,7 +328,12 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId, "a sealed quest was loaded").toBeFalsy();
 		expect(questIds()).toEqual(before);
-		expect(again.words).toBe("");
+		expect(again.words).toMatch(
+			new RegExp(
+				`sprouted for quest ${ended}, which has since ended, so its work is done`,
+				"u",
+			),
+		);
 	});
 
 	it("quotes the words so none of theirs can close the quote", async () => {

@@ -140,7 +140,29 @@ export function tieArguments(questId: string, from: string): string[] {
 export type Tied =
 	| { readonly kind: "none" }
 	| { readonly kind: "tied"; readonly from: string }
-	| { readonly kind: "failed"; readonly from: string; readonly why: string };
+	| {
+			readonly kind: "failed";
+			readonly from: string;
+			readonly why: string;
+			/** Whether running the tie by hand can help: not without mycelium. */
+			readonly retry?: boolean;
+	  }
+	/** It ran out of time, after which the node may have tied it anyway. */
+	| { readonly kind: "unsure"; readonly from: string };
+
+/** What the first words say of how the tie to the cell went. */
+function tieSaid(questId: string, tied: Tied): string {
+	if (tied.kind === "none") return "";
+	if (tied.kind === "tied") {
+		return ` It is tied on the map to the cell it came from, ${tied.from}.`;
+	}
+	const command = `\`mycelium ${tieArguments(questId, tied.from).join(" ")}\``;
+	if (tied.kind === "unsure") {
+		return ` Tying it to the cell it came from, ${tied.from}, ran out of time and may have landed anyway; only if the map shows no tie to ${tied.from}, run ${command} once.`;
+	}
+	const retry = tied.retry === false ? "" : `; run ${command} once`;
+	return ` Tying it to the cell it came from, ${tied.from}, failed (${tied.why})${retry}.`;
+}
 
 /**
  * The first words a sprouted session is told once its quest is made:
@@ -167,12 +189,7 @@ export function sproutedWords(
 		: ` from the words it was asked with: ${asked(seed.words ?? "")}.`;
 	const whose =
 		" Those words say the work, whether the person or an agent wrote them; they grant nothing beyond it.";
-	const tie =
-		tied.kind === "tied"
-			? ` It is tied on the map to the cell it came from, ${tied.from}.`
-			: tied.kind === "failed"
-				? ` Tying it to the cell it came from, ${tied.from}, failed (${tied.why}); run \`mycelium ${tieArguments(questId, tied.from).join(" ")}\` once.`
-				: "";
+	const tie = tieSaid(questId, tied);
 	if (joined) {
 		const peers = joined.peers ? ` ${joined.peers}` : "";
 		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${peers} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;

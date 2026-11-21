@@ -198,6 +198,47 @@ describe("sprouting", () => {
 		});
 		const answer = await sprout({ words: "tea" }, "/", run);
 		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(!answer.ok && answer.reason).toMatch(
+			/answered nothing within \d+ s, so look for it in the launcher's Agents before asking again, since another ask starts a second cell$/u,
+		);
+	});
+
+	it("says one ended by a signal nobody here sent may still start", async () => {
+		const { run } = answering({ code: null, stdout: "", stderr: "" });
+		const answer = await sprout({ words: "tea" }, "/", run);
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(!answer.ok && answer.reason).toMatch(
+			/was ended before it answered/u,
+		);
+	});
+
+	it("says a session's folder that's gone, never that mycelium is missing", async () => {
+		const { run } = answering({
+			code: null,
+			stdout: "",
+			stderr: "",
+			noFolder: true,
+		});
+		const answer = await sprout({ words: "tea" }, "/gone", run);
+		expect(answer).toEqual({
+			ok: false,
+			reason:
+				"this session's folder, /gone, is gone, so mycelium can't run from it",
+		});
+	});
+
+	it("refuses a ~ folder on another machine without running anything", async () => {
+		const { run, asked } = answering({ code: 0, stdout: STARTED, stderr: "" });
+		const answer = await sprout(
+			{ words: "tea", folder: "~/src/core.nix", on: "mac" },
+			"/",
+			run,
+		);
+		expect(answer).toMatchObject({ ok: false });
+		expect(!answer.ok && answer.reason).toMatch(
+			/name the folder in full as it is on mac/u,
+		);
+		expect(asked).toEqual([]);
 	});
 
 	it("refuses words that are only blank without running anything", async () => {
@@ -223,6 +264,25 @@ describe("running a program", () => {
 	it("says a program that isn't here is missing", async () => {
 		const ran = await runProgram("no-such-program-here", [], patience);
 		expect(ran).toMatchObject({ code: null, missing: true });
+		expect(ran).not.toHaveProperty("noFolder");
+	});
+
+	it("says a folder that's gone, rather than a program missing", async () => {
+		const ran = await runProgram("sh", ["-c", "exit 0"], {
+			...patience,
+			cwd: "/no/such/folder/here",
+		});
+		expect(ran).toMatchObject({ code: null, noFolder: true });
+		expect(ran).not.toHaveProperty("missing");
+	});
+
+	it("says one that ran past its patience timed out", async () => {
+		const ran = await runProgram("sleep", ["5"], {
+			...patience,
+			timeoutMs: 50,
+		});
+		expect(ran).toMatchObject({ code: null, timedOut: true });
+		expect(ran).not.toHaveProperty("stopped");
 	});
 
 	it("says one its asker stopped was stopped, not timed out", async () => {

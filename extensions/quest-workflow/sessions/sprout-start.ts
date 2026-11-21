@@ -83,53 +83,51 @@ export async function startSprouted(
 		return;
 	}
 	const alias = sproutAlias(seed);
-	const replayed = alias ? questWith(state, alias) : undefined;
+	const replayed = alias ? questsWith(state, alias)[0] : undefined;
 	if (replayed?.sealed) {
-		// Its quest was made and has since ended: the work is done.
-		hints.firstWords = "";
+		// Its quest was made and has since ended: the work is done, and
+		// the prose would only ask for another.
+		hints.firstWords = `This session was sprouted for quest ${replayed.id}, which has since ended, so its work is done. Take on nothing new; say so in a line.`;
 		return;
 	}
 	// A sealed quest holding the link is finished work, never carried on:
-	// the sprout makes its own, holding the link in its note.
+	// the sprout makes its own, holding the link in its note and marked
+	// as the link's sprout, so the next sprout of it joins this one.
 	const linked = linkedQuest(state, seed);
 	const held = replayed?.id ?? (linked?.sealed ? undefined : linked?.id);
-	const id = held ?? (await madeId(seed, deps.create, linked?.sealed !== true));
+	const id = held ?? (await madeId(seed, deps.create, linked === undefined));
 	if (!id) return;
 	let peers: string | undefined;
 	if (held) {
 		const loaded = await deps.load(held);
 		if (!loaded.ok) return;
-		peers = peersIn(loaded.message);
+		const said = loaded.details?.peers;
+		peers = typeof said === "string" ? said : undefined;
 	}
 	const joined = held !== undefined ? { peers } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
 	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined);
-	if (alias && held === undefined) {
-		aliasAdd(state, {
-			action: "alias-add",
-			id,
-			ref: `${alias.type}:${alias.value}`,
-		});
+	if (held === undefined) {
+		const marks = [alias, linked ? sproutLink(seed) : undefined].filter(
+			(one) => one !== undefined,
+		);
+		for (const mark of marks) {
+			aliasAdd(state, {
+				action: "alias-add",
+				id,
+				ref: `${mark.type}:${mark.value}`,
+			});
+		}
 	}
 	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined);
 }
 
 /**
- * What a load said of other live sessions on the quest (peers.ts's
- * peersSaid), so a sprout joining it is told who else is there.
- */
-function peersIn(message: string): string | undefined {
-	return message.match(
-		/(?:Another live pi session is|\d+ other live pi sessions are) on [^\n]*/u,
-	)?.[0];
-}
-
-/**
  * The id of the quest made for `seed`, or nothing when none was; made
- * from its link's page only while `linkable`, since a link a sealed
- * quest holds can't mark another.
+ * from its link's page only while `linkable`, since a link another
+ * quest holds can't mark a second.
  */
 async function madeId(
 	seed: SproutSeed,
@@ -162,22 +160,51 @@ interface Found {
 	readonly sealed: boolean;
 }
 
-/** The one quest carrying `alias`, if exactly one does. */
-function questWith(
+/** Every quest carrying `alias`, live ones first. */
+function questsWith(
 	state: QuestState,
 	alias: { type: string; value: string },
-): Found | undefined {
+): Found[] {
 	const { index } = discoverQuests(state.questsRoot);
 	const found = lookupAliasDetail(buildAliasIndex(index), alias);
-	if (found.kind !== "hit") return undefined;
-	const status = index.quests.get(found.questId)?.doc.frontMatter.status;
-	return { id: found.questId, sealed: isSealedStatus(status) };
+	const ids =
+		found.kind === "hit"
+			? [found.questId]
+			: found.kind === "collision"
+				? found.questIds
+				: [];
+	return ids
+		.map((id) => ({
+			id,
+			sealed: isSealedStatus(index.quests.get(id)?.doc.frontMatter.status),
+		}))
+		.sort((a, b) => Number(a.sealed) - Number(b.sealed));
 }
 
-/** The quest already holding the seed's link, if one does. */
+/**
+ * The mark a sprout's own quest takes for a link a sealed quest holds,
+ * since the link's own alias can't go on two quests.
+ */
+function sproutLink(
+	seed: SproutSeed,
+): { type: string; value: string } | undefined {
+	const ref = seed.link ? parseRef(seed.link) : undefined;
+	return ref
+		? { type: "sprout-link", value: `${ref.type}:${ref.value}` }
+		: undefined;
+}
+
+/**
+ * The quest already holding the seed's link, a live one before one
+ * ended: by the link's own alias, else by the mark an earlier sprout of
+ * it took when the quest holding it had ended.
+ */
 function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
 	const ref = seed.link ? parseRef(seed.link) : undefined;
-	return ref ? questWith(state, ref) : undefined;
+	const mark = sproutLink(seed);
+	if (!ref || !mark) return undefined;
+	const all = [...questsWith(state, ref), ...questsWith(state, mark)];
+	return all.find((one) => !one.sealed) ?? all[0];
 }
 
 /**
@@ -220,11 +247,15 @@ async function tie(
 		timeoutMs: TIE_PATIENCE_MS,
 	});
 	if (ran.code === 0) return { kind: "tied", from };
-	const why = ran.missing
-		? "there is no mycelium here"
-		: ran.timedOut
-			? "the node didn't answer in time"
-			: ran.stderr.trim().split("\n").pop() ||
-				`it ended with ${ran.code ?? "no code"}`;
+	if (ran.timedOut) return { kind: "unsure", from };
+	if (ran.missing || ran.noFolder) {
+		const why = ran.missing
+			? "there is no mycelium here"
+			: "this session's folder is gone";
+		return { kind: "failed", from, why, retry: false };
+	}
+	const why =
+		ran.stderr.trim().split("\n").pop() ||
+		`it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
 }

@@ -92,7 +92,9 @@ describe("mesh_sprout", () => {
 		});
 		const answer = await sproutFrom({ words: "tea" }, "/", "42P0R4", run);
 		expect(answer.details).toEqual({ mayLand: true });
-		expect(said(answer)).toMatch(/^The sprout may have started: /u);
+		expect(said(answer)).toMatch(
+			/^The sprout may have started; .*look for it in the launcher's Agents before asking again, since another ask starts a second cell\.$/u,
+		);
 		expect(said(answer)).not.toMatch(/Nothing was sprouted/u);
 	});
 });

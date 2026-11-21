@@ -40,7 +40,7 @@ export async function sproutFrom(
 	const answered = await sprout(sprouting, cwd, run, signal);
 	if (!answered.ok) {
 		return answered.mayLand
-			? answer(`The sprout may have started: ${answered.reason}`, {
+			? answer(`The sprout may have started; ${answered.reason}.`, {
 					mayLand: true,
 				})
 			: answer(`⊘ Nothing was sprouted: ${answered.reason}`, {});

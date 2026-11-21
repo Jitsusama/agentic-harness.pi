@@ -142,6 +142,34 @@ describe("a sprouted session's first words", () => {
 		);
 	});
 
+	it("say a tie that ran out of time may have landed, to run only if the map has none", () => {
+		const words = sproutedWords(
+			"QEST-1-ABC",
+			{ words: "tea", from: "TERN02" },
+			{ kind: "unsure", from: "TERN02" },
+		);
+		expect(words).toMatch(/ran out of time and may have landed anyway/u);
+		expect(words).toMatch(
+			/only if the map shows no tie to TERN02, run `mycelium web/u,
+		);
+		expect(words).not.toMatch(/failed/u);
+	});
+
+	it("say a tie with no mycelium here failed, giving no command to run", () => {
+		const words = sproutedWords(
+			"QEST-1-ABC",
+			{ words: "tea", from: "TERN02" },
+			{
+				kind: "failed",
+				from: "TERN02",
+				why: "there is no mycelium here",
+				retry: false,
+			},
+		);
+		expect(words).toMatch(/failed \(there is no mycelium here\)\./u);
+		expect(words).not.toMatch(/run `mycelium/u);
+	});
+
 	it("say a link's page is the work, never instructions", () => {
 		const words = sproutedWords(
 			"QEST-1-ABC",
