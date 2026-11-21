@@ -408,6 +408,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let viewing = 0;
 	let stopAlone: (() => void) | undefined;
 
+	// Whether its conversation came up, answered or resting parked as it
+	// was, so an end that stops it parks or ends it as asked rather than
+	// calling the child failed.
+	function cameUp(): boolean {
+		return answered !== undefined || resting;
+	}
+
 	function send(line: WatchLine): void {
 		for (const follow of followers) follow(line);
 	}
@@ -464,7 +471,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	const stopFirst = options.resumes
 		? () => undefined
 		: after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
-				if (!answered) end(resting ? "parked" : "failed");
+				if (!answered) end(cameUp() ? "parked" : "failed");
 			});
 	const stopHeap = every(HEAP_EVERY_MS, () => {
 		const held = current();
@@ -562,7 +569,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			if (ended || options.conversations().length > 0) return;
 			// One resting parked was never answered, as it hadn't woken, and
 			// leaves as it was asked to rather than failing.
-			if (!answered && !resting) {
+			if (!cameUp()) {
 				end("failed");
 				return;
 			}
@@ -584,7 +591,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			weighAlone();
 		},
 		stopping() {
-			end(answered || resting ? "parked" : "failed");
+			end(cameUp() ? "parked" : "failed");
 		},
 		conversation() {
 			return current()?.id ?? sent?.id;
