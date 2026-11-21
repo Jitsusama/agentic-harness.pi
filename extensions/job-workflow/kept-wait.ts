@@ -20,6 +20,8 @@ export interface KeptWait {
 	readonly endsAt: number;
 	readonly started?: boolean;
 	readonly typed?: boolean;
+	/** Whether its last run was stopped short with none since; older runtimes leave it out. */
+	readonly stopped?: boolean;
 }
 
 /**

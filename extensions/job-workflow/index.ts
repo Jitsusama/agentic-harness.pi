@@ -242,6 +242,7 @@ function awaitCarriedRun(
 		since: kept?.since ?? branch.length,
 		started: kept?.started,
 		typed: kept?.typed,
+		stopped: kept?.stopped,
 		endsAt: 0,
 	};
 	// A host routes what the session says by the conversation it runs in,
@@ -281,6 +282,12 @@ interface CarriedWait {
 	 * extension gives, as a mesh message or a job's report is, isn't them.
 	 */
 	typed?: boolean;
+	/**
+	 * Whether the last run to settle was stopped short with no run since,
+	 * as a peer's Stop or a bare Escape leaves one: someone stopped it, so
+	 * the clock never tells the session to carry it on.
+	 */
+	stopped?: boolean;
 	/** When the clock next tells, in ms since the epoch. */
 	endsAt: number;
 	timer?: ReturnType<typeof setTimeout>;
@@ -288,8 +295,8 @@ interface CarriedWait {
 
 /**
  * Tell a session its carried run never showed, or ended in an error,
- * if no other answer has come since `wait` began and the person has
- * typed nothing since.
+ * if no other answer has come since `wait` began, the person has typed
+ * nothing since, and nobody stopped its last run.
  */
 function tellIfCarriedRunLost(
 	wait: CarriedWait,
@@ -297,7 +304,7 @@ function tellIfCarriedRunLost(
 	current: () => JobSession | undefined,
 ): void {
 	const { opened, cut, since } = wait;
-	if (current() !== opened || wait.typed) return;
+	if (current() !== opened || wait.typed || wait.stopped) return;
 	const branch = branchOf(ctx);
 	if (branch === undefined) return;
 	const went = carriedRunWent(branch, since);
@@ -550,8 +557,15 @@ export default function jobWorkflow(
 		signals = undefined;
 		const wait = endCarriedWait();
 		if (wait && event.reason === "reload") {
-			const { cut, since, endsAt, started, typed } = wait;
-			keepWait(sessionIdOf(ctx), { cut, since, endsAt, started, typed });
+			const { cut, since, endsAt, started, typed, stopped } = wait;
+			keepWait(sessionIdOf(ctx), {
+				cut,
+				since,
+				endsAt,
+				started,
+				typed,
+				stopped,
+			});
 		}
 		crashes?.();
 		crashes = undefined;
@@ -608,7 +622,10 @@ export default function jobWorkflow(
 	pi.on("agent_start", () => {
 		runStarted();
 		session?.outbox.runStarted();
-		if (carriedWait) carriedWait.started = true;
+		if (carriedWait) {
+			carriedWait.started = true;
+			carriedWait.stopped = false;
+		}
 	});
 
 	pi.on("agent_settled", (event, ctx) => {
@@ -620,14 +637,17 @@ export default function jobWorkflow(
 		// comes next. A settle with no run started, as a compaction's; a run
 		// that answered nothing, as one durable refused while it held the
 		// carried run (recovery.ts); and a run stopped with no word from the
-		// person, as a compaction, a peer's Stop or a bare Escape stops one,
-		// leave the carried run to come, and the clock to tell if none does.
+		// person leave the carried run to come, and the clock to tell if none
+		// does. A compaction stops a run and starts it again; a peer's Stop
+		// or a bare Escape starts none, and the clock tells nothing of a run
+		// someone stopped.
 		if (!carriedWait?.started) return;
 		const undecided = event.aborted
 			? !carriedWait.typed
 			: !carriedRunAnswered(carriedWait, ctx);
 		if (undecided) {
 			carriedWait.started = false;
+			carriedWait.stopped = event.aborted;
 			return;
 		}
 		const wait = endCarriedWait();

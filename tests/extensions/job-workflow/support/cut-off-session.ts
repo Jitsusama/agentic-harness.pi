@@ -37,7 +37,10 @@ export const ended = (data: unknown) => ({
 	data,
 });
 
-/** An answer that ended in an error, as a failed run's does. */
+/**
+ * An answer that ended in an error, as a failed run's does: named for
+ * its error's words, not for `stopReason: "aborted"`, which is `stoppedShort`.
+ */
 export const aborted = message("assistant", {
 	stopReason: "error",
 	errorMessage: "This operation was aborted",

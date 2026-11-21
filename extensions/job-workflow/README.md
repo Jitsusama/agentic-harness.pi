@@ -367,8 +367,9 @@ rather than the machine.
   answer: one that is neither an error nor a tool call says nothing,
   one that is either is told the run failed, and one the person
   stopped or typed over is left to them. An answer stopped short with
-  no word from them, as a compaction or a peer's Stop leaves one, is no
-  answer, so the run is still owed. A run that answers nothing,
+  no word from them is no answer: a compaction's run starts again and
+  decides, and one a peer's Stop or a bare Escape left, with no run
+  since, is never told to carry on, since someone stopped it. A run that answers nothing,
   or answers only with the error its host marks as its own for a run
   durable never admitted, as one refused while it holds the carried
   run, leaves the carried run to come. The recovery's own ask again

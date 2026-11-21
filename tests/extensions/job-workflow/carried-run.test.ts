@@ -447,9 +447,9 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
-	it("leaves a run stopped with no word from the person to the carried run to come", async () => {
+	it("leaves a run stopped with no word from the person to the carried run to come, and never tells one nothing ran after", async () => {
 		// A compaction stops the run and resumes it; a peer's Stop or a
-		// bare Escape leaves no one to say so, and the clock tells.
+		// bare Escape stops it for good, and the clock says nothing.
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
 		try {
@@ -465,14 +465,16 @@ describe("a session whose host carried its run on", () => {
 			await stopped.fire("session_start", { reason: "startup" });
 			await carriedRun(stopped, interrupted, stoppedShort, { aborted: true });
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(stopped.said, "the clock tells, once").toHaveLength(1);
-			expect(stopped.said[0], "a stopped answer is no run").toMatch(
-				/mid-run, and nothing has resumed it since/,
-			);
-			// Seen, so the outbox would send a second at once.
-			await noticeSeen(stopped);
+			expect(stopped.said, "a run someone stopped").toHaveLength(0);
+
+			// Stopped before a reload, and still stopped after it.
+			const reloaded = activate(killedLog(), new EventEmitter(), "s3");
+			await reloaded.fire("session_start", { reason: "startup" });
+			await carriedRun(reloaded, interrupted, stoppedShort, { aborted: true });
+			await reloaded.fire("session_shutdown", { reason: "reload" });
+			await reloaded.fire("session_start", { reason: "reload" });
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(stopped.said, "and only once").toHaveLength(1);
+			expect(reloaded.said, "stopped through a reload").toHaveLength(0);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();

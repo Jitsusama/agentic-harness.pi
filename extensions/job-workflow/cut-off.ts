@@ -37,7 +37,8 @@
  * whose record says carried waits for the run to show an answer that
  * isn't an error. With nothing typed, it is told at once of a run that
  * ends in one, and told it was cut off if no answer has come once
- * `CARRIED_RUN_WAIT_MS` is up and it rests. A carried run waits its
+ * `CARRIED_RUN_WAIT_MS` is up and it rests, unless someone stopped its
+ * last run, as a peer's Stop or a bare Escape does, and none ran since. A carried run waits its
  * turn behind every other the restart carries, so how long it takes
  * to start says nothing of whether it was carried; only how it ends
  * does.
