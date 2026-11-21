@@ -52,7 +52,14 @@ refusal tells the agent exactly what to do instead:
   screen, and `/guards` lists its source as `pinned`.
 - Form guards block: each names the one right form to retry
   with, and a PR, issue or commit that reaches other people is
-  held to it.
+  held to it. A form guard whose refusal is a judgment
+  redirects instead, as `untested-cause` does, since a
+  classifier judges it: a mesh message it misjudges goes when
+  sent again unchanged. It is in no group, so setting `send`
+  leaves it as it was, though setting `form` or `all`
+  reaches it. When `off`, it still sends each message's text to
+  the classifier's provider to report it waved;
+  `PI_MESH_CLASSIFIER=off` stops that.
 - Safety blocks only the irrecoverable: `history` redirects,
   `history-destructive` blocks with the safe form, and leases a
   bare force push rather than refusing it.

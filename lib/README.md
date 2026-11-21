@@ -94,7 +94,8 @@ Two have no barrel yet, and are imported file by file.
 - **[`orchestration/`](orchestration/)**: what an orchestrator may
   put to its sessions, read before it goes. No barrel.
 - **[`prose/`](prose/)**: finding prose-standard violations,
-  wrapping and the prose gate's decision.
+  wrapping, the prose gate's decision, and the judged check for
+  a cause told as fact.
 - **[`roles/`](roles/)**: which of a provider's models are premium,
   primary, light or archaic.
 - **[`thinking/`](thinking/)**: the thinking levels pi accepts,
