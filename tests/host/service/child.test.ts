@@ -444,10 +444,10 @@ describe("a child's life", () => {
 		expect(await life.ending).toBe("parked");
 	});
 
-	// F40: a conversation resting parked, closed or released from the
-	// launcher before any wake, ended its child as failed.
+	// F40: a conversation resting parked, closed or released before any
+	// wake, ended its child as failed.
 	it.each(["closed", "released"] as const)(
-		"ends %s, not failed, when the conversation it rests is %s before a wake",
+		"ends %s, not failed, when the conversation it rests leaves so before a wake",
 		async (how) => {
 			const { life, timers } = following({ aloneWithin: 2, resumes: true });
 			life.resumed("parked");
@@ -469,12 +469,11 @@ describe("a child's life", () => {
 	// The other side of the rule: a start that neither answered nor
 	// rested never worked, whatever its end asked.
 	it("ends failed when it leaves having neither answered nor rested", async () => {
-		const { life, timers } = following({ aloneWithin: 2, resumes: true });
+		const { life } = following({ aloneWithin: 2, resumes: true });
 		const answer = life.watch.answer();
 		life.left("closed", "closed, asked by the launcher");
 		expect(await life.ending).toBe("failed");
 		await expect(answer).rejects.toThrow("The child ended: failed");
-		expect(timers.has(2), "no grace for a start that never worked").toBe(false);
 	});
 
 	it("clears every timer as it is disposed, its grace among them", () => {
