@@ -35,7 +35,10 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { readStamped, readStampedOff, type Stamped } from "./stamped-read.ts";
 
-/** How often a mirror reads its folder again while it is asked. */
+/**
+ * How often a mirror looks at its folder while it is asked: unwatched, it
+ * lists it each time; watched, it checks the watch still follows it.
+ */
 const POLL_MS = 1000;
 
 /**
@@ -196,9 +199,10 @@ function mirrorOf<T>(
 	let asked = 0;
 	let clock: ReturnType<typeof setInterval> | undefined;
 	let watcher: FSWatcher | undefined;
-	// The folder the watch follows, by inode, and a look at it under way: a
-	// watch keeps following a folder renamed away, hearing nothing new.
-	let watched: number | undefined;
+	// The folder the watch follows, by identity, and a look at it under
+	// way: a watch keeps following a folder renamed away, hearing nothing
+	// new.
+	let watched: string | undefined;
 	let looking = false;
 	// A watch being made.
 	let making = false;
@@ -306,11 +310,15 @@ function mirrorOf<T>(
 		await Promise.all(
 			paths.map((path) => readStampedOff(fresh, path, kind.readOff)),
 		);
-		// A read that failed on a file still there leaves what was kept,
-		// rather than dropping a live peer until its next publish.
+		// A read that failed, at its stat or after, on a file still there
+		// leaves what was kept, rather than dropping a live peer until its
+		// next publish.
 		const gone = new Set<string>();
-		for (const path of paths)
-			if (!fresh.has(path) && (await missing(path))) gone.add(path);
+		for (const path of paths) {
+			if (fresh.get(path)?.value !== undefined) continue;
+			fresh.delete(path);
+			if (await missing(path)) gone.add(path);
+		}
 		// The thread read the folder meanwhile: what it read is the newer.
 		if (fills !== filled || order === undefined) return;
 		for (const path of paths) {
@@ -351,14 +359,13 @@ function mirrorOf<T>(
 		watched = undefined;
 	};
 	// The folder is read before its watch is made, off the thread: one
-	// moved between the two is then a folder the next look finds changed,
-	// never one the watch follows unnoticed.
+	// moved between the two is then a folder the next look finds changed.
 	const rewatch = (): void => {
 		if (watcher !== undefined || making) return;
 		making = true;
 		void stat(dir)
 			.then(
-				(folder) => watchFolder(folder.ino),
+				(folder) => watchFolder(identity(folder)),
 				() => {
 					// No folder yet: the poll alone lists until one is made.
 				},
@@ -370,7 +377,7 @@ function mirrorOf<T>(
 				making = false;
 			});
 	};
-	const watchFolder = (inode: number): void => {
+	const watchFolder = (folder: string): void => {
 		// Put down meanwhile, or watched already: nothing to make.
 		if (clock === undefined || watcher !== undefined) return;
 		watcher = watch(dir, { persistent: false }, (_kind, name) => {
@@ -384,7 +391,7 @@ function mirrorOf<T>(
 		// folder; one that overflows says nothing, so the backstop lists what
 		// it dropped.
 		watcher.on("error", unwatch);
-		watched = inode;
+		watched = folder;
 		void listAfterWatching().catch(nothing);
 	};
 	// What changed before the watch heard it, since the last listing or
@@ -396,13 +403,15 @@ function mirrorOf<T>(
 	};
 	// One stat of the folder a tick, off the thread: one renamed away, or
 	// made again, drops the watch, so the next tick follows the new one.
+	// A folder made again is told by its birth as well as its inode, which
+	// some filesystems hand straight back.
 	const look = (): void => {
 		if (looking || watcher === undefined || watched === undefined) return;
 		looking = true;
 		const following = watched;
 		void stat(dir)
 			.then(
-				(folder) => folder.ino !== following,
+				(folder) => identity(folder) !== following,
 				(error: unknown) => isMissing(error),
 			)
 			.then((moved) => {
@@ -478,6 +487,15 @@ async function missing(path: string): Promise<boolean> {
 		() => false,
 		(error: unknown) => isMissing(error),
 	);
+}
+
+/** Which folder a stat found: its device, inode and birth, together. */
+function identity(folder: {
+	readonly dev: number;
+	readonly ino: number;
+	readonly birthtimeMs: number;
+}): string {
+	return `${folder.dev}:${folder.ino}:${folder.birthtimeMs}`;
 }
 
 /** Whether a failed read found no folder, rather than one unreadable. */
