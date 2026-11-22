@@ -11,6 +11,7 @@ import {
 	moveIntoHost,
 } from "../../../extensions/mesh-workflow/host-command.ts";
 import type { HostKind } from "../../../host/service/address.ts";
+import { HostClientUnloaded } from "../../../lib/mesh/host-control.ts";
 import type { Moving } from "../../../lib/mesh/moving.ts";
 
 let folder: string;
@@ -185,6 +186,18 @@ describe("/host", () => {
 			);
 			unchanged(one);
 		}
+	});
+
+	it("refuses, moving nothing, when the host's client didn't load to ask", async () => {
+		const one = asked({
+			probe: async () => {
+				throw new HostClientUnloaded(new Error("Cannot find module 'zod'"));
+			},
+		});
+		expect(await moveIntoHost("", one.facts)).toBe(
+			"This pi couldn't ask the work-background host anything: the host's client didn't load (Cannot find module 'zod'). So this session stays here.",
+		);
+		unchanged(one);
 	});
 
 	it("counts a host that answers slowly as there", async () => {

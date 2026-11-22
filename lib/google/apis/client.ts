@@ -9,10 +9,35 @@
  * It also puts every request on a clock. googleapis sets none of its
  * own, so a request whose peer accepted the connection and then went
  * quiet held its tool call open for as long as the socket lived.
+ *
+ * Its type names only the six APIs used here, each from its own module
+ * under googleapis. The package's root type reaches every API's
+ * declarations, 3.4 million lines, three in four of all `tsc` read for
+ * this project, and every typecheck of every worktree paid for them.
+ * Those modules are reachable because googleapis has no `exports` map;
+ * a release that adds one fails the typecheck here, loudly, rather
+ * than losing a check. A test of the client asks the real export for
+ * each API this type names.
  */
 
 import { createRequire } from "node:module";
-import type { GoogleApis } from "googleapis";
+import type { calendar } from "googleapis/build/src/apis/calendar";
+import type { docs } from "googleapis/build/src/apis/docs";
+import type { drive, GlobalOptions } from "googleapis/build/src/apis/drive";
+import type { gmail } from "googleapis/build/src/apis/gmail";
+import type { sheets } from "googleapis/build/src/apis/sheets";
+import type { slides } from "googleapis/build/src/apis/slides";
+
+/** The part of googleapis' `google` export this package calls. */
+interface GoogleApis {
+	readonly calendar: typeof calendar;
+	readonly docs: typeof docs;
+	readonly drive: typeof drive;
+	readonly gmail: typeof gmail;
+	readonly sheets: typeof sheets;
+	readonly slides: typeof slides;
+	options(options?: GlobalOptions): void;
+}
 
 const require = createRequire(import.meta.url);
 
