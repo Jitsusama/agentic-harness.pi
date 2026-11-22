@@ -52,9 +52,13 @@ export const GLANCE_CHARS = 160;
  * at once, and that the person hears at once what waits on them.
  *
  * It also says where a question about work goes: to its owner or to
- * `need`, settled between peers. Said nowhere, models took the one
- * address the note did name, the orchestrator's, as where every
- * question went, and work fell into a hub and its spokes.
+ * `need`, and work shared with a peer is settled between the two. Said
+ * nowhere, models took the one address the note did name, the
+ * orchestrator's, as where every question went, and work fell into a
+ * hub and its spokes. Where an orchestrator or hub is above, it is
+ * asked only who owns a question neither route found an owner for,
+ * since a need nothing within reach works on is refused, and a
+ * question left unsent shows nowhere.
  *
  * `above` is who `orchestrator` reaches: the mark's orchestrator, or
  * the hub from use of a quest with no mark (tools/above.ts).
@@ -66,8 +70,15 @@ export function advisory(above?: Reached): string {
 			: above.by === "use"
 				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: orchestrator)`
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
-	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying what happened, why it matters to them and the one thing to do. That path carries only what needs the person, never a question about work: that goes to its owner by address, or to need with about, and work you share with a peer is settled between you. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+	const work =
+		above === undefined
+			? `A question about work that isn't the person's goes to its owner by address, or to ${NEED_CALL}.`
+			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${above.address} who owns it.`;
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the owner you name by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
+
+/** How the note writes a need, as the call a model would make. */
+const NEED_CALL = "need (mesh_send to: need, about: what it is about)";
 
 /** The note for a session with no orchestrator above its quest. */
 export const ADVISORY = advisory();
@@ -80,8 +91,7 @@ export const ASKS: Readonly<Record<Intent, string>> = {
 	finding:
 		"A finding: it waited for this turn rather than starting one. If you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it as your work allows; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only, which waited for this turn rather than starting one. No reply and no action.",
-	pivot:
-		"A pivot: your orchestrator changes what you are doing. Put down what it names, take up what it says, and once you have changed course, answer it with mesh_send, re set to its id, saying what you put down. Your orchestrator sees who has, and reads that answer with its next turn, so anything waiting on the person goes to it as a question; anything stuck goes to the owner of what it waits on.",
+	pivot: `A pivot: your orchestrator changes what you are doing. Put down what it names, take up what it says, and once you have changed course, answer it with mesh_send, re set to its id, saying what you put down. Your orchestrator sees who has, and reads that answer with its next turn, so anything waiting on the person goes to it as a question. Anything stuck goes to the owner of what it waits on, by address, or to ${NEED_CALL}.`,
 };
 
 /**

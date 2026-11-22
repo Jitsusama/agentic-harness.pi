@@ -70,23 +70,59 @@ describe("the mesh on screen", () => {
 		);
 	});
 
-	it("sends a question about work to its owner or to need, never only to whoever is above", () => {
+	it("tells every delivery that a question about work goes to its owner or to need, and asks above only who owns it", () => {
 		const messages = [message()];
 		for (const above of [
 			{ address: "WCJQSG", by: "mark" } as const,
 			{ address: "5GV2AH", by: "use" } as const,
-			undefined,
 		]) {
-			expect(noted(messages, [], above)).toContain(
-				"That path carries only what needs the person, never a question about work: that goes to its owner by address, or to need with about, and work you share with a peer is settled between you.",
+			const content = noted(messages, [], above);
+			expect(content).toContain(
+				`That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
+			);
+			expect(content).toContain(
+				"Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the owner you name by address.",
 			);
 		}
 	});
 
-	it("asks that what goes to the person says what happened, why it matters and the one thing to do", () => {
-		expect(noted([message()], [], { address: "WCJQSG", by: "mark" })).toContain(
-			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator), saying what happened, why it matters to them and the one thing to do.",
+	it("leaves a session with nobody above free to ask the person about work that is theirs", () => {
+		const content = noted([message()]);
+
+		expect(content).toContain(
+			"A question about work that isn't the person's goes to its owner by address, or to need (mesh_send to: need, about: what it is about).",
 		);
+		expect(content).not.toContain("That path carries only");
+	});
+
+	it("asks that what goes to the person says who it came from, what happened, why it matters and the one thing to do", () => {
+		for (const [above, path] of [
+			[
+				{ address: "WCJQSG", by: "mark" } as const,
+				"to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
+			],
+			[
+				{ address: "5GV2AH", by: "use" } as const,
+				"to your hub from use, 5GV2AH, as a question (mesh_send to: orchestrator)",
+			],
+			[
+				undefined,
+				"in your next reply, since no orchestrator is above your quest",
+			],
+		] as const) {
+			expect(noted([message()], [], above)).toContain(
+				`otherwise ${path}, saying who it came from, what happened, why it matters to them and the one thing to do.`,
+			);
+		}
+	});
+
+	it("sends what a pivoted session is stuck on to its owner or to need, not up to the orchestrator", () => {
+		const content = noted([message({ intent: "pivot" })]);
+
+		expect(content).toContain(
+			"Anything stuck goes to the owner of what it waits on, by address, or to need (mesh_send to: need, about: what it is about).",
+		);
+		expect(content).not.toMatch(/stuck or waiting on the person/);
 	});
 
 	it("shows everything the model read once expanded", () => {
