@@ -41,6 +41,12 @@ export interface Local {
 	/** This peer's ties, strongest first, as the node keeps them (lib/mesh/node.ts). */
 	readonly ties?: () => Promise<readonly Tie[] | undefined>;
 	/**
+	 * The hub from use this peer keeps, if it still holds as the peer
+	 * stands now (see `keepHub` in above.ts), for a send whose own find
+	 * the node left unfinished.
+	 */
+	readonly keptHub?: () => string | undefined;
+	/**
 	 * Find the live cell that works on a need, over the node's hubs and
 	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
 	 * no node answers. `live` names every present cell, those that stopped

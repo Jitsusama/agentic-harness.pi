@@ -7,7 +7,7 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
@@ -195,6 +195,31 @@ describe("orchestrator, on a quest with no mark", () => {
 			"no ties came from the node (none answered in time, or it keeps none)",
 		);
 		expect(lastSent()).toBeUndefined();
+	});
+
+	// The session's own find was answered as it started; the send's is
+	// held past the node's patience, as a slow node would.
+	it("reaches the hub it last found when the node gives the send no answer in time", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? Promise.resolve() : new Promise(() => {});
+			},
+		);
+		const { tools } = await startSession(env);
+		await vi.waitFor(() => expect(asks).toBe(1));
+
+		const answer = await send(tools, "orchestrator", "fyi", "Landed.");
+
+		expect(answer).toContain(
+			"`orchestrator` was read as 5GV2AH, the hub from use this peer last found",
+		);
+		expect(lastSent()).toMatchObject({ to: ["@5GV2AH"], text: "Landed." });
 	});
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {
