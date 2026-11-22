@@ -445,7 +445,10 @@ describe("a sprouted session's start", () => {
 		);
 		expect(again.state.questId).toBe(first.state.questId);
 		expect(asked, "no tie was asked for").toEqual([]);
-		expect(again.words).not.toMatch(/tied on the map/u);
+		expect(again.words).not.toMatch(/tied on the map to/u);
+		expect(again.words, "the session knows who asked").toContain(
+			"Cell TERN02 asked for it; this quest predates the ask, so it isn't tied to that cell on the map.",
+		);
 		// The same seed replayed onto another session finds the quest by the
 		// mark its join left, the link's alias gone so nothing else can, and
 		// still ties nothing.
@@ -462,7 +465,8 @@ describe("a sprouted session's start", () => {
 		);
 		expect(replay.state.questId).toBe(first.state.questId);
 		expect(asked, "no tie was asked for on the replay").toEqual([]);
-		expect(replay.words).not.toMatch(/tied on the map/u);
+		expect(replay.words).not.toMatch(/tied on the map to/u);
+		expect(replay.words).toContain("Cell TERN02 asked for it");
 	});
 
 	it("joins nothing for a link that only carries another page's address", async () => {
@@ -583,6 +587,8 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/blob/main/docs/rfc.md",
 			"https://github.com/o/repo/blob/main/x.ts#L42",
 			"https://github.com/o/repo/commit/abc123",
+			// GitHub's own pages name no owner, and an advisory is the work.
+			"https://github.com/advisories/GHSA-abcd-efgh-ijkl",
 		].entries()) {
 			const deep = await start(
 				{ link, id: `S9${n}` },
@@ -796,8 +802,23 @@ describe("a sprouted session's start", () => {
 				sessionId: "sess-tie-signal-long",
 			},
 		);
-		expect(long.words, "quotes no more than a line's worth").toContain(
-			`(it last wrote "${"x".repeat(200)}")`,
+		expect(
+			long.words,
+			"quotes no more than a line's worth, marked cut",
+		).toContain(`(it last wrote "${"x".repeat(200)}...")`);
+		const redrawn = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: null,
+					stdout: "",
+					stderr: "asking\r 50%\r100% asked\n",
+				}),
+				sessionId: "sess-tie-signal-redrawn",
+			},
+		);
+		expect(redrawn.words, "a progress bar's last redraw").toContain(
+			'(it last wrote "100% asked")',
 		);
 		const stopped = await start(
 			{ words: "tea", from: "TERN02" },
@@ -815,6 +836,9 @@ describe("a sprouted session's start", () => {
 			stopped.words,
 			"one stopped here is no stranger's signal",
 		).not.toMatch(/may have landed/u);
+		expect(stopped.words).toMatch(
+			/failed \(it ended with no code\); run `mycelium web /u,
+		);
 	});
 
 	it("quotes a failed tie's last line as it wrote it, cut to whole characters", async () => {
@@ -830,7 +854,7 @@ describe("a sprouted session's start", () => {
 			},
 		);
 		expect(failed.words).toContain(
-			`failed (it last wrote "${"\u{1F600}".repeat(200)}")`,
+			`failed (it last wrote "${"\u{1F600}".repeat(200)}...")`,
 		);
 		expect(failed.words).not.toContain("\u{1F600}".repeat(201));
 		expect(failed.words).not.toContain("starting");

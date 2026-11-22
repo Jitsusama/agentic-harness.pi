@@ -12,6 +12,7 @@
  */
 
 import { isRecord } from "../../record.ts";
+import { isId } from "../creation/id.ts";
 import { needAsker } from "../fields/serves.ts";
 
 /** The one shape of it this reads. */
@@ -203,7 +204,11 @@ function alsoSaid(also: readonly string[]): string {
  * granting nothing beyond the work itself. A link naming a place work
  * happens (linkIs "place") is never called the work. Other live
  * quests holding the same work (joined.also) are named, never passed
- * over in silence, since one work belongs on one quest.
+ * over in silence, since one work belongs on one quest; only those
+ * spelled as ids, so a README's id can't put words of its own here. A
+ * joined quest predates the ask, so it is never tied to the cell that
+ * asked (joined.askedBy), which is named instead, so the session knows
+ * who asked.
  */
 export function sproutedWords(
 	questId: string,
@@ -212,6 +217,7 @@ export function sproutedWords(
 	joined?: {
 		readonly peers?: string | undefined;
 		readonly also?: readonly string[];
+		readonly askedBy?: string;
 	},
 	linkIs: "work" | "place" = "work",
 ): string {
@@ -231,8 +237,12 @@ export function sproutedWords(
 	const tie = tieSaid(questId, tied);
 	if (joined) {
 		const peers = joined.peers ? ` ${joined.peers}` : "";
-		const also = joined.also?.length ? alsoSaid(joined.also) : "";
-		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${peers}${also} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;
+		const others = (joined.also ?? []).filter(isId);
+		const also = others.length ? alsoSaid(others) : "";
+		const askedBy = joined.askedBy
+			? ` Cell ${joined.askedBy} asked for it; this quest predates the ask, so it isn't tied to that cell on the map.`
+			: "";
+		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${askedBy}${peers}${also} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;
 	}
 	return `This session was sprouted, and quest ${questId} is made and loaded for it${source}${seed.words ? whose : ""}${tie} The whole quest is yours: retitle it if its title says the work badly, plan it, build it, merge what passes its checks, and tell the person what it needs from them as it comes, each line saying the work, why it exists, where it stands and what you ask. Nobody else loads it.`;
 }

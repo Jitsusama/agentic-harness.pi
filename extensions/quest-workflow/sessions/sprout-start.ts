@@ -131,7 +131,10 @@ export async function startSprouted(
 				...new Set([...(linked.sealed ? [] : [linked.id]), ...linked.also]),
 			].filter((one) => one !== id)
 		: [];
-	const joined = held !== undefined ? { peers, also } : undefined;
+	// A live quest it joined predates the ask, so it is never tied to the
+	// cell that asked, which its words name instead.
+	const askedBy = !made && seed.from ? { askedBy: seed.from } : {};
+	const joined = held !== undefined ? { peers, also, ...askedBy } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
@@ -158,11 +161,17 @@ export async function startSprouted(
 		// A live quest it joined takes a mark of its own, so a replay after
 		// that quest ends is told its work is done, never starts it again,
 		// and a replay while it lives joins it again, never ties it.
-		aliasAdd(state, {
-			action: "alias-add",
-			id,
-			ref: `${joinMark.type}:${joinMark.value}`,
-		});
+		try {
+			aliasAdd(state, {
+				action: "alias-add",
+				id,
+				ref: `${joinMark.type}:${joinMark.value}`,
+			});
+		} catch {
+			// A lock that didn't come leaves the mark off, as a made quest's
+			// does: the session still works the quest it joined, and its need
+			// is still recorded below.
+		}
 	}
 	servesNeed(state, id, seed);
 	// Only a quest it made, or its own replayed, is sprouted from the cell
@@ -343,11 +352,15 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * the work.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
+	const url = seed.link ? webAddress(seed.link) : undefined;
+	const onGitHub = url !== undefined && siteOf(url) === "github.com";
+	const path = url ? url.pathname.split("/").filter((part) => part !== "") : [];
+	// Before pageRead: parseRef reads /advisories/GHSA-... as an owner's
+	// repository.
+	if (onGitHub && GITHUB_OWN.has(path[0] ?? "")) return false;
 	const read = pageRead(seed);
 	if (read) return PLACES.has(read.ref.type);
-	const url = seed.link ? webAddress(seed.link) : undefined;
-	if (!url || siteOf(url) !== "github.com") return false;
-	const path = url.pathname.split("/").filter((part) => part !== "");
+	if (!onGitHub) return false;
 	return (
 		path.length === 1 ||
 		path.length === 2 ||
@@ -355,6 +368,25 @@ function linkIsPlace(seed: SproutSeed): boolean {
 		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
 	);
 }
+
+/**
+ * GitHub's own pages, which no owner can be named: an advisory there
+ * (/advisories/GHSA-...) is a piece of work, so none of them reads as a
+ * place.
+ */
+const GITHUB_OWN: ReadonlySet<string> = new Set([
+	"advisories",
+	"apps",
+	"collections",
+	"explore",
+	"features",
+	"marketplace",
+	"notifications",
+	"search",
+	"settings",
+	"sponsors",
+	"topics",
+]);
 
 /** Where in a GitHub repository its own code is, never a piece of work. */
 const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree"]);
@@ -529,7 +561,9 @@ async function tie(
 
 /**
  * The last line mycelium wrote, a progress bar's last redraw included, cut
- * to MOST_QUOTED whole characters, or "" where it wrote none.
+ * to MOST_QUOTED whole characters and ended with "..." where it was cut,
+ * so a cut reason never reads as the whole of it, or "" where it wrote
+ * none.
  */
 function lastLine(stderr: string): string {
 	const line =
@@ -538,5 +572,8 @@ function lastLine(stderr: string): string {
 			.split(/\r?\n|\r/u)
 			.pop()
 			?.trim() ?? "";
-	return Array.from(line).slice(0, MOST_QUOTED).join("");
+	const characters = Array.from(line);
+	return characters.length > MOST_QUOTED
+		? `${characters.slice(0, MOST_QUOTED).join("")}...`
+		: line;
 }
