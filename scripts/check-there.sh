@@ -107,6 +107,12 @@ if [ -e /etc/NIXOS ]; then
   chmod +x ~/.cache/harness-check-bin/biome
   export BIOME_BINARY=~/.cache/harness-check-bin/biome
 fi
+# A Mac's own TMPDIR sits deep under /var/folders, where the sockets the
+# host's tests make run past the 104 bytes a Unix socket's path may take,
+# so each check gets a short temporary folder of its own, removed after.
+tmp=$(mktemp -d /tmp/hc.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
+export TMPDIR="$tmp"
 pnpm check
 pnpm exec vitest run tests/package --testTimeout=60000
 THERE
