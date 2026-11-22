@@ -36,13 +36,16 @@ import { recordKeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
-// Each removal off the thread, which can be held after it unlinks, as a
-// busy disk's callback comes late.
+// Each move and removal off the thread, which can be held after the disk
+// acts, as a busy disk's callback comes late; and each synchronous call
+// that could stall the thread, by the path asked.
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
 	let release: () => void = () => undefined;
 	return {
+		moved: [] as string[],
 		removed: [] as string[],
+		asked: [] as string[],
 		hold(): void {
 			held = new Promise((done) => {
 				release = done;
@@ -60,19 +63,48 @@ const disk = vi.hoisted(() => {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
+	const rename = (async (...args: Parameters<typeof real.rename>) => {
+		disk.moved.push(String(args[0]));
+		await real.rename(...args);
+		await disk.pass();
+	}) as typeof real.rename;
 	const rm = (async (...args: Parameters<typeof real.rm>) => {
 		disk.removed.push(String(args[0]));
 		await real.rm(...args);
 		await disk.pass();
 	}) as typeof real.rm;
-	const mocked = { ...real, rm };
+	const mocked = { ...real, rename, rm };
+	return { ...mocked, default: mocked };
+});
+
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	const logged = <F extends (...args: never[]) => unknown>(
+		name: string,
+		call: F,
+	): F =>
+		((...args: Parameters<F>) => {
+			disk.asked.push(`${name} ${String(args[0])}`);
+			return call(...args);
+		}) as F;
+	const mocked = {
+		...real,
+		rmSync: logged("rmSync", real.rmSync),
+		unlinkSync: logged("unlinkSync", real.unlinkSync),
+		statSync: logged("statSync", real.statSync),
+		lstatSync: logged("lstatSync", real.lstatSync),
+		existsSync: logged("existsSync", real.existsSync),
+		accessSync: logged("accessSync", real.accessSync),
+	};
 	return { ...mocked, default: mocked };
 });
 
 const made: string[] = [];
 afterEach(() => {
 	disk.go();
+	disk.moved.length = 0;
 	disk.removed.length = 0;
+	disk.asked.length = 0;
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -413,27 +445,62 @@ describe("a kept call", () => {
 		const call = endsRecorded();
 		disk.hold();
 		const running = run(call.kept.operations, "true", call.signal);
-		await until("its record unlinked", () => call.recordGone());
+		await until("its record set aside", () => call.recordGone());
 		call.kept.carryOf(call.signal)?.handed();
 		disk.go();
 		await running;
 		expect(
-			disk.removed.filter((path) => path.startsWith(call.keep())),
-			"only its record removed, none of its other files",
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"only its record set aside, none of its other files",
 		).toEqual([`${call.keep()}.job`]);
 		expect(existsSync(`${call.keep()}.end`), "its end, for the taker").toBe(
 			true,
 		);
+		expect(existsSync(`${call.keep()}.job`), "its record, put back").toBe(true);
 	});
 
-	// Most calls record no job: their end waits on no disk at all.
+	// A reload hands the call on in this same process, and the session that
+	// takes it up writes its record again while the first removal runs.
+	it("leaves the record its taker writes while its own went", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record set aside", () => call.recordGone());
+		call.kept.carryOf(call.signal)?.handed();
+		call.record("taken up");
+		disk.go();
+		await running;
+		expect(
+			JSON.parse(readFileSync(`${call.keep()}.job`, "utf8")).label,
+			"the taker's record",
+		).toBe("taken up");
+	});
+
+	// Most calls record no job: their end waits on no disk at all, and asks
+	// it nothing on the thread, which under load held every conversation's
+	// loop for seconds.
 	it("settles though the disk holds every removal, when it recorded no job", async () => {
 		const call = endsRecorded({ records: false });
 		disk.hold();
-		const result = await run(call.kept.operations, "true", call.signal);
-		expect(result.code, "settled with its status").toBe(0);
+		// A bound on the settle, so one that waits on the disk fails here,
+		// saying so, rather than at the test's timeout.
+		const bound = new Promise<"held">((done) =>
+			setTimeout(() => done("held"), SETTLES_IN_MS),
+		);
+		const result = await Promise.race([
+			run(call.kept.operations, "true", call.signal),
+			bound,
+		]);
+		expect(result, "settled with its status").toMatchObject({ code: 0 });
+		expect(
+			disk.asked.filter((said) => said.includes(`${call.keep()}.job`)),
+			"nothing asked of its record on the thread",
+		).toEqual([]);
 	});
 });
+
+/** How long a call whose disk is held is given to settle. */
+const SETTLES_IN_MS = 5_000;
 
 /** Let `count` turns of the loop pass, for what would run in them. */
 async function turns(count: number): Promise<void> {
@@ -452,26 +519,26 @@ function endsRecorded({ records = true }: { records?: boolean } = {}) {
 	made.push(dir);
 	const folder = join(dir, "kept");
 	let keep = "";
+	const record = (label: string) =>
+		recordKeptJob({
+			session: "s1",
+			id: "j1",
+			kind: "shell",
+			label,
+			work: {
+				kind: "shell",
+				keep,
+				pid: process.pid,
+				mark: "mark-1",
+				startedAt: Date.now(),
+			},
+		});
 	const kept = keepsOnDisk(
 		{
 			async exec(_command, _cwd, call) {
 				keep = call.env?.[KEEP_VARIABLE] ?? "";
 				writeFileSync(`${keep}.pid`, String(process.pid));
-				if (records) {
-					recordKeptJob({
-						session: "s1",
-						id: "j1",
-						kind: "shell",
-						label: "true",
-						work: {
-							kind: "shell",
-							keep,
-							pid: process.pid,
-							mark: "mark-1",
-							startedAt: Date.now(),
-						},
-					});
-				}
+				if (records) record("true");
 				writeFileSync(`${keep}.end`, "0");
 				return { exitCode: 0 };
 			},
@@ -483,6 +550,8 @@ function endsRecorded({ records = true }: { records?: boolean } = {}) {
 		kept,
 		signal: new AbortController().signal,
 		keep: () => keep,
+		/** Record the call's job again, as one taking it up does. */
+		record,
 		recordGone: () => keep !== "" && !existsSync(`${keep}.job`),
 	};
 }

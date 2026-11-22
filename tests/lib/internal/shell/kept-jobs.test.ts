@@ -35,35 +35,50 @@ import {
 	strayKeptJobs,
 } from "../../../../lib/internal/shell/kept-jobs.ts";
 
-// What the code asks of the disk: each removal off the thread, which can
-// be held after it unlinks, as a busy disk's callback comes late; and
-// each synchronous call that could stall the thread, by the path asked.
+// What the code asks of the disk: each move and removal off the thread,
+// which can be held after the disk acts, as a busy disk's callback comes
+// late, or before, as a busy disk's pool gets to it late; and each
+// synchronous call that could stall the thread, by the path asked.
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
 	let release: () => void = () => undefined;
 	return {
+		moved: [] as string[],
 		removed: [] as string[],
 		asked: [] as string[],
-		hold(): void {
+		before: false,
+		/** How many asks wait, held, for the disk to act at all. */
+		parked: 0,
+		hold(before = false): void {
+			this.before = before;
 			held = new Promise((done) => {
 				release = done;
 			});
 		},
 		go(): void {
 			held = undefined;
+			this.before = false;
 			release();
 		},
 		async pass(): Promise<void> {
 			if (held !== undefined) await held;
 		},
-		/** What was asked of `keep`'s files, removed and synchronously. */
-		of(keep: string): { removed: string[]; asked: string[] } {
+		async first(): Promise<void> {
+			if (!this.before) return;
+			this.parked += 1;
+			await this.pass();
+			this.parked -= 1;
+		},
+		/** What was asked of `keep`'s files: moved, removed and synchronously. */
+		of(keep: string): { moved: string[]; removed: string[]; asked: string[] } {
 			return {
+				moved: this.moved.filter((path) => path.startsWith(keep)),
 				removed: this.removed.filter((path) => path.startsWith(keep)),
 				asked: this.asked.filter((said) => said.includes(keep)),
 			};
 		},
 		forget(): void {
+			this.moved.length = 0;
 			this.removed.length = 0;
 			this.asked.length = 0;
 		},
@@ -72,12 +87,19 @@ const disk = vi.hoisted(() => {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
+	const rename = (async (...args: Parameters<typeof real.rename>) => {
+		disk.moved.push(String(args[0]));
+		await disk.first();
+		await real.rename(...args);
+		await disk.pass();
+	}) as typeof real.rename;
 	const rm = (async (...args: Parameters<typeof real.rm>) => {
 		disk.removed.push(String(args[0]));
+		await disk.first();
 		await real.rm(...args);
 		await disk.pass();
 	}) as typeof real.rm;
-	const mocked = { ...real, rm };
+	const mocked = { ...real, rename, rm };
 	return { ...mocked, default: mocked };
 });
 
@@ -111,6 +133,9 @@ const HERE = process.pid;
 
 /** A pid no process has: past every kernel's highest. */
 const GONE = 999_999_999;
+
+/** How long a removal let go of is given to settle its call. */
+const SETTLES_IN_MS = 5_000;
 
 /** When the calls started, and a moment soon after. */
 const STARTED = 1_000;
@@ -305,6 +330,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		disk.forget();
 		await forgetOwnKeptJob(keep);
 		expect(disk.of(keep), "nothing asked, on the thread or off it").toEqual({
+			moved: [],
 			removed: [],
 			asked: [],
 		});
@@ -319,10 +345,127 @@ describe("a call's own record, taken back as the call ends", () => {
 		const job = await recorded(where, "s1", "j1", HERE);
 		disk.forget();
 		await forgetOwnKeptJob(job.work.keep);
-		expect(disk.of(job.work.keep), "one removal, none on the thread").toEqual({
-			removed: [`${job.work.keep}.job`],
+		expect(
+			disk.of(job.work.keep),
+			"set aside and removed once, none of it on the thread",
+		).toEqual({
+			moved: [`${job.work.keep}.job`],
+			removed: [expect.stringMatching(/\.job\.\d+\.gone$/)],
 			asked: [],
 		});
+		expect(listed(where), "nothing left beside the call").not.toContainEqual(
+			expect.stringMatching(/\.gone$/),
+		);
+	});
+
+	// A move or a reload hands the call on while its record goes, and the
+	// one taking it up, in this process or another, writes it again.
+	it("leaves the taker's record when handed on while its removal ran", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
+		);
+		disownKeptJob(job.work.keep);
+		recordKeptJob({ ...job, label: "taken up" });
+		disk.go();
+		await going;
+		expect(
+			keptJobsOf("s1", where).map((one) => one.label),
+			"the taker's record",
+		).toEqual(["taken up"]);
+	});
+
+	// The disk's pool may get to the removal only after the hand-off and the
+	// taker's write, and what it does then can't be called back.
+	it("leaves the taker's record when it was written before the disk got to the removal", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "the removal, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		recordKeptJob({ ...job, label: "taken up" });
+		disk.go();
+		await going;
+		expect(
+			keptJobsOf("s1", where).map((one) => one.label),
+			"the taker's record",
+		).toEqual(["taken up"]);
+		expect(listed(where), "nothing left set aside").not.toContainEqual(
+			expect.stringMatching(/\.gone$/),
+		);
+	});
+
+	// Handed on with nothing written yet, it is the taker's as it was.
+	it("puts its record back when handed on while its removal ran", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
+		);
+		disownKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(
+			keptJobsOf("s1", where).map((one) => one.label),
+			"its record, for the taker",
+		).toEqual(["run j1"]);
+	});
+
+	// A wedged disk would otherwise hold the call open with no end.
+	it("lets its call settle once its wait has passed, the removal going on", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold(true);
+		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 50 });
+		// A bound on the wait, so one that never ends fails here, saying so,
+		// rather than at the test's timeout.
+		const bound = new Promise<"held">((done) =>
+			setTimeout(() => done("held"), SETTLES_IN_MS),
+		);
+		expect(
+			await Promise.race([going.then(() => "settled" as const), bound]),
+			"settled while the disk still holds it",
+		).toBe("settled");
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line saying what follows",
+		).toEqual([expect.stringMatching(/may say the call's end again/)]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"its record, gone once the disk lets it",
+			).toEqual([]),
+		);
+	});
+
+	it("says a removal that took more than a second", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const clock = [0, 1_500];
+		await forgetOwnKeptJob(job.work.keep, { now: () => clock.shift() ?? 0 });
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line, saying how long",
+		).toEqual([expect.stringMatching(/took 1500 ms/)]);
 	});
 
 	// A rollover gives a running job's recorder a new key, which writes its
@@ -350,7 +493,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		writeFileSync(`${job.work.keep}.job`, "{}");
 		disk.forget();
 		await forgetOwnKeptJob(job.work.keep);
-		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
+		expect(disk.of(job.work.keep).moved, "nothing set aside").toEqual([]);
 		expect(
 			existsSync(`${job.work.keep}.job`),
 			"a record written by another hand since",
@@ -363,7 +506,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		disownKeptJob(job.work.keep);
 		disk.forget();
 		await forgetOwnKeptJob(job.work.keep);
-		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
+		expect(disk.of(job.work.keep).moved, "nothing set aside").toEqual([]);
 		expect(
 			existsSync(`${job.work.keep}.job`),
 			"left for whoever took the call up",
@@ -380,7 +523,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		writeFileSync(`${job.work.keep}.job`, "{}");
 		disk.forget();
 		await forgetOwnKeptJob(job.work.keep);
-		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
+		expect(disk.of(job.work.keep).moved, "nothing set aside").toEqual([]);
 	});
 
 	it("is taken back again once written again", async () => {
@@ -404,11 +547,12 @@ describe("a call's own record, taken back as the call ends", () => {
 		).toBe(true);
 	});
 
-	it("never rejects when what holds its name won't go, and says so", async () => {
+	it("never rejects when what holds its name won't go, and says what follows", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		rmSync(`${job.work.keep}.job`);
 		mkdirSync(`${job.work.keep}.job`);
+		writeFileSync(join(`${job.work.keep}.job`, "inside"), "");
 		const said = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
@@ -417,8 +561,8 @@ describe("a call's own record, taken back as the call ends", () => {
 			said.mock.calls
 				.map(([text]) => String(text))
 				.filter((text) => text.includes(job.work.keep)),
-			"one line naming it",
-		).toHaveLength(1);
+			"one line naming it and what follows",
+		).toEqual([expect.stringMatching(/may say the call's end again/)]);
 	});
 
 	// pi loads each extension as a module copy of its own, and job-workflow
