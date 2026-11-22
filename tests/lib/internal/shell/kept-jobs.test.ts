@@ -218,6 +218,18 @@ function folder(): string {
 	return join(dir, "kept");
 }
 
+/**
+ * Wait, on the real clock, for what was set aside to wait on the disk:
+ * `vi.waitFor` moves a faked clock on as it asks, which would run a
+ * call's wait out before the disk stands as the case needs.
+ */
+async function parkedByTheClock(): Promise<void> {
+	const began = Date.now();
+	while (disk.parked !== 1 && Date.now() - began < SETTLES_IN_MS)
+		await new Promise((done) => setImmediate(done));
+	expect(disk.parked, "what it set aside, waiting on the disk").toBe(1);
+}
+
 /** The labels of the calls recorded for `s1` in `where`, each one running. */
 function labelsIn(where: string): string[] {
 	return keptJobsOf("s1", where, () => true).map((one) => one.label);
@@ -763,9 +775,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		disk.hold(true, "rm", /\.gone$/);
 		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 50 });
-		await vi.waitFor(() =>
-			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
-		);
+		await parkedByTheClock();
 		vi.advanceTimersByTime(50);
 		await going;
 		expect(
@@ -794,9 +804,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		disk.hold(true, "rm", /\.gone$/);
 		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 200 });
-		await vi.waitFor(() =>
-			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
-		);
+		await parkedByTheClock();
 		disownKeptJob(job.work.keep);
 		vi.advanceTimersByTime(200);
 		await going;
@@ -823,9 +831,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		disk.hold(true, "rm", /\.gone$/);
 		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 200 });
-		await vi.waitFor(() =>
-			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
-		);
+		await parkedByTheClock();
 		recordKeptJob(job);
 		vi.advanceTimersByTime(200);
 		await going;
