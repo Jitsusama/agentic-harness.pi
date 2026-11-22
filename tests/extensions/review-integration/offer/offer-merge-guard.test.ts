@@ -13,7 +13,13 @@
  * actually at, is known here and was not being said.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -81,8 +87,14 @@ const proposal: Change = {
 	url: "https://example.invalid/438",
 };
 
-/** A backend that merges, and records whether it was ever asked to. */
-function mergingProvider() {
+/** A head the change moves to when a push lands. */
+const PUSHED = "0f3c9a1d7e2b4c6a8d0e1f2a3b4c5d6e7f8a9b0c";
+
+/**
+ * A backend that merges, and records whether it was ever asked to. Its
+ * change is at AT, or at PUSHED once `movedOnce` is true.
+ */
+function mergingProvider(movedOnce: () => boolean = () => false) {
 	const merges: unknown[] = [];
 	const provider = stubProvider({
 		id: "meteorite",
@@ -97,7 +109,8 @@ function mergingProvider() {
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
 			changes: {
-				fetch: async () => proposal,
+				fetch: async () =>
+					movedOnce() ? { ...proposal, headCommit: PUSHED } : proposal,
 				diff: unused("diff a change"),
 			},
 			authoring: {
@@ -112,6 +125,24 @@ function mergingProvider() {
 		},
 	});
 	return { provider, merges };
+}
+
+/** Name `command` as the stub repo's merge gate in the package config. */
+function gateIs(command: string): void {
+	mkdirSync(dirname(packageConfigPath()), { recursive: true });
+	writeFileSync(
+		packageConfigPath(),
+		JSON.stringify({
+			version: 1,
+			sections: {
+				review: {
+					merge: {
+						gates: { "meteorite:shop/world": { command, minutes: 1 } },
+					},
+				},
+			},
+		}),
+	);
 }
 
 async function offer(params: Record<string, unknown>) {
@@ -190,25 +221,10 @@ describe("merging behind a head guard", () => {
 
 	it("merges the head its repo's gate passed when no expectation is given", async () => {
 		// Without it, a push landing while the gate ran was merged though
-		// no gate had read it.
+		// no gate had read it. The gate refuses any head but AT.
 		const { provider, merges } = mergingProvider();
 		registerReviewProvider(provider);
-		mkdirSync(dirname(packageConfigPath()), { recursive: true });
-		writeFileSync(
-			packageConfigPath(),
-			JSON.stringify({
-				version: 1,
-				sections: {
-					review: {
-						merge: {
-							gates: {
-								"meteorite:shop/world": { command: "true", minutes: 1 },
-							},
-						},
-					},
-				},
-			}),
-		);
+		gateIs(`test ${AT} =`);
 		const checkout = mkdtempSync(join(tmpdir(), "gated-"));
 
 		try {
@@ -221,6 +237,49 @@ describe("merging behind a head guard", () => {
 			merges,
 			"the backend is held to the head the gate was handed",
 		).toEqual([{ expectedHead: AT }]);
+	});
+
+	it("refuses a merge when a push landed while the gate ran", async () => {
+		// Not every backend keeps expectedHead, so the head is read again
+		// once the gate passes rather than left to the backend.
+		const checkout = mkdtempSync(join(tmpdir(), "gated-"));
+		const pushed = join(checkout, "pushed");
+		const { provider, merges } = mergingProvider(() => existsSync(pushed));
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(pushed)} && test ${AT} =`);
+
+		let answer: unknown;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(checkout, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"the refusal names the head it moved to",
+		).toContain(`moved to ${PUSHED.slice(0, 12)} while its merge gate read`);
+		expect(merges, "nothing the gate didn't read is merged").toEqual([]);
+	});
+
+	it("refuses a merge when the package config can't be parsed", async () => {
+		// A stray comma used to read as no gate at all, so every gated repo
+		// merged ungated.
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		mkdirSync(dirname(packageConfigPath()), { recursive: true });
+		writeFileSync(packageConfigPath(), '{ "version": 1, }');
+
+		const answer = await offer({ action: "merge", change: "438" });
+
+		const said = JSON.stringify(answer);
+		expect(said, "the config's path and failure are named").toContain(
+			`Could not parse package config at ${packageConfigPath()}`,
+		);
+		expect(said, "the refusal says why it stopped").toContain(
+			"names a merge gate can't be known",
+		);
+		expect(merges, "nothing merges past an unread config").toEqual([]);
 	});
 
 	it("still merges when no expectation is given", async () => {

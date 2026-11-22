@@ -487,7 +487,7 @@ export async function runOffer(
 				return retargetStack(ctx, bound, change, authoring);
 			case "merge":
 				return merge(ctx, bound, change, authoring, params, pi.events, {
-					review: await reviewSection(),
+					...(await reviewSection()),
 					cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
 					run: gateRunner(),
 				});

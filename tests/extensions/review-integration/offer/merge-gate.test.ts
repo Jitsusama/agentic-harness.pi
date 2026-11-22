@@ -10,6 +10,7 @@ import {
 	MOST_GATE_MINUTES,
 	type RunGate,
 } from "../../../../extensions/review-integration/merge-gate.ts";
+import { withCallSignal } from "../../../../lib/core/exec/index.ts";
 
 const CORE = "github:Jitsusama/core.nix";
 const HEAD = "4dca0632e1f0a6b3c9d27f4e5a8b1c0d2e3f4a5b";
@@ -218,6 +219,82 @@ describe("a repo's merge gate", () => {
 		).toMatch(/couldn't run.*ENOENT/);
 	});
 
+	it("reads a gate's own exit 124 or 130 as its refusal, not as a clock or an Escape", async () => {
+		// A gate wrapping a step in timeout(1) exits 124, and one whose child
+		// took a SIGINT exits 130; neither ran out its minutes or was stopped.
+		for (const code of [124, 130]) {
+			const said = await gateRefusal(
+				{ ...GATE, command: `echo inner step gave up >&2; exit ${code};` },
+				HEAD,
+				dir,
+				shell,
+			);
+			expect(said, `exit ${code} reads as the gate refusing`).toContain(
+				`refused ${HEAD.slice(0, 12)} (exit ${code})`,
+			);
+			expect(said, `exit ${code} keeps what the gate said`).toContain(
+				"inner step gave up",
+			);
+			expect(said, `exit ${code} gives no advice about minutes`).not.toMatch(
+				/still running|stopped before/,
+			);
+		}
+	});
+
+	it("says a gate stopped by Escape was stopped, with everything it started", async () => {
+		const marker = join(dir, "still-running");
+		const pressed = new AbortController();
+		setTimeout(() => pressed.abort(), 200); // long enough for bash to start the gate's child before Escape lands
+		const said = await withCallSignal(pressed.signal, () =>
+			gateRefusal(
+				{
+					...GATE,
+					command: `(sleep 2; touch ${JSON.stringify(marker)}) & wait; true`,
+				},
+				HEAD,
+				dir,
+				shell,
+			),
+		);
+		expect(said, "an Escape reads as the merge being stopped").toMatch(
+			/The merge was stopped before its gate/,
+		);
+		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
+		expect(
+			existsSync(marker),
+			"the call's signal reached the gate's whole group",
+		).toBe(false);
+	});
+
+	it("says a gate at the most minutes it may name needs looking at, not more time", async () => {
+		const slow: RunGate = async () => ({
+			code: 130,
+			stdout: "",
+			stderr: "",
+			killed: true,
+		});
+		const said = await gateRefusal(
+			{ ...GATE, minutes: MOST_GATE_MINUTES },
+			HEAD,
+			dir,
+			slow,
+		);
+		expect(said, "the ceiling is named").toContain(
+			`${MOST_GATE_MINUTES} minutes is the most a gate may name`,
+		);
+		expect(said, "the time it already has is not offered again").not.toContain(
+			'"minutes":',
+		);
+	});
+
+	it("says a checkout that isn't there, rather than a gate refusing", async () => {
+		const said = await gateRefusal(GATE, HEAD, join(dir, "gone"), shell);
+		expect(said, "the missing folder is named").toContain(
+			`couldn't run in ${join(dir, "gone")}: there is no such folder`,
+		);
+		expect(said, "no gate is said to have refused").not.toContain("refused");
+	});
+
 	it("stops a gate past its time, with everything it started", async () => {
 		// pi.exec killed only the shell, so a gate's children ran on after
 		// a refusal said it had stopped.
@@ -228,6 +305,11 @@ describe("a repo's merge gate", () => {
 			200,
 		);
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
+		expect(ran.aborted, "its own clock is no Escape").toBe(false);
+		expect(
+			ran.stderr,
+			"the exec layer's note, which names neither gate nor clock, is left out",
+		).not.toContain("bash aborted");
 		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
 		expect(
 			existsSync(marker),

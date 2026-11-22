@@ -27,9 +27,10 @@
  * slow one doing its work.
  */
 
+import { stat } from "node:fs/promises";
 import {
+	callSignal,
 	EXIT_ABORTED,
-	EXIT_TIMED_OUT,
 	spawnExec,
 } from "../../lib/core/exec/index.ts";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -124,12 +125,18 @@ export function gateTimeoutMs(gate: Gate): number {
 	return gate.minutes * MINUTE_MS;
 }
 
-/** What running a command answered. */
+/**
+ * What running a command answered. `killed` and `aborted` say the runner
+ * itself stopped it, by its clock or because the call was stopped: a gate
+ * that exits 124 or 130 of its own accord is neither, and is a refusal
+ * like any other exit.
+ */
 export interface GateRun {
 	readonly code: number;
 	readonly stdout: string;
 	readonly stderr: string;
 	readonly killed: boolean;
+	readonly aborted?: boolean;
 }
 
 /** Runs a gate's shell line in a folder, killing it past `timeoutMs`. */
@@ -146,9 +153,42 @@ export type RunGate = (
  */
 export function gateRunner(): RunGate {
 	return async (line, cwd, timeoutMs) => {
-		const ran = await spawnExec({ cwd, timeoutMs })("bash", ["-c", line]);
-		return { ...ran, killed: ran.code === EXIT_TIMED_OUT };
+		// The clock is the runner's own signal rather than spawnExec's
+		// timeout, so whether it fired is known rather than guessed from an
+		// exit code the gate could give itself, as `timeout(1)` gives 124.
+		// The call is read when the gate starts, as spawnExec reads it.
+		const call = callSignal();
+		const clock = new AbortController();
+		const timer = setTimeout(() => clock.abort(), timeoutMs);
+		try {
+			const ran = await spawnExec({ cwd, signal: clock.signal })("bash", [
+				"-c",
+				line,
+			]);
+			const stoppedHere =
+				ran.code === EXIT_ABORTED &&
+				(clock.signal.aborted || call?.aborted === true);
+			if (!stoppedHere) return { ...ran, killed: false };
+			// spawnExec's own last line, "bash aborted", names neither the
+			// gate nor why; the refusal says both.
+			const stderr = ran.stderr.replace(/(^|\n)bash aborted$/, "");
+			const killed = clock.signal.aborted && call?.aborted !== true;
+			return { ...ran, stderr, killed, aborted: !killed };
+		} finally {
+			clearTimeout(timer);
+		}
 	};
+}
+
+/** Whether `path` is a folder a gate can run in. */
+async function isFolder(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).isDirectory();
+	} catch {
+		// Missing or unreadable reads the same: the gate can't start there,
+		// which the caller says.
+		return false;
+	}
 }
 
 /** A single-quoted word the shell reads as it is. */
@@ -166,19 +206,29 @@ export async function gateRefusal(
 	run: RunGate,
 ): Promise<string | undefined> {
 	const { command } = gate;
+	// The real runner never throws: a folder it can't start in comes back
+	// as exit 1, which would read as the gate judging the head.
+	if (!(await isFolder(cwd))) {
+		return `The merge gate \`${command}\` couldn't run in ${cwd}: there is no such folder. Not merged.`;
+	}
 	let ran: GateRun;
 	try {
 		ran = await run(`${command} ${quoted(head)}`, cwd, gateTimeoutMs(gate));
 	} catch (error) {
 		return `The merge gate \`${command}\` couldn't run in ${cwd}: ${error instanceof Error ? error.message : String(error)}. Not merged.`;
 	}
-	if (ran.code === 0 && !ran.killed) return undefined;
+	if (ran.code === 0 && !ran.killed && ran.aborted !== true) return undefined;
 	const said = (ran.stderr.trim() || ran.stdout.trim()).slice(-2_000);
+	const tail = said ? `\n${said}` : "";
 	if (ran.killed) {
-		return `The merge gate \`${command}\` was still running after its ${gate.minutes} minutes at ${head.slice(0, 12)}, so it was stopped and nothing was merged. If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)} }.${said ? `\n${said}` : ""}`;
+		const stopped = `The merge gate \`${command}\` was still running after its ${gate.minutes} minutes at ${head.slice(0, 12)}, so it was stopped and nothing was merged.`;
+		if (gate.minutes >= MOST_GATE_MINUTES) {
+			return `${stopped} ${MOST_GATE_MINUTES} minutes is the most a gate may name, so the gate itself needs looking at.${tail}`;
+		}
+		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)} }.${tail}`;
 	}
-	if (ran.code === EXIT_ABORTED) {
-		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.`;
+	if (ran.aborted === true) {
+		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.${tail}`;
 	}
 	if (ran.code === NOT_FOUND) {
 		return `The merge gate \`${command}\` isn't on this machine (exit ${NOT_FOUND}), so nothing could say ${head.slice(0, 12)} may merge. Not merged.${said ? `\n${said}` : ""}`;

@@ -222,9 +222,13 @@ A gate has five minutes unless it names its own, from 1 to 180:
 core.nix's gate builds the merge's net, about 13 minutes on 21
 November, so the five minutes refused every merge there as late.
 A key the gate doesn't read, such as a misspelt `minutes`, refuses
-the merge rather than leaving the gate five. A gate past its time,
-or a call stopped while it runs, ends with everything it started,
-and the merge is held to the head the gate was handed.
+the merge rather than leaving the gate five, and a package config
+that can't be parsed refuses every merge rather than reading as no
+gate. A gate past its time, or a call stopped while it runs, ends
+with everything it started; a gate exiting 124 or 130 itself is a
+refusal like any other. Once the gate passes, the head is read
+again, and a change that moved while it ran is refused; the merge
+is held to the head the gate was handed as well.
 
 ### When a Queued Change Lands
 

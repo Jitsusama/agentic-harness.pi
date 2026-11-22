@@ -121,15 +121,28 @@ async function sayMerged(
 		...(read?.base ? { onto: read.base } : {}),
 	});
 }
-/** The package config's `review` section, or nothing when it can't be read. */
-export async function reviewSection(): Promise<unknown> {
+/**
+ * The package config's `review` section, or why the config couldn't be
+ * read: a file that doesn't parse is not one naming no gate, or a stray
+ * comma would turn every repo's gate off without a word.
+ */
+export async function reviewSection(): Promise<{
+	review?: unknown;
+	unread?: string;
+}> {
 	const loaded = await loadPackageConfig();
-	return loaded.ok ? loaded.config.sections[REVIEW_SLUG] : undefined;
+	return loaded.ok
+		? { review: loaded.config.sections[REVIEW_SLUG] }
+		: { unread: loaded.error };
 }
 
-/** What a merge asks of the repo's own gate: its config, where and how to run it. */
+/**
+ * What a merge asks of the repo's own gate: its config, or why that
+ * couldn't be read, and where and how to run it.
+ */
 export interface MergeGating {
-	readonly review: unknown;
+	readonly review?: unknown;
+	readonly unread?: string;
 	readonly cwd: string;
 	readonly run: RunGate;
 }
@@ -137,8 +150,9 @@ export interface MergeGating {
 /**
  * Why the repo's gate refuses this merge, or the head it let through:
  * nothing when the repo names no gate (merge-gate.ts). The head the gate
- * passed is the one merged, so a push landing while the gate ran makes
- * the backend refuse rather than merge what no gate read.
+ * passed is the one merged: it is read again once the gate passes, and
+ * handed to the backend too, so a push landing while the gate ran is
+ * refused here whether or not the backend keeps the guard.
  */
 async function gated(
 	gating: MergeGating | undefined,
@@ -147,6 +161,11 @@ async function gated(
 	expectedHead: string | undefined,
 ): Promise<{ refused: string } | { passed?: string }> {
 	if (!gating) return {};
+	if (gating.unread !== undefined) {
+		return {
+			refused: `${gating.unread.replace(/\.$/, "")}. So whether ${change.repo.key} names a merge gate can't be known, and nothing was merged; mend the file, then merge again.`,
+		};
+	}
 	const gate = gateFor(gating.review, change.repo.key);
 	if (gate.kind === "none") return {};
 	if (gate.kind === "malformed")
@@ -158,7 +177,19 @@ async function gated(
 		};
 	}
 	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
-	return refused === undefined ? { passed: head } : { refused };
+	if (refused !== undefined) return { refused };
+	const now = (await bound.proposal())?.headCommit;
+	if (!now) {
+		return {
+			refused: `The merge gate passed ${head.slice(0, 12)}, but the head of ${change.label} couldn't be read again afterwards to show nothing landed while it ran. Not merged.`,
+		};
+	}
+	if (!now.startsWith(head) && !head.startsWith(now)) {
+		return {
+			refused: `${change.label} moved to ${now.slice(0, 12)} while its merge gate read ${head.slice(0, 12)}, so what would merge is not what the gate passed. Not merged; merge again to gate the new head.`,
+		};
+	}
+	return { passed: head };
 }
 
 /** Land the change. */
