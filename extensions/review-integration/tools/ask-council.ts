@@ -155,6 +155,12 @@ async function councilRound(
 	const start = await awaitRosterStart(change.label, seat.signal);
 	if (start.cancelled !== undefined)
 		return { refused: refuse(start.cancelled) };
+	// Asked again after the wait: a council on this head queued ahead of
+	// this one writes its ledger entry only as it opens, a spacing ago.
+	if (start.waited !== undefined) {
+		const since = await councilRefused(change, proposal.headCommit, params);
+		if (since !== undefined) return { refused: refuse(since) };
+	}
 	return {
 		roster,
 		chosen,
@@ -182,7 +188,11 @@ async function councilRefused(
 }
 
 /**
- * Start a council and hand the session straight back.
+ * Start a council and hand the session back once it starts.
+ *
+ * It first waits for the machine's next roster start, as a council
+ * does (`awaitRosterStart`), which can be several spacings behind a
+ * queue; past the hand-off that wait runs as a background job.
  *
  * The same roster, prompt, tree and ledger entry a council makes,
  * dispatched and abandoned on purpose. What is given up is worth

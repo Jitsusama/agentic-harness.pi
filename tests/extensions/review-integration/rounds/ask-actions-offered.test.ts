@@ -204,11 +204,23 @@ describe("review_ask", () => {
 		const wrong = rounds.flatMap(({ name, body }) => {
 			const claims = body.indexOf("await awaitRosterStart(");
 			if (claims === -1) return [`${name} starts without claiming a start`];
+			const sized = body.indexOf("tooLargeToAsk(");
+			if (sized === -1) return [`${name} has no size check to claim after`];
 			// After the size check, so a round refused as too large holds
-			// no slot for three minutes it never used.
-			return body.indexOf("tooLargeToAsk(") < claims
-				? []
-				: [`${name} claims a start before its last refusal`];
+			// no slot for three minutes it never used; given the round's own
+			// signal, so a round given up while it waits gives its slot back.
+			const call = body.slice(claims, body.indexOf(")", claims) + 1);
+			return [
+				...(sized < claims
+					? []
+					: [`${name} claims a start before its last refusal`]),
+				...(call.includes("signal")
+					? []
+					: [`${name} waits for its start without its signal`]),
+				...(body.includes(".cancelled")
+					? []
+					: [`${name} starts even when its wait was stopped`]),
+			];
 		});
 		expect(wrong).toEqual([]);
 	});

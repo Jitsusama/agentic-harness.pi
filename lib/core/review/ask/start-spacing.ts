@@ -13,10 +13,22 @@
  * took, takes the one a spacing after it (or now, when that has
  * passed), and keeps it as the new last. The caller waits for its slot,
  * saying its place and when it starts. A round given up while it waits
- * leaves only a gap.
+ * gives its slot back while it is still the last; behind a later claim
+ * it leaves a gap.
+ *
+ * Every start is spaced only once every session on the machine runs
+ * this, and only among sessions sharing one state directory; until
+ * then the transcripts' newest roster round stands in for the rest.
  */
 
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { withFileLock } from "../../internal/file-lock.ts";
@@ -64,7 +76,10 @@ export interface StartClaim {
 export interface StartSlot {
 	/** When the round may start: now, or a spacing after the one before. */
 	readonly startAt: Date;
-	/** How many starts come before it, counted in spacings; 0 starts now. */
+	/**
+	 * How many rounds still to start come before it: 0 when it starts
+	 * now or next.
+	 */
 	readonly ahead: number;
 	/** The start it waits behind, when it waits. */
 	readonly behind?: { readonly by: string; readonly change: string };
@@ -81,6 +96,17 @@ export async function claimCouncilStart(
 	path: string,
 	claim: StartClaim,
 ): Promise<StartSlot> {
+	return (await takeSlot(path, claim)).slot;
+}
+
+/** A slot taken, with what it kept and the last it replaced. */
+interface Taken {
+	readonly slot: StartSlot;
+	readonly kept: KeptSlot;
+	readonly replaced: KeptSlot | undefined;
+}
+
+async function takeSlot(path: string, claim: StartClaim): Promise<Taken> {
 	await mkdir(dirname(path), { recursive: true });
 	return withFileLock(path, async () => {
 		const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
@@ -97,56 +123,90 @@ export async function claimCouncilStart(
 			by: claim.by,
 			change: claim.change,
 		};
-		const next = `${path}.${process.pid}.tmp`;
-		await writeFile(next, `${JSON.stringify(kept)}\n`);
-		await rename(next, path);
-		const ahead = Math.ceil((startAt - now) / spacing);
-		return {
-			startAt: new Date(startAt),
-			ahead,
-			...(ahead > 0 &&
+		await keep(path, kept);
+		const ahead = Math.max(0, Math.ceil((startAt - now) / spacing) - 1);
+		// Named only when the kept slot is what set the wait, not a start
+		// read from the transcripts.
+		const behindLast =
+			startAt > now &&
 			last !== undefined &&
 			lastAt !== undefined &&
-			before.includes(lastAt)
-				? { behind: { by: last.by, change: last.change } }
-				: {}),
+			before.includes(lastAt) &&
+			lastAt + spacing === startAt;
+		return {
+			slot: {
+				startAt: new Date(startAt),
+				ahead,
+				...(behindLast ? { behind: { by: last.by, change: last.change } } : {}),
+			},
+			kept,
+			replaced: last,
 		};
+	});
+}
+
+async function keep(path: string, slot: KeptSlot): Promise<void> {
+	const next = `${path}.${process.pid}.tmp`;
+	await writeFile(next, `${JSON.stringify(slot)}\n`);
+	await rename(next, path);
+}
+
+/**
+ * Gives `taken` back when it is still the last slot kept, putting back
+ * the one it replaced, so a round given up doesn't hold the next behind
+ * it. Behind a later claim it stays, as a gap.
+ */
+async function giveBack(path: string, taken: Taken): Promise<void> {
+	await withFileLock(path, async () => {
+		const last = await lastSlot(path);
+		const ours =
+			last !== undefined &&
+			last.startAt === taken.kept.startAt &&
+			last.by === taken.kept.by &&
+			last.change === taken.kept.change;
+		if (!ours) return;
+		if (taken.replaced === undefined) await rm(path, { force: true });
+		else await keep(path, taken.replaced);
 	});
 }
 
 /**
  * Takes the next slot and waits for it, answering what the round's
  * answer should say about the wait, or nothing when it started at
- * once. Stopped early by `signal`, it says so in `cancelled`, and the
- * slot it held is left as a gap.
+ * once. Stopped by `signal`, before or while it waits, it says so in
+ * `cancelled` and gives its slot back (`giveBack`).
  */
 export async function awaitCouncilStart(
 	path: string,
 	claim: StartClaim,
 	signal?: AbortSignal,
 ): Promise<{ readonly waited?: string; readonly cancelled?: string }> {
-	const slot = await claimCouncilStart(path, claim);
+	if (signal?.aborted === true) {
+		return { cancelled: "It was stopped before it took a start." };
+	}
+	const taken = await takeSlot(path, claim);
+	const { slot } = taken;
 	const waitMs = slot.startAt.getTime() - Date.now();
-	if (slot.ahead === 0 || waitMs <= 0) return {};
-	const said = waitSaid(slot, claim.spacingMs ?? COUNCIL_START_SPACING_MS);
+	if (waitMs <= 0) return {};
+	const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
 	try {
 		await sleep(waitMs, undefined, signal === undefined ? {} : { signal });
 	} catch {
 		// Only an abort rejects the timer: the round was given up while it
 		// waited, which the answer says rather than starting it.
-		return {
-			cancelled: `${said} It was stopped while it waited, so nothing was started.`,
-		};
+		await giveBack(path, taken);
+		return { cancelled: stoppedSaid(slot, spacing) };
 	}
-	return { waited: said };
+	return { waited: waitSaid(slot, spacing) };
 }
 
 /**
  * When the newest roster round in `folder` started, read from the
  * folder names reviewers leave their transcripts under, such as
  * `council-20261122T174622008-000002`, or nothing when none is there.
- * A judge, an audit and a retry are not counted: each asks one
- * participant.
+ * A judge and an audit are not counted: each asks one participant. A
+ * reviewer's retry leaves a `council-` folder too, which counts, so a
+ * start after one may wait a spacing it needn't.
  */
 export async function newestRosterStartIn(
 	folder: string,
@@ -210,11 +270,22 @@ function isKeptSlot(value: unknown): value is KeptSlot {
 }
 
 function waitSaid(slot: StartSlot, spacing: number): string {
+	return `It waited for its start at ${placeSaid(slot)}, since one roster round starts on this machine each ${spacing / 60_000} minutes.`;
+}
+
+function stoppedSaid(slot: StartSlot, spacing: number): string {
+	return `It was stopped while it waited for its start at ${placeSaid(slot)}, so nothing was started. One roster round starts on this machine each ${spacing / 60_000} minutes.`;
+}
+
+function placeSaid(slot: StartSlot): string {
 	const at = slot.startAt.toISOString().slice(11, 19);
 	const behind =
 		slot.behind === undefined
 			? ""
 			: `, behind ${slot.behind.change} (asked by ${slot.behind.by})`;
-	const place = slot.ahead === 1 ? "next in line" : `${slot.ahead} starts back`;
-	return `It waited for its start at ${at} UTC, ${place}${behind}, since one roster round starts on this machine each ${spacing / 60_000} minutes.`;
+	const place =
+		slot.ahead === 0
+			? "next in line"
+			: `${slot.ahead} ${slot.ahead === 1 ? "round" : "rounds"} ahead`;
+	return `${at} UTC, ${place}${behind}`;
 }
