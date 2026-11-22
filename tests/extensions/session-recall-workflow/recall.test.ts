@@ -4,8 +4,10 @@
  * harness writes that it exists.
  */
 
-import { rmSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionRecall, {
 	RECALL_NOTE,
 } from "../../../extensions/session-recall-workflow/index.ts";
@@ -15,6 +17,7 @@ import {
 } from "../../../lib/compaction/index.ts";
 import { sessionResultDir } from "../../../lib/core/result/index.ts";
 import { PAGE_HITS } from "../../../lib/internal/logs/recall.ts";
+import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
 import { resultSession } from "../../support/result-session.ts";
 
 const ctx = resultSession();
@@ -84,6 +87,77 @@ describe("the session recall tool", () => {
 			ctxWith([said("a1", "the flake was the builder"), said("a2", "other")]),
 		);
 		expect(answer.content[0]?.text).toBe("[a1] the flake was the builder");
+	});
+
+	it("finds what the branch left on disk, and says what the read cost", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "recall-"));
+		const parent = join(dir, "parent.jsonl");
+		const header = {
+			type: "session",
+			id: "p",
+			timestamp: "2026-09-30T11:00:00.000Z",
+			cwd: dir,
+		};
+		writeFileSync(
+			parent,
+			`${[header, said("old1", "the ancient flake")].map((line) => JSON.stringify(line)).join("\n")}\n`,
+		);
+		const record = {
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "2026-09-30T12:00:00.000Z",
+			customType: ROLLOVER_RECORD,
+			data: {
+				parentSession: parent,
+				parentLeaf: "old1",
+				dropped: 1,
+				carried: {},
+			},
+		};
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			const answer = await tool.execute(
+				"t1",
+				{ query: "ancient" },
+				undefined,
+				undefined,
+				ctxWith([record, said("a1", "something newer")]),
+			);
+			expect(answer.content[0]?.text).toBe("[old1] the ancient flake");
+			expect(write).toHaveBeenCalledWith(
+				expect.stringMatching(
+					/^session-recall-workflow: read [\d.]+ MiB from 1 log\(s\) on disk, 1 entries, in \d+ ms\n$/,
+				),
+			);
+		} finally {
+			write.mockRestore();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("says nothing in the journal when nothing is on disk to read", async () => {
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			await tool.execute(
+				"t1",
+				{ query: "flake" },
+				undefined,
+				undefined,
+				ctxWith([said("a1", "the flake")]),
+			);
+			expect(write).not.toHaveBeenCalledWith(
+				expect.stringContaining("session-recall-workflow"),
+			);
+		} finally {
+			write.mockRestore();
+		}
 	});
 
 	it("cites a handle when hits are left for another page", async () => {
