@@ -32,6 +32,10 @@ describe("the kind of heavy work a command runs", () => {
 			"# cargo check --all-targets\ngit status",
 			"git status # then cargo check",
 			"git status; # cargo build",
+			"git status;# cargo build",
+			"git status && # cargo build",
+			"(git status #cargo build\n)",
+			"git status # don't cargo build",
 		]) {
 			expect(kindOf(command), command).toBeUndefined();
 		}
@@ -39,11 +43,19 @@ describe("the kind of heavy work a command runs", () => {
 			"# a note\ncargo build",
 			"echo '#'; cargo build",
 			'git commit -m "fix #12" && cargo build',
+			"echo 'a #b' && cargo build",
 			"echo a#b && cargo build",
+			"echo a\\ #b && cargo build",
+			"echo $# ${#x} ${x#pre} $((16#ff)) && cargo build",
+			"git status && nix-store -r .#x && cargo build",
 			"nix build .#checks.x86_64-linux.x",
 		]) {
 			expect(kindOf(command), command).toBe("build");
 		}
+		expect(
+			whatOf("cargo build # then cargo test"),
+			"a step's comment is no part of what it runs",
+		).toBe("cargo build");
 	});
 
 	it("reads a test suite of vitest's, and the pnpm scripts that run one, as a build", () => {
