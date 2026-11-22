@@ -127,12 +127,13 @@ const OUTSIDE_IDLE_TAKES = 200;
 
 /**
  * How long, from when it reaches them, a run may go on judging them past
- * a host's 20, so a loaded machine gets fewer rather than a longer run;
- * the ended trees judged first don't count. It stops new judging only: a
- * judgement or take begun runs to its end. On 21
- * November, with a host's sessions all starting at once, the 05:00 run
- * took 21 minutes for 20 takes, as Joel's windows stalled on the same
- * disk.
+ * a host's 20, so a loaded machine gets fewer rather than a longer idle
+ * phase; the ended trees judged first don't count, so a run may last as
+ * long as they took and about this much more, within the unit's two
+ * hours. It stops new judging only: a judgement or take begun runs to its
+ * end. On 21 November, with a host's sessions all starting at once, the
+ * 05:00 run took 21 minutes for 20 takes, as Joel's windows stalled on
+ * the same disk.
  */
 const OUTSIDE_IDLE_WITHIN_MS = 10 * 60 * 1000;
 

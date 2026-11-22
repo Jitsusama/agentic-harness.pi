@@ -223,10 +223,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 		// reaches the idle snapshots, as judging hundreds of them can take
 		// most of an hour on a loaded machine; that time isn't the idle
 		// phase's, so a run counting it would take only the share. After the
-		// leap the clock moves only as the idle phase works, two as each is
-		// taken and one as it pauses between them, so it runs out once the
-		// share and one more are taken, a moment past its bound, and the
-		// newest waits. A run that chose every one before taking any would
+		// leap the clock moves only as the idle phase works: as it reads which
+		// processes hold the snapshots, as each is taken and as it pauses
+		// between them, so it runs out once the share and one more are taken,
+		// a moment past its bound, and the newest waits. A run that chose every one before taking any would
 		// take them all. The ended tree is cut from a repository of its own,
 		// since the ended trees' pass asks the status of each tree beside one,
 		// which rewrites the index these trees have dated back and would make
@@ -239,12 +239,15 @@ describe("taking the snapshots a live session pinned and left", () => {
 			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
 			trees.push(tree);
 		}
+		const CENSUS = 5;
+		const TAKE = 2;
+		const PAUSE = 1;
 		let clock = 100;
 		let leaps = 0;
 		const real = setup.memory;
 		const memory: typeof real = Object.create(real);
 		memory.whileUnusedSince = (path, since, take, key) => {
-			clock += 2;
+			clock += TAKE;
 			return real.whileUnusedSince(path, since, take, key);
 		};
 
@@ -258,15 +261,28 @@ describe("taking the snapshots a live session pinned and left", () => {
 				return exec(command, args);
 			},
 			memory,
+			// The census reads every snapshot's holders at once; a take reads
+			// its own alone.
+			busyAmong: async (paths) => {
+				if (paths.length > 1) clock += CENSUS;
+				return new Set();
+			},
 			idleTakes: 200,
-			idleWithinMs: 3 * IDLE_TAKES_PER_SWEEP + 1,
+			// Past the census, the share's takes and the pauses between them,
+			// so one more is judged, and short of that one taken.
+			idleWithinMs:
+				CENSUS +
+				IDLE_TAKES_PER_SWEEP * TAKE +
+				(IDLE_TAKES_PER_SWEEP - 1) * PAUSE +
+				PAUSE +
+				1,
 			awake: () => clock,
 			betweenIdleTakes: async () => {
-				clock += 1;
+				clock += PAUSE;
 			},
 		});
 
-		expect(leaps, "the ended tree was never judged").toBeGreaterThan(0);
+		expect(leaps, "the ended trees' pass listed worktrees but once").toBe(1);
 		expect(
 			outcome.taken.map((one) => one.path),
 			"the ended tree went",
@@ -278,8 +294,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
 		expect(
 			outcome.idleMs,
-			"the idle phase's own time, its takes and the pauses between them",
-		).toBe(3 * (IDLE_TAKES_PER_SWEEP + 1) - 1);
+			"the idle phase's own time: its census, takes and pauses",
+		).toBe(
+			CENSUS + (IDLE_TAKES_PER_SWEEP + 1) * TAKE + IDLE_TAKES_PER_SWEEP * PAUSE,
+		);
 		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
 		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);
