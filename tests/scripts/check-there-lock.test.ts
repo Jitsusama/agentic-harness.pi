@@ -437,6 +437,7 @@ async function goneWithin(pid: number): Promise<boolean> {
 			// No such process: it is gone.
 			return true;
 		}
+		// Nothing says when its reaper reaps it, so the poll waits a while.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 	return false;
