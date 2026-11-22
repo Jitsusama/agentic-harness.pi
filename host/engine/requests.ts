@@ -5,13 +5,14 @@
  * up again works in. It changes when what a request may say changes,
  * not when how the engine builds a conversation does.
  */
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import type { LaunchHints } from "../../lib/core/session/index.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import type { AdoptRequest, OpenRequest } from "../service/backend.ts";
 import type { AgentSession, SessionServices } from "./pi-session.ts";
 import type { Model } from "./pi-types.ts";
+import { printable } from "./project-code.ts";
 
 /** Whether the words open with a command an extension registered, named as pi's prompt parses it. */
 export function namesCommand(session: AgentSession, words: string): boolean {
@@ -52,23 +53,18 @@ export interface StandingFolder {
 
 /**
  * The folder a conversation resumed or adopted works in: its own while
- * that stands, else the nearest one above it that does, else `home`
- * when only the root does, so a deleted tree never leaves it running
- * tools in a folder that isn't there.
+ * that stands, else `moved`, an empty folder the host keeps for it,
+ * made as it is needed. Never a folder above its own: that may hold
+ * other trees or a checkout, which a strict sandbox would then let its
+ * commands write, and project code nobody trusted for it. Only a folder
+ * that is gone moves it; one that can't be read now, as a mount not yet
+ * up, is refused rather than taken for gone.
  */
-export function standingFolder(
-	cwd: string,
-	home: string = homedir(),
-): StandingFolder {
+export function standingFolder(cwd: string, moved: string): StandingFolder {
 	const own = resolve(cwd);
-	let at = own;
-	while (!isFolder(at)) {
-		const above = dirname(at);
-		if (above === at) return { cwd: home, gone: cwd };
-		at = above;
-	}
-	if (at === own) return { cwd };
-	return { cwd: at === dirname(at) ? home : at, gone: cwd };
+	if (isFolder(own)) return { cwd: realpathSync(own) };
+	mkdirSync(moved, { recursive: true, mode: 0o700 });
+	return { cwd: realpathSync(moved), gone: own };
 }
 
 /** The custom message a conversation whose folder went is told by. */
@@ -76,15 +72,40 @@ export const FOLDER_MOVED_TYPE = "host-folder-moved";
 
 /** What a conversation whose folder went is told, in its own log. */
 export function movedWords(gone: string, cwd: string): string {
-	return `This conversation's folder, ${gone}, no longer exists, so it now works in ${cwd}. Paths under the old folder won't be found.`;
+	return `This conversation's folder, ${printable(gone)}, no longer exists, so it now works in ${printable(cwd)}, an empty folder the host keeps for it. Paths under the old folder won't be found.`;
 }
 
+/** Whether a log's entries already hold the words for this move. */
+export function toldOf(
+	entries: readonly unknown[],
+	gone: string,
+	cwd: string,
+): boolean {
+	return entries.some(
+		(entry) =>
+			isRecord(entry) &&
+			entry.type === "custom_message" &&
+			entry.customType === FOLDER_MOVED_TYPE &&
+			isRecord(entry.details) &&
+			entry.details.gone === gone &&
+			entry.details.cwd === cwd,
+	);
+}
+
+/** Whether a folder stands at `path`, refusing what can't say. */
 function isFolder(path: string): boolean {
 	try {
 		return statSync(path).isDirectory();
-	} catch {
-		// Gone, or not ours to read: no folder to work in either way.
-		return false;
+	} catch (error) {
+		if (
+			isRecord(error) &&
+			(error.code === "ENOENT" || error.code === "ENOTDIR")
+		)
+			return false;
+		const code = isRecord(error) ? String(error.code) : String(error);
+		throw new Error(
+			`This conversation's folder, ${printable(path)}, can't be read (${code}), so it isn't taken up`,
+		);
 	}
 }
 

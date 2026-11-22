@@ -62,6 +62,9 @@ interface Seen {
 	readonly childrenAlive: readonly number[];
 	/** What still ran once a resume had reaped, before the step closed it. */
 	readonly resumed?: readonly number[];
+	/** The folder a resumed conversation worked in, and how often its log was told it moved. */
+	readonly cwd?: string;
+	readonly told?: number;
 	readonly probe: readonly Record<string, string>[];
 	/** The subagent install the probe extension found each time it loaded. */
 	readonly installs: readonly {
@@ -421,6 +424,40 @@ describe("the host's engine", () => {
 				marker: next,
 				settings: expect.objectContaining({ launch_mode: "restore" }),
 			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"resumes a conversation whose folder went in an empty one the host keeps, told once",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "open-quiet");
+			const first = await step(folder, "resume-moved");
+			const kept = join(
+				realpathSync(folder),
+				"state-moved",
+				`${first.sessionId}`,
+			);
+			expect(first.sameId, "the resumed session keeps its id").toBe(true);
+			expect(first.cwd, "never the folder above the gone one").toBe(kept);
+			expect(first.told, "its log holds the words once").toBe(1);
+			expect(first.transcript).toEqual(
+				expect.arrayContaining([
+					expect.stringMatching(
+						/^custom: This conversation's folder, .*gone-tree, no longer exists/,
+					),
+					"assistant: in the kept folder",
+				]),
+			);
+			const saidMoved = expect.stringMatching(
+				/its folder .*gone-tree is gone, so it works in/,
+			);
+			expect(first.reported).toContainEqual(saidMoved);
+			const again = await step(folder, "resume-moved");
+			expect(again.cwd, "the same kept folder").toBe(kept);
+			expect(again.told, "not told again of the same move").toBe(1);
+			expect(again.reported).not.toContainEqual(saidMoved);
 		},
 		HOST_LIFE_MS,
 	);

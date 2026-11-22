@@ -20,7 +20,7 @@
  * end, in stopping.ts.
  */
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
 	type HostRestarting,
@@ -107,6 +107,10 @@ export async function createEngine(
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
+	// Beside the engine's folder, not in it: a conversation's commands may
+	// write the folder it works in, which must hold no record the host reads.
+	const movedFolder = (sessionId: string) =>
+		join(`${options.stateDir}-moved`, sessionId);
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
 	const kept = options.oneConversation;
@@ -485,7 +489,10 @@ export async function createEngine(
 			if (held(sessionId, file))
 				throw new Error(`Conversation already held: ${sessionId}`);
 			// An open's folder stands, as folder() holds; an adopted log's may not.
-			const { cwd, gone } = standingFolder(manager.getCwd());
+			const { cwd, gone } = standingFolder(
+				manager.getCwd(),
+				movedFolder(sessionId),
+			);
 			const traits: ConversationTraits = {
 				sessionId,
 				file,
@@ -499,7 +506,9 @@ export async function createEngine(
 			return {
 				sessionId,
 				file,
-				cwd,
+				// The roster keeps the folder the log names, as a resume's does, so
+				// each start checks it again and one cut again is gone back to.
+				cwd: gone ?? cwd,
 				...(Object.keys(launch).length > 0 ? { launch } : {}),
 			};
 		},
@@ -547,7 +556,7 @@ export async function createEngine(
 			mark?.("log");
 			const { sessionId, file, attended, quest, launch } = entry;
 			// A tree deleted while it was parked or the host was down.
-			const { cwd, gone } = standingFolder(entry.cwd);
+			const { cwd, gone } = standingFolder(entry.cwd, movedFolder(sessionId));
 			await begin(
 				{
 					sessionId,

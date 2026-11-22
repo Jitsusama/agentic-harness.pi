@@ -29,6 +29,7 @@ export type AdoptRequest = Extract<ControlRequest, { op: "adopt" }>;
 export interface Prepared {
 	readonly sessionId: string;
 	readonly file: string;
+	/** The folder its log names, which the roster holds, even gone. */
 	readonly cwd: string;
 	/**
 	 * The environment the engine derived for the conversation from its

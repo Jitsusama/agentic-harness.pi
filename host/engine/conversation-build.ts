@@ -52,6 +52,7 @@ import {
 	type StartupDiagnostic,
 	startupDiagnostics,
 } from "./pi-session.ts";
+import { printable } from "./project-code.ts";
 import type { ProjectTrust, StartupQuestion } from "./project-trust.ts";
 import { holdReplacements } from "./replacement.ts";
 import {
@@ -59,6 +60,7 @@ import {
 	movedWords,
 	namesCommand,
 	requireModel,
+	toldOf,
 } from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
 import type { TakeTurn } from "./resume-turns.ts";
@@ -485,10 +487,12 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			await bindHeadless(runtime, host, report);
 		}
 		mark?.("screen");
-		const recovery = await agent.recover(turn);
-		mark?.("recovery");
+		// Before a carried run goes on: what it does lands in the empty folder,
+		// and its next turn learns why.
 		if (record.traits.movedFrom !== undefined)
 			tellMoved(record, record.traits.movedFrom, cwd);
+		const recovery = await agent.recover(turn);
+		mark?.("recovery");
 		if (first === undefined) {
 			recovery.settled.catch(report);
 			return;
@@ -498,16 +502,22 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 	}
 
 	/**
-	 * Tell a conversation whose folder went that it now works in `cwd`,
-	 * kept in its log for its next turn and shown on its screen, so paths
-	 * it remembers under the old folder don't puzzle it or the person.
+	 * Tell a conversation whose folder went that it now works in `cwd`, so
+	 * paths it remembers under the old folder don't puzzle it or the
+	 * person. pi holds the words for its next turn, which writes them to
+	 * its log and shows them; a park before then loses them, and the next
+	 * start says them again. Said once a move: a log that already holds
+	 * them for this one is told nothing more.
 	 */
 	function tellMoved(record: Live, gone: string, cwd: string): void {
 		const { sessionId } = record.traits;
+		const session = record.runtime?.session;
+		// Replaced as it started, so no session of its own is left to tell.
+		if (!session) return;
+		if (toldOf(session.sessionManager.getEntries(), gone, cwd)) return;
 		report(
-			`Conversation ${sessionId}: its folder ${gone} is gone, so it works in ${cwd}`,
+			`Conversation ${sessionId}: its folder ${printable(gone)} is gone, so it works in ${printable(cwd)}`,
 		);
-		const session = view(sessionId, record).runtime.session;
 		session
 			.sendCustomMessage(
 				{
