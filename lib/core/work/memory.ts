@@ -34,7 +34,9 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { access, readdir, readFile, rm, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { processGlobal } from "../../internal/process/process-global.ts";
 import {
 	askedOnceWithTicks,
 	tickedStanding,
@@ -206,14 +208,99 @@ export interface TreeMemory {
 /** How many times a listing the directory changed under is read again. */
 const LISTING_TRIES = 8;
 
+/** How many records a reading off the thread reads at once. */
+const READS_AT_ONCE = 16;
+
 /** What changes about a directory when an entry in it does. */
 function stamp(dir: string): string | undefined {
 	try {
-		const seen = statSync(dir, { bigint: true });
-		return `${seen.ino}:${seen.mtimeNs}:${seen.ctimeNs}`;
+		return stampOf(statSync(dir, { bigint: true }));
 	} catch {
 		return undefined;
 	}
+}
+
+/** `stamp`, read off the thread. */
+async function stampOff(dir: string): Promise<string | undefined> {
+	try {
+		return stampOf(await stat(dir, { bigint: true }));
+	} catch {
+		return undefined;
+	}
+}
+
+/** A directory's stamp from its stat. */
+function stampOf(seen: {
+	readonly ino: bigint;
+	readonly mtimeNs: bigint;
+	readonly ctimeNs: bigint;
+}): string {
+	return `${seen.ino}:${seen.mtimeNs}:${seen.ctimeNs}`;
+}
+
+/** A record this process wrote, or forgot when it holds none. */
+export interface RecordWrite {
+	/** Where it lands among this process's writes, counting from one. */
+	readonly seq: number;
+	readonly held?: HeldTree;
+}
+
+// The records this process wrote or forgot, by directory and then by
+// tree, the latest for each, counted in the order they landed. A reader
+// that keeps a listing and refreshes it off the thread lays these over
+// whatever reading it swaps in, so a reading that started before a cut
+// can't hide it from the session that made it (85PKB2, 21 November).
+// Process-wide because the records are the machine's, and a reader in
+// any conversation answers for every one; a reader lets go of what a
+// reading already holds, and what nothing reads stays one per tree.
+const ourWrites = processGlobal(
+	"agentic-harness.core/work/memory/written.v1",
+	() => ({ seq: 0, byDir: new Map<string, Map<string, RecordWrite>>() }),
+);
+
+/** Note a write to the record of the tree at `path` once it has landed. */
+function noteWrite(dir: string, path: string, held?: HeldTree): void {
+	const at = resolve(dir);
+	let paths = ourWrites.byDir.get(at);
+	if (paths === undefined) {
+		paths = new Map();
+		ourWrites.byDir.set(at, paths);
+	}
+	ourWrites.seq += 1;
+	paths.delete(path);
+	paths.set(path, { seq: ourWrites.seq, ...(held ? { held } : {}) });
+}
+
+/**
+ * How many record writes this process has landed so far: a reading of
+ * the directory started now finds every one of them.
+ */
+export function recordWritesSoFar(): number {
+	return ourWrites.seq;
+}
+
+/**
+ * The records this process wrote or forgot in `dir` after its write
+ * `after`, by tree path, in the order they landed.
+ */
+export function recordWritesSince(
+	dir: string,
+	after: number,
+): ReadonlyMap<string, RecordWrite> {
+	const paths = ourWrites.byDir.get(resolve(dir));
+	if (paths === undefined) return new Map();
+	return new Map([...paths].filter(([, write]) => write.seq > after));
+}
+
+/** Let go of the writes to `dir` up to `upTo`, which a reading now holds. */
+export function recordWritesRead(dir: string, upTo: number): void {
+	const at = resolve(dir);
+	const paths = ourWrites.byDir.get(at);
+	if (paths === undefined) return;
+	for (const [path, write] of paths) {
+		if (write.seq <= upTo) paths.delete(path);
+	}
+	if (paths.size === 0) ourWrites.byDir.delete(at);
 }
 
 /** A record as it sits on disk. */
@@ -276,6 +363,133 @@ function usable(written: Written): written is Required<Written> {
 		typeof written.providerId === "string" &&
 		typeof written.identity?.key === "string"
 	);
+}
+
+/** A record found at `at` holding `text`. */
+interface Found {
+	readonly at: string;
+	readonly held: HeldTree;
+}
+
+/**
+ * The record `text` read from `at` holds, or none when it doesn't parse
+ * or says too little.
+ */
+function parsedRecord(at: string, text: string): Found | undefined {
+	try {
+		const written: Written = JSON.parse(text);
+		// A record we cannot read is worse than no record, because it
+		// would mean a tree reported with a broken identity. Skip it and
+		// leave it alone: deleting somebody's file to tidy a listing is not
+		// this function's decision.
+		return usable(written)
+			? { at, held: written as unknown as HeldTree }
+			: undefined;
+	} catch {
+		// Half-written, which a concurrent write can produce. The tree is
+		// still on disk and still reachable by path; only its identity is
+		// lost, and next cut rewrites it.
+		return undefined;
+	}
+}
+
+/** `fn` over each of `items`, `atOnce` running at a time, in order. */
+async function eachAtOnce<T, R>(
+	items: readonly T[],
+	atOnce: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const out: R[] = new Array(items.length);
+	let next = 0;
+	const lane = async (): Promise<void> => {
+		while (next < items.length) {
+			const at = next;
+			next += 1;
+			out[at] = await fn(items[at] as T);
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(atOnce, items.length) }, lane),
+	);
+	return out;
+}
+
+/** One reading of `dir` off the thread, as it stood while it was read. */
+async function listingOff(dir: string): Promise<Found[]> {
+	let names: string[];
+	try {
+		names = await readdir(dir);
+	} catch (error) {
+		// No directory yet is no records; anything else fails the reading,
+		// so a reader keeps what it had rather than swapping in none.
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		throw error;
+	}
+	const read = await eachAtOnce(
+		names.filter((name) => name.endsWith(".json")),
+		READS_AT_ONCE,
+		async (name) => {
+			const at = join(dir, name);
+			try {
+				return parsedRecord(at, await readFile(at, "utf8"));
+			} catch {
+				// Gone since the listing, or unreadable: as no record, like the
+				// reading on the thread.
+				return undefined;
+			}
+		},
+	);
+	return read.filter((one): one is Found => one !== undefined);
+}
+
+/** Whether something stands at `path`, asked off the thread. */
+async function standsOff(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		// Not there, or not ours to see: as existsSync answers.
+		return false;
+	}
+}
+
+/**
+ * Every tree written down in `dir` that is still on disk, as `recall`
+ * answers, read off the thread: a directory of thousands of records
+ * read on it held every session in a host while it was read. Read again
+ * while the directory moves, as `recall` is, and a record whose tree is
+ * gone is removed, as `recall` removes it. A listing that fails rejects
+ * rather than answering none.
+ */
+export async function recallOff(dir: string): Promise<HeldTree[]> {
+	const found = new Map<string, Found>();
+	let listed: Found[] | undefined;
+	for (let tries = 0; tries < LISTING_TRIES; tries += 1) {
+		const before = await stampOff(dir);
+		const reading = await listingOff(dir);
+		if (before !== undefined && before === (await stampOff(dir))) {
+			listed = reading;
+			break;
+		}
+		for (const one of reading) found.set(one.at, one);
+	}
+	const kept = await eachAtOnce(
+		listed ?? [...found.values()],
+		READS_AT_ONCE,
+		async ({ at, held }) => {
+			if (await standsOff(held.path)) return held;
+			await rm(at, { force: true });
+			return undefined;
+		},
+	);
+	return kept.filter((held): held is HeldTree => held !== undefined);
+}
+
+/** Whether each of `paths` still stands, asked off the thread. */
+export async function standingOff(
+	paths: readonly string[],
+): Promise<boolean[]> {
+	return eachAtOnce(paths, READS_AT_ONCE, standsOff);
 }
 
 /**
@@ -363,27 +577,21 @@ export function createTreeMemory(
 	}
 
 	/** One reading of the directory, as it stood while it was read. */
-	function listing(): { at: string; held: HeldTree }[] {
+	function listing(): Found[] {
 		if (!existsSync(dir)) return [];
 		return readdirSync(dir)
 			.filter((name) => name.endsWith(".json"))
 			.flatMap((name) => {
 				const at = join(dir, name);
+				let text: string;
 				try {
-					const written: Written = JSON.parse(readFileSync(at, "utf8"));
-					// A record we cannot read is worse than no record, because it
-					// would mean a tree reported with a broken identity. Skip it
-					// and leave it alone: deleting somebody's file to tidy a
-					// listing is not this function's decision.
-					return usable(written)
-						? [{ at, held: written as unknown as HeldTree }]
-						: [];
+					text = readFileSync(at, "utf8");
 				} catch {
-					// Unreadable or half-written, which a concurrent write can
-					// produce. The tree is still on disk and still reachable by
-					// path; only its identity is lost, and next cut rewrites it.
+					// Unreadable, or gone since the listing: as no record.
 					return [];
 				}
+				const found = parsedRecord(at, text);
+				return found ? [found] : [];
 			});
 	}
 
@@ -404,6 +612,7 @@ export function createTreeMemory(
 				rmSync(staging, { force: true });
 				throw error;
 			}
+			noteWrite(dir, held.path, held);
 		},
 
 		async rememberHeldByUs(held, facts = systemFacts) {
@@ -451,6 +660,7 @@ export function createTreeMemory(
 			for (const { at, held } of all()) {
 				if (held.path === path) rmSync(at, { force: true });
 			}
+			noteWrite(dir, path);
 		},
 
 		recall() {

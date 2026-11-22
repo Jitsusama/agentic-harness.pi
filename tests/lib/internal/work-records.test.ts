@@ -15,13 +15,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTreeMemory } from "../../../lib/core/work/memory.ts";
-import {
-	isAgentCut,
-	recordedTrees,
-	treesHeldBy,
-	whenRefreshed,
-} from "../../../lib/internal/work-records.ts";
 
 /**
  * The disk as a reading off the thread sees it, which a test can stop
@@ -76,6 +69,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const mocked = { ...real, readdir, access };
 	return { ...mocked, default: mocked };
 });
+
+// Imported afresh: a setup file already loaded both through the mesh's
+// presence, before the disk above stood in, so the copies it holds read
+// the real one.
+vi.resetModules();
+const { createTreeMemory } = await import("../../../lib/core/work/memory.ts");
+const { isAgentCut, recordedTrees, treesHeldBy, whenRefreshed } = await import(
+	"../../../lib/internal/work-records.ts"
+);
 
 /** A record of a tree at `path`, held by `sessions`, its folder made. */
 function recorded(dir: string, path: string, sessions?: string[]): void {
@@ -435,9 +437,9 @@ describe("the work broker's records", () => {
 			key,
 		);
 
-		expect(treesHeldBy("s-1", dir), "the kept listing still names it").toEqual(
-			[one],
-		);
+		expect(treesHeldBy("s-1", dir), "the kept listing still names it").toEqual([
+			one,
+		]);
 		expect({ taken, took }).toEqual({ taken: undefined, took: false });
 	});
 
