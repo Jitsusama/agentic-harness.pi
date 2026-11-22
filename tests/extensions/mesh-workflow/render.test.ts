@@ -10,6 +10,10 @@ const theme = {
 
 const plain = (line: string) => line.replace(/<\/?[a-z]+>/g, "");
 
+/** Who may grant, which every note says whoever is above. */
+const GRANTS =
+	"Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the person or from the work's owner: the peer whose quest holds it, named by address.";
+
 const message = (over: Partial<Message> = {}): Message => ({
 	v: 1,
 	id: "01a16500-0000-7000-8000-000000000001",
@@ -77,21 +81,21 @@ describe("the mesh on screen", () => {
 			{ address: "5GV2AH", by: "use" } as const,
 		]) {
 			const content = noted(messages, [], above);
+			// "That path" means the person's, so it must follow that sentence.
 			expect(content).toContain(
-				`That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
+				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
 			);
-			expect(content).toContain(
-				"Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the owner you name by address.",
-			);
+			expect(content).toContain(GRANTS);
 		}
 	});
 
-	it("leaves a session with nobody above free to ask the person about work that is theirs", () => {
+	it("leaves a session with nobody above free to ask the person about its own work, and to ask them who owns a question nobody found an owner for", () => {
 		const content = noted([message()]);
 
 		expect(content).toContain(
-			"A question about work that isn't the person's goes to its owner by address, or to need (mesh_send to: need, about: what it is about).",
+			"Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask the person in your reply who owns it.",
 		);
+		expect(content).toContain(GRANTS);
 		expect(content).not.toContain("That path carries only");
 	});
 
@@ -116,11 +120,18 @@ describe("the mesh on screen", () => {
 		}
 	});
 
-	it("sends what a pivoted session is stuck on to its owner or to need, not up to the orchestrator", () => {
-		const content = noted([message({ intent: "pivot" })]);
+	it("sends what a pivoted session is stuck on to its owner or to need, and what waits on the person to its orchestrator", () => {
+		// Only an orchestrator pivots, so one is always above.
+		const content = noted([message({ intent: "pivot" })], [], {
+			address: "WCJQSG",
+			by: "mark",
+		});
 
 		expect(content).toContain(
-			"Anything stuck goes to the owner of what it waits on, by address, or to need (mesh_send to: need, about: what it is about).",
+			"so anything waiting on the person goes to it as a question. Anything stuck goes to the owner of what it waits on, by address, or to need (mesh_send to: need, about: what it is about).",
+		);
+		expect(content).toContain(
+			"only when neither finds an owner, ask WCJQSG who owns it.",
 		);
 		expect(content).not.toMatch(/stuck or waiting on the person/);
 	});

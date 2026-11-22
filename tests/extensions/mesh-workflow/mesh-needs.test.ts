@@ -83,7 +83,10 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent");
-		expect(said).toContain("counted as lost, never sent to an orchestrator");
+		expect(said).toContain("counted as lost and passed to nobody in its place");
+		// The note's last resort is to ask who owns it, so the refusal read
+		// at the moment of failure must not forbid asking the orchestrator.
+		expect(said).not.toContain("orchestrator");
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
 	});

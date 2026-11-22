@@ -366,10 +366,14 @@ thing to do), keep that path for what needs the person alone,
 take a question about work to its owner or to `need`, asking
 the orchestrator only who owns one neither finds an owner for,
 settle work shared with a peer between the two (a yes, ruling
-or grant still comes only from the owner named by address),
-and take the rest as context, with no acknowledgement. A
-session with nobody above still asks the person about work
-that is theirs, in its reply.
+or grant still comes only from the person or from the work's
+owner, the peer whose quest holds it, named by address), and
+take the rest as context, with no acknowledgement. A session
+with nobody above asks the person in its reply about work that
+is theirs, and asks them who owns a question neither the owner
+nor `need` found. A refused need says it was passed to nobody
+in its place rather than that it never went to an
+orchestrator, since asking above who owns it is the next step.
 It once said only that messages were context, not a task, and
 models took that as leave to sit on questions and on what the
 person had to do. Later it named one address, the

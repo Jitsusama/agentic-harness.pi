@@ -58,7 +58,10 @@ export const GLANCE_CHARS = 160;
  * hub and its spokes. Where an orchestrator or hub is above, it is
  * asked only who owns a question neither route found an owner for,
  * since a need nothing within reach works on is refused, and a
- * question left unsent shows nowhere.
+ * question left unsent shows nowhere; with nobody above, the person is
+ * asked in the reply. The owner is the peer whose quest holds the work,
+ * since a yes from whoever a model happened to address would let any
+ * cell that says it owns something grant it.
  *
  * `above` is who `orchestrator` reaches: the mark's orchestrator, or
  * the hub from use of a quest with no mark (tools/above.ts).
@@ -72,9 +75,9 @@ export function advisory(above?: Reached): string {
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	const work =
 		above === undefined
-			? `A question about work that isn't the person's goes to its owner by address, or to ${NEED_CALL}.`
+			? `Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask the person in your reply who owns it.`
 			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${above.address} who owns it.`;
-	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the owner you name by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying who it came from, what happened, why it matters to them and the one thing to do. ${work} Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the person or from the work's owner: the peer whose quest holds it, named by address. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
 
 /** How the note writes a need, as the call a model would make. */
