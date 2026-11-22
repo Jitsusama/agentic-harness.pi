@@ -98,13 +98,20 @@ describe("piFromHost", () => {
 			for (const specifier of [
 				"@earendil-works/pi-durable",
 				"@earendil-works/pi-tui/../pi-tui",
-				// A bundle from before typebox was shared gives the host none.
-				"typebox",
-				"typebox/value",
 			])
 				expect(() => resolved(specifier, HARNESS, install)).toThrow(
 					`The host's pi bundle shares no ${specifier} with the host`,
 				);
+		});
+
+		it("takes typebox from the harness's own copy when the bundle shares none, for the program to refuse that bundle as it starts", () => {
+			// A bundle from before typebox was shared gives the host none.
+			const install = bundledInstall(["pi-tui"]);
+			for (const specifier of ["typebox", "typebox/compile"]) {
+				const { asked, context } = resolved(specifier, HARNESS, install);
+				expect(asked).toBe(specifier);
+				expect(context).toEqual({ parentURL: HARNESS, conditions: ["node"] });
+			}
 		});
 
 		it("leaves pi's own imports to node", () => {
@@ -120,6 +127,32 @@ describe("piFromHost", () => {
 			expect(asked).toBe("@earendil-works/pi-tui");
 			expect(context.parentURL).toBe(own);
 		});
+	});
+
+	// node hands every hook in a chain one context, and merges into it each
+	// context passed to the next step, so a second ask must name its parent.
+	it("takes typebox from the harness's own copy when the install gives none, and never a pi library", () => {
+		const root = `file://${PI}/package.json`;
+		const asked = (specifier: string) => {
+			const parents: (string | undefined)[] = [];
+			const hook = piFromHost(PI);
+			const merged: Context = { parentURL: HARNESS };
+			const found = () =>
+				hook(specifier, merged, (_: string, passed?: Context) => {
+					const context = Object.assign(merged, passed);
+					parents.push(context.parentURL);
+					if (context.parentURL === root)
+						throw new Error(`Cannot find package '${specifier}'`);
+					return "found";
+				});
+			return { found, parents };
+		};
+		const typebox = asked("typebox/compile");
+		expect(typebox.found()).toBe("found");
+		expect(typebox.parents).toEqual([root, HARNESS]);
+		const tui = asked("@earendil-works/pi-tui");
+		expect(tui.found).toThrow("Cannot find package '@earendil-works/pi-tui'");
+		expect(tui.parents).toEqual([root]);
 	});
 
 	it("leaves pi's own imports and every other package to node", () => {

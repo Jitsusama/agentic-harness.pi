@@ -253,6 +253,14 @@ export function checkerOf<Schema extends TSchema>(
 	return checker;
 }
 
+/** Why `schema` refuses `value`: each place it fails, and what it found there. */
+export function whyRefused(schema: TSchema, value: unknown): string {
+	return checkerOf(schema)
+		.Errors(value)
+		.map((error) => `${error.instancePath || "/"}: ${error.message}`)
+		.join("; ");
+}
+
 /** `value` as `schema` holds it, or an error saying `refused`. */
 function checked<Schema extends TSchema>(
 	schema: Schema,

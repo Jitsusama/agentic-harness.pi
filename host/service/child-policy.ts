@@ -19,7 +19,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { checkerOf, identities } from "./protocol.ts";
+import { checkerOf, identities, whyRefused } from "./protocol.ts";
 
 /** Which conversations go to children, as the host last read it. */
 export interface ChildPolicy {
@@ -86,15 +86,10 @@ async function readPolicy(
 		);
 		return kept;
 	}
-	const checker = checkerOf(POLICY);
-	if (!checker.Check(value)) {
-		const why = checker
-			.Errors(value)
-			.map((error) => `${error.instancePath || "/"}: ${error.message}`)
-			.join("; ");
+	if (!checkerOf(POLICY).Check(value)) {
 		report(
 			new Error(
-				`${file} can't be read, so the last policy read stands: ${why}`,
+				`${file} can't be read, so the last policy read stands: ${whyRefused(POLICY, value)}`,
 			),
 		);
 		return kept;

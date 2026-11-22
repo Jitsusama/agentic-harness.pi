@@ -37,8 +37,25 @@ const PROVIDED_BY_PI =
  * provides, and pi depends on it. `@sinclair/typebox` is the older
  * name, which pi's loader rewrites, so both resolve at runtime and
  * this repo uses both in different files. Neither belongs in
- * dependencies, for the same reason pi's own modules do not.
+ * dependencies, for the same reason pi's own modules do not, with one
+ * exception below.
  */
+
+/**
+ * What pi provides that code running outside pi needs too, so the
+ * package carries its own copy as well.
+ *
+ * The host's protocol is checked with typebox, and scripts such as
+ * spawn-decide and the host's take-up import it under plain node, with
+ * no pi to hand them one; on a machine with no host there is no pi to
+ * borrow it from at all. The copy never stands beside pi's: pi's loader
+ * maps `typebox` and its subpaths to its own for every extension,
+ * whether it loads them from its bundle, its source or its install, and
+ * the host's resolve hook takes the copy its pi holds
+ * (host/service/pi-resolution.ts). It stays a peer, so pi's own
+ * provision is still what an extension asks for.
+ */
+const NEEDED_OUTSIDE_PI = new Set(["typebox"]);
 
 /**
  * What to declare for each pi specifier the code imports.
@@ -179,7 +196,9 @@ describe("what ships can load", () => {
 	});
 
 	it("does not bundle its own copy of what pi provides", () => {
-		const shadowed = [...declared].filter((pkg) => PROVIDED_BY_PI.test(pkg));
+		const shadowed = [...declared].filter(
+			(pkg) => PROVIDED_BY_PI.test(pkg) && !NEEDED_OUTSIDE_PI.has(pkg),
+		);
 		expect(shadowed).toEqual([]);
 	});
 

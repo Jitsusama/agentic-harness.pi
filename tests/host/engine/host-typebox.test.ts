@@ -1,16 +1,17 @@
 /**
- * The host's protocol, checked by the TypeBox its pi's bundle holds. The
- * harness's sources are copied where none of the harness's node_modules
- * can be found, as an install's are, and run under plain node with the
- * resolve hook pi-host.ts registers: every typebox module they load must
- * be the bundle's, the very one pi hands its extensions, and nothing may
- * load from a node_modules outside the host's pi.
+ * The host's protocol, checked by the TypeBox its pi holds. The harness's
+ * sources are copied where none of the harness's node_modules can be
+ * found and run under plain node with the resolve hook pi-host.ts
+ * registers. With a bundle, every typebox module they load must be the
+ * bundle's host module, the very copy pi hands its extensions, and never
+ * a node_modules copy, pi's own included; without one, pi's own copy.
  */
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { hostPiBundle } from "../../../host/engine/host-pi.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 
 const HARNESS = resolve(import.meta.dirname, "../../..");
@@ -36,7 +37,7 @@ function loadProtocol(hooked: boolean) {
 	const script = `
 		import { registerHooks } from "node:module";
 		import { pathToFileURL } from "node:url";
-		const { COPY, PI, HOOKED } = process.env;
+		const { COPY, PI, HOOKED, BUNDLED } = process.env;
 		const loaded = [];
 		registerHooks({
 			load(url, context, next) {
@@ -49,30 +50,37 @@ function loadProtocol(hooked: boolean) {
 			registerHooks({ resolve: piFromHost(PI) });
 		}
 		const protocol = await import(pathToFileURL(COPY + "/host/service/protocol.ts").href);
+		const refusal = (parse, value) => {
+			try {
+				parse(value);
+				return "accepted";
+			} catch (error) {
+				return error.message;
+			}
+		};
 		const close = { v: 1, id: "c", op: "close", sessionId: "11111111-1111-4111-8111-111111111111" };
-		let refused = "";
-		try {
-			protocol.parseControl({ ...close, id: "" });
-		} catch (error) {
-			refused = error.message;
-		}
-		const { VIRTUAL_MODULES: handed } = await import(pathToFileURL(PI + "/dist/bundle/host.js").href);
-		const { Type } = await import("typebox");
-		const { Value } = await import("typebox/value");
-		const { Compile } = await import("typebox/compile");
+		const accepted = protocol.parseControl(close).op;
+		const refused = [
+			refusal(protocol.parseControl, { ...close, id: "" }),
+			refusal(protocol.parseWatchLine, { type: "nothing" }),
+		];
+		// The checker the protocol compiled, against the compiler pi hands extensions.
+		const handedCompile = BUNDLED
+			? (await import(pathToFileURL(PI + "/dist/bundle/host.js").href)).VIRTUAL_MODULES["typebox/compile"]
+			: await import(pathToFileURL(PI + "/node_modules/typebox/build/compile/index.mjs").href);
 		const pi = pathToFileURL(PI).href;
+		const typeboxLoaded = loaded.filter((url) => url.includes("/typebox"));
 		console.log(JSON.stringify({
-			accepted: protocol.parseControl(close).op,
+			accepted,
 			refused,
-			bundles:
-				Type === handed.typebox.Type &&
-				Value === handed["typebox/value"].Value &&
-				Compile === handed["typebox/compile"].Compile,
-			typeboxOutside: loaded.filter((url) => url.includes("/typebox") && !url.startsWith(pi)),
+			piCompiled: protocol.checkerOf(protocol.identities.host) instanceof handedCompile.Validator,
+			hostModules: typeboxLoaded.filter((url) => url.startsWith(pi + "/dist/bundle/host-modules/")).length > 0,
+			piTypebox: typeboxLoaded.filter((url) => url.startsWith(pi + "/node_modules/typebox/")).length > 0,
+			typeboxOutside: typeboxLoaded.filter((url) => !url.startsWith(pi)),
 			packagesOutside: loaded.filter((url) => url.includes("/node_modules/") && !url.startsWith(pi)),
 		}));
 	`;
-	const run = spawnSync(
+	return spawnSync(
 		process.execPath,
 		["--no-warnings", "--input-type=module", "-e", script],
 		{
@@ -85,21 +93,24 @@ function loadProtocol(hooked: boolean) {
 				COPY: copy,
 				PI: packageDir,
 				...(hooked ? { HOOKED: "1" } : {}),
+				...(existsSync(hostPiBundle(packageDir)) ? { BUNDLED: "1" } : {}),
 			},
 		},
 	);
-	return run;
 }
 
 it(
-	"checks the host's protocol with the TypeBox its pi's bundle hands extensions, loading none of the harness's",
+	"checks the host's protocol with the TypeBox its pi hands extensions, loading no other copy",
 	() => {
+		const bundled = existsSync(hostPiBundle(packageDir));
 		const run = loadProtocol(true);
 		expect(run.status, run.stderr).toBe(0);
 		expect(JSON.parse(run.stdout)).toEqual({
 			accepted: "close",
-			refused: "Invalid host control request",
-			bundles: true,
+			refused: ["Invalid host control request", "Invalid child watch line"],
+			piCompiled: true,
+			hostModules: bundled,
+			piTypebox: !bundled,
 			typeboxOutside: [],
 			packagesOutside: [],
 		});
@@ -108,7 +119,7 @@ it(
 );
 
 it(
-	"finds no typebox at all without the host's hook, so nothing beside the host's pi supplies one",
+	"finds no typebox in the copy without the host's hook, so the hook is what gave it one",
 	() => {
 		const run = loadProtocol(false);
 		expect(run.status).not.toBe(0);

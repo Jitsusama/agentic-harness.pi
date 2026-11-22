@@ -35,6 +35,7 @@ import {
 	ENDINGS,
 	identities,
 	type SessionIdentity,
+	whyRefused,
 } from "./protocol.ts";
 
 /**
@@ -153,13 +154,8 @@ function read<Schema extends TSchema, T>(
 	value: unknown,
 	know: (said: Static<Schema>) => T,
 ): Read<T> {
-	const checker = checkerOf(schema);
-	if (checker.Check(value)) return { ok: true, data: know(value) };
-	const why = checker
-		.Errors(value)
-		.map((error) => `${error.instancePath || "/"}: ${error.message}`)
-		.join("; ");
-	return { ok: false, error: new Error(why) };
+	if (checkerOf(schema).Check(value)) return { ok: true, data: know(value) };
+	return { ok: false, error: new Error(whyRefused(schema, value)) };
 }
 
 /** One line the child sent after its answer. */
