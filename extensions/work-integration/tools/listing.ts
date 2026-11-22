@@ -15,8 +15,10 @@ import {
 	blocksRepoint,
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
+import { RecordWent } from "../../../lib/core/work/memory.ts";
 import { readPlain } from "../../../lib/core/work/plain-file.ts";
 import {
+	GUARD_WORDS,
 	HAND_LOCKED,
 	handLocked,
 	plainWords,
@@ -212,20 +214,45 @@ function unreadHere(path: string): Unread | undefined {
 	}
 	const own = awayFolder(path);
 	if (own !== undefined) return { kind: "away", own };
-	// The answer names the tree already, and its full path would take most
-	// of what plainWords keeps, so git's words call it what it is. Only the
-	// reason is said: some refusals end by saying to release the tree,
-	// which is what this answer has just done or refused.
-	const named = run.refused
-		.replaceAll(`${run.top}'s`, "its")
-		.replaceAll(run.top, "it");
-	// A checkout's path is in some refusals' first sentence, so it gets
-	// room for one, where git's words elsewhere are cut at 200.
-	const said = plainWords(named.split(/(?<=\.)\s/)[0] ?? named, 400);
-	return {
-		kind: "unread",
-		refused: /[.!?]$/.test(said) ? said.slice(0, -1) : said,
-	};
+	return { kind: "unread", refused: refusalWords(run.refused) };
+}
+
+/**
+ * The guard's refusals, each in fixed words that name no path. Some of
+ * its own name a folder a command in the tree could choose, so they are
+ * never said back; reclaim keeps the same rule.
+ */
+const REFUSALS: readonly (readonly [RegExp, string])[] = [
+	[
+		/ holds a commondir, which would have git read the settings of another folder/,
+		"its git folder holds a commondir, which would have git read the settings of another folder, so git won't run there",
+	],
+	[
+		/'s \.git is a link, which pi won't follow outside the sandbox/,
+		"its .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to",
+	],
+	[
+		/ lies where the work tool cuts trees but holds a repository of its own/,
+		"it lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there",
+	],
+	[
+		/'s \.git file names no worktree whose repository names it back/,
+		"its .git file names no worktree whose repository names it back, so git won't run there: a command may have pointed it at a git folder of its own",
+	],
+	[
+		/ is a worktree of .*, which the sandbox doesn't keep read-only/s,
+		"it is a worktree of a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox",
+	],
+	[
+		/ is a repository the sandbox doesn't keep read-only/,
+		"it is a repository the sandbox doesn't keep read-only, so a sandboxed command could have set what git runs there, and pi runs git outside the sandbox",
+	],
+];
+
+/** What the guard's refusal says, in words of its kind alone. */
+function refusalWords(refused: string): string {
+	const kind = REFUSALS.find(([shape]) => shape.test(refused));
+	return kind === undefined ? GUARD_WORDS : kind[1];
 }
 
 /**
@@ -274,9 +301,14 @@ function gitShape(path: string): GitShape {
 		return "unknown";
 	}
 	// Only an entry that names this tree back is its own, whose branch
-	// the clone keeps; a `.git` may name anybody's.
+	// the clone keeps; a `.git` may name anybody's, and a repository laid
+	// out inside the tree goes aside with it, keeping no branch anywhere.
 	const own = namedGitFolder(path);
-	if (own === undefined || basename(dirname(own)) !== "worktrees") {
+	if (
+		own === undefined ||
+		basename(dirname(own)) !== "worktrees" ||
+		within(dirname(dirname(own)), path)
+	) {
 		return "unknown";
 	}
 	const back = readPlain(join(own, "gitdir"))?.trim();
@@ -293,7 +325,7 @@ const RUN_NO_GIT =
 /** Where a set-aside tree's commits are, by what its `.git` was. */
 const PARTED: Record<GitShape, string> = {
 	entry:
-		"Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.",
+		"Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the clone that cut it next cuts the name, or at `git worktree prune` there.",
 	repository:
 		"Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it.",
 	unknown:
@@ -356,8 +388,14 @@ async function setUnreadAside(
 		if (error instanceof StuckAside) {
 			// The tree has left the path its hold and record named, so
 			// both went: kept, they would name whatever stands there now.
+			// Where it is is said whole, apart from the reasons shortened.
 			return refuse(
-				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is no longer held here, and whatever stands at ${where} now is not it: deal with it where it stands by hand. ${RUN_NO_GIT}. ${because}.`,
+				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done: it is at ${displayPath(error.aside)}, every file in it, ${plainWords(error.reasons)}. It is no longer held here, and whatever stands at ${where} now is not it: deal with it where it stands by hand. ${RUN_NO_GIT}. ${because}.`,
+			);
+		}
+		if (error instanceof RecordWent) {
+			return refuse(
+				`${GLYPH.refused} Git won't run in ${where}, but ${why}. Nothing moved.`,
 			);
 		}
 		if (!tried) {

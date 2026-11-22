@@ -770,6 +770,34 @@ describe("a tree remembers which session cut it", () => {
 		expect(memory.recall()[0]?.owners).toEqual([theirs]);
 	});
 
+	it("takes nothing whose record went while it waited for the lock", async () => {
+		// Another session gave it back first, and a new cut may stand there.
+		const memory = memoryAt();
+		memory.remember(tree("given", { pid: 4001, startedAt: 1000 }));
+		const [file] = readdirSync(join(root, "cut")).filter((name) =>
+			name.endsWith(".json"),
+		);
+		if (file === undefined) throw new Error("no record was written");
+		const taken: string[] = [];
+		let judged: Promise<number> | undefined;
+
+		await withFileLock(join(root, "cut", file), async () => {
+			judged = memory.whileHeldAlone(
+				tree("given").path,
+				async () => {
+					taken.push("given");
+				},
+				machine({ [process.pid]: 5000 }),
+			);
+			// Long enough for anything read before the lock to be read.
+			await new Promise((done) => setTimeout(done, 50));
+			memory.forget(tree("given").path);
+		});
+
+		await expect(judged).rejects.toThrow(/its record went/);
+		expect(taken, "nothing moved").toEqual([]);
+	});
+
 	it("takes a tree whose other holder has ended", async () => {
 		// The usual leftover of a crash: the record names a session gone.
 		const memory = memoryAt();

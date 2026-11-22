@@ -281,6 +281,8 @@ function movedLine(tree: SetAsideTree): string {
 	switch (tree.kind) {
 		case "set-aside":
 			return `   ${GLYPH.named} ${displayPath(tree.path)}, set aside whole at ${displayPath(tree.aside)}`;
+		case "stuck":
+			return `   ${GLYPH.refused} ${displayPath(tree.path)}: moved to ${displayPath(tree.aside)}, every file in it, but only half done: ${tree.why}. Its record went, since whatever stands at its old path now is not it, so deal with it where it stands by hand`;
 		case "gone":
 			return `   ${GLYPH.clean} ${displayPath(tree.path)}: gone by its turn, as another reclaim or the sweep took it`;
 		case "kept":

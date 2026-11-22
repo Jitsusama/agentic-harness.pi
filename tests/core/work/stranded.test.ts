@@ -18,7 +18,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
@@ -453,7 +453,7 @@ describe("setAside", () => {
 			"written by a reader\n",
 		);
 		expect(thrown.message.startsWith(`It is at ${thrown.aside}`)).toBe(true);
-		expect(thrown.message).toContain("EBUSY");
+		expect(thrown.reasons).toContain("EBUSY");
 	});
 
 	it("says a tree another reclaim took as it was asked about is gone", async () => {
@@ -554,6 +554,39 @@ describe("setAside", () => {
 		expect(
 			memory.recall().map((one) => one.path),
 			"its record went with it",
+		).toEqual([]);
+	});
+
+	it("forgets a stuck tree's record and says where it stands, whole", async () => {
+		// A long name, so words cut short would lose the folder's.
+		const key = `snapshot-${"s".repeat(150)}`;
+		const path = treeNaming(key, standingGitDir(key));
+		const memory = createTreeMemory(join(root, "work", "cut"));
+		memory.remember({
+			identity: { key, shareable: true },
+			path,
+			providerId: "git",
+			owners: [{ pid: 0x7f_ff_ff_ff, startedAt: 1 }],
+		});
+
+		const [moved] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records: memory,
+			part: () => {
+				// Something takes the name back before it can go back.
+				mkdirSync(path);
+				writeFileSync(join(path, "new"), "a new cut\n");
+				throw new Error("EBUSY: resource busy");
+			},
+		});
+
+		if (moved?.kind !== "stuck") throw new Error(`got ${moved?.kind}`);
+		expect(dirname(moved.aside)).toBe(strandedDir(trees));
+		expect(basename(moved.aside).startsWith(key)).toBe(true);
+		expect(moved.why).toContain("EBUSY");
+		expect(
+			memory.recall().map((one) => one.path),
+			"a kept record would name what stands there now",
 		).toEqual([]);
 	});
 

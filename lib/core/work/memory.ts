@@ -131,7 +131,10 @@ export interface TreeMemory {
 	 * session that joined the tree since the caller looked is seen, and
 	 * `take` must be as quick: a move, never a removal. A `take` that
 	 * throws keeps the record, and the throw goes on to the caller. A
-	 * tree with no record names nobody else, so `take` runs as it is.
+	 * tree with no record names nobody else, so `take` runs as it is; one
+	 * whose record went while this waited for its lock was given back by
+	 * another session, and what stands there now may be a new cut's, so
+	 * `take` doesn't run and this throws {@link RecordWent}.
 	 */
 	whileHeldAlone(
 		path: string,
@@ -235,6 +238,20 @@ const LISTING_TRIES = 8;
 
 /** How many records a reading off the thread reads at once. */
 const READS_AT_ONCE = 16;
+
+/**
+ * A tree whose record went while its lock was awaited: another session
+ * gave it back first, and what stands there now may be a new cut's, so
+ * it is left untouched.
+ */
+export class RecordWent extends Error {
+	constructor() {
+		super(
+			"its record went while this waited for its lock, so another session gave it back first, and what stands there now may be a new cut's",
+		);
+		this.name = "RecordWent";
+	}
+}
 
 /** What changes about a directory when an entry in it does. */
 function stamp(dir: string): string | undefined {
@@ -884,9 +901,10 @@ export function createTreeMemory(
 			}
 			let kept = 0;
 			await underLock(found.identity.key, async () => {
-				const others = await this.otherHolders(path, facts);
 				const tree = this.recall().find((one) => one.path === path);
-				if (tree !== undefined && others.length > 0) {
+				if (tree === undefined) throw new RecordWent();
+				const others = await this.otherHolders(path, facts);
+				if (others.length > 0) {
 					kept = others.length;
 					const us = await holderNow(facts);
 					if (us === undefined) return;

@@ -299,15 +299,20 @@ function messageOf(error: unknown): string {
  * A tree moved aside whose `.git` couldn't be parted from git's entry
  * and that couldn't go back either: it stands at `aside`, every file in
  * it, still naming the entry, so a caller says where rather than gone.
+ * Its reasons are kept apart from where it is, so a caller shortening
+ * them never shortens the path.
  */
 export class StuckAside extends Error {
 	/** Where the tree stands now. */
 	readonly aside: string;
+	/** Why it is neither parted nor back, without where it is. */
+	readonly reasons: string;
 
-	constructor(aside: string, message: string) {
-		super(message);
+	constructor(aside: string, reasons: string) {
+		super(`It is at ${aside}, every file in it, ${reasons}`);
 		this.name = "StuckAside";
 		this.aside = aside;
+		this.reasons = reasons;
 	}
 }
 
@@ -408,6 +413,8 @@ function namedGitDir(path: string): string | undefined {
 /** What became of one stranded tree. */
 export type SetAsideTree =
 	| { kind: "set-aside"; path: string; aside: string }
+	/** Moved to `aside`, but neither parted from git's entry nor back. */
+	| { kind: "stuck"; path: string; aside: string; why: string }
 	| { kind: "kept"; path: string; why: string }
 	| { kind: "gone"; path: string }
 	| { kind: "refused"; path: string; why: string };
@@ -430,6 +437,8 @@ export interface SetAsideDeps {
 	into: string;
 	/** The broker's records, or nothing where there are none. */
 	records?: StrandedRecords;
+	/** How a moved tree's `.git` is parted from git's entry, as {@link setAsideWhole} takes it. */
+	part?: (aside: string) => void;
 }
 
 /** Where stranded trees are set aside: beside the trees' folder, never in it. */
@@ -455,7 +464,9 @@ export function setAsideEarlier(into: string): number {
  * sweep takes a tree, and its record goes with it. One gone by its turn,
  * as another reclaim or the sweep took it, is said to be. A move
  * refused leaves the tree where it was and says why, without holding
- * up the rest.
+ * up the rest. One that moved but could neither be parted nor go back
+ * has left its path, so its record goes as a moved one's does, and it
+ * is said as stuck where it stands.
  */
 export async function setAside(
 	trees: readonly StrandedTree[],
@@ -470,13 +481,29 @@ export async function setAside(
 		let aside = "";
 		let refused: string | undefined;
 		let gone = false;
+		let stuck: StuckAside | undefined;
+		const moved = (): SetAsideTree =>
+			stuck === undefined
+				? { kind: "set-aside", path: tree.path, aside }
+				: {
+						kind: "stuck",
+						path: tree.path,
+						aside: stuck.aside,
+						why: plainWords(stuck.reasons),
+					};
 		const move = async () => {
 			try {
-				aside = setAsideWhole(tree.path, deps.into);
+				aside = setAsideWhole(tree.path, deps.into, deps.part);
 			} catch (error) {
+				// It has left its path, so a record kept would name
+				// whatever stands there next.
+				if (error instanceof StuckAside) {
+					stuck = error;
+					return true;
+				}
 				// Another reclaim, or the sweep, may have taken it first,
 				// unless it was this move that left it elsewhere.
-				gone = !(error instanceof StuckAside) && !existsSync(tree.path);
+				gone = !existsSync(tree.path);
 				refused = plainWords(
 					error instanceof Error ? error.message : String(error),
 				);
@@ -491,7 +518,7 @@ export async function setAside(
 		if (recorded !== undefined && deps.records !== undefined) {
 			const took = await deps.records.whileUnheld(recorded.path, move);
 			if (took !== undefined) {
-				done.push({ kind: "set-aside", path: tree.path, aside });
+				done.push(moved());
 			} else if (gone) {
 				done.push({ kind: "gone", path: tree.path });
 			} else if (refused !== undefined) {
@@ -515,7 +542,7 @@ export async function setAside(
 			}
 			continue;
 		}
-		if (await move()) done.push({ kind: "set-aside", path: tree.path, aside });
+		if (await move()) done.push(moved());
 		else if (gone) done.push({ kind: "gone", path: tree.path });
 		else done.push({ kind: "refused", path: tree.path, why: refused ?? "" });
 	}
@@ -555,11 +582,11 @@ export function setAsideWhole(
 		try {
 			renameSync(aside, path);
 		} catch (back) {
-			// Neither parted nor back: where it is comes first, so no
-			// shortening of the words loses it.
+			// Neither parted nor back: where it is is kept apart from why,
+			// so no shortening of the words loses it.
 			throw new StuckAside(
 				aside,
-				`It is at ${aside}, every file in it, still naming git's entry: its .git couldn't be renamed (${messageOf(error)}) and it couldn't go back to ${path} (${messageOf(back)})`,
+				`still naming git's entry: its .git couldn't be renamed (${messageOf(error)}) and it couldn't go back to ${path} (${messageOf(back)})`,
 			);
 		}
 		throw error;
@@ -573,9 +600,9 @@ const WORDS_MAX = 200;
 /**
  * Words from git or the guard, as one plain line said back: a path in
  * them may be anything a sandboxed command wrote into a `.git` file, so
- * its line breaks and control characters go and one past `max` is cut.
+ * its line breaks and control characters go and a long one is cut.
  */
-export function plainWords(said: string, max = WORDS_MAX): string {
+export function plainWords(said: string): string {
 	// Control characters of both sets, the marks that turn text's
 	// direction, and the separators some readers break lines at.
 	const flat = said
@@ -585,7 +612,7 @@ export function plainWords(said: string, max = WORDS_MAX): string {
 			" ",
 		)
 		.trim();
-	return flat.length > max ? `${flat.slice(0, max)}...` : flat;
+	return flat.length > WORDS_MAX ? `${flat.slice(0, WORDS_MAX)}...` : flat;
 }
 
 /**

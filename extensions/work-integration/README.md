@@ -253,11 +253,14 @@ whose git folder is gone. No checkout's git lists one cut from
 such a clone, and every cut at its name died on git's bare
 `already exists`, as a snapshot a host restart left on 20
 November did. Release can't run git there either, so a session
-releasing one the work tool cut has it set aside whole, as
-reclaim would, without reading it. While another session holds
-it too, it stays where it is for that one, and only this
-session's hold goes; one whose git entry is locked by hand stays,
-as reclaim leaves it. A tree another provider cut is left to it.
+releasing one in the work tool's own trees folder has it set
+aside whole, as reclaim sets one, without reading it. Unlike
+reclaim, release doesn't ask whether a process still works in it:
+the release is the session's own word that it's done. While
+another session holds it too, it stays where it is for that one,
+and only this session's hold goes; one whose git entry is locked
+by hand stays, as reclaim leaves it. A tree outside that folder
+is left to whatever cut it.
 Cutting at its name now refuses, naming the tree and the way out
 that fits it. `tidy` lists each one no running session
 holds, counted apart from the checkout's own trees, and
@@ -547,7 +550,8 @@ modified file is bad and recoverable, and overwriting an untracked
 one is neither. A tree git won't run in can't be read, so it is
 set aside whole with everything in it rather than removed. Its
 branch stays, but git's entry for it, with its index and HEAD, goes
-when that name is next cut. A tree whose `.git` became a repository
+when the clone that cut it next cuts that name, or at `git worktree
+prune` there. A tree whose `.git` became a repository
 of its own, or a link to one, keeps what was committed there only in
 what was set aside, and the answer says so. Run no git in what was
 set aside: a command in the sandbox may have written the settings and

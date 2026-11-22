@@ -273,6 +273,35 @@ describe("giving a tree back", () => {
 		);
 	});
 
+	it("never says the branch stays for an entry whose repository lies inside the tree", async () => {
+		// A command in the tree can lay out a repository there with an
+		// entry naming the tree back; it goes aside with the tree, so no
+		// branch anywhere keeps what was committed in it.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const repository = join(path, "r", ".git");
+		const entry = join(repository, "worktrees", "x");
+		mkdirSync(join(repository, "objects"), { recursive: true });
+		mkdirSync(entry, { recursive: true });
+		writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+		writeFileSync(join(entry, "commondir"), "../..\n");
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
+
+		const released = await work({ action: "release", tree: key });
+
+		if (typeof released.details.aside !== "string") {
+			throw new Error(released.text);
+		}
+		expect(released.text).not.toContain("Its branch stays");
+		expect(released.text).toContain("Where it led wasn't read");
+		// The guard's words name the repository, a folder the command chose.
+		expect(released.text).not.toContain(join("r", ".git"));
+		expect(released.text).toMatch(
+			/Git's refusal: it is a worktree of a repository the sandbox doesn't keep read-only/,
+		);
+	});
+
 	it("says a tree holding a repository of its own keeps its commits only in what was set aside", async () => {
 		// No branch of the checkout holds what was committed in such a
 		// .git, so the answer mustn't say the branch stays.
