@@ -131,6 +131,13 @@ export default function probeExtension(pi: ProbeApi): void {
 		},
 	});
 
+	pi.registerCommand("probe-switch", {
+		description: "Become the conversation another log on disk holds",
+		handler: async (args, context) => {
+			await context.switchSession(args.trim());
+		},
+	});
+
 	pi.on("input", async (event, context) => {
 		if (event.text !== ASK_ME) return { action: "continue" };
 		const answer = await context.ui.select("Go on?", ["Yes", "No"]);

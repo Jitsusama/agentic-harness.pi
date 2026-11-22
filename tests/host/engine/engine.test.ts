@@ -130,6 +130,8 @@ interface Seen {
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
 	readonly logs?: Readonly<Record<string, unknown>>;
+	/** What a resumed and a switched-to conversation held of their compacted logs. */
+	readonly keptHistory?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -795,6 +797,20 @@ describe("the host's engine", () => {
 				woken: ["read"],
 				closed: [],
 				closedParked: [],
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"holds only the kept history of a compacted log it resumes, or that a command switches it to",
+		async () => {
+			const seen = await step(hostFolder(), "kept-history");
+			const held = { record: true, keptNext: true, earlyHeld: false };
+			expect(seen.keptHistory).toEqual({
+				resumed: held,
+				replaced: held,
+				switchedTo: true,
 			});
 		},
 		HOST_LIFE_MS,

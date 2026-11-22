@@ -49,6 +49,7 @@ import {
 	WAKE_ENV,
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
+import { ROLLOVER_RECORD } from "../../../../lib/internal/session/rollover.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 import { until } from "../../../support/until.ts";
 
@@ -521,6 +522,48 @@ const scenarios: Record<string, Scenario> = {
 					woken,
 					closed,
 					closedParked: logHolds(otherFile),
+				},
+			};
+		},
+	},
+	/**
+	 * What the host holds of a compacted log on each way it builds one
+	 * from disk: a resume, through the engine's own binding, and a
+	 * conversation an extension's command switches to, through the parts
+	 * a replacement is built from.
+	 */
+	"kept-history": {
+		responses: () =>
+			["early", "kept", "after"].flatMap((word) => [
+				say(`first ${word}`),
+				say(`second ${word}`),
+			]),
+		run: async (engine, host) => {
+			const first = await compacted(engine, host);
+			const second = await compacted(engine, host);
+			await engine.resume(first.entry);
+			await idle(engine, first.entry.sessionId);
+			const resumed = heldOf(engine, first.entry.sessionId, first.kept);
+			await host.run(first.entry.sessionId, () =>
+				prompt(
+					engine,
+					first.entry.sessionId,
+					`/probe-switch ${second.entry.file}`,
+				),
+			);
+			const switched = readEntry();
+			await until(
+				"the conversation switched to to be held",
+				() => engine.view(switched.sessionId) !== undefined,
+				UNTIL_MS,
+			);
+			const replaced = heldOf(engine, switched.sessionId, second.kept);
+			await host.close(switched.sessionId);
+			return {
+				keptHistory: {
+					resumed,
+					replaced,
+					switchedTo: switched.file === second.entry.file,
 				},
 			};
 		},
@@ -1531,6 +1574,80 @@ async function open(
 	writeFileSync(entryFile, JSON.stringify(entry));
 	await engine.start(prepared, request);
 	return prepared.sessionId;
+}
+
+/** A session manager as kept history leaves it: its entries, header first. */
+interface HeldLog {
+	readonly fileEntries: readonly {
+		readonly type: string;
+		readonly id?: string;
+		readonly customType?: string;
+		readonly message?: Message;
+	}[];
+	getBranch(): readonly { readonly id: string; readonly message?: Message }[];
+	appendCompaction(
+		summary: string,
+		firstKeptEntryId: string,
+		tokens: number,
+	): string;
+}
+
+/** The session manager a held conversation reads its log through. */
+function logOf(engine: HostEngine, id: string): HeldLog | undefined {
+	const session = engine.view(id)?.runtime.session as unknown as
+		| { readonly sessionManager: HeldLog }
+		| undefined;
+	return session?.sessionManager;
+}
+
+/**
+ * Open a conversation, talk three turns, compact it from its second
+ * user message on, and close it: its roster entry, and the first entry
+ * the compaction keeps.
+ */
+async function compacted(
+	engine: HostEngine,
+	host: SessionHost,
+): Promise<{ entry: RosterEntry; kept: string }> {
+	const id = await open(engine, { first: "early" });
+	await idle(engine, id);
+	await prompt(engine, id, "kept");
+	await idle(engine, id);
+	await prompt(engine, id, "after");
+	await idle(engine, id);
+	const entry = readEntry();
+	const log = logOf(engine, id);
+	const kept =
+		log
+			?.getBranch()
+			.find((each) => each.message && text(each.message) === "kept")?.id ?? "";
+	log?.appendCompaction("talked early on", kept, 1000);
+	await host.close(id);
+	return { entry, kept };
+}
+
+/**
+ * What a conversation holds of its compacted log: the rollover record
+ * kept history writes in place of what it leaves out, whether the first
+ * entry after that record is the one the compaction keeps, and whether
+ * the turn before it is still held.
+ */
+function heldOf(
+	engine: HostEngine,
+	id: string,
+	kept: string,
+): Record<string, unknown> {
+	const entries = logOf(engine, id)?.fileEntries ?? [];
+	const record = entries.findIndex(
+		(entry) => entry.type === "custom" && entry.customType === ROLLOVER_RECORD,
+	);
+	return {
+		record: record !== -1,
+		keptNext: record !== -1 && entries[record + 1]?.id === kept,
+		earlyHeld: entries.some(
+			(entry) => entry.message !== undefined && text(entry.message) === "early",
+		),
+	};
 }
 
 /** Each line of a file the probe writes, read as JSON. */

@@ -212,7 +212,8 @@ it(
 			});
 		});
 	},
-	ROUND_TRIP_MS * 3 + MOVE_MS * 2 + CARRIED_MS,
+	// A round trip for each wait, the follow's included, and one for setup.
+	ROUND_TRIP_MS * 4 + MOVE_MS * 2 + CARRIED_MS,
 );
 
 /** Release every hosted conversation as item 11's rollback does, answering its exit and output. */
@@ -313,5 +314,6 @@ it(
 			});
 		});
 	},
-	ROUND_TRIP_MS * 3 + MOVE_MS * 2 + CARRIED_MS,
+	// A round trip for each wait, the follow's included, and one for setup.
+	ROUND_TRIP_MS * 4 + MOVE_MS * 2 + CARRIED_MS,
 );
