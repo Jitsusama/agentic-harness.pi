@@ -244,9 +244,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		await forgetOwnKeptJob(job.work.keep);
 		recordKeptJob(job);
 		await forgetOwnKeptJob(job.work.keep);
-		expect(existsSync(`${job.work.keep}.job`), "its second record").toBe(
-			false,
-		);
+		expect(existsSync(`${job.work.keep}.job`), "its second record").toBe(false);
 	});
 
 	it("is no longer this process's once taken back by a session's close", async () => {
