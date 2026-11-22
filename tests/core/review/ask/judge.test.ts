@@ -217,15 +217,32 @@ describe("keeping the agreement", () => {
 		expect(recorded[0]?.raisedBy).toBeUndefined();
 	});
 
-	it("ignores a raisedBy that is not a list of names", async () => {
+	it("reads a raisedBy written as one name as that one, saying so", async () => {
 		const recorded: Finding[] = [];
 		const { warnings } = await runJudge(
 			{ judge, prompt: "p", seq: 1 },
 			deps({ text: consolidated({ raisedBy: "hawk" }) }, { recorded }),
 		);
 
-		expect(recorded[0]?.raisedBy).toBeUndefined();
-		expect(warnings).toHaveLength(1);
+		expect(recorded[0]?.raisedBy, "the one name, as a list").toEqual(["hawk"]);
+		expect(warnings, "the reading is said").toEqual([
+			expect.stringMatching(
+				/gave raisedBy as the one name "hawk" rather than a list/,
+			),
+		]);
+	});
+
+	it("ignores a raisedBy that is neither a name nor a list of names", async () => {
+		const recorded: Finding[] = [];
+		const { warnings } = await runJudge(
+			{ judge, prompt: "p", seq: 1 },
+			deps({ text: consolidated({ raisedBy: 7 }) }, { recorded }),
+		);
+
+		expect(recorded[0]?.raisedBy, "no agreement invented").toBeUndefined();
+		expect(warnings, "the dropped field is said").toEqual([
+			expect.stringMatching(/raisedBy that is not a list of participant ids/),
+		]);
 	});
 
 	it("drops blank names out of raisedBy rather than holding them", async () => {

@@ -332,6 +332,8 @@ describe("where a finding points", () => {
 		// Measured: a judge recorded all twenty of its findings this way,
 		// mirroring the "who · label · where" it was shown, and every one
 		// came through as a note about the whole change with no severity.
+		// The reviewer it wrote under category isn't an agreement, so none
+		// is made up from it.
 		const { findings, warnings } = harvestFindings(
 			answer({
 				category: "correctness",
@@ -340,27 +342,109 @@ describe("where a finding points", () => {
 				line: 127,
 				title: "the runtime folder comes from the wrong env",
 				body: "it reads process.env",
-				raisedBy: ["correctness", "skeptic"],
 			}),
 			origin,
 		);
 
-		expect(
-			findings[0],
-			"the label, the line and the agreement kept",
-		).toMatchObject({
+		expect(findings[0], "the label and the line kept").toMatchObject({
 			label: "issue",
 			subject: "the runtime folder comes from the wrong env",
 			discussion: "it reads process.env",
 			anchor: { subject: "line", path: "lib/a.ts", line: 127 },
-			raisedBy: ["correctness", "skeptic"],
 		});
+		expect(findings[0]?.raisedBy, "no agreement invented").toBeUndefined();
 		expect(
 			findings[0]?.severity,
 			"a label word is not read as a severity too",
 		).toBeUndefined();
-		expect(warnings, "says where the label was found").toEqual([
+		expect(warnings, "says where the label and the file were found").toEqual([
 			'findings[0] gave its label "issue" as its severity, so it was read as the label.',
+			"findings[0] gave its file beside its subject rather than in a location, so it was read from there.",
+		]);
+	});
+
+	it("reads back exactly what a judge is shown", () => {
+		// The location and raisedBy as the rendered header writes them,
+		// copied: an old-side range, and the agreement as a list.
+		const { findings, warnings } = harvestFindings(
+			answer(
+				wire({
+					location: {
+						kind: "line",
+						file: "lib/a.ts",
+						start: 10,
+						end: 18,
+						side: "old",
+					},
+					raisedBy: ["hawk", "skeptic"],
+				}),
+			),
+			origin,
+		);
+
+		expect(findings[0], "the side, the range and the agreement").toMatchObject({
+			anchor: {
+				subject: "line",
+				path: "lib/a.ts",
+				blob: "old",
+				line: 18,
+				startLine: 10,
+			},
+			raisedBy: ["hawk", "skeptic"],
+		});
+		expect(warnings, "its own shape, so nothing to say").toEqual([]);
+	});
+
+	it("reads a location written as path and lines", () => {
+		const cases: [string, Record<string, unknown>][] = [
+			[
+				"lib/a.ts:12",
+				{ subject: "line", path: "lib/a.ts", line: 12, blob: "new" },
+			],
+			[
+				"lib/a.ts:10-18",
+				{
+					subject: "line",
+					path: "lib/a.ts",
+					line: 18,
+					startLine: 10,
+					blob: "new",
+				},
+			],
+			["lib/a.ts", { subject: "file", path: "lib/a.ts" }],
+			["global", { subject: "change" }],
+		];
+		for (const [written, anchor] of cases) {
+			const { findings, warnings } = harvestFindings(
+				answer(wire({ location: written })),
+				origin,
+			);
+			expect(findings[0]?.anchor, written).toEqual(anchor);
+			expect(warnings, `${written} said`).toEqual([
+				`findings[0] wrote its location as the text "${written}", so it was read as that place.`,
+			]);
+		}
+	});
+
+	it("keeps a location written as a sentence against the change", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ location: "the change as a whole" })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the change").toEqual({ subject: "change" });
+		expect(warnings[0], "no location read").toContain("names no location");
+	});
+
+	it("reads raisedBy given as one name as that one", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ raisedBy: "hawk" })),
+			origin,
+		);
+
+		expect(findings[0]?.raisedBy, "the one name").toEqual(["hawk"]);
+		expect(warnings, "said").toEqual([
+			'findings[0] gave raisedBy as the one name "hawk" rather than a list, so it was read as that one.',
 		]);
 	});
 
@@ -373,7 +457,8 @@ describe("where a finding points", () => {
 				wire({
 					label: "nothing",
 					severity: "nitpick",
-					location: { kind: "change" },
+					location: { kind: "global" },
+					discussion: "a nit",
 				}),
 			),
 			origin,
@@ -381,24 +466,41 @@ describe("where a finding points", () => {
 
 		expect(findings[0]?.label, "the label from severity").toBe("nitpick");
 		expect(findings[0]?.severity, "no severity read").toBeUndefined();
-		expect(findings[0]?.anchor, "the change").toMatchObject({
-			subject: "change",
-		});
+		expect(findings[0]?.discussion, "its own word kept").toBe(
+			'a nit\n\nThe reviewer labelled this "nothing" and gave "nitpick" as its severity, so it is kept as a nitpick.',
+		);
 		expect(warnings, "says what was read where, and no more").toEqual([
 			'findings[0] gave its label "nitpick" as its severity, and its label "nothing" is no label, so it was read as the label.',
 		]);
 	});
 
-	it("reads location kind change as the change, without a word", () => {
-		// "change" is what a rendered finding calls the whole change, so a
-		// judge reading findings back writes it.
+	it("says no label, not an empty one, when the label isn't text", () => {
+		for (const label of ["  ", null, 3]) {
+			const { findings, warnings } = harvestFindings(
+				answer(wire({ label, severity: "issue", discussion: "" })),
+				origin,
+			);
+			expect(warnings, String(label)).toEqual([
+				'findings[0] gave its label "issue" as its severity, so it was read as the label.',
+			]);
+			expect(findings[0]?.discussion, `${String(label)}: nothing added`).toBe(
+				"",
+			);
+		}
+	});
+
+	it("reads location kind change as the change, and says so", () => {
+		// "change" is the anchor's own subject for the whole change, not
+		// the contract's word, so a judge that writes it is told.
 		const { findings, warnings } = harvestFindings(
 			answer(wire({ location: { kind: "change" } })),
 			origin,
 		);
 
 		expect(findings[0]?.anchor, "the change").toEqual({ subject: "change" });
-		expect(warnings, "nothing to warn of").toEqual([]);
+		expect(warnings, "said").toEqual([
+			'findings[0] has location kind "change", so it was read as global.',
+		]);
 	});
 
 	it("reads a file given beside the subject as the file", () => {
@@ -411,12 +513,52 @@ describe("where a finding points", () => {
 			subject: "file",
 			path: "lib/b.ts",
 		});
-		expect(warnings, "nothing lost, so nothing said").toEqual([]);
+		expect(warnings, "said").toEqual([
+			"findings[0] gave its file beside its subject rather than in a location, so it was read from there.",
+		]);
+	});
+
+	it("reads a range and its side given beside the subject", () => {
+		const { findings } = harvestFindings(
+			answer(
+				wire({
+					location: undefined,
+					file: "lib/b.ts",
+					start: 10,
+					end: 14,
+					side: "old",
+				}),
+			),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the range on the old side").toEqual({
+			subject: "line",
+			path: "lib/b.ts",
+			blob: "old",
+			line: 14,
+			startLine: 10,
+		});
+	});
+
+	it("says a line given beside the subject it couldn't read", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ location: undefined, file: "lib/b.ts", line: "127" })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the file").toMatchObject({
+			subject: "file",
+			path: "lib/b.ts",
+		});
+		expect(warnings[1], "the line said lost").toContain(
+			"line finding with no line",
+		);
 	});
 
 	it("keeps a location over a file given beside it", () => {
-		const { findings } = harvestFindings(
-			answer(wire({ file: "lib/elsewhere.ts" })),
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ file: "lib/elsewhere.ts", line: 9 })),
 			origin,
 		);
 
@@ -424,6 +566,7 @@ describe("where a finding points", () => {
 			subject: "file",
 			path: "lib/a.ts",
 		});
+		expect(warnings, "nothing read from beside it").toEqual([]);
 	});
 
 	it("keeps a line finding with no line against the file", () => {
@@ -534,7 +677,7 @@ describe("the optional parts", () => {
 		// The journal keeps what record_finding was handed as it was
 		// handed, so the same reading has to reach it.
 		const said = harvestFindings(answer(), origin);
-		const { findings } = alsoRecorded(
+		const { findings, recordedWarnings } = alsoRecorded(
 			said,
 			[{ severity: "question", file: "lib/c.ts", title: "why twice?" }],
 			origin,
@@ -544,6 +687,11 @@ describe("the optional parts", () => {
 			label: "question",
 			anchor: { subject: "file", path: "lib/c.ts" },
 		});
+		expect(findings[0]?.severity, "no severity read").toBeUndefined();
+		expect(recordedWarnings, "each reading said").toEqual([
+			'recorded[0] gave its label "question" as its severity, so it was read as the label.',
+			"recorded[0] gave its file beside its subject rather than in a location, so it was read from there.",
+		]);
 	});
 
 	it("keeps a confidence inside the range", () => {

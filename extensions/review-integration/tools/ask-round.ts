@@ -224,28 +224,47 @@ export async function findingsOf(
  * Findings as a judge reads them, attribution and all, each part named
  * as its output contract names it: a judge records findings in the
  * shape it was shown them, and shown bare words it once filed the label
- * as a severity and the reviewer as a category.
+ * as a severity and the reviewer as a category. The location and who
+ * raised it are shown in their wire form, side and range included, so
+ * a copy of them is what the harvest reads.
+ *
+ * Only the header starts a line: the subject is kept to one line and
+ * every line of the discussion is indented, so text a reviewer wrote
+ * can't pass for another finding's header.
  */
 export function renderFindings(findings: Finding[]): string {
 	return findings
 		.map((finding) => {
 			const who =
 				finding.origin.kind === "hand" ? "hand" : finding.origin.reviewerId;
-			const where =
-				finding.anchor.subject === "change"
-					? "the change as a whole"
-					: finding.anchor.subject === "file"
-						? finding.anchor.path
-						: `${finding.anchor.path}:${finding.anchor.line}`;
+			const raisedBy = JSON.stringify(finding.raisedBy ?? [who]);
 			const severity =
 				finding.severity === undefined
 					? ""
 					: ` · severity: ${finding.severity}`;
+			const location = JSON.stringify(wireLocation(finding.anchor));
+			const discussion = finding.discussion
+				.split("\n")
+				.map((line) => (line === "" ? line : `  ${line}`))
+				.join("\n");
 			return [
-				`[F${finding.id}] raised by ${who} · label: ${finding.label}${severity} · location: ${where}`,
-				finding.subject,
-				finding.discussion,
+				`[F${finding.id}] raisedBy: ${raisedBy} · label: ${finding.label}${severity} · location: ${location}`,
+				finding.subject.replace(/\s*\n\s*/g, " "),
+				discussion,
 			].join("\n");
 		})
 		.join("\n\n");
+}
+
+/** An anchor as the output contract writes a location. */
+function wireLocation(anchor: Finding["anchor"]): Record<string, unknown> {
+	if (anchor.subject === "change") return { kind: "global" };
+	if (anchor.subject === "file") return { kind: "file", file: anchor.path };
+	return {
+		kind: "line",
+		file: anchor.path,
+		start: anchor.startLine ?? anchor.line,
+		...(anchor.startLine === undefined ? {} : { end: anchor.line }),
+		side: anchor.blob,
+	};
 }
