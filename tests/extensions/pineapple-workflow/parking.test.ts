@@ -24,6 +24,7 @@ function world(initial: Stop[] = []) {
 		parked: [] as Parked[],
 		looked: 0,
 		repos: ["example/shop"],
+		quests: ["QEST-CHILD", "QEST-PARENT"],
 	};
 	const parking = createParking({
 		stops: () => seen.stops,
@@ -31,7 +32,7 @@ function world(initial: Stop[] = []) {
 			seen.looked += 1;
 			return {
 				realm: "work",
-				quests: ["QEST-CHILD", "QEST-PARENT"],
+				quests: seen.quests,
 				repos: seen.repos,
 				dirs: ["/work/shop"],
 			};
@@ -196,6 +197,30 @@ describe("parking", () => {
 			true,
 		);
 		expect(seen.looked, "asked once a minute, not each tick").toBe(2);
+	});
+
+	it("keeps a parked session parked when asking again misses a parent quest", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.started();
+		expect(parking.parked, "the quest stop parked it").toBe(true);
+		seen.quests = ["QEST-CHILD"];
+		for (let tick = 0; tick < 12; tick += 1) await parking.tick();
+		expect(seen.looked, "it was asked again").toBeGreaterThan(1);
+		expect(parking.parked, "a lookup that missed let it go").toBe(true);
+		expect(seen.carried, "and carried on under the stop").toEqual([]);
+	});
+
+	it("lets go where a parked session was once its stop is resumed", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		await parking.started();
+		expect(parking.parked, "the repository stop parked it").toBe(true);
+		seen.repos = ["example/other"];
+		seen.stops = [];
+		await parking.tick();
+		expect(parking.parked, "the resume let it go").toBe(false);
+		seen.stops = [stop("shop-again", ["repo:example/shop"])];
+		await parking.tick();
+		expect(parking.parked, "a stop where it was parked it").toBe(false);
 	});
 
 	it("keeps a parked session parked when a lookup after its own run misses its repository", async () => {

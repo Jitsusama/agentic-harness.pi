@@ -185,7 +185,9 @@ export function createParking(deps: ParkingDeps): Parking {
 			if (!parked) return park(false);
 			const live = await parkers();
 			if (live.length > 0) return note(live);
+			// The stops changed, so where it was kept is let go with them.
 			parked = false;
+			known = undefined;
 			if (!cut) return;
 			cut = false;
 			deps.carryOn(RESUMED_TEXT);
@@ -202,8 +204,8 @@ function widened(was: Session, now: Session): Session {
 		...new Set([...a, ...b]),
 	];
 	return {
-		realm: now.realm ?? was.realm,
-		quests: now.quests.length > 0 ? now.quests : was.quests,
+		realm: was.realm ?? now.realm,
+		quests: both(was.quests, now.quests),
 		repos: both(was.repos, now.repos),
 		dirs: both(was.dirs, now.dirs),
 	};
