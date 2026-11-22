@@ -228,11 +228,16 @@ input pipeline or screen. No unit or running host is installed yet.
   Label naming a pi host), which no systemctl restarts: under the same
   rules it stops as a stop signal would and exits 75, which launchd
   starts again, and only its install and heap move it. A stop signal,
-  even one come while it parks to restart, makes it exit 0, which
-  launchd leaves down. It says as it starts which way it decided, and
-  keeps its Label from its conversations, so a pi-host a tool starts
-  never passes for the job. A Mac has no /proc, so its host reaps no
-  conversation's tool processes, and says so as it starts.
+  even one come while it parks to restart and even a second, makes a
+  stop that parks within its bound exit 0, which launchd leaves down,
+  and the journal says when one cut a restart short. A park so held
+  that the backstop or launchd's own timeout kills it dies by signal,
+  which launchd starts again. It says as it starts which way it
+  decided, and keeps its Label from its conversations, so a pi-host a
+  tool starts never passes for the job. A Mac has no /proc, so what
+  its conversations' tools leave running is never ended, and no
+  carried call is killed on its pid's word alone; it says so as it
+  starts.
 - quiet.ts: the probes a host's restart waits on, from the unit's
   PI_HOST_RESTART_WAITS_ON, a JSON list of `{ "while", "run" }`. A
   probe exiting 1 is clear, as a-call-is-on and a-meeting-is-near

@@ -1284,8 +1284,11 @@ describe("followWhatStarts", () => {
 			restartComing: vi.fn(),
 			stopping: () => false,
 		};
+		// Every host the program starts is given one, a Linux host too.
+		const exitToRestart = vi.fn(async () => undefined);
 		const stop = await followWhatStarts({
 			serving,
+			exitToRestart,
 			background: holds.background ?? (() => 0),
 			...(holds.holding ? { holding: holds.holding } : {}),
 			resting: holds.resting ?? (() => true),
@@ -1302,7 +1305,7 @@ describe("followWhatStarts", () => {
 			heap,
 			timing: { after: timers.after, settledMs: 0 },
 		});
-		return { timers, serving, stop, report };
+		return { timers, serving, stop, report, exitToRestart };
 	}
 
 	async function moveTo(version: string) {
@@ -1313,7 +1316,7 @@ describe("followWhatStarts", () => {
 
 	it("restarts its own unit once the install changes the host's own code", async () => {
 		const { systemctl, calls } = systemd();
-		const { timers, serving, report } = await follow(systemctl);
+		const { timers, serving, report, exitToRestart } = await follow(systemctl);
 		await timers.fire();
 		expect(serving.restartComing).not.toHaveBeenCalled();
 
@@ -1322,6 +1325,10 @@ describe("followWhatStarts", () => {
 
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+		expect(
+			exitToRestart,
+			"a unit restarts through systemctl, never by exiting",
+		).not.toHaveBeenCalled();
 		expect(String(report.mock.calls[0]?.[0])).toContain(
 			"the install's two changes the host's own code",
 		);
@@ -1385,6 +1392,8 @@ describe("followWhatStarts", () => {
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
+			// Linux's, whatever machine runs the tests.
+			launchd: linux,
 			timing: { after: timers.after, ceilingMs: 0 },
 		});
 		await moveTo("two");
@@ -1581,11 +1590,16 @@ describe("followWhatStarts", () => {
 	}
 
 	it("exits to restart as a launchd job once the install changes the host's own code", async () => {
-		// As the program does, the stop ends the following before it answers.
-		const ending: { stop?: () => void } = {};
-		const exits = vi.fn(async () => ending.stop?.());
-		const { timers, serving, calls, report, stop } = await followAsJob(exits);
-		ending.stop = stop;
+		// It answers once the test says the host has parked, and ends no
+		// following itself, so the follow must stop of its own accord.
+		let parked = (): void => undefined;
+		const exits = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					parked = resolve;
+				}),
+		);
+		const { timers, serving, calls, report } = await followAsJob(exits);
 		expect(String(report.mock.calls[0]?.[0])).toBe(
 			"The host follows its install as launchd's job org.jitsusama.pi-host-work-attended, exiting to be started again",
 		);
@@ -1594,6 +1608,11 @@ describe("followWhatStarts", () => {
 
 		await moveTo("two");
 		await timers.fire(() => exits.mock.calls.length > 0);
+
+		parked();
+		// Each turn of the loop settles what the parked exit set going.
+		await new Promise((resolve) => setImmediate(resolve));
+		await new Promise((resolve) => setImmediate(resolve));
 
 		expect(exits).toHaveBeenCalledOnce();
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
@@ -1607,10 +1626,13 @@ describe("followWhatStarts", () => {
 		).toEqual([]);
 	});
 
-	it("follows nothing as a launchd job it can't exit to restart", async () => {
-		const { timers, calls } = await followAsJob();
+	it("follows nothing as a launchd job it can't exit to restart, saying why", async () => {
+		const { timers, calls, report } = await followAsJob();
 		expect(timers.pending()).toEqual([]);
 		expect(calls).toEqual([]);
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"The host follows nothing: it is launchd's job org.jitsusama.pi-host-work-attended but has no way to exit to be started again",
+		);
 	});
 
 	it("follows nothing on a Mac launchd doesn't run as its job, saying why", async () => {

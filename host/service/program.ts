@@ -250,14 +250,7 @@ export async function startHostProgram(
 	if (child) return { ...run, ending: child.life.ending };
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
-	let restarts = false;
-	// launchd starts a Mac's host again once it exits with a failure. The
-	// follow waits on the stop, which is `stopped`, and the program's caller
-	// reports its failure.
-	const exitToRestart = () => {
-		restarts = true;
-		return run.stop();
-	};
+	const { exitToRestart, restarts } = restartingByExit(run, report);
 	const unfollow = await followWhatStarts({
 		serving: run.serving,
 		exitToRestart,
@@ -292,8 +285,35 @@ export async function startHostProgram(
 		return () => undefined;
 	});
 	run.stopped.then(unfollow, unfollow);
-	// A stop signal, even one come while it parks to restart, keeps it down.
-	return { ...run, restarts: () => restarts && !run.signalled() };
+	return { ...run, restarts };
+}
+
+/**
+ * How a launchd job's host restarts itself: it stops as a stop signal
+ * would, answering once parked, and exits for launchd to start it again.
+ * A stop signal, even one come while it parks to restart, keeps it down,
+ * and the journal says so, since its viewers were told it restarts. The
+ * program's caller reports a failed stop.
+ */
+export function restartingByExit(
+	run: Pick<HostRun, "stop" | "signalled">,
+	report: (said: string) => void,
+): {
+	readonly exitToRestart: () => Promise<void>;
+	readonly restarts: () => boolean;
+} {
+	let asked = false;
+	return {
+		exitToRestart: async () => {
+			asked = true;
+			await run.stop();
+			if (run.signalled())
+				report(
+					"A stop signal came while the host stopped to restart, so it stays down",
+				);
+		},
+		restarts: () => asked && !run.signalled(),
+	};
 }
 
 /**

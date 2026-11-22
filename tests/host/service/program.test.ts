@@ -18,6 +18,7 @@ import {
 	HostMisconfigured,
 	hostPackageDir,
 	nameViewerTerminal,
+	restartingByExit,
 	sayHostRuns,
 	startHostProgram,
 	startupQuestions,
@@ -78,6 +79,71 @@ describe("exitStatusOf", () => {
 		expect(exitStatusOf({ failed: false, restarts: false })).toBe(0);
 		expect(exitStatusOf({ failed: true, restarts: true })).toBe(1);
 		expect(exitStatusOf({ failed: true, restarts: false })).toBe(1);
+	});
+});
+
+/** A host run whose stop ends when the test says, and whose signals the test sends. */
+function runToStop() {
+	let signalled = false;
+	let end = (): void => undefined;
+	const stopped = new Promise<void>((resolve) => {
+		end = resolve;
+	});
+	const stop = vi.fn(() => stopped);
+	return {
+		run: { stop, signalled: () => signalled },
+		signal: () => {
+			signalled = true;
+		},
+		end,
+		stop,
+	};
+}
+
+describe("restartingByExit", () => {
+	it("exits to be started again once a restart it asked for has parked", async () => {
+		const host = runToStop();
+		const report = vi.fn();
+		const { exitToRestart, restarts } = restartingByExit(host.run, report);
+		const exiting = exitToRestart();
+		expect(host.stop, "the restart stops the host").toHaveBeenCalledOnce();
+		host.end();
+		await exiting;
+		expect(restarts(), "it asks launchd to start it again").toBe(true);
+		expect(report).not.toHaveBeenCalled();
+	});
+
+	it("stays down when a stop signal comes while its restart parks, and says so", async () => {
+		const host = runToStop();
+		const report = vi.fn();
+		const { exitToRestart, restarts } = restartingByExit(host.run, report);
+		const exiting = exitToRestart();
+		host.signal();
+		host.end();
+		await exiting;
+		expect(restarts(), "an operator's stop keeps it down").toBe(false);
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"A stop signal came while the host stopped to restart, so it stays down",
+		);
+	});
+
+	it("stays down when a stop signal came before it asked to restart", async () => {
+		const host = runToStop();
+		const { exitToRestart, restarts } = restartingByExit(host.run, vi.fn());
+		host.signal();
+		const exiting = exitToRestart();
+		host.end();
+		await exiting;
+		expect(restarts(), "the signal's stop keeps it down").toBe(false);
+	});
+
+	it("stays down on a stop signal alone", () => {
+		const host = runToStop();
+		const { restarts } = restartingByExit(host.run, vi.fn());
+		host.signal();
+		host.end();
+		expect(restarts(), "nothing asked it to restart").toBe(false);
+		expect(host.stop, "nothing else stopped it").not.toHaveBeenCalled();
 	});
 });
 

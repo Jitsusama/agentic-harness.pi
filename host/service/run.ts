@@ -150,7 +150,7 @@ export interface HostRunOptions {
 	/** What a second conversation must pass; serve's rollout gate by default. */
 	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
-	signals?: { once(signal: string, listener: () => void): unknown };
+	signals?: { on(signal: string, listener: () => void): unknown };
 	/**
 	 * Says the host is ready, with its status; by default systemd's notify,
 	 * said again until the unit reads active.
@@ -315,7 +315,7 @@ export function hostKind(argv: readonly string[]): HostKind {
 	throw new Error("Usage: pi-host attended|background");
 }
 
-/** Start a host for this process and stop it on the first stop signal. */
+/** Start a host for this process and stop it on a stop signal. */
 export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const { child } = options;
 	const kind = child ? child.slot.kind : hostKind(options.argv);
@@ -534,8 +534,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		stopAsked = () => {
 			stop().then(resolve, reject);
 		};
+		// Heard for as long as the host lives: a second signal while it
+		// parks rejoins the stop, where node's own default would kill it
+		// by signal, which launchd starts again.
 		for (const signal of STOP_SIGNALS)
-			signals.once(signal, () => {
+			signals.on(signal, () => {
 				signalled = true;
 				stopAsked();
 			});

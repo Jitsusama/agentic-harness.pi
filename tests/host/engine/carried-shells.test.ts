@@ -120,6 +120,34 @@ describe("carried shells", () => {
 		return JSON.parse(readFileSync(join(stateDir, KEPT_FILE), "utf8"));
 	}
 
+	it("never kills a carried call's group by its pid alone where there is no process table, as on a Mac", () => {
+		// pid 1 is there and its environment unreadable, so the pid alone
+		// would say it is still the call.
+		const due: KeptCall = {
+			session: "s1",
+			job: "j1",
+			label: "make test",
+			at: 0,
+			work: shell("m1", { pid: 1 }),
+		};
+		now = STRAY_FOR_MS + 1;
+		const write = () =>
+			writeFileSync(join(stateDir, KEPT_FILE), `${JSON.stringify([due])}\n`);
+		// The host's own judgement of running, not this file's stand-in.
+		write();
+		make({ running: undefined }).look(() => false);
+		expect(stopped, "where /proc is, the pid and its mark say").toHaveLength(1);
+
+		stopped = [];
+		write();
+		make({
+			running: undefined,
+			table: { ...table({}), absent: () => true, pids: () => [] },
+		}).look(() => false);
+		expect(stopped, "no group is killed on a pid's word alone").toEqual([]);
+		expect(kept(), "the record is let go").toEqual([]);
+	});
+
 	it("keeps nothing where there is no jobs cgroup", () => {
 		expect(
 			make({ jobs: "" }).keeps,

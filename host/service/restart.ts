@@ -728,6 +728,11 @@ interface Supervisor {
 	changed(): Promise<string | undefined>;
 	/** Ask for the host to be started again. */
 	restart(): Promise<void>;
+	/**
+	 * Whether its restart answers only once the host has stopped, so
+	 * nothing is left to follow; systemd's answers once it is queued.
+	 */
+	readonly exits?: boolean;
 }
 
 /**
@@ -742,14 +747,19 @@ async function supervisorOf(
 	const job = ownLaunchdJob(launchd);
 	if (job !== undefined) {
 		const exit = options.exitToRestart;
-		if (exit === undefined) return undefined;
+		if (exit === undefined) {
+			options.report(
+				`The host follows nothing: it is launchd's job ${job} but has no way to exit to be started again`,
+			);
+			return undefined;
+		}
 		options.report(
 			`The host follows its install as launchd's job ${job}, exiting to be started again`,
 		);
 		return {
 			changed: async () => undefined,
-			// Answered once parked, so no wait for systemd's start is armed.
 			restart: () => exit(),
+			exits: true,
 		};
 	}
 	// A Mac's host that isn't its job would run its old code unsaid.
@@ -859,6 +869,9 @@ export async function followWhatStarts(
 					`Restarting ${restartedUnder(under, settledMs)}, as ${as}`,
 				);
 				await supervisor.restart();
+				// A host that exits to restart has parked by now, so it follows
+				// nothing more and arms no wait for systemd's start.
+				if (supervisor.exits) unfollow();
 			},
 			report: options.report,
 			now: Date.now,

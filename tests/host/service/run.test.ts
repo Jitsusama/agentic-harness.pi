@@ -728,20 +728,49 @@ describe("runHost", () => {
 	});
 
 	// A `launchctl stop` while a Mac's host parks to restart keeps it down.
-	it("remembers a stop signal that comes while a stop it asked of itself parks", async () => {
+	it("remembers a stop signal that comes while a stop it asked of itself parks, and hears a second", async () => {
 		const signals = new EventEmitter();
+		// The stop's status holds until the test lets it go, so both signals
+		// come while the stop is under way, not before it began.
+		let letGo = (): void => undefined;
+		const held = new Promise<void>((resolve) => {
+			letGo = resolve;
+		});
+		const told: string[] = [];
 		const run = await runHost({
 			argv: ["background"],
 			env: env(),
 			engine,
 			signals,
 			ready: async () => {},
+			status: async (_env, now) => {
+				told.push(now);
+				if (now.startsWith("stopping")) await held;
+			},
 			say: () => {},
 			report: () => {},
 			places: places(),
 		});
+		await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
 		const stopping = run.stop();
+		await vi.waitFor(() => {
+			expect(told, "the stop is under way").toContain(
+				"stopping, parking 1 conversation",
+			);
+		});
 		signals.emit("SIGTERM");
+		expect(
+			signals.listenerCount("SIGTERM"),
+			"a second stop signal is still heard, so node's default never kills the host by it",
+		).toBeGreaterThan(0);
+		signals.emit("SIGTERM");
+		letGo();
 		await stopping;
 		await run.stopped;
 		expect(run.signalled(), "the signal came during the stop").toBe(true);

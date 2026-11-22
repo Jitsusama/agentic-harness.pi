@@ -37,7 +37,7 @@
  * read it 81 times, about 14 MB each, and its reaps grew from half a
  * second each to six.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
 	type CarriedCalls,
@@ -93,6 +93,11 @@ export interface ProcessTable {
 	started(pid: number): number | undefined;
 	/** Kill a whole group, or one process when the group is this one's own. */
 	kill(target: { group: number } | { pid: number }): void;
+	/**
+	 * Whether the machine keeps no such table at all, as a Mac keeps no
+	 * /proc; a table that says nothing keeps one.
+	 */
+	absent?(): boolean;
 }
 
 /** What was killed: whole groups, and lone processes in the host's own group. */
@@ -121,8 +126,10 @@ export function conversationMarker(
 
 /**
  * This process's mark as an owner: its pid and the tick it started at.
- * Where the table lists no process, as on a Mac, no reap reads the mark
- * back, so it takes the moment this process began, in milliseconds.
+ * Where the machine keeps no table, as a Mac keeps no /proc, no reap
+ * reads the mark back, so it takes the moment this process began, in
+ * milliseconds. A table that is there but can't say, as an empty /proc
+ * on Linux, refuses it.
  */
 export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 	const started = table.started(table.self);
@@ -133,13 +140,31 @@ export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 }
 
 /**
- * Whether a table lists any process at all: Linux's always holds this
- * one, and a Mac's, with no /proc, none, so nothing is ever reaped there.
+ * Whether the machine keeps a process table at all: Linux keeps /proc,
+ * and a Mac none, so nothing is ever reaped there. An empty /proc still
+ * counts as one, so its host refuses to start rather than reap nothing.
  */
 export function readsProcesses(
 	table: ProcessTable = linuxProcessTable(),
 ): boolean {
-	return table.pids().length > 0;
+	return !(table.absent?.() ?? false);
+}
+
+/**
+ * This process's owner mark as its host starts, saying once, where the
+ * machine keeps no process table, that nothing its conversations' tools
+ * leave running is ever ended.
+ */
+export function markAsOwner(
+	report: (said: string) => void,
+	table: ProcessTable = linuxProcessTable(),
+): string {
+	const mark = ownerMark(table);
+	if (!readsProcesses(table))
+		report(
+			"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it",
+		);
+	return mark;
 }
 
 /** What reaping looks for: the text a marked environment holds, and the exact test it must pass. */
@@ -359,8 +384,8 @@ async function markedWhere(
 
 /**
  * The process table Linux keeps under /proc. Where there is none, as on a
- * Mac, it lists no process, so a sweep reaps nothing rather than failing
- * the host's start.
+ * Mac, it says it is absent and lists no process, so a sweep reaps
+ * nothing rather than failing the host's start.
  */
 export function linuxProcessTable(root = "/proc"): ProcessTable {
 	const stat = (pid: number): string | undefined => {
@@ -373,6 +398,21 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 	};
 	return {
 		self: process.pid,
+		absent: () => {
+			try {
+				statSync(root);
+				return false;
+			} catch (error) {
+				// Only no /proc at all is a machine without one; anything else throws.
+				if (
+					error instanceof Error &&
+					"code" in error &&
+					error.code === "ENOENT"
+				)
+					return true;
+				throw error;
+			}
+		},
 		pids: () => {
 			let names: string[];
 			try {
