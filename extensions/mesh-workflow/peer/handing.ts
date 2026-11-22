@@ -115,7 +115,8 @@ export function createHanding(m: MeshState) {
 	 * (start.ts) rather than going nowhere; with no event, what waited is
 	 * told. Each is kept with the quest it ended under, and told only while
 	 * the session is still on it, since the hub of a quest it moved to
-	 * would hear of work that is not under it.
+	 * would hear of work that is not under it. It never throws: its caller
+	 * on the bus still has the talk and the person's looks to close.
 	 */
 	const tellConcluded = (event?: ConcludedEvent) => {
 		const quest = m.peer?.quest;
@@ -129,18 +130,24 @@ export function createHanding(m: MeshState) {
 			return;
 		}
 		m.endingsUntold = waiting.filter((one) => one.quest === quest);
-		for (const one of [...m.endingsUntold]) {
-			const message = tellOrchestrator(
-				m.peer,
-				above,
-				m.transport,
-				one.event,
-				m.presences.all(),
-			);
-			// Taken off only once told, so a tell that throws leaves it and
-			// the rest for the next find.
-			m.endingsUntold = m.endingsUntold.slice(1);
-			if (message) m.seen.add(message.id);
+		try {
+			for (const one of [...m.endingsUntold]) {
+				const message = tellOrchestrator(
+					m.peer,
+					above,
+					m.transport,
+					one.event,
+					m.presences.all(),
+				);
+				// Taken off only once told, so a tell that throws leaves it and
+				// the rest kept.
+				m.endingsUntold = m.endingsUntold.slice(1);
+				if (message) m.seen.add(message.id);
+			}
+		} catch {
+			// A mesh that can't be written to now, as a full or read-only
+			// messages folder: what is left stays kept and is told with the
+			// next ending or the next find that keeps a hub.
 		}
 	};
 

@@ -523,16 +523,21 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(everyText()).not.toContain("PLAN-20261021-BBBBBB");
 	}, 15_000);
 
-	it("keeps the endings a failed tell left, and tells them with the next", async () => {
+	it("keeps only the newest ten endings while nobody is kept to tell", async () => {
 		onQuest();
 		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
 		let asks = 0;
+		let answer = () => {};
 		const env = await node(
 			[asker, { key: "cell:5GV2AH" }],
 			[tieTo("5GV2AH", 2)],
 			() => {
 				asks += 1;
-				return asks === 1 ? new Promise(() => {}) : Promise.resolve();
+				return asks === 1
+					? new Promise<void>((resolve) => {
+							answer = resolve;
+						})
+					: Promise.resolve();
 			},
 		);
 		const started = await startSession(
@@ -546,29 +551,73 @@ describe("orchestrator, on a quest with no mark", () => {
 			{ every: 600_000, retry: 100, spread: () => 0 },
 		);
 		await vi.waitFor(() => expect(asks).toBe(1));
-		started.emit(QUEST_CONCLUDED, ending("CCCCCC"));
-		started.emit(QUEST_CONCLUDED, ending("DDDDDD"));
-		const messages = join(fixture.paths.mesh, "messages");
-		mkdirSync(messages, { recursive: true });
-		chmodSync(messages, 0o555);
-		try {
-			await vi.waitFor(() => expect(asks).toBe(2), {
-				timeout: TIES_PATIENCE_MS + 3_000,
-			});
-			// The find that kept the hub tells what waited as soon as the
-			// node answers it; a moment lets that tell fail on the folder.
-			await new Promise((resolve) => setTimeout(resolve, 300));
-		} finally {
-			chmodSync(messages, 0o755);
-		}
+		const ids = Array.from(
+			{ length: 11 },
+			(_, at) => `${String.fromCharCode(65 + at)}AAAAA`,
+		);
+		for (const id of ids) started.emit(QUEST_CONCLUDED, ending(id));
 
-		started.emit(QUEST_CONCLUDED, ending("EEEEEE"));
+		answer();
 
+		await vi.waitFor(
+			() => expect(everyText()).toContain(`PLAN-20261021-${ids[10]} concluded`),
+			{ timeout: TIES_PATIENCE_MS + 3_000 },
+		);
 		const told = everyText();
-		for (const id of ["CCCCCC", "DDDDDD", "EEEEEE"]) {
+		expect(told).not.toContain(`PLAN-20261021-${ids[0]}`);
+		for (const id of ids.slice(1)) {
 			expect(told).toContain(`PLAN-20261021-${id} concluded`);
 		}
 	}, 15_000);
+
+	// Root writes through a read-only folder, so the tell would not fail.
+	it.skipIf(process.getuid?.() === 0)(
+		"keeps the endings a failed tell left, without failing the ending's own listener, and tells them with the next",
+		async () => {
+			onQuest();
+			cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+			const env = await node(
+				[asker, { key: "cell:5GV2AH" }],
+				[tieTo("5GV2AH", 2)],
+			);
+			const started = await startSession(
+				env,
+				{},
+				[],
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ every: 600_000, retry: 100, spread: () => 0 },
+			);
+			await vi.waitFor(() => {
+				started.emit(QUEST_CONCLUDED, ending("AAAAAA"));
+				expect(everyText()).toContain("PLAN-20261021-AAAAAA concluded");
+			});
+			const messages = join(fixture.paths.mesh, "messages");
+			chmodSync(messages, 0o555);
+			try {
+				expect(() => {
+					started.emit(QUEST_CONCLUDED, ending("CCCCCC"));
+					started.emit(QUEST_CONCLUDED, ending("DDDDDD"));
+				}).not.toThrow();
+				expect(
+					everyText(),
+					"no tell got through the locked folder",
+				).not.toContain("PLAN-20261021-CCCCCC");
+			} finally {
+				chmodSync(messages, 0o755);
+			}
+
+			started.emit(QUEST_CONCLUDED, ending("EEEEEE"));
+
+			const told = everyText();
+			for (const id of ["CCCCCC", "DDDDDD", "EEEEEE"]) {
+				expect(told).toContain(`PLAN-20261021-${id} concluded`);
+			}
+		},
+		15_000,
+	);
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {
 		onQuest();

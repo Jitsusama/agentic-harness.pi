@@ -301,19 +301,24 @@ describe("a kept hub", () => {
 	it("waits a plain retry after each find that threw, not longer each time", async () => {
 		vi.useFakeTimers();
 		try {
-			const { at, asked } = onMesh(async () => {
+			const { at } = onMesh(async () => []);
+			const read = vi.fn(() => {
 				throw new Error("a presence half written");
 			});
 
-			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+			keep(
+				{ ...at, presences: { ...at.presences, all: read } },
+				{ every: NEVER_AGAIN_MS, retry: 50, spread: EXACT },
+			);
 
-			// Asked at once, then 50 ms after each failure.
-			await vi.advanceTimersByTimeAsync(50);
-			expect(asked).toHaveBeenCalledTimes(2);
-			await vi.advanceTimersByTimeAsync(50);
-			expect(asked).toHaveBeenCalledTimes(3);
-			await vi.advanceTimersByTimeAsync(50);
-			expect(asked).toHaveBeenCalledTimes(4);
+			// Read at once, then 50 ms after each failure.
+			await vi.advanceTimersByTimeAsync(0);
+			const first = read.mock.calls.length;
+			expect(first).toBeGreaterThan(0);
+			for (const finds of [2, 3, 4]) {
+				await vi.advanceTimersByTimeAsync(50);
+				expect(read).toHaveBeenCalledTimes(first * finds);
+			}
 		} finally {
 			vi.useRealTimers();
 		}

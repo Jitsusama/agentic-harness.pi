@@ -221,7 +221,8 @@ export type HubTiming = Pick<HubKeeping, "every" | "retry" | "spread">;
  * The most a wait is lengthened by, as a share of it: enough that a
  * host's sessions, restored in one go, stop asking the node in step
  * within a few finds, while a hub is still found within about six
- * minutes at the slowest.
+ * minutes at the slowest. Each keeping's first find asks at once, so
+ * sessions restored together ask in step that once.
  */
 const HUB_SPREAD = 0.2;
 
