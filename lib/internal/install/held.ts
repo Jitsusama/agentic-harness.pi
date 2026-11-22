@@ -17,9 +17,16 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+	appendFileSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { getParentPiInstall } from "../../subagent/install.ts";
+import { isStaleContext } from "../errors/stale.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
 
@@ -210,28 +217,62 @@ export interface SaidOnce {
 }
 
 /**
+ * A fault for {@link sayHeldOnce} that keeps each as a JSON line in
+ * `log`, so a note that never showed is found rather than hidden.
+ */
+export function faultsInto(log: string): (error: unknown) => void {
+	return (error) => {
+		const why =
+			error instanceof Error ? (error.stack ?? error.message) : String(error);
+		try {
+			mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+			appendFileSync(
+				log,
+				`${JSON.stringify({ at: new Date().toISOString(), why })}\n`,
+			);
+		} catch {
+			// Nowhere to keep it: the note stays unsaid, and the next session tries.
+		}
+	};
+}
+
+/** The key of the process-wide flag saying the note was said. */
+export const HELD_SAID = "pi.install.held.said";
+
+/** How a note is said: what to tell of a fault, and the said-once flag. */
+export interface SayingHeld {
+	/** Told of any failure other than a replaced session's. */
+	readonly fault?: (error: unknown) => void;
+	/** Whether the note was said; the process's own unless given. */
+	readonly once?: SaidOnce;
+}
+
+/**
  * Say once in this process, where the person sees it, what the hold
  * missed. The hold resolves after the session that asked may have been
  * replaced, and a replaced session's context throws on every read, its
- * `hasUI` included; such a session says nothing, and the next one
- * says the note instead, so a replacement never fails the call.
+ * `hasUI` included; such a session says nothing, and the next one with
+ * a screen says the note instead. A session with no screen leaves it
+ * for the next too. Any other failure leaves the note unsaid and goes
+ * to `fault`, so the call never rejects: its caller lets it go
+ * unwatched, and in a host nothing would catch it.
  */
 export async function sayHeldOnce(
 	held: Promise<Held>,
 	screen: NoteScreen,
-	once: SaidOnce = processGlobal("pi.install.held.said", () => ({
-		said: false,
-	})),
+	saying: SayingHeld = {},
 ): Promise<void> {
-	const note = heldNote(await held);
-	if (note === undefined || once.said) return;
+	const once =
+		saying.once ?? processGlobal<SaidOnce>(HELD_SAID, () => ({ said: false }));
 	try {
-		if (!screen.hasUI) return;
+		const note = heldNote(await held);
+		if (note === undefined || once.said || !screen.hasUI) return;
 		once.said = true;
 		screen.ui.notify(note, "warning");
-	} catch {
-		// The session was replaced while the hold ran: the next one says it.
+	} catch (error) {
 		once.said = false;
+		// A replaced session's is expected, and the next session says it.
+		if (!isStaleContext(error)) saying.fault?.(error);
 	}
 }
 

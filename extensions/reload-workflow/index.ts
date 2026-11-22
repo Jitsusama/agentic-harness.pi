@@ -36,6 +36,7 @@ import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
 import { askedSandbox } from "../../lib/internal/fence/fence-stage.ts";
 import {
+	faultsInto,
 	holdRunningInstall,
 	sayHeldOnce,
 } from "../../lib/internal/install/held.ts";
@@ -134,7 +135,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
-		void sayHeldOnce(held, ctx);
+		void sayHeldOnce(held, ctx, {
+			fault: faultsInto(
+				join(stateDir("reload-workflow"), "held-note-faults.jsonl"),
+			),
+		});
 		// A session this process rolled away from, started again, follows
 		// nothing: on 3 November one ran code older than the install, so it
 		// saw a move every 30 seconds and reloaded the live session each
