@@ -4,10 +4,12 @@
 
 import {
 	existsSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -16,11 +18,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	askWake,
+	clearEase,
 	clearOutlivedParks,
 	clearParked,
+	EASE_LASTS_MS,
+	EASE_SKEW_MS,
+	easePath,
 	heldDirectly,
 	holderFiles,
 	holderRecord,
+	isEased,
 	isParked,
 	NAMED_PARK_AFTER_MS,
 	noteWake,
@@ -33,6 +40,7 @@ import {
 	readParked,
 	type Stillness,
 	sweepWakes,
+	switchOff,
 	WAKES_KEPT_MS,
 	wakesPath,
 	whyNotPark,
@@ -127,6 +135,126 @@ describe("whether a session parks, and after how long", () => {
 	it("never parks where the environment keeps it out", () => {
 		const path = switchSays("on", "s-1");
 		expect(parkAfterMs("s-1", { PI_PARK: "off" }, path)).toBeUndefined();
+	});
+
+	// 22 November: the node eases a machine that reads over by asking its
+	// idle sessions to park soon, without editing the switch every session
+	// shares (KP0L6A [1b7b2cd5]).
+	it("says a session its ease file names is asked to ease, beside the switch, and no other", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(
+			easePath("s-1", folder),
+			`${JSON.stringify({ at: "2026-11-22T07:00:00Z", why: "memory" })}\n`,
+		);
+		expect(isEased("s-1", folder)).toBe(true);
+		expect(isEased("s-2", folder)).toBe(false);
+		expect(isEased("", folder), "no session, no ask").toBe(false);
+		// The ask is read by the watch beside the switch's rule, never folded
+		// into it: an eased session the switch leaves out still reads as
+		// left out here, so a plain pi or a viewed one keeps the switch's say.
+		expect(
+			parkAfterMs("s-1", {}, switchSays()),
+			"the switch's rule stays the switch's",
+		).toBeUndefined();
+	});
+
+	it("lets an ask nobody wrote again in half an hour lapse", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		const written = Date.parse("2026-11-22T07:00:00Z");
+		utimesSync(easePath("s-1", folder), written / 1000, written / 1000);
+		expect(isEased("s-1", folder, written + EASE_LASTS_MS), "at its end").toBe(
+			true,
+		);
+		expect(
+			isEased("s-1", folder, written + EASE_LASTS_MS + 1),
+			"past its end",
+		).toBe(false);
+	});
+
+	// A clock stepped back, or a copy that kept its times, dates an ask
+	// ahead of now; counted, it would never lapse (#1976 F46), and kept,
+	// it would count once the clock caught up (F55).
+	it("counts no ask dated ahead of now past a clock's skew, and takes it back", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		const written = Date.parse("2026-11-22T07:00:00Z");
+		utimesSync(easePath("s-1", folder), written / 1000, written / 1000);
+		expect(
+			isEased("s-1", folder, written - EASE_SKEW_MS),
+			"within the skew",
+		).toBe(true);
+		expect(
+			isEased("s-1", folder, written - EASE_SKEW_MS - 1),
+			"past the skew",
+		).toBe(false);
+		expect(
+			isEased("s-1", folder, written),
+			"not once the clock catches up",
+		).toBe(false);
+		expect(existsSync(easePath("s-1", folder)), "taken back").toBe(false);
+	});
+
+	// A link to a file written all the time would never lapse (F71).
+	it("takes only a regular file as an ask, no link or folder", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(join(folder, "fresh"), "{}\n");
+		symlinkSync(join(folder, "fresh"), easePath("s-1", folder));
+		mkdirSync(easePath("s-2", folder));
+		linkSync(join(folder, "fresh"), easePath("s-3", folder));
+		expect(isEased("s-1", folder), "a link").toBe(false);
+		expect(isEased("s-2", folder), "a folder").toBe(false);
+		expect(isEased("s-3", folder), "a hard link").toBe(false);
+	});
+
+	it("reads and clears only a file of the session's own in the ease folder", () => {
+		mkdirSync(join(folder, "ease", "a"), { recursive: true });
+		writeFileSync(join(folder, "elsewhere"), "{}\n");
+		// A file a session `a/b` would reach, unguarded, below the folder.
+		writeFileSync(join(folder, "ease", "a", "b"), "{}\n");
+		for (const session of ["../elsewhere", "..", ".", "a/b", ""]) {
+			expect(isEased(session, folder), session).toBe(false);
+			clearEase(session, folder);
+		}
+		expect(existsSync(join(folder, "elsewhere")), "nothing outside").toBe(true);
+		expect(
+			existsSync(join(folder, "ease", "a", "b")),
+			"nothing below another's name",
+		).toBe(true);
+		// Pinned by the cases above; removing a folder without `recursive`
+		// is refused anyway, so this alone would pin no guard (F53, F57).
+		expect(existsSync(join(folder, "ease")), "nor the folder").toBe(true);
+	});
+
+	it("says the switch is off only by a line of its own", () => {
+		expect(switchOff(switchSays("off"))).toBe(true);
+		expect(switchOff(switchSays("on", "off", "s-1"))).toBe(true);
+		expect(switchOff(switchSays("on"))).toBe(false);
+		expect(switchOff(switchSays("  off  ")), "padded").toBe(true);
+		expect(
+			switchOff(switchSays("# off for the night", "offline")),
+			"off within a line",
+		).toBe(false);
+		expect(switchOff(switchSays())).toBe(false);
+		expect(switchOff(join(folder, "none")), "no switch").toBe(false);
+	});
+
+	// The one kill switch for asks fails shut: a switch there that this
+	// account can't read may say off (#1976 F49). One rewritten in place
+	// reads empty for a moment, which no read can tell from empty.
+	it("takes a switch that is there but can't be read as off", () => {
+		const unreadable = join(folder, "a-folder");
+		mkdirSync(unreadable);
+		expect(switchOff(unreadable)).toBe(true);
+	});
+
+	it("stops easing a session once its ease file is cleared, and clears none twice", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		clearEase("s-1", folder);
+		expect(existsSync(easePath("s-1", folder))).toBe(false);
+		expect(isEased("s-1", folder)).toBe(false);
+		expect(() => clearEase("s-1", folder)).not.toThrow();
 	});
 });
 
