@@ -3,7 +3,10 @@
  * and whole beside the call's files, sparing it from every reaper while
  * its shell runs within its time limit and a day, read back only for
  * its own session when its pi has gone and it can be taken up, and gone
- * with the call's other files or when taken back.
+ * with the call's other files or when taken back. Long because each
+ * case of taking a record back is one more way the disk can stand as it
+ * goes, held and refused through the one disk stand-in at the top, which
+ * a split would copy into every file.
  */
 
 import {
