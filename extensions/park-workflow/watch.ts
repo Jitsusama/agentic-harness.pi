@@ -15,13 +15,13 @@ import {
 	clearEase,
 	clearOutlivedParks,
 	clearParked,
+	EASED_PARK_AFTER_MS,
 	flagsLost,
 	heldDirectly,
 	holderCommand,
 	holderRecord,
 	isEased,
 	isRestartAsk,
-	NAMED_PARK_AFTER_MS,
 	noteWake,
 	OLD_PARK_AFTER_MS,
 	OLD_PI_MS,
@@ -39,6 +39,7 @@ import {
 	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
+	switchOff,
 	tellHolderSteers,
 	WAKE_ENV,
 	whyNotPark,
@@ -188,11 +189,11 @@ export interface Watch {
 	 */
 	endedItsProcess(): boolean;
 	/**
-	 * Stop watching, as the session ends: `closing` when it ends for good
-	 * or parks, rather than reloading, which takes back any ask to park
-	 * soon, since it has been answered.
+	 * Stop watching, as the session ends. An ask to park soon stays: a
+	 * host's stop and a reload both go on as the same conversation, and an
+	 * ask nobody answers lapses on its own.
 	 */
-	stop(closing?: boolean): void;
+	stop(): void;
 }
 
 /** What a watch is given, beyond the session. */
@@ -516,8 +517,9 @@ export function watch(
 			// asked to ease or not.
 			if (hosted()?.viewed?.(session) === true) return usual;
 			// Asked to ease while its machine reads over, nobody watching, it
-			// parks as soon as one the switch names, whatever the switch says.
-			if (isEased(session, options.switchPath)) return NAMED_PARK_AFTER_MS;
+			// parks two minutes idle, unless the switch says `off`.
+			if (!switchOff(options.switchPath) && isEased(session, folder, now()))
+				return EASED_PARK_AFTER_MS;
 			if (usual === undefined) return usual;
 			// Nobody watches a background conversation wake, and what it holds
 			// goes as it parks: its own process in a child, its share of the
@@ -737,11 +739,10 @@ export function watch(
 		look,
 		restartInto,
 		endedItsProcess: () => endedProcess,
-		stop(closing = false) {
+		stop() {
 			unasked();
 			clearInterval(clock);
 			note(undefined);
-			if (closing) clearEase(session, folder);
 		},
 	};
 }

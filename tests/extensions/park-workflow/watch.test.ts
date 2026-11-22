@@ -13,6 +13,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +31,8 @@ import {
 import {
 	awakePath,
 	BACKGROUND_PARK_AFTER_MS,
+	EASE_LASTS_MS,
+	EASED_PARK_AFTER_MS,
 	easePath,
 	flagsLost,
 	isParkAsk,
@@ -1210,7 +1213,7 @@ describe("why a session stays awake", () => {
 	// 22 November: the node asks idle sessions to park soon while its
 	// machine reads over, through a file of their own rather than the
 	// switch every session shares (KP0L6A [1b7b2cd5]).
-	it("parks a background conversation asked to ease after two minutes, whatever the switch says, taking the ask back as it parks", () => {
+	it("parks a background conversation asked to ease after two minutes unless the switch says off, taking the ask back as it parks", () => {
 		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
 		const eased = () => existsSync(easePath(SESSION, folder));
 		const parksAfter = (
@@ -1237,14 +1240,20 @@ describe("why a session stays awake", () => {
 				clock = 0;
 				const watched = watching(session(), env, [], platform);
 				for (const at of [
-					NAMED_PARK_AFTER_MS - 1,
-					NAMED_PARK_AFTER_MS,
+					EASED_PARK_AFTER_MS - 1,
+					EASED_PARK_AFTER_MS,
+					BACKGROUND_PARK_AFTER_MS - 1,
 					BACKGROUND_PARK_AFTER_MS,
+					PARK_AFTER_MS - 1,
 					PARK_AFTER_MS,
 				]) {
 					clock = at;
 					if (watched.look() === undefined && asked.length > 0) {
 						expect(eased(), "its ask is taken back as it parks").toBe(false);
+						expect(
+							readParked(SESSION, folder)?.afterMs,
+							"its marker names the limit it parked under",
+						).toBe(at);
 						return at;
 					}
 				}
@@ -1254,8 +1263,13 @@ describe("why a session stays awake", () => {
 				host.dispose();
 			}
 		};
-		expect(parksAfter("on"), "switch on").toBe(NAMED_PARK_AFTER_MS);
-		expect(parksAfter(""), "switch off").toBe(NAMED_PARK_AFTER_MS);
+		expect(parksAfter("on"), "switch on").toBe(EASED_PARK_AFTER_MS);
+		expect(parksAfter(""), "switch empty").toBe(EASED_PARK_AFTER_MS);
+		expect(parksAfter("off"), "the switch says off").toBeUndefined();
+		expect(
+			parksAfter("on\noff"),
+			"off beats the ask, not the switch's own rule",
+		).toBe(BACKGROUND_PARK_AFTER_MS);
 		expect(
 			parksAfter("on", { viewed: true }),
 			"a window on it keeps its half hour",
@@ -1274,6 +1288,71 @@ describe("why a session stays awake", () => {
 		).toBeUndefined();
 	});
 
+	it("keeps an eased conversation awake while it holds anything", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		let idle = true;
+		let jobs = 0;
+		const stop = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => jobs,
+		});
+		try {
+			writeFileSync(parkSwitch(folder), "\n");
+			mkdirSync(join(folder, "ease"), { recursive: true });
+			writeFileSync(easePath(SESSION, folder), "{}\n");
+			clock = 0;
+			const watched = watching(session({ isIdle: () => idle }), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			clock = EASED_PARK_AFTER_MS;
+			jobs = 1;
+			expect(watched.look()).toBe("background jobs are out");
+			jobs = 0;
+			typed = "half a thought";
+			expect(watched.look()).toBe("text is typed and unsent");
+			typed = "";
+			idle = false;
+			expect(watched.look()).not.toBeUndefined();
+			idle = true;
+			watched.prompting(true);
+			clock += EASED_PARK_AFTER_MS;
+			expect(watched.look()).toBe("a prompt is open");
+			expect(asked, "nothing parked").toEqual([]);
+			expect(existsSync(easePath(SESSION, folder)), "its ask stays").toBe(true);
+		} finally {
+			stop();
+			host.dispose();
+		}
+	});
+
+	it("lets an ask nobody wrote again in half an hour lapse", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		try {
+			writeFileSync(parkSwitch(folder), "\n");
+			mkdirSync(join(folder, "ease"), { recursive: true });
+			writeFileSync(easePath(SESSION, folder), "{}\n");
+			const written = Date.now() - EASE_LASTS_MS - 1_000;
+			utimesSync(easePath(SESSION, folder), written / 1000, written / 1000);
+			clock = Date.now() - PARK_AFTER_MS;
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			clock = Date.now();
+			expect(watched.look(), "a lapsed ask parks nobody").toBe(
+				"parking is off",
+			);
+			expect(asked).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	it("never eases a plain pi, whose window its person may have open", () => {
 		mkdirSync(join(folder, "ease"), { recursive: true });
 		writeFileSync(easePath(SESSION, folder), "{}\n");
@@ -1283,7 +1362,7 @@ describe("why a session stays awake", () => {
 		expect(watched.look()).toBe("parking is off");
 	});
 
-	it("takes back an ask to ease as it wakes or closes, keeping it through a reload", () => {
+	it("takes back an ask to ease as it wakes, keeping it through a stop or a reload", () => {
 		const ease = () => {
 			mkdirSync(join(folder, "ease"), { recursive: true });
 			writeFileSync(easePath(SESSION, folder), "{}\n");
@@ -1293,10 +1372,10 @@ describe("why a session stays awake", () => {
 		const started = watching();
 		expect(eased(), "a plain start keeps it").toBe(true);
 		started.stop();
-		expect(eased(), "a reload keeps it").toBe(true);
-		started.stop(true);
-		expect(eased(), "a close takes it back").toBe(false);
-		ease();
+		expect(
+			eased(),
+			"a reload, or a host's stop that resumes it, keeps it",
+		).toBe(true);
 		writeParked(
 			{
 				session: SESSION,

@@ -19,6 +19,7 @@ import {
 	clearEase,
 	clearOutlivedParks,
 	clearParked,
+	EASE_LASTS_MS,
 	easePath,
 	heldDirectly,
 	holderFiles,
@@ -36,6 +37,7 @@ import {
 	readParked,
 	type Stillness,
 	sweepWakes,
+	switchOff,
 	WAKES_KEPT_MS,
 	wakesPath,
 	whyNotPark,
@@ -141,13 +143,49 @@ describe("whether a session parks, and after how long", () => {
 			easePath("s-1", folder),
 			`${JSON.stringify({ at: "2026-11-22T07:00:00Z", why: "memory" })}\n`,
 		);
-		expect(isEased("s-1", parkSwitch(folder))).toBe(true);
-		expect(isEased("s-2", parkSwitch(folder))).toBe(false);
-		expect(isEased("", parkSwitch(folder)), "no session, no ask").toBe(false);
+		expect(isEased("s-1", folder)).toBe(true);
+		expect(isEased("s-2", folder)).toBe(false);
+		expect(isEased("", folder), "no session, no ask").toBe(false);
+		// The ask is read by the watch beside the switch's rule, never folded
+		// into it: an eased session the switch leaves out still reads as
+		// left out here, so a plain pi or a viewed one keeps the switch's say.
 		expect(
 			parkAfterMs("s-1", {}, switchSays()),
 			"the switch's rule stays the switch's",
 		).toBeUndefined();
+	});
+
+	it("lets an ask nobody wrote again in half an hour lapse", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		const written = Date.parse("2026-11-22T07:00:00Z");
+		utimesSync(easePath("s-1", folder), written / 1000, written / 1000);
+		expect(isEased("s-1", folder, written + EASE_LASTS_MS), "at its end").toBe(
+			true,
+		);
+		expect(
+			isEased("s-1", folder, written + EASE_LASTS_MS + 1),
+			"past its end",
+		).toBe(false);
+	});
+
+	it("reads and clears only a file of the session's own in the ease folder", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(join(folder, "elsewhere"), "{}\n");
+		for (const session of ["../elsewhere", "..", ".", "a/b", ""]) {
+			expect(isEased(session, folder), session).toBe(false);
+			clearEase(session, folder);
+		}
+		expect(existsSync(join(folder, "elsewhere")), "nothing outside").toBe(true);
+		expect(existsSync(join(folder, "ease")), "nor the folder").toBe(true);
+	});
+
+	it("says the switch is off only by a line of its own", () => {
+		expect(switchOff(switchSays("off"))).toBe(true);
+		expect(switchOff(switchSays("on", "off", "s-1"))).toBe(true);
+		expect(switchOff(switchSays("on"))).toBe(false);
+		expect(switchOff(switchSays())).toBe(false);
+		expect(switchOff(join(folder, "none")), "no switch").toBe(false);
 	});
 
 	it("stops easing a session once its ease file is cleared, and clears none twice", () => {
@@ -155,7 +193,7 @@ describe("whether a session parks, and after how long", () => {
 		writeFileSync(easePath("s-1", folder), "{}\n");
 		clearEase("s-1", folder);
 		expect(existsSync(easePath("s-1", folder))).toBe(false);
-		expect(isEased("s-1", parkSwitch(folder))).toBe(false);
+		expect(isEased("s-1", folder)).toBe(false);
 		expect(() => clearEase("s-1", folder)).not.toThrow();
 	});
 });

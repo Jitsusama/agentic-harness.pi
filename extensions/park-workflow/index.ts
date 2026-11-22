@@ -53,13 +53,12 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 	pi.on("agent_end", async () => stirred());
 	pi.on("ui_prompt_start", async () => watching?.prompting(true));
 	pi.on("ui_prompt_end", async () => watching?.prompting(false));
-	pi.on("session_shutdown", async (event) => {
+	pi.on("session_shutdown", async () => {
 		unlisten?.();
 		unlisten = undefined;
 		// Its holder starts it again and says so; pi's hint would repeat it.
 		if (watching?.endedItsProcess()) hideResumeHint();
-		// A reload goes on as the same session; anything else ends it here.
-		watching?.stop(event.reason !== "reload");
+		watching?.stop();
 		watching = undefined;
 		unnote();
 	});

@@ -68,14 +68,17 @@ It is off until one of these turns it on:
 - **`PI_PARK=on`,** read at start, as the line `on` does.
 - **An ask to ease,** `ease/<session>` beside the switch, which the
   node writes for an idle session of its machine while the machine
-  reads over, and takes back once it reads calm. Its presence parks
-  a background host's conversation after two minutes idle, whatever
-  the switch says, by the rest of the rule as ever; one a window
-  views, a plain pi and a Mac's keep the switch's rule, since the
-  person may have it open. Its line (when and why) is for people,
-  never read for meaning. The session takes the ask back as it parks,
-  wakes or closes, but not through a reload, so the node asks again
-  only while the machine still reads over. `PI_PARK=off` still wins.
+  reads over, and takes back once it reads calm. An ask written in
+  the last half hour parks a background host's conversation after two
+  minutes idle, whatever else the switch says, by the rest of the
+  rule as ever; one a window views, a plain pi and a Mac's keep the
+  switch's rule, since the person may have it open. Its line (when
+  and why) is for people, never read for meaning. The session takes
+  the ask back as it parks or wakes from a park; one it never acts on
+  (a crash, a stuck sensor) lapses after half an hour, so the node
+  writes it again while the machine still reads over, and the node
+  sweeps the files of sessions gone. A line `off` in the switch, or
+  `PI_PARK=off`, keeps every ask from parking anyone.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule
