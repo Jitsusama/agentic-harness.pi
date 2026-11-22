@@ -1250,6 +1250,67 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 22 November, 05:52: 26 of 78 background conversations, 8.8 GB, stayed
+	// awake only for a bash call, most a loop waiting on another run's rc.
+	it("parks a background host's conversation with only bash calls out where its host carries them, and stays for anything else", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		let carries = true;
+		let viewed = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => carries;
+		host.host.viewed = () => viewed;
+		const out: { id: string; kind: string; label: string }[] = [
+			{ id: "j1", kind: "shell", label: "until grep -q rc= run.log" },
+		];
+		let unsaid = 0;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => out.length + unsaid,
+			running: () => out,
+			holds: (carriable = () => true) =>
+				out.filter((job) => !carriable({ kind: job.kind })),
+		});
+		const env = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const watched = watching(session(), env);
+			clock = BACKGROUND_PARK_AFTER_MS;
+
+			carries = false;
+			expect(watched.look(), "a host that can't keep it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			carries = true;
+			viewed = true;
+			clock = PARK_AFTER_MS;
+			expect(watched.look(), "a window views it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			viewed = false;
+			out.push({ id: "j2", kind: "subagent", label: "k7-read" });
+			expect(watched.look(), "a fleet goes nowhere").toBe(
+				"a fleet is out (j2: k7-read)",
+			);
+			out.pop();
+			unsaid = 1;
+			expect(watched.look(), "an end not yet said").toBe(
+				"background jobs are out",
+			);
+			unsaid = 0;
+			expect(asked, "nothing parked yet").toEqual([]);
+
+			expect(watched.look(), "only a carried call: it parks").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			stopJobs();
+			host.dispose();
+		}
+	});
+
 	it("notes each wake with how long it rested, keeping a day of them", () => {
 		const park = (parkedAt: number) =>
 			writeParked(

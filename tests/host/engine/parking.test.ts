@@ -4,10 +4,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARKED, type Parking, parking } from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
+import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
+import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
 import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
 import { quietFor, until } from "../../support/until.ts";
 
@@ -137,7 +140,7 @@ describe("parking a conversation", () => {
 		});
 		const woke = parked.wake("a");
 		await until("the park to stop it", () => stop.mock.calls.length > 0);
-		expect(stop, "it stops as a park").toHaveBeenCalledWith("a", PARKED);
+		expect(stop, "it stops as a park").toHaveBeenCalledWith("a", PARKED, false);
 		expect(settled, "unsettled while it stops").toBe(false);
 		expect(asking, "no wake while it parks").not.toHaveBeenCalled();
 		letStop();
@@ -561,5 +564,170 @@ describe("parking while the host drains", () => {
 
 		expect(asking, "a window's wake is never held").toHaveBeenCalledWith("a");
 		parked.unwatch("a");
+	});
+});
+
+/** How often a test's parking looks at the calls a park carried. */
+const CALLS_LOOKED_AT_MS = 10;
+
+/** A bash call carried from `a`, its kept files under `dir`. */
+function call(name: string): CarriedShell {
+	return {
+		kind: "shell",
+		keep: join(dir, name),
+		pid: 1,
+		mark: `mark-${name}`,
+		startedAt: 0,
+	};
+}
+
+/**
+ * Parking whose host keeps carried calls (unless `keeps` says not), whose
+ * stop tells `bus` the calls it carried, and whose calls run while their
+ * keep is in `runs`.
+ */
+function carrying(
+	calls: readonly CarriedShell[],
+	runs: Set<string>,
+	keeps = true,
+) {
+	const bus = createEventBus();
+	const asking = vi.fn((_sessionId: string) => Promise.resolve());
+	const stop = vi.fn(async (_sessionId: string, _why: string) => {
+		const said: JobsCarried = {
+			session: "a",
+			jobs: calls.map((work, at) => ({
+				id: `j${at + 1}`,
+				kind: "shell",
+				label: `until grep -q rc= ${work.keep}`,
+				work,
+			})),
+		};
+		bus.emit(JOBS_CARRIED, said);
+	});
+	const parked = parking({
+		stateDir: dir,
+		stop,
+		asking: () => asking,
+		report: vi.fn(),
+		carries: () => keeps,
+		callRuns: (work) => runs.has(work.keep),
+		lookEveryMs: CALLS_LOOKED_AT_MS,
+	});
+	parked.hears("a", bus);
+	return { parked, stop, asking, bus };
+}
+
+// 22 November, 05:52: 26 of 78 background conversations on optimus, 8.8 GB,
+// stayed awake only because a bash call was out, most of them a loop
+// waiting on another run's rc. A host restart already carries such calls
+// to the next host; a park now carries them the same way and wakes the
+// conversation once the last one ends.
+describe("a park that carries bash calls", () => {
+	it("stops the conversation carrying its calls where the host keeps them, and not where it can't", async () => {
+		const kept = carrying([], new Set());
+		await kept.parked.park("a");
+		expect(kept.stop, "kept: carried").toHaveBeenCalledWith("a", PARKED, true);
+		kept.parked.unwatch("a");
+
+		const unkept = carrying([], new Set(), false);
+		await unkept.parked.park("a");
+		expect(unkept.stop, "unkept: cut off as before").toHaveBeenCalledWith(
+			"a",
+			PARKED,
+			false,
+		);
+		unkept.parked.unwatch("a");
+	});
+
+	it("wakes it once the last call it carried ends, and not before", async () => {
+		const first = call("first");
+		const second = call("second");
+		const runs = new Set([first.keep, second.keep]);
+		const { parked, asking } = carrying([first, second], runs);
+		await parked.park("a");
+
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "both still run").not.toHaveBeenCalled();
+		runs.delete(first.keep);
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "one still runs").not.toHaveBeenCalled();
+		runs.delete(second.keep);
+
+		await until("the last call's end to wake it", () =>
+			asking.mock.calls.some(([id]) => id === "a"),
+		);
+		expect(asking, "woken once").toHaveBeenCalledOnce();
+		parked.unwatch("a");
+	});
+
+	it("wakes it at once when each call it carried ended as it parked", async () => {
+		const { parked, asking } = carrying([call("quick")], new Set());
+		await parked.park("a");
+
+		await until(
+			"the ended call to wake it",
+			() => asking.mock.calls.length > 0,
+		);
+		parked.unwatch("a");
+	});
+
+	it("keeps no watch on calls carried outside its park, as a move's are", async () => {
+		const { parked, asking, bus } = carrying([], new Set());
+		const moved: JobsCarried = {
+			session: "a",
+			jobs: [{ id: "j9", kind: "shell", label: "moved", work: call("moved") }],
+		};
+		bus.emit(JOBS_CARRIED, moved);
+		await parked.park("a");
+
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(
+			asking,
+			"a carry outside its park wakes nothing",
+		).not.toHaveBeenCalled();
+		parked.unwatch("a");
+	});
+
+	it("watches on in the host that takes its rest over, waking it once its calls end", async () => {
+		const looping = call("looping");
+		const runs = new Set([looping.keep]);
+		const before = carrying([looping], runs);
+		await before.parked.park("a");
+		// The child ends parked, or the host restarts: its watch goes with it.
+		before.parked.unwatch("a");
+
+		const after = carrying([], runs);
+		after.parked.rests("a");
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(after.asking, "still running").not.toHaveBeenCalled();
+		runs.delete(looping.keep);
+
+		await until(
+			"its end to wake it in the next host",
+			() => after.asking.mock.calls.length > 0,
+		);
+		expect(
+			before.asking,
+			"the host it left wakes nothing",
+		).not.toHaveBeenCalled();
+		after.parked.unwatch("a");
+	});
+
+	it("forgets what it carried once it runs, so a later rest wakes nothing for it", async () => {
+		const taken = call("taken");
+		const before = carrying([taken], new Set([taken.keep]));
+		await before.parked.park("a");
+		before.parked.unwatch("a");
+		before.parked.running("a");
+
+		const after = carrying([], new Set());
+		after.parked.rests("a");
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(
+			after.asking,
+			"taken up as it ran: nothing to wake for",
+		).not.toHaveBeenCalled();
+		after.parked.unwatch("a");
 	});
 });
