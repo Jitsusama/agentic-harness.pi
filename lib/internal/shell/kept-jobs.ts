@@ -42,13 +42,13 @@ import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
 	beginJobRecordRemoval,
-	disownJobRecord,
 	endJobRecordRemoval,
 	endOf,
 	handJobRecordOn,
 	JOB_SUFFIX,
 	type JobRecordRemoval,
 	keptFolder,
+	letJobRecordGo,
 	ownJobRecord,
 	ownsJobRecord,
 	processThere,
@@ -112,7 +112,8 @@ export function recordKeptJob(job: KeptJob): void {
 			writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
 		} catch (error) {
 			if (!isTaken(error)) throw error;
-			// One left by a write that died, or planted: taken away, not written through.
+			// One left by a write that died, or put there by whatever can write
+			// the folder: taken away, not written through.
 			rmSync(staged, { force: true });
 			writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
 		}
@@ -126,7 +127,7 @@ export function recordKeptJob(job: KeptJob): void {
 
 /** Take back the record of the call kept at `keep`, leaving it unspared. */
 export function forgetKeptJob(keep: string): void {
-	disownJobRecord(keep);
+	letJobRecordGo(keep);
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
@@ -195,11 +196,13 @@ function whatFollows(keep: string, removal: JobRecordRemoval): string {
  * hand-off meanwhile puts the record back for its taker, linked rather
  * than renamed so it never replaces one the taker wrote first: what was
  * set aside, when the hand-off came before the rename landed, since a
- * taker's write may have been what it moved; otherwise, once the aside
- * is gone, what this process wrote. Nothing is put back once the call's
- * files went, as a taker in this process that ended the call removed
- * them; a taker in another process that does so while the disk holds
- * the put-back can leave a record a later start says the end of again.
+ * taker's write may have been what it moved, and kept there when the
+ * disk refuses the link; otherwise, once the aside is gone, what this
+ * process wrote last. Nothing is put back once the call's files went, as
+ * a taker in this process that ended the call removed them, or once its
+ * session's close for good took the record back; a taker in another
+ * process that does so while the disk holds the put-back can leave a
+ * record a later start says the end of again.
  */
 async function removeOwn(
 	keep: string,
@@ -244,7 +247,8 @@ async function removeOnce(
 	}
 	const handedFirst = removal.handed;
 	removal.setAside = !handedFirst;
-	if (handedFirst) await putBack(file, removal, () => link(aside, file));
+	const linkAside = () => link(aside, file);
+	if (handedFirst && !(await putBack(file, removal, linkAside, aside))) return;
 	try {
 		await rm(aside, { force: true });
 	} catch (error) {
@@ -256,7 +260,9 @@ async function removeOnce(
 		);
 	}
 	if (removal.handed && !handedFirst)
-		await putBack(file, removal, () => writeBack(file, record));
+		await putBack(file, removal, () =>
+			writeBack(file, removal.latest ?? record),
+		);
 	removal.setAside = false;
 }
 
@@ -265,21 +271,26 @@ async function removeOnce(
  * which leaves one the taker wrote there already, the newer; not once
  * the call's files went, and taken away again when they went as it
  * landed, since a record beside the call's end has a start say it again.
+ * Answers whether the record stands settled: false only when the disk
+ * refused the link, said with what it came `from`, which stays.
  */
 async function putBack(
 	file: string,
 	removal: JobRecordRemoval,
 	linking: () => Promise<void>,
-): Promise<void> {
-	if (removal.gone) return;
+	from?: string,
+): Promise<boolean> {
+	if (removal.gone) return true;
 	try {
 		await linking();
 	} catch (error) {
-		if (!isTaken(error)) sayNotBack(file, error);
-		return;
+		if (isTaken(error)) return true;
+		sayNotBack(file, error, from);
+		return false;
 	}
 	if (removal.gone)
 		await rm(file, { force: true }).catch((error) => sayStays(file, error));
+	return true;
 }
 
 /**
@@ -300,8 +311,10 @@ async function writeBack(file: string, record: string): Promise<void> {
 
 /**
  * Write `record` under `staged`, a name no one else's, refusing to write
- * through whatever is there already, as a link a fenced command planted
- * would have it; what is there is taken away and the write tried again.
+ * through whatever is there already, as a link left there would have it;
+ * what is there is taken away and the write tried again. A name taken
+ * again by then is a refusal of the write, never read as the taker's
+ * record, which only the link into place can find.
  */
 async function writeStaged(staged: string, record: string): Promise<void> {
 	try {
@@ -309,15 +322,24 @@ async function writeStaged(staged: string, record: string): Promise<void> {
 	} catch (error) {
 		if (!isTaken(error)) throw error;
 		await rm(staged, { force: true });
-		await writeFile(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+		try {
+			await writeFile(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+		} catch (again) {
+			if (!isTaken(again)) throw again;
+			throw new Error(`${staged} was taken again as it was written`);
+		}
 	}
 }
 
-/** Say that `file` couldn't be put back for its call's taker, and what follows. */
-function sayNotBack(file: string, error: unknown): void {
+/**
+ * Say that `file` couldn't be put back for its call's taker, and what
+ * follows; what it would have come `from`, when that stays.
+ */
+function sayNotBack(file: string, error: unknown, from?: string): void {
 	const why = error instanceof Error ? error.message : String(error);
+	const stays = from === undefined ? "" : `; it stays set aside at ${from}`;
 	process.stderr.write(
-		`[shell] couldn't put ${file} back for the call's taker: ${why}; a pi gone before the taker records it leaves the call to strays\n`,
+		`[shell] couldn't put ${file} back for the call's taker: ${why}${stays}; a pi gone before the taker records it leaves the call to strays\n`,
 	);
 }
 

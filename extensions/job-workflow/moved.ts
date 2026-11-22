@@ -53,7 +53,11 @@ import {
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
-import { isMarkedCarried, removeKept } from "../../lib/internal/shell/kept.ts";
+import {
+	handJobRecordOn,
+	isMarkedCarried,
+	removeKept,
+} from "../../lib/internal/shell/kept.ts";
 import {
 	finishedSummary,
 	keepInTemp,
@@ -356,10 +360,14 @@ function takeUpShell(
 		kind: job.kind,
 		label: job.label,
 		...(job.toolCallId !== undefined ? { toolCallId: job.toolCallId } : {}),
-		// It can move again, from what it kept, while it runs.
+		// It can move again, from what it kept, while it runs, letting go of
+		// the record this host wrote of it, which its next taker writes again.
 		carry: {
 			what: () => (ended ? undefined : work),
-			handed: () => watching?.handed(),
+			handed: () => {
+				handJobRecordOn(work.keep);
+				watching?.handed();
+			},
 		},
 	});
 	// Its files go once its end is said, or once it is stopped and so said.

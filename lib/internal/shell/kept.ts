@@ -341,8 +341,14 @@ export interface JobRecordRemoval {
 	/** Whether its call was handed on while it ran. */
 	handed: boolean;
 	/**
+	 * The record this process wrote again while it ran, as a rollover's
+	 * recorder does, when the call was handed on before that was removed.
+	 */
+	latest?: string;
+	/**
 	 * Whether its call's files went while it ran, here, as a taker in this
-	 * process ended the call, so nothing is put back for one.
+	 * process ended the call, or its session was closed for good, so
+	 * nothing is put back for one.
 	 */
 	gone: boolean;
 	/** Whether the record is off its name, set aside, and not yet put back. */
@@ -394,7 +400,7 @@ export function takeJobRecord(path: string): string | undefined {
  * Let go of the job record of the call kept at `path` as this process's,
  * answering whether it was: its files went, or the call was handed on.
  */
-export function disownJobRecord(path: string): boolean {
+function disownJobRecord(path: string): boolean {
 	return jobRecords.own.delete(path);
 }
 
@@ -403,9 +409,23 @@ export function disownJobRecord(path: string): boolean {
  * handed on, marking a removal of it still running as handed.
  */
 export function handJobRecordOn(path: string): void {
+	const latest = jobRecords.own.get(path);
 	disownJobRecord(path);
 	const removal = jobRecords.removing.get(path);
-	if (removal !== undefined) removal.handed = true;
+	if (removal === undefined) return;
+	removal.handed = true;
+	if (latest !== undefined) removal.latest = latest;
+}
+
+/**
+ * Let go of the job record of the call kept at `path` as its files go or
+ * its session's close for good takes it back, marking a removal of it
+ * still running as gone, so nothing puts it back after.
+ */
+export function letJobRecordGo(path: string): void {
+	disownJobRecord(path);
+	const removal = jobRecords.removing.get(path);
+	if (removal !== undefined) removal.gone = true;
 }
 
 /**
@@ -445,9 +465,7 @@ export function endJobRecordRemoval(
  * it reads the call as ended; any other file it can't remove it passes.
  */
 export async function removeKept(path: string): Promise<void> {
-	disownJobRecord(path);
-	const removal = jobRecords.removing.get(path);
-	if (removal !== undefined) removal.gone = true;
+	letJobRecordGo(path);
 	for (const suffix of SUFFIXES) {
 		try {
 			await rm(`${path}${suffix}`, { force: true });
