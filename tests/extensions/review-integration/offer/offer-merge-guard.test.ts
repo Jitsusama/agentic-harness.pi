@@ -13,6 +13,9 @@
  * actually at, is known here and was not being said.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type AuthoringCapabilities,
@@ -21,6 +24,7 @@ import {
 	clearTargetBindings,
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
+import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
 import {
 	activate,
@@ -119,6 +123,7 @@ async function offer(params: Record<string, unknown>) {
 afterEach(() => {
 	clearReviewProviders();
 	clearTargetBindings();
+	rmSync(packageConfigPath(), { force: true });
 });
 
 describe("merging behind a head guard", () => {
@@ -181,6 +186,41 @@ describe("merging behind a head guard", () => {
 
 		expect(JSON.stringify(answer)).toContain("too short to guard anything");
 		expect(merges).toEqual([]);
+	});
+
+	it("merges the head its repo's gate passed when no expectation is given", async () => {
+		// Without it, a push landing while the gate ran was merged though
+		// no gate had read it.
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		mkdirSync(dirname(packageConfigPath()), { recursive: true });
+		writeFileSync(
+			packageConfigPath(),
+			JSON.stringify({
+				version: 1,
+				sections: {
+					review: {
+						merge: {
+							gates: {
+								"meteorite:shop/world": { command: "true", minutes: 1 },
+							},
+						},
+					},
+				},
+			}),
+		);
+		const checkout = mkdtempSync(join(tmpdir(), "gated-"));
+
+		try {
+			await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(checkout, { recursive: true, force: true });
+		}
+
+		expect(
+			merges,
+			"the backend is held to the head the gate was handed",
+		).toEqual([{ expectedHead: AT }]);
 	});
 
 	it("still merges when no expectation is given", async () => {

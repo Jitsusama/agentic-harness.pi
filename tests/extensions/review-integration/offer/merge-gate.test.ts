@@ -1,5 +1,4 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,6 +6,7 @@ import {
 	DEFAULT_GATE_MINUTES,
 	gateFor,
 	gateRefusal,
+	gateRunner,
 	MOST_GATE_MINUTES,
 	type RunGate,
 } from "../../../../extensions/review-integration/merge-gate.ts";
@@ -29,15 +29,7 @@ function timed(): { run: RunGate; given: number[] } {
 }
 
 /** The gate run by a real shell, as review_offer runs it. */
-const shell: RunGate = async (line, cwd) => {
-	const ran = spawnSync("bash", ["-c", line], { cwd, encoding: "utf8" });
-	return {
-		code: ran.status ?? 1,
-		stdout: ran.stdout,
-		stderr: ran.stderr,
-		killed: false,
-	};
-};
+const shell: RunGate = gateRunner();
 
 let dir: string;
 beforeEach(() => {
@@ -68,6 +60,41 @@ describe("a repo's merge gate", () => {
 		);
 	});
 
+	it("gives a bare command five minutes, and runs it with that long", async () => {
+		const gate = gateFor(review, CORE);
+		if (gate.kind !== "gate") throw new Error("no gate was read");
+		const { run, given } = timed();
+		await gateRefusal(gate, HEAD, dir, run);
+		expect(given, "a bare command is killed after five minutes").toEqual([
+			5 * 60_000,
+		]);
+	});
+
+	it("takes the shortest and the longest time a gate may name", () => {
+		for (const minutes of [1, 180]) {
+			expect(
+				gateFor(
+					{ merge: { gates: { [CORE]: { command: "x", minutes } } } },
+					CORE,
+				),
+				`minutes of ${minutes} is a time a gate may name`,
+			).toEqual({ kind: "gate", command: "x", minutes });
+		}
+	});
+
+	it("refuses a key a gate doesn't read, so a misspelt time isn't the default", () => {
+		expect(
+			gateFor(
+				{ merge: { gates: { [CORE]: { command: "x", minuets: 30 } } } },
+				CORE,
+			),
+			"a misspelt minutes is refused, naming it",
+		).toMatchObject({
+			kind: "malformed",
+			problem: expect.stringContaining('"minuets"'),
+		});
+	});
+
 	it("gives a gate the minutes it names, and runs it with that long", async () => {
 		// 21 November: core.nix's merge-net ready took about 13 minutes,
 		// past the five every gate had, so no core.nix PR could merge
@@ -90,7 +117,17 @@ describe("a repo's merge gate", () => {
 	});
 
 	it("refuses a time it can't trust, so the merge stops", () => {
-		for (const minutes of [0, 2.5, -1, "30", MOST_GATE_MINUTES + 1]) {
+		for (const minutes of [
+			0,
+			2.5,
+			-1,
+			"30",
+			MOST_GATE_MINUTES + 1,
+			null,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			true,
+		]) {
 			expect(
 				gateFor(
 					{ merge: { gates: { [CORE]: { command: "x", minutes } } } },
@@ -99,7 +136,9 @@ describe("a repo's merge gate", () => {
 				`minutes of ${JSON.stringify(minutes)} is refused`,
 			).toMatchObject({
 				kind: "malformed",
-				problem: expect.stringContaining("minutes"),
+				problem: expect.stringContaining(
+					`minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}`,
+				),
 			});
 		}
 		expect(
@@ -109,10 +148,17 @@ describe("a repo's merge gate", () => {
 	});
 
 	it("says what's wrong with a gate it can't read, so the merge stops", () => {
-		expect(gateFor({ merge: { gates: [] } }, CORE)).toMatchObject({
+		expect(
+			gateFor({ merge: { gates: [] } }, CORE),
+			"gates that aren't an object name both forms a gate takes",
+		).toMatchObject({
 			kind: "malformed",
+			problem: expect.stringContaining('a command, or { "command"'),
 		});
-		expect(gateFor({ merge: { gates: { [CORE]: "" } } }, CORE)).toMatchObject({
+		expect(
+			gateFor({ merge: { gates: { [CORE]: "" } } }, CORE),
+			"an empty command is refused, naming the repo",
+		).toMatchObject({
 			kind: "malformed",
 			problem: expect.stringContaining(CORE),
 		});
@@ -160,7 +206,9 @@ describe("a repo's merge gate", () => {
 		expect(
 			await gateRefusal({ ...GATE, minutes: 30 }, HEAD, dir, slow),
 			"a late gate says the time it had and how to name more",
-		).toMatch(/ran past its 30 minutes[\s\S]*"minutes"/);
+		).toMatch(
+			/still running after its 30 minutes[\s\S]*\{ "command": "merge-net ready", "minutes": 60 \}/,
+		);
 		const broken: RunGate = async () => {
 			throw new Error("spawn bash ENOENT");
 		};
@@ -168,5 +216,22 @@ describe("a repo's merge gate", () => {
 			await gateRefusal(GATE, HEAD, dir, broken),
 			"a gate that can't start says why",
 		).toMatch(/couldn't run.*ENOENT/);
+	});
+
+	it("stops a gate past its time, with everything it started", async () => {
+		// pi.exec killed only the shell, so a gate's children ran on after
+		// a refusal said it had stopped.
+		const marker = join(dir, "still-running");
+		const ran = await shell(
+			`(sleep 2; touch ${JSON.stringify(marker)}) & wait`,
+			dir,
+			200,
+		);
+		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
+		await new Promise((done) => setTimeout(done, 2_500)); // past the child's own sleep, so a child left running would have touched the marker
+		expect(
+			existsSync(marker),
+			"the gate's child went with it, rather than finishing after",
+		).toBe(false);
 	});
 });

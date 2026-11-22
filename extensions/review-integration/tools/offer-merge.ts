@@ -135,24 +135,30 @@ export interface MergeGating {
 }
 
 /**
- * Why the repo's gate refuses this merge, or nothing when it names none
- * or lets it through (merge-gate.ts).
+ * Why the repo's gate refuses this merge, or the head it let through:
+ * nothing when the repo names no gate (merge-gate.ts). The head the gate
+ * passed is the one merged, so a push landing while the gate ran makes
+ * the backend refuse rather than merge what no gate read.
  */
 async function gated(
 	gating: MergeGating | undefined,
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	expectedHead: string | undefined,
-): Promise<string | undefined> {
-	if (!gating) return undefined;
+): Promise<{ refused: string } | { passed?: string }> {
+	if (!gating) return {};
 	const gate = gateFor(gating.review, change.repo.key);
-	if (gate.kind === "none") return undefined;
-	if (gate.kind === "malformed") return `${gate.problem} Not merged.`;
+	if (gate.kind === "none") return {};
+	if (gate.kind === "malformed")
+		return { refused: `${gate.problem} Not merged.` };
 	const head = expectedHead ?? (await bound.proposal())?.headCommit;
 	if (!head) {
-		return `${change.repo.key} has a merge gate, \`${gate.command}\`, and the head of ${change.label} couldn't be read to hand it. Merge with expectedHead set to the head's full sha.`;
+		return {
+			refused: `${change.repo.key} has a merge gate, \`${gate.command}\`, and the head of ${change.label} couldn't be read to hand it. Merge with expectedHead set to the head's full sha.`,
+		};
 	}
-	return gateRefusal(gate, head, gating.cwd, gating.run);
+	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
+	return refused === undefined ? { passed: head } : { refused };
 }
 
 /** Land the change. */
@@ -174,11 +180,11 @@ export async function merge(
 	// optional. The head this change is at is already in hand.
 	const guard = await headGuard(bound, change.label, params.expectedHead);
 	if ("refusal" in guard) return refuse(guard.refusal);
-	const expectedHead = guard.head;
 	// The repo's own say comes before the person is asked, so a head its
 	// gate refuses never reaches a confirmation.
-	const barred = await gated(gating, bound, change, expectedHead);
-	if (barred) return refuse(barred);
+	const said = await gated(gating, bound, change, guard.head);
+	if ("refused" in said) return refuse(said.refused);
+	const expectedHead = guard.head ?? said.passed;
 
 	const decision = await confirmWrite(
 		ctx,

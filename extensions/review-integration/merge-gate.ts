@@ -27,6 +27,11 @@
  * slow one doing its work.
  */
 
+import {
+	EXIT_ABORTED,
+	EXIT_TIMED_OUT,
+	spawnExec,
+} from "../../lib/core/exec/index.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
 /** How long a gate may take, in minutes, when it names no time of its own. */
@@ -40,6 +45,12 @@ const MINUTE_MS = 60_000;
 
 /** Exit code a shell gives a command it can't find. */
 const NOT_FOUND = 127;
+
+/** The keys a gate's object form may hold. */
+const GATE_KEYS = new Set(["command", "minutes"]);
+
+/** How a gate is named, for a message saying it was named wrongly. */
+const GATE_FORMS = `a command, or { "command": ..., "minutes": ... } with minutes a whole number from 1 to ${MOST_GATE_MINUTES}`;
 
 /** The gate a repo names, or why the config can't be read for one. */
 export type GateFor =
@@ -63,17 +74,27 @@ export function gateFor(review: unknown, repo: string): GateFor {
 	) {
 		return {
 			kind: "malformed",
-			problem:
-				"review.merge.gates should be an object of repo keys to commands.",
+			problem: `review.merge.gates should be an object of repo keys, each naming ${GATE_FORMS}.`,
 		};
 	}
 	const named = isRecord(merge.gates) ? merge.gates[repo] : undefined;
 	if (named === undefined) return { kind: "none" };
+	const stray = isRecord(named)
+		? Object.keys(named).filter((key) => !GATE_KEYS.has(key))
+		: [];
 	const command = isRecord(named) ? named.command : named;
-	if (typeof command !== "string" || command.trim() === "") {
+	if (
+		typeof command !== "string" ||
+		command.trim() === "" ||
+		stray.length > 0
+	) {
+		const unknown =
+			stray.length > 0
+				? ` It holds ${stray.map((key) => `"${key}"`).join(", ")}, which a gate doesn't read, so a misspelt time isn't taken as the default.`
+				: "";
 		return {
 			kind: "malformed",
-			problem: `review.merge.gates["${repo}"] should be a command, or { "command": ..., "minutes": ... }.`,
+			problem: `review.merge.gates["${repo}"] should be ${GATE_FORMS}.${unknown}`,
 		};
 	}
 	const minutes = isRecord(named) ? named.minutes : undefined;
@@ -92,7 +113,7 @@ export function gateFor(review: unknown, repo: string): GateFor {
 	) {
 		return {
 			kind: "malformed",
-			problem: `review.merge.gates["${repo}"].minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}.`,
+			problem: `review.merge.gates["${repo}"].minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}, not ${JSON.stringify(minutes) ?? String(minutes)}.`,
 		};
 	}
 	return { kind: "gate", command: command.trim(), minutes };
@@ -118,6 +139,18 @@ export type RunGate = (
 	timeoutMs: number,
 ) => Promise<GateRun>;
 
+/**
+ * Runs a gate through bash in its own process group, so the clock or
+ * the call being stopped (Escape) ends the gate and everything it
+ * started, not only the shell.
+ */
+export function gateRunner(): RunGate {
+	return async (line, cwd, timeoutMs) => {
+		const ran = await spawnExec({ cwd, timeoutMs })("bash", ["-c", line]);
+		return { ...ran, killed: ran.code === EXIT_TIMED_OUT };
+	};
+}
+
 /** A single-quoted word the shell reads as it is. */
 function quoted(word: string): string {
 	return `'${word.replaceAll("'", `'\\''`)}'`;
@@ -142,7 +175,10 @@ export async function gateRefusal(
 	if (ran.code === 0 && !ran.killed) return undefined;
 	const said = (ran.stderr.trim() || ran.stdout.trim()).slice(-2_000);
 	if (ran.killed) {
-		return `The merge gate \`${command}\` ran past its ${gate.minutes} minutes at ${head.slice(0, 12)}, so it was not merged. A gate that needs longer names its time in review.merge.gates as { "command": ..., "minutes": ... }.${said ? `\n${said}` : ""}`;
+		return `The merge gate \`${command}\` was still running after its ${gate.minutes} minutes at ${head.slice(0, 12)}, so it was stopped and nothing was merged. If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)} }.${said ? `\n${said}` : ""}`;
+	}
+	if (ran.code === EXIT_ABORTED) {
+		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.`;
 	}
 	if (ran.code === NOT_FOUND) {
 		return `The merge gate \`${command}\` isn't on this machine (exit ${NOT_FOUND}), so nothing could say ${head.slice(0, 12)} may merge. Not merged.${said ? `\n${said}` : ""}`;

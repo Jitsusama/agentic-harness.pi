@@ -42,6 +42,7 @@ import { usesDepth } from "../../../lib/core/sections/shape.ts";
 import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { sayClosed } from "../../../lib/internal/session/landings.ts";
 import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
+import { gateRunner } from "../merge-gate.ts";
 import { GLYPH } from "../render.ts";
 import { councilFirst } from "../reviewed-first.ts";
 import { hostedSize } from "./change-size.ts";
@@ -488,8 +489,7 @@ export async function runOffer(
 				return merge(ctx, bound, change, authoring, params, pi.events, {
 					review: await reviewSection(),
 					cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
-					run: (line, cwd, timeoutMs) =>
-						pi.exec("bash", ["-c", line], { cwd, timeout: timeoutMs }),
+					run: gateRunner(),
 				});
 			case "reviewers": {
 				const waits = await heldForCouncil(
