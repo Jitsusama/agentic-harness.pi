@@ -118,4 +118,13 @@ describe("the machine's queue folder", () => {
 		folder().keep(pressed, NOW + HEARTBEAT_MS, () => undefined);
 		expect(record().machine.pressure.cpu).toBe(TIGHT.pressure.cpu + 3);
 	});
+
+	// The minute is what says why a first quest's job did or didn't start
+	// while memory was short (#1978 F63).
+	it("says the minute everything stalled on memory, where it is read", () => {
+		folder().ask(job("waiting"));
+		shellSays("waiting", 501);
+		folder().keep({ ...TIGHT, memoryFullMinute: 12 }, NOW, () => undefined);
+		expect(record().machine.memoryFullMinute).toBe(12);
+	});
 });

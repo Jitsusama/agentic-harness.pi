@@ -342,7 +342,7 @@ export async function readRoom(
 		...(lending !== undefined ? { lendingSince: lending } : {}),
 		availableGib: Math.max(0, available - kept) / GIB,
 		memoryPressure: felt ?? memory,
-		memoryFullMinute: fullAvg60(memoryFile),
+		...fullMinuteOf(memoryFile),
 		vms:
 			vmsRunning + builds.filter((build) => build.timed && !build.qemu).length,
 		builds: builds.map(({ qemu: _, ...seen }) => seen),
@@ -506,9 +506,9 @@ function avg60(pressure: string): number {
  * The share of time every task stalled over the last minute, from a
  * pressure file's text: its `full` line, which only memory and IO keep.
  */
-function fullAvg60(pressure: string): number {
+function fullMinuteOf(pressure: string): Pick<Room, "memoryFullMinute"> {
 	const full = /^full avg10=[\d.]+ avg60=([\d.]+)/m.exec(pressure);
-	return full ? Number(full[1]) : 0;
+	return full ? { memoryFullMinute: Number(full[1]) } : {};
 }
 
 /** How deep a cgroup held at its own limit is looked for, as floors are. */

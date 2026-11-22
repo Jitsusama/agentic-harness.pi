@@ -5,6 +5,8 @@ import {
 	EVAL_TESTS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
+	FIRST_MOST_GIB_SHORT,
+	FIRST_MOST_MEMORY_FULL,
 	type Job,
 	KEEPS_LINE_FOR_MS,
 	kindOf,
@@ -18,6 +20,7 @@ import {
 	PASS_AFTER_MS,
 	QUICK_OUTRUN_MS,
 	RAMP_MS,
+	type Room,
 	SPREAD_MS,
 	VM_SETTLE_MS,
 	VM_SPREAD_MS,
@@ -95,6 +98,220 @@ describe("whose turn it is", () => {
 		expect(
 			nextTurn([job("next")], { ...ROOMY, memoryPressure: 10 }, NOW),
 		).toBeUndefined();
+	});
+
+	describe("a quest put first while memory is short", () => {
+		// 22 November, 04:13: memory pressure at 13.3% held 29 of 30 waiting
+		// jobs on memory, the capacity path's among them.
+		const first = new Set(["QEST-CAP"]);
+		const short = (memoryFullMinute: number | undefined): Room => ({
+			...ROOMY,
+			memoryPressure: 13,
+			memoryFullMinute,
+			floorsPressure: 0,
+		});
+		// A test run, whose memory is its own scope's and so its booking's.
+		const TEST_RUN = "direnv exec . pnpm exec vitest run";
+		const cap = job("cap", { quest: "QEST-CAP", what: TEST_RUN });
+		const other = job("other", { since: startedAgo(600_000) });
+		const turn = (jobs: Job[], room: Room) =>
+			nextTurn(jobs, room, NOW, undefined, NOBODY, first)?.id;
+
+		it("starts one up to the most of the minute stalled", () => {
+			expect(turn([other, cap], short(12))).toBe("cap");
+			expect(turn([other, cap], short(FIRST_MOST_MEMORY_FULL))).toBe("cap");
+		});
+
+		it("starts none past it, nor where the minute isn't read", () => {
+			expect(turn([other, cap], short(FIRST_MOST_MEMORY_FULL + 1))).toBe(
+				undefined,
+			);
+			expect(turn([other, cap], short(undefined))).toBe(undefined);
+		});
+
+		it("starts none while the person's own programs stall on memory", () => {
+			const paging = { ...short(12), floorsPressure: MOST_FLOORS_PRESSURE + 1 };
+			expect(turn([other, cap], paging)).toBe(undefined);
+			expect(
+				turn([other, cap], { ...paging, floorsPressure: MOST_FLOORS_PRESSURE }),
+			).toBe("cap");
+			expect(
+				turn([other, cap], { ...paging, floorsPressure: undefined }),
+				"floors unread, as the minute unread, fail shut",
+			).toBe(undefined);
+		});
+
+		// Its booking bounds only its own scope (#1978 F55, F59).
+		it("starts no VM, walk or Nix build here, whose memory its booking leaves out", () => {
+			for (const over of [
+				{ kind: "vm-test" as const, what: "nix build .#checks.x.vm" },
+				{ kind: "vm-check" as const, what: "nix build .#checks.x.vm" },
+				{ kind: "world-walk" as const, what: "git fetch origin main" },
+				{ what: "nix build .#pi", needsGib: 1 },
+			]) {
+				const one = job("one", { quest: "QEST-CAP", ...over });
+				expect(turn([other, one], short(12)), over.what).toBe(undefined);
+			}
+			const built = job("built", {
+				quest: "QEST-CAP",
+				what: "nix build .#pi",
+				needsGib: 1,
+			});
+			expect(
+				turn([other, built], {
+					...short(12),
+					offload: { builds: 1, vms: 0 },
+				}),
+				"a Nix build a builder elsewhere takes",
+			).toBe("built");
+		});
+
+		it("starts no unsent changed-checks run, booked past a test run", () => {
+			const checks = job("checks", {
+				quest: "QEST-CAP",
+				what: "direnv exec . changed-checks",
+			});
+			expect(needsGibOf(checks)).toBeGreaterThan(FIRST_MOST_GIB_SHORT);
+			expect(turn([other, checks], short(12))).toBe(undefined);
+		});
+
+		it("starts none held to need more than a test run's memory", () => {
+			const evaluation = job("eval", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: FIRST_MOST_GIB_SHORT + 1,
+			});
+			expect(turn([other, evaluation], short(12))).toBe(undefined);
+			expect(
+				turn(
+					[other, { ...evaluation, needsGib: FIRST_MOST_GIB_SHORT }],
+					short(12),
+				),
+			).toBe("eval");
+		});
+
+		it("starts no second while one of any first quest runs", () => {
+			const running = job("running", {
+				quest: "QEST-CAP",
+				started: startedAgo(SPREAD_MS + 60_000),
+			});
+			expect(turn([running, cap], short(12))).toBe(undefined);
+			const both = new Set(["QEST-CAP", "QEST-LAB"]);
+			const lab = { ...running, id: "lab", quest: "QEST-LAB" };
+			expect(
+				nextTurn([lab, cap], short(12), NOW, undefined, NOBODY, both),
+				"another first quest's job takes the one place",
+			).toBe(undefined);
+			expect(
+				Object.fromEntries(
+					waitReasons([running, cap], short(12), NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ cap: "memory" });
+		});
+
+		it("starts one beside a running job of nobody's first quest, and beside an answered fetch", () => {
+			const busy = job("busy", {
+				quest: "QEST-ELSE",
+				started: startedAgo(SPREAD_MS + 60_000),
+			});
+			expect(turn([busy, cap], short(12))).toBe("cap");
+			const fetch = {
+				...busy,
+				id: "fetch",
+				quest: "QEST-CAP",
+				answered: true as const,
+			};
+			expect(turn([fetch, cap], short(12))).toBe("cap");
+			// Work that starts while short anyway takes no place (#1978 F58).
+			const sent = {
+				...busy,
+				id: "sent",
+				quest: "QEST-CAP",
+				what: "direnv exec . changed-checks",
+				sent: true as const,
+				needsGib: 6,
+			};
+			expect(turn([sent, cap], short(12)), "beside a sent run").toBe("cap");
+		});
+
+		it("lets nobody else's start", () => {
+			expect(turn([other], short(12))).toBe(undefined);
+			expect(
+				turn([job("else", { quest: "QEST-ELSE" })], short(12)),
+				"a quest not put first",
+			).toBe(undefined);
+		});
+
+		// The sent run built on the builder and started past every job held
+		// while short before the first quests' pass (startsPressed's JSDoc).
+		it("holds no sent changed-checks run behind a first job that doesn't fit", () => {
+			const tight = { ...short(12), availableGib: 7 };
+			const big = job("big", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: FIRST_MOST_GIB_SHORT,
+			});
+			const sent = job("sent", {
+				what: "direnv exec . changed-checks",
+				needsGib: 6,
+				sent: true,
+			});
+			expect(turn([big, sent], tight)).toBe("sent");
+			expect(
+				Object.fromEntries(
+					waitReasons([big, sent], tight, NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ big: "memory", sent: "order" });
+		});
+
+		// Its smaller jobs would pass it for as long as memory stays short
+		// (#1978 F57), so the line holds them as it holds any.
+		it("holds a first quest's smaller job behind its own that doesn't fit", () => {
+			const tight = { ...short(12), availableGib: 7 };
+			const big = job("big", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: FIRST_MOST_GIB_SHORT,
+			});
+			const small = job("small", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: 2,
+				since: startedAgo(1),
+			});
+			expect(turn([big, small], tight)).toBe(undefined);
+			expect(
+				turn([big, small], tight),
+				"unpressed, the same line holds it",
+			).toBe(nextTurn([big, small], { ...tight, memoryPressure: 0 }, NOW)?.id);
+		});
+
+		it("still must fit, and waits on the CPU as a build does", () => {
+			expect(turn([cap], { ...short(12), availableGib: 1 })).toBe(undefined);
+			expect(
+				Object.fromEntries(
+					waitReasons(
+						[cap],
+						{ ...short(12), availableGib: 1 },
+						NOW,
+						undefined,
+						NOBODY,
+						first,
+					),
+				),
+			).toEqual({ cap: "memory" });
+			expect(turn([cap], { ...short(12), cpuPressure: BUSY.cpuPressure })).toBe(
+				undefined,
+			);
+		});
+
+		it("says it waits on memory when the minute holds it too", () => {
+			expect(
+				Object.fromEntries(
+					waitReasons([cap], short(30), NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ cap: "memory" });
+		});
 	});
 
 	it("holds everyone behind a job the memory left can't fit", () => {

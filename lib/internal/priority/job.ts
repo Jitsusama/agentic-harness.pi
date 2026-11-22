@@ -138,10 +138,11 @@ export interface Room {
 	 * It is the machine's figure rather than the felt one: a job pressing
 	 * on its own `memory.high` stalls itself, which `full` counts only
 	 * when every other task stalls too, while walks evict one another's
-	 * page cache across the machine. A pressure file that can't be read,
-	 * or has no `full` line, reads as 0, which leaves walks at
-	 * `WALKS_AT_ONCE`, as the other pressures fail open. Left out only by
-	 * records older than it and Rooms built by hand.
+	 * page cache across the machine. Left out where it isn't read: a
+	 * pressure file that can't be read or has no `full` line, a Mac,
+	 * records older than it and Rooms built by hand. Walks read it as 0,
+	 * which leaves them at `WALKS_AT_ONCE`, as the other pressures fail
+	 * open; a queue-first quest's pass while memory is short fails shut.
 	 */
 	readonly memoryFullMinute?: number;
 	/** VMs running on the machine, queued or not. */

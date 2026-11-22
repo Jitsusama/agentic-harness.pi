@@ -10,6 +10,7 @@ import {
 	BUILDS_BESIDE_VMS,
 	busyWaits,
 	cpuHoldsBuilds,
+	firstStartsShort,
 	floorsBusy,
 	floorsWait,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
@@ -123,6 +124,31 @@ function startsPressed(job: Job): boolean {
 }
 
 /**
+ * What starts while the machine is short of memory, given the line:
+ * what {@link startsPressed} lets start, and one job of a quest put
+ * first at a time, while bounds.ts's `firstStartsShort` lets it. One at
+ * a time, since each such job adds its memory to a machine already
+ * short; an answered fetch, which holds no memory to speak of, and work
+ * that starts while short anyway take no place.
+ */
+function pressedStarts(
+	jobs: readonly Job[],
+	room: Room,
+	first: ReadonlySet<string>,
+): (job: Job) => boolean {
+	const firstRunning = jobs.some(
+		(one) =>
+			one.started !== undefined &&
+			!one.answered &&
+			!startsPressed(one) &&
+			one.quest !== undefined &&
+			first.has(one.quest),
+	);
+	return (job) =>
+		startsPressed(job) || (!firstRunning && firstStartsShort(job, room, first));
+}
+
+/**
  * How long a job waits on memory before jobs that fit may pass it, while
  * it needs more than the running jobs could free (see {@link lineKept}).
  */
@@ -144,6 +170,31 @@ const HOLDS_NONE: Holds = () => false;
 /** What either holds back. */
 function either(one: Holds, other: Holds): Holds {
 	return (job) => one(job) || other(job);
+}
+
+/**
+ * What the jobs behind `job`, which waits, are held back by once it
+ * does. While memory is short a queue-first job that got this far only
+ * by the first quests' pass holds no work that starts while short
+ * anyway: before that pass every job held while short stopped short of
+ * here, so a sent changed-checks run, built on the builder, started past
+ * them all. It still holds the first quests' other jobs as the line
+ * does, so their smaller ones never starve it.
+ */
+function keptBehind(
+	holds: Holds,
+	pressed: boolean,
+	job: Job,
+	ruledOut: boolean,
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+): Holds {
+	const kept = ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now);
+	if (pressed && !startsPressed(job)) {
+		return either(holds, (behind) => !startsPressed(behind) && kept(behind));
+	}
+	return either(holds, kept);
 }
 
 /**
@@ -283,9 +334,13 @@ function memoryWaitedMs(job: Job, now: number): number {
  * beside one started within {@link WALK_SETTLES_MS}, and git's revert in
  * a World checkout reads as a walk. 15: a quick push opens no settling
  * window, and a command chaining another walk before a push is no quick
- * push, though its push still leaves out its LFS scan.
+ * push, though its push still leaves out its LFS scan. 16: one job of a
+ * quest put first starts while memory is short, up to bounds.ts's
+ * `FIRST_MOST_MEMORY_FULL` of full avg60 while the floors aren't
+ * stalling, held to `FIRST_MOST_GIB_SHORT`; one that doesn't fit then
+ * holds nobody behind it.
  */
-export const RULES_VERSION = 15;
+export const RULES_VERSION = 16;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -310,7 +365,9 @@ export function nextTurn(
 	);
 	if (now - last < SPREAD_MS) return undefined;
 	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
-	if (pressed && !jobs.some(startsPressed)) return undefined;
+	const startsShort = pressedStarts(jobs, room, first);
+	const waitingJobs = jobs.filter((job) => job.started === undefined);
+	if (pressed && !waitingJobs.some(startsShort)) return undefined;
 	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
@@ -326,7 +383,7 @@ export function nextTurn(
 		);
 	let holds = HOLDS_NONE;
 	for (const job of waiting) {
-		if (pressed && !startsPressed(job)) continue;
+		if (pressed && !startsShort(job)) continue;
 		if (isQuick(job)) {
 			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
@@ -346,10 +403,7 @@ export function nextTurn(
 			job.kind === "build" &&
 			(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 		if (ruledOut || !fits(job)) {
-			holds = either(
-				holds,
-				ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
-			);
+			holds = keptBehind(holds, pressed, job, ruledOut, jobs, room, now);
 			continue;
 		}
 		return job.kind === "build" && (Number.isFinite(builds) || warm(room))
@@ -407,7 +461,8 @@ export function waitReasons(
 	}
 	const waiting = waitingInOrder(jobs, awaited, first);
 	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
-	const heldPressed = (job: Job) => pressed && !startsPressed(job);
+	const startsShort = pressedStarts(jobs, room, first);
+	const heldPressed = (job: Job) => pressed && !startsShort(job);
 	for (const job of waiting) {
 		if (heldPressed(job)) reasons.set(job.id, "memory");
 	}
@@ -457,10 +512,7 @@ export function waitReasons(
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 			if (ruledOut || !fits(job)) {
-				holds = either(
-					holds,
-					ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
-				);
+				holds = keptBehind(holds, pressed, job, ruledOut, jobs, room, now);
 				return ruledOut ? "behind" : "memory";
 			}
 			given = true;

@@ -4,7 +4,9 @@
  * `queue-first` marks the quest `id` names with `queue: first`, so the
  * builds and checks its sessions run go ahead of other agents' bulk
  * work (after timed work, quick checks and work a session is parked
- * on). `queue-normal` takes the mark off. Either works on any quest,
+ * on), and lets one of its jobs at a time start while memory is short
+ * (lib/internal/priority/bounds.ts's `firstStartsShort`). `queue-normal`
+ * takes the mark off. Either works on any quest,
  * loaded or not, since the orchestrator sets it for a quest it does not
  * run. The quest's Journey says when it changed.
  */
@@ -62,13 +64,13 @@ export function queueOrder(
 	appendJourneyByPath(
 		target.questDir,
 		first
-			? "Put first in the machine's queue: its builds and checks go ahead of other agents' bulk work."
+			? "Put first in the machine's queue: its builds and checks go ahead of other agents' bulk work, one at a time still starting while memory is short."
 			: "Taken back out of first place in the machine's queue.",
 	);
 	keepQuestWeights(state.questsRoot);
 	return ok(
 		first
-			? `${target.questId}'s work now goes first in the machine's queue, after timed work, quick checks and work a session is parked on. queue-normal takes it back.`
+			? `${target.questId}'s work now goes first in the machine's queue, after timed work, quick checks and work a session is parked on, and one of its jobs at a time still starts while memory is short. queue-normal takes it back.`
 			: `${target.questId}'s work takes its turn with the rest again.`,
 	);
 }

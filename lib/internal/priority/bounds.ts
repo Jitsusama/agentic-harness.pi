@@ -13,7 +13,7 @@ import {
 	type Room,
 	type Rules,
 } from "./job.ts";
-import { THERE_HERE } from "./needs.ts";
+import { needsGibOf, THERE_HERE } from "./needs.ts";
 
 /**
  * How many VMs run at once. 2HN63P's run 1 to 4 vCPUs each and kvm
@@ -126,6 +126,75 @@ export function floorsWait(room: Room): boolean {
 
 /** Memory pressure (avg10, percent) past which no job starts. */
 export const MOST_MEMORY_PRESSURE = 10;
+
+/**
+ * The share of the last minute everything stalled on memory (full
+ * avg60, percent) up to which one job of a quest put first still starts
+ * past {@link MOST_MEMORY_PRESSURE}. At 04:13 on 22 November memory
+ * pressure read 13.3% with one job running and 29 of 30 waiting on
+ * memory, the capacity work among them: a bar the machine doesn't meet
+ * lets nothing out. 15 is the orchestrator's bar for a local test run
+ * (WCJQSG, 22 November); its last-resort 25, past which nothing starts
+ * at all, would hardly bind, since full avg60 sits far under the felt
+ * avg10 that holds the rest. Readings of 13.6 to 17.8 on 21 November
+ * already slowed core.nix's git calls to 9 to 70 s (needs.ts's
+ * `ONE_WALK_FROM_PRESSURE`). The bar sits inside that range on purpose:
+ * from 13.6 to 15 one such job may still start, slowing small git calls,
+ * since a bar under the machine's usual reading while short lets out
+ * none of the capacity work that makes it less short.
+ */
+export const FIRST_MOST_MEMORY_FULL = 15;
+
+/**
+ * The most a queue-first quest's job may be held to need, in GiB, to
+ * start while memory is short: a type check or a test run, never a
+ * whole flake's evaluation of 17 to 24 GiB, nor an unsent changed-checks
+ * run of 16, which would add its heap to a machine already paging. It
+ * counts the job's own scope, so {@link firstStartsShort} leaves out the
+ * kinds whose memory sits outside it.
+ */
+export const FIRST_MOST_GIB_SHORT = 8;
+
+/**
+ * Whether `job` is a queue-first quest's and the machine's memory still
+ * lets such a job start while short: it is held to need no more than
+ * {@link FIRST_MOST_GIB_SHORT}, everything stalled on memory for no
+ * more than {@link FIRST_MOST_MEMORY_FULL} of the last minute, and the
+ * person's own programs are read and aren't stalling ({@link floorsWait}),
+ * since full avg60 can sit low while app.slice pages. Where either isn't
+ * read, as on a Mac or from a pressure file with no `full` line, the
+ * usual bar holds it, the pass failing shut. Neither a VM, whose guest
+ * takes its memory at once, nor a walk of World, whose packs the queue
+ * counts as free, nor a Nix build here, whose daemon's builds its own
+ * scope leaves out, gets the pass: only what its booking bounds.
+ */
+export function firstStartsShort(
+	job: Job,
+	room: Room,
+	first: ReadonlySet<string>,
+): boolean {
+	return (
+		job.quest !== undefined &&
+		first.has(job.quest) &&
+		boundedByBooking(job, room) &&
+		needsGibOf(job) <= FIRST_MOST_GIB_SHORT &&
+		room.memoryFullMinute !== undefined &&
+		room.memoryFullMinute <= FIRST_MOST_MEMORY_FULL &&
+		room.floorsPressure !== undefined &&
+		!floorsWait(room)
+	);
+}
+
+/**
+ * Whether the memory `job` takes here is the memory it is booked at: not
+ * a VM's guest, a walk's packs, or a Nix build's daemon builds, unless a
+ * builder elsewhere has a slot free to take them.
+ */
+function boundedByBooking(job: Job, room: Room): boolean {
+	if (isVm(job) || job.kind === "world-walk") return false;
+	if (job.kind !== "build" || !HOOK_BUILDS.test(job.what)) return true;
+	return (room.offload?.builds ?? 0) > 0;
+}
 
 /**
  * CPU pressure (avg10, percent) the person's own programs, those a
@@ -246,8 +315,9 @@ export const FIRST_PASSES_UNDER_S = 60;
 
 /**
  * Whether a job is a queue-first quest's, and ran short last time, so
- * the machine's CPU and IO hold lets it by: memory and the person's own
- * programs still hold it. On 8 November a deploy lane's 13-second cargo
+ * the machine's CPU and IO hold lets it by: the person's own programs
+ * still hold it, and memory does as far as {@link firstStartsShort}'s
+ * bars and its fit do, so while memory is short both passes may stack. On 8 November a deploy lane's 13-second cargo
  * test waited 1,524 s, 671 of them on that hold, booked past a quick
  * job's memory by one 5.5 GB peak (L3V9AA, with 5FWIUS's rule).
  */
