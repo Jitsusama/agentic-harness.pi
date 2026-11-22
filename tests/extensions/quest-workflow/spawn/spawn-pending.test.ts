@@ -18,8 +18,13 @@ import {
 	pendingId,
 } from "../../../../extensions/quest-workflow/verbs/spawn-pending.ts";
 import { REPEAT_WINDOW_MS } from "../../../../host/service/repeats.ts";
+import { WRITING } from "../../../../lib/internal/write-whole.ts";
 
 let dir: string;
+
+/** What the folder keeps, leaving out the folder whole writes stage in. */
+const keptIn = (folder: string): string[] =>
+	readdirSync(folder).filter((name) => name !== WRITING);
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "spawn-pending-"));
 });
@@ -97,7 +102,7 @@ describe("a spawn left unanswered", () => {
 
 	it("sends a new id when what was kept is torn or of the wrong shape", () => {
 		noteUnanswered(alpha, open, { dir, now: 1000 });
-		const [file] = readdirSync(dir);
+		const [file] = keptIn(dir);
 		if (file === undefined) throw new Error("nothing was kept");
 		const again = { ...open, id: "fresh" };
 		writeFileSync(join(dir, file), '{"id":"first","wh');
@@ -113,7 +118,7 @@ describe("a spawn left unanswered", () => {
 
 	it("keeps only a hash of what was asked, never its environment", () => {
 		noteUnanswered(alpha, open, { dir, now: 1000 });
-		const files = readdirSync(dir);
+		const files = keptIn(dir);
 		expect(files).toHaveLength(1);
 		const kept = readFileSync(join(dir, files[0] ?? ""), "utf8");
 		expect(kept).not.toContain("never kept");
