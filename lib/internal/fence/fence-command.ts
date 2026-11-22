@@ -35,8 +35,16 @@ const UNSET = [
 	"NODE_COMPILE_CACHE",
 	// The person's own cloud login and settings, which fenced gcloud never
 	// uses: it is handed the agents' account's, or nothing (`passed`).
+	// Google's client libraries and Terraform's provider read a login
+	// from the rest.
 	"CLOUDSDK_*",
 	"GOOGLE_APPLICATION_CREDENTIALS",
+	"GOOGLE_CREDENTIALS",
+	"GOOGLE_OAUTH_ACCESS_TOKEN",
+	"GOOGLE_CLOUD_KEYFILE_JSON",
+	"GCLOUD_KEYFILE_JSON",
+	"GOOGLE_IMPERSONATE_SERVICE_ACCOUNT",
+	"GOOGLE_GHA_CREDS_PATH",
 ] as const;
 
 /**

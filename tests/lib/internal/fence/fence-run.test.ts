@@ -383,6 +383,29 @@ describe("refusing to run where the fence can't hold", () => {
 		}
 	});
 
+	// fence-child.ts hands bash the text as its argument, readable in /proc.
+	it("never asks for the agents' cloud token, so its text holds none", () => {
+		let asked = 0;
+		const made = fenceRunText(
+			{ kind: "fence", folder: join(base, "plain"), words: ["true"] },
+			{
+				env: {},
+				home,
+				platform: "linux",
+				sandbox: {
+					...LAID,
+					gcloud: () => {
+						asked += 1;
+						return { token: "ya29.never-asked", project: "a-lab-project" };
+					},
+				},
+			},
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		expect(asked, "the broker was asked").toBe(0);
+		expect(made.text).not.toContain("ya29.never-asked");
+	});
+
 	it("refuses a folder that climbs out of the trees by name", () => {
 		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
 		const made = fenceRunText(

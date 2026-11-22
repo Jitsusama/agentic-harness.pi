@@ -52,9 +52,11 @@ describe("a fenced command's cloud account", () => {
 				? [
 						"given=()",
 						'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do',
+						// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 						'  if [ "$1" = --env ]; then shift; case $1 in *=*) given+=("$1");; *) [ -n "${!1+set}" ] && given+=("$1=${!1}");; esac; fi',
 						"  shift",
 						"done",
+						// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 						'shift; exec env -i "${given[@]}" "$@"',
 					]
 				: [
@@ -146,14 +148,15 @@ describe("a fenced command's cloud account", () => {
 			CLOUDSDK_AUTH_ACCESS_TOKEN: "persons-token",
 			CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE: "https://elsewhere.example/",
 			GOOGLE_APPLICATION_CREDENTIALS: "/home/someone/key.json",
+			GOOGLE_OAUTH_ACCESS_TOKEN: "persons-oauth",
 		};
 		const script =
 			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
-			'echo "${CLOUDSDK_AUTH_ACCESS_TOKEN-none} ${CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE-none} ${GOOGLE_APPLICATION_CREDENTIALS-none}"';
-		expect(fenced(script, {}, persons).trim()).toBe("none none none");
+			'echo "${CLOUDSDK_AUTH_ACCESS_TOKEN-none} ${CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE-none} ${GOOGLE_APPLICATION_CREDENTIALS-none} ${GOOGLE_OAUTH_ACCESS_TOKEN-none}"';
+		expect(fenced(script, {}, persons).trim()).toBe("none none none none");
 		expect(
 			fenced(script, { CLOUDSDK_AUTH_ACCESS_TOKEN: token }, persons).trim(),
-		).toBe(`${token} none none`);
+		).toBe(`${token} none none none`);
 	});
 
 	it("passes only names a variable can take", () => {

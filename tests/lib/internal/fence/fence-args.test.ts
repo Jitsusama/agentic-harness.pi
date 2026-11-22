@@ -600,8 +600,6 @@ describe("programs' hidden entries that run code as the person later", () => {
 			// Above dbus's and nvim's, pinned so it can't be moved (fence-pins.ts).
 			`${home}/.local/share`,
 			`${home}/.kube/cache`,
-			`${home}/.kube/gke_gcloud_auth_plugin_cache`,
-			`${home}/.aws/sso/cache`,
 			`${home}/.bundle/cache`,
 		]);
 		expect(pairs("--ro-bind"), "dbus's services and nvim's plugins").toEqual(
@@ -632,13 +630,15 @@ describe("programs' hidden entries that run code as the person later", () => {
 			".mozilla/native-messaging-hosts/thing.json",
 			".bundle/config",
 			".bundle/plugin/index",
+			// The person's cloud logins, hidden rather than kept writable.
+			".kube/gke_gcloud_auth_plugin_cache",
+			".aws/sso/cache/token.json",
+			".aws/cli/cache/role.json",
 		]) {
 			expect(refuses(path), `${path} was writable`).toBe(true);
 		}
 		for (const path of [
 			".kube/cache/discovery",
-			".aws/sso/cache/token.json",
-			".aws/cli/cache/role.json",
 			".npm/_cacache/index",
 			".bundle/cache/compact_index/thing",
 		]) {

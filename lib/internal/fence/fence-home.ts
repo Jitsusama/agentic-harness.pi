@@ -126,11 +126,11 @@ const READ_ONLY_NAMED = [".zcompdump"] as const;
 const CACHES_WITHIN = [
 	".kube/cache/",
 	".kube/http-cache/",
-	".kube/gke_gcloud_auth_plugin_cache",
-	".aws/sso/cache/",
-	".aws/cli/cache/",
 	".bundle/cache/",
 ] as const;
+// Not GKE's token cache nor aws's SSO and CLI caches: each holds a token
+// of the person's own cloud login, which the fence never hands in, so
+// they are hidden (data/fence-hidden.json, ISXEG8, 21 November).
 
 /**
  * The programs given a home of their own in the fence's folder
