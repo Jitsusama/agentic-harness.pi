@@ -222,8 +222,12 @@ export interface MeshState {
 	onNoModelUntold: NoModelEvent | undefined;
 	toldOnNoModel: boolean;
 	// Quests and documents that ended while nobody was above to hear it,
-	// the newest, told once a hub is kept.
-	endingsUntold: readonly ConcludedEvent[];
+	// the newest, each with the quest the session was on, told once a hub
+	// is kept if the session is on that quest still.
+	endingsUntold: readonly {
+		readonly event: ConcludedEvent;
+		readonly quest: string | undefined;
+	}[];
 	classifier: Promise<FoundClassifier> | undefined;
 	stopWatching: (() => void) | undefined;
 	// Where this peer's catch-up began: a message stamped at or before it

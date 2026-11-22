@@ -772,8 +772,16 @@ function saidIn(record: Record<string, unknown>): Said | undefined {
 /** Two counts, as a tie says each end's, or nothing for anything else. */
 function pair(said: unknown): [number, number] | undefined {
 	if (!Array.isArray(said) || said.length !== 2) return undefined;
-	const [a, b] = said;
-	return typeof a === "number" && typeof b === "number" ? [a, b] : undefined;
+	const [a, b]: unknown[] = said;
+	return isCount(a) && isCount(b) ? [a, b] : undefined;
+}
+
+/**
+ * Whether `said` is a count: a number, and a finite one, since a count
+ * no number can hold, as JSON's 1e309 reads, counts nothing.
+ */
+function isCount(said: unknown): said is number {
+	return typeof said === "number" && Number.isFinite(said);
 }
 
 /**

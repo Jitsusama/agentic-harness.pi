@@ -35,7 +35,6 @@ import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
 const TURN_PUT_OFF =
 	"The mesh messages above reached you while a reload of your harness waited. Act on them now.";
 
-/** What starts the turn of a session woken from parking with messages waiting. */
 /**
  * How many endings a session keeps, the newest, while it has nobody to
  * tell them to: enough for a spell with no hub, and bounded for a session
@@ -43,6 +42,7 @@ const TURN_PUT_OFF =
  */
 const ENDINGS_KEPT = 10;
 
+/** What starts the turn of a session woken from parking with messages waiting. */
 const WOKEN_TO_READ =
 	"Woken from parking. The mesh messages above reached you since your last turn and nothing has acted on them yet: read them and act on what is yours.";
 
@@ -113,25 +113,33 @@ export function createHanding(m: MeshState) {
 	 * what waited before it. On a quest with no mark and no hub kept yet,
 	 * as after the node was down, it waits until a find keeps one
 	 * (start.ts) rather than going nowhere; with no event, what waited is
-	 * told.
+	 * told. Each is kept with the quest it ended under, and told only while
+	 * the session is still on it, since the hub of a quest it moved to
+	 * would hear of work that is not under it.
 	 */
 	const tellConcluded = (event?: ConcludedEvent) => {
-		const waiting =
-			event === undefined ? m.endingsUntold : [...m.endingsUntold, event];
+		const quest = m.peer?.quest;
+		const waiting = [
+			...m.endingsUntold,
+			...(event === undefined ? [] : [{ event, quest }]),
+		].slice(-ENDINGS_KEPT);
 		const above = keptAbove(m.peer?.orchestratedBy, m.hub)?.address;
 		if (m.peer === undefined || above === undefined) {
-			m.endingsUntold = waiting.slice(-ENDINGS_KEPT);
+			m.endingsUntold = waiting;
 			return;
 		}
-		m.endingsUntold = [];
-		for (const one of waiting) {
+		m.endingsUntold = waiting.filter((one) => one.quest === quest);
+		for (const one of [...m.endingsUntold]) {
 			const message = tellOrchestrator(
 				m.peer,
 				above,
 				m.transport,
-				one,
+				one.event,
 				m.presences.all(),
 			);
+			// Taken off only once told, so a tell that throws leaves it and
+			// the rest for the next find.
+			m.endingsUntold = m.endingsUntold.slice(1);
 			if (message) m.seen.add(message.id);
 		}
 	};
