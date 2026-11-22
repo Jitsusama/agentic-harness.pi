@@ -340,8 +340,11 @@ function textOf(file: string): string {
 export interface JobRecordRemoval {
 	/** Whether its call was handed on while it ran. */
 	handed: boolean;
-	/** The record this process last wrote, as its call was handed on. */
-	latest?: string;
+	/**
+	 * Whether its call's files went while it ran, here, as a taker in this
+	 * process ended the call, so nothing is put back for one.
+	 */
+	gone: boolean;
 	/** Whether the record is off its name, set aside, and not yet put back. */
 	setAside: boolean;
 }
@@ -372,6 +375,11 @@ export function ownJobRecord(path: string, record: string): void {
 	jobRecords.own.set(path, record);
 }
 
+/** Whether this process holds a job record it wrote for the call kept at `path`. */
+export function ownsJobRecord(path: string): boolean {
+	return jobRecords.own.has(path);
+}
+
 /**
  * Let go of the job record of the call kept at `path` as this process's,
  * answering the record it wrote, or nothing when there is none it holds.
@@ -395,24 +403,28 @@ export function disownJobRecord(path: string): boolean {
  * handed on, marking a removal of it still running as handed.
  */
 export function handJobRecordOn(path: string): void {
-	const record = takeJobRecord(path);
+	disownJobRecord(path);
 	const removal = jobRecords.removing.get(path);
-	if (removal === undefined) return;
-	removal.handed = true;
-	if (record !== undefined) removal.latest = record;
+	if (removal !== undefined) removal.handed = true;
 }
 
 /**
  * Begin removing the job record of the call kept at `path`, answering
  * the removal, or nothing when this process wrote none to remove or one
- * removal of it runs already, which takes a record written again too.
+ * removal of it runs already: that one takes a record written again
+ * too, unless the call was handed on meanwhile, when the record is its
+ * taker's, which goes with the call's files.
  */
 export function beginJobRecordRemoval(
 	path: string,
 ): JobRecordRemoval | undefined {
 	if (!jobRecords.own.has(path) || jobRecords.removing.has(path))
 		return undefined;
-	const removal: JobRecordRemoval = { handed: false, setAside: false };
+	const removal: JobRecordRemoval = {
+		handed: false,
+		gone: false,
+		setAside: false,
+	};
 	jobRecords.removing.set(path, removal);
 	return removal;
 }
@@ -434,6 +446,8 @@ export function endJobRecordRemoval(
  */
 export async function removeKept(path: string): Promise<void> {
 	disownJobRecord(path);
+	const removal = jobRecords.removing.get(path);
+	if (removal !== undefined) removal.gone = true;
 	for (const suffix of SUFFIXES) {
 		try {
 			await rm(`${path}${suffix}`, { force: true });

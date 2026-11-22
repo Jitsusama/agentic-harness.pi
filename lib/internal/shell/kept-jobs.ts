@@ -50,6 +50,7 @@ import {
 	type JobRecordRemoval,
 	keptFolder,
 	ownJobRecord,
+	ownsJobRecord,
 	processThere,
 	removeKept,
 	takeJobRecord,
@@ -70,6 +71,9 @@ export interface KeptJob {
 
 /** Only the owner reads or writes it, as every kept file. */
 const FILE_MODE = 0o600;
+
+/** Open a staged name only to make it, never through what is there. */
+const NEW_ONLY = "wx";
 
 /**
  * How long a record's removal may run before it is said: a disk this
@@ -104,7 +108,14 @@ export function recordKeptJob(job: KeptJob): void {
 	const staged = `${file}.${process.pid}.new`;
 	const record = JSON.stringify(job);
 	try {
-		writeFileSync(staged, record, { mode: FILE_MODE });
+		try {
+			writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+		} catch (error) {
+			if (!isTaken(error)) throw error;
+			// One left by a write that died, or planted: taken away, not written through.
+			rmSync(staged, { force: true });
+			writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+		}
 		renameSync(staged, file);
 		ownJobRecord(job.work.keep, record);
 	} catch {
@@ -157,15 +168,24 @@ export async function forgetOwnKeptJob(
 	]);
 	clearTimeout(timer);
 	if (ended === "waited") {
-		// Once set aside, no start reads it, so only a removal still to move
-		// it leaves a record a pi gone meanwhile would take up again.
-		const follows = removal.setAside
-			? "it is set aside already, where no start reads it"
-			: "a pi gone before it goes may say the call's end again";
 		process.stderr.write(
-			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, and ${follows}\n`,
+			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, and ${whatFollows(keep, removal)}\n`,
 		);
 	}
+}
+
+/**
+ * What follows from a removal of the record kept at `keep` still going
+ * as its call settles, from where the record stands now: a call handed
+ * on is its taker's to record, a record at its name again is one a pi
+ * gone meanwhile would take up, and one set aside no start reads.
+ */
+function whatFollows(keep: string, removal: JobRecordRemoval): string {
+	if (removal.handed)
+		return "the call was handed on meanwhile, so a pi gone before its taker records it leaves the call to strays";
+	if (removal.setAside && !ownsJobRecord(keep))
+		return "it is set aside already, where no start reads it";
+	return "a pi gone before it goes may say the call's end again";
 }
 
 /**
@@ -176,7 +196,10 @@ export async function forgetOwnKeptJob(
  * than renamed so it never replaces one the taker wrote first: what was
  * set aside, when the hand-off came before the rename landed, since a
  * taker's write may have been what it moved; otherwise, once the aside
- * is gone, what this process wrote.
+ * is gone, what this process wrote. Nothing is put back once the call's
+ * files went, as a taker in this process that ended the call removed
+ * them; a taker in another process that does so while the disk holds
+ * the put-back can leave a record a later start says the end of again.
  */
 async function removeOwn(
 	keep: string,
@@ -190,67 +213,103 @@ async function removeOwn(
 		if (record === undefined) return;
 		const began = now();
 		try {
-			await rename(file, aside);
-		} catch (error) {
-			// Gone already, with the call's other files: nothing to remove.
-			if (isMissing(error)) continue;
-			// A disk refusing it (read-only after an error, failing, or the
-			// file made immutable): the record stays, and `removeKept` just
-			// after stops at it. Said, since nothing else would show it.
-			sayStays(file, error);
-			continue;
-		}
-		const handedFirst = removal.handed;
-		removal.setAside = !handedFirst;
-		if (handedFirst) await linkBack(aside, file);
-		try {
-			await rm(aside, { force: true });
-		} catch (error) {
-			// A disk refusing it: what stays is under a name no start reads
-			// as a record, and the week's sweep takes a file left that long.
-			const why = error instanceof Error ? error.message : String(error);
-			process.stderr.write(
-				`[shell] couldn't remove ${aside}: ${why}; no start reads it as a record, and the week's sweep takes it\n`,
-			);
-		}
-		if (removal.handed && !handedFirst)
-			await writeBack(file, removal.latest ?? record);
-		removal.setAside = false;
-		const took = now() - began;
-		if (took > SLOW_REMOVAL_MS) {
-			process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+			await removeOnce(file, aside, record, removal);
+		} finally {
+			// Timed whichever way the pass ended: a slow refusal is as telling.
+			const took = now() - began;
+			if (took > SLOW_REMOVAL_MS) {
+				process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+			}
 		}
 	}
 }
 
-/**
- * Put a record set aside back for the call's taker, unless the taker has
- * written its own there already, which is the newer.
- */
-async function linkBack(aside: string, file: string): Promise<void> {
+/** One pass of `removeOwn`: `record` at `file`, set aside and removed. */
+async function removeOnce(
+	file: string,
+	aside: string,
+	record: string,
+	removal: JobRecordRemoval,
+): Promise<void> {
 	try {
-		await link(aside, file);
+		await rename(file, aside);
+	} catch (error) {
+		// Gone already, with the call's other files: nothing to remove.
+		if (isMissing(error)) return;
+		// A disk refusing it (read-only after an error, failing, or the
+		// file made immutable): the record stays, and `removeKept` just
+		// after stops at it. Said, since nothing else would show it.
+		sayStays(file, error);
+		return;
+	}
+	const handedFirst = removal.handed;
+	removal.setAside = !handedFirst;
+	if (handedFirst) await putBack(file, removal, () => link(aside, file));
+	try {
+		await rm(aside, { force: true });
+	} catch (error) {
+		// A disk refusing it: what stays is under a name no start reads
+		// as a record, and the week's sweep takes a file left that long.
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(
+			`[shell] couldn't remove ${aside}: ${why}; no start reads it as a record, and the week's sweep takes it\n`,
+		);
+	}
+	if (removal.handed && !handedFirst)
+		await putBack(file, removal, () => writeBack(file, record));
+	removal.setAside = false;
+}
+
+/**
+ * Put a record back for the call's taker by `linking` it into place,
+ * which leaves one the taker wrote there already, the newer; not once
+ * the call's files went, and taken away again when they went as it
+ * landed, since a record beside the call's end has a start say it again.
+ */
+async function putBack(
+	file: string,
+	removal: JobRecordRemoval,
+	linking: () => Promise<void>,
+): Promise<void> {
+	if (removal.gone) return;
+	try {
+		await linking();
 	} catch (error) {
 		if (!isTaken(error)) sayNotBack(file, error);
+		return;
 	}
+	if (removal.gone)
+		await rm(file, { force: true }).catch((error) => sayStays(file, error));
 }
 
 /**
- * Write `record` back for the call's taker once what was set aside is
- * gone, whole, under a name of its own first, and linked into place
- * unless the taker has written its own there already.
+ * Write `record` back under a name of its own, whole, and link it into
+ * place, rejecting as the link does.
  */
 async function writeBack(file: string, record: string): Promise<void> {
 	const staged = `${file}.${process.pid}.back`;
 	try {
-		await writeFile(staged, record, { mode: FILE_MODE });
+		await writeStaged(staged, record);
 		await link(staged, file);
-	} catch (error) {
-		if (!isTaken(error)) sayNotBack(file, error);
 	} finally {
 		await rm(staged, { force: true }).catch(() => {
 			// Under a name no start reads as a record; the week's sweep takes it.
 		});
+	}
+}
+
+/**
+ * Write `record` under `staged`, a name no one else's, refusing to write
+ * through whatever is there already, as a link a fenced command planted
+ * would have it; what is there is taken away and the write tried again.
+ */
+async function writeStaged(staged: string, record: string): Promise<void> {
+	try {
+		await writeFile(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+	} catch (error) {
+		if (!isTaken(error)) throw error;
+		await rm(staged, { force: true });
+		await writeFile(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
 	}
 }
 
