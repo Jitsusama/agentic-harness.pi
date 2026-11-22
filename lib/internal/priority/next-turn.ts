@@ -118,24 +118,15 @@ const rank = (job: Job) =>
  * time to its result (80ECO2). A sent `nix-offload there
  * --here-when-idle` stays held: idle by CPU, it may build here while
  * memory is short. A sent `elsewhere run` goes too: it is sent only
- * while elsewhere places its kind on another machine (send.ts). Not one
- * chained with nix-offload, though, which may be the idle-only kind
- * that builds here.
+ * while elsewhere places its kind on another machine, and never beside
+ * an idle-only build (send.ts).
  */
 function startsPressed(job: Job): boolean {
 	if (job.sent !== true) return lightAndQuick(job);
 	if (runsChangedChecks(job.what)) return true;
-	if (
-		elsewhereKindOf(wordsOf(job.what)) !== undefined &&
-		!NIX_OFFLOAD.test(job.what)
-	) {
-		return true;
-	}
+	if (elsewhereKindOf(wordsOf(job.what)) !== undefined) return true;
 	return lightAndQuick(job);
 }
-
-/** A command that runs nix-offload anywhere in it. */
-const NIX_OFFLOAD = /\bnix-offload\b/;
 
 /** Quick work other than a build, held to no more than {@link LIGHT_GIB}. */
 function lightAndQuick(job: Job): boolean {

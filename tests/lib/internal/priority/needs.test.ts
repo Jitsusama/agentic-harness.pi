@@ -12,6 +12,8 @@ describe("elsewhereKindOf", () => {
 		const sent: [string, string][] = [
 			["elsewhere run harness-check -- pnpm typecheck", "harness-check"],
 			["elsewhere run delta-spec cargo test", "delta-spec"],
+			["elsewhere run delta-spec cargo test $ARGS --here", "delta-spec"],
+			["elsewhere run delta-spec pnpm test > $TMPDIR/t.log", "delta-spec"],
 			["CI=1 elsewhere run harness-check -- pnpm test", "harness-check"],
 			[
 				"env -u SSH_AUTH_SOCK CI=1 elsewhere run delta-spec -- cargo test",
@@ -39,6 +41,8 @@ describe("elsewhereKindOf", () => {
 			'elsewhere run harness-check -""-here -- pnpm typecheck',
 			"elsewhere run harness-check \\-\\-here -- pnpm typecheck",
 			"elsewhere run harness-check $H -- pnpm typecheck",
+			"elsewhere run harness-check $H pnpm typecheck",
+			"elsewhere run harness-check --here pnpm typecheck",
 			'elsewhere run harness-check "$STAY" -- pnpm typecheck',
 			"elsewhere where harness-check",
 			"elsewhere run --here",

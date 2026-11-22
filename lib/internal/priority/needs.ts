@@ -191,7 +191,7 @@ function unquoted(word: string): string {
  * earlier step changes what a later one inherits.
  */
 const REROUTES =
-	/\bPI_QUEST\b|(?<![\w$])PATH\b|\$\{?PATH\b|\belsewhere\s*\(|\bfunction\s+elsewhere\b|\balias\s+elsewhere\b/;
+	/\bPI_QUEST\b|(?<!\w)PATH\b|\belsewhere\s*\(|\bfunction\s+elsewhere\b|\balias\s+elsewhere\b/;
 
 /** Whether anything in a command can change where its elsewhere runs go. */
 export function reroutesElsewhere(command: string): boolean {
@@ -277,7 +277,13 @@ export function elsewhereKindOf(words: readonly string[]): string | undefined {
 		return undefined;
 	}
 	const end = words.indexOf("--", at + 3);
-	const options = words.slice(at + 3, end === -1 ? undefined : end);
+	// With no `--`, elsewhere's options are the words before the job's
+	// first, and the job's own words are its business.
+	const rest = words.slice(at + 3, end === -1 ? undefined : end);
+	const first = rest.findIndex(
+		(word) => !unquoted(word).startsWith("-") && !word.includes("$"),
+	);
+	const options = end === -1 && first !== -1 ? rest.slice(0, first) : rest;
 	const staysHere = (option: string) =>
 		option.includes("$") || unquoted(option) === "--here";
 	return options.some(staysHere) ? undefined : kind;

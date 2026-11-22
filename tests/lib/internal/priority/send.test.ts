@@ -12,6 +12,7 @@ import {
 	type Far,
 	placedFarKnown,
 	placesFar,
+	placesNow,
 	refusedHere,
 	sendsWholeRun,
 	whereItRuns,
@@ -303,6 +304,12 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				),
 				"with PATH changed by an earlier step",
 			).toBe(false);
+			expect(
+				sent(
+					"elsewhere run harness-check -- pnpm test && nix-offload there --here-when-idle . checks.x86_64-linux.x",
+				),
+				"beside an idle-only build, which may build here",
+			).toBe(false);
 			expect(asked).toEqual(["stays"]);
 		});
 
@@ -365,6 +372,44 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			pending[1]?.(false);
 			await settled();
 			expect(placedFarKnown("turns-here", now + 62_000, ask)).toBe(false);
+		});
+
+		// An agent runs a check, edits for minutes and runs it again, so an
+		// answer kept warm only by its runs would nearly always be stale.
+		it("has a fresh answer waited for before a run is queued", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			const run = "cd x && elsewhere run waits-first -- pnpm test";
+			let done = false;
+			const placed = placesNow(run, "/tree", "/home", ask, now).then(() => {
+				done = true;
+			});
+			await settled();
+			expect(done, "waits for elsewhere's answer").toBe(false);
+			pending[0]?.(true);
+			await placed;
+			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+
+			const later = now + 5 * 60_000;
+			const again = placesNow(run, "/tree", "/home", ask, later);
+			expect(pending, "five minutes on, it asks again").toHaveLength(2);
+			pending[1]?.(true);
+			await again;
+			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+		});
+
+		it("waits for nothing when no step is an elsewhere run, or the answer is fresh", async () => {
+			const { ask, pending } = answers();
+			await placesNow("pnpm test # elsewhere later", "/tree", "/home", ask);
+			await placesNow("echo elsewhere run x -- y", "/tree", "/home", ask);
+			expect(pending).toHaveLength(0);
+			const now = Date.now();
+			const run = "elsewhere run fresh-already -- pnpm test";
+			const first = placesNow(run, "/tree", "/home", ask, now);
+			pending[0]?.(true);
+			await first;
+			await placesNow(run, "/tree", "/home", ask, Date.now() + 1_000);
+			expect(pending, "asked once").toHaveLength(1);
 		});
 	});
 

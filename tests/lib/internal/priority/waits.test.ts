@@ -129,16 +129,6 @@ describe("why each job waits", () => {
 
 		expect(nextTurn([idle], pressed, NOW)).toBeUndefined();
 		expect(waitReasons([idle], pressed, NOW).get("idle")).toBe("memory");
-
-		const chained = older("chained", 9_000, {
-			what: "elsewhere run harness-check -- pnpm test && nix-offload there --here-when-idle . checks.x86_64-linux.x",
-			needsGib: 6,
-			sent: true,
-		});
-		expect(nextTurn([chained], pressed, NOW), "after an elsewhere run").toBe(
-			undefined,
-		);
-		expect(waitReasons([chained], pressed, NOW).get("chained")).toBe("memory");
 	});
 
 	it("says vms when the VMs allowed at once are running", () => {

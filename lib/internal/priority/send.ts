@@ -187,6 +187,32 @@ const WHERE_MS = 10_000;
 interface Placed {
 	readonly asked: number;
 	answered?: { readonly at: number; readonly far: boolean };
+	/** The ask made at {@link Placed.asked}, settled once it answers. */
+	asking?: Promise<void>;
+}
+
+/**
+ * What elsewhere has said of a kind, asking again when the last ask is
+ * {@link TAKES_MS} old, and keeping the last answer while it asks.
+ */
+function placing(
+	kind: string,
+	now: number,
+	ask: (kind: string) => Promise<boolean>,
+): Placed {
+	const store = kept();
+	store.placed ??= new Map();
+	const known = store.placed.get(kind);
+	if (known !== undefined && now - known.asked < TAKES_MS) return known;
+	const placed: Placed = {
+		asked: now,
+		...(known?.answered ? { answered: known.answered } : {}),
+	};
+	store.placed.set(kind, placed);
+	placed.asking = ask(kind).then((far) => {
+		placed.answered = { at: Date.now(), far };
+	});
+	return placed;
 }
 
 /**
@@ -200,8 +226,9 @@ const PLACED_FOR_MS = 2 * TAKES_MS;
  * Whether elsewhere said, within {@link PLACED_FOR_MS}, that it places a
  * kind of job on another machine, asking again at most once a minute in
  * the background, and false until it first answers: for the queue, which
- * can't wait. The first run of a kind in a process is held as local
- * work, as every run was before. Placement is asked by kind alone, since
+ * can't wait. {@link placesNow} has the answer fresh before a run is
+ * queued; without it, a run of a kind not asked of lately is held as
+ * local work, as every run was before. Placement is asked by kind alone, since
  * elsewhere's `where` reads neither the quest nor the folder (measured on
  * 22 November: the same answer with `PI_QUEST` set and empty); the quest
  * is checked where it is known, in `travels`.
@@ -211,22 +238,42 @@ export function placedFarKnown(
 	now = Date.now(),
 	ask: (kind: string) => Promise<boolean> = placedFar,
 ): boolean {
-	const store = kept();
-	store.placed ??= new Map();
-	const known = store.placed.get(kind);
-	if (known === undefined || now - known.asked >= TAKES_MS) {
-		const asking: Placed = {
-			asked: now,
-			...(known?.answered ? { answered: known.answered } : {}),
-		};
-		store.placed.set(kind, asking);
-		void ask(kind).then((far) => {
-			asking.answered = { at: Date.now(), far };
-		});
-	}
-	const answered = known?.answered;
+	const answered = placing(kind, now, ask).answered;
 	return (
 		answered !== undefined && now - answered.at < PLACED_FOR_MS && answered.far
+	);
+}
+
+/**
+ * Has elsewhere say where it places each kind of job `command` sends
+ * with `elsewhere run`, waiting for any answer older than
+ * {@link TAKES_MS}, so a run queued straight after is judged on a fresh
+ * one rather than held for want of it. An agent runs a check, edits for
+ * minutes and runs it again, so an answer kept warm only by the runs
+ * themselves is nearly always stale. `elsewhere where` answered in 0.67 s
+ * on 22 November, and gives up within {@link WHERE_MS}.
+ */
+export async function placesNow(
+	command: string,
+	cwd: string,
+	home: string = homedir(),
+	ask: (kind: string) => Promise<boolean> = placedFar,
+	now = Date.now(),
+): Promise<void> {
+	if (!command.includes("elsewhere")) return;
+	const kinds = new Set<string>();
+	for (const step of stepsOf(command, cwd, home) ?? []) {
+		const kind = elsewhereKindOf(wordsOf(step.text));
+		if (kind !== undefined) kinds.add(kind);
+	}
+	await Promise.all(
+		[...kinds].map(async (kind) => {
+			const placed = placing(kind, now, ask);
+			const answered = placed.answered;
+			if (answered === undefined || now - answered.at >= TAKES_MS) {
+				await placed.asking;
+			}
+		}),
 	);
 }
 
@@ -291,7 +338,11 @@ export function sendsWholeRun(
 	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
 		(step) => kindOf(step.text) !== undefined,
 	);
-	const routed = reroutesElsewhere(command) ? {} : far;
+	// A sent elsewhere run starts while memory is short, and the queue
+	// reads only a job's first heavy step, so an idle-only build beside
+	// one, which may build here, keeps the run from counting as sent.
+	const idleOnly = heavy.some((step) => SENT_UNLESS_IDLE.test(step.text));
+	const routed = reroutesElsewhere(command) || idleOnly ? {} : far;
 	return (
 		heavy.length > 0 &&
 		heavy.every(
