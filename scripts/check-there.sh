@@ -18,12 +18,28 @@
 # holds a change to. It finds the pnpm that package.json
 # names in its Nix store, since corepack can't fetch one there, and runs
 # npm's prebuilt biome through glibc's own loader where the host has no
-# nix-ld. Checks on one host take turns, since they share that worktree.
-# Exits with what `pnpm check` exited with.
+# nix-ld. Checks on one host take turns, since they share that worktree;
+# one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
+# check before it to end. Exits with what `pnpm check` exited with, or
+# 75 when its turn never came.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
+wait_s="${CHECK_THERE_WAIT_S:-5400}"
+case "$wait_s" in
+  '' | *[!0-9]*)
+    echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds" >&2
+    exit 2
+    ;;
+esac
+# ssh would read a host that opens with a dash as one of its options.
+case "$host" in
+  -*)
+    echo "check-there: '$host' names no host" >&2
+    exit 2
+    ;;
+esac
 
 if [ "$#" -lt 1 ]; then
   git fetch -q origin "$branch"
@@ -35,9 +51,10 @@ fi
 
 # ssh joins its words into one line the host's shell reads again, so the
 # branch goes quoted: git lets a branch's name hold `;` and `$(`.
-exec ssh -o BatchMode=yes "$host" "bash -s -- $(printf '%q' "$branch")" <<'THERE'
+exec ssh -o BatchMode=yes "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
 set -euo pipefail
 branch="$1"
+turn_wait_s="$2"
 # The check runs in a worktree of a bare clone, as the harness's own trees
 # are, so it reads the code as a session working on it does.
 repo=~/.cache/harness-check.git
@@ -47,13 +64,23 @@ mkdir -p ~/.local/state
 # started beside the first would swap the files under it. Each holds this
 # lock from the fetch to the end of `pnpm check`, and a second waits.
 mkdir -p ~/.cache
+# What a check leaves in ~/.cache is its own, and goes as it ends: the
+# link that keeps its node, and the line saying it holds the turn, only
+# once it has taken it, so a check that gave up leaves its holder's.
+let_go() {
+  if [ -n "${node_link:-}" ]; then rm -f "$node_link"; fi
+  if [ -n "${holder:-}" ]; then rm -f "$holder"; fi
+}
+trap let_go EXIT
 # A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
 # with its own node inside, so the check's scripts get the node 24 the
 # harness's other scripts run on, from the host's nixpkgs. It is found
 # before the lock, so no other check waits on a fetch, and linked from
-# ~/.cache, so the store keeps it while the check runs.
+# ~/.cache under this check's own name, so the store keeps it while the
+# check runs and a check started beside it can't repoint the link.
 if ! command -v node >/dev/null 2>&1; then
-  if ! node=$(nix build --out-link ~/.cache/harness-check-node --print-out-paths nixpkgs#nodejs_24); then
+  node_link=~/.cache/harness-check-node.$$
+  if ! node=$(nix build --out-link "$node_link" --print-out-paths nixpkgs#nodejs_24); then
     echo "check-there: no node on $(hostname), and nix gave none" >&2
     exit 1
   fi
@@ -82,25 +109,28 @@ lock() {
 }
 # Wait for the lock only while another check holds it, saying whose turn
 # it is, and at most `turn_wait_s`: a check that hung would otherwise keep
-# every later one waiting with no word. A lock that can't be tried fails
+# every later one waiting with no word. A wait that runs out exits 75, so
+# it reads apart from a failed check. A lock that can't be tried fails
 # the check, which would otherwise share the worktree.
 take_turn() {
-  local tried=0 wait_s="${turn_wait_s:-5400}"
+  local tried=0 held wait_s="${turn_wait_s:-5400}"
   lock -n || tried=$?
   if [ "$tried" -eq 1 ]; then
-    echo "check-there: another check runs on $(hostname) ($(cat "$turn.holder" 2>/dev/null || echo "unsaid")); waiting its turn" >&2
+    held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
+    echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
     tried=0
     lock -w "$wait_s" || tried=$?
     if [ "$tried" -eq 1 ]; then
-      echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock" >&2
-      return 1
+      echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock, held by ($held)" >&2
+      return 75
     fi
   fi
   if [ "$tried" -ne 0 ]; then
     echo "check-there: can't take $(hostname)'s check lock" >&2
     return "$tried"
   fi
-  printf '%s, from %s\n' "${branch:-a branch}" "$(date '+%H:%M')" > "$turn.holder" || true
+  holder="$turn.holder"
+  printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%a %H:%M')" > "$holder" || true
 }
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
