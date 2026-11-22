@@ -21,3 +21,5 @@ of every session is here.
   audit, the dead sessions and the repair plan.
 - `sprout-start.ts`: a sprout's start, which makes its quest from the
   seed the node handed it, waiting on its link's page.
+- `first-prompt.ts`: the quest a held session makes from its person's
+  first prompt, and when one left as made is retired.

@@ -11,8 +11,15 @@
  * known page never makes a second. Only a seed with its own id can be
  * marked. Whatever goes wrong before the quest exists leaves the node's
  * prose words to be said, as before; once it exists, the words say it.
+ *
+ * A sprout another cell started makes its quest under that cell's own,
+ * so its work shows beneath the work that asked for it and answers to
+ * the same orchestrator, rather than at the top where nobody watches.
+ * A cell with no quest, one whose quest has ended, or one this machine
+ * can't see makes it at the top, as before.
  */
 
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -20,6 +27,7 @@ import type {
 import { removeAliasesFromQuest } from "../../../lib/core/quest/front-matter.ts";
 import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
+import { stateDir } from "../../../lib/internal/paths.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -40,6 +48,7 @@ import {
 	titleFromWords,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -62,6 +71,27 @@ export interface SproutStartDeps {
 	readonly create: Create;
 	readonly load: Load;
 	readonly run: RunProgram;
+	/**
+	 * The quest the cell answering to `address` has loaded, as its
+	 * presence says; none while it has none or isn't seen here.
+	 */
+	readonly questOf?: (address: string) => string | undefined;
+}
+
+/**
+ * The quest the cell at `address` has loaded, read from its presence.
+ * Only the presence that signs with `address` counts: an older address
+ * is only a fallback for whoever signs with it now, and a presence kept
+ * after its session ended names a quest nobody is on.
+ */
+export function questOfCell(
+	address: string,
+	folder: string = join(stateDir("mesh-workflow"), "presence"),
+): string | undefined {
+	return createPresences(folder)
+		.all()
+		.find((one) => one.ended === undefined && one.addresses[0] === address)
+		?.quest;
 }
 
 /**
@@ -101,7 +131,9 @@ export async function startSprouted(
 	// as the link's sprout, so the next sprout of it joins this one.
 	const linked = linkedQuest(state, seed);
 	const held = replayed?.id ?? (linked?.sealed ? undefined : linked?.id);
-	const id = held ?? (await madeId(seed, deps.create, linked === undefined));
+	const parent = held ? undefined : spawnerQuest(state, seed, deps.questOf);
+	const id =
+		held ?? (await madeId(seed, deps.create, linked === undefined, parent));
 	if (!id) return;
 	let peers: string | undefined;
 	if (held) {
@@ -182,8 +214,9 @@ async function madeId(
 	seed: SproutSeed,
 	make: Create,
 	linkable: boolean,
+	parent: string | undefined,
 ): Promise<string | undefined> {
-	const made = await makeQuest(seed, make, linkable);
+	const made = await makeQuest(seed, make, linkable, parent);
 	const id = made.ok ? made.details?.id : undefined;
 	return typeof id === "string" ? id : undefined;
 }
@@ -201,6 +234,31 @@ export function hushReplayedSprout(
 	if (hints && state.questId && sproutSeedFrom(hints.sprout)) {
 		hints.firstWords = "";
 	}
+}
+
+/**
+ * The live quest the cell that started this sprout has loaded, to make
+ * its quest under; none when the seed names no cell, the cell has no
+ * quest, or that quest has ended or isn't among this realm's quests.
+ */
+function spawnerQuest(
+	state: QuestState,
+	seed: SproutSeed,
+	questOf: (address: string) => string | undefined = questOfCell,
+): string | undefined {
+	if (!seed.from) return undefined;
+	let quest: string | undefined;
+	try {
+		quest = questOf(seed.from);
+	} catch {
+		// A presence folder that can't be read leaves the quest at the top,
+		// as every sprout made before; the work matters more than its place.
+		return undefined;
+	}
+	if (!quest) return undefined;
+	const entry = discoverQuests(state.questsRoot).index.quests.get(quest);
+	if (!entry || isSealedStatus(entry.doc.frontMatter.status)) return undefined;
+	return quest;
 }
 
 /** A quest found holding an alias, its folder, and whether it has ended. */
@@ -364,17 +422,19 @@ function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
  * Create the quest from the link, whose page names and seeds it, with
  * the words as its note. A page that gives no title makes it from the
  * words, or the link itself, as its title, still marked with the link's
- * alias; a link no ref type reads makes it from those alone.
+ * alias; a link no ref type reads makes it from those alone. Under
+ * `parent`, when one is given, as a subquest.
  */
 async function makeQuest(
 	seed: SproutSeed,
 	make: Create,
 	linkable: boolean,
+	parent: string | undefined,
 ): Promise<QuestResult> {
 	const base = {
 		action: "create",
-		kind: "quest",
 		priority: "driving",
+		...(parent ? { kind: "subquest", parent } : { kind: "quest" }),
 	} as const;
 	const title = (seed.words ? titleFromWords(seed.words) : seed.link) ?? "";
 	const read = linkable ? linkRead(seed) : undefined;

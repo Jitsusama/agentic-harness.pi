@@ -15,6 +15,7 @@ import {
 import {
 	type Create,
 	hushReplayedSprout,
+	questOfCell,
 	startSprouted,
 } from "../../../../extensions/quest-workflow/sessions/sprout-start.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -31,6 +32,10 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import {
+	createPresences,
+	type Presence,
+} from "../../../../lib/mesh/presence.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
 import {
 	clearRefTypes,
@@ -95,6 +100,7 @@ async function start(
 		asked?: unknown[];
 		sessionId?: string;
 		linkFails?: boolean;
+		questOf?: (address: string) => string | undefined;
 	} = {},
 ) {
 	if (seed) process.env[SEED] = JSON.stringify({ v: 1, ...seed });
@@ -122,6 +128,7 @@ async function start(
 		create: make,
 		load: (id) => load(state, pi, ctx, { action: "load", id }),
 		run,
+		...(options.questOf ? { questOf: options.questOf } : {}),
 	});
 	return { state, source, words: pendingWords(ctx).hints?.firstWords };
 }
@@ -178,6 +185,114 @@ afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
 	clearRefTypes();
+});
+
+/** A quest made on disk as another cell's, with no session put on it. */
+async function spawnersQuest(title: string): Promise<string> {
+	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+	const made = await create(state, fakePi(), ctxOf("spawner"), {
+		action: "create",
+		kind: "quest",
+		title,
+	});
+	const id = made.ok ? made.details?.id : undefined;
+	if (typeof id !== "string") throw new Error("no spawner's quest was made");
+	clearDiscoveryCache();
+	return id;
+}
+
+/** The parent quest `id`'s front matter names, if any. */
+function parentOf(id: string | null): string | null | undefined {
+	if (!id) return undefined;
+	return discoverQuests(join(tmpRoot, "quests")).index.quests.get(id)?.doc
+		.frontMatter.parent;
+}
+
+describe("a sprout another cell started", () => {
+	it("makes its quest under that cell's own", async () => {
+		const spawner = await spawnersQuest("The work that asked");
+		const asked: string[] = [];
+		const { state } = await start(
+			{ words: "tidy the rows", from: "TERN02" },
+			{
+				questOf: (address) => {
+					asked.push(address);
+					return spawner;
+				},
+			},
+		);
+
+		expect(asked, "the cell the seed names is the one asked").toEqual([
+			"TERN02",
+		]);
+		expect(
+			parentOf(state.questId),
+			"the sprout's quest sits under the quest of the cell that started it",
+		).toBe(spawner);
+		expect(
+			discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+				state.questId ?? "",
+			)?.doc.frontMatter.kind,
+			"a quest under another is a subquest",
+		).toBe("subquest");
+	});
+
+	it("makes it at the top when that cell's quest has ended", async () => {
+		const spawner = await spawnersQuest("Finished work");
+		seal(spawner);
+
+		const { state } = await start(
+			{ words: "tidy the rows", from: "TERN02" },
+			{ questOf: () => spawner },
+		);
+
+		expect(state.questId, "the sprout still has its quest").toMatch(/^QEST-/);
+		expect(
+			parentOf(state.questId),
+			"ended work takes no new quest under it",
+		).toBeNull();
+	});
+
+	it("makes it at the top when that cell is on no quest this realm holds", async () => {
+		const { state } = await start(
+			{ words: "tidy the rows", from: "TERN02" },
+			{ questOf: () => "QEST-20990101-NOSUCH" },
+		);
+
+		expect(
+			parentOf(state.questId),
+			"a quest this realm can't find is no parent",
+		).toBeNull();
+	});
+
+	it("makes it at the top when that cell's presence can't be read", async () => {
+		const { state } = await start(
+			{ words: "tidy the rows", from: "TERN02" },
+			{
+				questOf: () => {
+					throw new Error("EACCES");
+				},
+			},
+		);
+
+		expect(state.questId, "the sprout still has its quest").toMatch(/^QEST-/);
+		expect(parentOf(state.questId), "no parent was read").toBeNull();
+	});
+
+	it("asks no cell when the seed names none", async () => {
+		const asked: string[] = [];
+		await start(
+			{ words: "tidy the rows" },
+			{
+				questOf: (address) => {
+					asked.push(address);
+					return undefined;
+				},
+			},
+		);
+
+		expect(asked, "a seed with no cell asks for no parent").toEqual([]);
+	});
 });
 
 describe("a sprouted session's start", () => {
@@ -658,5 +773,52 @@ describe("a sprouted session's start", () => {
 		const { state, words } = await start(undefined);
 		expect(state.questId, "a start with no seed made a quest").toBeFalsy();
 		expect(words).toBe("the node's prose");
+	});
+});
+
+describe("the quest a spawning cell is on", () => {
+	/** A presence for `session`, signing first with the first of `addresses`. */
+	const presence = (
+		session: string,
+		addresses: string[],
+		fields: Partial<Presence> = {},
+	): Presence => ({
+		session,
+		addresses,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: "2026-11-22T00:00:00Z",
+		...fields,
+	});
+
+	it("is read only from the live presence that signs with its address", () => {
+		const folder = mkdtempSync(join(tmpdir(), "quest-of-cell-"));
+		try {
+			const presences = createPresences(folder);
+			presences.publish(
+				presence("sess-gone", ["ABC123"], {
+					quest: "QEST-GONE",
+					ended: "2026-11-22T00:00:00Z",
+				}),
+			);
+			presences.publish(
+				presence("sess-older", ["XYZ789", "ABC123"], { quest: "QEST-OLDER" }),
+			);
+			expect(
+				questOfCell("ABC123", folder),
+				"an ended session and one only answering to it name no quest",
+			).toBeUndefined();
+			presences.publish(
+				presence("sess-live", ["ABC123"], { quest: "QEST-LIVE" }),
+			);
+			expect(
+				questOfCell("ABC123", folder),
+				"the live session signing with it names its quest",
+			).toBe("QEST-LIVE");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
 	});
 });
