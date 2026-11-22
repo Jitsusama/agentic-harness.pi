@@ -319,14 +319,17 @@ a failed replacement and a drop while parked let it go.
 kept-history.ts has a conversation pi opens from a compacted log hold
 only what a rollover would keep of it: the entries from the last
 compaction's first kept entry on, and the state from before it. A log
-of 98.6 MB held about 132 MB of heap whole, against about 7 MB for
-that view. The file and session id stay as they are, so the roster,
-socket, store and mesh address do too. A rollover record that is never
-written names the same file as its parent and carries the spend of the
-turns left on disk, so session_recall and the spend total read as
-before, and every id in the file stays taken. The tree, a fork, a
-branch to an entry left on disk and a rewrite of the file read the
-whole log back first; a switch to another log lets the view go. It
+of 98.6 MB held 142 MB of heap whole, against 30 MB for that view
+(126 MB against 14 over a bare session's). The file and session id
+stay as they are, so the roster, socket, store and mesh address do
+too. A rollover record that is never written names the same file as
+its parent and carries the spend of the turns left on disk, so
+session_recall and the spend total read as before; usage entries,
+never written either, carry their tokens and cost for pi's footer and
+/session; and every id in the file stays taken. The tree, a fork, a
+lookup of an entry left on disk, a branch to one from before the last
+compaction and a rewrite of the file read the whole log back first,
+each said in the journal; a switch to another log lets the view go. It
 holds on a resume, a wake, an adoption and a replacement by an older
 log, and leaves pi's full open alone when anything fails or pi's
 privates aren't what it reads.

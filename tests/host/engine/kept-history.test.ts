@@ -8,17 +8,21 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	holdKeptHistory,
 	holdsLikePi,
 } from "../../../host/engine/kept-history.ts";
 import {
 	ancestry,
+	carriedBy,
 	type Entry,
 	ROLLOVER_RECORD,
 } from "../../../lib/internal/session/rollover.ts";
-import { spentOnBranch } from "../../../lib/internal/spend/session-spend.ts";
+import {
+	SPEND_CARRY,
+	spentOnBranch,
+} from "../../../lib/internal/spend/session-spend.ts";
 
 let dir: string;
 
@@ -62,12 +66,27 @@ function exchange(sessions: SessionManager, text: string, cost = 0.5): void {
 	sessions.appendMessage(answer(`answer to ${text}`, cost));
 }
 
+/** How a test log differs from the plain one. */
+interface LogShape {
+	/** Which entry of "kept one" the compaction keeps from. */
+	readonly keepFrom?: "user" | "assistant";
+	/** Whether the log was itself rolled over, its record carrying `other`. */
+	readonly rolled?: boolean;
+}
+
 /**
  * A log of early turns and state, a compaction keeping the last two
  * turns, and a turn after it, written by pi; answers with its file.
  */
-function compactedLog(): string {
+function compactedLog(shape: LogShape = {}): string {
 	const sessions = SessionManager.create(dir, dir);
+	if (shape.rolled)
+		sessions.appendCustomEntry(ROLLOVER_RECORD, {
+			parentSession: join(dir, "gone.jsonl"),
+			parentLeaf: "00000000",
+			dropped: 3,
+			carried: { other: { kept: true }, [SPEND_CARRY]: { spend: 10 } },
+		});
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendThinkingLevelChange("high");
 	exchange(sessions, "early one", 1);
@@ -83,8 +102,12 @@ function compactedLog(): string {
 				entry.message.role === "user" &&
 				entry.message.content === "kept one",
 		);
+	const keptAnswer = kept?.id
+		? sessions.getBranch().find((entry) => entry.parentId === kept.id)
+		: undefined;
+	const from = shape.keepFrom === "assistant" ? keptAnswer : kept;
 	exchange(sessions, "kept two");
-	sessions.appendCompaction("what happened early", kept?.id ?? "", 1000);
+	sessions.appendCompaction("what happened early", from?.id ?? "", 1000);
 	exchange(sessions, "after");
 	const file = sessions.getSessionFile();
 	if (!file) throw new Error("pi named no file");
@@ -231,6 +254,200 @@ describe("a conversation held from a compacted log", () => {
 	});
 });
 
+/** The usage pi's footer and /session total over a manager's entries. */
+function usageTotals(entries: readonly unknown[]) {
+	const totals = { tokens: 0, cost: 0 };
+	for (const entry of entries) {
+		const e = entry as Record<string, unknown> & {
+			message?: { role?: string; usage?: unknown };
+		};
+		const usage =
+			e.type === "usage" ||
+			e.type === "compaction" ||
+			e.type === "branch_summary"
+				? e.usage
+				: e.type === "message"
+					? e.message?.usage
+					: undefined;
+		if (typeof usage !== "object" || usage === null) continue;
+		const u = usage as {
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+			cost: { total: number };
+		};
+		totals.tokens += u.input + u.output + u.cacheRead + u.cacheWrite;
+		totals.cost += u.cost.total;
+	}
+	return totals;
+}
+
+/** The entry of `manager`'s branch whose text is `text`. */
+function entryReading(manager: SessionManager, text: string) {
+	const found = manager
+		.getBranch()
+		.find((entry) => texts([entry]).includes(text));
+	if (!found) throw new Error(`expected an entry reading ${text}`);
+	return found;
+}
+
+describe("a held conversation and its whole log", () => {
+	it("keeps the footer's usage totals, turns left on disk included", () => {
+		const file = compactedLog();
+		const whole = usageTotals(SessionManager.open(file).getEntries());
+		const held = holdKeptHistory(SessionManager.open(file));
+		expect(texts(held.getEntries())).not.toContain("early one");
+		const kept = usageTotals(held.getEntries());
+		expect(kept.tokens).toBe(whole.tokens);
+		expect(kept.cost).toBeCloseTo(whole.cost);
+		expect(whole.cost).toBeCloseTo(4.5);
+	});
+
+	it("keeps the spend when the kept entry is itself a costed answer", () => {
+		const file = compactedLog({ keepFrom: "assistant" });
+		const whole = spentOnBranch(SessionManager.open(file).getBranch());
+		const held = holdKeptHistory(SessionManager.open(file));
+		expect(texts(held.getEntries())).not.toContain("kept one");
+		expect(spentOnBranch(held.getBranch())).toBeCloseTo(whole);
+		expect(whole).toBeCloseTo(4.5);
+	});
+
+	it("keeps what an earlier rollover record carried", () => {
+		const file = compactedLog({ rolled: true });
+		const whole = SessionManager.open(file).getBranch();
+		const held = holdKeptHistory(SessionManager.open(file));
+		expect(texts(held.getEntries())).not.toContain("early one");
+		expect(carriedBy(held.getBranch(), "other")).toEqual({ kept: true });
+		expect(spentOnBranch(held.getBranch())).toBeCloseTo(spentOnBranch(whole));
+		expect(spentOnBranch(whole)).toBeCloseTo(14.5);
+	});
+
+	it("branches to a kept entry from before the compaction as the whole log does", () => {
+		const file = compactedLog();
+		const whole = SessionManager.open(file);
+		const target = entryReading(whole, "answer to kept two").id;
+		const held = holdKeptHistory(SessionManager.open(file));
+		held.branch(target);
+		whole.branch(target);
+		expect(held.getBranch()).toEqual(whole.getBranch());
+		expect(held.buildSessionContext()).toEqual(whole.buildSessionContext());
+	});
+
+	it("branches from the compaction on without reading the log back", () => {
+		const file = compactedLog();
+		const whole = SessionManager.open(file);
+		const target = entryReading(whole, "after").id;
+		const report = vi.fn();
+		const held = holdKeptHistory(SessionManager.open(file), report);
+		held.branch(target);
+		whole.branch(target);
+		expect(texts(held.getEntries())).not.toContain("early one");
+		expect(held.buildSessionContext()).toEqual(whole.buildSessionContext());
+		expect(report).not.toHaveBeenCalled();
+	});
+
+	it("looks up an entry it left on disk, and says it read the log back", () => {
+		const file = compactedLog();
+		const early = entryReading(SessionManager.open(file), "early one");
+		const report = vi.fn();
+		const held = holdKeptHistory(SessionManager.open(file), report);
+		expect(texts(held.getEntries())).not.toContain("early one");
+		expect(held.getEntry(early.id)).toEqual(early);
+		expect(report).toHaveBeenCalledWith(
+			expect.stringContaining("whole log back into memory"),
+		);
+	});
+
+	it("branches with a summary to an entry it left on disk", () => {
+		const file = compactedLog();
+		const whole = SessionManager.open(file);
+		const target = entryReading(whole, "answer to early one").id;
+		const held = holdKeptHistory(SessionManager.open(file));
+		held.branchWithSummary(target, "went back");
+		whole.branchWithSummary(target, "went back");
+		expect(texts(held.getBranch())).toEqual(texts(whole.getBranch()));
+		expect(held.buildSessionContext().messages.length).toBe(
+			whole.buildSessionContext().messages.length,
+		);
+	});
+
+	it("keeps its leaf when it reads the whole log back", () => {
+		const file = compactedLog();
+		const held = holdKeptHistory(SessionManager.open(file));
+		const target = entryReading(held, "after").id;
+		held.branch(target);
+		held.getTree();
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(held.getLeafId()).toBe(target);
+	});
+
+	it("writes the whole log when pi rewrites its file", () => {
+		const file = compactedLog();
+		const before = readFileSync(file, "utf8");
+		const held = holdKeptHistory(SessionManager.open(file));
+		expect(texts(held.getEntries())).not.toContain("early one");
+		(held as unknown as { _rewriteFile(): void })._rewriteFile();
+		const after = readFileSync(file, "utf8");
+		expect(after).toBe(before);
+	});
+
+	it("lets go of the view when it switches to another log", () => {
+		const other = SessionManager.create(dir, dir);
+		exchange(other, "elsewhere");
+		const otherFile = other.getSessionFile() ?? "";
+		const held = holdKeptHistory(SessionManager.open(compactedLog()));
+		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		held.setSessionFile(otherFile);
+		expect(texts(held.getEntries())).toEqual([
+			"elsewhere",
+			"answer to elsewhere",
+		]);
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("lets go of the view when it starts a new session", () => {
+		const held = holdKeptHistory(SessionManager.open(compactedLog()));
+		held.newSession();
+		expect(held.getEntries()).toEqual([]);
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+		expect(Object.hasOwn(held, "getEntry")).toBe(false);
+	});
+
+	it("stays held and guarded when its log can't be read back", () => {
+		const file = compactedLog();
+		const held = holdKeptHistory(SessionManager.open(file));
+		const id = held.getSessionId();
+		rmSync(file);
+		expect(() => held.getTree()).toThrow(/gone/);
+		expect(held.getSessionId()).toBe(id);
+		expect(texts(held.getEntries())).not.toContain("early one");
+		expect(texts(held.getEntries())).toContain("after");
+		expect(Object.hasOwn(held, "getTree")).toBe(true);
+	});
+
+	it("falls back to pi's whole open when the view fails to install", () => {
+		const file = compactedLog();
+		const opened = SessionManager.open(file);
+		const own = opened as unknown as { _buildIndex(): void };
+		const build = own._buildIndex.bind(opened);
+		let failed = false;
+		own._buildIndex = () => {
+			if (!failed) {
+				failed = true;
+				throw new Error("index broke");
+			}
+			build();
+		};
+		const report = vi.fn();
+		const held = holdKeptHistory(opened, report);
+		expect(report).toHaveBeenCalledWith(new Error("index broke"));
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(held.getLeafId()).toBe(SessionManager.open(file).getLeafId());
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+});
+
 describe("a conversation the view leaves whole", () => {
 	it("holds everything when its log has no compaction", () => {
 		const sessions = SessionManager.create(dir, dir);
@@ -250,5 +467,42 @@ describe("a conversation the view leaves whole", () => {
 describe("pi's session manager", () => {
 	it("still has every private the view reaches into", () => {
 		expect(holdsLikePi(SessionManager.inMemory(dir))).toBe(true);
+	});
+
+	it("writes its file only where the view knows it does", () => {
+		// A method new to this list could write the view over the log: guard
+		// it in kept-history.ts, or show it only appends once flushed.
+		const writes =
+			/writeFileSync|appendFileSync|writeSync|openSync|_rewriteFile\(|fileEntries\s*=/;
+		const proto = SessionManager.prototype as unknown as Record<
+			string,
+			unknown
+		>;
+		const writers = Object.getOwnPropertyNames(proto).filter((name) => {
+			const method = Object.getOwnPropertyDescriptor(proto, name)?.value;
+			return typeof method === "function" && writes.test(method.toString());
+		});
+		expect(writers.sort()).toEqual(
+			[
+				"constructor",
+				"_setSessionFile",
+				"newSession",
+				"_loadEntries",
+				"_rewriteFile",
+				"_persist",
+				"createBranchedSession",
+			].sort(),
+		);
+	});
+
+	it("is said once when it no longer has what the view reads", () => {
+		const report = vi.fn();
+		const unlike = { getSessionFile: () => "x" };
+		expect(holdKeptHistory(unlike, report)).toBe(unlike);
+		holdKeptHistory({}, report);
+		expect(report).toHaveBeenCalledTimes(1);
+		expect(report).toHaveBeenCalledWith(
+			expect.stringContaining("Kept history is off"),
+		);
 	});
 });

@@ -42,8 +42,10 @@ export function spentOnBranch(branch: readonly unknown[]): number {
 		| undefined;
 	const sum = (entries: readonly unknown[]): number =>
 		entries.reduce<number>((total, entry) => total + costOf(entry), 0);
-	if (typeof carried?.spend === "number") {
-		return carried.spend + sum(branch.slice(recordIndex(branch) + 1));
+	const spend = carried?.spend;
+	// A record written by hand or by an older harness may carry anything.
+	if (typeof spend === "number" && Number.isFinite(spend) && spend >= 0) {
+		return spend + sum(branch.slice(recordIndex(branch) + 1));
 	}
 	return sum(branch);
 }
