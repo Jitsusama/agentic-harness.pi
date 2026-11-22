@@ -279,9 +279,10 @@ how long they took, its census of processes, its pauses and the dating
 of every live snapshot included.
 `idleMs` is awake time, which stops while the machine sleeps, and the
 line's `ms` is wall time. Without a suspend, `ms` less `idleMs` is the
-rest of the run: the ended trees, the settled-branch search, the other
-providers' trees and the dev shells' roots together; after one, it
-isn't even that. A session that asks for one again gets
+rest of the run: before the idle snapshots, the claims, the census of
+trees in use, the ended trees and the settled-branch search, and after
+them, the other providers' trees and the dev shells' roots; across a
+suspend, it isn't even that. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 
 A tree cut from a clone in a quest's scratch folder outlives the
