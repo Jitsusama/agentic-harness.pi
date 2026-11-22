@@ -55,12 +55,14 @@ function answered(outcome: Outcome): boolean {
  * Remember starts for `windowMs` once settled, by the clock `now`, for
  * as long as `stands` says how each settled still answers a repeat: a
  * conversation opened that has since ended doesn't, and a start that
- * failed but left its conversation held does.
+ * failed but left its conversation held does. `heard` is told of each
+ * repeat answered from memory, and whether its start was still under way.
  */
 export function repeats(
 	now: () => number = Date.now,
 	windowMs = REPEAT_WINDOW_MS,
 	stands: (outcome: Outcome) => boolean = answered,
+	heard: (id: string, underWay: boolean) => void = () => undefined,
 ): Repeats {
 	const asked = new Map<string, Asked>();
 
@@ -87,8 +89,10 @@ export function repeats(
 					);
 				// Asked once already, so the answer it gets is that one's, unless
 				// what it opened has gone since.
-				if (before.outcome === undefined || stands(before.outcome))
+				if (before.outcome === undefined || stands(before.outcome)) {
+					heard(request.id, before.outcome === undefined);
 					return before.answer;
+				}
 				asked.delete(request.id);
 			}
 			const answer = start();

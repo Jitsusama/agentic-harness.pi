@@ -136,6 +136,25 @@ describe("repeats", () => {
 		expect(start).toHaveBeenCalledOnce();
 	});
 
+	it("tells of each repeat it answers from memory, and of no first ask", async () => {
+		const heard: [string, boolean][] = [];
+		const memory = repeats(Date.now, REPEAT_WINDOW_MS, undefined, (id, under) =>
+			heard.push([id, under]),
+		);
+		const first = pending();
+		const answers = [
+			memory.answer(asked, first.start),
+			memory.answer({ ...asked }, first.start),
+		];
+		first.settle({ sessionId: "s1" });
+		await Promise.all(answers);
+		await memory.answer({ ...asked }, first.start);
+		expect(heard).toEqual([
+			["a1", true],
+			["a1", false],
+		]);
+	});
+
 	it("matches a repeat carrying a fresh stage token, but not one carrying another fence", async () => {
 		const memory = repeats();
 		const start = vi.fn(async () => ({ sessionId: "s1" }));

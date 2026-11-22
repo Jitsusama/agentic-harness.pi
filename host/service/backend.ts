@@ -284,7 +284,19 @@ export function hostBackend(options: {
 	// (IKQ63G, 20 November).
 	// An answer stands while its conversation is still held, and a start
 	// that failed after registering stands while that one is (F2, F3).
-	const asked = repeats(Date.now, REPEAT_WINDOW_MS, stillStands);
+	// The journal says each repeat, since a spawn that reports success
+	// while nothing new runs is otherwise unexplained there (F19).
+	const asked = repeats(
+		Date.now,
+		REPEAT_WINDOW_MS,
+		stillStands,
+		(id, underWay) =>
+			options.say?.(
+				underWay
+					? `Request ${id} was asked again while its start was under way; it joins that start`
+					: `Request ${id} was asked again; it gets the answer its first ask got`,
+			),
+	);
 	// Each failed start's error, by the conversation it left held.
 	const leftHeld = new WeakMap<object, string>();
 	// Each conversation's wakes and ends, one at a time, so a close never
@@ -448,19 +460,19 @@ export function hostBackend(options: {
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
-			if (children?.opens()) {
-				heldElsewhere(request);
-				return await inChild(children, request);
-			}
+			heldElsewhere(request);
+			if (children?.opens()) return await inChild(children, request);
 			return await started(request);
 		} finally {
 			beginning -= 1;
 		}
 	}
 
-	// The engine refuses an adopt of a file it holds; a child holds
-	// nothing yet, so the host refuses one its roster holds, wherever it
-	// runs, rather than start a second pi on one file.
+	// The engine refuses an adopt of a file it holds, but only as an
+	// error the requester never reads, and a child holds nothing yet; so
+	// the host refuses one its roster holds, wherever it would run, in
+	// words the requester can act on, rather than start a second pi on
+	// one file.
 	function heldElsewhere(request: OpenRequest | AdoptRequest): void {
 		if (request.op !== "adopt") return;
 		const file = resolve(request.sessionFile);
