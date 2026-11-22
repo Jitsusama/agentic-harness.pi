@@ -79,9 +79,10 @@ and can answer a question or a gate left open on screen.
   (`lib/mesh/hub-from-use.ts`). That is an address only, and
   grants nothing the mark does. Ties adding up to less than
   one message of its own six hours old make no hub. With no
-  such cell the send is refused, and so it is for any session on a quest heading an
-  orchestration, which is told the head's address. The tree is walked on the quest side; the mesh reads
-  only presence. Within a mission, an unaddressed message now
+  such cell the send is refused, and so it is for any session
+  on a quest heading an orchestration, which is told the
+  head's address. The tree is walked on the quest side; the
+  mesh reads only presence. Within a mission, an unaddressed message now
   usually goes to the orchestration's group, since another
   peer is nearly always in it: the same reach `#quest/<root>`
   had. When a quest or document is concluded or retired, the

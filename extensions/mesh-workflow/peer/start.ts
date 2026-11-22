@@ -289,6 +289,7 @@ export function onSessionStart(
 						}
 					: undefined,
 			{
+				...m.hubTiming,
 				found: () => {
 					if (m.onNoModelUntold) f.tellNoModel(m.onNoModelUntold);
 				},

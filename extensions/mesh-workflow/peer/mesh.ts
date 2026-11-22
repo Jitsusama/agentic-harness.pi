@@ -40,7 +40,7 @@ import type { createOrderedCarrying } from "../ordered-carry.ts";
 import type { createPausing } from "../pausing.ts";
 import type { Steering } from "../steer.ts";
 import type { createTalks } from "../talks.ts";
-import type { KeptHub } from "../tools/above.ts";
+import type { HubTiming, KeptHub } from "../tools/above.ts";
 import type { Waiting, watchSettling } from "../wait.ts";
 
 /**
@@ -173,6 +173,8 @@ export interface MeshState {
 	readonly settling: Settling;
 	readonly waitCheckMs: number;
 	readonly lookAgainMs: number;
+	// How often the hub from use is found again (tools/above.ts).
+	readonly hubTiming: HubTiming;
 	own: OwnLeases | undefined;
 	// The sessions last counted still there, so a quest's address is
 	// left only to a peer that is (see address.ts).

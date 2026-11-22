@@ -17,13 +17,14 @@ export const nodeAsked: string[] = [];
 /**
  * A node listing these cells and ties, and the environment a session
  * reaches it by; it answers for ties only once `tiesHeld` settles, so a
- * test can act while a find waits on it. Close it with `closeNodes`
- * after the test.
+ * test can act while a find waits on it. Given a function, it holds each
+ * ask for ties on what that call returns, so a test can tell how many
+ * are out at once. Close it with `closeNodes` after the test.
  */
 export async function node(
 	cells: object[],
 	ties: object[],
-	tiesHeld: Promise<unknown> = Promise.resolve(),
+	tiesHeld: Promise<unknown> | (() => Promise<unknown>) = Promise.resolve(),
 ): Promise<NodeJS.ProcessEnv> {
 	const runtime = join(fixture.root, "run");
 	mkdirSync(join(runtime, "mycelium"), { recursive: true });
@@ -48,7 +49,10 @@ export async function node(
 				const write = () => {
 					if (client.writable) client.write(`${JSON.stringify(reply)}\n`);
 				};
-				if (ask.kind === "tie") void tiesHeld.then(write);
+				if (ask.kind === "tie")
+					void (typeof tiesHeld === "function" ? tiesHeld() : tiesHeld).then(
+						write,
+					);
 				else write();
 			}
 		});

@@ -67,6 +67,7 @@ import { onSessionStart } from "./peer/start.ts";
 import { createState } from "./peer/state.ts";
 import { createSteerer } from "./peer/steerer.ts";
 import { createWaits } from "./peer/waits.ts";
+import type { HubTiming } from "./tools/above.ts";
 
 export {
 	isEphemeral,
@@ -120,6 +121,7 @@ export function meshWorkflow(
 	settling: Settling = SETTLING,
 	waitCheckMs: number = WAIT_CHECK_MS,
 	lookAgainMs: number = LOOK_AGAIN_MS,
+	hubTiming: HubTiming = {},
 ) {
 	return (pi: ExtensionAPI) => {
 		// A conversation its host let go with its folder untrusted stays so
@@ -147,7 +149,15 @@ export function meshWorkflow(
 		registerHands(pi.events);
 		holdSessionLog(pi);
 		declareGuards(GUARDS.meshEndHold, GUARDS.untestedCause);
-		const m = createState(pi, paths, env, settling, waitCheckMs, lookAgainMs);
+		const m = createState(
+			pi,
+			paths,
+			env,
+			settling,
+			waitCheckMs,
+			lookAgainMs,
+			hubTiming,
+		);
 		const handing = createHanding(m);
 		const waits = createWaits(m);
 		const hearing = createHearing(m, handing);
