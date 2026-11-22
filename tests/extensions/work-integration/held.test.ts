@@ -157,7 +157,7 @@ describe("giving a tree back", () => {
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut. Git's refusal: its .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to.`,
 		);
 		expect(released.details).toEqual({ ok: true, released: key, aside });
 		expect(dirname(aside), "set aside where reclaim sets them").toBe(
@@ -198,11 +198,33 @@ describe("giving a tree back", () => {
 
 		expect(released.text).toMatch(
 			new RegExp(
-				`^${GLYPH.refused} Git won't run in .+, so it was to be set aside whole, but that was refused: .+\\. It is still there and still held\\.$`,
+				`^${GLYPH.refused} Git won't run in .+, so it was to be set aside whole, but that was refused: .+\\. It is still there and still held\\. Git's refusal: its \\.git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to\\.$`,
 			),
 		);
 		expect(released.details.ok).not.toBe(true);
 		expect(existsSync(path), "the tree is where it was").toBe(true);
+		expect(heldHere(), "this session still holds it").toBe(true);
+	});
+
+	it("keeps a tree whose .git names a git folder that is gone, as repair can bring it back", async () => {
+		// The checkout that cut it moved, or its volume isn't mounted, and
+		// `git worktree repair` from where it is now mends the tree, which a
+		// move into the stranded folder would undo.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(
+			join(path, ".git"),
+			`gitdir: ${join(dirname(path), "moved", ".git", "worktrees", "x")}\n`,
+		);
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released.details.aside, released.text).toBeUndefined();
+		expect(released.text).not.toMatch(/set aside whole/);
+		expect(existsSync(join(path, ".git")), "the tree is where it was").toBe(
+			true,
+		);
 		expect(heldHere(), "this session still holds it").toBe(true);
 	});
 
@@ -238,8 +260,7 @@ describe("giving a tree back", () => {
 		const { key, path } = await cut();
 		// A `.git` file naming an entry no repository names back is refused,
 		// and its entry's lock says why somebody wants it kept.
-		const entry = join(scratchDir(), "entry");
-		mkdirSync(entry, { recursive: true });
+		const entry = handLockable();
 		writeFileSync(join(entry, "locked"), "on a stick\n");
 		rmSync(join(path, ".git"), { recursive: true, force: true });
 		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
@@ -258,8 +279,7 @@ describe("giving a tree back", () => {
 		// of this session's share.
 		cutWhereTheToolCuts();
 		const { key, path } = await cut();
-		const entry = join(scratchDir(), "entry");
-		mkdirSync(entry, { recursive: true });
+		const entry = handLockable();
 		writeFileSync(join(entry, "locked"), "on a stick\n");
 		rmSync(join(path, ".git"), { recursive: true, force: true });
 		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
@@ -314,6 +334,18 @@ async function unread(): Promise<{ key: string; path: string }> {
 	renameSync(join(tree.path, ".git"), join(tree.path, ".git-real"));
 	symlinkSync(join(tree.path, ".git-real"), join(tree.path, ".git"));
 	return tree;
+}
+
+/**
+ * A worktree entry in a repository that stands, which names no tree
+ * back, so a `.git` naming it is refused for the tree itself.
+ */
+function handLockable(): string {
+	const repository = join(scratchDir(), "repo", ".git");
+	mkdirSync(join(repository, "objects"), { recursive: true });
+	const entry = join(repository, "worktrees", "entry");
+	mkdirSync(entry, { recursive: true });
+	return entry;
 }
 
 /** Whether anything stands at `path`, a link included. */

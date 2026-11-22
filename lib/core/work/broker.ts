@@ -12,6 +12,7 @@
 import type { Owner } from "../process/index.ts";
 import type { TreeMemory } from "./memory.ts";
 import { chooseTreeProvider, type TreeProviderInfo } from "./provider.ts";
+import { StuckAside } from "./stranded.ts";
 import {
 	satisfies,
 	type TreeIdentity,
@@ -324,7 +325,11 @@ export function createTreeBroker(
 	 * Set `held` aside by `move`, judged under its record's lock, so a
 	 * session joining it while it moves is seen and the tree left to it.
 	 * Our hold stays whenever the record or the move throws before the
-	 * tree has moved, and goes once it has, whatever follows.
+	 * tree has moved, and goes once it has, whatever follows. A move that
+	 * throws {@link StuckAside} has moved the tree, so its record is
+	 * forgotten under the lock as a finished move's is, and the error
+	 * then thrown: kept, the hold and the record would name whatever
+	 * stands at the old path now.
 	 */
 	const moveAside = async (
 		held: HeldTree,
@@ -333,16 +338,22 @@ export function createTreeBroker(
 		const at = trees.findIndex((tree) => tree.path === held.path);
 		const ours = at >= 0 ? trees.splice(at, 1) : [];
 		let moved = false;
+		let stuck: StuckAside | undefined;
 		const take = async (): Promise<void> => {
-			move(held.path);
+			try {
+				move(held.path);
+			} catch (error) {
+				if (!(error instanceof StuckAside)) throw error;
+				stuck = error;
+			}
 			moved = true;
 		};
 		try {
-			if (memory === undefined) {
-				await take();
-				return { kind: "released" };
-			}
-			const kept = await memory.whileHeldAlone(held.path, take);
+			const kept =
+				memory === undefined
+					? await take().then(() => 0)
+					: await memory.whileHeldAlone(held.path, take);
+			if (stuck !== undefined) throw stuck;
 			return kept > 0 ? { kind: "released", kept } : { kind: "released" };
 		} catch (error) {
 			// A tree already moved is no longer where our hold says it is.

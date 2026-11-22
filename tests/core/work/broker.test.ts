@@ -6,6 +6,7 @@ import {
 	type TreeProvider,
 } from "../../../lib/core/work/broker.ts";
 import type { TreeMemory } from "../../../lib/core/work/memory.ts";
+import { StuckAside } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 
 const world: RepoLocator = { key: "github:Shopify/world" };
@@ -550,6 +551,34 @@ describe("createTreeBroker", () => {
 		expect(outcome).toEqual({ kind: "released", kept: 1 });
 		expect(moved).toEqual([]);
 		expect(broker.cutHere(mine.path), "our share went").toBe(false);
+	});
+
+	it("lets go of a tree stuck aside, forgetting its record, since both would name what stands there now", async () => {
+		// A put-back fails mostly because something new took the name, and
+		// a hold kept there would have a retried release judge that.
+		const { provider } = fakeProvider("git-worktree");
+		const forgotten: string[] = [];
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (path, take) => {
+					await take();
+					forgotten.push(path);
+					return 0;
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new StuckAside("/elsewhere", "it stands at /elsewhere");
+			}),
+		).rejects.toBeInstanceOf(StuckAside);
+		expect(forgotten, "its record went under the lock").toEqual([mine.path]);
+		expect(broker.cutHere(mine.path), "not held here").toBe(false);
 	});
 
 	it("lets go of a tree set aside though its record couldn't be forgotten", async () => {

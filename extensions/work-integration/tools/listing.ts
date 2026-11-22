@@ -5,7 +5,7 @@
  * won't run in it to say what it holds.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { citeListing } from "../../../lib/core/result/listing.ts";
@@ -30,8 +30,9 @@ import {
 } from "../../../lib/core/work/sweep-kept-branches.ts";
 import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
 import {
+	gitRun,
+	namedGitFolder,
 	real,
-	refusedIn,
 	within,
 } from "../../../lib/internal/sandbox/tree-git.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
@@ -147,8 +148,9 @@ export async function releaseTree(
 	// a repository above it: another provider's tree is its provider's
 	// to take down, which a move behind its back would leave naming a
 	// folder that is gone.
-	if (unreadHere(found.path)) {
-		return await setUnreadAside(broker, found);
+	const unread = unreadHere(found.path);
+	if (unread !== undefined) {
+		return await setUnreadAside(broker, found, unread);
 	}
 
 	// The work inside is the caller's, and losing it is not
@@ -179,15 +181,47 @@ export async function releaseTree(
 }
 
 /**
- * Whether `path` is a tree this tool cut that git won't run in for
- * itself, as opposed to one whose refusal comes from a repository
- * above it or one another provider cut somewhere else.
+ * Why git won't run in `path`, when it is a tree this tool cut that git
+ * won't run in for itself, as opposed to one whose refusal comes from a
+ * repository above it or one another provider cut somewhere else.
+ * Nothing, too, where its `.git` names a git folder or a repository
+ * that isn't there: the checkout that cut it moved, or its volume isn't
+ * mounted, and `git worktree repair` from where it is now brings the
+ * tree back, which a move into the stranded folder would undo.
  */
-function unreadHere(path: string): boolean {
-	const top = refusedIn(path, gitRules());
-	return (
-		top !== undefined && real(top) === real(path) && within(path, treeDir())
+function unreadHere(path: string): string | undefined {
+	const run = gitRun(path, [], gitRules());
+	if (!("refused" in run)) return undefined;
+	if (real(run.top) !== real(path) || !within(path, treeDir())) {
+		return undefined;
+	}
+	if (repositoryAway(path)) return undefined;
+	// The answer names the tree already, and its full path would take most
+	// of what plainWords keeps, so git's words call it what it is.
+	const said = plainWords(
+		run.refused.replaceAll(`${run.top}'s`, "its").replaceAll(run.top, "it"),
 	);
+	return /[.!?]$/.test(said) ? said.slice(0, -1) : said;
+}
+
+/**
+ * Whether the `.git` file at `path` names a git folder, or a repository
+ * above it, that doesn't stand as a folder.
+ */
+function repositoryAway(path: string): boolean {
+	const own = namedGitFolder(path);
+	if (own === undefined) return false;
+	return !isFolder(own) || !isFolder(join(dirname(dirname(own)), "objects"));
+}
+
+/** Whether a folder stands at `path`, without following a link there. */
+function isFolder(path: string): boolean {
+	try {
+		return lstatSync(path).isDirectory();
+	} catch {
+		// Nothing there, or nothing that may be looked at.
+		return false;
+	}
 }
 
 /**
@@ -201,8 +235,11 @@ function unreadHere(path: string): boolean {
 async function setUnreadAside(
 	broker: TreeBroker,
 	found: HeldTree,
+	refused: string,
 ): Promise<Answer> {
 	const where = displayPath(found.path);
+	// Said in each answer, so a move for one refusal can't pass for another.
+	const because = `Git's refusal: ${refused}`;
 	let aside: string | undefined;
 	const into = strandedDir(treeDir());
 	let others = 0;
@@ -228,8 +265,10 @@ async function setUnreadAside(
 			error instanceof Error ? error.message : String(error),
 		);
 		if (error instanceof StuckAside) {
+			// The tree has left the path its hold and record named, so
+			// both went: kept, they would name whatever stands there now.
 			return refuse(
-				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is still held.`,
+				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is no longer held here, and whatever stands at ${where} now is not it: deal with it where it stands by hand. ${because}.`,
 			);
 		}
 		if (!tried) {
@@ -244,9 +283,9 @@ async function setUnreadAside(
 		}
 		const still = existsSync(found.path)
 			? "It is still there and still held."
-			: "Nothing is there now, though it is still held.";
+			: "Nothing is there now, so nothing is left to hold.";
 		return refuse(
-			`${GLYPH.refused} Git won't run in ${where}, so it was to be set aside whole, but that was refused: ${why}. ${still}`,
+			`${GLYPH.refused} Git won't run in ${where}, so it was to be set aside whole, but that was refused: ${why}. ${still} ${because}.`,
 		);
 	}
 	if (aside === undefined) {
@@ -258,7 +297,7 @@ async function setUnreadAside(
 		);
 	}
 	return say(
-		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.`,
+		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut. ${because}.`,
 		{ ok: true, released: found.identity.key, aside },
 	);
 }
