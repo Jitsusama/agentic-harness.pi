@@ -44,15 +44,27 @@ function there(): string {
 	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(text)?.[1] ?? "";
 }
 
+/** The lines the script runs as they stand, which the checks here run too. */
+const SETTINGS = [
+	"set -m",
+	"trap let_go EXIT",
+	"trap 'stop_all 143' TERM",
+	"trap 'stop_all 130' INT",
+	"trap 'stop_all 129' HUP",
+] as const;
+
 /**
  * The script's own turn-taking, as it defines it: its functions, then
- * the traps it sets, so a check here ends and stops as one there does.
+ * its job control and the traps it sets, so a check here ends and stops
+ * as one there does.
  */
 function turnTaking(): string {
 	const text = there();
 	const functions = [
 		"let_go",
+		"gone_within",
 		"stop_all",
+		"alone",
 		"let_go_of_dead",
 		"lock",
 		"take_turn",
@@ -64,14 +76,12 @@ function turnTaking(): string {
 		if (found === null) throw new Error(`check-there.sh defines no ${name}`);
 		return found[0];
 	});
-	const traps = ["trap let_go EXIT", "trap stop_all TERM INT HUP"].map(
-		(line) => {
-			if (!text.split("\n").includes(line))
-				throw new Error(`check-there.sh never runs ${line}`);
-			return line;
-		},
-	);
-	return [...functions, ...traps].join("\n");
+	const settings = SETTINGS.map((line) => {
+		if (!text.split("\n").includes(line))
+			throw new Error(`check-there.sh never runs ${line}`);
+		return line;
+	});
+	return [...functions, ...settings].join("\n");
 }
 
 /** Where `program` is on this machine's PATH. */
@@ -271,16 +281,22 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			await says(holder, "held");
 
 			const asked = Date.now();
-			const waiter = await ended(
-				check(host, "turn_wait_s=2\ntake_turn\necho took"),
+			const waiting = check(host, "turn_wait_s=2\ntake_turn\necho took");
+			const waited = ended(waiting);
+			await complains(waiting, /waiting its turn/);
+			// The turn changes hands while it waits, as over 90 minutes it may.
+			writeFileSync(
+				join(host, "lock.holder"),
+				"later, pid 1, from Sun 00:00\n",
 			);
+			const waiter = await waited;
 			expect(
 				Date.now() - asked,
 				"it waited its limit before giving up",
 			).toBeGreaterThanOrEqual(1_900);
 			expect(waiter).toMatchObject({ code: 75, out: "" });
-			expect(waiter.err).toMatch(
-				/gave up after 2 s waiting for .*'s check lock, held by \(a branch, pid \d+/,
+			expect(waiter.err, "naming who holds the turn as it gives up").toMatch(
+				/gave up after 2 s waiting for .*'s check lock, held by \(later, pid 1, from Sun 00:00\)/,
 			);
 			expect(
 				waiter.err,
@@ -325,10 +341,20 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 		"stops the whole check when its holder's pid is sent a TERM, then lets the next in",
 		async () => {
 			const host = hostWith(tools);
-			// The check's work runs as the script runs it: a job without fd 9.
+			// The check's work runs as the script runs it, alone, and tidies up
+			// for a while once told to stop, as a test runner may.
 			const holder = check(
 				host,
-				"take_turn\n{ sleep 30 >/dev/null 2>&1 <&- & echo $!; wait; } 9>&- &\nwait $!",
+				[
+					"work() {",
+					`  trap 'sleep 1; : > "$HOME/tidied"; exit 0' TERM`,
+					"  sleep 30 >/dev/null 2>&1 <&- &",
+					"  echo $!",
+					"  while :; do sleep 0.1; done",
+					"}",
+					"take_turn",
+					"alone work",
+				].join("\n"),
 			);
 			const stopped = ended(holder);
 			const work = Number(
@@ -347,6 +373,10 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 
 			holder.kill("SIGTERM");
 			expect((await stopped).code, "it ends as signalled").toBe(143);
+			expect(
+				existsSync(join(host, "tidied")),
+				"its work had tidied up before its turn passed",
+			).toBe(true);
 			expect(await goneWithin(work), "its work stopped with it").toBe(true);
 			const after = await ended(check(host, "lock -n"));
 			expect(after.code, "the next check gets its turn").toBe(0);
@@ -354,6 +384,82 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 				existsSync(join(host, "lock.holder")),
 				"and the stopped check took its line with it",
 			).toBe(false);
+		},
+		TEST_MS,
+	);
+
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"kills the work that ignores a stop once its wait for it passes, then lets the next in",
+		async () => {
+			const host = hostWith(tools);
+			// Ignoring the TERM, as what it starts then does too.
+			const holder = check(
+				host,
+				[
+					"work() {",
+					"  trap '' TERM",
+					"  sleep 30 >/dev/null 2>&1 <&- &",
+					"  echo $!",
+					"  while :; do sleep 0.1; done",
+					"}",
+					"stop_wait_s=1",
+					"take_turn",
+					"alone work",
+				].join("\n"),
+			);
+			const stopped = ended(holder);
+			const work = Number(
+				await new Promise<string>((resolve) => {
+					holder.stdout?.once("data", (chunk: Buffer) =>
+						resolve(chunk.toString().trim()),
+					);
+				}),
+			);
+
+			const asked = Date.now();
+			holder.kill("SIGTERM");
+			expect((await stopped).code, "it ends as signalled").toBe(143);
+			expect(
+				Date.now() - asked,
+				"having waited its limit for the work",
+			).toBeGreaterThanOrEqual(900);
+			expect(await goneWithin(work), "its work killed with it").toBe(true);
+			const after = await ended(check(host, "lock -n"));
+			expect(after.code, "the next check gets its turn").toBe(0);
+		},
+		TEST_MS,
+	);
+
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"stops a check still waiting its turn at once, as each signal says",
+		async () => {
+			const host = hostWith(tools);
+			const holder = check(host, "take_turn\necho held\nread -r _ || true");
+			await says(holder, "held");
+			for (const [signal, code] of [
+				["SIGTERM", 143],
+				["SIGINT", 130],
+				["SIGHUP", 129],
+			] as const) {
+				const waiting = check(host, "turn_wait_s=30\ntake_turn\necho took");
+				const waited = ended(waiting);
+				await complains(waiting, /waiting its turn/);
+				const asked = Date.now();
+				waiting.kill(signal);
+				const stopped = await waited;
+				expect(stopped.code, `ended by ${signal}`).toBe(code);
+				expect(stopped.out, "taking no turn").toBe("");
+				expect(
+					Date.now() - asked,
+					`stopped by ${signal} well before its wait ran out`,
+				).toBeLessThan(SETTLES_IN_MS / 2);
+			}
+			expect(
+				existsSync(join(host, "lock.holder")),
+				"the holder's line stays its own",
+			).toBe(true);
+			holder.stdin?.end();
+			await ended(holder);
 		},
 		TEST_MS,
 	);
@@ -496,7 +602,7 @@ function sendFrom(
 
 describe("the check's local half", () => {
 	it("sends a branch the host's shell reads back as one word, with the wait last", () => {
-		const branch = "a;touch x$(id)";
+		const branch = "jitsusama/fix-1.2_b+c@d";
 		const sent = sendFrom([branch, "there"], "60");
 		expect(sent.code, sent.err).toBe(0);
 		expect(sent.sent?.slice(0, 3)).toEqual(["-o", "BatchMode=yes", "there"]);
@@ -510,11 +616,23 @@ describe("the check's local half", () => {
 			{ cwd: sent.root, encoding: "utf8" },
 		);
 		expect(words.stdout).toBe(`${branch}\n60\n`);
-		expect(
-			readdirSync(sent.root).filter((name) => name.startsWith("x")),
-			"nothing in the branch ran",
-		).toEqual([]);
 	});
+
+	// git lets a branch hold `;` and `$(`, which the host's login shell,
+	// bash or zsh, would read again; a check's branch never needs them.
+	it.each(["a;touch x$(id)", "a b", "-oops", "a`id`", "a\\b"])(
+		"refuses a branch the host's shell would read as more than a name, %s, reaching no host",
+		(branch) => {
+			const sent = sendFrom([branch, "there"]);
+			expect(sent.code).toBe(2);
+			expect(sent.err).toMatch(/names no branch a check can take/);
+			expect(sent.sent, "no ssh").toBeNull();
+			expect(
+				readdirSync(sent.root).filter((name) => name.startsWith("x")),
+				"nothing in the branch ran",
+			).toEqual([]);
+		},
+	);
 
 	it("refuses a wait that isn't a number of seconds, reaching no host", () => {
 		const sent = sendFrom(["feature", "there"], "abc");
@@ -523,34 +641,48 @@ describe("the check's local half", () => {
 		expect(sent.sent, "no ssh").toBeNull();
 	});
 
-	it("refuses a host ssh would read as an option, reaching none", () => {
-		const sent = sendFrom(["feature", "-oProxyCommand=touch pwned"]);
-		expect(sent.code).toBe(2);
-		expect(sent.err).toMatch(/names no host/);
-		expect(sent.sent, "no ssh").toBeNull();
-	});
+	// A dash opens one of ssh's options; older ssh puts the name into a
+	// ProxyCommand's shell line as it stands.
+	it.each(["-oProxyCommand=touch pwned", "there;touch x", "there$(id)"])(
+		"refuses a host ssh would read as more than a name, %s, reaching none",
+		(host) => {
+			const sent = sendFrom(["feature", host]);
+			expect(sent.code).toBe(2);
+			expect(sent.err).toMatch(/names no host/);
+			expect(sent.sent, "no ssh").toBeNull();
+		},
+	);
 });
 
 // What runs on the host can't run here without its clone and its ssh, so
 // its shape is read instead: the check's own work, from the fetch to the
-// last test, sits in one group with fd 9 closed, which the turns above
-// show lets the next check in whatever the first left running.
+// last test, is one function run `alone`, which the turns above show
+// runs without fd 9 and stops whole.
 describe("the check's work on its host", () => {
-	it("runs without the lock's descriptor, from its turn to its end", () => {
-		const lines = there().split("\n");
+	const lines = there().split("\n");
+
+	it("runs alone, from its turn to its end", () => {
 		const after = lines
 			.slice(lines.indexOf("take_turn") + 1)
 			.filter((line) => line.trim() !== "" && !line.startsWith("#"));
-		expect(after[0], "the group opens as its turn is taken").toBe("{");
-		expect(after.at(-2), "closes fd 9 for all of it, as a job").toBe(
-			"} 9>&- &",
+		expect(after[0], "the work opens as its turn is taken").toBe(
+			"run_check() {",
 		);
-		expect(after.at(-1), "which the shell holding fd 9 waits on").toBe(
-			"wait $!",
+		expect(after.at(-2), "and closes once").toBe("}");
+		expect(after.at(-1), "run as the stops above stop it").toBe(
+			"alone run_check",
 		);
 		expect(
-			after.filter((line) => line === "{" || line.startsWith("}")),
-			"one group, not several",
-		).toEqual(["{", "} 9>&- &"]);
+			after.filter((line) => line.startsWith("}") || line.endsWith("{")),
+			"one function, holding all of it",
+		).toEqual(["run_check() {", "}"]);
+	});
+
+	it("sweeps dead checks' node links before finding its own", () => {
+		const sweep = lines.indexOf("let_go_of_dead");
+		expect(sweep, "the sweep is run").toBeGreaterThan(-1);
+		expect(sweep, "before its node is looked for").toBeLessThan(
+			lines.indexOf("if ! command -v node >/dev/null 2>&1; then"),
+		);
 	});
 });
