@@ -75,7 +75,11 @@ import {
 	guardedListFile,
 } from "../fence/fence-args-file.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
-import { bwrapWords, fencedCommand } from "../fence/fence-command.ts";
+import {
+	bwrapWords,
+	fencedCommand,
+	isHandedName,
+} from "../fence/fence-command.ts";
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
@@ -86,7 +90,11 @@ import {
 	withAfterCheckIn,
 } from "../fence/fence-git-root.ts";
 import { githubDoorFolder } from "../fence/fence-github.ts";
-import { foldersMadeFirst, OWN_HOMES } from "../fence/fence-home.ts";
+import {
+	fenceFolders,
+	foldersMadeFirst,
+	OWN_HOMES,
+} from "../fence/fence-home.ts";
 import { recordedInShell } from "../fence/fence-log.ts";
 import { fenceNpmrc } from "../fence/fence-npmrc.ts";
 import { seedOwnHomes } from "../fence/fence-seed.ts";
@@ -266,9 +274,7 @@ export function sandboxedCommand(
 	const kept = KEPT.join("|");
 	const flags = rules.map(([flag, value]) => `${flag} ${quoted(value)}`);
 	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	const handed = Object.entries(passed).filter(([name]) =>
-		/^[A-Z_][A-Z0-9_]*$/.test(name),
-	);
+	const handed = Object.entries(passed).filter(([name]) => isHandedName(name));
 	return [
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${refused}) ;; ${kept}) __pi_env+=(--env "$__pi_name");; esac; done`,
 		[
@@ -287,6 +293,45 @@ export function sandboxedCommand(
 /** The shell text that refuses to run a command, saying why. */
 export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
+}
+
+/** The names a fenced command's cloud account travels in, counted before any grant. */
+const CLOUD_COUNTED: Readonly<Record<string, string>> = {
+	CLOUDSDK_AUTH_ACCESS_TOKEN: "",
+	CLOUDSDK_CORE_PROJECT: "",
+	CLOUDSDK_CONFIG: "",
+};
+
+/**
+ * What the agent fence hands a command for gcloud: nothing where
+ * `sandbox` has no broker to ask (`withoutCloud`), and otherwise the
+ * grant and its variables, the settings folder in the fence's own place
+ * (`fenceFolders`), which no strict command can write.
+ */
+export function fenceCloud(
+	sandbox: { readonly gcloud?: CloudGrantSource },
+	home: string,
+	env: NodeJS.ProcessEnv,
+): { grant?: CloudGrant; passed?: Record<string, string> } {
+	if (!sandbox.gcloud) return {};
+	const grant = sandbox.gcloud();
+	return {
+		grant,
+		passed: cloudVariables(grant, home, env, fenceFolders(home).gcloud),
+	};
+}
+
+/**
+ * `sandbox` with no cloud account to hand on, for a runner that gives
+ * bash the text as an argument (the fence's checks, `pi-fence`), where a
+ * token in it would be a word any process of the person's could read in
+ * `/proc`. Those runs never ask the broker, so they mint nothing and
+ * leave no settings folder behind.
+ */
+export function withoutCloud(sandbox: Sandbox): Sandbox {
+	if (sandbox.kind !== "fence" && sandbox.kind !== "strict") return sandbox;
+	const { gcloud: _, ...rest } = sandbox;
+	return rest;
 }
 
 /**
@@ -349,14 +394,16 @@ const freshSettings = new Set<string>();
  * person's own folder, which the fence refuses, made it die calling its
  * install corrupt. The folder is emptied the first time a process hands
  * it on, so a session resumed starts from no settings an earlier command,
- * or a stranger's text, left there.
+ * or a stranger's text, left there. It lies in `parent`: strict's own
+ * folder, or the agent fence's, which no strict command can write.
  */
 export function cloudVariables(
 	grant: CloudGrant | undefined,
 	home: string,
 	env: NodeJS.ProcessEnv,
+	parent: string = sandboxFolders(home).gcloud,
 ): Record<string, string> {
-	const settings = join(sandboxFolders(home).gcloud, sessionFolderName(env));
+	const settings = join(parent, sessionFolderName(env));
 	if (!freshSettings.has(settings)) {
 		rmSync(settings, { recursive: true, force: true });
 		freshSettings.add(settings);
@@ -592,7 +639,7 @@ export function wrapFor(
 			setAsidePlanted();
 			const planted = plantedCache();
 			if (planted) return () => refused(planted);
-			const own = sandboxFolders(home).cache;
+			const own = fenceFolders(home).homes;
 			// Never waited on: a command started first finds what the own
 			// homes held already.
 			void seedOwnHomes(home, own);
@@ -622,7 +669,11 @@ export function wrapFor(
 			// Said only for a command the fence would run, never one sent
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
-			const counted = bwrapWords(made);
+			// The cloud account's names are counted here though no grant has
+			// come yet, since they go in once one does.
+			const counted = bwrapWords(
+				sandbox.gcloud ? { ...made, passed: CLOUD_COUNTED } : made,
+			);
 			const tooMany =
 				counted > BWRAP_MOST_ARGS
 					? `The fence would hand bubblewrap at least ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`
@@ -642,11 +693,8 @@ export function wrapFor(
 				if (tooMany) return refused(tooMany);
 				// The person's cloud login stays hidden (fence-hidden.ts), so
 				// gcloud gets the agents' account's hour token, as in strict.
-				const grant = sandbox.gcloud?.();
-				const cloud = {
-					...made,
-					passed: cloudVariables(grant, home, place.env),
-				};
+				const { grant, passed } = fenceCloud(sandbox, home, place.env);
+				const cloud = { ...made, ...(passed ? { passed } : {}) };
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },

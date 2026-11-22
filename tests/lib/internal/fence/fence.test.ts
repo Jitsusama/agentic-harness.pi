@@ -65,6 +65,8 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
+			// The broker's hour tokens, asked for only once a command runs.
+			gcloud: expect.any(Function),
 			// No nix-offload is there to ask, so it is taken as one from before
 			// --lent-only and `outside`, which sends no commit out and is given
 			// the exemption's environment from here.
@@ -89,6 +91,7 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
+			gcloud: expect.any(Function),
 		});
 	});
 

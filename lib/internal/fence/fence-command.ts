@@ -33,6 +33,10 @@ const UNSET = [
 	"KITTY_WINDOW_ID",
 	"NIX_REMOTE",
 	"NODE_COMPILE_CACHE",
+	// The person's own cloud login and settings, which fenced gcloud never
+	// uses: it is handed the agents' account's, or nothing (`passed`).
+	"CLOUDSDK_*",
+	"GOOGLE_APPLICATION_CREDENTIALS",
 ] as const;
 
 /**
@@ -53,8 +57,10 @@ const ARGS_FD = 3;
  * `WAYLAND_DISPLAY` names, each when there is one. Each of `passed`, the
  * agents' cloud token among them, is set for bubblewrap alone and named
  * to landrun, as `sandboxedCommand` hands strict's, so a token shows on
- * no command line, and the same names from outside never go in. When
- * `args` is the
+ * no command line of bubblewrap's or landrun's, and no cloud variable of
+ * the person's goes in. The text itself holds the values, so it runs
+ * through pi's spawner, which carries it in a variable, never as an
+ * argument (`withoutCloud` in `../sandbox/sandbox.ts`). When `args` is the
  * file holding them (`fence-args-file.ts`), bubblewrap reads them from
  * it, so the text stays short however many there are.
  */
@@ -134,13 +140,16 @@ export function fencedCommand(
 	].join("\n");
 }
 
-/** Each of `passed` a variable's name may take, so nothing else reaches the shell. */
+/** Whether `name` is one a variable handed in may take, so nothing else reaches the shell. */
+export function isHandedName(name: string): boolean {
+	return /^[A-Z_][A-Z0-9_]*$/.test(name);
+}
+
+/** Each of `passed` whose name `isHandedName` allows. */
 function handedOn(
 	passed: Readonly<Record<string, string>> | undefined,
 ): [string, string][] {
-	return Object.entries(passed ?? {}).filter(([name]) =>
-		/^[A-Z_][A-Z0-9_]*$/.test(name),
-	);
+	return Object.entries(passed ?? {}).filter(([name]) => isHandedName(name));
 }
 
 /** Each `--env NAME=value` the line passes landrun beside the variables. */

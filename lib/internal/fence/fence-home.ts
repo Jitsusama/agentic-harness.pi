@@ -133,8 +133,8 @@ const CACHES_WITHIN = [
 ] as const;
 
 /**
- * The programs given a home of their own in the sandbox's cache rather
- * than theirs in the home folder, read-only inside, since they write
+ * The programs given a home of their own in the fence's folder
+ * (`fenceFolders`) rather than theirs in the home folder, read-only inside, since they write
  * there as they work: cargo's registry and gradle's caches. The
  * person's cargo settings still apply, read as an ancestor's, and
  * cargo's home starts with copies of what the person's cargo fetched
@@ -144,6 +144,28 @@ export const OWN_HOMES = [
 	["CARGO_HOME", "cargo"],
 	["GRADLE_USER_HOME", "gradle"],
 ] as const;
+
+/** The folder the agent fence keeps its commands' own state in. */
+const FENCE_FOLDER = ".cache/pi-fence";
+
+/**
+ * Where the agent fence keeps what its commands write as their own:
+ * `homes`, where each of `OWN_HOMES` lives, and `gcloud`, each session's
+ * settings folder. They lie apart from the strict sandbox's folders
+ * (`../sandbox/strict-rules.ts`), which strict commands can write: cargo
+ * reads its settings from its home and gradle runs the scripts in its
+ * own, so a strict command, which reads a stranger's text, could
+ * otherwise leave a program the fence's next cargo or gradle would run.
+ */
+export function fenceFolders(home: string): {
+	homes: string;
+	gcloud: string;
+} {
+	return {
+		homes: join(home, FENCE_FOLDER, "homes"),
+		gcloud: join(home, FENCE_FOLDER, "gcloud"),
+	};
+}
 
 /** Each of `CACHES_WITHIN` in the home folder `home`. */
 export function cachesWithin(home: string): string[] {

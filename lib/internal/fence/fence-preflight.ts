@@ -15,7 +15,12 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { SANDBOX_VARIABLE, sandboxFor, wrapFor } from "../sandbox/sandbox.ts";
+import {
+	SANDBOX_VARIABLE,
+	sandboxFor,
+	withoutCloud,
+	wrapFor,
+} from "../sandbox/sandbox.ts";
 import { FENCE } from "./fence.ts";
 
 /** Who a check stands for: the person's paths, agents', or what stays refused. */
@@ -149,7 +154,8 @@ export function fenced(
 		[SANDBOX_VARIABLE]: FENCE,
 		PI_SESSION_ID: session,
 	};
-	const sandbox = sandboxFor(env);
+	// Run as bash's argument, so the text holds no cloud token.
+	const sandbox = withoutCloud(sandboxFor(env));
 	if (sandbox.kind !== "fence") {
 		throw new Error(
 			sandbox.kind === "refused"
