@@ -176,8 +176,8 @@ describe("a hub from use", () => {
 		});
 	});
 
-	// Its one message half an hour ago and the hub's twenty eight hours
-	// ago: its share of today's messages is a twentieth, but the tie is
+	// Its one message half an hour ago, and the hub's twenty messages
+	// eight hours ago: its share of today's messages is a twentieth, but the tie is
 	// in use, and the node keeps no faded figure for each side.
 	it("keeps a hub whose own talk outweighs this cell's recent message", () => {
 		const busyHub = {
@@ -211,6 +211,24 @@ describe("a hub from use", () => {
 		);
 
 		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// Twenty messages from the hub on its other address, none of them
+	// answered today, count nothing toward the floor, as they count
+	// nothing toward the share: talking at a cell makes no hub of it.
+	it("counts no tie this cell sent nothing on today toward the floor", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent],
+			[
+				{ ...tie("AAAAAA", 20), today: [0, 20] as const },
+				tie("MID002", 2 ** -3.25),
+			],
+		);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
 	});
 
 	// A cell written to once six and a half hours ago has the larger

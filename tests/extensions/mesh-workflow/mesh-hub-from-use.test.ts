@@ -250,6 +250,65 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(lastSent()).toBeUndefined();
 	}, 15_000);
 
+	// The node answered the send, and its answer is that no cell above is
+	// tied any more: the hub it last found is no fallback for an answer.
+	it("refuses, not reaching the hub it last found, when the node answers the send with no tie", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		const ties = [tieTo("5GV2AH", 2)];
+		const env = await node([asker, { key: "cell:5GV2AH" }], ties);
+		const { tools } = await startSession(env);
+		// The session's own find is answered with the tie before it goes.
+		await vi.waitFor(() => expect(nodeAsked).toContain("tie"));
+		ties.length = 0;
+
+		const refused = await send(tools, "orchestrator", "fyi", "Landed.");
+
+		expect(refused).toContain(
+			"Not sent: no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no live cell on a quest above it has a tie to this peer yet",
+		);
+		expect(refused).not.toContain("last found");
+		expect(lastSent()).toBeUndefined();
+	}, 15_000);
+
+	// The hub's process went away after this session's find kept it,
+	// writing no ending; the send's own census sees it gone, and the node
+	// is too slow to say anything else.
+	it("refuses, not reaching the hub it last found, when the send's own census judged it gone", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? Promise.resolve() : new Promise(() => {});
+			},
+		);
+		const { tools } = await startSession(env);
+		await vi.waitFor(() => expect(asks).toBe(1));
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5GV2AH"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			quest: "QEST-20261021-5GV2AH",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			// This process under another start, so a census reads it gone.
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		});
+
+		const refused = await send(tools, "orchestrator", "fyi", "Landed.");
+
+		expect(refused).toContain("Not sent:");
+		expect(refused).not.toContain("last found");
+		expect(lastSent()).toBeUndefined();
+	}, 15_000);
+
 	it("refuses for the head of an orchestration, without asking the node", async () => {
 		onQuest();
 		writeFileSync(

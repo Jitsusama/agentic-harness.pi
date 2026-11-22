@@ -368,6 +368,38 @@ describe("a kept hub", () => {
 		}
 	});
 
+	// A peer whose presence isn't out yet is found nothing for without
+	// asking the node, which says no more of it than having no peer does.
+	it("counts no find toward the doubling while the peer has no presence", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+			const unpublished = {
+				...at,
+				peer: { ...at.peer, session: "session-unpublished" },
+			};
+			let published = false;
+			const hub = keepHub(() => (published ? at : unpublished), {
+				every: NEVER_AGAIN_MS,
+				retry: 50,
+				spread: EXACT,
+			});
+			kept.push(hub);
+
+			// No presence at 0, 50 and 100; it is out by 150, whose find
+			// misses, and the next comes a plain retry later.
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).not.toHaveBeenCalled();
+			published = true;
+			await vi.advanceTimersByTimeAsync(30);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("lengthens each wait by up to a fifth, as the spread says", async () => {
 		vi.useFakeTimers();
 		try {
@@ -530,6 +562,18 @@ describe("a kept hub", () => {
 		const hub = keep(at);
 
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	// A send's own find takes a census newer than the last find's, and a
+	// hub that crashed since is gone by it though its presence never said.
+	it("is none when a newer census, given to the read, judged the hub gone", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+
+		const hub = keep(at);
+
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		expect(hub.current(["session-r"])).toBeUndefined();
+		expect(hub.current(["session-x"])).toBe("ROOT01");
 	});
 
 	it("finds nothing more once stopped, and keeps nothing a find still asking comes to", async () => {

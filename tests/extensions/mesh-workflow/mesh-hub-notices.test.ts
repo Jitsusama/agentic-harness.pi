@@ -7,9 +7,9 @@
  * one sent with the word, whether or not a hub was kept, and when no
  * node answers to say whether it is the hub, the word beside it or not;
  * one by address to a peer that isn't the hub goes as any question.
- * Every delivery names the hub as where the person's asks go, and a
- * session that starts again in the same process leaves no search for
- * the hub running from the one that ended.
+ * Every delivery names the hub as where the person's asks go. A session
+ * that ends stops its search for the hub, and one that starts again
+ * without ending stops the last one's.
  */
 
 import { join } from "node:path";
@@ -281,31 +281,16 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		// Room for the pause above, and for finding the hub first on a busy machine.
 	}, 15_000);
 
-	// Either stop keeps this: the ending's, and the next start's guard.
-	// The ending's alone can't be seen, since an ended session has no
-	// peer for its search to read; the next test holds the guard alone.
-	it("leaves no search for its hub running beside the next session's, once one ends", async () => {
-		// One search never asks twice at once, since each find waits for the
-		// last, so two asks out together mean an ended session's search
-		// went on beside the next one's.
-		let out = 0;
-		let most = 0;
-		const answerLate = () => {
-			out += 1;
-			most = Math.max(most, out);
-			// Long enough that a second search's ask lands while one is out.
-			return new Promise<void>((answered) =>
-				setTimeout(() => {
-					out -= 1;
-					answered();
-				}, 60),
-			);
-		};
-		const tieAsks = () => nodeAsked.filter((kind) => kind === "tie").length;
+	// An ended session has no peer for a search left running to read, so
+	// such a search asks the node nothing; but it still wakes to look
+	// again, and each wait it sets draws on the spread, so counting those
+	// shows whether the ending stopped it.
+	it("stops its search for the hub when it ends", async () => {
+		const spread = vi.fn(() => 0);
 		onQuest();
 		parentLive();
-		const env = await node([asker], [tieTo("5GV2AH", 4)], answerLate);
-		const { fire, restart } = await startSession(
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { fire } = await startSession(
 			env,
 			{},
 			[],
@@ -313,30 +298,24 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			undefined,
 			undefined,
 			undefined,
-			{ every: 20, retry: 20, spread: () => 0 },
+			{ every: 20, retry: 20, spread },
 		);
-		await vi.waitFor(() => expect(tieAsks()).toBeGreaterThanOrEqual(2));
+		await vi.waitFor(() =>
+			expect(spread.mock.calls.length).toBeGreaterThanOrEqual(2),
+		);
 
 		await fire("session_shutdown");
-		await restart();
-		const restarted = tieAsks();
-		// The next search's second ask follows its first one's answer, which
-		// came after the answer to the ask the ended search had out, since
-		// every answer waits the same 60 ms and that ask went first: so by
-		// then only an ask the ended search made after it ended can be out.
-		await vi.waitFor(() =>
-			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
-		);
-		most = out;
-		// Several of the next search's finds, each 60 ms out and 20 ms apart.
-		await new Promise((done) => setTimeout(done, 400));
+		const ended = spread.mock.calls.length;
+		// Ten waits' worth, had the search gone on after the ending.
+		await new Promise((done) => setTimeout(done, 200));
 
-		expect(most).toBeLessThanOrEqual(1);
+		expect(spread.mock.calls.length).toBe(ended);
 	}, 15_000);
 
-	// A start with no ending before it, as a reload that skipped the
-	// ending gives, leaves the last search with a peer to read: only the
-	// start's own guard stops it.
+	// pi ends a session before every reload, switch and fork, so a start
+	// with no ending before it is one pi doesn't give; should a host give
+	// one, the last search still has a peer to read, and only the start's
+	// own guard stops it.
 	it("stops the last search for its hub when a session starts again without ending", async () => {
 		let out = 0;
 		let most = 0;
