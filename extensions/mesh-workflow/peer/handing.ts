@@ -3,6 +3,7 @@
  * without, and what waited once the mesh settles or a hold ends.
  */
 
+import type { ConcludedEvent } from "../../../lib/internal/quest/fields/concluded.ts";
 import {
 	HOLD_FOR_RELOAD_MS,
 	oweTurnToReload,
@@ -23,7 +24,7 @@ import {
 } from "../delivery.ts";
 import type { HoldEnd } from "../leases.ts";
 import { folds, QUIET_STATUS, quietStatus } from "../quiet.ts";
-import { tellOnNoModel } from "../tells.ts";
+import { tellOnNoModel, tellOrchestrator } from "../tells.ts";
 import { keptAbove } from "../tools/above.ts";
 import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
 
@@ -35,6 +36,13 @@ const TURN_PUT_OFF =
 	"The mesh messages above reached you while a reload of your harness waited. Act on them now.";
 
 /** What starts the turn of a session woken from parking with messages waiting. */
+/**
+ * How many endings a session keeps, the newest, while it has nobody to
+ * tell them to: enough for a spell with no hub, and bounded for a session
+ * that never finds one.
+ */
+const ENDINGS_KEPT = 10;
+
 const WOKEN_TO_READ =
 	"Woken from parking. The mesh messages above reached you since your last turn and nothing has acted on them yet: read them and act on what is yours.";
 
@@ -98,6 +106,34 @@ export function createHanding(m: MeshState) {
 		m.toldOnNoModel = true;
 		m.onNoModelUntold = undefined;
 		if (message) m.seen.add(message.id);
+	};
+
+	/**
+	 * Tell this peer's orchestrator that a quest or document ended, with
+	 * what waited before it. On a quest with no mark and no hub kept yet,
+	 * as after the node was down, it waits until a find keeps one
+	 * (start.ts) rather than going nowhere; with no event, what waited is
+	 * told.
+	 */
+	const tellConcluded = (event?: ConcludedEvent) => {
+		const waiting =
+			event === undefined ? m.endingsUntold : [...m.endingsUntold, event];
+		const above = keptAbove(m.peer?.orchestratedBy, m.hub)?.address;
+		if (m.peer === undefined || above === undefined) {
+			m.endingsUntold = waiting.slice(-ENDINGS_KEPT);
+			return;
+		}
+		m.endingsUntold = [];
+		for (const one of waiting) {
+			const message = tellOrchestrator(
+				m.peer,
+				above,
+				m.transport,
+				one,
+				m.presences.all(),
+			);
+			if (message) m.seen.add(message.id);
+		}
 	};
 
 	/**
@@ -375,6 +411,7 @@ export function createHanding(m: MeshState) {
 	return {
 		showQuiet,
 		tellNoModel,
+		tellConcluded,
 		putOffTurn,
 		handedOver,
 		say,

@@ -266,6 +266,9 @@ export function keepHub(
 	let misses = 0;
 	// Set while a find waits on the node, so a nudge starts no second one.
 	let asking = false;
+	// The node answered a send while a find waited on it: that find may
+	// have asked before the node was back, so a miss is tried again at once.
+	let answered = false;
 	const longest = Math.max(HUB_LEAST_WAIT_MS, every);
 	const soonest = Math.max(HUB_LEAST_WAIT_MS, retry);
 	const backingOff = () => {
@@ -297,6 +300,7 @@ export function keepHub(
 		}
 		let wait = longest;
 		asking = true;
+		answered = false;
 		try {
 			const finding = await findAbove(reading);
 			// Stopped while it asked: what it found is no longer this
@@ -316,6 +320,8 @@ export function keepHub(
 		} finally {
 			asking = false;
 		}
+		if (answered && misses > 0) wait = HUB_LEAST_WAIT_MS;
+		answered = false;
 		after(wait);
 		if (kept === undefined) return;
 		try {
@@ -354,7 +360,12 @@ export function keepHub(
 				: undefined;
 		},
 		nodeAnswered: () => {
-			if (stopped || misses === 0 || asking) return;
+			if (stopped) return;
+			if (asking) {
+				answered = true;
+				return;
+			}
+			if (misses === 0) return;
 			if (clock !== undefined) clearTimeout(clock);
 			void find();
 		},

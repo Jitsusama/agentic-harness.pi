@@ -80,8 +80,10 @@ and can answer a question or a gate left open on screen.
   grants nothing the mark does. The ties it talks on adding
   up to less than one message six hours old, from either
   side, make no hub, however the share falls. With no such
-  cell the send is refused, and so it is for any session on
-  a quest heading an orchestration, which is told the head's
+  cell the send is refused, but for a node too slow to
+  answer it in time, when it reaches the hub last found if
+  that hub still checks out. A session on a quest heading
+  an orchestration is refused too, and told the head's
   address. The tree is walked on the quest side; the mesh
   reads only presence. Within a mission, an unaddressed
   message now usually goes to the orchestration's group,
@@ -90,7 +92,9 @@ and can answer a question or a gate left open on screen.
   or retired, the mesh tells the session's orchestrator
   itself, one fyi line quoting what the quest tool answered,
   heard over pi's bus
-  (`lib/internal/quest/fields/concluded.ts`). A session left
+  (`lib/internal/quest/fields/concluded.ts`). With nobody
+  above to tell yet, as while no hub is found, the newest
+  ten wait to be told once one is. A session left
   on no model, which answers nothing it is sent, has the mesh
   tell its orchestrator once, as a finding naming the model
   and why it can't be set back (`lib/internal/session/no-model.ts`).

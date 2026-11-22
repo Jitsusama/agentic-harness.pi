@@ -143,7 +143,8 @@ export function hubFromUse(
 	}
 	let best: { hub: Presence; share: number } | undefined;
 	for (const [hub, sum] of sums) {
-		if (sum.whole < HUB_TIE_FLOOR) continue;
+		// Held to reach the floor, so a strength that is no number fails it.
+		if (!(sum.whole >= HUB_TIE_FLOOR)) continue;
 		if (best === undefined || sum.share > best.share) {
 			best = { hub, share: sum.share };
 		}

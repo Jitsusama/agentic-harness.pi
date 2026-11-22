@@ -391,6 +391,7 @@ export function createState(
 		settleClock: undefined,
 		onNoModelUntold: undefined,
 		toldOnNoModel: false,
+		endingsUntold: [],
 		classifier: undefined,
 		stopWatching: undefined,
 		caughtUpFrom: undefined,

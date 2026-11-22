@@ -188,12 +188,14 @@ async function toHubByAddress(
  * read against the presences now, by the rules the find used, with the
  * fresh find's own census judging who is live, so what is for the hub
  * still reaches it while the node has only just slowed. A find that
- * ended before it asked the node says nothing of the node, so it falls
- * back to nothing. The keeping's own next find meets the same slow node and keeps
- * none, so past that this refuses as before. A send to it gets the
- * checks a send to the hub gets, since `orchestrator` then names its
- * address; it stays unsettled only so it is never taken for a find the
- * node answered. The kept hub is read only when it is needed, since
+ * ended before it asked the node, finding this peer absent from the
+ * census, says nothing of the node, so it falls back to nothing; the kept
+ * hub's read would refuse it for want of this peer among the live too,
+ * so this spares only the read. The keeping's own next find meets the
+ * same slow node and keeps none, so past that this refuses as before.
+ * A send to it gets the checks a send to the hub gets, since
+ * `orchestrator` then names its address; it stays unsettled only so it
+ * is never taken for a find the node answered. The kept hub is read only when it is needed, since
  * reading it reads every presence.
  */
 function orKept(

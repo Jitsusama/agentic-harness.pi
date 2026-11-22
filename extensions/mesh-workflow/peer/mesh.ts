@@ -8,6 +8,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { FoundClassifier } from "../../../lib/classifier/jev.ts";
+import type { ConcludedEvent } from "../../../lib/internal/quest/fields/concluded.ts";
 import type { createReloadHold } from "../../../lib/internal/reload/hold.ts";
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
@@ -220,6 +221,9 @@ export interface MeshState {
 	// told once.
 	onNoModelUntold: NoModelEvent | undefined;
 	toldOnNoModel: boolean;
+	// Quests and documents that ended while nobody was above to hear it,
+	// the newest, told once a hub is kept.
+	endingsUntold: readonly ConcludedEvent[];
 	classifier: Promise<FoundClassifier> | undefined;
 	stopWatching: (() => void) | undefined;
 	// Where this peer's catch-up began: a message stamped at or before it

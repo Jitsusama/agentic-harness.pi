@@ -643,12 +643,15 @@ export function tiesFrom(
 		const { strength, heard } = record;
 		if (at === undefined || !hour || !today) return [];
 		if (typeof strength !== "number" || typeof heard !== "number") return [];
+		const faded = strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS);
+		// A strength no number can weigh, as JSON's 1e309 reads, is no tie.
+		if (!Number.isFinite(faded)) return [];
 		const ours = (counts: [number, number]): [number, number] =>
 			at === 0 ? counts : [counts[1], counts[0]];
 		return [
 			{
 				other: at === 0 ? second : first,
-				strength: strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS),
+				strength: faded,
 				hour: ours(hour),
 				today: ours(today),
 				intents: Array.isArray(record.intents)

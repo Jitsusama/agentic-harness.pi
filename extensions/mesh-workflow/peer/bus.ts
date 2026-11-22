@@ -36,8 +36,6 @@ import { waitingOf } from "../../../lib/mesh/waiting.ts";
 import { wantFrom } from "../../../lib/mesh/want.ts";
 import { tellRepository } from "../landing-notes.ts";
 import { ended } from "../talks.ts";
-import { tellOrchestrator } from "../tells.ts";
-import { keptAbove } from "../tools/above.ts";
 import { meshWakers, type Own } from "../wakers.ts";
 import type { Handing } from "./handing.ts";
 import { endLooksOfQuests, resolveLooksAt } from "./looks.ts";
@@ -109,14 +107,7 @@ export function onBus(m: MeshState, f: Handing) {
 	// not from whether the session remembers to say so.
 	if (m.pi.events) {
 		onConcluded(m.pi.events, (event) => {
-			const message = tellOrchestrator(
-				m.peer,
-				keptAbove(m.peer?.orchestratedBy, m.hub)?.address,
-				m.transport,
-				event,
-				m.presences.all(),
-			);
-			if (message) m.seen.add(message.id);
+			f.tellConcluded(event);
 			// And the talk that asked for it hears what came of it.
 			for (const ref of event.ids) m.talks.came(ended(ref, event.how), ref);
 			// What the quest asked of the person ends with it.
