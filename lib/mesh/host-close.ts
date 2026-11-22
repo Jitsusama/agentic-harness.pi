@@ -16,10 +16,9 @@
 
 import { randomUUID } from "node:crypto";
 import { hostSocketPath } from "../../host/service/address.ts";
-import { controlRequest } from "../../host/service/client.ts";
-import { parseSessionResult } from "../../host/service/protocol.ts";
 import { hosted } from "../core/session/index.ts";
 import type { TickedOwner } from "../internal/process-ticks.ts";
+import { controlRequest, hostProtocol } from "./host-control.ts";
 
 /** What a host said, or didn't, when asked to close one conversation. */
 export type HostClose = "ended" | "unsure";
@@ -102,6 +101,7 @@ async function endThroughHost(
 			},
 			timeoutMs,
 		);
+		const { parseSessionResult } = await hostProtocol();
 		return reply.ok &&
 			parseSessionResult(reply.result).sessionId === owner.session
 			? "ended"
