@@ -226,6 +226,15 @@ describe("slack-thread", () => {
 			),
 		).toEqual(["shopify/C0AJY0FLK8Q/p1778683833000200"]);
 	});
+
+	it("reads thread_ts after an escaped ampersand, as Slack's own text sends it", () => {
+		const link =
+			"https://shopify.slack.com/archives/C0AJY0FLK8Q/p1778683935600300?cid=C0AJY0FLK8Q&amp;thread_ts=1778683833.000200";
+		expect(getRefType("slack-thread")?.matchAll(link)).toEqual([
+			"shopify/C0AJY0FLK8Q/p1778683833000200",
+		]);
+		expect(getRefType("slack-message")?.matchAll(link)).toEqual([]);
+	});
 });
 
 describe("parseRef and parseAllRefs", () => {

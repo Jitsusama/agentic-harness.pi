@@ -113,9 +113,10 @@ const SLACK_URL_REGEX =
 
 /**
  * A Slack link's thread parent, from its own `thread_ts` parameter only,
- * never one merely ending in it, such as `not_thread_ts`.
+ * never one merely ending in it, such as `not_thread_ts`. Slack's own
+ * message text escapes the `&` before it as `&amp;`, which reads alike.
  */
-const THREAD_TS = /[?&]thread_ts=([\d.]+)/;
+const THREAD_TS = /(?:[?&]|&amp;)thread_ts=([\d.]+)/;
 
 /**
  * Why a Slack ref will not become a URL, or nothing when it will.

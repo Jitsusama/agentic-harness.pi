@@ -1,6 +1,7 @@
 /**
  * A sprout driven through session_start as pi runs it: the order of its
- * halves keeps the node's prose unsaid and tracks the quest it made.
+ * halves keeps the node's prose unsaid, the sprout's own words said once,
+ * and the session on the quest it made.
  */
 
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -79,7 +80,7 @@ function startIn(cwd: string): unknown {
 	};
 }
 
-it("says the sprout's words, never the node's prose, and tracks the quest it made", async () => {
+it("says the sprout's words once, never the node's prose, and leaves the session on its quest", async () => {
 	process.env[SEED] = JSON.stringify({ v: 1, words: "the work", id: "S90" });
 	process.env[PROSE] = "the node's prose";
 	const pi = fakePi();
@@ -95,6 +96,10 @@ it("says the sprout's words, never the node's prose, and tracks the quest it mad
 	});
 
 	await vi.waitFor(() => expect(pi.recorded.sentAsUser).toHaveLength(1));
+	// A second send, the node's prose after the sprout's words, would come
+	// on a later tick; give it one before counting.
+	await new Promise((settle) => setTimeout(settle, 50));
+	expect(pi.recorded.sentAsUser, "said once").toHaveLength(1);
 	const said = String(pi.recorded.sentAsUser[0]);
 	expect(said).toMatch(/is made and loaded for it/u);
 	expect(said).not.toContain("the node's prose");
@@ -107,5 +112,5 @@ it("says the sprout's words, never the node's prose, and tracks the quest it mad
 	)?.dir;
 	if (!dir) throw new Error(`no folder for ${made}`);
 	const readme = readFileSync(join(dir, "README.md"), "utf8");
-	expect(readme, "the session tracked on the quest it made").toContain(SESSION);
+	expect(readme, "the session is on the quest it made").toContain(SESSION);
 });

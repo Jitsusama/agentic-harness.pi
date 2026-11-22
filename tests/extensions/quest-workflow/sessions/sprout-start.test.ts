@@ -412,6 +412,21 @@ describe("a sprouted session's start", () => {
 		expect(again.state.questId).toBe(first.state.questId);
 		expect(asked, "no tie was asked for").toEqual([]);
 		expect(again.words).not.toMatch(/tied on the map/u);
+		// The same seed replayed onto another session finds the quest by the
+		// mark its join left, and still ties nothing.
+		const replay = await start(
+			{ link: "https://github.com/o/r/pull/5", id: "S6", from: "TERN02" },
+			{
+				run: async (_program, args) => {
+					asked.push(args);
+					return { code: 0, stdout: "", stderr: "" };
+				},
+				sessionId: "sess-join-replay",
+			},
+		);
+		expect(replay.state.questId).toBe(first.state.questId);
+		expect(asked, "no tie was asked for on the replay").toEqual([]);
+		expect(replay.words).not.toMatch(/tied on the map/u);
 	});
 
 	it("joins nothing for a link that only carries another page's address", async () => {
@@ -508,7 +523,6 @@ describe("a sprouted session's start", () => {
 		for (const [n, link] of [
 			"https://github.com/o/repo?tab=readme-ov-file",
 			"https://github.com/o/repo/tree/main/lib",
-			"https://github.com/o/repo/blob/main/README.md",
 			"https://github.com/o",
 		].entries()) {
 			const one = await start(
@@ -527,6 +541,20 @@ describe("a sprouted session's start", () => {
 		expect(pr.words, "a pull request is the work").toMatch(
 			/fill the quest's Summary/u,
 		);
+		// Deeper links no ref reads, such as a file, a line or a commit, are
+		// often the work itself, so their page is read for it.
+		for (const [n, link] of [
+			"https://github.com/o/repo/blob/main/docs/rfc.md",
+			"https://github.com/o/repo/blob/main/x.ts#L42",
+			"https://github.com/o/repo/commit/abc123",
+		].entries()) {
+			const deep = await start(
+				{ link, id: `S9${n}` },
+				{ sessionId: `sess-deep-${n}` },
+			);
+			expect(deep.words, link).not.toMatch(/is where the work happens/u);
+			expect(deep.words, link).toMatch(/fill the quest's Summary/u);
+		}
 	});
 
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
@@ -682,14 +710,31 @@ describe("a sprouted session's start", () => {
 		const { words } = await start(
 			{ words: "tea", from: "TERN02" },
 			{
-				run: async () => ({ code: null, stdout: "", stderr: "" }),
+				run: async () => ({ code: null, stdout: "", stderr: "Killed\n" }),
 				sessionId: "sess-tie-signal",
 			},
 		);
 		expect(words).toMatch(
-			/was cut off before it answered and may have landed anyway/u,
+			/was cut off before it answered \(it said: Killed\) and may have landed anyway/u,
 		);
 		expect(words).not.toMatch(/failed/u);
+	});
+
+	it("says a tie that never started failed, never that it may have landed", async () => {
+		const { words } = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: null,
+					stdout: "",
+					stderr: "",
+					neverRan: "EAGAIN",
+				}),
+				sessionId: "sess-tie-never",
+			},
+		);
+		expect(words).toMatch(/failed \(it couldn't be started \(EAGAIN\)\)/u);
+		expect(words).not.toMatch(/may have landed/u);
 	});
 
 	it("gives no command to run when there's no mycelium or folder to tie from", async () => {

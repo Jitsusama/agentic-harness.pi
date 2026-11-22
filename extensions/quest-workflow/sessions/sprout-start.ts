@@ -89,7 +89,13 @@ export async function startSprouted(
 		return;
 	}
 	const alias = sproutAlias(seed);
-	const replayed = alias ? questsWith(state, alias)[0] : undefined;
+	const joinMark = alias ? joinedMark(alias) : undefined;
+	// Its own quest, else the live one it joined, each found by the mark
+	// it left there; only the first is one it made.
+	const made = alias ? questsWith(state, alias)[0] : undefined;
+	const rejoined =
+		made || !joinMark ? undefined : questsWith(state, joinMark)[0];
+	const replayed = made ?? rejoined;
 	if (replayed?.sealed) {
 		// Its quest was made and has since ended: the work is done, and
 		// the prose would only ask for another.
@@ -129,13 +135,14 @@ export async function startSprouted(
 				ref: `${mark.type}:${mark.value}`,
 			});
 		}
-	} else if (!replayed && alias) {
-		// A live quest it joined takes its mark too, so a replay after that
-		// quest ends is told its work is done, never starts it again.
+	} else if (!replayed && joinMark) {
+		// A live quest it joined takes a mark of its own, so a replay after
+		// that quest ends is told its work is done, never starts it again,
+		// and a replay while it lives joins it again, never ties it.
 		aliasAdd(state, {
 			action: "alias-add",
 			id,
-			ref: `${alias.type}:${alias.value}`,
+			ref: `${joinMark.type}:${joinMark.value}`,
 		});
 	}
 	servesNeed(state, id, seed);
@@ -143,7 +150,7 @@ export async function startSprouted(
 	// that asked: a live one it joined predates it, and may be that very
 	// cell's own, so the map is left saying where it really came from.
 	const tied =
-		held !== undefined && !replayed
+		held !== undefined && !made
 			? ({ kind: "none" } as const)
 			: await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
@@ -227,6 +234,18 @@ function unmarkEnded(
 	}
 }
 
+/**
+ * The mark a live quest a sprout joined takes, apart from the one its
+ * own quest takes, so a replay can tell the quest it made, which is
+ * tied to its asker, from one it joined, which never is.
+ */
+function joinedMark(alias: { type: string; value: string }): {
+	type: string;
+	value: string;
+} {
+	return { type: "sprout-joined", value: alias.value };
+}
+
 /** Every quest carrying `alias`, live ones first. */
 function questsWith(
 	state: QuestState,
@@ -300,7 +319,9 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * work. A link merely carrying a place's address is no place. GitHub's
  * own ways of linking a place count too, which parseRef reads as no
  * ref: an organisation, a repository with a query such as
- * ?tab=readme-ov-file, and a branch or file in one (/tree, /blob).
+ * ?tab=readme-ov-file, and a branch or folder in one (/tree). A file
+ * (/blob) is often the work itself, a spec or a line, so it reads as
+ * the work.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
 	const read = pageRead(seed);
@@ -316,7 +337,7 @@ function linkIsPlace(seed: SproutSeed): boolean {
 }
 
 /** Where in a GitHub repository its own code is, never a piece of work. */
-const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "blob"]);
+const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree"]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
@@ -442,7 +463,8 @@ async function tie(
 		ran.timedOut ||
 		(ran.code === null && !ran.neverRan && !ran.missing && !ran.noFolder)
 	) {
-		return { kind: "unsure", from };
+		const said = ran.stderr.trim().split("\n").pop();
+		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
 		return {

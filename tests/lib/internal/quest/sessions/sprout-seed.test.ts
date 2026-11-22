@@ -278,4 +278,15 @@ describe("a sprouted session's first words", () => {
 		expect(words).not.toMatch(/fill the quest's Summary/u);
 		expect(words).toContain(peers);
 	});
+
+	it("count every other live quest holding the work, one or many", () => {
+		const said = (also: string[]) =>
+			sproutedWords("QEST-1-ABC", { words: "tea" }, { kind: "none" }, { also });
+		expect(said(["QEST-2-DEF"])).toContain(
+			"Quest QEST-2-DEF holds this work as well, where one quest should: tell the person, so the two can be made one.",
+		);
+		expect(said(["QEST-2-DEF", "QEST-3-GHI"])).toContain(
+			"Quests QEST-2-DEF and QEST-3-GHI hold this work as well, where one quest should: tell the person, so all 3 can be made one.",
+		);
+	});
 });
