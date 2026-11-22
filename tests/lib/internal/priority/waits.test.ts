@@ -99,6 +99,23 @@ describe("why each job waits", () => {
 		expect(waitReasons([sent], tight, NOW).get("sent")).toBe("memory");
 	});
 
+	// 22 November: an `elsewhere run harness-check` bound for the Mac sat
+	// over half an hour behind optimus's memory and CPU (1OGSE7).
+	it("gives a sent elsewhere run its turn while memory and CPU are pressed, when its booking fits", () => {
+		const sent = older("sent", 9_000, {
+			what: "elsewhere run harness-check -- pnpm exec vitest run tests/lib",
+			needsGib: 4,
+			sent: true,
+		});
+		const pressed = { ...BUSY, memoryPressure: MOST_MEMORY_PRESSURE };
+
+		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
+		const tight = { ...pressed, availableGib: 2 };
+		expect(nextTurn([sent], tight, NOW)).toBeUndefined();
+		const unsent = { ...sent, sent: false };
+		expect(nextTurn([unsent], pressed, NOW)).toBeUndefined();
+	});
+
 	it("holds a sent nix-offload there that may build here while idle, while memory is pressed", () => {
 		const idle = older("idle", 9_000, {
 			what: "nix-offload there --here-when-idle . checks.x86_64-linux.x",

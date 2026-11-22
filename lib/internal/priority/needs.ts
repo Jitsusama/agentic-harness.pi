@@ -163,6 +163,19 @@ export function runsChangedChecks(command: string): boolean {
 }
 
 /**
+ * `elsewhere run KIND`, which carries the job's tracked files to the
+ * machine mycelium places it on and runs it there (core.nix's
+ * elsewhere). It runs here only when no machine is placed, which is the
+ * Mac being away, not this machine being busy.
+ */
+const RUNS_ELSEWHERE = /(?<![\w./-])elsewhere\s+run\s+(?!-)[\w-]+/;
+
+/** Whether a command sends its run to another machine with `elsewhere run`. */
+export function runsElsewhere(command: string): boolean {
+	return RUNS_ELSEWHERE.test(command);
+}
+
+/**
  * `nix-offload there --here`, which builds on this machine when no
  * builder takes the build (core #1394), so it waits its turn here like
  * the `nix build` it stands for; without `--here` it builds nothing here.

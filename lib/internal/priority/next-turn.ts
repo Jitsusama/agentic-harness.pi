@@ -38,6 +38,7 @@ import {
 	NEEDS_GIB,
 	needsGibOf,
 	runsChangedChecks,
+	runsElsewhere,
 	WALKS_AT_ONCE,
 	walksAtOnce,
 } from "./needs.ts";
@@ -115,10 +116,16 @@ const rank = (job: Job) =>
  * 0.4 GB at most yet waited 14,016 s on memory, a third of each one's
  * time to its result (80ECO2). A sent `nix-offload there
  * --here-when-idle` stays held: idle by CPU, it may build here while
- * memory is short.
+ * memory is short. A sent `elsewhere run` goes too, since it runs on
+ * another machine.
  */
 function startsPressed(job: Job): boolean {
-	if (job.sent === true && runsChangedChecks(job.what)) return true;
+	if (
+		job.sent === true &&
+		(runsChangedChecks(job.what) || runsElsewhere(job.what))
+	) {
+		return true;
+	}
 	return isQuick(job) && job.kind !== "build" && needsGibOf(job) <= LIGHT_GIB;
 }
 

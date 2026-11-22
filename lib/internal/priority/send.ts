@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
 import { type Step, stepsOf } from "../shell/steps.ts";
+import { runsElsewhere } from "./needs.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
@@ -181,10 +182,15 @@ const STATUS_MS = 2_000;
 
 /**
  * Whether every heavy step of `command`, run from `cwd`, sends its whole
- * run to a builder: a changed-checks run that sends itself, or a
+ * run to a builder: a changed-checks run that sends itself, a
  * `nix-offload there --here-when-idle` that builds here only while this
- * machine is idle. Held as a build here, one such run waited 36 minutes
- * on memory on 10 November, and changed-checks runs waited behind it.
+ * machine is idle, or an `elsewhere run` that runs on the machine
+ * mycelium places it on. Held as a build here, one such run waited 36
+ * minutes on memory on 10 November, and changed-checks runs waited
+ * behind it. On 22 November an `elsewhere run harness-check` bound for
+ * the Mac, at load 5, waited over half an hour behind optimus's CPU and
+ * memory, while vitest, tsc and cargo runs waited 79 hours that day to
+ * run 2.4.
  */
 export function sendsWholeRun(
 	command: string,
@@ -201,6 +207,7 @@ export function sendsWholeRun(
 		heavy.every(
 			(step) =>
 				SENT_UNLESS_IDLE.test(step.text) ||
+				runsElsewhere(step.text) ||
 				changedChecksSent(step, takes, isCommitted),
 		)
 	);

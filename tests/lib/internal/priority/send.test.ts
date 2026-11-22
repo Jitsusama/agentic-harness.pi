@@ -245,6 +245,28 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 		).toBe(true);
 	});
 
+	it("does for an elsewhere run, which runs where mycelium places it", () => {
+		for (const run of [
+			"elsewhere run harness-check -- pnpm exec vitest run tests/lib/internal/priority",
+			"elsewhere run harness-check -- pnpm typecheck > $TMPDIR/tc.log 2>&1",
+			"cd /tree && elsewhere run delta-spec -- cargo test",
+		]) {
+			expect(
+				sendsWholeRun(run, "/tree", undefined, () => false),
+				`${run} is sent whatever nix-offload takes`,
+			).toBe(true);
+		}
+		expect(
+			sendsWholeRun(
+				"elsewhere run harness-check -- pnpm test && pnpm exec vitest run",
+				"/tree",
+				TAKES,
+				committed,
+			),
+			"a vitest run beside it runs here",
+		).toBe(false);
+	});
+
 	it("doesn't for a nix-offload there that may build here when unsent", () => {
 		for (const check of [
 			"nix-offload there --here . checks.x86_64-linux.boot",
