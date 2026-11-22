@@ -32,11 +32,20 @@
 			"googleapis": ["./lib/google/apis/googleapis-root.d.ts"],
 			"googleapis/build/src": ["./lib/google/apis/googleapis-root.d.ts"],
 			"googleapis/build/src/index": ["./lib/google/apis/googleapis-root.d.ts"],
+			"googleapis/build/src/index.js": [
+				"./lib/google/apis/googleapis-root.d.ts"
+			],
 			"googleapis/build/src/googleapis": [
+				"./lib/google/apis/googleapis-root.d.ts"
+			],
+			"googleapis/build/src/googleapis.js": [
 				"./lib/google/apis/googleapis-root.d.ts"
 			],
 			"googleapis/build/src/apis": ["./lib/google/apis/googleapis-root.d.ts"],
 			"googleapis/build/src/apis/index": [
+				"./lib/google/apis/googleapis-root.d.ts"
+			],
+			"googleapis/build/src/apis/index.js": [
 				"./lib/google/apis/googleapis-root.d.ts"
 			]
 		}

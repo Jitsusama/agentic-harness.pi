@@ -98,6 +98,9 @@ const STUBBED = [
 	`${PACKAGE}/build/src/googleapis`,
 	`${PACKAGE}/build/src/apis`,
 	`${PACKAGE}/build/src/apis/index`,
+	`${PACKAGE}/build/src/index.js`,
+	`${PACKAGE}/build/src/googleapis.js`,
+	`${PACKAGE}/build/src/apis/index.js`,
 ];
 
 /** The stub those entries map to. */
@@ -122,19 +125,34 @@ const WALK_TIMEOUT_MS = 30_000;
 /** A folder walked whole for one extension, or the root's own files. */
 const INCLUDE_GLOB = /^(?:([\w.-]+)\/\*\*\/)?\*(\.\w+)$/;
 
+/** tsconfig.json, read as the plain JSON it is today. */
+function tsconfig(): {
+	include: string[];
+	compilerOptions: { paths: Record<string, string[]> };
+} {
+	const text = readFileSync(join(ROOT, "tsconfig.json"), "utf8");
+	try {
+		return JSON.parse(text);
+	} catch (error) {
+		throw new Error(
+			"this rule reads tsconfig.json as plain JSON, so a comment or " +
+				"trailing comma there needs a JSONC parser here first",
+			{ cause: error },
+		);
+	}
+}
+
 /** Every file tsconfig.json's `include` names, skipping node_modules. */
 function includedFiles(): string[] {
-	const { include } = JSON.parse(
-		readFileSync(join(ROOT, "tsconfig.json"), "utf8"),
-	) as { include: string[] };
-	const files: string[] = [];
+	const { include } = tsconfig();
+	const files = new Set<string>();
 	const walk = (dir: string, extension: string): void => {
 		for (const entry of readdirSync(dir)) {
 			if (entry === "node_modules" || entry.startsWith(".")) continue;
 			const path = join(dir, entry);
 			if (statSync(path).isDirectory()) walk(path, extension);
 			else if (entry.endsWith(extension) || DECLARATION.test(entry)) {
-				files.push(path);
+				files.add(path);
 			}
 		}
 	};
@@ -144,13 +162,13 @@ function includedFiles(): string[] {
 		const [, dir, extension = ""] = shape;
 		if (dir === undefined) {
 			for (const entry of readdirSync(ROOT)) {
-				if (entry.endsWith(extension)) files.push(join(ROOT, entry));
+				if (entry.endsWith(extension)) files.add(join(ROOT, entry));
 			}
 		} else if (existsSync(join(ROOT, dir))) {
 			walk(join(ROOT, dir), extension);
 		}
 	}
-	return files;
+	return [...files];
 }
 
 /** Where `source` names googleapis other than in the two ways allowed. */
@@ -195,21 +213,31 @@ describe("googleapis", () => {
 		WALK_TIMEOUT_MS,
 	);
 
-	it("walks the files tsconfig includes, .mjs and the root's .ts among them", () => {
-		const files = includedFiles().map((file) => relative(ROOT, file));
-		expect(files).toContain("vitest.config.ts");
-		expect(files).toContain(LOADER.file);
-		expect(files.some((file) => file.endsWith(".mjs"))).toBe(true);
-		expect(files).toContain(join("lib", "subagent", "runpi", "journal.d.mts"));
-	});
+	it(
+		"walks the files tsconfig includes, .mjs and the root's .ts among them",
+		() => {
+			const files = includedFiles().map((file) => relative(ROOT, file));
+			expect(files).toContain("vitest.config.ts");
+			expect(files).toContain(LOADER.file);
+			expect(files.some((file) => file.endsWith(".mjs"))).toBe(true);
+			expect(files).toContain(
+				join("lib", "subagent", "runpi", "journal.d.mts"),
+			);
+			expect(new Set(files).size).toBe(files.length);
+		},
+		WALK_TIMEOUT_MS,
+	);
 
 	it("has the typecheck read nothing for the root", () => {
-		const { compilerOptions } = JSON.parse(
-			readFileSync(join(ROOT, "tsconfig.json"), "utf8"),
-		) as { compilerOptions: { paths: Record<string, string[]> } };
+		const { paths } = tsconfig().compilerOptions;
 		for (const entry of STUBBED) {
-			expect(compilerOptions.paths[entry], entry).toEqual([STUB]);
+			expect(paths[entry], entry).toEqual([STUB]);
 		}
+		// A mapping whose file is gone falls through to node_modules, so
+		// the stub has to be there, and has to export nothing.
+		const stub = readFileSync(join(ROOT, STUB), "utf8");
+		const code = stub.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+		expect(code).toBe("export {};");
 	});
 
 	const file = join(ROOT, "lib", "example.ts");
@@ -238,6 +266,11 @@ describe("googleapis", () => {
 			`import type { D } from "../node_modules/${deep}/drive";`,
 		],
 		["a climb out of one API", `import type { A } from "${deep}/drive/..";`],
+		[
+			"the root's index by its .js",
+			`import type { G } from "${PACKAGE}/build/src/index.js";`,
+		],
+		["every API by its .js", `import type { A } from "${deep}/index.js";`],
 		[
 			"a type import split over lines",
 			`import type {\n\tG,\n} from\n\t"${PACKAGE}";`,
