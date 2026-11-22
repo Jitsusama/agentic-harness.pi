@@ -34,7 +34,6 @@
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -65,12 +64,15 @@ import { duMeasure } from "../../lib/internal/quest/workspace/footprint.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import {
 	type Carry,
-	carriedBy,
 	ROLLOVER_CARRY,
-	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { medianOf } from "../../lib/internal/spend/cost-meter/index.ts";
+import {
+	assistantCost,
+	SPEND_CARRY,
+	spentOnBranch,
+} from "../../lib/internal/spend/session-spend.ts";
 import {
 	askBill,
 	BILL_PERIODS,
@@ -203,21 +205,6 @@ export const COST_READING = "cost:reading";
  * does.
  */
 const MARGINAL_WINDOW = 20;
-
-/**
- * The name this extension carries its spend under when a log rolls over.
- * Logs already written carry it under the extension's old name, so the
- * name stays.
- */
-const CARRY_NAME = "cost-workflow";
-
-/** Cost of an assistant turn, or zero for anything else. */
-function assistantCost(message: { role: string }): number {
-	if (message.role === "assistant" && "usage" in message) {
-		return (message as AssistantMessage).usage.cost.total;
-	}
-	return 0;
-}
 
 /**
  * spend-watch's bill for a period, drawn as its own section, in the
@@ -368,19 +355,10 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 		for (const entry of branch) {
 			if (entry.type === "message") observeTurn(assistantCost(entry.message));
 		}
-		// A log rolled over from a larger one starts with the spend it
-		// carried, which already holds every turn up to its record.
-		const carried = carriedBy(branch, CARRY_NAME) as
-			| { spend?: unknown }
-			| undefined;
-		if (typeof carried?.spend === "number") {
-			sessionSpend = carried.spend;
-			for (const entry of branch.slice(recordIndex(branch) + 1)) {
-				if (entry.type === "message") {
-					sessionSpend += Math.max(0, assistantCost(entry.message));
-				}
-			}
-		}
+		// A log rolled over from a larger one, or a hosted conversation
+		// holding only its kept entries, starts with the spend it carried,
+		// which already holds every turn up to its record.
+		sessionSpend = spentOnBranch(branch);
 		if (!unregisterRuns) {
 			// Fan-out lands in the session total but never in the rate: a
 			// council round is not a turn, and letting it set the marginal
@@ -399,7 +377,7 @@ export default function spendWorkflow(pi: ExtensionAPI) {
 	pi.events.on(ROLLOVER_CARRY, (data) => {
 		const carry = data as Partial<Carry> | undefined;
 		if (typeof carry?.carried !== "object" || carry.carried === null) return;
-		carry.carried[CARRY_NAME] = { spend: sessionSpend };
+		carry.carried[SPEND_CARRY] = { spend: sessionSpend };
 	});
 
 	pi.on("session_shutdown", async () => {
