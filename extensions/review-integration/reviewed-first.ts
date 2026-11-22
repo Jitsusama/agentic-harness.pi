@@ -54,17 +54,20 @@
  * never held the branch before its rebase remembers none.
  *
  * A council counts wherever in the realm it ran: this machine's ledger
- * is asked first, then each other machine's mirrored under runs-from,
- * a folder a node. The mirror is filled from outside the harness and
- * only read here, so a round run on the Mac while optimus's memory
- * holds councils back still lets the change through, and no ledger
- * takes in another machine's rounds.
+ * is asked first, and only when it holds none, each other machine's
+ * mirrored under runs-from, a folder a node holding the files of that
+ * machine's review/runs directly (a link to such a folder counts too).
+ * The mirror is filled from outside the harness and only read here, so
+ * a round run on the Mac while optimus's memory holds councils back
+ * still lets the change through, and no ledger takes in another
+ * machine's rounds. A refusal names the mirrors it asked, and says so
+ * when they couldn't be listed.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { createRunStore } from "../../lib/core/review/index.ts";
@@ -125,41 +128,119 @@ export type Witnesses = (
 	commits: ReadonlySet<string>,
 ) => Promise<boolean>;
 
-/**
- * Asks this machine's ledger, then each mirrored one. A council run on
- * another machine of the realm is still our own review: equilibrius
- * runs rounds while optimus's memory holds councils back, and its
- * ledger is mirrored here rather than merged into ours.
- */
-const onTheLedger: Witnesses = async (repo, commits) => {
-	for (const ledger of [runDir(), ...(await mirroredLedgers())]) {
-		const read = await createRunStore(ledger).witnessed(repo, commits);
-		if (read !== undefined) return true;
-	}
-	return false;
-};
+/** The ledgers one judgement asks, and what to say of them on a refusal. */
+interface Ledgers {
+	readonly witnessed: Witnesses;
+	/** Which mirrors were asked, or why they couldn't be, as a sentence. */
+	readonly said: () => Promise<string>;
+}
 
-/** Each machine's mirrored ledger, a folder a node, in name order. */
-async function mirroredLedgers(): Promise<string[]> {
+/** The mirrors under runs-from, or why they couldn't be listed. */
+interface Mirrors {
+	readonly ledgers: readonly string[];
+	readonly trouble?: string;
+}
+
+/**
+ * This machine's ledger, then, only on a miss, each mirrored one. A
+ * council run on another machine of the realm is still our own review:
+ * equilibrius runs rounds while optimus's memory holds councils back,
+ * and its ledger is mirrored here rather than merged into ours. The
+ * mirrors are listed once for the judgement, however often it asks.
+ *
+ * Any writer in the realm is trusted, as this machine's own ledger
+ * already is: whoever can write runs-from can write runs.
+ */
+function realmLedgers(): Ledgers {
+	let listing: Promise<Mirrors> | undefined;
+	const mirrors = () => {
+		listing ??= mirroredLedgers();
+		return listing;
+	};
+	return {
+		witnessed: async (repo, commits) => {
+			const here = await createRunStore(runDir()).witnessed(repo, commits);
+			if (here !== undefined) return true;
+			for (const ledger of (await mirrors()).ledgers) {
+				const read = await createRunStore(ledger).witnessed(repo, commits);
+				if (read !== undefined) return true;
+			}
+			return false;
+		},
+		said: async () => {
+			const { ledgers, trouble } = await mirrors();
+			if (trouble !== undefined) return ` ${trouble}`;
+			if (ledgers.length === 0) return "";
+			const nodes = ledgers.map((ledger) => basename(ledger)).join(", ");
+			return ` Asked this machine's ledger and those mirrored from ${nodes}.`;
+		},
+	};
+}
+
+/**
+ * Each machine's mirrored ledger, a folder or a link to one a node, in
+ * name order. A stray file beside them is left out.
+ */
+async function mirroredLedgers(): Promise<Mirrors> {
 	const root = mirroredRunsDir();
+	let nodes: Awaited<ReturnType<typeof readNodes>>;
 	try {
-		const nodes = await readdir(root, { withFileTypes: true });
-		return nodes
-			.filter((node) => node.isDirectory())
-			.map((node) => join(root, node.name))
-			.sort();
+		nodes = await readNodes(root);
+	} catch (error) {
+		// No mirror on this machine is ordinary: only the local ledger is
+		// asked, as before mirrors existed. Any other failure is said.
+		if (hasCode(error, "ENOENT")) return { ledgers: [] };
+		return {
+			ledgers: [],
+			trouble: `The councils mirrored under ${root} couldn't be listed (${error instanceof Error ? error.message : String(error)}), so only this machine's ledger was asked.`,
+		};
+	}
+	const ledgers: string[] = [];
+	for (const node of nodes) {
+		const path = join(root, node.name);
+		if (node.isDirectory() || (node.isSymbolicLink() && (await isFolder(path))))
+			ledgers.push(path);
+	}
+	return { ledgers: ledgers.sort() };
+}
+
+/** The entries under runs-from, with their types. */
+function readNodes(root: string) {
+	return readdir(root, { withFileTypes: true });
+}
+
+/** Whether `path` leads to a folder, following links. */
+async function isFolder(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).isDirectory();
 	} catch {
-		// No mirror on this machine, or one that can't be listed: only the
-		// local ledger is asked, as before mirrors existed.
-		return [];
+		// A dangling link leads nowhere, so it holds no ledger to ask.
+		return false;
 	}
 }
 
-let witnesses: Witnesses = onTheLedger;
+/** Whether `error` carries the errno `code`. */
+function hasCode(error: unknown, code: string): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === code
+	);
+}
 
-/** Judge councils by `judge` instead of the ledger, for a test. */
-export function witnessCouncilsWith(judge: Witnesses | undefined): void {
-	witnesses = judge ?? onTheLedger;
+let judge: Witnesses | undefined;
+
+/** Judge councils by `witnesses` instead of the ledgers, for a test. */
+export function witnessCouncilsWith(witnesses: Witnesses | undefined): void {
+	judge = witnesses;
+}
+
+/** The ledgers a judgement asks: a test's stand-in, or the realm's. */
+function ledgersNow(): Ledgers {
+	return judge === undefined
+		? realmLedgers()
+		: { witnessed: judge, said: async () => "" };
 }
 
 /** What a change is, for asking whether a council read it. */
@@ -201,24 +282,25 @@ export async function councilFirst(
 	change: ChangeCommits,
 	doing: string,
 ): Promise<string | undefined> {
+	const { witnessed, said } = ledgersNow();
 	const read = await commitsOf(exec, change);
 	const commits = new Set("commits" in read ? read.commits : []);
 	if (change.headCommit) commits.add(change.headCommit);
-	if (await witnesses(change.repo, commits)) return undefined;
+	if (await witnessed(change.repo, commits)) return undefined;
 	const range = `${change.base}..${change.head}`;
 	if ("unread" in read) {
 		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.`;
 	}
-	if (await rebasedReviewed(exec, change, read)) return undefined;
+	if (await rebasedReviewed(exec, change, read, witnessed)) return undefined;
 	if (
 		read.shared.length > 0 &&
-		(await witnesses(change.repo, new Set(read.shared)))
+		(await witnessed(change.repo, new Set(read.shared)))
 	) {
 		const named = read.holders.slice(0, HOLDERS_NAMED).join(", ");
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
 }
 
 /** The change's commits, newest first. */
@@ -302,6 +384,7 @@ async function rebasedReviewed(
 	exec: Exec,
 	change: ChangeCommits,
 	read: { base: string; head: string; commits: readonly string[] },
+	witnesses: Witnesses,
 ): Promise<boolean> {
 	const git = (...args: string[]) =>
 		exec("git", ["-C", change.checkout, ...args]);

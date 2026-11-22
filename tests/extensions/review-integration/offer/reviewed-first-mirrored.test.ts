@@ -8,7 +8,15 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -40,7 +48,12 @@ const exec: Exec = async (command, args) =>
 	);
 
 /** A finished council in `ledger`, for `repo`, whose reviewers read `witness`. */
-async function councilIn(ledger: string, repo: string, witness: string) {
+async function councilIn(
+	ledger: string,
+	repo: string,
+	witness: string,
+	open = false,
+) {
 	const range: ChangeRef = {
 		provider: "local-range",
 		repo: { key: repo },
@@ -54,6 +67,7 @@ async function councilIn(ledger: string, repo: string, witness: string) {
 		participants: [{ id: "hawk", role: "reviewer" }],
 		outcomes: [{ participantId: "hawk", findingIds: [] }],
 		witness,
+		...(open ? { open: true } : {}),
 	});
 }
 
@@ -109,9 +123,90 @@ describe("counting a council another machine ran", () => {
 	});
 
 	it("holds it back with no mirror, as before", async () => {
+		const said = await councilFirst(exec, topic(), "proposed");
+		expect(said, "with no council anywhere the change waits").toContain(
+			"No council of ours has read main..topic",
+		);
+		expect(said, "with no mirror, none is named").not.toContain("mirrored");
+	});
+
+	it("leaves the mirrored ledger's bytes as they were", async () => {
+		await councilIn(equilibrius(), REPO, head);
+		const [file = ""] = readdirSync(equilibrius());
+		const before = readFileSync(join(equilibrius(), file), "utf8");
+
+		await councilFirst(exec, topic(), "proposed");
+
+		expect(
+			readFileSync(join(equilibrius(), file), "utf8"),
+			"the mirror is only read",
+		).toBe(before);
+	});
+
+	it("counts a node folder that is a link to the mirrored ledger", async () => {
+		const elsewhere = join(repo, "..", `mirror-${Date.now()}`);
+		await councilIn(elsewhere, REPO, head);
+		mkdirSync(mirroredRunsDir(), { recursive: true });
+		symlinkSync(elsewhere, equilibrius());
+
+		try {
+			expect(
+				await councilFirst(exec, topic(), "proposed"),
+				"a linked node folder is read like one in place",
+			).toBeUndefined();
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	it("reads a good mirror beside a torn one and a stray file", async () => {
+		const torn = join(mirroredRunsDir(), "aardvark");
+		mkdirSync(torn, { recursive: true });
+		writeFileSync(join(torn, "half.json"), "{ not json");
+		writeFileSync(join(mirroredRunsDir(), "stray.json"), "{}");
+		await councilIn(equilibrius(), REPO, head);
+
 		expect(
 			await councilFirst(exec, topic(), "proposed"),
-			"with no council anywhere the change waits",
-		).toContain("isn't proposed");
+			"a torn ledger and a stray file don't hide the good mirror",
+		).toBeUndefined();
+	});
+
+	it("holds it back on a mirrored round still open", async () => {
+		await councilIn(equilibrius(), REPO, head, true);
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"a round still open on another machine has read nothing yet",
+		).toContain("No council of ours has read main..topic");
+	});
+
+	it("names the mirrors it asked when none read the change", async () => {
+		await councilIn(equilibrius(), "github:Jitsusama/other", head);
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"the refusal says which machines' councils were asked",
+		).toContain("those mirrored from equilibrius.");
+	});
+
+	it("says so when the mirrors can't be listed", async () => {
+		mkdirSync(join(mirroredRunsDir(), ".."), { recursive: true });
+		writeFileSync(mirroredRunsDir(), "not a folder");
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"a runs-from that is a file is said, not taken as no mirror",
+		).toMatch(/runs-from couldn't be listed \(.*ENOTDIR/);
+	});
+
+	it("counts a council here beside a mirror without listing it", async () => {
+		await councilIn(runDir(), REPO, head);
+		await councilIn(equilibrius(), "github:Jitsusama/other", head);
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"this machine's own council lets the change through",
+		).toBeUndefined();
 	});
 });
