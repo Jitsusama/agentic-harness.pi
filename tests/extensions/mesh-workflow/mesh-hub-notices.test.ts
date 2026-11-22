@@ -7,8 +7,9 @@
  * one sent with the word, whether or not a hub was kept, and when no
  * node answers to say whether it is the hub, the word beside it or not;
  * one by address to a peer that isn't the hub goes as any question.
- * Every delivery names the hub as where the person's asks go, and the
- * hub stops being sought once the session ends.
+ * Every delivery names the hub as where the person's asks go, and a
+ * session that starts again in the same process leaves no search for
+ * the hub running from the one that ended.
  */
 
 import { join } from "node:path";
@@ -73,21 +74,11 @@ function sent() {
 async function keptHub(
 	ctx: Record<string, unknown> = {},
 	settling?: { settleMs: number; spreadMs: number },
-	hubTiming?: { every: number; retry: number },
 ) {
 	onQuest();
 	parentLive();
 	const env = await node([asker], [tieTo("5GV2AH", 4)]);
-	const started = await startSession(
-		env,
-		ctx,
-		[],
-		settling,
-		undefined,
-		undefined,
-		undefined,
-		hubTiming,
-	);
+	const started = await startSession(env, ctx, [], settling);
 	await vi.waitFor(() => {
 		started.emit(QUEST_CONCLUDED, {
 			how: "concluded",
@@ -319,7 +310,7 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			undefined,
 			undefined,
 			undefined,
-			{ every: 20, retry: 20 },
+			{ every: 20, retry: 20, spread: () => 0 },
 		);
 		await vi.waitFor(() => expect(tieAsks()).toBeGreaterThanOrEqual(2));
 
@@ -327,7 +318,9 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		await restart();
 		const restarted = tieAsks();
 		// The next search's second ask follows its first one's answer, which
-		// came after the answer to the ask the ended search had out.
+		// came after the answer to the ask the ended search had out, since
+		// every answer waits the same 60 ms and that ask went first: so by
+		// then only an ask the ended search made after it ended can be out.
 		await vi.waitFor(() =>
 			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
 		);
