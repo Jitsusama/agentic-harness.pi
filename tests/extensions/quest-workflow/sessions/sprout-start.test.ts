@@ -4,7 +4,13 @@
  * the seed is missing or out of shape.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -46,7 +52,31 @@ import { createEnvGuard } from "../_helpers.ts";
  * aliases, fails, as a lock that never comes does; every other write
  * goes through.
  */
-const failing = vi.hoisted(() => ({ serves: false, aliases: false }));
+const failing = vi.hoisted(() => ({
+	serves: false,
+	aliases: false,
+	linkedLog: false,
+}));
+/** The alias verb's own log of a mark it added fails, as its lock not coming does. */
+vi.mock(
+	"../../../../lib/internal/quest/documents/harness-log.ts",
+	async (actual) => {
+		const real =
+			await actual<
+				typeof import("../../../../lib/internal/quest/documents/harness-log.ts")
+			>();
+		return {
+			...real,
+			appendHarnessLog: (
+				...[dir, text, opts]: Parameters<typeof real.appendHarnessLog>
+			) => {
+				if (failing.linkedLog && text.startsWith("Linked "))
+					throw new Error("the quest's lock didn't come");
+				return real.appendHarnessLog(dir, text, opts);
+			},
+		};
+	},
+);
 vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 	const real =
 		await actual<
@@ -296,6 +326,28 @@ describe("a sprouted session's start", () => {
 			);
 		} finally {
 			failing.aliases = false;
+		}
+	});
+
+	it("logs no mark as unwritten that landed before the verb's own log failed", async () => {
+		failing.linkedLog = true;
+		try {
+			const { state } = await start(
+				{ words: "tea", id: "S51" },
+				{ sessionId: "sess-linked-log-fails" },
+			);
+			const made = state.questId ?? "";
+			expect(sproutedQuest("S51"), "its mark landed").toBe(made);
+			const dir =
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(made)?.dir ??
+				"";
+			const log = harnessLogPath(dir);
+			expect(
+				existsSync(log) ? readFileSync(log, "utf8") : "",
+				"so its log never says it wasn't written",
+			).not.toContain("wasn't written");
+		} finally {
+			failing.linkedLog = false;
 		}
 	});
 

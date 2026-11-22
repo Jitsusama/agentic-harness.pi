@@ -158,9 +158,8 @@ export async function startSprouted(
 			// A mark refused or left off leaves the quest made, so it is still
 			// tied below rather than left untied, and its log says a replay
 			// may not find it.
-			const ref = `${mark.type}:${mark.value}`;
-			if (!marked(state, id, ref)) {
-				markUnwritten(state, id, seed, ref, UNFOUND);
+			if (!marked(state, id, mark)) {
+				markUnwritten(state, id, seed, mark, UNFOUND);
 			}
 		}
 	} else if (!replayed && joinMark) {
@@ -170,9 +169,8 @@ export async function startSprouted(
 		// A mark refused or left off leaves the session working the quest
 		// it joined, its need still recorded below, and its log says a
 		// replay after the quest ends may start the work again.
-		const ref = `${joinMark.type}:${joinMark.value}`;
-		if (!marked(state, id, ref)) {
-			markUnwritten(state, id, seed, ref, RESTARTED);
+		if (!marked(state, id, joinMark)) {
+			markUnwritten(state, id, seed, joinMark, RESTARTED);
 		}
 	}
 	servesNeed(state, id, seed);
@@ -284,30 +282,35 @@ const RESTARTED =
 	"a replay of it after this quest ends may start its work again";
 
 /**
- * Whether quest `id` now carries `ref`: false where the alias verb
+ * Whether quest `id` now carries `mark`: false where the alias verb
  * refused it (held by another quest, or a README it couldn't read or
- * write) or its lock never came.
+ * write) or its lock never came and the README holds no such mark.
  */
-function marked(state: QuestState, id: string, ref: string): boolean {
+function marked(
+	state: QuestState,
+	id: string,
+	mark: { type: string; value: string },
+): boolean {
+	const ref = `${mark.type}:${mark.value}`;
 	try {
 		return aliasAdd(state, { action: "alias-add", id, ref }).ok;
 	} catch {
-		// A lock that didn't come leaves the mark off, which the caller
-		// logs as it does a refusal.
-		return false;
+		// The verb also throws when the lock for its own log line doesn't
+		// come, after the mark has landed, so the README says which.
+		return idsWith(state, mark).includes(id);
 	}
 }
 
 /**
  * Say in quest `id`'s harness log that its sprout's `mark` wasn't
  * written, and `so`, what that costs a replay of `seed`; a log that
- * can't be written leaves only the quest, still tied.
+ * can't be written leaves the quest as the start left it.
  */
 function markUnwritten(
 	state: QuestState,
 	id: string,
 	seed: SproutSeed,
-	mark: string,
+	mark: { type: string; value: string },
 	so: string,
 ): void {
 	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
@@ -315,11 +318,11 @@ function markUnwritten(
 	try {
 		appendHarnessLog(
 			dir,
-			`sprout ${seed.id ?? "with no id"}: its mark ${mark} wasn't written, so ${so}`,
+			`sprout ${seed.id ?? "with no id"}: its mark ${mark.type}:${mark.value} wasn't written, so ${so}`,
 		);
 	} catch {
-		// A log whose lock didn't come: the quest stands and is tied, and
-		// only this note of its missing mark is lost.
+		// A log whose lock didn't come: the quest stands as the start left
+		// it, and only this note of its missing mark is lost.
 	}
 }
 
