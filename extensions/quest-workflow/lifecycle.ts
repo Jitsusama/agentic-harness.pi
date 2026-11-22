@@ -311,11 +311,10 @@ export function persist(
 	pi: ExtensionAPI,
 	ctx?: ExtensionContext,
 ): void {
-	// A quest the log names that hasn't loaded yet is tried again, and
-	// until it loads nothing is written over the log's word for it.
-	if (state.questId) delete state.pendingQuest;
-	else if (state.pendingQuest && !hydrate(state, pi, state.pendingQuest))
-		return;
+	// Until a quest the log names loads, nothing is written over the
+	// log's word for it; retryPendingQuest tries it again.
+	if (state.questId) letPendingGo(state);
+	else if (state.pendingQuest) return;
 	const current = snapshot(state, ctx?.cwd ?? null);
 	const key = snapshotKey(current);
 	if (state.lastPersistedKey === key) return;
@@ -372,7 +371,36 @@ export function restore(
 	// The walk a start reads may be stale, as a host's is when its
 	// signings time out: the quest is held, not forgotten.
 	state.pendingQuest = named;
+	state.pendingRetryAt = Date.now() + PENDING_RETRY_MS;
 	return false;
+}
+
+/**
+ * How long a quest still waiting to load waits between tries: each try
+ * signs the whole quest tree, the walk a slow disk made time out.
+ */
+export const PENDING_RETRY_MS = 60_000;
+
+/**
+ * Try once more to load the quest this session's log names, at most
+ * once in PENDING_RETRY_MS, saying whether it loaded now. The caller
+ * then does what a start does for a quest it loaded.
+ */
+export function retryPendingQuest(
+	state: QuestState,
+	pi: ExtensionAPI,
+	now = Date.now(),
+): boolean {
+	const pending = state.pendingQuest;
+	if (!pending || state.questId) return false;
+	if (now < (state.pendingRetryAt ?? 0)) return false;
+	state.pendingRetryAt = now + PENDING_RETRY_MS;
+	return hydrate(state, pi, pending);
+}
+
+function letPendingGo(state: QuestState): void {
+	delete state.pendingQuest;
+	delete state.pendingRetryAt;
 }
 
 /**
@@ -385,7 +413,7 @@ function hydrate(
 	saved: NonNullable<QuestState["pendingQuest"]>,
 ): boolean {
 	if (!loadQuest(state, pi, saved.questId).ok) return false;
-	delete state.pendingQuest;
+	letPendingGo(state);
 	if (saved.documentPath) {
 		// The quest is loaded; try to restore the focused
 		// document. A missing or unparsable document is not
@@ -436,6 +464,8 @@ export function resolveStartup(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 ): StartupResolution {
+	// What an earlier conversation in this pi waited for is not this one's.
+	letPendingGo(state);
 	const hints = launchHints(ctx);
 	pendingWords(ctx).hints = hints;
 	const autoloadId = hints.questId;
@@ -448,7 +478,9 @@ export function resolveStartup(
 	if (restore(state, pi, ctx)) {
 		return { source: "persisted", questId: state.questId };
 	}
-	if (restoreFromRecord(state, pi, ctx)) {
+	// A log that names a quest has said; the record answers only one
+	// that never did.
+	if (!state.pendingQuest && restoreFromRecord(state, pi, ctx)) {
 		return { source: "record", questId: state.questId };
 	}
 	// A sprout makes its own quest (sessions/sprout-start.ts), so it never takes

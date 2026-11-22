@@ -9,11 +9,16 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { refreshQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
 import { adoptTree, applyQuestGuards } from "../guard.ts";
-import { persist, refreshProgress } from "../lifecycle.ts";
+import {
+	persist,
+	refreshProgress,
+	retryPendingQuest,
+} from "../lifecycle.ts";
 import { keepDesktopListsCurrent } from "../quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "../record-watch.ts";
 import type { QuestState } from "../state.ts";
@@ -21,6 +26,7 @@ import { currentSessionId } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";
 import { defaultWorkspaceRoot } from "../workspace.ts";
 import { updateScoreboard } from "./scoreboard.ts";
+import { settleOnLoadedQuest } from "./session.ts";
 
 /** What an `agent_before_settle` handler may return, as pi 0.87 defines it. */
 interface BeforeSettleResult {
@@ -112,6 +118,13 @@ export function watchToolCalls(
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
 			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
+		}
+		// A quest the log named that a slow walk hid at the start loads now,
+		// and this session settles on it as its start would have.
+		if (retryPendingQuest(state, pi)) {
+			refreshQuests(state.questsRoot, [state.questId]);
+			settleOnLoadedQuest(state, pi, ctx);
+			updateScoreboard(state, ctx);
 		}
 		persist(state, pi, ctx);
 		// A quest action can change what a quest's work is weighted by, and

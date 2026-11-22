@@ -10,10 +10,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	detachSessionFromLoaded,
+	PENDING_RETRY_MS,
 	persist,
 	prunePhantomSessionsOnLoaded,
 	releaseSessionOnShutdown,
 	restore,
+	retryPendingQuest,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
@@ -327,9 +329,39 @@ describe("persist + restore", () => {
 		expect(last?.questId).toBe(a.id);
 
 		renameSync(aside, a.dir);
-		persist(next, pi, fakeCtx(tmpRoot));
+		const later = Date.now() + PENDING_RETRY_MS;
+		expect(retryPendingQuest(next, pi, later), "loads once it can").toBe(
+			true,
+		);
 		expect(next.questId).toBe(a.id);
 		expect(next.pendingQuest).toBeUndefined();
+	});
+
+	// Each try walks and signs the whole quest tree, the walk a slow disk
+	// made time out, so a session's tools mustn't each ask for one.
+	it("tries a quest still waiting to load at most once a minute, never on a persist", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+		const next = buildState();
+		const started = Date.now();
+		restore(next, pi, fakeCtx(tmpRoot));
+		renameSync(aside, a.dir);
+
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(next.questId, "a persist tries nothing").toBeNull();
+		expect(
+			retryPendingQuest(next, pi, started),
+			"within a minute of the start's try",
+		).toBe(false);
+		expect(next.questId).toBeNull();
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"a minute on",
+		).toBe(true);
+		expect(next.questId).toBe(a.id);
 	});
 
 	it("lets go of a quest still waiting to load when the session unloads", async () => {

@@ -162,6 +162,7 @@ export function refreshLoadedSlice(state: QuestState): void {
 /** Unload the currently loaded quest, or let go of one still waiting to load. */
 export function unloadQuest(state: QuestState): void {
 	delete state.pendingQuest;
+	delete state.pendingRetryAt;
 	state.questDir = null;
 	state.questId = null;
 	state.questTitle = null;

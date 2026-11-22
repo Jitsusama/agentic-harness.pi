@@ -239,6 +239,42 @@ describe("resolveStartup precedence", () => {
 		expect(resolution.questId).toBe(drill);
 	});
 
+	it("waits for the log's quest rather than taking one whose README lists the session", async () => {
+		const listed = await createQuest("Listed While Waiting");
+		addSession(listed, "01a1b948", "active");
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({
+				cwd: tmpRoot,
+				sessionId: "01a1b948",
+				persistedQuestId: "QEST-20260101-NOTYET",
+			}),
+		);
+		expect(resolution.source).toBe("none");
+		expect(state.pendingQuest?.questId).toBe("QEST-20260101-NOTYET");
+	});
+
+	// The state lives as long as the pi, and a new conversation in it
+	// starts again through here.
+	it("forgets what an earlier conversation waited for when another starts", async () => {
+		const cwdQuest = await createQuest("Cwd After Waiting");
+		const state = buildState();
+		resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: "QEST-20260101-NOTYET" }),
+		);
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: join(tmpRoot, "quests", cwdQuest) }),
+		);
+		expect(state.pendingQuest).toBeUndefined();
+		expect(resolution.source).toBe("cwd");
+	});
+
 	it("lets the log's own history win over the README's", async () => {
 		const listed = await createQuest("Listed");
 		const persisted = await createQuest("Persisted Over Listed");

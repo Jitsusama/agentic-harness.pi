@@ -5,7 +5,10 @@
  * on its quest at either end does.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	clearDiscoveryCache,
@@ -69,6 +72,43 @@ import type { QuestState } from "../state.ts";
 import { currentSessionId, isPersistedSession } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";
 import { updateScoreboard } from "./scoreboard.ts";
+
+/**
+ * Record this session on the quest it loaded, as its start does, so
+ * the sessions frontmatter says where work happens; a quest its log
+ * named that loaded only later is settled on the same way.
+ */
+export function settleOnLoadedQuest(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): void {
+	if (!state.questId) return;
+	// Garbage-collect no-log phantoms here too: most reopens go through
+	// this autoload/restore path rather than the explicit load verb, so
+	// pruning only there would rarely fire. The no-op case is cheap (it
+	// skips the write).
+	prunePhantomSessionsOnLoaded(state);
+	// Before attaching, which writes this process over the record.
+	sayPeersOnStartup(state, pi, ctx);
+	const sid = currentSessionId(ctx, undefined);
+	attachCurrentSession(state, {
+		id: sid,
+		cwd: ctx.cwd,
+		persisted: isPersistedSession(ctx),
+		...captureSessionIdentity(),
+	});
+	// Reconcile on the launch path too, not only the explicit load verb:
+	// a resumed or spawned session lands here, and without this it would
+	// re-attach while still reading active on a straggler quest from an
+	// earlier run.
+	if (sid && isPersistedSession(ctx)) {
+		reconcileSessionMembership(state, sid, state.questId);
+	}
+	// Said in the log now, not first at a tool's result, so a pi ended
+	// before its first call still leaves the quest for its resume.
+	persist(state, pi, ctx);
+}
 
 /**
  * Answer the session's start, park and shutdown for its quest.
@@ -147,35 +187,7 @@ export function followSessionLife(
 			// A session a spawn started sets to work on its quest by itself,
 			// once start is done (resources_discover, below).
 			firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
-			// Once a quest is loaded (restored, autoloaded or
-			// resolved from the cwd), record this session on it so
-			// the sessions frontmatter reflects where work happens.
-			if (state.questId) {
-				// Garbage-collect no-log phantoms here too: most reopens go
-				// through this autoload/restore path rather than the explicit
-				// load verb, so pruning only there would rarely fire. The
-				// no-op case is cheap (it skips the write).
-				prunePhantomSessionsOnLoaded(state);
-				// Before attaching, which writes this process over the record.
-				sayPeersOnStartup(state, pi, ctx);
-				const sid = currentSessionId(ctx, undefined);
-				attachCurrentSession(state, {
-					id: sid,
-					cwd: ctx.cwd,
-					persisted: isPersistedSession(ctx),
-					...captureSessionIdentity(),
-				});
-				// Reconcile on the launch path too, not only the explicit
-				// load verb: a resumed or spawned session lands here, and
-				// without this it would re-attach while still reading active
-				// on a straggler quest from an earlier run.
-				if (sid && isPersistedSession(ctx) && state.questId) {
-					reconcileSessionMembership(state, sid, state.questId);
-				}
-				// Said in the log now, not first at a tool's result, so a pi ended
-				// before its first call still leaves the quest for its resume.
-				persist(state, pi, ctx);
-			}
+			if (state.questId) settleOnLoadedQuest(state, pi, ctx);
 			// Record every tab a person could want back, quest or not, so a
 			// later restart can reconstruct what was open together. Only a
 			// persisted interactive session is resumable: a fan-out runs

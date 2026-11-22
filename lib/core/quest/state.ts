@@ -134,6 +134,9 @@ export interface QuestState {
 		readonly documentPath?: string;
 		readonly unfocused?: boolean;
 	};
+
+	/** When the pending quest may next be tried, in ms since the epoch. */
+	pendingRetryAt?: number;
 }
 
 /**
