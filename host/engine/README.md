@@ -2,10 +2,14 @@
 
 The host's pi comes from its own install, never from this package's
 dependencies: loadHostPi imports pi, pi-agent-core, pi-ai, pi-durable and
-chord from the install's folder and refuses, naming each missing patch,
-unless it carries every host seam core.nix's modules/pi applies
-(the agent interface, the committed turn and the hosted screen). A host
-refuses this before it opens any conversation. A seam it only wants
+chord from the install and refuses, naming each missing patch, unless it
+carries every host seam core.nix's modules/pi applies (the agent
+interface, the committed turn and the hosted screen). A host refuses
+this before it opens any conversation. An install whose bundle has the
+host entry (the one-bundle patch) is loaded from it as one module graph,
+the libraries as pi hands them to its extensions, with a host module for
+each that the host's own imports resolve to; one without is loaded file
+by file, which costs each conversation about 10 MB of heap. A seam it only wants
 (HOST_WANTED_SEAMS) is listed in lacking instead, and the host says at
 start what it goes without, so a runtime built before one still hosts.
 

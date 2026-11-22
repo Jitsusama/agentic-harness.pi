@@ -220,6 +220,26 @@ export function hostPiBundle(packageDir: string): string {
 	return join(packageDir, "dist", "bundle", "host.js");
 }
 
+/** The scope every pi library is published under. */
+export const PI_SCOPE = "@earendil-works/";
+
+/**
+ * The bundle's file for one library its virtual modules hand extensions,
+ * re-exporting the bundle's own copy, which the one-bundle patch adds beside
+ * the host entry: the host's code resolves its own pi imports to these, so
+ * a library's state, such as pi-tui's kitty flag, is never split between
+ * the host's copy and pi's.
+ */
+export function hostPiModule(packageDir: string, specifier: string): string {
+	return join(
+		packageDir,
+		"dist",
+		"bundle",
+		"host-modules",
+		`${specifier.slice(PI_SCOPE.length)}.js`,
+	);
+}
+
 /** The host entry's version from the one-bundle patch on. */
 const BUNDLE_HOST_ENTRY_VERSION = 1;
 
@@ -247,7 +267,7 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	const bundle = hostPiBundle(packageDir);
 	const bundled = existsSync(bundle);
 	const modules = bundled
-		? await bundledModules(bundle)
+		? await bundledModules(packageDir, bundle)
 		: await unbundledModules(packageDir);
 	const missing = HOST_SEAMS.filter(
 		(seam) => !seam.present(modules, { bundled }),
@@ -271,16 +291,42 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 /**
  * pi's modules from the bundle's host entry: the coding agent and its
  * libraries as its virtual modules hand them to extensions, and the rest as
- * the entry exports them, all from the bundle's chunks.
+ * the entry exports them, all from the bundle's chunks. Each pi library the
+ * virtual modules hand out must have its host module, or the host's own
+ * imports of it would load a second copy.
  */
-async function bundledModules(bundle: string): Promise<HostPiModules> {
-	const entry = await importModule(bundle);
+async function bundledModules(
+	packageDir: string,
+	bundle: string,
+): Promise<HostPiModules> {
+	const entry = await importModule(bundle).catch((error: unknown) => {
+		throw new Error(
+			`pi's bundle host entry ${bundle} failed to load: ${error instanceof Error ? error.message : String(error)}`,
+			{ cause: error },
+		);
+	});
 	const version = entry.hostEntryVersion;
-	if (typeof version !== "number" || version < BUNDLE_HOST_ENTRY_VERSION)
-		throw new Error(`${bundle} names no host entry version the host reads`);
+	if (
+		typeof version !== "number" ||
+		!Number.isInteger(version) ||
+		version < BUNDLE_HOST_ENTRY_VERSION
+	)
+		throw new Error(
+			`${bundle} names host entry version ${String(version)}; the host reads ${BUNDLE_HOST_ENTRY_VERSION} and on`,
+		);
 	const virtual = entry.VIRTUAL_MODULES;
+	if (!hasFields(virtual))
+		throw new Error(`${bundle} exports no VIRTUAL_MODULES`);
+	const unshared = Object.keys(virtual).filter(
+		(name) =>
+			name.startsWith(PI_SCOPE) && !existsSync(hostPiModule(packageDir, name)),
+	);
+	if (unshared.length > 0)
+		throw new Error(
+			`${bundle} has no host module for ${unshared.join(", ")}, so the host's own imports would load a second copy`,
+		);
 	const library = (name: string) => {
-		const found = hasFields(virtual) ? virtual[name] : undefined;
+		const found = virtual[name];
 		if (!hasFields(found))
 			throw new Error(`${bundle} hands extensions no ${name}`);
 		return found;
@@ -290,13 +336,18 @@ async function bundledModules(bundle: string): Promise<HostPiModules> {
 		if (!hasFields(found)) throw new Error(`${bundle} exports no ${name}`);
 		return found;
 	};
+	const { builtInExtensions, resolveProjectTrusted } = entry;
+	if (!Array.isArray(builtInExtensions))
+		throw new Error(`${bundle} exports no builtInExtensions`);
+	if (typeof resolveProjectTrusted !== "function")
+		throw new Error(`${bundle} exports no resolveProjectTrusted`);
 	return {
 		codingAgent: library(BUNDLED_LIBRARIES.codingAgent),
 		agentCore: library(BUNDLED_LIBRARIES.agentCore),
 		ai: library(BUNDLED_LIBRARIES.ai),
 		tui: library(BUNDLED_LIBRARIES.tui),
-		builtins: { builtInExtensions: entry.builtInExtensions },
-		projectTrust: { resolveProjectTrusted: entry.resolveProjectTrusted },
+		builtins: { builtInExtensions },
+		projectTrust: { resolveProjectTrusted },
 		durable: exported("durable"),
 		sqlite: exported("durableSqlite"),
 		nodeEnv: exported("durableNodeEnv"),

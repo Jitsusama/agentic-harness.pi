@@ -12,12 +12,14 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	HOST_SEAMS,
+	type HostPi,
 	HostPiRefused,
 	hostPiBundle,
 	hostPiFiles,
+	hostPiModule,
 	lackingSeams,
 	loadHostPi,
 } from "../../../host/engine/host-pi.ts";
@@ -125,8 +127,17 @@ function fakeInstall(
 	const command = join(dir, "dist", "bundle", "cli.js");
 	mkdirSync(dirname(command), { recursive: true });
 	writeFileSync(command, "");
-	if (seams.bundle !== false)
+	if (seams.bundle !== false) {
 		writeFileSync(hostPiBundle(dir), fakeHostEntry(files));
+		for (const [specifier, name] of Object.entries(FAKE_VIRTUAL)) {
+			const module = hostPiModule(dir, specifier);
+			mkdirSync(dirname(module), { recursive: true });
+			writeFileSync(
+				module,
+				`export * from ${JSON.stringify(pathToFileURL(files[name]).href)};\n`,
+			);
+		}
+	}
 	writeFileSync(
 		join(dir, "package.json"),
 		JSON.stringify({ bin: { pi: "dist/bundle/cli.js" } }),
@@ -144,168 +155,184 @@ async function refusal(packageDir: string): Promise<HostPiRefused> {
 	return error;
 }
 
-it("loads a pi that carries every host seam", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		auth: true,
-	});
-	const pi = await loadHostPi(dir);
-	expect(pi.packageDir).toBe(dir);
-	expect(pi.version).toBe(FAKE_VERSION);
-	expect(pi.command).toBe(join(dir, "dist", "bundle", "cli.js"));
-	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
-	expect(pi.lacking).toEqual([]);
-});
+/** The seams a pi has or lacks read the same whichever way it loads. */
+describe.each([
+	{ load: "from its bundle", bundle: true },
+	{ load: "file by file", bundle: false },
+])("loading pi $load", ({ bundle }) => {
+	const install = (
+		seams: FakeSeams,
+		omit?: keyof ReturnType<typeof hostPiFiles>,
+	) => fakeInstall({ ...seams, bundle }, omit);
+	/** What a pi lacks beside the bundle, which the file-by-file load lacks by design. */
+	const wanted = (pi: HostPi) =>
+		pi.lacking.filter(
+			(seam) => seam.patch !== "pi-host-loads-one-bundle.patch",
+		);
 
-it("loads a pi built before the queued-words seam, saying what goes without it", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		queue: false,
-		auth: true,
-	});
-	const pi = await loadHostPi(dir);
-	expect(pi.lacking.map((seam) => seam.patch)).toEqual([
-		"pi-host-agent-interface.patch",
-	]);
-	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
-		`The pi at ${dir} lacks pi-host-agent-interface.patch: without it words sent as a conversation reopens show nowhere until their turn starts`,
-	);
-});
-
-it("loads a pi built before the runs-through-pi seam, saying what goes without it", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		runs: false,
-		auth: true,
-	});
-	const pi = await loadHostPi(dir);
-	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
-		`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections`,
-	);
-});
-
-it("refuses a pi whose package names no pi command", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		auth: true,
-	});
-	writeFileSync(join(dir, "package.json"), JSON.stringify({ bin: {} }));
-	await expect(loadHostPi(dir)).rejects.toThrow("names no pi command");
-});
-
-it("takes a later auth-context patch", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		auth: true,
-	});
-	const { codingAgent } = hostPiFiles(dir);
-	writeFileSync(
-		codingAgent,
-		readFileSync(codingAgent, "utf8").replace(
-			"hostAuthContextVersion = 2",
-			"hostAuthContextVersion = 3",
-		),
-	);
-	await expect(loadHostPi(dir)).resolves.toMatchObject({ packageDir: dir });
-});
-
-it("refuses the first auth-context patch, which left header variables to the host", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		auth: true,
-	});
-	const { codingAgent } = hostPiFiles(dir);
-	writeFileSync(
-		codingAgent,
-		readFileSync(codingAgent, "utf8").replace(
-			"hostAuthContextVersion = 2",
-			"hostAuthContextVersion = 1",
-		),
-	);
-	const error = await refusal(dir);
-	expect(error.missing.map((seam) => seam.patch)).toEqual([
-		"pi-host-model-auth-context.patch",
-	]);
-});
-
-it("refuses a pi that names no version", async () => {
-	const dir = fakeInstall({
-		agent: true,
-		turn: true,
-		screen: true,
-		auth: true,
-	});
-	const { codingAgent } = hostPiFiles(dir);
-	writeFileSync(
-		codingAgent,
-		"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; static hostedQuit = true; }\nexport class ModelRuntime { static hostAuthContextVersion = 2; }\n",
-	);
-	await expect(loadHostPi(dir)).rejects.toThrow("names no version");
-});
-
-it("refuses a pi whose screens would quit without asking the host", async () => {
-	const error = await refusal(
-		fakeInstall({
+	it("loads a pi that carries every host seam", async () => {
+		const dir = install({
 			agent: true,
 			turn: true,
 			screen: true,
 			auth: true,
-			quit: false,
-		}),
-	);
-	expect(error.missing.map((seam) => seam.patch)).toEqual([
-		"pi-host-interactive-lifecycle.patch",
-	]);
-	expect(error.message).toContain(
-		"pi-host-interactive-lifecycle.patch: without it a quit typed while other windows watch would end the conversation",
-	);
-});
+		});
+		const pi = await loadHostPi(dir);
+		expect(pi.packageDir).toBe(dir);
+		expect(pi.version).toBe(FAKE_VERSION);
+		expect(pi.command).toBe(join(dir, "dist", "bundle", "cli.js"));
+		expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+		expect(wanted(pi)).toEqual([]);
+	});
 
-it("names a missing patch once, with every reason the host needs it", async () => {
-	const error = await refusal(
-		fakeInstall({ agent: true, turn: true, screen: false, auth: true }),
-	);
-	const named = error.message.split("pi-host-interactive-lifecycle.patch");
-	expect(named.length - 1, `named once: ${error.message}`).toBe(1);
-	expect(error.message).toContain(
-		"would own the host's process exit and signals, and a quit typed while other windows watch",
-	);
-});
+	it("loads a pi built before the queued-words seam, saying what goes without it", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			queue: false,
+			auth: true,
+		});
+		const pi = await loadHostPi(dir);
+		expect(wanted(pi).map((seam) => seam.patch)).toEqual([
+			"pi-host-agent-interface.patch",
+		]);
+		expect(lackingSeams(pi.packageDir, wanted(pi))).toBe(
+			`The pi at ${dir} lacks pi-host-agent-interface.patch: without it words sent as a conversation reopens show nowhere until their turn starts`,
+		);
+	});
 
-it("names only the patch a pi is missing", async () => {
-	const error = await refusal(
-		fakeInstall({ agent: true, screen: true, auth: true }),
-	);
-	expect(error.missing.map((seam) => seam.patch)).toEqual([
-		"pi-host-committed-turn.patch",
-	]);
-	expect(error.message).toContain(
-		"pi-host-committed-turn.patch: without it a committed turn cannot wait",
-	);
-});
+	it("loads a pi built before the runs-through-pi seam, saying what goes without it", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			runs: false,
+			auth: true,
+		});
+		const pi = await loadHostPi(dir);
+		expect(lackingSeams(pi.packageDir, wanted(pi))).toBe(
+			`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections`,
+		);
+	});
 
-it("refuses a generation at the committed-turn version without its phases", async () => {
-	const dir = fakeInstall({ agent: true, screen: true, auth: true });
-	writeFileSync(
-		hostPiFiles(dir).durable,
-		"export const GenerationTask = { definition: { version: 3, phases: {} } };\n",
-	);
-	const error = await refusal(dir);
-	expect(error.missing.map((seam) => seam.patch)).toEqual([
-		"pi-host-committed-turn.patch",
-	]);
+	it("refuses a pi whose package names no pi command", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+		});
+		writeFileSync(join(dir, "package.json"), JSON.stringify({ bin: {} }));
+		await expect(loadHostPi(dir)).rejects.toThrow("names no pi command");
+	});
+
+	it("takes a later auth-context patch", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+		});
+		const { codingAgent } = hostPiFiles(dir);
+		writeFileSync(
+			codingAgent,
+			readFileSync(codingAgent, "utf8").replace(
+				"hostAuthContextVersion = 2",
+				"hostAuthContextVersion = 3",
+			),
+		);
+		await expect(loadHostPi(dir)).resolves.toMatchObject({ packageDir: dir });
+	});
+
+	it("refuses the first auth-context patch, which left header variables to the host", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+		});
+		const { codingAgent } = hostPiFiles(dir);
+		writeFileSync(
+			codingAgent,
+			readFileSync(codingAgent, "utf8").replace(
+				"hostAuthContextVersion = 2",
+				"hostAuthContextVersion = 1",
+			),
+		);
+		const error = await refusal(dir);
+		expect(error.missing.map((seam) => seam.patch)).toEqual([
+			"pi-host-model-auth-context.patch",
+		]);
+	});
+
+	it("refuses a pi that names no version", async () => {
+		const dir = install({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+		});
+		const { codingAgent } = hostPiFiles(dir);
+		writeFileSync(
+			codingAgent,
+			"export class AgentSession { static hostAgentInterfaceVersion = 1; }\nexport class InteractiveMode { static hostedLifecycleVersion = 1; static hostedQuit = true; }\nexport class ModelRuntime { static hostAuthContextVersion = 2; }\n",
+		);
+		await expect(loadHostPi(dir)).rejects.toThrow("names no version");
+	});
+
+	it("refuses a pi whose screens would quit without asking the host", async () => {
+		const error = await refusal(
+			install({
+				agent: true,
+				turn: true,
+				screen: true,
+				auth: true,
+				quit: false,
+			}),
+		);
+		expect(error.missing.map((seam) => seam.patch)).toEqual([
+			"pi-host-interactive-lifecycle.patch",
+		]);
+		expect(error.message).toContain(
+			"pi-host-interactive-lifecycle.patch: without it a quit typed while other windows watch would end the conversation",
+		);
+	});
+
+	it("names a missing patch once, with every reason the host needs it", async () => {
+		const error = await refusal(
+			install({ agent: true, turn: true, screen: false, auth: true }),
+		);
+		const named = error.message.split("pi-host-interactive-lifecycle.patch");
+		expect(named.length - 1, `named once: ${error.message}`).toBe(1);
+		expect(error.message).toContain(
+			"would own the host's process exit and signals, and a quit typed while other windows watch",
+		);
+	});
+
+	it("names only the patch a pi is missing", async () => {
+		const error = await refusal(
+			install({ agent: true, screen: true, auth: true }),
+		);
+		expect(error.missing.map((seam) => seam.patch)).toEqual([
+			"pi-host-committed-turn.patch",
+		]);
+		expect(error.message).toContain(
+			"pi-host-committed-turn.patch: without it a committed turn cannot wait",
+		);
+	});
+
+	it("refuses a generation at the committed-turn version without its phases", async () => {
+		const dir = install({ agent: true, screen: true, auth: true });
+		writeFileSync(
+			hostPiFiles(dir).durable,
+			"export const GenerationTask = { definition: { version: 3, phases: {} } };\n",
+		);
+		const error = await refusal(dir);
+		expect(error.missing.map((seam) => seam.patch)).toEqual([
+			"pi-host-committed-turn.patch",
+		]);
+	});
 });
 
 it("loads pi's libraries from its bundle as the extensions it loads get them", async () => {
@@ -335,6 +362,13 @@ it("loads pi's libraries from its bundle as the extensions it loads get them", a
 	for (const [specifier, name] of Object.entries(FAKE_VIRTUAL))
 		expect(pi.modules[name], specifier).toBe(virtual[specifier]);
 	expect(pi.modules.durable).toBe(entry.durable);
+	expect(pi.modules.sqlite).toBe(entry.durableSqlite);
+	expect(pi.modules.nodeEnv).toBe(entry.durableNodeEnv);
+	expect(pi.modules.context).toBe(entry.chordContext);
+	expect(pi.modules.builtins.builtInExtensions).toBe(entry.builtInExtensions);
+	expect(pi.modules.projectTrust.resolveProjectTrusted).toBe(
+		entry.resolveProjectTrusted,
+	);
 	expect(pi.lacking).toEqual([]);
 });
 
@@ -353,7 +387,30 @@ it("loads a pi without its bundle's host entry file by file, saying what that co
 	);
 });
 
-it("refuses a bundle's host entry that names no version it reads", async () => {
+it("refuses a bundle's host entry that names no version it reads, saying what it names", async () => {
+	for (const named of ["0", "1.5", '"1"']) {
+		const dir = fakeInstall({
+			agent: true,
+			turn: true,
+			screen: true,
+			auth: true,
+		});
+		const entry = hostPiBundle(dir);
+		writeFileSync(
+			entry,
+			readFileSync(entry, "utf8").replace(
+				"hostEntryVersion = 1",
+				`hostEntryVersion = ${named}`,
+			),
+		);
+		await expect(loadHostPi(dir), named).rejects.toThrow(
+			`names host entry version ${named.replaceAll('"', "")}; the host reads 1 and on`,
+		);
+	}
+});
+
+/** A fake install whose bundle's host entry has had one line rewritten. */
+function installWithEntry(rewrite: (source: string) => string): string {
 	const dir = fakeInstall({
 		agent: true,
 		turn: true,
@@ -361,15 +418,43 @@ it("refuses a bundle's host entry that names no version it reads", async () => {
 		auth: true,
 	});
 	const entry = hostPiBundle(dir);
-	writeFileSync(
-		entry,
-		readFileSync(entry, "utf8").replace(
-			"hostEntryVersion = 1",
-			"hostEntryVersion = 0",
-		),
-	);
+	writeFileSync(entry, rewrite(readFileSync(entry, "utf8")));
+	return dir;
+}
+
+it("names a bundle's host entry that fails to load", async () => {
+	const dir = installWithEntry((source) => `${source}\nexport const = ;\n`);
 	await expect(loadHostPi(dir)).rejects.toThrow(
-		"names no host entry version the host reads",
+		`pi's bundle host entry ${hostPiBundle(dir)} failed to load`,
+	);
+});
+
+it("refuses a bundle's host entry that hands extensions nothing", async () => {
+	const dir = installWithEntry((source) =>
+		source.replace("export const VIRTUAL_MODULES", "const VIRTUAL_MODULES"),
+	);
+	await expect(loadHostPi(dir)).rejects.toThrow("exports no VIRTUAL_MODULES");
+});
+
+it("refuses a bundle's host entry without the built-in extensions or project trust", async () => {
+	for (const name of ["builtInExtensions", "resolveProjectTrusted"]) {
+		const dir = installWithEntry((source) =>
+			source.replace(`export { ${name} }`, "export {}"),
+		);
+		await expect(loadHostPi(dir), name).rejects.toThrow(`exports no ${name}`);
+	}
+});
+
+it("refuses a bundle with no host module for a library it hands extensions, which the host's own imports would load again", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	rmSync(hostPiModule(dir, "@earendil-works/pi-tui"));
+	await expect(loadHostPi(dir)).rejects.toThrow(
+		"has no host module for @earendil-works/pi-tui, so the host's own imports would load a second copy",
 	);
 });
 

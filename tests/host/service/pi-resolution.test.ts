@@ -1,5 +1,9 @@
 /** The host program binds the harness's pi imports to the host's own pi, and nothing else. */
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
 import { piFromHost } from "../../../host/service/pi-resolution.ts";
 
 const PI = "/nix/store/host-pi/lib/node_modules/pi-monorepo";
@@ -11,9 +15,9 @@ interface Context {
 }
 
 /** What the hook passed on to node's own resolver. */
-function resolved(specifier: string, parentURL: string) {
+function resolved(specifier: string, parentURL: string, packageDir = PI) {
 	const asks: { asked: string; context: Context | undefined }[] = [];
-	piFromHost(PI)(
+	piFromHost(packageDir)(
 		specifier,
 		{ parentURL, conditions: ["node"] },
 		(asked: string, context?: Context) => {
@@ -40,6 +44,71 @@ describe("piFromHost", () => {
 				conditions: ["node"],
 			});
 		}
+	});
+
+	describe("for an install with the bundle's host entry", () => {
+		const installs: string[] = [];
+		afterEach(() => {
+			for (const install of installs.splice(0))
+				rmSync(install, { recursive: true, force: true });
+		});
+
+		/** An install whose bundle has a host entry and host modules for these libraries. */
+		function bundledInstall(libraries: readonly string[]): string {
+			const install = mkdtempSync(join(tmpdir(), "pi-resolution-"));
+			installs.push(install);
+			const bundle = join(install, "dist", "bundle");
+			for (const file of [
+				"host.js",
+				...libraries.map((name) => `host-modules/${name}.js`),
+			]) {
+				mkdirSync(dirname(join(bundle, file)), { recursive: true });
+				writeFileSync(join(bundle, file), "export {};\n");
+			}
+			return install;
+		}
+
+		it("resolves a harness module's pi import to the bundle's copy, which pi hands its extensions", () => {
+			const install = bundledInstall(["pi-tui", "pi-ai/compat"]);
+			for (const name of ["pi-tui", "pi-ai/compat"]) {
+				const { asked, context } = resolved(
+					`@earendil-works/${name}`,
+					HARNESS,
+					install,
+				);
+				expect(asked).toBe(
+					pathToFileURL(
+						join(install, "dist", "bundle", "host-modules", `${name}.js`),
+					).href,
+				);
+				expect(context).toEqual({ parentURL: HARNESS, conditions: ["node"] });
+			}
+		});
+
+		it("refuses a pi library the bundle shares no copy of, rather than loading a second", () => {
+			const install = bundledInstall(["pi-tui"]);
+			for (const specifier of [
+				"@earendil-works/pi-durable",
+				"@earendil-works/pi-tui/../pi-tui",
+			])
+				expect(() => resolved(specifier, HARNESS, install)).toThrow(
+					`The host's pi bundle shares no ${specifier} with the host`,
+				);
+		});
+
+		it("leaves pi's own imports to node", () => {
+			const install = bundledInstall(["pi-tui"]);
+			const own = pathToFileURL(
+				join(install, "dist", "bundle", "host.js"),
+			).href;
+			const { asked, context } = resolved(
+				"@earendil-works/pi-tui",
+				own,
+				install,
+			);
+			expect(asked).toBe("@earendil-works/pi-tui");
+			expect(context.parentURL).toBe(own);
+		});
 	});
 
 	it("leaves pi's own imports and every other package to node", () => {
