@@ -92,7 +92,10 @@ export function createParking(deps: ParkingDeps): Parking {
 	 * seconds, which would rerun its git lookups each time. It is asked
 	 * again after KNOWN_FOR answers all the same, since a lookup a busy
 	 * host timed out drops a repository, and a stop counted late beats
-	 * one missed.
+	 * one missed. What is asked again only adds to what was found, never
+	 * takes from it, until the session runs: nothing moved it, so a
+	 * repository it drops is a lookup that failed, and taking it away
+	 * would let a parked session go under a stop that still stands.
 	 */
 	let known:
 		| { readonly stops: string; readonly session: Session; used: number }
@@ -104,7 +107,8 @@ export function createParking(deps: ParkingDeps): Parking {
 			known.used += 1;
 			return known.session;
 		}
-		const session = await deps.session(stops);
+		const found = await deps.session(stops);
+		const session = known === undefined ? found : widened(known.session, found);
 		known = { stops: key, session, used: 1 };
 		return session;
 	}
@@ -182,6 +186,19 @@ export function createParking(deps: ParkingDeps): Parking {
 		get parked() {
 			return parked;
 		},
+	};
+}
+
+/** Where an idle session is, from two lookups: all either found. */
+function widened(was: Session, now: Session): Session {
+	const both = (a: readonly string[], b: readonly string[]) => [
+		...new Set([...a, ...b]),
+	];
+	return {
+		realm: now.realm ?? was.realm,
+		quests: now.quests.length > 0 ? now.quests : was.quests,
+		repos: both(was.repos, now.repos),
+		dirs: both(was.dirs, now.dirs),
 	};
 }
 
