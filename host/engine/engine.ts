@@ -59,7 +59,6 @@ import {
 } from "./harness-settings.ts";
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
-import { holdKeptHistory } from "./kept-history.ts";
 import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
@@ -98,6 +97,10 @@ export async function createEngine(
 	options: EngineOptions,
 ): Promise<HostEngine> {
 	const pi = await loadHostPi(options.packageDir);
+	// Only now: kept history binds pi's own modules, which resolve once
+	// pi has loaded, so a host whose pi install is missing still refuses
+	// it with the reason rather than failing on the import.
+	const { holdKeptHistory } = await import("./kept-history.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	if (options.key) pinSubagentKey(options.key, KEY_VARIABLES);
@@ -177,7 +180,14 @@ export async function createEngine(
 					forgetsPaces: kept !== undefined,
 				});
 	const { build, view, failedAfterStart } = conversationBuilds({
-		parts: { pi, sessions, builtIns, trust, library },
+		parts: {
+			pi,
+			sessions,
+			builtIns,
+			trust,
+			library,
+			keptHistory: holdKeptHistory,
+		},
 		options,
 		report,
 		logs,
