@@ -68,6 +68,17 @@ describe("a command run unattended", () => {
 		});
 	});
 
+	it("says the kill on a line of its own after what the child had said", async () => {
+		const result = await spawnExec()("sh", [
+			"-c",
+			"printf partial >&2; kill -KILL $$",
+		]);
+		expect(
+			result.stderr,
+			"a half-written line is ended before the kill is said",
+		).toBe("partial\nsh was killed by SIGKILL.");
+	});
+
 	it("reports a missing binary as a failure rather than throwing", async () => {
 		const result = await spawnExec()("no-such-binary-anywhere", []);
 		expect(result.code).not.toBe(0);

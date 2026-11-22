@@ -33,12 +33,18 @@ import type { Exec, ExecResult } from "./exec.ts";
 /** The exit code of a command its clock stopped, as `timeout(1)` reports. */
 export const EXIT_TIMED_OUT = 124;
 
-/** The exit code of a command its signal stopped, as a shell reports SIGINT. */
+/**
+ * The exit code of a command its signal stopped, as a shell reports
+ * SIGINT. A child an outside SIGINT killed reads the same, as a shell
+ * says it; its children run in a session of their own, so only a kill
+ * sent to them by pid or group does that.
+ */
 export const EXIT_ABORTED = 130;
 
 /**
  * The exit code of a command stopped for saying too much, as a shell
- * reports a writer whose reader stopped listening (SIGPIPE).
+ * reports a writer whose reader stopped listening (SIGPIPE). A child an
+ * outside SIGPIPE killed reads the same.
  */
 export const EXIT_SAID_TOO_MUCH = 141;
 
@@ -202,9 +208,9 @@ function runUnattended(
 		// `close` rather than `exit`, so the output is all read; a stopped
 		// group's pipes close once the group is gone.
 		child.on("close", (code, killedBy) => {
+			const said =
+				stderr === "" || stderr.endsWith("\n") ? stderr : `${stderr}\n`;
 			if (stopped !== undefined) {
-				const said =
-					stderr === "" || stderr.endsWith("\n") ? stderr : `${stderr}\n`;
 				settle({ code: stopped.code, stdout, stderr: `${said}${stopped.why}` });
 				return;
 			}
@@ -215,7 +221,7 @@ function runUnattended(
 				settle({
 					code: KILLED_BY_SIGNAL + (constants.signals[killedBy] ?? 0),
 					stdout,
-					stderr: `${stderr}${command} was killed by ${killedBy}.`,
+					stderr: `${said}${command} was killed by ${killedBy}.`,
 				});
 				return;
 			}

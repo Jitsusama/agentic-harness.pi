@@ -215,9 +215,15 @@ interface GitRead {
 	first?: ExecResult;
 }
 
-/** The first line git said on failing, or its exit when it said nothing. */
+/**
+ * The line that says why a read failed, or its exit when nothing was
+ * said: git's first, unless the exec layer ended it (a clock, a stop, a
+ * signal), whose own note comes last, after whatever git had said.
+ */
 function whatGitSaid(result: ExecResult): string {
-	const said = result.stderr.trim().split("\n")[0];
+	const lines = result.stderr.trim().split("\n");
+	const endedHere = result.code > GIT_FATAL || result.code === EXIT_TIMED_OUT;
+	const said = endedHere ? lines.at(-1) : lines[0];
 	return said ? `${said} (exit ${result.code})` : `it exited ${result.code}`;
 }
 

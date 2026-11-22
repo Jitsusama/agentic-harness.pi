@@ -229,6 +229,23 @@ describe("a checkout whose remotes git could not read", () => {
 		expect(remotes.asked(), "a killed read is asked twice").toBe(2);
 	});
 
+	it("names the kill, not what git said before it, when a signal took both reads", async () => {
+		const remotes = failing(
+			"--get-regexp",
+			{
+				code: 137,
+				stdout: "",
+				stderr:
+					"warning: unable to access '/x/config'\ngit was killed by SIGKILL.",
+			},
+			2,
+		);
+		await expect(
+			engineOver(remotes.exec).fromLocal("/src/world", range),
+			"the exec layer's last line says why the read ended",
+		).rejects.toThrow(/git was killed by SIGKILL\. \(exit 137\)/);
+	});
+
 	it("refuses a stopped call without advice to ask again", async () => {
 		const remotes = failing(
 			"--get-regexp",

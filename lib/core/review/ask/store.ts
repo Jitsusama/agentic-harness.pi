@@ -137,14 +137,23 @@ interface Ledger {
 export function createRunStore(root: string): RunStore {
 	async function read(change: ChangeRef): Promise<Ledger> {
 		const bounded = await readAt(change, fileFor(change));
-		if (bounded !== undefined) return bounded;
 		// A ledger whose plain name fit a file but not with the pending
 		// suffix's worst case was written, by a process with a shorter pid,
 		// under that plain name. Its rounds are read from there, and the
-		// next write carries them over to the bounded name.
+		// next write carries them over to the bounded name. A session still
+		// on the old code can write it again after that, so a plain copy
+		// beside a bounded one adds the rounds the bounded one lacks,
+		// rather than being shadowed and then removed unread.
 		const plain = changeFileName(change);
-		if (plain === fileFor(change)) return { runs: [] };
-		return (await readAt(change, plain)) ?? { runs: [] };
+		if (plain === fileFor(change)) return bounded ?? { runs: [] };
+		const old = await readAt(change, plain);
+		if (!old) return bounded ?? { runs: [] };
+		if (!bounded) return old;
+		const known = new Set(bounded.runs.map((run) => run.id));
+		return {
+			...bounded,
+			runs: [...bounded.runs, ...old.runs.filter((run) => !known.has(run.id))],
+		};
 	}
 
 	/** The ledger in `file`, or undefined when there is no such file. */
@@ -232,10 +241,31 @@ export function createRunStore(root: string): RunStore {
 		next: (ledger: Ledger) => Ledger,
 	): Promise<void> {
 		await mkdir(root, { recursive: true });
-		await withFileLock(join(root, fileFor(change)), async () => {
-			await write(change, next(await read(change)));
-			await dropCarriedOver(change);
-		});
+		await withFileLock(join(root, fileFor(change)), () =>
+			// The plain name's lock too, which is the one a session on the old
+			// code takes, so none of its writes lands between this read and
+			// the removal of its copy. Always bounded first: old code never
+			// takes the bounded lock, so the order can't deadlock.
+			withPlainLock(change, async () => {
+				await write(change, next(await read(change)));
+				await dropCarriedOver(change);
+			}),
+		);
+	}
+
+	/**
+	 * Run `fn` under the plain-named ledger's lock, when its name differs
+	 * and its lock's name fits a file. One that doesn't fit is a lock no
+	 * old session could take either, so it could write no copy there.
+	 */
+	function withPlainLock(
+		change: ChangeRef,
+		fn: () => Promise<void>,
+	): Promise<void> {
+		const plain = changeFileName(change);
+		const lockFits = plain.length + LOCK_SUFFIX.length <= LONGEST_FILE_NAME;
+		if (plain === fileFor(change) || !lockFits) return fn();
+		return withFileLock(join(root, plain), fn);
 	}
 
 	/**
@@ -567,6 +597,12 @@ function isChangeRef(value: unknown): value is ChangeRef {
 		typeof repo.key === "string"
 	);
 }
+
+/** What the file lock adds to a path to name its lock. */
+const LOCK_SUFFIX = ".lock";
+
+/** The longest file name, in bytes, the file systems here allow. */
+const LONGEST_FILE_NAME = 255;
 
 /**
  * The file a change's rounds live in.
