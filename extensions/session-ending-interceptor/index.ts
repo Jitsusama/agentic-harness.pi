@@ -54,12 +54,12 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
-import type { Refusal } from "../../lib/internal/session-ending/judge.ts";
 import {
 	logOutSpares,
 	parkedHere,
 	withinPatience,
 } from "../../lib/internal/session-ending/here.ts";
+import type { Refusal } from "../../lib/internal/session-ending/judge.ts";
 import {
 	machineNamesAt,
 	type NodeSession,

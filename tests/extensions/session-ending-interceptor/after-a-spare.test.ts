@@ -295,7 +295,11 @@ describe("when what followed a spare is free again", () => {
 		interceptorOver();
 
 		await askPerson("Reboot optimus now to install the BIOS?", "a1");
-		await resultOf("ask", "a1", { questions: [], cancelled: false, ...details });
+		await resultOf("ask", "a1", {
+			questions: [],
+			cancelled: false,
+			...details,
+		});
 
 		expect(await reply(RESCUE), "still withheld").toBeDefined();
 	});
