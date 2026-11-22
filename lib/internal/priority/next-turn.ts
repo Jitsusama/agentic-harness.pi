@@ -297,8 +297,10 @@ function memoryWaitedMs(job: Job, now: number): number {
  * push, though its push still leaves out its LFS scan. 16: an
  * `elsewhere run` placed on another machine, from a session on a quest,
  * is sent, so it skips the CPU hold and starts while memory is short.
+ * 17: a shell comment reads as nothing, where older code read the work
+ * it names.
  */
-export const RULES_VERSION = 16;
+export const RULES_VERSION = 17;
 
 /**
  * The job to start now, if any: the first waiting in order that its
