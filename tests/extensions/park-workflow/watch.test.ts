@@ -1286,7 +1286,7 @@ describe("why a session stays awake", () => {
 		).toBe(PARK_AFTER_MS);
 		expect(
 			parksAfter("", { viewed: true }),
-			"a window on it, switch off, stays",
+			"a window on it, switch empty, stays",
 		).toBeUndefined();
 		expect(
 			parksAfter("on", { platform: "darwin" }),
@@ -1359,33 +1359,38 @@ describe("why a session stays awake", () => {
 		}
 	});
 
-	it("lets an ask nobody wrote again in half an hour lapse", () => {
+	it("lets an ask nobody wrote again in half an hour lapse, handing it back to the switch's rule", () => {
 		const host = installTestHost("one-background");
 		const asked: string[] = [];
 		host.host.park = (id) => asked.push(id);
 		try {
-			writeFileSync(parkSwitch(folder), "\n");
-			mkdirSync(join(folder, "ease"), { recursive: true });
-			writeFileSync(easePath(SESSION, folder), "{}\n");
-			const written = Date.now() - EASE_LASTS_MS - 1_000;
-			utimesSync(easePath(SESSION, folder), written / 1000, written / 1000);
-			clock = Date.now() - PARK_AFTER_MS;
+			writeFileSync(parkSwitch(folder), "on\n");
+			askToEase(0);
+			const started = EASE_LASTS_MS - EASED_PARK_AFTER_MS;
+			clock = started;
 			const watched = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
 			});
-			clock = Date.now();
-			expect(watched.look(), "a lapsed ask parks nobody").toBe(
-				"parking is off",
+			clock = EASE_LASTS_MS + 1;
+			expect(watched.look(), "a lapsed ask parks nobody early").toBe(
+				"not idle long enough",
 			);
 			expect(asked).toEqual([]);
+			clock = started + BACKGROUND_PARK_AFTER_MS;
+			expect(watched.look(), "the switch's own rule parks it").toBe(undefined);
+			expect(asked).toEqual([SESSION]);
+			expect(readParked(SESSION, folder)?.afterMs).toBe(
+				BACKGROUND_PARK_AFTER_MS,
+			);
 		} finally {
 			host.dispose();
 		}
 	});
 
 	it("never eases a plain pi, whose window its person may have open", () => {
-		mkdirSync(join(folder, "ease"), { recursive: true });
-		writeFileSync(easePath(SESSION, folder), "{}\n");
+		// Dated on the fake clock, or the skew bound alone would refuse it
+		// and this would pin no scope (#1976 F74).
+		askToEase();
 		writeFileSync(parkSwitch(folder), "\n");
 		const watched = watching();
 		clock = PARK_AFTER_MS;

@@ -78,7 +78,12 @@ It is off until one of these turns it on:
   (a crash, a stuck sensor) lapses after half an hour, so the node
   writes it again while the machine still reads over, and the node
   sweeps the files of sessions gone. A line `off` in the switch, or
-  `PI_PARK=off`, keeps every ask from parking anyone.
+  `PI_PARK=off`, keeps every ask from parking anyone; a switch there
+  that can't be read counts as off, and one rewritten in place is
+  only as atomic as its writer, so write it by rename. The ask is a
+  regular file, never a link or a folder, and one dated more than a
+  minute ahead is taken back. The node writes it as the session's
+  own user, so the folder is no boundary between accounts.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule

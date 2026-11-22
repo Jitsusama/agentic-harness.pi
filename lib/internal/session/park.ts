@@ -53,7 +53,13 @@
  * marker counts as no park, and the next session to start clears it.
  */
 
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+	lstatSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type Booted, machineBooted } from "../machine/booted.ts";
@@ -492,7 +498,9 @@ export const EASED_PARK_AFTER_MS = 2 * 60 * 1000;
 /**
  * How far ahead of now an ask may be dated and still count: the skew two
  * clocks on one machine may show. One dated later, by a clock stepped
- * back or a copy that kept its times, would never lapse, so it is none.
+ * back or a copy that kept its times, would not lapse when it should,
+ * so it is none, and taken back so it can't count once the clock
+ * catches up.
  */
 export const EASE_SKEW_MS = 60 * 1000;
 
@@ -506,7 +514,9 @@ const namesOwnFile = (session: string) =>
 
 /**
  * Whether the node has asked `session` to park soon, by an ease file in
- * `folder` written within {@link EASE_LASTS_MS}.
+ * `folder`, a regular file and no link, written within
+ * {@link EASE_LASTS_MS}. One dated past {@link EASE_SKEW_MS} ahead is
+ * taken back, so it can't count once the clock catches up.
  */
 export function isEased(
 	session: string,
@@ -515,8 +525,14 @@ export function isEased(
 ): boolean {
 	if (!namesOwnFile(session)) return false;
 	try {
-		const age = now - statSync(easePath(session, folder)).mtimeMs;
-		return age >= -EASE_SKEW_MS && age <= EASE_LASTS_MS;
+		const ask = lstatSync(easePath(session, folder));
+		if (!ask.isFile()) return false;
+		const age = now - ask.mtimeMs;
+		if (age < -EASE_SKEW_MS) {
+			clearEase(session, folder);
+			return false;
+		}
+		return age <= EASE_LASTS_MS;
 	} catch {
 		// No file is no ask.
 		return false;
@@ -550,8 +566,10 @@ export function switchOff(switchPath: string = parkSwitch()): boolean {
 			.split("\n")
 			.some((line) => line.trim() === "off");
 	} catch (error) {
-		// No switch says nothing; one that can't be read may say off, so
-		// it is taken as off, the kill switch failing shut.
+		// No switch says nothing; one there that this account can't read
+		// may say off, so it is taken as off, the kill switch failing shut.
+		// A switch rewritten in place can read empty for a moment: it is
+		// only as atomic as whoever writes it.
 		return !(
 			error instanceof Error &&
 			"code" in error &&

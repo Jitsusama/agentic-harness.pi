@@ -8,6 +8,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -171,8 +172,9 @@ describe("whether a session parks, and after how long", () => {
 	});
 
 	// A clock stepped back, or a copy that kept its times, dates an ask
-	// ahead of now; counted, it would never lapse (#1976 F46).
-	it("counts no ask dated ahead of now past a clock's skew", () => {
+	// ahead of now; counted, it would never lapse (#1976 F46), and kept,
+	// it would count once the clock caught up (F55).
+	it("counts no ask dated ahead of now past a clock's skew, and takes it back", () => {
 		mkdirSync(join(folder, "ease"), { recursive: true });
 		writeFileSync(easePath("s-1", folder), "{}\n");
 		const written = Date.parse("2026-11-22T07:00:00Z");
@@ -185,6 +187,21 @@ describe("whether a session parks, and after how long", () => {
 			isEased("s-1", folder, written - EASE_SKEW_MS - 1),
 			"past the skew",
 		).toBe(false);
+		expect(
+			isEased("s-1", folder, written),
+			"not once the clock catches up",
+		).toBe(false);
+		expect(existsSync(easePath("s-1", folder)), "taken back").toBe(false);
+	});
+
+	// A link to a file written all the time would never lapse (F71).
+	it("takes only a regular file as an ask, no link or folder", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(join(folder, "fresh"), "{}\n");
+		symlinkSync(join(folder, "fresh"), easePath("s-1", folder));
+		mkdirSync(easePath("s-2", folder));
+		expect(isEased("s-1", folder), "a link").toBe(false);
+		expect(isEased("s-2", folder), "a folder").toBe(false);
 	});
 
 	it("reads and clears only a file of the session's own in the ease folder", () => {
@@ -201,6 +218,8 @@ describe("whether a session parks, and after how long", () => {
 			existsSync(join(folder, "ease", "a", "b")),
 			"nothing below another's name",
 		).toBe(true);
+		// Pinned by the cases above; removing a folder without `recursive`
+		// is refused anyway, so this alone would pin no guard (F53, F57).
 		expect(existsSync(join(folder, "ease")), "nor the folder").toBe(true);
 	});
 
@@ -208,12 +227,18 @@ describe("whether a session parks, and after how long", () => {
 		expect(switchOff(switchSays("off"))).toBe(true);
 		expect(switchOff(switchSays("on", "off", "s-1"))).toBe(true);
 		expect(switchOff(switchSays("on"))).toBe(false);
+		expect(switchOff(switchSays("  off  ")), "padded").toBe(true);
+		expect(
+			switchOff(switchSays("# off for the night", "offline")),
+			"off within a line",
+		).toBe(false);
 		expect(switchOff(switchSays())).toBe(false);
 		expect(switchOff(join(folder, "none")), "no switch").toBe(false);
 	});
 
-	// The one kill switch for asks fails shut: a switch being rewritten,
-	// or one this account can't read, may say off (#1976 F49).
+	// The one kill switch for asks fails shut: a switch there that this
+	// account can't read may say off (#1976 F49). One rewritten in place
+	// reads empty for a moment, which no read can tell from empty.
 	it("takes a switch that is there but can't be read as off", () => {
 		const unreadable = join(folder, "a-folder");
 		mkdirSync(unreadable);
