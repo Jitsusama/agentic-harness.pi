@@ -7,6 +7,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -29,6 +30,7 @@ import {
 import {
 	awakePath,
 	BACKGROUND_PARK_AFTER_MS,
+	easePath,
 	flagsLost,
 	isParkAsk,
 	isParking,
@@ -1203,6 +1205,112 @@ describe("why a session stays awake", () => {
 			parksAfter("one-background", "on", false, "darwin"),
 			"background on macOS waits its half hour",
 		).toBe(PARK_AFTER_MS);
+	});
+
+	// 22 November: the node asks idle sessions to park soon while its
+	// machine reads over, through a file of their own rather than the
+	// switch every session shares (KP0L6A [1b7b2cd5]).
+	it("parks a background conversation asked to ease after two minutes, whatever the switch says, taking the ask back as it parks", () => {
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		const eased = () => existsSync(easePath(SESSION, folder));
+		const parksAfter = (
+			line: string,
+			{
+				viewed = false,
+				platform = "linux",
+				env = conversation,
+			}: {
+				viewed?: boolean;
+				platform?: NodeJS.Platform;
+				env?: NodeJS.ProcessEnv;
+			} = {},
+		): number | undefined => {
+			writeFileSync(parkSwitch(folder), `${line}\n`);
+			rmSync(join(folder, "parked"), { recursive: true, force: true });
+			mkdirSync(join(folder, "ease"), { recursive: true });
+			writeFileSync(easePath(SESSION, folder), '{"at":"now","why":"memory"}\n');
+			const host = installTestHost("one-background");
+			const asked: string[] = [];
+			host.host.park = (id) => asked.push(id);
+			host.host.viewed = () => viewed;
+			try {
+				clock = 0;
+				const watched = watching(session(), env, [], platform);
+				for (const at of [
+					NAMED_PARK_AFTER_MS - 1,
+					NAMED_PARK_AFTER_MS,
+					BACKGROUND_PARK_AFTER_MS,
+					PARK_AFTER_MS,
+				]) {
+					clock = at;
+					if (watched.look() === undefined && asked.length > 0) {
+						expect(eased(), "its ask is taken back as it parks").toBe(false);
+						return at;
+					}
+				}
+				expect(eased(), "awake, its ask stays").toBe(true);
+				return undefined;
+			} finally {
+				host.dispose();
+			}
+		};
+		expect(parksAfter("on"), "switch on").toBe(NAMED_PARK_AFTER_MS);
+		expect(parksAfter(""), "switch off").toBe(NAMED_PARK_AFTER_MS);
+		expect(
+			parksAfter("on", { viewed: true }),
+			"a window on it keeps its half hour",
+		).toBe(PARK_AFTER_MS);
+		expect(
+			parksAfter("", { viewed: true }),
+			"a window on it, switch off, stays",
+		).toBeUndefined();
+		expect(
+			parksAfter("on", { platform: "darwin" }),
+			"macOS keeps its half hour",
+		).toBe(PARK_AFTER_MS);
+		expect(
+			parksAfter("on", { env: { ...conversation, PI_PARK: "off" } }),
+			"PI_PARK=off still wins",
+		).toBeUndefined();
+	});
+
+	it("never eases a plain pi, whose window its person may have open", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath(SESSION, folder), "{}\n");
+		writeFileSync(parkSwitch(folder), "\n");
+		const watched = watching();
+		clock = PARK_AFTER_MS;
+		expect(watched.look()).toBe("parking is off");
+	});
+
+	it("takes back an ask to ease as it wakes or closes, keeping it through a reload", () => {
+		const ease = () => {
+			mkdirSync(join(folder, "ease"), { recursive: true });
+			writeFileSync(easePath(SESSION, folder), "{}\n");
+		};
+		const eased = () => existsSync(easePath(SESSION, folder));
+		ease();
+		const started = watching();
+		expect(eased(), "a plain start keeps it").toBe(true);
+		started.stop();
+		expect(eased(), "a reload keeps it").toBe(true);
+		started.stop(true);
+		expect(eased(), "a close takes it back").toBe(false);
+		ease();
+		writeParked(
+			{
+				session: SESSION,
+				sessionFile: logOf(),
+				cwd: "/src",
+				addresses: [],
+				parkedAt: new Date(0).toISOString(),
+				pid: HELD_PID,
+				wake: join(folder, "held.wake"),
+			},
+			folder,
+		);
+		watching().stop();
+		expect(eased(), "a wake takes it back").toBe(false);
 	});
 
 	it("keeps a background host's conversation awake when PI_PARK is off for it or the switch is off, and parks it at once in a drain", () => {

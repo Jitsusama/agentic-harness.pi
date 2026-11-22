@@ -53,9 +53,15 @@
  * marker counts as no park, and the next session to start clears it.
  */
 
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type Booted, machineBooted } from "../machine/booted.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
@@ -460,6 +466,42 @@ export function parkFolder(): string {
 /** The switch that turns parking on while sessions run. */
 export function parkSwitch(folder: string = parkFolder()): string {
 	return join(folder, "switch");
+}
+
+/**
+ * The file through which the node asks `session` to park soon, while
+ * its machine reads over: its presence is the ask, and its line (when
+ * and why) is for people, never read for meaning.
+ */
+export function easePath(
+	session: string,
+	folder: string = parkFolder(),
+): string {
+	return join(folder, "ease", session);
+}
+
+/**
+ * Whether the node has asked `session` to park soon, by an ease file
+ * beside the switch at `switchPath`.
+ */
+export function isEased(
+	session: string,
+	switchPath: string = parkSwitch(),
+): boolean {
+	return session !== "" && existsSync(easePath(session, dirname(switchPath)));
+}
+
+/** Take back an ask to park soon, as its session wakes, parks or closes. */
+export function clearEase(
+	session: string,
+	folder: string = parkFolder(),
+): void {
+	try {
+		rmSync(easePath(session, folder), { force: true });
+	} catch {
+		// An ask left behind parks this session soon once more, which the
+		// node takes back with its others once the machine reads calm.
+	}
 }
 
 /**

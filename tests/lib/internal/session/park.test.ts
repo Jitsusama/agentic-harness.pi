@@ -16,11 +16,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	askWake,
+	clearEase,
 	clearOutlivedParks,
 	clearParked,
+	easePath,
 	heldDirectly,
 	holderFiles,
 	holderRecord,
+	isEased,
 	isParked,
 	NAMED_PARK_AFTER_MS,
 	noteWake,
@@ -127,6 +130,33 @@ describe("whether a session parks, and after how long", () => {
 	it("never parks where the environment keeps it out", () => {
 		const path = switchSays("on", "s-1");
 		expect(parkAfterMs("s-1", { PI_PARK: "off" }, path)).toBeUndefined();
+	});
+
+	// 22 November: the node eases a machine that reads over by asking its
+	// idle sessions to park soon, without editing the switch every session
+	// shares (KP0L6A [1b7b2cd5]).
+	it("says a session its ease file names is asked to ease, beside the switch, and no other", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(
+			easePath("s-1", folder),
+			`${JSON.stringify({ at: "2026-11-22T07:00:00Z", why: "memory" })}\n`,
+		);
+		expect(isEased("s-1", parkSwitch(folder))).toBe(true);
+		expect(isEased("s-2", parkSwitch(folder))).toBe(false);
+		expect(isEased("", parkSwitch(folder)), "no session, no ask").toBe(false);
+		expect(
+			parkAfterMs("s-1", {}, switchSays()),
+			"the switch's rule stays the switch's",
+		).toBeUndefined();
+	});
+
+	it("stops easing a session once its ease file is cleared, and clears none twice", () => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		clearEase("s-1", folder);
+		expect(existsSync(easePath("s-1", folder))).toBe(false);
+		expect(isEased("s-1", parkSwitch(folder))).toBe(false);
+		expect(() => clearEase("s-1", folder)).not.toThrow();
 	});
 });
 
