@@ -45,7 +45,7 @@ import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
-import { treesHeldBy } from "../../lib/internal/work-records.ts";
+import { treesHeldByNow } from "../../lib/internal/work-records.ts";
 import {
 	type Board,
 	isCurrent,
@@ -340,7 +340,7 @@ export function leasesHolding(
 /** The first tree `session` holds with a rebase halted part-way, said. */
 async function rebaseHalted(session: string): Promise<string | undefined> {
 	const rebaser = createGitRebaser({ exec: spawnExec() });
-	for (const tree of treesHeldBy(session)) {
+	for (const tree of await treesHeldByNow(session)) {
 		if (await rebaser.halted(tree).catch(() => false)) {
 			return `a rebase is halted part-way in ${tree}`;
 		}

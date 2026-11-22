@@ -22,7 +22,7 @@ import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
-import { treesHeldBy } from "../../lib/internal/work-records.ts";
+import { treesHeldByNow } from "../../lib/internal/work-records.ts";
 import { memoryDbPath, openMemoryStore } from "../../lib/memory/index.ts";
 
 /** How long an ended run may take to wind down before the carry gives up. */
@@ -78,7 +78,7 @@ export async function carryThisSession(
 			...(title ? { title } : {}),
 			...(file !== undefined && existsSync(file) ? { file } : {}),
 		},
-		trees: treesHeldBy(id),
+		trees: await treesHeldByNow(id),
 		fence: fenceKindOf(places.env ?? process.env),
 		notes: await (places.notes ?? questNotes)(quest),
 	});

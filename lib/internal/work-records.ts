@@ -18,6 +18,7 @@ import type { HeldTree } from "../core/work/broker.ts";
 import {
 	createTreeMemory,
 	recallOff,
+	recordDirKey,
 	recordWritesRead,
 	recordWritesSince,
 	recordWritesSoFar,
@@ -64,8 +65,8 @@ interface Kept {
 	listing: Listing;
 	/** The reading off the thread under way, while one is. */
 	refreshing: Promise<void> | undefined;
-	/** The folder's stamp when a reading last failed, until one succeeds. */
-	failedAt: string | undefined;
+	/** The folder's stamp, and when, as a reading last failed, until one succeeds. */
+	failed: { readonly stamp: string; readonly at: number } | undefined;
 }
 
 /** A folder's stamp, and when it was last written. */
@@ -77,7 +78,8 @@ interface Folder {
 /**
  * How long a listing's trees are taken to be on disk without looking: a
  * tree removed by hand with its record left moves no stamp, so it is
- * looked for again this often.
+ * looked for again this often. A folder a reading failed on is read
+ * again this long after, though its stamp stands as it failed.
  */
 const JUDGED_FOR_MS = 60_000;
 
@@ -99,24 +101,29 @@ const RACY_MS = 3_000;
 // process and every copy of this module: every session in a host asks
 // at each presence publish and each fenced command, and the records are
 // the same for all of them, so one cut costs one read of them, not one
-// for each session, and that read runs off the thread. The key names
-// the shape; a change to Kept or Listing takes a new one.
+// for each session, and that read runs off the thread. Kept under the
+// folder as the disk names it (recordDirKey), so callers spelling it
+// two ways share one listing. The key names the shape; a change to
+// Kept or Listing takes a new one.
 const listings = processGlobal(
-	"agentic-harness.internal/work-records/listings.v2",
+	"agentic-harness.internal/work-records/listings.v3",
 	() => new Map<string, Kept>(),
 );
 
-/** `dir`'s stamp, its inode, mtime and size, or none when it isn't there. */
-function folderNow(dir: string): Folder | undefined {
+/**
+ * `dir`'s stamp, its inode, mtime and size; gone when it isn't there,
+ * and unseen when it can't be looked at for now.
+ */
+function folderNow(dir: string): Folder | "gone" | "unseen" {
 	try {
 		const seen = statSync(dir);
 		return {
 			stamp: `${seen.ino}:${seen.mtimeMs}:${seen.size}`,
 			writtenAt: seen.mtimeMs,
 		};
-	} catch {
-		// No folder: no records, and no listing of it kept.
-		return undefined;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code === "ENOENT" || code === "ENOTDIR" ? "gone" : "unseen";
 	}
 }
 
@@ -175,10 +182,37 @@ async function judgedOff(listing: Listing): Promise<Listing> {
 	};
 }
 
+/** `listing` swapped into `kept`, unless the folder was forgotten since. */
+function swapIn(dir: string, kept: Kept, listing: Listing): void {
+	// Forgotten since, its folder gone: nothing to swap into.
+	if (listings.get(recordDirKey(dir)) !== kept) return;
+	kept.listing = listing;
+	recordWritesRead(dir, listing.through);
+}
+
 /**
- * `kept`'s reading `reading` of `dir`, swapped in once it lands; one
+ * Say on stderr, a host's journal, that a reading of `dir` failed, once
+ * for each stamp it fails on: callers are answered from the listing read
+ * before, which nothing else would show is growing old.
+ */
+function sayFailed(
+	dir: string,
+	kept: Kept,
+	stamp: string,
+	error: unknown,
+): void {
+	if (kept.failed?.stamp === stamp) return;
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`[work] the tree records in ${dir} couldn't be read off the thread; answering from the reading before, and reading again within a minute: ${why}\n`,
+	);
+}
+
+/**
+ * `kept`'s reading `reading` of `dir`, swapped in once it lands. One
  * that fails leaves the listing as it was and marks `stamp`, so the
- * folder as it failed isn't read again until it changes.
+ * folder as it failed is read again only once it changes or a minute
+ * on; its trees are still looked for on disk meanwhile.
  */
 function settle(
 	dir: string,
@@ -189,14 +223,15 @@ function settle(
 	return reading
 		.then(
 			(listing) => {
-				// Forgotten since, its folder gone: nothing to swap into.
-				if (listings.get(dir) !== kept) return;
-				kept.listing = listing;
-				kept.failedAt = undefined;
-				recordWritesRead(dir, listing.through);
+				swapIn(dir, kept, listing);
+				kept.failed = undefined;
 			},
-			() => {
-				kept.failedAt = stamp;
+			async (error: unknown) => {
+				sayFailed(dir, kept, stamp, error);
+				kept.failed = { stamp, at: Date.now() };
+				if (Date.now() - kept.listing.judgedAt > JUDGED_FOR_MS) {
+					swapIn(dir, kept, await judgedOff(kept.listing));
+				}
 			},
 		)
 		.finally(() => {
@@ -208,16 +243,21 @@ function settle(
  * Start a reading of `dir` off the thread when `kept`'s listing is out
  * of date: its folder changed, it was read too soon after a write, or
  * its trees weren't looked for in a minute. One at a time for the
- * process, and none while the folder stands as a reading failed on.
+ * process. A folder standing as a reading failed on is read again only
+ * a minute on, its trees looked for meanwhile.
  */
 function refreshIfDue(dir: string, kept: Kept, folder: Folder): void {
-	if (kept.refreshing !== undefined || folder.stamp === kept.failedAt) return;
-	const { listing } = kept;
+	if (kept.refreshing !== undefined) return;
+	const { listing, failed } = kept;
 	const now = Date.now();
-	if (
+	const stale =
 		folder.stamp !== listing.stamp ||
-		(listing.recheckAt !== undefined && now >= listing.recheckAt)
-	) {
+		(listing.recheckAt !== undefined && now >= listing.recheckAt);
+	const waiting =
+		failed !== undefined &&
+		failed.stamp === folder.stamp &&
+		now - failed.at <= JUDGED_FOR_MS;
+	if (stale && !waiting) {
 		kept.refreshing = settle(dir, kept, folder.stamp, readOff(dir, folder));
 	} else if (now - listing.judgedAt > JUDGED_FOR_MS) {
 		kept.refreshing = settle(dir, kept, folder.stamp, judgedOff(listing));
@@ -252,17 +292,24 @@ function laidOver(dir: string, listing: Listing): RecordedTree[] {
  * listing read just after a write is read once more when that write is
  * old enough. A record edited in place, as the broker never writes one,
  * moves no stamp and isn't seen until the next write. Trees are looked
- * for again, off the thread, once the listing is a minute old. Callers
+ * for again, off the thread, once the listing is a minute old. A folder
+ * that can't be looked at for now is answered from the listing kept.
+ * Only writes through createTreeMemory are this process's own: a record
+ * written by hand, or by a conversation still running code from before
+ * this listing, is seen a read late like another process's. Callers
  * keep no listing of their own: this one is already kept, and its rules
- * are here.
+ * are here; one that asks once and acts on the answer asks
+ * `treesHeldByNow`.
  */
 export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 	const folder = folderNow(dir);
-	if (folder === undefined) {
-		listings.delete(dir);
+	const at = recordDirKey(dir);
+	let kept = listings.get(at);
+	if (folder === "gone") {
+		listings.delete(at);
 		return [];
 	}
-	let kept = listings.get(dir);
+	if (folder === "unseen") return kept ? laidOver(dir, kept.listing) : [];
 	if (kept === undefined) {
 		const started = Date.now();
 		const through = recordWritesSoFar();
@@ -270,9 +317,9 @@ export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 		kept = {
 			listing: listingOf(trees, folder, through, started),
 			refreshing: undefined,
-			failedAt: undefined,
+			failed: undefined,
 		};
-		listings.set(dir, kept);
+		listings.set(at, kept);
 		recordWritesRead(dir, through);
 	} else {
 		refreshIfDue(dir, kept, folder);
@@ -286,7 +333,7 @@ export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
  * seen before it asks again.
  */
 export function whenRefreshed(dir: string = treeRecordDir()): Promise<void> {
-	return listings.get(dir)?.refreshing ?? Promise.resolve();
+	return listings.get(recordDirKey(dir))?.refreshing ?? Promise.resolve();
 }
 
 /** A path as the disk names it, links followed, where it can be. */
@@ -326,4 +373,23 @@ export function treesHeldBy(
 	return recordedTrees(dir)
 		.filter((tree) => tree.sessions.includes(session))
 		.map((tree) => tree.path);
+}
+
+/**
+ * `treesHeldBy`, with the records read off the thread first when they
+ * changed since the last reading: for a caller that asks once and acts
+ * on the answer, such as a carry, which a tree cut a read ago by
+ * another process would otherwise be left out of. A reading already
+ * under way when it asks may predate a change, so it waits for that one
+ * and, when the folder changed again, the next.
+ */
+export async function treesHeldByNow(
+	session: string,
+	dir: string = treeRecordDir(),
+): Promise<string[]> {
+	for (const _ of [1, 2]) {
+		recordedTrees(dir);
+		await whenRefreshed(dir);
+	}
+	return treesHeldBy(session, dir);
 }

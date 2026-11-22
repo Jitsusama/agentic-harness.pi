@@ -29,12 +29,13 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { access, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { processGlobal } from "../../internal/process/process-global.ts";
 import {
@@ -253,14 +254,40 @@ export interface RecordWrite {
 // Process-wide because the records are the machine's, and a reader in
 // any conversation answers for every one; a reader lets go of what a
 // reading already holds, and what nothing reads stays one per tree.
+// Beside them, each directory as the disk names it, by how a caller
+// spelled it, so a writer and a reader naming one directory two ways
+// (the fence asks by its real path) find the same writes.
 const ourWrites = processGlobal(
-	"agentic-harness.core/work/memory/written.v1",
-	() => ({ seq: 0, byDir: new Map<string, Map<string, RecordWrite>>() }),
+	"agentic-harness.core/work/memory/written.v2",
+	() => ({
+		seq: 0,
+		byDir: new Map<string, Map<string, RecordWrite>>(),
+		canonical: new Map<string, string>(),
+	}),
 );
+
+/**
+ * `dir` as the disk names it, links followed, the one name its record
+ * writes and listings are kept under whichever way a caller spells it.
+ * Asked of the disk once a spelling; a directory not there yet is named
+ * as written, and asked again once it is.
+ */
+export function recordDirKey(dir: string): string {
+	const known = ourWrites.canonical.get(dir);
+	if (known !== undefined) return known;
+	try {
+		const real = realpathSync(dir);
+		ourWrites.canonical.set(dir, real);
+		return real;
+	} catch {
+		// Not there yet, or not ours to see: as written, until it is.
+		return resolve(dir);
+	}
+}
 
 /** Note a write to the record of the tree at `path` once it has landed. */
 function noteWrite(dir: string, path: string, held?: HeldTree): void {
-	const at = resolve(dir);
+	const at = recordDirKey(dir);
 	let paths = ourWrites.byDir.get(at);
 	if (paths === undefined) {
 		paths = new Map();
@@ -287,14 +314,14 @@ export function recordWritesSince(
 	dir: string,
 	after: number,
 ): ReadonlyMap<string, RecordWrite> {
-	const paths = ourWrites.byDir.get(resolve(dir));
+	const paths = ourWrites.byDir.get(recordDirKey(dir));
 	if (paths === undefined) return new Map();
 	return new Map([...paths].filter(([, write]) => write.seq > after));
 }
 
 /** Let go of the writes to `dir` up to `upTo`, which a reading now holds. */
 export function recordWritesRead(dir: string, upTo: number): void {
-	const at = resolve(dir);
+	const at = recordDirKey(dir);
 	const paths = ourWrites.byDir.get(at);
 	if (paths === undefined) return;
 	for (const [path, write] of paths) {
@@ -432,10 +459,14 @@ async function listingOff(dir: string): Promise<Found[]> {
 			const at = join(dir, name);
 			try {
 				return parsedRecord(at, await readFile(at, "utf8"));
-			} catch {
-				// Gone since the listing, or unreadable: as no record, like the
-				// reading on the thread.
-				return undefined;
+			} catch (error) {
+				// Gone since the listing: as no record. Any other failure, out
+				// of descriptors or the disk erring, fails the reading, so a
+				// reader keeps what it had rather than swapping in a listing a
+				// tree is missing from.
+				if ((error as NodeJS.ErrnoException).code === "ENOENT")
+					return undefined;
+				throw error;
 			}
 		},
 	);
@@ -457,9 +488,11 @@ async function standsOff(path: string): Promise<boolean> {
  * Every tree written down in `dir` that is still on disk, as `recall`
  * answers, read off the thread: a directory of thousands of records
  * read on it held every session in a host while it was read. Read again
- * while the directory moves, as `recall` is, and a record whose tree is
- * gone is removed, as `recall` removes it. A listing that fails rejects
- * rather than answering none.
+ * while the directory moves, as `recall` is. A record whose tree is gone
+ * is passed over but left on disk: removed here, holding no lock, after a
+ * wait as long as a reading of thousands, it could be a record cut again
+ * at the same key since, so removing is left to `recall` and the sweep.
+ * A listing that fails rejects rather than answering none.
  */
 export async function recallOff(dir: string): Promise<HeldTree[]> {
 	const found = new Map<string, Found>();
@@ -473,16 +506,9 @@ export async function recallOff(dir: string): Promise<HeldTree[]> {
 		}
 		for (const one of reading) found.set(one.at, one);
 	}
-	const kept = await eachAtOnce(
-		listed ?? [...found.values()],
-		READS_AT_ONCE,
-		async ({ at, held }) => {
-			if (await standsOff(held.path)) return held;
-			await rm(at, { force: true });
-			return undefined;
-		},
-	);
-	return kept.filter((held): held is HeldTree => held !== undefined);
+	const trees = (listed ?? [...found.values()]).map(({ held }) => held);
+	const stands = await standingOff(trees.map((held) => held.path));
+	return trees.filter((_, at) => stands[at]);
 }
 
 /** Whether each of `paths` still stands, asked off the thread. */
@@ -675,6 +701,7 @@ export function createTreeMemory(
 					continue;
 				}
 				rmSync(at, { force: true });
+				noteWrite(dir, held.path);
 			}
 			return found;
 		},
@@ -762,7 +789,10 @@ export function createTreeMemory(
 				if (key === undefined) this.forget(path);
 				// One filed under another name names a tree now gone, which the
 				// next listing drops.
-				else rmSync(fileFor(key), { force: true });
+				else {
+					rmSync(fileFor(key), { force: true });
+					noteWrite(dir, path);
+				}
 				taken = tree;
 			});
 			return taken;
