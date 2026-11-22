@@ -187,6 +187,53 @@ describe("asking where a halted commit landed", () => {
 	);
 
 	it(
+		"takes a base's log change cut short by a NUL and a line like an id for no landing",
+		async () => {
+			// Only the base's side holds the NUL, and what follows it reads like a
+			// commit's id, so its cut patch would read as the halted commit's.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n- Same\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("log.md", "# Log\n\n- Same\0beef\n- More\n", "theirs");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"reads past every merge base, not one",
+		async () => {
+			// Each side took the other, so there are two merge bases, and past one
+			// alone lies the branch's own first try, which the halted commit only
+			// makes again.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n- Again\n", "first");
+			await commit("log.md", "# Log\n", "reverted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "notes");
+			const notes = await git(repo, "rev-parse", "HEAD");
+			await git(repo, "merge", "-q", "--no-ff", "-m", "take topic", "topic");
+			await git(repo, "checkout", "-q", "topic");
+			await git(repo, "merge", "-q", "--no-ff", "-m", "take notes", notes);
+			await commit("log.md", "# Log\n\n- Again\n", "halted");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+			const bases = await git(repo, "merge-base", "--all", "main", "topic");
+
+			expect(bases.split("\n")).toHaveLength(2);
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
 		"reads only the files in question, and a bounded count of the base's commits",
 		async () => {
 			// The walk of every commit the base gained is what the flag removes.

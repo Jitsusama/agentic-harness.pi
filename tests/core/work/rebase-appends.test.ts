@@ -205,6 +205,44 @@ describe("a replay where both sides only added to a Markdown file", () => {
 		);
 		expect(await git(repo, "status", "--porcelain")).toBe("");
 	});
+
+	it("leaves the citations alone in a file whose base side a landing kept", async () => {
+		// The second commit had already landed, citing the number the base gave
+		// its own entry: the base's text, kept, is the base's to cite.
+		await commit(
+			{ "docs/HISTORY.md": HISTORY, "NOTES.md": "# Notes\n\nTop.\n" },
+			"base",
+		);
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit(
+			{ "docs/HISTORY.md": `${HISTORY}\n## 2. Mine\n\nOurs.\n` },
+			"topic 1",
+		);
+		await commit(
+			{ "NOTES.md": "# Notes\n\nTop.\n\nSee HISTORY §2.\n" },
+			"topic 2",
+		);
+		await git(repo, "checkout", "-q", "main");
+		await commit(
+			{ "docs/HISTORY.md": `${HISTORY}\n## 2. Landed\n\nTheirs.\n` },
+			"main moves",
+		);
+		await git(repo, "cherry-pick", "topic");
+		const kept = "# Notes\n\nTop, edited.\n\nSee HISTORY §2.\n";
+		await commit({ "NOTES.md": kept }, "main edits");
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await rebaser().rebase(repo, "main");
+
+		expect(outcome).toMatchObject({
+			kind: "replayed",
+			settled: [{ path: "docs/HISTORY.md" }],
+			landed: [{ paths: ["NOTES.md"] }],
+		});
+		expect(outcome).not.toHaveProperty("recited");
+		expect(read("NOTES.md")).toBe(kept);
+		expect(await git(repo, "status", "--porcelain")).toBe("");
+	});
 });
 
 describe("what is left for someone to settle", () => {

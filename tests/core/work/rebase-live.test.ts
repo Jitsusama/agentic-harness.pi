@@ -260,6 +260,86 @@ describe("a commit its base already carries", () => {
 		);
 	});
 
+	it("leaves alone a landed log a person cleared of git's markers", async () => {
+		// The person settles the landed halt a raw continue reached by hand,
+		// keeping their own wording on purpose: once its markers are gone, the
+		// file is theirs.
+		await seedLog();
+		await commit("plain.txt", "start\n", "plain");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "rebase", "-q", "main");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("plain.txt", "mine\n", "plain mine");
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		await commit("log.md", entry, "carried");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "topic");
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		await commit("plain.txt", "theirs\n", "plain theirs");
+		await git(repo, "checkout", "-q", "topic");
+		const rebaser = createGitRebaser({ exec: spawnExec() });
+		const byHand = "# Log\n\n## 1. First\n\nOne, in my words.\n";
+
+		await rebaser.rebase(repo, "base");
+		writeFileSync(join(repo, "plain.txt"), "both\n");
+		await git(repo, "add", "plain.txt");
+		const raw = await git(
+			repo,
+			"-c",
+			"core.editor=true",
+			"rebase",
+			"--continue",
+		).then(
+			() => "replayed",
+			() => "halted",
+		);
+		const marked = readFileSync(join(repo, "log.md"), "utf8");
+		writeFileSync(join(repo, "log.md"), byHand);
+		const resumed = await rebaser.resume(repo);
+
+		expect(raw).toBe("halted");
+		expect(marked).toContain("<<<<<<<");
+		expect(resumed).toMatchObject({ kind: "replayed" });
+		expect(resumed).not.toHaveProperty("landed");
+		expect(await above()).toEqual(["plain mine", "carried"]);
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(byHand);
+	});
+
+	it("halts on the code of a landed commit, saying its log kept the base's side", async () => {
+		// The log is settled by the landing, but the code both sides changed
+		// since is left to a person, and the halt is the only answer that can
+		// say the branch's log entry gave way.
+		await commit("code.txt", "start\n", "code");
+		await seedLog();
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("mine.txt", "only on topic\n", "marker");
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		writeFileSync(join(repo, "code.txt"), "mine\n");
+		await git(repo, "add", "code.txt");
+		await commit("log.md", entry, "carried");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "topic");
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		await commit("code.txt", "theirs\n", "code theirs");
+		const landed = await landing();
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).toMatchObject({
+			kind: "halted",
+			conflicted: ["code.txt"],
+			landed: [landed],
+		});
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			`${entry}\n## 2. Later\n\nTwo.\n`,
+		);
+	});
+
 	it("still settles Markdown both sides only added to when it never landed", async () => {
 		await seedLog();
 		await git(repo, "checkout", "-q", "-b", "topic");

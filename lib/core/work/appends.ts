@@ -498,12 +498,14 @@ export async function markedMarkdown(
  * is settled too, and named in `recited`. Answers what it settled, which is
  * nothing when no file qualifies, and never fails the halt: a file it cannot
  * read or write is left conflicted, as git left it, and a file still
- * conflicted is never rewritten.
+ * conflicted is never rewritten, nor one in `kept`, whose base side was kept
+ * for a commit that had already landed.
  */
 export async function settleAdditions(
 	exec: Exec,
 	treePath: string,
 	earlier: readonly Move[] = [],
+	kept: readonly string[] = [],
 ): Promise<{ settled: SettledFile[]; moves: Move[]; recited: string[] }> {
 	const settled: SettledFile[] = [];
 	const moves: Move[] = [];
@@ -622,7 +624,7 @@ export async function settleAdditions(
 	const cited: string[] = [];
 	if (every.length > 0) {
 		for (const [file, lines] of added) {
-			if (open.every.has(file)) continue;
+			if (open.every.has(file) || kept.includes(file)) continue;
 			const mine = new Set(lines.map(({ text }) => text));
 			let content: string;
 			try {

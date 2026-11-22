@@ -12,7 +12,7 @@
  *
  * So before settling, a halt asks whether the commit is one the base gained
  * since the branch left it. Only commits that touched the files in conflict
- * are read, and only their change to them, in one git process, which is what
+ * are read, and only their change to them, in one `git log`, which is what
  * keeps this from the walk of every commit the flag exists to skip; a commit
  * whose change there matches is then read whole.
  *
@@ -72,7 +72,7 @@ const PATCH = [
 	"core.quotepath=off",
 	"log",
 	"--no-merges",
-	"--format=%x00%h",
+	"--format=%x00%H %h",
 	"-p",
 	"-U3",
 	"--text",
@@ -104,8 +104,12 @@ export async function landedAs(
 		"REBASE_HEAD",
 	]);
 	if (halted === undefined) return undefined;
-	const fork = await ask(exec, treePath, ["merge-base", onto, halted]);
-	if (fork === undefined) return undefined;
+	// Every merge base: with more than one, past one of them alone lie
+	// commits the halted commit's own history already holds.
+	const forks = (
+		await ask(exec, treePath, ["merge-base", "--all", onto, halted])
+	)?.split("\n");
+	if (forks === undefined) return undefined;
 	// Only the files the halted commit changed. A file the base renamed is in
 	// conflict under the base's name, one the commit never touched: matched
 	// alongside the rest, its branch side would be thrown away with theirs.
@@ -113,20 +117,21 @@ export async function landedAs(
 	if (touched.length === 0) return undefined;
 	const pathspecs = ["--", ...touched.map(literal)];
 
-	const read = patchesIn(
-		await patches(exec, treePath, ["--no-walk", halted, ...pathspecs]),
-	);
-	const [mine] = read;
-	if (read.length !== 1 || mine === undefined || !changesLines(mine.change))
+	const read = await patches(exec, treePath, [
+		"--no-walk",
+		halted,
+		...pathspecs,
+	]);
+	const [mine] = read ?? [];
+	if (read?.length !== 1 || mine === undefined || !changesLines(mine.change))
 		return undefined;
-	const since = patchesIn(
-		await patches(exec, treePath, [
-			`--max-count=${LOOK_BACK}`,
-			onto,
-			`^${fork}`,
-			...pathspecs,
-		]),
-	);
+	const since = await patches(exec, treePath, [
+		`--max-count=${LOOK_BACK}`,
+		onto,
+		...forks.map((fork) => `^${fork}`),
+		...pathspecs,
+	]);
+	if (since === undefined) return undefined;
 	const alike = since.filter((one) => one.change === mine.change);
 	if (alike.length === 0) return undefined;
 	// Alike in the log is not yet the same commit: as git's patch id does,
@@ -203,28 +208,29 @@ async function touchedBy(
  * Each commit `git log` printed with `PATCH`, newest first, with its change
  * kept only as far as a cherry-pick leaves it alone: not the line numbers,
  * blob ids or trailing whitespace (a CR among it), as git's patch id leaves
- * them out.
+ * them out. Answers nothing unless the pieces name, in order, exactly the
+ * commits `listed`: a NUL in a log, printed as it is, cuts a commit's patch
+ * short and starts a piece of the file's own text, which may well look like a
+ * commit's id, and compared, a cut patch could match up to the NUL.
  */
 function patchesIn(
-	said: string | undefined,
-): { commit: string; change: string }[] {
-	if (said === undefined) return [];
-	const read = said
-		.split("\0")
-		.filter((chunk) => chunk.trim() !== "")
-		.map((chunk) => {
-			const [commit = "", ...lines] = chunk.split("\n");
-			const from = lines.findIndex((line) => line.startsWith("diff --git "));
-			const change = normalised(from < 0 ? [] : lines.slice(from));
-			return { commit: commit.trim(), change };
-		});
-	// A NUL in a log, printed as it is, cuts a commit's patch short and starts
-	// a piece that names no commit: compared, it could match up to the NUL.
-	return read.every((one) => COMMIT_ID.test(one.commit)) ? read : [];
+	said: string,
+	listed: readonly string[],
+): { commit: string; change: string }[] | undefined {
+	// Each commit's piece follows a NUL, so the text before the first is empty.
+	const [before, ...pieces] = said.split("\0");
+	if (before !== "" || pieces.length !== listed.length) return undefined;
+	const read = pieces.map((piece) => {
+		const [named = "", ...lines] = piece.split("\n");
+		const [full = "", commit = ""] = named.split(" ");
+		const from = lines.findIndex((line) => line.startsWith("diff --git "));
+		const change = normalised(from < 0 ? [] : lines.slice(from));
+		return { full, commit, change };
+	});
+	return read.every((one, at) => one.full === listed[at])
+		? read.map(({ commit, change }) => ({ commit, change }))
+		: undefined;
 }
-
-/** How `%h` prints a commit. */
-const COMMIT_ID = /^[0-9a-f]{4,64}$/;
 
 /**
  * A patch's lines as git's patch id reads them: no line numbers, no blob ids
@@ -259,16 +265,26 @@ function normalised(lines: readonly string[]): string {
 }
 
 /**
- * What `git log` prints with `PATCH`, read whole: trimmed, as `ask` reads,
- * only the oldest commit's last line would lose its trailing whitespace.
+ * The commits `args` select, each with its change as `patchesIn` reads it,
+ * or nothing when git can't say or the read can't be trusted. What `git log`
+ * prints is read whole: trimmed, as `ask` reads, only the oldest commit's
+ * last line would lose its trailing whitespace. The same selection through
+ * `rev-list`, which prints no file's text, says which commits there are.
  */
 async function patches(
 	exec: Exec,
 	treePath: string,
 	args: readonly string[],
-): Promise<string | undefined> {
-	const result = await exec("git", ["-C", treePath, ...PATCH, ...args]);
-	return result.code === 0 ? result.stdout : undefined;
+): Promise<{ commit: string; change: string }[] | undefined> {
+	const [printed, listed] = await Promise.all([
+		exec("git", ["-C", treePath, ...PATCH, ...args]),
+		exec("git", ["-C", treePath, "rev-list", "--no-merges", ...args]),
+	]);
+	if (printed.code !== 0 || listed.code !== 0) return undefined;
+	return patchesIn(
+		printed.stdout,
+		listed.stdout.split("\n").filter((line) => line !== ""),
+	);
 }
 
 /** Whether a change adds or removes a line, rather than only naming files. */
