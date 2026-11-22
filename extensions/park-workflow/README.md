@@ -85,9 +85,11 @@ It is off until one of these turns it on:
   minute ahead is taken back. The node writes it as the session's
   own user, so the folder is no boundary between accounts.
 
-- **A host's drain,** which parks each conversation it holds at
-  once, with the switch off too, since the host itself asked for
-  it. `PI_PARK=off` still keeps a session out of a drain's park.
+- **A host's drain,** which drops the idle wait for each
+  conversation it holds, with the switch off too, since the host
+  itself asked for it. Each still parks only once its turn ends and
+  the rest of the rule holds, and `PI_PARK=off` still keeps a
+  session out of a drain's park.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule
