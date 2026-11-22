@@ -8,16 +8,19 @@
  * rather than reading as a busy one.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
 	accessSync,
 	constants,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -35,19 +38,40 @@ const SETTLES_IN_MS = 10_000;
 /** How long a test is given: several of its checks settling in turn. */
 const TEST_MS = 4 * SETTLES_IN_MS;
 
-/** The script's own `lock` and `take_turn`, as it defines them. */
-function turnTaking(): string {
+/** What the script runs on its host, between its `THERE` lines. */
+function there(): string {
 	const text = readFileSync(SCRIPT, "utf8");
-	return ["let_go", "lock", "take_turn"]
-		.map((name) => {
-			const found = new RegExp(
-				`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}$`,
-				"m",
-			).exec(text);
-			if (found === null) throw new Error(`check-there.sh defines no ${name}`);
-			return found[0];
-		})
-		.join("\n");
+	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(text)?.[1] ?? "";
+}
+
+/**
+ * The script's own turn-taking, as it defines it: its functions, then
+ * the traps it sets, so a check here ends and stops as one there does.
+ */
+function turnTaking(): string {
+	const text = there();
+	const functions = [
+		"let_go",
+		"stop_all",
+		"let_go_of_dead",
+		"lock",
+		"take_turn",
+	].map((name) => {
+		const found = new RegExp(
+			`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}$`,
+			"m",
+		).exec(text);
+		if (found === null) throw new Error(`check-there.sh defines no ${name}`);
+		return found[0];
+	});
+	const traps = ["trap let_go EXIT", "trap stop_all TERM INT HUP"].map(
+		(line) => {
+			if (!text.split("\n").includes(line))
+				throw new Error(`check-there.sh never runs ${line}`);
+			return line;
+		},
+	);
+	return [...functions, ...traps].join("\n");
 }
 
 /** Where `program` is on this machine's PATH. */
@@ -67,7 +91,14 @@ function onPath(program: string): string | undefined {
 const made: string[] = [];
 const started: ChildProcess[] = [];
 afterEach(() => {
-	for (const child of started.splice(0)) child.kill("SIGKILL");
+	for (const child of started.splice(0)) {
+		try {
+			// Each check leads a group of its own, as one under ssh does.
+			if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+		} catch {
+			// Its group has ended already: nothing left to stop.
+		}
+	}
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -86,17 +117,25 @@ function hostWith(programs: readonly string[]): string {
 	return root;
 }
 
-/** A check's shell: the turn-taking, then `body`, on the host's PATH. */
+/**
+ * A check's shell: the turn-taking, then `body`, on the host's PATH with
+ * the host's folder as its home. It leads a process group of its own, as
+ * a shell ssh starts does, so a stop it sends its group reaches only it.
+ */
 function check(host: string, body: string, fd9 = true): ChildProcess {
 	const bash = onPath("bash");
 	if (bash === undefined) throw new Error("no bash here");
-	const turn = `turn="${join(host, "lock")}"\ntrap let_go EXIT\n`;
+	const turn = `turn="${join(host, "lock")}"\n`;
 	// Without fd9 the descriptor is closed outright, whatever node left open.
 	const opening = fd9 ? `${turn}exec 9> "$turn"\n` : `${turn}exec 9>&-\n`;
 	const child = spawn(
 		bash,
 		["-c", `set -euo pipefail\n${turnTaking()}\n${opening}${body}`],
-		{ env: { PATH: join(host, "bin") }, stdio: ["pipe", "pipe", "pipe"] },
+		{
+			env: { PATH: join(host, "bin"), HOME: host },
+			stdio: ["pipe", "pipe", "pipe"],
+			detached: true,
+		},
 	);
 	started.push(child);
 	return child;
@@ -283,6 +322,43 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 	);
 
 	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"stops the whole check when its holder's pid is sent a TERM, then lets the next in",
+		async () => {
+			const host = hostWith(tools);
+			// The check's work runs as the script runs it: a job without fd 9.
+			const holder = check(
+				host,
+				"take_turn\n{ sleep 30 >/dev/null 2>&1 <&- & echo $!; wait; } 9>&- &\nwait $!",
+			);
+			const stopped = ended(holder);
+			const work = Number(
+				await new Promise<string>((resolve) => {
+					holder.stdout?.once("data", (chunk: Buffer) =>
+						resolve(chunk.toString().trim()),
+					);
+				}),
+			);
+			const during = await ended(check(host, "lock -n"));
+			expect(during.code, "no turn while its work runs").toBe(1);
+			const line = readFileSync(join(host, "lock.holder"), "utf8");
+			expect(line, "the line names the pid to stop").toContain(
+				`pid ${holder.pid}`,
+			);
+
+			holder.kill("SIGTERM");
+			expect((await stopped).code, "it ends as signalled").toBe(143);
+			expect(await goneWithin(work), "its work stopped with it").toBe(true);
+			const after = await ended(check(host, "lock -n"));
+			expect(after.code, "the next check gets its turn").toBe(0);
+			expect(
+				existsSync(join(host, "lock.holder")),
+				"and the stopped check took its line with it",
+			).toBe(false);
+		},
+		TEST_MS,
+	);
+
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
 		"fails a check whose lock can't be tried, rather than reading it as busy",
 		async () => {
 			const host = hostWith(tools);
@@ -309,7 +385,149 @@ describe("check-there on a host with neither flock nor perl", () => {
 			expect(tried.err).not.toMatch(/waiting its turn/);
 			expect(tried.err).toMatch(/can't take/);
 		},
+		TEST_MS,
 	);
+});
+
+describe("the node link a check keeps", () => {
+	it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+		"goes as the check ends",
+		async () => {
+			const host = hostWith(EVERY_HOST);
+			mkdirSync(join(host, ".cache"));
+			const link = join(host, ".cache", "harness-check-node.mine");
+			symlinkSync(join(host, "nothing"), link);
+			const done = await ended(check(host, `node_link="${link}"\necho took`));
+			expect(done).toMatchObject({ code: 0, out: "took\n" });
+			expect(lstatOrNull(link), "its link went with it").toBeNull();
+		},
+		TEST_MS,
+	);
+
+	it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+		"is taken away by the next check once its own is no longer running",
+		async () => {
+			const host = hostWith(EVERY_HOST);
+			mkdirSync(join(host, ".cache"));
+			const gone = spawnSync("true").pid;
+			const dead = join(host, ".cache", `harness-check-node.${gone}`);
+			const live = join(host, ".cache", `harness-check-node.${process.pid}`);
+			symlinkSync(join(host, "nothing"), dead);
+			symlinkSync(join(host, "nothing"), live);
+			const swept = await ended(check(host, "let_go_of_dead\necho swept"));
+			expect(swept).toMatchObject({ code: 0, out: "swept\n" });
+			expect(lstatOrNull(dead), "a stopped check's link").toBeNull();
+			expect(lstatOrNull(live), "a running check's link").not.toBeNull();
+		},
+		TEST_MS,
+	);
+});
+
+/**
+ * Whether `pid` is gone within `SETTLES_IN_MS`. A process killed with
+ * its parent lingers until whoever adopts it reaps it, and nothing says
+ * when that is, so it is asked again every 50 ms.
+ */
+async function goneWithin(pid: number): Promise<boolean> {
+	const until = Date.now() + SETTLES_IN_MS;
+	while (Date.now() < until) {
+		try {
+			process.kill(pid, 0);
+		} catch {
+			// No such process: it is gone.
+			return true;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	return false;
+}
+
+/** A link's own status, or null when there is none to read. */
+function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
+	try {
+		return lstatSync(path);
+	} catch {
+		// Nothing at that path: that is the answer.
+		return null;
+	}
+}
+
+/**
+ * The local half as it runs, through an ssh that only writes down what
+ * it was given: one word a line, in `ssh.args` beside the stand-in.
+ */
+function sendFrom(
+	args: readonly string[],
+	wait?: string,
+): {
+	readonly code: number | null;
+	readonly err: string;
+	readonly sent: readonly string[] | null;
+	readonly root: string;
+} {
+	const bash = onPath("bash");
+	if (bash === undefined) throw new Error("no bash here");
+	const root = mkdtempSync(join(tmpdir(), "check-there-send-"));
+	made.push(root);
+	const bin = join(root, "bin");
+	mkdirSync(bin);
+	const record = join(root, "ssh.args");
+	writeFileSync(
+		join(bin, "ssh"),
+		`#!${bash}\nprintf '%s\\n' "$@" > "${record}"\n`,
+		{ mode: 0o755 },
+	);
+	const ran = spawnSync(bash, [SCRIPT, ...args], {
+		cwd: root,
+		env: {
+			PATH: bin,
+			HOME: root,
+			...(wait === undefined ? {} : { CHECK_THERE_WAIT_S: wait }),
+		},
+		encoding: "utf8",
+		timeout: SETTLES_IN_MS,
+	});
+	const sent = existsSync(record)
+		? readFileSync(record, "utf8").replace(/\n$/, "").split("\n")
+		: null;
+	return { code: ran.status, err: ran.stderr, sent, root };
+}
+
+describe("the check's local half", () => {
+	it("sends a branch the host's shell reads back as one word, with the wait last", () => {
+		const branch = "a;touch x$(id)";
+		const sent = sendFrom([branch, "there"], "60");
+		expect(sent.code, sent.err).toBe(0);
+		expect(sent.sent?.slice(0, 3)).toEqual(["-o", "BatchMode=yes", "there"]);
+		const line = sent.sent?.[3] ?? "";
+		expect(line, "the host's command").toMatch(/^bash -s -- .* 60$/);
+		// The host's shell reads the line again: its words, printed one a line.
+		const bash = onPath("bash") ?? "bash";
+		const words = spawnSync(
+			bash,
+			["-c", line.replace(/^bash -s -- /, "printf '%s\\n' ")],
+			{ cwd: sent.root, encoding: "utf8" },
+		);
+		expect(words.stdout).toBe(`${branch}\n60\n`);
+		expect(
+			readdirSync(sent.root).filter((name) => name.startsWith("x")),
+			"nothing in the branch ran",
+		).toEqual([]);
+	});
+
+	it("refuses a wait that isn't a number of seconds, reaching no host", () => {
+		const sent = sendFrom(["feature", "there"], "abc");
+		expect(sent.code).toBe(2);
+		expect(sent.err).toMatch(/CHECK_THERE_WAIT_S is 'abc'/);
+		expect(sent.sent, "no ssh").toBeNull();
+	});
+
+	it("refuses a host ssh would read as an option, reaching none", () => {
+		const sent = sendFrom(["feature", "-oProxyCommand=touch pwned"]);
+		expect(sent.code).toBe(2);
+		expect(sent.err).toMatch(/names no host/);
+		expect(sent.sent, "no ssh").toBeNull();
+	});
 });
 
 // What runs on the host can't run here without its clone and its ssh, so
@@ -318,17 +536,20 @@ describe("check-there on a host with neither flock nor perl", () => {
 // show lets the next check in whatever the first left running.
 describe("the check's work on its host", () => {
 	it("runs without the lock's descriptor, from its turn to its end", () => {
-		const text = readFileSync(SCRIPT, "utf8");
-		const there = /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(text)?.[1] ?? "";
-		const lines = there.split("\n");
+		const lines = there().split("\n");
 		const after = lines
 			.slice(lines.indexOf("take_turn") + 1)
-			.filter((line) => !line.startsWith("#"));
+			.filter((line) => line.trim() !== "" && !line.startsWith("#"));
 		expect(after[0], "the group opens as its turn is taken").toBe("{");
-		expect(after.at(-1), "and closes fd 9 for all of it").toBe("} 9>&-");
+		expect(after.at(-2), "closes fd 9 for all of it, as a job").toBe(
+			"} 9>&- &",
+		);
+		expect(after.at(-1), "which the shell holding fd 9 waits on").toBe(
+			"wait $!",
+		);
 		expect(
 			after.filter((line) => line === "{" || line.startsWith("}")),
 			"one group, not several",
-		).toEqual(["{", "} 9>&-"]);
+		).toEqual(["{", "} 9>&- &"]);
 	});
 });
