@@ -42,8 +42,12 @@ It is the mesh's `untested-cause` guard, so one switch covers a
 cause told as fact wherever it is told. Set `off`
 (`/guards untested-cause off`), no reply is judged and no
 reply's text goes to the classifier's provider. Otherwise every
-finished reply's text goes there. With no classifier, an error
-or a slow answer, nothing is judged and nothing is said.
+finished reply's text goes there. Other guards, the mesh's use
+of this one among them, still look while `off` and report what
+they would have refused; a note refuses nothing, so there is
+nothing to report, and judging would only send the text away.
+With no classifier, an error or a slow answer, nothing is
+judged and nothing is said.
 
 A note costs one turn. It refuses nothing, so the guard's
 `block` and `redirect` modes act alike here.
