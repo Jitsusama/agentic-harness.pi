@@ -245,6 +245,80 @@ describe("what a round records about the tree it read", () => {
 			tree.refusal,
 			"the refusal says where the named checkout stands",
 		).toContain(`${named.path}, is at ${named.head.slice(0, 12)}`);
+		expect(
+			tree.refusal,
+			"the refusal says where the configured checkout stands",
+		).toContain(`${configured.path}, is at ${configured.head.slice(0, 12)}`);
+	});
+
+	it("refuses a configured checkout at the commit with changes to its tracked files", async () => {
+		// The ground is held to what the named checkout is: a round records
+		// the commit it read, so edits on top would be recorded as it.
+		const configured = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
+		const tracked = execFileSync("git", ["-C", configured.path, "ls-files"], {
+			encoding: "utf8",
+		})
+			.split("\n")
+			.find((line) => line !== "");
+		if (tracked === undefined) throw new Error("the fixture tracks no file");
+		writeFileSync(join(configured.path, tracked), "edited after the commit\n");
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			configured.head,
+			configured.path,
+		);
+
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(
+			tree.refusal,
+			"the refusal names the ground's uncommitted changes",
+		).toContain(
+			`${configured.path}, is at ${configured.head} with uncommitted changes`,
+		);
+	});
+
+	it("reads a named checkout at the commit beside untracked scratch", async () => {
+		// Untracked files are common in a working checkout and are not in
+		// the diff reviewers read, so they do not stop a round.
+		const configured = await checkoutAt("elsewhere/other");
+		const named = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
+		writeFileSync(join(named.path, "scratch-notes.txt"), "not added\n");
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			named.head,
+			named.path,
+		);
+
+		if ("refusal" in tree) throw new Error(`refused: ${tree.refusal}`);
+		expect(tree, "untracked scratch leaves the checkout readable").toEqual({
+			path: named.path,
+		});
+	});
+
+	it("refuses a folder inside a checkout at the commit", async () => {
+		// A round reads the folder it is given as the repo's root, so a
+		// subfolder would be read as the whole commit.
+		const configured = await checkoutAt("elsewhere/other");
+		const named = movedOn(await checkoutAt("elsewhere/other"));
+		configureCheckout("elsewhere/other", configured.path);
+		const inside = join(named.path, "ignored-or-not");
+		mkdirSync(inside);
+
+		const tree = await treeForRound(
+			{ key: "github:elsewhere/other" },
+			named.head,
+			inside,
+		);
+
+		if (!("refusal" in tree)) throw new Error(`read ${tree.path}`);
+		expect(
+			tree.refusal,
+			"the refusal says it is not the checkout's top",
+		).toContain(`${inside}, is a folder inside a checkout`);
 	});
 
 	it("refuses a named checkout of another repo, even at the commit", async () => {

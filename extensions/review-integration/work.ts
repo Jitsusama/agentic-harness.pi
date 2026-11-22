@@ -24,6 +24,7 @@
  * stand refuses instead of degrading.
  */
 
+import { realpath } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
@@ -457,25 +458,64 @@ async function headOf(directory: string): Promise<string | undefined> {
 }
 
 /**
- * Whether a directory's tracked files are as its HEAD has them, by
- * asking git. Untracked files are left out: a checkout routinely holds
- * scratch nobody added, and a reviewer reading one is told the diff,
- * which they are not in. Undefined from git counts as not clean.
+ * Whether a directory is the top of its checkout rather than a folder
+ * inside one: a round reads the folder it is given as the repo's root,
+ * so a subfolder, tracked or ignored, would be read as the whole
+ * commit while holding a part of it or none.
  */
-async function isClean(directory: string): Promise<boolean> {
+async function isTopOfCheckout(directory: string): Promise<boolean> {
 	const { host } = standing();
 	if (host === undefined) return false;
 	try {
 		const said = await host.exec(
 			"git",
-			["-C", directory, "status", "--porcelain", "--untracked-files=no"],
+			["-C", directory, "rev-parse", "--show-toplevel"],
 			{ timeout: REMOTE_PROBE_MS },
 		);
-		return said.code === 0 && said.stdout.trim() === "";
+		if (said.code !== 0) return false;
+		return said.stdout.trim() === (await realpath(directory));
+	} catch {
+		// A folder git or the filesystem won't resolve can't be shown to
+		// be a checkout's top, so it is not read as one.
+		return false;
+	}
+}
+
+/**
+ * Whether a directory's tracked files are as its HEAD has them, by
+ * asking git; undefined when git couldn't say, so a refusal doesn't
+ * claim edits nobody saw. Untracked files are left out: a checkout
+ * routinely holds scratch nobody added, and a reviewer reading one is
+ * told the diff, which they are not in.
+ *
+ * Asked without optional locks and with the repo's fsmonitor off, so
+ * reading a checkout the caller named neither takes its index lock
+ * nor runs a command its config names.
+ */
+async function isClean(directory: string): Promise<boolean | undefined> {
+	const { host } = standing();
+	if (host === undefined) return undefined;
+	try {
+		const said = await host.exec(
+			"git",
+			[
+				"--no-optional-locks",
+				"-c",
+				"core.fsmonitor=false",
+				"-C",
+				directory,
+				"status",
+				"--porcelain",
+				"--untracked-files=no",
+			],
+			{ timeout: REMOTE_PROBE_MS },
+		);
+		if (said.code !== 0) return undefined;
+		return said.stdout.trim() === "";
 	} catch {
 		// A git that will not run cannot vouch for the tree, and a round
 		// is refused rather than reading what nobody vouched for.
-		return false;
+		return undefined;
 	}
 }
 
@@ -493,7 +533,14 @@ async function standingApart(
 	if (!head.startsWith(commit)) {
 		return `is at ${head.slice(0, 12)} rather than ${commit}`;
 	}
-	return (await isClean(directory))
+	if (!(await isTopOfCheckout(directory))) {
+		return "is a folder inside a checkout, not the top of one";
+	}
+	const clean = await isClean(directory);
+	if (clean === undefined) {
+		return `is at ${commit}, but git couldn't say whether its tracked files are unchanged`;
+	}
+	return clean
 		? undefined
 		: `is at ${commit} with uncommitted changes to tracked files`;
 }
@@ -535,9 +582,9 @@ async function fallbackAt(
 		if (await isCheckoutOf(named, repo)) {
 			const apart = await standingApart(named, commit);
 			if (apart === undefined) return { path: named };
-			namedApart = ` The checkout named for it, ${named}, ${apart}.`;
+			namedApart = ` The checkout it was pointed at (the repo parameter, else the session's folder), ${named}, ${apart}.`;
 		} else {
-			namedApart = ` The checkout named for it, ${named}, is not a checkout of ${repo.key}.`;
+			namedApart = ` The checkout it was pointed at (the repo parameter, else the session's folder), ${named}, is not a checkout of ${repo.key}.`;
 		}
 	}
 	return {
