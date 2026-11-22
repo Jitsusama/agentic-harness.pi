@@ -222,16 +222,17 @@ export interface SaidOnce {
  */
 export function faultsInto(log: string): (error: unknown) => void {
 	return (error) => {
-		const why =
-			error instanceof Error ? (error.stack ?? error.message) : String(error);
 		try {
+			const why =
+				error instanceof Error ? (error.stack ?? error.message) : String(error);
 			mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
 			appendFileSync(
 				log,
 				`${JSON.stringify({ at: new Date().toISOString(), why })}\n`,
 			);
 		} catch {
-			// Nowhere to keep it: the note stays unsaid, and the next session tries.
+			// Nowhere to keep it, or nothing to say of it: the note stays
+			// unsaid, and the next session tries.
 		}
 	};
 }
@@ -264,15 +265,31 @@ export async function sayHeldOnce(
 ): Promise<void> {
 	const once =
 		saying.once ?? processGlobal<SaidOnce>(HELD_SAID, () => ({ said: false }));
+	// Only this call's own claim is given back on a failure, so a
+	// session failing after another said the note never has it said again.
+	let claimed = false;
 	try {
 		const note = heldNote(await held);
 		if (note === undefined || once.said || !screen.hasUI) return;
 		once.said = true;
+		claimed = true;
 		screen.ui.notify(note, "warning");
 	} catch (error) {
-		once.said = false;
+		if (claimed) once.said = false;
 		// A replaced session's is expected, and the next session says it.
-		if (!isStaleContext(error)) saying.fault?.(error);
+		if (!isStaleContext(error)) tellFault(saying.fault, error);
+	}
+}
+
+/** Tell `fault` of an error, never letting it throw out of a note. */
+function tellFault(
+	fault: ((error: unknown) => void) | undefined,
+	error: unknown,
+): void {
+	try {
+		fault?.(error);
+	} catch {
+		// A fault that can't be told is lost; the note stays unsaid either way.
 	}
 }
 
