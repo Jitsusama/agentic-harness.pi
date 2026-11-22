@@ -23,7 +23,9 @@
  * starts it again with the command the pi named as it parked
  * ({@link AGAIN_ENV}), since the launcher starts a session as a bare
  * `pi`, or with a first prompt, which would otherwise wake as a new
- * conversation or send that prompt again. The
+ * conversation or send that prompt again. Where the holder names a
+ * file for it ({@link PARKED_ENV}), the pi writes it as it parks, so a
+ * park whose exit hangs and ends by a signal still reads as one. The
  * marker names the file as `wake`, and a sender writes to it when its
  * message would give a parked peer a turn (see mesh/parked.ts); the
  * mesh keeps unread messages on disk until a peer's next start, so
@@ -59,6 +61,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -96,6 +99,17 @@ export const AGAIN_ENV = "MYCELIUM_AGAIN";
  * wake file.
  */
 export const STEERS_ENV = "MYCELIUM_STEERS";
+
+/**
+ * Where the holder keeping this pi takes its word that the run parked,
+ * a file the holder clears before each run. A pi writes it as it
+ * commits to exiting {@link PARKED_EXIT}, so a run whose exit then
+ * hangs, as one waiting on a name lookup does, and ends by a signal
+ * still counts as parked. On 21 November Mac parks that ended so lost
+ * their holders, which keep a window only on that exit code. A holder
+ * that sets none reads the exit code alone.
+ */
+export const PARKED_ENV = "MYCELIUM_PARKED";
 
 /**
  * Which steers wake a parked peer, said as data for a holder in another
@@ -276,6 +290,8 @@ export interface HolderFiles {
 	readonly wake: string;
 	/** The file naming the command the holder starts next. */
 	readonly again: string;
+	/** The file that says the run parked, where its holder names one. */
+	readonly parked?: string;
 }
 
 /**
@@ -289,7 +305,72 @@ export function holderFiles(
 	const wake = env[WAKE_ENV] ?? "";
 	const again = env[AGAIN_ENV] ?? "";
 	if (wake === "" || again === "") return undefined;
-	return heldDirectly(wake, pid) ? { wake, again } : undefined;
+	if (!heldDirectly(wake, pid)) return undefined;
+	const parked = env[PARKED_ENV] ?? "";
+	return parked === "" ? { wake, again } : { wake, again, parked };
+}
+
+/**
+ * Tells the holder running `pid` that this run parked, by writing the
+ * file it named in {@link PARKED_ENV}, empty. It writes nothing where
+ * no holder runs this process itself, as for a subagent that inherited
+ * the variable, or where the holder names no file.
+ */
+export function sayParked(env: NodeJS.ProcessEnv, pid: number): void {
+	const parked = env[PARKED_ENV] ?? "";
+	const wake = env[WAKE_ENV] ?? "";
+	if (parked === "" || wake === "" || !heldDirectly(wake, pid)) return;
+	sayParkedIn(parked);
+}
+
+/**
+ * Takes back what {@link sayParked} wrote for a run that is up after
+ * all, as one replaced in place, whose holder sees no exit and so never
+ * clears it: left, a later quit whose exit hangs would count as a park.
+ * Like sayParked, it touches nothing where no holder runs `pid` itself,
+ * as for a subagent that inherited the variable from a parent whose
+ * mark is real.
+ */
+export function unsayParked(env: NodeJS.ProcessEnv, pid: number): void {
+	const parked = env[PARKED_ENV] ?? "";
+	const wake = env[WAKE_ENV] ?? "";
+	if (parked === "" || wake === "" || !heldDirectly(wake, pid)) return;
+	try {
+		rmSync(parked, { force: true });
+	} catch {
+		// Left in place, only a quit whose exit then hangs is misread.
+	}
+}
+
+/**
+ * Names the process whose restart in place said its park, set on the
+ * pi it becomes, so that pi takes back that park and no other: a mark
+ * written as a session starts, as one-writer's hand-over to the host's
+ * view writes one, is a real park.
+ */
+export const PARK_SAID_ENV = "PI_PARK_SAID_BY";
+
+/**
+ * Takes back the park a restart in place of process `pid` said, once
+ * it is up as the pi that restart became, and forgets the restart, so
+ * no later start in this process, nor a subagent it spawns, acts on it.
+ * A mark that anything else wrote stands.
+ */
+export function takeBackRestartPark(env: NodeJS.ProcessEnv, pid: number): void {
+	const saidBy = env[PARK_SAID_ENV];
+	if (saidBy === undefined) return;
+	delete env[PARK_SAID_ENV];
+	if (saidBy === String(pid)) unsayParked(env, pid);
+}
+
+/** Writes the holder's parked file `parked`, empty. */
+export function sayParkedIn(parked: string): void {
+	try {
+		writeFileSync(parked, "");
+	} catch {
+		// Unwritten, the holder reads the exit code alone, as it did before
+		// it named a file; only an exit that then hangs is lost, as before.
+	}
 }
 
 /**

@@ -133,7 +133,7 @@ export const FENCE = "fence";
  * proxy's old place, now a link into the folder, kept for a machine
  * whose proxy hasn't moved yet.
  */
-const LET_THROUGH = [
+export const LET_THROUGH = [
 	"nix-untrusted.sock",
 	"pi-agent.sock",
 	"pi-agent",
@@ -171,9 +171,13 @@ const SOCKETS_ELSEWHERE = ["/run/nscd/socket"] as const;
 
 /**
  * What must never be reachable inside, as paths from the runtime folder
- * (a trailing `*` for any name it begins) or absolute. Each is checked
- * live; the fence lets through only `LET_THROUGH`, so these are the
- * names a change to it must keep out.
+ * (a trailing `*` for any name it begins) or absolute. The fence lets
+ * through only `LET_THROUGH`, so this list keeps nothing out itself: it
+ * names what a change to `LET_THROUGH` must keep out. fence-args' test
+ * checks it against each Landlock rule and each bind into the runtime
+ * folder, a folder above a name included, and the preflight checks each
+ * runtime name served outside live. An absolute one is seen inside
+ * through the whole disk's bind, so only Landlock keeps it shut.
  */
 export const NEVER_THROUGH = [
 	"wayland-*",
@@ -212,6 +216,11 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
+	// The eero daemon's socket, where core's daemon listens
+	// (modules/eero/src/daemon.rs), which reserves addresses and changes
+	// the home network's settings as the person: an unfenced session asks
+	// it, after the person's yes (ISXEG8, 21 November).
+	"eero/socket",
 	// The secret-asks daemon takes a yes from anything reaching its socket,
 	// and core's passwords daemon answers whatever ask lands in the asks
 	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).

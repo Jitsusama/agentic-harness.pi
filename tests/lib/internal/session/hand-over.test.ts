@@ -11,7 +11,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	goQuiet,
@@ -57,6 +57,20 @@ describe("whether a pi may hand its window over", () => {
 				sessionFile: log,
 			}),
 		).toEqual({ files: holder.files, sessionFile: log });
+	});
+
+	it("names where it says the run parked, when its holder names a file", () => {
+		const holder = holderFor(4242);
+		const parked = join(dirname(holder.files.wake), "s.parked");
+
+		expect(
+			handingOf({
+				env: { ...holder.env, MYCELIUM_PARKED: parked },
+				pid: 4242,
+				args: [],
+				sessionFile: log,
+			})?.files,
+		).toEqual({ ...holder.files, parked });
 	});
 
 	it("may not when its holder runs some other process", () => {
@@ -158,6 +172,32 @@ describe("telling the holder what starts next", () => {
 
 		expect(existsSync(files.again), "no command").toBe(false);
 		expect(existsSync(files.wake), "no wake").toBe(false);
+	});
+
+	it("says the run parked once its holder is told, and takes it back with the rest", () => {
+		const { files } = holderFor(4242);
+		const parked = join(dirname(files.wake), "s.parked");
+		const naming = { ...files, parked };
+
+		expect(tellHolder(naming, ["pi"], { view: true })).toEqual({ told: true });
+		expect(readFileSync(parked, "utf8"), "told, it parked").toBe("");
+
+		untellHolder(naming);
+
+		expect(existsSync(parked), "called off, it hasn't parked").toBe(false);
+	});
+
+	it("says nothing parked when the wake can't be written, taking back a mark left from before", () => {
+		const { files } = holderFor(4242);
+		const parked = join(dirname(files.wake), "s.parked");
+		writeFileSync(parked, "");
+		mkdirSync(files.wake);
+
+		expect(tellHolder({ ...files, parked }, ["pi"], { view: true })).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR/),
+		});
+		expect(existsSync(parked), "untold, it hasn't parked").toBe(false);
 	});
 
 	it("takes back what it can when one file won't go", () => {

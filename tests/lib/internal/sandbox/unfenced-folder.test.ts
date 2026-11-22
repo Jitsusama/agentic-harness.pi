@@ -465,6 +465,17 @@ describe("a working folder the sandbox won't let commands write", () => {
 		).toContain("compiled");
 	});
 
+	it("is one holding or inside the agent fence's own state", () => {
+		for (const at of [
+			".cache/pi-fence",
+			".cache/pi-fence/homes",
+			".cache/pi-fence/homes/cargo",
+			".cache/pi-fence/gcloud/s-1",
+		]) {
+			expect(unfencedFolder(join(home, at), home), at).toContain("fence");
+		}
+	});
+
 	it("names the sandbox as the variable that asks for it", () => {
 		expect(ASKED).toBe(`${SANDBOX_VARIABLE}=${STRICT}`);
 	});

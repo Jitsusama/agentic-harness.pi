@@ -62,6 +62,22 @@ describe("replaying a branch", () => {
 		});
 	});
 
+	it("asks git to reapply cherry-picks rather than match the base's patches", async () => {
+		// On 21 November a World rebase of two commits read 83 GB over 16
+		// minutes before it started, matching patches against every commit
+		// main had gained. With this flag it reached its first pick in
+		// seconds; what then becomes of a landed commit is in rebase-live.
+		const { exec, calls } = fakeExec([
+			...ready,
+			{ when: ["rebase", "main"], code: 0 },
+		]);
+
+		await createGitRebaser({ exec }).rebase(TREE, "main");
+
+		const replay = calls.find((call) => call.args.includes("rebase"));
+		expect(replay?.args).toContain("--reapply-cherry-picks");
+	});
+
 	it("says nothing needed replaying rather than replaying nothing", async () => {
 		const { exec } = fakeExec([
 			...settled,

@@ -26,9 +26,11 @@
 
 import type { Exec } from "../exec/index.ts";
 import type { SettledFile, StaleCitation } from "./appends.ts";
+import { keptLine, type Landed } from "./landed.ts";
 import {
 	type CarriedOn,
 	carryOn,
+	REAPPLY_CHERRY_PICKS,
 	recordOnto,
 	settlingOf,
 	type WorkRebaser,
@@ -70,6 +72,8 @@ export interface ReplayResult {
 	recited?: readonly string[];
 	/** Lines the branch added still citing a number one of its entries moved off. */
 	stale?: readonly StaleCitation[];
+	/** Commits that had already landed, whose Markdown kept the parent's side. */
+	landed?: readonly Landed[];
 }
 
 /** How a restack went. */
@@ -570,6 +574,15 @@ export function createGitStacks(deps: {
 			]);
 
 			const results: ReplayResult[] = [];
+			// A refusal answers only why, so it names the landings earlier steps
+			// already kept the parent's side of, or their dropped change goes unseen.
+			const refused = (reason: string) => ({
+				kind: "refused" as const,
+				reason: [
+					reason,
+					...results.flatMap((one) => one.landed ?? []).map(keptLine),
+				].join("\n"),
+			});
 			for (const [at, step] of plan.steps.entries()) {
 				// The same question the listing asks, asked the same way. Two rules for
 				// "is this branch where it should be" is how a diagram comes to say
@@ -606,13 +619,16 @@ export function createGitStacks(deps: {
 					step.branch,
 				]);
 				if (checkout.code !== 0) {
-					return {
-						kind: "refused",
-						reason: `Could not check out ${step.branch}: ${checkout.stderr.trim() || `git checkout exited ${checkout.code}`}`,
-					};
+					return refused(
+						`Could not check out ${step.branch}: ${checkout.stderr.trim() || `git checkout exited ${checkout.code}`}`,
+					);
 				}
 
-				const args = ["-C", treePath, "rebase"];
+				// Git matches the branch's commits against the boundary's side, so
+				// with a boundary that is an ancestor of the branch (recorded, or
+				// the merge-base) it finds nothing to match anyway; the flag matters
+				// for a recorded boundary no longer below the branch.
+				const args = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
 				// The boundary is what separates this branch's commits from its
 				// parent's. Without it the branch is handed copies of
 				// everything the parent already carries.
@@ -630,7 +646,7 @@ export function createGitStacks(deps: {
 					// branch happens to sit on its commit.
 					await recordOnto(exec, treePath, step.onto);
 					carried = await carryOn(exec, treePath, { onlyIfSettled: true });
-					if (carried.kind === "refused") return carried;
+					if (carried.kind === "refused") return refused(carried.reason);
 				}
 
 				if (replay.code !== 0 && carried?.kind !== "replayed") {

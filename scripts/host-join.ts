@@ -58,6 +58,7 @@ import {
 	AGAIN_ENV,
 	heldDirectly,
 	PARKED_EXIT,
+	sayParked,
 	WAKE_ENV,
 } from "../lib/internal/session/park.ts";
 
@@ -155,6 +156,7 @@ if (held) {
 			at: new Date().toISOString(),
 		}),
 	);
+	sayParked(process.env, process.pid);
 	process.exitCode = PARKED_EXIT;
 } else {
 	const [program = "", ...words] = next;

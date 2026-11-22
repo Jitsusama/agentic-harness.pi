@@ -25,6 +25,8 @@ import {
 	mayPark,
 	noteNeverParks,
 	type Parkable,
+	replaceInPlace,
+	restartEnvironment,
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
@@ -44,6 +46,7 @@ import {
 	opensOnlyItself,
 	PARK_AFTER_MS,
 	PARK_ASK,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	parkSwitch,
@@ -52,6 +55,7 @@ import {
 	readParked,
 	readWakes,
 	SESSION_WOKEN,
+	takeBackRestartPark,
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
@@ -188,6 +192,41 @@ describe("parking a session", () => {
 		// Asked again before pi has gone, it doesn't park twice.
 		expect(watched.look()).toBe("parking already");
 		expect(shutdowns).toBe(1);
+	});
+
+	// 21 November, P10876: parked, its exit hung on a name lookup and
+	// ended by a signal, so its holder, seeing no 75, let the window go.
+	it("tells a holder that names a file for it that the run parked, before pi ends", () => {
+		const parked = join(folder, "held.parked");
+		const saidAtExit: boolean[] = [];
+		let refusing = true;
+		events.on(PARK_ASK, (data) => {
+			if (refusing && isParkAsk(data)) data.refusals.push("a run is on");
+		});
+		const watched = watch(session(), events, {
+			env: { ...holder(), MYCELIUM_PARKED: parked },
+			args: [],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code) => {
+				saidAtExit.push(existsSync(parked));
+				exits.push(code);
+			},
+			clock: false,
+		});
+		clock = NAMED_PARK_AFTER_MS - 1;
+		expect(watched.look()).toBe("not idle long enough");
+		expect(existsSync(parked), "awake, it says nothing").toBe(false);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("a run is on");
+		expect(existsSync(parked), "refused when due, it says nothing").toBe(false);
+		refusing = false;
+		expect(watched.look()).toBeUndefined();
+		expect(readFileSync(parked, "utf8"), "parked, it says so").toBe("");
+		expect(saidAtExit, "said before pi's exit is set").toEqual([true]);
+		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
 	it("names its holder the command that opens its log, to wake with", () => {
@@ -731,6 +770,67 @@ describe("starting again on a fresh log", () => {
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
+	// A shutdown that hangs before the exit, where the restart runs, ends
+	// by a signal: said only there, the holder would let the window go.
+	it("tells its holder the run parked as it commits to starting again, before pi ends", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		asked();
+		expect(shutdowns, "pi is asked to end").toBe(1);
+		expect(readFileSync(parked, "utf8"), "said before it exits").toBe("");
+		fallbacks[0]?.();
+		expect(readFileSync(parked, "utf8"), "ending for its holder").toBe("");
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	// Node ends a process whose execve call fails by abort, with no
+	// fallback (PV3TE0 on node 24, 21 November): taken back before it,
+	// the window would be lost, unparked and unwoken.
+	it("leaves the park said through the execve, for the pi it becomes to take back as it starts", () => {
+		const parked = join(folder, "held.parked");
+		const env = {
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			PI_SESSION_FILE: "/logs/first.jsonl",
+		};
+		shownIn("kitty");
+		restarting(env);
+		asked();
+		expect(readFileSync(parked, "utf8"), "standing as it is replaced").toBe("");
+
+		const becomes = restartEnvironment(env, HELD_PID);
+		expect(becomes[PARK_SAID_ENV], "the pi it becomes knows who said it").toBe(
+			String(HELD_PID),
+		);
+		expect(becomes.PI_SESSION_FILE, "a first start's alone").toBe(undefined);
+		takeBackRestartPark(becomes, HELD_PID);
+
+		expect(existsSync(parked), "up again, it hasn't parked").toBe(false);
+	});
+
+	// One-writer's hand-over says a park in the same session_start
+	// (F14, #1951), and pi may run its handler first: only the factory,
+	// as pi loads it, takes a restart's park back (index.test.ts).
+	it("takes back no park as it starts watching, even one a restart said", () => {
+		const parked = join(folder, "held.parked");
+		writeFileSync(parked, "");
+
+		restarting({
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			[PARK_SAID_ENV]: String(HELD_PID),
+		});
+
+		expect(readFileSync(parked, "utf8"), "another's park stands").toBe("");
+	});
+
+	it("says nothing of a park when it refuses to start again", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_AGAIN: "", MYCELIUM_PARKED: parked });
+		expect(asked().why).toBe("its holder would start it on the log it left");
+		expect(existsSync(parked)).toBe(false);
+	});
+
 	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {
 		mkdirSync(join(folder, "held.wake"));
 		restarting();
@@ -932,6 +1032,60 @@ describe("starting again on a fresh log", () => {
 		events.emit(RESTART_ASK, other);
 		expect(other).not.toHaveProperty("restarting");
 		expect(shutdowns).toBe(0);
+	});
+});
+
+describe("replacing the process in place", () => {
+	const argv = ["/bin/node", "pi.js", "--session", "s.jsonl"] as const;
+
+	const recording =
+		(steps: string[]): NodeJS.Process["execve"] =>
+		(file, args, env) => {
+			steps.push(`execve ${file} ${args?.join(" ")} ${env?.HOME}`);
+			return undefined as never;
+		};
+
+	it("replaces it by execve when its program can run", () => {
+		const steps: string[] = [];
+		replaceInPlace(recording(steps), argv, { HOME: "/home/joel" }, () => true);
+		expect(steps).toEqual([
+			"execve /bin/node /bin/node pi.js --session s.jsonl /home/joel",
+		]);
+	});
+
+	// Node aborts on a failed execve call rather than throwing, so a
+	// program gone from under a long-running pi has to be caught first.
+	it("returns without calling execve when its program can't be run, so its holder starts it", () => {
+		const steps: string[] = [];
+		replaceInPlace(recording(steps), argv, {}, () => false);
+		expect(steps).toEqual([]);
+	});
+
+	it("returns without calling execve where its program is gone from the disk", () => {
+		const steps: string[] = [];
+		replaceInPlace(
+			recording(steps),
+			[join(folder, "no-such-node"), "pi.js"],
+			{},
+		);
+		expect(steps).toEqual([]);
+	});
+
+	it("returns where Node has no execve, so its holder starts it", () => {
+		expect(() => replaceInPlace(undefined, argv, {}, () => true)).not.toThrow();
+	});
+
+	it("returns, never throwing, when execve throws", () => {
+		expect(() =>
+			replaceInPlace(
+				() => {
+					throw new Error("ENOENT: no such file, execve");
+				},
+				argv,
+				{},
+				() => true,
+			),
+		).not.toThrow();
 	});
 });
 

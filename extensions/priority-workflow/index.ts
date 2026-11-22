@@ -70,6 +70,7 @@ import {
 } from "../../lib/internal/priority/room.ts";
 import { darwinRoom } from "../../lib/internal/priority/room-darwin.ts";
 import {
+	placesNow,
 	sendsWholeRun,
 	takesKnown,
 	takesNow,
@@ -418,8 +419,10 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			session: ctx.sessionManager.getSessionId(),
 			room: recent,
 			cgroupFor,
-			sendsWholeRun: (command, cwd) =>
-				sendsWholeRun(command, cwd, takesKnown()),
+			sendsWholeRun: (command, cwd, quest) =>
+				sendsWholeRun(command, cwd, takesKnown(), undefined, undefined, {
+					...(quest === undefined ? {} : { quest }),
+				}),
 		});
 		timer = setInterval(() => {
 			if (keeping) return;
@@ -434,12 +437,15 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	pi.on("session_shutdown", async () => stop());
 
 	// A changed-checks run asks what nix-offload takes before it spawns,
-	// so even a session's first is held to what a sent run needs. Heavy
-	// work has the room read for it, so its turn can be given as it asks.
+	// so even a session's first is held to what a sent run needs, and an
+	// elsewhere run asks where its kind goes, so it is judged on a fresh
+	// answer. Heavy work has the room read for it, so its turn can be
+	// given as it asks.
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
 		const { command } = event.input;
 		if (runsChangedChecks(command)) await takesNow();
+		await placesNow(command, ctx.cwd).catch(() => undefined);
 		if (kindOf(command, { cwd: ctx.cwd, home: homedir() }) !== undefined)
 			await readNow().catch(() => undefined);
 	});
