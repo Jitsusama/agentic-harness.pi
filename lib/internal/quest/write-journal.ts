@@ -28,14 +28,23 @@
 import {
 	closeSync,
 	constants,
+	fchmodSync,
 	fstatSync,
+	lstatSync,
 	openSync,
 	readSync,
 	renameSync,
-	rmSync,
+	rmdirSync,
+	unlinkSync,
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
+
+/** The journal's mode: its owner's alone, to read and write. */
+const JOURNAL_MODE = 0o600;
+
+/** The permission bits of a file's mode, which `JOURNAL_MODE` sets. */
+const JOURNAL_MODE_BITS = 0o777;
 
 /** The journal's name in the quest lock folder. */
 const JOURNAL_NAME = "writes.log";
@@ -121,7 +130,7 @@ function appended(file: string, line: Buffer): "appended" | "moved aside" {
 
 /** Open `file` as a plain file, refusing a link, a pipe or a device. */
 function openPlain(file: string, flags: number): number {
-	const fd = openSync(file, flags | UNTRUSTED, 0o600);
+	const fd = openSync(file, flags | UNTRUSTED, JOURNAL_MODE);
 	if (fstatSync(fd).isFile()) return fd;
 	closeSync(fd);
 	throw new Error(`${file} is not a plain file`);
@@ -135,28 +144,61 @@ function openPlain(file: string, flags: number): number {
 function openToAppend(file: string): number {
 	const flags = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT;
 	const fd = openPlain(file, flags);
-	if (fstatSync(fd).size < JOURNAL_MOST_BYTES) return fd;
+	if (fstatSync(fd).size < JOURNAL_MOST_BYTES && keptToOwner(fd)) return fd;
 	closeSync(fd);
 	moveAside(file);
 	return openPlain(file, flags);
 }
 
 /**
+ * Whether the journal open at `fd` is its owner's to read and write
+ * alone, set so when it isn't: a journal its readers can't open has
+ * stopped being heard as surely as a full one, and is moved aside
+ * like one when its mode can't be set back.
+ */
+function keptToOwner(fd: number): boolean {
+	if ((fstatSync(fd).mode & JOURNAL_MODE_BITS) === JOURNAL_MODE) return true;
+	try {
+		fchmodSync(fd, JOURNAL_MODE);
+		return true;
+	} catch {
+		// Not this user's file: moved aside instead, for a fresh one.
+		return false;
+	}
+}
+
+/**
  * Move the journal aside, whatever stands at its name. What stands at
- * the moved name and blocks the move, as a folder planted there would,
- * is removed and the move tried again; what still won't move is
+ * the moved name and blocks the move, as an empty folder planted there
+ * would, is removed and the move tried again; what still won't move is
  * removed, so the next write makes a fresh journal rather than leave
- * one that has stopped hearing writes. Said once when nothing works.
+ * one that has stopped hearing writes. Nothing is removed whole, as
+ * io.ts's `clearAside` removes nothing whole in this folder, since a
+ * fenced command can plant a tree here, and a walk through one can be
+ * led outside it. What can't be cleared is said once, and its readers
+ * go without a journal (`journalNow`). Never throws.
  */
 function moveAside(file: string): void {
 	const aside = `${file}${MOVED_ASIDE}`;
 	if (renamed(file, aside)) return;
-	rmSync(aside, { recursive: true, force: true });
+	clearOne(aside);
 	if (renamed(file, aside)) return;
+	const error = clearOne(file);
+	if (error !== undefined) sayStuck(file, error);
+}
+
+/**
+ * Remove what stands at `path`, a file, a link or an empty folder, and
+ * never a folder's contents: undefined once nothing stands there, or
+ * the error that kept it.
+ */
+function clearOne(path: string): unknown {
 	try {
-		rmSync(file, { recursive: true, force: true });
+		if (lstatSync(path).isDirectory()) rmdirSync(path);
+		else unlinkSync(path);
+		return undefined;
 	} catch (error) {
-		sayStuck(file, error);
+		return isMissing(error) ? undefined : error;
 	}
 }
 

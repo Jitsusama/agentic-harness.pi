@@ -1040,9 +1040,23 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 		writeSettled(readmePath, readme("paused"));
 		unlinkSync(journal);
 		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+		later(6_000);
 		await readyQuests(root, [OTHER], false);
 		expect(signing.walks, "a signing waited on").toBe(1);
 		expect(statusNow()).toBe("paused");
+	});
+
+	it("has actions wait on no more than one signing every five seconds while the journal keeps starting afresh", async () => {
+		settledOther();
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		for (let step = 0; step < 3; step++) {
+			unlinkSync(journal);
+			noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+			later(2_000);
+			await readyQuests(root, [OTHER], false);
+		}
+		expect(signing.walks, "one signing over six seconds").toBe(1);
 	});
 
 	it("shows a write noted while a signing walked, once it ends", async () => {

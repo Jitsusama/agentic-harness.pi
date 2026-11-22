@@ -282,10 +282,14 @@ export async function readyQuests(
 		slot && recent && !across
 			? questsNamed(questsRoot, slot.result, ids)
 			: undefined;
-	// Read before the catching up, which reads on past what it missed.
+	// Read before the catching up, which reads on past what it missed. A
+	// journal that started afresh within `SIGN_AGAIN_AFTER_MS` of the last
+	// signing is caught up on the thread instead, as with no journal, so
+	// one that keeps starting afresh can't have every action sign whole.
 	const missed =
 		slot?.journal !== undefined &&
-		journaledSince(questsRoot, slot) === "started afresh";
+		journaledSince(questsRoot, slot) === "started afresh" &&
+		signedLongAgo(slot);
 	if (slot && named && !missed && caughtUp(questsRoot, slot, named)) return;
 	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
 }

@@ -220,6 +220,29 @@ describe("the journal of quest writes", () => {
 		expect(dirsSince(mark)).toEqual(["/q/QEST-B"]);
 	});
 
+	it("clears an empty folder at the moved name and moves a full folder aside", () => {
+		mkdirSync(file);
+		writeFileSync(join(file, "inside"), "x");
+		mkdirSync(`${file}.old`);
+		noteQuestWrite(file, "/q/QEST-A");
+		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
+		expect(
+			existsSync(join(`${file}.old`, "inside")),
+			"the full folder moved aside whole",
+		).toBe(true);
+	});
+
+	it("removes no folder's contents, going without a journal instead", () => {
+		mkdirSync(file);
+		writeFileSync(join(file, "inside"), "x");
+		mkdirSync(`${file}.old`);
+		writeFileSync(join(`${file}.old`, "inside"), "y");
+		expect(() => noteQuestWrite(file, "/q/QEST-A")).not.toThrow();
+		expect(readFileSync(join(file, "inside"), "utf8")).toBe("x");
+		expect(readFileSync(join(`${file}.old`, "inside"), "utf8")).toBe("y");
+		expect(journalNow(file), "no journal to read").toBeUndefined();
+	});
+
 	it("moves a folder aside over a plain journal moved aside before", () => {
 		writeFileSync(`${file}.old`, "/q/QEST-OLD\n");
 		mkdirSync(file);
@@ -231,6 +254,14 @@ describe("the journal of quest writes", () => {
 		noteQuestWrite(file, "/q/QEST-A");
 		chmodSync(file, 0o200);
 		expect(journalNow(file), "an unreadable journal").toBeUndefined();
+	});
+
+	it("gives a journal its readers can't open back to its owner at the next write", () => {
+		noteQuestWrite(file, "/q/QEST-A");
+		chmodSync(file, 0o200);
+		noteQuestWrite(file, "/q/QEST-B");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n/q/QEST-B\n");
 	});
 
 	it("never throws when it can't write, so the quest write stands", () => {
