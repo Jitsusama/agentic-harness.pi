@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { sessionEndingInterceptor } from "../../../extensions/session-ending-interceptor/index.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
+import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 
@@ -122,6 +123,14 @@ const resultOf = (toolName: string, id: string, details: unknown) =>
 		ctx,
 	);
 
+/** A wait on the person, as `id`, with `extra` beside its title. */
+const wait = (extra: Record<string, unknown>, id: string) =>
+	call(
+		"mesh_wait",
+		{ title: "Install the BIOS", machine: "optimus", ...extra },
+		id,
+	);
+
 /** The person's own input, typed or through the host, then its message. */
 const personSays = async (said: string, source: string) => {
 	await handler("input")({ type: "input", text: said, source }, ctx);
@@ -196,6 +205,8 @@ describe("what follows a spare in the same run", () => {
 		"Done; the notes are in `notes.md`.",
 		"The reboot is queued for when you say.",
 		"It runs `sudo reboot` once you say.",
+		"The skills are loaded, and the stuck test was killed.",
+		"See `~/.pi/skills/README.md`; sshd is up.",
 	])("lets a later reply through that names no command: %s", async (said) => {
 		interceptorOver();
 
@@ -220,6 +231,75 @@ describe("what follows a spare in the same run", () => {
 				/let through earlier in this run.*\("sudo kexec -e"\)/,
 			),
 		});
+	});
+
+	it("refuses a later wait whose check names a command, which runs as the person", async () => {
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		const verdict = await wait(
+			{ why: "To see it came up", readyWhen: { check: "pkill -u joel node" } },
+			"w2",
+		);
+
+		expect(verdict).toMatchObject({
+			block: true,
+			reason: expect.stringMatching(
+				/let through earlier in this run.*\("pkill -u joel node"\)/,
+			),
+		});
+	});
+
+	it("starts from a spared wait, without holding its own check against it", async () => {
+		interceptorOver();
+
+		expect(
+			await wait(
+				{
+					why: "The BIOS installs as it starts",
+					doneWhen: { signal: "boot", check: "systemctl is-system-running" },
+				},
+				"w1",
+			),
+			"the wait is spared",
+		).toBeUndefined();
+		expect(await reply(RESCUE), "the later reply is withheld").toBeDefined();
+	});
+
+	it("starts from a spared reply", async () => {
+		interceptorOver();
+
+		expect(
+			await reply("Please reboot optimus to install the BIOS."),
+			"the reply is spared",
+		).toBeUndefined();
+		expect(await reply(RESCUE), "the later reply is withheld").toBeDefined();
+	});
+
+	it("tells the model, under redirect, to say the command again to override", async () => {
+		setSessionMode(GUARD, "redirect");
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		await reply(RESCUE);
+		const said = JSON.stringify(pi.recorded.sent);
+
+		expect(said).toContain("say it again");
+		expect(said).not.toContain("ask it again");
+		expect(await reply(RESCUE), "said again, it goes").toBeUndefined();
+	});
+
+	it("carries no other command through an override, under redirect", async () => {
+		setSessionMode(GUARD, "redirect");
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		await reply(RESCUE);
+
+		expect(
+			await reply(`${RESCUE} Or \`sudo kexec -e\`.`),
+			"a command beside the one told of is withheld",
+		).toBeDefined();
 	});
 
 	it("holds nothing where the ask before was refused, not spared", async () => {
@@ -250,6 +330,15 @@ describe("when what followed a spare is free again", () => {
 			expect(await reply(RESCUE)).toBeUndefined();
 		},
 	);
+
+	it("once the person talks from the launcher", async () => {
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		pi.events.emit(PERSON_TALKED, { intoRun: true });
+
+		expect(await reply(RESCUE)).toBeUndefined();
+	});
 
 	it("not for a message an extension sends", async () => {
 		interceptorOver();
@@ -286,7 +375,7 @@ describe("when what followed a spare is free again", () => {
 
 	it.each([
 		["answered by the recommendation while away", { answers: [] }],
-		["cancelled", { answers: [], cancelled: true }],
+		["cancelled", { answers: [{ id: "q", label: "Yes" }], cancelled: true }],
 		[
 			"parked unanswered",
 			{ answers: [{ id: "q", label: "Yes" }], parked: "locked" },
@@ -316,11 +405,14 @@ describe("when what followed a spare is free again", () => {
 		expect(await reply(RESCUE), "still withheld").toBeDefined();
 	});
 
-	it("not for a look's result, since a look has no answer", async () => {
+	it("not for another tool's result, even under the ask's id", async () => {
 		interceptorOver();
 
-		await look("Reboot optimus to install it", "c1");
-		await resultOf("show_person", "c1", { answers: [{ id: "q" }] });
+		await askPerson("Reboot optimus now to install the BIOS?", "a1");
+		await resultOf("show_person", "a1", {
+			answers: [{ id: "q", label: "Yes" }],
+			cancelled: false,
+		});
 
 		expect(await reply(RESCUE), "still withheld").toBeDefined();
 	});

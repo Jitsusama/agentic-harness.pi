@@ -120,6 +120,12 @@ export function commandNamedIn(texts: readonly string[]): string | undefined {
 	return undefined;
 }
 
+/** Every command `texts` names, in order: a stub, the first only. */
+export function commandsNamedIn(texts: readonly string[]): string[] {
+	const first = commandNamedIn(texts);
+	return first === undefined ? [] : [first];
+}
+
 /**
  * Each thing that stops `texts` being plainly said, in the order a
  * reader meets them: in each text, a fence line out of shape, then each

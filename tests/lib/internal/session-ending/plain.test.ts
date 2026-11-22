@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-	commandNamedIn,
+	commandsNamedIn,
 	notPlainIn,
 	plainlySaid,
 } from "../../../../lib/internal/session-ending/plain.ts";
@@ -102,7 +102,7 @@ describe("plainlySaid", () => {
 	});
 });
 
-describe("commandNamedIn", () => {
+describe("commandsNamedIn", () => {
 	it.each([
 		[
 			"Done. If it hangs, run `sudo systemctl isolate rescue.target`.",
@@ -113,8 +113,10 @@ describe("commandNamedIn", () => {
 		["Notes:\n\n```sh\ncat notes.md\nsudo kexec -e\n```", "sudo kexec -e"],
 		["See `notes.md`. If it hangs, sudo kexec -e.", "sudo"],
 		["Then:\n\n```sh\nls\n# or kill it\n```", "kill"],
+		["If that fails, shutdown -hP now.", "shutdown -hP"],
+		["Run `tmux kill-server` after.", "tmux kill-server"],
 	])("names the command in: %s", (said, what) => {
-		expect(commandNamedIn([said])).toBe(what);
+		expect(commandsNamedIn([said])[0]).toBe(what);
 	});
 
 	it.each([
@@ -123,13 +125,23 @@ describe("commandNamedIn", () => {
 		"It runs `sudo reboot` once you say.",
 		"The log:\n\n```text\nboot.log\n```",
 		"Reboot optimus. If it hangs, ``reboot`x`.",
+		"The skills are loaded, and the stuck test was killed.",
+		"See `~/.pi/skills/README.md` and `/etc/sudoers.d/joel`; sshd is up.",
 	])("names nothing in: %s", (said) => {
-		expect(commandNamedIn([said])).toBeUndefined();
+		expect(commandsNamedIn([said])).toEqual([]);
 	});
 
 	it("reads every text it is given", () => {
-		expect(commandNamedIn(["All done.", "`loginctl enable-linger`"])).toBe(
+		expect(commandsNamedIn(["All done.", "`loginctl enable-linger`"])).toEqual([
 			"loginctl enable-linger",
-		);
+		]);
+	});
+
+	it("names every command, in the order they are met", () => {
+		expect(
+			commandsNamedIn([
+				"See `ls skills`, then `sudo kexec -e`; the skills say killall pi.",
+			]),
+		).toEqual(["sudo kexec -e", "killall"]);
 	});
 });
