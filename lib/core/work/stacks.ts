@@ -26,7 +26,7 @@
 
 import type { Exec } from "../exec/index.ts";
 import type { SettledFile, StaleCitation } from "./appends.ts";
-import type { Landed } from "./landed.ts";
+import { keptLine, type Landed } from "./landed.ts";
 import {
 	type CarriedOn,
 	carryOn,
@@ -574,6 +574,15 @@ export function createGitStacks(deps: {
 			]);
 
 			const results: ReplayResult[] = [];
+			// A refusal answers only why, so it names the landings earlier steps
+			// already kept the parent's side of, or their dropped change goes unseen.
+			const refused = (reason: string) => ({
+				kind: "refused" as const,
+				reason: [
+					reason,
+					...results.flatMap((one) => one.landed ?? []).map(keptLine),
+				].join("\n"),
+			});
 			for (const [at, step] of plan.steps.entries()) {
 				// The same question the listing asks, asked the same way. Two rules for
 				// "is this branch where it should be" is how a diagram comes to say
@@ -610,10 +619,9 @@ export function createGitStacks(deps: {
 					step.branch,
 				]);
 				if (checkout.code !== 0) {
-					return {
-						kind: "refused",
-						reason: `Could not check out ${step.branch}: ${checkout.stderr.trim() || `git checkout exited ${checkout.code}`}`,
-					};
+					return refused(
+						`Could not check out ${step.branch}: ${checkout.stderr.trim() || `git checkout exited ${checkout.code}`}`,
+					);
 				}
 
 				// With a boundary that is an ancestor of the branch, git finds
@@ -637,7 +645,7 @@ export function createGitStacks(deps: {
 					// branch happens to sit on its commit.
 					await recordOnto(exec, treePath, step.onto);
 					carried = await carryOn(exec, treePath, { onlyIfSettled: true });
-					if (carried.kind === "refused") return carried;
+					if (carried.kind === "refused") return refused(carried.reason);
 				}
 
 				if (replay.code !== 0 && carried?.kind !== "replayed") {

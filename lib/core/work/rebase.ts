@@ -39,7 +39,7 @@ import {
 	settleAdditions,
 	staleIn,
 } from "./appends.ts";
-import { type Landed, landedAs } from "./landed.ts";
+import { keptLine, type Landed, landedAs } from "./landed.ts";
 import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
@@ -340,8 +340,6 @@ export async function carryOn(
 		...(recited.size > 0 ? { recited: [...recited] } : {}),
 		...(landed.length > 0 ? { landed } : {}),
 	});
-	// A refusal answers only why, so the base's side already kept for a landed
-	// commit is said in it, or the commit's dropped change would go unseen.
 	const refused = (reason: string): CarriedOn => ({
 		kind: "refused",
 		reason: [reason, ...landed.map(keptLine)].join("\n"),
@@ -477,11 +475,6 @@ async function keepBaseSide(
 	]);
 	if (done.code === 0) return undefined;
 	return done.stderr.trim() || `git checkout exited ${done.code}`;
-}
-
-/** What a refusal says of a landed commit whose base side was already kept. */
-function keptLine(one: Landed): string {
-	return `${one.paths.join(", ")}: ${one.commit} had already landed as ${one.as}, so the base's side was kept before this; the replay is still in progress.`;
 }
 
 /** Replay with plain git. */

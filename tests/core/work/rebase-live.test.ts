@@ -280,14 +280,15 @@ describe("a commit its base already carries", () => {
 		expect(readFileSync(join(repo, "log.md"), "utf8")).toContain("<<<<<<<");
 	});
 
-	it("reads a log marked -diff as text, so unlike entries never match", async () => {
-		// Read as binary, every change to the log prints the same line.
+	it("finds a landing in a log marked -diff", async () => {
+		// Read as binary, every change to the log prints the same line and no
+		// changed one, so the landing is found only when the log is read as text.
 		await commit(".gitattributes", "log.md -diff\n", "attributes");
 		await seedLog();
-		await git(repo, "checkout", "-q", "-b", "topic");
-		await commit("log.md", "# Log\n\n## Mine\n", "mine");
-		await git(repo, "checkout", "-q", "base");
-		await commit("log.md", "# Log\n\n## Theirs\n", "theirs");
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		await topicWithOneLanded("log.md", entry);
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		const landed = await landing();
 		await git(repo, "checkout", "-q", "topic");
 
 		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
@@ -295,7 +296,9 @@ describe("a commit its base already carries", () => {
 			"base",
 		);
 
-		expect(outcome).not.toHaveProperty("landed");
-		expect(readFileSync(join(repo, "log.md"), "utf8")).toContain("## Mine");
+		expect(outcome).toMatchObject({ kind: "replayed", landed: [landed] });
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			`${entry}\n## 2. Later\n\nTwo.\n`,
+		);
 	});
 });

@@ -39,6 +39,15 @@ export interface Landed {
 }
 
 /**
+ * What a refusal says of a landing whose base side was already kept, since a
+ * refusal answers only why, and the commit's dropped change would otherwise go
+ * unseen.
+ */
+export function keptLine(one: Landed): string {
+	return `${one.paths.join(", ")}: ${one.commit} had already landed as ${one.as}, so the base's side was kept before this.`;
+}
+
+/**
  * How many of the base's commits touching the files in conflict are read,
  * newest first: far past what a log gains while a branch is open, and a bound
  * on the patches read should one have gained thousands. A landing older than
