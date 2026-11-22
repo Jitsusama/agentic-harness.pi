@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import { whyWriting } from "../../lib/internal/session/hand-over.ts";
@@ -81,8 +82,10 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
  * say which. Where its park would carry its bash calls (`carried`), a
  * call out within its watch holds it no longer; one past its time limit
  * or a day old, whose watch would wake it at once, still does, as do any
- * other job and an end not yet said. A job host from before `holds`
- * counts every pending job.
+ * other job and an end not yet said. So does a heavy run (`isHeavy`): a
+ * drain lists heavy runs only from conversations awake, so a parked
+ * one's would be cut by a drained restart. A job host from before
+ * `holds` counts every pending job.
  */
 function jobsHolding(
 	jobs: JobHost | undefined,
@@ -91,11 +94,17 @@ function jobsHolding(
 ): Pick<Holding, "jobs" | "heldBy"> {
 	const pending = jobs?.pending?.() ?? 0;
 	if (!jobs?.holds || !jobs.running) return { jobs: pending };
-	const heldBy = jobs.holds(
+	const held = jobs.holds(
 		carried
 			? (work) => isCarriedShell(work) && withinWatch(work, now)
 			: () => false,
 	);
+	const heavy = jobs
+		.running()
+		.filter(
+			(job) => isHeavy(job.label) && !held.some((hold) => hold.id === job.id),
+		);
+	const heldBy = [...held, ...heavy];
 	const unsaid = Math.max(0, pending - jobs.running().length);
 	return {
 		jobs: heldBy.length + unsaid,

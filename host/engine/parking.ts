@@ -378,8 +378,9 @@ export function parking(options: {
 				forgetCarriedCalls(folderOf(sessionId));
 			} catch (error) {
 				// The park goes on: a record left is read as ended calls, which
-				// wakes it once, where stopping here would leave it awake with
-				// its watch believing it parked.
+				// wakes it at once, at each park until the record can go, where
+				// stopping here would leave it awake with its watch believing it
+				// parked. Holding parks while it stays is a follow-up (#1981 F64).
 				report(error);
 			}
 			unrecorded.delete(sessionId);

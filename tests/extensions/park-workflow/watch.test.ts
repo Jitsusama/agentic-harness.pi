@@ -1334,6 +1334,19 @@ describe("why a session stays awake", () => {
 				"a command is out (j4: sleep 1d)",
 			);
 			out.pop();
+			// A drain lists heavy runs only from awake conversations, so a
+			// suite or a build a park carried would be cut by a drained
+			// restart (#1981 F70).
+			out.push({
+				id: "j6",
+				kind: "shell",
+				label: "pnpm test",
+				carry: shell(),
+			});
+			expect(watched.look(), "a heavy run").toBe(
+				"a command is out (j6: pnpm test)",
+			);
+			out.pop();
 			out.push({
 				id: "j5",
 				kind: "shell",
