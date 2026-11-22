@@ -1,5 +1,11 @@
 /**
  * The work broker's records, read for the trees each session holds.
+ *
+ * Long because every rule of the one kept listing is tested here against
+ * one mocked disk: when a reading starts, what it swaps in, how a
+ * failure, a hung reading and a folder out of reach are answered, and
+ * what a caller that asks once is handed. Split, each file would stand
+ * up the same disk and the same module copies.
  */
 import {
 	chmodSync,
@@ -203,16 +209,25 @@ function replaceInTheSameTick(
 	utimesSync(join(record, ".."), tick, tick);
 }
 
+// The folder time the last record written elsewhere set in each folder,
+// so each lands in a tick of its own: per folder, since a test that
+// fakes the time sets it minutes ahead.
+const lastElsewhere = new Map<string, number>();
+
 /**
  * A record of a tree at `path` held by `sessions`, written as another
  * process writes one: beside the folder and renamed in, so this
- * process's own writes don't know of it.
+ * process's own writes don't know of it. Written in a tick of its own,
+ * as a write a coarse clock's tick later, and answering that tick: a
+ * folder's time comes from a clock that may not move between two
+ * writes a test makes, and a write sharing a reading's tick is tested
+ * on its own, with `replaceInTheSameTick`.
  */
 function recordedElsewhere(
 	dir: string,
 	path: string,
 	sessions: string[],
-): void {
+): Date {
 	mkdirSync(path, { recursive: true });
 	const key = path.replaceAll("/", "-");
 	const staged = join(dir, `${key}.json.elsewhere.tmp`);
@@ -226,6 +241,11 @@ function recordedElsewhere(
 		}),
 	);
 	renameSync(staged, join(dir, `${key}.json`));
+	const at = Math.max(Date.now(), (lastElsewhere.get(dir) ?? 0) + 1);
+	lastElsewhere.set(dir, at);
+	const tick = new Date(at);
+	utimesSync(dir, tick, tick);
+	return tick;
 }
 
 /** `dir` as last written a while ago, so a listing of it is settled. */
@@ -341,7 +361,10 @@ describe("the work broker's records", () => {
 					treesHeldBy("s-1", dir),
 					"a folder that can't be looked at grants nothing",
 				).toEqual([]);
-				expect(isAgentCut(one, dir)).toBe(false);
+				expect(
+					isAgentCut(one, dir),
+					"nor does it vouch a folder an agent cut",
+				).toBe(false);
 				expect(said.naming(dir), "said once").toHaveLength(1);
 			} finally {
 				chmodSync(root, 0o700);
@@ -902,6 +925,60 @@ describe("the work broker's records", () => {
 		disk.go();
 
 		expect((await asked).sort()).toEqual([one, three, two]);
+	});
+
+	it("answer a caller that asks once from a reading begun after it asked, when a write shares the stamp of the one under way", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		recordedElsewhere(dir, two, ["s-2"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.stop(root);
+		const tick = recordedElsewhere(dir, three, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		replaceInTheSameTick(recordOf(dir, two), ["s-1", "s-2"], tick);
+		const asked = treesHeldByNow("s-1", dir);
+		disk.go();
+
+		expect(
+			(await asked).sort(),
+			"a tree taken up in the tick the reading under way began in",
+		).toEqual([one, three, two]);
+	});
+
+	it("read a folder a reading failed on again once a write sharing its tick is old enough", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		stderrSaid();
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		recordedElsewhere(dir, two, ["s-2"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.failing = true;
+		const tick = recordedElsewhere(dir, three, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+		replaceInTheSameTick(recordOf(dir, two), ["s-1", "s-2"], tick);
+		disk.failing = false;
+		vi.setSystemTime(Date.now() + 3_001);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+
+		expect(
+			treesHeldBy("s-1", dir).sort(),
+			"seen within the racy window, not a minute on",
+		).toEqual([one, three, two]);
 	});
 
 	it("refuse a caller that asks once when the reading it waits on fails, rather than answer stale", async () => {
