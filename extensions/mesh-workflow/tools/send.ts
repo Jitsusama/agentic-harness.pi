@@ -34,7 +34,7 @@ import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
-import { aboveFor } from "./above.ts";
+import { type Found, findAbove } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -150,6 +150,32 @@ function toOrchestrator(
 		one.addresses.includes(orchestratedBy),
 	)?.addresses ?? [orchestratedBy];
 	return addresses.some((address) => named.includes(homeOf(address)));
+}
+
+/**
+ * Whether these groups reach this peer's hub from use by an address:
+ * found afresh when the send named no `orchestrator` to find it by, so
+ * a question for the person's hands is counted the same way whichever
+ * it was sent by, kept hub or none. A find that can't be finished, with
+ * no answer from the node, can't say the address isn't the hub's, so it
+ * counts as reaching it and the check is made rather than skipped,
+ * whether the send's own `orchestrator` asked for it or this did.
+ */
+async function toHubByAddress(
+	at: Local,
+	asked: Found | undefined,
+	named: readonly string[],
+	present: readonly Presence[],
+): Promise<boolean> {
+	const byAddress = named.some((group) => group.startsWith(homeOf("")));
+	if (!byAddress || at.peer.orchestratedBy !== undefined) return false;
+	if (asked !== undefined) return !asked.settled;
+	const found = await findAbove(at);
+	if (!found.settled) return true;
+	return (
+		"address" in found.above &&
+		toOrchestrator(named, found.above.address, present)
+	);
 }
 
 /** Whether the mesh's own routing, not the sender, picked the groups. */
@@ -320,8 +346,11 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const needed = await needRead(at, params);
 	if ("refused" in needed) return needed.refused;
 	// Only a send naming the word asks who is above, since a quest with
-	// no mark finds its hub from use over the node.
-	const above = namesOrchestrator(needed.to) ? await aboveFor(at) : undefined;
+	// no mark finds its hub from use over the node. A send can wait for
+	// the node, so it finds the hub afresh rather than reading the one
+	// this peer keeps, which may be minutes old.
+	const found = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	const above = found?.above;
 	const orchestrator =
 		above === undefined
 			? at.peer.orchestratedBy
@@ -392,10 +421,13 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		pivotTo = pivot.to;
 	}
 	// A question for the person's hands, put to the orchestrator that
-	// takes it to him, counts his acts first (joels-hands.ts).
+	// takes it to him, counts his acts first (joels-hands.ts). One sent
+	// to the hub by its address rather than the word counts the same,
+	// kept hub or none, so the hub is found for it.
 	const forHisHands =
 		intent.intent === "question" &&
-		toOrchestrator(named, orchestrator, everyone);
+		(toOrchestrator(named, orchestrator, everyone) ||
+			(await toHubByAddress(at, found, named, everyone)));
 	const hands = forHisHands ? handsRefusal(params.text) : undefined;
 	if (hands !== undefined) {
 		return answer(`Not sent: ${hands}`, {

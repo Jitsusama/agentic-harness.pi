@@ -86,8 +86,7 @@ export function hubFromUse(
 		};
 	}
 	const unmarked = `no orchestrator is above this peer's quest, ${self.quest},`;
-	// Its own quest is the last of its chain; every one before it is above.
-	const above = new Set(questChainOf(self).slice(0, -1));
+	const above = new Set(questsAbove(self));
 	if (above.size === 0) {
 		return {
 			none: `${unmarked} and no quest is above it to find a hub from use in`,
@@ -170,7 +169,10 @@ function stoppedHere(
 }
 
 /** Whether `one` lists `address`, in any case, as a send reads it. */
-function lists(one: Pick<Presence, "addresses">, address: string): boolean {
+export function lists(
+	one: Pick<Presence, "addresses">,
+	address: string,
+): boolean {
 	const wanted = address.toUpperCase();
 	return one.addresses.some((listed) => listed.toUpperCase() === wanted);
 }
@@ -184,6 +186,33 @@ function isHub(address: string): boolean {
 	return (
 		isAddress(address) && groupNamed(address) === `@${address.toUpperCase()}`
 	);
+}
+
+/**
+ * The quests above `one`'s own, root first: every one of its chain but
+ * the last, which is its own. None where it has no chain, so a caller
+ * can tell before asking the node whether a hub could be found at all.
+ */
+export function questsAbove(
+	one: Pick<Presence, "groups" | "joined" | "quest">,
+): string[] {
+	return questChainOf(one).slice(0, -1);
+}
+
+/**
+ * Whether a hub found earlier still stands as `self` reads it now: its
+ * address listed by exactly one of the `live` presences, and that one
+ * on a quest above `self`'s, as the find required when it chose it.
+ */
+export function stillAbove(
+	self: Pick<Presence, "groups" | "joined" | "quest">,
+	live: readonly Presence[],
+	address: string,
+): boolean {
+	const [holder, ...others] = live.filter((one) => lists(one, address));
+	if (holder === undefined || others.length > 0) return false;
+	const own = ownQuestOf(holder);
+	return own !== undefined && questsAbove(self).includes(own);
 }
 
 /** The quest `one` works on, the last of its chain, if it has one. */
