@@ -9,7 +9,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { clearAwake } from "../../lib/internal/session/park.ts";
+import {
+	clearAwake,
+	takeBackRestartPark,
+} from "../../lib/internal/session/park.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
 import {
 	hideResumeHint,
@@ -20,6 +23,11 @@ import {
 } from "./watch.ts";
 
 export default function parkWorkflow(pi: ExtensionAPI) {
+	// Up as the pi a restart in place became: the park it said stands
+	// through the execve, so a failed one still reads as a park. Taken
+	// back as it loads, before any session_start, where one-writer's
+	// hand-over may say a real one.
+	takeBackRestartPark(process.env, process.pid);
 	let watching: Watch | undefined;
 	// A session that may never park, which said why, to clear as it ends.
 	let neverParks: string | undefined;

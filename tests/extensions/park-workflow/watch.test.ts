@@ -25,6 +25,7 @@ import {
 	noteNeverParks,
 	type Parkable,
 	replaceInPlace,
+	restartEnvironment,
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
@@ -40,6 +41,7 @@ import {
 	opensOnlyItself,
 	PARK_AFTER_MS,
 	PARK_ASK,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	parkSwitch,
@@ -48,6 +50,7 @@ import {
 	readParked,
 	readWakes,
 	SESSION_WOKEN,
+	takeBackRestartPark,
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
@@ -780,15 +783,35 @@ describe("starting again on a fresh log", () => {
 	// the window would be lost, unparked and unwoken.
 	it("leaves the park said through the execve, for the pi it becomes to take back as it starts", () => {
 		const parked = join(folder, "held.parked");
-		const env = { ...holder(), MYCELIUM_PARKED: parked };
+		const env = {
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			PI_SESSION_FILE: "/logs/first.jsonl",
+		};
 		shownIn("kitty");
 		restarting(env);
 		asked();
 		expect(readFileSync(parked, "utf8"), "standing as it is replaced").toBe("");
 
-		restarting(env);
+		const becomes = restartEnvironment(env, HELD_PID);
+		expect(becomes[PARK_SAID_ENV], "the pi it becomes knows who said it").toBe(
+			String(HELD_PID),
+		);
+		expect(becomes.PI_SESSION_FILE, "a first start's alone").toBe(undefined);
+		takeBackRestartPark(becomes, HELD_PID);
 
 		expect(existsSync(parked), "up again, it hasn't parked").toBe(false);
+	});
+
+	// One-writer's hand-over says a park in the same session_start
+	// (F14, #1951), and pi may run its handler first.
+	it("leaves a park something else said as its session starts", () => {
+		const parked = join(folder, "held.parked");
+		writeFileSync(parked, "");
+
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+
+		expect(readFileSync(parked, "utf8"), "another's park stands").toBe("");
 	});
 
 	it("says nothing of a park when it refuses to start again", () => {

@@ -341,6 +341,27 @@ export function unsayParked(env: NodeJS.ProcessEnv, pid: number): void {
 	}
 }
 
+/**
+ * Names the process whose restart in place said its park, set on the
+ * pi it becomes, so that pi takes back that park and no other: a mark
+ * written as a session starts, as one-writer's hand-over to the host's
+ * view writes one, is a real park.
+ */
+export const PARK_SAID_ENV = "PI_PARK_SAID_BY";
+
+/**
+ * Takes back the park a restart in place of process `pid` said, once
+ * it is up as the pi that restart became, and forgets the restart, so
+ * no later start in this process, nor a subagent it spawns, acts on it.
+ * A mark that anything else wrote stands.
+ */
+export function takeBackRestartPark(env: NodeJS.ProcessEnv, pid: number): void {
+	const saidBy = env[PARK_SAID_ENV];
+	if (saidBy === undefined) return;
+	delete env[PARK_SAID_ENV];
+	if (saidBy === String(pid)) unsayParked(env, pid);
+}
+
 /** Writes the holder's parked file `parked`, empty. */
 export function sayParkedIn(parked: string): void {
 	try {

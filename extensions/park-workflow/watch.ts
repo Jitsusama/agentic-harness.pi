@@ -25,6 +25,7 @@ import {
 	opensOnlyItself,
 	PARK_ASK,
 	PARK_ENV,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -38,7 +39,6 @@ import {
 	STEERS_ENV,
 	sayParked,
 	tellHolderSteers,
-	unsayParked,
 	WAKE_ENV,
 	whyNotPark,
 	writeAwake,
@@ -257,8 +257,7 @@ const FIRST_START_ONLY = [
 function restartWith(sessionFile: string, fallback: () => void): void {
 	process.once("exit", () => {
 		process.stdout.write(`\r\n${RESTART_LINE}\r\n`);
-		const env = { ...process.env };
-		for (const name of FIRST_START_ONLY) delete env[name];
+		const env = restartEnvironment(process.env, process.pid);
 		const [script = ""] = process.argv.slice(1);
 		// Node calls execve experimental and would print so in the window.
 		process.removeAllListeners("warning");
@@ -275,6 +274,21 @@ function restartWith(sessionFile: string, fallback: () => void): void {
 		// Not replaced: its holder starts it again instead.
 		fallback();
 	});
+}
+
+/**
+ * The variables the pi a restart in place of process `pid` becomes
+ * runs with: `env` without those a spawn gave its first start alone,
+ * and naming `pid` as the process that said its park, for that pi to
+ * take back as it loads.
+ */
+export function restartEnvironment(
+	env: NodeJS.ProcessEnv,
+	pid: number,
+): NodeJS.ProcessEnv {
+	const next: NodeJS.ProcessEnv = { ...env, [PARK_SAID_ENV]: String(pid) };
+	for (const name of FIRST_START_ONLY) delete next[name];
+	return next;
 }
 
 /**
@@ -490,11 +504,6 @@ export function watch(
 		}
 	}
 	clearParked(session, folder);
-	// Started again in place by a restart, which tells its holder it
-	// parked and leaves that standing through the execve, so a failed one
-	// still reads as a park: the holder saw no exit, so it is taken back
-	// here, now that it is up.
-	unsayParked(env, options.pid ?? process.pid);
 	// Markers a reboot outlived name sessions no holder will wake.
 	clearOutlivedParks(folder);
 	if (woke) bus.emit(SESSION_WOKEN, { session });
@@ -700,15 +709,15 @@ export function watch(
 				((code: number) => {
 					process.exitCode = code;
 				});
-			sayParked(env, options.pid ?? process.pid);
 			setCode(PARKED_EXIT);
 		};
 		parked = true;
 		endedProcess = true;
 		// Said now, so a shutdown that hangs and ends by a signal before
 		// the exit, or an execve that aborts, still leaves its holder a
-		// park, as a park says it. Replaced in place, the pi that starts
-		// takes it back as it watches.
+		// park, as a park says it. Replaced in place, the pi it becomes
+		// takes it back as it loads (takeBackRestartPark), since its holder
+		// saw no exit and never clears it.
 		sayParked(env, options.pid ?? process.pid);
 		(options.restartWith ?? restartWith)(fresh, throughHolder);
 		void ctx.shutdown();

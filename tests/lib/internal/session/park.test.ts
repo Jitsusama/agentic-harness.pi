@@ -26,6 +26,7 @@ import {
 	NAMED_PARK_AFTER_MS,
 	noteWake,
 	PARK_AFTER_MS,
+	PARK_SAID_ENV,
 	type Parked,
 	parkAfterMs,
 	parkedPath,
@@ -35,6 +36,7 @@ import {
 	type Stillness,
 	sayParked,
 	sweepWakes,
+	takeBackRestartPark,
 	unsayParked,
 	WAKES_KEPT_MS,
 	wakesPath,
@@ -275,6 +277,40 @@ describe("saying a run parked", () => {
 		unsayParked(env, 4243);
 
 		expect(readFileSync(parked(), "utf8"), "the parent's mark stands").toBe("");
+	});
+
+	it("takes back the park a restart of this same process said, once, forgetting the restart", () => {
+		const env: NodeJS.ProcessEnv = {
+			...held(),
+			MYCELIUM_PARKED: parked(),
+			[PARK_SAID_ENV]: "4242",
+		};
+		sayParked(env, 4242);
+
+		takeBackRestartPark(env, 4242);
+
+		expect(existsSync(parked()), "up again, it hasn't parked").toBe(false);
+		expect(env[PARK_SAID_ENV], "forgotten, so no later start acts on it").toBe(
+			undefined,
+		);
+	});
+
+	// One-writer's hand-over says a park as a session starts (F14, #1951):
+	// only a restart of this process may take a mark back.
+	it("keeps a park anything but a restart of this process said", () => {
+		const said = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(said, 4242);
+
+		takeBackRestartPark({ ...said }, 4242);
+		expect(readFileSync(parked(), "utf8"), "no restart said it").toBe("");
+
+		// A subagent inherits the variable from a parent that restarted.
+		const inherited: NodeJS.ProcessEnv = { ...said, [PARK_SAID_ENV]: "4242" };
+		takeBackRestartPark(inherited, 4243);
+		expect(readFileSync(parked(), "utf8"), "another process's restart").toBe(
+			"",
+		);
+		expect(inherited[PARK_SAID_ENV], "forgotten all the same").toBe(undefined);
 	});
 });
 
