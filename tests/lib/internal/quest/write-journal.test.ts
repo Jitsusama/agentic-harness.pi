@@ -286,11 +286,15 @@ describe("the journal of quest writes", () => {
 		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
 	});
 
-	it("gives no mark for a journal this user can't read", () => {
-		noteQuestWrite(file, "/q/QEST-A");
-		chmodSync(file, 0o200);
-		expect(journalNow(file), "an unreadable journal").toBeUndefined();
-	});
+	// Root reads a file whatever its mode.
+	it.skipIf(process.getuid?.() === 0)(
+		"gives no mark for a journal this user can't read",
+		() => {
+			noteQuestWrite(file, "/q/QEST-A");
+			chmodSync(file, 0o200);
+			expect(journalNow(file), "an unreadable journal").toBeUndefined();
+		},
+	);
 
 	it("gives a journal its readers can't open back to its owner at the next write", () => {
 		noteQuestWrite(file, "/q/QEST-A");

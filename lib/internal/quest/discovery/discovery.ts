@@ -283,13 +283,13 @@ export async function readyQuests(
 			? questsNamed(questsRoot, slot.result, ids)
 			: undefined;
 	// Read before the catching up, which reads on past what it missed. A
-	// journal that started afresh within `SIGN_AGAIN_AFTER_MS` of the last
+	// journal that started afresh within `STALE_AFTER_MS` of the last
 	// signing is caught up on the thread instead, as with no journal, so
 	// one that keeps starting afresh can't have every action sign whole.
 	const missed =
 		slot?.journal !== undefined &&
 		journaledSince(questsRoot, slot) === "started afresh" &&
-		signedLongAgo(slot);
+		signedLongAgo(slot, STALE_AFTER_MS);
 	if (slot && named && !missed && caughtUp(questsRoot, slot, named)) return;
 	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
 }
@@ -450,12 +450,15 @@ function signAgainAfter(slot: CacheSlot): number {
 }
 
 /**
- * Whether `slot` was signed more than `SIGN_AGAIN_AFTER_MS` ago, or at
- * a time a clock stepped back since, which no limit bounds.
+ * Whether `slot` was signed more than `limitMs` ago, or at a time a
+ * clock stepped back since, which no limit bounds.
  */
-function signedLongAgo(slot: CacheSlot): boolean {
+function signedLongAgo(
+	slot: CacheSlot,
+	limitMs = SIGN_AGAIN_AFTER_MS,
+): boolean {
 	const age = Date.now() - slot.signedAt;
-	return age < 0 || age > SIGN_AGAIN_AFTER_MS;
+	return age < 0 || age > limitMs;
 }
 
 /** How old `slot` may be for an action to act on it, read on since. */

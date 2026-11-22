@@ -132,6 +132,24 @@ vi.mock(
 	},
 );
 
+/**
+ * Whether `act` waits on a signing: with signings held, whether it is
+ * still waiting half a second on, before they are let go.
+ */
+async function waitsOnSigning(act: () => Promise<void>): Promise<boolean> {
+	const open = holdSignings();
+	let done = false;
+	const acting = act().then(() => {
+		done = true;
+	});
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	const waiting = !done;
+	open();
+	await acting;
+	await discoverySettled(root);
+	return waiting;
+}
+
 /** Hold every signing's findings until the returned call opens them. */
 function holdSignings(): () => void {
 	let open = (): void => undefined;
@@ -783,27 +801,31 @@ describe("discovery on a host", () => {
 		expect(otherStatus()).toBe("paused");
 	});
 
-	it("signs the tree again off the thread once more writes came than its log keeps", async () => {
-		const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
-		try {
-			discoverQuests(root);
-			writeSettled(readmePath, readme("paused"));
-			// The log keeps 4,096 writes: that many outside any quest are
-			// placed, and read nothing again.
-			for (let at = 0; at < 4_096; at++) withQuestLock(elsewhere, () => at);
-			expect(statusNow(), "every write placed").toBe("active");
-			for (let at = 0; at <= 4_096; at++) withQuestLock(elsewhere, () => at);
-			clearCalls();
-			discoverQuests(root);
-			expect(touching(join(root, ID)), "read on the thread").toEqual([]);
-			await discoverySettled(root);
-			expect(statusNow(), "one past what the log keeps").toBe("paused");
-		} finally {
-			rmSync(elsewhere, { recursive: true, force: true });
-		}
-		// 8,193 locked writes took 4 to 7 s on main and here alike on a
-		// busy machine (22 November), past vitest's 5 s.
-	}, MANY_WRITES_TIMEOUT_MS);
+	it(
+		"signs the tree again off the thread once more writes came than its log keeps",
+		async () => {
+			const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
+			try {
+				discoverQuests(root);
+				writeSettled(readmePath, readme("paused"));
+				// The log keeps 4,096 writes: that many outside any quest are
+				// placed, and read nothing again.
+				for (let at = 0; at < 4_096; at++) withQuestLock(elsewhere, () => at);
+				expect(statusNow(), "every write placed").toBe("active");
+				for (let at = 0; at <= 4_096; at++) withQuestLock(elsewhere, () => at);
+				clearCalls();
+				discoverQuests(root);
+				expect(touching(join(root, ID)), "read on the thread").toEqual([]);
+				await discoverySettled(root);
+				expect(statusNow(), "one past what the log keeps").toBe("paused");
+			} finally {
+				rmSync(elsewhere, { recursive: true, force: true });
+			}
+			// 8,193 locked writes took 4 to 7 s on main and here alike on a
+			// busy machine (22 November), past vitest's 5 s.
+		},
+		MANY_WRITES_TIMEOUT_MS,
+	);
 
 	it("has an action that names its quests read them, and wait on no signing", async () => {
 		settledOther();
@@ -1085,23 +1107,42 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 		writeSettled(readmePath, readme("paused"));
 		unlinkSync(journal);
 		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
-		later(6_000);
+		later(61_000);
 		await readyQuests(root, [OTHER], false);
 		expect(signing.walks, "a signing waited on").toBe(1);
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("has actions wait on no more than one signing every five seconds while the journal keeps starting afresh", async () => {
+	it("has an action act on its quests read again when the journal started afresh within a minute", async () => {
 		settledOther();
 		noteQuestWrite(journal, join(root, ID));
 		discoverQuests(root);
+		unlinkSync(journal);
+		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+		later(6_000);
+		// A signing may start off the thread, as with no journal; the action
+		// ends without waiting on it.
+		expect(
+			await waitsOnSigning(() => readyQuests(root, [OTHER], false)),
+			"a signing waited on",
+		).toBe(false);
+	});
+
+	it("has actions wait on no signing while the journal keeps starting afresh and signings off the thread keep up", async () => {
+		settledOther();
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		let waited = 0;
 		for (let step = 0; step < 3; step++) {
 			unlinkSync(journal);
 			noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
-			later(2_000);
-			await readyQuests(root, [OTHER], false);
+			later(25_000);
+			if (await waitsOnSigning(() => readyQuests(root, [OTHER], false)))
+				waited++;
 		}
-		expect(signing.walks, "one signing over six seconds").toBe(1);
+		// Each ask starts one off the thread, as with no journal, so no
+		// action finds the last over a minute old.
+		expect(waited, "signings waited on over 75 seconds").toBe(0);
 	});
 
 	it("shows a write noted while a signing walked, once it ends", async () => {
