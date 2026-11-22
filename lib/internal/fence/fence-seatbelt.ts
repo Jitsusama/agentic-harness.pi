@@ -170,6 +170,14 @@ export interface SeatbeltReach {
 	 * its place, past every rule that names the caches in it.
 	 */
 	readonly heldFromRoot?: readonly string[];
+	/**
+	 * Under strict, the only paths in the home a command may read, as
+	 * landrun keeps them on Linux (strict-rules.ts): every other file in it
+	 * refused, so one quest's scratch is no read for another's command. A
+	 * file's metadata stays readable, as programs stat the folders on their
+	 * way down. Left out, the home reads as the mounts say.
+	 */
+	readonly homeReads?: readonly string[];
 }
 
 /** A tree granted again after every hide, and the folder in it a command writes. */
@@ -309,15 +317,32 @@ export function seatbeltProfile(
 	const within = (entry: string, folder: string | undefined) =>
 		folder !== undefined &&
 		(entry === folder || entry.startsWith(`${folder}/`));
+	const homeReads = home ? reach.homeReads : undefined;
 	// Only what was let back after its folder was hidden, as bubblewrap
-	// would have it: a mount laid before the hide stays hidden.
+	// would have it: a mount laid before the hide stays hidden. Under
+	// strict, only what it may read in the home besides.
 	const keptInHidden = readOnly
 		.filter((kept) =>
 			hiddenFolders.some(
 				(hidden) => kept.at > hidden.at && within(kept.to, hidden.to),
 			),
 		)
+		.filter(
+			(kept) =>
+				homeReads === undefined ||
+				homeReads.some((read) => within(kept.to, read)),
+		)
 		.flatMap(({ rules }) => rules);
+	const strictReads =
+		home && homeReads
+			? [
+					";; Strict reads only these in the home.",
+					`(deny file-read-data (subpath ${path(home)}))`,
+					...homeReads.map(
+						(read) => `(allow file-read* (subpath ${path(read)}))`,
+					),
+				]
+			: [];
 	const programFolders = [
 		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
 		...MAC_PROGRAMS,
@@ -352,6 +377,7 @@ export function seatbeltProfile(
 		// No quote mark, so the shell quotes the profile in one piece.
 		";; Mounts, in the order bubblewrap takes them, last wins.",
 		...mounts,
+		...strictReads,
 		";; Every hide again, so no mount laid after it reopens one.",
 		...hides,
 		// And each held cache kept from writes again, so a strict run whose

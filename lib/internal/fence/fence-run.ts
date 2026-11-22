@@ -46,7 +46,11 @@ import {
 } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
-import { sandboxFolders, strictRules } from "../sandbox/strict-rules.ts";
+import {
+	fileReach,
+	sandboxFolders,
+	strictRules,
+} from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
@@ -465,12 +469,28 @@ function macFenceText(
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
+	// And reads in the home only what landrun lets it read on Linux: its
+	// folder, its repository, git's and Nix's settings and the profiles,
+	// so no other session's scratch or cache reads (VRZKID, 21 November).
+	const homeReads =
+		ask.kind === STRICT
+			? fileReach(
+					{
+						home,
+						runtimeDir: undefined,
+						cwd: folder,
+						repository: worktreeRepository(tree ?? folder, home),
+					},
+					"read",
+				).filter((path) => within(path, home))
+			: undefined;
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		heldFromRoot: caches,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
+		...(homeReads ? { homeReads } : {}),
 		// A tree the work broker cut lies in pi's state, which the profile
 		// hides last of all, so the asker's is granted again after: read
 		// whole, and written where the kind writes.

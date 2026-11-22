@@ -38,7 +38,12 @@ const RULE =
 function deciding(
 	text: string,
 	target: string,
-	op: "file-read*" | "file-write*" | "file-read-metadata" | "file-write-unlink",
+	op:
+		| "file-read*"
+		| "file-read-data"
+		| "file-write*"
+		| "file-read-metadata"
+		| "file-write-unlink",
 ): string | undefined {
 	const lines = (text.split("\nexec ")[1] ?? "").split("\n");
 	const matching = lines.filter((line) => {
@@ -299,6 +304,41 @@ describe("the fence on a Mac", () => {
 			).toMatch(/^\(deny /);
 		}
 		expect(deciding(text, join(folder, "out"), "file-write*")).toMatch(
+			/^\(allow /,
+		);
+	});
+
+	it("reads in the home only what strict reads on Linux when strict, so no other quest's scratch reads", () => {
+		const scratch = join(
+			home,
+			".cache/pi/agentic-harness.pi/quest-workspace/OTHER/tmp/notes.md",
+		);
+		const strict = onMac("strict");
+		for (const refused of [scratch, join(home, ".zsh_history"), home]) {
+			expect(deciding(strict, refused, "file-read-data"), refused).toMatch(
+				/^\(deny /,
+			);
+		}
+		for (const read of [
+			join(folder, "src/main.rs"),
+			join(home, ".gitconfig"),
+			join(home, ".config/nix/nix.conf"),
+			join(home, ".nix-profile/bin/git"),
+		]) {
+			expect(deciding(strict, read, "file-read-data"), read).toMatch(
+				/^\(allow /,
+			);
+		}
+		// A folder's metadata stays readable, as programs stat their way down.
+		expect(deciding(strict, scratch, "file-read-metadata")).not.toMatch(
+			/^\(deny /,
+		);
+		// Its secrets stay hidden, though strict reads ~/.ssh's settings no more.
+		expect(
+			deciding(strict, join(home, ".ssh", "id_ed25519"), "file-read*"),
+		).toMatch(/^\(deny /);
+		// The fence reads the home as before: its mounts say what.
+		expect(deciding(onMac("fence"), scratch, "file-read-data")).toMatch(
 			/^\(allow /,
 		);
 	});
