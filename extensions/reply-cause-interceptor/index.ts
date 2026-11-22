@@ -4,19 +4,21 @@
  * followed by a note telling the model to say what it is.
  *
  * The mesh refuses such a message before it goes; a reply has already
- * streamed to the person by the time pi finalizes it, and judging takes
- * up to a few seconds, so the reply is never held. Once judged, the
- * model is sent one note quoting the part, as a follow-up that starts a
- * turn of its own, and tells the person whether it is a hypothesis or
- * what tested it. Only a finished reply is judged: one pi stopped for
- * good with nothing left to call, text alone. The reply answering the
- * note is not judged, so a note can't follow a note, and none is sent
- * once the person has typed since, since the reply is behind them.
+ * streamed to the person by the time pi settles, and judging takes up
+ * to a few seconds, so the reply is never held. Once pi settles after
+ * a run the person's own words began, its last reply is judged, text
+ * alone, code blocks left out. A part stating an untested cause sends
+ * the model one note quoting it, as an automated turn, and the model
+ * tells the person whether it is a hypothesis or what tested it. The
+ * run answering the note is not judged, so a note can't follow a note,
+ * and none is sent once anything has come since, since the reply is
+ * then behind them.
  *
- * It is the `untested-cause` guard, the mesh's: set `off`, nothing is
- * judged and no text goes to the classifier's provider. Otherwise every
- * finished reply's text goes there. With no classifier, an error or a
- * slow answer, nothing is judged.
+ * It is the `untested-cause` guard, the mesh's, and reads the mesh's
+ * classifier setting: with the guard `off` or `PI_MESH_CLASSIFIER=off`
+ * nothing is judged and no text goes to the classifier's provider.
+ * Otherwise each judged reply's text goes there. With no classifier,
+ * an error or a slow answer, nothing is said.
  */
 
 import type {
@@ -24,12 +26,15 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+	CLASSIFIER_ENV,
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
+import { automatedText } from "../../lib/internal/automated.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { isPersonsOwnText } from "../../lib/internal/session/driven.ts";
 import {
 	untestedCauseReason,
 	untestedCausesFound,
@@ -37,12 +42,16 @@ import {
 
 const GUARD = GUARDS.untestedCause;
 
-/** What the note after a judged reply is sent as. */
-export const UNTESTED_REPLY_MESSAGE = "reply-untested-cause";
+/** Why the note's automated turn was started, as its header says. */
+export const NOTE_REASON =
+	"a reply to the person was judged after they read it";
+
+/** A fenced code block, which quotes rather than says. */
+const FENCED = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
 
 /** What the interceptor reads through, so a test can stand in for each. */
 export interface ReplyCauseDeps {
-	/** The classifier to judge with, found once per session. */
+	/** The classifier to judge with, looked up until one is found. */
 	readonly classifier: (
 		ctx: Pick<ExtensionContext, "modelRegistry">,
 	) => Promise<FoundClassifier>;
@@ -50,15 +59,22 @@ export interface ReplyCauseDeps {
 	readonly judging?: (judgment: Promise<void>) => void;
 }
 
+/** What a settle needs of pi's context. */
+type SettledContext = Pick<
+	ExtensionContext,
+	"modelRegistry" | "hasUI" | "isIdle"
+>;
+
 /**
- * What the session has heard: how often the person has spoken, so a
- * judgment begun before they spoke sends nothing; whether a note is
- * out, so the reply answering it goes unjudged; and the classifier,
- * looked up at the first finished reply.
+ * What the session has heard since pi last settled: whether the
+ * person's own words came, and the last finished reply; how often
+ * anything has come at all, so a judgment knows it was overtaken; and
+ * the classifier once found.
  */
 interface Heard {
-	spoken: number;
-	noteOut: boolean;
+	personSpoke: boolean;
+	reply?: string;
+	moved: number;
 	lookup?: Promise<FoundClassifier>;
 }
 
@@ -66,72 +82,127 @@ interface Heard {
 export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
-		const heard: Heard = { spoken: 0, noteOut: false };
-		pi.on("input", (event) => hearInput(heard, event.source));
-		pi.on("message_end", (event, ctx) =>
-			judgeFinishedReply(pi, deps, heard, event.message, ctx),
+		const heard: Heard = { personSpoke: false, moved: 0 };
+		pi.on("input", (event) => hearInput(heard, event.text));
+		pi.on("agent_start", () => {
+			heard.moved += 1;
+		});
+		pi.on("agent_end", (event) => keepLastReply(heard, event.messages));
+		pi.on("agent_settled", (event, ctx) =>
+			judgeSettledReply(pi, deps, heard, event.aborted, ctx),
 		);
 	};
 }
 
-/** Counts the person's word, which clears a note's skip. */
-function hearInput(heard: Heard, source: string): void {
-	// An extension's message, a job's result or a peer's nudge, is no
-	// word of the person's.
-	if (source === "extension") return;
-	heard.spoken += 1;
-	heard.noteOut = false;
+/**
+ * Notes what came in. The person's own words make the run a reply to
+ * them; an automated turn, a note's among them, a peer's steer or a
+ * job's result is no word of theirs, so the run a note starts goes
+ * unjudged and a note can't follow a note.
+ */
+function hearInput(heard: Heard, text: string): void {
+	heard.moved += 1;
+	if (isPersonsOwnText(text)) heard.personSpoke = true;
 }
 
 /**
- * Starts judging `message` when it is a finished reply that isn't the
- * answer to a note and the guard is on, never waiting for the judgment.
+ * Keeps the last reply of a run that just ended, when it is finished.
+ * The run's messages are the ones the session keeps, so a reply another
+ * extension replaced, one withheld among them, is read as replaced.
  */
-function judgeFinishedReply(
+function keepLastReply(heard: Heard, messages: readonly unknown[]): void {
+	const replies = messages.filter(
+		(message) => isRecord(message) && message.role === "assistant",
+	);
+	heard.reply = finishedReplyText(replies.at(-1));
+}
+
+/**
+ * Once pi settles, starts judging the last reply when the person's own
+ * words came in its runs and the guard is on; never waiting for the
+ * judgment. Print and JSON runs have no person reading.
+ */
+function judgeSettledReply(
 	pi: ExtensionAPI,
 	deps: ReplyCauseDeps,
 	heard: Heard,
-	message: unknown,
-	ctx: Pick<ExtensionContext, "modelRegistry">,
+	aborted: boolean,
+	ctx: SettledContext,
 ): void {
-	const text = finishedReplyText(message);
-	if (text === undefined) return;
-	if (heard.noteOut) {
-		heard.noteOut = false;
-		return;
-	}
-	if (guardMode(GUARD.name) === "off") return;
-	heard.lookup ??= deps.classifier(ctx);
-	const judgment = noteUntested(pi, text, heard, heard.lookup);
+	const { reply, personSpoke } = heard;
+	heard.reply = undefined;
+	heard.personSpoke = false;
+	if (aborted || !personSpoke || !ctx.hasUI) return;
+	if (reply === undefined || guardMode(GUARD.name) === "off") return;
+	const said = reply.replace(FENCED, "").trim();
+	if (said === "") return;
+	const judgment = noteUntested(
+		pi,
+		said,
+		heard,
+		lookupOf(heard, deps, ctx),
+		ctx,
+	);
 	deps.judging?.(judgment);
 }
 
 /**
- * Judges `text` and, when a part states an untested cause and the person
- * hasn't spoken since, sends the model its note.
+ * The classifier, looked up once it is found or switched off. A lookup
+ * that failed is looked up again at the next reply, so a login later
+ * on starts the judging.
+ */
+function lookupOf(
+	heard: Heard,
+	deps: ReplyCauseDeps,
+	ctx: SettledContext,
+): Promise<FoundClassifier> {
+	heard.lookup ??= Promise.resolve()
+		.then(() => deps.classifier(ctx))
+		.then(
+			(found) => {
+				if (!found.ok && !found.off) heard.lookup = undefined;
+				return found;
+			},
+			(error: unknown): FoundClassifier => {
+				heard.lookup = undefined;
+				const why = error instanceof Error ? error.message : String(error);
+				return { ok: false, reason: `finding the classifier failed: ${why}` };
+			},
+		);
+	return heard.lookup;
+}
+
+/**
+ * Judges `text` and, when a part states an untested cause and nothing
+ * has come since, starts the model's turn with its note. It is headed
+ * as automated, as every turn the harness starts itself is, so nobody
+ * reads it as the person's, and its run is no reply to them.
  */
 async function noteUntested(
 	pi: ExtensionAPI,
 	text: string,
 	heard: Heard,
 	lookup: Promise<FoundClassifier>,
+	ctx: SettledContext,
 ): Promise<void> {
-	const spoken = heard.spoken;
-	const found = await untestedCausesFound(text, lookup);
-	if (found.length === 0 || heard.spoken !== spoken) return;
-	heard.noteOut = true;
-	pi.sendMessage(
-		{
-			customType: UNTESTED_REPLY_MESSAGE,
-			content: [
-				"Your last reply was judged after the person read it.",
-				untestedCauseReason(found),
-				"Tell the person in a line which it is.",
-			].join(" "),
-			display: true,
-		},
-		{ deliverAs: "followUp", triggerTurn: true },
-	);
+	const moved = heard.moved;
+	try {
+		const found = await untestedCausesFound(text, lookup);
+		if (found.length === 0 || heard.moved !== moved || !ctx.isIdle()) return;
+		pi.sendUserMessage(
+			automatedText(
+				NOTE_REASON,
+				[
+					"The classifier flagged a part of your last reply, which the person has read.",
+					untestedCauseReason(found),
+					"Tell the person in a line which it is.",
+				].join("\n"),
+			),
+		);
+	} catch {
+		// A judgment that failed, or a pi a reload replaced since, sends
+		// nothing: a missed note costs less than an error in the session.
+	}
 }
 
 /**
@@ -159,7 +230,13 @@ function finishedReplyText(message: unknown): string | undefined {
 	return text === "" ? undefined : text;
 }
 
+/** The classifier the mesh's setting names, or none when it is `off`. */
+export function replyClassifier(
+	env: NodeJS.ProcessEnv,
+): ReplyCauseDeps["classifier"] {
+	return (ctx) => findClassifier(ctx, env[CLASSIFIER_ENV], CLASSIFIER_ENV);
+}
+
 export default replyCauseInterceptor({
-	classifier: (ctx) =>
-		findClassifier(ctx, undefined, "the untested-cause guard"),
+	classifier: replyClassifier(process.env),
 });

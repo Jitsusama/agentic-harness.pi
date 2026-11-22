@@ -60,8 +60,9 @@ refusal tells the agent exactly what to do instead:
   reaches it. When `off`, it still sends each message's text to
   the classifier's provider to report it waved;
   `PI_MESH_CLASSIFIER=off` stops that. It also has a note follow
-  a finished reply to you that states such a cause, which `off`
-  stops along with that reply's trip to the provider.
+  a reply to you that states such a cause. The guard `off` and
+  `PI_MESH_CLASSIFIER=off` each stop that, the reply's trip to
+  the provider with it.
 - Safety blocks only the irrecoverable: `history` redirects,
   `history-destructive` blocks with the safe form, and leases a
   bare force push rather than refusing it.

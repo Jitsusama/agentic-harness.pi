@@ -347,7 +347,8 @@ export const GUARDS = {
 		// Its class and `all` still reach it, as they reach every form guard.
 		// Off still judges each mesh message, to report it waved; only
 		// PI_MESH_CLASSIFIER=off keeps its text from the classifier's provider.
-		// Off judges no reply (extensions/reply-cause-interceptor).
+		// Off judges no reply (extensions/reply-cause-interceptor), and nor
+		// does PI_MESH_CLASSIFIER=off, which names the classifier for both.
 	}),
 	vmHere: declare({
 		name: "vm-here",

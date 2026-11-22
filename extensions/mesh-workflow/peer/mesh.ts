@@ -7,7 +7,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { FoundClassifier } from "../../../lib/classifier/jev.ts";
+import {
+	CLASSIFIER_ENV,
+	type FoundClassifier,
+} from "../../../lib/classifier/jev.ts";
 import type { ConcludedEvent } from "../../../lib/internal/quest/fields/concluded.ts";
 import type { createReloadHold } from "../../../lib/internal/reload/hold.ts";
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
@@ -46,9 +49,10 @@ import type { Waiting, watchSettling } from "../wait.ts";
 
 /**
  * The environment variable naming the classifier that judges messages
- * as `provider/model`, or `off` to note everything.
+ * as `provider/model`, or `off` to note everything. Replies to the
+ * person are judged by the one it names too (`reply-cause-interceptor`).
  */
-export const MESH_CLASSIFIER_ENV = "PI_MESH_CLASSIFIER";
+export const MESH_CLASSIFIER_ENV = CLASSIFIER_ENV;
 
 /**
  * The environment variable that keeps a session off the mesh when

@@ -31,9 +31,9 @@ folder. All but `advisor`, `convention-context` and
 
   `reply-cause-interceptor` reads a reply rather than a tool's
   call, as `session-ending-interceptor` does, but changes
-  nothing: the reply has already reached the person, so it
-  follows one stating an untested cause with a note to the
-  model, under the mesh's `untested-cause` guard.
+  nothing: the reply has already reached the person, so once pi
+  settles it follows one stating an untested cause with a note
+  to the model, under the mesh's `untested-cause` guard.
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers
