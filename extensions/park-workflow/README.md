@@ -106,10 +106,12 @@ record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
 A conversation in a multi-session host parks by the same rule, five
-minutes at most in a background host (bar one a window views, and
-every one on macOS, which keep the usual limit as above), but never
-ends the host's process, which is every conversation the host runs. The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
-sets for each conversation) and a written log are asked of it. It says
+minutes at most in a background host (bar one while a window views
+it, and every one on macOS, which keep the usual limit as above
+outside a drain), but never ends the host's process, which is every
+conversation the host runs. The host holds it, so only its wake
+(`MYCELIUM_WAKE`, which the host sets for each conversation) and a
+written log are asked of it. It says
 `parked` and writes its marker as below, then asks the host to park
 it (`Host.park`), which frees its session and screen while keeping it
 held, its window open, and wakes it in place at the wake file, a key
