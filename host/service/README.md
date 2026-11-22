@@ -228,11 +228,15 @@ input pipeline or screen. No unit or running host is installed yet.
   Label naming a pi host), which no systemctl restarts: under the same
   rules it stops as a stop signal would and exits 75, which launchd
   starts again, and only its install and heap move it. A stop signal,
-  even one come while it parks to restart and even a second, makes a
-  stop that parks within its bound exit 0, which launchd leaves down,
+  even one come while it starts, while it parks to restart, or a
+  second, makes a stop that parks within its bound exit 0, which
+  launchd leaves down,
   and the journal says when one cut a restart short. A park so held
   that the backstop or launchd's own timeout kills it dies by signal,
-  which launchd starts again. It says as it starts which way it
+  which launchd starts again; so its job names the same limit in
+  PI_HOST_STOP_USEC as in its ExitTimeOut, as core.nix's launchd
+  module does, since without it the 45 s default outlasts launchd's
+  own 20 s. It says as it starts which way it
   decided, and keeps its Label from its conversations, so a pi-host a
   tool starts never passes for the job. A Mac has no /proc, so what
   its conversations' tools leave running is never ended, and no

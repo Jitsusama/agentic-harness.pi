@@ -77,7 +77,7 @@ try {
 	const failed = (await run.ending) === "failed";
 	// A screen's timers or a viewer's socket can outlive the host's stop;
 	// every conversation is parked and held by now, so nothing is lost.
-	process.exit(exitStatusOf({ failed, restarts: run.restarts?.() ?? false }));
+	process.exit(exitStatusOf({ failed, restarts: run.restarts() }));
 } catch (error) {
 	if (error instanceof HostMisconfigured) {
 		// What was given is wrong, not the code, so the message is the whole story.

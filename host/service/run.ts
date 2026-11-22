@@ -409,6 +409,20 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		renewing?.();
 		for (const under of resuming.values()) under.renewing?.();
 	};
+	// A stop signal is heard from before the start, for as long as the
+	// host lives: one during the start stops it once it serves, and a
+	// second while it parks rejoins the stop, where node's own default
+	// would kill it by signal, which launchd starts again.
+	const signals = options.signals ?? process;
+	// A stop the host asks of itself ends it as a signal's would; until
+	// the host serves there is nothing to stop, so it is only remembered.
+	let stopAsked = (): void => undefined;
+	let signalled = false;
+	for (const signal of STOP_SIGNALS)
+		signals.on(signal, () => {
+			signalled = true;
+			stopAsked();
+		});
 	let serving: ServingHost;
 	try {
 		serving = await serveHost({
@@ -442,7 +456,6 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		options.status
 			? options.status(options.env, now)
 			: notifyStatus(options.env, now, toldWithin);
-	const signals = options.signals ?? process;
 	const every = watchdogEvery(options.env);
 	const unwatchBeats =
 		every === undefined
@@ -527,21 +540,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			});
 		return stopping;
 	};
-	// A stop the host asks of itself ends it as a signal's would.
-	let stopAsked = (): void => undefined;
-	let signalled = false;
 	const stopped = new Promise<void>((resolve, reject) => {
 		stopAsked = () => {
 			stop().then(resolve, reject);
 		};
-		// Heard for as long as the host lives: a second signal while it
-		// parks rejoins the stop, where node's own default would kill it
-		// by signal, which launchd starts again.
-		for (const signal of STOP_SIGNALS)
-			signals.on(signal, () => {
-				signalled = true;
-				stopAsked();
-			});
+		// A signal heard while the host started stops it now it serves.
+		if (signalled) stopAsked();
 		// A child stops once its conversation ends, as a signal would stop it.
 		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {

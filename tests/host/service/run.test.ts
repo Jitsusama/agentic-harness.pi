@@ -776,6 +776,30 @@ describe("runHost", () => {
 		expect(run.signalled(), "the signal came during the stop").toBe(true);
 	});
 
+	// Node's default would kill a host signalled as it starts, which
+	// launchd starts again.
+	it("hears a stop signal that comes while it starts, and stops once it serves", async () => {
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => {
+				signals.emit("SIGTERM");
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await run.stopped;
+		expect(run.signalled(), "the signal came during the start").toBe(true);
+		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
+			false,
+		);
+	});
+
 	it("parks on a stop it asks of itself as on a stop signal, as a Mac's restart does", async () => {
 		const run = await runHost({
 			argv: ["background"],

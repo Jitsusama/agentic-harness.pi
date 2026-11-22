@@ -581,6 +581,16 @@ describe("reading the process table", () => {
 		expect(() => linuxProcessTable(file).pids()).toThrow(/ENOTDIR/);
 	});
 
+	// Only a /proc that is not there at all is a machine without one.
+	it("refuses to call a /proc it can't reach for any other reason absent", () => {
+		root = mkdtempSync(join(tmpdir(), "tool-children-proc-under-file-"));
+		const file = join(root, "file");
+		writeFileSync(file, "");
+		const table = linuxProcessTable(join(file, "proc"));
+		expect(() => readsProcesses(table)).toThrow(/ENOTDIR/);
+		expect(() => markAsOwner(vi.fn(), table)).toThrow(/ENOTDIR/);
+	});
+
 	it("reads processes where /proc lists them", () => {
 		root = madeUpProc();
 		expect(

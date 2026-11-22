@@ -1,7 +1,16 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+} from "vitest";
 import {
 	type CarriedShellsOptions,
 	carriedShells,
@@ -14,6 +23,7 @@ import type { ProcessTable } from "../../../host/engine/tool-children.ts";
 import { HOST_RESTARTING_EVENT } from "../../../lib/core/session/host.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
 import type { KeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
+import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
 
 const OWN = "/user.slice/user@1000.service/agents.slice/pi-host.service";
@@ -120,15 +130,23 @@ describe("carried shells", () => {
 		return JSON.parse(readFileSync(join(stateDir, KEPT_FILE), "utf8"));
 	}
 
-	it("never kills a carried call's group by its pid alone where there is no process table, as on a Mac", () => {
-		// pid 1 is there and its environment unreadable, so the pid alone
-		// would say it is still the call.
+	it("never kills a carried call's group by its pid alone where there is no process table, as on a Mac", async () => {
+		// A real process carrying the call's mark, so the host's own
+		// judgement finds it the call wherever it can read its environment.
+		const call = spawn("sleep", ["30"], {
+			env: { ...process.env, [CALL_VARIABLE]: "m1" },
+			stdio: "ignore",
+		});
+		await once(call, "spawn");
+		onTestFinished(() => {
+			call.kill("SIGKILL");
+		});
 		const due: KeptCall = {
 			session: "s1",
 			job: "j1",
 			label: "make test",
 			at: 0,
-			work: shell("m1", { pid: 1 }),
+			work: shell("m1", { pid: call.pid ?? 0 }),
 		};
 		now = STRAY_FOR_MS + 1;
 		const write = () =>

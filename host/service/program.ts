@@ -247,7 +247,8 @@ export async function startHostProgram(
 	});
 	// A child is started fresh for each conversation, on whatever its
 	// supervisor runs then: it never restarts itself.
-	if (child) return { ...run, ending: child.life.ending };
+	if (child)
+		return { ...run, ending: child.life.ending, restarts: () => false };
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
 	const { exitToRestart, restarts } = restartingByExit(run, report);
@@ -335,9 +336,11 @@ export interface ProgramRun extends HostRun {
 	readonly ending?: Promise<Ending>;
 	/**
 	 * Whether the host stopped to be started again, which it asks of
-	 * launchd by exiting EXIT_TO_RESTART; none for a child.
+	 * launchd by exiting EXIT_TO_RESTART; never for a child. Required, so
+	 * a program that forgets it fails to compile rather than leaving a
+	 * Mac's host down after every restart.
 	 */
-	readonly restarts?: () => boolean;
+	readonly restarts: () => boolean;
 }
 
 /** Everything a restart can't change, judged before the host starts. */
