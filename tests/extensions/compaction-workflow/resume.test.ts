@@ -106,24 +106,29 @@ function context(
 
 /**
  * Drive turns until the policy compacts: turns that made tool calls,
- * unless `toolResults` says they made none.
+ * unless `toolResults` says they made none. `overrides` replaces parts
+ * of the session context, such as what is waiting to go.
  */
 async function runUntilCompaction(
 	outcome: Parameters<typeof context>[1],
 	branch?: () => unknown[],
 	toolResults: unknown[] = [{}],
+	overrides: object = {},
 ): Promise<Recorded> {
 	const { handlers, calls } = activate();
 	let size = 60_000;
 	let compacted = false;
-	const ctx = context(
-		() => size,
-		(options) => {
-			compacted = true;
-			outcome(options);
-		},
-		branch,
-	);
+	const ctx = {
+		...context(
+			() => size,
+			(options) => {
+				compacted = true;
+				outcome(options);
+			},
+			branch,
+		),
+		...overrides,
+	};
 	await handlers.get("session_start")?.({}, ctx);
 	const turnEnd = (turn: object) =>
 		endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
@@ -295,6 +300,52 @@ describe("resuming the run a compaction interrupted", () => {
 
 		expect(calls.sendUserMessage).toHaveLength(1);
 		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+	});
+
+	// pi's compaction aborts the run, and an abort leaves what was queued
+	// for it; nothing else starts a run, so skipping the resume left the
+	// session deaf to those messages until something new was typed.
+	it("resumes a run the compaction cut though messages wait to go, which that run delivers", async () => {
+		const entries: unknown[] = [];
+		const calls = await runUntilCompaction(
+			(options) => {
+				entries.push(aborted(Date.now() + 1000));
+				options.onComplete?.();
+			},
+			() => entries,
+			[],
+			{ hasPendingMessages: () => true },
+		);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+	});
+
+	it("starts a run for messages that waited through a compaction that cut nothing", async () => {
+		const calls = await runUntilCompaction(
+			(options) => options.onComplete?.(),
+			() => [],
+			[],
+			{ hasPendingMessages: () => true },
+		);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/waited/);
+	});
+
+	it("resumes a run a failed compaction cut though messages wait to go", async () => {
+		const entries: unknown[] = [];
+		const calls = await runUntilCompaction(
+			(options) => {
+				entries.push(aborted(Date.now() + 1000));
+				options.onError?.(new Error("Summarization failed"));
+			},
+			() => entries,
+			[],
+			{ hasPendingMessages: () => true },
+		);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
 	});
 
 	it("leaves a run stopped before the ask stopped", async () => {
