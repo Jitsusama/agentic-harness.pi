@@ -256,26 +256,31 @@ describe("a child host", () => {
 		const runtime = join(dir, "run");
 		const folder = join(runtime, "pi-host", "work-background.d");
 		await mkdir(folder, { recursive: true, mode: 0o700 });
-		const units = fakeUnits(folder, "work-background", vi.fn());
+		const unitFaults = vi.fn();
+		const units = fakeUnits(folder, "work-background", unitFaults);
 		const policy = vi.fn(async () => ({
 			moves: () => false,
 			opens: () => false,
 			close: () => undefined,
 		}));
 		const signals = new EventEmitter();
+		const report = vi.fn();
 		const run = await runHost({
 			argv: ["background"],
 			env: { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
 			engine,
 			signals,
 			ready: async () => {},
-			report: vi.fn(),
+			report,
 			children: { units, policy },
 			places: { registryDir: join(dir, "hosts") },
 		});
 		// Its start asks the policy, before anything opens.
 		try {
 			expect(policy).toHaveBeenCalledExactlyOnceWith("work-background");
+			expect(units.started, "its start opens no child").toEqual([]);
+			expect(report).not.toHaveBeenCalled();
+			expect(unitFaults).not.toHaveBeenCalled();
 		} finally {
 			signals.emit("SIGTERM");
 			await run.stopped;

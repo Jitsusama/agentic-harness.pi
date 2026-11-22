@@ -340,7 +340,8 @@ export interface ChildLife {
 	/**
 	 * A conversation left the host, ended as its stop or close said. One
 	 * stopped while the child isn't, as an idle park is, rests for a wake
-	 * while a window views it and for its grace once none does.
+	 * while a window views it and for its grace once none does. One whose
+	 * start neither answered nor rested ends the child failed.
 	 */
 	left(ending: HostLeaving, why: string): void;
 	/** A conversation is becoming another inside pi, under `nextId`. */
@@ -352,7 +353,10 @@ export interface ChildLife {
 	 * nobody has viewed it for its grace.
 	 */
 	resumed(end: "resumed" | "parked" | "unresumed"): void;
-	/** The child is stopping: parked once it held its conversation, else failed. */
+	/**
+	 * The child is stopping: parked once its start worked, holding its
+	 * conversation or resting it as the slot left it, else failed.
+	 */
 	stopping(): void;
 	/** The conversation it runs, or last ran, by id; none before the first. */
 	conversation(): string | undefined;
@@ -408,10 +412,10 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let viewing = 0;
 	let stopAlone: (() => void) | undefined;
 
-	// Whether its conversation came up, answered or resting parked as it
-	// was, so an end that stops it parks or ends it as asked rather than
-	// calling the child failed.
-	function cameUp(): boolean {
+	// Whether its start did what it was asked: it answered, or it rests
+	// parked as the slot left it, so an end that stops it parks or ends
+	// it as asked rather than calling the child failed.
+	function startWorked(): boolean {
 		return answered !== undefined || resting;
 	}
 
@@ -471,7 +475,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	const stopFirst = options.resumes
 		? () => undefined
 		: after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
-				if (!answered) end(cameUp() ? "parked" : "failed");
+				// A rest comes only from a slot it resumes, which keeps no first
+				// wait, so a first wait that passes unanswered is a failure.
+				if (!answered) end("failed");
 			});
 	const stopHeap = every(HEAP_EVERY_MS, () => {
 		const held = current();
@@ -554,8 +560,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			const held = current();
 			// A wake ends the rest: one that dies before its roster names it,
 			// so before it answers, failed, rather than resting parked as it
-			// was. A wake answers as it registers once its roster names it, and
-			// one whose build fails after that ends as its conversation does.
+			// was. A wake answers as it registers once its roster names it. One
+			// whose build fails after that stays listed parked, as any failed
+			// start in a child does, until it is closed or the host stops.
 			if (held) {
 				away = false;
 				resting = false;
@@ -576,7 +583,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			if (ended || options.conversations().length > 0) return;
 			// One resting parked was never answered, as it hadn't woken, and
 			// leaves as it was asked to rather than failing.
-			if (!cameUp()) {
+			if (!startWorked()) {
 				end("failed");
 				return;
 			}
@@ -598,7 +605,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			weighAlone();
 		},
 		stopping() {
-			end(cameUp() ? "parked" : "failed");
+			end(startWorked() ? "parked" : "failed");
 		},
 		conversation() {
 			return current()?.id ?? sent?.id;

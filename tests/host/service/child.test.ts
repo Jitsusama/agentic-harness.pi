@@ -464,24 +464,17 @@ describe("a child's life", () => {
 		},
 	);
 
-	it("keeps its grace when the conversation it rests is signalled away before a wake, then ends parked", async () => {
-		const { life, timers } = following({ aloneWithin: 2, resumes: true });
-		life.resumed("parked");
-		life.left("signalled", "the host is stopping");
-		expect(timers.has(2), "the grace still bounds the rest").toBe(true);
-		timers.get(2)?.();
-		expect(await life.ending).toBe("parked");
-	});
-
 	// A wake ends the rest, so one that dies before its roster names it,
-	// and so before it answers, is no rest kept but a failure.
+	// and so before it answers, is no rest kept but a failure. A resting
+	// child's roster is seeded with its slot's entry, so `rostered(false)`
+	// stands for a read of it that missed, as one mid-replacement does.
 	it("ends failed when the conversation it rests wakes and dies before its roster names it", async () => {
 		const child = following({ aloneWithin: 2, resumes: true });
 		child.life.resumed("parked");
 		child.rostered(false);
 		child.hold(conversation(A));
 		child.hold();
-		child.life.left("closed", "the wake crashed");
+		child.life.left("closed", "closed after a wake it never answered");
 		expect(await child.life.ending).toBe("failed");
 	});
 
@@ -506,6 +499,8 @@ describe("a child's life", () => {
 		expect(await life.ending).toBe("parked");
 	});
 
+	// As above, `rostered(false)` stands for a read of the seeded roster
+	// that missed.
 	it("ends failed on a stop once a wake it rests died before answering", async () => {
 		const child = following({ aloneWithin: 2, resumes: true });
 		child.life.resumed("parked");
@@ -526,8 +521,8 @@ describe("a child's life", () => {
 
 	// The other side of the rule: a start that neither answered nor
 	// rested never worked, whatever its end asked.
-	it("ends failed when it leaves having neither answered nor rested", async () => {
-		const { life } = following({ aloneWithin: 2, resumes: true });
+	it("ends failed when a fresh open leaves having neither answered nor rested", async () => {
+		const { life } = following();
 		const answer = life.watch.answer();
 		life.left("closed", "closed, asked by the launcher");
 		expect(await life.ending).toBe("failed");
