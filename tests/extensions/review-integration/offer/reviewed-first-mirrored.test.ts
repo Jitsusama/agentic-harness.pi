@@ -228,6 +228,28 @@ describe("counting a council another machine ran", () => {
 		},
 	);
 
+	it.skipIf(process.getuid?.() === 0)(
+		"says a node folder that lists but whose ledgers won't open",
+		async () => {
+			// Read but not search permission lists the names and opens none,
+			// which the store would pass over as an empty ledger.
+			await councilIn(equilibrius(), REPO, head);
+			chmodSync(equilibrius(), 0o444);
+			try {
+				const said = await councilFirst(exec, topic(), "proposed");
+				expect(said, "the mirror whose ledger won't open is said").toMatch(
+					/The mirror from equilibrius couldn't be read \(its ledger .*\.json wouldn't open: .*EACCES.*\), so it wasn't asked\./,
+				);
+				expect(
+					said,
+					"a mirror whose ledgers can't be read is never named as asked",
+				).not.toContain("mirrored from equilibrius");
+			} finally {
+				chmodSync(equilibrius(), 0o755);
+			}
+		},
+	);
+
 	it("says a node link that leads nowhere", async () => {
 		mkdirSync(mirroredRunsDir(), { recursive: true });
 		symlinkSync(join(repo, "..", `gone-${Date.now()}`), equilibrius());

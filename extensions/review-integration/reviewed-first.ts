@@ -64,8 +64,8 @@
  * when they couldn't be listed.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { constants as fsConstants, mkdtempSync, rmSync } from "node:fs";
+import { access, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -213,7 +213,7 @@ async function mirroredLedgers(): Promise<Mirrors> {
 	for (const node of sorted) {
 		if (!node.isDirectory() && !node.isSymbolicLink()) continue;
 		const path = join(root, node.name);
-		const read = await readNode(path);
+		const read = await readNode(path, node.isSymbolicLink());
 		if (read.kind === "file") continue;
 		if (read.kind === "unread") {
 			trouble.push(
@@ -238,23 +238,42 @@ type NodeRead =
 	| { kind: "unread"; why: string };
 
 /**
- * List a node's folder, following a link, so one that can't be read is
- * said rather than asked and taken as empty. A link to a file is a
- * stray, like a file beside the folders.
+ * List a node's folder, following a link, and open each ledger it
+ * lists, so one that can't be read is said rather than asked and taken
+ * as empty: the store reading it later passes over a file it can't
+ * open without a word, and a folder that lists can still hold files
+ * that don't open. A link to a file is a stray, like a file beside the
+ * folders.
  */
-async function readNode(path: string): Promise<NodeRead> {
+async function readNode(path: string, isLink: boolean): Promise<NodeRead> {
+	let names: string[];
 	try {
-		const names = await readdir(path);
-		const oneTooHigh =
-			names.includes("runs") && !names.some((name) => name.endsWith(".json"));
-		return { kind: "folder", oneTooHigh };
+		names = await readdir(path);
 	} catch (error) {
 		if (hasCode(error, "ENOTDIR")) return { kind: "file" };
 		if (hasCode(error, "ENOENT")) {
-			return { kind: "unread", why: "it is a link to nothing" };
+			const why = isLink ? "it is a link to nothing" : "it was gone when read";
+			return { kind: "unread", why };
 		}
 		return { kind: "unread", why: messageOf(error) };
 	}
+	const ledgers = names.filter((name) => name.endsWith(".json"));
+	for (const name of ledgers) {
+		try {
+			await access(join(path, name), fsConstants.R_OK);
+		} catch (error) {
+			// A ledger the mirror replaced between the listing and here is
+			// read afresh by the store; only one that is there and won't
+			// open leaves the node unread.
+			if (hasCode(error, "ENOENT")) continue;
+			return {
+				kind: "unread",
+				why: `its ledger ${name} wouldn't open: ${messageOf(error)}`,
+			};
+		}
+	}
+	const oneTooHigh = names.includes("runs") && ledgers.length === 0;
+	return { kind: "folder", oneTooHigh };
 }
 
 /** An error's message, or the thing thrown as text. */
