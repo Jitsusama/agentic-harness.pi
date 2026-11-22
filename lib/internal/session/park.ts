@@ -638,8 +638,8 @@ export function clearEase(
 /**
  * Whether the switch at `switchPath` holds the line `off`, which keeps
  * the node's asks to ease from parking anyone, so emptying the switch
- * and writing `off` stops every park but a session it names, one file
- * a person edits. A Mac's switch already holds `off` beside the names
+ * and writing `off` stops every park but a session it names and a
+ * host's drain (park-workflow's README), one file a person edits. A Mac's switch already holds `off` beside the names
  * it parks, which park as before.
  */
 export function switchOff(switchPath: string = parkSwitch()): boolean {
