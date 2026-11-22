@@ -228,10 +228,14 @@ input pipeline or screen. No unit or running host is installed yet.
   Label naming a pi host), which no systemctl restarts: under the same
   rules it stops as a stop signal would and exits 75, which launchd
   starts again, and only its install and heap move it. A stop signal,
-  even one come while it starts, while it parks to restart, or a
-  second, makes a stop that parks within its bound exit 0, which
-  launchd leaves down,
-  and the journal says when one cut a restart short. A park so held
+  even one come while it resumes its conversations at the start,
+  while it parks to restart, or a second, makes a stop that parks
+  within its bound exit 0, which launchd leaves down, and the journal
+  says when one cut a restart short. The bounds count from the first
+  signal, as launchd's timeout does, so a slow start leaves the park
+  less time. One come earlier, while node loads the host or reads its
+  settings, still kills it by signal, which launchd starts again. A
+  park so held
   that the backstop or launchd's own timeout kills it dies by signal,
   which launchd starts again; so its job names the same limit in
   PI_HOST_STOP_USEC as in its ExitTimeOut, as core.nix's launchd

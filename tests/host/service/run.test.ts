@@ -800,6 +800,44 @@ describe("runHost", () => {
 		);
 	});
 
+	// launchd counts its ExitTimeOut from the signal, not from when the
+	// host serves, so a slow start leaves the stop that much less.
+	it("counts a stop's bounds from a signal that came while it started", async () => {
+		const signals = new EventEmitter();
+		const armed: number[] = [];
+		const run = await runHost({
+			argv: ["background"],
+			// A unit stopping within 160 s, of which the backstop takes 7/8.
+			env: { ...env(), PI_HOST_STOP_USEC: "160000000" },
+			engine: async (host) => {
+				signals.emit("SIGTERM");
+				// The start goes on a while after the signal, as a slow one would.
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			backstop: ({ within }) => {
+				armed.push(within);
+				return { held() {}, done() {} };
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await run.stopped;
+		expect(armed, "armed once, as the stop began").toHaveLength(1);
+		expect(
+			armed[0],
+			"the backstop's 140 s counts from the signal, 300 ms before the stop",
+		).toBeLessThanOrEqual(140_000 - 300);
+		expect(
+			armed[0],
+			"nor does it count from much before the signal",
+		).toBeGreaterThan(140_000 - 10_000);
+	});
+
 	it("parks on a stop it asks of itself as on a stop signal, as a Mac's restart does", async () => {
 		const run = await runHost({
 			argv: ["background"],

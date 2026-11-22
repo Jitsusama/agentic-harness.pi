@@ -417,12 +417,16 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	// A stop the host asks of itself ends it as a signal's would; until
 	// the host serves there is nothing to stop, so it is only remembered.
 	let stopAsked = (): void => undefined;
-	let signalled = false;
+	// launchd and systemd count their kill from the first signal, so a
+	// stop that only begins once the host serves has that much less time.
+	let signalledAt: number | undefined;
 	for (const signal of STOP_SIGNALS)
 		signals.on(signal, () => {
-			signalled = true;
+			signalledAt ??= performance.now();
 			stopAsked();
 		});
+	const sinceSignal = () =>
+		signalledAt === undefined ? 0 : performance.now() - signalledAt;
 	let serving: ServingHost;
 	try {
 		serving = await serveHost({
@@ -499,14 +503,18 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
 			.then(() => serving.stop());
-		const bound = options.stopWithin ?? stopWithin(options.env);
+		const spent = sinceSignal();
+		const whole = options.stopWithin ?? stopWithin(options.env);
+		const bound = Math.max(0, whole - spent);
 		const unparkedIds = () => serving.held().map(({ id }) => id);
 		// The bound is a timer on this loop, which a loop held on a CPU never
 		// comes back to, as at 04:33 on 18 November; a thread beside it ends
 		// the host later, still short of systemd's kill.
 		// A loop already held as SIGTERM comes never arms it, since this
 		// handler runs on that loop.
-		const within = backstopWithin(options.env, bound);
+		const wholeWithin = backstopWithin(options.env, whole);
+		const within =
+			wholeWithin === undefined ? undefined : Math.max(0, wholeWithin - spent);
 		const backstop: Backstop =
 			within === undefined
 				? UNARMED
@@ -545,7 +553,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			stop().then(resolve, reject);
 		};
 		// A signal heard while the host started stops it now it serves.
-		if (signalled) stopAsked();
+		if (signalledAt !== undefined) stopAsked();
 		// A child stops once its conversation ends, as a signal would stop it.
 		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
@@ -599,7 +607,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			stopAsked();
 			return stopped;
 		},
-		signalled: () => signalled,
+		signalled: () => signalledAt !== undefined,
 	};
 }
 
