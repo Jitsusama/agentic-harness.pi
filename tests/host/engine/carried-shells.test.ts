@@ -266,6 +266,30 @@ describe("carried shells", () => {
 		expect(kept().map((call) => call.session)).toEqual(["s1"]);
 	});
 
+	// Its new holder takes the calls up, so this host's restart must
+	// neither keep them nor, a day on, stop them (#1981 F29).
+	it("keeps nothing of a conversation released to another holder", async () => {
+		const shells = make({
+			table: table({
+				201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } },
+				202: { cgroup: OWN, environ: { PI_BASH_CALL: "m2" } },
+			}),
+		});
+		for (const [session, mark] of [
+			["s1", "m1"],
+			["s2", "m2"],
+		] as const) {
+			const parked = bus();
+			shells.heard(parked);
+			parked.emit(HOST_RESTARTING_EVENT, { session });
+			parked.emit(JOBS_CARRIED, carriedOn(session, shell(mark)));
+		}
+		shells.released("s1");
+
+		expect(await shells.keep()).toEqual([202]);
+		expect(kept().map((call) => call.session)).toEqual(["s2"]);
+	});
+
 	it("keeps nothing a conversation carried away when no restart was said to it", async () => {
 		const shells = make({
 			table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),

@@ -122,6 +122,12 @@ export interface CarriedShells {
 		on(channel: string, listener: (data: unknown) => void): () => void;
 	}): () => void;
 	/**
+	 * Let go of the calls heard from `session`, as it is released to
+	 * another holder that takes them up: this host's restart neither keeps
+	 * nor, later, stops them.
+	 */
+	released(session: string): void;
+	/**
 	 * As a restart stops the host, once every conversation has parked:
 	 * move each carried call out of the host's cgroup and write them down.
 	 * Answers the pids it moved.
@@ -347,6 +353,10 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 				told();
 				carrying();
 			};
+		},
+		released(session) {
+			const kept = carried.filter((call) => call.session !== session);
+			carried.splice(0, carried.length, ...kept);
 		},
 		async keep() {
 			const out = carried.filter((call) => isRunning(call.work));

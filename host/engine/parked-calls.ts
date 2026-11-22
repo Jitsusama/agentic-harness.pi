@@ -15,8 +15,9 @@
  * that parked it, the supervisor once its child ends, or the next host)
  * looks at them every `CALLS_LOOK_MS`. Once none still runs it writes
  * the wake file, which wakes the conversation as a message to it would,
- * held as one is while the host drains, and writes it again every
- * `CALLS_WAKE_AGAIN_MS` until the conversation runs, since a wake can be
+ * held as one is while the host drains, and writes it again after
+ * `CALLS_WAKE_AGAIN_MS`, doubling each time up to
+ * `CALLS_WAKE_AGAIN_MOST_MS`, until the conversation runs, since a wake can be
  * refused or its start fail and nobody else would ask again.
  *
  * Waking is the safe way out of every doubt: a call that is lost, its

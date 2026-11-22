@@ -374,7 +374,14 @@ export function parking(options: {
 		try {
 			// Only what this park carries is watched, never a record an
 			// earlier one left.
-			forgetCarriedCalls(folderOf(sessionId));
+			try {
+				forgetCarriedCalls(folderOf(sessionId));
+			} catch (error) {
+				// The park goes on: a record left is read as ended calls, which
+				// wakes it once, where stopping here would leave it awake with
+				// its watch believing it parked.
+				report(error);
+			}
 			unrecorded.delete(sessionId);
 			stopping.add(sessionId);
 			try {

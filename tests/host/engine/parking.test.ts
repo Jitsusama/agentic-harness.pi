@@ -968,4 +968,16 @@ describe("a park that carries bash calls", () => {
 		expect(() => parked.closed("a", false), "released").not.toThrow();
 		expect(() => parked.ran("a"), "as it runs").not.toThrow();
 	});
+
+	// Stopping before the stop would leave it awake while its watch
+	// believes it parked, never parking again until it reloads (#1981 F28).
+	it("parks all the same when an earlier park's record can't be removed", async () => {
+		const { parked, stop } = carrying([], new Set());
+		mkdirSync(join(callsFile(), "inside"), { recursive: true });
+
+		await parked.park("a");
+
+		expect(stop).toHaveBeenCalledTimes(1);
+		parked.unwatch("a");
+	});
 });

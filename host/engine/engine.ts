@@ -270,6 +270,8 @@ export async function createEngine(
 	): Live {
 		const { sessionId } = traits;
 		const record: Live = { traits, launch, bus: sessions.createEventBus() };
+		// Held here again: a release before says nothing of its next close.
+		released.delete(sessionId);
 		shells.heard(record.bus);
 		parked.hears(sessionId, record.bus);
 		host.register({
@@ -327,6 +329,11 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
+		// A close, not a stop: held but not running, as a failed start or a
+		// park's failed stop leaves it, it may still watch calls its park
+		// carried, which a close for good stops and a release leaves.
+		if (record.ending === "closed")
+			parked.closed(sessionId, !released.delete(sessionId));
 		await stopping.afterRelease(sessionId, record);
 		const events = watched;
 		if (record.ending === "closed" && events)
@@ -616,8 +623,10 @@ export async function createEngine(
 		},
 
 		handsOn(sessionId) {
-			// Only one held but not running is dropped after, which reads this.
-			if (host.holds(sessionId) === undefined) released.add(sessionId);
+			// Read as it closes or is dropped, so its carried calls are left to
+			// the new holder, here and in what this host's restart keeps.
+			released.add(sessionId);
+			shells.released(sessionId);
 			stopping.handsOn(sessionId);
 			host.handsOn(sessionId);
 		},

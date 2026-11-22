@@ -27,7 +27,8 @@ What must not be out:
   (`Host.carries`), for a conversation no window views: its park
   carries the call as a host restart does, and the host wakes it once
   the last one ends, passes its time limit or a day, waking it on any
-  doubt and asking again every five minutes until it runs (22
+  doubt and asking again until it runs, after five minutes and then
+  twice as long each time up to an hour (22
   November, 26 of 78 such conversations, 8.8 GB, were awake only for a
   bash call); `PI_PARK_CARRY=off` on the host keeps such a call
   holding its conversation awake, as before;
