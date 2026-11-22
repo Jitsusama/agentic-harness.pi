@@ -47,8 +47,8 @@ import {
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import {
-	fileReach,
 	sandboxFolders,
+	strictHomeReads,
 	strictRules,
 } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
@@ -469,24 +469,30 @@ function macFenceText(
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
-	// And reads in the home only what landrun lets it read on Linux: its
-	// folder, its repository, git's and Nix's settings and the profiles,
-	// so no other session's scratch or cache reads (VRZKID, 21 November).
+	// And reads in the home what landrun lets it read there on Linux: its
+	// folder, git's and Nix's settings and the profiles, so no other
+	// session's scratch or cache reads (VRZKID, 21 November). Beyond
+	// Linux's, the git folder of the tree it runs in, from any folder in
+	// it, and the whole held tree, granted again below, since git needs
+	// them; and npm's copy without tokens, which macSettings points npm
+	// at. The home as its volume spells it, as the folder is, so a home
+	// named in other case neither drops the folder nor names no path.
+	const homeOnDisk = onDisk(real(home));
 	const homeReads =
 		ask.kind === STRICT
-			? fileReach(
-					{
-						home,
+			? [
+					...strictHomeReads({
+						home: homeOnDisk,
 						runtimeDir: undefined,
 						cwd: folder,
-						repository: worktreeRepository(tree ?? folder, home),
-					},
-					"read",
-				).filter((path) => within(path, home))
+						repository: worktreeRepository(tree ?? folder, homeOnDisk),
+					}),
+					...(copy ? [onDisk(real(dirname(copy)))] : []),
+				].filter((path) => within(path, homeOnDisk))
 			: undefined;
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
-		home,
+		home: homeOnDisk,
 		heldFromRoot: caches,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,

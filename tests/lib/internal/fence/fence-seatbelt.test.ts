@@ -303,6 +303,16 @@ describe("the fence's mounts as a profile", () => {
 		expect(profile).toContain('(subpath "/Users/j/a\\") (allow default")');
 	});
 
+	it("refuses strict's reads in a home it isn't told, rather than reading all of it", () => {
+		expect(() =>
+			seatbeltProfile([], {
+				sockets: [],
+				real: same,
+				homeReads: ["/Users/j/work"],
+			}),
+		).toThrow(/need the home/);
+	});
+
 	it("refuses a mount it can't say, rather than leaving it open", () => {
 		expect(() =>
 			seatbeltProfile(["--symlink", "/a", "/b"], { sockets: [], real: same }),

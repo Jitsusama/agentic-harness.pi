@@ -173,9 +173,13 @@ export interface SeatbeltReach {
 	/**
 	 * Under strict, the only paths in the home a command may read, as
 	 * landrun keeps them on Linux (strict-rules.ts): every other file in it
-	 * refused, so one quest's scratch is no read for another's command. A
-	 * file's metadata stays readable, as programs stat the folders on their
-	 * way down. Left out, the home reads as the mounts say.
+	 * refused, its data and extended attributes both, so one quest's
+	 * scratch is no read for another's command. A file's metadata stays
+	 * readable, as programs stat the folders on their way down, but not a
+	 * hidden one's. One that is a link to elsewhere in the home is left
+	 * out, since a fenced command may have planted it. It holds the home
+	 * alone: outside it, strict on a Mac reads what the mounts say, where
+	 * Linux's reads only its list. Needs `home`, and is refused without.
 	 */
 	readonly homeReads?: readonly string[];
 }
@@ -228,6 +232,11 @@ export function seatbeltProfile(
 		closing.push({ to, rule });
 	};
 	const hiddenFolders: { to: string; at: number }[] = [];
+	// Each hide's metadata again, for strict, whose home-wide metadata
+	// read would otherwise reopen it: seatbelt lets a rule naming an
+	// operation outrank one naming every read, whatever their order, as a
+	// Mac showed on 22 November.
+	const hiddenMetadata: string[] = [];
 	const readOnly: { to: string; rules: string[]; at: number }[] = [];
 	for (let at = 0; at < args.length; ) {
 		const option = args[at] ?? "";
@@ -258,6 +267,9 @@ export function seatbeltProfile(
 					const hide = `(deny file-read* file-write* (literal ${path(to)}))`;
 					close(to, hide);
 					hides.push(hide);
+					hiddenMetadata.push(
+						`(deny file-read-metadata (literal ${path(to)}))`,
+					);
 				} else if (writable) {
 					mounts.push(`(allow file-read* file-write* (subpath ${path(to)}))`);
 				} else {
@@ -296,6 +308,7 @@ export function seatbeltProfile(
 				hiddenFolders.push({ to, at: mounts.length });
 				close(to, hide);
 				hides.push(hide);
+				hiddenMetadata.push(`(deny file-read-metadata (subpath ${path(to)}))`);
 				break;
 			}
 			case "--remount-ro": {
@@ -317,10 +330,24 @@ export function seatbeltProfile(
 	const within = (entry: string, folder: string | undefined) =>
 		folder !== undefined &&
 		(entry === folder || entry.startsWith(`${folder}/`));
-	const homeReads = home ? reach.homeReads : undefined;
+	if (reach.homeReads && !home) {
+		throw new Error("strict's reads in the home need the home");
+	}
+	const homeAt = home ? real(home) : undefined;
+	// A read past its links, kept only where it leads out of the home or
+	// is no link in it: a fenced command writes ~/.cache and could put a
+	// link there to the home or to pi's state, which strict would read.
+	const homeReads = reach.homeReads?.filter((read) => {
+		if (home === undefined || homeAt === undefined) return false;
+		const at = real(read);
+		if (within(homeAt, at)) return false;
+		// As it would be named were none of it a link but the home's own.
+		const named = within(read, home) ? homeAt + read.slice(home.length) : read;
+		return !within(at, homeAt) || at === named;
+	});
 	// Only what was let back after its folder was hidden, as bubblewrap
 	// would have it: a mount laid before the hide stays hidden. Under
-	// strict, only what it may read in the home besides.
+	// strict, in the home only what it may read besides.
 	const keptInHidden = readOnly
 		.filter((kept) =>
 			hiddenFolders.some(
@@ -330,14 +357,19 @@ export function seatbeltProfile(
 		.filter(
 			(kept) =>
 				homeReads === undefined ||
+				!within(kept.to, home) ||
 				homeReads.some((read) => within(kept.to, read)),
 		)
 		.flatMap(({ rules }) => rules);
+	// Every read refused in the home, then its metadata let back by a rule
+	// naming that operation, which outranks the hides' every-read rules,
+	// so each hide's metadata is refused again after them.
 	const strictReads =
 		home && homeReads
 			? [
 					";; Strict reads only these in the home.",
-					`(deny file-read-data (subpath ${path(home)}))`,
+					`(deny file-read* (subpath ${path(home)}))`,
+					`(allow file-read-metadata (subpath ${path(home)}))`,
 					...homeReads.map(
 						(read) => `(allow file-read* (subpath ${path(read)}))`,
 					),
@@ -387,6 +419,15 @@ export function seatbeltProfile(
 			.flatMap(({ rules }) => rules),
 		...keptInHidden,
 		...hidden,
+		...(strictReads.length > 0
+			? [
+					...hiddenMetadata,
+					...(home ? MAC_HIDDEN : []).map(
+						(secret) =>
+							`(deny file-read-metadata (subpath ${path(join(home ?? "", secret))}))`,
+					),
+				]
+			: []),
 		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
 			...wayDown(tree, home).map(
 				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,

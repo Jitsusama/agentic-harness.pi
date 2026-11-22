@@ -143,3 +143,18 @@ export function fileReach(place: SandboxPlace, use: FileUse): string[] {
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
 }
+
+/**
+ * What a strict command may read in the home on a Mac, where seatbelt
+ * refuses the rest: what landrun lets it run and read there on Linux,
+ * and its folder. Not Linux's own temporary and cache folders, which a
+ * Mac's strict command never uses and a fenced one could plant as links.
+ * Kept apart from `fileReach`, pi's own tools' reach, so widening theirs
+ * widens no command's.
+ */
+export function strictHomeReads(place: SandboxPlace): string[] {
+	const { runnable, readable } = strictPaths(place);
+	const inHome = (path: string) =>
+		path === place.home || path.startsWith(`${place.home}/`);
+	return [...runnable, ...readable, place.cwd].filter(inHome);
+}
