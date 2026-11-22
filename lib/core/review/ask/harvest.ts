@@ -313,8 +313,38 @@ function readFinding(
 		return undefined;
 	}
 
-	const { label, given } = readLabel(entry.label, at, warnings);
-	const anchor = readAnchor(entry.location, at, witness, warnings);
+	// A judge records findings in the shape it was shown them, and it is
+	// shown "who · label · where". Measured: one judge recorded all twenty
+	// of its findings with the label under `severity`, the reviewer under
+	// `category`, and `file` and `line` beside the subject rather than in
+	// a location, and every one came through as a note about the whole
+	// change with no severity. Another wrote `label: "nothing"` and the
+	// label under `severity` on all twelve of its findings. A label word
+	// under `severity`, where the label given is none or no label word,
+	// is the label; the same bargain as `title` and `body`.
+	const labelAsSeverity = !isLabel(entry.label) && isLabel(entry.severity);
+	if (labelAsSeverity) {
+		const stood =
+			entry.label === undefined
+				? ","
+				: `, and its label "${wireText(entry.label) ?? ""}" is no label,`;
+		warnings.push(
+			`${at} gave its label "${wireText(entry.severity)}" as its severity${stood} so it was read as the label.`,
+		);
+	}
+	const { label, given } = readLabel(
+		labelAsSeverity ? entry.severity : entry.label,
+		at,
+		warnings,
+	);
+	const anchor = readAnchor(
+		isRecord(entry.location)
+			? entry.location
+			: (placeBeside(entry) ?? entry.location),
+		at,
+		witness,
+		warnings,
+	);
 
 	return {
 		anchor,
@@ -325,9 +355,36 @@ function readFinding(
 			given,
 		),
 		origin,
-		...readSeverity(entry.severity, at, warnings),
+		...(labelAsSeverity ? {} : readSeverity(entry.severity, at, warnings)),
 		...readConfidence(entry.confidence, at, warnings),
 		...readRaisedBy(entry.raisedBy, at, warnings),
+	};
+}
+
+/** Whether `value` is one of the labels, in any case. */
+function isLabel(value: unknown): boolean {
+	const word = wireText(value)?.toLowerCase();
+	return word !== undefined && LABELS.includes(word);
+}
+
+/**
+ * The location a finding gave beside its subject rather than inside a
+ * `location`: a `file` (or `path`), and a line where it named one. A
+ * place said under a name we did not expect is still the place.
+ */
+function placeBeside(
+	entry: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+	const file = wireText(entry.file) ?? wireText(entry.path);
+	if (file === undefined) return undefined;
+	const line = wireWhole(entry.start) ?? wireWhole(entry.line);
+	return {
+		kind: line === undefined ? "file" : "line",
+		file,
+		start: entry.start,
+		line: entry.line,
+		end: entry.end,
+		side: entry.side,
 	};
 }
 
@@ -356,7 +413,11 @@ function readAnchor(
 	}
 
 	const kind = wireText(value.kind);
-	if (kind === "global") return { subject: "change", ...stamp };
+	// "change" is the anchor's own word for global, so a reviewer that
+	// read it back from a rendered finding means the same.
+	if (kind === "global" || kind === "change") {
+		return { subject: "change", ...stamp };
+	}
 
 	// `path` alongside `file`, for the same reason `line` is read
 	// alongside `start` two branches down: it is the word a reviewer

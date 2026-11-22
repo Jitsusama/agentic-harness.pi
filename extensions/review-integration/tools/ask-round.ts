@@ -220,7 +220,12 @@ export async function findingsOf(
 	return all.filter((finding) => wanted.has(finding.id));
 }
 
-/** Findings as a judge reads them, attribution and all. */
+/**
+ * Findings as a judge reads them, attribution and all, each part named
+ * as its output contract names it: a judge records findings in the
+ * shape it was shown them, and shown bare words it once filed the label
+ * as a severity and the reviewer as a category.
+ */
 export function renderFindings(findings: Finding[]): string {
 	return findings
 		.map((finding) => {
@@ -232,8 +237,12 @@ export function renderFindings(findings: Finding[]): string {
 					: finding.anchor.subject === "file"
 						? finding.anchor.path
 						: `${finding.anchor.path}:${finding.anchor.line}`;
+			const severity =
+				finding.severity === undefined
+					? ""
+					: ` · severity: ${finding.severity}`;
 			return [
-				`[F${finding.id}] ${who} · ${finding.label} · ${where}`,
+				`[F${finding.id}] raised by ${who} · label: ${finding.label}${severity} · location: ${where}`,
 				finding.subject,
 				finding.discussion,
 			].join("\n");

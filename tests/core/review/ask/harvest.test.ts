@@ -328,6 +328,104 @@ describe("where a finding points", () => {
 		expect(warnings).toEqual([]);
 	});
 
+	it("reads a judge's finding recorded in the shape it was shown", () => {
+		// Measured: a judge recorded all twenty of its findings this way,
+		// mirroring the "who · label · where" it was shown, and every one
+		// came through as a note about the whole change with no severity.
+		const { findings, warnings } = harvestFindings(
+			answer({
+				category: "correctness",
+				severity: "issue",
+				file: "lib/a.ts",
+				line: 127,
+				title: "the runtime folder comes from the wrong env",
+				body: "it reads process.env",
+				raisedBy: ["correctness", "skeptic"],
+			}),
+			origin,
+		);
+
+		expect(
+			findings[0],
+			"the label, the line and the agreement kept",
+		).toMatchObject({
+			label: "issue",
+			subject: "the runtime folder comes from the wrong env",
+			discussion: "it reads process.env",
+			anchor: { subject: "line", path: "lib/a.ts", line: 127 },
+			raisedBy: ["correctness", "skeptic"],
+		});
+		expect(
+			findings[0]?.severity,
+			"a label word is not read as a severity too",
+		).toBeUndefined();
+		expect(warnings, "says where the label was found").toEqual([
+			'findings[0] gave its label "issue" as its severity, so it was read as the label.',
+		]);
+	});
+
+	it("reads a label word under severity as the label when the label is no label", () => {
+		// Measured: a judge wrote label "nothing" and the label under
+		// severity on all twelve of its findings, one with location kind
+		// "change", and every one was filed as a note with no severity.
+		const { findings, warnings } = harvestFindings(
+			answer(
+				wire({
+					label: "nothing",
+					severity: "nitpick",
+					location: { kind: "change" },
+				}),
+			),
+			origin,
+		);
+
+		expect(findings[0]?.label, "the label from severity").toBe("nitpick");
+		expect(findings[0]?.severity, "no severity read").toBeUndefined();
+		expect(findings[0]?.anchor, "the change").toMatchObject({
+			subject: "change",
+		});
+		expect(warnings, "says what was read where, and no more").toEqual([
+			'findings[0] gave its label "nitpick" as its severity, and its label "nothing" is no label, so it was read as the label.',
+		]);
+	});
+
+	it("reads location kind change as the change, without a word", () => {
+		// "change" is what a rendered finding calls the whole change, so a
+		// judge reading findings back writes it.
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ location: { kind: "change" } })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the change").toEqual({ subject: "change" });
+		expect(warnings, "nothing to warn of").toEqual([]);
+	});
+
+	it("reads a file given beside the subject as the file", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ location: undefined, path: "lib/b.ts" })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the file it named").toMatchObject({
+			subject: "file",
+			path: "lib/b.ts",
+		});
+		expect(warnings, "nothing lost, so nothing said").toEqual([]);
+	});
+
+	it("keeps a location over a file given beside it", () => {
+		const { findings } = harvestFindings(
+			answer(wire({ file: "lib/elsewhere.ts" })),
+			origin,
+		);
+
+		expect(findings[0]?.anchor, "the location wins").toMatchObject({
+			subject: "file",
+			path: "lib/a.ts",
+		});
+	});
+
 	it("keeps a line finding with no line against the file", () => {
 		// The commonest way a reviewer gets a location wrong, and the
 		// one that costs least to forgive: it named the file, so the
@@ -417,6 +515,35 @@ describe("the optional parts", () => {
 		expect(findings).toHaveLength(1);
 		expect(findings[0]?.severity).toBeUndefined();
 		expect(warnings[0]).toContain("spicy");
+	});
+
+	it("keeps the label given over a label word under severity", () => {
+		const { findings, warnings } = harvestFindings(
+			answer(wire({ label: "todo", severity: "issue" })),
+			origin,
+		);
+
+		expect(findings[0]?.label, "the label it gave").toBe("todo");
+		expect(findings[0]?.severity, "no severity read").toBeUndefined();
+		expect(warnings[0], "the unknown severity named").toContain(
+			'severity "issue"',
+		);
+	});
+
+	it("reads a recorded finding in a judge's shape as an answered one", () => {
+		// The journal keeps what record_finding was handed as it was
+		// handed, so the same reading has to reach it.
+		const said = harvestFindings(answer(), origin);
+		const { findings } = alsoRecorded(
+			said,
+			[{ severity: "question", file: "lib/c.ts", title: "why twice?" }],
+			origin,
+		);
+
+		expect(findings[0], "label and file both kept").toMatchObject({
+			label: "question",
+			anchor: { subject: "file", path: "lib/c.ts" },
+		});
 	});
 
 	it("keeps a confidence inside the range", () => {
