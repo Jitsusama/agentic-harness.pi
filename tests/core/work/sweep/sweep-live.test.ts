@@ -66,6 +66,12 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 		expect(await git(main, "branch", "--list", "done")).toBe("");
+		// No snapshot is live, so the idle phase has nothing to judge, and
+		// it is still timed.
+		expect(
+			outcome.idleMs,
+			"a run that found nothing idle said how long it looked",
+		).toBeGreaterThanOrEqual(0);
 	});
 
 	it("takes a detached tree whose commit a ref holds", async () => {
