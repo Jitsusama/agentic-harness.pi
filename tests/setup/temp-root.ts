@@ -13,15 +13,27 @@
  * pointing TMPDIR at the run's directory reaches every worker and
  * every process a test spawns. The teardown then removes whatever
  * they left, including anything a test written tomorrow forgets.
+ *
+ * On a Mac the directory goes under /tmp, not the host's TMPDIR, which
+ * sits so deep under /var/folders that the sockets the host's tests make
+ * in it run past the 104 bytes a Unix socket's path may take.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** The folder a run's temp directory goes in, on `platform`. */
+export function runRootBase(platform: NodeJS.Platform, base: string): string {
+	return platform === "darwin" ? "/tmp" : base;
+}
+
+/** Point TMPDIR at the run's own directory, and remove it at the end. */
 export default function setup(): () => void {
 	const previous = process.env.TMPDIR;
-	const root = mkdtempSync(join(tmpdir(), "vitest-run-"));
+	const root = mkdtempSync(
+		join(runRootBase(process.platform, tmpdir()), "vitest-run-"),
+	);
 	process.env.TMPDIR = root;
 	return () => {
 		if (previous === undefined) delete process.env.TMPDIR;

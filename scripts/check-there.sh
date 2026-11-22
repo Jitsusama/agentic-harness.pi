@@ -33,7 +33,9 @@ if [ "$#" -lt 1 ]; then
   fi
 fi
 
-exec ssh -o BatchMode=yes "$host" bash -s -- "$branch" <<'THERE'
+# ssh joins its words into one line the host's shell reads again, so the
+# branch goes quoted: git lets a branch's name hold `;` and `$(`.
+exec ssh -o BatchMode=yes "$host" "bash -s -- $(printf '%q' "$branch")" <<'THERE'
 set -euo pipefail
 branch="$1"
 # The check runs in a worktree of a bare clone, as the harness's own trees
@@ -45,25 +47,54 @@ mkdir -p ~/.local/state
 # started beside the first would swap the files under it. Each holds this
 # lock from the fetch to the end of `pnpm check`, and a second waits.
 mkdir -p ~/.cache
-exec 9> ~/.cache/harness-check.lock
+# A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
+# with its own node inside, so the check's scripts get the node 24 the
+# harness's other scripts run on, from the host's nixpkgs. It is found
+# before the lock, so no other check waits on a fetch, and linked from
+# ~/.cache, so the store keeps it while the check runs.
+if ! command -v node >/dev/null 2>&1; then
+  if ! node=$(nix build --out-link ~/.cache/harness-check-node --print-out-paths nixpkgs#nodejs_24); then
+    echo "check-there: no node on $(hostname), and nix gave none" >&2
+    exit 1
+  fi
+  export PATH="$node/bin:$PATH"
+fi
 # flock(1) is util-linux's, which a Mac lacks, so there perl takes the
 # same lock on fd 9's open file. A flock lock belongs to the open file,
 # not the process, so it holds after perl exits, while this shell keeps
-# fd 9 open. Given -n, it answers at once whether it took the lock.
+# fd 9 open. Given -n, it exits 1 at once when another holds the lock,
+# and anything else but 0 when it couldn't try it, as flock(1) does.
 lock() {
   if command -v flock >/dev/null 2>&1; then
     flock "$@" 9
     return
   fi
-  perl -MFcntl=:flock -e '
-    open(my $f, ">&=", 9) or die "check-there: fd 9: $!\n";
-    flock($f, $ARGV[0] eq "-n" ? LOCK_EX | LOCK_NB : LOCK_EX) or exit 1;
+  perl -MFcntl=:flock -MPOSIX=EWOULDBLOCK -e '
+    open(my $f, ">&=", 9) or do { print STDERR "check-there: fd 9: $!\n"; exit 2 };
+    flock($f, $ARGV[0] eq "-n" ? LOCK_EX | LOCK_NB : LOCK_EX)
+      or exit($! == EWOULDBLOCK ? 1 : 2);
   ' -- "${1:-}"
 }
-if ! lock -n; then
+# Wait for the lock only while another check holds it; a lock that can't
+# be tried fails the check, which would otherwise share the worktree.
+take_turn() {
+  local tried=0
+  lock -n || tried=$?
+  if [ "$tried" -eq 0 ]; then
+    return
+  fi
+  if [ "$tried" -ne 1 ]; then
+    echo "check-there: can't take $(hostname)'s check lock" >&2
+    return "$tried"
+  fi
   echo "check-there: another check runs on $(hostname); waiting its turn" >&2
   lock
-fi
+}
+exec 9> ~/.cache/harness-check.lock
+take_turn
+# Everything the check starts runs without fd 9, so nothing it leaves
+# running, such as git's fsmonitor daemon, holds the lock once it ends.
+{
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
 fi
@@ -86,16 +117,6 @@ if [ -z "$bin" ]; then
   exit 1
 fi
 export PATH="$bin:$PATH"
-# A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
-# with its own node inside, so the check's scripts get the node 24 the
-# harness's other scripts run on, from the host's nixpkgs.
-if ! command -v node >/dev/null 2>&1; then
-  if ! node=$(nix build --no-link --print-out-paths nixpkgs#nodejs_24); then
-    echo "check-there: no node on $(hostname), and nix gave none" >&2
-    exit 1
-  fi
-  export PATH="$node/bin:$PATH"
-fi
 pnpm install --frozen-lockfile --silent
 # On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
 # nothing without nix-ld set up, so biome is run through glibc's by hand.
@@ -107,12 +128,7 @@ if [ -e /etc/NIXOS ]; then
   chmod +x ~/.cache/harness-check-bin/biome
   export BIOME_BINARY=~/.cache/harness-check-bin/biome
 fi
-# A Mac's own TMPDIR sits deep under /var/folders, where the sockets the
-# host's tests make run past the 104 bytes a Unix socket's path may take,
-# so each check gets a short temporary folder of its own, removed after.
-tmp=$(mktemp -d /tmp/hc.XXXXXX)
-trap 'rm -rf "$tmp"' EXIT
-export TMPDIR="$tmp"
 pnpm check
 pnpm exec vitest run tests/package --testTimeout=60000
+} 9>&-
 THERE
