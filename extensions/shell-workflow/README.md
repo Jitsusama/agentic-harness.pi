@@ -39,9 +39,12 @@ What it adds:
   command that sets one itself still wins. The three askpass settings
   are set in pi's own process too, as it loads, since pi runs git and
   ssh of its own (the work tool, a council's checkout) and a host takes
-  `SSH_ASKPASS` and `DISPLAY` from the user manager. The transient
-  service an agent is told to start for a long run unsets
-  `SSH_ASKPASS` and requires none, for the same reason.
+  `SSH_ASKPASS` and `DISPLAY` from the user manager. So what pi starts
+  for you inherits them as well: a `!` command fails a missing
+  credential rather than opening a window, and a terminal pi opens
+  asks on its own terminal; terminals you open yourself are untouched.
+  The transient service an agent is told to start for a long run sets
+  the same three, for the same reason.
 - **Behind what you use.** Where `priority-workflow` is putting what
   pi starts into the machine's cgroup for work, the shell moves itself
   there before it runs the command, so nothing the command forks is
@@ -369,7 +372,8 @@ caller's slice puts it in the jobs slice, where it dies. So the agent
 is told to start a run meant to outlive its command and its host as a
 transient service instead (`systemd-run --user --unit=NAME --collect
 --same-dir --expand-environment=no`, passing each variable it needs
-with `--setenv`). A service starts from the user manager, so it
+with `--setenv`, its `TMPDIR` among them, so its temp files stay in the
+quest's scratch rather than the `/tmp` every run shares). A service starts from the user manager, so it
 carries none of the command's marks and no reap finds it, whatever
 its slice; and the journal records how it ended, which for a scope
 nothing does. In the fence and the strict sandbox no command reaches

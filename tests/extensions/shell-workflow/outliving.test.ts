@@ -31,9 +31,25 @@ describe("outliving a command", () => {
 	// manager's SSH_ASKPASS and DISPLAY and no terminal.
 	it("asks nothing on the person's screen from the service it starts", () => {
 		const said = outlivingIt("none");
+		const options = said.slice(0, said.indexOf(" -- "));
 
-		expect(said).toContain("-p UnsetEnvironment=SSH_ASKPASS");
-		expect(said).toContain("--setenv=SSH_ASKPASS_REQUIRE=never");
+		// Before the `--`, so systemd-run takes them rather than the command.
+		for (const setting of [
+			"--setenv=GIT_ASKPASS= ",
+			"--setenv=SSH_ASKPASS= ",
+			"--setenv=SSH_ASKPASS_REQUIRE=never ",
+		])
+			expect(options).toContain(setting);
+	});
+
+	// On 21 November a test suite run that way, with /tmp as its temp
+	// folder, emptied /tmp three times, taking other runs' logs, caches
+	// and Nix's pinned host keys with it.
+	it("keeps the service's temp files in the command's temp folder, not the shared /tmp", () => {
+		const said = outlivingIt("none");
+		const options = said.slice(0, said.indexOf(" -- "));
+
+		expect(options).toContain('--setenv=TMPDIR="$TMPDIR" ');
 	});
 
 	for (const kind of ["fence", "strict"] as const) {

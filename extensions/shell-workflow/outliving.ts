@@ -13,8 +13,16 @@
  *
  * A service takes the user manager's environment, `SSH_ASKPASS` and
  * `DISPLAY` among them, so an ssh in it with no terminal would ask on
- * the person's screen. Unsetting the program and requiring none keeps
- * it from asking anyone; `--setenv` to empty alone would not.
+ * the person's screen. `SSH_ASKPASS_REQUIRE=never` is what keeps ssh
+ * from asking; an empty `GIT_ASKPASS` is what keeps git from falling
+ * back to `core.askPass` or ssh's program, since git reads a set but
+ * empty one as no program at all; the empty `SSH_ASKPASS` matches the
+ * shell's.
+ *
+ * It takes the command's `TMPDIR` too, the loaded quest's scratch, since
+ * a service left to the system's `/tmp` shares it with every run on the
+ * machine: on 21 November a test suite started that way cleared its temp
+ * folder before each test, which was `/tmp`, three times in one night.
  */
 
 import type { Sandbox } from "../../lib/internal/sandbox/sandbox.ts";
@@ -28,5 +36,5 @@ export function outlivingIt(kind: Sandbox["kind"]): string {
 	if (kind === "fence" || kind === "strict") {
 		return "Here no command can reach systemd to start what would outlive it, so something meant to outlive its command needs a service its owner runs, or the person.";
 	}
-	return "To outlive both, start it as a transient service, which carries none: `systemd-run --user --unit=NAME --collect --same-dir --expand-environment=no --setenv=PATH=\"$PATH\" --setenv=HOME=\"$HOME\" -p UnsetEnvironment=SSH_ASKPASS --setenv=SSH_ASKPASS_REQUIRE=never -p RuntimeMaxSec=SECONDS -- bash -c 'COMMAND > LOG 2>&1; echo rc=$? >> LOG'`, with a NAME of its own each run. It starts with none of the command's environment but what --setenv passes, so pass each variable the run needs, but never a secret, which systemd keeps in the unit's record: have the command read that from its file. `systemctl --user status NAME` says how it runs, `systemctl --user stop NAME` stops it, and `journalctl --user -u NAME` says how it ended.";
+	return 'To outlive both, start it as a transient service, which carries none: `systemd-run --user --unit=NAME --collect --same-dir --expand-environment=no --setenv=PATH="$PATH" --setenv=HOME="$HOME" --setenv=TMPDIR="$TMPDIR" --setenv=GIT_ASKPASS= --setenv=SSH_ASKPASS= --setenv=SSH_ASKPASS_REQUIRE=never -p RuntimeMaxSec=SECONDS -- bash -c \'COMMAND > LOG 2>&1; echo rc=$? >> LOG\'`, with a NAME of its own each run. It starts with none of the command\'s environment but what --setenv passes, so pass each variable the run needs, but never a secret, which systemd keeps in the unit\'s record: have the command read that from its file. `systemctl --user status NAME` says how it runs, `systemctl --user stop NAME` stops it, and `journalctl --user -u NAME` says how it ended.';
 }

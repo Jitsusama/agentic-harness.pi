@@ -51,6 +51,10 @@ beforeEach(() => {
 	vi.stubEnv("SSH_ASKPASS", "/run/current-system/sw/bin/ssh-askpass");
 	vi.stubEnv("SSH_ASKPASS_REQUIRE", "prefer");
 	vi.stubEnv("GIT_ASKPASS", "/run/current-system/sw/bin/ssh-askpass");
+	// The person's own, which pi's editor and pager are read from.
+	vi.stubEnv("EDITOR", "nvim");
+	vi.stubEnv("PAGER", "less");
+	vi.stubEnv("GIT_TERMINAL_PROMPT", "1");
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
@@ -94,6 +98,16 @@ describe("pi's own process", () => {
 			GIT_ASKPASS: "",
 			SSH_ASKPASS: "",
 			SSH_ASKPASS_REQUIRE: "never",
+		});
+	});
+
+	// Only the askpass settings: an editor of `true` here would end pi's
+	// own edits unsaved, and a pager of `cat` would page nothing.
+	it("keeps the person's editor, pager and terminal prompt", () => {
+		expect(process.env).toMatchObject({
+			EDITOR: "nvim",
+			PAGER: "less",
+			GIT_TERMINAL_PROMPT: "1",
 		});
 	});
 });

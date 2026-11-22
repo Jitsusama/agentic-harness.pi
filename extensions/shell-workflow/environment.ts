@@ -138,8 +138,10 @@ export const WITHOUT_INTERACTION: Readonly<Record<string, string>> = {
  * minutes. Nobody answers an askpass window but the person, and no
  * agent's work is worth that, so the process drops the program for good
  * as it loads.
- * The person's own terminals take theirs from the compositor's session,
- * which this leaves alone.
+ * What pi starts for the person inherits it too: a `!` command fails a
+ * missing credential rather than opening a window, and a terminal pi
+ * opens asks on its own terminal instead. Terminals the person opens
+ * take theirs from the compositor's session, which this leaves alone.
  */
 export function askNothingOnScreen(env: NodeJS.ProcessEnv = process.env): void {
 	Object.assign(env, NO_ASKPASS);
