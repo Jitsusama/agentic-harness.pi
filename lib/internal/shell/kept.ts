@@ -336,6 +336,34 @@ function textOf(file: string): string {
 	}
 }
 
+// The kept paths whose job record (kept-jobs.ts) this process wrote and
+// hasn't taken back, so a call that wrote none asks nothing of the disk
+// as it ends. For the process rather than a module copy: pi loads each
+// extension as a copy of its own, and job-workflow records a job while
+// shell-workflow ends its call, so the two always sit in different
+// copies, and a reload makes another. Kept here, beside `removeKept`,
+// since every way a call's files go passes through it. Each path is a
+// call's own, so conversations never share one. The key names the
+// shape: a copy loaded under another key would see none of these, and
+// its calls would leave their records to `removeKept` just after.
+const ownJobRecords = processGlobal(
+	"agentic-harness.internal/shell/kept-jobs/own-records.v1",
+	() => new Set<string>(),
+);
+
+/** Note that this process wrote the job record of the call kept at `path`. */
+export function ownJobRecord(path: string): void {
+	ownJobRecords.add(path);
+}
+
+/**
+ * Let go of the job record of the call kept at `path` as this process's,
+ * answering whether it was: its files went, or the call was handed on.
+ */
+export function disownJobRecord(path: string): boolean {
+	return ownJobRecords.delete(path);
+}
+
 /**
  * Remove everything a call kept. It never fails, so a caller that has
  * nothing to wait for can leave it to run. A mark it can't remove stops
@@ -343,6 +371,7 @@ function textOf(file: string): string {
  * it reads the call as ended; any other file it can't remove it passes.
  */
 export async function removeKept(path: string): Promise<void> {
+	disownJobRecord(path);
 	for (const suffix of SUFFIXES) {
 		try {
 			await rm(`${path}${suffix}`, { force: true });

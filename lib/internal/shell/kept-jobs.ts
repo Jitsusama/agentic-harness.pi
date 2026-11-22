@@ -25,8 +25,8 @@
  * Every call takes its record back as it ends, on the loop a host's
  * conversations share, and most calls never wrote one: asking the disk
  * for a name that isn't there held that loop up to 12 s under load. So
- * the process keeps which records it wrote, and a call it wrote none
- * for asks nothing; one it wrote is removed off the thread.
+ * the process keeps which records it wrote (kept.ts), and a call it
+ * wrote none for asks nothing; one it wrote is removed off the thread.
  */
 
 import {
@@ -38,12 +38,13 @@ import {
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { processGlobal } from "../process/process-global.ts";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
+	disownJobRecord,
 	endOf,
 	JOB_SUFFIX,
 	keptFolder,
+	ownJobRecord,
 	processThere,
 	removeKept,
 } from "./kept.ts";
@@ -64,15 +65,12 @@ export interface KeptJob {
 /** Only the owner reads or writes it, as every kept file. */
 const FILE_MODE = 0o600;
 
-// The kept paths whose record this process wrote and hasn't taken back,
-// for the process rather than a module copy: a reload evaluates this
-// module again while calls started before it still run, and a call and
-// its recorder may sit in either copy. Each path is a call's own, so
-// conversations never share one; the key names the shape.
-const ownRecords = processGlobal(
-	"agentic-harness.internal/shell/kept-jobs/own-records.v1",
-	() => new Set<string>(),
-);
+/**
+ * How long a record's removal may run before it is said: a disk this
+ * slow is one a host's journal should show, since the removal is off the
+ * thread now and holds no loop a watcher would see.
+ */
+const SLOW_REMOVAL_MS = 1_000;
 
 /**
  * Write the record of a call handed to a job, replacing one there, whole
@@ -87,7 +85,7 @@ export function recordKeptJob(job: KeptJob): void {
 	try {
 		writeFileSync(staged, JSON.stringify(job), { mode: FILE_MODE });
 		renameSync(staged, file);
-		ownRecords.add(job.work.keep);
+		ownJobRecord(job.work.keep);
 	} catch {
 		// Its files went as it ended: nothing is left to take up.
 		rmSync(staged, { force: true });
@@ -96,7 +94,7 @@ export function recordKeptJob(job: KeptJob): void {
 
 /** Take back the record of the call kept at `keep`, leaving it unspared. */
 export function forgetKeptJob(keep: string): void {
-	ownRecords.delete(keep);
+	disownJobRecord(keep);
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
@@ -110,18 +108,41 @@ export function forgetKeptJob(keep: string): void {
 /**
  * Take back the record of the call kept at `keep` when this process
  * wrote one, off the thread; a call it wrote none for asks nothing of
- * the disk. Never rejects, as `forgetKeptJob` never throws: it runs in
- * a call's finally, where a rejection would stand in for the call's own
- * outcome.
+ * the disk. A record written again while the removal runs, as a
+ * rollover's recorder does, is removed in turn. Never rejects, as
+ * `forgetKeptJob` never throws: it runs in a call's finally, where a
+ * rejection would stand in for the call's own outcome.
  */
 export async function forgetOwnKeptJob(keep: string): Promise<void> {
-	if (!ownRecords.delete(keep)) return;
-	try {
-		await rm(`${keep}${JOB_SUFFIX}`, { force: true });
-	} catch {
-		// Only something other than a file holds the name, which nothing
-		// here writes; left there, it reads as no record.
+	while (disownJobRecord(keep)) {
+		const file = `${keep}${JOB_SUFFIX}`;
+		const began = Date.now();
+		try {
+			await rm(file, { force: true });
+		} catch (error) {
+			// A folder in its place, or a disk refusing it (read-only after
+			// an error, failing, or the file made immutable): the record
+			// stays, and `removeKept` just after stops at it, so the next
+			// start may say this call's end again. Said, since nothing else
+			// would show it.
+			const why = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`[shell] couldn't remove ${file}: ${why}\n`);
+			continue;
+		}
+		const took = Date.now() - began;
+		if (took > SLOW_REMOVAL_MS) {
+			process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+		}
 	}
+}
+
+/**
+ * Let go of the record of the call kept at `keep` as this process's,
+ * asking nothing of the disk: the call was handed on, and whoever takes
+ * it up records it again and takes it back.
+ */
+export function disownKeptJob(keep: string): void {
+	disownJobRecord(keep);
 }
 
 /** Whether a record read back is one this code wrote. */
