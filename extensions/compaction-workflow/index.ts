@@ -109,12 +109,14 @@ import {
 	type CompactionSettled,
 	cutSince,
 	FAILED_RESUME_TEXT,
+	FAILED_WAITING_TEXT,
 	OWED_WITHIN_MS,
 	owesResume,
 	RESUME_TEXT,
 	SETTLED_ENTRY,
 	type SettledBy,
 	unsettledAsk,
+	WAITING_TEXT,
 } from "../../lib/compaction/resume.ts";
 import {
 	type CompactionCost,
@@ -480,9 +482,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		ctx.compact({
 			onComplete: whileCurrent(() => {
 				askOpen = false;
-				const resume = !ctx.hasPendingMessages() && owed();
+				const resume = owed();
 				settleAsk(pi, resume, "asker");
 				if (resume) resumeRun(pi, RESUME_TEXT);
+				else if (ctx.hasPendingMessages()) resumeRun(pi, WAITING_TEXT);
 			}),
 			onError: whileCurrent((error: Error) => {
 				askOpen = false;
@@ -503,10 +506,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 						"warning",
 					);
 				}
-				const resume =
-					!wasCancelled(error) && !ctx.hasPendingMessages() && owed();
+				const cancelled = wasCancelled(error);
+				const resume = !cancelled && owed();
 				settleAsk(pi, resume, "asker");
 				if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
+				else if (!cancelled && ctx.hasPendingMessages()) {
+					resumeRun(pi, FAILED_WAITING_TEXT);
+				}
 			}),
 		});
 	};
@@ -604,11 +610,14 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 * neither landed nor failed was cut short with it, and nothing else
 	 * will answer it; after a reload its compaction may still land, and
 	 * session_compact answers it then.
+	 *
+	 * Resumed though messages wait to go: pi's compaction aborted the run
+	 * they were queued for, which leaves them queued, and only a run
+	 * delivers them.
 	 */
 	function resumeOwed(ctx: ExtensionContext, reason?: string): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
 		whenIdle(ctx, () => {
-			if (ctx.hasPendingMessages()) return;
 			const branch = ctx.sessionManager.getBranch();
 			if (owesResume(branch, Date.now())) {
 				settleAsk(pi, true, "successor");
@@ -637,10 +646,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			const branch = ctx.sessionManager.getBranch();
 			const ask = unsettledAsk(branch, Date.now());
 			if (ask === undefined) return;
-			const resume =
-				!cancelled &&
-				!ctx.hasPendingMessages() &&
-				(ask.resume || cutSince(branch, ask.at));
+			const resume = !cancelled && (ask.resume || cutSince(branch, ask.at));
 			settleAsk(pi, resume, "successor");
 			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
 		});

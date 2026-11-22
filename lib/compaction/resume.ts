@@ -26,6 +26,19 @@ export const RESUME_TEXT = automatedText(COMPACTED, CARRY_ON);
 /** Sent once a compaction fails, to carry on the run it stopped. */
 export const FAILED_RESUME_TEXT = automatedText(FAILED, CARRY_ON);
 
+const ANSWER_WAITING =
+	"Messages that waited while it ran follow; answer them as you would have.";
+
+/**
+ * Sent once a compaction ends with messages waiting and no run owed:
+ * pi's compaction aborts the run they were queued for, which leaves
+ * them queued, and only a run delivers them.
+ */
+export const WAITING_TEXT = automatedText(COMPACTED, ANSWER_WAITING);
+
+/** As {@link WAITING_TEXT}, once a compaction fails. */
+export const FAILED_WAITING_TEXT = automatedText(FAILED, ANSWER_WAITING);
+
 /**
  * How each opens, today and before the header. A message is matched
  * on its opening rather than as a whole, since other extensions may

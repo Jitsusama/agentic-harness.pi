@@ -738,12 +738,12 @@ describe("resuming from the log a run another runtime owed", () => {
 		}
 	});
 
-	it("starts nothing with a message waiting to go", async () => {
+	it("resumes though a message waits to go, which only a run delivers", async () => {
 		const { calls } = await startOn(owing(), "reload", {
 			hasPendingMessages: () => true,
 		});
 
-		expect(calls.sendUserMessage).toEqual([]);
+		expect(calls.sendUserMessage).toHaveLength(1);
 	});
 
 	it("starts nothing in a mode that is never resumed", async () => {
