@@ -456,12 +456,20 @@ describe("pi-carry", () => {
 	it("exits 64 when settle is asked wrongly, as every form does", async () => {
 		const one = machine("settle-asked", folder(made, "cache"));
 
-		const asked = await piCarry(one.env, "settle", QUEST);
+		// Settle's own words, which the general refusal doesn't share, so
+		// they show settle's check ran: once with no session, once with one
+		// that isn't a session's id.
+		for (const words of [[], ["--session", "../x"]]) {
+			const asked = await piCarry(one.env, "settle", QUEST, ...words);
 
-		expect(asked.code).toBe(64);
-		expect(asked.lines).toEqual([
-			{ kind: "failed", why: expect.stringContaining("--session") },
-		]);
+			expect(asked.code).toBe(64);
+			expect(asked.lines).toEqual([
+				{
+					kind: "failed",
+					why: expect.stringContaining("old place to let go"),
+				},
+			]);
+		}
 	});
 
 	it("answers --help on stdout alone, exiting 0, with only PATH set", async () => {
