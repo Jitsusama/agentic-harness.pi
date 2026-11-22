@@ -421,13 +421,89 @@ describe("merging", () => {
 describe("requesting reviewers", () => {
 	it("sends the people asked for", async () => {
 		const { exec, calls } = fakeExec([
-			{ when: ["requested_reviewers"], stdout: "{}" },
+			{
+				when: ["requested_reviewers"],
+				stdout: recorded(["wren", "finch"], []),
+			},
 		]);
 
 		await githubAuthoring(exec).requestReviewers?.(ref, ["wren", "finch"]);
 
 		const sent = JSON.parse(calls[0]?.input ?? "{}") as Record<string, unknown>;
-		expect(sent.reviewers).toEqual(["wren", "finch"]);
+		expect(sent.reviewers, "each person is sent as a reviewer").toEqual([
+			"wren",
+			"finch",
+		]);
+		expect(sent.team_reviewers, "no team is sent").toEqual([]);
+	});
+
+	it("sends a team of the repo's org by its slug", async () => {
+		// GitHub drops a team sent as a person and still answers success,
+		// so `o/reviewers` has to go as the team slug `reviewers`.
+		const { exec, calls } = fakeExec([
+			{
+				when: ["requested_reviewers"],
+				stdout: recorded(["wren"], ["reviewers"]),
+			},
+		]);
+
+		await githubAuthoring(exec).requestReviewers?.(ref, [
+			"wren",
+			"@o/reviewers",
+		]);
+
+		const sent = JSON.parse(calls[0]?.input ?? "{}") as Record<string, unknown>;
+		expect(sent.reviewers, "only the person goes as a reviewer").toEqual([
+			"wren",
+		]);
+		expect(sent.team_reviewers, "the team goes by its slug").toEqual([
+			"reviewers",
+		]);
+	});
+
+	it("refuses a team of another org before asking anybody", async () => {
+		const { exec, calls } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "elsewhere/ci"]),
+			"a team GitHub can't take is refused",
+		).rejects.toThrow(/only teams of the repo's own org, o.*Nobody was asked/);
+		expect(calls, "nothing reaches GitHub").toEqual([]);
+	});
+
+	it("names whoever GitHub took the request for and didn't record", async () => {
+		const { exec } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
+			"a success that recorded nobody for the team is no success",
+		).rejects.toThrow(/recorded no request for team ci\./);
+	});
+
+	it("says whether anybody was asked is unknown when the answer shows nothing", async () => {
+		const { exec } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: "not json" },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren"]),
+			"an unreadable answer is not read as success",
+		).rejects.toThrow(/whether anybody was asked is unknown/);
+	});
+
+	it("matches what GitHub recorded whatever its case", async () => {
+		const { exec } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: recorded(["Wren"], []) },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren"]),
+			"logins are not case-sensitive on GitHub",
+		).resolves.toBeUndefined();
 	});
 
 	it("asks nobody when the list is empty", async () => {
@@ -442,6 +518,14 @@ describe("requesting reviewers", () => {
 		expect(calls).toEqual([]);
 	});
 });
+
+/** A pull request answer recording these logins and team slugs. */
+function recorded(logins: string[], slugs: string[]): string {
+	return JSON.stringify({
+		requested_reviewers: logins.map((login) => ({ login })),
+		requested_teams: slugs.map((slug) => ({ slug })),
+	});
+}
 
 /** Which rerun routes were POSTed, in order. */
 function routesRerun(calls: { args: string[] }[]): string[] {

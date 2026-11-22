@@ -127,7 +127,8 @@ const OFFER_PARAMETERS = Type.Object({
 	),
 	reviewers: Type.Optional(
 		Type.Array(Type.String(), {
-			description: "For reviewers: who to ask.",
+			description:
+				"For reviewers: who to ask, people by login and teams as org/team (on GitHub, only the repo's own org's teams).",
 		}),
 	),
 	labels: Type.Optional(

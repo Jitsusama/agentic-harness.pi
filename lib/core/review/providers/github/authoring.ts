@@ -20,6 +20,7 @@
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isRecord } from "../../../../internal/record.ts";
 import { type Exec, run } from "../../../exec/index.ts";
 import type { Change, ChangeRef, RepoLocator } from "../../change.ts";
 import type { RerunOutcome } from "../../checks.ts";
@@ -39,6 +40,75 @@ function slugOf(repo: RepoLocator): string {
 	const owned = ownerRepoFromKey(repo.key);
 	if (!owned) throw new Error(`${repo.key} is not a GitHub repo key`);
 	return `${owned.owner}/${owned.repo}`;
+}
+
+/** Who a reviewers call asks, split as GitHub takes them. */
+interface Asked {
+	readonly people: string[];
+	/** Team slugs, within the repo's own org. */
+	readonly teams: string[];
+}
+
+/**
+ * Split the names a caller asked for into people and teams. A name with
+ * a slash, `org/team` or `@org/team`, is a team; GitHub takes teams only
+ * by slug and only from the repo's own org, so one from another org is
+ * refused rather than sent where it would be dropped.
+ */
+function splitAsked(repo: RepoLocator, actors: readonly string[]): Asked {
+	const owner = ownerRepoFromKey(repo.key)?.owner ?? "";
+	const people: string[] = [];
+	const teams: string[] = [];
+	for (const actor of actors) {
+		const name = actor.trim().replace(/^@/, "");
+		const slash = name.indexOf("/");
+		if (slash < 0) {
+			people.push(name);
+			continue;
+		}
+		const org = name.slice(0, slash);
+		if (org.toLowerCase() !== owner.toLowerCase()) {
+			throw new Error(
+				`${actor} is a team of ${org}, and GitHub asks only teams of the repo's own org, ${owner}. Nobody was asked.`,
+			);
+		}
+		teams.push(name.slice(slash + 1));
+	}
+	return { people, teams };
+}
+
+/**
+ * The names in `asked` a pull request's answer doesn't show requested.
+ * GitHub answers a reviewers request with the pull request, and has been
+ * seen to answer one it dropped with success (Shopify/shopify-build
+ * #10439 and #10440, 22 November: a team sent as a person, recorded for
+ * nobody), so what it recorded is read rather than its status trusted.
+ */
+function notRecorded(answer: string, asked: Asked): string[] | undefined {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(answer);
+	} catch {
+		// An answer that isn't JSON shows nothing recorded; the caller
+		// says so rather than reading it as success.
+		return undefined;
+	}
+	if (!isRecord(parsed)) return undefined;
+	const names = (list: unknown, key: string): Set<string> =>
+		new Set(
+			(Array.isArray(list) ? list : []).flatMap((entry) => {
+				const value = isRecord(entry) ? entry[key] : undefined;
+				return typeof value === "string" ? [value.toLowerCase()] : [];
+			}),
+		);
+	const people = names(parsed.requested_reviewers, "login");
+	const teams = names(parsed.requested_teams, "slug");
+	return [
+		...asked.people.filter((person) => !people.has(person.toLowerCase())),
+		...asked.teams
+			.filter((team) => !teams.has(team.toLowerCase()))
+			.map((team) => `team ${team}`),
+	];
 }
 
 /** Build the authoring facet. */
@@ -491,12 +561,24 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			// GitHub accepts an empty request and does nothing with it,
 			// which would leave a caller believing it asked somebody.
 			if (actors.length === 0) return;
-			await send(
+			const asked = splitAsked(ref.repo, actors);
+			const answer = await send(
 				"POST",
 				`repos/${slugOf(ref.repo)}/pulls/${ref.id}/requested_reviewers`,
-				{ reviewers: actors },
+				{ reviewers: asked.people, team_reviewers: asked.teams },
 				`requesting reviewers on pull request ${ref.id}`,
 			);
+			const missing = notRecorded(answer, asked);
+			if (missing === undefined) {
+				throw new Error(
+					`GitHub answered the reviewers request on pull request ${ref.id} with nothing that shows who it recorded, so whether anybody was asked is unknown. Check the pull request's reviewers.`,
+				);
+			}
+			if (missing.length > 0) {
+				throw new Error(
+					`GitHub took the reviewers request on pull request ${ref.id} but recorded no request for ${missing.join(", ")}. Check the name, and that they can see the repo.`,
+				);
+			}
 		},
 	};
 
