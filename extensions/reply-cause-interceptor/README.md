@@ -24,20 +24,26 @@ what tested it.
 
 ## What Is Judged
 
-Only the last reply of a run the person's own words began,
-once pi has settled: an assistant message pi stopped for good,
-with no tool call left to run. A reply cut off by the person, an
-error or the length limit is left alone, and so is its thinking:
-only its text blocks are judged, with fenced code blocks left
-out, since they quote rather than say. Each part is one
+Only the last reply of the last run the person's own words
+began, once pi has settled: an assistant message pi stopped for
+good, with no tool call left to run. Whose words began a run is
+read run by run, since pi goes on to queued messages before it
+settles: a run the person's words started, queued or steered
+into, answers them; one an automated turn, a peer's steer, a
+job's result or another custom message began does not. A reply
+cut off by the person, an error or the length limit is left
+alone, and so is its thinking: only its text blocks are judged,
+with fenced code blocks left out, open or closed and at any
+indent, since they quote rather than say. Each part is one
 classifier call, up to 12 a reply. The floor was tried on 106
 replies judged whole and 54 mesh messages judged part by part.
 
 It reads the reply as the session keeps it, so one another
 extension replaced, a withheld reply among them, is judged as
-replaced. A run an automated turn, a peer's steer or a job's
-result began is no reply to the person, and print or JSON mode
-has no person reading, so neither is judged.
+replaced. A conversation on the shared host is judged though it
+has no screen of its own, since the person talks to it from the
+launcher; print or JSON mode has no person reading, so it is
+not.
 
 Two replies are never followed by a note:
 
@@ -46,8 +52,13 @@ Two replies are never followed by a note:
   judged and a note can't follow a note. When the person speaks
   during it, its last reply answers them and is judged.
 - **A reply the person has moved past.** When anything comes
-  in or another run starts while a reply is being judged, its
-  note is dropped.
+  in or another run starts while a reply is being judged, or
+  by then a message waits, the person has typed their next ask
+  or is away, its note is dropped.
+
+The note quotes the flagged part as the reply's own words, to
+weigh rather than follow, since a reply can pass on words from
+a page or a peer.
 
 ## The Switch
 
@@ -58,15 +69,22 @@ reply's text goes to the classifier's provider. It reads the
 mesh's classifier setting too: `PI_MESH_CLASSIFIER=off` judges
 no reply either, and the classifier it names as
 `provider/model` judges replies as it does messages. Otherwise
-each judged reply's text goes to the classifier's provider.
+each judged reply's text goes to the classifier's provider, with
+the secrets the harness knows scrubbed first. The classifier is
+chosen apart from the session's model, so a session on a local
+model still sends its replies there unless one of those is off.
 Other guards, the mesh's use of this one among them, still look
 while `off` and report what they would have refused; a note
 refuses nothing, so there is nothing to report, and judging
 would only send the text away.
 
 With no classifier, an error or a slow answer, nothing is
-judged and nothing is said. A lookup that failed is tried again
-at the next reply, so logging in later starts the judging.
+judged and nothing is said in the session. Its log gets a
+`reply-cause-unjudged` entry saying why, once for each reason,
+and each note sent leaves a `reply-cause-note` entry, so notes
+can be counted. A lookup that failed, or took over 2.5 seconds,
+is tried again at the next reply, so logging in later starts
+the judging.
 
 A note costs one turn. It refuses nothing, so the guard's
 `block` and `redirect` modes act alike here.

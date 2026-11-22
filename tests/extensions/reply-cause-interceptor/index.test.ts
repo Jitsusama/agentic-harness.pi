@@ -4,13 +4,16 @@
  * anything else, or a reply the person has moved past, is left alone.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	NOTE_REASON,
+	NOTED,
 	replyCauseInterceptor,
 	replyClassifier,
+	UNJUDGED,
 } from "../../../extensions/reply-cause-interceptor/index.ts";
 import type { Classify, FoundClassifier } from "../../../lib/classifier/jev.ts";
+import { installHost, withSession } from "../../../lib/core/session/index.ts";
 import {
 	restoreSessionModes,
 	setSessionMode,
@@ -19,6 +22,7 @@ import {
 	automatedText,
 	isAutomatedText,
 } from "../../../lib/internal/automated.ts";
+import { goAway, resetAway } from "../../../lib/internal/away/state.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 
 const CAUSE = "The build failed because the cache was corrupted by the reboot.";
@@ -32,6 +36,9 @@ let lookup: () => Promise<FoundClassifier>;
 let gate: Promise<void>;
 let idle: boolean;
 let hasUI: boolean;
+let pending: boolean;
+let typed: string;
+let unhost: (() => void) | undefined;
 
 /** A classifier sure of an untested cause in any part naming a cache. */
 const classify: Classify = async (context) => {
@@ -76,6 +83,8 @@ beforeEach(() => {
 	gate = Promise.resolve();
 	idle = true;
 	hasUI = true;
+	pending = false;
+	typed = "";
 	lookup = async () => FOUND;
 	install(() => {
 		lookups += 1;
@@ -83,7 +92,13 @@ beforeEach(() => {
 	});
 });
 
-afterEach(() => restoreSessionModes({}));
+afterEach(() => {
+	// First, so a host a test installed never outlives it.
+	unhost?.();
+	unhost = undefined;
+	restoreSessionModes({});
+	resetAway();
+});
 
 const handler = (event: string) => {
 	const [one] = pi.recorded.handlers.get(event) ?? [];
@@ -91,10 +106,36 @@ const handler = (event: string) => {
 	return one;
 };
 
-const ctx = () => ({ hasUI, isIdle: () => idle, modelRegistry: {} });
+const ctx = () => ({
+	hasUI,
+	isIdle: () => idle,
+	hasPendingMessages: () => pending,
+	ui: { getEditorText: () => typed },
+	modelRegistry: {},
+});
 
-const input = (text: string) =>
-	handler("input")({ type: "input", text, source: "interactive" }, ctx());
+const input = (text: string, streamingBehavior?: "steer" | "followUp") =>
+	handler("input")(
+		{ type: "input", text, source: "interactive", streamingBehavior },
+		ctx(),
+	);
+
+/** A custom message, a peer's or a job's, wakes pi and begins a run. */
+const customBegins = () =>
+	handler("before_agent_start")(
+		{ type: "before_agent_start", messageType: "custom" },
+		ctx(),
+	);
+
+/** A peer's steer, framed as the mesh frames one from outside the window. */
+const peerSteers = () =>
+	input("[9R6RA6 is asking from outside this window] Why did the build fail?");
+
+/** The person's own steer from the launcher, framed the same way. */
+const personSteers = () =>
+	input(
+		"[the person is asking from outside this window] Why did the build fail?",
+	);
 
 const personSays = () => input("Why did the build fail?");
 
@@ -149,6 +190,38 @@ describe("a reply to the person", () => {
 		expect(notes()).toHaveLength(1);
 		expect(String(notes()[0])).toContain(`> ${CAUSE}`);
 		expect(isAutomatedText(String(notes()[0]))).toBe(true);
+		expect(pi.recorded.entries).toEqual([
+			{ customType: NOTED, data: { parts: 1 } },
+		]);
+	});
+
+	it("is judged when the person steers from the launcher", async () => {
+		await personSteers();
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("is judged in a hosted conversation, which has no screen of its own", async () => {
+		hasUI = false;
+		unhost = installHost({} as never);
+		// The host runs each conversation's hooks as that conversation.
+		await withSession("hosted-1", async () => {
+			await turn(text(CAUSE));
+			await allJudged();
+		});
+
+		expect(notes()).toHaveLength(1);
+	});
+
+	it("is judged with its secrets scrubbed, so none reaches the provider", async () => {
+		const token = `github_pat_${"A1".repeat(20)}`;
+		await turn(text(`${STATUS} The token is ${token}.`));
+		await allJudged();
+
+		expect(judged.join("\n")).not.toContain(token);
 	});
 
 	it("stating no cause is followed by nothing", async () => {
@@ -235,10 +308,50 @@ describe("a reply to the person", () => {
 		expect(notes()).toEqual([]);
 	});
 
-	it("sends nothing when another run started while it was judged", async () => {
+	it("sends nothing when an automated turn came while it was judged", async () => {
 		const release = holdAnswers();
 		await turn(text(CAUSE));
 		await automatedSays();
+		release();
+		await allJudged();
+
+		expect(notes()).toEqual([]);
+	});
+
+	it("sends nothing when a run no input began came and went while it was judged", async () => {
+		const release = holdAnswers();
+		await turn(text(CAUSE));
+		await customBegins();
+		await runEnds(assistant("stop", text(STATUS)));
+		release();
+		await allJudged();
+
+		expect(notes()).toEqual([]);
+	});
+
+	it.each([
+		[
+			"a message waits",
+			() => {
+				pending = true;
+			},
+		],
+		[
+			"the person has typed their next ask",
+			() => {
+				typed = "And the tests?";
+			},
+		],
+		[
+			"the person is away",
+			() => {
+				goAway("asleep");
+			},
+		],
+	])("sends nothing when %s by the time it is judged", async (_, holding) => {
+		const release = holdAnswers();
+		await turn(text(CAUSE));
+		holding();
 		release();
 		await allJudged();
 
@@ -253,6 +366,28 @@ describe("a reply to the person", () => {
 		await allJudged();
 
 		expect(notes()).toEqual([]);
+	});
+
+	it.each([
+		[
+			"two blocks with words between",
+			["```", "a", "```", STATUS, "~~~ts", CAUSE, "~~~"],
+		],
+		[
+			"a fence in a list item",
+			[STATUS, "", "1. Run:", "", "    ```", `    ${CAUSE}`, "    ```"],
+		],
+		["a fence left open at the end", [STATUS, "", "```", CAUSE]],
+		[
+			"a line with words after a fence inside a block",
+			["```", "echo", "```bash", CAUSE, "```", "", STATUS],
+		],
+	])("leaves out code in %s", async (_, lines) => {
+		await turn(text(lines.join("\n")));
+		await allJudged();
+
+		expect(judged.join("\n")).not.toContain("cache");
+		expect(judged.join("\n")).toContain(STATUS);
 	});
 
 	it("is judged by its text alone, not its thinking or code blocks", async () => {
@@ -271,6 +406,46 @@ describe("a reply to the person", () => {
 		await allJudged();
 
 		expect(judged).toEqual([STATUS]);
+	});
+});
+
+describe("runs before one settle", () => {
+	const runStarts = () =>
+		handler("agent_start")({ type: "agent_start" }, ctx());
+	const runStops = (...messages: object[]) =>
+		handler("agent_end")({ type: "agent_end", messages }, ctx());
+
+	it("judge the person's reply, not the one to a run queued after it", async () => {
+		await personSays();
+		await runEnds(assistant("stop", text(CAUSE)));
+		await runEnds(assistant("stop", text(STATUS)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("judge the reply to the person's queued words, not the run before", async () => {
+		await automatedSays();
+		await runStarts();
+		await input("And why did it fail?", "followUp");
+		await runStops(assistant("stop", text(STATUS)));
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("judge a run the person steered, though an automated turn began it", async () => {
+		await automatedSays();
+		await runStarts();
+		await input("Why did the build fail?", "steer");
+		await runStops(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
 	});
 });
 
@@ -297,6 +472,23 @@ describe("a reply left unjudged", () => {
 		await personSays();
 		await runEnds(assistant("stop", text(CAUSE)));
 		await settles(true);
+
+		expect(judgments).toEqual([]);
+	});
+
+	it("is one in a run a peer's steer began", async () => {
+		await peerSteers();
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+
+		expect(judgments).toEqual([]);
+	});
+
+	it("is one in a run a custom message began after the person's words went unanswered by a run", async () => {
+		await personSays();
+		await customBegins();
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
 
 		expect(judgments).toEqual([]);
 	});
@@ -340,17 +532,48 @@ describe("a reply left unjudged", () => {
 		expect(notes()).toHaveLength(1);
 	});
 
-	it("is every one while finding a classifier fails, which says nothing", async () => {
+	it("is every one while finding a classifier fails, which the log says once", async () => {
 		lookup = async () => {
 			throw new Error("the registry is not ready");
 		};
 		await turn(text(CAUSE));
-		await expect(allJudged()).resolves.toBeDefined();
+		await allJudged();
 		await turn(text(CAUSE));
+		await allJudged();
 
-		await expect(allJudged()).resolves.toBeDefined();
 		expect(lookups).toBe(2);
+		expect(judged).toEqual([]);
 		expect(notes()).toEqual([]);
+		expect(pi.recorded.entries).toEqual([
+			{
+				customType: UNJUDGED,
+				data: {
+					why: "finding the classifier failed: the registry is not ready",
+				},
+			},
+		]);
+	});
+
+	it("is every one while finding a classifier never ends, which is looked for again at the next", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			lookup = () => new Promise(() => {});
+			await turn(text(CAUSE));
+			await vi.advanceTimersByTimeAsync(2500);
+			await allJudged();
+		} finally {
+			vi.useRealTimers();
+		}
+		lookup = async () => FOUND;
+		await turn(text(CAUSE));
+		await allJudged();
+
+		expect(lookups).toBe(2);
+		expect(notes()).toHaveLength(1);
+		expect(pi.recorded.entries[0]).toEqual({
+			customType: UNJUDGED,
+			data: { why: "finding the classifier took over 2500 ms" },
+		});
 	});
 
 	it("still ends quietly when the note can't be sent", async () => {
@@ -358,8 +581,35 @@ describe("a reply left unjudged", () => {
 			throw new Error("This extension ctx is stale");
 		};
 		await turn(text(CAUSE));
+		await allJudged();
 
-		await expect(allJudged()).resolves.toBeDefined();
+		expect(pi.recorded.entries).toEqual([
+			{
+				customType: UNJUDGED,
+				data: { why: "judging a reply or sending its note failed" },
+			},
+		]);
+	});
+
+	it("finds the classifier once across replies once it is found", async () => {
+		await turn(text(CAUSE));
+		await allJudged();
+		await turn(text(STATUS));
+		await allJudged();
+
+		expect(lookups).toBe(1);
+	});
+
+	it("keeps a classifier switched off, looking for none again", async () => {
+		lookup = async () => ({ ok: false, reason: "switched off", off: true });
+		await turn(text(CAUSE));
+		await allJudged();
+		await turn(text(CAUSE));
+		await allJudged();
+
+		expect(lookups).toBe(1);
+		expect(judged).toEqual([]);
+		expect(pi.recorded.entries).toEqual([]);
 	});
 });
 
@@ -379,11 +629,15 @@ describe("the classifier for replies", () => {
 
 	it("is none when the mesh's classifier is off, so no reply's text leaves", async () => {
 		const asked: string[] = [];
-		const found = await replyClassifier({ PI_MESH_CLASSIFIER: "off" })(
-			registry(asked) as never,
+		pi = fakePi();
+		install(() =>
+			replyClassifier({ PI_MESH_CLASSIFIER: "off" })(registry(asked) as never),
 		);
+		await turn(text(CAUSE));
+		await allJudged();
 
-		expect(found).toMatchObject({ ok: false, off: true });
+		expect(asked).toEqual([]);
+		expect(notes()).toEqual([]);
 	});
 
 	it("is the one the mesh's setting names", async () => {
