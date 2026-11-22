@@ -285,7 +285,8 @@ export function childEntry(
 		try {
 			text = readFileSync(path, "utf8");
 		} catch {
-			// Not written yet, or mid-replacement: no entry this time.
+			// Not written yet: no entry this time. It is replaced whole by a
+			// rename, so a read never finds it half-written.
 			return undefined;
 		}
 		return parseRoster(text, slot.key)?.sessions.find(
@@ -412,10 +413,11 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let viewing = 0;
 	let stopAlone: (() => void) | undefined;
 
-	// Whether its start did what it was asked: it answered, or it rests
-	// parked as the slot left it, so an end that stops it parks or ends
-	// it as asked rather than calling the child failed.
-	function startWorked(): boolean {
+	// Whether an end that stops it parks or ends it as asked rather than
+	// calling the child failed: its start answered, or it still rests
+	// parked as the slot left it. A wake that registered and died before
+	// it answered ended the rest, so it no longer does.
+	function endsAsAsked(): boolean {
 		return answered !== undefined || resting;
 	}
 
@@ -558,11 +560,14 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
-			// A wake ends the rest: one that dies before its roster names it,
-			// so before it answers, failed, rather than resting parked as it
-			// was. A wake answers as it registers once its roster names it. One
-			// whose build fails after that stays listed parked, as any failed
-			// start in a child does, until it is closed or the host stops.
+			// A wake that registers ends the rest: one that dies before it
+			// answers then ends the child failed, rather than resting parked as
+			// it was. A wake answers as it registers once its roster names it.
+			// One whose build fails after that stays listed parked, as any
+			// failed start in a child does, until it is closed or the host
+			// stops. One that throws before it registers changes nothing held,
+			// so the rest stands: the conversation is still parked as the slot
+			// left it, for a later wake, and the child ends parked.
 			if (held) {
 				away = false;
 				resting = false;
@@ -583,7 +588,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			if (ended || options.conversations().length > 0) return;
 			// One resting parked was never answered, as it hadn't woken, and
 			// leaves as it was asked to rather than failing.
-			if (!startWorked()) {
+			if (!endsAsAsked()) {
 				end("failed");
 				return;
 			}
@@ -605,7 +610,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			weighAlone();
 		},
 		stopping() {
-			end(startWorked() ? "parked" : "failed");
+			end(endsAsAsked() ? "parked" : "failed");
 		},
 		conversation() {
 			return current()?.id ?? sent?.id;
