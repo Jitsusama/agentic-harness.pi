@@ -223,7 +223,11 @@ input pipeline or screen. No unit or running host is installed yet.
   systemctl has queued it does the stop tell
   each viewer `restarting`, just before it closes on them, so a
   refused restart says nothing. A unit file systemd hasn't reloaded
-  yet asks nothing, since a restart would start the old one.
+  yet asks nothing, since a restart would start the old one. A Mac's
+  host is a launchd job (its parent launchd, its XPC_SERVICE_NAME a
+  Label naming a pi host), which no systemctl restarts: under the same
+  rules it stops as a stop signal would and exits 75, which launchd
+  starts again, and only its install and heap move it.
 - quiet.ts: the probes a host's restart waits on, from the unit's
   PI_HOST_RESTART_WAITS_ON, a JSON list of `{ "while", "run" }`. A
   probe exiting 1 is clear, as a-call-is-on and a-meeting-is-near

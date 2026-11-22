@@ -7,6 +7,7 @@ import {
 	hostCodeOf,
 	hostModules,
 	isUnitMain,
+	ownLaunchdJob,
 	ownUnit,
 	relativeImports,
 	unitDefinition,
@@ -101,6 +102,38 @@ describe("ownUnit", () => {
 		);
 		expect(await ownUnit(join(root, "in-scope"))).toBeUndefined();
 		expect(await ownUnit(join(root, "absent"))).toBeUndefined();
+	});
+});
+
+describe("ownLaunchdJob", () => {
+	const label = "org.jitsusama.pi-host-work-background";
+
+	it("names the job of a Mac's host whose parent is launchd", () => {
+		expect(ownLaunchdJob({ platform: "darwin", ppid: 1, service: label })).toBe(
+			label,
+		);
+	});
+
+	it("names none for a host started any other way", () => {
+		// Started in a terminal, its parent a shell.
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 4242, service: label }),
+		).toBeUndefined();
+		// Left behind by its parent, carrying the terminal's name.
+		expect(
+			ownLaunchdJob({
+				platform: "darwin",
+				ppid: 1,
+				service: "application.com.apple.Terminal.1234",
+			}),
+		).toBeUndefined();
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 1, service: undefined }),
+		).toBeUndefined();
+		// Linux's host is systemd's, whatever it carries.
+		expect(
+			ownLaunchdJob({ platform: "linux", ppid: 1, service: label }),
+		).toBeUndefined();
 	});
 });
 

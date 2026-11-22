@@ -12,7 +12,8 @@
  * stop signal, then exits once every conversation is parked and every
  * hold kept. It exits 78 when its configuration is refused, which no
  * restart would change, and 1 on any other failure to start, which a
- * restart might.
+ * restart might. A Mac's, which launchd runs, exits 75 once it stopped
+ * to be started again on a new harness or pi, or for its heap.
  *
  * A supervisor starts a child host for one conversation the same way:
  *
@@ -53,8 +54,12 @@ if (packageDir && isAbsolute(packageDir))
 	registerHooks({ resolve: piFromHost(packageDir) });
 
 // Loaded only now, so the host's code binds pi through the hook above.
-const { EXIT_MISCONFIGURED, HostMisconfigured, startHostProgram } =
-	await import("../host/service/program.ts");
+const {
+	EXIT_MISCONFIGURED,
+	EXIT_TO_RESTART,
+	HostMisconfigured,
+	startHostProgram,
+} = await import("../host/service/program.ts");
 const { reportToJournal } = await import("../host/service/run.ts");
 
 try {
@@ -69,7 +74,7 @@ try {
 	const failed = (await run.ending) === "failed";
 	// A screen's timers or a viewer's socket can outlive the host's stop;
 	// every conversation is parked and held by now, so nothing is lost.
-	process.exit(failed ? 1 : 0);
+	process.exit(failed ? 1 : run.restarts?.() ? EXIT_TO_RESTART : 0);
 } catch (error) {
 	if (error instanceof HostMisconfigured) {
 		// What was given is wrong, not the code, so the message is the whole story.

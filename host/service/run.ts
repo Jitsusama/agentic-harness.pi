@@ -248,6 +248,8 @@ export interface HostRun {
 	 * parked, since its watch already heard it parked.
 	 */
 	readonly stopped: Promise<void>;
+	/** Stop as a stop signal would, answering `stopped`. */
+	stop(): Promise<void>;
 }
 
 /**
@@ -523,11 +525,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			});
 		return stopping;
 	};
+	// A stop the host asks of itself ends it as a signal's would.
+	let stopAsked = (): void => undefined;
 	const stopped = new Promise<void>((resolve, reject) => {
-		for (const signal of STOP_SIGNALS)
-			signals.once(signal, () => {
-				stop().then(resolve, reject);
-			});
+		stopAsked = () => {
+			stop().then(resolve, reject);
+		};
+		for (const signal of STOP_SIGNALS) signals.once(signal, stopAsked);
 		// A child stops once its conversation ends, as a signal would stop it.
 		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
@@ -574,7 +578,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	if (lastStop) unparked.clear();
 	const named = droppedNames(serving.dropped);
 	say(`${since()}: ${status()}${named}, listening on ${serving.path}`);
-	return { serving, stopped };
+	return {
+		serving,
+		stopped,
+		stop: () => {
+			stopAsked();
+			return stopped;
+		},
+	};
 }
 
 /**

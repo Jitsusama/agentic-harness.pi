@@ -44,6 +44,13 @@ import { noticingInput } from "./viewer.ts";
 export const EXIT_MISCONFIGURED = 78;
 
 /**
+ * The exit status of a host launchd runs that stopped to be started on
+ * what it would start now, EX_TEMPFAIL from sysexits.h: launchd starts a
+ * job again only once it fails, and this failure is the host's own ask.
+ */
+export const EXIT_TO_RESTART = 75;
+
+/**
  * Variables the host process needs and no conversation should see:
  * systemd's notify, watchdog and socket hand-over, which a tool's child
  * would otherwise answer for the host, and the host's own pi install,
@@ -241,8 +248,16 @@ export async function startHostProgram(
 	if (child) return { ...run, ending: child.life.ending };
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
+	let restarts = false;
+	// launchd starts a Mac's host again once it exits with a failure. The
+	// stop answers `stopped` itself, whose failure the program's caller reports.
+	const exitToRestart = () => {
+		restarts = true;
+		void run.stop();
+	};
 	const unfollow = await followWhatStarts({
 		serving: run.serving,
+		exitToRestart,
 		// runHost answers only once its engine is made.
 		background: () => engine?.background() ?? 0,
 		holding: () => engine?.holding() ?? [],
@@ -274,13 +289,18 @@ export async function startHostProgram(
 		return () => undefined;
 	});
 	run.stopped.then(unfollow, unfollow);
-	return run;
+	return { ...run, restarts: () => restarts };
 }
 
 /** A host process as it runs, and for a child, why it ends. */
 export interface ProgramRun extends HostRun {
 	/** A child's ending, as its watch's last line says it; none for a host. */
 	readonly ending?: Promise<Ending>;
+	/**
+	 * Whether the host stopped to be started again, which it asks of
+	 * launchd by exiting EXIT_TO_RESTART; none for a child.
+	 */
+	readonly restarts?: () => boolean;
 }
 
 /** Everything a restart can't change, judged before the host starts. */

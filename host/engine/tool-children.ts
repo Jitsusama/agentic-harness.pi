@@ -341,7 +341,11 @@ async function markedWhere(
 	return found;
 }
 
-/** The process table Linux keeps under /proc. */
+/**
+ * The process table Linux keeps under /proc. Where there is none, as on a
+ * Mac, it lists no process, so a sweep reaps nothing rather than failing
+ * the host's start.
+ */
 export function linuxProcessTable(root = "/proc"): ProcessTable {
 	const stat = (pid: number): string | undefined => {
 		try {
@@ -353,10 +357,22 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 	};
 	return {
 		self: process.pid,
-		pids: () =>
-			readdirSync(root)
-				.filter((name) => /^\d+$/.test(name))
-				.map(Number),
+		pids: () => {
+			let names: string[];
+			try {
+				names = readdirSync(root);
+			} catch (error) {
+				// No /proc, as off Linux: no process this table can read.
+				if (
+					error instanceof Error &&
+					"code" in error &&
+					error.code === "ENOENT"
+				)
+					return [];
+				throw error;
+			}
+			return names.filter((name) => /^\d+$/.test(name)).map(Number);
+		},
 		environ: async (pid, mentioning) => {
 			let bytes: Buffer;
 			try {

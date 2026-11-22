@@ -1533,4 +1533,59 @@ describe("followWhatStarts", () => {
 		expect(timers.pending()).toEqual([]);
 		expect(calls).toEqual([]);
 	});
+
+	// A Mac's host as launchd runs it: launchd its parent, its Label core's.
+	const job = {
+		platform: "darwin" as const,
+		ppid: 1,
+		service: "org.jitsusama.pi-host-work-attended",
+	};
+
+	async function followAsJob(exitToRestart?: () => void) {
+		const timers = manualTimers();
+		const serving = {
+			held: () => [{ state: "idle" as const, since: long }],
+			restartComing: vi.fn(),
+			stopping: () => false,
+		};
+		const { systemctl, calls } = systemd();
+		const report = vi.fn();
+		await followWhatStarts({
+			serving,
+			background: () => 0,
+			resting: () => true,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: join(dir, "no-cgroup"),
+			launchd: job,
+			...(exitToRestart ? { exitToRestart } : {}),
+			heap: small,
+			timing: { after: timers.after, settledMs: 0 },
+		});
+		return { timers, serving, calls, report };
+	}
+
+	it("exits to restart as a launchd job once the install changes the host's own code", async () => {
+		const exits = vi.fn();
+		const { timers, serving, calls, report } = await followAsJob(exits);
+		await timers.fire();
+		expect(exits).not.toHaveBeenCalled();
+
+		await moveTo("two");
+		await timers.fire(() => exits.mock.calls.length > 0);
+
+		expect(exits).toHaveBeenCalledOnce();
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
+		expect(calls, "no systemctl on a Mac").toEqual([]);
+		expect(String(report.mock.calls[0]?.[0])).toContain(
+			"the install's two changes the host's own code",
+		);
+	});
+
+	it("follows nothing as a launchd job it can't exit to restart", async () => {
+		const { timers, calls } = await followAsJob();
+		expect(timers.pending()).toEqual([]);
+		expect(calls).toEqual([]);
+	});
 });

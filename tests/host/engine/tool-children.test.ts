@@ -516,6 +516,16 @@ describe("reading the process table", () => {
 		return made;
 	}
 
+	it("lists no process and reaps nothing where there is no /proc, as on a Mac", async () => {
+		const none = join(tmpdir(), `tool-children-no-proc-${process.pid}`);
+		const table = linuxProcessTable(none);
+		expect(table.pids()).toEqual([]);
+		expect(await reapToolChildren("a", table)).toEqual({
+			groups: [],
+			pids: [],
+		});
+	});
+
 	it("leaves the host's loop free to serve its other conversations while it reads", async () => {
 		root = madeUpProc();
 		let servedMeanwhile = false;

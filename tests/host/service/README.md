@@ -101,10 +101,12 @@ the install changes the host's own code, systemd has a new unit or the
 heap passes half its limit, and only with every conversation settled,
 no background work held and every screen at rest; never outside a unit or as a process that isn't
 the unit's main one; and a restart systemd refused leaves no viewer
-told.
+told. A Mac's host, a launchd job, exits to restart rather than asking
+systemctl, and follows nothing with no way to exit.
 what-starts.test.ts checks the import walk and fingerprint over a
-private tree, reading the unit from a cgroup file, and the unit's
-files read only once systemd has reloaded them.
+private tree, reading the unit from a cgroup file, the unit's
+files read only once systemd has reloaded them, and a launchd job told
+from a host started in a terminal or left behind by its parent.
 pi-resolution.test.ts checks the host program's resolve hook sends only
 pi imports made from outside the host's pi to that pi.
 gateway-key.test.ts checks the launcher's key order and when a personal

@@ -725,6 +725,37 @@ describe("runHost", () => {
 		).toBe("held");
 	});
 
+	it("parks on a stop it asks of itself as on a stop signal, as a Mac's restart does", async () => {
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals: new EventEmitter(),
+			ready: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		await run.stop();
+		await run.stopped;
+		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
+			false,
+		);
+		expect(
+			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+		).toBe("held");
+	});
+
 	// On 14 November a park never settled, awaiting a model request its
 	// abort hadn't ended, and systemd killed the host 60 s into its stop.
 	it("ends a stop a park holds, naming the conversation, inside its bound", async () => {
