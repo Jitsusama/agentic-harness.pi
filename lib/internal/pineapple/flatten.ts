@@ -21,9 +21,13 @@
  * here-string of its body, which keeps it data and keeps what follows.
  * An unquoted heredoc's body is expanded as double quotes are, so the
  * substitutions in it are handed back to read too.
+ *
+ * Both are found as the shell finds them, by one walk over the line
+ * that knows its quotes: a `<<` inside quotes opens no heredoc, though
+ * one inside a substitution in double quotes does, and a `#` starts a
+ * comment only where no word is under way, so one straight after a
+ * substitution or an escaped blank is part of its word.
  */
-
-import { matchHeredocs } from "../../shell/parse.ts";
 
 /** A line, flattened, and the substitutions its double quotes run. */
 export interface Flattened {
@@ -56,77 +60,213 @@ const BARE = /^[A-Za-z!]+(?=[\s;&|)]|$)/;
 /** Characters that end a command, so the next word starts one. */
 const BREAKS = new Set([";", "&", "|", "\n"]);
 
-/** Where each heredoc's body is in a line, to be passed over as data. */
-function bodiesOf(
-	source: string,
-): (at: number) => { start: number; end: number } | undefined {
-	const bodies = matchHeredocs(source).map((match) => {
-		const start = source.indexOf("\n", match.index) + 1;
-		return { start, end: start + match.body.length };
-	});
-	return (at) => bodies.find((body) => at >= body.start && at < body.end);
+/** Part of a line, from `start` up to `end`. */
+interface Span {
+	readonly start: number;
+	readonly end: number;
 }
 
 /**
- * The line without its comments: an unquoted `#` starting a word, to the
- * end of its line, outside a heredoc's body.
+ * A heredoc: from its `<<` (`index`) through its closing line, its body
+ * running from `start` to the line before `end`'s closer.
+ */
+interface Heredoc extends Span {
+	readonly body: string;
+	readonly quoted: boolean;
+	/** What follows the delimiter on its opener line, kept after it. */
+	readonly openerRest: string;
+	readonly index: number;
+	/** Whether it opens in a substitution inside double quotes. */
+	readonly nested: boolean;
+}
+
+/** A heredoc's opener: `<<` or `<<-`, then a delimiter, maybe quoted. */
+const OPENER = /<<(-?)[ \t]*(['"]?)(\w+)\2/y;
+
+/**
+ * The heredoc whose `<<` is at `at`, closed by a line holding only its
+ * delimiter, which a `<<-` may indent with tabs; none when it never is.
+ */
+function heredocAt(
+	source: string,
+	at: number,
+	nested: boolean,
+): Heredoc | undefined {
+	OPENER.lastIndex = at;
+	const opener = OPENER.exec(source);
+	if (opener === null) return undefined;
+	const [whole, dash, quote, delim] = opener;
+	const rest = at + whole.length;
+	const lineEnd = source.indexOf("\n", rest);
+	if (lineEnd < 0) return undefined;
+	const start = lineEnd + 1;
+	let from = start;
+	for (;;) {
+		const next = source.indexOf("\n", from);
+		const end = next < 0 ? source.length : next;
+		const text = source.slice(from, end).trimEnd();
+		if ((dash ? text.replace(/^\t+/, "") : text) === delim)
+			return {
+				body: from > start ? source.slice(start, from - 1) : "",
+				quoted: quote !== "",
+				openerRest: source.slice(rest, lineEnd),
+				index: at,
+				nested,
+				start,
+				end,
+			};
+		if (next < 0) return undefined;
+		from = next + 1;
+	}
+}
+
+/** A line's heredocs and comments, where the shell finds them. */
+interface Scanned {
+	readonly heredocs: Heredoc[];
+	readonly comments: Span[];
+}
+
+/**
+ * Walk a line as the shell reads it, for its heredocs and comments. A
+ * word is under way after any character but a blank or an operator, and
+ * after a substitution's `)`, which ends no word as a subshell's does.
+ */
+function scan(source: string): Scanned {
+	const heredocs: Heredoc[] = [];
+	const comments: Span[] = [];
+	const bodyAt = (at: number) =>
+		heredocs.find((heredoc) => at >= heredoc.start && at < heredoc.end);
+
+	/**
+	 * Commands from `at` to the `)` ending them when `nested` in a
+	 * substitution inside double quotes, or to the end.
+	 */
+	const commands = (from: number, nested: boolean): number => {
+		// Whether each parenthesis open opened a substitution.
+		const parens: boolean[] = [];
+		let word = false;
+		let at = from;
+		while (at < source.length) {
+			const body = bodyAt(at);
+			const char = source[at] ?? "";
+			if (body) {
+				at = body.end;
+				word = false;
+			} else if (char === "\\") {
+				at += 2;
+				word = true;
+			} else if (char === "'" || char === "`") {
+				const close = source.indexOf(char, at + 1);
+				at = close < 0 ? source.length : close + 1;
+				word = true;
+			} else if (char === '"') {
+				at = quoted(at + 1);
+				word = true;
+			} else if (char === "#" && !word) {
+				const close = source.indexOf("\n", at);
+				const end = close < 0 ? source.length : close;
+				comments.push({ start: at, end });
+				at = end;
+			} else if (source.startsWith("<<", at) && source[at + 2] !== "<") {
+				const heredoc = heredocAt(source, at, nested);
+				if (heredoc) heredocs.push(heredoc);
+				at += 2;
+				word = false;
+			} else if (char === "(") {
+				parens.push(/[$<>]/.test(source[at - 1] ?? ""));
+				at += 1;
+				word = false;
+			} else if (char === ")") {
+				if (parens.length === 0 && nested) return at;
+				word = parens.pop() ?? false;
+				at += 1;
+			} else {
+				word = !/[\s;&|<>]/.test(char);
+				at += 1;
+			}
+		}
+		return at;
+	};
+
+	/** A double-quoted string from past its quote, to past its close. */
+	const quoted = (from: number): number => {
+		let at = from;
+		while (at < source.length && source[at] !== '"') {
+			const char = source[at];
+			if (char === "\\") at += 2;
+			else if (char === "$" && source[at + 1] === "(")
+				at = commands(at + 2, true) + 1;
+			else if (char === "`") {
+				const close = source.indexOf("`", at + 1);
+				at = close < 0 ? source.length : close + 1;
+			} else at += 1;
+		}
+		return Math.min(at + 1, source.length);
+	};
+
+	commands(0, false);
+	return { heredocs, comments };
+}
+
+/** Where each heredoc's body is in a line, to be passed over as data. */
+function bodiesOf(source: string): (at: number) => Span | undefined {
+	const { heredocs } = scan(source);
+	return (at) =>
+		heredocs.find((heredoc) => at >= heredoc.start && at < heredoc.end);
+}
+
+/**
+ * The line without its comments: a `#` starting a word outside quotes,
+ * to the end of its line, outside a heredoc's body.
  */
 export function uncommented(source: string): string {
-	const bodyAt = bodiesOf(source);
 	let line = "";
 	let at = 0;
-	while (at < source.length) {
-		const body = bodyAt(at);
-		const char = source[at] ?? "";
-		let end = at + 1;
-		if (body) end = body.end;
-		else if (char === "\\") end = at + 2;
-		else if (char === "'") {
-			const close = source.indexOf("'", at + 1);
-			end = close < 0 ? source.length : close + 1;
-		} else if (char === '"') end = doubleQuoted(source, at, bodyAt).end;
-		else if (char === "#" && /^$|[\s;&|()]/.test(source[at - 1] ?? "")) {
-			const close = source.indexOf("\n", at);
-			at = close < 0 ? source.length : close;
-			continue;
-		}
-		line += source.slice(at, end);
-		at = end;
+	for (const comment of scan(source).comments) {
+		line += source.slice(at, comment.start);
+		at = comment.end;
 	}
-	return line;
+	return line + source.slice(at);
 }
 
 /**
  * The line with each heredoc made a here-string of its body, quoted as
  * data, and the rest of its opener line kept after it. An apostrophe in
  * the body is closed, double-quoted and reopened, since the command
- * model reads no backslash escape outside quotes.
+ * model reads no backslash escape outside quotes. That can't be read
+ * inside double quotes, so a heredoc in a substitution there is left
+ * bodiless: what the substitution runs is read from the line as it was
+ * (see {@link flatten}), where the heredoc is made a here-string again.
  */
 export function inlined(source: string): string {
 	let line = source;
-	for (const match of matchHeredocs(source).reverse()) {
-		const body = `'${match.body.replaceAll("'", `'"'"'`)}'`;
+	for (const heredoc of scan(source).heredocs.reverse()) {
+		const body = heredoc.nested
+			? "x"
+			: `'${heredoc.body.replaceAll("'", `'"'"'`)}'`;
 		line =
-			line.slice(0, match.index) +
-			`<<< ${body}${match.openerRest}` +
-			line.slice(match.index + match.length);
+			line.slice(0, heredoc.index) +
+			`<<< ${body}${heredoc.openerRest}` +
+			line.slice(heredoc.end);
 	}
 	return line;
 }
 
 /**
  * What each unquoted heredoc's body runs: the substitutions in it, which
- * the shell expands as it does in double quotes.
+ * the shell expands as it does in double quotes, though a `"` in a body
+ * is only a character.
  */
 export function heredocRuns(source: string): string[] {
-	return matchHeredocs(source)
-		.filter((match) => !match.quoted)
+	return scan(source)
+		.heredocs.filter((heredoc) => !heredoc.quoted)
 		.flatMap(
-			(match) =>
-				doubleQuoted(
-					`"${match.body.replaceAll('"', '\\"')}"`,
+			(heredoc) =>
+				expanded(
+					heredoc.body,
 					0,
 					() => undefined,
+					() => false,
 				).substituted,
 		);
 }
@@ -216,10 +356,29 @@ function doubleQuoted(
 	open: number,
 	bodyAt: (at: number) => { end: number } | undefined,
 ): { text: string; substituted: string[]; end: number } {
+	const inner = expanded(source, open + 1, bodyAt, (char) => char === '"');
+	return {
+		text: `"${inner.text}"`,
+		substituted: inner.substituted,
+		end: Math.min(inner.end + 1, source.length),
+	};
+}
+
+/**
+ * Text the shell expands, from `from` to where `closes` says it ends:
+ * its text, with each substitution in it left as a placeholder word,
+ * what each substitution runs, and where the text ends.
+ */
+function expanded(
+	source: string,
+	from: number,
+	bodyAt: (at: number) => { end: number } | undefined,
+	closes: (char: string) => boolean,
+): { text: string; substituted: string[]; end: number } {
 	const substituted: string[] = [];
-	let text = '"';
-	let at = open + 1;
-	while (at < source.length && source[at] !== '"') {
+	let text = "";
+	let at = from;
+	while (at < source.length && !closes(source[at] ?? "")) {
 		const char = source[at] ?? "";
 		if (char === "\\") {
 			text += source.slice(at, at + 2);
@@ -240,11 +399,7 @@ function doubleQuoted(
 			at += 1;
 		}
 	}
-	return {
-		text: `${text}"`,
-		substituted,
-		end: Math.min(at + 1, source.length),
-	};
+	return { text, substituted, end: at };
 }
 
 /**

@@ -272,10 +272,12 @@ function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
 	const source = inlined(plain);
 	const flat = flatten(source);
 	// What a substitution runs in double quotes or an unquoted heredoc,
-	// where isn't known.
-	const substituted = [...flat.substituted, ...heredocRuns(plain)].flatMap(
-		(inner) => writesInLine(inner, undefined),
-	);
+	// where isn't known, read before its heredocs were inlined, which
+	// left those in double quotes bodiless.
+	const substituted = [
+		...flatten(plain).substituted,
+		...heredocRuns(plain),
+	].flatMap((inner) => writesInLine(inner, undefined));
 	const line = tokenize(source);
 	if (line.supported) return [...writesOf(line, cwd), ...substituted];
 	const flattened = tokenize(flat.line);
@@ -294,7 +296,11 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 				? undefined
 				: effectiveCwd(line, cwd, simple.span.start);
 		const dir = here !== undefined && "dir" in here ? here.dir : undefined;
-		const { own, strings } = hereStrings(words(simple));
+		// Its here-strings go first, so a wrapper left with none opens a
+		// shell for them.
+		const given = hereStrings(simple.argv.map((word) => unquote(word.text)));
+		const own = unwrapped(given.own);
+		const { strings } = given;
 		writes.push(...writeIn(own, dir));
 		const fed = fedTo(line, simple, own, strings);
 		if (fed === undefined) continue;

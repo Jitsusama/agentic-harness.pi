@@ -385,6 +385,35 @@ describe("writesInBash", () => {
 		expect(actions("cat <<'EOF' > f\n$(pi -p go)\nEOF")).toEqual([]);
 	});
 
+	it("finds heredocs, comments and stdin where bash finds them", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held('cat <<EOF > f\n$(bash -c "pi -p go")\nEOF', "pi");
+		held('cat <<EOF > f\nsay \\"hi\\"\n$(pi -p go)\nEOF', "pi");
+		held("bash -c \"cat <<'EOF' > f\nit's\nEOF\npi -p go\"", "pi");
+		held('echo "<<EOF"\npi -p go\nEOF', "pi");
+		held("cat <<-EOF > f\n\tit's done\n\tEOF\npi -p go", "pi");
+		held("echo $(date)#; pi -p go", "pi");
+		held("echo a\\ #; pi -p go", "pi");
+		held("echo 'pi -p go' | sudo -s", "pi");
+		held("sudo -i <<'EOF'\npi -p go\nEOF", "pi");
+		held("echo 'pi -p go' | su", "pi");
+		held("echo 'pi -p go' | run0", "pi");
+		held("echo 'pi -p go' | bash /dev/stdin", "pi");
+		held("bash -co pipefail 'pi -p go'", "pi");
+		held("bash -c -euo pipefail 'pi -p go'", "pi");
+		held("sh -c -- 'pi -p go'", "pi");
+		held(
+			"git commit -m \"$(cat <<'EOF'\nit's done\nEOF\n)\" && git push origin fix",
+			"git push",
+		);
+		held("echo \"$(bash <<'EOF'\necho 'hi'; pi -p go\nEOF\n)\"", "pi");
+		expect(actions('cat <<EOF > f\n$(echo "a; pi")\nEOF')).toEqual([]);
+		expect(actions("echo 'pi -p go' | ssh mac command -v bash")).toEqual([]);
+	});
+
 	it("sees past a wrapper's options that take a value", () => {
 		const actions = (command: string) =>
 			writesInBash(command, HERE).map((write) => write.action);

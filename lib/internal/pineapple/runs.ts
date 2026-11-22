@@ -270,8 +270,29 @@ function takesNext(word: string, options: Options): boolean {
 }
 
 /**
+ * Privilege wrappers that open a shell of their own, reading stdin, when
+ * left with no command: given one of these options, or, for `run0`, any.
+ */
+const OPENS_SHELL = new Map<string, RegExp>([
+	["sudo", /^(-[A-Za-z]*[is][A-Za-z]*|--login|--shell)$/],
+	["doas", /^-[A-Za-z]*s[A-Za-z]*$/],
+	["run0", /^/],
+]);
+
+/** The shell a wrapper with no command opens, standing for any. */
+const OPENED = ["sh"];
+
+/** su's options that hand it a line to run. */
+const SU_LINE = /^(-c|--command)$/;
+
+/** su's line written into its long option. */
+const SU_LINE_GIVEN = "--command=";
+
+/**
  * Words from the program they run, past any wrapper; none when a wrapper
- * only looks the program up, as `command -v` does.
+ * only looks the program up, as `command -v` does. A wrapper opening a
+ * shell with no command, as `sudo -i` and `su` do, runs a shell reading
+ * stdin.
  */
 export function unwrapped(argv: string[]): string[] {
 	let words = argv;
@@ -299,9 +320,26 @@ export function unwrapped(argv: string[]): string[] {
 			at += 3;
 			continue;
 		}
+		if (word === "su") {
+			const rest = words.slice(at + 1);
+			return rest.some(
+				(next) => SU_LINE.test(next) || next.startsWith(SU_LINE_GIVEN),
+			)
+				? words.slice(at)
+				: OPENED;
+		}
 		const wrapper = WRAPPERS.get(word);
 		if (wrapper === undefined) break;
-		at = optionsEnd(words, wrapper, at + 1) + wrapper.takes;
+		const end = optionsEnd(words, wrapper, at + 1) + wrapper.takes;
+		const opens = OPENS_SHELL.get(word);
+		if (
+			end >= words.length &&
+			opens !== undefined &&
+			(word === "run0" ||
+				words.slice(at + 1, end).some((option) => opens.test(option)))
+		)
+			return OPENED;
+		at = end;
 	}
 	return words.slice(at);
 }
@@ -325,25 +363,45 @@ function splitString(
 /** A shell's long options that take the next word as their value. */
 const SHELL_VALUED = new Set(["--rcfile", "--init-file"]);
 
+/** Scripts that are stdin under another name. */
+const STDIN = new Set(["/dev/stdin", "/dev/fd/0"]);
+
 /**
- * Whether a shell given `args` reads its commands on stdin: given no `-c`
- * line and no script, or told to with `-s`, whatever words follow. `-o`
- * and `-O` take a value, alone or ending a cluster as in `-euo pipefail`,
- * and a lone `-` ends the options as `--` does.
+ * Where a shell's options end, as it reads them: past `-o` and `-O` and
+ * their value, alone or ending a cluster as in `-euo pipefail`, its long
+ * options that take one, and a lone `-` or `--`. Whether `-c` was among
+ * them, and whether `-s` was, come with it.
  */
-export function readsStdin(args: string[]): boolean {
-	let told = false;
+function shellOptions(args: string[]): {
+	end: number;
+	line: boolean;
+	stdin: boolean;
+} {
+	let line = false;
+	let stdin = false;
 	for (let at = 0; at < args.length; at += 1) {
 		const word = args[at] ?? "";
-		if (RUNS_LINE.test(word)) return false;
-		if (word === "--" || word === "-") return told || at === args.length - 1;
+		if (word === "--" || word === "-") return { end: at + 1, line, stdin };
 		if (/^[-+][A-Za-z]+$/.test(word)) {
-			told ||= word.includes("s");
+			line ||= RUNS_LINE.test(word);
+			stdin ||= word.startsWith("-") && word.includes("s");
 			if (/[oO]$/.test(word)) at += 1;
 		} else if (SHELL_VALUED.has(word)) at += 1;
-		else if (!word.startsWith("--")) return told;
+		else if (!word.startsWith("--")) return { end: at, line, stdin };
 	}
-	return true;
+	return { end: args.length, line, stdin };
+}
+
+/**
+ * Whether a shell given `args` reads its commands on stdin: given no `-c`
+ * line and no script but stdin itself, or told to with `-s`, whatever
+ * words follow.
+ */
+export function readsStdin(args: string[]): boolean {
+	const { end, line, stdin } = shellOptions(args);
+	if (line) return false;
+	const script = args[end];
+	return stdin || script === undefined || STDIN.has(script);
 }
 
 /** How many launchers deep `ranAtLast` looks before it gives up. */
@@ -376,17 +434,30 @@ export function sshReadsStdin(args: string[]): boolean {
 	const host = optionsEnd(args, SSH);
 	if (host >= args.length) return false;
 	const there = args.slice(optionsEnd(args, SSH, host + 1)).join(" ");
-	const [program, ...rest] = ranAtLast(there.split(/\s+/).filter(Boolean));
-	if (program === undefined) return true;
+	const command = there.split(/\s+/).filter(Boolean);
+	if (command.length === 0) return true;
+	const [program, ...rest] = ranAtLast(command);
+	if (program === undefined) return false;
 	return SHELLS.has(program.split("/").at(-1) ?? "") && readsStdin(rest);
 }
 
 /** What a command runs of another command, if it runs one. */
 export function runs(name: string, args: string[]): Runs | undefined {
 	if (SHELLS.has(name)) {
-		const flag = args.findIndex((word) => RUNS_LINE.test(word));
-		const line = flag < 0 ? undefined : args[flag + 1];
-		return line === undefined ? undefined : { line };
+		// The line is the first word past the options, wherever `-c` sat.
+		const { end, line } = shellOptions(args);
+		const given = line ? args[end] : undefined;
+		return given === undefined ? undefined : { line: given };
+	}
+	if (name === "su") {
+		const flag = args.findIndex((word) => SU_LINE.test(word));
+		const given =
+			flag < 0
+				? args
+						.find((word) => word.startsWith(SU_LINE_GIVEN))
+						?.slice(SU_LINE_GIVEN.length)
+				: args[flag + 1];
+		return given === undefined ? undefined : { line: given };
 	}
 	if (name === "eval")
 		return args.length === 0 ? undefined : { line: args.join(" ") };
