@@ -25,7 +25,9 @@
  * It takes the command's `TMPDIR` too, the loaded quest's scratch where
  * one is loaded, since a service left to the system's `/tmp` shares it
  * with every run on the machine; with none set it falls back to `/tmp`
- * rather than an empty value. On 21 November a test suite started that
+ * rather than an empty value. A quest's conclusion removes its scratch,
+ * as it removes a log the run keeps there, so a run meant to outlive its
+ * quest keeps both elsewhere. On 21 November a test suite started that
  * way cleared its temp folder before each test, which was `/tmp`, three
  * times in one night.
  */

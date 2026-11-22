@@ -141,13 +141,13 @@ export const WITHOUT_INTERACTION: Readonly<Record<string, string>> = {
  * view (`host/engine/process-env.ts`), so this blanks that
  * conversation's environment, which its tools and commands start from,
  * and leaves the host's own to the host.
- * What pi starts for the person inherits it too: a `!` command fails a
- * missing credential rather than opening a window, and a terminal pi
- * opens asks on its own terminal instead. Terminals the person opens
+ * What pi starts for the person inherits it too: a `!` command or a
+ * terminal pi opens asks on its own terminal where it has one, and
+ * fails where it has none, rather than opening a window. Terminals the person opens
  * take theirs from the compositor's session, which this leaves alone.
  */
-export function askNothingOnScreen(env: NodeJS.ProcessEnv = process.env): void {
-	Object.assign(env, NO_ASKPASS);
+export function askNothingOnScreen(): void {
+	Object.assign(process.env, NO_ASKPASS);
 }
 
 /**
