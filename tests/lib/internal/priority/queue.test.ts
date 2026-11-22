@@ -25,6 +25,27 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("sudo nixos-rebuild switch")).toBe("build");
 	});
 
+	// 22 November: a `# cargo check` comment beside two systemd-run starts
+	// held the whole command as a build (48UZ44).
+	it("reads nothing a comment says", () => {
+		for (const command of [
+			"# cargo check --all-targets\ngit status",
+			"git status # then cargo check",
+			"git status; # cargo build",
+		]) {
+			expect(kindOf(command), command).toBeUndefined();
+		}
+		for (const command of [
+			"# a note\ncargo build",
+			"echo '#'; cargo build",
+			'git commit -m "fix #12" && cargo build',
+			"echo a#b && cargo build",
+			"nix build .#checks.x86_64-linux.x",
+		]) {
+			expect(kindOf(command), command).toBe("build");
+		}
+	});
+
 	it("reads a test suite of vitest's, and the pnpm scripts that run one, as a build", () => {
 		// 21:09 on 7 November: several 4- to 8-worker vitest runs took no
 		// turn beside cargo and clippy (80ECO2).

@@ -58,11 +58,24 @@ function asksHowToCall(step: string): boolean {
 	return args.length > 0 && args.every((arg) => ASKS.has(arg));
 }
 
-/** A command's steps as the shell runs them, quoted prose and heredocs blanked. */
+/**
+ * A quoted string, kept as it is, or a comment: a `#` starting a word
+ * outside quotes, to the end of its line, which the shell never runs.
+ */
+const COMMENT = /'[^']*'|"(?:[^"\\]|\\.)*"|(^|[\s;&|()])#[^\n]*/g;
+
+/**
+ * A command's steps as the shell runs them, quoted prose, comments and
+ * heredocs blanked. On 22 November a `# cargo check` comment beside two
+ * systemd-run starts held the whole command as a build (48UZ44).
+ */
 export function shellSteps(command: string): string[] {
 	return (
 		command
 			.replace(HEREDOC, "\n")
+			.replace(COMMENT, (match, before: string | undefined) =>
+				before === undefined ? match : before,
+			)
 			// A pipe or a semicolon inside the word is its own, as in
 			// `pgrep -af 'run-subtests|changed-checks'`, and splits no step.
 			// Spaces only inside a `$(...)`, as in a flake pinned with
