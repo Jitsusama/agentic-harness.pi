@@ -63,8 +63,9 @@ describe("writePlain", () => {
 	});
 
 	it("writes nothing into a fifo something reads", () => {
-		// With a reader its open succeeds, so only the look at what it
-		// opened keeps the note out of it.
+		// With a reader its open succeeds. The look at what it opened
+		// keeps the note out, and the positional write, which a pipe
+		// refuses, would too, so this pins the outcome, not the look.
 		const note = join(root, "note");
 		execFileSync("mkfifo", [note]);
 		const reader = openSync(note, constants.O_RDONLY | constants.O_NONBLOCK);

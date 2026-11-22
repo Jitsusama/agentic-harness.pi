@@ -937,7 +937,8 @@ describe("a tree standing where git won't read it", () => {
 		"says the clone's own lock where the tree's .git names a folder it may not look in",
 		async () => {
 			// Anything in the tree can point its `.git` at such a folder, and
-			// the clone's entry, which nothing there writes, answers first.
+			// the clone's entry, whose tree nothing there can change, answers
+			// first.
 			const { exec } = fakeExec([
 				{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
 				{ when: ["cat-file"], stdout: "" },
