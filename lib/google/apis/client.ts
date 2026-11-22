@@ -14,6 +14,10 @@
  * under googleapis. The package's root type reaches every API's
  * declarations, 3.4 million lines, three in four of all `tsc` read for
  * this project, and every typecheck of every worktree paid for them.
+ * Those modules are reachable because googleapis has no `exports` map;
+ * a release that adds one fails the typecheck here, loudly, rather
+ * than losing a check. A test of the client asks the real export for
+ * each API this type names.
  */
 
 import { createRequire } from "node:module";

@@ -86,3 +86,18 @@ describe("a Google API request nobody answers", () => {
 		expect(await outcome(call)).toMatch(/^failed/);
 	});
 });
+
+// The client's type is written here rather than taken from googleapis'
+// root, so the typechecker no longer sees whether the real `google`
+// export has what it names. This asks the real one for each API at the
+// version this package calls, the factory's own way.
+describe("the google export", () => {
+	it("builds every API its type names, at the version called", () => {
+		expect(google.calendar({ version: "v3" }).events).toBeDefined();
+		expect(google.docs({ version: "v1" }).documents).toBeDefined();
+		expect(google.drive({ version: "v3" }).files).toBeDefined();
+		expect(google.gmail({ version: "v1" }).users).toBeDefined();
+		expect(google.sheets({ version: "v4" }).spreadsheets).toBeDefined();
+		expect(google.slides({ version: "v1" }).presentations).toBeDefined();
+	}, 60_000);
+});
