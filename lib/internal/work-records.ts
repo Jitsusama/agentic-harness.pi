@@ -66,8 +66,19 @@ interface Kept {
 	listing: Listing;
 	/** The reading the listing came from, counted; 0 for the first, on the thread. */
 	read: number;
-	/** The folder's stamp, and when, as a reading last failed, until one succeeds. */
-	failed: { readonly stamp: string; readonly at: number } | undefined;
+	/**
+	 * The folder's stamp, and when, as a reading last failed, until one
+	 * succeeds; and, as for a listing, when a failure so soon after the
+	 * folder's last write that a later write may share its stamp is tried
+	 * once more.
+	 */
+	failed:
+		| {
+				readonly stamp: string;
+				readonly at: number;
+				readonly recheckAt?: number;
+		  }
+		| undefined;
 }
 
 /**
@@ -217,15 +228,24 @@ function listingOf(
 	through: number,
 	started: number,
 ): Listing {
-	const listing = {
+	return {
 		trees: trees.map(recordedOf),
 		stamp: folder.stamp,
 		through,
 		judgedAt: Date.now(),
+		...racyOf(folder, started),
 	};
+}
+
+/**
+ * When what was read of `folder` from `started` is read once more, for
+ * a read so soon after its last write that a later write may share its
+ * stamp; nothing for one read long enough after.
+ */
+function racyOf(folder: Folder, started: number): { recheckAt?: number } {
 	return started - folder.writtenAt < RACY_MS
-		? { ...listing, recheckAt: folder.writtenAt + RACY_MS }
-		: listing;
+		? { recheckAt: folder.writtenAt + RACY_MS }
+		: {};
 }
 
 /**
@@ -249,9 +269,12 @@ function readFirst(dir: string, folder: Folder): Kept {
 	return kept;
 }
 
-/** Every record in `folder` at `dir`, read off the thread. */
-async function readOff(dir: string, folder: Folder): Promise<Listing> {
-	const started = Date.now();
+/** Every record in `folder` at `dir`, read off the thread from `started`. */
+async function readOff(
+	dir: string,
+	folder: Folder,
+	started: number,
+): Promise<Listing> {
 	const through = recordWritesSoFar();
 	return listingOf(await recallOff(dir), folder, through, started);
 }
@@ -295,25 +318,33 @@ function swapRead(dir: string, kept: Kept, count: number, listing: Listing) {
 }
 
 /**
- * Reading `count` of `dir` failed at `stamp`: the listing stays as it
- * was, and the stamp is marked, so the folder as it failed is read
- * again only once it changes or a minute on, and is said once. Its
- * trees are still looked for on disk once the listing is a minute old.
+ * Reading `count` of `dir`, begun at `started`, failed at `folder`'s
+ * stamp: the listing stays as it was, and the stamp is marked, so the
+ * folder as it failed is read again only once it changes, a minute on,
+ * or, failing so soon after a write that a later one may share the
+ * stamp, once that write is old enough, as a listing would be; and it
+ * is said once. Its trees are still looked for on disk once the
+ * listing is a minute old.
  */
 async function readingFailed(
 	dir: string,
 	kept: Kept,
 	count: number,
-	stamp: string,
+	folder: Folder,
+	started: number,
 	error: unknown,
 ): Promise<void> {
 	if (!stillKept(dir, kept) || count < kept.read) return;
 	tell(
 		recordDirKey(dir),
-		`failed at ${stamp}`,
+		`failed at ${folder.stamp}`,
 		`the tree records in ${dir} couldn't be read off the thread; answering from the reading before, and reading again within a minute: ${whyOf(error)}`,
 	);
-	kept.failed = { stamp, at: Date.now() };
+	kept.failed = {
+		stamp: folder.stamp,
+		at: Date.now(),
+		...racyOf(folder, started),
+	};
 	if (Date.now() - kept.listing.judgedAt <= JUDGED_FOR_MS) return;
 	const of = kept.listing;
 	swapJudged(dir, kept, of, await judgedOff(of));
@@ -333,15 +364,16 @@ function begin(
 	readings.begun += 1;
 	const count = readings.begun;
 	const of = kept.listing;
+	const started = Date.now();
 	const settled =
 		kind === "reading"
-			? readOff(dir, folder).then(
+			? readOff(dir, folder, started).then(
 					(listing) => {
 						swapRead(dir, kept, count, listing);
 						return true;
 					},
 					async (error: unknown) => {
-						await readingFailed(dir, kept, count, folder.stamp, error);
+						await readingFailed(dir, kept, count, folder, started, error);
 						return false;
 					},
 				)
@@ -403,7 +435,8 @@ function refreshIfDue(dir: string, kept: Kept, folder: Folder): void {
 	const waiting =
 		failed !== undefined &&
 		failed.stamp === folder.stamp &&
-		Date.now() - failed.at <= JUDGED_FOR_MS;
+		Date.now() - failed.at <= JUDGED_FOR_MS &&
+		!(failed.recheckAt !== undefined && Date.now() >= failed.recheckAt);
 	if (outOfDate(listing, folder) && !waiting) {
 		begin(dir, kept, folder, "reading");
 	} else if (Date.now() - listing.judgedAt > JUDGED_FOR_MS) {
@@ -556,9 +589,11 @@ function heldIn(trees: readonly RecordedTree[], session: string): string[] {
  * answer, such as a carry, which a tree cut a read ago by another
  * process would otherwise be left out of. A reading already under way
  * may predate a change, so it waits for that one and then reads again
- * when the folder moved since, though a failed reading waits out its
- * minute. It refuses, throwing, rather than answer from a listing it
- * can't vouch for: when the folder can't be looked at, when the reading
+ * when the folder moved since, or when that reading came so soon after
+ * a write that a later one may share its stamp, though a failed reading
+ * waits out its minute: what it answers from began after it was asked.
+ * It refuses, throwing, rather than answer from a listing it can't
+ * vouch for: when the folder can't be looked at, when the reading
  * fails, and when none lands within `within` milliseconds.
  */
 export async function treesHeldByNow(
@@ -593,11 +628,12 @@ async function readNow(session: string, dir: string): Promise<string[]> {
 	if (folder === "unseen") {
 		throw new Error(`the tree records in ${dir} can't be looked at`);
 	}
-	const kept = listings.get(recordDirKey(dir)) ?? readFirst(dir, folder);
-	if (
-		outOfDate(kept.listing, folder) &&
-		!(await begin(dir, kept, folder, "reading").done)
-	) {
+	const known = listings.get(recordDirKey(dir));
+	const kept = known ?? readFirst(dir, folder);
+	const unvouched =
+		known !== undefined &&
+		(outOfDate(known.listing, folder) || known.listing.recheckAt !== undefined);
+	if (unvouched && !(await begin(dir, kept, folder, "reading").done)) {
 		throw new Error(`the tree records in ${dir} couldn't be read`);
 	}
 	return heldIn(laidOver(dir, kept.listing), session);
