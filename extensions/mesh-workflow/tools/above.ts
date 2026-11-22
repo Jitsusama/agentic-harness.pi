@@ -119,11 +119,14 @@ export async function findAbove(at: HubReading): Promise<Found> {
 
 /**
  * This peer as finding its hub reads it: its addresses, groups, stops
- * and quest as the peer holds them, never as a presence file says them.
- * Anything that can write the folder can add a file under this session,
- * and a file can lag a move to another quest, so read from there they
- * could choose which quests are above it, or a hub for the quest it
- * just left.
+ * and quest as the peer holds them now, rather than as its presence file
+ * last said them. The file is written only when the peer next
+ * publishes, so it can lag a move to another quest, and another process
+ * can overwrite it until the peer's next refresh puts it back; read
+ * from there, it could find a hub for the quest just left. This closes
+ * that lag and no more: the peer's own values come from the same user's
+ * session records and quest files, and its joined groups and stops are
+ * seeded from this presence when the peer is built.
  */
 function asItStands(
 	peer: HubReading["peer"],
@@ -168,6 +171,12 @@ export interface HubKeeping {
 	 */
 	readonly retry?: number;
 	/**
+	 * A fraction from 0 up to 1 of `HUB_SPREAD` added to each wait, so
+	 * sessions that started together, or lost the node together, drift
+	 * apart rather than asking it in the same instant; random unless given.
+	 */
+	readonly spread?: () => number;
+	/**
 	 * Called each time a find keeps a hub, so what waited for one is told
 	 * whether the hub is new, back, or the one kept before.
 	 */
@@ -175,13 +184,24 @@ export interface HubKeeping {
 }
 
 /** How often a kept hub is found, as a session's mesh is told to. */
-export type HubTiming = Pick<HubKeeping, "every" | "retry">;
+export type HubTiming = Pick<HubKeeping, "every" | "retry" | "spread">;
+
+/**
+ * The most a wait is lengthened by, as a share of it: enough that a
+ * host's sessions, restored in one go, stop asking the node in step
+ * within a few finds, while a hub is still found within about six
+ * minutes at the slowest.
+ */
+const HUB_SPREAD = 0.2;
 
 /**
  * Keep the hub from use of whatever peer `at` gives, found at once and
  * again `every` milliseconds after each find, or `retry` after one that
  * could not finish, twice that after a second in a row, and so on up to
- * `every`. A peer under the mark, or on a quest heading an
+ * `every`, each wait lengthened by up to a fifth at random. Only a find
+ * that reached for the node counts toward the doubling: with no peer to
+ * read yet, the next find comes a plain `retry` later. A peer under the
+ * mark, or on a quest heading an
  * orchestration, keeps none and never asks the node, since the mark is
  * its orchestrator; a find that fails keeps none rather than one that
  * may be gone.
@@ -197,7 +217,12 @@ export type HubTiming = Pick<HubKeeping, "every" | "retry">;
  */
 export function keepHub(
 	at: () => HubReading | undefined,
-	{ every = HUB_KEEP_MS, retry = HUB_RETRY_MS, found }: HubKeeping = {},
+	{
+		every = HUB_KEEP_MS,
+		retry = HUB_RETRY_MS,
+		spread = Math.random,
+		found,
+	}: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
 	let gone: ReadonlySet<string> = new Set();
@@ -209,14 +234,16 @@ export function keepHub(
 	// Each find schedules the next once it ends, so two never overlap.
 	const after = (wait: number) => {
 		if (stopped) return;
-		clock = setTimeout(() => void find(), wait);
+		clock = setTimeout(() => void find(), wait * (1 + HUB_SPREAD * spread()));
 		clock.unref?.();
 	};
 	const find = async () => {
 		const reading = at();
+		// No peer to read yet says nothing of the node, so it doesn't
+		// lengthen the wait a node that is down has earned.
 		if (reading === undefined) {
 			kept = undefined;
-			after(backingOff());
+			after(retry);
 			return;
 		}
 		if (!unmarked(reading.peer)) {

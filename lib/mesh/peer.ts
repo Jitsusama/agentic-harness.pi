@@ -114,7 +114,10 @@ export interface Peer {
 	 * above it would be a second voice over that work.
 	 */
 	readonly questHeads?: string;
-	/** The quest it has loaded, as its presence says it, when it has one. */
+	/**
+	 * The quest it has loaded, as its session's record names it, when it
+	 * has one; its presence says the same once published.
+	 */
 	readonly quest?: string;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;

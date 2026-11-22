@@ -89,7 +89,10 @@ function onMesh(
 }
 
 /** Finds again every few milliseconds, so a test sees several. */
-const QUICK: HubKeeping = { every: 5, retry: 5 };
+const QUICK: HubKeeping = { every: 5, retry: 5, spread: () => 0 };
+
+/** No spread, so a test can count the milliseconds between finds. */
+const EXACT = () => 0;
 
 /** Long enough for a few quick finds to have come and gone. */
 const A_FEW_FINDS_MS = 60;
@@ -226,7 +229,7 @@ describe("a kept hub", () => {
 		try {
 			const { at, asked } = onMesh(async () => undefined);
 
-			keep(at, { every: NEVER_AGAIN_MS, retry: 50 });
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
 
 			// Asked at once, then 50, 100 and 200 ms after each miss.
 			const askedBy = async (ms: number) => {
@@ -249,7 +252,7 @@ describe("a kept hub", () => {
 		try {
 			const { at, asked } = onMesh(async () => undefined);
 
-			keep(at, { every: 120, retry: 50 });
+			keep(at, { every: 120, retry: 50, spread: EXACT });
 
 			// At once, then 50 and 100 after, then 120 rather than 200.
 			await vi.advanceTimersByTimeAsync(150);
@@ -271,7 +274,7 @@ describe("a kept hub", () => {
 				answering ? [tie("ROOT01", 3)] : undefined,
 			);
 
-			const hub = keep(at, { every: 100, retry: 10 });
+			const hub = keep(at, { every: 100, retry: 10, spread: EXACT });
 
 			// Misses at 0, 10 and 30; the find at 70 settles, and its hub is
 			// kept for the keeping's 100 ms.
@@ -288,6 +291,94 @@ describe("a kept hub", () => {
 			expect(asked).toHaveBeenCalledTimes(5);
 			await vi.advanceTimersByTimeAsync(10);
 			expect(asked).toHaveBeenCalledTimes(6);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits longer after each find in a row the node failed, as after one it gave no answer to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => {
+				throw new Error("node down");
+			});
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+
+			// Asked at once, then 50 and 100 ms after each failure.
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(2);
+			await vi.advanceTimersByTimeAsync(99);
+			expect(asked).toHaveBeenCalledTimes(2);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(asked).toHaveBeenCalledTimes(3);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits a retry again after a spell under a role, not the longest it had come to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: 1000, retry: 50, spread: EXACT });
+
+			// Misses at 0, 50 and 150; the find at 350 sees the role and asks
+			// nothing, and the next, a keeping's wait on at 1350, misses
+			// again and waits a plain retry, not the 400 the misses came to.
+			await vi.advanceTimersByTimeAsync(200);
+			expect(asked).toHaveBeenCalledTimes(3);
+			Object.assign(at.peer, { orchestrates: "7M6JKG" });
+			await vi.advanceTimersByTimeAsync(200);
+			Object.assign(at.peer, { orchestrates: undefined });
+			await vi.advanceTimersByTimeAsync(950);
+			expect(asked).toHaveBeenCalledTimes(4);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// Before the peer is built there is nothing to find, which says
+	// nothing of the node.
+	it("counts no find toward the doubling while there is no peer to read", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+			let built = false;
+			const hub = keepHub(() => (built ? at : undefined), {
+				every: NEVER_AGAIN_MS,
+				retry: 50,
+				spread: EXACT,
+			});
+			kept.push(hub);
+
+			// Nothing to read at 0, 50 and 100; the peer is there by 150, whose
+			// find misses, and the next comes a plain retry later.
+			await vi.advanceTimersByTimeAsync(120);
+			built = true;
+			await vi.advanceTimersByTimeAsync(30);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("lengthens each wait by up to a fifth, as the spread says", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: () => 1 });
+
+			await vi.advanceTimersByTimeAsync(59);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(asked).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -313,9 +404,9 @@ describe("a kept hub", () => {
 		expect(hub.current()).toBeUndefined();
 	});
 
-	// A presence file can lag a move to another quest, and anything that
-	// can write the folder can forge one under this session, so the chain
-	// is read from the peer itself.
+	// A presence file can lag a move to another quest, or be overwritten
+	// by another process mid-session, so the chain is read from the peer
+	// itself.
 	it("is found for the quest the peer is on, not the one a stale presence names", async () => {
 		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
 		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
@@ -325,6 +416,20 @@ describe("a kept hub", () => {
 		expect(above).toMatchObject({
 			none: expect.stringContaining("no live cell on a quest above it"),
 		});
+	});
+
+	it("reads its stops from the peer, not from a presence that lists another", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const own = at.presences.of("session-s");
+		if (own === undefined) throw new Error("7M6JKG is not on the mesh");
+		at.presences.publish({
+			...own,
+			stops: [{ address: "ROOT01", at: new Date().toISOString() }],
+		});
+
+		const above = await aboveFor(at);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
 	});
 
 	it("is none at once when the hub's presence says it ended", async () => {
