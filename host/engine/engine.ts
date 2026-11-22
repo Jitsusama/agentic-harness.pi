@@ -131,7 +131,15 @@ export async function createEngine(
 	});
 	// A park carries a conversation's bash calls where they outlive it: a
 	// child's process ends once it parks, while a shared host runs on.
-	const parkCarries = () => shells.keepsThroughPark(kept !== undefined);
+	// Its stop tells the conversation the host restarts, which is how the
+	// conversation carries them and how `shells` hears of them, so a shared
+	// host's own later stop keeps them too. PI_PARK_CARRY=off turns it off,
+	// so a conversation with a call out stays awake, as before.
+	const parkCarries = () =>
+		process.env.PI_PARK_CARRY !== "off" &&
+		shells.keepsThroughPark(kept !== undefined);
+	// Conversations released to another holder, whose carried calls it takes up.
+	const released = new Set<string>();
 	host.keepsCarried(parkCarries);
 	// What an earlier restart kept and no conversation here took up is
 	// stopped once due; a child's are the supervisor's to look over.
@@ -145,6 +153,7 @@ export async function createEngine(
 		carries: parkCarries,
 		asking: () => watched?.wake,
 		report,
+		said: report,
 		parked: (sessionId) => warming.start(sessionId),
 		// The host serves one realm, its conversations' own (service/address.ts).
 		steers: {
@@ -558,9 +567,11 @@ export async function createEngine(
 				mark,
 				woken ? undefined : turns.take,
 			);
-			// Only once it runs: a wake that failed leaves its wake file watched,
-			// and one refused as it began says nothing true now.
+			// Only once it runs: a wake that failed leaves its wake file and the
+			// calls its park carried watched, and one refused as it began says
+			// nothing true now.
 			parked.unwatch(sessionId);
+			parked.ran(sessionId);
 		},
 
 		lost(entry) {
@@ -604,6 +615,8 @@ export async function createEngine(
 		},
 
 		handsOn(sessionId) {
+			// Only one held but not running is dropped after, which reads this.
+			if (host.holds(sessionId) === undefined) released.add(sessionId);
 			stopping.handsOn(sessionId);
 			host.handsOn(sessionId);
 		},
@@ -612,7 +625,7 @@ export async function createEngine(
 			warming.stop(sessionId);
 			logs.release(sessionId);
 			requests.forget(sessionId);
-			parked.closed(sessionId);
+			parked.closed(sessionId, !released.delete(sessionId));
 			await stopping.dropped(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},

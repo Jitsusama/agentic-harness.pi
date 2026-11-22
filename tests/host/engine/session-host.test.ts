@@ -385,6 +385,28 @@ it("tells a conversation the host restarts before stamping it signalled, only fo
 	]);
 });
 
+// A park carries its conversation's bash calls only by its stop telling
+// the conversation the host restarts, as job-workflow then carries (#1981).
+it("says a park carries its bash calls as the engine says, and tells the conversation of a restart as a carrying park stops it", async () => {
+	const host = start();
+	expect(host.carries("a"), "none until the engine says").toBe(false);
+	let keeps = true;
+	host.keepsCarried(() => keeps);
+	expect(host.carries("a")).toBe(true);
+	keeps = false;
+	expect(host.carries("a"), "asked each time").toBe(false);
+
+	const seen: string[] = [];
+	host.register({
+		...registration("a"),
+		restarting: () => {
+			seen.push("restarting");
+		},
+	});
+	await host.stop("a", "parked while idle", true);
+	expect(seen).toEqual(["restarting"]);
+});
+
 // 16 November: a restart found no moment with none of 17 conversations
 // running, so a drain parks them; one the person wakes stays awake.
 it("drains every conversation but one woken from a park since, until the drain lifts", () => {

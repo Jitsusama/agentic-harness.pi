@@ -100,7 +100,11 @@ export interface CarriedShells {
 	/**
 	 * Whether a park keeps a carried call alive (parked-calls.ts). A host
 	 * that runs on through the park holds the call in its own cgroup until
-	 * its own stop keeps it, as `keeps` says; a child, whose process ends
+	 * its own stop keeps it, as `keeps` says, which it can because the
+	 * park's stop tells the conversation of a restart and `heard` hears
+	 * its carry (stamped with the park's time, so a call parked a day
+	 * before the next host's look is stopped on it, as a parked
+	 * conversation's watch wakes it after a day); a child, whose process ends
 	 * once it parks (`processEnds`), keeps only what its spawners' scopes
 	 * hold apart from its unit.
 	 */
@@ -314,8 +318,13 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			const told = bus.on(HOST_RESTARTING_EVENT, (data) => {
 				if (isHostRestarting(data)) restarting = true;
 			});
+			// A park's stop tells its conversation of a restart too, so a shared
+			// host hears every carrying park here: those that ended since go,
+			// so the list holds no more than the calls still out.
 			const carrying = bus.on(JOBS_CARRIED, (data) => {
 				if (!restarting || !isJobsCarried(data)) return;
+				const out = carried.filter((call) => isRunning(call.work));
+				carried.splice(0, carried.length, ...out);
 				for (const job of data.jobs)
 					if (isCarriedShell(job.work))
 						carried.push({
@@ -332,6 +341,8 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			};
 		},
 		async keep() {
+			const out = carried.filter((call) => isRunning(call.work));
+			carried.splice(0, carried.length, ...out);
 			if (carried.length === 0) return [];
 			const moved: number[] = [];
 			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));

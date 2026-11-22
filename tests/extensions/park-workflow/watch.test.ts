@@ -1260,8 +1260,20 @@ describe("why a session stays awake", () => {
 		host.host.park = (id) => asked.push(id);
 		host.host.carries = () => carries;
 		host.host.viewed = () => viewed;
-		const out: { id: string; kind: string; label: string }[] = [
-			{ id: "j1", kind: "shell", label: "until grep -q rc= run.log" },
+		// As job-workflow's own: a job whose spec can't carry it (a shell
+		// whose tee won't outlive pi) holds, whatever the host keeps.
+		const out: {
+			id: string;
+			kind: string;
+			label: string;
+			carry?: { kind: string };
+		}[] = [
+			{
+				id: "j1",
+				kind: "shell",
+				label: "until grep -q rc= run.log",
+				carry: { kind: "shell" },
+			},
 		];
 		let unsaid = 0;
 		const stopJobs = announceJobHost(events, {
@@ -1271,13 +1283,14 @@ describe("why a session stays awake", () => {
 			pending: () => out.length + unsaid,
 			running: () => out,
 			holds: (carriable = () => true) =>
-				out.filter((job) => !carriable({ kind: job.kind })),
+				out.filter((job) => job.carry === undefined || !carriable(job.carry)),
 		});
 		const env = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
 		try {
 			writeFileSync(parkSwitch(folder), "on\n");
 			clock = 0;
-			const watched = watching(session(), env);
+			const onMac = watching(session(), env, [], "darwin");
+			const watched = watching(session(), env, [], "linux");
 			clock = BACKGROUND_PARK_AFTER_MS;
 
 			carries = false;
@@ -1291,12 +1304,25 @@ describe("why a session stays awake", () => {
 				"a command is out (j1: until grep -q rc= run.log)",
 			);
 			viewed = false;
+			expect(onMac.look(), "a Mac's holder is lost in a park").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			onMac.stop();
 			out.push({ id: "j2", kind: "subagent", label: "k7-read" });
 			expect(watched.look(), "a fleet goes nowhere").toBe(
 				"a fleet is out (j2: k7-read)",
 			);
 			out.pop();
+			out.push({ id: "j3", kind: "shell", label: "tee run.log" });
+			expect(watched.look(), "a call that can't outlive pi").toBe(
+				"a command is out (j3: tee run.log)",
+			);
 			unsaid = 1;
+			expect(
+				watched.look(),
+				"a held call beside an end not yet said names neither",
+			).toBe("background jobs are out");
+			out.pop();
 			expect(watched.look(), "an end not yet said").toBe(
 				"background jobs are out",
 			);
@@ -1305,6 +1331,35 @@ describe("why a session stays awake", () => {
 
 			expect(watched.look(), "only a carried call: it parks").toBeUndefined();
 			expect(asked).toEqual([SESSION]);
+		} finally {
+			stopJobs();
+			host.dispose();
+		}
+	});
+
+	it("stays for every job a job host from before its holds says is out", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => true;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => 1,
+		});
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const watched = watching(
+				session(),
+				{ MYCELIUM_WAKE: join(folder, "conversation.wake") },
+				[],
+				"linux",
+			);
+			clock = PARK_AFTER_MS;
+			expect(watched.look()).toBe("background jobs are out");
+			expect(asked).toEqual([]);
 		} finally {
 			stopJobs();
 			host.dispose();

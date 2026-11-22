@@ -290,7 +290,19 @@ cgroup, or spawners in scopes of their own), it stops the conversation
 carrying them as a restart does; parked-calls.ts writes the calls the
 conversation's bus said it carried to `carried-calls.json` beside its
 wake file, and whoever watches that wake looks at them every five
-seconds, writing the wake file once none still runs. A
+seconds, rolling their output as the conversation would, and writing
+the wake file once none still runs. Any doubt wakes it, since a woken
+conversation takes its calls up again and holds them or times them
+out: a call past its own time limit or a day old counts as ended, a
+record that can't be written wakes it as it parks, and a wake refused
+or unwritten is asked again every five minutes until it runs. The
+record stands until a resume runs (`ran`), so a start that fails
+watches on; closing the conversation for good stops the calls, and a
+release leaves them to the next holder. `PI_PARK_CARRY=off` turns the
+carry off, parking as before it. Where it falls short: a host unit
+that dies wakes every carried conversation at once as it starts, and
+a restart's carry landing in the same moment as a park's can record
+the calls twice, which only wakes once. A
 host starting leaves parked what its last process parked this boot,
 plain pi's marker still naming this host's wake file
 (`restsParked`): it builds nothing, watches the wake file as the park

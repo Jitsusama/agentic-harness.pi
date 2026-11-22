@@ -192,6 +192,34 @@ describe("carried shells", () => {
 		]);
 	});
 
+	// A park's stop tells the conversation of a restart, so its carry is
+	// heard here, and every carrying park adds to the list (#1981).
+	it("keeps through its own stop the calls each park carried that still run, and drops those that ended", async () => {
+		const ended = new Set<string>();
+		const shells = make({
+			running: (work) => !ended.has(work.mark),
+			table: table({
+				201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } },
+				202: { cgroup: OWN, environ: { PI_BASH_CALL: "m2" } },
+			}),
+		});
+		for (const [session, mark] of [
+			["s1", "m1"],
+			["s2", "m2"],
+			["s3", "m3"],
+		] as const) {
+			const parked = bus();
+			shells.heard(parked);
+			parked.emit(HOST_RESTARTING_EVENT, { session });
+			parked.emit(JOBS_CARRIED, carriedOn(session, shell(mark)));
+		}
+		ended.add("m2");
+		ended.add("m3");
+
+		expect(await shells.keep(), "only the call still out moves").toEqual([201]);
+		expect(kept().map((call) => call.session)).toEqual(["s1"]);
+	});
+
 	it("keeps nothing a conversation carried away when no restart was said to it", async () => {
 		const shells = make({
 			table: table({ 201: { cgroup: OWN, environ: { PI_BASH_CALL: "m1" } } }),

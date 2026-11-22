@@ -15,7 +15,10 @@
  *
  * Where the host keeps a carried bash call alive (`carries`), a park
  * carries the conversation's calls as a restart does, and the calls it
- * carried wake it once the last one ends (parked-calls.ts).
+ * carried wake it once the last one ends (parked-calls.ts). Their record
+ * outlives a wake that fails, going only once the conversation runs
+ * (`ran`); one that can't be written wakes it as soon as it parks, and
+ * a close for good stops the calls, which nobody would take up.
  *
  * While the host drains for a restart (`holding`), a wake through the
  * file or a steer is held: the file stays on disk and the steer in its
@@ -53,6 +56,7 @@ import {
 	forgetCarriedCalls,
 	hearParkCarry,
 	keepCarriedCalls,
+	stopCarriedCalls,
 	watchCarriedCalls,
 } from "./parked-calls.ts";
 
@@ -94,12 +98,20 @@ export interface Parking {
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
 	/**
-	 * It resumed: stop watching for its wake, and forget a wake refused it
-	 * as it started, after `running` cleared the last.
+	 * It resumed, or a child took it on: stop watching for its wake, and
+	 * forget a wake refused it as it started, after `running` cleared the
+	 * last.
 	 */
 	unwatch(sessionId: string): void;
-	/** It was closed: stop watching, and forget a wake refused it and the calls its park carried. */
-	closed(sessionId: string): void;
+	/** It runs again, having taken up from its log the calls its park carried: forget them. */
+	ran(sessionId: string): void;
+	/**
+	 * It was closed: stop watching, and forget a wake refused it. Closed
+	 * `forGood`, the calls its park carried are stopped, since nobody
+	 * takes them up; released to another holder, they are only forgotten,
+	 * for that holder takes them up from its log.
+	 */
+	closed(sessionId: string, forGood: boolean): void;
 	/**
 	 * Hear the bash calls its bus says a park of it carried, to wake it once
 	 * they end. Answers the disposer.
@@ -182,6 +194,10 @@ export function parking(options: {
 	readonly callRuns?: (work: CarriedShell) => boolean;
 	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
 	readonly lookEveryMs?: number;
+	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
+	readonly wakeAgainMs?: number;
+	/** A line for the journal: a park that carried calls, and their end. */
+	readonly said?: (line: string) => void;
 }): Parking {
 	// Whether this drain's restart passed its ceiling, until the drain lifts.
 	let through = false;
@@ -193,6 +209,8 @@ export function parking(options: {
 	const settling = new Map<string, Settling>();
 	// Conversations whose stop for a park is under way, whose carried calls are theirs to watch.
 	const stopping = new Set<string>();
+	// Conversations whose park carried calls it couldn't record, woken once parked.
+	const unrecorded = new Set<string>();
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
@@ -282,7 +300,14 @@ export function parking(options: {
 				...(options.lookEveryMs === undefined
 					? {}
 					: { lookEveryMs: options.lookEveryMs }),
+				...(options.wakeAgainMs === undefined
+					? {}
+					: { wakeAgainMs: options.wakeAgainMs }),
 				report,
+				ended: (calls) =>
+					options.said?.(
+						`${sessionId}: the ${calls} bash call(s) its park carried ended; waking it`,
+					),
 			});
 	}
 
@@ -307,13 +332,19 @@ export function parking(options: {
 	}
 
 	async function park(sessionId: string, asked: Settling["asked"]) {
+		let wakeAtOnce = false;
 		try {
+			// Only what this park carries is watched, never a record an
+			// earlier one left.
+			forgetCarriedCalls(folderOf(sessionId));
+			unrecorded.delete(sessionId);
 			stopping.add(sessionId);
 			try {
 				await options.stop(sessionId, PARKED, options.carries?.() ?? false);
 			} finally {
 				stopping.delete(sessionId);
 			}
+			wakeAtOnce = unrecorded.delete(sessionId);
 			options.parked?.(sessionId);
 			watchWake(sessionId);
 		} catch (error) {
@@ -323,8 +354,9 @@ export function parking(options: {
 		} finally {
 			settling.delete(sessionId);
 		}
-		// A key or a message while it parked asked for it before it could wake.
-		if (asked.length > 0)
+		// A key or a message while it parked asked for it before it could
+		// wake; calls carried with no record would wake it never.
+		if (asked.length > 0 || wakeAtOnce)
 			wake(sessionId).then(
 				() => {
 					for (const one of asked) one.resolve();
@@ -340,7 +372,10 @@ export function parking(options: {
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
 			clearRefusedWake(wakeFile(sessionId));
-			// It takes up what its park carried from its log as it starts.
+			// What its park carried stays watched until it really runs (`ran`):
+			// a start that fails leaves it parked, with nobody else to wake it.
+		},
+		ran(sessionId) {
 			forgetCarriedCalls(folderOf(sessionId));
 		},
 		hears(sessionId, bus) {
@@ -351,8 +386,13 @@ export function parking(options: {
 					try {
 						mkdirSync(folderOf(sessionId), { recursive: true });
 						keepCarriedCalls(folderOf(sessionId), calls);
+						options.said?.(
+							`${sessionId}: its park carries ${calls.length} bash call(s)`,
+						);
 					} catch (error) {
-						// Unwritten, only a message, a viewer or the host's look wakes it.
+						// Unwritten, nothing would wake it as they end: it wakes as
+						// soon as it parks and holds them awake, as before parks carried.
+						unrecorded.add(sessionId);
 						report(error);
 					}
 				},
@@ -368,9 +408,10 @@ export function parking(options: {
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch: forget,
-		closed(sessionId) {
+		closed(sessionId, forGood) {
 			forget(sessionId);
-			forgetCarriedCalls(folderOf(sessionId));
+			if (forGood) stopCarriedCalls(folderOf(sessionId));
+			else forgetCarriedCalls(folderOf(sessionId));
 		},
 		release() {
 			through = false;

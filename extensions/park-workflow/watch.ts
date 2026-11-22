@@ -73,12 +73,6 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
 }
 
 /**
- * Whether this conversation's host is a background one, whose key ends
- * in its kind as `realm-background`, and parks it alone. Never on macOS:
- * on 21 November four Mac holders were lost as their sessions parked,
- * so a Mac keeps the usual limit until its holder survives a park.
- */
-/**
  * The jobs that keep a conversation awake, named where its job host can
  * say which. Where its park would carry its bash calls (`carried`), a
  * call out holds it no longer; any other job, and an end not yet said,
@@ -100,6 +94,12 @@ function jobsHolding(
 	};
 }
 
+/**
+ * Whether this conversation's host is a background one, whose key ends
+ * in its kind as `realm-background`, and parks it alone. Never on macOS:
+ * on 21 November four Mac holders were lost as their sessions parked,
+ * so a Mac keeps the usual limit until its holder survives a park.
+ */
 function inBackgroundHost(
 	platform: NodeJS.Platform = process.platform,
 ): boolean {
