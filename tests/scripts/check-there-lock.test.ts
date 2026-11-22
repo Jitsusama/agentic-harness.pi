@@ -12,6 +12,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import {
 	accessSync,
 	constants,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -20,7 +21,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
 const SCRIPT = join(
 	import.meta.dirname,
@@ -31,11 +32,13 @@ const SCRIPT = join(
 );
 /** How long a check is given to start, take its turn or end. */
 const SETTLES_IN_MS = 10_000;
+/** How long a test is given: several of its checks settling in turn. */
+const TEST_MS = 4 * SETTLES_IN_MS;
 
 /** The script's own `lock` and `take_turn`, as it defines them. */
 function turnTaking(): string {
 	const text = readFileSync(SCRIPT, "utf8");
-	return ["lock", "take_turn"]
+	return ["let_go", "lock", "take_turn"]
 		.map((name) => {
 			const found = new RegExp(
 				`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}$`,
@@ -87,7 +90,7 @@ function hostWith(programs: readonly string[]): string {
 function check(host: string, body: string, fd9 = true): ChildProcess {
 	const bash = onPath("bash");
 	if (bash === undefined) throw new Error("no bash here");
-	const turn = `turn="${join(host, "lock")}"\n`;
+	const turn = `turn="${join(host, "lock")}"\ntrap let_go EXIT\n`;
 	// Without fd9 the descriptor is closed outright, whatever node left open.
 	const opening = fd9 ? `${turn}exec 9> "$turn"\n` : `${turn}exec 9>&-\n`;
 	const child = spawn(
@@ -164,13 +167,22 @@ function complains(child: ChildProcess, said: RegExp): Promise<string> {
 	});
 }
 
-/** What every host offers a check beside its lock: the commands it says with. */
-const SAYING = ["hostname", "cat", "date"] as const;
+/** What every host offers a check beside its lock. */
+const EVERY_HOST = ["hostname", "cat", "date", "rm", "sleep"] as const;
 
 const HOSTS = {
-	"with util-linux's flock": ["perl", "flock", ...SAYING],
-	"with only perl, as a Mac": ["perl", ...SAYING],
+	"with util-linux's flock": ["flock", ...EVERY_HOST],
+	"with only perl, as a Mac": ["perl", ...EVERY_HOST],
 } as const;
+
+/** What a check has said on stdout so far, read as it goes. */
+function heard(child: ChildProcess): () => string {
+	let out = "";
+	child.stdout?.on("data", (chunk: Buffer) => {
+		out += chunk.toString();
+	});
+	return () => out;
+}
 
 describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
@@ -188,21 +200,28 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			expect(tried.code, "a try while the lock is held").toBe(1);
 
 			const waiter = check(host, "take_turn\necho took");
+			const sofar = heard(waiter);
 			const waited = ended(waiter);
 			const said = await complains(waiter, /waiting its turn/);
 			expect(said, "whose turn it is").toMatch(
-				/\(feature, from \d\d:\d\d\); waiting its turn/,
+				/\(feature, pid \d+, from \w{3} \d\d:\d\d\); waiting its turn/,
 			);
-			expect(
-				waiter.exitCode,
-				"a second check, having said it waits, still runs",
-			).toBeNull();
+			// A wait that let the waiter in at once would print within this
+			// pause; nothing signals a wait still waiting, so time must pass.
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+			expect(sofar(), "no turn while the holder holds it").toBe("");
+			expect(waiter.exitCode, "and the waiter still waits").toBeNull();
 
 			holder.stdin?.end();
 			await ended(holder);
 			const turn = await waited;
 			expect(turn).toMatchObject({ code: 0, out: "took\n" });
+			expect(
+				existsSync(join(host, "lock.holder")),
+				"each check takes its holder's line with it",
+			).toBe(false);
 		},
+		TEST_MS,
 	);
 
 	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
@@ -212,16 +231,56 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			const holder = check(host, "take_turn\necho held\nread -r _ || true");
 			await says(holder, "held");
 
+			const asked = Date.now();
 			const waiter = await ended(
-				check(host, "turn_wait_s=1\ntake_turn\necho took"),
+				check(host, "turn_wait_s=2\ntake_turn\necho took"),
 			);
-			expect(waiter).toMatchObject({ code: 1, out: "" });
-			expect(waiter.err).toMatch(/gave up after 1 s waiting/);
+			expect(
+				Date.now() - asked,
+				"it waited its limit before giving up",
+			).toBeGreaterThanOrEqual(1_900);
+			expect(waiter).toMatchObject({ code: 75, out: "" });
+			expect(waiter.err).toMatch(
+				/gave up after 2 s waiting for .*'s check lock, held by \(a branch, pid \d+/,
+			);
 			expect(
 				waiter.err,
 				"a busy lock isn't one that can't be tried",
 			).not.toMatch(/can't take/);
+			expect(
+				existsSync(join(host, "lock.holder")),
+				"a check that gave up leaves its holder's line",
+			).toBe(true);
 		},
+		TEST_MS,
+	);
+
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"lets the next check in once the first ends, whatever it left running without fd 9",
+		async () => {
+			const host = hostWith(tools);
+			// As git's fsmonitor outlives the check that started it.
+			const leftover = "sleep 30 >/dev/null 2>&1 <&- &\necho $!";
+			for (const [shape, code] of [
+				[`{ ${leftover}\n} 9>&-`, 0],
+				[`{ ${leftover}\n}`, 1],
+			] as const) {
+				const first = await ended(check(host, `take_turn\n${shape}`));
+				const pid = Number(first.out.trim());
+				onTestFinished(() => {
+					try {
+						process.kill(pid, "SIGKILL");
+					} catch {
+						// Already gone: nothing left to stop.
+					}
+				});
+				const next = await ended(check(host, "lock -n"));
+				expect(next.code, `a try after ${shape}`).toBe(code);
+				process.kill(pid, "SIGKILL");
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+		},
+		TEST_MS,
 	);
 
 	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
@@ -232,17 +291,19 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			expect(tried.code, "a lock never tried").not.toBe(0);
 			expect(tried.out).toBe("");
 			expect(tried.err).not.toMatch(/waiting its turn/);
+			expect(tried.err, "why it couldn't").toMatch(/Bad file descriptor/);
 			expect(tried.err).toMatch(/can't take/);
 		},
+		TEST_MS,
 	);
 });
 
 describe("check-there on a host with neither flock nor perl", () => {
-	it.runIf(SAYING.every((tool) => onPath(tool) !== undefined))(
+	it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
 		"fails the check rather than reading the lock as busy",
 		async () => {
 			const tried = await ended(
-				check(hostWith(SAYING), "take_turn\necho took"),
+				check(hostWith(EVERY_HOST), "take_turn\necho took"),
 			);
 			expect(tried.code, "no lock to take").not.toBe(0);
 			expect(tried.out).toBe("");
@@ -254,8 +315,8 @@ describe("check-there on a host with neither flock nor perl", () => {
 
 // What runs on the host can't run here without its clone and its ssh, so
 // its shape is read instead: the check's own work, from the fetch to the
-// last test, sits in one group with fd 9 closed, so nothing it leaves
-// running, such as git's fsmonitor daemon, holds the next check out.
+// last test, sits in one group with fd 9 closed, which the turns above
+// show lets the next check in whatever the first left running.
 describe("the check's work on its host", () => {
 	it("runs without the lock's descriptor, from its turn to its end", () => {
 		const text = readFileSync(SCRIPT, "utf8");
