@@ -126,9 +126,10 @@ const HOUR_MS = 60 * 60 * 1000;
 const OUTSIDE_IDLE_TAKES = 200;
 
 /**
- * How long, from its start, a run may go on judging them past a host's
- * 20, so a loaded machine gets fewer rather than a longer run. It stops
- * new judging only: a judgement or take begun runs to its end. On 21
+ * How long, from when it reaches them, a run may go on judging them past
+ * a host's 20, so a loaded machine gets fewer rather than a longer run;
+ * the ended trees judged first don't count. It stops new judging only: a
+ * judgement or take begun runs to its end. On 21
  * November, with a host's sessions all starting at once, the 05:00 run
  * took 21 minutes for 20 takes, as Joel's windows stalled on the same
  * disk.

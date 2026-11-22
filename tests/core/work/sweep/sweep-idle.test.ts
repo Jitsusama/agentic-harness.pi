@@ -213,11 +213,15 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
-	it("stops judging past a host's share once its awake time since it began runs out, saying how many it left", async () => {
-		// Its clock, started far from zero, moves only as it pauses between
-		// takes, so taking is what spends its time: it runs out once the
-		// share and one more are taken, and the newest waits. A run that
-		// chose every one before taking any would take them all.
+	it("stops judging past a host's share once its awake time since its idle phase began runs out, saying how many it left", async () => {
+		// Its clock leaps as the run asks for claims, before it reaches the
+		// idle snapshots, as judging hundreds of ended trees can take most of
+		// an hour on a loaded machine; that time isn't the idle phase's, so a
+		// run counting it would take only the share. After the leap the clock
+		// moves only as it pauses between takes, so taking is what spends its
+		// time: it runs out once the share and one more are taken, and the
+		// newest waits. A run that chose every one before taking any would
+		// take them all.
 		const setup = await setUp();
 		const trees: string[] = [];
 		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP + 1; at += 1) {
@@ -227,6 +231,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 		let clock = 100;
 
 		const outcome = await sweepWhileOpen(setup, {
+			claims: async () => {
+				clock += HOUR;
+				return [];
+			},
 			idleTakes: 200,
 			idleWithinMs: IDLE_TAKES_PER_SWEEP,
 			awake: () => clock,
@@ -237,6 +245,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 
 		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
 		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
+		expect(
+			outcome.idleMs,
+			"the idle phase's own time, the pauses between its takes",
+		).toBe(IDLE_TAKES_PER_SWEEP);
 		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
 		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);

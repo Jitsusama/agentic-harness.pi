@@ -271,9 +271,11 @@ is its protection. At most 20 go a sweep, oldest first, each logged
 with its sessions and commit; the sweep outside the hosts takes up to
 200, each judged only once the one before is taken, pausing 2 seconds
 between takes, and starts judging no more past its first 20 once 10
-minutes have gone. A run its count or time stops gives in `idleLeft`
-how many it left unjudged, those seen busy aside, though judging may
-refuse some of them. A session that asks for one again gets
+minutes have gone since it reached them, the ended trees before them
+not counted. A run its count or time stops gives in `idleLeft` how
+many it left unjudged, those seen busy aside, though judging may
+refuse some of them, and every run that reaches them gives in `idleMs`
+how long they took. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 
 A tree cut from a clone in a quest's scratch folder outlives the

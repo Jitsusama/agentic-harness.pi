@@ -140,10 +140,11 @@ export interface SweepDeps extends UseSigns {
 	 */
 	idleTakes?: number;
 	/**
-	 * How long after it starts, in milliseconds of awake time, a sweep may
-	 * go on judging those snapshots past the `IDLE_TAKES_PER_SWEEP` a host
-	 * takes, so a loaded machine, where each is slow, gets fewer rather
-	 * than a longer sweep; no limit by default. It stops new judging only:
+	 * How long after it reaches those snapshots, in milliseconds of awake
+	 * time, a sweep may go on judging them past the `IDLE_TAKES_PER_SWEEP`
+	 * a host takes, so a loaded machine, where each is slow, gets fewer
+	 * rather than a longer sweep; no limit by default. The ended trees
+	 * judged before them, which can take most of an hour, don't count. It stops new judging only:
 	 * a judgement or take begun runs to its end, each git call within its
 	 * own limit, so the bound is soft by as long as one of those takes.
 	 */
@@ -228,6 +229,12 @@ export interface SweepOutcome {
 	 * unjudged, when its count or `idleWithinMs` stopped it with some left.
 	 */
 	idleLeft?: number;
+	/**
+	 * How long, in milliseconds of awake time, judging and taking those
+	 * snapshots took, pauses included, so a slow run's idle phase can be
+	 * told from what came before it; unset when the sweep never reached it.
+	 */
+	idleMs?: number;
 }
 
 /**
@@ -265,7 +272,6 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	};
 	const now = deps.now?.() ?? Date.now();
 	const awake = deps.awake ?? (() => performance.now());
-	const began = awake();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
 	const release = sweepLock(deps.lockPath, deps.lockFresh);
@@ -317,6 +323,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		const { idleWithinMs } = deps;
+		// Read as the idle phase begins, not as the run does: the ended trees
+		// before it can spend the whole bound, leaving only a host's share.
+		const began = awake();
 		const spent = () =>
 			idleWithinMs !== undefined && awake() - began >= idleWithinMs;
 		try {
@@ -359,6 +368,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			// and the dev shells' roots to go as before.
 			outcome.idleUnjudged = messageOf(error);
 		}
+		outcome.idleMs = Math.round(awake() - began);
 		const others = deps.memory
 			.recall()
 			.filter(
