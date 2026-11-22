@@ -38,6 +38,7 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
+import { holdKeptHistory } from "./kept-history.ts";
 import type { KeptRequests } from "./kept-requests.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import {
@@ -192,9 +193,12 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			const next = await becoming(current, target);
 			seat.next = next;
 			return await host.run(next.traits.sessionId, () =>
-				session(next, target, keptFile(sessions, target.sessionManager), {
-					starting: false,
-				}),
+				session(
+					next,
+					target,
+					holdKeptHistory(keptFile(sessions, target.sessionManager), report),
+					{ starting: false },
+				),
 			);
 		};
 	}
