@@ -1617,11 +1617,16 @@ async function compacted(
 	await idle(engine, id);
 	const entry = readEntry();
 	const log = logOf(engine, id);
-	const kept =
+	const said = (words: string) =>
 		log
 			?.getBranch()
-			.find((each) => each.message && text(each.message) === "kept")?.id ?? "";
-	log?.appendCompaction("talked early on", kept, 1000);
+			.find((each) => each.message && text(each.message) === `user: ${words}`)
+			?.id;
+	const kept = said("kept");
+	// Either missing, the case below would hold nothing to tell a kept view from a whole log.
+	if (!log || !kept || !said("early"))
+		throw new Error(`Conversation ${id} doesn't hold what it was told`);
+	log.appendCompaction("talked early on", kept, 1000);
 	await host.close(id);
 	return { entry, kept };
 }
@@ -1645,7 +1650,8 @@ function heldOf(
 		record: record !== -1,
 		keptNext: record !== -1 && entries[record + 1]?.id === kept,
 		earlyHeld: entries.some(
-			(entry) => entry.message !== undefined && text(entry.message) === "early",
+			(entry) =>
+				entry.message !== undefined && text(entry.message) === "user: early",
 		),
 	};
 }
