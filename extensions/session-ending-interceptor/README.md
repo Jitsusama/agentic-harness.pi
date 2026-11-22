@@ -117,12 +117,17 @@ run is taken out of the prose first, where it sits, so its own
 `sudo` doesn't count, while the same words written bare still do. A wait's
 checks, run by the machine rather than typed, are read as commands
 as before, and since they run unread as the person, one spares
-nothing unless it only reads the system (`systemctl
-is-system-running`, `is-active`, `status` and the like, with nothing
-but names after it): one that names a command, or hides what it runs
-behind the shell's quoting, a variable or an escape, does. Such a
-check in a reply's calls is read beside every later call in the run,
-whatever order the calls come in.
+nothing when it names a command word, read as code, or hides what it
+runs behind the shell: double quotes, a variable or substitution, an
+escape, a glob or braces in a word, or quotes splitting one. A word in
+single quotes standing alone, as `grep -q '1.13.0'`, hides nothing
+and is read like the rest. A check that only reads the system
+(`systemctl is-system-running`, `is-active`, `status` and the like,
+with nothing but names after it on its one line) always passes. A
+check naming no listed word, as `fuser -k`, passes too: checks are
+held to the word list prose is. Such a check in a reply's calls is
+read beside every later call in the run, whatever order the calls
+come in.
 
 Where a full read might have spared those left, the refusal ends
 "None here was spared:" and says what couldn't be read, such as a
@@ -141,18 +146,20 @@ name a command spares nothing either: a command shown that isn't a
 plain one and holds a command word, such as `sudo systemctl isolate
 rescue.target`, or a command word in prose, such as "copy the tree
 into /run/nextroot". A later wait's check counts as it does beside a
-spare: held unless it only reads the system. The reply is withheld or
+spare. The reply is withheld or
 the call refused, saying an ask went through earlier in the run, and
 the log's entry reads "after a spare". Only whole command words count,
 not the whole plain list: in prose a word that only opens with one
 (`skills`, `killed`, `sshd`) doesn't, and in code one counts where a
 word of the line starts or as a path's last part (`killall5`,
-`/usr/bin/kill`, `/proc/sysrq-trigger`), not inside a path
-(`~/.ssh/config`). So a file named in code, a plain `sudo reboot` or
+`/usr/bin/kill`, `/proc/sysrq-trigger`, and through a backslash or
+quotes, `\kill`), not inside a path (`~/.ssh/config`). So a file named in code, a plain `sudo reboot` or
 the spared ask said again still goes; holding every code span would
 withhold every later reply. The cost is that a command named by no
 listed word, such as `fuser -k`, goes through after a spare, though
-beside one it spares nothing. Under redirect, the same commands said
+shown beside one it spares nothing. The words that only change what
+an ask ends, as "soft", "nextroot" or "lingering", are held too, since
+saying them after a spare can change what the spared ask ends. Under redirect, the same commands said
 again go through as a recorded override, keyed on each command whole
 and each line naming one, so it carries no other. Withholding these
 replies keeps its own count of tells, so a real ask later in the run

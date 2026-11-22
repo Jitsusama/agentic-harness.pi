@@ -17,9 +17,10 @@
  * runs, doesn't count for a reboot, restart or shut-down, which is how
  * a disruption once scheduled goes through. Either spare stands only
  * where every command shown beside the ask is a plain reboot, shut-down
- * or log-out, and what it let past is kept in the session's log; what
- * the run says after one, until the person speaks or answers it, may
- * name no command those sessions might not outlive. Every
+ * or log-out, and every check a wait runs names none, and what it let
+ * past is kept in the session's log; what the run says or runs after
+ * one, until the person types or speaks through a host or the run ends,
+ * may name no command those sessions might not outlive. Every
  * realm's node on the machine is read, since a reboot ends the sessions
  * of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that

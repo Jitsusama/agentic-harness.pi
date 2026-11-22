@@ -124,6 +124,11 @@ describe("commandsNamedIn", () => {
 		["Then `echo b > /proc/sysrq-trigger`.", ["echo b > /proc/sysrq-trigger"]],
 		["Or `i3-msg exit`.", ["i3-msg exit"]],
 		["If it hangs, press Alt+SysRq+B.", ["SysRq"]],
+		["Then `\\kill -9 -1`.", ["\\kill -9 -1"]],
+		[
+			"Or `lo''ginctl terminate-user joel`.",
+			["lo''ginctl terminate-user joel"],
+		],
 	])("names the commands in: %s", (said, what) => {
 		expect(commandsNamedIn([said])).toEqual(what);
 	});
@@ -162,6 +167,8 @@ describe("checksNamedIn", () => {
 		"systemctl is-system-running",
 		"systemctl --user is-active pi-host.service",
 		"test -e /run/booted-system",
+		"grep -q '1.13.0' /sys/class/dmi/id/bios_version",
+		"[ -e /run/booted-system ]",
 	])("names nothing in a check that only reads: %s", (check) => {
 		expect(checksNamedIn([check])).toEqual([]);
 	});
@@ -173,6 +180,11 @@ describe("checksNamedIn", () => {
 		"pk''ill -u joel",
 		"sys\\temctl --user stop pi-host",
 		"$(printf pkill) -u joel",
+		"systemctl is-active pi-host\npkill -u joel node",
+		"/usr/bin/pk?ll -u joel node",
+		"/usr/bin/{pkill,true} -u joel",
+		"sh -c 'pkill -u joel'",
+		"sh -c 'p\\kill -u joel'",
 	])("names a check that runs a command, or hides one: %s", (check) => {
 		expect(checksNamedIn(["test -e /run/booted-system", check])).toEqual([
 			check,

@@ -77,17 +77,32 @@ const SHOWN_COMMAND_WORD = new RegExp(
 /**
  * A check that only reads the system, which a wait may run as the
  * person beside a spare: systemd asked how a unit or the boot stands,
- * with nothing but names after it.
+ * with nothing but names after it on its one line, since a newline
+ * starts another command as `;` does.
  */
 const READ_ONLY_CHECK =
-	/^(?:sudo\s+)?systemctl\s+(?:--user\s+)?(?:is-system-running|is-active|is-enabled|is-failed|status|show)(?:\s+[\w@.:=-]+)*\s*$/;
+	/^(?:sudo[ \t]+)?systemctl[ \t]+(?:--user[ \t]+)?(?:is-system-running|is-active|is-enabled|is-failed|status|show)(?:[ \t]+[\w@.:=-]+)*[ \t]*$/;
+
+/**
+ * A word in single quotes standing alone and holding no mark a shell
+ * run inside it would expand, as `'1.13.0'`: it hides nothing, and its
+ * words are read as code with the rest.
+ */
+const QUOTED_LITERAL = /(?<=^|[ \t;&|(])'[^'`"\\$*?[\]{}\n]*'(?=$|[ \t;&|)])/g;
 
 /**
  * Shell that hides what runs from a word's reading: quoting, a
- * variable or substitution, or an escape. A check runs unread, so what
- * the shell makes of these is never seen.
+ * variable or substitution, an escape, or a glob or braces within a
+ * word. A check runs unread, so what the shell makes of these is never
+ * seen.
  */
-const HIDDEN_BY_SHELL = /[`'"\\$]/;
+const HIDDEN_BY_SHELL = /[`'"\\$]|\S[*?[{]|[*?{}\]]\S/;
+
+/**
+ * What a shell's quotes and escapes leave of a command, as
+ * `lo''ginctl` or `\kill`, which run the command they spell.
+ */
+const QUOTE_OR_ESCAPE = /['"\\]/g;
 
 /** The rest of the word a match ends inside, which may be nothing. */
 const WORD_REST = /^\w*/;
@@ -168,7 +183,10 @@ export function commandsNamedIn(texts: readonly string[]): string[] {
 	// one offence a word; it is named once.
 	const named = [...notPlainEach(texts)]
 		.filter(({ text, word }) =>
-			(word ? WHOLE_COMMAND_WORD : SHOWN_COMMAND_WORD).test(text),
+			word
+				? WHOLE_COMMAND_WORD.test(text)
+				: SHOWN_COMMAND_WORD.test(text) ||
+					SHOWN_COMMAND_WORD.test(text.replace(QUOTE_OR_ESCAPE, "")),
 		)
 		.map(({ text }) => text);
 	return [...new Set(named)];
@@ -177,14 +195,15 @@ export function commandsNamedIn(texts: readonly string[]): string[] {
 /**
  * The checks in `checks`, each run unread for the person, that a spare
  * can't stand beside: each naming a command, as code shown would, or
- * hiding what it runs behind the shell's quoting; but none that only
- * reads the system, as `systemctl is-system-running` does.
+ * hiding what it runs behind the shell; but none that only reads the
+ * system, as `systemctl is-system-running` does. One naming no listed
+ * word passes, as prose does.
  */
 export function checksNamedIn(checks: readonly string[]): string[] {
 	return checks.filter(
 		(check) =>
 			!READ_ONLY_CHECK.test(check.trim()) &&
-			(HIDDEN_BY_SHELL.test(check) ||
+			(HIDDEN_BY_SHELL.test(check.replace(QUOTED_LITERAL, "")) ||
 				commandsNamedIn([asShown(check)]).length > 0),
 	);
 }
