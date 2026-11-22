@@ -292,6 +292,13 @@ export interface AuthoringFacet {
 	merge(ref: ChangeRef, request: MergeRequest): Promise<MergeOutcome>;
 	requestReviewers?(ref: ChangeRef, actors: string[]): Promise<void>;
 	/**
+	 * Why these reviewers can't be asked on `repo`, from the names alone,
+	 * or undefined when they can. Asked before a change is proposed, so a
+	 * list no ask could take is refused with nothing made, rather than
+	 * leaving a change up that nobody was asked to read.
+	 */
+	reviewersRefusal?(repo: RepoLocator, actors: string[]): string | undefined;
+	/**
 	 * Ask CI to run again, optionally naming one pipeline.
 	 *
 	 * A write, which is why it is here and not beside `checks`, and

@@ -58,6 +58,16 @@ export async function propose(
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;
 
+	// Reviewers no ask could take are refused now, from their names alone,
+	// since once the change is made it would stay up with nobody asked.
+	const unaskable =
+		params.reviewers?.length && authoring.reviewersRefusal !== undefined
+			? authoring.reviewersRefusal(bound.repo, params.reviewers)
+			: undefined;
+	if (unaskable !== undefined) {
+		return refuse(`${unaskable} Nothing was proposed.`);
+	}
+
 	// A draft asks nobody to look, unless it names reviewers.
 	if (!params.draft || (params.reviewers?.length ?? 0) > 0) {
 		const waits = await councilFirst(

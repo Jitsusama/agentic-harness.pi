@@ -5,7 +5,7 @@ import type {
 	RepoLocator,
 } from "../../../../../lib/core/review/index.ts";
 import { githubAuthoring } from "../../../../../lib/core/review/index.ts";
-import { fakeExec } from "../../../../support/fake-exec.ts";
+import { callMatching, fakeExec } from "../../../../support/fake-exec.ts";
 
 const repo: RepoLocator = { key: "github:o/r" };
 
@@ -452,7 +452,9 @@ describe("requesting reviewers", () => {
 			"@o/reviewers",
 		]);
 
-		const sent = JSON.parse(calls[0]?.input ?? "{}") as Record<string, unknown>;
+		const sent = JSON.parse(
+			callMatching(calls, "POST")?.input ?? "{}",
+		) as Record<string, unknown>;
 		expect(sent.reviewers, "only the person goes as a reviewer").toEqual([
 			"wren",
 		]);
@@ -516,6 +518,159 @@ describe("requesting reviewers", () => {
 		await githubAuthoring(exec).requestReviewers?.(ref, []);
 
 		expect(calls).toEqual([]);
+	});
+
+	it("names a person GitHub dropped, and who it did record", async () => {
+		const { exec } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "finch"]),
+			"the dropped person named, the recorded one said as recorded",
+		).rejects.toThrow(
+			/recorded no request for finch\. It did record wren, so ask again only for the rest\./,
+		);
+	});
+
+	it("says it's unknown when the answer holds neither list", async () => {
+		const { exec } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: "{}" },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren"]),
+			"an object without the lists is not a request recorded for nobody",
+		).rejects.toThrow(/whether anybody was asked is unknown/);
+	});
+
+	it("takes the repo's org and a team slug whatever their case", async () => {
+		const { exec, calls } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren"], ["reviewers"]),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["@wren ", "O/Reviewers"]),
+			"orgs and team slugs are not case-sensitive on GitHub",
+		).resolves.toBeUndefined();
+		const sent = JSON.parse(
+			callMatching(calls, "POST")?.input ?? "{}",
+		) as Record<string, unknown>;
+		expect(sent.reviewers, "the person trimmed and without its @").toEqual([
+			"wren",
+		]);
+		expect(sent.team_reviewers, "the slug as it was asked").toEqual([
+			"Reviewers",
+		]);
+	});
+
+	it("refuses a name that names nobody before asking anybody", async () => {
+		for (const name of [" ", "@", "o/", "/x", "o/a/b"]) {
+			const { exec, calls } = fakeExec([
+				{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+			]);
+
+			await expect(
+				githubAuthoring(exec).requestReviewers?.(ref, ["wren", name]),
+				`"${name}" is refused`,
+			).rejects.toThrow(/Nobody was asked\./);
+			expect(calls, `nothing reaches GitHub for "${name}"`).toEqual([]);
+		}
+	});
+
+	it("counts a team handed on to its members as asked", async () => {
+		// GitHub's code review assignment removes the team and requests
+		// some of its members in its place.
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren", "earlier", "picked"], []),
+			},
+			{
+				when: ["requested_reviewers"],
+				stdout: JSON.stringify({ users: [{ login: "earlier" }], teams: [] }),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
+			"someone nobody named appeared in the team's place",
+		).resolves.toBeUndefined();
+	});
+
+	it("doesn't take someone requested earlier as a team handed on", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren", "earlier"], []),
+			},
+			{
+				when: ["requested_reviewers"],
+				stdout: JSON.stringify({ users: [{ login: "earlier" }], teams: [] }),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
+			"nobody new appeared, so the team was dropped",
+		).rejects.toThrow(/recorded no request for team ci\. It did record wren/);
+	});
+
+	it("takes nobody as handed on when who was requested before can't be read", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["picked"], []),
+			},
+			{ when: ["requested_reviewers"], code: 1, stderr: "HTTP 502" },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
+			"the strict reading when the earlier list is unread",
+		).rejects.toThrow(/recorded no request for team ci\./);
+	});
+
+	it("keeps a team already requested as recorded", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded([], ["ci"]),
+			},
+			{
+				when: ["requested_reviewers"],
+				stdout: JSON.stringify({ users: [], teams: [{ slug: "ci" }] }),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
+			"a team still requested is recorded",
+		).resolves.toBeUndefined();
+	});
+});
+
+describe("reviewers no ask could take", () => {
+	it("says why from the names alone, calling nothing", () => {
+		const { exec, calls } = fakeExec([]);
+		const authoring = githubAuthoring(exec);
+
+		expect(
+			authoring.reviewersRefusal?.(repo, ["wren", "elsewhere/ci"]),
+			"another org's team refused",
+		).toMatch(/only teams of the repo's own org, o\. Nobody was asked\./);
+		expect(
+			authoring.reviewersRefusal?.(repo, ["wren", "o/ci"]),
+			"an askable list passes",
+		).toBeUndefined();
+		expect(
+			authoring.reviewersRefusal?.({ key: "gitlab:o/r" }, ["o/ci"]),
+			"a key that isn't GitHub's says so",
+		).toMatch(/gitlab:o\/r is not a GitHub repo key/);
+		expect(calls, "nothing reaches GitHub").toEqual([]);
 	});
 });
 

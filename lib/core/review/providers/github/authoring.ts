@@ -50,41 +50,69 @@ interface Asked {
 }
 
 /**
- * Split the names a caller asked for into people and teams. A name with
- * a slash, `org/team` or `@org/team`, is a team; GitHub takes teams only
- * by slug and only from the repo's own org, so one from another org is
- * refused rather than sent where it would be dropped.
+ * Split the names a caller asked for into people and teams, or say why
+ * they can't be asked, before anything is sent. A name with a slash,
+ * `org/team` or `@org/team`, is a team; GitHub takes teams only by slug
+ * and only from the repo's own org, so one from another org is refused
+ * rather than sent where it would be dropped, as is a name that names
+ * nobody (blank, a bare `@`, `o/`, or `o/a/b`).
  */
-function splitAsked(repo: RepoLocator, actors: readonly string[]): Asked {
-	const owner = ownerRepoFromKey(repo.key)?.owner ?? "";
+function splitAsked(
+	repo: RepoLocator,
+	actors: readonly string[],
+): { readonly asked: Asked } | { readonly refused: string } {
+	const owner = ownerRepoFromKey(repo.key)?.owner;
+	if (owner === undefined) {
+		return {
+			refused: `${repo.key} is not a GitHub repo key. Nobody was asked.`,
+		};
+	}
 	const people: string[] = [];
 	const teams: string[] = [];
 	for (const actor of actors) {
 		const name = actor.trim().replace(/^@/, "");
 		const slash = name.indexOf("/");
 		if (slash < 0) {
+			if (name === "") {
+				return { refused: `"${actor}" names nobody. Nobody was asked.` };
+			}
 			people.push(name);
 			continue;
 		}
 		const org = name.slice(0, slash);
-		if (org.toLowerCase() !== owner.toLowerCase()) {
-			throw new Error(
-				`${actor} is a team of ${org}, and GitHub asks only teams of the repo's own org, ${owner}. Nobody was asked.`,
-			);
+		const slug = name.slice(slash + 1);
+		if (org === "" || slug === "" || slug.includes("/")) {
+			return {
+				refused: `"${actor}" isn't a team GitHub can name, which is org/team. Nobody was asked.`,
+			};
 		}
-		teams.push(name.slice(slash + 1));
+		if (org.toLowerCase() !== owner.toLowerCase()) {
+			return {
+				refused: `${actor} is a team of ${org}, and GitHub asks only teams of the repo's own org, ${owner}. Nobody was asked.`,
+			};
+		}
+		teams.push(slug);
 	}
-	return { people, teams };
+	return { asked: { people, teams } };
+}
+
+/** Who a pull request has requested, each name lowercased. */
+interface Requested {
+	readonly people: ReadonlySet<string>;
+	readonly teams: ReadonlySet<string>;
 }
 
 /**
- * The names in `asked` a pull request's answer doesn't show requested.
- * GitHub answers a reviewers request with the pull request, and has been
- * seen to answer one it dropped with success (Shopify/shopify-build
- * #10439 and #10440, 22 November: a team sent as a person, recorded for
- * nobody), so what it recorded is read rather than its status trusted.
+ * Who an answer shows requested, under the keys it names them by, or
+ * undefined when it shows neither list: an answer that isn't JSON, or an
+ * object without both lists, says nothing either way, so it is never
+ * read as a request recorded for nobody.
  */
-function notRecorded(answer: string, asked: Asked): string[] | undefined {
+function requestedIn(
+	answer: string,
+	peopleKey: string,
+	teamsKey: string,
+): Requested | undefined {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(answer);
@@ -94,21 +122,57 @@ function notRecorded(answer: string, asked: Asked): string[] | undefined {
 		return undefined;
 	}
 	if (!isRecord(parsed)) return undefined;
-	const names = (list: unknown, key: string): Set<string> =>
+	const people = parsed[peopleKey];
+	const teams = parsed[teamsKey];
+	if (!Array.isArray(people) || !Array.isArray(teams)) return undefined;
+	const names = (list: unknown[], key: string): Set<string> =>
 		new Set(
-			(Array.isArray(list) ? list : []).flatMap((entry) => {
+			list.flatMap((entry) => {
 				const value = isRecord(entry) ? entry[key] : undefined;
 				return typeof value === "string" ? [value.toLowerCase()] : [];
 			}),
 		);
-	const people = names(parsed.requested_reviewers, "login");
-	const teams = names(parsed.requested_teams, "slug");
-	return [
-		...asked.people.filter((person) => !people.has(person.toLowerCase())),
-		...asked.teams
-			.filter((team) => !teams.has(team.toLowerCase()))
-			.map((team) => `team ${team}`),
-	];
+	return { people: names(people, "login"), teams: names(teams, "slug") };
+}
+
+/**
+ * What a reviewers request recorded, from the pull request GitHub answers
+ * it with. GitHub has been seen to answer a request it dropped with
+ * success (Shopify/shopify-build #10439 and #10440, 22 November: a team
+ * sent as a person, recorded for nobody), so what it recorded is read
+ * rather than its status trusted.
+ *
+ * A team with code review assignment on "is removed as a reviewer and a
+ * specified subset of team members are assigned in the team's place"
+ * (GitHub's team settings docs), so a team missing from the answer while
+ * people nobody asked appeared since `before` was handed on, not dropped.
+ * Without a readable `before`, nothing is taken as handed on. Which
+ * missing team went to which people can't be told, so any one who
+ * appeared counts for every missing team.
+ */
+function recordedOf(
+	asked: Asked,
+	after: Requested,
+	before: Requested | undefined,
+): { readonly took: string[]; readonly dropped: string[] } {
+	const lower = (name: string) => name.toLowerCase();
+	const named = new Set(asked.people.map(lower));
+	const handedOn =
+		before !== undefined &&
+		[...after.people].some(
+			(login) => !before.people.has(login) && !named.has(login),
+		);
+	const took: string[] = [];
+	const dropped: string[] = [];
+	for (const person of asked.people) {
+		(after.people.has(lower(person)) ? took : dropped).push(person);
+	}
+	for (const team of asked.teams) {
+		(after.teams.has(lower(team)) || handedOn ? took : dropped).push(
+			`team ${team}`,
+		);
+	}
+	return { took, dropped };
 }
 
 /** Build the authoring facet. */
@@ -242,6 +306,31 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 		what: string,
 	): Promise<void> {
 		await run(exec, "gh", ["api", "--method", method, route], what);
+	}
+
+	/**
+	 * Who a pull request has requested now, or undefined when that can't
+	 * be read, which leaves a missing team counted as dropped.
+	 */
+	async function requestedBefore(
+		route: string,
+		id: string,
+	): Promise<Requested | undefined> {
+		try {
+			return requestedIn(
+				await run(
+					exec,
+					"gh",
+					["api", route],
+					`reading who pull request ${id} has requested`,
+				),
+				"users",
+				"teams",
+			);
+		} catch {
+			// Unread, nothing is taken as handed on: the strict reading.
+			return undefined;
+		}
 	}
 
 	/**
@@ -561,24 +650,49 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			// GitHub accepts an empty request and does nothing with it,
 			// which would leave a caller believing it asked somebody.
 			if (actors.length === 0) return;
-			const asked = splitAsked(ref.repo, actors);
+			const split = splitAsked(ref.repo, actors);
+			if ("refused" in split) throw new Error(split.refused);
+			const { asked } = split;
+			const route = `repos/${slugOf(ref.repo)}/pulls/${ref.id}/requested_reviewers`;
+			// Who was requested before, only when a team is asked: it is what
+			// tells a team handed on to its members from one dropped.
+			const before =
+				asked.teams.length === 0
+					? undefined
+					: await requestedBefore(route, ref.id);
 			const answer = await send(
 				"POST",
-				`repos/${slugOf(ref.repo)}/pulls/${ref.id}/requested_reviewers`,
+				route,
 				{ reviewers: asked.people, team_reviewers: asked.teams },
 				`requesting reviewers on pull request ${ref.id}`,
 			);
-			const missing = notRecorded(answer, asked);
-			if (missing === undefined) {
+			const after = requestedIn(
+				answer,
+				"requested_reviewers",
+				"requested_teams",
+			);
+			if (after === undefined) {
 				throw new Error(
 					`GitHub answered the reviewers request on pull request ${ref.id} with nothing that shows who it recorded, so whether anybody was asked is unknown. Check the pull request's reviewers.`,
 				);
 			}
-			if (missing.length > 0) {
+			const { took, dropped } = recordedOf(asked, after, before);
+			if (dropped.length > 0) {
+				// Who it did record is said too, so a retry asks only the
+				// rest rather than notifying them again.
+				const recorded =
+					took.length === 0
+						? ""
+						: ` It did record ${took.join(", ")}, so ask again only for the rest.`;
 				throw new Error(
-					`GitHub took the reviewers request on pull request ${ref.id} but recorded no request for ${missing.join(", ")}. Check the name, and that they can see the repo.`,
+					`GitHub took the reviewers request on pull request ${ref.id} but recorded no request for ${dropped.join(", ")}.${recorded} Check the name, and that they can see the repo.`,
 				);
 			}
+		},
+
+		reviewersRefusal(repo: RepoLocator, actors: string[]): string | undefined {
+			const split = splitAsked(repo, actors);
+			return "refused" in split ? split.refused : undefined;
 		},
 	};
 
