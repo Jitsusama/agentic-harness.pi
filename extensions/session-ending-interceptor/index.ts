@@ -17,7 +17,9 @@
  * runs, doesn't count for a reboot, restart or shut-down, which is how
  * a disruption once scheduled goes through. Either spare stands only
  * where every command shown beside the ask is a plain reboot, shut-down
- * or log-out, and what it let past is kept in the session's log. Every
+ * or log-out, and what it let past is kept in the session's log; what
+ * the run says after one, until the person speaks or answers it, may
+ * name no command those sessions might not outlive. Every
  * realm's node on the machine is read, since a reboot ends the sessions
  * of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
@@ -145,11 +147,39 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 
 /**
  * Forgets what the run showed once the person speaks, typed or through
- * a host, since they have answered it. An extension's message, a job's
- * result or a peer's nudge, is no word of theirs, so it forgets nothing.
+ * a host, since they have answered it, and every spare it let through.
+ * An extension's message, a job's result or a peer's nudge, is no word
+ * of theirs, so it forgets nothing.
  */
 function forgetOnThePersonsWord(beside: Beside, source: string): void {
-	if (source !== "extension") beside.texts = [];
+	if (source === "extension") return;
+	forgetTheRun(beside);
+}
+
+/** Forgets everything the run showed, and every spare in it. */
+function forgetTheRun(beside: Beside): void {
+	beside.texts = [];
+	beside.sparedAsks.clear();
+	beside.sparedUnanswered = false;
+}
+
+/**
+ * Forgets a spared ask once the person answers it, having read it: not
+ * one answered by its recommendation while they are away, which says no
+ * answer of theirs, nor one cancelled or parked unanswered.
+ */
+function forgetOnTheirAnswer(
+	beside: Beside,
+	result: { readonly toolName: string; readonly toolCallId: string },
+	details: unknown,
+): void {
+	if (result.toolName !== "ask" || !isRecord(details)) return;
+	const answered =
+		Array.isArray(details.answers) &&
+		details.answers.length > 0 &&
+		details.cancelled !== true &&
+		details.parked === undefined;
+	if (answered) beside.sparedAsks.delete(result.toolCallId);
 }
 
 /** What reads the tool `name`, its own key only, never the prototype's. */
@@ -265,12 +295,15 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 		pi.on("input", (event) => {
 			forgetOnThePersonsWord(beside, event.source);
 		});
+		pi.on("tool_result", (event) => {
+			forgetOnTheirAnswer(beside, event, event.details);
+		});
 		pi.on("message_end", (event, ctx) => {
 			noteBeside(beside, event.message);
 			return withholdReply(pi, event.message, ctx, deps, told, traced, beside);
 		});
 		pi.on("agent_settled", () => {
-			beside.texts = [];
+			forgetTheRun(beside);
 			told.tells = 0;
 			told.run = randomUUID();
 			told.keys.clear();

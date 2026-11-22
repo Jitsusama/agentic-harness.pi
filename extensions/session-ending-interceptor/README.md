@@ -105,10 +105,8 @@ every ask, look or wait they made, counts beside each later reply
 and call until the person next speaks, typed or through a host, or
 the run ends, since they read it all together. A job's result or a
 peer's nudge comes as a message too, but isn't theirs, so it forgets
-nothing. A spare is judged against what came before it: what the run
-shows after a spare stood isn't held to the list. Reading each
-spelling of each act widened what the
-guard let through one spelling at a time, so code that isn't on that
+nothing. Reading each spelling of each act widened what the guard
+let through one spelling at a time, so code that isn't on that
 short list isn't read. Prose can't be held to a list, so it is held
 only to a list of words: one naming a command (`sudo`, `systemctl`,
 `kexec`, `init 1`, `ssh`, any kill), or a soft or user space reboot,
@@ -130,6 +128,24 @@ doesn't linger. Each of those, and each ask a
 spare let past, leaves a `session-ending-spare` entry in the
 session's log, not sent to the model, naming the asks and the
 sessions spared and why.
+
+What follows a spare is read beside it. Once a spare let an ask
+through, a later reply, look, ask or wait in the same run whose words
+name a command spares nothing either: a command shown that isn't a
+plain one and holds a command word, such as `sudo systemctl isolate
+rescue.target`, or a command word in prose, such as "copy the tree
+into /run/nextroot". The reply is withheld or the call refused, saying
+an ask went through earlier in the run, and the log's entry reads
+"after a spare". Only words naming a command count, not the whole
+plain list, so a file named in code, a plain `sudo reboot` or the
+spared ask said again still goes; holding every code span would
+withhold every later reply. It holds until the person next speaks,
+the run ends, or the person answers the spared ask. An ask answered
+by its recommendation while they are away, cancelled or parked
+unanswered isn't their answer, and a look or a wait has none, so
+those hold until they speak or the run ends. Nothing is held across
+runs, since a hosted session the person never types into would then
+hold every later reply.
 
 - **A log-out that leaves the user's services running.** When logind
   says the user lingers and kills no user processes at a log-out
