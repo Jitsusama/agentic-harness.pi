@@ -537,6 +537,18 @@ describe("the fence's arguments", () => {
 				[],
 			],
 			[
+				"its folder bound out before the tmpfs",
+				[
+					...args.slice(0, emptying),
+					"--ro-bind",
+					folder,
+					"/tmp/eero",
+					...args.slice(emptying),
+				],
+				rules,
+				["eero/socket"],
+			],
+			[
 				"a stand-in bound over it",
 				[...args, "--ro-bind", "/dev/null", join(folder, "socket")],
 				rules,

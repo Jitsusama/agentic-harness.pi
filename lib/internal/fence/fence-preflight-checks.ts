@@ -167,8 +167,8 @@ const CONNECT = [
  * The paths a never-through name stands for here: itself, or each entry
  * of the runtime folder a name ending in a wildcard matches. An entry
  * whose name holds a quote or a line break is left out, since it would
- * break the probe's script or forge a line of its answer, so it reads as
- * not tried.
+ * break the probe's script or forge a line of its answer, so its name
+ * reads as not tried (`leavesOut`).
  */
 function servedAs(name: string, entries: readonly string[]): string[] {
 	if (isAbsolute(name)) return [name];
@@ -177,6 +177,18 @@ function servedAs(name: string, entries: readonly string[]): string[] {
 	return entries
 		.filter((entry) => entry.startsWith(start) && !/['\n]/.test(entry))
 		.map((entry) => join(runtime(), entry));
+}
+
+/**
+ * Whether `servedAs` leaves out any entry `name` matches, so the name
+ * can't be said to be tried, however many of its other matches were.
+ */
+function leavesOut(name: string, entries: readonly string[]): boolean {
+	const start = name.slice(0, -1);
+	return (
+		name.endsWith("*") &&
+		entries.some((entry) => entry.startsWith(start) && /['\n]/.test(entry))
+	);
 }
 
 /** A line saying how a connect to `path` went, run outside or inside. */
@@ -225,8 +237,10 @@ async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 			"no socket the fence never lets through answers here, so none was tried",
 		);
 	}
-	const untried = NEVER_THROUGH.filter((name) =>
-		servedAs(name, entries).every((path) => !served.includes(path)),
+	const untried = NEVER_THROUGH.filter(
+		(name) =>
+			leavesOut(name, entries) ||
+			servedAs(name, entries).every((path) => !served.includes(path)),
 	);
 	const probe = (path: string) =>
 		connected(path)
