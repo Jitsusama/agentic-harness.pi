@@ -257,7 +257,7 @@ describe("a commit its base already carries", () => {
 		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(after);
 	});
 
-	it("takes the same change made elsewhere in the file for no landing", async () => {
+	it("takes the same change among other lines for no landing", async () => {
 		// The base ticked the box under A and the branch the one under B: the
 		// same changed lines, in other places, so the branch's tick is its own.
 		const seed = "# Log\n\n## A\n\n- [ ] ship\n\n## B\n\n- [ ] ship\n";

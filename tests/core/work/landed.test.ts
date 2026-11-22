@@ -1,8 +1,8 @@
 /**
  * When asking whether a halted commit already landed has nothing to ask.
  *
- * A landing found and its base side kept are asked through real rebases in
- * `rebase-live.test.ts`; these are the edges that never reach a rebase.
+ * A landing's base side kept is asked through real rebases in
+ * `rebase-live.test.ts`; these are what the match itself takes for one.
  */
 
 import { writeFileSync } from "node:fs";
@@ -124,7 +124,63 @@ describe("asking where a halted commit landed", () => {
 		},
 		REAL_GIT_MS,
 	);
+
+	it(
+		"takes another binary beside the same log change for no landing",
+		async () => {
+			// Read as text, both images would end at the NUL their headers share,
+			// and the commits would read the same from there on.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await stage("shot.png", image("mine"));
+			await commit("log.md", "# Log\n\n- Add a shot\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await stage("shot.png", image("theirs"));
+			await commit("log.md", "# Log\n\n- Add a shot\n", "theirs");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"finds a landing whose commit changed code and a binary too",
+		async () => {
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await stage("a.ts", "export const a = 1;\n");
+			await stage("shot.png", image("mine"));
+			await commit("log.md", "# Log\n\n- Add a shot\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "notes");
+			await git(repo, "cherry-pick", "topic");
+			const as = (await git(repo, "rev-parse", "--short", "HEAD")).trim();
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toMatchObject({ as, paths: ["log.md"] });
+		},
+		REAL_GIT_MS,
+	);
 });
+
+/** A PNG's header, NUL and all, then `rest`. */
+function image(rest: string): Buffer {
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 1]),
+		Buffer.from(rest),
+	]);
+}
+
+/** Write a file in the repo and stage it, for the next commit. */
+async function stage(path: string, content: string | Buffer) {
+	writeFileSync(join(repo, path), content);
+	await git(repo, "add", path);
+}
 
 /** Write a file in the repo and commit it alone. */
 async function commit(path: string, text: string, subject: string) {

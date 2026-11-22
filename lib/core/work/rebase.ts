@@ -55,7 +55,9 @@ import { unattended } from "./unattended.ts";
  * base has since edited halts, and one it has since reverted comes back.
  * In a Markdown file a halt like that would read as two additions, so
  * there the base's side is kept, edit or revert alike, and the answer
- * names the commit and where it landed (see `landed.ts`).
+ * names the commit and where it landed (see `landed.ts`). A file whose
+ * merge driver is `union` never halts, so one the base has since edited
+ * comes back beside the edit, unsaid.
  */
 export const REAPPLY_CHERRY_PICKS = "--reapply-cherry-picks";
 
@@ -311,7 +313,8 @@ export type CarriedOn =
  * `onlyIfSettled` is for a halt just reached, where carrying on is worth it
  * only when something was settled; a resume always carries on. A halt whose
  * commit already landed keeps the base's side of its Markdown, and says where
- * it landed, rather than settling it as additions (see `landed.ts`).
+ * it landed, rather than settling it as additions (see `landed.ts`); the halt
+ * a resume starts from is left to the person.
  */
 export async function carryOn(
 	exec: Exec,
@@ -346,7 +349,11 @@ export async function carryOn(
 	});
 
 	for (let round = 0; round < CARRY_ON_LIMIT; round += 1) {
-		const here = await landedHalt(exec, treePath, onto);
+		// A resume's first halt is one the person has had in hand: its landing
+		// was asked about when it halted, and a file still marked may hold
+		// their part-settled edits, which keeping the base's side would lose.
+		const resumed = round === 0 && !options.onlyIfSettled;
+		const here = resumed ? undefined : await landedHalt(exec, treePath, onto);
 		if (here !== undefined) {
 			const kept = await keepBaseSide(exec, treePath, here.paths);
 			// Said with the landing, since the checkout may have rewritten some

@@ -19,7 +19,12 @@ import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/index.ts";
-import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	git,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 import {
 	activateWith,
 	HEADLESS,
@@ -111,141 +116,157 @@ async function commit(path: string, text: string, subject: string) {
 }
 
 describe("a rebase through a log both sides appended to", () => {
-	it("finishes, and its answer names what it settled", async () => {
-		const base = "# History\n\n## 1. First\n\nOne.\n";
-		await commit("HISTORY.md", base, "docs: start the history");
-		await git(repo, "checkout", "-qb", "topic");
-		await commit(
-			"HISTORY.md",
-			`${base}\n## 2. Mine\n\nAs §2 says.\n`,
-			"docs: add mine",
-		);
-		await git(repo, "checkout", "-q", "main");
-		await commit(
-			"HISTORY.md",
-			`${base}\n## 2. Landed\n\nTheirs.\n`,
-			"docs: add landed",
-		);
-		await git(repo, "checkout", "-q", "topic");
+	it(
+		"finishes, and its answer names what it settled",
+		async () => {
+			const base = "# History\n\n## 1. First\n\nOne.\n";
+			await commit("HISTORY.md", base, "docs: start the history");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit(
+				"HISTORY.md",
+				`${base}\n## 2. Mine\n\nAs §2 says.\n`,
+				"docs: add mine",
+			);
+			await git(repo, "checkout", "-q", "main");
+			await commit(
+				"HISTORY.md",
+				`${base}\n## 2. Landed\n\nTheirs.\n`,
+				"docs: add landed",
+			);
+			await git(repo, "checkout", "-q", "topic");
 
-		const answer = await workTool()({
-			action: "rebase",
-			tree: repo,
-			onto: "main",
-		});
-		const said = answer.content[0]?.text ?? "";
+			const answer = await workTool()({
+				action: "rebase",
+				tree: repo,
+				onto: "main",
+			});
+			const said = answer.content[0]?.text ?? "";
 
-		expect(answer).toMatchObject({ details: { ok: true } });
-		expect(said).toContain("topic replayed onto main, 1 commit.");
-		expect(said).toContain("HISTORY.md: both sides only added");
-		expect(said).toContain("HISTORY §2 is now HISTORY §3");
-		expect(await git(repo, "show", "HEAD:HISTORY.md")).toContain(
-			"## 3. Mine\n\nAs §3 says.",
-		);
-		// A real replay runs dozens of git commands, past vitest's 5 s on a
-		// machine busy with a build.
-	}, 20_000);
+			expect(answer).toMatchObject({ details: { ok: true } });
+			expect(said).toContain("topic replayed onto main, 1 commit.");
+			expect(said).toContain("HISTORY.md: both sides only added");
+			expect(said).toContain("HISTORY §2 is now HISTORY §3");
+			expect(await git(repo, "show", "HEAD:HISTORY.md")).toContain(
+				"## 3. Mine\n\nAs §3 says.",
+			);
+			// A real replay runs dozens of git commands, past vitest's 5 s on a
+			// machine busy with a build.
+		},
+		REAL_GIT_MS,
+	);
 
-	it("names a later commit's file rewritten for a number moved earlier", async () => {
-		// The case found live on 22 October: the second commit's change sits
-		// beside the citation the first commit's settling rewrote.
-		const base = "# History\n\n## 1. First\n\nOne.\n";
-		await commit("HISTORY.md", base, "docs: start the history");
-		await commit("AGENTS.md", "# Agents\n", "docs: start the agents");
-		await git(repo, "checkout", "-qb", "topic");
-		// The entry and its first citation in one commit, as found live.
-		writeFileSync(join(repo, "AGENTS.md"), "# Agents\n\nSee HISTORY §2.\n");
-		await git(repo, "add", "AGENTS.md");
-		await commit("HISTORY.md", `${base}\n## 2. Mine\n`, "docs: add mine");
-		await commit(
-			"AGENTS.md",
-			"# Agents\n\nSee HISTORY §2.\n\nAlso HISTORY §2.\n",
-			"docs: cite again",
-		);
-		await git(repo, "checkout", "-q", "main");
-		await commit("HISTORY.md", `${base}\n## 2. Landed\n`, "docs: add landed");
-		await git(repo, "checkout", "-q", "topic");
+	it(
+		"names a later commit's file rewritten for a number moved earlier",
+		async () => {
+			// The case found live on 22 October: the second commit's change sits
+			// beside the citation the first commit's settling rewrote.
+			const base = "# History\n\n## 1. First\n\nOne.\n";
+			await commit("HISTORY.md", base, "docs: start the history");
+			await commit("AGENTS.md", "# Agents\n", "docs: start the agents");
+			await git(repo, "checkout", "-qb", "topic");
+			// The entry and its first citation in one commit, as found live.
+			writeFileSync(join(repo, "AGENTS.md"), "# Agents\n\nSee HISTORY §2.\n");
+			await git(repo, "add", "AGENTS.md");
+			await commit("HISTORY.md", `${base}\n## 2. Mine\n`, "docs: add mine");
+			await commit(
+				"AGENTS.md",
+				"# Agents\n\nSee HISTORY §2.\n\nAlso HISTORY §2.\n",
+				"docs: cite again",
+			);
+			await git(repo, "checkout", "-q", "main");
+			await commit("HISTORY.md", `${base}\n## 2. Landed\n`, "docs: add landed");
+			await git(repo, "checkout", "-q", "topic");
 
-		const answer = await workTool()({
-			action: "rebase",
-			tree: repo,
-			onto: "main",
-		});
-		const said = answer.content[0]?.text ?? "";
+			const answer = await workTool()({
+				action: "rebase",
+				tree: repo,
+				onto: "main",
+			});
+			const said = answer.content[0]?.text ?? "";
 
-		expect(answer).toMatchObject({ details: { ok: true } });
-		expect(said).toContain("replayed onto main, 2 commits.");
-		expect(said).not.toContain("still cite");
-		expect(said).toContain(
-			"AGENTS.md: citations of a number moved earlier in this replay",
-		);
-		expect(await git(repo, "show", "HEAD:AGENTS.md")).toBe(
-			"# Agents\n\nSee HISTORY §3.\n\nAlso HISTORY §3.",
-		);
-	}, 20_000);
+			expect(answer).toMatchObject({ details: { ok: true } });
+			expect(said).toContain("replayed onto main, 2 commits.");
+			expect(said).not.toContain("still cite");
+			expect(said).toContain(
+				"AGENTS.md: citations of a number moved earlier in this replay",
+			);
+			expect(await git(repo, "show", "HEAD:AGENTS.md")).toBe(
+				"# Agents\n\nSee HISTORY §3.\n\nAlso HISTORY §3.",
+			);
+		},
+		REAL_GIT_MS,
+	);
 });
 
 describe("a rebase through a log entry that landed and was edited since", () => {
-	it("keeps the edited wording alone, and says where the entry landed", async () => {
-		const base = "# History\n\n## 1. First\n\nOne.\n";
-		await commit("HISTORY.md", base, "docs: start the history");
-		await git(repo, "checkout", "-qb", "topic");
-		await commit(
-			"HISTORY.md",
-			`${base}\n## 2. Mine\n\nTwo.\n`,
-			"docs: add mine",
-		);
-		await git(repo, "checkout", "-q", "main");
-		// Main moves on first: a pick onto the same parent within the same
-		// second is the very same commit, and topic would have none to replay.
-		await commit("NOTES.md", "# Notes\n", "docs: start the notes");
-		await git(repo, "cherry-pick", "topic");
-		const landed = (await git(repo, "rev-parse", "--short", "HEAD")).trim();
-		await commit(
-			"HISTORY.md",
-			`${base}\n## 2. Mine\n\nTwo, edited.\n`,
-			"docs: edit mine",
-		);
-		await git(repo, "checkout", "-q", "topic");
+	it(
+		"keeps the edited wording alone, and says where the entry landed",
+		async () => {
+			const base = "# History\n\n## 1. First\n\nOne.\n";
+			await commit("HISTORY.md", base, "docs: start the history");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit(
+				"HISTORY.md",
+				`${base}\n## 2. Mine\n\nTwo.\n`,
+				"docs: add mine",
+			);
+			await git(repo, "checkout", "-q", "main");
+			// Main moves on first: a pick onto the same parent within the same
+			// second is the very same commit, and topic would have none to replay.
+			await commit("NOTES.md", "# Notes\n", "docs: start the notes");
+			await git(repo, "cherry-pick", "topic");
+			const landed = (await git(repo, "rev-parse", "--short", "HEAD")).trim();
+			await commit(
+				"HISTORY.md",
+				`${base}\n## 2. Mine\n\nTwo, edited.\n`,
+				"docs: edit mine",
+			);
+			await git(repo, "checkout", "-q", "topic");
 
-		const answer = await workTool()({
-			action: "rebase",
-			tree: repo,
-			onto: "main",
-		});
-		const said = answer.content[0]?.text ?? "";
+			const answer = await workTool()({
+				action: "rebase",
+				tree: repo,
+				onto: "main",
+			});
+			const said = answer.content[0]?.text ?? "";
 
-		expect(answer).toMatchObject({ details: { ok: true } });
-		expect(said).toContain(`had already landed as ${landed}`);
-		expect(said).not.toContain("both sides only added");
-		expect(await git(repo, "show", "HEAD:HISTORY.md")).toBe(
-			"# History\n\n## 1. First\n\nOne.\n\n## 2. Mine\n\nTwo, edited.",
-		);
-	}, 20_000);
+			expect(answer).toMatchObject({ details: { ok: true } });
+			expect(said).toContain(`had already landed as ${landed}`);
+			expect(said).not.toContain("both sides only added");
+			expect(await git(repo, "show", "HEAD:HISTORY.md")).toBe(
+				"# History\n\n## 1. First\n\nOne.\n\n## 2. Mine\n\nTwo, edited.",
+			);
+		},
+		REAL_GIT_MS,
+	);
 });
 
 describe("a rebase of a branch with no commits of its own", () => {
-	it("moves it up to a base that moved on, and says so", async () => {
-		// A branch just cut from main, asked onto a branch built on main, as
-		// found live on 24 October: it was left behind as "already on top".
-		await git(repo, "checkout", "-qb", "base");
-		await commit("NOTES.md", "# Notes\n", "docs: start the notes");
-		await git(repo, "checkout", "-q", "main");
-		await git(repo, "checkout", "-qb", "topic");
+	it(
+		"moves it up to a base that moved on, and says so",
+		async () => {
+			// A branch just cut from main, asked onto a branch built on main, as
+			// found live on 24 October: it was left behind as "already on top".
+			await git(repo, "checkout", "-qb", "base");
+			await commit("NOTES.md", "# Notes\n", "docs: start the notes");
+			await git(repo, "checkout", "-q", "main");
+			await git(repo, "checkout", "-qb", "topic");
 
-		const answer = await workTool()({
-			action: "rebase",
-			tree: repo,
-			onto: "base",
-		});
-		const said = answer.content[0]?.text ?? "";
+			const answer = await workTool()({
+				action: "rebase",
+				tree: repo,
+				onto: "base",
+			});
+			const said = answer.content[0]?.text ?? "";
 
-		expect(answer).toMatchObject({ details: { ok: true } });
-		expect(said).toContain(
-			"topic moved up to base, with no commits of its own to replay.",
-		);
-		expect(await git(repo, "rev-parse", "HEAD")).toBe(
-			await git(repo, "rev-parse", "base"),
-		);
-	}, 20_000);
+			expect(answer).toMatchObject({ details: { ok: true } });
+			expect(said).toContain(
+				"topic moved up to base, with no commits of its own to replay.",
+			);
+			expect(await git(repo, "rev-parse", "HEAD")).toBe(
+				await git(repo, "rev-parse", "base"),
+			);
+		},
+		REAL_GIT_MS,
+	);
 });

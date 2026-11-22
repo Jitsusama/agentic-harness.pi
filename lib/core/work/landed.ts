@@ -18,10 +18,13 @@
  *
  * A match throws the branch's side of those files away, so it is held to git's
  * patch id over the whole commit: the changed lines with the lines around
- * them, leaving out only line numbers, blob ids and trailing whitespace. The
- * same lines changed elsewhere in the file are not a landing, and nor is
- * another commit that made the same change to the log beside changes of its
- * own, as two commits adding one changelog bullet do. A landing that changed on the way in (squashed
+ * them, leaving out only line numbers, blob ids and trailing whitespace, and
+ * a binary file compared by its blob ids. The same lines changed elsewhere in
+ * the file, among other lines, are not a landing, and nor is another commit
+ * that made the same change to the log beside changes of its own, as two
+ * commits adding one changelog bullet do. As with git's patch id, a place is
+ * known only by the lines around it, so a change among lines repeated
+ * elsewhere reads as either. A landing that changed on the way in (squashed
  * with others, renumbered, or landed after the base moved the lines around it)
  * is not found, and the settler keeps both sides, as it did before the flag,
  * when git's own search missed those too.
@@ -125,25 +128,46 @@ export async function landedAs(
 	if (alike.length === 0) return undefined;
 	// Alike in the log is not yet the same commit: as git's patch id does,
 	// the rest of each commit has to match too.
-	const whole = await wholeChange(exec, treePath, halted);
-	if (whole === undefined) return undefined;
+	const rest = await restOf(exec, treePath, halted, touched);
+	if (rest === undefined) return undefined;
 	for (const one of alike) {
-		if ((await wholeChange(exec, treePath, one.commit)) === whole)
+		if ((await restOf(exec, treePath, one.commit, touched)) === rest)
 			return { commit: mine.commit, as: one.commit, paths: touched };
 	}
 	return undefined;
 }
 
-/** A commit's change to every file it touches, read as `PATCH` reads. */
-async function wholeChange(
+/**
+ * A commit's change to every file but `touched`. Read without `--text`, so a
+ * binary file prints no bytes, only its blob ids, which are what it is
+ * matched by: its raw bytes would carry NULs, which end a commit's patch.
+ */
+async function restOf(
 	exec: Exec,
 	treePath: string,
 	commit: string,
+	touched: readonly string[],
 ): Promise<string | undefined> {
-	const [one] = patchesIn(
-		await patches(exec, treePath, ["--no-walk", commit, "--"]),
-	);
-	return one?.change;
+	const result = await exec("git", [
+		"-C",
+		treePath,
+		"-c",
+		"core.quotepath=off",
+		"diff-tree",
+		"--root",
+		"--no-commit-id",
+		"-p",
+		"-U3",
+		"--full-index",
+		"--no-textconv",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-renames",
+		commit,
+		"--",
+		...touched.map((path) => `:(top,exclude,literal)${path}`),
+	]);
+	return result.code === 0 ? normalised(result.stdout.split("\n")) : undefined;
 }
 
 /** Which of `paths` the commit changes, in the order given. */
@@ -188,15 +212,31 @@ function patchesIn(
 		.map((chunk) => {
 			const [commit = "", ...lines] = chunk.split("\n");
 			const from = lines.findIndex((line) => line.startsWith("diff --git "));
-			const change = (from < 0 ? [] : lines.slice(from))
-				.filter(
-					(line) =>
-						line !== "" && !line.startsWith("@@") && !line.startsWith("index "),
-				)
-				.map((line) => line.trimEnd())
-				.join("\n");
+			const change = normalised(from < 0 ? [] : lines.slice(from));
 			return { commit: commit.trim(), change };
 		});
+}
+
+/**
+ * A patch's lines as git's patch id reads them: no line numbers, no blob ids
+ * but a binary file's, which are all that says what it changed, and no
+ * trailing whitespace (a CR among it).
+ */
+function normalised(lines: readonly string[]): string {
+	const kept: string[] = [];
+	let index: string | undefined;
+	for (const line of lines) {
+		if (line.startsWith("diff --git ")) index = undefined;
+		if (line.startsWith("index ")) {
+			index = line;
+			continue;
+		}
+		if (line.startsWith("Binary files ") && index !== undefined)
+			kept.push(index);
+		if (line === "" || line.startsWith("@@")) continue;
+		kept.push(line.trimEnd());
+	}
+	return kept.join("\n");
 }
 
 /**
