@@ -65,11 +65,6 @@ describe("asking where a halted commit landed", () => {
 			// A file the base renamed is in conflict under the base's name, one
 			// the halted commit never touched; an ancestor that did, and landed,
 			// is not the halted commit landing.
-			const commit = async (path: string, text: string, subject: string) => {
-				writeFileSync(join(repo, path), text);
-				await git(repo, "add", path);
-				await git(repo, "commit", "-q", "-m", subject);
-			};
 			await commit("log.md", "# Log\n", "start");
 			await git(repo, "checkout", "-qb", "topic");
 			await commit("log.md", "# Log\n\n## Mine\n", "mine");
@@ -85,4 +80,32 @@ describe("asking where a halted commit landed", () => {
 		},
 		REAL_GIT_MS,
 	);
+
+	it(
+		"names only the files the halted commit changed",
+		async () => {
+			// The renamed file's branch side is the commit's own change under its
+			// old name, which never landed, so it is left to the settler.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n## Mine\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("new.md", "# New\n", "moves on");
+			await git(repo, "cherry-pick", "topic");
+			const as = await git(repo, "rev-parse", "--short", "HEAD");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["new.md", "log.md"]),
+			).toMatchObject({ as, paths: ["log.md"] });
+		},
+		REAL_GIT_MS,
+	);
 });
+
+/** Write a file in the repo and commit it alone. */
+async function commit(path: string, text: string, subject: string) {
+	writeFileSync(join(repo, path), text);
+	await git(repo, "add", path);
+	await git(repo, "commit", "-q", "-m", subject);
+}

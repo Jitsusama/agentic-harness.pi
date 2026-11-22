@@ -98,11 +98,15 @@ export async function landedAs(
 	if (halted === undefined) return undefined;
 	const fork = await ask(exec, treePath, ["merge-base", onto, halted]);
 	if (fork === undefined) return undefined;
-	const pathspecs = ["--", ...paths.map(literal)];
+	// Only the files the halted commit changed. A file the base renamed is in
+	// conflict under the base's name, one the commit never touched: matched
+	// alongside the rest, its branch side would be thrown away with theirs.
+	const touched = await touchedBy(exec, treePath, halted, paths);
+	if (touched.length === 0) return undefined;
+	const pathspecs = ["--", ...touched.map(literal)];
 
-	// The halted commit alone: limited to paths it didn't touch, as a file
-	// the base renamed is in conflict under the base's name, `-1` would walk
-	// on to an ancestor and answer for that commit's change instead.
+	// The halted commit alone: limited to paths, `-1` would walk on to an
+	// ancestor that touched them and answer for that commit's change instead.
 	const [mine] = patchesIn(
 		await patches(exec, treePath, ["--no-walk", halted, ...pathspecs]),
 	);
@@ -117,7 +121,33 @@ export async function landedAs(
 	);
 	const landing = since.find((one) => one.change === mine.change);
 	if (landing === undefined) return undefined;
-	return { commit: mine.commit, as: landing.commit, paths };
+	return { commit: mine.commit, as: landing.commit, paths: touched };
+}
+
+/** Which of `paths` the commit changes, in the order given. */
+async function touchedBy(
+	exec: Exec,
+	treePath: string,
+	commit: string,
+	paths: readonly string[],
+): Promise<string[]> {
+	const result = await exec("git", [
+		"-C",
+		treePath,
+		"diff-tree",
+		"--root",
+		"--no-commit-id",
+		"--no-renames",
+		"--name-only",
+		"-r",
+		"-z",
+		commit,
+		"--",
+		...paths.map(literal),
+	]);
+	if (result.code !== 0) return [];
+	const named = new Set(result.stdout.split("\0"));
+	return paths.filter((path) => named.has(path));
 }
 
 /**
