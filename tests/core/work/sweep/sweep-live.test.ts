@@ -14,6 +14,7 @@ import {
 	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -23,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Exec } from "../../../../lib/core/exec/index.ts";
 import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
 import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
@@ -778,6 +780,83 @@ describe("taking a tree only while its sessions have all ended", () => {
 		);
 		expect(forgotten).toBeUndefined();
 		expect(memory.recall().map((one) => one.path)).toContain(tree);
+	});
+});
+
+describe("taking a tree in a repository of thousands", () => {
+	// git's worktree move and remove each read every worktree the repository
+	// has: on 22 November, with 2,061 in one, they took 29 s and 19 s a take,
+	// so a run took 20 of 1,800 waiting, and each fell further behind.
+	it("takes it without a git command that reads every worktree", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		const tree = await cut("done", ["--detach", "@", "main"]);
+		const ran: string[][] = [];
+		const watched: Exec = async (command, args) => {
+			if (command === "git") ran.push([...args]);
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: watched,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		const perTree = ran.filter((args) => {
+			const at = args.indexOf("worktree");
+			return at >= 0 && ["move", "remove"].includes(args[at + 1] ?? "");
+		});
+		expect(perTree, "a take asked git to read every worktree").toEqual([]);
+		const listed = await git(main, "worktree", "list", "--porcelain");
+		expect(listed, "git still lists the taken tree").not.toContain(tree);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+	});
+
+	it("keeps one whose git folder holds submodules, as git would", async () => {
+		const { main, cut, sweep } = await setUp();
+		const tree = await cut("modules", ["--detach", "@", "main"]);
+		const gitDir = await git(tree, "rev-parse", "--absolute-git-dir");
+		mkdirSync(join(gitDir, "modules"));
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.refused.map((one) => one.path)).toEqual([tree]);
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+		const listed = await git(main, "worktree", "list", "--porcelain");
+		expect(listed, "git no longer lists the kept tree").toContain(tree);
+	});
+
+	it("keeps one that turned dirty, putting it back as it was", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		const tree = await cut("late", ["--detach", "@", "main"]);
+		// A file written as the take begins, after the sweep judged it clean.
+		const late: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				writeFileSync(join(where, "notes.txt"), "unsaved\n");
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: late,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.refused.map((one) => one.path)).toEqual([tree]);
+		expect(readFileSync(join(tree, "notes.txt"), "utf8")).toBe("unsaved\n");
+		expect(memory.recall().map((one) => one.path)).toContain(tree);
+		const listed = await git(main, "worktree", "list", "--porcelain");
+		expect(listed).toContain(tree);
+		expect(await git(tree, "status", "--porcelain")).toContain("notes.txt");
 	});
 });
 

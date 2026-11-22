@@ -244,7 +244,12 @@ and forgets its record; the removal comes after. A lock another
 process holds past the wait keeps that tree alone, saying so, rather
 than end the run: on 22 November a live snapshot's lock, held past
 10 s on a loaded machine, failed a whole run 40 minutes in, and it
-logged none of what it took. A tree claimed
+logged none of what it took. The move is a rename, and the removal
+takes the tree and git's own folder for it, after the checks git's
+remove makes: not locked, no submodule, nothing `git status` lists.
+Git's move and remove read every worktree the repository has, which
+with 2,061 cost 29 s and 19 s a take, so a run took 20 of 1,800.
+A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
 the broker never cut are left alone. A taken tree's branch stays,
 unless origin's trunk holds every commit on it, as on release.
