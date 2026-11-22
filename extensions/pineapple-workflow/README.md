@@ -41,8 +41,9 @@ writes it reaches:
   launcher, a terminal or a runner such as `ssh` or `tmux`, in a loop
   or a substitution, or fed to a shell, while a runner that only names
   pi, as `tmux attach -t pi` does, goes. The guard reads a command's
-  words, so it is no wall: a script written to a file and then run, or
-  a runner it doesn't know, still gets past it. Joel's
+  words, so it is no wall: a script written to a file and then run, a
+  script a command prints for a shell to run, as `bash <(...)` does,
+  or a runner it doesn't know, still gets past it. Joel's
   `pineapple stop all`, before a demo, is a stop on everything, so a
   parked session can't start more agents to carry on for it.
 

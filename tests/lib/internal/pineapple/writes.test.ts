@@ -414,6 +414,54 @@ describe("writesInBash", () => {
 		expect(actions("echo 'pi -p go' | ssh mac command -v bash")).toEqual([]);
 	});
 
+	it("reads su's lines, option clusters and stdin as getopt and bash do", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("su -lc 'pi -p go'", "pi");
+		held("su -c'pi -p go'", "pi");
+		held("su --session-command 'pi -p go'", "pi");
+		held("su joel -s /bin/bash -c 'pi -p go'", "pi");
+		held("bash -oc pipefail 'pi -p go'", "pi");
+		held("echo 'pi -p go' | source /dev/stdin", "pi");
+		held("echo 'pi -p go' | bash /proc/self/fd/0", "pi");
+		for (const command of [
+			"su joel -c 'ls'",
+			"su -l joel",
+			"bash -oc pipefail 'ls'",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
+	it("finds every heredoc opener and $'...' string bash finds", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("cat <<< x\npi -p go\nx", "pi");
+		held("cat <<< word; pi -p go\nword", "pi");
+		held("cat <<\\EOF > f\nit's\nEOF\npi -p go", "pi");
+		held("cat <<'END-MSG' > f\nit's\nEND-MSG\npi -p go", "pi");
+		held(
+			"git commit -m $'Don\\'t break #12' && git push origin fix",
+			"git push",
+		);
+		held("$'pi' -p go", "pi");
+		held('echo "<<EOF"\nx=$(pi -p go)\nEOF', "pi");
+		held("cat <<A <<B > f\nit's\nA\nit's\nB\npi -p go", "pi");
+		held("cat <<A > f && cat <<B > g\na\nA\nb\nB\npi -p go", "pi");
+		for (const command of [
+			"cat <<\\EOF > f\n$(pi -p go)\nEOF",
+			"cat <<A <<B > f\na\nA\npi -p go\nB",
+			"cat <<A <<B > f\nB\nA\npi -p go\nB",
+			"echo $'a\\'b' # pi -p go",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
 	it("sees past a wrapper's options that take a value", () => {
 		const actions = (command: string) =>
 			writesInBash(command, HERE).map((write) => write.action);

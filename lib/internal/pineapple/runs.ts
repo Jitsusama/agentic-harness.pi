@@ -282,11 +282,50 @@ const OPENS_SHELL = new Map<string, RegExp>([
 /** The shell a wrapper with no command opens, standing for any. */
 const OPENED = ["sh"];
 
-/** su's options that hand it a line to run. */
-const SU_LINE = /^(-c|--command)$/;
+/** su's long options that hand it a line to run. */
+const SU_LINES = new Set(["--command", "--session-command"]);
 
-/** su's line written into its long option. */
-const SU_LINE_GIVEN = "--command=";
+/** su's long options that take the next word as their value. */
+const SU_LONG_VALUED = new Set([
+	"--shell",
+	"--group",
+	"--supp-group",
+	"--whitelist-environment",
+]);
+
+/** su's short options that take a value, as `-s /bin/zsh` does. */
+const SU_VALUED = "sgGw";
+
+/**
+ * The line su runs, read as getopt reads its words wherever they sit:
+ * from `-c`, alone or in a cluster such as `-lc`, its line the rest of
+ * the cluster or else the next word, or from `--command` or
+ * `--session-command`; none when it is given no line and opens a shell.
+ */
+function suLine(args: string[]): string | undefined {
+	for (let at = 0; at < args.length; at += 1) {
+		const word = args[at] ?? "";
+		if (word === "--") return undefined;
+		if (word.startsWith("--")) {
+			const equals = word.indexOf("=");
+			const name = equals < 0 ? word : word.slice(0, equals);
+			const value = equals < 0 ? undefined : word.slice(equals + 1);
+			if (SU_LINES.has(name)) return value ?? args[at + 1];
+			if (SU_LONG_VALUED.has(name) && value === undefined) at += 1;
+			continue;
+		}
+		if (!word.startsWith("-") || word === "-") continue;
+		for (let letter = 1; letter < word.length; letter += 1) {
+			const option = word[letter] ?? "";
+			if (option !== "c" && !SU_VALUED.includes(option)) continue;
+			const joined = word.slice(letter + 1);
+			if (option === "c") return joined === "" ? args[at + 1] : joined;
+			if (joined === "") at += 1;
+			break;
+		}
+	}
+	return undefined;
+}
 
 /**
  * Words from the program they run, past any wrapper; none when a wrapper
@@ -320,14 +359,10 @@ export function unwrapped(argv: string[]): string[] {
 			at += 3;
 			continue;
 		}
-		if (word === "su") {
-			const rest = words.slice(at + 1);
-			return rest.some(
-				(next) => SU_LINE.test(next) || next.startsWith(SU_LINE_GIVEN),
-			)
-				? words.slice(at)
-				: OPENED;
-		}
+		if (word === "su")
+			return suLine(words.slice(at + 1)) === undefined
+				? OPENED
+				: words.slice(at);
 		const wrapper = WRAPPERS.get(word);
 		if (wrapper === undefined) break;
 		const end = optionsEnd(words, wrapper, at + 1) + wrapper.takes;
@@ -364,11 +399,23 @@ function splitString(
 const SHELL_VALUED = new Set(["--rcfile", "--init-file"]);
 
 /** Scripts that are stdin under another name. */
-const STDIN = new Set(["/dev/stdin", "/dev/fd/0"]);
+const STDIN = new Set(["/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"]);
+
+/** Builtins that run a script in the shell they are given in. */
+const SOURCES = new Set(["source", "."]);
+
+/**
+ * Whether a command runs stdin as script in the shell it is given in, as
+ * `source /dev/stdin` does.
+ */
+export function sourcesStdin(name: string, args: string[]): boolean {
+	return SOURCES.has(name) && STDIN.has(args[0] ?? "");
+}
 
 /**
  * Where a shell's options end, as it reads them: past `-o` and `-O` and
- * their value, alone or ending a cluster as in `-euo pipefail`, its long
+ * their value, alone or in a cluster, each taking the next word in turn,
+ * as in `-euo pipefail` or `-oc pipefail 'line'`, its long
  * options that take one, and a lone `-` or `--`. Whether `-c` was among
  * them, and whether `-s` was, come with it.
  */
@@ -385,7 +432,7 @@ function shellOptions(args: string[]): {
 		if (/^[-+][A-Za-z]+$/.test(word)) {
 			line ||= RUNS_LINE.test(word);
 			stdin ||= word.startsWith("-") && word.includes("s");
-			if (/[oO]$/.test(word)) at += 1;
+			at += word.slice(1).replace(/[^oO]/g, "").length;
 		} else if (SHELL_VALUED.has(word)) at += 1;
 		else if (!word.startsWith("--")) return { end: at, line, stdin };
 	}
@@ -450,13 +497,7 @@ export function runs(name: string, args: string[]): Runs | undefined {
 		return given === undefined ? undefined : { line: given };
 	}
 	if (name === "su") {
-		const flag = args.findIndex((word) => SU_LINE.test(word));
-		const given =
-			flag < 0
-				? args
-						.find((word) => word.startsWith(SU_LINE_GIVEN))
-						?.slice(SU_LINE_GIVEN.length)
-				: args[flag + 1];
+		const given = suLine(args);
 		return given === undefined ? undefined : { line: given };
 	}
 	if (name === "eval")

@@ -18,14 +18,21 @@
 
 import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
-import type { CommandLine, SimpleCommand } from "../../command/types.ts";
+import type { CommandLine, SimpleCommand, Word } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
-import { flatten, heredocRuns, inlined, uncommented } from "./flatten.ts";
+import {
+	ansiUnquoted,
+	flatten,
+	heredocRuns,
+	inlined,
+	uncommented,
+} from "./flatten.ts";
 import {
 	ranAtLast,
 	readsStdin,
 	runs,
 	SHELLS,
+	sourcesStdin,
 	sshReadsStdin,
 	unwrapped,
 } from "./runs.ts";
@@ -267,8 +274,9 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
  * left without a directory, rather than read from this process's own.
  */
 function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
-	// Comments and heredocs, which the command model misreads, go first.
-	const plain = uncommented(command);
+	// Comments, `$'...'` strings and heredocs, which the command model
+	// misreads, go first.
+	const plain = ansiUnquoted(uncommented(command));
 	const source = inlined(plain);
 	const flat = flatten(source);
 	// What a substitution runs in double quotes or an unquoted heredoc,
@@ -278,13 +286,55 @@ function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
 		...flatten(plain).substituted,
 		...heredocRuns(plain),
 	].flatMap((inner) => writesInLine(inner, undefined));
-	const line = tokenize(source);
+	const line = defusedLine(source);
 	if (line.supported) return [...writesOf(line, cwd), ...substituted];
-	const flattened = tokenize(flat.line);
+	const flattened = defusedLine(flat.line);
 	if (!flattened.supported) return patternWrites(source);
 	// Its structure moves offsets and may move directories, so no
 	// command in it is said to run anywhere known.
 	return [...writesOf(flattened, undefined), ...substituted];
+}
+
+/** A `<<` that is no here-string's `<<<`. */
+const HEREDOC_OPENER = /(?<!<)<<(?!<)/g;
+
+/**
+ * What stands in for a `<<` while the command model reads a line: two
+ * private-use characters, which it takes for a word's own, and which
+ * keep every offset where it was.
+ */
+const DEFUSED_OPENER = "\uE000\uE000";
+
+const DEFUSED = new RegExp(DEFUSED_OPENER, "g");
+
+/**
+ * The line as the command model reads it, with each `<<` left in it
+ * read as plain text. Every heredoc has been inlined, so one left is
+ * quoted or never closed, and the model, which finds heredocs without
+ * knowing quotes, would take the lines after it for a body and leave
+ * their commands unread. Each word keeps its `<<`, so a shell's `-c`
+ * line still holds the heredoc it opens.
+ */
+function defusedLine(source: string): CommandLine {
+	const read = tokenize(source.replace(HEREDOC_OPENER, DEFUSED_OPENER));
+	const word = (each: Word): Word => ({
+		...each,
+		text: each.text.replace(DEFUSED, "<<"),
+	});
+	return {
+		...read,
+		source,
+		commands: read.commands.map((simple) => ({
+			...simple,
+			assignments: simple.assignments.map(word),
+			argv: simple.argv.map(word),
+			redirects: simple.redirects.map((redirect) =>
+				redirect.target
+					? { ...redirect, target: word(redirect.target) }
+					: redirect,
+			),
+		})),
+	};
 }
 
 /** The writes of each command a readable line holds, in order. */
@@ -329,7 +379,8 @@ function fedTo(
 ): { lines: string[]; runner?: string } | undefined {
 	const [program, ...args] = ranAtLast(argv);
 	const name = program?.split("/").at(-1) ?? "";
-	const shell = SHELLS.has(name) && readsStdin(args);
+	const shell =
+		(SHELLS.has(name) && readsStdin(args)) || sourcesStdin(name, args);
 	if (!shell && !(name === "ssh" && sshReadsStdin(args))) return undefined;
 	const lines = [...strings];
 	const producer = pipedInto(line, simple);
