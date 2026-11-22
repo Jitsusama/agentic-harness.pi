@@ -268,18 +268,12 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				"elsewhere run harness-check -- pnpm exec vitest run tests/lib/internal/priority",
 				"timeout 900 elsewhere run harness-check -- pnpm typecheck > $TMPDIR/tc.log 2>&1",
 				"cd /tree && env -u SSH_AUTH_SOCK CI=1 elsewhere run delta-spec -- cargo test",
-				"/run/current-system/sw/bin/elsewhere run harness-check -- pnpm typecheck",
 			]) {
 				expect(sent(run), `${run} is sent whatever nix-offload takes`).toBe(
 					true,
 				);
 			}
-			expect(asked).toEqual([
-				"harness-check",
-				"harness-check",
-				"delta-spec",
-				"harness-check",
-			]);
+			expect(asked).toEqual(["harness-check", "harness-check", "delta-spec"]);
 		});
 
 		it("doesn't where elsewhere would run it here", () => {
@@ -298,6 +292,16 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			expect(
 				sent("PI_QUEST= elsewhere run harness-check -- pnpm typecheck"),
 				"with the quest cleared for the step",
+			).toBe(false);
+			expect(
+				sent("unset PI_QUEST; elsewhere run harness-check -- pnpm typecheck"),
+				"with the quest cleared by an earlier step",
+			).toBe(false);
+			expect(
+				sent(
+					"export PATH=/tmp/x:$PATH; elsewhere run harness-check -- pnpm test",
+				),
+				"with PATH changed by an earlier step",
 			).toBe(false);
 			expect(asked).toEqual(["stays"]);
 		});

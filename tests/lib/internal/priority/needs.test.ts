@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { elsewhereKindOf } from "../../../../lib/internal/priority/needs.ts";
+import {
+	elsewhereKindOf,
+	reroutesElsewhere,
+} from "../../../../lib/internal/priority/needs.ts";
 import { wordsOf } from "../../../../lib/internal/shell/steps.ts";
 
 const kindOf = (step: string) => elsewhereKindOf(wordsOf(step));
@@ -21,10 +24,6 @@ describe("elsewhereKindOf", () => {
 			],
 			["command elsewhere run harness-check -- pnpm test", "harness-check"],
 			["exec elsewhere run harness-check -- pnpm test", "harness-check"],
-			[
-				"/run/current-system/sw/bin/elsewhere run harness-check -- pnpm test",
-				"harness-check",
-			],
 			["elsewhere run harness-check -- vitest run -t --here", "harness-check"],
 		];
 		for (const [step, kind] of sent) {
@@ -37,11 +36,17 @@ describe("elsewhereKindOf", () => {
 			"elsewhere run harness-check --here -- pnpm typecheck",
 			"elsewhere run harness-check '--here' -- pnpm typecheck",
 			'elsewhere run harness-check "--here" -- pnpm typecheck',
+			'elsewhere run harness-check -""-here -- pnpm typecheck',
+			"elsewhere run harness-check \\-\\-here -- pnpm typecheck",
+			"elsewhere run harness-check $H -- pnpm typecheck",
+			'elsewhere run harness-check "$STAY" -- pnpm typecheck',
 			"elsewhere where harness-check",
 			"elsewhere run --here",
 			"elsewhere run",
 			"./elsewhere run harness-check -- pnpm test",
 			"bin/elsewhere run harness-check -- pnpm test",
+			"/run/current-system/sw/bin/elsewhere run harness-check -- pnpm test",
+			"/tmp/mine/elsewhere run harness-check -- pnpm test",
 			"pnpm exec vitest run -t 'elsewhere run harness-check'",
 			"echo elsewhere run harness-check",
 		]) {
@@ -54,6 +59,8 @@ describe("elsewhereKindOf", () => {
 			"PI_QUEST= elsewhere run harness-check -- pnpm test",
 			"PATH=/tmp/x elsewhere run harness-check -- pnpm test",
 			"env -u PI_QUEST elsewhere run harness-check -- pnpm test",
+			'env -u PI_""QUEST elsewhere run harness-check -- pnpm test',
+			"env '-u' PATH elsewhere run harness-check -- pnpm test",
 			"env -i elsewhere run harness-check -- pnpm test",
 			"env PI_QUEST=other elsewhere run harness-check -- pnpm test",
 		]) {
@@ -74,5 +81,31 @@ describe("elsewhereKindOf", () => {
 			kindOf("elsewhere run harness-check -- echo '$(not run)'"),
 			"a single-quoted word expands nothing",
 		).toBe("harness-check");
+	});
+});
+
+describe("reroutesElsewhere", () => {
+	it("finds an earlier step that changes the quest, PATH or elsewhere itself", () => {
+		for (const command of [
+			"unset PI_QUEST; elsewhere run harness-check -- pnpm test",
+			"export PATH=/tmp/x:$PATH && elsewhere run harness-check -- pnpm test",
+			"PATH=/tmp/x; elsewhere run harness-check -- pnpm test",
+			"elsewhere() { pnpm test; }; elsewhere run harness-check -- x",
+			"function elsewhere { pnpm test; }; elsewhere run harness-check -- x",
+			"alias elsewhere=pnpm; elsewhere run harness-check -- test",
+		]) {
+			expect(reroutesElsewhere(command), command).toBe(true);
+		}
+	});
+
+	it("lets a command that changes neither through", () => {
+		for (const command of [
+			"elsewhere run harness-check -- pnpm test",
+			"cd x && elsewhere run harness-check -- pnpm test",
+			"MANPATH=/x elsewhere run harness-check -- pnpm test",
+			"elsewhere run harness-check -- vitest run -t 'elsewhere where'",
+		]) {
+			expect(reroutesElsewhere(command), command).toBe(false);
+		}
 	});
 });

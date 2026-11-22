@@ -247,8 +247,9 @@ is a build, never a VM check.
   has a build slot free, a changed-checks sent whole to a builder goes,
   an `elsewhere run` sent to another machine goes (from a session on a
   quest, with no `--here`, its kind placed far by `elsewhere where`
-  within the last two minutes, and nothing in the step changing
-  `PI_QUEST` or `PATH` or expanding a command here), and quick work
+  within the last two minutes, named bare as PATH finds it, nothing in
+  the command changing `PI_QUEST`, `PATH` or what `elsewhere` means,
+  and nothing in the step expanding a command here), and quick work
   still goes. Both wait on `busy`. The same sent runs start while
   memory is short. From 40% CPU pressure
   a build given its turn is capped, its cargo jobs with it, so one

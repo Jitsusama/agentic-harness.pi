@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
 import { type Step, stepsOf, wordsOf } from "../shell/steps.ts";
-import { elsewhereKindOf } from "./needs.ts";
+import { elsewhereKindOf, reroutesElsewhere } from "./needs.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
@@ -291,12 +291,13 @@ export function sendsWholeRun(
 	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
 		(step) => kindOf(step.text) !== undefined,
 	);
+	const routed = reroutesElsewhere(command) ? {} : far;
 	return (
 		heavy.length > 0 &&
 		heavy.every(
 			(step) =>
 				SENT_UNLESS_IDLE.test(step.text) ||
-				travels(step, far) ||
+				travels(step, routed) ||
 				changedChecksSent(step, takes, isCommitted),
 		)
 	);

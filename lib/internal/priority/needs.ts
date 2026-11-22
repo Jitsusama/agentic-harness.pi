@@ -175,9 +175,27 @@ const KEEPS = new Set(["PI_QUEST", "PATH"]);
 /** A word that runs a command here as the shell expands it. */
 const SUBSTITUTES = /\$\(|`|<\(|>\(/;
 
-/** A word with one pair of quotes around it taken off. */
+/**
+ * A word as the shell reads it once its quotes and backslashes are gone,
+ * so `-""-here`, `\-\-here` and `PI_""QUEST` read as what they are.
+ */
 function unquoted(word: string): string {
-	return /^(['"]).*\1$/s.test(word) ? word.slice(1, -1) : word;
+	return word.replace(/["'\\]/g, "");
+}
+
+/**
+ * Anything in a command that can change which elsewhere runs or where it
+ * places a run: `PI_QUEST` or `PATH` named anywhere, whether set, unset
+ * or exported by an earlier step, or `elsewhere` defined as a function
+ * or an alias. Read over the whole command, not one step, since an
+ * earlier step changes what a later one inherits.
+ */
+const REROUTES =
+	/\bPI_QUEST\b|(?<![\w$])PATH\b|\$\{?PATH\b|\belsewhere\s*\(|\bfunction\s+elsewhere\b|\balias\s+elsewhere\b/;
+
+/** Whether anything in a command can change where its elsewhere runs go. */
+export function reroutesElsewhere(command: string): boolean {
+	return REROUTES.test(command);
 }
 
 /** Whether a word sets a variable for one command, and not one it keeps. */
@@ -195,7 +213,7 @@ function envTakes(words: readonly string[], at: number): number | undefined {
 	let next = at;
 	for (;;) {
 		const word = words[next] ?? "";
-		if (word === "-u") {
+		if (unquoted(word) === "-u") {
 			if (KEEPS.has(unquoted(words[next + 1] ?? ""))) return undefined;
 			next += 2;
 		} else if (word.startsWith("-")) return undefined;
@@ -216,9 +234,13 @@ function timeoutTakes(words: readonly string[], at: number): number {
 	return next + 1;
 }
 
-/** Whether a word names elsewhere: bare, as PATH finds it, or by an absolute path. */
+/**
+ * Whether a word names elsewhere as PATH finds it, the one asked where it
+ * places a kind. A path, even an absolute one, may name a script of the
+ * agent's own, so it never counts.
+ */
 function isElsewhere(word: string): boolean {
-	return word === "elsewhere" || /^\/\S*\/elsewhere$/.test(word);
+	return word === "elsewhere";
 }
 
 /**
@@ -255,10 +277,10 @@ export function elsewhereKindOf(words: readonly string[]): string | undefined {
 		return undefined;
 	}
 	const end = words.indexOf("--", at + 3);
-	const options = words
-		.slice(at + 3, end === -1 ? undefined : end)
-		.map(unquoted);
-	return options.includes("--here") ? undefined : kind;
+	const options = words.slice(at + 3, end === -1 ? undefined : end);
+	const staysHere = (option: string) =>
+		option.includes("$") || unquoted(option) === "--here";
+	return options.some(staysHere) ? undefined : kind;
 }
 
 /**
