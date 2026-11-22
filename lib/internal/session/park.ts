@@ -53,12 +53,7 @@
  * marker counts as no park, and the next session to start clears it.
  */
 
-import {
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-} from "node:fs";
+import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type Booted, machineBooted } from "../machine/booted.ts";
@@ -494,6 +489,13 @@ export const EASE_LASTS_MS = 30 * 60 * 1000;
  */
 export const EASED_PARK_AFTER_MS = 2 * 60 * 1000;
 
+/**
+ * How far ahead of now an ask may be dated and still count: the skew two
+ * clocks on one machine may show. One dated later, by a clock stepped
+ * back or a copy that kept its times, would never lapse, so it is none.
+ */
+export const EASE_SKEW_MS = 60 * 1000;
+
 // A session id names a file of its own in `ease/`, never one elsewhere:
 // it comes from a log's header, and a log can come from another machine.
 const namesOwnFile = (session: string) =>
@@ -513,7 +515,8 @@ export function isEased(
 ): boolean {
 	if (!namesOwnFile(session)) return false;
 	try {
-		return now - statSync(easePath(session, folder)).mtimeMs <= EASE_LASTS_MS;
+		const age = now - statSync(easePath(session, folder)).mtimeMs;
+		return age >= -EASE_SKEW_MS && age <= EASE_LASTS_MS;
 	} catch {
 		// No file is no ask.
 		return false;
@@ -542,7 +545,19 @@ export function clearEase(
  * it parks, which park as before.
  */
 export function switchOff(switchPath: string = parkSwitch()): boolean {
-	return switchLines(switchPath).includes("off");
+	try {
+		return readFileSync(switchPath, "utf8")
+			.split("\n")
+			.some((line) => line.trim() === "off");
+	} catch (error) {
+		// No switch says nothing; one that can't be read may say off, so
+		// it is taken as off, the kill switch failing shut.
+		return !(
+			error instanceof Error &&
+			"code" in error &&
+			error.code === "ENOENT"
+		);
+	}
 }
 
 /**

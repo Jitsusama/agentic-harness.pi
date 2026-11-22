@@ -20,6 +20,7 @@ import {
 	clearOutlivedParks,
 	clearParked,
 	EASE_LASTS_MS,
+	EASE_SKEW_MS,
 	easePath,
 	heldDirectly,
 	holderFiles,
@@ -169,14 +170,37 @@ describe("whether a session parks, and after how long", () => {
 		).toBe(false);
 	});
 
-	it("reads and clears only a file of the session's own in the ease folder", () => {
+	// A clock stepped back, or a copy that kept its times, dates an ask
+	// ahead of now; counted, it would never lapse (#1976 F46).
+	it("counts no ask dated ahead of now past a clock's skew", () => {
 		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath("s-1", folder), "{}\n");
+		const written = Date.parse("2026-11-22T07:00:00Z");
+		utimesSync(easePath("s-1", folder), written / 1000, written / 1000);
+		expect(
+			isEased("s-1", folder, written - EASE_SKEW_MS),
+			"within the skew",
+		).toBe(true);
+		expect(
+			isEased("s-1", folder, written - EASE_SKEW_MS - 1),
+			"past the skew",
+		).toBe(false);
+	});
+
+	it("reads and clears only a file of the session's own in the ease folder", () => {
+		mkdirSync(join(folder, "ease", "a"), { recursive: true });
 		writeFileSync(join(folder, "elsewhere"), "{}\n");
+		// A file a session `a/b` would reach, unguarded, below the folder.
+		writeFileSync(join(folder, "ease", "a", "b"), "{}\n");
 		for (const session of ["../elsewhere", "..", ".", "a/b", ""]) {
 			expect(isEased(session, folder), session).toBe(false);
 			clearEase(session, folder);
 		}
 		expect(existsSync(join(folder, "elsewhere")), "nothing outside").toBe(true);
+		expect(
+			existsSync(join(folder, "ease", "a", "b")),
+			"nothing below another's name",
+		).toBe(true);
 		expect(existsSync(join(folder, "ease")), "nor the folder").toBe(true);
 	});
 
@@ -186,6 +210,14 @@ describe("whether a session parks, and after how long", () => {
 		expect(switchOff(switchSays("on"))).toBe(false);
 		expect(switchOff(switchSays())).toBe(false);
 		expect(switchOff(join(folder, "none")), "no switch").toBe(false);
+	});
+
+	// The one kill switch for asks fails shut: a switch being rewritten,
+	// or one this account can't read, may say off (#1976 F49).
+	it("takes a switch that is there but can't be read as off", () => {
+		const unreadable = join(folder, "a-folder");
+		mkdirSync(unreadable);
+		expect(switchOff(unreadable)).toBe(true);
 	});
 
 	it("stops easing a session once its ease file is cleared, and clears none twice", () => {

@@ -28,6 +28,7 @@ import {
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
+import { RUN_UNDER_WAY } from "../../../lib/internal/session/free.ts";
 import {
 	awakePath,
 	BACKGROUND_PARK_AFTER_MS,
@@ -1210,6 +1211,16 @@ describe("why a session stays awake", () => {
 		).toBe(PARK_AFTER_MS);
 	});
 
+	/**
+	 * The node asks this session to ease at `at` on the test's clock, so
+	 * the ask and the watch share one timeline (#1976 F46).
+	 */
+	const askToEase = (at = 0) => {
+		mkdirSync(join(folder, "ease"), { recursive: true });
+		writeFileSync(easePath(SESSION, folder), '{"at":"now","why":"memory"}\n');
+		utimesSync(easePath(SESSION, folder), at / 1000, at / 1000);
+	};
+
 	// 22 November: the node asks idle sessions to park soon while its
 	// machine reads over, through a file of their own rather than the
 	// switch every session shares (KP0L6A [1b7b2cd5]).
@@ -1230,8 +1241,7 @@ describe("why a session stays awake", () => {
 		): number | undefined => {
 			writeFileSync(parkSwitch(folder), `${line}\n`);
 			rmSync(join(folder, "parked"), { recursive: true, force: true });
-			mkdirSync(join(folder, "ease"), { recursive: true });
-			writeFileSync(easePath(SESSION, folder), '{"at":"now","why":"memory"}\n');
+			askToEase();
 			const host = installTestHost("one-background");
 			const asked: string[] = [];
 			host.host.park = (id) => asked.push(id);
@@ -1302,8 +1312,7 @@ describe("why a session stays awake", () => {
 		});
 		try {
 			writeFileSync(parkSwitch(folder), "\n");
-			mkdirSync(join(folder, "ease"), { recursive: true });
-			writeFileSync(easePath(SESSION, folder), "{}\n");
+			askToEase();
 			clock = 0;
 			const watched = watching(session({ isIdle: () => idle }), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),
@@ -1316,7 +1325,7 @@ describe("why a session stays awake", () => {
 			expect(watched.look()).toBe("text is typed and unsent");
 			typed = "";
 			idle = false;
-			expect(watched.look()).not.toBeUndefined();
+			expect(watched.look()).toBe(RUN_UNDER_WAY);
 			idle = true;
 			watched.prompting(true);
 			clock += EASED_PARK_AFTER_MS;
@@ -1325,6 +1334,27 @@ describe("why a session stays awake", () => {
 			expect(existsSync(easePath(SESSION, folder)), "its ask stays").toBe(true);
 		} finally {
 			stop();
+			host.dispose();
+		}
+	});
+
+	it("honours no ask dated ahead of its clock, as a clock stepped back leaves one", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		try {
+			writeFileSync(parkSwitch(folder), "\n");
+			askToEase(EASE_LASTS_MS);
+			clock = 0;
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			clock = EASED_PARK_AFTER_MS;
+			expect(watched.look(), "an ask from its future parks nobody").toBe(
+				"parking is off",
+			);
+			expect(asked).toEqual([]);
+		} finally {
 			host.dispose();
 		}
 	});
