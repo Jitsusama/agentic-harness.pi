@@ -146,7 +146,7 @@ export function meshWorkflow(
 		}
 		registerHands(pi.events);
 		holdSessionLog(pi);
-		declareGuards(GUARDS.meshEndHold);
+		declareGuards(GUARDS.meshEndHold, GUARDS.untestedCause);
 		const m = createState(pi, paths, env, settling, waitCheckMs, lookAgainMs);
 		const handing = createHanding(m);
 		const waits = createWaits(m);

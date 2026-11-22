@@ -181,7 +181,7 @@ and can answer a question or a gate left open on screen.
   question too. A send is not refused
   for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Four sends are refused for what they say: one to the home of a
+  out and said. Five sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;
@@ -205,7 +205,29 @@ and can answer a question or a gate left open on screen.
   question through
   ([`done-acts.ts`](../../lib/orchestration/done-acts.ts)).
   On 16 November at 19:24 he was asked to post a draft he
-  had posted at 19:18.
+  had posted at 19:18. And a message stating why something
+  happened as settled fact, with no test behind it, here or
+  into another realm: the classifier judges each paragraph
+  and list item, after the refusals read from the message and
+  where it goes, and the send is refused, quoting what it
+  found, under the `untested-cause` guard
+  ([`claims.ts`](../../lib/prose/claims.ts)). A hold, and a
+  send ending one by answer or replacement, go unjudged,
+  since they must arrive on time. Finding the classifier and judging the parts take at
+  most 2.5 seconds each, so this check adds at most about 5
+  to a send. By default it redirects, so the same message
+  sent again to the same peers gets past it; the node across
+  a realm can still refuse it after that. No group holds it,
+  so setting `send` leaves it as it was, though setting
+  `form` or `all` reaches it. With no classifier nothing is judged, and with the guard off a
+  message is still judged and the person shown what it would
+  have refused. So every message's text goes to the
+  classifier's provider, one to a single peer's address or
+  into another realm too, which the peer hearing it never
+  judges; `PI_MESH_CLASSIFIER=off` stops that, with the
+  judging below. On 20 November an untested cause went
+  from a cell to the orchestrator to the person, who knew it
+  was wrong.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it

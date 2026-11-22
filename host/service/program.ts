@@ -225,6 +225,8 @@ export async function startHostProgram(
 		},
 		// A viewer's key or resize holds the quiet collection off for a while.
 		viewer: () => noticingInput(screens.viewer, () => engine?.viewed()),
+		// A conversation a window views parks as an attended one would.
+		viewed: (id) => screens.viewed(id),
 		// Each moves to a process of its own only as its key's policy file says.
 		children: {
 			units: systemdUnits,

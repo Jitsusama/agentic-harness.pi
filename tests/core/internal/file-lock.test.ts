@@ -60,6 +60,39 @@ describe("withFileLock", () => {
 		]);
 	});
 
+	it("says a lock a live process keeps past the wait is held, in a way any copy reads", async () => {
+		const lock = await loadedAgain();
+		const other = await loadedAgain();
+		const path = join(dir, "record.json");
+		// The parent runs as long as this test does, and is not this pid.
+		writeFileSync(`${path}.lock`, String(process.ppid));
+		// Only the date is faked, so the lock's own retries still run.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			const written = lock.withFileLock(path, async () => "written");
+			const failed = written.then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			// A real pause lets the first attempt fix its deadline before the
+			// date passes it.
+			await new Promise((done) => setTimeout(done, 100));
+			vi.setSystemTime(Date.now() + 11_000);
+			const error = await failed;
+
+			expect(String(error), "it wrote, or failed some other way").toMatch(
+				/has been held for over 10s/,
+			);
+			expect(other.isLockHeld(error), "another copy can't tell").toBe(true);
+			expect(
+				lock.isLockHeld(new Error("EACCES: permission denied")),
+				"any failure reads as a held lock",
+			).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("takes over a lock an earlier process with this pid left", async () => {
 		const lock = await loadedAgain();
 		const path = join(dir, "record.json");

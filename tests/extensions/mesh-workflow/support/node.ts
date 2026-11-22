@@ -16,11 +16,14 @@ export const nodeAsked: string[] = [];
 
 /**
  * A node listing these cells and ties, and the environment a session
- * reaches it by. Close it with `closeNodes` after the test.
+ * reaches it by; it answers for ties only once `tiesHeld` settles, so a
+ * test can act while a find waits on it. Close it with `closeNodes`
+ * after the test.
  */
 export async function node(
 	cells: object[],
 	ties: object[],
+	tiesHeld: Promise<unknown> = Promise.resolve(),
 ): Promise<NodeJS.ProcessEnv> {
 	const runtime = join(fixture.root, "run");
 	mkdirSync(join(runtime, "mycelium"), { recursive: true });
@@ -42,7 +45,11 @@ export async function node(
 					ask.ask === "list" && records
 						? { id: ask.id, records }
 						: { id: ask.id, error: { code: "unknown-kind" } };
-				if (client.writable) client.write(`${JSON.stringify(reply)}\n`);
+				const write = () => {
+					if (client.writable) client.write(`${JSON.stringify(reply)}\n`);
+				};
+				if (ask.kind === "tie") void tiesHeld.then(write);
+				else write();
 			}
 		});
 	});

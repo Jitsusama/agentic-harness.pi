@@ -88,6 +88,11 @@ export interface Local {
 	 * (lib/orchestration/done-acts.ts); none, and nothing is judged.
 	 */
 	readonly doneProbes?: DoneProbes;
+	/**
+	 * The parts of a text the classifier judges to state an untested cause
+	 * as settled (lib/prose/claims.ts); none, and nothing is judged.
+	 */
+	readonly untested?: (text: string) => Promise<readonly string[]>;
 }
 
 /**
@@ -106,7 +111,9 @@ export type Answer = ReturnType<typeof answer>;
  * it is still on the mesh, and whether a restarting host is bringing it
  * back as mesh_end asks.
  */
-export function peers(at: Pick<Local, "presences">): Promise<Census> {
+export function peers(
+	at: Pick<Local, "presences" | "heldAsk">,
+): Promise<Census> {
 	const everyone = at.presences.all();
 	return census(
 		everyone.map((one) => ({

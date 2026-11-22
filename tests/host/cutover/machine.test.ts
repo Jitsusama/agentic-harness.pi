@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { machineFacts, releaseFacts } from "../../../host/cutover/machine.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
+import type { MoveOff } from "../../../lib/mesh/moving.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { waitingSteers } from "../../../lib/mesh/steer.ts";
 
@@ -121,14 +122,27 @@ function root(knows: boolean): string {
 	return folder;
 }
 
+/** A presence folder whose writer says each session's presence. */
+function presences() {
+	const folder = mkdtempSync(join(tmpdir(), "cutover-presence-"));
+	const said = (session: string, over: Partial<Presence>) =>
+		writeFileSync(
+			join(folder, `${session}.json`),
+			JSON.stringify(presence({ session, ...over })),
+		);
+	return { folder, said };
+}
+
+const GAVE_UP: MoveOff = {
+	to: "attended",
+	since: "2026-11-12T15:00:00.000Z",
+	at: "2026-11-12T15:45:00.000Z",
+	why: "it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
+};
+
 describe("machineFacts' holds", () => {
 	it("says what holds a move waiting, or why one called itself off", async () => {
-		const folder = mkdtempSync(join(tmpdir(), "cutover-presence-"));
-		const said = (session: string, over: Partial<Presence>) =>
-			writeFileSync(
-				join(folder, `${session}.json`),
-				JSON.stringify(presence({ session, ...over })),
-			);
+		const { folder, said } = presences();
 		said("waits", {
 			moving: {
 				to: "attended",
@@ -136,14 +150,7 @@ describe("machineFacts' holds", () => {
 				holds: "a fleet is out (j2: k7-read)",
 			},
 		});
-		said("gave-up", {
-			moveOff: {
-				to: "attended",
-				since: "2026-11-12T15:00:00.000Z",
-				at: "2026-11-12T15:45:00.000Z",
-				why: "it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
-			},
-		});
+		said("gave-up", { moveOff: GAVE_UP });
 		said("plain", {});
 		const facts = machineFacts({ realm: "work", presence: folder });
 		expect(await facts.holds("waits")).toBe("a fleet is out (j2: k7-read)");
@@ -151,6 +158,25 @@ describe("machineFacts' holds", () => {
 			"called itself off: it waited 45 minutes and is still held: a fleet is out (j2: k7-read)",
 		);
 		expect(await facts.holds("plain")).toBeUndefined();
+	});
+});
+
+describe("machineFacts' calledOff", () => {
+	it("gives the move a presence says was called off, only while none waits", async () => {
+		const { folder, said } = presences();
+		said("gave-up", { moveOff: GAVE_UP });
+		said("asked-again", {
+			moveOff: GAVE_UP,
+			moving: { to: "attended", since: "2026-11-12T16:00:00.000Z" },
+		});
+		said("plain", {});
+		const facts = machineFacts({ realm: "work", presence: folder });
+		expect(await facts.calledOff("gave-up")).toEqual(GAVE_UP);
+		expect(
+			await facts.calledOff("asked-again"),
+			"a move asked again since",
+		).toBeUndefined();
+		expect(await facts.calledOff("plain")).toBeUndefined();
 	});
 });
 

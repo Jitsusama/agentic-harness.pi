@@ -78,6 +78,12 @@ export interface Host {
 	 */
 	draining?(sessionId: string): boolean;
 	/**
+	 * Whether a window views this conversation now, so the person may be
+	 * reading it and would pay its wake at their next key. Asked at each
+	 * look. A host without screens leaves it out.
+	 */
+	viewed?(sessionId: string): boolean;
+	/**
 	 * Told the fence one of this conversation's tools holds it to, `by`
 	 * its shell, as its runner starts and before each command, or by the
 	 * guard on pi's file tools, as its runner starts and at each call. The

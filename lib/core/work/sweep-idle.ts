@@ -43,10 +43,10 @@ import { pinnedCommit } from "./tree.ts";
 export const IDLE_HELD_MS = 4 * 60 * 60 * 1000;
 
 /**
- * How many such snapshots one sweep takes at most, oldest first, so a
- * sweep holds the lock and the host's time for no longer than that many
- * removals. Who works where is read again for each, just before its
- * take.
+ * How many such snapshots one sweep takes at most, oldest first, unless
+ * its caller says otherwise, so a sweep on a host's thread holds the
+ * lock and the host's time for no longer than that many removals. Who
+ * works where is read again for each, just before its take.
  */
 export const IDLE_TAKES_PER_SWEEP = 20;
 
@@ -70,6 +70,22 @@ export interface IdleChoice extends UseSigns {
 	 * from the record `key` names when it is given.
 	 */
 	askedAt(path: string, key?: string): number | undefined;
+	/** How many to take at most; {@link IDLE_TAKES_PER_SWEEP} by default. */
+	most?: number;
+	/**
+	 * Whether the sweep has run as long as it may take these for, asked
+	 * before each is judged once {@link IDLE_TAKES_PER_SWEEP} have been
+	 * given, so a sweep that may take more never takes fewer than a host
+	 * would; never, by default.
+	 */
+	spent?(): boolean;
+	/**
+	 * Told how many aged, unclaimed snapshots nothing was seen working in
+	 * were left unjudged, when `most` or `spent` stopped the choosing with
+	 * any left, so a sweep can say a backlog remains. Judging may yet
+	 * refuse some of them, as one holding changes.
+	 */
+	left?(count: number): void;
 }
 
 /**
@@ -91,16 +107,31 @@ export function lastUsed(tree: HeldTree, asked: number | undefined): number {
 }
 
 /**
- * The snapshots among `held`, which live sessions hold, that nothing has
- * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
- * most {@link IDLE_TAKES_PER_SWEEP} of them, least recently used first.
- * Throws when there are some to judge and the machine can't say which
- * processes hold them, so the sweep says why it took none.
+ * The snapshots {@link eachIdleSnapshot} gives, all of them chosen
+ * before any is taken.
  */
 export async function idleSnapshots(
 	held: readonly HeldTree[],
 	choice: IdleChoice,
 ): Promise<IdleSnapshot[]> {
+	const chosen: IdleSnapshot[] = [];
+	for await (const idle of eachIdleSnapshot(held, choice)) chosen.push(idle);
+	return chosen;
+}
+
+/**
+ * The snapshots among `held`, which live sessions hold, that nothing has
+ * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
+ * most `choice.most` of them, least recently used first. Each is judged
+ * only once the one before it has been dealt with, so a sweep can take
+ * each as it comes and time spent judging is never lost to the takes.
+ * Throws when there are some to judge and the machine can't say which
+ * processes hold them, so the sweep says why it took none.
+ */
+export async function* eachIdleSnapshot(
+	held: readonly HeldTree[],
+	choice: IdleChoice,
+): AsyncGenerator<IdleSnapshot> {
 	const since = choice.now - IDLE_HELD_MS;
 	const aged = held
 		.filter(
@@ -122,7 +153,7 @@ export async function idleSnapshots(
 		const inside = (one: string) => one === path || one.startsWith(`${path}/`);
 		return !claimed.some((one) => inside(one) || path.startsWith(`${one}/`));
 	});
-	if (unclaimed.length === 0) return [];
+	if (unclaimed.length === 0) return;
 	// Read before the cap too, so trees kept busy for days never fill it
 	// and starve every other.
 	const busyBefore = await choice.busyAmong?.(
@@ -130,9 +161,20 @@ export async function idleSnapshots(
 	);
 	if (busyBefore === undefined)
 		throw new Error("the machine can't say which processes hold its trees");
-	const chosen: IdleSnapshot[] = [];
-	for (const { tree, usedAt, path } of unclaimed) {
-		if (chosen.length >= IDLE_TAKES_PER_SWEEP) break;
+	const most = choice.most ?? IDLE_TAKES_PER_SWEEP;
+	const floor = Math.min(most, IDLE_TAKES_PER_SWEEP);
+	let given = 0;
+	const leaving = (at: number): void => {
+		const left = unclaimed
+			.slice(at)
+			.filter(({ path }) => !busyBefore.has(path)).length;
+		if (left > 0) choice.left?.(left);
+	};
+	for (const [at, { tree, usedAt, path }] of unclaimed.entries()) {
+		if (given >= most || (given >= floor && choice.spent?.() === true)) {
+			leaving(at);
+			return;
+		}
 		if (busyBefore.has(path)) continue;
 		const commit = pinnedCommit(tree.identity);
 		if (
@@ -141,9 +183,9 @@ export async function idleSnapshots(
 		) {
 			continue;
 		}
-		chosen.push({ tree, commit, usedAt });
+		given += 1;
+		yield { tree, commit, usedAt };
 	}
-	return chosen;
 }
 
 /**

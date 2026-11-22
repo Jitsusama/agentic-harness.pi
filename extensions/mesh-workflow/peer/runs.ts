@@ -21,6 +21,7 @@ import {
 	followWithheld,
 	userText,
 } from "../talks.ts";
+import { keptAbove } from "../tools/above.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
 import type { Handing } from "./handing.ts";
 import type { Hearing } from "./hearing.ts";
@@ -68,7 +69,11 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		return {
 			message: {
 				customType: NOTED,
-				content: noted(messages, carried, m.peer?.orchestratedBy),
+				content: noted(
+					messages,
+					carried,
+					keptAbove(m.peer?.orchestratedBy, m.hub),
+				),
 				display: true,
 				details: delivered(messages, carried, {
 					why: waiting.map(({ heed }) => heed.why),
@@ -187,6 +192,8 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		m.acts?.stop();
 		clearInterval(m.lookClock);
 		m.lookClock = undefined;
+		m.hub?.stop();
+		m.hub = undefined;
 		clearInterval(m.looksClock);
 		m.looksClock = undefined;
 		// A session parking is still there to wake, so only one ending for
