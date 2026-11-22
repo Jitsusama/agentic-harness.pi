@@ -552,7 +552,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
-			if (held) away = false;
+			// A wake ends the rest: a wake that dies before it answers failed,
+			// rather than resting parked as it was. One listed parked only while
+			// it closes hasn't woken.
+			if (held) {
+				away = false;
+				if (held.state !== "parked") resting = false;
+			}
 			followChange(held);
 			weighAlone();
 		},

@@ -434,8 +434,9 @@ describe("a child's life", () => {
 		expect(child.timers.has(2), "its grace ends with it").toBe(false);
 	});
 
+	// A rest comes only from a slot it resumes, so it keeps no first wait.
 	it("waits for the wake of a conversation that rests parked for its grace, then ends parked without one", async () => {
-		const { life, timers } = following({ aloneWithin: 2 });
+		const { life, timers } = following({ aloneWithin: 2, resumes: true });
 		life.resumed("parked");
 		expect(timers.has(2), "the grace, not the first wait, bounds a rest").toBe(
 			true,
@@ -464,6 +465,18 @@ describe("a child's life", () => {
 		expect(timers.has(2), "the grace still bounds the rest").toBe(true);
 		timers.get(2)?.();
 		expect(await life.ending).toBe("parked");
+	});
+
+	// A wake ends the rest, so one that dies before it answers is no
+	// rest kept but a failure.
+	it("ends failed when the conversation it rests wakes and dies before it answers", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.rostered(false);
+		child.hold(conversation(A));
+		child.hold();
+		child.life.left("closed", "the wake crashed");
+		expect(await child.life.ending).toBe("failed");
 	});
 
 	// The other side of the rule: a start that neither answered nor
