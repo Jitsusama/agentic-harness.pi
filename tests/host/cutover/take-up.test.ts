@@ -84,6 +84,7 @@ function machine(script: {
 			return undefined;
 		},
 		holds: async () => undefined,
+		calledOff: async () => undefined,
 		now: () => clock,
 		pause: async (ms) => {
 			clock += ms;
