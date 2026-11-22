@@ -4,7 +4,7 @@
  *
  * A host holds several conversations under one pid, so ending one is
  * never a signal: it is a close sent to the host's control socket,
- * `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, the realm and kind
+ * `<runtime folder>/pi-host/<realm>-<kind>.sock`, the realm and kind
  * read off the host key a presence names. The request carries the
  * host's full process identity as `expectedHost`, so a socket some
  * successor took over refuses it rather than closing a stranger's
@@ -17,6 +17,7 @@
 import { randomUUID } from "node:crypto";
 import { hostSocketPath } from "../../host/service/address.ts";
 import { hosted } from "../core/session/index.ts";
+import { runtimeDir as loginRuntimeDir } from "../internal/paths.ts";
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import { controlRequest, hostProtocol } from "./host-control.ts";
 
@@ -56,7 +57,7 @@ export function hostedHere(owner: TickedOwner): boolean {
 export function closeThroughHost(
 	owner: TickedOwner,
 	by: string,
-	runtimeDir = process.env.XDG_RUNTIME_DIR,
+	runtimeDir = loginRuntimeDir(),
 	timeoutMs?: number,
 ): Promise<HostClose> {
 	return endThroughHost("close", owner, by, runtimeDir, timeoutMs);
@@ -70,7 +71,7 @@ export function closeThroughHost(
 export function releaseThroughHost(
 	owner: TickedOwner,
 	by: string,
-	runtimeDir = process.env.XDG_RUNTIME_DIR,
+	runtimeDir = loginRuntimeDir(),
 	timeoutMs?: number,
 ): Promise<HostClose> {
 	return endThroughHost("release", owner, by, runtimeDir, timeoutMs);

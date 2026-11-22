@@ -29,6 +29,7 @@ import {
 	hostRealm,
 	hostSocketPath,
 } from "../../host/service/address.ts";
+import { runtimeDir } from "../../lib/internal/paths.ts";
 import {
 	AGAIN_ENV,
 	flagsLost,
@@ -143,7 +144,7 @@ export async function moveIntoHost(
 	try {
 		const realm = hostRealm(facts.env);
 		key = hostKey(realm, to);
-		socket = hostSocketPath(realm, to, facts.env.XDG_RUNTIME_DIR);
+		socket = hostSocketPath(realm, to, runtimeDir(facts.env));
 	} catch (error) {
 		return `There's no host here (${messageOf(error)}), so this session stays here.`;
 	}

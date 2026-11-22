@@ -8,7 +8,7 @@
  *
  * The supervisor picks the slot: the conversation's id for a resume, a
  * fresh one for an open. It writes `KEY.d/SLOT.json` under
- * `$XDG_RUNTIME_DIR/pi-host`, holding the conversation's roster entry
+ * `<runtime folder>/pi-host`, holding the conversation's roster entry
  * for a resume (`{"session": ENTRY}`) or nothing for an open (`{}`),
  * then starts the unit with PI_HOST_CHILD_KEY naming KEY and
  * PI_HOST_CHILD_SOCKET naming `KEY.d/SLOT.sock`. The child reads the
@@ -57,6 +57,7 @@ import {
 	type RosterEntry,
 	rosterPath,
 } from "../../lib/core/session/roster.ts";
+import { runtimeDir } from "../../lib/internal/paths.ts";
 import type { SessionHost } from "../engine/index.ts";
 import type { HostLeaving } from "../engine/session-host.ts";
 import {
@@ -164,7 +165,7 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 	const key = env.PI_HOST_CHILD_KEY ?? "";
 	const { realm, kind } = hostKeyParts(key);
 	const socket = env.PI_HOST_CHILD_SOCKET ?? "";
-	const children = childFolder(key, env.XDG_RUNTIME_DIR);
+	const children = childFolder(key, runtimeDir(env));
 	const named = SLOT_NAME.exec(basename(socket));
 	const slot = named?.[1];
 	if (dirname(socket) !== children || slot === undefined)

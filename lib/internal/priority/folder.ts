@@ -166,7 +166,8 @@ export function questsFirstIn(dir: string): ReadonlySet<string> {
 export function machineQueueDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-	// A Mac's is its account's temporary folder, where its node looks too.
+	// A Mac's is the folder AGENTS_RUNTIME_DIR names, else its account's
+	// cache folder, where its node looks too.
 	const runtime = runtimeDir(env);
 	return runtime ? join(runtime, "jobs") : undefined;
 }

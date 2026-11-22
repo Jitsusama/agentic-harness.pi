@@ -28,7 +28,7 @@ import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
 import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
-import { sessionsDir } from "../../../lib/internal/paths.ts";
+import { runtimeDir, sessionsDir } from "../../../lib/internal/paths.ts";
 import { spawnedWords } from "../../../lib/internal/quest/sessions/first-words.ts";
 import {
 	type SessionView,
@@ -180,7 +180,7 @@ export async function hostBySetting(
 	try {
 		const realm = hostRealm(spawn.env);
 		key = hostKey(realm, setting);
-		socket = hostSocketPath(realm, setting, spawn.env.XDG_RUNTIME_DIR);
+		socket = hostSocketPath(realm, setting, runtimeDir(spawn.env));
 	} catch (error) {
 		return {
 			note: `${said}, but there's no host here (${messageOf(error)}), so it opens in a terminal.`,
@@ -331,7 +331,7 @@ export async function spawnInHost(
 	let socket: string;
 	try {
 		realm = hostRealm(spawn.env);
-		socket = hostSocketPath(realm, spawn.kind, spawn.env.XDG_RUNTIME_DIR);
+		socket = hostSocketPath(realm, spawn.kind, runtimeDir(spawn.env));
 	} catch (error) {
 		return refuse(`No ${spawn.kind} host to spawn into: ${messageOf(error)}.`);
 	}
@@ -443,7 +443,7 @@ export async function resumeInHost(
 	let socket: string;
 	try {
 		realm = hostRealm(resume.env);
-		socket = hostSocketPath(realm, kind, resume.env.XDG_RUNTIME_DIR);
+		socket = hostSocketPath(realm, kind, runtimeDir(resume.env));
 	} catch (error) {
 		return refuse(`No ${kind} host to resume into: ${messageOf(error)}.`);
 	}

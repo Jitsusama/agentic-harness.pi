@@ -20,14 +20,14 @@
  * socket shares the same framing, patience and reading of the answer.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { FenceDeclaration } from "../internal/fence/fence-declaration.ts";
 import { isMachineName } from "../internal/machine/machine.ts";
 import { isRealmName } from "../internal/machine/realm.ts";
-import { runtimeDir } from "../internal/paths.ts";
+import { formerRuntimeDir, runtimeDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import {
 	type Need,
@@ -866,14 +866,23 @@ export function machineNamesFrom(line: string): string[] | undefined {
 	);
 }
 
-/** The socket the machine's node serves, or nothing when no realm is named. */
+/**
+ * The socket the machine's node serves, or nothing when no realm is
+ * named. On a Mac whose node still serves from the folder the runtime
+ * folder moved from, that one, while nothing is in the new folder yet.
+ */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
 	const realm = realmOf(env);
 	if (!realm) return undefined;
 	const base = runtimeDir(env);
-	return base ? join(base, "mycelium", `${realm}.sock`) : undefined;
+	if (!base) return undefined;
+	const socket = join(base, "mycelium", `${realm}.sock`);
+	const former = formerRuntimeDir(env);
+	if (!former || existsSync(socket)) return socket;
+	const kept = join(former, "mycelium", `${realm}.sock`);
+	return existsSync(kept) ? kept : socket;
 }
 
 /**
@@ -885,16 +894,15 @@ export function nodeSocket(
 export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
 	const own = nodeSocket(env);
 	if (own === undefined) return [];
-	const base = runtimeDir(env);
+	// The other realms' nodes serve beside the own one's, in whichever
+	// folder that was found in.
+	const folder = dirname(own);
 	let others: string[] = [];
 	try {
-		if (base) {
-			const folder = join(base, "mycelium");
-			others = readdirSync(folder)
-				.filter((name) => name.endsWith(".sock"))
-				.sort()
-				.map((name) => join(folder, name));
-		}
+		others = readdirSync(folder)
+			.filter((name) => name.endsWith(".sock"))
+			.sort()
+			.map((name) => join(folder, name));
 	} catch {
 		// No node has served a socket here yet: only the own realm's is known.
 	}

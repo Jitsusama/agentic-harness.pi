@@ -139,30 +139,57 @@ export function whyRealmsUnlisted(kind: "data" | "state"): string | undefined {
 	}
 }
 
-let darwinTemporary: string | undefined;
+/** The variable naming the agents' runtime folder outright, set by a Mac's host start. */
+export const AGENTS_RUNTIME_ENV = "AGENTS_RUNTIME_DIR";
+
+/** A Mac's account folders, by getconf's name for each, asked once each. */
+const darwinFolders = new Map<string, string>();
+
+/** A Mac account's folder getconf names, or nothing when it won't say. */
+function darwinFolder(name: string): string | undefined {
+	let folder = darwinFolders.get(name);
+	if (folder === undefined) {
+		try {
+			folder = execFileSync("getconf", [name], { encoding: "utf8" }).trim();
+		} catch {
+			// The system won't say, so there is no such folder to name.
+			folder = "";
+		}
+		darwinFolders.set(name, folder);
+	}
+	return folder || undefined;
+}
 
 /**
  * The login's own runtime folder, for sockets and queues that last only
- * as long as the login: `XDG_RUNTIME_DIR`, or on a Mac, which has none,
- * the account's own temporary folder, which a session's `TMPDIR` need
- * not name since a quest moves that. Nothing where neither is known.
+ * as long as the login: `AGENTS_RUNTIME_DIR` when set, then
+ * `XDG_RUNTIME_DIR`, or on a Mac, which has neither, the account's cache
+ * folder. Its temporary folder held them before, but a fenced command's
+ * `TMPDIR` is hidden there, and so the sockets with it. Nothing where
+ * none is known.
  */
 export function runtimeDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
+	if (env[AGENTS_RUNTIME_ENV]) return env[AGENTS_RUNTIME_ENV];
 	if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR;
 	if (platform() !== "darwin") return undefined;
-	if (darwinTemporary === undefined) {
-		try {
-			darwinTemporary = execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"], {
-				encoding: "utf8",
-			}).trim();
-		} catch {
-			// The system won't say, so there is no runtime folder to name.
-			darwinTemporary = "";
-		}
-	}
-	return darwinTemporary || undefined;
+	return darwinFolder("DARWIN_USER_CACHE_DIR");
+}
+
+/**
+ * Where a Mac kept the runtime folder before it moved to the cache
+ * folder, the account's temporary folder, for a client to try for one
+ * release while a daemon started on the old code still serves there.
+ * Nothing off a Mac, where `XDG_RUNTIME_DIR` names it, or where it is the
+ * same folder.
+ */
+export function formerRuntimeDir(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (env.XDG_RUNTIME_DIR || platform() !== "darwin") return undefined;
+	const former = darwinFolder("DARWIN_USER_TEMP_DIR");
+	return former === runtimeDir(env) ? undefined : former;
 }
 
 /**
