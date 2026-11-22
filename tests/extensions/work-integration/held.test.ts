@@ -157,7 +157,7 @@ describe("giving a tree back", () => {
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut. Git's refusal: its .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it. Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run. Git's refusal: its .git is a link, which pi won't follow outside the sandbox: git would run whatever settings it leads to.`,
 		);
 		expect(released.details).toEqual({ ok: true, released: key, aside });
 		expect(dirname(aside), "set aside where reclaim sets them").toBe(
@@ -223,16 +223,34 @@ describe("giving a tree back", () => {
 		expect(released.details.aside, released.text).toBeUndefined();
 		expect(released.text).toMatch(
 			new RegExp(
-				`^${GLYPH.refused} Git won't run in .+: its \\.git names .+moved/\\.git/worktrees/x, a worktree's git folder that isn't there, or whose repository isn't, as when the checkout that cut it moved or its volume isn't mounted\\. It is still there and still held\\. `,
+				`^${GLYPH.refused} Git won't run in .+: its \\.git names .+moved/\\.git/worktrees/x, a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted\\. It is still there and still held\\. `,
 			),
 		);
 		expect(released.text).toContain(
-			`\`git worktree repair ${path}\` mends it, or mount its volume, then release it again. If that checkout is gone for good, move the tree aside by hand.`,
+			`Mount its volume, or run \`git worktree repair ${path}\` from the checkout you cut it from where that stands now, never from a folder its .git names, which a sandboxed command could have written; then release it again. If that checkout is gone for good, move the tree aside by hand.`,
 		);
 		expect(existsSync(join(path, ".git")), "the tree is where it was").toBe(
 			true,
 		);
 		expect(heldHere(), "this session still holds it").toBe(true);
+	});
+
+	it("sets aside a tree whose entry is gone from a checkout that still stands, which no repair brings back", async () => {
+		// A prune, or a hand, took the entry; repair mends only one there.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const entry = handLockable();
+		rmSync(entry, { recursive: true, force: true });
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(typeof released.details.aside, released.text).toBe("string");
+		expect(released.text).toContain(
+			"Its .git was renamed. Where it led wasn't read, so whatever was committed in it may be there alone",
+		);
+		expect(heldHere(), "no longer held").toBe(false);
 	});
 
 	it("sets aside a tree whose .git names a folder that is no worktree's, saying only why", async () => {
@@ -251,7 +269,7 @@ describe("giving a tree back", () => {
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut. Git's refusal: its .git file names no worktree whose repository names it back, so git won't run there: a command may have pointed it at a git folder of its own.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed. Where it led wasn't read, so whatever was committed in it may be there alone, on no branch of the checkout that cut it. Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run. Git's refusal: its .git file names no worktree whose repository names it back, so git won't run there: a command may have pointed it at a git folder of its own.`,
 		);
 	});
 
@@ -266,7 +284,7 @@ describe("giving a tree back", () => {
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git, a repository of its own rather than a worktree's, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it. Git's refusal: it lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it. Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run. Git's refusal: it lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there.`,
 		);
 	});
 

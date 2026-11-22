@@ -5,8 +5,8 @@
  * won't run in it to say what it holds.
  */
 
-import { existsSync, lstatSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, lstatSync, statSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { citeListing } from "../../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
@@ -15,6 +15,7 @@ import {
 	blocksRepoint,
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
+import { readPlain } from "../../../lib/core/work/plain-file.ts";
 import {
 	HAND_LOCKED,
 	handLocked,
@@ -152,7 +153,7 @@ export async function releaseTree(
 	if (unread?.kind === "away") {
 		const where = displayPath(found.path);
 		return refuse(
-			`${GLYPH.refused} Git won't run in ${where}: its .git names ${displayPath(unread.own)}, a worktree's git folder that isn't there, or whose repository isn't, as when the checkout that cut it moved or its volume isn't mounted. It is still there and still held. From that checkout where it stands now, \`git worktree repair ${found.path}\` mends it, or mount its volume, then release it again. If that checkout is gone for good, move the tree aside by hand.`,
+			`${GLYPH.refused} Git won't run in ${where}: its .git names ${plainWords(displayPath(unread.own))}, a worktree's git folder whose repository isn't there, as when the checkout that cut it moved or its volume isn't mounted. It is still there and still held. Mount its volume, or run \`git worktree repair ${found.path}\` from the checkout you cut it from where that stands now, never from a folder its .git names, which a sandboxed command could have written; then release it again. If that checkout is gone for good, move the tree aside by hand.`,
 		);
 	}
 	if (unread !== undefined) {
@@ -218,7 +219,9 @@ function unreadHere(path: string): Unread | undefined {
 	const named = run.refused
 		.replaceAll(`${run.top}'s`, "its")
 		.replaceAll(run.top, "it");
-	const said = plainWords(named.split(/(?<=\.)\s/)[0] ?? named);
+	// A checkout's path is in some refusals' first sentence, so it gets
+	// room for one, where git's words elsewhere are cut at 200.
+	const said = plainWords(named.split(/(?<=\.)\s/)[0] ?? named, 400);
 	return {
 		kind: "unread",
 		refused: /[.!?]$/.test(said) ? said.slice(0, -1) : said,
@@ -227,20 +230,75 @@ function unreadHere(path: string): Unread | undefined {
 
 /**
  * The worktree's git folder the `.git` file at `path` names, when it is
- * shaped as one, `<repository>/worktrees/<name>`, and either it or its
- * repository's objects aren't there; nothing otherwise. A `.git` naming
- * any other folder is no tree a repair could mend, and is set aside.
+ * shaped as one, `<repository>/worktrees/<name>`, and its repository's
+ * objects aren't there, as when the checkout moved or its volume isn't
+ * mounted; nothing otherwise. An entry gone from a repository that
+ * stands was pruned or removed, which a repair can't bring back, and a
+ * `.git` naming any other folder is no tree a repair could mend: both
+ * are set aside.
  */
 function awayFolder(path: string): string | undefined {
 	const own = namedGitFolder(path);
 	if (own === undefined || basename(dirname(own)) !== "worktrees") {
 		return undefined;
 	}
-	const repository = dirname(dirname(own));
-	return isFolder(own) && isFolder(join(repository, "objects"))
-		? undefined
-		: own;
+	return isFolder(join(dirname(dirname(own)), "objects")) ? undefined : own;
 }
+
+/** What a tree's `.git` was, as far as saying where its commits are. */
+type GitShape =
+	/** A file naming a worktree entry that stands: its branch is the clone's. */
+	| "entry"
+	/** A repository of its own, or a link to one: its commits are in it. */
+	| "repository"
+	/** Anything else, whose commits may be wherever it led. */
+	| "unknown";
+
+/**
+ * What the tree at `path` has at `.git`, read without running git: a
+ * link is followed only to say what it leads to, never by git.
+ */
+function gitShape(path: string): GitShape {
+	const dotGit = join(path, ".git");
+	if (isFolder(dotGit)) return "repository";
+	try {
+		if (lstatSync(dotGit).isSymbolicLink()) {
+			const led = statSync(dotGit);
+			return led.isDirectory() && existsSync(join(dotGit, "objects"))
+				? "repository"
+				: "unknown";
+		}
+	} catch {
+		// A link that leads nowhere, or can't be looked at: its commits
+		// can't be placed.
+		return "unknown";
+	}
+	// Only an entry that names this tree back is its own, whose branch
+	// the clone keeps; a `.git` may name anybody's.
+	const own = namedGitFolder(path);
+	if (own === undefined || basename(dirname(own)) !== "worktrees") {
+		return "unknown";
+	}
+	const back = readPlain(join(own, "gitdir"))?.trim();
+	return back !== undefined &&
+		real(resolve(own, back)) === real(join(path, ".git"))
+		? "entry"
+		: "unknown";
+}
+
+/** What reclaim says of every tree it sets aside, said here too. */
+const RUN_NO_GIT =
+	"Run no git in it, nor in any repository inside it: a command in the sandbox may have written the settings and hooks git would run";
+
+/** Where a set-aside tree's commits are, by what its `.git` was. */
+const PARTED: Record<GitShape, string> = {
+	entry:
+		"Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.",
+	repository:
+		"Its .git, a repository of its own rather than a worktree's, or a link to one, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it.",
+	unknown:
+		"Its .git was renamed. Where it led wasn't read, so whatever was committed in it may be there alone, on no branch of the checkout that cut it.",
+};
 
 /** Whether a folder stands at `path`, without following a link there. */
 function isFolder(path: string): boolean {
@@ -268,9 +326,9 @@ async function setUnreadAside(
 	const where = displayPath(found.path);
 	// Said in each answer, so a move for one refusal can't pass for another.
 	const because = `Git's refusal: ${refused}`;
-	// A `.git` folder is a repository of its own, whose commits since are
-	// in it alone, not on a branch of the checkout that cut the tree.
-	const ownRepository = isFolder(join(found.path, ".git"));
+	// Read before the move, so the answer says where its commits are: a
+	// repository of its own keeps them alone, not on the clone's branch.
+	const shape = gitShape(found.path);
 	let aside: string | undefined;
 	const into = strandedDir(treeDir());
 	let others = 0;
@@ -299,7 +357,7 @@ async function setUnreadAside(
 			// The tree has left the path its hold and record named, so
 			// both went: kept, they would name whatever stands there now.
 			return refuse(
-				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is no longer held here, and whatever stands at ${where} now is not it: deal with it where it stands by hand. ${because}.`,
+				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is no longer held here, and whatever stands at ${where} now is not it: deal with it where it stands by hand. ${RUN_NO_GIT}. ${because}.`,
 			);
 		}
 		if (!tried) {
@@ -309,7 +367,7 @@ async function setUnreadAside(
 		}
 		if (aside !== undefined) {
 			return refuse(
-				`${GLYPH.refused} ${found.identity.key} was set aside whole at ${displayPath(aside)}, every file in it kept, but its record couldn't be forgotten: ${why}. It is no longer held here. ${because}.`,
+				`${GLYPH.refused} ${found.identity.key} was set aside whole at ${displayPath(aside)}, every file in it kept, but its record couldn't be forgotten: ${why}. It is no longer held here. ${RUN_NO_GIT}. ${because}.`,
 			);
 		}
 		const still = existsSync(found.path)
@@ -327,11 +385,8 @@ async function setUnreadAside(
 			{ ok: true, released: found.identity.key, kept: others },
 		);
 	}
-	const parted = ownRepository
-		? "Its .git, a repository of its own rather than a worktree's, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it."
-		: "Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.";
 	return say(
-		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. ${parted} ${because}.`,
+		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. ${PARTED[shape]} ${RUN_NO_GIT}. ${because}.`,
 		{ ok: true, released: found.identity.key, aside },
 	);
 }

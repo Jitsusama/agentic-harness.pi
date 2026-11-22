@@ -573,9 +573,9 @@ const WORDS_MAX = 200;
 /**
  * Words from git or the guard, as one plain line said back: a path in
  * them may be anything a sandboxed command wrote into a `.git` file, so
- * its line breaks and control characters go and a long one is cut.
+ * its line breaks and control characters go and one past `max` is cut.
  */
-export function plainWords(said: string): string {
+export function plainWords(said: string, max = WORDS_MAX): string {
 	// Control characters of both sets, the marks that turn text's
 	// direction, and the separators some readers break lines at.
 	const flat = said
@@ -585,7 +585,7 @@ export function plainWords(said: string): string {
 			" ",
 		)
 		.trim();
-	return flat.length > WORDS_MAX ? `${flat.slice(0, WORDS_MAX)}...` : flat;
+	return flat.length > max ? `${flat.slice(0, max)}...` : flat;
 }
 
 /**

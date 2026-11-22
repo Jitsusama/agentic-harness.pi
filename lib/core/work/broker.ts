@@ -153,7 +153,9 @@ export interface TreeBroker {
 	 * can't remove it. Held as a release is, but judged under the tree's
 	 * record lock, so a session joining it as it moves is seen: while
 	 * another session holds it, only our share goes and nothing moves;
-	 * a move that throws keeps the record and our hold.
+	 * a move that throws keeps the record and our hold, except one that
+	 * throws StuckAside, whose tree has left its path: both go, and the
+	 * StuckAside is thrown, whatever fails after it.
 	 */
 	setAside(
 		held: HeldTree,

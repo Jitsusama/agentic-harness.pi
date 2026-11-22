@@ -548,10 +548,13 @@ one is neither. A tree git won't run in can't be read, so it is
 set aside whole with everything in it rather than removed. Its
 branch stays, but git's entry for it, with its index and HEAD, goes
 when that name is next cut. A tree whose `.git` became a repository
-of its own keeps what was committed there only in what was set
-aside, and the answer says so. One whose `.git` names a worktree's
-git folder that isn't there, as when its checkout moved, stays and
-is refused, since `git worktree repair` can mend it where it is.
+of its own, or a link to one, keeps what was committed there only in
+what was set aside, and the answer says so. Run no git in what was
+set aside: a command in the sandbox may have written the settings and
+hooks git would run. One whose `.git` names a worktree's git folder
+whose repository isn't there, as when its checkout moved, stays and
+is refused, since `git worktree repair`, run from that checkout, can
+mend it where it is.
 
 **It will not keep a branch trunk already has.** Releasing or
 reclaiming a tree deletes its branch, and the `[branch]` section a
