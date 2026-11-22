@@ -57,6 +57,13 @@ const MOVE_MS = 30_000;
 /** How long the carried command runs, as CARRYING times it, and room past it. */
 const CARRIED_MS = 45_000 + ROUND_TRIP_MS;
 
+/**
+ * How long the follow may take to appear once its turn ended: the turn
+ * ends as the shell hands the command to the background, and `timeout`
+ * starts `tail` after, which a loaded builder can take seconds to do.
+ */
+const FOLLOW_STARTS_MS = 10_000;
+
 let sealed: Seal;
 let host: HostProcess | undefined;
 let plain: TerminalPi | undefined;
@@ -98,6 +105,30 @@ function followIn(home: string): number | undefined {
 	return undefined;
 }
 
+/**
+ * The carried command's follow, waited for, since a single look just as
+ * its turn ends can come before `tail` starts (E17 on a lent builder,
+ * 22 November).
+ */
+async function followUp(home: string): Promise<number> {
+	let follow: number | undefined;
+	try {
+		await untilAnswered(
+			"the carried command's follow to start",
+			async () => {
+				follow = followIn(home);
+				return follow !== undefined;
+			},
+			FOLLOW_STARTS_MS,
+		);
+	} catch {
+		// It never started: said below, with what each process wrote.
+	}
+	if (follow === undefined)
+		throw new Error(`the carried command isn't running; ${said()}`);
+	return follow;
+}
+
 /** Whether a process is still there. */
 function alive(pid: number): boolean {
 	return existsSync(`/proc/${pid}`);
@@ -136,9 +167,7 @@ it(
 				ROUND_TRIP_MS,
 			);
 			const file = plain.file() ?? "";
-			const follow = followIn(sealed.home);
-			if (follow === undefined)
-				throw new Error(`the carried command isn't running; ${said()}`);
+			const follow = await followUp(sealed.home);
 			const held = await readFile(file, "utf8");
 
 			plain.type("/host");
@@ -238,9 +267,7 @@ it(
 				async () => textOf(file).includes(CARRYING) && turnEnded(file),
 				ROUND_TRIP_MS,
 			);
-			const follow = followIn(sealed.home);
-			if (follow === undefined)
-				throw new Error(`the carried command isn't running; ${said()}`);
+			const follow = await followUp(sealed.home);
 			const held = await readFile(file, "utf8");
 
 			const released = await releaseAll();
