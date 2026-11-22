@@ -1272,7 +1272,9 @@ const scenarios: Record<string, Scenario> = {
 			await idle(engine, entry.sessionId);
 			const told = (runtime?.session.sessionManager.getEntries() ?? []).filter(
 				(logged) =>
+					"type" in logged &&
 					logged.type === "custom_message" &&
+					"customType" in logged &&
 					logged.customType === "host-folder-moved",
 			).length;
 			const seen = { ...summary(engine, entry.sessionId), cwd, told };
