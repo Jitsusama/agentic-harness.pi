@@ -499,8 +499,8 @@ describe("a child's life", () => {
 		child.life.resumed("parked");
 		child.hold();
 		expect(child.timers.has(2), "its grace still runs").toBe(true);
-		child.timers.get(2)?.();
-		expect(await child.life.ending).toBe("parked");
+		child.life.stopping();
+		expect(await child.life.ending, "a stop parks a rest").toBe("parked");
 	});
 
 	// F45: a park said while it rests keeps it resting for its grace.
