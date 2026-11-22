@@ -614,6 +614,18 @@ describe("asking the node whom a cell is tied to", () => {
 			},
 		]);
 	});
+
+	// JSON has no infinity, but a number past its range reads as one, and
+	// a tie of infinite strength would pass any floor and outrank the rest.
+	it("keeps no tie whose strength is past what a number holds", () => {
+		const record = (key: string, strength: string) =>
+			`{"key":"${key}","heard":0,"hour":[1,1],"today":[1,1],"intents":[],"strength":${strength}}`;
+		const line = `{"id":2,"records":[${record("tie:85PKB2~WCJQSG", "1e309")},${record("tie:85PKB2~KP0L6A", "2")}]}`;
+
+		expect(tiesFrom(line, ["85PKB2"], 0)?.map((tie) => tie.other)).toEqual([
+			"KP0L6A",
+		]);
+	});
 });
 
 describe("what starts an agent session on each machine", () => {

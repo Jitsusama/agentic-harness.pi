@@ -66,7 +66,6 @@ function markedParent() {
 	);
 }
 
-/** The last message on the mesh, as the transport keeps it. */
 /**
  * Wait until the session keeps 5GV2AH as its hub, as seen by a quest's
  * ending reaching it, which the mesh tells only the hub it keeps.
@@ -92,6 +91,7 @@ async function untilHubKept(
 	);
 }
 
+/** The last message on the mesh, as the transport keeps it. */
 function lastSent() {
 	const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 	return transport.read(transport.ids().at(-1) ?? "");
@@ -364,13 +364,94 @@ describe("orchestrator, on a quest with no mark", () => {
 			{ every: 600_000, retry: 300_000, spread: () => 0 },
 		);
 		await vi.waitFor(() => expect(asks).toBe(1));
-		// Past the node's patience, so the keeping's find has missed and
-		// waits its retry, which no test outlasts.
-		await new Promise((done) => setTimeout(done, TIES_PATIENCE_MS + 500));
 
+		// Sent while the keeping's find still waits on the node: that find
+		// misses, and its next would wait a retry no test outlasts, but told
+		// the node answered it finds again at once.
 		await send(started.tools, "orchestrator", "fyi", "Landed.");
 
-		await untilHubKept(started.emit, 3_000);
+		await untilHubKept(started.emit, TIES_PATIENCE_MS + 3_000);
+	}, 15_000);
+
+	// A send the node gave no answer to says nothing of it, so the keeping
+	// backs off as it was: a nudge on every send would ask a node that is
+	// down once a send.
+	it("asks the node nothing more for its keeping when a send's own find gets no answer", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return new Promise(() => {});
+			},
+		);
+		const started = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 600_000, retry: 300_000, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(asks).toBe(1));
+
+		await send(started.tools, "orchestrator", "fyi", "Landed.");
+		// Long enough for a find the send started to have asked the node.
+		await new Promise((done) => setTimeout(done, 500));
+
+		expect(asks, "the keeping's and the send's own").toBe(2);
+	}, 15_000);
+
+	// What the mesh says by itself had nobody to go to while no hub was
+	// kept, as after the node was down: it waits for the next find that
+	// keeps one, rather than going nowhere.
+	it("tells a quest's ending once a hub is kept, though none was when it ended", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? new Promise(() => {}) : Promise.resolve();
+			},
+		);
+		const started = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 600_000, retry: 100, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(asks).toBe(1));
+
+		started.emit(QUEST_CONCLUDED, {
+			how: "concluded",
+			ids: ["PLAN-20261021-BBBBBB"],
+			said: "Now concluded on plan PLAN-20261021-BBBBBB (The Plan).",
+		});
+		expect(lastSent()?.text ?? "", "nobody kept to tell yet").not.toContain(
+			"PLAN-20261021-BBBBBB",
+		);
+
+		await vi.waitFor(
+			() =>
+				expect(lastSent()).toMatchObject({
+					to: ["@5GV2AH"],
+					intent: "fyi",
+					text: expect.stringContaining("PLAN-20261021-BBBBBB concluded"),
+				}),
+			{ timeout: TIES_PATIENCE_MS + 3_000 },
+		);
 	}, 15_000);
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {

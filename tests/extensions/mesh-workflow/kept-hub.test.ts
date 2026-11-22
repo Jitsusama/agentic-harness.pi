@@ -360,6 +360,69 @@ describe("a kept hub", () => {
 		expect(asked).toHaveBeenCalledOnce();
 	});
 
+	it("finds again at once when told the node answered while a find that then missed was asking", async () => {
+		vi.useFakeTimers();
+		try {
+			let answer: ((ties: readonly Tie[] | undefined) => void) | undefined;
+			let calls = 0;
+			const { at, asked } = onMesh(() => {
+				calls += 1;
+				if (calls === 2) {
+					return new Promise((done) => {
+						answer = done;
+					});
+				}
+				return Promise.resolve(calls === 1 ? undefined : [tie("ROOT01", 3)]);
+			});
+			const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+			// Missed at 0; the second find, at 50, still waits on the node.
+			await vi.advanceTimersByTimeAsync(60);
+			expect(asked).toHaveBeenCalledTimes(2);
+
+			hub.nodeAnswered();
+			answer?.(undefined);
+			await vi.advanceTimersByTimeAsync(5);
+
+			// Not the 100 its second miss would have waited.
+			expect(asked).toHaveBeenCalledTimes(3);
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("starts no second find when told the node answered while one is asking", async () => {
+		vi.useFakeTimers();
+		try {
+			let answer: ((ties: readonly Tie[] | undefined) => void) | undefined;
+			let calls = 0;
+			const { at, asked } = onMesh(() => {
+				calls += 1;
+				if (calls === 2) {
+					return new Promise((done) => {
+						answer = done;
+					});
+				}
+				return Promise.resolve(calls === 1 ? undefined : [tie("ROOT01", 3)]);
+			});
+			const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+			await vi.advanceTimersByTimeAsync(60);
+			expect(asked).toHaveBeenCalledTimes(2);
+
+			hub.nodeAnswered();
+			await vi.advanceTimersByTimeAsync(5);
+			expect(asked, "while the find asks").toHaveBeenCalledTimes(2);
+			answer?.([tie("ROOT01", 3)]);
+			// Settled, one keeping waits its whole wait; two would ask again.
+			await vi.advanceTimersByTimeAsync(10_000);
+
+			expect(asked).toHaveBeenCalledTimes(2);
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("waits at least a millisecond between finds, however little it is told to", async () => {
 		vi.useFakeTimers();
 		try {

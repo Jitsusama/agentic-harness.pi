@@ -203,6 +203,14 @@ describe("a hub from use", () => {
 		});
 	});
 
+	it("is nobody when the only tie above has a strength that is no number", () => {
+		const above = hubFromUse(self, [self, root], [tie("ROOT01", Number.NaN)]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
 	it("weighs the floor against a cell's ties to all its addresses added up", () => {
 		const above = hubFromUse(
 			self,

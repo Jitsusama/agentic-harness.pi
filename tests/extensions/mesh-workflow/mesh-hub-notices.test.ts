@@ -68,8 +68,8 @@ function sent() {
 
 /**
  * Start the fixture's session, tied to the live parent cell, and wait
- * until the ending it is told proves the hub is kept: each try before
- * then sends nothing, as nobody is above yet.
+ * until the ending it is told reaches the hub, which proves the hub is
+ * kept: told before then, it waits until one is.
  */
 async function keptHub(
 	ctx: Record<string, unknown> = {},
@@ -79,14 +79,14 @@ async function keptHub(
 	parentLive();
 	const env = await node([asker], [tieTo("5GV2AH", 4)]);
 	const started = await startSession(env, ctx, [], settling);
-	await vi.waitFor(() => {
-		started.emit(QUEST_CONCLUDED, {
-			how: "concluded",
-			ids: ["PLAN-20261021-AAAAAA"],
-			said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
-		});
-		expect(sent().at(-1)).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" });
+	started.emit(QUEST_CONCLUDED, {
+		how: "concluded",
+		ids: ["PLAN-20261021-AAAAAA"],
+		said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
 	});
+	await vi.waitFor(() =>
+		expect(sent().at(-1)).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" }),
+	);
 	return started;
 }
 
