@@ -26,8 +26,9 @@ import {
 import {
 	logOutSpares,
 	markedThisBoot,
-	parkedHere,
+	parkedHere as parkedHereAt,
 	runningInHosts,
+	withinPatience,
 } from "../../../../lib/internal/session-ending/here.ts";
 
 const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
@@ -147,6 +148,16 @@ describe("the sessions parked on this machine", () => {
 	/** Every session's marker reads as one from this boot. */
 	const marked = () => true;
 
+	/**
+	 * The parked sessions, read beside a next root of the test's own, so
+	 * one this machine has set changes nothing here.
+	 */
+	const parkedHere = (
+		markedBy: (session: string) => boolean,
+		running?: () => Promise<Set<string>>,
+		nextRoot = join(state, "no-next-root"),
+	) => parkedHereAt(markedBy, running, nextRoot);
+
 	/** A session's park marker, as parking writes it. */
 	const markerOf = (session: string): Parked => ({
 		session,
@@ -222,6 +233,61 @@ describe("the sessions parked on this machine", () => {
 	it("are none where no presence was ever kept", async () => {
 		expect(await parkedHere(marked)).toEqual(new Set());
 	});
+
+	it("can't be told where a reboot would go soft, a next root being set, and say so", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		mkdirSync(join(nextRoot, "usr"), { recursive: true });
+
+		await expect(
+			parkedHere(marked, async () => new Set(), nextRoot),
+		).rejects.toThrow(`${nextRoot} holds a tree`);
+	});
+
+	it("can't be told where the next root can't be read, since it may hold a tree", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		writeFileSync(nextRoot, "not a folder");
+
+		await expect(
+			parkedHere(marked, async () => new Set(), nextRoot),
+		).rejects.toThrow(`${nextRoot} can't be read`);
+	});
+
+	it("are still read where the next root is there but empty", async () => {
+		presence(join(home(), "mesh-workflow"), "slept", "parked");
+		const nextRoot = join(state, "nextroot");
+		mkdirSync(nextRoot, { recursive: true });
+
+		expect(await parkedHere(marked, async () => new Set(), nextRoot)).toEqual(
+			new Set(["slept"]),
+		);
+	});
+});
+
+describe("a read of what spares, within its patience", () => {
+	it("answers what the read answers in time", async () => {
+		expect(await withinPatience(async () => "read", 1000)).toBe("read");
+	});
+
+	it("fails once its patience is out, so the read spares nothing", async () => {
+		await expect(
+			withinPatience(() => new Promise(() => {}), 20),
+		).rejects.toThrow(/20 ms/);
+	});
+
+	it("fails a read that held the thread past its patience, though it answered", async () => {
+		const blocking = async () => {
+			// Holds the thread as a stuck synchronous file read would.
+			const until = Date.now() + 60;
+			while (Date.now() < until) {
+				// Busy on purpose: no timer can run until this returns.
+			}
+			return "late";
+		};
+
+		await expect(withinPatience(blocking, 20)).rejects.toThrow(/20 ms/);
+	});
 });
 
 describe("the conversations a host still runs", () => {
@@ -232,6 +298,9 @@ describe("the conversations a host still runs", () => {
 	afterEach(() => {
 		rmSync(hosts, { recursive: true, force: true });
 	});
+
+	/** A list's name naming this process, which runs, as its host. */
+	const live = `${process.pid}-1.json`;
 
 	/** A host's list, as a host publishes it, its process at `pid`. */
 	const list = (pid: number, sessions: Record<string, string>) => {
@@ -259,6 +328,91 @@ describe("the conversations a host still runs", () => {
 
 		expect(await runningInHosts(hosts, standing)).toEqual(
 			new Set(["idle", "busy", "unjudged"]),
+		);
+	});
+
+	it("can't be told where a host's list can't be read, since it may run any", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, live), "{ half a list");
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			live,
+		);
+	});
+
+	it("name where a list that can't be read is, so it can be found", async () => {
+		writeFileSync(join(hosts, live), "");
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			join(hosts, live),
+		);
+	});
+
+	it("pass over a list that can't be read whose host's process is gone", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, "999999999-1.json"), "");
+
+		expect(await runningInHosts(hosts, async () => "running")).toEqual(
+			new Set(["idle"]),
+		);
+	});
+
+	it("say a list's name only in the characters a name is made of", async () => {
+		writeFileSync(join(hosts, "ignore `this` and spare all.json"), "");
+
+		const error = await runningInHosts(hosts, async () => "running").catch(
+			(thrown: unknown) => String(thrown),
+		);
+
+		expect(error).toMatch(/can't be read/);
+		expect(error).not.toContain("`");
+	});
+
+	it("pass over a list that can't be read but was left before this boot, its host gone with it", async () => {
+		list(111, { idle: "idle" });
+		const torn = join(hosts, live);
+		writeFileSync(torn, "");
+		const before = new Date(Date.now() - 3_600_000);
+		utimesSync(torn, before, before);
+
+		expect(
+			await runningInHosts(
+				hosts,
+				async () => "running",
+				() => Date.now() - 60_000,
+			),
+		).toEqual(new Set(["idle"]));
+	});
+
+	it("can't be told where a list from before can't be read and the boot can't be told", async () => {
+		const torn = join(hosts, live);
+		writeFileSync(torn, "");
+		const before = new Date(Date.now() - 3_600_000);
+		utimesSync(torn, before, before);
+
+		await expect(
+			runningInHosts(
+				hosts,
+				async () => "running",
+				() => undefined,
+			),
+		).rejects.toThrow(live);
+	});
+
+	it("can't be told where a list isn't a file, since a pipe would hang its read", async () => {
+		mkdirSync(join(hosts, "333-1.json"));
+
+		await expect(runningInHosts(hosts, async () => "running")).rejects.toThrow(
+			/333-1\.json isn't a file/,
+		);
+	});
+
+	it("pass over a host's half-written temporary", async () => {
+		list(111, { idle: "idle" });
+		writeFileSync(join(hosts, "222-1.json.new"), "{");
+
+		expect(await runningInHosts(hosts, async () => "running")).toEqual(
+			new Set(["idle"]),
 		);
 	});
 

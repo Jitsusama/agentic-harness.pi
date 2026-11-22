@@ -86,6 +86,27 @@ it("installs ownership and publishes stable ids before extension loading", () =>
 	expect(fs.statSync(host.registryPath).mode & 0o777).toBe(0o600);
 });
 
+it("says a conversation is viewed as its screens do, and none without them", () => {
+	const plain = start();
+	expect(plain.viewed("a"), "a host with no screens").toBe(false);
+	plain.dispose();
+	hosts.splice(hosts.indexOf(plain), 1);
+	const dir = mkdtempSync(join(tmpdir(), "session-engine-"));
+	directories.push(dir);
+	const watched = new Set(["a"]);
+	const host = new SessionHost({
+		key: "test-host",
+		owner,
+		registryDir: dir,
+		viewed: (id) => watched.has(id),
+	});
+	hosts.push(host);
+	expect(hosted()?.viewed?.("a"), "one with a window on it").toBe(true);
+	expect(host.viewed("b"), "one with none").toBe(false);
+	watched.delete("a");
+	expect(host.viewed("a"), "once its window has gone").toBe(false);
+});
+
 it("dispatches interleaved callbacks under separate environments and slots", async () => {
 	const host = start();
 	host.register(registration("a"));

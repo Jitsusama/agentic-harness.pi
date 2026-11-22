@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -143,6 +144,42 @@ describe("the machines kept", () => {
 			"temporary files left beside the list",
 		).toEqual([]);
 	});
+
+	it("sweeps what a writer killed mid-write left, and only once it is old", async () => {
+		mkdirSync(join(scratch, "session-ending"), { recursive: true });
+		const killed = `${file}.dead.tmp`;
+		const writing = `${file}.live.tmp`;
+		const other = join(scratch, "session-ending", "other.json.old.tmp");
+		for (const path of [killed, writing, other]) writeFileSync(path, "[]");
+		const longAgo = new Date(Date.now() - 10 * 60_000);
+		utimesSync(killed, longAgo, longAgo);
+		utimesSync(other, longAgo, longAgo);
+
+		await rememberMachines(file, ["optimus"]);
+
+		expect(existsSync(killed), "an old one is swept").toBe(false);
+		expect(existsSync(writing), "a fresh one may be another's write").toBe(
+			true,
+		);
+		expect(existsSync(other), "another file's is left alone").toBe(true);
+	});
+
+	// Root lists any folder, whatever its mode, so there it tests nothing.
+	it.skipIf(process.getuid?.() === 0)(
+		"still writes where its folder can't be listed for the sweep",
+		async () => {
+			const folder = join(scratch, "session-ending");
+			mkdirSync(folder, { recursive: true });
+			chmodSync(folder, 0o300);
+			try {
+				await rememberMachines(file, ["optimus"]);
+			} finally {
+				chmodSync(folder, 0o700);
+			}
+
+			expect(kept()).toEqual(["optimus"]);
+		},
+	);
 
 	it("leaves no lock behind once it has written", async () => {
 		await rememberMachines(file, ["optimus"]);

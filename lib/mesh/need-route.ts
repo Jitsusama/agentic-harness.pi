@@ -192,15 +192,46 @@ const COMMON = new Set([
 ]);
 
 /**
+ * An id written as letters or digits joined by hyphens or underscores,
+ * as Aquifer's spec writes what a cell holds as its resident need: a
+ * spirit property (I-5, XIII-2), a leg (leg-26), a seam's folder
+ * (node_kubelet_cri) or a zone (cert-request), IKQ63G's forms of 21
+ * November. Split into words, I-5 gives none and a seam gives words
+ * half the realm holds, so each is also kept whole. One starts only
+ * where a run of letters or digits does, so a long run with no hyphen
+ * is tried once, not from each of its letters.
+ */
+const JOINED_ID = /(?<![\p{L}\p{N}])[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)+/gu;
+
+/**
+ * A word and the number after it in prose, "leg 26" or "postgres 15",
+ * which is the id leg-26 or postgres-15: split into words the number is
+ * lost, being short, or said apart from anything it may belong to. Not
+ * a word already inside a joined id, whose number would join the id's
+ * last part alone.
+ */
+const NUMBER_IN_PROSE =
+	/(?<![\p{L}\p{N}_-])(\p{L}[\p{L}\p{N}]*)\s+(\p{N}+)(?![\p{L}\p{N}])/gu;
+
+/**
  * The words a need or a cell's work is matched by: lowercased, once
- * each, leaving out the short and the common.
+ * each, leaving out the short and the common, then each joined id whole
+ * (`JOINED_ID`) no longer than `LONGEST_WORD`, which no route keeps
+ * past, and each word with a number after it as their id
+ * (`NUMBER_IN_PROSE`).
  */
 export function wordsOf(text: string): string[] {
-	const words = text
-		.toLowerCase()
+	const lower = text.toLowerCase();
+	const words = lower
 		.split(/[^\p{L}\p{N}]+/u)
 		.filter((word) => word.length >= SHORTEST_WORD && !COMMON.has(word));
-	return [...new Set(words)];
+	const ids = [...lower.matchAll(JOINED_ID)]
+		.map(([id]) => id)
+		.filter((id) => id.length <= LONGEST_WORD);
+	const numbered = [...lower.matchAll(NUMBER_IN_PROSE)]
+		.map(([, word, n]) => `${word}-${n}`)
+		.filter((id) => id.length <= LONGEST_WORD);
+	return [...new Set([...words, ...ids, ...numbered])];
 }
 
 /** What a cell says it works on, as the node lists each one. */
@@ -215,7 +246,11 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
  */
 const HUB_FIELDS = ["hub", "fits", "hubs"];
 
-/** The most words one cell's declared subjects give it, all together. */
+/**
+ * The most words one cell's declared subjects give it, all together,
+ * and apart from them the most joined ids, so an id a subject's words
+ * already route never pushes a later subject's words out.
+ */
 export const MOST_SUBJECT_WORDS = 12;
 
 /**
@@ -304,12 +339,15 @@ function wordsBeyond(
 ): string[] {
 	const seen = new Set(titled);
 	const beyond: string[] = [];
+	const taken = { words: 0, ids: 0 };
 	for (const subject of subjects) {
 		for (const word of subjectWords(subject)) {
-			if (seen.has(word)) continue;
+			const kind = isJoined(word) ? "ids" : "words";
+			if (seen.has(word) || taken[kind] === MOST_SUBJECT_WORDS) continue;
 			seen.add(word);
 			beyond.push(word);
-			if (beyond.length === MOST_SUBJECT_WORDS) return beyond;
+			taken[kind]++;
+			if (taken.words + taken.ids === 2 * MOST_SUBJECT_WORDS) return beyond;
 		}
 	}
 	return beyond;
@@ -460,6 +498,22 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		);
 
 	const saying = new Set(said.words);
+	// A need naming one numbered id, leg 27, says nothing of another,
+	// leg-26, whose words it shares: a cell holding leg-26 takes it on
+	// the word leg only when the need says leg-26 as well.
+	const numberedParts = new Set(
+		said.words.filter(isNumbered).flatMap((id) => id.split(/[-_]/u)),
+	);
+	const holdsOtherNumber = (address: string, word: string) =>
+		numberedParts.has(word) &&
+		[...(wordsHeld.get(address) ?? [])].some(
+			(held) =>
+				isNumbered(held) &&
+				held.split(/[-_]/u).includes(word) &&
+				!saysWord(held, saying),
+		);
+	const fitsOn = (address: string, word: string) =>
+		takes(address) && holds(address, word) && !holdsOtherNumber(address, word);
 	for (const { word } of within) {
 		// Among hubs that rank the same, the one whose fit works on most of
 		// the need; among those, the first the lot drew.
@@ -469,9 +523,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			const { hub } = ranked;
 			if (!live(hub.hub)) continue;
 			const fit = best(
-				hub.fits.filter(
-					(one) => !endedHolder(one, word) && takes(one) && holds(one, word),
-				),
+				hub.fits.filter((one) => !endedHolder(one, word) && fitsOn(one, word)),
 			);
 			if (fit === undefined) continue;
 			if (chosen === undefined || most(fit) > most(chosen.fit)) {
@@ -508,7 +560,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 					next.push(other);
 				}
 			}
-			const fit = best(next.filter((one) => takes(one) && holds(one, word)));
+			const fit = best(next.filter((one) => fitsOn(one, word)));
 			if (fit !== undefined) return chainTo(fit, selves, parent);
 			frontier = next;
 		}
@@ -594,14 +646,67 @@ function hubsFor(
 	const ranked = hubs.flatMap((hub) => {
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
-		if (!words.every((one) => saying.has(one))) return [];
-		const says = words.length;
+		if (!words.every((one) => saysWord(one, saying))) return [];
+		// Said whole or inside a longer id, so leg-26-follow-up says more of
+		// leg-26's hub than of a hub for leg alone; said part by part, no
+		// more than its parts, so host says pi-host no more than host.
+		const says = words.filter(
+			(one) => saying.has(one) || saidInside(one, saying),
+		).length;
 		const depth = subjectParts(hub.subject).length;
 		return [{ hub, says, depth, lot: lot(hub) }];
 	});
 	return ranked.sort(
 		(a, b) => b.says - a.says || b.depth - a.depth || byLot(a.lot, b.lot),
 	);
+}
+
+/**
+ * Whether a need `saying` these words says `word` of a subject: said
+ * whole, or, for a joined id, said part by part, so `easing lines`
+ * says easing-lines and `host` says pi-host, whose pi is too short to
+ * be a word; or inside a longer id said, so leg-26-follow-up says
+ * leg-26. An id with a part all digits is said only whole or inside
+ * another, since its number said apart may belong to anything, so
+ * neither `leg 27` nor `leg 27 in 100 runs` says leg-26 or leg-100.
+ */
+function saysWord(word: string, saying: ReadonlySet<string>): boolean {
+	if (saying.has(word)) return true;
+	if (!isJoined(word)) return false;
+	if (saidInside(word, saying)) return true;
+	if (isNumbered(word)) return false;
+	const needed = word
+		.split(/[-_]/u)
+		.filter((part) => part.length >= SHORTEST_WORD && !COMMON.has(part));
+	return needed.length > 0 && needed.every((part) => saying.has(part));
+}
+
+/** Whether joined id `word` is said inside a longer id the need says. */
+function saidInside(word: string, saying: ReadonlySet<string>): boolean {
+	if (!isJoined(word)) return false;
+	const inside = bounded(word);
+	for (const said of saying) {
+		if (said !== word && isJoined(said) && bounded(said).includes(inside))
+			return true;
+	}
+	return false;
+}
+
+/** Whether `word` is a joined id with a part all digits, as leg-26 is. */
+function isNumbered(word: string): boolean {
+	return (
+		isJoined(word) && word.split(/[-_]/u).some((part) => /^\p{N}+$/u.test(part))
+	);
+}
+
+/** Whether `word` is a joined id rather than a plain word. */
+function isJoined(word: string): boolean {
+	return /[-_]/u.test(word);
+}
+
+/** `id` with its joins alike and a hyphen at each end, to find it inside another. */
+function bounded(id: string): string {
+	return `-${id.replaceAll("_", "-")}-`;
 }
 
 /** A hub a need may be put to, with what ranks it. */

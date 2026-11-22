@@ -21,6 +21,11 @@ loads the install and the install is `main`.
   - A tree is loaded first in a pi of its own (see
     [Load Check](#load-check)), and a tree that does not load is
     refused with what failed, before anything is touched.
+  - In a session whose commands run in the fence, the tool reloads
+    only onto `installed`: a reload runs the code it loads outside
+    the fence, and a tree is a folder the fenced commands may have
+    written. To try a tree there, run it as a fenced command
+    (`pi -p -e <tree>`).
   - The reload waits for the run to end, then runs. When it lands, a
     turn says what was asked, which code now runs, from where and at
     which commit, and the agent carries on. Away mode keeps going

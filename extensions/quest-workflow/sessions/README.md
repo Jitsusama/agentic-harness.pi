@@ -19,3 +19,5 @@ of every session is here.
   start hint and those `show` lists.
 - `membership.ts`: which quests a session belongs to, checked: the
   audit, the dead sessions and the repair plan.
+- `sprout-start.ts`: a sprout's start, which makes its quest from the
+  seed the node handed it, waiting on its link's page.

@@ -27,7 +27,7 @@ import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import { landingKeeper } from "../../../lib/mesh/landing-history.ts";
 import { carryLeases, ownLeases } from "../../../lib/mesh/lease.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
-import { nodeSocket } from "../../../lib/mesh/node.ts";
+import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import { questEnded, windowTitle } from "../../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
@@ -40,6 +40,7 @@ import { createActs } from "../acts.ts";
 import { type Entry, handedIn, leftToIn, saidIn } from "../glances.ts";
 import { hostedPresence } from "../in-place.ts";
 import { keptOffIn, quietIn } from "../quiet.ts";
+import { keepHub } from "../tools/above.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
 import type { Handing } from "./handing.ts";
 import type { Hearing } from "./hearing.ts";
@@ -274,6 +275,25 @@ export function onSessionStart(
 		clearInterval(m.lookClock);
 		m.lookClock = setInterval(f.lookAgain, m.lookAgainMs);
 		m.lookClock.unref?.();
+		// Where the mesh's own tells and notices go on a quest with no
+		// mark, found now and kept, since they are said without waiting. A
+		// finding kept for want of anyone to hear it is told once one is.
+		m.hub?.stop();
+		m.hub = keepHub(
+			() =>
+				m.peer
+					? {
+							peer: m.peer,
+							presences: m.presences,
+							ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
+						}
+					: undefined,
+			{
+				found: () => {
+					if (m.onNoModelUntold) f.tellNoModel(m.onNoModelUntold);
+				},
+			},
+		);
 		clearInterval(m.looksClock);
 		const looksDir = m.paths.looks;
 		if (looksDir) {

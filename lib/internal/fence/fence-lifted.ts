@@ -8,7 +8,12 @@
  * worktrees, gh and the GPU stayed broken where Joel works.
  *
  * A subagent keeps the fence it was started with, as before 12
- * November, and `strict` is never touched. The first stage's default
+ * November, and so does a spawn whose fence was declared, which its
+ * spawner marks (`DECLARED_VARIABLE`), since its claim to the node must
+ * be what runs (ISXEG8 [8d401568]), on Linux, where pi's own fence
+ * runs. On a Mac that fence refuses every command, and the fence is the
+ * seatbelt `pi-fence` starts the whole run in, so the mark is lifted
+ * with it there. `strict` is never touched. The first stage's default
  * is worked out apart from this (fence-stage.ts), so a lifted value
  * never stops a listed session being fenced.
  */
@@ -18,14 +23,42 @@ import { FENCE } from "./fence.ts";
 import { isSubagent } from "./fence-stage.ts";
 
 /**
- * Take `PI_SANDBOX=fence` out of `env` itself, so every reader in this
- * pi and every child it starts sees none, unless this pi is a subagent.
- * Answers whether it did.
+ * Set beside `PI_SANDBOX=fence` by a spawn that declared the fence, so
+ * the spawned pi keeps it. Only beside the fence: strict is never lifted,
+ * and an older pi that knows no mark lifts the fence as it always has.
  */
-export function liftFence(env: NodeJS.ProcessEnv = process.env): boolean {
-	if (env[SANDBOX_VARIABLE]?.trim() !== FENCE || isSubagent(env)) {
+export const DECLARED_VARIABLE = "PI_FENCE_DECLARED";
+
+/** The value the mark is set to. */
+const DECLARED = "1";
+
+/**
+ * The variables a spawn gives a fresh child for the sandbox it declared:
+ * `PI_SANDBOX`, and beside the fence the mark that keeps it from the lift.
+ */
+export function declaredSandbox(
+	sandbox: string | undefined,
+): Readonly<Record<string, string>> {
+	if (sandbox === undefined) return {};
+	return sandbox === FENCE
+		? { [SANDBOX_VARIABLE]: sandbox, [DECLARED_VARIABLE]: DECLARED }
+		: { [SANDBOX_VARIABLE]: sandbox };
+}
+
+/**
+ * Take `PI_SANDBOX=fence` out of `env` itself, so every reader in this
+ * pi and every child it starts sees none, unless this pi is a subagent
+ * or, on Linux, a spawn that declared it. Answers whether it did.
+ */
+export function liftFence(
+	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
+): boolean {
+	const declared = env[DECLARED_VARIABLE] === DECLARED && platform === "linux";
+	if (env[SANDBOX_VARIABLE]?.trim() !== FENCE || isSubagent(env) || declared) {
 		return false;
 	}
 	delete env[SANDBOX_VARIABLE];
+	delete env[DECLARED_VARIABLE];
 	return true;
 }

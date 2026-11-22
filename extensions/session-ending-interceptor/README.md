@@ -77,8 +77,59 @@ Two things on this machine let an ask through that would otherwise be
 refused. Both are read only for an ask that would be refused, so an
 ordinary reply pays nothing, and anything that can't be read spares
 nothing, as on a Mac, with no logind. logind is given about two
-seconds to answer; the presences and markers are files on this
-machine, read without a deadline.
+seconds to answer, and so is the read of the presences, markers and
+host lists, files on this machine; a read that answers later spares
+nothing. The two are read apart, so a parked read that fails leaves
+none parked while a log-out with linger is still spared.
+
+A spare stands only beside plain commands. Once a reply, look, ask
+or wait asks for an act, every command it shows the person must be a
+plain reboot, shut-down or log-out, read whole after a prompt and a
+`sudo`: `systemctl reboot`, `systemctl poweroff`, `reboot`,
+`poweroff`, `shutdown now` with `-r`, `-h` or `-P`, `loginctl
+terminate-session` with or without a session, or `niri msg action
+quit`, a session given by its id and never by an option such as
+`-H`. Any other command, in inline code, a quote it asks to run, an
+indented or prompted line, in a blockquote or not, or any fence (a
+`#` line in a fence that may be a terminal's session is root's
+prompt, not a comment, and a shell fence's comment is held to the
+prose check below), or a backtick left unpaired, spares nothing,
+and every session counts as without a spare. So does any line
+holding three backticks or tildes that isn't a fence line indented
+three spaces at most, with no backtick after a backtick fence's
+opening: a fence on one line, in a blockquote, on a list's marker or
+indented further is drawn as code by some renderers and not others.
+Every fence is read line by line, a `md` or `markdown` one too, since
+it is drawn as code. What the run's replies said, their text and
+every ask, look or wait they made, counts beside each later reply
+and call until the person next speaks, typed or through a host, or
+the run ends, since they read it all together. A job's result or a
+peer's nudge comes as a message too, but isn't theirs, so it forgets
+nothing. A spare is judged against what came before it: what the run
+shows after a spare stood isn't held to the list. Reading each
+spelling of each act widened what the
+guard let through one spelling at a time, so code that isn't on that
+short list isn't read. Prose can't be held to a list, so it is held
+only to a list of words: one naming a command (`sudo`, `systemctl`,
+`kexec`, `init 1`, `ssh`, any kill), or a soft or user space reboot,
+a next root, linger or `KillUserProcesses`, spares nothing. So "run
+sudo reboot" written without code spares nothing either. A plain
+command shown as code, indented, prompted or in a quote it asks to
+run is taken out of the prose first, where it sits, so its own
+`sudo` doesn't count, while the same words written bare still do. A wait's
+checks, run by the machine rather than typed, are read as commands
+as before.
+
+Where a full read might have spared those left, the refusal ends
+"None here was spared:" and says what couldn't be read, such as a
+host list or a next root holding a tree. Where a spare would have
+stood, or a full read might have let one, but what the reply shows
+isn't plain, it says so instead and quotes the command, fence line or
+word that tripped it. A logind that can't be asked reads as one that
+doesn't linger. Each of those, and each ask a
+spare let past, leaves a `session-ending-spare` entry in the
+session's log, not sent to the model, naming the asks and the
+sessions spared and why.
 
 - **A log-out that leaves the user's services running.** When logind
   says the user lingers and kills no user processes at a log-out
@@ -126,8 +177,18 @@ machine, read without a deadline.
   closes a host's conversation, so a session a host still lists busy
   or idle has woken, or its park never landed, and counts whatever
   its presence says; a host's list counts unless its process is
-  known to be gone, though a list that doesn't read as one, as from a
-  host of another version, is passed over. That is how a
+  known to be gone, and a list that doesn't read as one, as from a
+  host of another version, or one that isn't a file, spares nothing,
+  since its host may run any of them. Each list is opened without
+  blocking or following a link and judged a file on what was opened,
+  so a pipe in its place can't hang the read. A list that doesn't
+  read as one is passed over where it was last written before this
+  boot, as a crash can leave one torn, or where no process has the
+  pid its name gives: its host is gone. A refusal names a list in its
+  name's own characters only. A `systemctl reboot` goes soft while
+  `/run/nextroot` holds a tree, so then, and while it can't be read,
+  the parked sessions can't be told and none counts as parked; the
+  refusal says which. That is how a
   scheduled disruption goes through once the sessions it asked to
   park have. A holder's parked session already reads as ended, so one
   the node reads idle in a holder or a plain terminal is running,

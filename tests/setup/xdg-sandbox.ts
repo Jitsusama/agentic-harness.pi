@@ -56,6 +56,9 @@ process.env.PI_SESSIONS_KITTY = "off";
 delete process.env.NIRI_SOCKET;
 // Nor may a reopen wake, or close, a window of the developer's.
 process.env.PI_SETTLE = "off";
+// Nor may the sandbox the developer's session runs in reach what a
+// test spawns, whose environment a strict parent's would change.
+delete process.env.PI_SANDBOX;
 // Nor may a test read or write the developer's keyring: credentials
 // go to a keyring in memory, fresh for each test file.
 useSecretStore(memorySecretStore());

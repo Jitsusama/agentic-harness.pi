@@ -1,11 +1,12 @@
 /**
  * The mesh's tools: send, read back, join, leave or list groups, stop
- * a peer reaching this one, and end a session of this orchestration.
+ * a peer reaching this one, end a session of this orchestration, and
+ * sprout new work as a cell of its own.
  *
  * Each registers here, with its parameters and how it renders. What
  * each does lives in tools/, a file for each: send.ts and reach.ts
  * for sending, read.ts, groups.ts for joining, leaving and listing,
- * stop.ts and end.ts, beside what they all act through (local.ts) and
+ * stop.ts, end.ts and sprout.ts, beside what they all act through (local.ts) and
  * how they say times and wants (said.ts).
  */
 
@@ -35,6 +36,7 @@ import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { NEED_GRANTS_NOTHING } from "./tools/need.ts";
 import { MOST_READ, read } from "./tools/read.ts";
 import { type SendParams, send, sendAcross } from "./tools/send.ts";
+import { type SproutParams, sproutFrom } from "./tools/sprout.ts";
 import { stop } from "./tools/stop.ts";
 import { waitOnPerson } from "./wait.ts";
 
@@ -65,13 +67,13 @@ export function registerTools(
 		// one a session reading it after a reload concluded it had no mesh
 		// tools and went through codemode; one line names the seven.
 		promptSnippet:
-			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, and mesh_end lets an orchestrator end a session of its own.",
+			"Message the other pi sessions on this machine; mesh_read, mesh_groups, mesh_join, mesh_leave and mesh_stop read the mesh and shape who hears what, mesh_wait says what waits on the person, mesh_sprout starts new work as a cell of its own, and mesh_end lets an orchestrator end a session of its own.",
 		description: `Send a message to other pi sessions (peers) on this machine; it joins their conversation as context. Only a question or hold put to a peer, an answer to its question or its orchestrator's pivot starts its turn; an fyi or finding is read with its next turn. Send only what changes what a peer should do (a hold before a reboot, a switch or a merge; a question only it can answer) or concerns what it owns (a finding). Never send progress, acknowledgements, thanks or word of heavy work, which the machine's queue orders by itself. Address the narrowest group that reaches everyone affected: a peer's address (5GV2AH), alone for a question to it, since everyone in a group reads what goes there; its quest's (#quest/5gv2ah, quests under it too) or repository's (#repo/agentic-harness-pi); a named group (#harness), which sending joins; or #machine, which everyone hears and which takes only holds and the answers ending them. When you don't know who holds what you need, send to need with about saying what it is about: it goes to the one live cell that works on it, found by the node's hubs and ties, and is refused, never sent to an orchestrator, when none is within reach. ${NEED_GRANTS_NOTHING} A question to several peers asks each. A message opening by naming peers ('P9R1KI: may I') goes to them alone. When the person asks to pause other sessions' work, as before a reboot, send a hold to #machine asking each peer to answer once parked, then answer it yourself with re and endsHold when work may resume; a reboot ends it too. Answering your own hold without endsHold leaves it held. A pause sent as a question or fyi leaves sessions parked. When the person says another peer's hold is over, answer it with endsHold. Leave \`to\` out and the mesh picks, saying where. mesh_groups lists the groups.`,
 		parameters: Type.Object({
 			to: Type.Optional(
 				Type.String({
 					description:
-						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, need for the live cell that works on what it is about, orchestrator for the orchestrator above this peer's quest, or machine. Leave it out and the mesh picks, saying where and why",
+						"Comma-separated groups: peer addresses such as P9R1KI, groups such as #harness, need for the live cell that works on what it is about, orchestrator for the orchestrator above this peer's quest (or, where its quest has none, its hub from use: the live cell above it is most tied to, an address only), or machine. Leave it out and the mesh picks, saying where and why",
 				}),
 			),
 			intent: StringEnum(INTENTS, {
@@ -412,6 +414,40 @@ export function registerTools(
 	});
 
 	pi.registerTool({
+		name: "mesh_sprout",
+		// New: loaded on demand until sessions are seen to call it.
+		exposure: "deferred",
+		label: "Mesh",
+		description:
+			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest, or joins a live quest already holding the work beside whoever works there, and asks the map to tie it to this one; the tie is there only once the map shows it. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
+		parameters: Type.Object({
+			words: Type.String({
+				description:
+					"The work: a link alone, or the person's words for it, which the new session reads first",
+			}),
+			folder: Type.Optional(
+				Type.String({
+					description:
+						"The repository's folder it works in; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
+				}),
+			),
+			machine: Type.Optional(
+				Type.String({
+					description:
+						"The machine it starts on, by its mycelium node's name; left out, this one",
+				}),
+			),
+		}),
+		execute: (_id, params: SproutParams, signal, _onUpdate, ctx) => {
+			// Refreshed first, as every mesh tool is, so --from names this
+			// session as it stands now.
+			const at = local();
+			at?.peer.refresh();
+			return sproutFrom(params, ctx.cwd, at?.peer.signature, undefined, signal);
+		},
+	});
+
+	pi.registerTool({
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
@@ -420,7 +456,7 @@ export function registerTools(
 		execute: using(async (at) => {
 			const [standing, ties] = await Promise.all([peers(at), at.ties?.()]);
 			return answer(
-				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
+				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now(), standing.resuming)}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
 				{ groups: at.peer.groups },
 			);
 		}),

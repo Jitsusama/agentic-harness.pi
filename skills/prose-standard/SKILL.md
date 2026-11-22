@@ -403,6 +403,19 @@ alone. Leave out how the work was done unless I ask. If
 something needs me, say it first, in one line, with what I
 should do.
 
+#### Causes Told as Fact
+
+Why something happened is a hypothesis until a test has settled
+it. Say it as one ("on trial", "points at", "looks like X;
+testing that next") unless you can cite the finding that tested
+it: two independent methods, and an attempt to break it that it
+survived. A cause told as fact is passed on as fact, from a
+cell to its orchestrator to me. On 20 November an untested one
+reached me that way, and I knew it was wrong. By default a mesh
+message that states one is refused once with this guidance, and
+goes if sent again unchanged to the same peers. A hold, and a
+send ending one, go unjudged, since they must arrive on time.
+
 ### A Language Model Reading
 
 This covers agent skill files, project guidelines (like an

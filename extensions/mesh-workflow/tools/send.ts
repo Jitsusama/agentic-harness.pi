@@ -3,6 +3,8 @@
  * what is refused, here or across into another realm.
  */
 
+import { refusalUnder } from "../../../lib/guardian/apply.ts";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { namedAtStart } from "../../../lib/mesh/address.ts";
 import type { Crossed } from "../../../lib/mesh/flow.ts";
 import {
@@ -13,6 +15,7 @@ import {
 	homeOf,
 	MACHINE,
 	machineTakes,
+	namesOrchestrator,
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
@@ -32,7 +35,9 @@ import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
+import { untestedCauseReason } from "../../../lib/prose/claims.ts";
 import { handsRefusal } from "../joels-hands.ts";
+import { type Found, findAbove } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -150,6 +155,32 @@ function toOrchestrator(
 	return addresses.some((address) => named.includes(homeOf(address)));
 }
 
+/**
+ * Whether these groups reach this peer's hub from use by an address:
+ * found afresh when the send named no `orchestrator` to find it by, so
+ * a question for the person's hands is counted the same way whichever
+ * it was sent by, kept hub or none. A find that can't be finished, with
+ * no answer from the node, can't say the address isn't the hub's, so it
+ * counts as reaching it and the check is made rather than skipped,
+ * whether the send's own `orchestrator` asked for it or this did.
+ */
+async function toHubByAddress(
+	at: Local,
+	asked: Found | undefined,
+	named: readonly string[],
+	present: readonly Presence[],
+): Promise<boolean> {
+	const byAddress = named.some((group) => group.startsWith(homeOf("")));
+	if (!byAddress || at.peer.orchestratedBy !== undefined) return false;
+	if (asked !== undefined) return !asked.settled;
+	const found = await findAbove(at);
+	if (!found.settled) return true;
+	return (
+		"address" in found.above &&
+		toOrchestrator(named, found.above.address, present)
+	);
+}
+
 /** Whether the mesh's own routing, not the sender, picked the groups. */
 function routedWide(
 	routed: Route | undefined,
@@ -225,6 +256,18 @@ export async function sendAcross(
 	const re = params.re ? (messageNamed(at, params.re) ?? params.re) : undefined;
 	const refused = crossedAnswerRefused(at, re);
 	if (refused) return refused;
+	// Across a realm a cause told as fact is passed on as fact all the
+	// same, so it is judged as a send here is. A hold must arrive on time,
+	// so it goes unjudged; an end can't cross, so none is one here.
+	const untested =
+		params.intent === "hold"
+			? undefined
+			: await untestedRefusal(at, params, realm, to);
+	if (untested !== undefined) {
+		return answer(`Not sent: ${untested}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
 	const sent = await at.cross({
 		realm,
 		from: at.peer.signature,
@@ -278,6 +321,41 @@ function messageNamed(at: Local, written: string): string | undefined {
 	);
 }
 
+/**
+ * Why a text may not go for stating an untested cause as settled, under
+ * the `untested-cause` guard's mode, or nothing. Sent again unchanged, a
+ * redirected text goes, and the person is shown it was let through.
+ * The send stands for the call (the realm and the groups the caller
+ * fixed, by naming, replacing or answering, its intent, what it answers
+ * and its text), not the reason, since the classifier may quote other
+ * parts of the same text the second time. Where routing chose the
+ * groups it stands for none, since routing may choose others the second
+ * time.
+ */
+async function untestedRefusal(
+	at: Local,
+	params: SendParams,
+	realm: string,
+	reaching: readonly string[],
+): Promise<string | undefined> {
+	const found = at.untested ? await at.untested(params.text) : [];
+	if (found.length === 0) return undefined;
+	const verdict = refusalUnder(
+		GUARDS.untestedCause.name,
+		{ block: true, reason: untestedCauseReason(found) },
+		"A mesh message stating an untested cause",
+		[
+			realm,
+			[...reaching].sort().join(","),
+			params.intent,
+			params.re ?? "",
+			params.text,
+		].join("\n"),
+		GUARDS.untestedCause.name,
+	);
+	return verdict?.reason;
+}
+
 export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	const reNamed = params.re ? messageNamed(at, params.re) : undefined;
@@ -317,20 +395,37 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
 	const needed = await needRead(at, params);
 	if ("refused" in needed) return needed.refused;
-	const target = orchestratorNamed(needed.to, at.peer.orchestratedBy);
-	const named = groupsNamed(target.to);
-	// Meant for one recipient that is not there: routed by rule, it would
-	// land in a group that may have nobody listening.
-	if (target.missing && named.length === 0) {
+	// Only a send naming the word asks who is above, since a quest with
+	// no mark finds its hub from use over the node. A send can wait for
+	// the node, so it finds the hub afresh rather than reading the one
+	// this peer keeps, which may be minutes old.
+	const found = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	const above = found?.above;
+	const orchestrator =
+		above === undefined
+			? at.peer.orchestratedBy
+			: "address" in above
+				? above.address
+				: undefined;
+	const named = groupsNamed(orchestratorNamed(needed.to, orchestrator).to);
+	const unnamed = named.filter((group) => groupNamed(group) === undefined);
+	const nobody =
+		above !== undefined && "none" in above ? above.none : undefined;
+	// Meant for one recipient that is not there, with nothing that can be
+	// a group beside it: routed by rule, it would land in a group that
+	// may have nobody listening.
+	if (nobody !== undefined && named.every((group) => unnamed.includes(group))) {
 		return answer(
-			"Not sent: no orchestrator is above this peer's quest. Tell the person in your reply, or name the peers it is for by address.",
+			`Not sent: ${nobody}. Tell the person in your reply, or name the peers it is for by address.`,
 			{ sent: false } satisfies SendDetails,
 		);
 	}
-	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
-		target.missing
-			? "no orchestrator is above this peer's quest, so `orchestrator` reached nobody and was left out"
+		nobody !== undefined
+			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
+			: "",
+		above !== undefined && "by" in above && above.by === "use"
+			? `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, it talks with that one most, and as only an address it grants nothing an orchestrator's mark does`
 			: "",
 		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`
@@ -376,10 +471,13 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		pivotTo = pivot.to;
 	}
 	// A question for the person's hands, put to the orchestrator that
-	// takes it to him, counts his acts first (joels-hands.ts).
+	// takes it to him, counts his acts first (joels-hands.ts). One sent
+	// to the hub by its address rather than the word counts the same,
+	// kept hub or none, so the hub is found for it.
 	const forHisHands =
 		intent.intent === "question" &&
-		toOrchestrator(named, at.peer.orchestratedBy, everyone);
+		(toOrchestrator(named, orchestrator, everyone) ||
+			(await toHubByAddress(at, found, named, everyone)));
 	const hands = forHisHands ? handsRefusal(params.text) : undefined;
 	if (hands !== undefined) {
 		return answer(`Not sent: ${hands}`, {
@@ -543,6 +641,23 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes.push(
 			`Not written to ${unheard.join(", ")}: ${unheardText(unheard, flows)}`,
 		);
+	}
+	// A cause stated as settled with no test behind it is passed on as
+	// settled, so it is refused before anyone reads it (lib/prose/claims.ts).
+	// It is judged after every refusal read from the send itself, so a
+	// resend it lets through goes. A hold, or a send ending one by answer
+	// or replacement, must arrive on time, so it goes unjudged.
+	const onTime =
+		intent.intent === "hold" ||
+		ownReplaced?.intent === "hold" ||
+		(params.endsHold === true && asker?.intent === "hold");
+	const untested = onTime
+		? undefined
+		: await untestedRefusal(at, params, "", aimed ?? chosen);
+	if (untested !== undefined) {
+		return answer(`Not sent: ${untested}`, {
+			sent: false,
+		} satisfies SendDetails);
 	}
 	// Only peers still there count as in a group: one whose every other
 	// member has ended is one nobody hears this in until someone joins.

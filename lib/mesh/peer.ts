@@ -23,6 +23,7 @@
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import type { Orchestration } from "../internal/quest/fields/orchestration.ts";
+import type { Served } from "../internal/quest/fields/serves.ts";
 import { type Doing, readDoing } from "../internal/quest/sessions/doing.ts";
 import { recentEvents, type SessionEvent } from "../internal/session/events.ts";
 import {
@@ -107,6 +108,12 @@ export interface Peer {
 	 * orchestrates and this is the session playing the role.
 	 */
 	readonly orchestrates: string | undefined;
+	/**
+	 * The address of the orchestration its quest heads, whether this
+	 * session plays the role or another on the quest does; a hub from use
+	 * above it would be a second voice over that work.
+	 */
+	readonly questHeads?: string;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;
 	/**
@@ -411,10 +418,14 @@ export function localPeer(at: Surroundings): Peer {
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
 	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
+	// Kept beside the roles rather than in them, since the roles are said
+	// in the presence and this is for the peer's own sends.
+	let questHeads: string | undefined;
 	let quest: string | undefined;
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
 	let subjects: readonly string[] = [];
+	let serves: readonly Served[] = [];
 	let shares: readonly Share[] = [];
 	let repo: string | undefined;
 	let workspace: string | undefined;
@@ -510,7 +521,9 @@ export function localPeer(at: Surroundings): Peer {
 			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
 			...(subjects.length > 0 ? { subjects } : {}),
-			// An ended session works with nobody, so its last word shares none.
+			// An ended session works with nobody, so its last word serves and
+			// shares none.
+			...(serves.length > 0 && !ended ? { serves } : {}),
 			...(shares.length > 0 && !ended ? { shares } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
@@ -567,6 +580,9 @@ export function localPeer(at: Surroundings): Peer {
 			...(work.hears ? { hears: work.hears } : {}),
 		};
 		roles = orchestrationRoles(work.orchestration, addresses[0]);
+		questHeads = work.orchestration.heads
+			? questAddress(work.orchestration.heads)
+			: undefined;
 		quest = work.quest;
 		workspace = work.workspace;
 		questInfo = work.questInfo;
@@ -583,6 +599,7 @@ export function localPeer(at: Surroundings): Peer {
 			ownedPrefixes(at.owners?.() ?? [], working),
 			work.subjects ?? [],
 		);
+		serves = work.serves ?? [];
 		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
@@ -639,6 +656,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get orchestrates() {
 			return roles.orchestrates;
+		},
+		get questHeads() {
+			return questHeads;
 		},
 		get wants() {
 			return longestStanding(personal());

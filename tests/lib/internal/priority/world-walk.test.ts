@@ -6,8 +6,11 @@ import {
 	needsGibOf,
 	needsGibOfCommand,
 	nextTurn,
+	ONE_WALK_FROM_PRESSURE,
+	pushesWorld,
 	RAMP_MS,
 	skipsWorldPushHooks,
+	WALK_SETTLES_MS,
 	WALKS_AT_ONCE,
 	waitingInOrder,
 	waitReasons,
@@ -35,6 +38,14 @@ describe("a walk of World's objects", () => {
 			"git repack -ad",
 			"git rev-list --objects --all | git pack-objects --stdout > p.pack",
 			"git -c core.askPass=true fetch delta",
+			// 11-21, 06:08: two rebases of 3.8 and 3.9 GB beside other walks.
+			"git rebase origin/main",
+			"git -C ~/world/trees/w-main/src rebase --continue",
+			"git rebase --skip",
+			"git cherry-pick abc123",
+			"git revert abc123",
+			"git merge origin/main",
+			"git sparse-checkout add areas/tools",
 		]) {
 			expect(kindOf(walking, inWorld), walking).toBe("world-walk");
 		}
@@ -53,6 +64,11 @@ describe("a walk of World's objects", () => {
 			"git clone ~/world/git /tmp/copy",
 			"git fetch file:///home/j/world/git main",
 			"git --git-dir=/home/j/world/git fetch origin",
+			// git takes these long options' values as the next word too.
+			"git --git-dir ~/world/git rebase x",
+			"git --work-tree /home/j/world/trees/a/src --namespace n merge x",
+			// Run from outside the tree, naming it.
+			"git -C /home/j/world/trees/w-main/src rebase origin/main",
 		]) {
 			expect(kindOf(walking, elsewhere), walking).toBe("world-walk");
 		}
@@ -86,6 +102,28 @@ describe("a walk of World's objects", () => {
 			"git status",
 			"git -c push.default=current status",
 			"git log --grep push",
+			"git merge-base HEAD origin/main",
+			// What steers a rebase, merge or pick, or reads where it stands,
+			// walks nothing, so a stuck checkout is put back while pressed.
+			"git rebase --abort",
+			"git rebase --quit",
+			"git rebase --show-current-patch",
+			"git rebase --edit-todo",
+			"git merge --abort",
+			"git cherry-pick --abort",
+			"git sparse-checkout list",
+			"git sparse-checkout check-rules",
+			"git rebase --help",
+			"git cherry-pick -h",
+			// Help goes free for every walk, asked before or after it.
+			"git push --help",
+			"git fetch -h",
+			"git gc --help",
+			"git --help rebase",
+			"git -h merge",
+			"git sparse-checkout --help",
+			// Alone, it only prints its usage.
+			"git sparse-checkout",
 			"echo git push",
 			"gh pr create --title 'git push it'",
 			"rg 'git fetch' scripts",
@@ -101,7 +139,63 @@ describe("a walk of World's objects", () => {
 		expect(needsGibOfCommand("world-walk", "cd x && git push")).toBe(6);
 	});
 
-	it("runs at most two at once, whatever memory reads, and lets others past", () => {
+	it("reads a long run of options in time that grows with it, not past it", () => {
+		// Each option reads one way, so a run of them fails at once rather
+		// than trying every way to split them: past the reads, which a step
+		// that isn't one tries first, and to the walk itself.
+		const runs = ["--a-b ".repeat(400), "-c ".repeat(60), "-C x ".repeat(60)];
+		for (const options of runs) {
+			const started = performance.now();
+			expect(kindOf(`git ${options}rebase x`, inWorld)).toBe("world-walk");
+			expect(kindOf(`git ${options}nothing`, inWorld)).toBeUndefined();
+			expect(kindOf(`git ${options}status`, inWorld)).toBeUndefined();
+			expect(
+				kindOf(`timeout ${"--a-b ".repeat(400)}5 git ${options}x`, inWorld),
+			).toBeUndefined();
+			expect(performance.now() - started).toBeLessThan(1_000);
+		}
+	});
+
+	it("starts no walk beside one that started within the minute, however calm it reads", () => {
+		// The minute's pressure lags the walk that causes it: a second asked
+		// seconds after the first would read the calm from before either.
+		const jobs = [
+			job("one", {
+				kind: "world-walk",
+				what: "git rebase",
+				started: startedAgo(10_000),
+			}),
+			job("two", { kind: "world-walk", what: "git push" }),
+		];
+		const calm = { ...ROOMY, availableGib: 100, memoryFullMinute: 0 };
+		expect(nextTurn(jobs, calm, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, calm, NOW).get("two")).toBe("walks");
+		const later = NOW + WALK_SETTLES_MS;
+		expect(nextTurn(jobs, calm, later)?.id).toBe("two");
+		// Only a walk still running holds the next back: one that has
+		// ended leaves the queue, and its stall is in the minute's figure.
+		const ended = jobs.filter((one) => one.id !== "one");
+		expect(nextTurn(ended, calm, NOW)?.id).toBe("two");
+	});
+
+	it("lets a quick push start with no minute to settle after it", () => {
+		// A push that leaves out its LFS scan maps no packs, so a stream of
+		// them would otherwise keep a rebase waiting a minute at a time.
+		const jobs = [
+			job("push", {
+				kind: "world-walk",
+				what: "git push",
+				walk: "push",
+				quick: true,
+				started: startedAgo(10_000),
+			}),
+			job("rebase", { kind: "world-walk", what: "git rebase", walk: "branch" }),
+		];
+		const calm = { ...ROOMY, availableGib: 100, memoryFullMinute: 0 };
+		expect(nextTurn(jobs, calm, NOW)?.id).toBe("rebase");
+	});
+
+	it("runs at most two at once while memory flows, and lets others past", () => {
 		const long = startedAgo(RAMP_MS + 60_000);
 		const walk = (id: string, over: Partial<Job> = {}) =>
 			job(id, { kind: "world-walk", what: "git push", ...over });
@@ -126,6 +220,29 @@ describe("a walk of World's objects", () => {
 		const after = jobs.filter((one) => one.id !== "two");
 		expect(nextTurn(after, plenty, NOW)?.id).toBe("third");
 		expect(waitReasons(after, plenty, NOW).get("third")).toBe("order");
+	});
+
+	it("runs one at a time while memory has stalled everything 5% of the last minute", () => {
+		const long = startedAgo(RAMP_MS + 60_000);
+		const jobs = [
+			job("one", { kind: "world-walk", what: "git rebase", started: long }),
+			job("two", { kind: "world-walk", what: "git push" }),
+		];
+		const plenty = { ...ROOMY, availableGib: 100 };
+		const stalled = { ...plenty, memoryFullMinute: ONE_WALK_FROM_PRESSURE };
+
+		expect(ONE_WALK_FROM_PRESSURE).toBe(5);
+		expect(nextTurn(jobs, stalled, NOW)).toBeUndefined();
+		expect(waitReasons(jobs, stalled, NOW).get("two")).toBe("walks");
+		// Just under it, or where it isn't read, two run as before.
+		const under = { ...plenty, memoryFullMinute: 4.9 };
+		expect(nextTurn(jobs, under, NOW)?.id).toBe("two");
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
+		// With none running, one starts however the minute reads.
+		const alone = jobs.filter((one) => one.id !== "one");
+		expect(nextTurn(alone, stalled, NOW)?.id).toBe("two");
+		const choked = { ...plenty, memoryFullMinute: 60 };
+		expect(nextTurn(alone, choked, NOW)?.id).toBe("two");
 	});
 
 	it("waits on memory like any job when its 6 GiB isn't free", () => {
@@ -174,16 +291,29 @@ describe("walks of World's objects among themselves", () => {
 		).toBe("main-fetch");
 	});
 
-	it("reads a push, alone or after a fetch of main, as a push", () => {
+	it("reads pushes alone as a push, and one after other walks as given its hooks", () => {
 		expect(walkOf("git push origin x", inWorld)).toBe("push");
 		// One that leaves out the stale-cutoff hook runs through the queue's
 		// hooks too, which is where it is left out (push-hooks.mjs).
 		expect(
 			walkOf("PI_PUSH_SKIPS_STALE_CUTOFF=1 git push origin x", inWorld),
 		).toBe("push");
+		// A fetch before it would walk past every walk's limit on the push's
+		// quick turn, so the two wait as a branch's own work.
 		expect(
 			walkOf("git fetch origin main && git push origin HEAD:x", inWorld),
-		).toBe("push");
+		).toBe("branch");
+		for (const pushing of [
+			"git push origin x",
+			"git fetch origin main && git push origin HEAD:x",
+			"git rebase origin/main && git push",
+		]) {
+			expect(pushesWorld(pushing, inWorld), pushing).toBe(true);
+		}
+		expect(pushesWorld("git rebase origin/main", inWorld)).toBe(false);
+		expect(pushesWorld("git push", { cwd: `${home}/src/core.nix`, home })).toBe(
+			false,
+		);
 	});
 
 	it("knows a push of World that skips its pre-push hooks", () => {
@@ -231,8 +361,21 @@ describe("walks of World's objects among themselves", () => {
 			"git fetch origin main && git fetch origin x",
 			"git push origin x && git fetch origin x",
 			"git gc --auto",
+			"git fetch origin x && git rebase FETCH_HEAD",
 		]) {
 			expect(walkOf(other, inWorld), other).toBe("other");
+		}
+		for (const own of [
+			"git rebase origin/main",
+			"git fetch origin main && git rebase origin/main",
+			"git cherry-pick abc123",
+			"git sparse-checkout add areas/tools",
+			// A push after branch work leaves it no quick turn to walk past
+			// every walk's limit with.
+			"git rebase origin/main && git push",
+			"git merge x; git push origin HEAD:x",
+		]) {
+			expect(walkOf(own, inWorld), own).toBe("branch");
 		}
 		expect(
 			walkOf("git fetch origin main", { cwd: `${home}/src/core.nix`, home }),
@@ -263,6 +406,21 @@ describe("walks of World's objects among themselves", () => {
 		];
 		const after = busy.filter((one) => one.id !== "two" && one.id !== "build");
 		expect(nextTurn(after, plenty, NOW)?.id).toBe("push");
+	});
+
+	it("keeps a branch's own rebase among the pushes, in the order they asked", () => {
+		// With one walk let run while memory stalls, a rebase behind every
+		// push would wait for as long as pushes kept arriving.
+		const jobs = [
+			walk("review", { walk: "other", since: startedAgo(9_000) }),
+			walk("rebase", { walk: "branch", since: startedAgo(8_000) }),
+			walk("push", { walk: "push", since: startedAgo(6_000) }),
+		];
+		expect(waitingInOrder(jobs).map((one) => one.id)).toEqual([
+			"rebase",
+			"push",
+			"review",
+		]);
 	});
 
 	it("holds a fetch of main while one runs, letting other walks past", () => {

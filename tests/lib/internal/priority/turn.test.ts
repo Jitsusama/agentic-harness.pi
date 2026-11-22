@@ -23,6 +23,7 @@ import {
 	CHANGED_CHECKS_SENT_GIB,
 	EVAL_TESTS_GIB,
 	EVERY_CHECK_GIB,
+	NEEDS_GIB,
 	PUSH_GIB,
 } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
@@ -250,6 +251,30 @@ describe("heavy work waiting for its turn", () => {
 		expect(booked).toEqual([
 			["git push origin new", PUSH_GIB, true, "push"],
 			["git push origin seen", Math.ceil(1.5 * HEADROOM), true, "push"],
+		]);
+	});
+
+	it("gives a push chained after a rebase its hooks, but a walk's hold and no quick turn", () => {
+		// Its LFS scan is left out as a lone push's is, while the rebase
+		// before it is held as the walk it is.
+		queueing(ROOMY);
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		const chained = queuedCommand(
+			"git rebase origin/main && git push origin HEAD:x",
+			world,
+		);
+		const fetched = queuedCommand(
+			"git fetch origin main && git push origin HEAD:y",
+			world,
+		);
+		expect(chained).toContain("core.hooksPath");
+		expect(fetched).toContain("core.hooksPath");
+		const booked = jobsAsked()
+			.map((job) => [job.walk, job.quick, job.needsGib])
+			.sort();
+		expect(booked).toEqual([
+			["branch", undefined, NEEDS_GIB["world-walk"]],
+			["branch", undefined, NEEDS_GIB["world-walk"]],
 		]);
 	});
 

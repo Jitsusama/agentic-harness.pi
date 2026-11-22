@@ -1,7 +1,7 @@
 /**
- * Session verbs: attach, detach, rename. Plus the
- * `spawn-*` verbs that open a new terminal tab, pane or
- * window via the registered terminal driver.
+ * The `spawn-*` verbs that open a quest a new session, in a terminal
+ * tab, pane or window here, on a host, or held on another machine.
+ * Which sessions a quest counts as its own is session-membership.ts's.
  */
 
 import { homedir, hostname } from "node:os";
@@ -9,6 +9,13 @@ import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
+import {
+	type DeclaredFence,
+	declarationSaid,
+	declarationSettled,
+	type FenceDeclaration,
+} from "../../../lib/internal/fence/fence-declaration.ts";
+import { declaredSandbox } from "../../../lib/internal/fence/fence-lifted.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -36,28 +43,14 @@ import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liv
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
-import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	describePlan,
 	type OpenedTerminal,
 	openTerminal,
 } from "../../../lib/terminal/index.ts";
-import { count } from "../../../lib/ui/count.ts";
 import { offerReopen } from "../first-turn-watch.ts";
-import {
-	attachSessionInQuestDir,
-	captureSessionIdentity,
-	detachSessionInQuestDir,
-	reconcileSessionMembership,
-	renameSessionInQuestDir,
-} from "../lifecycle.ts";
 import { buildSessionSnapshot } from "../liveness.ts";
-import {
-	auditSessionMembership,
-	getQuestEntry,
-	planDeadSessions,
-	planSessionRepair,
-} from "../lookup.ts";
+import { getQuestEntry } from "../lookup.ts";
 import type { QuestState } from "../state.ts";
 import { terminalOptions } from "../terminal.ts";
 import { trustPromptNote, trustPromptWaits } from "../trust-prompt.ts";
@@ -66,7 +59,6 @@ import {
 	presencesHere,
 	windowPlaceFor,
 } from "../window-place.ts";
-import { addressOf } from "./address.ts";
 import { nameBudgetFromFolder, namedBy } from "./budget.ts";
 import { needsOf } from "./needs.ts";
 import {
@@ -84,11 +76,13 @@ import {
 } from "./spawn-command.ts";
 import {
 	agentCommand,
+	askAgents,
 	isThisMachine,
 	machineByDefault,
 	machineFor,
 	spawnHeld,
 	startsPi,
+	swapsAgent,
 } from "./spawn-held.ts";
 import { hostTargetOf, reachedInHost, spawnByHost } from "./spawn-host.ts";
 import {
@@ -97,216 +91,38 @@ import {
 	resumedBy,
 	spawnedByLauncher,
 } from "./spawn-launcher.ts";
-import { stagedById, stagedSpawn } from "./spawn-stage.ts";
+import {
+	claimRunning,
+	placementFence,
+	spawnFence,
+	spawnFenced,
+	stagedById,
+	stagedSpawn,
+} from "./spawn-stage.ts";
 
-/**
- * Repair session-to-quest membership across the store, in two
- * independent passes read from two authorities:
- *
- * - Divergence: a session active on more than one quest is resolved
- *   to the one its own log names as owner (see `planSessionRepair`).
- * - Provably dead: an active session whose captured identity a probe
- *   reads gone is a detach candidate (see `planDeadSessions`). Only
- *   identity-backed deadness qualifies, so this is an observation the
- *   user acts on, never the recency heuristic rewriting membership.
- *
- * Previews both by default and mutates nothing; `force:true` applies
- * the divergence detaches and the dead detaches. Conflicted records
- * (a log naming no claimant) are always left for the user to resolve
- * by loading the true quest.
- */
-export async function sessionAudit(
-	state: QuestState,
-	params: QuestToolParams,
-): Promise<QuestResult> {
-	const plan = planSessionRepair(state);
-	// A session whose claims are conflicted is left for the user to
-	// resolve by loading its true quest; the dead pass must respect that
-	// same rule, so a dead-and-conflicted session is not force-detached
-	// out from under the unresolved decision.
-	const conflictedIds = new Set(plan.conflicted.map((d) => d.sessionId));
-	const dead = (await planDeadSessions(state)).filter(
-		(d) => !conflictedIds.has(d.sessionId),
-	);
-	if (
-		plan.resolvable.length === 0 &&
-		plan.conflicted.length === 0 &&
-		dead.length === 0
-	) {
-		return ok("No session divergence: every session is active on one quest.", {
-			divergences: auditSessionMembership(state),
-			plan,
-			dead,
-		});
-	}
-	const resolvableLines = plan.resolvable.map(
-		(r) =>
-			`${r.sessionId} -> keep ${r.keep}, detach from ${r.detachFrom.join(", ")}`,
-	);
-	const conflictedLines = plan.conflicted.map(
-		(d) =>
-			`${d.sessionId} conflicted across ${d.questIds.join(", ")} (log names no claimant)`,
-	);
-	const deadLines = dead.map(
-		(d) => `${d.sessionId} dead (probe) on ${d.questId}; would detach`,
-	);
-	if (!params.force) {
-		const parts = [
-			`${plan.resolvable.length} resolvable, ${dead.length} dead, ${plan.conflicted.length} conflicted. Pass force:true to apply the resolvable and dead detaches; conflicted records are left for you to resolve by loading the true quest.`,
-			...resolvableLines,
-			...deadLines,
-			...conflictedLines,
-		];
-		return ok(parts.join("\n"), { plan, dead, applied: false });
-	}
-	let detached = 0;
-	for (const entry of plan.resolvable) {
-		const gone = reconcileSessionMembership(state, entry.sessionId, entry.keep);
-		detached += gone.length;
-	}
-	let deadDetached = 0;
-	for (const entry of dead) {
-		const target = getQuestEntry(state, entry.questId);
-		if (!target) continue;
-		const result = detachSessionInQuestDir(target.dir, entry.sessionId);
-		if (result.ok && result.detached) deadDetached += 1;
-	}
-	const summary = [
-		`Repaired ${count(plan.resolvable.length, "divergent session")}, detached ${count(detached, "stray membership")}; detached ${count(deadDetached, "dead session")}. ${count(plan.conflicted.length, "conflicted record")} left untouched.`,
-		...conflictedLines,
-	];
-	return ok(summary.join("\n"), {
-		plan,
-		dead,
-		applied: true,
-		detached,
-		deadDetached,
-	});
-}
-
-/**
- * The quest a session verb acts on: the one `id` names, loaded or not,
- * or else the loaded one. On 29 October a detach naming another quest
- * acted on the loaded one and found nothing, leaving the session active
- * on the quest it had left.
- */
-function sessionQuest(
-	state: QuestState,
-	params: QuestToolParams,
-): { questId: string; questDir: string } | { refusal: string } {
-	if (!params.id?.trim() && !state.questId) {
-		return { refusal: "Load a quest first, or name it as `id`." };
-	}
-	const target = addressOf(state, params.id, { focused: false });
-	if ("refusal" in target) return target;
-	return { questId: target.questId, questDir: target.questDir };
-}
-
-export function sessionAttach(
-	state: QuestState,
-	ctx: ExtensionContext,
-	params: QuestToolParams,
-): QuestResult {
-	const quest = sessionQuest(state, params);
-	if ("refusal" in quest) return refuse(quest.refusal);
-	const id = currentSessionId(ctx, params.sessionId);
-	if (!id) {
-		return refuse(
-			"Could not determine current pi session id. Pass it explicitly in `sessionId`.",
-		);
-	}
-	const session: QuestSession = {
-		id,
-		started: new Date().toISOString(),
-		status: "active",
-	};
-	if (params.name?.trim()) session.name = params.name.trim();
-	if (params.cwd?.trim()) session.cwd = params.cwd.trim();
-	else if (ctx.cwd) session.cwd = ctx.cwd;
-	// Capture liveness identity only when attaching this process's own
-	// session; an explicit sessionId for another session must not be
-	// tagged with our process and terminal.
-	if (id === currentSessionId(ctx, undefined)) {
-		const identity = captureSessionIdentity();
-		session.instanceId = identity.instanceId;
-		if (identity.process) session.process = identity.process;
-		if (identity.terminal) session.terminal = identity.terminal;
-	}
-	const result = attachSessionInQuestDir(quest.questDir, session);
-	if (!result.ok) return refuse(result.guidance);
-	return ok(
-		result.added
-			? `Attached session ${id} to ${quest.questId}.`
-			: `Session ${id} was already attached to ${quest.questId}; refreshed status.`,
-		{ session, added: result.added },
-	);
-}
-
-export function sessionDetach(
-	state: QuestState,
-	ctx: ExtensionContext,
-	params: QuestToolParams,
-): QuestResult {
-	const quest = sessionQuest(state, params);
-	if ("refusal" in quest) return refuse(quest.refusal);
-	const id = currentSessionId(ctx, params.sessionId);
-	if (!id) {
-		return refuse(
-			"Could not determine session id to detach. Pass it explicitly in `sessionId`.",
-		);
-	}
-	const result = detachSessionInQuestDir(quest.questDir, id);
-	if (!result.ok) return refuse(result.guidance);
-	if (!result.detached) {
-		return refuse(
-			`Session ${id} is not attached (or already detached) on ${quest.questId}.`,
-		);
-	}
-	return ok(`Detached session ${id} from ${quest.questId}.`, {
-		sessionId: id,
-	});
-}
-
-export function sessionRename(
-	state: QuestState,
-	ctx: ExtensionContext,
-	params: QuestToolParams,
-): QuestResult {
-	const quest = sessionQuest(state, params);
-	if ("refusal" in quest) return refuse(quest.refusal);
-	if (!params.name?.trim())
-		return refuse("Pass the new session name in `name`.");
-	const id = currentSessionId(ctx, params.sessionId);
-	if (!id) return refuse("Pass a session id in `sessionId`.");
-	const result = renameSessionInQuestDir(
-		quest.questDir,
-		id,
-		params.name.trim(),
-	);
-	if (!result.ok) return refuse(result.guidance);
-	if (!result.renamed) {
-		return refuse(
-			`Session ${id} is not attached to ${quest.questId} or already has that name.`,
-		);
-	}
-	return ok(`Renamed session ${id} to "${params.name.trim()}".`, {
-		sessionId: id,
-		name: params.name.trim(),
-	});
+/** What a spawn settled on its way, for its answer to say. */
+interface SpawnSaid {
+	budget?: FolderBudget;
+	fence?: FenceDeclaration;
+	handed?: DeclaredFence;
 }
 
 /**
  * Give a quest a session of its own, first naming the budget its folder
  * draws on when nothing above it names one, so the session starts on
- * it; the answer opens by saying so.
+ * it; the answer opens by saying so, and says the fence it declared.
  */
 export async function spawn(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
-	const said: { budget?: FolderBudget } = {};
-	const result = await spawnNaming(state, ctx, params, said);
+	const said: SpawnSaid = {};
+	const result = withFence(
+		await spawnNaming(state, ctx, params, said),
+		said.fence,
+		said.handed,
+	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
 	if (!result.ok) {
@@ -322,11 +138,42 @@ export async function spawn(
 	};
 }
 
+/**
+ * A spawn's answer saying the fence it runs in, which it told the node
+ * where it asked one, and the sandbox it was `handed` where that claims
+ * more. A host too old for the stage's token or a declared fence's
+ * mark took it without, so the claim settles to what that runs.
+ */
+function withFence(
+	result: QuestResult,
+	asked: FenceDeclaration | undefined,
+	handed: DeclaredFence | undefined,
+): QuestResult {
+	if (!result.ok || !asked) return result;
+	const unstaged = result.details?.unstaged === true;
+	const unmarked = result.details?.unmarked === true;
+	const fence =
+		unstaged || unmarked
+			? declarationSettled(asked, {
+					staged: !unstaged,
+					carried: true,
+					reopens: false,
+					pi: true,
+					kept: !unmarked,
+				})
+			: asked;
+	return {
+		...result,
+		message: `${result.message} ${declarationSaid(fence, handed)}`,
+		details: { ...result.details, fence },
+	};
+}
+
 async function spawnNaming(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
-	said: { budget?: FolderBudget },
+	said: SpawnSaid,
 ): Promise<QuestResult> {
 	// A suffixed verb names its layout; a bare spawn leaves it to the
 	// terminal settings unless the call gives one.
@@ -387,23 +234,45 @@ async function spawnNaming(
 	// History stays on its machine, so a session elsewhere starts fresh.
 	// A machine or needs the call names replace the quest's needs.
 	const named = params.machine?.trim() || undefined;
+	// The fence it tells the node it runs in: the call's, else the quest's,
+	// else what it runs.
+	const declared = spawnFence({
+		fence: params.fence,
+		quest: fm._extra?.fence,
+		parent: sessionEnv(ctx).snapshot(),
+	});
+	if (!declared.ok) return refuse(declared.refusal);
+	let fence = declared.declaration;
+	const resumable = pickResumeSession(
+		sessions.filter((s) => s.id !== currentId),
+	);
+	// The realm's agents, asked once before it is placed, since one that
+	// runs no pi may be where it lands: the claim told the node, and the
+	// command it starts, both follow the one answer.
+	const realmAgents = params.command?.trim() ? undefined : await askAgents();
+	const agentsHere = async () => realmAgents;
+	const placementClaim = placementFence(fence, {
+		command: params.command,
+		resumes: resumable !== undefined && "id" in resumable,
+		swapped: swapsAgent(realmAgents),
+	});
 	const chosen = await machineFor(
 		named,
 		named !== undefined || params.needs !== undefined
 			? (params.needs ?? [])
 			: needsOf(fm),
+		undefined,
+		placementClaim,
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { needs } = chosen;
-	const resumable = pickResumeSession(
-		sessions.filter((s) => s.id !== currentId),
-	);
 	// Naming neither, it goes where the node places work, unless it resumes.
 	const machine = await machineByDefault(chosen.machine, needs, {
 		resumes: Boolean(resumable && "id" in resumable),
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),
+		fence: placementClaim,
 	});
 	const resume =
 		machine === undefined || isThisMachine(machine) ? resumable : undefined;
@@ -440,6 +309,20 @@ async function spawnNaming(
 	const { command: asks, dryRun } = params; // a reopen isn't staged
 	const stage = { questId: questIdForSpawn, resuming, command: asks, dryRun };
 	const staged = stagedSpawn(stage);
+	const started = spawnFenced(fence, {
+		...stage,
+		listed: staged !== undefined,
+		held: machine !== undefined,
+		here: machine === undefined || isThisMachine(machine),
+	});
+	fence = started.claim;
+	said.fence = fence;
+	const { sandbox } = started;
+	if (sandbox) said.handed = sandbox;
+	const carried = {
+		...(staged ? { [STAGE_VARIABLE]: staged } : {}),
+		...declaredSandbox(sandbox),
+	};
 	// The host the call names, or for a plain spawn the one spawnHost says.
 	const byHost = await spawnByHost({
 		...(target.kind ? { asked: target.kind } : {}),
@@ -447,7 +330,7 @@ async function spawnNaming(
 		...(machine !== undefined && !isThisMachine(machine)
 			? { elsewhere: machine }
 			: {}),
-		agent: () => agentCommand("pi", here),
+		agent: () => agentCommand("pi", here, agentsHere),
 		spawn: {
 			questId: questIdForSpawn,
 			cwd,
@@ -459,7 +342,7 @@ async function spawnNaming(
 				: {}),
 			...(ctx.thinkingLevel ? { thinkingLevel: ctx.thinkingLevel } : {}),
 			env: sessionEnv(ctx).snapshot(),
-			...(staged ? { carried: { [STAGE_VARIABLE]: staged } } : {}),
+			...(Object.keys(carried).length > 0 ? { carried } : {}),
 			...(params.dryRun ? { dryRun: true } : {}),
 		},
 	});
@@ -490,8 +373,10 @@ async function spawnNaming(
 	// as Joel's personal one declares pi-claude, starts that instead.
 	const spawnsPi = !params.command?.trim();
 	const agents = spawnsPi
-		? await agentCommand(spawned.command, here)
+		? await agentCommand(spawned.command, here, agentsHere)
 		: spawned.command;
+	fence = claimRunning(fence, spawned.command, agents);
+	said.fence = fence;
 	// The pi it starts runs on the asking session's model. Another agent a
 	// realm declares keeps its own, since its models aren't this one's.
 	const command =
@@ -551,6 +436,8 @@ async function spawnNaming(
 		const held = await spawnHeld({
 			machine,
 			needs,
+			fence,
+			...(sandbox ? { sandbox } : {}),
 			command,
 			cwd,
 			home: homedir(),
@@ -612,6 +499,7 @@ async function spawnNaming(
 		cwd,
 		questId: questIdForSpawn,
 		named: Boolean(params.terminal?.trim() || asked || params.nesting?.trim()),
+		sandboxed: sandbox !== undefined,
 		...(asking ? { fromSessionId: asking } : {}),
 		place: handedPlaceFor(questIdForSpawn, index),
 	});
@@ -621,6 +509,7 @@ async function spawnNaming(
 	const token = leftUnder(forLauncher?.id ?? uuidv7());
 	if (token) env[FIRST_WORDS_VARIABLE] = token;
 	if (staged) env[STAGE_VARIABLE] = staged;
+	Object.assign(env, declaredSandbox(sandbox));
 	if (staged && forLauncher?.fresh) stagedById(forLauncher.id, stage);
 	// The command is typed into a login shell the terminal opens, so the
 	// person's startup files put the right pi on PATH; handed to the

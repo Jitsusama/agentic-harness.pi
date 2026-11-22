@@ -39,11 +39,16 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	fencedChildrenRefusal,
+	settingsRefusal,
+} from "../../lib/internal/fence/installed-only.ts";
 import { stateDir as stateDirOf } from "../../lib/internal/paths.ts";
 import { personsWords } from "../../lib/internal/session/asked-models.ts";
 import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
 import { ReviewerArtifactsStore } from "../../lib/subagent/artifacts.ts";
 import {
+	getSubagentDefaults,
 	registerSubagentDefaultExtension,
 	registerSubagentDefaultSkill,
 } from "../../lib/subagent/defaults.ts";
@@ -76,7 +81,7 @@ import {
 	SUBAGENT_PARAMETERS,
 	SUBAGENT_PROMPT_SNIPPET,
 } from "./declaration.ts";
-import { fenceRefusal } from "./fence-keep.ts";
+import { childSandbox, fenceChildren, keepFence } from "./fence-keep.ts";
 import { saidFirst, sizeFleet } from "./fleet-settings.ts";
 import {
 	createFleetProgressReporter,
@@ -311,14 +316,46 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 					details: { ok: false },
 				};
 			}
-			const kept = fenceRefusal(sized.jobs);
-			if (kept !== undefined) {
+			const sandbox = childSandbox();
+			// Every child loads this package's own files and the registered
+			// defaults outside the fence, and an unisolated one whatever the
+			// person's settings name. That matters wherever the children are
+			// fenced: a fenced child may write the tree it works in, and the
+			// next child would load what it planted there, outside the fence,
+			// even where this session's own commands run as the person.
+			const unisolated = sized.jobs.some((job) => job.isolated === false);
+			const outside =
+				sandbox === undefined
+					? undefined
+					: (fencedChildrenRefusal(
+							unisolated,
+							getSubagentDefaults().extensions,
+						) ?? (unisolated ? await settingsRefusal() : undefined));
+			if (outside !== undefined) {
 				return {
-					content: [{ type: "text" as const, text: kept }],
+					content: [
+						{ type: "text" as const, text: `No subagent started: ${outside}` },
+					],
 					details: { ok: false },
 				};
 			}
-			const assignments: FleetAssignment[] = sized.jobs.map(buildAssignment);
+			const kept = keepFence(sized.jobs, sandbox);
+			if (!kept.ok) {
+				return {
+					content: [{ type: "text" as const, text: kept.refusal }],
+					details: { ok: false },
+				};
+			}
+			// The extensions as followed, never as named, so a link swapped
+			// since can't point a child elsewhere.
+			const fenced = fenceChildren(kept.jobs.map(buildAssignment), sandbox);
+			if (!fenced.ok) {
+				return {
+					content: [{ type: "text" as const, text: fenced.refusal }],
+					details: { ok: false },
+				};
+			}
+			const assignments: FleetAssignment[] = fenced.jobs;
 			// Held apart, since the fleet below runs in a function of its own,
 			// where the narrowing above does not reach.
 			const ranOn = sized.ranOn;

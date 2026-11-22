@@ -41,6 +41,7 @@ import {
 	indexSessionFiles,
 	prunePhantomSessions,
 } from "../../lib/internal/quest/sessions/session-liveness.ts";
+import { sproutSeedFrom } from "../../lib/internal/quest/sessions/sprout-seed.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/session/state.ts";
 import { sessionNameFor, shortNameOf } from "./render.ts";
@@ -380,7 +381,7 @@ export function restore(
 
 /** How the startup resolver chose the quest to load. */
 export interface StartupResolution {
-	source: "explicit" | "persisted" | "record" | "cwd" | "none";
+	source: "explicit" | "persisted" | "record" | "sprout" | "cwd" | "none";
 	questId: string | null;
 }
 
@@ -424,6 +425,11 @@ export function resolveStartup(
 	if (restoreFromRecord(state, pi, ctx)) {
 		return { source: "record", questId: state.questId };
 	}
+	// A sprout makes its own quest (sessions/sprout-start.ts), so it never takes
+	// on the quest of whatever tree it was started in.
+	if (sproutSeedFrom(hints.sprout)) {
+		return { source: "sprout", questId: null };
+	}
 	// The cwd walk is the only path that attaches a fresh session
 	// it never chose. When the user disables it, a fresh session
 	// stays idle rather than adopting whatever quest happens to
@@ -439,7 +445,11 @@ export function resolveStartup(
 	};
 }
 
-function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
+/**
+ * The launch hints this start read and has yet to say, which a sprout's
+ * start reads and leaves its own first words in.
+ */
+export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
 	return sessionSlot(
 		"agentic-harness.quest-workflow.launch-words",
 		ctx,
@@ -478,12 +488,15 @@ export function sayFirstWords(
 	delete slot.hints;
 	const token = hints.firstWordsToken;
 	const putOff = pending();
-	const words =
-		hints.firstWords ??
-		takeFirstWords([token, sessionId], dir, Date.now(), {
-			...(sessionId ? { sessionId } : {}),
-			said: !putOff,
-		});
+	// The node's file is taken even when words were settled already (a
+	// sprout's, or none on a replay), so it's removed and its .taken
+	// record left, rather than waiting to be said to another start. It
+	// records a turn said only when one goes out: none on a hushed replay.
+	const taken = takeFirstWords([token, sessionId], dir, Date.now(), {
+		...(sessionId ? { sessionId } : {}),
+		said: !putOff && hints.firstWords !== "",
+	});
+	const words = hints.firstWords ?? taken;
 	if (!words || putOff) return undefined;
 	return () => {
 		const idle = ctx.isIdle?.() ?? true;

@@ -20,7 +20,7 @@ export type Kind =
  * What a walk of World's objects does, as world-walk.ts's `walkOf` reads
  * it.
  */
-export type Walk = "push" | "main-fetch" | "other";
+export type Walk = "push" | "main-fetch" | "branch" | "other";
 
 /**
  * How a kind is run: timed work's result depends on its timing, so it
@@ -88,8 +88,9 @@ export const PUSH_GIB = 0.25;
 export const LIGHT_GIB = 1;
 
 /**
- * How many walks of World's git objects run at once, whatever memory
- * reads. From 08:04 to 08:22 on 4 November the kernel killed six times
+ * How many walks of World's git objects run at once while memory
+ * pressure stays under {@link ONE_WALK_FROM_PRESSURE}, past which one
+ * does ({@link walksAtOnce}). From 08:04 to 08:22 on 4 November the kernel killed six times
  * while 3 to 5 ran at once from different sessions' World trees, each
  * mapping 3 to 6 GB of packs: each evicted the others', 60.9M file pages
  * refaulted in 38 minutes, and at the 08:14:56 kill reclaim found
@@ -98,6 +99,26 @@ export const LIGHT_GIB = 1;
  * them.
  */
 export const WALKS_AT_ONCE = 2;
+
+/**
+ * The memory pressure, the share of the last minute every task stalled
+ * (`full avg60`), in percent, from which walks of World's objects go one
+ * at a time. At 06:08 on 21 November it read 13.6 to 17.8 while two
+ * World rebases of 3.8 and 3.9 GB, a push's LFS scan of 2.3 GB and a
+ * `git log -S` of 1.3 GB ran side by side, and core.nix's own small git
+ * calls took 9 to 70 s each (80ECO2). Beside one another, each walk
+ * evicts the packs the next one maps.
+ */
+export const ONE_WALK_FROM_PRESSURE = 5;
+
+/**
+ * How many walks of World's objects may run at once while `fullMinute`
+ * is the memory pressure read, or nothing where none is read: one from
+ * {@link ONE_WALK_FROM_PRESSURE}, else {@link WALKS_AT_ONCE}.
+ */
+export function walksAtOnce(fullMinute: number | undefined): number {
+	return (fullMinute ?? 0) >= ONE_WALK_FROM_PRESSURE ? 1 : WALKS_AT_ONCE;
+}
 
 /**
  * What a whole flake's check holds, in GiB, whatever its kind: `nix flake

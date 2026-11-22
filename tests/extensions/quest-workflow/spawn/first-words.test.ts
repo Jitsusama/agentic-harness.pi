@@ -6,7 +6,10 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sayFirstWords } from "../../../../extensions/quest-workflow/lifecycle.ts";
+import {
+	pendingWords,
+	sayFirstWords,
+} from "../../../../extensions/quest-workflow/lifecycle.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
@@ -86,6 +89,24 @@ describe("a session a spawn started", () => {
 		expect(said).toEqual([
 			{ text: "carry on", options: { deliverAs: "followUp" } },
 		]);
+	});
+
+	it("says words settled at start over the node's, still taking the node's file", async () => {
+		leaveFirstWords("019a-sprout", "the node's prose", dir);
+		pendingWords(ctx).hints = { firstWords: "quest QEST-1 is made" };
+		sayAtStartsEnd("019a-sprout");
+		expect(said.map((one) => one.text)).toEqual(["quest QEST-1 is made"]);
+		expect(readdirSync(dir)).toEqual(["019a-sprout.taken"]);
+		expect(takenRecord("019a-sprout")).toMatchObject({ said: true });
+	});
+
+	it("says nothing on a hushed start, recording no turn said", async () => {
+		leaveFirstWords("019a-hushed", "the node's prose", dir);
+		pendingWords(ctx).hints = { firstWords: "" };
+		expect(sayAtStartsEnd("019a-hushed")).toBeUndefined();
+		expect(said).toEqual([]);
+		expect(readdirSync(dir)).toEqual(["019a-hushed.taken"]);
+		expect(takenRecord("019a-hushed")).toMatchObject({ said: false });
 	});
 
 	it("says nothing when no spawn left it words", async () => {

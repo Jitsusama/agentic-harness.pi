@@ -23,6 +23,11 @@
  * nothing there, and opens no window, even when asked: one opened here
  * for a session there lands on Joel's screen (WM4KSZ [a124c9cb]; Joel,
  * 18:45 on 15 November).
+ *
+ * Each ask of the node says the fence the session declares it runs in
+ * (fence-declaration.ts), which the node judges where it may go by; a
+ * fresh session whose fence was declared starts with `PI_SANDBOX` set
+ * to it.
  */
 
 import { randomUUID } from "node:crypto";
@@ -30,6 +35,11 @@ import { hostname } from "node:os";
 import { relative } from "node:path";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.ts";
+import type {
+	DeclaredFence,
+	FenceDeclaration,
+} from "../../../lib/internal/fence/fence-declaration.ts";
+import { declaredSandbox } from "../../../lib/internal/fence/fence-lifted.ts";
 import {
 	FIRST_TEXT_VARIABLE,
 	FIRST_WORDS_VARIABLE,
@@ -64,6 +74,13 @@ export interface HeldSpawn {
 	readonly machine: string;
 	/** What the machine was chosen for, if the node chose it. */
 	readonly needs: readonly Need[];
+	/** The fence the session declares it runs in, told to the node. */
+	readonly fence?: FenceDeclaration;
+	/**
+	 * The sandbox its commands run in, as `PI_SANDBOX` names it, when a
+	 * fresh session's fence was declared (`sandboxFor`).
+	 */
+	readonly sandbox?: DeclaredFence;
 	/** The shell command the session runs, as spawn resolved it. */
 	readonly command: string;
 	/** The folder spawn resolved, on this machine. */
@@ -134,6 +151,7 @@ function likeness(start: Omit<NodeStart, "once">): string {
 	return JSON.stringify([
 		start.machine,
 		start.needs ?? [],
+		start.fence ?? null,
 		start.folder ?? null,
 		start.command.filter(
 			(word) => !word.startsWith(`${FIRST_WORDS_VARIABLE}=`),
@@ -173,13 +191,17 @@ export function startNames(now: () => number = Date.now): StartNames {
 const namesHere = startNames();
 
 /** How spawn asks a node where work goes; the machine's node by default. */
-export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
+export type PlaceOnNode = (
+	needs: readonly Need[],
+	fence?: FenceDeclaration,
+) => Promise<PlaceAnswer>;
 
 /**
  * Where, counting nothing: work placed with needs starts through the
  * node's own start wherever it goes, which counts it there.
  */
-const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
+const askWhere: PlaceOnNode = (needs, fence) =>
+	placeAt(nodeSocket(), needs, undefined, fence);
 
 /**
  * Where, for a spawn that starts here itself when the node answers this
@@ -187,7 +209,8 @@ const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
  * a burst weighs it rather than being told the same machine before the
  * session shows.
  */
-const askToStart: PlaceOnNode = (needs) => placeToStartAt(nodeSocket(), needs);
+const askToStart: PlaceOnNode = (needs, fence) =>
+	placeToStartAt(nodeSocket(), needs, undefined, fence);
 
 /** How a spawn shares its quest with the machines this one links with. */
 export type ShareQuest = (
@@ -221,6 +244,8 @@ export interface StaysAsked {
 	readonly command?: string;
 	/** Only a plan is asked for, so nothing starts to be counted. */
 	readonly dryRun?: boolean;
+	/** The fence it declares, which the node places it by. */
+	readonly fence?: FenceDeclaration;
 }
 
 /**
@@ -242,7 +267,7 @@ export async function machineByDefault(
 	if (asked.resumes || asked.host?.trim() || asked.command?.trim()) {
 		return undefined;
 	}
-	const answer = await place([]);
+	const answer = await place([], asked.fence);
 	return answer.ok && !isThisMachine(answer.machine, name)
 		? answer.machine
 		: undefined;
@@ -266,6 +291,7 @@ export async function machineFor(
 	machine: string | undefined,
 	words: readonly string[],
 	place: PlaceOnNode = askWhere,
+	fence?: FenceDeclaration,
 ): Promise<Chosen> {
 	const needs: Need[] = [];
 	for (const word of words) {
@@ -287,7 +313,7 @@ export async function machineFor(
 		machine === undefined
 			? needs
 			: [...needs, { kind: "machine", value: machine }];
-	const answer = await place(all);
+	const answer = await place(all, fence);
 	if (!answer.ok) {
 		return {
 			ok: false,
@@ -302,7 +328,19 @@ export type AgentsOnNode = () => Promise<
 	ReadonlyMap<string, string> | undefined
 >;
 
-const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+/** The agent command each machine in this session's realm declares. */
+export const askAgents: AgentsOnNode = () => agentsAt(nodeSocket());
+
+/**
+ * Whether any machine in `agents` starts another agent in pi's place, so
+ * a spawn asked where it runs, before it is known where, can't vouch for
+ * a fence only pi keeps.
+ */
+export function swapsAgent(
+	agents: ReadonlyMap<string, string> | undefined,
+): boolean {
+	return [...(agents?.values() ?? [])].some((agent) => agent !== "pi");
+}
 
 /**
  * `command` as `machine` starts an agent session in this session's realm:
@@ -317,13 +355,18 @@ export async function agentCommand(
 	machine: string,
 	agents: AgentsOnNode = askAgents,
 ): Promise<string> {
-	if (!runsPi(command)) return command;
+	if (!opensWithPi(command)) return command;
 	const agent = (await agents())?.get(machine);
 	return agent && agent !== "pi" ? `${agent}${command.slice(2)}` : command;
 }
 
-/** Whether a command starts pi itself, as `pi` or `pi` with its flags. */
-export function runsPi(command: string): boolean {
+/**
+ * Whether a command opens with the word `pi`, alone or with flags: the
+ * word a node's agent takes the place of, and what a holder's `--` must
+ * be followed by. Not whether a fence reaches what it runs, which
+ * spawn-stage.ts's `runsPi` answers more strictly.
+ */
+function opensWithPi(command: string): boolean {
 	return command === "pi" || command.startsWith("pi ");
 }
 
@@ -339,11 +382,11 @@ const HOLDERS = new Set(["mycelium"]);
  * 11-07 two sessions spawned that way were never told their notes.
  */
 export function startsPi(command: string): boolean {
-	if (runsPi(command)) return true;
+	if (opensWithPi(command)) return true;
 	const [program] = command.trim().split(/\s+/);
 	if (!program || !HOLDERS.has(program)) return false;
 	const after = command.indexOf(" -- ");
-	return after >= 0 && runsPi(command.slice(after + 4).trim());
+	return after >= 0 && opensWithPi(command.slice(after + 4).trim());
 }
 
 /** What a spawn's machine was chosen for, as a sentence, or nothing. */
@@ -391,12 +434,16 @@ export function heldWords(
 	questId: string,
 	firstWords?: string,
 	firstText?: string,
+	sandbox?: DeclaredFence,
 ): string[] {
 	return [
 		"env",
 		`QUEST_WORKFLOW_AUTOLOAD_ID=${questId}`,
 		...(firstWords ? [`${FIRST_WORDS_VARIABLE}=${firstWords}`] : []),
 		...(firstText ? [`${FIRST_TEXT_VARIABLE}=${firstText}`] : []),
+		...Object.entries(declaredSandbox(sandbox)).map(
+			([name, value]) => `${name}=${value}`,
+		),
 		"sh",
 		"-c",
 		command,
@@ -433,6 +480,7 @@ export async function spawnHeld(
 				details: {
 					machine: asked.machine,
 					needs: asked.needs.map(needWords),
+					fence: asked.fence ?? null,
 					folder: folder ?? null,
 					command: asked.command,
 				},
@@ -449,6 +497,7 @@ export async function spawnHeld(
 			details: {
 				machine: asked.machine,
 				needs: asked.needs.map(needWords),
+				fence: asked.fence ?? null,
 				folder: folder ?? null,
 				command: asked.command,
 				plan: planned.plan,
@@ -464,12 +513,14 @@ export async function spawnHeld(
 	const starting = {
 		machine: asked.machine,
 		needs: asked.needs,
+		...(asked.fence ? { fence: asked.fence } : {}),
 		...(folder !== undefined ? { folder } : {}),
 		command: heldWords(
 			asked.command,
 			asked.questId,
 			asked.firstWords,
 			here ? undefined : asked.firstText,
+			asked.sandbox,
 		),
 	};
 	const once = names.nameFor(starting);
@@ -508,6 +559,7 @@ function leftHeld(asked: HeldSpawn, started: NodeStarted): HeldSpawnOutcome {
 		details: {
 			machine: started.machine,
 			needs: asked.needs.map(needWords),
+			fence: asked.fence ?? null,
 			held: started.held,
 			folder: started.folder,
 			attach: started.attach,
@@ -548,6 +600,7 @@ async function joined(
 		details: {
 			machine: started.machine,
 			needs: asked.needs.map(needWords),
+			fence: asked.fence ?? null,
 			held: started.held,
 			folder: started.folder,
 			attach: started.attach,

@@ -15,8 +15,11 @@
  * session on this machine in a pi host, whose presence says it parked,
  * whose park marker is from this boot and which no live host still
  * runs, doesn't count for a reboot, restart or shut-down, which is how
- * a disruption once scheduled goes through. Every realm's node on the machine is read,
- * since a reboot ends the sessions of all of them. So is a
+ * a disruption once scheduled goes through. Either spare stands only
+ * where every command shown beside the ask is a plain reboot, shut-down
+ * or log-out, and what it let past is kept in the session's log. Every
+ * realm's node on the machine is read, since a reboot ends the sessions
+ * of all of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without
  * mycelium, there is no node and nothing is refused; where one is named
@@ -52,6 +55,7 @@ import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
 	logOutSpares,
 	parkedHere,
+	withinPatience,
 } from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
@@ -65,6 +69,7 @@ import {
 	refusalFor,
 	type Said,
 	type SessionEndingDeps,
+	type SpareTrace,
 	saidByAsk,
 	saidByLook,
 	saidByWait,
@@ -75,6 +80,12 @@ import { rememberedMachinesFile, rememberMachines } from "./remembered.ts";
 export type { SessionEndingDeps } from "./refuse.ts";
 
 const GUARD = GUARDS.noSessionEndingAskWhileLive;
+
+/**
+ * What a spare's trace is kept in the session's log as: kept, never
+ * sent to the model, so what a spare let past can be read after.
+ */
+export const SPARE_ENTRY = "session-ending-spare";
 
 /** What the refusal of a reply is sent as, after the withheld reply. */
 export const WITHHELD_MESSAGE = "session-ending-withheld";
@@ -102,6 +113,20 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 };
 
 /**
+ * Forgets what the run showed once the person speaks, typed or through
+ * a host, since they have answered it. An extension's message, a job's
+ * result or a peer's nudge, is no word of theirs, so it forgets nothing.
+ */
+function forgetOnThePersonsWord(beside: Beside, source: string): void {
+	if (source !== "extension") beside.texts = [];
+}
+
+/** What reads the tool `name`, its own key only, never the prototype's. */
+function readerOf(name: string): ((input: unknown) => Said) | undefined {
+	return Object.hasOwn(READERS, name) ? READERS[name] : undefined;
+}
+
+/**
  * How often the model has been told of a withheld reply in this run,
  * so a rephrase withheld again is said too, up to TELLS_PER_RUN and no
  * more, lest a model that keeps asking loops until the run settles;
@@ -114,10 +139,19 @@ interface Told {
 	readonly keys: Set<string>;
 }
 
+/**
+ * What the run's replies have said, their text and every call they
+ * made, which the person reads beside each call now being read, until
+ * they speak or the run settles.
+ */
+interface Beside {
+	texts: readonly string[];
+}
+
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
-/** How long logind has to say what spares a session. */
+/** How long logind, and the read of parked sessions, have to answer. */
 const SPARES_PATIENCE_MS = 2000;
 
 /**
@@ -132,13 +166,20 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
 		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
+		const beside: Beside = { texts: [] };
+		const traced = (trace: SpareTrace) => pi.appendEntry(SPARE_ENTRY, trace);
 		pi.on("tool_call", (event, ctx) =>
-			refuseCall(event.toolName, event.input, ctx, deps),
+			refuseCall(event.toolName, event.input, ctx, deps, traced, beside.texts),
 		);
-		pi.on("message_end", (event, ctx) =>
-			withholdReply(pi, event.message, ctx, deps, told),
-		);
+		pi.on("input", (event) => {
+			forgetOnThePersonsWord(beside, event.source);
+		});
+		pi.on("message_end", (event, ctx) => {
+			noteBeside(beside, event.message);
+			return withholdReply(pi, event.message, ctx, deps, told, traced, beside);
+		});
 		pi.on("agent_settled", () => {
+			beside.texts = [];
 			told.tells = 0;
 			told.run = randomUUID();
 			told.keys.clear();
@@ -153,10 +194,16 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
  * the mesh, so its node reads as one that can't be, and so does every
  * node when any one can't be read.
  * logind is asked on `env`'s PATH; presences are read where every store
- * of the package keeps its state, from the process's own environment.
+ * of the package keeps its state, from the process's own environment,
+ * and none can be told while `nextRoot` holds a tree. Each read has
+ * `patienceMs` to answer.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
+	{
+		nextRoot = "/run/nextroot",
+		patienceMs = SPARES_PATIENCE_MS,
+	}: { nextRoot?: string; patienceMs?: number } = {},
 ): SessionEndingDeps {
 	return {
 		onMesh: () => realmNamed(env),
@@ -177,15 +224,26 @@ export function nodeDeps(
 		here: () => thisMachine(),
 		spares: async () => {
 			const exec = spawnExec({
-				timeoutMs: SPARES_PATIENCE_MS,
+				timeoutMs: patienceMs,
 				killGraceMs: SPARES_KILL_GRACE_MS,
 				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
 			});
 			const [lingers, parked] = await Promise.all([
 				lingersHere(exec),
-				parkedHere(),
+				withinPatience(
+					() => parkedHere(undefined, undefined, nextRoot),
+					patienceMs,
+				).then(
+					(sessions) => ({ sessions }),
+					(error: unknown) => ({
+						sessions: new Set<string>(),
+						unread: error instanceof Error ? error.message : String(error),
+					}),
+				),
 			]);
-			return { lingers, parked };
+			return "unread" in parked
+				? { lingers, parked: parked.sessions, unread: parked.unread }
+				: { lingers, parked: parked.sessions };
 		},
 	};
 }
@@ -237,10 +295,18 @@ async function refuseCall(
 	input: unknown,
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
+	traced: (trace: SpareTrace) => void,
+	beside: readonly string[],
 ) {
-	const read = READERS[toolName];
+	const read = readerOf(toolName);
 	if (!read) return undefined;
-	const refusal = await refusalFor(read(input), selfOf(ctx), deps);
+	const refusal = await refusalFor(
+		read(input),
+		selfOf(ctx),
+		deps,
+		traced,
+		beside,
+	);
 	if (!refusal) return undefined;
 	return refusalUnder(
 		GUARD.name,
@@ -249,6 +315,31 @@ async function refuseCall(
 		JSON.stringify(input),
 		refusal.key,
 	);
+}
+
+/**
+ * Adds what an assistant's reply says, refused or not, to what later
+ * calls are read beside: its text, and what each call it makes says,
+ * since pi ends the message before its calls run, in whatever order.
+ */
+function noteBeside(beside: Beside, message: { role: string }): void {
+	if (message.role !== "assistant" || !("content" in message)) return;
+	const blocks: unknown[] = Array.isArray(message.content)
+		? message.content
+		: [];
+	const calls = blocks.flatMap((block) => {
+		if (!isRecord(block) || block.type !== "toolCall") return [];
+		const read =
+			typeof block.name === "string" ? readerOf(block.name) : undefined;
+		return read ? [read(block.arguments)] : [];
+	});
+	beside.texts = [
+		...beside.texts,
+		...[saidInReply(message.content), ...calls].flatMap((said) => [
+			...said.prose,
+			...said.labels,
+		]),
+	];
 }
 
 /**
@@ -265,10 +356,18 @@ async function withholdReply<M extends { role: string }>(
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
 	told: Told,
+	traced: (trace: SpareTrace) => void,
+	beside: Beside,
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
-	const refusal = await refusalFor(said, selfOf(ctx), deps);
+	const refusal = await refusalFor(
+		said,
+		selfOf(ctx),
+		deps,
+		traced,
+		beside.texts,
+	);
 	if (!refusal) return undefined;
 	const stopped =
 		"stopReason" in message &&

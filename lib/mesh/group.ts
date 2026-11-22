@@ -94,6 +94,11 @@ export function orchestratorNamed(
 	return { to, missing: orchestratedBy === undefined };
 }
 
+/** Whether `to` names the word `orchestrator` among its groups. */
+export function namesOrchestrator(written: string): boolean {
+	return orchestratorNamed(written, undefined).missing;
+}
+
 /** The word in `to` that names the sender's orchestrator. */
 export const ORCHESTRATOR = "orchestrator";
 

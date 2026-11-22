@@ -105,6 +105,8 @@ export interface HostScreens {
 	 * only then, since a restart loses each of those (restart.ts).
 	 */
 	resting(): boolean;
+	/** Whether a window views this conversation now, its screen live, starting or parked. */
+	viewed(sessionId: string): boolean;
 	/**
 	 * Contain what `sessionId`'s conversation threw where nothing caught it,
 	 * saying whether it has a screen to contain it in.
@@ -507,6 +509,12 @@ export function hostScreens(options: {
 					atRest(screen.mode, screen.runtime) &&
 					noGates(screen.view.sessionId),
 			),
+		viewed: (sessionId) =>
+			(
+				live.get(sessionId) ??
+				early.get(sessionId) ??
+				asleep.get(sessionId)
+			)?.terminal.isViewed() ?? false,
 		faulted(sessionId, error) {
 			const screen = live.get(sessionId);
 			if (screen) contain(screen, error);

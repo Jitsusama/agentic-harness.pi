@@ -40,6 +40,34 @@ becomes pi's `--system-prompt`, `skills` and
 `verify` injects a verify pack so the subagent must call
 `verify_output` before ending.
 
+A subagent's pi runs outside the fence its parent's commands
+run in, so in a fenced session the tool keeps a fenced
+command's code out of it (`fence-keep.ts`). Every extension a
+job names, `verify`'s included, must be an absolute path in the
+current version of a package pi has installed, which the fence
+holds read-only; the child is handed the path as followed,
+links and all, so a link swapped since can't move it. Every
+child starts with `--no-approve`, isolated or not, so a
+folder's own `.pi` is never loaded as code, and is told its
+sandbox by name; an isolated one loads the fence's own bash and
+file guards from the install, and none starts when they aren't
+there. Each child also loads this package's own files, its
+packs and supervisor among them, and every extension a package
+registered as every subagent's default, outside the fence. So
+while the children are fenced, none starts while the session
+runs the harness from a tree, since a fenced child could write
+the tree the next one loads, or while a default lies where a
+fenced command may write. An unisolated one also needs the
+person's settings to load the harness, its fenced bash among
+it, from the install, and every other extension they name, pi's
+agent folder's included, from the install, the agent folder or
+the Nix store (`installed-only.ts`). Reload onto the install
+first. To try an extension the model wrote, run pi on it as a
+fenced command instead. The children are fenced where the
+session is, and, once subagents join the first stage, where it
+isn't, with `--no-approve` and only extensions from the
+install. Otherwise they load what they are told, as before.
+
 The tool returns:
 
 ```ts

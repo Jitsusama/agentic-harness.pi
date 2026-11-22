@@ -244,7 +244,7 @@ export async function startRound(
 					// A detached reviewer's answer is only ever read off
 					// disk, so a finding it did not write down before it
 					// died is a finding nothing can recover.
-					extraExtensions: [journalPack(), ...fencePacks()],
+					extraExtensions: [journalPack(), ...fencePacks(tree.path)],
 					...lensFor(charters.get(participant.id)),
 					runId,
 					stateDir: runArtifactDir(),

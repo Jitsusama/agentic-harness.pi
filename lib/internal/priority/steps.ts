@@ -38,10 +38,12 @@ function onlyLooks(step: string): boolean {
 /**
  * What a step runs under, as its first words: a subshell or a
  * substitution it opens, a loop over what one finds, a time limit, a
- * changed environment, or direnv's environment for a folder.
+ * changed environment, or direnv's environment for a folder. A time
+ * limit's options read one way only: `-s` and `-k` take the word after
+ * them and no other option is read as either.
  */
 const UNDER =
-	/^\s*(?:\(\s*|\$\(\s*|for\s+\w+\s+in\s+\$\(\s*|timeout(?:\s+-[sk]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+\S+\s+|env(?:\s+-u\s+\S+|\s+-i|\s+[A-Za-z_]\w*=\S*)*\s+|direnv\s+exec\s+\S+\s+)/;
+	/^\s*(?:\(\s*|\$\(\s*|for\s+\w+\s+in\s+\$\(\s*|timeout(?:\s+-[sk]\s+\S+|\s+--\w[\w-]*(?:=\S+)?|\s+-(?![sk](?:\s|$))\w[\w-]*(?:=\S+)?)*\s+\S+\s+|env(?:\s+-u\s+\S+|\s+-i|\s+[A-Za-z_]\w*=\S*)*\s+|direnv\s+exec\s+\S+\s+)/;
 
 /** The flags that ask a tool how it is called or which version it is. */
 const ASKS = new Set(["--help", "-h", "--version"]);
@@ -80,9 +82,13 @@ const SEGMENTS = /\n|;|&&|\|\|?/;
 /**
  * A git command that only reads the history, past options such as
  * `-C <dir>` and `--no-pager`: `git grep -n 'changed-checks' origin/main`
- * waited 51 s for a turn as an evaluation of every check.
+ * waited 51 s for a turn as an evaluation of every check. Each option
+ * reads one way only, as in world-walk.ts's `GIT_WALK`: `-c` and `-C`
+ * take the word after them and no other option is read as either, so a
+ * long run of options before a subcommand that isn't a read fails at
+ * once rather than trying every way to split them.
  */
-const GIT_READS = String.raw`git(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[\w-]+(?:=\S+)?))*\s+(?:grep|log|show|diff|blame|status|ls-files|ls-tree|rev-parse|rev-list|cat-file|shortlog|describe|merge-base)\b`;
+const GIT_READS = String.raw`git(?:\s+(?:-C\s+\S+|-c\s+\S+|--\w[\w-]*(?:=\S+)?|-(?![cC](?:\s|$))\w[\w-]*(?:=\S+)?))*\s+(?:grep|log|show|diff|blame|status|ls-files|ls-tree|rev-parse|rev-list|cat-file|shortlog|describe|merge-base)\b`;
 
 /**
  * A step whose command finds processes or text, or reports on them, or

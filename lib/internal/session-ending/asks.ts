@@ -157,7 +157,7 @@ const FIRST_LOOK =
  * A text with its typography folded to what the patterns read: every
  * hyphen and dash a hyphen, every space a space, every quote straight.
  */
-function folded(text: string): string {
+export function folded(text: string): string {
 	return text
 		.replace(/[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]/g, "-")
 		.replace(/[\u00a0\u2007\u202f]/g, " ")
@@ -304,7 +304,7 @@ function sentenceAsks(
 		}
 	}
 	const found = [...byAct.values()];
-	for (const code of asksToRun(plain) ? inlineCode(sentence) : []) {
+	for (const code of asksToRun(plain) ? spansToRun(sentence) : []) {
 		for (const { ask: one, here } of placedAsks(code, machines)) {
 			const where = here ? named : one.machines;
 			const ask = { act: one.act, machines: where, said };
@@ -345,25 +345,35 @@ const RUN_SPAN =
 	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
 
 /** Every inline code span of some prose, as written. */
-function codeSpans(sentence: string): string[] {
+export function codeSpans(sentence: string): string[] {
 	return [...sentence.matchAll(/`([^`]+)`/g)].flatMap((one) => one[1] ?? []);
 }
 
-/** The spans a sentence asks to run, as written. */
-function inlineCode(sentence: string): string[] {
+/** The spans, code or quoted, a sentence asks to run, as written. */
+export function spansToRun(sentence: string): string[] {
 	return [...sentence.matchAll(RUN_SPAN)].flatMap(
 		(one) => one[1] ?? one[2] ?? [],
 	);
 }
 
 /**
+ * `text` with each quote or span it asks to run cut out where it sits,
+ * and nowhere else, so the same words written bare stay to be read.
+ */
+export function withoutSpansToRun(text: string): string {
+	return text.replace(RUN_SPAN, " ");
+}
+
+/**
  * How a part of the text is read: as prose, and for commands on every
  * line, only on a line opening with a prompt, or not at all.
  */
-interface Part {
+export interface Part {
 	readonly prose: boolean;
 	readonly commands: "every" | "prompted" | "none";
 	readonly lines: readonly string[];
+	/** Set on a part inside a fence, which a renderer draws as code. */
+	readonly fenced?: true;
 }
 
 /** Fences of commands to type, each line one. */
@@ -409,7 +419,7 @@ const OUTSIDE: Omit<Part, "lines"> = { prose: true, commands: "none" };
  * a run of its own mark at least as long, so a fence of four backticks
  * holds one of three.
  */
-function parts(text: string): Part[] {
+export function parts(text: string): Part[] {
 	const out: Part[] = [];
 	let lines: string[] = [];
 	let how = OUTSIDE;
@@ -424,7 +434,7 @@ function parts(text: string): Part[] {
 			if (open) {
 				flush();
 				fence = open[1] ?? "```";
-				how = fenced((open[2] ?? "").toLowerCase());
+				how = { ...fenced((open[2] ?? "").toLowerCase()), fenced: true };
 				continue;
 			}
 		} else {

@@ -12,7 +12,13 @@ import {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
-/** Send one control request and verify reply correlation; attach needs V's streaming client. */
+/**
+ * Send one control request and verify reply correlation; attach needs V's
+ * streaming client. A connection carries one request, so an error a host
+ * gave before it could read the request's id (`id: null`, as dispatch
+ * answers what it can't parse) is this request's answer; any other id is
+ * refused.
+ */
 export async function controlRequest(
 	path: string,
 	value: ControlRequest,
@@ -58,7 +64,8 @@ export async function controlRequest(
 				if (values.length !== 1)
 					throw new Error("Host sent multiple control replies");
 				const reply = parseReply(values[0]);
-				if (reply.id !== request.id)
+				const unread = !reply.ok && reply.id === null;
+				if (reply.id !== request.id && !unread)
 					throw new Error("Host reply id does not match request");
 				settled = true;
 				clearTimeout(deadline);

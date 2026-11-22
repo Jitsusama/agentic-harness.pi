@@ -334,6 +334,12 @@ export interface RunReviewerOptions {
 	 * where the user's local pi setup must not bleed in.
 	 */
 	readonly isolated?: boolean;
+	/**
+	 * When true, ask pi to ignore project-local files
+	 * (`--no-approve`) even when not isolated, so a
+	 * folder's `.pi` is never loaded as the subagent's code.
+	 */
+	readonly ignoreProject?: boolean;
 	/** Cancellation hook; propagates to the subprocess. */
 	readonly signal?: AbortSignal;
 	/** Subprocess runner. Inject a fake for tests. */

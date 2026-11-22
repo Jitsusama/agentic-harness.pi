@@ -1,6 +1,10 @@
 # Engine Tests
 
 Conversation ownership and isolation through the engine's public entry.
+Many entries because most test files hold one module of host/engine,
+which is already split by what changes for one reason, and share its
+name; the rest are the whole-host cases named below, so grouping them
+would only add a folder to name.
 Fake cleanup callbacks stand in for pi runner disposal; no provider or live
 host is started by these tests. tool-round-scrub.test.ts drives
 conversations' tool rounds directly, holding that a printed credential

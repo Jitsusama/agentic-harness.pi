@@ -5,6 +5,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -197,6 +198,70 @@ it("answers a use as gone, and leaves no record on disk, once a sweep took the t
 		"a taken tree is still listed as this session's",
 	).toBe(false);
 });
+
+it("given a tree's key, reads and removes its record's own file and no other", async () => {
+	// A sweep taking hundreds would otherwise list every record three
+	// times a take. So a record filed under another name is neither read
+	// nor removed, and a key whose file names another tree takes nothing.
+	const memory = memoryAt();
+	const held = tree("snap");
+	memory.remember(held);
+	memory.remember({ ...held, identity: { key: "copy", shareable: true } });
+	memory.remember(tree("elsewhere"));
+	const long = Date.now() + 1000;
+
+	const wrongKey = await memory.whileUnusedSince(
+		held.path,
+		long,
+		async () => true,
+		"elsewhere",
+	);
+	const taken = await memory.whileUnusedSince(
+		held.path,
+		long,
+		async () => true,
+		"snap",
+	);
+
+	expect(wrongKey, "a key naming another tree took this one").toBeUndefined();
+	expect(taken?.identity.key, "the tree its key names wasn't taken").toBe(
+		"snap",
+	);
+	expect(existsSync(join(root, "cut", "snap.json")), "its record stayed").toBe(
+		false,
+	);
+	expect(
+		existsSync(join(root, "cut", "copy.json")),
+		"a record under another name was removed",
+	).toBe(true);
+});
+
+// Root reads a folder whatever its mode, so only another user sees it refused.
+it.skipIf(process.getuid?.() === 0)(
+	"given a tree's key, takes it from a records folder it may not list",
+	async () => {
+		// Write and search but no read: a named file opens, a listing
+		// throws, so a take that listed the folder can't pass.
+		const memory = memoryAt();
+		const held = tree("snap");
+		memory.remember(held);
+		const cut = join(root, "cut");
+		chmodSync(cut, 0o300);
+		let taken: HeldTree | undefined;
+		try {
+			taken = await memory.whileUnusedSince(
+				held.path,
+				Date.now() + 1000,
+				async () => true,
+				"snap",
+			);
+		} finally {
+			chmodSync(cut, 0o700);
+		}
+
+		expect(taken?.identity.key, "a take by key listed the folder").toBe("snap");
+	},
+);
 
 it("finds this session's own trees by their records, as a resumed session's are", async () => {
 	// A broker made afresh, as after a restart, cut none of them, so

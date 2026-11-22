@@ -39,6 +39,7 @@ import {
 	sourceSentence,
 	tooMany,
 } from "../roster.ts";
+import { reviewersRefused } from "./ask-reviewer.ts";
 import { type Answer, say } from "./shared.ts";
 
 /** What of a call's parameters choosing its roster reads. */
@@ -91,6 +92,11 @@ export async function rosterOrThrow(
 	asks: RoundAsks,
 	seat: RoundSeat,
 ): Promise<ChosenRoster> {
+	// First, since every round kind chooses its roster before it claims
+	// an identity or opens on the ledger, which a round refused later
+	// would leave behind.
+	const fenced = reviewersRefused();
+	if (fenced !== undefined) throw new Error(fenced);
 	const path = packageConfigPath();
 	const loaded = await loadPackageConfig(path);
 	// Params rather than nothing, and required rather than optional, so

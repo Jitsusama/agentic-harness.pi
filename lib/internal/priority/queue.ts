@@ -24,7 +24,8 @@
  *   its check from a variable the queue can't read, and a session on
  *   older code runs its VMs outside the queue. And walks of World's git
  *   objects, whose packs evict each other from the page cache that the
- *   memory available counts as free (see {@link WALKS_AT_ONCE}).
+ *   memory available counts as free (see {@link WALKS_AT_ONCE}), and
+ *   which go one at a time once memory stalls (see {@link walksAtOnce}).
  * - **Order**: timed work before bulk, quick work before the rest of
  *   bulk, then work another session waits on (see awaited.ts), then the
  *   oldest first. A job its limit holds back lets the next one past; a
@@ -113,9 +114,11 @@ export {
 	type Kind,
 	NEEDS_GIB,
 	needsGibOf,
+	ONE_WALK_FROM_PRESSURE,
 	PUSH_GIB,
 	runsChangedChecks,
 	WALKS_AT_ONCE,
+	walksAtOnce,
 } from "./needs.ts";
 export {
 	JOINS_FOR_MS,
@@ -128,12 +131,14 @@ export {
 	roomLeft,
 	roomSaid,
 	SPREAD_MS,
+	WALK_SETTLES_MS,
 	waitingInOrder,
 	waitReasons,
 	waitsWithRoom,
 } from "./next-turn.ts";
 export { stepsOf } from "./steps.ts";
 export {
+	pushesWorld,
 	skipsWorldPushHooks,
 	type Where,
 	walkOf,

@@ -24,6 +24,7 @@ import {
 import type { HoldEnd } from "../leases.ts";
 import { folds, QUIET_STATUS, quietStatus } from "../quiet.ts";
 import { tellOnNoModel } from "../tells.ts";
+import { keptAbove } from "../tools/above.ts";
 import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
 
 /**
@@ -77,14 +78,25 @@ export function createHanding(m: MeshState) {
 			m.onNoModelUntold = event;
 			return;
 		}
-		m.toldOnNoModel = true;
-		m.onNoModelUntold = undefined;
+		const above = keptAbove(m.peer.orchestratedBy, m.hub)?.address;
+		// No hub found yet on a quest with no mark: kept until one is
+		// (start.ts), rather than counted told when nobody heard it.
+		if (above === undefined) {
+			m.onNoModelUntold = event;
+			return;
+		}
+		m.onNoModelUntold = event;
 		const message = tellOnNoModel(
 			m.peer,
+			above,
 			m.transport,
 			event,
 			m.presences.all(),
 		);
+		// Counted told only once it was, so one that threw is kept and tried
+		// again at the next find.
+		m.toldOnNoModel = true;
+		m.onNoModelUntold = undefined;
 		if (message) m.seen.add(message.id);
 	};
 
@@ -183,7 +195,11 @@ export function createHanding(m: MeshState) {
 			}
 		}
 		const carried = m.glances.take();
-		const content = noted(messages, carried, m.peer?.orchestratedBy);
+		const content = noted(
+			messages,
+			carried,
+			keptAbove(m.peer?.orchestratedBy, m.hub),
+		);
 		// What asked for a turn, or answers this peer, shows on a quiet
 		// screen though a pause held its turn back.
 		const forThisPeer =

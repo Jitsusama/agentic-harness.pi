@@ -72,7 +72,14 @@ and can answer a question or a gate left open on screen.
   next marked one. Those sessions are in
   `#orchestration/<address>`, and their presence names it as
   `orchestratedBy`; `to: orchestrator` reaches it without its
-  address. The tree is walked on the quest side; the mesh reads
+  address. On a quest with no orchestrator above it,
+  `orchestrator` reaches its hub from use instead: the live
+  cell on a quest above its own that it talks with most, each
+  tie counted for its own share of today's messages on it
+  (`lib/mesh/hub-from-use.ts`). That is an address only, and
+  grants nothing the mark does. With no such cell the send is
+  refused, and so it is for any session on a quest heading an
+  orchestration, which is told the head's address. The tree is walked on the quest side; the mesh reads
   only presence. Within a mission, an unaddressed message now
   usually goes to the orchestration's group, since another
   peer is nearly always in it: the same reach `#quest/<root>`
@@ -174,7 +181,7 @@ and can answer a question or a gate left open on screen.
   question too. A send is not refused
   for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Four sends are refused for what they say: one to the home of a
+  out and said. Five sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;
@@ -198,7 +205,29 @@ and can answer a question or a gate left open on screen.
   question through
   ([`done-acts.ts`](../../lib/orchestration/done-acts.ts)).
   On 16 November at 19:24 he was asked to post a draft he
-  had posted at 19:18.
+  had posted at 19:18. And a message stating why something
+  happened as settled fact, with no test behind it, here or
+  into another realm: the classifier judges each paragraph
+  and list item, after the refusals read from the message and
+  where it goes, and the send is refused, quoting what it
+  found, under the `untested-cause` guard
+  ([`claims.ts`](../../lib/prose/claims.ts)). A hold, and a
+  send ending one by answer or replacement, go unjudged,
+  since they must arrive on time. Finding the classifier and judging the parts take at
+  most 2.5 seconds each, so this check adds at most about 5
+  to a send. By default it redirects, so the same message
+  sent again to the same peers gets past it; the node across
+  a realm can still refuse it after that. No group holds it,
+  so setting `send` leaves it as it was, though setting
+  `form` or `all` reaches it. With no classifier nothing is judged, and with the guard off a
+  message is still judged and the person shown what it would
+  have refused. So every message's text goes to the
+  classifier's provider, one to a single peer's address or
+  into another realm too, which the peer hearing it never
+  judges; `PI_MESH_CLASSIFIER=off` stops that, with the
+  judging below. On 20 November an untested cause went
+  from a cell to the orchestrator to the person, who knew it
+  was wrong.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
@@ -238,6 +267,17 @@ and can answer a question or a gate left open on screen.
   closes with it; the pid is signalled only while its start still
   matches the presence's. Anyone else is refused, as is a session
   on another machine. Loaded on demand.
+- `mesh_sprout`: start new work as a cell of its own, in one
+  step, from words or a link (`lib/mesh/sprout.ts`). It runs
+  `mycelium sprout` from the session's folder, as the launcher's
+  Start New Work and a terminal do, rather than asking the node's
+  socket itself: the program judges the folder on this disk first,
+  refuses home, and falls back to a plain start on an older node.
+  The new session makes its own quest, asking the map to tie it
+  to this cell by `--from`, and runs in no window; the answer says
+  how to join it, and that the tie is there only once the map
+  shows it.
+  Loaded on demand.
 - `mesh_wait`: say that this session's quest has something
   waiting on the person that only they can do, or with `done`
   that it no longer waits. It is kept in

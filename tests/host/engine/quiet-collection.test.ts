@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CEILING_MS,
 	lastResortCollect,
+	PACE_KEPT_MS,
 	PACE_WINDOW,
 	processCode,
 	processHeap,
@@ -259,9 +260,10 @@ describe("the host's collection once quiet", () => {
 
 	/**
 	 * A host whose heap uses `used()` and whose collections each take the
-	 * next of `pauses` ms, collecting each time something stirs once spaced.
+	 * next of `pauses` ms, collecting each time something stirs once spaced;
+	 * a child's, forgetting its paces, where `forgetsPaces` says so.
 	 */
-	function paced(used: () => number, pauses: number[]) {
+	function paced(used: () => number, pauses: number[], forgetsPaces = false) {
 		const collect = vi.fn();
 		const code = vi.fn(() => ({ compiled: MB, bytecode: MB, source: MB }));
 		const said: string[] = [];
@@ -287,6 +289,7 @@ describe("the host's collection once quiet", () => {
 				if (reads % 3 === 2) now += pauses.shift() ?? 0;
 				return now;
 			},
+			forgetsPaces,
 		});
 		const next = () => {
 			quiet.stirred();
@@ -341,6 +344,56 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said[1]).toMatch(
 			/^Left uncollected while quiet: the heap uses 900 MB, which at 1252 ms a GB/,
+		);
+	});
+
+	it("forgets a child's slow pause after an hour, so one slowed by swap doesn't skip every look after", () => {
+		let used = 300 * MB;
+		// 1.1 s at 300 MB, as under swap, then 900 ms once it has passed.
+		const { collect, said, next } = paced(() => used, [1100, 900], true);
+		next();
+		used = 1200 * MB;
+		const lookups = PACE_KEPT_MS / SPACING_MS - 1;
+		for (let one = 0; one < lookups; one += 1) next();
+		expect(
+			collect,
+			"the slow pace rules within its hour",
+		).toHaveBeenCalledTimes(1);
+		next();
+		expect(
+			collect,
+			"past its hour, with no pace kept, even a heap over a GB is collected to measure afresh",
+		).toHaveBeenCalledTimes(2);
+		expect(said.at(-1)).toMatch(/^Collected while quiet in 900 ms/);
+	});
+
+	it("keeps the shared host's slow pace past the hour, since its pause stalls every conversation", () => {
+		const { collect, said, next } = paced(() => 300 * MB, [1100]);
+		next();
+		const lookups = PACE_KEPT_MS / SPACING_MS;
+		for (let one = 0; one < lookups; one += 1) next();
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said.at(-1)).toMatch(/^Left uncollected while quiet/);
+	});
+
+	it("forgets only a child's paces past their hour, keeping the later ones", () => {
+		let used = 300 * MB;
+		// One slow, as under swap, then two at half a ms a MB.
+		const { collect, said, next } = paced(() => used, [1100, 50, 50], true);
+		next();
+		used = 100 * MB;
+		next();
+		next();
+		expect(collect).toHaveBeenCalledTimes(3);
+		used = 2400 * MB;
+		const lookups = PACE_KEPT_MS / SPACING_MS - 2;
+		for (let one = 0; one < lookups; one += 1) next();
+		expect(collect).toHaveBeenCalledTimes(3);
+		expect(
+			said.at(-1),
+			"the slow one gone at its hour, and the two after it still ruling",
+		).toMatch(
+			/^Left uncollected while quiet: the heap uses 2400 MB, which at 512 ms a GB, the slowest of the last 2 collections/,
 		);
 	});
 
