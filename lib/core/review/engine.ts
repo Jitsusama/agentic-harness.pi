@@ -11,7 +11,7 @@
  */
 
 import type { Exec, ExecResult } from "../exec/index.ts";
-import { run } from "../exec/index.ts";
+import { EXIT_ABORTED, EXIT_TIMED_OUT, run } from "../exec/index.ts";
 import { resolveRepo, resolveTarget } from "./bind.ts";
 import type { Capabilities } from "./capabilities.ts";
 import type { Change, ChangeRef, RepoLocator, ReviewTarget } from "./change.ts";
@@ -147,11 +147,37 @@ function providerFor(id: string): ReviewProvider {
 	return provider;
 }
 
-/** What git rev-parse answers outside a repository. */
-const NOT_A_REPO = 128;
+/**
+ * What git exits with on any fatal error. Outside a repository is one,
+ * told apart from the rest (dubious ownership, a missing directory, a
+ * bad config) only by what git says.
+ */
+const GIT_FATAL = 128;
 
-/** What git config answers when no key matches the pattern. */
+/** What git says on stderr when the directory is in no repository. */
+const NOT_A_REPO_SAYS = "not a git repository";
+
+/**
+ * What git config answers, saying nothing, when no key matches. A spawn
+ * that failed or a git killed by a signal comes back as exit 1 too, but
+ * with something on stderr, so only a silent 1 means no remotes.
+ */
 const NO_MATCHING_KEY = 1;
+
+/** What the fence answers when it refuses a git command. */
+const GIT_REFUSED = 126;
+
+/**
+ * Failures asking again cannot help: the clock already gave the command
+ * its ten minutes, the call was stopped, the fence refused, or git died
+ * of something it will die of again.
+ */
+const NOT_RETRIED = new Set([
+	EXIT_TIMED_OUT,
+	EXIT_ABORTED,
+	GIT_REFUSED,
+	GIT_FATAL,
+]);
 
 /**
  * A probe, and what git failed to say while taking it.
@@ -166,10 +192,37 @@ interface Probed {
 	unread?: string;
 }
 
+/** A git read's answer, with the failure before it when it was asked twice. */
+interface GitRead {
+	result: ExecResult;
+	first?: ExecResult;
+}
+
 /** The first line git said on failing, or its exit when it said nothing. */
 function whatGitSaid(result: ExecResult): string {
 	const said = result.stderr.trim().split("\n")[0];
-	return said ? said : `it exited ${result.code}`;
+	return said ? `${said} (exit ${result.code})` : `it exited ${result.code}`;
+}
+
+/** What both attempts of a failed read said, the first one first. */
+function whatGitSaidEach(read: GitRead): string {
+	return read.first === undefined
+		? whatGitSaid(read.result)
+		: `${whatGitSaid(read.first)}, then asked again, ${whatGitSaid(read.result)}`;
+}
+
+/**
+ * What to do about a failed read, in a person's words: ask again only
+ * where that can help, and otherwise point at what git said.
+ */
+function adviceFor(result: ExecResult): string {
+	if (result.code === EXIT_ABORTED) {
+		return "The call was stopped before git answered.";
+	}
+	if (result.code === GIT_REFUSED || result.code === GIT_FATAL) {
+		return "Asking again will fail the same way until what git said is fixed.";
+	}
+	return "Asking again usually gets through.";
 }
 
 /** Build the engine. */
@@ -177,43 +230,54 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 	const draftDeps: DraftDeps = { store: deps.store };
 
 	/**
-	 * Run a git read, asking once more when it fails in a way none of its
-	 * ordinary answers explain, as a command starved or killed under load
-	 * does.
+	 * Run a git read, asking once more when it fails quickly in a way none
+	 * of its answers explain, as a command that could not start or was
+	 * killed under load does. A failure asking again cannot help is given
+	 * back as it came.
 	 */
 	async function gitRead(
 		args: string[],
-		ordinary: (code: number) => boolean,
-	): Promise<ExecResult> {
+		answered: (result: ExecResult) => boolean,
+	): Promise<GitRead> {
 		const first = await deps.exec("git", args);
-		if (ordinary(first.code)) return first;
-		return deps.exec("git", args);
+		if (answered(first) || NOT_RETRIED.has(first.code)) {
+			return { result: first };
+		}
+		return { result: await deps.exec("git", args), first };
 	}
 
 	async function readProbe(cwd: string): Promise<Probed> {
-		const top = await gitRead(
+		const outside = (result: ExecResult) =>
+			result.code === GIT_FATAL && result.stderr.includes(NOT_A_REPO_SAYS);
+		const topRead = await gitRead(
 			["-C", cwd, "rev-parse", "--show-toplevel"],
-			(code) => code === 0 || code === NOT_A_REPO,
+			(result) => result.code === 0 || outside(result),
 		);
+		const top = topRead.result;
 		// Not being in a repo is an ordinary answer, not a failure:
 		// a reference can still be a URL.
-		if (top.code === NOT_A_REPO) return { probe: {} };
+		if (outside(top)) return { probe: {} };
 		if (top.code !== 0) {
 			return {
 				probe: {},
-				unread: `git could not say whether ${cwd} is a checkout: ${whatGitSaid(top)}`,
+				unread: `git could not say whether ${cwd} is a checkout: ${whatGitSaidEach(topRead)}. ${adviceFor(top)}`,
 			};
 		}
 		const repoRoot = top.stdout.trim();
 
-		const remotes = await gitRead(
+		const none = (result: ExecResult) =>
+			result.code === NO_MATCHING_KEY &&
+			result.stderr.trim() === "" &&
+			result.stdout.trim() === "";
+		const remotesRead = await gitRead(
 			["-C", repoRoot, "config", "--get-regexp", "^remote\\..*\\.url$"],
-			(code) => code === 0 || code === NO_MATCHING_KEY,
+			(result) => result.code === 0 || none(result),
 		);
-		if (remotes.code !== 0 && remotes.code !== NO_MATCHING_KEY) {
+		const remotes = remotesRead.result;
+		if (remotes.code !== 0 && !none(remotes)) {
 			return {
 				probe: { repoRoot, remoteUrls: [] },
-				unread: `git could not read the remotes of ${repoRoot}: ${whatGitSaid(remotes)}`,
+				unread: `git could not read the remotes of ${repoRoot}: ${whatGitSaidEach(remotesRead)}. ${adviceFor(remotes)}`,
 			};
 		}
 		const lines = remotes.stdout
@@ -239,12 +303,15 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 	 */
 	async function probeNamed(cwd: string): Promise<RepoProbe> {
 		const { probe: probed, unread } = await readProbe(cwd);
-		if (unread !== undefined) {
-			throw new Error(
-				`${unread}. Without that, whose repo it is cannot be told, and anything recorded would sit under its path where nothing asking by the hosted repo finds it. Nothing was recorded; asking again usually gets through.`,
-			);
-		}
+		if (unread !== undefined) throw unreadRefusal(unread);
 		return probed;
+	}
+
+	/** The refusal for a checkout git could not say whose it is. */
+	function unreadRefusal(unread: string): Error {
+		return new Error(
+			`Whose repo this is cannot be told, and anything recorded would sit under its path where nothing asking by the hosted repo finds it, so nothing was recorded. ${unread}`,
+		);
 	}
 
 	/** Wrap a resolved target in everything reachable from it. */
@@ -397,9 +464,19 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		probe,
 
 		async resolve(input, cwd) {
-			const probed = cwd ? await probe(cwd) : undefined;
+			const read = cwd ? await readProbe(cwd) : undefined;
+			const config = deps.config ? { config: deps.config } : {};
+			// A reference that needs no checkout, such as a URL, still
+			// resolves where git could not read one. A bare number or a
+			// branch would be claimed by the checkout's path, so it is
+			// refused rather than keyed there.
+			if (read?.unread !== undefined) {
+				const alone = resolveReference(input, config);
+				if (!alone.resolved) throw unreadRefusal(read.unread);
+			}
+			const probed = read?.unread === undefined ? read?.probe : undefined;
 			const resolution = resolveReference(input, {
-				...(deps.config ? { config: deps.config } : {}),
+				...config,
 				...(probed ? { probe: probed } : {}),
 			});
 			if (!resolution.resolved) throw new Error(resolution.message);

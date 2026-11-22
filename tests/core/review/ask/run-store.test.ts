@@ -7,12 +7,13 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import { createRunStore } from "../../../../lib/core/review/index.ts";
+import { changeFileName } from "../../../../lib/core/review/keys.ts";
 import { at } from "../../../support/at.ts";
 
 const change: ChangeRef = {
@@ -222,6 +223,62 @@ describe("keeping runs per change", () => {
 			await createRunStore(root).list(deep),
 			"the round is on disk and read back under the same change",
 		).toHaveLength(1);
+	});
+
+	it("takes over a crashed writer's lock beside a deep ledger", async () => {
+		// A cut name fills the room left for the pending suffix, so a stale
+		// lock moved aside under a name grown from it ran past 255 bytes,
+		// and every later round on the change failed with ENAMETOOLONG.
+		const tree = `/home/someone/${"deeply-nested-folder/".repeat(12)}tree`;
+		const deep: ChangeRef = {
+			provider: "local-range",
+			repo: { key: `local:${tree}`, localPath: tree },
+			id: "origin/main..topic",
+			label: "a deep range",
+		};
+		const store = createRunStore(root);
+		await store.record(deep, run());
+		const [ledger] = readdirSync(root);
+		const lock = join(root, `${ledger}.lock`);
+		// Held by a pid nothing runs as, and older than the lock's patience.
+		await writeFile(lock, "4194303", "utf8");
+		const long = new Date(Date.now() - 60 * 60 * 1000);
+		await utimes(lock, long, long);
+
+		await store.record(deep, run());
+
+		expect(
+			await createRunStore(root).list(deep),
+			"the stale lock is taken over and the second round kept",
+		).toHaveLength(2);
+	});
+
+	it("reads a ledger saved under its whole name before names were cut", async () => {
+		// A name of 207 to 255 bytes was saved whole by a writer whose pid
+		// left room for its pending suffix; it is now cut, and its rounds
+		// are still found and carried over by the next write.
+		const padded: ChangeRef = { ...change, id: "x".repeat(200) };
+		const whole = changeFileName(padded);
+		expect(
+			whole.length,
+			`${whole} is a whole name between the cut and a file name's limit`,
+		).toBeGreaterThan(206);
+		await writeFile(
+			join(root, whole),
+			JSON.stringify({ change: padded, runs: [run()] }),
+			"utf8",
+		);
+		const store = createRunStore(root);
+
+		expect(
+			await store.list(padded),
+			"the round under the whole name is read",
+		).toHaveLength(1);
+		await store.record(padded, run());
+		expect(
+			await createRunStore(root).list(padded),
+			"the next write keeps the old round beside the new one",
+		).toHaveLength(2);
 	});
 
 	it("survives a new store over the same directory", async () => {

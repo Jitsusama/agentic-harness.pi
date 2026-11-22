@@ -129,8 +129,24 @@ interface Ledger {
 /** Runs on disk, one file per change. */
 export function createRunStore(root: string): RunStore {
 	async function read(change: ChangeRef): Promise<Ledger> {
+		const bounded = await readAt(change, fileFor(change));
+		if (bounded !== undefined) return bounded;
+		// A ledger whose plain name fit a file but not with the pending
+		// suffix's worst case was written, by a process with a shorter pid,
+		// under that plain name. Its rounds are read from there, and the
+		// next write carries them over to the bounded name.
+		const plain = changeFileName(change);
+		if (plain === fileFor(change)) return { runs: [] };
+		return (await readAt(change, plain)) ?? { runs: [] };
+	}
+
+	/** The ledger in `file`, or undefined when there is no such file. */
+	async function readAt(
+		change: ChangeRef,
+		file: string,
+	): Promise<Ledger | undefined> {
 		let raw: string;
-		const path = join(root, fileFor(change));
+		const path = join(root, file);
 		try {
 			raw = await readFile(path, "utf8");
 		} catch (error) {
@@ -149,7 +165,7 @@ export function createRunStore(root: string): RunStore {
 					`The rounds held against ${change.label} could not be read from ${path}: ${error instanceof Error ? error.message : String(error)}. Fix or move that file: answering "no rounds" for it would let the next round overwrite the history behind it.`,
 				);
 			}
-			return { runs: [] };
+			return undefined;
 		}
 		// A file that will not parse is a different thing entirely, and
 		// answering "no rounds" for it is how a history disappears
@@ -175,7 +191,7 @@ export function createRunStore(root: string): RunStore {
 			return { runs: parsed.runs as AskRun[] };
 		}
 		throw new Error(
-			`The rounds held against ${change.label} are at ${join(root, fileFor(change))} and could not be read as a ledger. Nothing was changed. Move that file aside to start a fresh one, keeping it if the rounds in it still matter.`,
+			`The rounds held against ${change.label} are at ${path} and could not be read as a ledger. Nothing was changed. Move that file aside to start a fresh one, keeping it if the rounds in it still matter.`,
 		);
 	}
 

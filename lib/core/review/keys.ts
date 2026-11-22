@@ -52,13 +52,19 @@ export function changeFileName(change: ChangeRef, spare = 0): string {
 	const key = changeKey(change);
 	const folded = key.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
 	const most = NAME_MAX - spare;
+	const tail = ".json".length + HASH_DIGITS + 1;
+	if (most <= tail) {
+		throw new Error(
+			`A file name kept ${spare} bytes short of ${NAME_MAX} has no room for a ledger's name, which needs more than ${tail}.`,
+		);
+	}
 	const whole = `${folded}.json`;
 	if (whole.length <= most) return whole;
 	const hash = createHash("sha256")
 		.update(key)
 		.digest("hex")
 		.slice(0, HASH_DIGITS);
-	const front = folded.slice(0, most - ".json".length - hash.length - 1);
+	const front = folded.slice(0, most - tail);
 	return `${front}-${hash}.json`;
 }
 

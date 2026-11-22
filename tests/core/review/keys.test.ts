@@ -59,11 +59,39 @@ describe("changeFileName", () => {
 		);
 	});
 
-	it("names two long keys sharing a front as two files", () => {
-		const one = changeFileName(deep("topic-one"));
-		const two = changeFileName(deep("topic-two"));
-		expect(one, `${one} and ${two} are told apart`).not.toBe(two);
-		expect(one.length, `${one} fits a file name`).toBeLessThanOrEqual(255);
+	it("names two long keys sharing a front past the cut as two files", () => {
+		const one = changeFileName(deep("topic-one"), 49);
+		const two = changeFileName(deep("topic-two"), 49);
+		const shortened = /^(.+)-[0-9a-f]{16}\.json$/;
+		expect(one, `${one} is cut and ends in a hash`).toMatch(shortened);
+		expect(two, `${two} is cut and ends in a hash`).toMatch(shortened);
+		expect(
+			one.match(shortened)?.[1],
+			"the two keep the same front, since they differ only past the cut",
+		).toBe(two.match(shortened)?.[1]);
+		expect(one, "their hashes tell them apart").not.toBe(two);
+	});
+
+	it("keeps a name exactly as long as the room left, and cuts one longer", () => {
+		const plain = (head: string) => changeFileName({ ...deep(head), id: head });
+		const padding = 255 - 49 - plain("").length;
+		const fits = "x".repeat(padding);
+		expect(
+			changeFileName({ ...deep(fits), id: fits }, 49),
+			"a name of exactly 206 bytes is kept as it folds",
+		).toBe(plain(fits));
+		const over = `${fits}x`;
+		expect(
+			changeFileName({ ...deep(over), id: over }, 49),
+			"a name one byte longer is cut to 206 and ends in a hash",
+		).toMatch(/^.{184}-[0-9a-f]{16}\.json$/);
+	});
+
+	it("refuses room that leaves no space for a name", () => {
+		expect(
+			() => changeFileName(deep("topic"), 240),
+			"a spare that leaves less than a hash and .json is refused",
+		).toThrow(/has no room for a ledger's name/);
 	});
 });
 
