@@ -86,6 +86,18 @@ if [ -z "$bin" ]; then
   exit 1
 fi
 export PATH="$bin:$PATH"
+# A shell ssh starts on a Mac finds no node, though pnpm's own first line
+# names the one it runs on; the check's scripts run on that one too.
+if ! command -v node >/dev/null 2>&1; then
+  node=$(sed -n '1s/^#! *//p' "$bin/pnpm")
+  case "$node" in
+    /*/bin/node) export PATH="${node%/node}:$PATH" ;;
+    *)
+      echo "check-there: no node on $(hostname), and pnpm names none" >&2
+      exit 1
+      ;;
+  esac
+fi
 pnpm install --frozen-lockfile --silent
 # On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
 # nothing without nix-ld set up, so biome is run through glibc's by hand.
