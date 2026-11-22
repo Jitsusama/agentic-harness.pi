@@ -27,7 +27,11 @@ import type {
 	CarriedEnd,
 	CarriedShell,
 } from "../../../lib/internal/shell/carried.ts";
-import { makeKept } from "../../../lib/internal/shell/kept.ts";
+import {
+	makeKept,
+	ownJobRecord,
+	ownsJobRecord,
+} from "../../../lib/internal/shell/kept.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -331,6 +335,15 @@ describe("taking up", () => {
 		const { jobs, watch, work } = await tookUp();
 		expect(jobs.carryOut().map((job) => job.work)).toEqual([work]);
 		expect(watch.handed, "the watch let go").toEqual([work.keep]);
+	});
+
+	// Its next taker records it again; this host would otherwise hold the
+	// record it wrote for as long as it runs.
+	it("lets go of the record it wrote of a call it carries on again", async () => {
+		const { jobs, work } = await tookUp();
+		ownJobRecord(work.keep, "{}");
+		jobs.carryOut();
+		expect(ownsJobRecord(work.keep), "its record, let go").toBe(false);
 	});
 
 	it("says a kind it can't take up, rather than dropping it", () => {
