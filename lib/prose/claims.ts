@@ -15,6 +15,7 @@
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { Classify, FoundClassifier } from "../classifier/jev.ts";
+import { scrubSecrets } from "../internal/secrets/secrets.ts";
 import { settledWithin } from "../internal/settled.ts";
 
 /**
@@ -40,10 +41,12 @@ export const JUDGE_MS = 2500;
 
 /**
  * The most parts of one text judged, so a long text costs a bounded
- * wait. What a longer text holds past them is judged as one last part,
- * where a cause among the rest is less likely to be caught. Of the 54
- * mesh messages sampled on 21 November, split by paragraph, none ran
- * past 7 parts.
+ * wait and sends the classifier's provider a bounded amount. Past this
+ * many paragraphs the rest are joined into one, judged among each other;
+ * a paragraph past `LONGEST_PART` takes a part for each stretch of it,
+ * and what runs past this many parts goes unjudged, which the caller is
+ * told. Of the 54 mesh messages sampled on 21 November, split by
+ * paragraph, none ran past 7 parts.
  */
 const MOST_PARTS = 12;
 
@@ -54,18 +57,19 @@ const MOST_PARTS = 12;
 const SHORTEST_PART = 12;
 
 /**
- * The most of one part sent to be judged, so a long text costs the
- * classifier's provider a bounded amount: the joined rest past
- * `MOST_PARTS`, or one paragraph holding a pasted log. About 400 words,
- * far past any paragraph in the 54 mesh messages sampled on 21
- * November. A longer part is judged by its first and last halves of
- * this, since a cause most often opens or closes what it explains; one
- * in the middle of such a part goes unjudged.
+ * The most of one part sent to be judged at once: about 400 words, far
+ * past any paragraph in the 54 mesh messages sampled on 21 November. A
+ * longer paragraph, as one holding a pasted log, or the joined rest past
+ * `MOST_PARTS`, is judged in consecutive stretches of at most this, so
+ * none of it goes unread while the parts last.
  */
 const LONGEST_PART = 2000;
 
-/** What stands between a long part's two ends where its middle is cut. */
-const CUT = "\n...\n";
+/**
+ * How far back from a stretch's end a space is looked for to break it
+ * at, so a word is seldom cut in two.
+ */
+const BREAK_SEARCH = 200;
 
 /**
  * Where a text breaks into parts: a blank line, or a line opening a
@@ -99,57 +103,66 @@ const QUESTIONS: ClassifierContext["questions"] = {
 
 /**
  * A text's parts as they are judged: its paragraphs, and each item of a
- * list, of those long enough to state a cause. Past `MOST_PARTS`, the
- * rest is joined into the last, where a cause is judged among the rest.
- * Each runs to `LONGEST_PART` at most, a longer one kept by its ends.
+ * list, of those long enough to state a cause. Past `MOST_PARTS`
+ * paragraphs, the rest is joined into the last, where a cause is judged
+ * among the rest. Each runs to `LONGEST_PART` at most, a longer one
+ * judged in stretches, and past `MOST_PARTS` parts the rest is not
+ * judged.
  */
 export function claimParts(text: string): string[] {
 	return partsOf(text).parts;
 }
 
-/** A text's parts, as `claimParts`, and whether any ran past its bound. */
+/** A text's parts, as `claimParts`, and whether any went unjudged. */
 function partsOf(text: string): { parts: string[]; cut: boolean } {
-	const parts = text
+	const paragraphs = text
 		.split(PART_BREAK)
 		.map((part) => part.trim())
 		.filter((part) => part.length >= SHORTEST_PART);
-	const bounded =
-		parts.length <= MOST_PARTS
-			? parts
+	const joined =
+		paragraphs.length <= MOST_PARTS
+			? paragraphs
 			: [
-					...parts.slice(0, MOST_PARTS - 1),
-					parts.slice(MOST_PARTS - 1).join("\n\n"),
+					...paragraphs.slice(0, MOST_PARTS - 1),
+					paragraphs.slice(MOST_PARTS - 1).join("\n\n"),
 				];
+	const parts = joined.flatMap(stretchesOf);
 	return {
-		parts: bounded.map(boundedPart),
-		cut: bounded.some((part) => part.length > LONGEST_PART),
+		parts: parts.slice(0, MOST_PARTS),
+		cut: parts.length > MOST_PARTS,
 	};
 }
 
 /**
- * `part` held to `LONGEST_PART`: a longer one keeps its first and last
- * halves, with `CUT` between, each a character short where its cut would
- * fall between the two halves of one, so no half goes to the provider.
+ * `part` in consecutive stretches of at most `LONGEST_PART`, each broken
+ * at the last space in its last `BREAK_SEARCH` characters, or else a
+ * character short where its end would fall between the two halves of
+ * one, so no half goes to the provider. A stretch too short to state a
+ * cause is left out.
  */
-function boundedPart(part: string): string {
-	if (part.length <= LONGEST_PART) return part;
-	const half = Math.floor((LONGEST_PART - CUT.length) / 2);
-	const headEnd = isHighSurrogate(part.charCodeAt(half - 1)) ? half - 1 : half;
-	const tailStart = part.length - half;
-	const tailFrom = isLowSurrogate(part.charCodeAt(tailStart))
-		? tailStart + 1
-		: tailStart;
-	return `${part.slice(0, headEnd)}${CUT}${part.slice(tailFrom)}`;
+function stretchesOf(part: string): string[] {
+	const stretches: string[] = [];
+	let from = 0;
+	while (part.length - from > LONGEST_PART) {
+		const end = stretchEnd(part, from + LONGEST_PART);
+		stretches.push(part.slice(from, end).trim());
+		from = end;
+	}
+	stretches.push(part.slice(from).trim());
+	return stretches.filter((stretch) => stretch.length >= SHORTEST_PART);
+}
+
+/** Where a stretch that may run to `most` ends, as `stretchesOf` says. */
+function stretchEnd(part: string, most: number): number {
+	for (let at = most; at > most - BREAK_SEARCH; at -= 1) {
+		if (/\s/.test(part.charAt(at))) return at;
+	}
+	return isHighSurrogate(part.charCodeAt(most - 1)) ? most - 1 : most;
 }
 
 /** Whether `code` opens a character written in two halves. */
 function isHighSurrogate(code: number): boolean {
 	return code >= 0xd800 && code <= 0xdbff;
-}
-
-/** Whether `code` closes a character written in two halves. */
-function isLowSurrogate(code: number): boolean {
-	return code >= 0xdc00 && code <= 0xdfff;
 }
 
 /**
@@ -162,10 +175,20 @@ export type Unjudged = (why: string, detail?: string) => void;
 /** The longest `detail` runs, so a page-long error costs a line. */
 const DETAIL_LENGTH = 200;
 
-/** The first line of `said`, at most `DETAIL_LENGTH` long. */
+/**
+ * The first line of `said`, its secrets scrubbed, at most
+ * `DETAIL_LENGTH` long: a provider's error may name a key it refused.
+ */
 function detailOf(said: string): string {
-	return (said.split("\n")[0] ?? "").slice(0, DETAIL_LENGTH);
+	return scrubSecrets(said.split("\n")[0] ?? "").text.slice(0, DETAIL_LENGTH);
 }
+
+/**
+ * Why nothing was judged when finding the classifier took too long, the
+ * same words whichever wait ran out: this call's, or a session's that
+ * gave up on its lookup and said so in a classifier's place.
+ */
+export const SLOW_LOOKUP = `finding the classifier took over ${JUDGE_MS} ms`;
 
 /**
  * The parts of `text` that state an untested cause, judged by the
@@ -184,11 +207,12 @@ export async function untestedCausesFound(
 	if (lookup === undefined) return [];
 	const found = await settledWithin(lookup, JUDGE_MS);
 	if (found === undefined) {
-		unjudged(`finding the classifier took over ${JUDGE_MS} ms`);
+		unjudged(SLOW_LOOKUP);
 		return [];
 	}
 	if (!found.ok) {
-		if (!found.off) unjudged("no classifier", detailOf(found.reason));
+		if (found.reason === SLOW_LOOKUP) unjudged(SLOW_LOOKUP);
+		else if (!found.off) unjudged("no classifier", detailOf(found.reason));
 		return [];
 	}
 	return untestedCauses(text, found.classify, unjudged, inFull);
@@ -200,7 +224,7 @@ export async function untestedCausesFound(
  * judge is not among them, and `unjudged` is told why the first wasn't,
  * in words that stay the same from text to text, so a caller can say
  * each reason once; `inFull` is told when parts were judged and none
- * went unjudged.
+ * went unjudged, the text's end included.
  */
 export async function untestedCauses(
 	text: string,
@@ -209,7 +233,7 @@ export async function untestedCauses(
 	inFull: () => void = () => undefined,
 ): Promise<string[]> {
 	const { parts, cut } = partsOf(text);
-	if (cut) unjudged(`a part ran past ${LONGEST_PART} characters`);
+	if (cut) unjudged(`a text ran past ${MOST_PARTS} parts`);
 	const judged = await Promise.all(
 		parts.map((part) => untestedSureness(part, classify)),
 	);
@@ -217,7 +241,7 @@ export async function untestedCauses(
 	const [first] = missed;
 	if (first !== undefined)
 		unjudged(`a part went unjudged: ${first.why}`, first.detail);
-	else if (parts.length > 0) inFull();
+	else if (parts.length > 0 && !cut) inFull();
 	return parts.filter((_, at) => {
 		const one = judged[at];
 		return one !== undefined && "sure" in one && one.sure >= UNTESTED_FLOOR;

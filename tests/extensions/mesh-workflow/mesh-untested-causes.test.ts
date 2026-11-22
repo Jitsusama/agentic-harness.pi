@@ -399,10 +399,7 @@ describe("an untested cause on the mesh", () => {
 		expect(entries.filter((entry) => entry.type === UNJUDGED)).toEqual([
 			{
 				type: UNJUDGED,
-				data: {
-					why: "no classifier",
-					detail: "finding the classifier took over 2500 ms",
-				},
+				data: { why: "finding the classifier took over 2500 ms" },
 			},
 		]);
 	}, 60_000);
@@ -490,11 +487,16 @@ describe("an untested cause on the mesh", () => {
 			},
 		};
 		const { tools, entries } = await startSession({}, flaky);
-		const long = `Tests ran. ${"The log goes on. ".repeat(130)}`;
+		const long = `Tests ran. ${"The log goes on. ".repeat(1500)}`;
 
 		await send(tools, "p9r1ki", "fyi", "Tests ran and the deploy is done.");
 		failing = false;
+		// Past 12 parts, so judged only in part: neither clears what was said.
 		await send(tools, "p9r1ki", "fyi", long);
+		await send(tools, "p9r1ki", "fyi", long);
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is done and watched.");
+		failing = false;
 		await send(tools, "p9r1ki", "fyi", "The deploy is done and live.");
 		failing = true;
 		await send(tools, "p9r1ki", "fyi", "The deploy is live and watched.");
@@ -504,7 +506,7 @@ describe("an untested cause on the mesh", () => {
 			.map((entry) => (entry.data as { why: string }).why);
 		expect(whys).toEqual([
 			"a part went unjudged: the classifier failed",
-			"a part ran past 2000 characters",
+			"a text ran past 12 parts",
 			"a part went unjudged: the classifier failed",
 		]);
 	});
@@ -562,12 +564,10 @@ describe("an untested cause on the mesh", () => {
 		const said = entries
 			.filter((entry) => entry.type === UNJUDGED)
 			.map((entry) => entry.data as { why: string; detail?: string });
-		expect(said.map((one) => one.why)).toEqual([
-			"no classifier",
-			"no classifier",
+		expect(said).toEqual([
+			{ why: "finding the classifier took over 2500 ms" },
+			{ why: "no classifier", detail: "no Jev classifier has credentials" },
 		]);
-		expect(said[0]?.detail).toBe("finding the classifier took over 2500 ms");
-		expect(said[1]?.detail).not.toBe(said[0]?.detail);
 	}, 60_000);
 
 	it("is refused again once reworded but still stated as settled", async () => {

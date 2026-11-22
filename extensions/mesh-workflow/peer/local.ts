@@ -122,7 +122,8 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 								unjudged,
 								// Judged in full by a classifier that answered: a reason
 								// that comes back is news again. A send nothing judged, as
-								// with the guard off or no part long enough, clears nothing.
+								// with the classifier off or no part long enough, clears
+								// nothing, nor does one judged only in part.
 								() => m.unjudgedSaid.clear(),
 							);
 						} catch {

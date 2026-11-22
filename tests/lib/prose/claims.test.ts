@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Classify } from "../../../lib/classifier/jev.ts";
 import {
 	claimParts,
+	SLOW_LOOKUP,
 	UNTESTED_FLOOR,
 	untestedCauseReason,
 	untestedCauses,
@@ -93,10 +94,20 @@ describe("claimParts", () => {
 		expect(lengths.filter((length) => length > 2000)).toEqual([]);
 	});
 
-	it("keeps a long part's first and last thousand characters, cut between", () => {
-		const part = `${"a".repeat(1200)}${"m".repeat(800)}${"z".repeat(1200)}`;
-		const [kept] = claimParts(part);
-		expect(kept).toBe(`${"a".repeat(997)}\n...\n${"z".repeat(997)}`);
+	it("judges a long part in stretches broken at spaces, none of it left out", () => {
+		const part = "The disk filled. ".repeat(300).trim();
+		const parts = claimParts(part);
+		expect(parts).toHaveLength(3);
+		expect(parts.join(" "), "each break falls on a space").toBe(part);
+		expect(parts.filter((stretch) => stretch.length > 2000)).toEqual([]);
+	});
+
+	it("breaks a stretch with no space at 2000 characters", () => {
+		expect(claimParts("a".repeat(4500))).toEqual([
+			"a".repeat(2000),
+			"a".repeat(2000),
+			"a".repeat(500),
+		]);
 	});
 
 	it("keeps a part of exactly 2000 characters whole", () => {
@@ -104,13 +115,12 @@ describe("claimParts", () => {
 		expect(claimParts(part)).toEqual([part]);
 	});
 
-	it("never cuts a character in half at either end of a long part", () => {
-		const atHead = `${"x".repeat(996)}\u{1F4A5}${"y".repeat(1100)}`;
-		const atTail = `${"y".repeat(1100)}\u{1F4A5}${"z".repeat(996)}`;
-		const [head] = claimParts(atHead);
-		const [tail] = claimParts(atTail);
-		expect(head).toBe(`${"x".repeat(996)}\n...\n${"y".repeat(997)}`);
-		expect(tail).toBe(`${"y".repeat(997)}\n...\n${"z".repeat(996)}`);
+	it("never cuts a character in half where a stretch ends", () => {
+		const part = `${"x".repeat(1999)}\u{1F4A5}${"y".repeat(500)}`;
+		expect(claimParts(part)).toEqual([
+			"x".repeat(1999),
+			`\u{1F4A5}${"y".repeat(500)}`,
+		]);
 	});
 });
 
@@ -220,12 +230,17 @@ describe("untestedCauses", () => {
 		const aborted: Classify = async () => {
 			throw new DOMException("The operation timed out.", "TimeoutError");
 		};
+		const abortedByFetch: Classify = async () => {
+			throw new DOMException("This operation was aborted", "AbortError");
+		};
 		const stoppedAborted: Classify = async () =>
 			({ stopReason: "aborted", answers: {} }) as unknown as ClassifierResult;
 		const told: string[] = [];
 		await untestedCauses(text, aborted, (why) => told.push(why));
 		await untestedCauses(text, stoppedAborted, (why) => told.push(why));
+		await untestedCauses(text, abortedByFetch, (why) => told.push(why));
 		expect(told).toEqual([
+			"a part went unjudged: no answer in 2500 ms",
 			"a part went unjudged: no answer in 2500 ms",
 			"a part went unjudged: no answer in 2500 ms",
 		]);
@@ -246,8 +261,9 @@ describe("untestedCauses", () => {
 		expect(told).toEqual(["a part went unjudged: the classifier failed"]);
 	});
 
-	it("says when a part ran past 2000 characters, and judges what it kept", async () => {
-		const long = `${"Notes from the run. ".repeat(200)}It failed because its disk filled.`;
+	it("finds a cause anywhere in a part past 2000 characters, its middle too", async () => {
+		const notes = "Notes from the run. ".repeat(150);
+		const long = `${notes}It failed because its disk filled. ${notes}`;
 		const told: string[] = [];
 		const found = await untestedCauses(
 			long,
@@ -255,7 +271,27 @@ describe("untestedCauses", () => {
 			(why) => told.push(why),
 		);
 		expect(found).toHaveLength(1);
-		expect(told).toEqual(["a part ran past 2000 characters"]);
+		expect(told).toEqual([]);
+	});
+
+	it("says when a text ran past 12 parts, and judges the first 12", async () => {
+		const long = `${"Notes from the run. ".repeat(1300)}It failed because its disk filled.`;
+		const judged: string[] = [];
+		const told: string[] = [];
+		const found = await untestedCauses(
+			long,
+			async (context) => {
+				judged.push(String(context.state["message"]));
+				return {
+					stopReason: "stop",
+					answers: {},
+				} as unknown as ClassifierResult;
+			},
+			(why) => told.push(why),
+		);
+		expect(found).toEqual([]);
+		expect(judged).toHaveLength(12);
+		expect(told).toEqual(["a text ran past 12 parts"]);
 	});
 
 	it("says it judged in full only when a part was judged and none missed", async () => {
@@ -274,6 +310,12 @@ describe("untestedCauses", () => {
 		);
 		expect(inFull).toBe(1);
 		await untestedCauses(text, failing, undefined, counting);
+		await untestedCauses(
+			"Notes from the run. ".repeat(1300),
+			judging(() => 0),
+			undefined,
+			counting,
+		);
 		await untestedCauses(
 			"ok",
 			judging(() => 0),
@@ -371,6 +413,19 @@ describe("untestedCausesFound", () => {
 			Promise.resolve({ ok: false, reason: "off", off: true } as const),
 			tell,
 		);
+		await untestedCausesFound(
+			cause,
+			Promise.resolve({ ok: false, reason: SLOW_LOOKUP } as const),
+			tell,
+		);
+		await untestedCausesFound(
+			cause,
+			Promise.resolve({
+				ok: false,
+				reason: `refused github_pat_${"A1".repeat(20)}`,
+			} as const),
+			tell,
+		);
 		vi.useFakeTimers();
 		try {
 			const judged = untestedCausesFound(cause, new Promise(() => {}), tell);
@@ -379,10 +434,13 @@ describe("untestedCausesFound", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-		expect(told).toEqual([
-			["no classifier", "none set"],
-			["finding the classifier took over 2500 ms"],
+		expect(told[0]).toEqual(["no classifier", "none set"]);
+		expect(told[1], "a session's slow lookup says so").toEqual([
+			"finding the classifier took over 2500 ms",
 		]);
+		expect(told[2]?.[1], "a secret in the detail").not.toContain("github_pat_");
+		expect(told[3]).toEqual(["finding the classifier took over 2500 ms"]);
+		expect(told).toHaveLength(4);
 	});
 });
 

@@ -35,7 +35,7 @@ import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
 import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
 import { ownerLinesAt, ownersFile } from "../../../lib/mesh/subjects.ts";
 import { usageFromLog } from "../../../lib/mesh/usage.ts";
-import { JUDGE_MS } from "../../../lib/prose/claims.ts";
+import { JUDGE_MS, SLOW_LOOKUP } from "../../../lib/prose/claims.ts";
 import { identifyCurrentTerminal } from "../../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
 import { createActs } from "../acts.ts";
@@ -252,11 +252,7 @@ export function onSessionStart(
 		// Waited on no longer than JUDGE_MS from the session's start, so a
 		// lookup that hangs costs the first sends that, not every send.
 		const capped = settledWithin(finding, JUDGE_MS).then(
-			(found): FoundClassifier =>
-				found ?? {
-					ok: false,
-					reason: `finding the classifier took over ${JUDGE_MS} ms`,
-				},
+			(found): FoundClassifier => found ?? { ok: false, reason: SLOW_LOOKUP },
 		);
 		m.classifier = capped;
 		// A lookup that ends late is read from then on, unless another

@@ -222,10 +222,11 @@ and can answer a question or a gate left open on screen.
   `form` or `all` reaches it. With no classifier nothing is
   judged, and a `mesh-unjudged` entry in the session's log says
   why, once for each kind of reason a session meets, with the
-  first line of what went wrong, as it does for a slow or
-  failing classifier or a part cut at 2000 characters, which
-  is judged by its first and last thousand, never its middle;
-  a send the classifier judged in full lets each be said again.
+  first line of what went wrong, its secrets scrubbed, as it
+  does for a slow or failing classifier or a text past 12
+  parts, whose rest goes unjudged; a paragraph past 2000
+  characters is judged in stretches of 2000, each a part. A
+  send the classifier judged in full lets each be said again.
   With the guard off a message is still judged and the person
   shown what it would have refused. So every message's text goes to the
   classifier's provider, one to a single peer's address or
