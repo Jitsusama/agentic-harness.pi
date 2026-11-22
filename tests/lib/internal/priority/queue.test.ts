@@ -46,7 +46,8 @@ describe("the kind of heavy work a command runs", () => {
 			"echo 'a #b' && cargo build",
 			"echo a#b && cargo build",
 			"echo a\\ #b && cargo build",
-			"echo $# ${#x} ${x#pre} $((16#ff)) && cargo build",
+			// `$\u007B` spells a dollar and a brace, which a lint takes for a slip.
+			"echo $# $\u007B#x} $\u007Bx#pre} $((16#ff)) && cargo build",
 			"git status && nix-store -r .#x && cargo build",
 			"nix build .#checks.x86_64-linux.x",
 		]) {
