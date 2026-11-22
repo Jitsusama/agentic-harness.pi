@@ -425,8 +425,10 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			signalledAt ??= performance.now();
 			stopAsked();
 		});
+	// In whole ms, as the bounds are, so a signal the stop follows at
+	// once takes nothing off them.
 	const sinceSignal = () =>
-		signalledAt === undefined ? 0 : performance.now() - signalledAt;
+		signalledAt === undefined ? 0 : Math.floor(performance.now() - signalledAt);
 	let serving: ServingHost;
 	try {
 		serving = await serveHost({
