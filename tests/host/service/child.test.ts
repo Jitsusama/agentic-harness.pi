@@ -434,14 +434,119 @@ describe("a child's life", () => {
 		expect(child.timers.has(2), "its grace ends with it").toBe(false);
 	});
 
+	// A rest comes only from a slot it resumes, so it keeps no first wait.
 	it("waits for the wake of a conversation that rests parked for its grace, then ends parked without one", async () => {
-		const { life, timers } = following({ aloneWithin: 2 });
+		const { life, timers } = following({ aloneWithin: 2, resumes: true });
 		life.resumed("parked");
 		expect(timers.has(2), "the grace, not the first wait, bounds a rest").toBe(
 			true,
 		);
 		timers.get(2)?.();
 		expect(await life.ending).toBe("parked");
+	});
+
+	// F40: a conversation resting parked, closed or released before any
+	// wake, ended its child as failed.
+	it.each(["closed", "released"] as const)(
+		"ends %s, not failed, when the conversation it rests leaves so before a wake",
+		async (how) => {
+			const { life, timers, lines } = following({
+				aloneWithin: 2,
+				resumes: true,
+			});
+			const answer = life.watch.answer();
+			life.resumed("parked");
+			life.left(how, `${how}, asked by the launcher`);
+			expect(await life.ending).toBe(how);
+			expect(timers.has(2), "its grace ends with it").toBe(false);
+			await expect(answer).rejects.toThrow(`The child ended: ${how}`);
+			expect(lines.at(-1)).toEqual({ type: "ending", why: how });
+		},
+	);
+
+	// A wake that registers ends the rest, so one that dies before it
+	// answers is no rest kept but a failure. A resting child's roster is
+	// seeded with its slot's entry and replaced whole by a rename, so a
+	// production read always names it; `rostered(false)` holds the answer
+	// back to reach that branch, which the code keeps defensively.
+	it("ends failed when the conversation it rests wakes and dies before it answers", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.rostered(false);
+		child.hold(conversation(A));
+		child.hold();
+		child.life.left("closed", "closed after a wake it never answered");
+		expect(await child.life.ending).toBe("failed");
+	});
+
+	// As production wakes: its roster names it, so it answers as it
+	// registers, and a build failing after that leaves it held parked.
+	it("ends as its conversation does when a wake answers as it registers and its build then fails", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		const answer = child.life.watch.answer();
+		child.life.resumed("parked");
+		child.hold(conversation(A));
+		expect(parseWatchResult(await answer).conversation.sessionId).toBe(A);
+		child.hold(conversation(A, "parked"));
+		child.hold();
+		child.life.left("closed", "closed, asked by the launcher");
+		expect(await child.life.ending).toBe("closed");
+	});
+
+	// F43: a wake that throws before it registers changes nothing held.
+	it("keeps its rest when a wake fails before registering, ending parked", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.hold();
+		expect(child.timers.has(2), "its grace still runs").toBe(true);
+		child.life.stopping();
+		expect(await child.life.ending, "a stop parks a rest").toBe("parked");
+	});
+
+	// F45: a park said while it rests keeps it resting for its grace.
+	it("keeps resting for its grace when told of a park while it rests", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.life.left("signalled", "parked while idle");
+		expect(child.timers.has(2), "its grace still runs").toBe(true);
+		child.timers.get(2)?.();
+		expect(await child.life.ending).toBe("parked");
+	});
+
+	it("ends parked on a stop while it rests, before any wake", async () => {
+		const { life } = following({ aloneWithin: 2, resumes: true });
+		life.resumed("parked");
+		life.stopping();
+		expect(await life.ending).toBe("parked");
+	});
+
+	// As above, `rostered(false)` reaches the defensive branch.
+	it("ends failed on a stop once a wake it rests died before answering", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.rostered(false);
+		child.hold(conversation(A));
+		child.hold();
+		child.life.stopping();
+		expect(await child.life.ending).toBe("failed");
+	});
+
+	it("ends parked on a stop once a wake it rests answered", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.hold(conversation(A));
+		child.life.stopping();
+		expect(await child.life.ending).toBe("parked");
+	});
+
+	// The other side of the rule: a start that neither answered nor
+	// rested never worked, whatever its end asked.
+	it("ends failed when a fresh open leaves having neither answered nor rested", async () => {
+		const { life } = following();
+		const answer = life.watch.answer();
+		life.left("closed", "closed, asked by the launcher");
+		expect(await life.ending).toBe("failed");
+		await expect(answer).rejects.toThrow("The child ended: failed");
 	});
 
 	it("clears every timer as it is disposed, its grace among them", () => {
@@ -592,19 +697,22 @@ describe("a child's watch over its socket", () => {
 	});
 
 	it("refuses a watch it never answered, then sends the ending as a line and hangs up", async () => {
-		await overSocket({ aloneWithin: 10 }, async ({ path, life }) => {
-			const { heard } = watchOn(path);
-			life.resumed("parked");
-			const all: unknown[] = [];
-			for await (const line of heard) all.push(line);
-			expect(all).toEqual([
-				expect.objectContaining({
-					id: "w",
-					ok: false,
-					error: expect.objectContaining({ code: "ending" }),
-				}),
-				{ type: "ending", why: "parked" },
-			]);
-		});
+		await overSocket(
+			{ aloneWithin: 10, resumes: true },
+			async ({ path, life }) => {
+				const { heard } = watchOn(path);
+				life.resumed("parked");
+				const all: unknown[] = [];
+				for await (const line of heard) all.push(line);
+				expect(all).toEqual([
+					expect.objectContaining({
+						id: "w",
+						ok: false,
+						error: expect.objectContaining({ code: "ending" }),
+					}),
+					{ type: "ending", why: "parked" },
+				]);
+			},
+		);
 	});
 });
