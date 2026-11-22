@@ -120,6 +120,15 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
 }
 
 /**
+ * What in `texts` names a command a spare can't stand beside: a command
+ * shown that isn't plain and holds a command word, or a command word in
+ * prose. Nothing where it names none, a file name in code included.
+ */
+export function commandNamedIn(_texts: readonly string[]): string | undefined {
+	return undefined;
+}
+
+/**
  * What first stops one part of a text, prose or fenced, being plain.
  * Every fence is read line by line, a markdown one too, since it is
  * drawn as code whatever its language.

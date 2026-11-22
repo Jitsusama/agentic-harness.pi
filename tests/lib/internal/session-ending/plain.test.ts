@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	commandNamedIn,
 	notPlainIn,
 	plainlySaid,
 } from "../../../../lib/internal/session-ending/plain.ts";
@@ -98,5 +99,37 @@ describe("plainlySaid", () => {
 			plainlySaid(["Reboot optimus", "`sudo systemctl soft-reboot`"]),
 			"the code in the second text counts",
 		).toBe(false);
+	});
+});
+
+describe("commandNamedIn", () => {
+	it.each([
+		[
+			"Done. If it hangs, run `sudo systemctl isolate rescue.target`.",
+			"sudo systemctl isolate rescue.target",
+		],
+		["Copy the tree into /run/nextroot first.", "nextroot"],
+		["The notes are in `notes.md`, and `kexec -e` brings it back.", "kexec -e"],
+		["Notes:\n\n```sh\ncat notes.md\nsudo kexec -e\n```", "sudo kexec -e"],
+		["See `notes.md`. If it hangs, sudo kexec -e.", "sudo"],
+		["Then:\n\n```sh\nls\n# or kill it\n```", "kill"],
+	])("names the command in: %s", (said, what) => {
+		expect(commandNamedIn([said])).toBe(what);
+	});
+
+	it.each([
+		"Done; the notes are in `notes.md`.",
+		"The reboot went fine, and `journalctl -b` is clean.",
+		"It runs `sudo reboot` once you say.",
+		"The log:\n\n```text\nboot.log\n```",
+		"Reboot optimus. If it hangs, ``reboot`x`.",
+	])("names nothing in: %s", (said) => {
+		expect(commandNamedIn([said])).toBeUndefined();
+	});
+
+	it("reads every text it is given", () => {
+		expect(commandNamedIn(["All done.", "`loginctl enable-linger`"])).toBe(
+			"loginctl enable-linger",
+		);
 	});
 });
