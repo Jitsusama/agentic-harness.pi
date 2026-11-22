@@ -22,6 +22,7 @@ interface ProbeContext {
 		select(title: string, labels: string[]): Promise<string | undefined>;
 	};
 	newSession(): Promise<{ cancelled: boolean }>;
+	switchSession(sessionPath: string): Promise<{ cancelled: boolean }>;
 }
 
 /** The few of pi's extension calls the probe makes. */
