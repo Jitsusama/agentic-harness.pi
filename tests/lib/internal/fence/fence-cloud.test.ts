@@ -40,16 +40,33 @@ describe("a fenced command's cloud account", () => {
 	let bwrap: string;
 	let landrun: string;
 
-	/** A stand-in that writes its arguments to `said`, then runs what follows the first `--`. */
+	/**
+	 * A stand-in that writes its arguments to `said`, then runs what follows
+	 * the first `--`. landrun's hands the command only what each `--env`
+	 * names, as landrun does, so a variable it isn't told never arrives.
+	 */
 	function standIn(name: string): string {
 		const path = join(base, name);
+		const run =
+			name === "landrun"
+				? [
+						"given=()",
+						'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do',
+						'  if [ "$1" = --env ]; then shift; case $1 in *=*) given+=("$1");; *) [ -n "${!1+set}" ] && given+=("$1=${!1}");; esac; fi',
+						"  shift",
+						"done",
+						'shift; exec env -i "${given[@]}" "$@"',
+					]
+				: [
+						'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done',
+						'shift; exec "$@"',
+					];
 		writeFileSync(
 			path,
 			[
 				"#!/usr/bin/env bash",
 				`printf '%s\\n' "$@" > ${join(base, `${name}.said`)}`,
-				'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done',
-				'shift; exec "$@"',
+				...run,
 			].join("\n"),
 		);
 		chmodSync(path, 0o755);

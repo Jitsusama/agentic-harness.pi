@@ -361,7 +361,7 @@ describe("a command in the fence, through stand-ins", () => {
 		]) {
 			expect(env, `${name} is the fence's own`).toMatch(
 				new RegExp(
-					`^${name}=${join(home, ".cache/pi-sandbox/cache", tool ?? "")}$`,
+					`^${name}=${join(home, ".cache/pi-fence/homes", tool ?? "")}$`,
 					"m",
 				),
 			);
