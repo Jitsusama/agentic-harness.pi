@@ -1,8 +1,8 @@
 /**
  * Once a spare let an ask past the sessions it would end, what follows
  * in the same run is read beside it: a later reply or call naming a
- * command off the plain list is held until the person speaks, answers
- * the spared ask, or the run ends.
+ * command off the plain list is held until the person speaks or the
+ * run ends.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -108,9 +108,12 @@ const askPerson = (prompt: string, id: string) =>
 		id,
 	);
 
-/** The result of call `id` to `toolName`, with `details`. */
+/**
+ * The result of call `id` to `toolName`, with `details`, said to
+ * whatever listens for one; nothing need.
+ */
 const resultOf = (toolName: string, id: string, details: unknown) =>
-	handler("tool_result")(
+	pi.recorded.handlers.get("tool_result")?.[0]?.(
 		{
 			type: "tool_result",
 			toolName,
@@ -129,6 +132,31 @@ const wait = (extra: Record<string, unknown>, id: string) =>
 		"mesh_wait",
 		{ title: "Install the BIOS", machine: "optimus", ...extra },
 		id,
+	);
+
+/** A reply making `calls`, each a tool's name and input, after `said`. */
+const replyCalling = (
+	said: string,
+	calls: readonly [string, Record<string, unknown>][],
+) =>
+	handler("message_end")(
+		{
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: said },
+					...calls.map(([name, input], at) => ({
+						type: "toolCall",
+						id: `m${at}`,
+						name,
+						arguments: input,
+					})),
+				],
+				stopReason: "toolUse",
+			},
+		},
+		ctx,
 	);
 
 /** The person's own input, typed or through the host, then its message. */
@@ -250,7 +278,30 @@ describe("what follows a spare in the same run", () => {
 		});
 	});
 
-	it("starts from a spared wait, without holding its own check against it", async () => {
+	it("holds a later check that hides a command in shell quoting", async () => {
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+
+		expect(
+			await wait({ readyWhen: { check: "pk''ill -u joel" } }, "w2"),
+		).toMatchObject({ block: true });
+	});
+
+	it("lets a boot wait that only reads the system follow a spared look", async () => {
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+
+		expect(
+			await wait(
+				{ doneWhen: { signal: "boot", check: "systemctl is-system-running" } },
+				"w2",
+			),
+		).toBeUndefined();
+	});
+
+	it("starts from a spared wait whose check only reads the system", async () => {
 		interceptorOver();
 
 		expect(
@@ -264,6 +315,44 @@ describe("what follows a spare in the same run", () => {
 			"the wait is spared",
 		).toBeUndefined();
 		expect(await reply(RESCUE), "the later reply is withheld").toBeDefined();
+	});
+
+	it.each(["pkill -u joel node", "systemctl --user stop pi-host"])(
+		"spares no wait whose own check runs a command: %s",
+		async (check) => {
+			interceptorOver();
+
+			expect(
+				await wait(
+					{ doneWhen: { signal: "boot" }, readyWhen: { check } },
+					"w1",
+				),
+			).toMatchObject({
+				block: true,
+				reason: expect.stringContaining(`("${check}"), so none was spared`),
+			});
+		},
+	);
+
+	it("spares no look beside a wait made before it in the same reply", async () => {
+		interceptorOver();
+		const waiting = { title: "Watch it", readyWhen: { check: "pkill -u joel node" } };
+		const looking = {
+			kind: "page",
+			target: "https://example.org/bios",
+			title: "BIOS 1.13.0",
+			ask: "Reboot optimus to install it",
+		};
+
+		await replyCalling("Two things.", [
+			["mesh_wait", waiting],
+			["show_person", looking],
+		]);
+		await call("mesh_wait", waiting, "m0");
+
+		expect(await call("show_person", looking, "m1")).toMatchObject({
+			block: true,
+		});
 	});
 
 	it("starts from a spared reply", async () => {
@@ -284,7 +373,7 @@ describe("what follows a spare in the same run", () => {
 		await reply(RESCUE);
 		const said = JSON.stringify(pi.recorded.sent);
 
-		expect(said).toContain("say it again");
+		expect(said).toContain("say it again, with the same command lines");
 		expect(said).not.toContain("ask it again");
 		expect(await reply(RESCUE), "said again, it goes").toBeUndefined();
 	});
@@ -300,6 +389,44 @@ describe("what follows a spare in the same run", () => {
 			await reply(`${RESCUE} Or \`sudo kexec -e\`.`),
 			"a command beside the one told of is withheld",
 		).toBeDefined();
+	});
+
+	it("carries no long command through an override for another that starts the same", async () => {
+		setSessionMode(GUARD, "redirect");
+		interceptorOver();
+		const start =
+			"sudo systemctl set-property --runtime user.slice CPUQuota=50% MemoryHigh=8G && ";
+
+		await look("Reboot optimus to install it");
+		await reply(`Done. \`${start}echo ok\`.`);
+
+		expect(
+			await reply(`Done. \`${start}sudo kexec -e\`.`),
+			"the second command, past the quote's cut, is withheld",
+		).toBeDefined();
+	});
+
+	it("carries no other line through an override for a word in prose", async () => {
+		setSessionMode(GUARD, "redirect");
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		await reply("Next, run sudo apt upgrade.");
+
+		expect(
+			await reply("Next, run sudo rm -rf /run/user/1000."),
+			"another line with the same word is withheld",
+		).toBeDefined();
+	});
+
+	it("still tells the model of an ask after the hold used its tells", async () => {
+		interceptorOver();
+
+		await look("Reboot optimus to install it");
+		for (const _ of [1, 2, 3]) await reply(RESCUE);
+		await reply("Please reboot optimus now; if it hangs, `sudo kexec -e`.");
+
+		expect(pi.recorded.sent).toHaveLength(4);
 	});
 
 	it("holds nothing where the ask before was refused, not spared", async () => {
@@ -331,13 +458,13 @@ describe("when what followed a spare is free again", () => {
 		},
 	);
 
-	it("once the person talks from the launcher", async () => {
+	it("not for the launcher's words, which anything running as the person can write", async () => {
 		interceptorOver();
 
 		await look("Reboot optimus to install it");
 		pi.events.emit(PERSON_TALKED, { intoRun: true });
 
-		expect(await reply(RESCUE)).toBeUndefined();
+		expect(await reply(RESCUE), "still withheld").toBeDefined();
 	});
 
 	it("not for a message an extension sends", async () => {
@@ -358,7 +485,7 @@ describe("when what followed a spare is free again", () => {
 		expect(await reply(RESCUE)).toBeUndefined();
 	});
 
-	it("once the person answers the spared ask", async () => {
+	it("not for their answer to the spared ask, the moment they act on it", async () => {
 		interceptorOver();
 
 		expect(
@@ -370,63 +497,6 @@ describe("when what followed a spare is free again", () => {
 			cancelled: false,
 		});
 
-		expect(await reply(RESCUE)).toBeUndefined();
-	});
-
-	it.each([
-		["answered by the recommendation while away", { answers: [] }],
-		["cancelled", { answers: [{ id: "q", label: "Yes" }], cancelled: true }],
-		[
-			"parked unanswered",
-			{ answers: [{ id: "q", label: "Yes" }], parked: "locked" },
-		],
-	])("not for a spared ask %s", async (_how, details) => {
-		interceptorOver();
-
-		await askPerson("Reboot optimus now to install the BIOS?", "a1");
-		await resultOf("ask", "a1", {
-			questions: [],
-			cancelled: false,
-			...details,
-		});
-
 		expect(await reply(RESCUE), "still withheld").toBeDefined();
-	});
-
-	it("not for another ask's answer", async () => {
-		interceptorOver();
-
-		await askPerson("Reboot optimus now to install the BIOS?", "a1");
-		await resultOf("ask", "a2", {
-			answers: [{ id: "q", label: "Yes" }],
-			cancelled: false,
-		});
-
-		expect(await reply(RESCUE), "still withheld").toBeDefined();
-	});
-
-	it("not for another tool's result, even under the ask's id", async () => {
-		interceptorOver();
-
-		await askPerson("Reboot optimus now to install the BIOS?", "a1");
-		await resultOf("show_person", "a1", {
-			answers: [{ id: "q", label: "Yes" }],
-			cancelled: false,
-		});
-
-		expect(await reply(RESCUE), "still withheld").toBeDefined();
-	});
-
-	it("not while another spare still stands", async () => {
-		interceptorOver();
-
-		await look("Reboot optimus to install it", "c1");
-		await askPerson("Reboot optimus now to install the BIOS?", "a1");
-		await resultOf("ask", "a1", {
-			answers: [{ id: "q", label: "Yes" }],
-			cancelled: false,
-		});
-
-		expect(await reply(RESCUE), "the look's spare still stands").toBeDefined();
 	});
 });

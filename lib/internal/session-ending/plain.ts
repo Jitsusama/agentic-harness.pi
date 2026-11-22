@@ -138,6 +138,11 @@ export function commandsNamedIn(texts: readonly string[]): string[] {
 	);
 }
 
+/** The checks run for the person that name a command: a stub, none. */
+export function checksNamedIn(_checks: readonly string[]): string[] {
+	return [];
+}
+
 /**
  * Each thing that stops `texts` being plainly said, in the order a
  * reader meets them: in each text, a fence line out of shape, then each

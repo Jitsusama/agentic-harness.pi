@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	checksNamedIn,
 	commandsNamedIn,
 	notPlainIn,
 	plainlySaid,
@@ -106,17 +107,25 @@ describe("commandsNamedIn", () => {
 	it.each([
 		[
 			"Done. If it hangs, run `sudo systemctl isolate rescue.target`.",
-			"sudo systemctl isolate rescue.target",
+			["sudo systemctl isolate rescue.target"],
 		],
-		["Copy the tree into /run/nextroot first.", "nextroot"],
-		["The notes are in `notes.md`, and `kexec -e` brings it back.", "kexec -e"],
-		["Notes:\n\n```sh\ncat notes.md\nsudo kexec -e\n```", "sudo kexec -e"],
-		["See `notes.md`. If it hangs, sudo kexec -e.", "sudo"],
-		["Then:\n\n```sh\nls\n# or kill it\n```", "kill"],
-		["If that fails, shutdown -hP now.", "shutdown -hP"],
-		["Run `tmux kill-server` after.", "tmux kill-server"],
-	])("names the command in: %s", (said, what) => {
-		expect(commandsNamedIn([said])[0]).toBe(what);
+		["Copy the tree into /run/nextroot first.", ["nextroot"]],
+		[
+			"The notes are in `notes.md`, and `kexec -e` brings it back.",
+			["kexec -e"],
+		],
+		["Notes:\n\n```sh\ncat notes.md\nsudo kexec -e\n```", ["sudo kexec -e"]],
+		["See `notes.md`. If it hangs, sudo kexec -e.", ["sudo", "kexec"]],
+		["Then:\n\n```sh\nls\n# or kill it\n```", ["kill"]],
+		["If that fails, shutdown -hP now.", ["shutdown -hP"]],
+		["Run `tmux kill-server` after.", ["tmux kill-server"]],
+		["Then `killall5 -9`.", ["killall5 -9"]],
+		["Then `/usr/bin/kill -9 1`.", ["/usr/bin/kill -9 1"]],
+		["Then `echo b > /proc/sysrq-trigger`.", ["echo b > /proc/sysrq-trigger"]],
+		["Or `i3-msg exit`.", ["i3-msg exit"]],
+		["If it hangs, press Alt+SysRq+B.", ["SysRq"]],
+	])("names the commands in: %s", (said, what) => {
+		expect(commandsNamedIn([said])).toEqual(what);
 	});
 
 	it.each([
@@ -127,6 +136,8 @@ describe("commandsNamedIn", () => {
 		"Reboot optimus. If it hangs, ``reboot`x`.",
 		"The skills are loaded, and the stuck test was killed.",
 		"See `~/.pi/skills/README.md` and `/etc/sudoers.d/joel`; sshd is up.",
+		"Your key is in `~/.ssh/id_ed25519`, and `/var/log/sudo.log` is quiet.",
+		"See `notes-on-ssh.md`.",
 	])("names nothing in: %s", (said) => {
 		expect(commandsNamedIn([said])).toEqual([]);
 	});
@@ -143,5 +154,28 @@ describe("commandsNamedIn", () => {
 				"See `ls skills`, then `sudo kexec -e`; the skills say killall pi.",
 			]),
 		).toEqual(["sudo kexec -e", "killall"]);
+	});
+});
+
+describe("checksNamedIn", () => {
+	it.each([
+		"systemctl is-system-running",
+		"systemctl --user is-active pi-host.service",
+		"test -e /run/booted-system",
+	])("names nothing in a check that only reads: %s", (check) => {
+		expect(checksNamedIn([check])).toEqual([]);
+	});
+
+	it.each([
+		"pkill -u joel node",
+		"systemctl --user stop pi-host",
+		"systemctl is-active pi-host; sudo kexec -e",
+		"pk''ill -u joel",
+		"sys\\temctl --user stop pi-host",
+		"$(printf pkill) -u joel",
+	])("names a check that runs a command, or hides one: %s", (check) => {
+		expect(checksNamedIn(["test -e /run/booted-system", check])).toEqual([
+			check,
+		]);
 	});
 });
