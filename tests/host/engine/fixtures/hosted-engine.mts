@@ -1714,16 +1714,21 @@ function summary(engine: HostEngine, id: string): Record<string, unknown> {
 
 interface Message {
 	readonly role: string;
-	readonly content: string | readonly { type: string; text?: string }[];
+	/** Absent on a message pi makes of an entry, such as a compaction's summary. */
+	readonly content?: string | readonly { type: string; text?: string }[];
 }
 
 function text(message: Message): string {
 	const content =
-		typeof message.content === "string"
-			? message.content
-			: message.content
-					.map((part) => (part.type === "text" ? part.text : `[${part.type}]`))
-					.join("");
+		message.content === undefined
+			? ""
+			: typeof message.content === "string"
+				? message.content
+				: message.content
+						.map((part) =>
+							part.type === "text" ? part.text : `[${part.type}]`,
+						)
+						.join("");
 	return `${message.role}: ${content}`;
 }
 
