@@ -285,12 +285,13 @@ export interface BudgetKeeperOptions {
 }
 
 /**
- * How long a session's first prompt, on no quest, waits on the judgement
- * of which budget it draws on. A classifier answers in a few seconds, but
- * a busy host has taken up to the judgement's own 20 s deadline, and the
- * person waits on the reply for all of it. Past this the prompt goes on,
- * on what it would draw on unjudged, and the judgement, still running,
- * lays its budget as it lands, for the calls after.
+ * How long a session's first prompt, on no quest, waits on its folder's
+ * budget and the judgement of which it draws on, the two together. A
+ * classifier answers in a few seconds, but a busy host has taken up to
+ * the judgement's own 20 s deadline, and the person waits on the reply
+ * for all of it. Past this the prompt goes on, on what it would draw on
+ * unjudged, and whichever answer is still on its way lays its budget as
+ * it lands, for the calls after.
  */
 export const LOOSE_PROMPT_WAIT_MS = 4_000;
 
@@ -443,8 +444,8 @@ export function keepQuestBudget(
 	let promptAsked: Promise<string | null> | undefined;
 	/** What that judgement named, once it has answered. */
 	let promptNamed: string | null | undefined;
-	/** The judgement a prompt stopped waiting on, watched to lay it as it lands. */
-	let watchedLate: Promise<string | null> | undefined;
+	/** The answers a keep stopped waiting on, watched to lay them as they land. */
+	let watched = new WeakSet<Promise<string | null>>();
 	const looseWaitMs = options.looseWaitMs ?? LOOSE_PROMPT_WAIT_MS;
 	/** Whether a keep asked to draw again, so one overtaking it does. */
 	let redrawOwed = false;
@@ -478,6 +479,15 @@ export function keepQuestBudget(
 		// The session this ask is for: once forgotten, its answer is no
 		// longer the next session's to keep or to say.
 		const session = sessions;
+		// One wait for the folder's answer and the judgement together, so
+		// a prompt waits no longer than it on both; an answer waited on
+		// once is taken only if it has landed.
+		const waitEnds = Date.now() + looseWaitMs;
+		const waitOn = (answer: Promise<string | null>) =>
+			within(
+				answer,
+				watched.has(answer) ? 0 : Math.max(0, waitEnds - Date.now()),
+			);
 		folderAsked ??= host.budgetFor(folder).then((taken) => {
 			if (!taken || session !== sessions) return null;
 			// Said once, not again as a late provider has it asked anew; nor
@@ -489,8 +499,13 @@ export function keepQuestBudget(
 			);
 			return taken.name;
 		});
-		const byFolder = await folderAsked;
+		const askedOfFolder = folderAsked;
+		const byFolder = await waitOn(askedOfFolder);
 		if (session !== sessions) return UNNAMED;
+		if (byFolder === STILL_JUDGING) {
+			watchLate(askedOfFolder, session, "folder", prompt ?? firstPrompt);
+			return UNNAMED;
+		}
 		if (byFolder !== null) return { name: byFolder, judged: false };
 		// Only a person's session is judged on its prompt: a subagent or a
 		// job runs in print or JSON mode, and its task is no word on whose
@@ -533,15 +548,10 @@ export function keepQuestBudget(
 			return UNNAMED;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const asked = promptAsked;
-		// Waited on once: a prompt after the one that stopped waiting takes
-		// the answer only if it has landed, rather than waiting again.
-		const byPrompt = await within(
-			asked,
-			watchedLate === asked ? 0 : looseWaitMs,
-		);
+		const byPrompt = await waitOn(asked);
 		if (session !== sessions) return UNNAMED;
 		if (byPrompt === STILL_JUDGING) {
-			watchLate(asked, session);
+			watchLate(asked, session, "prompt", firstPrompt);
 			return UNNAMED;
 		}
 		if (asked === promptAsked) promptNamed = byPrompt;
@@ -549,19 +559,27 @@ export function keepQuestBudget(
 	};
 
 	/**
-	 * Lay what a judgement the prompt stopped waiting on names, once it
-	 * lands: a keep again then finds it answered. Watched once, and only
-	 * while it is still this session's judgement.
+	 * Lay what an answer a keep stopped waiting on names, once it lands:
+	 * a keep again then finds it answered. A folder that answers none
+	 * leaves the first prompt to judge, so that keep asks it of `prompt`.
+	 * Watched once, and only while it is still this session's answer.
 	 */
-	const watchLate = (asked: Promise<string | null>, session: number) => {
-		if (watchedLate === asked) return;
-		watchedLate = asked;
-		asked.then(
+	const watchLate = (
+		answer: Promise<string | null>,
+		session: number,
+		of: "folder" | "prompt",
+		prompt: string | undefined,
+	) => {
+		if (watched.has(answer)) return;
+		watched.add(answer);
+		answer.then(
 			(named) => {
-				if (session !== sessions || asked !== promptAsked) return;
-				promptNamed = named;
-				if (named === null || !last || state.questId) return;
-				keep(last, true).catch(() => {
+				const current = of === "folder" ? folderAsked : promptAsked;
+				if (session !== sessions || answer !== current) return;
+				if (of === "prompt") promptNamed = named;
+				if (named === null && (of === "prompt" || prompt === undefined)) return;
+				if (!last || state.questId) return;
+				keep(last, true, prompt).catch(() => {
 					// Nothing awaits this ask, and an unwatched rejection ends pi;
 					// the next keep, before the next model call, asks again.
 				});
@@ -851,7 +869,7 @@ export function keepQuestBudget(
 		folderAsked = undefined;
 		promptAsked = undefined;
 		promptNamed = undefined;
-		watchedLate = undefined;
+		watched = new WeakSet();
 		redrawOwed = false;
 		firstPrompt = undefined;
 		startedOn = undefined;
