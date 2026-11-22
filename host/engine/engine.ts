@@ -83,7 +83,11 @@ import {
 	pinSubagentInstall,
 	pinSubagentKey,
 } from "./subagent-install.ts";
-import { conversationMarker, ownerMark } from "./tool-children.ts";
+import {
+	conversationMarker,
+	ownerMark,
+	readsProcesses,
+} from "./tool-children.ts";
 
 /** A conversation prepare named, waiting for its start, with the launch derived for it. */
 interface Preparing {
@@ -108,6 +112,10 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
+	if (!readsProcesses())
+		report(
+			"This machine has no /proc, so no conversation's tool processes are reaped: what a stop, a close or a restart leaves running runs on",
+		);
 	const kept = options.oneConversation;
 	const stopping = stopKeeping({
 		stateDir: options.stateDir,

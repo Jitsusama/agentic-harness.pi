@@ -715,14 +715,36 @@ describe("runHost", () => {
 		if (!reply.ok) throw new Error(reply.error.message);
 		const { sessionId } = parseOpenResult(reply.result);
 
+		expect(run.signalled(), "no stop signal has come yet").toBe(false);
 		signals.emit("SIGTERM");
 		await run.stopped;
+		expect(run.signalled(), "it was stopped by a signal").toBe(true);
 		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
 			false,
 		);
 		expect(
 			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
 		).toBe("held");
+	});
+
+	// A `launchctl stop` while a Mac's host parks to restart keeps it down.
+	it("remembers a stop signal that comes while a stop it asked of itself parks", async () => {
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals,
+			ready: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const stopping = run.stop();
+		signals.emit("SIGTERM");
+		await stopping;
+		await run.stopped;
+		expect(run.signalled(), "the signal came during the stop").toBe(true);
 	});
 
 	it("parks on a stop it asks of itself as on a stop signal, as a Mac's restart does", async () => {
@@ -748,6 +770,7 @@ describe("runHost", () => {
 
 		await run.stop();
 		await run.stopped;
+		expect(run.signalled(), "it stopped without a signal").toBe(false);
 		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
 			false,
 		);

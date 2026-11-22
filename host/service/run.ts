@@ -250,6 +250,8 @@ export interface HostRun {
 	readonly stopped: Promise<void>;
 	/** Stop as a stop signal would, answering `stopped`. */
 	stop(): Promise<void>;
+	/** Whether a stop signal has come, before or during any stop it asked of itself. */
+	signalled(): boolean;
 }
 
 /**
@@ -527,11 +529,16 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	};
 	// A stop the host asks of itself ends it as a signal's would.
 	let stopAsked = (): void => undefined;
+	let signalled = false;
 	const stopped = new Promise<void>((resolve, reject) => {
 		stopAsked = () => {
 			stop().then(resolve, reject);
 		};
-		for (const signal of STOP_SIGNALS) signals.once(signal, stopAsked);
+		for (const signal of STOP_SIGNALS)
+			signals.once(signal, () => {
+				signalled = true;
+				stopAsked();
+			});
 		// A child stops once its conversation ends, as a signal would stop it.
 		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
@@ -585,6 +592,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			stopAsked();
 			return stopped;
 		},
+		signalled: () => signalled,
 	};
 }
 

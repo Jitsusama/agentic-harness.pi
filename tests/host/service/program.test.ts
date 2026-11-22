@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	conversationBase,
 	conversationLaunch,
+	EXIT_TO_RESTART,
+	exitStatusOf,
 	HostMisconfigured,
 	hostPackageDir,
 	nameViewerTerminal,
@@ -68,8 +70,19 @@ describe("conversationLaunch", () => {
 	});
 });
 
+describe("exitStatusOf", () => {
+	it("exits to be restarted only when it stopped for that and nothing failed", () => {
+		expect(exitStatusOf({ failed: false, restarts: true })).toBe(
+			EXIT_TO_RESTART,
+		);
+		expect(exitStatusOf({ failed: false, restarts: false })).toBe(0);
+		expect(exitStatusOf({ failed: true, restarts: true })).toBe(1);
+		expect(exitStatusOf({ failed: true, restarts: false })).toBe(1);
+	});
+});
+
 describe("conversationBase", () => {
-	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof, its stop limit, its tools or its viewers' terminal", () => {
+	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof, its stop limit, launchd's Label, its tools or its viewers' terminal", () => {
 		const host: NodeJS.ProcessEnv = {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
@@ -80,6 +93,7 @@ describe("conversationBase", () => {
 			PI_PACKAGE_DIR: "/nix/store/host-pi",
 			PI_HOST_PROOF: "/nix/store/host-pi-proof.json",
 			PI_HOST_STOP_USEC: "150000000",
+			XPC_SERVICE_NAME: "org.jitsusama.pi-host-work-background",
 			AI_PROXY_HEADERS_BIN: "/nix/store/host-runtime/libexec/ai-proxy-headers",
 			WORKTRAIL_BIN: "/nix/store/host-runtime/libexec/worktrail",
 		};

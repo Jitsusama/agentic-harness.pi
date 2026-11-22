@@ -128,6 +128,7 @@ import {
 	type LaunchdFacts,
 	ownLaunchdJob,
 	ownUnit,
+	processLaunchdFacts,
 	type Systemctl,
 	unitDefinition,
 	userSystemctl,
@@ -711,10 +712,10 @@ export interface Following {
 	readonly launchd?: LaunchdFacts;
 	/**
 	 * How a host launchd runs restarts: it stops, parking every
-	 * conversation, and exits for launchd to start it again. A launchd
-	 * job given none follows nothing.
+	 * conversation, answering once it has, and exits for launchd to start
+	 * it again. A launchd job given none follows nothing.
 	 */
-	readonly exitToRestart?: () => void;
+	readonly exitToRestart?: () => Promise<void>;
 	/** How much heap the host uses; this process's as its last major collection left it by default. */
 	readonly heap?: () => HeapUse;
 	/** Passed on to restartWhenSettled, for tests. */
@@ -737,13 +738,26 @@ interface Supervisor {
 async function supervisorOf(
 	options: Following,
 ): Promise<Supervisor | undefined> {
-	if (ownLaunchdJob(options.launchd) !== undefined) {
+	const launchd = options.launchd ?? processLaunchdFacts();
+	const job = ownLaunchdJob(launchd);
+	if (job !== undefined) {
 		const exit = options.exitToRestart;
 		if (exit === undefined) return undefined;
+		options.report(
+			`The host follows its install as launchd's job ${job}, exiting to be started again`,
+		);
 		return {
 			changed: async () => undefined,
-			restart: async () => exit(),
+			// Answered once parked, so no wait for systemd's start is armed.
+			restart: () => exit(),
 		};
+	}
+	// A Mac's host that isn't its job would run its old code unsaid.
+	if (launchd.platform === "darwin") {
+		options.report(
+			`The host follows nothing: launchd runs no pi host job here (its parent is ${launchd.ppid}, its XPC_SERVICE_NAME ${launchd.service ?? "unset"})`,
+		);
+		return undefined;
 	}
 	const systemctl = options.systemctl ?? userSystemctl;
 	const unit = await ownUnit(options.cgroupFile);

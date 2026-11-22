@@ -29,7 +29,10 @@ import {
 	SETTLE_CEILING_MS,
 	settled,
 } from "../../../host/service/restart.ts";
-import type { Systemctl } from "../../../host/service/what-starts.ts";
+import type {
+	LaunchdFacts,
+	Systemctl,
+} from "../../../host/service/what-starts.ts";
 
 const NOW = Date.parse("2026-11-10T20:00:00Z");
 const MB = 1024 * 1024;
@@ -1253,6 +1256,9 @@ describe("followWhatStarts", () => {
 		};
 	}
 
+	// A host systemd runs, which launchd's facts never read as a job.
+	const linux = { platform: "linux" as const, ppid: 0, service: undefined };
+
 	// A heap far under V8's limit, unless a test says otherwise.
 	const small = () => ({ usedBytes: MB, limitBytes: 4144 * MB });
 
@@ -1291,6 +1297,8 @@ describe("followWhatStarts", () => {
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
+			// Linux's, whatever machine runs the tests.
+			launchd: linux,
 			heap,
 			timing: { after: timers.after, settledMs: 0 },
 		});
@@ -1541,7 +1549,12 @@ describe("followWhatStarts", () => {
 		service: "org.jitsusama.pi-host-work-attended",
 	};
 
-	async function followAsJob(exitToRestart?: () => void) {
+	// It reads the unit's own cgroup, as the main process systemd names, so
+	// any way past launchd to systemd would show in the calls.
+	async function followAsJob(
+		exitToRestart?: () => Promise<void>,
+		launchd: LaunchdFacts = job,
+	) {
 		const timers = manualTimers();
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],
@@ -1550,25 +1563,32 @@ describe("followWhatStarts", () => {
 		};
 		const { systemctl, calls } = systemd();
 		const report = vi.fn();
-		await followWhatStarts({
+		const stop = await followWhatStarts({
 			serving,
 			background: () => 0,
 			resting: () => true,
 			report,
 			root: join(install, "versions", "one"),
 			systemctl,
-			cgroupFile: join(dir, "no-cgroup"),
-			launchd: job,
+			cgroupFile: cgroup,
+			pid: 7,
+			launchd,
 			...(exitToRestart ? { exitToRestart } : {}),
 			heap: small,
 			timing: { after: timers.after, settledMs: 0 },
 		});
-		return { timers, serving, calls, report };
+		return { timers, serving, calls, report, stop };
 	}
 
 	it("exits to restart as a launchd job once the install changes the host's own code", async () => {
-		const exits = vi.fn();
-		const { timers, serving, calls, report } = await followAsJob(exits);
+		// As the program does, the stop ends the following before it answers.
+		const ending: { stop?: () => void } = {};
+		const exits = vi.fn(async () => ending.stop?.());
+		const { timers, serving, calls, report, stop } = await followAsJob(exits);
+		ending.stop = stop;
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"The host follows its install as launchd's job org.jitsusama.pi-host-work-attended, exiting to be started again",
+		);
 		await timers.fire();
 		expect(exits).not.toHaveBeenCalled();
 
@@ -1578,14 +1598,32 @@ describe("followWhatStarts", () => {
 		expect(exits).toHaveBeenCalledOnce();
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls, "no systemctl on a Mac").toEqual([]);
-		expect(String(report.mock.calls[0]?.[0])).toContain(
+		expect(String(report.mock.calls.at(-1)?.[0])).toContain(
 			"the install's two changes the host's own code",
 		);
+		expect(
+			timers.pending(),
+			"no wait for systemd to start it again is armed",
+		).toEqual([]);
 	});
 
 	it("follows nothing as a launchd job it can't exit to restart", async () => {
 		const { timers, calls } = await followAsJob();
 		expect(timers.pending()).toEqual([]);
 		expect(calls).toEqual([]);
+	});
+
+	it("follows nothing on a Mac launchd doesn't run as its job, saying why", async () => {
+		const exits = vi.fn(async () => {});
+		const { timers, calls, report } = await followAsJob(exits, {
+			platform: "darwin",
+			ppid: 4242,
+			service: undefined,
+		});
+		expect(timers.pending()).toEqual([]);
+		expect(calls, "no systemctl on a Mac").toEqual([]);
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"The host follows nothing: launchd runs no pi host job here (its parent is 4242, its XPC_SERVICE_NAME unset)",
+		);
 	});
 });

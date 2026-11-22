@@ -13,7 +13,8 @@
  * whatever conversation it was for, held or not. A host holds its key alone,
  * so another live host's children are never touched. A reused pid carries no marker, so it is never mistaken for a
  * child, and an owner is its pid and the tick it started at, which no later
- * process with that pid shares. Linux's /proc is the process table.
+ * process with that pid shares. Linux's /proc is the process table. A Mac
+ * has none, so there nothing is reaped, and its host says so as it starts.
  *
  * A command a move or a release handed to another process runs on under
  * the marks of the conversation that started it, so it is spared until
@@ -118,12 +119,27 @@ export function conversationMarker(
 	};
 }
 
-/** This process's mark as an owner: its pid and the tick it started at. */
+/**
+ * This process's mark as an owner: its pid and the tick it started at.
+ * Where the table lists no process, as on a Mac, no reap reads the mark
+ * back, so it takes the moment this process began, in milliseconds.
+ */
 export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 	const started = table.started(table.self);
-	if (started === undefined)
-		throw new Error("The host cannot read when its own process started");
-	return `${table.self}:${started}`;
+	if (started !== undefined) return `${table.self}:${started}`;
+	if (!readsProcesses(table))
+		return `${table.self}:${Math.round(performance.timeOrigin)}`;
+	throw new Error("The host cannot read when its own process started");
+}
+
+/**
+ * Whether a table lists any process at all: Linux's always holds this
+ * one, and a Mac's, with no /proc, none, so nothing is ever reaped there.
+ */
+export function readsProcesses(
+	table: ProcessTable = linuxProcessTable(),
+): boolean {
+	return table.pids().length > 0;
 }
 
 /** What reaping looks for: the text a marked environment holds, and the exact test it must pass. */

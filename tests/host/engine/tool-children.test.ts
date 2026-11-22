@@ -23,6 +23,7 @@ import {
 	parseEnviron,
 	parseGroup,
 	parseStarted,
+	readsProcesses,
 	reapLeftBehind,
 	reapToolChildren,
 } from "../../../host/engine/tool-children.ts";
@@ -524,6 +525,36 @@ describe("reading the process table", () => {
 			groups: [],
 			pids: [],
 		});
+		expect(readsProcesses(table), "it reads no process there").toBe(false);
+	});
+
+	it("marks the host as an owner from when it began where there is no /proc", () => {
+		const none = join(tmpdir(), `tool-children-no-proc-${process.pid}`);
+		expect(ownerMark(linuxProcessTable(none))).toBe(
+			`${process.pid}:${Math.round(performance.timeOrigin)}`,
+		);
+	});
+
+	it("refuses an owner mark where the table lists processes but not this one", () => {
+		root = madeUpProc();
+		expect(() => ownerMark(linuxProcessTable(root))).toThrow(
+			"The host cannot read when its own process started",
+		);
+	});
+
+	it("fails to list where /proc is something other than a folder", () => {
+		root = mkdtempSync(join(tmpdir(), "tool-children-proc-file-"));
+		const file = join(root, "proc");
+		writeFileSync(file, "");
+		expect(() => linuxProcessTable(file).pids()).toThrow(/ENOTDIR/);
+	});
+
+	it("reads processes where /proc lists them", () => {
+		root = madeUpProc();
+		expect(
+			readsProcesses(linuxProcessTable(root)),
+			"it reads the processes listed",
+		).toBe(true);
 	});
 
 	it("leaves the host's loop free to serve its other conversations while it reads", async () => {

@@ -138,19 +138,28 @@ export interface LaunchdFacts {
  * darwin.nix starts it, through sh and env, each exec'd into the next.
  * A host started in a terminal carries the terminal's own name, and one
  * left behind by an exited parent has launchd as its parent too, so the
- * Label must name a pi host as well.
+ * Label must name a pi host as well. The host keeps its Label from its
+ * conversations (program.ts's HOST_ONLY), so a pi-host a tool starts
+ * never carries it.
  */
 export function ownLaunchdJob(
-	facts: LaunchdFacts = {
-		platform: process.platform,
-		ppid: process.ppid,
-		service: process.env.XPC_SERVICE_NAME,
-	},
+	facts: LaunchdFacts = processLaunchdFacts(),
 ): string | undefined {
 	if (facts.platform !== "darwin" || facts.ppid !== LAUNCHD_PID)
 		return undefined;
 	const label = facts.service;
 	return label !== undefined && PI_HOST_LABEL.test(label) ? label : undefined;
+}
+
+/** This process's facts for {@link ownLaunchdJob}, its Label read from `env`. */
+export function processLaunchdFacts(
+	env: NodeJS.ProcessEnv = process.env,
+): LaunchdFacts {
+	return {
+		platform: process.platform,
+		ppid: process.ppid,
+		service: env.XPC_SERVICE_NAME,
+	};
 }
 
 /** launchd's pid, every job's parent. */

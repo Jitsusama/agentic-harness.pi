@@ -55,7 +55,8 @@ export const EXIT_TO_RESTART = 75;
  * systemd's notify, watchdog and socket hand-over, which a tool's child
  * would otherwise answer for the host, and the host's own pi install,
  * which would point an ordinary pi a tool starts at the patched one, and
- * the unit's stop limit, which a pi-host a tool starts would take as its own.
+ * the unit's stop limit and launchd's Label for its job, which a pi-host a
+ * tool starts would take as its own.
  * The runtime's own tools and the viewers' terminal (HOST_READS) are
  * kept from them too: code in the host still reads them, but a newer pi
  * a command starts runs its own tools, as its PATH finds them, and
@@ -71,6 +72,7 @@ const HOST_ONLY = [
 	"PI_PACKAGE_DIR",
 	"PI_HOST_PROOF",
 	"PI_HOST_STOP_USEC",
+	"XPC_SERVICE_NAME",
 ] as const;
 
 /**
@@ -250,10 +252,11 @@ export async function startHostProgram(
 	// itself once either would differ and nobody would notice.
 	let restarts = false;
 	// launchd starts a Mac's host again once it exits with a failure. The
-	// stop answers `stopped` itself, whose failure the program's caller reports.
+	// follow waits on the stop, which is `stopped`, and the program's caller
+	// reports its failure.
 	const exitToRestart = () => {
 		restarts = true;
-		void run.stop();
+		return run.stop();
 	};
 	const unfollow = await followWhatStarts({
 		serving: run.serving,
@@ -289,7 +292,21 @@ export async function startHostProgram(
 		return () => undefined;
 	});
 	run.stopped.then(unfollow, unfollow);
-	return { ...run, restarts: () => restarts };
+	// A stop signal, even one come while it parks to restart, keeps it down.
+	return { ...run, restarts: () => restarts && !run.signalled() };
+}
+
+/**
+ * How a host process exits once it stopped: 1 when its conversation
+ * failed, EXIT_TO_RESTART when it stopped to be started again, and 0
+ * otherwise, which launchd and systemd leave down.
+ */
+export function exitStatusOf(run: {
+	readonly failed: boolean;
+	readonly restarts: boolean;
+}): number {
+	if (run.failed) return 1;
+	return run.restarts ? EXIT_TO_RESTART : 0;
 }
 
 /** A host process as it runs, and for a child, why it ends. */
