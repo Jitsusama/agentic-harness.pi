@@ -168,6 +168,57 @@ describe("asking where a halted commit landed", () => {
 	);
 
 	it(
+		"takes a log change that differs only past a NUL for no landing",
+		async () => {
+			// Read as text, the NUL is printed as it is, where it would cut each
+			// commit's change short at the same place.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n- Same\0mine\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("log.md", "# Log\n\n- Same\0theirs\n", "theirs");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"reads only the files in question, and a bounded count of the base's commits",
+		async () => {
+			// The walk of every commit the base gained is what the flag removes.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n## Mine\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "moves on");
+			await git(repo, "cherry-pick", "topic");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+			const asked: string[][] = [];
+			const real = spawnExec();
+			const exec: Exec = (command, args) => {
+				asked.push(args);
+				return real(command, args);
+			};
+
+			await landedAs(exec, repo, "main", ["log.md"]);
+
+			const walk = asked.find(
+				(args) => args.includes("log") && !args.includes("--no-walk"),
+			);
+			expect(walk).toContain("--max-count=500");
+			expect(walk?.slice(walk.indexOf("--"))).toEqual([
+				"--",
+				":(top,literal)log.md",
+			]);
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
 		"finds a landing whose commit changed code and a binary too",
 		async () => {
 			await commit("log.md", "# Log\n", "start");

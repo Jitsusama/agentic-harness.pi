@@ -231,6 +231,7 @@ describe("a commit its base already carries", () => {
 		await commit("plain.txt", "theirs\n", "plain theirs");
 		const landed = await landing();
 		await git(repo, "checkout", "-q", "topic");
+		const carried = await head();
 		const rebaser = createGitRebaser({ exec: spawnExec() });
 
 		const halted = await rebaser.rebase(repo, "base");
@@ -246,10 +247,12 @@ describe("a commit its base already carries", () => {
 			() => "replayed",
 			() => "halted",
 		);
+		const stoppedOn = await head("REBASE_HEAD");
 		const resumed = await rebaser.resume(repo);
 
 		expect(halted).toMatchObject({ kind: "halted", conflicted: ["plain.txt"] });
 		expect(raw).toBe("halted");
+		expect(stoppedOn).toBe(carried);
 		expect(resumed).toMatchObject({ kind: "replayed", landed: [landed] });
 		expect(await above()).toEqual(["plain mine"]);
 		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(

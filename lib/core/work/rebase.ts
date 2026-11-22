@@ -263,33 +263,6 @@ async function replayDirectory(
  */
 const MOVES_NOTE = "agentic-harness-moves.json";
 
-/**
- * The halted commit the landed check last asked about, kept beside the replay
- * for the same reason: a resume starting from that halt has had it in hand.
- */
-const CHECKED_NOTE = "agentic-harness-checked";
-
-/** The commit last noted as checked, when one is and it reads. */
-function checkedNote(directory: string | undefined): string | undefined {
-	if (directory === undefined) return undefined;
-	try {
-		return readFileSync(join(directory, CHECKED_NOTE), "utf8").trim();
-	} catch {
-		// Unnoted, the halt is asked about again, as any halt is.
-		return undefined;
-	}
-}
-
-/** Note a halted commit as checked, best-effort. */
-function noteChecked(directory: string | undefined, commit: string): void {
-	if (directory === undefined) return;
-	try {
-		writeFileSync(join(directory, CHECKED_NOTE), `${commit}\n`);
-	} catch {
-		// Unnoted, a resume from this halt only asks about it again.
-	}
-}
-
 /** The moves noted so far, or none when nothing is noted or it will not read. */
 function notedMoves(directory: string | undefined): Move[] {
 	if (directory === undefined) return [];
@@ -340,8 +313,9 @@ export type CarriedOn =
  * `onlyIfSettled` is for a halt just reached, where carrying on is worth it
  * only when something was settled; a resume always carries on. A halt whose
  * commit already landed keeps the base's side of its Markdown, and says where
- * it landed, rather than settling it as additions (see `landed.ts`); a halt
- * already asked about, which a resume starts from, is left to the person.
+ * it landed, rather than settling it as additions (see `landed.ts`). Like the
+ * settler, it rewrites only a file still holding git's markers: one whose
+ * markers someone took out is theirs.
  */
 export async function carryOn(
 	exec: Exec,
@@ -376,22 +350,10 @@ export async function carryOn(
 	});
 
 	for (let round = 0; round < CARRY_ON_LIMIT; round += 1) {
-		// A resume from a halt already asked about leaves it to the person: a
-		// file still marked may hold their part-settled edits, which keeping
-		// the base's side would lose. A halt git reached without this, as after
-		// a raw `git rebase --continue`, is asked about like any other.
-		const halted = await ask(exec, treePath, [
-			"rev-parse",
-			"--verify",
-			"-q",
-			"REBASE_HEAD",
-		]);
-		const seen =
-			round === 0 &&
-			!options.onlyIfSettled &&
-			halted !== undefined &&
-			halted === checkedNote(first);
-		const here = seen ? undefined : await landedHalt(exec, treePath, onto);
+		// Asked of every halt, a resumed one too: git may have reached it by a
+		// raw `git rebase --continue`, and one the tool asked about already
+		// answers the same, its landed files no longer marked.
+		const here = await landedHalt(exec, treePath, onto);
 		if (here !== undefined) {
 			const kept = await keepBaseSide(exec, treePath, here.paths);
 			// Said with the landing, since the checkout may have rewritten some
@@ -402,7 +364,6 @@ export async function carryOn(
 				);
 			landed.push(here);
 		}
-		if (halted !== undefined) noteChecked(first, halted);
 		const now = await settleAdditions(exec, treePath, moves);
 		settled.push(...now.settled);
 		moves.push(...now.moves);

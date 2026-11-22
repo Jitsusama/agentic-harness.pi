@@ -86,8 +86,9 @@ const PATCH = [
 
 /**
  * The commit on `onto` that carries the halted commit's change to `paths`,
- * when one does. Answers nothing when git can't say, so a halt it can't read
- * is settled as before.
+ * when one does. Answers nothing when git can't say or its read can't be
+ * trusted, so a match is never guessed: the settler then keeps both sides of
+ * what only added, and nothing is thrown away.
  */
 export async function landedAs(
 	exec: Exec,
@@ -112,10 +113,12 @@ export async function landedAs(
 	if (touched.length === 0) return undefined;
 	const pathspecs = ["--", ...touched.map(literal)];
 
-	const [mine] = patchesIn(
+	const read = patchesIn(
 		await patches(exec, treePath, ["--no-walk", halted, ...pathspecs]),
 	);
-	if (mine === undefined || !changesLines(mine.change)) return undefined;
+	const [mine] = read;
+	if (read.length !== 1 || mine === undefined || !changesLines(mine.change))
+		return undefined;
 	const since = patchesIn(
 		await patches(exec, treePath, [
 			`--max-count=${LOOK_BACK}`,
@@ -206,7 +209,7 @@ function patchesIn(
 	said: string | undefined,
 ): { commit: string; change: string }[] {
 	if (said === undefined) return [];
-	return said
+	const read = said
 		.split("\0")
 		.filter((chunk) => chunk.trim() !== "")
 		.map((chunk) => {
@@ -215,14 +218,22 @@ function patchesIn(
 			const change = normalised(from < 0 ? [] : lines.slice(from));
 			return { commit: commit.trim(), change };
 		});
+	// A NUL in a log, printed as it is, cuts a commit's patch short and starts
+	// a piece that names no commit: compared, it could match up to the NUL.
+	return read.every((one) => COMMIT_ID.test(one.commit)) ? read : [];
 }
+
+/** How `%h` prints a commit. */
+const COMMIT_ID = /^[0-9a-f]{4,64}$/;
 
 /**
  * A patch's lines as git's patch id reads them: no line numbers, no blob ids
  * and no trailing whitespace (a CR among it). A file whose bytes the read
  * can't carry keeps its blob ids, which are then all that says what it
  * changed: a binary one, and one read as UTF-8 that isn't, whose unlike bytes
- * would each have come out as the same U+FFFD.
+ * would each have come out as the same U+FFFD. A log that holds U+FFFD itself
+ * keeps them too, so a landing in it is missed once the base has changed it
+ * elsewhere, and the settler keeps both.
  */
 function normalised(lines: readonly string[]): string {
 	const files: string[][] = [];
