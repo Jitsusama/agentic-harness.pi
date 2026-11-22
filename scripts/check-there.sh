@@ -46,9 +46,23 @@ mkdir -p ~/.local/state
 # lock from the fetch to the end of `pnpm check`, and a second waits.
 mkdir -p ~/.cache
 exec 9> ~/.cache/harness-check.lock
-if ! flock -n 9; then
+# flock(1) is util-linux's, which a Mac lacks, so there perl takes the
+# same lock on fd 9's open file. A flock lock belongs to the open file,
+# not the process, so it holds after perl exits, while this shell keeps
+# fd 9 open. Given -n, it answers at once whether it took the lock.
+lock() {
+  if command -v flock >/dev/null 2>&1; then
+    flock "$@" 9
+    return
+  fi
+  perl -MFcntl=:flock -e '
+    open(my $f, ">&=", 9) or die "check-there: fd 9: $!\n";
+    flock($f, $ARGV[0] eq "-n" ? LOCK_EX | LOCK_NB : LOCK_EX) or exit 1;
+  ' -- "${1:-}"
+}
+if ! lock -n; then
   echo "check-there: another check runs on $(hostname); waiting its turn" >&2
-  flock 9
+  lock
 fi
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
