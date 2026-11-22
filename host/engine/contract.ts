@@ -28,6 +28,8 @@ export interface ConversationTraits {
 	readonly cwd: string;
 	readonly attended: boolean;
 	readonly quest?: string;
+	/** The folder it worked in, gone as it was taken up again, so it now works in `cwd`. */
+	readonly movedFrom?: string;
 }
 
 /** One conversation as a screen drives it. */

@@ -76,7 +76,7 @@ import {
 	quietCollection,
 	runningTools,
 } from "./quiet-collection.ts";
-import { adoptable, folder, hintsFor } from "./requests.ts";
+import { adoptable, folder, hintsFor, standingFolder } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
 import {
@@ -484,13 +484,15 @@ export async function createEngine(
 			if (!file) throw new Error("pi named no file for the conversation");
 			if (held(sessionId, file))
 				throw new Error(`Conversation already held: ${sessionId}`);
-			const cwd = manager.getCwd();
+			// An open's folder stands, as folder() holds; an adopted log's may not.
+			const { cwd, gone } = standingFolder(manager.getCwd());
 			const traits: ConversationTraits = {
 				sessionId,
 				file,
 				cwd,
 				attended: request.attended,
 				...(request.quest ? { quest: request.quest } : {}),
+				...(gone ? { movedFrom: gone } : {}),
 			};
 			const launch = { ...options.conversationEnv?.(traits, request) };
 			prepared.set(sessionId, { manager, traits, launch });
@@ -543,9 +545,18 @@ export async function createEngine(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,
 				);
 			mark?.("log");
-			const { sessionId, file, cwd, attended, quest, launch } = entry;
+			const { sessionId, file, attended, quest, launch } = entry;
+			// A tree deleted while it was parked or the host was down.
+			const { cwd, gone } = standingFolder(entry.cwd);
 			await begin(
-				{ sessionId, file, cwd, attended, ...(quest ? { quest } : {}) },
+				{
+					sessionId,
+					file,
+					cwd,
+					attended,
+					...(quest ? { quest } : {}),
+					...(gone ? { movedFrom: gone } : {}),
+				},
 				manager,
 				launch ?? {},
 				undefined,

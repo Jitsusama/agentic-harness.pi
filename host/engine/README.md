@@ -185,7 +185,9 @@ its budget's key or the host's) and keep past a park (its agent folder and provi
 kept-requests.ts. What a stop keeps, a close ends and a restart would
 end is stopping.ts. resources.ts turns the resources pi's flags would
 choose into pi's loader options, and requests.ts reads what an open
-or adopt names. It loads the host's pi
+or adopt names, and which folder one taken up again works in: its own
+while it stands, else the nearest above it that does, the conversation
+being told of the move. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each

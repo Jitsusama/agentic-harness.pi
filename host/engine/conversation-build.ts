@@ -54,7 +54,12 @@ import {
 } from "./pi-session.ts";
 import type { ProjectTrust, StartupQuestion } from "./project-trust.ts";
 import { holdReplacements } from "./replacement.ts";
-import { namesCommand, requireModel } from "./requests.ts";
+import {
+	FOLDER_MOVED_TYPE,
+	movedWords,
+	namesCommand,
+	requireModel,
+} from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
 import type { TakeTurn } from "./resume-turns.ts";
 import type { StopKeeping } from "./stopping.ts";
@@ -482,12 +487,38 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		mark?.("screen");
 		const recovery = await agent.recover(turn);
 		mark?.("recovery");
+		if (record.traits.movedFrom !== undefined)
+			tellMoved(record, record.traits.movedFrom, cwd);
 		if (first === undefined) {
 			recovery.settled.catch(report);
 			return;
 		}
 		await recovery.settled;
 		await promptFirst(record, agent, first);
+	}
+
+	/**
+	 * Tell a conversation whose folder went that it now works in `cwd`,
+	 * kept in its log for its next turn and shown on its screen, so paths
+	 * it remembers under the old folder don't puzzle it or the person.
+	 */
+	function tellMoved(record: Live, gone: string, cwd: string): void {
+		const { sessionId } = record.traits;
+		report(
+			`Conversation ${sessionId}: its folder ${gone} is gone, so it works in ${cwd}`,
+		);
+		const session = view(sessionId, record).runtime.session;
+		session
+			.sendCustomMessage(
+				{
+					customType: FOLDER_MOVED_TYPE,
+					content: movedWords(gone, cwd),
+					display: true,
+					details: { gone, cwd },
+				},
+				{ deliverAs: "nextTurn" },
+			)
+			.catch(report);
 	}
 
 	/** Send the first words; resolve once durable holds them, or pi took them as a command. */
