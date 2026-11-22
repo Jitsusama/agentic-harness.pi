@@ -72,7 +72,8 @@ export function heldChildren(): HeldChildren {
 
 /**
  * The request as the child takes it: the host checked the identity the
- * caller expected against its own, so the child is asked under its own.
+ * caller expected against its own and the child's, so the child is asked
+ * under its own.
  */
 export function passedOn(
 	request: ControlRequest,

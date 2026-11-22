@@ -442,10 +442,14 @@ export async function listenControl(options: {
 			request: ControlRequest,
 			route: ChildRoute,
 		): Promise<PassedOn | undefined> {
-			// The caller named this host, so this host checks it.
+			// The caller named this host, or the child running this conversation
+			// now, which is what the conversation's presence names, so this host
+			// checks the name whole against both. A child that ended and was
+			// replaced has another identity, so its old name is refused.
 			if (
 				request.expectedHost &&
-				!sameHost(request.expectedHost, backend.identity)
+				!sameHost(request.expectedHost, backend.identity) &&
+				!sameHost(request.expectedHost, route.identity)
 			) {
 				send(staleHost(request.id));
 				return;

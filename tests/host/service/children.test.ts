@@ -335,6 +335,72 @@ describe("a host with conversations in children", () => {
 		});
 		expect(childAsked).toEqual([]);
 	});
+	it("ends a conversation under the name of the child running it, as its presence names it", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: a } });
+		expect(childAsked).toEqual([
+			expect.objectContaining({ op: "close", expectedHost: child }),
+		]);
+		expect(asked).toEqual([]);
+	});
+	it("refuses a child's name once another child runs its conversation", async () => {
+		const replacement: HostIdentity = {
+			...child,
+			owner: { pid: process.pid, startedAt: 3 },
+		};
+		routes.hold(conversation(a), { socket: childPath, identity: replacement });
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(childAsked).toEqual([]);
+	});
+	it("refuses a child's name that differs from the child's own in anything but its pid", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: { ...child, owner: { ...child.owner, startTicks: 7 } },
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(childAsked).toEqual([]);
+	});
+	it("refuses a child's name for a conversation the host runs itself", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: b,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(asked).toEqual([]);
+		expect(childAsked).toEqual([]);
+	});
 	it("says a child answering as another process doesn't answer, not that the caller's host changed", async () => {
 		await strangeChild(b, (socket, request) => {
 			socket.write(
