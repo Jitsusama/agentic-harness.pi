@@ -154,6 +154,19 @@ describe("hosted screens", () => {
 		expect(one.write).toHaveBeenCalledWith("hello");
 	});
 
+	it("says a conversation is viewed only while a viewer is on its screen", async () => {
+		const screens = host();
+		await screens.screens.opened(screens.view("a"));
+		await screens.screens.opened(screens.view("b"));
+		expect(screens.viewed("a"), "before anyone joins").toBe(false);
+		const joined = screens.viewer.attach(attach("a"), sink());
+		expect(screens.viewed("a"), "with a viewer on it").toBe(true);
+		expect(screens.viewed("b"), "its sibling, unwatched").toBe(false);
+		expect(screens.viewed("none"), "a conversation with no screen").toBe(false);
+		joined.detach();
+		expect(screens.viewed("a"), "once its viewer has left").toBe(false);
+	});
+
 	it("hands the screen what pi said as the conversation started, as pi's CLI does", async () => {
 		const screens = host();
 		const failed = {

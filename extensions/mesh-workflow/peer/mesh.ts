@@ -40,6 +40,7 @@ import type { createOrderedCarrying } from "../ordered-carry.ts";
 import type { createPausing } from "../pausing.ts";
 import type { Steering } from "../steer.ts";
 import type { createTalks } from "../talks.ts";
+import type { KeptHub } from "../tools/above.ts";
 import type { Waiting, watchSettling } from "../wait.ts";
 
 /**
@@ -226,6 +227,9 @@ export interface MeshState {
 	// How far the read marker may move: only past what was handed over.
 	front: ReturnType<typeof createReadFront>;
 	lookClock: ReturnType<typeof setInterval> | undefined;
+	// This peer's hub from use, kept for what the mesh says by itself on
+	// a quest with no mark (tools/above.ts).
+	hub: KeptHub | undefined;
 	// Asking GitHub about the person's looks at pull requests, a turn
 	// across every session (lib/mesh/looks/github.ts).
 	looksClock: ReturnType<typeof setInterval> | undefined;

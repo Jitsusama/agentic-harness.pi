@@ -141,6 +141,8 @@ export class SessionHost implements Host {
 	// While draining, the conversations woken from a park since it began,
 	// which the person asked for and which aren't drained again.
 	private wokenInDrain?: Set<string>;
+	// Whether a window views a conversation, as the host's screens say.
+	private readonly viewedBy?: (sessionId: string) => boolean;
 
 	constructor(options: {
 		key: string;
@@ -150,6 +152,8 @@ export class SessionHost implements Host {
 		closedState?: string;
 		/** Hears each change once it is published, as a child host follows its one conversation. */
 		changes?: HostChanges;
+		/** Whether a window views a conversation, as the host's screens say. */
+		viewed?: (sessionId: string) => boolean;
 	}) {
 		if (
 			!options.key ||
@@ -168,6 +172,7 @@ export class SessionHost implements Host {
 		closeToOthers(folder, this.closedState);
 		this.closedAtStart = closedIn(folder, this.closedState);
 		if (options.changes) this.changes = options.changes;
+		if (options.viewed) this.viewedBy = options.viewed;
 		const unhost = installHost(this);
 		// Code that reads process.env directly sees its own conversation's.
 		const unview = installConversationEnv(this);
@@ -415,6 +420,11 @@ export class SessionHost implements Host {
 	/** Whether this conversation parks at once, as the host drains and it wasn't woken since. */
 	draining(id: string): boolean {
 		return this.wokenInDrain !== undefined && !this.wokenInDrain.has(id);
+	}
+
+	/** Whether a window views this conversation now; none without screens. */
+	viewed(id: string): boolean {
+		return this.viewedBy?.(id) ?? false;
 	}
 
 	/** Start or lift a drain; each conversation reads it at its next look. */

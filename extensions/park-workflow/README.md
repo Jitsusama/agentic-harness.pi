@@ -57,7 +57,19 @@ It is off until one of these turns it on:
   process (one over a day old held 481 MiB on 15 November, against
   267 MiB for one under an hour). A line holding a session's id
   parks that one after two minutes, to prove parking on one session.
+  A background host's conversation parks after the lesser of that
+  and five minutes idle, since parking gives back what it holds (its
+  own process in a child, its share of the host's in the host) and
+  nobody watches it wake (75 of them held about 20 GB on 21
+  November, 37 idle for five minutes). One a window views waits its
+  usual time, since the person may be reading it and would wait out
+  its wake at their next key. On macOS every conversation keeps the
+  usual limit until a Mac's host survives a park.
 - **`PI_PARK=on`,** read at start, as the line `on` does.
+
+Each wake is kept for a day in `wakes/<session>.json` beside the
+switch, with how long the session rested parked, so how often a rule
+wakes its sessions can be counted.
 
 `PI_PARK=off` keeps a session out, whatever the switch says. A
 session parks only when a holder keeps it and has said where it
@@ -75,9 +87,9 @@ no flag that restart would drop, such as `-e`. And the holder's
 record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
-A conversation in a multi-session host parks by the same rule, but
-never ends the process, which is every conversation the host runs.
-The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
+A conversation in a multi-session host parks by the same rule, five
+minutes at most in a background host, but never ends the host's
+process, which is every conversation the host runs. The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
 sets for each conversation) and a written log are asked of it. It says
 `parked` and writes its marker as below, then asks the host to park
 it (`Host.park`), which frees its session and screen while keeping it
@@ -96,7 +108,8 @@ keeps it awake.
    it rests on disk until it starts again, as between runs.
 2. It writes its marker,
    `park-workflow/parked/<session-id>.json`, naming its log, its
-   folder, its addresses, its quest, when it parked and, as `wake`,
+   folder, its addresses, its quest, when it parked, the idle limit
+   it parked under (`afterMs`, 0 in a host's drain) and, as `wake`,
    the file its holder wakes it on.
 3. When its holder names a file for steers (`MYCELIUM_STEERS`), it
    writes there, whole, the steer inbox of each of its addresses and
