@@ -74,6 +74,7 @@ describe.skipIf(landrun === undefined)(
 		let letThrough: string;
 		let inFolder: string;
 		let standing: string;
+		let eero: string;
 		const servers: Server[] = [];
 		const fenced = () => [
 			landrun ?? "landrun",
@@ -91,10 +92,13 @@ describe.skipIf(landrun === undefined)(
 			mkdirSync(join(runtimeDir, "pi-agent"), { mode: 0o700 });
 			inFolder = join(runtimeDir, "pi-agent", "agent.sock");
 			standing = join(base, "nix-offload-standing.sock");
+			mkdirSync(join(runtimeDir, "eero"), { mode: 0o700 });
+			eero = join(runtimeDir, "eero", "socket");
 			servers.push(
 				await serve(letThrough),
 				await serve(inFolder),
 				await serve(standing),
+				await serve(eero),
 			);
 		});
 
@@ -146,6 +150,19 @@ describe.skipIf(landrun === undefined)(
 				"a fenced command reached systemd's credential service",
 			).toBe(false);
 			expect(NEVER_THROUGH).toContain(CREDENTIALS);
+		});
+
+		it("keeps a fenced command from the eero daemon's socket, which changes the home network", async (context) => {
+			if (!(await connects(eero, []))) context.skip();
+
+			expect(
+				await connects(eero, fenced()),
+				"a fenced command connected to the eero daemon's socket",
+			).toBe(false);
+			expect(
+				NEVER_THROUGH,
+				"a change to the fence could let the eero socket through unseen",
+			).toContain("eero/socket");
 		});
 	},
 );

@@ -212,6 +212,10 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
+	// The eero daemon's socket, which reserves addresses and changes the
+	// home network's settings as the person: an unfenced session asks it,
+	// after the person's yes (ISXEG8, 21 November).
+	"eero/socket",
 	// The secret-asks daemon takes a yes from anything reaching its socket,
 	// and core's passwords daemon answers whatever ask lands in the asks
 	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).
