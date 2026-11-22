@@ -86,17 +86,15 @@ if [ -z "$bin" ]; then
   exit 1
 fi
 export PATH="$bin:$PATH"
-# A shell ssh starts on a Mac finds no node, though pnpm's own first line
-# names the one it runs on; the check's scripts run on that one too.
+# A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
+# with its own node inside, so the check's scripts get the node 24 the
+# harness's other scripts run on, from the host's nixpkgs.
 if ! command -v node >/dev/null 2>&1; then
-  node=$(sed -n '1s/^#! *//p' "$bin/pnpm")
-  case "$node" in
-    /*/bin/node) export PATH="${node%/node}:$PATH" ;;
-    *)
-      echo "check-there: no node on $(hostname), and pnpm names none" >&2
-      exit 1
-      ;;
-  esac
+  if ! node=$(nix build --no-link --print-out-paths nixpkgs#nodejs_24); then
+    echo "check-there: no node on $(hostname), and nix gave none" >&2
+    exit 1
+  fi
+  export PATH="$node/bin:$PATH"
 fi
 pnpm install --frozen-lockfile --silent
 # On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
