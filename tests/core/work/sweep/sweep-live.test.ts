@@ -66,6 +66,12 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
 		expect(await git(main, "branch", "--list", "done")).toBe("");
+		// No snapshot is live, so the idle phase has nothing to judge, and
+		// it is still timed.
+		expect(
+			outcome.idleMs,
+			"a run that found nothing idle said how long it looked",
+		).toBeGreaterThanOrEqual(0);
 	});
 
 	it("takes a detached tree whose commit a ref holds", async () => {
@@ -255,6 +261,7 @@ describe("sweeping the trees whose sessions have ended", () => {
 		writeFileSync(lockPath, String(process.pid));
 		const busy = await sweep();
 		expect(busy.skipped).toContain(String(process.pid));
+		expect(busy.idleMs, "a skipped run timed an idle phase").toBeUndefined();
 		expect(existsSync(tree), `${tree} is kept while another sweep runs`).toBe(
 			true,
 		);
@@ -308,6 +315,7 @@ describe("sweeping the trees whose sessions have ended", () => {
 		clock += REST_MS / 2;
 		const soon = await rested();
 		expect(soon.rested).toContain("a sweep ended");
+		expect(soon.idleMs, "a resting run timed an idle phase").toBeUndefined();
 		expect(soon.skipped, "a rest is not a held lock").toBeUndefined();
 		expect(existsSync(tree), `${tree} is kept while the sweeps rest`).toBe(
 			true,

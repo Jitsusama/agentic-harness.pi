@@ -27,7 +27,15 @@
  */
 
 import { lstatSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	relative,
+	resolve,
+	sep,
+} from "node:path";
 import type { Exec, ExecResult } from "../../core/exec/index.ts";
 import { readPlain } from "../../core/work/plain-file.ts";
 import { guardsGitFolder } from "../fence/fence.ts";
@@ -45,8 +53,11 @@ export function real(path: string): string {
 /** Whether `path` is `folder` or lies inside it, as both really are. */
 export function within(path: string, folder: string): boolean {
 	const between = relative(real(folder), real(path));
-	return (
-		between === "" || !(between.startsWith("..") || between.startsWith("/"))
+	// A child named `..x` lies inside; only `..` and what climbs past it don't.
+	return !(
+		between === ".." ||
+		between.startsWith(`..${sep}`) ||
+		isAbsolute(between)
 	);
 }
 
