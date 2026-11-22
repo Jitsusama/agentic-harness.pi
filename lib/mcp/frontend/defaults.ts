@@ -39,8 +39,9 @@ import type {
  * A write named only by such a word, as `register_webhook`, runs unasked
  * unless its server gates it by name: in the `writeSignal` it hands
  * `makeDefaultWrap` or `defaultResolved`, which takes the place of
- * `defaultWriteSignal` and so is composed with it to keep the rest gated,
- * or in a wrap of its own, as the tool gateway's frontend does with the
+ * `defaultWriteSignal`, so compose the two to keep the rest gated
+ * (`(tool) => defaultWriteSignal(tool) || named(tool)`); nothing here
+ * composes them for it. Or in a wrap of its own, as the tool gateway's frontend does with the
  * writes its policy names. `ServerPolicy.writeSignal` alone gates nothing.
  * The undoing forms `unregister`, `deregister` and `unschedule`, and
  * `reschedule`, are listed though the doing forms aren't: reads seldom

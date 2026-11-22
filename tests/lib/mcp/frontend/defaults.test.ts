@@ -463,12 +463,16 @@ describe("makeDefaultWrap", () => {
 	it("gates a server's named write and the default's writes with the two composed", async () => {
 		const invoke = vi.fn(async () => okResult);
 		const showGate = vi.fn(async () => null);
-		const named = new Set(["set_experiment_schedule"]);
+		const named = new Set(["register_webhook"]);
+		expect(
+			defaultWriteSignal(tool("register_webhook")),
+			"the default alone gated the named write, so the name proves nothing",
+		).toBe(false);
 		const wrap = makeDefaultWrap({
 			writeSignal: (one) => defaultWriteSignal(one) || named.has(one.name),
 			showGate,
 		});
-		for (const name of ["set_experiment_schedule", "delete_branch"]) {
+		for (const name of ["register_webhook", "delete_branch"]) {
 			await wrap(invoke, tool(name))({}, ctx);
 		}
 		await wrap(invoke, tool("get_schedule"))({}, ctx);
