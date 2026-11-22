@@ -280,6 +280,39 @@ export interface BudgetKeeperOptions {
 	readonly whenCapped?: () => Promise<{ name?: string; unreadable?: string }>;
 	/** How long a provider may take to answer (lib/budget/host.ts's default). */
 	readonly answerDeadlineMs?: number;
+	/** How long a prompt waits on its judgement (`LOOSE_PROMPT_WAIT_MS`). */
+	readonly looseWaitMs?: number;
+}
+
+/**
+ * How long a session's first prompt, on no quest, waits on the judgement
+ * of which budget it draws on. A classifier answers in a few seconds, but
+ * a busy host has taken up to the judgement's own 20 s deadline, and the
+ * person waits on the reply for all of it. Past this the prompt goes on,
+ * on what it would draw on unjudged, and the judgement, still running,
+ * lays its budget as it lands, for the calls after.
+ */
+export const LOOSE_PROMPT_WAIT_MS = 4_000;
+
+/** What a wait on a judgement that outlasted it answers. */
+const STILL_JUDGING = Symbol("still judging");
+
+/** `answer`, or `STILL_JUDGING` should it take longer than `ms`. */
+async function within<T>(
+	answer: Promise<T>,
+	ms: number,
+): Promise<T | typeof STILL_JUDGING> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<typeof STILL_JUDGING>((settle) => {
+		timer = setTimeout(() => settle(STILL_JUDGING), ms);
+		// The wait holds no process open: it ends with whoever awaits it.
+		timer.unref?.();
+	});
+	try {
+		return await Promise.race([answer, late]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** How long a session the cap moved stays on its budget (capped.ts). */
@@ -410,6 +443,9 @@ export function keepQuestBudget(
 	let promptAsked: Promise<string | null> | undefined;
 	/** What that judgement named, once it has answered. */
 	let promptNamed: string | null | undefined;
+	/** The judgement a prompt stopped waiting on, watched to lay it as it lands. */
+	let watchedLate: Promise<string | null> | undefined;
+	const looseWaitMs = options.looseWaitMs ?? LOOSE_PROMPT_WAIT_MS;
 	/** Whether a keep asked to draw again, so one overtaking it does. */
 	let redrawOwed = false;
 	/**
@@ -497,10 +533,44 @@ export function keepQuestBudget(
 			return UNNAMED;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const asked = promptAsked;
-		const byPrompt = await asked;
+		// Waited on once: a prompt after the one that stopped waiting takes
+		// the answer only if it has landed, rather than waiting again.
+		const byPrompt = await within(
+			asked,
+			watchedLate === asked ? 0 : looseWaitMs,
+		);
 		if (session !== sessions) return UNNAMED;
+		if (byPrompt === STILL_JUDGING) {
+			watchLate(asked, session);
+			return UNNAMED;
+		}
 		if (asked === promptAsked) promptNamed = byPrompt;
 		return { name: byPrompt, judged: byPrompt !== null };
+	};
+
+	/**
+	 * Lay what a judgement the prompt stopped waiting on names, once it
+	 * lands: a keep again then finds it answered. Watched once, and only
+	 * while it is still this session's judgement.
+	 */
+	const watchLate = (asked: Promise<string | null>, session: number) => {
+		if (watchedLate === asked) return;
+		watchedLate = asked;
+		asked.then(
+			(named) => {
+				if (session !== sessions || asked !== promptAsked) return;
+				promptNamed = named;
+				if (named === null || !last || state.questId) return;
+				keep(last, true).catch(() => {
+					// Nothing awaits this ask, and an unwatched rejection ends pi;
+					// the next keep, before the next model call, asks again.
+				});
+			},
+			() => {
+				// A judgement that failed named nothing; the next keep reads
+				// the same answer and draws as it does now.
+			},
+		);
 	};
 
 	const judgeLoose = async (
@@ -781,6 +851,7 @@ export function keepQuestBudget(
 		folderAsked = undefined;
 		promptAsked = undefined;
 		promptNamed = undefined;
+		watchedLate = undefined;
 		redrawOwed = false;
 		firstPrompt = undefined;
 		startedOn = undefined;

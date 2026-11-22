@@ -26,6 +26,7 @@ import {
 	budgetOfFolder,
 	CAPPED_HOLD_MS,
 	keepQuestBudget,
+	LOOSE_PROMPT_WAIT_MS,
 	undrawable,
 } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -44,6 +45,7 @@ import { automatedText } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
+import { until } from "../../../support/until.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
 
 let tmpRoot: string;
@@ -1622,6 +1624,8 @@ describe("the budget of a session on no quest", () => {
 		choice: string,
 		confidence = 0.9,
 		options: Parameters<typeof keepQuestBudget>[2] = {},
+		/** Held until it settles, as a judgement on a busy host. */
+		judging: Promise<unknown> = Promise.resolve(),
 	) {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
@@ -1642,6 +1646,7 @@ describe("the budget of a session on no quest", () => {
 			budgetForWork: async (work, classify) => {
 				judged.push(work);
 				await classify({ state: {}, questions: {} });
+				await judging;
 				return { name: choice, why: "its prompt", sure: confidence >= 0.8 };
 			},
 		});
@@ -1697,6 +1702,43 @@ describe("the budget of a session on no quest", () => {
 		expect(notices).toEqual([
 			'This session is on no quest, so it draws on budget delta, which "judge" judged from its folder and first prompt: its prompt.',
 		]);
+	});
+
+	it("lets its first prompt go on unjudged past the wait, and draws on the judgement as it lands", async () => {
+		let land = () => {};
+		const judging = new Promise<void>((settle) => {
+			land = settle;
+		});
+		const { keeper, ctx, judged, notices } = loose(
+			undefined,
+			"delta",
+			0.9,
+			{ looseWaitMs: 20 },
+			judging,
+		);
+
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		expect(process.env[KEY], "the prompt went on, unjudged").toBe("personal");
+		await keeper.keep(ctx, { prompt: "and another thing" });
+		expect(judged, "judged once, the wait asked nothing again").toHaveLength(1);
+
+		land();
+		await until(
+			"the judgement to be drawn on",
+			() => process.env[KEY] === "delta",
+		);
+		expect(notices, "said as it was drawn on").toEqual([
+			'This session is on no quest, so it draws on budget delta, which "judge" judged from its folder and first prompt: its prompt.',
+		]);
+		await keeper.keep(ctx, { prompt: "and a third" });
+		expect(process.env[KEY], "kept on after").toBe("delta");
+		expect(judged, "still judged once").toHaveLength(1);
+	});
+
+	it("waits no more than its wait on a judgement by default", () => {
+		expect(LOOSE_PROMPT_WAIT_MS, "a prompt waits under 5 s").toBeLessThan(
+			5_000,
+		);
 	});
 
 	it("stays on the default when the judgement is unsure or personal", async () => {
