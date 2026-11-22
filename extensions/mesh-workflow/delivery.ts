@@ -51,6 +51,11 @@ export const GLANCE_CHARS = 160;
  * person had to do, so it now says which messages are to be acted on
  * at once, and that the person hears at once what waits on them.
  *
+ * It also says where a question about work goes: to its owner or to
+ * `need`, settled between peers. Said nowhere, models took the one
+ * address the note did name, the orchestrator's, as where every
+ * question went, and work fell into a hub and its spokes.
+ *
  * `above` is who `orchestrator` reaches: the mark's orchestrator, or
  * the hub from use of a quest with no mark (tools/above.ts).
  */
@@ -61,7 +66,7 @@ export function advisory(above?: Reached): string {
 			: above.by === "use"
 				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: orchestrator)`
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
-	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying what happened, why it matters to them and the one thing to do. A question about your work goes to its owner by address, or to need with about, and work you share with a peer is settled between you. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
 
 /** The note for a session with no orchestrator above its quest. */
@@ -76,7 +81,7 @@ export const ASKS: Readonly<Record<Intent, string>> = {
 		"A finding: it waited for this turn rather than starting one. If you own what it is about, check it against the source before you act on it, then note it in your plan or journal and act on it as your work allows; if you do not own it, let it go. No reply.",
 	fyi: "An fyi: context only, which waited for this turn rather than starting one. No reply and no action.",
 	pivot:
-		"A pivot: your orchestrator changes what you are doing. Put down what it names, take up what it says, and once you have changed course, answer it with mesh_send, re set to its id, saying what you put down. Your orchestrator sees who has, and reads that answer with its next turn, so anything stuck or waiting on the person goes to it as a question.",
+		"A pivot: your orchestrator changes what you are doing. Put down what it names, take up what it says, and once you have changed course, answer it with mesh_send, re set to its id, saying what you put down. Your orchestrator sees who has, and reads that answer with its next turn, so anything waiting on the person goes to it as a question; anything stuck goes to the owner of what it waits on.",
 };
 
 /**

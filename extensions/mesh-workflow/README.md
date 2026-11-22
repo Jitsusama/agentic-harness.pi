@@ -360,10 +360,15 @@ on at start never starts a turn.
 Every delivery ends by saying what to do with it: act now on a
 question or a hold put to this peer, tell the person at once
 anything they must act on (in the reply when talking with them,
-to the quest's orchestrator as a question otherwise), and take
-the rest as context, with no acknowledgement. It once said only
-that messages were context, not a task, and models took that as
-leave to sit on questions and on what the person had to do.
+to the quest's orchestrator as a question otherwise, saying
+what happened, why it matters and the one thing to do), take a
+question about work to its owner or to `need`, settled between
+peers, and take the rest as context, with no acknowledgement.
+It once said only that messages were context, not a task, and
+models took that as leave to sit on questions and on what the
+person had to do. Later it named one address, the
+orchestrator's, and nowhere else to ask, and models took every
+question there, so work fell into a hub and its spokes.
 
 ## Attention, Never None
 

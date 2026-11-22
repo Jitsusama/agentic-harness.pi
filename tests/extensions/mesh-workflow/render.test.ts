@@ -70,6 +70,25 @@ describe("the mesh on screen", () => {
 		);
 	});
 
+	it("sends a question about work to its owner or to need, never only to whoever is above", () => {
+		const messages = [message()];
+		for (const above of [
+			{ address: "WCJQSG", by: "mark" } as const,
+			{ address: "5GV2AH", by: "use" } as const,
+			undefined,
+		]) {
+			expect(noted(messages, [], above)).toContain(
+				"A question about your work goes to its owner by address, or to need with about, and work you share with a peer is settled between you.",
+			);
+		}
+	});
+
+	it("asks that what goes to the person says what happened, why it matters and the one thing to do", () => {
+		expect(noted([message()], [], { address: "WCJQSG", by: "mark" })).toContain(
+			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator), saying what happened, why it matters to them and the one thing to do.",
+		);
+	});
+
 	it("shows everything the model read once expanded", () => {
 		const messages = [message()];
 		const content = noted(messages);
