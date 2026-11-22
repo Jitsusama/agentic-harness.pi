@@ -59,11 +59,14 @@ function asksHowToCall(step: string): boolean {
 }
 
 /**
- * A quoted string or an escaped character, kept as it is, or a comment:
- * a `#` starting a word outside quotes, to the end of its line, which the
- * shell never runs. `$#`, `${#x}` and `.#checks` start no word.
+ * A quoted string (`$'...'` with its escapes) or an escaped character,
+ * kept as it is, or a comment: a `#` starting a word outside quotes, to
+ * the end of its line, which the shell never runs. `$#`, `${#x}` and
+ * `.#checks` start no word. A backslash ending a line joins the next to
+ * it, so a `#` there starts a word.
  */
-const COMMENT = /'[^']*'|"(?:[^"\\]|\\.)*"|\\[\s\S]|(^|[\s;&|()])#[^\n]*/g;
+const COMMENT =
+	/\$'(?:[^'\\]|\\[\s\S])*'|'[^']*'|"(?:[^"\\]|\\[\s\S])*"|\\[^\n]|(^|[\s;&|()])#[^\n]*/g;
 
 /**
  * A command with its heredocs' bodies and its comments taken out. On 22

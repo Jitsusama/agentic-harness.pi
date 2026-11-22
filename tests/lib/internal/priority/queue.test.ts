@@ -36,6 +36,7 @@ describe("the kind of heavy work a command runs", () => {
 			"git status && # cargo build",
 			"(git status #cargo build\n)",
 			"git status # don't cargo build",
+			"git status \\\n# cargo build",
 		]) {
 			expect(kindOf(command), command).toBeUndefined();
 		}
@@ -46,6 +47,8 @@ describe("the kind of heavy work a command runs", () => {
 			"echo 'a #b' && cargo build",
 			"echo a#b && cargo build",
 			"echo a\\ #b && cargo build",
+			'echo "a\\\nb #c" && cargo build',
+			"echo $'it\\'s #' && cargo build",
 			// `$\u007B` spells a dollar and a brace, which a lint takes for a slip.
 			"echo $# $\u007B#x} $\u007Bx#pre} $((16#ff)) && cargo build",
 			"git status && nix-store -r .#x && cargo build",
