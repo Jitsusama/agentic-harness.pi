@@ -34,9 +34,14 @@ What it adds:
   editor nobody will close. `GIT_ASKPASS` and `SSH_ASKPASS` are empty
   and `SSH_ASKPASS_REQUIRE=never`, so a missing credential fails at
   once instead of opening a prompt window on your screen; credential
-  helpers still run first. Only the agent's commands get these: pi's
-  own editor and your shell are untouched, and a command that sets one
-  itself still wins.
+  helpers still run first. The editor and pager reach only the agent's
+  commands: pi's own editor and your shell are untouched, and a
+  command that sets one itself still wins. The three askpass settings
+  are set in pi's own process too, as it loads, since pi runs git and
+  ssh of its own (the work tool, a council's checkout) and a host takes
+  `SSH_ASKPASS` and `DISPLAY` from the user manager. The transient
+  service an agent is told to start for a long run unsets
+  `SSH_ASKPASS` and requires none, for the same reason.
 - **Behind what you use.** Where `priority-workflow` is putting what
   pi starts into the machine's cgroup for work, the shell moves itself
   there before it runs the command, so nothing the command forks is

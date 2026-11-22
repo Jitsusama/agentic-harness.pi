@@ -9,9 +9,11 @@
  * third: with no terminal, git and ssh hand it to an askpass program,
  * which opens a window on the person's screen and holds the command
  * until somebody answers. One sat for 46 minutes overnight, holding a
- * release half-rolled. These variables are set for the child alone, so
- * pi's own editor and the person's shell are left as they were, and a
- * variable the command sets itself still wins.
+ * release half-rolled. The editor and pager are set for the child alone,
+ * so pi's own editor and the person's shell are left as they were, and a
+ * variable the command sets itself still wins. The askpass program is
+ * dropped from pi's own process too, since pi starts git and ssh of its
+ * own, outside any shell.
  */
 
 import { delimiter } from "node:path";
@@ -85,6 +87,16 @@ function ledBy(
 }
 
 /**
+ * The variables through which git and ssh hand a question to an askpass
+ * program, set so that neither does.
+ */
+const NO_ASKPASS: Readonly<Record<string, string>> = {
+	GIT_ASKPASS: "",
+	SSH_ASKPASS: "",
+	SSH_ASKPASS_REQUIRE: "never",
+};
+
+/**
  * What the agent's commands run with.
  *
  * `true` as the editor keeps the message git already has (a merge, a
@@ -111,10 +123,27 @@ export const WITHOUT_INTERACTION: Readonly<Record<string, string>> = {
 	GH_PAGER: "cat",
 	MANPAGER: "cat",
 	GIT_TERMINAL_PROMPT: "0",
-	GIT_ASKPASS: "",
-	SSH_ASKPASS: "",
-	SSH_ASKPASS_REQUIRE: "never",
+	...NO_ASKPASS,
 };
+
+/**
+ * Keep pi's own process from asking on the person's screen, and so
+ * everything it starts outside the agent's shell: the work tool's git,
+ * a council's checkout, a host's children.
+ *
+ * A host runs as a user service, so it inherits the user manager's
+ * `SSH_ASKPASS` and `DISPLAY`, and an ssh it starts with no terminal
+ * opens a window on the person's screen for a host key or passphrase.
+ * About 22 such windows reached the person on 21 November in six
+ * minutes. Nobody answers an askpass window but the person, and no
+ * agent's work is worth that, so the process drops the program for good
+ * as it loads.
+ * The person's own terminals take theirs from the compositor's session,
+ * which this leaves alone.
+ */
+export function askNothingOnScreen(env: NodeJS.ProcessEnv = process.env): void {
+	Object.assign(env, NO_ASKPASS);
+}
 
 /**
  * A spawn hook that gives the child the environment above, after what

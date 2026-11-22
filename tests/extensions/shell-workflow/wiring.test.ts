@@ -46,6 +46,11 @@ beforeEach(() => {
 	// and the person's settings, and a fenced session's sandbox, asked for
 	// as the extension loads, can't be had inside its own fence.
 	vi.stubEnv(SANDBOX_VARIABLE, OFF);
+	// As a host's user service has them from the user manager, and put
+	// back after each case, since loading the extension changes them.
+	vi.stubEnv("SSH_ASKPASS", "/run/current-system/sw/bin/ssh-askpass");
+	vi.stubEnv("SSH_ASKPASS_REQUIRE", "prefer");
+	vi.stubEnv("GIT_ASKPASS", "/run/current-system/sw/bin/ssh-askpass");
 	writeFileSync(
 		join(agentDir, "settings.json"),
 		JSON.stringify({ shellCommandPrefix: "export WIRED=yes" }),
@@ -79,6 +84,18 @@ const ctx = (mode = "tui") => ({
 		getSessionId: () => "session-1",
 		getSessionFile: () => undefined,
 	},
+});
+
+describe("pi's own process", () => {
+	// The work tool's git and a council's checkout run from pi, not from
+	// the agent's shell, so the shell's environment never reaches them.
+	it("has git and ssh ask nothing on the person's screen once loaded", () => {
+		expect(process.env).toMatchObject({
+			GIT_ASKPASS: "",
+			SSH_ASKPASS: "",
+			SSH_ASKPASS_REQUIRE: "never",
+		});
+	});
 });
 
 describe("the registered bash", () => {

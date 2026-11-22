@@ -26,6 +26,16 @@ describe("outliving a command", () => {
 		);
 	});
 
+	// On 21 November about 22 askpass windows reached the person in six
+	// minutes, while services agents started ran ssh with the user
+	// manager's SSH_ASKPASS and DISPLAY and no terminal.
+	it("asks nothing on the person's screen from the service it starts", () => {
+		const said = outlivingIt("none");
+
+		expect(said).toContain("-p UnsetEnvironment=SSH_ASKPASS");
+		expect(said).toContain("--setenv=SSH_ASKPASS_REQUIRE=never");
+	});
+
 	for (const kind of ["fence", "strict"] as const) {
 		it(`is nothing a command can start, in the ${kind} sandbox`, () => {
 			const said = outlivingIt(kind);
