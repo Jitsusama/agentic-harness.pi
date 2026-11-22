@@ -52,8 +52,9 @@ export interface ReplyCauseDeps {
 
 /**
  * What the session has heard: how often the person has spoken, so a
- * judgment begun before they spoke sends nothing; and whether a note is
- * out, so the reply answering it goes unjudged.
+ * judgment begun before they spoke sends nothing; whether a note is
+ * out, so the reply answering it goes unjudged; and the classifier,
+ * looked up at the first finished reply.
  */
 interface Heard {
 	spoken: number;
@@ -66,26 +67,43 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
 		const heard: Heard = { spoken: 0, noteOut: false };
-		pi.on("input", (event) => {
-			// An extension's message, a job's result or a peer's nudge, is
-			// no word of the person's.
-			if (event.source === "extension") return;
-			heard.spoken += 1;
-			heard.noteOut = false;
-		});
-		pi.on("message_end", (event, ctx) => {
-			const text = finishedReplyText(event.message);
-			if (text === undefined) return;
-			if (heard.noteOut) {
-				heard.noteOut = false;
-				return;
-			}
-			if (guardMode(GUARD.name) === "off") return;
-			heard.lookup ??= deps.classifier(ctx);
-			const judgment = noteUntested(pi, text, heard, heard.lookup);
-			deps.judging?.(judgment);
-		});
+		pi.on("input", (event) => hearInput(heard, event.source));
+		pi.on("message_end", (event, ctx) =>
+			judgeFinishedReply(pi, deps, heard, event.message, ctx),
+		);
 	};
+}
+
+/** Counts the person's word, which clears a note's skip. */
+function hearInput(heard: Heard, source: string): void {
+	// An extension's message, a job's result or a peer's nudge, is no
+	// word of the person's.
+	if (source === "extension") return;
+	heard.spoken += 1;
+	heard.noteOut = false;
+}
+
+/**
+ * Starts judging `message` when it is a finished reply that isn't the
+ * answer to a note and the guard is on, never waiting for the judgment.
+ */
+function judgeFinishedReply(
+	pi: ExtensionAPI,
+	deps: ReplyCauseDeps,
+	heard: Heard,
+	message: unknown,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+): void {
+	const text = finishedReplyText(message);
+	if (text === undefined) return;
+	if (heard.noteOut) {
+		heard.noteOut = false;
+		return;
+	}
+	if (guardMode(GUARD.name) === "off") return;
+	heard.lookup ??= deps.classifier(ctx);
+	const judgment = noteUntested(pi, text, heard, heard.lookup);
+	deps.judging?.(judgment);
 }
 
 /**
