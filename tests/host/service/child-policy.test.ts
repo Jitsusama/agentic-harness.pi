@@ -108,6 +108,26 @@ describe("a host's child policy", () => {
 
 		expect(policy.moves("../elsewhere"), "a path moved").toBe(false);
 		expect(report).toHaveBeenCalledOnce();
+		expect(String(report.mock.calls[0]?.[0])).toContain(
+			`${file} can't be read, so the last policy read stands: /sessions/0: `,
+		);
+	});
+
+	it("refuses a policy of another version, or with a word it doesn't know, saying where", async () => {
+		for (const [said, where] of [
+			[{ v: 2, all: true }, "/v: "],
+			[{ v: 1, all: true, later: true }, "/later: "],
+			[{ v: 1, all: "yes" }, "/all: "],
+		] as const) {
+			report.mockClear();
+			await written(said);
+			const read = await watchedChildPolicy(file, report);
+			expect(read.moves(a), JSON.stringify(said)).toBe(false);
+			expect(String(report.mock.calls[0]?.[0])).toContain(
+				`the last policy read stands: ${where}`,
+			);
+			read.close();
+		}
 	});
 
 	it("moves nothing, and never fails, when its folder can't be made", async () => {

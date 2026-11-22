@@ -17,8 +17,9 @@
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { z } from "zod";
+import { Type } from "typebox";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { checkerOf, identities, whyRefused } from "./protocol.ts";
 
 /** Which conversations go to children, as the host last read it. */
 export interface ChildPolicy {
@@ -30,13 +31,23 @@ export interface ChildPolicy {
 	close(): void;
 }
 
-const POLICY = z.strictObject({
-	v: z.literal(1),
-	all: z.boolean().default(false),
-	sessions: z.array(z.uuid()).default([]),
-});
+const POLICY = Type.Object(
+	{
+		v: Type.Literal(1),
+		all: Type.Optional(Type.Boolean()),
+		sessions: Type.Optional(
+			Type.Array(identities.conversation.properties.sessionId),
+		),
+	},
+	{ additionalProperties: false },
+);
 
-type Read = z.infer<typeof POLICY>;
+/** The policy as read, with what it leaves out at its default. */
+interface Read {
+	readonly v: 1;
+	readonly all: boolean;
+	readonly sessions: readonly string[];
+}
 
 const NONE: Read = { v: 1, all: false, sessions: [] };
 
@@ -64,8 +75,9 @@ async function readPolicy(
 		report(error);
 		return kept;
 	}
+	let value: unknown;
 	try {
-		return POLICY.parse(JSON.parse(text));
+		value = JSON.parse(text);
 	} catch (error) {
 		report(
 			new Error(
@@ -74,6 +86,15 @@ async function readPolicy(
 		);
 		return kept;
 	}
+	if (!checkerOf(POLICY).Check(value)) {
+		report(
+			new Error(
+				`${file} can't be read, so the last policy read stands: ${whyRefused(POLICY, value)}`,
+			),
+		);
+		return kept;
+	}
+	return { v: 1, all: value.all ?? false, sessions: value.sessions ?? [] };
 }
 
 /**

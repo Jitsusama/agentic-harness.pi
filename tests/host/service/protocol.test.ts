@@ -74,6 +74,92 @@ describe("result validation", () => {
 	});
 });
 
+describe("the meaning the protocol had in zod, kept", () => {
+	const held = {
+		sessionId: A,
+		file: "/sessions/a.jsonl",
+		cwd: "/repo",
+		state: "idle",
+		since: "2026-11-09T15:00:00.000Z",
+	};
+	const accepts = (parse: (value: unknown) => unknown, value: unknown) => {
+		try {
+			parse(value);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
+	it("counts a length in UTF-16 units, as zod did, not code points", () => {
+		const id = (value: string) =>
+			accepts(parseControl, { ...close, id: value });
+		expect(id("a".repeat(128))).toBe(true);
+		expect(id("a".repeat(129))).toBe(false);
+		// 64 code points of two units each fill the 128 exactly.
+		expect(id("😀".repeat(64))).toBe(true);
+		// 65 code points, which a count of code points would let through.
+		expect(id("😀".repeat(65))).toBe(false);
+		expect(id("")).toBe(false);
+	});
+
+	it("reads a time as an ISO date and time with an offset, leap days included", () => {
+		const since = (value: string) =>
+			accepts(parseOpenResult, { ...held, since: value });
+		for (const value of [
+			"2026-11-09T15:00:00Z",
+			"2026-11-09T15:00:00.123456Z",
+			"2026-11-09T15:00:00+05:30",
+			"2026-11-09T15:00Z",
+			"2024-02-29T00:00:00Z",
+		])
+			expect(since(value), value).toBe(true);
+		for (const value of [
+			"2026-11-09T15:00:00",
+			"2026-11-09 15:00:00Z",
+			"2023-02-29T00:00:00Z",
+			"2026-11-09T24:00:00Z",
+			"2026-11-09T15:00:00+5:30",
+		])
+			expect(since(value), value).toBe(false);
+	});
+
+	it("takes a session id in any UUID version zod knew, the nil and max ones too", () => {
+		const sessionId = (value: string) =>
+			accepts(parseControl, { ...close, sessionId: value });
+		for (const value of [
+			A,
+			"01890a5d-ac96-774b-bcce-b302099a8057",
+			"00000000-0000-0000-0000-000000000000",
+			"ffffffff-ffff-ffff-ffff-ffffffffffff",
+		])
+			expect(sessionId(value), value).toBe(true);
+		for (const value of [
+			"11111111-1111-9111-8111-111111111111",
+			"11111111-1111-4111-c111-111111111111",
+			"11111111111141118111111111111111",
+			`${A}\n`,
+		])
+			expect(sessionId(value), value).toBe(false);
+	});
+
+	it("holds an integer to the safe range and a start time above zero", () => {
+		const owner = (change: Record<string, number>) =>
+			accepts(parseListResult, {
+				sessions: [],
+				host: { ...identity, owner: { ...identity.owner, ...change } },
+			});
+		expect(owner({ pid: Number.MAX_SAFE_INTEGER })).toBe(true);
+		expect(owner({ pid: Number.MAX_SAFE_INTEGER + 1 })).toBe(false);
+		expect(owner({ pid: 0 })).toBe(false);
+		expect(owner({ pid: 1.5 })).toBe(false);
+		expect(owner({ startedAt: 0.5 })).toBe(true);
+		expect(owner({ startedAt: 0 })).toBe(false);
+		expect(owner({ startTicks: 0 })).toBe(true);
+		expect(owner({ startTicks: -1 })).toBe(false);
+	});
+});
+
 describe("wire validation", () => {
 	it("accepts the agreed operations with one public identity", () => {
 		for (const value of [

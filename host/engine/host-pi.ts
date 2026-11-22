@@ -224,6 +224,26 @@ export function hostPiBundle(packageDir: string): string {
 export const PI_SCOPE = "@earendil-works/";
 
 /**
+ * Whether the host takes `specifier` from its pi: pi's own libraries, and
+ * typebox, which pi hands extensions too, so a schema the host's protocol
+ * checks is checked by the TypeBox its conversation already holds.
+ */
+export function takenFromPi(specifier: string): boolean {
+	return (
+		specifier.startsWith(PI_SCOPE) ||
+		specifier === "typebox" ||
+		specifier.startsWith("typebox/")
+	);
+}
+
+/** The name a module taken from pi goes by, less pi's own scope. */
+export function hostModuleName(specifier: string): string {
+	return specifier.startsWith(PI_SCOPE)
+		? specifier.slice(PI_SCOPE.length)
+		: specifier;
+}
+
+/**
  * The bundle's file for one library its virtual modules hand extensions,
  * re-exporting the bundle's own copy, which the one-bundle patch adds beside
  * the host entry: the host's code resolves its own pi imports to these, so
@@ -236,7 +256,7 @@ export function hostPiModule(packageDir: string, specifier: string): string {
 		"dist",
 		"bundle",
 		"host-modules",
-		`${specifier.slice(PI_SCOPE.length)}.js`,
+		`${hostModuleName(specifier)}.js`,
 	);
 }
 
@@ -318,8 +338,7 @@ async function bundledModules(
 	if (!hasFields(virtual))
 		throw new Error(`${bundle} exports no VIRTUAL_MODULES`);
 	const unshared = Object.keys(virtual).filter(
-		(name) =>
-			name.startsWith(PI_SCOPE) && !existsSync(hostPiModule(packageDir, name)),
+		(name) => takenFromPi(name) && !existsSync(hostPiModule(packageDir, name)),
 	);
 	if (unshared.length > 0)
 		throw new Error(

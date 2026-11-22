@@ -172,6 +172,19 @@
 		}
 	},
 	"overrides": [
+		// typebox is both: a peer, since pi hands extensions its own copy, and
+		// a dependency, since the host's protocol checks with it in scripts
+		// run outside pi (tests/package/shipping/runtime-deps.test.ts).
+		{
+			"includes": ["package.json"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noDuplicateDependencies": "off"
+					}
+				}
+			}
+		},
 		// Scripts are run by hand and report on the console.
 		{
 			"includes": ["scripts/**"],
