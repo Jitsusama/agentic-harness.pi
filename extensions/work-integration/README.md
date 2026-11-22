@@ -275,7 +275,8 @@ minutes have gone since it reached them, the ended trees before them
 not counted. A run its count or time stops gives in `idleLeft` how
 many it left unjudged, those seen busy aside, though judging may
 refuse some of them, and every run that reaches them gives in `idleMs`
-how long they took, its census of processes and its pauses included.
+how long they took, its census of processes and its pauses included,
+about none when there were none to judge.
 `idleMs` is awake time, which stops while the machine sleeps, and the
 line's `ms` is wall time, so after a suspend `ms` less `idleMs` is not
 how long the ended trees took. A session that asks for one again gets

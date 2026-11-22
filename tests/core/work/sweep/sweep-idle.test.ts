@@ -219,15 +219,17 @@ describe("taking the snapshots a live session pinned and left", () => {
 	});
 
 	it("stops judging past a host's share once its awake time since its idle phase began runs out, saying how many it left and how long they took", async () => {
-		// Its clock leaps an hour as the run judges an ended tree, before it
-		// reaches the idle snapshots, as judging hundreds of them can take
-		// most of an hour on a loaded machine; that time isn't the idle
-		// phase's, so a run counting it would take only the share. After the
-		// leap the clock moves only as the idle phase works: as it reads which
-		// processes hold the snapshots, as each is taken and as it pauses
-		// between them, so it runs out once the share and one more are taken,
-		// a moment past its bound, and the newest waits. A run that chose every one before taking any would
-		// take them all. The ended tree is cut from a repository of its own,
+		// Its clock leaps an hour as the run lists the ended tree's
+		// repository's worktrees, and again as it searches for settled
+		// branches, the last work before the idle snapshots, as the ended
+		// trees and those branches can take most of an hour on a loaded
+		// machine; that time isn't the idle phase's, so a run counting any of
+		// it would take only the share. After the leaps the clock moves only
+		// as the idle phase works: as it reads which processes hold the
+		// snapshots, as each is taken and as it pauses between them, so it
+		// runs out exactly as the share and one more are taken, and the newest
+		// waits. A run that chose every one before taking any would take them
+		// all. The ended tree is cut from a repository of its own,
 		// since the ended trees' pass asks the status of each tree beside one,
 		// which rewrites the index these trees have dated back and would make
 		// them look just used.
@@ -244,6 +246,11 @@ describe("taking the snapshots a live session pinned and left", () => {
 		const PAUSE = 1;
 		let clock = 100;
 		let leaps = 0;
+		let searches = 0;
+		// The idle phase's time once the share and one more are taken: the
+		// census, each take, and a pause before each but the first.
+		const IDLE_COST =
+			CENSUS + (IDLE_TAKES_PER_SWEEP + 1) * TAKE + IDLE_TAKES_PER_SWEEP * PAUSE;
 		const real = setup.memory;
 		const memory: typeof real = Object.create(real);
 		memory.whileUnusedSince = (path, since, take, key) => {
@@ -258,6 +265,11 @@ describe("taking the snapshots a live session pinned and left", () => {
 					clock += HOUR;
 					leaps += 1;
 				}
+				// Only the search for settled branches asks what trunk merged.
+				if (args.some((arg) => arg.startsWith("--merged="))) {
+					clock += HOUR;
+					searches += 1;
+				}
 				return exec(command, args);
 			},
 			memory,
@@ -268,14 +280,9 @@ describe("taking the snapshots a live session pinned and left", () => {
 				return new Set();
 			},
 			idleTakes: 200,
-			// Past the census, the share's takes and the pauses between them,
-			// so one more is judged, and short of that one taken.
-			idleWithinMs:
-				CENSUS +
-				IDLE_TAKES_PER_SWEEP * TAKE +
-				(IDLE_TAKES_PER_SWEEP - 1) * PAUSE +
-				PAUSE +
-				1,
+			// Reached only once that one more is taken, so a run that stopped
+			// short of its bound, rather than at it, would judge another.
+			idleWithinMs: IDLE_COST,
 			awake: () => clock,
 			betweenIdleTakes: async () => {
 				clock += PAUSE;
@@ -283,6 +290,9 @@ describe("taking the snapshots a live session pinned and left", () => {
 		});
 
 		expect(leaps, "the ended trees' pass listed worktrees but once").toBe(1);
+		expect(searches, "the settled branches were searched for").toBeGreaterThan(
+			0,
+		);
 		expect(
 			outcome.taken.map((one) => one.path),
 			"the ended tree went",
@@ -295,9 +305,7 @@ describe("taking the snapshots a live session pinned and left", () => {
 		expect(
 			outcome.idleMs,
 			"the idle phase's own time: its census, takes and pauses",
-		).toBe(
-			CENSUS + (IDLE_TAKES_PER_SWEEP + 1) * TAKE + IDLE_TAKES_PER_SWEEP * PAUSE,
-		);
+		).toBe(IDLE_COST);
 		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
 		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);

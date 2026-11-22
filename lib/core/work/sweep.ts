@@ -233,9 +233,10 @@ export interface SweepOutcome {
 	/**
 	 * How long, in milliseconds of awake time, judging and taking those
 	 * snapshots took, the census of processes and the pauses included, so
-	 * a slow run's idle phase can be told from the rest; unset when the
-	 * sweep never reached it. Awake time stops while the machine sleeps,
-	 * so it can't be taken from a wall-clock span to time the rest.
+	 * a slow run's idle phase can be told from the rest; about none when
+	 * there was nothing to judge, and unset when the sweep never reached
+	 * it. Awake time stops while the machine sleeps, so it can't be taken
+	 * from a wall-clock span to time the rest.
 	 */
 	idleMs?: number;
 }
