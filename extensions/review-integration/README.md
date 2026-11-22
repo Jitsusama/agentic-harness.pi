@@ -198,7 +198,8 @@ refusal naming the knob that would fix it.
 
 ### What a Repo Says Before a Merge
 
-`merge.gates` names, by repo key, a command `review_offer merge`
+`merge.gates`, in the package config's `sections.review` as every
+snippet here is, names, by repo key, a command `review_offer merge`
 runs before it asks to merge, with the head's full sha as its last
 word, in the change's local checkout (or the `repo` the call names):
 
@@ -233,7 +234,9 @@ refused: two gated merges overlapping would otherwise land a pair
 nothing built. A backend that doesn't report the head can't be
 gated, and says so before the gate runs. A push during the
 confirmation after the gate is left to the backend's own guard:
-the merge is held to the head the gate was handed.
+the merge is held to the head the gate was handed. No backend
+guards the base, so it is read once more after the merge is
+approved, and one that moved meanwhile is refused too.
 
 ### When a Queued Change Lands
 

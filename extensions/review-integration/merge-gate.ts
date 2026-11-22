@@ -218,12 +218,13 @@ export async function missingCheckout(
 	cwd: string,
 ): Promise<string | undefined> {
 	if (await isFolder(cwd)) return undefined;
-	return `The merge gate \`${gate.command}\` couldn't run in ${cwd}: there is no such folder. Not merged; name a checkout of the repo with \`repo\`, or mend the repo's localPath in the config.`;
+	return `The merge gate \`${gate.command}\` couldn't run in ${cwd}: there is no such folder. Not merged; name a checkout of the repo with \`repo\`.`;
 }
 
 /**
  * The commit `base` is at on the checkout's origin, or why that couldn't
- * be read. A gate reads the head merged onto the base as it was, so a base
+ * be read and what would mend it: naming a checkout mends a folder git
+ * can't read origin in, not a stopped call or a change with no base. A gate reads the head merged onto the base as it was, so a base
  * that moves while the gate runs merges a pair nothing built: two gated
  * merges overlapping is how that happens, and the longer a gate runs the
  * likelier it is.
@@ -232,8 +233,13 @@ export async function baseTip(
 	base: string,
 	cwd: string,
 	run: RunGate,
-): Promise<{ at: string } | { unread: string }> {
-	if (base === "") return { unread: "the change names no base" };
+): Promise<{ at: string } | { unread: string; fix: string }> {
+	if (base === "") {
+		return {
+			unread: "the change names no base",
+			fix: "a gated merge needs the base it lands on",
+		};
+	}
 	const ran = await run(
 		`git ls-remote --exit-code origin ${quoted(`refs/heads/${base}`)}`,
 		cwd,
@@ -243,10 +249,19 @@ export async function baseTip(
 	if (ran.code === 0 && !ran.killed && /^[0-9a-f]{40,64}$/.test(at)) {
 		return { at };
 	}
-	if (ran.killed) return { unread: "origin didn't answer in 2 minutes" };
+	if (ran.killed) {
+		return {
+			unread: "origin didn't answer in 2 minutes",
+			fix: "merge again once origin answers",
+		};
+	}
+	if (ran.aborted === true) {
+		return { unread: "the call was stopped", fix: "merge again when ready" };
+	}
 	const said = (ran.stderr.trim() || ran.stdout.trim()).split("\n").at(-1);
 	return {
 		unread: `git ls-remote origin refs/heads/${base} gave exit ${ran.code}${said ? `: ${said}` : ""}`,
+		fix: "name a checkout of the repo with `repo`",
 	};
 }
 

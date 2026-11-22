@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	baseTip,
 	DEFAULT_GATE_MINUTES,
 	gateFor,
 	gateRefusal,
@@ -40,6 +41,44 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 // 8 November: four checks went red on core.nix's main, each named by
 // changed-checks at its merge, from branches that built before rebasing.
+describe("where a merge's base is", () => {
+	/** A runner that answers every line as `ran` says. */
+	const answering =
+		(ran: Partial<Awaited<ReturnType<RunGate>>>): RunGate =>
+		async () => ({ code: 1, stdout: "", stderr: "", killed: false, ...ran });
+	const CHECKOUT = "name a checkout of the repo with `repo`";
+
+	it("sends a folder git can't read origin in to a named checkout", async () => {
+		const read = await baseTip(
+			"main",
+			"/nowhere",
+			answering({ code: 128, stderr: "fatal: not a git repository" }),
+		);
+		expect(read, "what git said, and the checkout to name").toEqual({
+			unread:
+				"git ls-remote origin refs/heads/main gave exit 128: fatal: not a git repository",
+			fix: CHECKOUT,
+		});
+	});
+
+	it("names no checkout for what a checkout wouldn't mend", async () => {
+		const cases = [
+			["a change with no base", "", answering({ code: 0 })],
+			["origin past its time", "main", answering({ code: 124, killed: true })],
+			["a stopped call", "main", answering({ code: 130, aborted: true })],
+		] as const;
+		for (const [what, base, run] of cases) {
+			const read = await baseTip(base, "/nowhere", run);
+			expect("fix" in read ? read.fix : "read", `${what}: some fix`).not.toBe(
+				"read",
+			);
+			expect("fix" in read ? read.fix : "", `${what}: not a checkout`).not.toBe(
+				CHECKOUT,
+			);
+		}
+	});
+});
+
 describe("a repo's merge gate", () => {
 	it("is read by the repo's key, and none for a repo that names none", () => {
 		expect(

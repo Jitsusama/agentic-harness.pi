@@ -31,6 +31,11 @@ import {
 	clearTargetBindings,
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
+import {
+	restoreSessionModes,
+	setSessionMode,
+} from "../../../../lib/guardian/policy.ts";
+import { GUARDS } from "../../../../lib/internal/guardian/guards.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
 import {
@@ -184,16 +189,41 @@ function checkoutWithOrigin(): {
 	};
 }
 
-async function offer(params: Record<string, unknown>) {
+async function offer(
+	params: Record<string, unknown>,
+	ctx: typeof HEADLESS = HEADLESS,
+) {
 	const stub = activate();
 	const tool = toolNamed(stub, "review_offer");
-	return await tool.execute("1", params, undefined, undefined, HEADLESS);
+	return await tool.execute("1", params, undefined, undefined, ctx);
+}
+
+/**
+ * A context whose person approves whatever they're asked, running
+ * `meanwhile` while they're asked; the review-offer guard is set to
+ * ask, as a blocking guard does.
+ */
+function approvingAfter(meanwhile: () => void): typeof HEADLESS {
+	setSessionMode(GUARDS.reviewOffer.name, "block");
+	return {
+		...HEADLESS,
+		hasUI: true,
+		ui: {
+			setStatus: () => {},
+			notify: () => {},
+			custom: async () => {
+				meanwhile();
+				return { type: "action", key: "y" };
+			},
+		},
+	} as typeof HEADLESS;
 }
 
 afterEach(() => {
 	clearReviewProviders();
 	clearTargetBindings();
 	rmSync(packageConfigPath(), { force: true });
+	restoreSessionModes({});
 });
 
 describe("merging behind a head guard", () => {
@@ -337,6 +367,57 @@ describe("merging behind a head guard", () => {
 		expect(merges, "a pair nothing built isn't merged").toEqual([]);
 	});
 
+	it("refuses a merge when the base moved on origin while it was being approved", async () => {
+		// No backend guards the base, so a merge landing while the person
+		// is asked is caught only by reading it once more.
+		const { checkout, root, moveMain } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		gateIs(`test ${AT} =`);
+		let asked = false;
+
+		let answer: unknown;
+		try {
+			answer = await offer(
+				{ action: "merge", change: "438", repo: checkout },
+				approvingAfter(() => {
+					asked = true;
+					execFileSync("bash", ["-c", moveMain]);
+				}),
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(asked, "the person was asked").toBe(true);
+		expect(
+			JSON.stringify(answer),
+			"the refusal says the base moved while it was approved",
+		).toContain("moved on origin from");
+		expect(JSON.stringify(answer), "and when").toContain(
+			"while the merge was being approved",
+		);
+		expect(merges, "a pair nothing built isn't merged").toEqual([]);
+	});
+
+	it("merges once approved when the base stayed put", async () => {
+		const { checkout, root } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		gateIs(`test ${AT} =`);
+
+		try {
+			await offer(
+				{ action: "merge", change: "438", repo: checkout },
+				approvingAfter(() => {}),
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(merges, "the approved merge lands").toEqual([{ expectedHead: AT }]);
+	});
+
 	it("refuses before its gate runs when the base can't be read", async () => {
 		// A folder with no origin: nothing could tell a merge landing
 		// while the gate ran, so the gate isn't spent finding that out.
@@ -359,6 +440,10 @@ describe("merging behind a head guard", () => {
 			JSON.stringify(answer),
 			"the refusal says the base couldn't be read",
 		).toContain("base is on origin couldn't be read");
+		expect(
+			JSON.stringify(answer),
+			"a folder git can't read origin in is mended by naming a checkout",
+		).toContain("name a checkout of the repo with `repo`");
 		expect(gateRan, "the gate never ran").toBe(false);
 		expect(merges, "nothing merges").toEqual([]);
 	});

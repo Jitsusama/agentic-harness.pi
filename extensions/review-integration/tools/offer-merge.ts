@@ -161,14 +161,17 @@ export interface MergeGating {
  * the base is on origin are read again, so a push or another merge
  * landing while the gate ran is refused here whether or not the backend
  * keeps the guard. A push during the confirmation that follows is left to
- * the backend's guard, which the head is handed to.
+ * the backend's guard, which the head is handed to; the base, which no
+ * backend guards, is handed back to be read once more after it.
  */
 async function gated(
 	gating: MergeGating | undefined,
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	expectedHead: string | undefined,
-): Promise<{ refused: string } | { passed?: string }> {
+): Promise<
+	{ refused: string } | { passed?: string; base?: { name: string; at: string } }
+> {
 	if (!gating) return {};
 	if (gating.unread !== undefined) {
 		return {
@@ -200,7 +203,7 @@ async function gated(
 	const before = await baseTip(base, gating.cwd, gating.run);
 	if ("unread" in before) {
 		return {
-			refused: `Where ${change.label}'s base is on origin couldn't be read in ${gating.cwd} (${before.unread}), so a merge landing while the gate ran couldn't be told. Not merged; name a checkout of the repo with \`repo\`.`,
+			refused: `Where ${change.label}'s base is on origin couldn't be read in ${gating.cwd} (${before.unread}), so a merge landing while the gate ran couldn't be told. Not merged; ${before.fix}.`,
 		};
 	}
 	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
@@ -227,7 +230,7 @@ async function gated(
 	const after = await baseTip(base, gating.cwd, gating.run);
 	if ("unread" in after) {
 		return {
-			refused: `${passed}, but where ${change.label}'s base is on origin couldn't be read again (${after.unread}), so a merge landing while it ran couldn't be ruled out. Not merged.`,
+			refused: `${passed}, but where ${change.label}'s base is on origin couldn't be read again (${after.unread}), so a merge landing while it ran couldn't be ruled out. Not merged; ${after.fix}.`,
 		};
 	}
 	if (after.at !== before.at) {
@@ -235,7 +238,26 @@ async function gated(
 			refused: `${base} moved on origin from ${before.at.slice(0, 12)} to ${after.at.slice(0, 12)} while the merge gate read ${head.slice(0, 12)}, so what would merge onto it is a pair nothing built. Not merged; rebase onto it and merge again.`,
 		};
 	}
-	return { passed: head };
+	return { passed: head, base: { name: base, at: after.at } };
+}
+
+/**
+ * Why a merge the person approved is refused now, or nothing: the base
+ * is read once more, since a merge landing while they were asked would
+ * put a pair nothing built onto it, and no backend guards the base.
+ */
+async function baseMovedWhileAsked(
+	gating: MergeGating | undefined,
+	base: { name: string; at: string } | undefined,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+): Promise<string | undefined> {
+	if (!gating || !base) return undefined;
+	const now = await baseTip(base.name, gating.cwd, gating.run);
+	if ("unread" in now) {
+		return `Where ${change.label}'s base is on origin couldn't be read again after the merge was approved (${now.unread}), so a merge landing meanwhile couldn't be ruled out. Not merged; ${now.fix}.`;
+	}
+	if (now.at === base.at) return undefined;
+	return `${base.name} moved on origin from ${base.at.slice(0, 12)} to ${now.at.slice(0, 12)} while the merge was being approved, so what would merge onto it is a pair nothing built. Not merged; rebase onto it and merge again.`;
 }
 
 /** Land the change. */
@@ -275,6 +297,12 @@ export async function merge(
 		].join("\n"),
 	);
 	if (!decision.approved) return declined(decision, "Not merged.");
+	const moved = await baseMovedWhileAsked(
+		gating,
+		"base" in said ? said.base : undefined,
+		change,
+	);
+	if (moved !== undefined) return refuse(moved);
 
 	const outcome = await authoring.merge(change, {
 		...(params.method === undefined ? {} : { method: params.method }),
