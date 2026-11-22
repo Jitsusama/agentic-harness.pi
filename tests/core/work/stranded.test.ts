@@ -8,7 +8,9 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
+	readlinkSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -30,7 +32,9 @@ import {
 	LOCK_STALE_MS,
 	plainWords,
 	type StrandedRecords,
+	StuckAside,
 	setAside,
+	setAsideWhole,
 	splitStranded,
 	strandedDir,
 	strandedTrees,
@@ -396,6 +400,60 @@ describe("setAside", () => {
 			"it no longer names git's entry",
 		).toBe(false);
 		expect(readFileSync(join(aside, ".git-was"), "utf8")).toContain("gitdir:");
+	});
+
+	it("refuses a tree that is a link, leaving the link and what it names", async () => {
+		const real = treeNaming("snapshot-real", standingGitDir("snapshot-real"));
+		const path = join(trees, "snapshot-linked");
+		symlinkSync(real, path);
+
+		const [linked] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+		});
+
+		expect(linked?.kind).toBe("refused");
+		expect(readlinkSync(path), "the link stays").toBe(real);
+		expect(existsSync(join(real, ".git")), "what it names keeps its .git").toBe(
+			true,
+		);
+	});
+
+	it("puts a tree back where it was when its .git can't be parted", () => {
+		const path = treeNaming("snapshot-stuck", standingGitDir("snapshot-stuck"));
+		const into = strandedDir(trees);
+
+		expect(() =>
+			setAsideWhole(path, into, () => {
+				throw new Error("EBUSY: resource busy");
+			}),
+		).toThrow(/EBUSY/);
+		expect(readFileSync(join(path, ".git"), "utf8")).toContain("gitdir:");
+		expect(readdirSync(into), "nothing is left aside").toEqual([]);
+	});
+
+	it("says where a tree stands when it can be neither parted nor put back", () => {
+		const path = treeNaming("snapshot-held", standingGitDir("snapshot-held"));
+		const into = strandedDir(trees);
+
+		let thrown: unknown;
+		try {
+			setAsideWhole(path, into, () => {
+				// Something takes the name back before it can go back.
+				mkdirSync(path);
+				writeFileSync(join(path, "new"), "a new cut\n");
+				throw new Error("EBUSY: resource busy");
+			});
+		} catch (error) {
+			thrown = error;
+		}
+
+		if (!(thrown instanceof StuckAside)) throw thrown;
+		expect(dirname(thrown.aside)).toBe(into);
+		expect(readFileSync(join(thrown.aside, "notes.md"), "utf8")).toBe(
+			"written by a reader\n",
+		);
+		expect(thrown.message.startsWith(`It is at ${thrown.aside}`)).toBe(true);
+		expect(thrown.message).toContain("EBUSY");
 	});
 
 	it("says a tree another reclaim took as it was asked about is gone", async () => {

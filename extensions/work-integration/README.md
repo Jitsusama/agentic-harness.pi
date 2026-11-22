@@ -545,9 +545,9 @@ and refuses while anything is uncommitted, using the same sentence
 that guards a repoint. An untracked file counts: overwriting a
 modified file is bad and recoverable, and overwriting an untracked
 one is neither. A tree git won't run in can't be read, so it is
-set aside whole with everything in it rather than removed, and
-its branch and git's entry for it stay in the checkout it was cut
-from.
+set aside whole with everything in it rather than removed. Its
+branch stays, but git's entry for it, with its index and HEAD, goes
+when that name is next cut.
 
 **It will not keep a branch trunk already has.** Releasing or
 reclaiming a tree deletes its branch, and the `[branch]` section a

@@ -19,6 +19,7 @@ import {
 	HAND_LOCKED,
 	handLocked,
 	plainWords,
+	StuckAside,
 	setAsideWhole,
 	strandedDir,
 } from "../../../lib/core/work/stranded.ts";
@@ -194,30 +195,48 @@ function unreadHere(path: string): boolean {
  * reclaim sets the trees git can't read: what it holds can't be read,
  * so every file is kept. Only our share goes while another session
  * holds it too, as a release's does, and a tree whose git entry is
- * locked by hand stays, as reclaim leaves one.
+ * locked by hand stays, as reclaim leaves one; the lock is judged only
+ * when it would move, so a session sharing such a tree can still go.
  */
 async function setUnreadAside(
 	broker: TreeBroker,
 	found: HeldTree,
 ): Promise<Answer> {
 	const where = displayPath(found.path);
-	if (handLocked(found.path)) {
-		return refuse(
-			`${GLYPH.refused} ${where} is still held, and still there: ${HAND_LOCKED}.`,
-		);
-	}
 	let aside: string | undefined;
 	const into = strandedDir(treeDir());
 	let others = 0;
+	let locked = false;
+	let tried = false;
 	try {
 		const outcome = await broker.setAside(found, (path) => {
+			if (handLocked(path)) {
+				locked = true;
+				throw new Error(HAND_LOCKED);
+			}
+			tried = true;
 			aside = setAsideWhole(path, into);
 		});
 		if (outcome.kind === "released") others = outcome.kept ?? 0;
 	} catch (error) {
+		if (locked) {
+			return refuse(
+				`${GLYPH.refused} ${where} is still held, and still there: ${HAND_LOCKED}.`,
+			);
+		}
 		const why = plainWords(
 			error instanceof Error ? error.message : String(error),
 		);
+		if (error instanceof StuckAside) {
+			return refuse(
+				`${GLYPH.refused} Git won't run in ${where}, so it was set aside whole, but it is only half done. ${why}. It is still held.`,
+			);
+		}
+		if (!tried) {
+			return refuse(
+				`${GLYPH.refused} Git won't run in ${where}, and who else holds it couldn't be read or written: ${why}. Nothing moved, and it is still held.`,
+			);
+		}
 		if (aside !== undefined) {
 			return refuse(
 				`${GLYPH.refused} ${found.identity.key} was set aside whole at ${displayPath(aside)}, every file in it kept, but its record couldn't be forgotten: ${why}. It is no longer held here.`,
@@ -239,7 +258,7 @@ async function setUnreadAside(
 		);
 	}
 	return say(
-		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it, which stays in the checkout it was cut from, holding its index and HEAD.`,
+		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.`,
 		{ ok: true, released: found.identity.key, aside },
 	);
 }

@@ -157,7 +157,7 @@ describe("giving a tree back", () => {
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it, which stays in the checkout it was cut from, holding its index and HEAD.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut.`,
 		);
 		expect(released.details).toEqual({ ok: true, released: key, aside });
 		expect(dirname(aside), "set aside where reclaim sets them").toBe(
@@ -181,7 +181,7 @@ describe("giving a tree back", () => {
 		const aside = String(details.aside);
 		expect(readFileSync(join(aside, ".git-was"), "utf8")).toBe("mine\n");
 		const parted = readdirSync(aside).filter((name) =>
-			/^\.git-was-[0-9a-f]{4}$/.test(name),
+			/^\.git-was-[0-9a-f]{8}$/.test(name),
 		);
 		expect(parted).toHaveLength(1);
 		expect(lstatSync(join(aside, parted[0] ?? "")).isSymbolicLink()).toBe(true);
@@ -203,7 +203,7 @@ describe("giving a tree back", () => {
 		);
 		expect(released.details.ok).not.toBe(true);
 		expect(existsSync(path), "the tree is where it was").toBe(true);
-		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+		expect(heldHere(), "this session still holds it").toBe(true);
 	});
 
 	it("leaves a tree git won't run in to a session that still holds it", async () => {
@@ -250,7 +250,36 @@ describe("giving a tree back", () => {
 			`${GLYPH.refused} ${displayPath(path)} is still held, and still there: ${HAND_LOCKED}.`,
 		);
 		expect(existsSync(join(path, ".git")), "nothing moved").toBe(true);
-		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+		expect(heldHere(), "this session still holds it").toBe(true);
+	});
+
+	it("lets a session go from a hand-locked tree git won't run in that another still holds", async () => {
+		// Nothing moves while another holds it, so its lock asks nothing
+		// of this session's share.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const entry = join(scratchDir(), "entry");
+		mkdirSync(entry, { recursive: true });
+		writeFileSync(join(entry, "locked"), "on a stick\n");
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
+		const memory = createTreeMemory(treeRecordDir());
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("the cut left no record");
+		const startedAt = await systemFacts.startedAt(process.ppid);
+		if (startedAt === undefined) throw new Error("no start for the parent");
+		memory.remember({
+			...record,
+			owners: [...(record.owners ?? []), { pid: process.ppid, startedAt }],
+		});
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released.details).toEqual({ ok: true, released: key, kept: 1 });
+		expect(existsSync(join(path, ".git")), "nothing moved").toBe(true);
+		expect(memory.recall()[0]?.owners).toEqual([
+			{ pid: process.ppid, startedAt },
+		]);
 	});
 
 	it("leaves a tree cut elsewhere to its provider, though git won't run in it", async () => {
@@ -262,9 +291,18 @@ describe("giving a tree back", () => {
 
 		expect(released.text).toContain("is a link, which pi won't follow");
 		expect(existsSync(path), "the tree is where it was").toBe(true);
-		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+		expect(heldHere(), "this session still holds it").toBe(true);
 	});
 });
+
+/**
+ * Whether the one tree's record names this session, so "still held"
+ * means this session's hold rather than any record on the machine.
+ */
+function heldHere(): boolean {
+	const [record] = createTreeMemory(treeRecordDir()).recall();
+	return (record?.owners ?? []).some((owner) => owner.pid === process.pid);
+}
 
 /**
  * Cut a tree git won't run in: its `.git` a link, which the guard won't

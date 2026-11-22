@@ -10,18 +10,24 @@
  * A second broker over the same memory directory is what a second session is.
  * That is the shape to keep: if these ever collapse into one broker, they stop
  * testing the thing they exist for.
+ *
+ * Long because every way two sessions share one memory, who joins, who
+ * leaves and who judges under the record's lock, is told here as one
+ * story, and split by file it would lose the second broker each needs.
  */
 
 import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { withFileLock } from "../../../lib/core/internal/file-lock.ts";
 import {
 	type Owner,
 	type ProcessFacts,
@@ -711,9 +717,7 @@ describe("a tree remembers which session cut it", () => {
 		expect(memory.recall()).toEqual([]);
 	});
 
-	it("leaves a tree another running session joined, taking only this session off it", async () => {
-		// What the record says when the take is judged, not when the
-		// caller looked: here a session joined in between.
+	it("leaves a tree another running session holds, taking only this session off it", async () => {
 		const memory = memoryAt();
 		const ours = { pid: process.pid, startedAt: 5000 };
 		const theirs = { pid: 4001, startedAt: 1000 };
@@ -731,6 +735,80 @@ describe("a tree remembers which session cut it", () => {
 		expect(kept).toBe(1);
 		expect(taken).toEqual([]);
 		expect(memory.recall()[0]?.owners).toEqual([theirs]);
+	});
+
+	it("judges who holds a tree under its record's lock, so a session that joins after the look keeps it", async () => {
+		// The record names this session alone when the caller looks; a
+		// second joins while the record's lock is held elsewhere, before
+		// the take is judged. Holders read before the lock would miss it.
+		const memory = memoryAt();
+		const ours = { pid: process.pid, startedAt: 5000 };
+		const theirs = { pid: 4001, startedAt: 1000 };
+		memory.remember(tree("joined", ours));
+		const [file] = readdirSync(join(root, "cut")).filter((name) =>
+			name.endsWith(".json"),
+		);
+		if (file === undefined) throw new Error("no record was written");
+		const taken: string[] = [];
+		let judged: Promise<number> | undefined;
+
+		await withFileLock(join(root, "cut", file), async () => {
+			judged = memory.whileHeldAlone(
+				tree("joined").path,
+				async () => {
+					taken.push("joined");
+				},
+				machine({ 4001: 1000, [process.pid]: 5000 }),
+			);
+			// Long enough for anything read before the lock to be read.
+			await new Promise((done) => setTimeout(done, 50));
+			memory.remember(tree("joined", ours, theirs));
+		});
+
+		expect(await judged).toBe(1);
+		expect(taken, "nothing moved").toEqual([]);
+		expect(memory.recall()[0]?.owners).toEqual([theirs]);
+	});
+
+	it("takes a tree whose other holder has ended", async () => {
+		// The usual leftover of a crash: the record names a session gone.
+		const memory = memoryAt();
+		memory.remember(
+			tree(
+				"leftover",
+				{ pid: process.pid, startedAt: 5000 },
+				{ pid: 4001, startedAt: 1000 },
+			),
+		);
+		const taken: string[] = [];
+
+		const kept = await memory.whileHeldAlone(
+			tree("leftover").path,
+			async () => {
+				taken.push("leftover");
+			},
+			machine({ [process.pid]: 5000 }),
+		);
+
+		expect(kept).toBe(0);
+		expect(taken).toEqual(["leftover"]);
+		expect(memory.recall()).toEqual([]);
+	});
+
+	it("takes a tree with no record, since it names nobody else", async () => {
+		const memory = memoryAt();
+		const taken: string[] = [];
+
+		const kept = await memory.whileHeldAlone(
+			tree("unrecorded").path,
+			async () => {
+				taken.push("unrecorded");
+			},
+			machine({ [process.pid]: 5000 }),
+		);
+
+		expect(kept).toBe(0);
+		expect(taken).toEqual(["unrecorded"]);
 	});
 
 	it("keeps the record of a tree whose take throws", async () => {

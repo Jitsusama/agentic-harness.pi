@@ -259,16 +259,55 @@ export function handLocked(path: string): boolean {
 function unlink(aside: string): void {
 	// A `.git-was` the tree already holds is its own, which a rename
 	// onto it would quietly replace, so the `.git` takes a free name.
+	// The tries are few and each name wide, so a tree whose names were
+	// filled in advance, as a command in the sandbox may fill them, is
+	// refused rather than searched for good on pi's one thread.
 	let was = join(aside, ".git-was");
-	while (existsLink(was)) {
-		was = join(aside, `.git-was-${randomBytes(2).toString("hex")}`);
+	for (let tried = 0; existsLink(was); tried++) {
+		if (tried === PART_TRIES) {
+			throw new Error(`no free name was left in ${aside} to keep its .git as`);
+		}
+		was = join(aside, `.git-was-${randomBytes(4).toString("hex")}`);
 	}
 	try {
 		renameSync(join(aside, ".git"), was);
 	} catch (error) {
 		// No `.git` left to part it from: nothing names an entry. Any
 		// other refusal leaves it naming one, which the caller must hear.
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		if (codeOf(error) !== "ENOENT") throw error;
+	}
+}
+
+/** How many names past `.git-was` a parting tries before it is refused. */
+const PART_TRIES = 16;
+
+/** The code a failed file call left, where it left one. */
+function codeOf(error: unknown): string | undefined {
+	return error instanceof Error &&
+		"code" in error &&
+		typeof error.code === "string"
+		? error.code
+		: undefined;
+}
+
+/** What a thrown thing says, as words. */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A tree moved aside whose `.git` couldn't be parted from git's entry
+ * and that couldn't go back either: it stands at `aside`, every file in
+ * it, still naming the entry, so a caller says where rather than gone.
+ */
+export class StuckAside extends Error {
+	/** Where the tree stands now. */
+	readonly aside: string;
+
+	constructor(aside: string, message: string) {
+		super(message);
+		this.name = "StuckAside";
+		this.aside = aside;
 	}
 }
 
@@ -435,8 +474,9 @@ export async function setAside(
 			try {
 				aside = setAsideWhole(tree.path, deps.into);
 			} catch (error) {
-				// Another reclaim, or the sweep, may have taken it first.
-				gone = !existsSync(tree.path);
+				// Another reclaim, or the sweep, may have taken it first,
+				// unless it was this move that left it elsewhere.
+				gone = !(error instanceof StuckAside) && !existsSync(tree.path);
 				refused = plainWords(
 					error instanceof Error ? error.message : String(error),
 				);
@@ -488,9 +528,15 @@ export async function setAside(
  * Running no git, so it serves a tree git won't run in as well as one
  * git can't read. Throws, leaving the tree where it was, when the move
  * or the parting is refused, or when `path` is a link rather than a
- * folder.
+ * folder; throws {@link StuckAside}, naming where it is, when the
+ * parting is refused and the tree can't go back. `part` stands in for
+ * the parting, so a test can refuse it.
  */
-export function setAsideWhole(path: string, into: string): string {
+export function setAsideWhole(
+	path: string,
+	into: string,
+	part: (aside: string) => void = unlink,
+): string {
 	// A link moves as itself, but parting its `.git` would rename the
 	// `.git` of whatever it points at, somewhere nothing chose.
 	if (!lstatSync(path).isDirectory()) {
@@ -503,10 +549,19 @@ export function setAsideWhole(path: string, into: string): string {
 	mkdirSync(into, { recursive: true });
 	renameSync(path, aside);
 	try {
-		unlink(aside);
+		part(aside);
 	} catch (error) {
 		// Still naming git's entry, it isn't set aside: it goes back.
-		renameSync(aside, path);
+		try {
+			renameSync(aside, path);
+		} catch (back) {
+			// Neither parted nor back: where it is comes first, so no
+			// shortening of the words loses it.
+			throw new StuckAside(
+				aside,
+				`It is at ${aside}, every file in it, still naming git's entry: its .git couldn't be renamed (${messageOf(error)}) and it couldn't go back to ${path} (${messageOf(back)})`,
+			);
+		}
 		throw error;
 	}
 	return aside;

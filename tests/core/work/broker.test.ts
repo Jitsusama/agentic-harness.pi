@@ -526,7 +526,7 @@ describe("createTreeBroker", () => {
 		expect(broker.held()).toEqual([]);
 	});
 
-	it("sets aside only its share of a tree another session holds, judged under the record's lock, moving nothing", async () => {
+	it("leaves judging who else holds a tree to the memory's lock, dropping only its own share", async () => {
 		const { provider } = fakeProvider("git-worktree");
 		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
 		const broker = createTreeBroker({
