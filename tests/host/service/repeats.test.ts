@@ -1,6 +1,8 @@
 /** A start asked again under its id is answered as the first was. */
 import { describe, expect, it, vi } from "vitest";
 import { REPEAT_WINDOW_MS, repeats } from "../../../host/service/repeats.ts";
+import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 
 const asked = { v: 1, id: "a1", op: "open", cwd: "/work", attended: false };
 
@@ -106,5 +108,47 @@ describe("repeats", () => {
 		};
 		expect(await memory.answer(reordered, start)).toEqual({ sessionId: "s1" });
 		expect(start).toHaveBeenCalledOnce();
+	});
+
+	it("starts anew for a repeat once what the first opened no longer stands", async () => {
+		let standing = true;
+		const memory = repeats(Date.now, REPEAT_WINDOW_MS, () => standing);
+		const start = vi.fn(async () => ({ sessionId: "s1" }));
+		await memory.answer(asked, start);
+		await memory.answer(asked, start);
+		expect(start).toHaveBeenCalledOnce();
+		standing = false;
+		await memory.answer(asked, start);
+		expect(start).toHaveBeenCalledTimes(2);
+	});
+
+	it("answers a repeat with the first's failure while what it left behind stands", async () => {
+		const left = new Error("started, then failed; held parked");
+		const memory = repeats(
+			Date.now,
+			REPEAT_WINDOW_MS,
+			(outcome) => !outcome.ok && outcome.error === left,
+		);
+		const start = vi.fn(async () => {
+			throw left;
+		});
+		await expect(memory.answer(asked, start)).rejects.toBe(left);
+		await expect(memory.answer(asked, start)).rejects.toBe(left);
+		expect(start).toHaveBeenCalledOnce();
+	});
+
+	it("matches a repeat carrying a fresh stage token, but not one carrying another fence", async () => {
+		const memory = repeats();
+		const start = vi.fn(async () => ({ sessionId: "s1" }));
+		const first = { ...asked, env: { [STAGE_VARIABLE]: "token-1" } };
+		await memory.answer(first, start);
+		const restaged = { ...asked, env: { [STAGE_VARIABLE]: "token-2" } };
+		expect(await memory.answer(restaged, start)).toEqual({ sessionId: "s1" });
+		expect(start).toHaveBeenCalledOnce();
+		const refenced = {
+			...asked,
+			env: { [STAGE_VARIABLE]: "token-3", [SANDBOX_VARIABLE]: "off" },
+		};
+		await expect(memory.answer(refenced, start)).rejects.toThrow(/already used/);
 	});
 });

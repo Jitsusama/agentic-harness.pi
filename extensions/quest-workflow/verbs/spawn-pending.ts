@@ -1,6 +1,7 @@
 /**
- * A host spawn whose answer never came, kept by quest and host kind so
- * the spawn asked again sends the same request id. The host answers an
+ * A host spawn whose answer never came, kept by quest, host kind and
+ * what it asked, so the spawn asked again sends the same request id and
+ * another ask, or its answer, leaves it be. The host answers an
  * id it already holds with that start's answer (host/service/repeats.ts),
  * so a retry after a timeout gets the first conversation, not a twin.
  * Only a hash of what was asked is kept, never the request, since it
@@ -41,38 +42,50 @@ export function pendingId(
 	fresh: string,
 	options: { dir?: string; now?: number } = {},
 ): string {
-	const pending = readPending(fileOf(where, options.dir));
+	const what = hashOf(request);
+	const pending = readPending(fileOf(where, what, options.dir));
 	if (pending === undefined) return fresh;
 	const now = options.now ?? Date.now();
 	if (now - pending.askedAt > REPEAT_WINDOW_MS) return fresh;
-	return pending.what === hashOf(request) ? pending.id : fresh;
+	return pending.what === what ? pending.id : fresh;
 }
 
-/** Keep `request` as unanswered, so the spawn asked again repeats its id. */
+/**
+ * Keep `request` as unanswered, so the spawn asked again repeats its id.
+ * Answers whether it was kept.
+ */
 export function noteUnanswered(
 	where: { questId: string; kind: HostKind },
 	request: Repeatable,
 	options: { dir?: string; now?: number } = {},
-): void {
+): boolean {
+	const what = hashOf(request);
 	const pending: Pending = {
 		id: request.id,
-		what: hashOf(request),
+		what,
 		askedAt: options.now ?? Date.now(),
 	};
 	try {
-		writeWhole(fileOf(where, options.dir), `${JSON.stringify(pending)}\n`);
+		writeWhole(
+			fileOf(where, what, options.dir),
+			`${JSON.stringify(pending)}\n`,
+		);
+		return true;
 	} catch {
-		// Unkept, a retry sends a new id, as every spawn did before.
+		// Unkept, a retry sends a new id, as every spawn did before, and the
+		// spawn says to check the host's list rather than promise a repeat.
+		return false;
 	}
 }
 
-/** Forget the unanswered spawn, once the host has answered one. */
+/** Forget `request` as unanswered, once the host has answered it. */
 export function clearUnanswered(
 	where: { questId: string; kind: HostKind },
+	request: Repeatable,
 	options: { dir?: string } = {},
 ): void {
 	try {
-		rmSync(fileOf(where, options.dir), { force: true });
+		rmSync(fileOf(where, hashOf(request), options.dir), { force: true });
 	} catch {
 		// Left, it names an id the host already answered: a spawn asked
 		// again gets that answer, and a different ask hashes apart.
@@ -81,9 +94,10 @@ export function clearUnanswered(
 
 function fileOf(
 	where: { questId: string; kind: HostKind },
+	what: string,
 	dir = pendingDir(),
 ): string {
-	return join(dir, `${where.questId}.${where.kind}.json`);
+	return join(dir, `${where.questId}.${where.kind}.${what.slice(0, 16)}.json`);
 }
 
 function hashOf(request: Repeatable): string {

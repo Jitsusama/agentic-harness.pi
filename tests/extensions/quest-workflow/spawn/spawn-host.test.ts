@@ -21,6 +21,7 @@ import {
 	joinSpawns,
 	leaveSpawns,
 	listedForStage,
+	STAGE_VARIABLE,
 } from "../../../../lib/internal/fence/fence-stage.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 import { openRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
@@ -870,6 +871,28 @@ describe("spawn into a host", () => {
 		const [one, two, three] = sent.map((request) => request.id);
 		expect(two, "the retry repeats the lost one's id").toBe(one);
 		expect(three, "a spawn after an answer is new").not.toBe(one);
+	});
+
+	// Each spawn lists the fence's first stage under a token of its own,
+	// so a retry carries a new one and must still repeat the first's id.
+	it("repeats the lost one's id for a staged spawn asked again with a fresh token", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			throw new Error("Host control request timed out");
+		};
+		await spawnInHost({ ...spawn, carried: { [STAGE_VARIABLE]: "t-1" } }, call);
+		await spawnInHost({ ...spawn, carried: { [STAGE_VARIABLE]: "t-2" } }, call);
+		const [one, two] = sent.map((request) => request.id);
+		expect(two, "the restaged retry repeats the lost one's id").toBe(one);
 	});
 
 	it("sends a new id when the spawn asked again asks for something else", async () => {

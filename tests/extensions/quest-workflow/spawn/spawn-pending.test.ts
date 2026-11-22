@@ -2,7 +2,13 @@
  * A host spawn left unanswered: which id a spawn asked again sends, for
  * how long, and for which quest and kind of host.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,16 +74,50 @@ describe("a spawn left unanswered", () => {
 
 	it("sends a new id once cleared", () => {
 		noteUnanswered(alpha, open, { dir, now: 1000 });
-		clearUnanswered(alpha, { dir });
+		clearUnanswered(alpha, open, { dir });
 		expect(
 			pendingId(alpha, { ...open, id: "fresh" }, "fresh", { dir, now: 1000 }),
 		).toBe("fresh");
 	});
 
+	it("keeps each unanswered ask apart, so neither a second nor its answer loses the first's id", () => {
+		const elsewhere = { ...open, id: "second", cwd: "/elsewhere" };
+		noteUnanswered(alpha, open, { dir, now: 1000 });
+		noteUnanswered(alpha, elsewhere, { dir, now: 1000 });
+		expect(
+			pendingId(alpha, { ...open, id: "fresh" }, "fresh", { dir, now: 1000 }),
+			"the first, once a second was noted",
+		).toBe("first");
+		clearUnanswered(alpha, elsewhere, { dir });
+		expect(
+			pendingId(alpha, { ...open, id: "fresh" }, "fresh", { dir, now: 1000 }),
+			"the first, once the second was answered",
+		).toBe("first");
+	});
+
+	it("sends a new id when what was kept is torn or of the wrong shape", () => {
+		noteUnanswered(alpha, open, { dir, now: 1000 });
+		const [file] = readdirSync(dir);
+		if (file === undefined) throw new Error("nothing was kept");
+		const again = { ...open, id: "fresh" };
+		writeFileSync(join(dir, file), '{"id":"first","wh');
+		expect(pendingId(alpha, again, "fresh", { dir, now: 1000 }), "torn").toBe(
+			"fresh",
+		);
+		writeFileSync(join(dir, file), '{"id":7,"what":"x","askedAt":1000}');
+		expect(
+			pendingId(alpha, again, "fresh", { dir, now: 1000 }),
+			"wrong shape",
+		).toBe("fresh");
+	});
+
 	it("keeps only a hash of what was asked, never its environment", () => {
 		noteUnanswered(alpha, open, { dir, now: 1000 });
-		const kept = readFileSync(join(dir, "QEST-A.background.json"), "utf8");
+		const files = readdirSync(dir);
+		expect(files).toHaveLength(1);
+		const kept = readFileSync(join(dir, files[0] ?? ""), "utf8");
 		expect(kept).not.toContain("never kept");
 		expect(kept).not.toContain("/work");
+		expect(files[0]).not.toContain("never kept");
 	});
 });

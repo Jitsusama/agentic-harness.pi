@@ -376,12 +376,13 @@ export async function spawnInHost(
 				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
 			);
 		}
-		noteUnanswered(where, request, kept);
-		return refuse(unknownOutcome(key, messageOf(error), request.id));
+		const repeat = noteUnanswered(where, request, kept) ? request.id : undefined;
+		return refuse(unknownOutcome(key, messageOf(error), repeat));
 	}
-	clearUnanswered(where, kept);
 	const { reply, shed } = sent;
 	if (!reply.ok) {
+		// A refusal is an answer: nothing was opened under this id.
+		clearUnanswered(where, request, kept);
 		return refuse(
 			`The ${key} host refused to ${what}: ${reply.error.code}, ${reply.error.message}. Nothing else was opened.`,
 		);
@@ -394,10 +395,17 @@ export async function spawnInHost(
 				? parseAdoptResult(reply.result)
 				: parseOpenResult(reply.result);
 	} catch {
+		// A yes unread is no answer to trust, so its id is kept for a retry.
+		const repeat = noteUnanswered(where, request, kept) ? request.id : undefined;
 		return refuse(
-			unknownOutcome(key, "it said yes, but what it opened is unreadable"),
+			unknownOutcome(
+				key,
+				"it said yes, but what it opened is unreadable",
+				repeat,
+			),
 		);
 	}
+	clearUnanswered(where, request, kept);
 	const attach =
 		spawn.kind === "attended"
 			? attachWords(holdOf(key, true), held.sessionId)
@@ -732,7 +740,7 @@ function unknownOutcome(key: string, why: string, repeat?: string): string {
 	const unknown = `The ${key} host gave no answer to trust (${why}), so whether it opened the session is unknown. Nothing else was opened and nothing was retried;`;
 	return repeat === undefined
 		? `${unknown} check the host's list before spawning again.`
-		: `${unknown} spawning again within ${REPEAT_WINDOW_MS / 60_000} minutes sends this same request (id ${repeat}), which the host answers with what it opened rather than opening another, unless it restarted meanwhile.`;
+		: `${unknown} spawning again within ${REPEAT_WINDOW_MS / 60_000} minutes sends this same request (id ${repeat}), which the host answers with what it opened rather than opening another, unless it restarted meanwhile: after a restart, check the host's list first.`;
 }
 
 function messageOf(error: unknown): string {

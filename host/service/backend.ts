@@ -16,7 +16,7 @@ import {
 	hostRefusal,
 } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
-import { repeats } from "./repeats.ts";
+import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
@@ -282,7 +282,11 @@ export function hostBackend(options: {
 	// answer was lost gets the first's conversation, not a twin: CWUEGJ's
 	// retry of a spawn that timed out while it loaded made one of ZH3VLR
 	// (IKQ63G, 20 November).
-	const asked = repeats();
+	// An answer stands while its conversation is still held, and a start
+	// that failed after registering stands while that one is (F2, F3).
+	const asked = repeats(Date.now, REPEAT_WINDOW_MS, stillStands);
+	// Each failed start's error, by the conversation it left held.
+	const leftHeld = new WeakMap<object, string>();
 	// Each conversation's wakes and ends, one at a time, so a close never
 	// lands between a wake's look at the roster and its resume.
 	const turns = new Map<string, Promise<unknown>>();
@@ -414,6 +418,25 @@ export function hostBackend(options: {
 		return roster.entries().some((held) => held.sessionId === sessionId);
 	}
 
+	function stillStands(outcome: Outcome): boolean {
+		if (!outcome.ok) {
+			const error = outcome.error;
+			const held =
+				typeof error === "object" && error !== null
+					? leftHeld.get(error)
+					: undefined;
+			return held !== undefined && rostered(held);
+		}
+		const opened = outcome.value;
+		if (typeof opened !== "object" || opened === null) return true;
+		if (!("sessionId" in opened) || typeof opened.sessionId !== "string")
+			return true;
+		return (
+			rostered(opened.sessionId) ||
+			children?.running(opened.sessionId) !== undefined
+		);
+	}
+
 	function begin(request: OpenRequest | AdoptRequest): Promise<unknown> {
 		return asked.answer(request, () => beginOnce(request));
 	}
@@ -505,6 +528,9 @@ export function hostBackend(options: {
 			if (host.holds(prepared.sessionId) === undefined) {
 				await engine.discard(prepared);
 				await roster.drop(prepared.sessionId);
+			} else if (typeof error === "object" && error !== null) {
+				// Its repeat is told the same, not given a second.
+				leftHeld.set(error, prepared.sessionId);
 			}
 			throw error;
 		}
