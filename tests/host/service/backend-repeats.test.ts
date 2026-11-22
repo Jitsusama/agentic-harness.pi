@@ -319,7 +319,7 @@ describe("a start asked again under its id", () => {
 			const impatient: typeof controlRequest = (socket, request) =>
 				controlRequest(socket, request, 300);
 			const lost = await spawnInHost(spawn, impatient);
-			expect(lost, "the first goes unanswered").toMatchObject({ ok: false });
+			if (lost.ok) throw new Error("the first should go unanswered");
 			expect(lost.guidance).toContain("timed out");
 			// The first reached the host and loads, so the retry is a repeat.
 			await vi.waitFor(() => expect(fake.start).toHaveBeenCalledOnce());
