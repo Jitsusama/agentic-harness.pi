@@ -51,11 +51,11 @@ function within(path: string, folder: string): boolean {
 
 /**
  * Whether `given` reaches the never-through `name`, at `path` outside:
- * it is the name, a folder above it, or, for a name ending in a
- * wildcard, a match or something in one.
+ * it is the name, a folder above it or something in it, or, for a name
+ * ending in a wildcard, a match or something in one.
  */
 function reaches(given: string, name: string, path: string): boolean {
-	if (!name.endsWith("*")) return within(path, given);
+	if (!name.endsWith("*")) return within(path, given) || within(given, path);
 	const folder = dirname(path);
 	if (within(folder, given)) return true;
 	const [first] = relative(folder, given).split(sep);
@@ -72,8 +72,10 @@ function reaches(given: string, name: string, path: string): boolean {
  * lands, unless it lands in the runtime folder before the tmpfs laid
  * over it, as the whole disk's bind does; a mount laid after that tmpfs
  * at or above the folder uncovers it. Every option bubblewrap is given
- * is read as the fence reads it (`mountsOf`). An absolute name is seen
- * through the whole disk's bind, so only the rules keep it shut.
+ * is read as the fence reads it (`mountsOf`), an overlay by each of its
+ * sources. An absolute name is seen where it is through the whole disk's
+ * bind, so only the rules keep it shut there; a mount carrying it
+ * anywhere else could put it under a rule, so that reaches it.
  */
 function namesReached(
 	args: readonly string[],
@@ -92,22 +94,34 @@ function namesReached(
 	return NEVER_THROUGH.filter((name) => {
 		const path = isAbsolute(name) ? name : join(runtimeDir, name);
 		if (ruled.some((given) => reaches(given, name, path))) return true;
-		if (isAbsolute(name)) return false;
-		return mounts.some((mount) => {
-			// An overlay's sources aren't read here, so one over a name, or a
-			// folder above it, counts as showing it.
-			if (mount.option === "--tmp-overlay") {
-				return mount.to !== undefined && reaches(mount.to, name, path);
-			}
-			if (!mount.from || !mount.to || !reaches(mount.from, name, path)) {
-				return false;
-			}
-			const lands = within(path, mount.from)
-				? join(mount.to, relative(mount.from, path))
-				: mount.to;
-			return !(mount.at < emptied && within(lands, runtimeDir));
-		});
+		return mounts.some((mount) =>
+			shownBy(args, mount).some((from) => {
+				if (!mount.to || !reaches(from, name, path)) return false;
+				const lands = within(path, from)
+					? join(mount.to, relative(from, path))
+					: mount.to;
+				if (isAbsolute(name)) return lands !== path;
+				return !(mount.at < emptied && within(lands, runtimeDir));
+			}),
+		);
 	});
+}
+
+/**
+ * What `mount` shows where it lands: a bind's source, or each of an
+ * overlay's sources, which come just before it, and, since an overlay
+ * may write through to where it lands, that place too.
+ */
+function shownBy(
+	args: readonly string[],
+	mount: ReturnType<typeof mountsOf>[number],
+): string[] {
+	if (mount.option !== "--tmp-overlay") return mount.from ? [mount.from] : [];
+	const sources: string[] = [];
+	for (let at = mount.at; args[at] === "--overlay-src"; at += 2) {
+		sources.push(args[at + 1] ?? "");
+	}
+	return mount.to ? [...sources, mount.to] : sources;
 }
 
 describe("the fence's arguments", () => {
@@ -415,11 +429,12 @@ describe("the fence's arguments", () => {
 	});
 
 	// The whole fence, with everything it can lay in the runtime folder:
-	// the GitHub door's folder, direnv's settings and the quest locks.
+	// the GitHub door's folder, direnv's settings where `fenceDirenv`
+	// writes them, and the quest locks.
 	const laidIn = {
 		...place,
 		githubDoor: githubDoorFolder(place.runtimeDir, "s1"),
-		direnv: join(place.runtimeDir, "agentic-harness.pi", "direnv"),
+		direnv: join(place.runtimeDir, "pi-fence", "direnv"),
 	};
 	const laidArgs = fenceArgs(laidIn, {
 		...diskWith(place.home, ["src", ".config"]),
@@ -432,7 +447,7 @@ describe("the fence's arguments", () => {
 
 	it("lets none of the desktop's names through, by mount or by socket, nor a folder above one", () => {
 		expect(
-			["--ro-bind-try", laidIn.direnv, "agentic-harness.pi/quest-locks"].map(
+			[laidIn.githubDoor, laidIn.direnv, "agentic-harness.pi/quest-locks"].map(
 				(part) => laidArgs.some((arg) => arg.endsWith(part)),
 			),
 			"the door's, direnv's or the quest locks' mount isn't laid to be checked",
@@ -497,6 +512,12 @@ describe("the fence's arguments", () => {
 				["eero/socket"],
 			],
 			[
+				"an overlay out of the folder",
+				[...args, "--overlay-src", folder, "--tmp-overlay", "/tmp/eero"],
+				rules,
+				["eero/socket"],
+			],
+			[
 				"/run bound after the tmpfs",
 				[...args, "--ro-bind", "/run", "/run"],
 				rules,
@@ -519,6 +540,69 @@ describe("the fence's arguments", () => {
 				[...args, "--ro-bind", "/dev/null", join(folder, "socket")],
 				rules,
 				[],
+			],
+		];
+		for (const [how, given, ruled, reached] of cases) {
+			expect(
+				namesReached(given, ruled, place.runtimeDir),
+				`${how} was judged wrongly`,
+			).toEqual(reached);
+		}
+	});
+
+	it("sees a socket in a folder it keeps out, a wildcard's match and an absolute socket carried elsewhere", () => {
+		const credentials = "/run/systemd/io.systemd.Credentials";
+		const cases: [string, string[], string[], readonly string[]][] = [
+			[
+				"a bind in a kept-out folder",
+				[
+					...args,
+					"--ro-bind",
+					join(place.runtimeDir, "keyring", "control"),
+					join(place.runtimeDir, "keyring", "control"),
+				],
+				rules,
+				["keyring"],
+			],
+			[
+				"a rule in a kept-out folder",
+				args,
+				[...rules, "--unix", join(place.runtimeDir, "gnupg", "S.gpg-agent")],
+				["gnupg"],
+			],
+			[
+				"a rule on a wildcard's match",
+				args,
+				[...rules, "--unix", join(place.runtimeDir, "wayland-1")],
+				["wayland-*"],
+			],
+			[
+				"a bind of a wildcard's match",
+				[
+					...args,
+					"--ro-bind",
+					join(place.runtimeDir, "pipewire-0"),
+					join(place.runtimeDir, "pipewire-0"),
+				],
+				rules,
+				["pipewire-*"],
+			],
+			[
+				"a rule on a near miss of a wildcard",
+				args,
+				[...rules, "--unix", join(place.runtimeDir, "waylandx")],
+				[],
+			],
+			[
+				"an absolute socket carried onto a ruled path",
+				[
+					...args,
+					"--ro-bind",
+					credentials,
+					join(place.runtimeDir, "nix-untrusted.sock"),
+				],
+				rules,
+				[credentials],
 			],
 		];
 		for (const [how, given, ruled, reached] of cases) {

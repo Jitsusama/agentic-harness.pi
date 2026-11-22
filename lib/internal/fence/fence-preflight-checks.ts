@@ -165,15 +165,23 @@ const CONNECT = [
 
 /**
  * The paths a never-through name stands for here: itself, or each entry
- * of the runtime folder a name ending in a wildcard matches.
+ * of the runtime folder a name ending in a wildcard matches. An entry
+ * whose name holds a quote or a line break is left out, since it would
+ * break the probe's script or forge a line of its answer, so it reads as
+ * not tried.
  */
 function servedAs(name: string, entries: readonly string[]): string[] {
 	if (isAbsolute(name)) return [name];
 	if (!name.endsWith("*")) return [join(runtime(), name)];
 	const start = name.slice(0, -1);
 	return entries
-		.filter((entry) => entry.startsWith(start))
+		.filter((entry) => entry.startsWith(start) && !/['\n]/.test(entry))
 		.map((entry) => join(runtime(), entry));
+}
+
+/** A line saying how a connect to `path` went, run outside or inside. */
+function connectTo(path: string): string {
+	return `printf 'connect %s ' '${path}'; '${process.execPath}' -e '${CONNECT}' '${path}'`;
 }
 
 /**
@@ -181,11 +189,13 @@ function servedAs(name: string, entries: readonly string[]): string[] {
  * One in the runtime folder must be absent, since that folder starts
  * inside as an empty tmpfs; an absolute one is seen through the whole
  * disk's bind, so it is connected to, and Landlock must refuse it or
- * the fence hide it. Each is tried in one fenced run that first sees a
- * socket the fence lets through, and each probe says what it found, so
- * a fence that never ran fails rather than reading as every socket
- * kept shut. A name not served here can't be tried, so how many
- * weren't is said rather than passed over.
+ * the fence hide it. An absolute one is tried only once it connects
+ * outside, so a refusal inside is the fence's, not one the person meets
+ * anyway. Each is tried in one fenced run that first sees a socket the
+ * fence lets through, and each probe says what it found, so a fence that
+ * never ran fails rather than reading as every socket kept shut. A name
+ * not served here can't be tried, so each is named rather than passed
+ * over, and a machine serving none fails, having shown nothing.
  */
 async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 	const entries = existsSync(runtime()) ? readdirSync(runtime()) : [];
@@ -197,15 +207,30 @@ async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 			"nothing the fence lets through is served here to show it ran",
 		);
 	}
-	const named = NEVER_THROUGH.flatMap((name) => servedAs(name, entries));
-	const served = named.filter((path) => existsSync(path));
-	const unserved = NEVER_THROUGH.filter((name) =>
-		servedAs(name, entries).every((path) => !existsSync(path)),
-	).length;
 	const connected = (path: string) => !path.startsWith(`${runtime()}/`);
+	const there = NEVER_THROUGH.flatMap((name) => servedAs(name, entries)).filter(
+		(path) => existsSync(path),
+	);
+	const absolute = there.filter(connected);
+	const tried =
+		absolute.length === 0
+			? undefined
+			: await outside(absolute.map(connectTo).join("\n"), context.scratch);
+	const before = tried?.out.split("\n") ?? [];
+	const served = there.filter(
+		(path) => !connected(path) || before.includes(`connect ${path} connected`),
+	);
+	if (served.length === 0) {
+		return failed(
+			"no socket the fence never lets through answers here, so none was tried",
+		);
+	}
+	const untried = NEVER_THROUGH.filter((name) =>
+		servedAs(name, entries).every((path) => !served.includes(path)),
+	);
 	const probe = (path: string) =>
 		connected(path)
-			? `printf 'connect %s ' '${path}'; '${process.execPath}' -e '${CONNECT}' '${path}'`
+			? connectTo(path)
 			: `if test -e '${path}'; then echo 'there ${path}'; else echo 'absent ${path}'; fi`;
 	const ran = await fenced(
 		[
@@ -217,9 +242,14 @@ async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 		context.session,
 	);
 	const lines = ran.out.split("\n").filter((line) => line !== "");
-	if (lines[0] !== "control" || lines.at(-1) !== "probed") {
+	if (lines.at(-1) !== "probed") {
 		return failed(
-			`the fenced probe didn't run through (exit ${ran.code}), so nothing was tried`,
+			`the fenced probe didn't run through (exit ${ran.code}), so not every socket was tried`,
+		);
+	}
+	if (lines[0] !== "control") {
+		return failed(
+			`${control}, which the fence lets through, wasn't seen inside, so nothing shows the probe ran fenced`,
 		);
 	}
 	// Kept shut: absent from the runtime folder, or, connected to,
@@ -234,7 +264,7 @@ async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 	);
 	return reached.length === 0
 		? passed(
-				`${served.length} sockets, none reached inside; ${unserved} names not served here`,
+				`${served.length} sockets, none reached inside; not tried here: ${untried.join(", ") || "none"}`,
 			)
 		: failed(`reached or not told inside: ${reached.join(", ")}`);
 }

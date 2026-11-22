@@ -21,6 +21,7 @@ import {
 	fenceRules,
 	NEVER_THROUGH,
 } from "../../../../lib/internal/fence/fence.ts";
+import { strictRules } from "../../../../lib/internal/sandbox/strict-rules.ts";
 
 /** A landrun on `PATH` that can lay a Landlock here, or nothing. */
 function workingLandrun(): string | undefined {
@@ -206,6 +207,29 @@ describe.skipIf(landrun === undefined)(
 				NEVER_THROUGH,
 				"the list names another path than the socket this proves shut",
 			).toContain(relative(runtimeDir, eero));
+		});
+
+		it("keeps a strict command from the eero daemon's socket, with no tmpfs over the runtime folder", async (context) => {
+			if (!(await connects(eero, []))) context.skip();
+
+			// A strict session is landrun alone, so the socket stays where it
+			// is and only Landlock keeps it shut; the same rules with one on
+			// its folder reach it, so the refusal is theirs.
+			const strict = strictRules({ home: base, runtimeDir, cwd: base }).flat();
+			expect(
+				await tries(eero, [
+					landrun ?? "landrun",
+					...strict,
+					"--unix",
+					join(runtimeDir, "eero"),
+					"--",
+				]),
+				"the eero daemon's socket wasn't reached by a strict command with a rule on its folder",
+			).toBe(CONNECTED);
+			expect(
+				await tries(eero, [landrun ?? "landrun", ...strict, "--"]),
+				"a strict command connected to the eero daemon's socket, or never tried",
+			).toBe(DENIED);
 		});
 	},
 );
