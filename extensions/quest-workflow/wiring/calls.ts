@@ -14,11 +14,7 @@ import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
 import { adoptTree, applyQuestGuards } from "../guard.ts";
-import {
-	persist,
-	refreshProgress,
-	retryPendingQuest,
-} from "../lifecycle.ts";
+import { persist, refreshProgress, retryPendingQuest } from "../lifecycle.ts";
 import { keepDesktopListsCurrent } from "../quest-index.ts";
 import { questsTouchedBy, RecordWatch } from "../record-watch.ts";
 import type { QuestState } from "../state.ts";

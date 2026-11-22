@@ -330,9 +330,7 @@ describe("persist + restore", () => {
 
 		renameSync(aside, a.dir);
 		const later = Date.now() + PENDING_RETRY_MS;
-		expect(retryPendingQuest(next, pi, later), "loads once it can").toBe(
-			true,
-		);
+		expect(retryPendingQuest(next, pi, later), "loads once it can").toBe(true);
 		expect(next.questId).toBe(a.id);
 		expect(next.pendingQuest).toBeUndefined();
 	});
