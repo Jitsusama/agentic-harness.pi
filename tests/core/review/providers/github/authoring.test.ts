@@ -606,6 +606,7 @@ describe("requesting reviewers", () => {
 			["@ wren", /isn't a GitHub login/],
 			["wren finch", /isn't a GitHub login/],
 			["wren,finch", /isn't a GitHub login/],
+			["_wren", /isn't a GitHub login/],
 			["o/", /isn't a team GitHub can name/],
 			["o/.", /isn't a team GitHub can name/],
 			["o/..", /isn't a team GitHub can name/],
@@ -632,6 +633,25 @@ describe("requesting reviewers", () => {
 			);
 			expect(calls, `nothing reaches GitHub for "${name}"`).toEqual([]);
 		}
+	});
+
+	it("asks an Enterprise Managed User by the login it carries", async () => {
+		// An EMU login ends in an underscore and its enterprise's shortcode.
+		const { exec, calls } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["octocat_acme"], []),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["octocat_acme"]),
+			"an EMU login is a login",
+		).resolves.toBeUndefined();
+		const sent = JSON.parse(
+			callMatching(calls, "POST")?.input ?? "{}",
+		) as Record<string, unknown>;
+		expect(sent.reviewers, "sent as written").toEqual(["octocat_acme"]);
 	});
 
 	it("counts a team handed on to its members as asked", async () => {
@@ -709,6 +729,28 @@ describe("requesting reviewers", () => {
 		);
 		await expect(asking, "no advice to ask only the rest").rejects.not.toThrow(
 			/ask again only for the rest/,
+		);
+	});
+
+	it("says a team may have gone to its member who was already requested", async () => {
+		// Handed to someone already on the list, nobody new appears.
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["finch"], []),
+			},
+			{
+				when: ["requested_reviewers"],
+				stdout: requestedEarlier(["finch"], []),
+			},
+			{ when: ["teams/ci/memberships/finch"], stdout: ACTIVE_MEMBER },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
+			"dropped, saying finch may stand for it, with check-first advice",
+		).rejects.toThrow(
+			/Team ci may have been handed on to finch, its member and already requested; check the pull request's reviewers before asking again/,
 		);
 	});
 

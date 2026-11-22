@@ -177,6 +177,21 @@ describe("writing assignees", () => {
 		);
 		expect(write?.input).toBe(JSON.stringify({ assignees: ["evan"] }));
 	});
+
+	it("sends a mentioned assignee as the bare login", async () => {
+		// A leading @ is a mention, as reviewers take it; GitHub's route
+		// would drop `@evan` unsaid.
+		const { exec, calls } = scripted();
+
+		await githubAuthoring(exec).edit(CHANGE, {
+			assignees: { action: "add", value: ["@evan "] },
+		});
+
+		const write = calls.find((call) => call.args.includes("POST"));
+		expect(write?.input, "the login without its @").toBe(
+			JSON.stringify({ assignees: ["evan"] }),
+		);
+	});
 });
 
 describe("proposing with labels", () => {

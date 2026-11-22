@@ -51,8 +51,12 @@ interface Asked {
 	readonly org: string;
 }
 
-/** A GitHub login or org: letters, digits and hyphens. */
-const LOGIN_SHAPE = /^[A-Za-z0-9-]+$/;
+/**
+ * A GitHub login or org: letters, digits and hyphens, and the underscore
+ * an Enterprise Managed User's login carries before its shortcode
+ * (`octocat_acme`).
+ */
+const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /**
  * A GitHub team slug: letters, digits, hyphens, underscores and dots,
@@ -90,7 +94,7 @@ function splitAsked(
 			}
 			if (!LOGIN_SHAPE.test(name)) {
 				return {
-					refused: `"${actor}" isn't a GitHub login, which holds only letters, digits and hyphens. Nobody was asked.`,
+					refused: `"${actor}" isn't a GitHub login, which holds only letters, digits, hyphens and underscores. Nobody was asked.`,
 				};
 			}
 			people.push(name);
@@ -177,9 +181,10 @@ interface Recorded {
  * another ask) is no sign of the team. Every other missing team counts as
  * dropped. The doubt that it may have been handed on, so it is checked
  * rather than asked again (which would assign more members), is said when
- * `before` couldn't be read, when someone nobody named appeared, or when
- * someone named who appeared is shown a member; a person asked beside it
- * appearing is otherwise no sign either way.
+ * `before` couldn't be read, when someone nobody named appeared, when
+ * someone named who appeared is shown a member, or when a member was
+ * already requested; a person asked beside it appearing is otherwise no
+ * sign either way.
  */
 async function recordedOf(
 	asked: Asked,
@@ -237,6 +242,17 @@ async function recordedOf(
 				doubts.push(
 					`${unnamed.join(", ")} appeared unasked, and team ${team} may have been handed on to them by code review assignment, though none could be shown its member`,
 				);
+			} else {
+				// Handed to a member already requested, nobody new appears.
+				const stayed = [...after.people].filter((login) =>
+					before.people.has(login),
+				);
+				const already = await membersOf(team, stayed, isMember);
+				if (already.length > 0) {
+					doubts.push(
+						`team ${team} may have been handed on to ${already.join(", ")}, its member and already requested`,
+					);
+				}
 			}
 		}
 	}
@@ -471,8 +487,17 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 	async function applySetEdit(
 		ref: ChangeRef,
 		field: "labels" | "assignees",
-		edit: SetEdit<string>,
+		asked: SetEdit<string>,
 	): Promise<void> {
+		// A leading @ is a mention, as for reviewers; GitHub's assignee
+		// route takes the bare login and drops one it can't find unsaid.
+		const edit: SetEdit<string> =
+			field === "assignees" && asked.action !== "clear"
+				? {
+						...asked,
+						value: asked.value.map((one) => one.trim().replace(/^@/, "")),
+					}
+				: asked;
 		const issue = `repos/${slugOf(ref.repo)}/issues/${ref.id}`;
 		const what = `changing the ${field} of pull request ${ref.id}`;
 
