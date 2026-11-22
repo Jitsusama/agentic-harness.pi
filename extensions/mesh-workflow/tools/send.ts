@@ -185,19 +185,25 @@ async function toHubByAddress(
  * A fresh find the node left unfinished with nobody above, read instead
  * as the hub this peer keeps, when it keeps one. That hub was found by a
  * finished find within a keeping's wait, and is checked again as it is
- * read against the presences now, by the rules the find used, so what is
- * for the hub still reaches it while the node has only just slowed. The
- * keeping's own next find meets the same slow node and keeps none, so
- * past that this refuses as before. It stays unsettled, so the checks a
- * send to the hub gets are still made.
+ * read against the presences now, by the rules the find used, with the
+ * sessions the fresh find's own census judged gone taken as gone, so
+ * what is for the hub still reaches it while the node has only just
+ * slowed. The keeping's own next find meets the same slow node and keeps
+ * none, so past that this refuses as before. A send to it gets the
+ * checks a send to the hub gets, since `orchestrator` then names its
+ * address; it stays unsettled only so it is never taken for a find the
+ * node answered. The kept hub is read only when it is needed, since
+ * reading it reads every presence.
  */
 function orKept(
 	found: Found,
-	kept: string | undefined,
+	keptHub: ((gone: readonly string[]) => string | undefined) | undefined,
 ): Found & { readonly kept?: true } {
-	if (found.settled || !("none" in found.above) || kept === undefined) {
+	if (found.settled || !("none" in found.above) || keptHub === undefined) {
 		return found;
 	}
+	const kept = keptHub(found.gone);
+	if (kept === undefined) return found;
 	return { ...found, above: { address: kept, by: "use" }, kept: true };
 }
 
@@ -421,7 +427,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// this peer keeps, which may be minutes old, unless the node gives it
 	// no answer in time.
 	const fresh = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
-	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub?.());
+	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
 	const above = found?.above;
 	const orchestrator =
 		above === undefined

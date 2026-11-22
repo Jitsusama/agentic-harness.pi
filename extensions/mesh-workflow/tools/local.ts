@@ -43,9 +43,10 @@ export interface Local {
 	/**
 	 * The hub from use this peer keeps, if it still holds as the peer
 	 * stands now (see `keepHub` in above.ts), for a send whose own find
-	 * the node left unfinished.
+	 * the node left unfinished, with the sessions that find's census
+	 * judged gone taken as gone.
 	 */
-	readonly keptHub?: () => string | undefined;
+	readonly keptHub?: (gone: readonly string[]) => string | undefined;
 	/**
 	 * Find the live cell that works on a need, over the node's hubs and
 	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when

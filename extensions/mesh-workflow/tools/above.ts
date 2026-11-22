@@ -30,11 +30,11 @@ export type Reached = Extract<Above, { address: string }>;
 export const HUB_KEEP_MS = 5 * 60_000;
 
 /**
- * How soon a find that could not finish is first tried again: one that
- * threw, came before this peer's presence, or had no answer from the
- * node. Each such find after it waits twice as long, up to a keeping's
- * wait, since every session asks the same node and one that is down is
- * better asked less and less often.
+ * How soon a find that could not finish is tried again: one that threw,
+ * came before this peer's presence, or had no answer from the node. Each
+ * find in a row that threw or had no answer waits twice as long, up to a
+ * keeping's wait, since every session asks the same node and one that is
+ * down is better asked less and less often.
  */
 export const HUB_RETRY_MS = 30_000;
 
@@ -49,6 +49,11 @@ export interface Found {
 	 * it ended. None where the find took no census.
 	 */
 	readonly gone: readonly string[];
+	/**
+	 * True when the find ended before it could ask the node, so it says
+	 * nothing of whether the node answers.
+	 */
+	readonly unasked?: true;
 }
 
 /** Where this peer's `orchestrator` points, or why nowhere. */
@@ -97,6 +102,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 			},
 			settled: false,
 			gone,
+			unasked: true,
 		};
 	}
 	// A peer with nothing above it has no hub to find, so the node isn't
@@ -123,9 +129,12 @@ export async function findAbove(at: HubReading): Promise<Found> {
  * last said them. Another process can overwrite the file until the
  * peer's next refresh puts it back, and a publish that failed leaves it
  * as it was; read from there, it could find a hub for a quest this peer
- * isn't on. This covers those two and no more: the peer's own values come from the same user's
- * session records and quest files, and its joined groups and stops are
- * seeded from this presence when the peer is built.
+ * isn't on. This covers those two and no more. The peer's own values
+ * come from the same user's session records and quest files, and its
+ * joined groups and stops are seeded from this presence when the peer
+ * is built: a file rewritten before then can add a joined group that
+ * picks which quests are above, or drop a stop, until the session
+ * changes them itself.
  */
 function asItStands(
 	peer: HubReading["peer"],
@@ -154,8 +163,12 @@ function unmarked(peer: HubReading["peer"]): boolean {
 
 /** A peer's hub from use, found now and again, and read without waiting. */
 export interface KeptHub {
-	/** The hub last found, if it still holds as the peer stands now. */
-	current(): string | undefined;
+	/**
+	 * The hub last found, if it still holds as the peer stands now, with
+	 * the sessions in `gone` taken as gone too, as a census newer than the
+	 * last find's judged them.
+	 */
+	current(gone?: readonly string[]): string | undefined;
 	/** Stop finding it again, and keep none. */
 	stop(): void;
 }
@@ -197,15 +210,13 @@ const HUB_SPREAD = 0.2;
  * Keep the hub from use of whatever peer `at` gives, found at once and
  * again `every` milliseconds after each find, or `retry` after one that
  * could not finish, twice that after a second in a row, and so on up to
- * `every`, each wait lengthened by up to a fifth at random. With no
- * peer to read yet, the next find comes a plain `retry` later, since that
- * says nothing of the node. A find that throws counts toward the
- * doubling, and so does one that comes before this peer's presence,
- * since a presence missing settles itself a find or two later. A peer under the
- * mark, or on a quest heading an
- * orchestration, keeps none and never asks the node, since the mark is
- * its orchestrator; a find that fails keeps none rather than one that
- * may be gone.
+ * `every`, each wait lengthened by up to a fifth at random. A find
+ * that throws counts toward the doubling. With no peer to read yet, or
+ * no presence of this peer's, the next find comes a plain `retry` later
+ * and counts nothing, since neither asked the node. A peer under the
+ * mark, or on a quest heading an orchestration, keeps none and never
+ * asks the node, since the mark is its orchestrator; a find that fails
+ * keeps none rather than one that may be gone.
  *
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
@@ -213,9 +224,10 @@ const HUB_SPREAD = 0.2;
  * (`stillAbove`): its address listed by its live presence alone, that
  * one on a quest above, and neither having stopped the other. Live
  * is as the last find's census judged it, less any presence that has
- * said since that it ended, since a census can wait and a read can't:
- * so a session that crashed is no second holder, and a hub that stopped
- * without saying so is kept until the next find.
+ * said since that it ended and any session a newer census given to the
+ * read judged gone, since a census can wait and a read can't: so a
+ * session that crashed is no second holder, and a hub that stopped
+ * without saying so is kept until the next find or census.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
@@ -263,7 +275,7 @@ export function keepHub(
 			kept = "address" in finding.above ? finding.above.address : undefined;
 			gone = new Set(finding.gone);
 			if (finding.settled) misses = 0;
-			else wait = backingOff();
+			else wait = finding.unasked ? retry : backingOff();
 		} catch {
 			// The node or presences unreadable now: no hub is better than a
 			// stale one, and the find is tried again soon.
@@ -282,7 +294,7 @@ export function keepHub(
 	};
 	void find();
 	return {
-		current: () => {
+		current: (newer = []) => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
 			const reading = at();
@@ -295,7 +307,9 @@ export function keepHub(
 				addresses: answeringTo(one, all),
 			}));
 			const isGone = (one: Presence) =>
-				one.ended !== undefined || gone.has(one.session);
+				one.ended !== undefined ||
+				gone.has(one.session) ||
+				newer.includes(one.session);
 			const live = everyone.filter((one) => !isGone(one));
 			const ended = everyone.filter(isGone);
 			if (!live.some((one) => one.session === reading.peer.session)) {

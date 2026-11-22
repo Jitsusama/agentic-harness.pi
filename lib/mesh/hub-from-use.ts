@@ -14,8 +14,10 @@
  * end, a carry or a view over another cell's questions is still the
  * marked orchestrator's alone, since a cell becomes a hub by being
  * talked to, and being talked to is no warrant. Nor is talking at a
- * cell a way to become its hub: a tie counts for the share of today's
- * messages on it that this cell sent.
+ * cell that hasn't written to it today a way to become its hub: a tie
+ * counts for the share of today's messages on it that this cell sent.
+ * Once this cell has written one, the other side's talk lifts the tie
+ * too, since the node fades the two sides together.
  */
 
 import { questAddress } from "./address.ts";
@@ -45,16 +47,19 @@ const QUEST_GROUP = "#quest/";
 const HUB_TIE_AGE_MS = 6 * 60 * 60 * 1000;
 
 /**
- * The least a cell's ties may add up to for it to be a hub: one message,
- * from either side, `HUB_TIE_AGE_MS` old, as the node fades it. A tie
+ * The least the ties this cell talks on with another may add up to for
+ * it to be a hub: one message, from either side, `HUB_TIE_AGE_MS` old,
+ * as the node fades it. A tie
  * grows by one a message and halves every two hours, so one message
  * from yesterday reads about 0.001, a cell barely known rather than the
  * one talked with most; six hours keeps a hub through a quiet afternoon.
  * It is weighed against the ties' whole strength, not this cell's share
  * of it, since the node fades the two sides together and keeps no faded
  * figure for each: a share would let a busy hub's own talk drown this
- * cell's recent message. That this cell talks on the tie at all is the
- * share's to say, and it says it in choosing.
+ * cell's recent message. A tie this cell sent nothing on today counts
+ * nothing toward it, as toward the share. So the floor bounds how faded
+ * a tie may be, not whose talk keeps it fresh: a cell above that talks
+ * at this one now lifts a tie this cell last wrote on yesterday over it.
  */
 const HUB_TIE_FLOOR = 2 ** -(HUB_TIE_AGE_MS / TIE_HALF_LIFE_MS);
 
@@ -142,7 +147,7 @@ export function hubFromUse(
 	}
 	if (best === undefined && sums.size > 0) {
 		return {
-			none: `${unmarked} and its ties to the live cells on the quests above it are too faint to make a hub: less than one message on them in the last six hours`,
+			none: `${unmarked} and the ties it talks on with the live cells on the quests above it are too faint to make a hub: they add up to less than one message six hours old`,
 		};
 	}
 	const address = best?.hub.addresses.find(writable);
