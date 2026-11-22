@@ -21,7 +21,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
  * the mesh's messages and the replies to the person alike, as
  * `provider/model`, or `off` so no text goes to a classifier's provider.
  */
-export const CLASSIFIER_ENV = "PI_MESH_CLASSIFIER";
+export const PROSE_CLASSIFIER_ENV = "PI_MESH_CLASSIFIER";
 
 /** Jev as pi's catalog lists it, in the order one is preferred. */
 export const JEV_MODELS: readonly string[] = [

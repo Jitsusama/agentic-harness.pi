@@ -27,9 +27,9 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-	CLASSIFIER_ENV,
 	type FoundClassifier,
 	findClassifier,
+	PROSE_CLASSIFIER_ENV,
 } from "../../lib/classifier/jev.ts";
 import {
 	hosted,
@@ -63,6 +63,13 @@ export const UNJUDGED = "reply-cause-unjudged";
 
 /** How long a reply's judging waits on finding the classifier. */
 const LOOKUP_MS = 2500;
+
+/**
+ * How many replies wait out `LOOKUP_MS` on one lookup before it is let
+ * go and the next reply looks again, so a lookup that never settles
+ * can't leave every reply after it unjudged.
+ */
+const LOOKUP_WAITS = 3;
 
 /** The most of what went wrong the log keeps, its first line alone. */
 const DETAIL_LENGTH = 160;
@@ -100,18 +107,21 @@ type SettledContext = Pick<
  * What the session has heard, by pi's own order: one settle ends each
  * stretch of runs pi starts from idle, its retries, continues and the
  * words queued while it ran among them. Whether the person's own words
- * wait for the next stretch, whether a stretch is open and whether their
- * words began or joined it, its last reply, how often anything has come
- * at all, so a judgment knows it was overtaken, the classifier once
- * found, and the reasons already logged for judging nothing.
+ * wait for the next stretch, whether a stretch is open, whether its last
+ * run has ended, and whether their words began or joined it, its last
+ * reply, how often anything has come at all, so a judgment knows it was
+ * overtaken, the classifier's lookup and how many replies have waited it
+ * out, and the reasons already logged for judging nothing.
  */
 interface Heard {
 	personNext: boolean;
 	open: boolean;
+	ended: boolean;
 	personOpen: boolean;
 	reply?: string;
 	moved: number;
 	lookup?: Promise<FoundClassifier>;
+	lookupWaits: number;
 	readonly unjudgedSaid: Set<string>;
 }
 
@@ -122,8 +132,10 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 		const heard: Heard = {
 			personNext: false,
 			open: false,
+			ended: false,
 			personOpen: false,
 			moved: 0,
+			lookupWaits: 0,
 			unjudgedSaid: new Set(),
 		};
 		pi.on("input", (event) => hearInput(heard, event.text));
@@ -131,7 +143,7 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 			hearRunBegin(heard, event.messageType),
 		);
 		pi.on("agent_start", () => startRun(heard));
-		pi.on("agent_end", (event) => keepPersonsReply(heard, event.messages));
+		pi.on("agent_end", (event) => endRun(heard, event.messages));
 		pi.on("agent_settled", (event, ctx) =>
 			judgeSettledReply(pi, deps, heard, event.aborted, ctx),
 		);
@@ -139,20 +151,23 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 }
 
 /**
- * Notes what came in and whose words they are. While a stretch is open
- * pi drains what is queued into it, steered or followed up, so the
- * person's words there make its replies theirs; from idle they wait for
- * the stretch they begin. Whether a stretch is open is this session's
- * own count, not the input's streaming mark, since a host queues words
- * as a follow-up while idle too. An automated turn, a note's among
- * them, a peer's steer or a job's result is no word of theirs, so the
- * stretch a note starts goes unjudged and a note can't follow a note.
+ * Notes what came in and whose words they are. While a run of an open
+ * stretch goes on pi drains what is queued into it, steered or followed
+ * up, so the person's words there make its replies theirs; from idle,
+ * or after the stretch's last run has ended, they wait for the run they
+ * begin, since a host holds words queued while pi settles until it has.
+ * Whether a stretch is open is this session's own count, not the input's
+ * streaming mark, since a host queues words as a follow-up while idle
+ * too. Words of theirs waiting stay theirs though an automated turn
+ * comes after them. An automated turn, a note's among them, a peer's
+ * steer or a job's result is no word of theirs, so the stretch a note
+ * starts goes unjudged and a note can't follow a note.
  */
 function hearInput(heard: Heard, text: string): void {
 	heard.moved += 1;
 	const persons = isPersonsOwnText(text);
-	if (heard.open) heard.personOpen ||= persons;
-	else heard.personNext = persons;
+	if (heard.open && !heard.ended) heard.personOpen ||= persons;
+	else heard.personNext ||= persons;
 }
 
 /**
@@ -168,15 +183,28 @@ function hearRunBegin(heard: Heard, messageType: string): void {
 /**
  * A run starts. The first since pi settled opens a stretch, which is
  * the person's when their words began it; a retry, a continue or queued
- * words run inside the stretch already open and change nothing of whose
- * it is. Either way a judgment still out knows something came.
+ * words run inside the stretch already open, which becomes theirs only
+ * when words of theirs waited for this run. Either way a judgment still
+ * out knows something came.
  */
 function startRun(heard: Heard): void {
 	heard.moved += 1;
-	if (heard.open) return;
-	heard.open = true;
-	heard.personOpen = heard.personNext;
+	heard.ended = false;
+	if (heard.open) heard.personOpen ||= heard.personNext;
+	else {
+		heard.open = true;
+		heard.personOpen = heard.personNext;
+	}
 	heard.personNext = false;
+}
+
+/**
+ * A run ends: its reply is kept as `keepPersonsReply` says, and words
+ * coming after it wait for the next run.
+ */
+function endRun(heard: Heard, messages: readonly unknown[]): void {
+	heard.ended = true;
+	keepPersonsReply(heard, messages);
 }
 
 /**
@@ -210,11 +238,12 @@ function judgeSettledReply(
 	const { reply } = heard;
 	heard.reply = undefined;
 	heard.open = false;
+	heard.ended = false;
 	heard.personOpen = false;
 	if (aborted || reply === undefined) return;
 	try {
 		if (!personReads(ctx)) return;
-		if (guardMode(GUARD.name) === "off") return;
+		if (guardMode(GUARD.name, ctx) === "off") return;
 		const said = scrubSecrets(reply.replace(FENCED, "")).text.trim();
 		if (said === "") return;
 		const judgment = noteUntested(
@@ -245,11 +274,12 @@ function personReads(ctx: SettledContext): boolean {
 }
 
 /**
- * The classifier, looked up once it is found or switched off. A lookup
- * still out is waited on again rather than started anew, each wait held
- * to `LOOKUP_MS`; one that failed is looked up again at the next reply,
- * so a login or a network back later starts the judging. The log says
- * why once for each kind of reason.
+ * The classifier, looked up once a conversation until it is found or
+ * switched off. A lookup still out is waited on again rather than
+ * started anew, each wait held to `LOOKUP_MS`, and let go after
+ * `LOOKUP_WAITS` waits; one that failed is looked up again at the next
+ * reply, so a login or a network back later starts the judging. The log
+ * says why once for each kind of reason.
  */
 function lookupOf(
 	pi: ExtensionAPI,
@@ -278,9 +308,13 @@ function lookupOf(
 				},
 			);
 		heard.lookup = looking;
+		heard.lookupWaits = 0;
 	}
-	return settledWithin(heard.lookup, LOOKUP_MS).then((found) => {
+	const waited = heard.lookup;
+	return settledWithin(waited, LOOKUP_MS).then((found) => {
 		if (found !== undefined) return found;
+		heard.lookupWaits += 1;
+		if (heard.lookupWaits >= LOOKUP_WAITS) forget(waited);
 		const reason = `finding the classifier took over ${LOOKUP_MS} ms`;
 		sayUnjudged(pi, heard, reason);
 		return { ok: false, reason };
@@ -333,10 +367,13 @@ async function noteUntested(
 
 /**
  * Whether anything holds the session from a turn nobody asked for: pi
- * busy, a message waiting, words typed for the next ask, or the person
- * away, who would come back to a run started on a misjudgment.
+ * busy, a message waiting, words typed for the next ask, the person
+ * away, who would come back to a run started on a misjudgment, or what
+ * let the judging start no longer so, a window that stopped viewing the
+ * conversation or the guard switched off while the reply was judged.
  */
 function holds(ctx: SettledContext): boolean {
+	if (!personReads(ctx) || guardMode(GUARD.name, ctx) === "off") return true;
 	if (!ctx.isIdle() || ctx.hasPendingMessages() || isAway()) return true;
 	try {
 		return ctx.hasUI && ctx.ui.getEditorText().trim() !== "";
@@ -412,8 +449,10 @@ export function replyClassifier(
 	return (ctx) =>
 		findClassifier(
 			ctx,
-			env ? env[CLASSIFIER_ENV] : sessionEnv(ctx).get(CLASSIFIER_ENV),
-			CLASSIFIER_ENV,
+			env
+				? env[PROSE_CLASSIFIER_ENV]
+				: sessionEnv(ctx).get(PROSE_CLASSIFIER_ENV),
+			PROSE_CLASSIFIER_ENV,
 		);
 }
 

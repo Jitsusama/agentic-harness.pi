@@ -33,7 +33,11 @@ words began from idle, or that they queued or steered words
 into, answers them, and its last reply is the one they read. A
 stretch an automated turn, a peer's steer, a job's result,
 another custom message or the host's continuing began, with no
-word of the person's in it, is not judged. A reply
+word of the person's in it, is not judged. Nor is the run the
+harness tries again after a model's error
+(`model-retry-workflow`), since its try comes as a job's
+result, though its reply answers the person's words. Words the person sends after a
+stretch's last run has ended wait for the run they begin. A reply
 cut off by the person, an error or the length limit is left
 alone, and so is its thinking: only its text blocks are judged,
 with fenced code blocks left out, open or closed and at any
@@ -86,15 +90,18 @@ while `off` and report what they would have refused; a note
 refuses nothing, so there is nothing to report, and judging
 would only send the text away.
 
-With no classifier, an error or a slow answer, nothing is
-judged and nothing is said in the session. Its log gets a
+With no classifier found, or a lookup that failed or was slow,
+nothing is judged and nothing is said in the session. Its log gets a
 `reply-cause-unjudged` entry saying why, once for each reason,
 with the first line of what went wrong, its secrets scrubbed,
 and each note sent leaves a `reply-cause-note` entry, so notes
 can be counted. A lookup that failed is tried again at the next
 reply, so logging in later starts the judging; one still out
 after 2.5 seconds is waited on again at the next reply rather
-than started anew.
+than started anew, and one still out after three replies is let
+go and looked for anew. A window that stops viewing the
+conversation, or the guard switched off, while a reply is
+judged drops its note.
 
 A note costs one turn. It refuses nothing, so the guard's
 `block` and `redirect` modes act alike here.

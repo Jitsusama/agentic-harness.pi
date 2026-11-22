@@ -402,6 +402,36 @@ describe("a reply to the person", () => {
 		expect(notes()).toEqual([]);
 	});
 
+	it("sends nothing when the window stopped viewing the conversation while it was judged", async () => {
+		hasUI = false;
+		sessionId = "hosted-1";
+		let viewing = true;
+		unhost = installHost({
+			viewed: (id: string) => viewing && id === "hosted-1",
+		} as never);
+		const release = holdAnswers();
+		await withSession("hosted-1", async () => {
+			await turn(text(CAUSE));
+		});
+		viewing = false;
+		release();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+		expect(notes()).toEqual([]);
+	});
+
+	it("sends nothing when the guard was switched off while it was judged", async () => {
+		const release = holdAnswers();
+		await turn(text(CAUSE));
+		setSessionMode("untested-cause", "off");
+		release();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+		expect(notes()).toEqual([]);
+	});
+
 	it.each([
 		[
 			"two blocks with words between",
@@ -474,6 +504,45 @@ describe("runs before one settle", () => {
 		expect(judged).toEqual([CAUSE]);
 	});
 
+	it("judge the run the person's words began after the last run ended, before pi settled", async () => {
+		await automatedSays();
+		await customBegins();
+		await runEnds(assistant("stop", text(STATUS)));
+		// A host holds words sent while pi settles until it has.
+		await input("Why did the build fail?", "followUp");
+		await settles();
+		await begins("user");
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("judge a run inside the stretch the person's words waited for after the last run ended", async () => {
+		await automatedSays();
+		await customBegins();
+		await runEnds(assistant("stop", text(STATUS)));
+		await input("Why did the build fail?", "followUp");
+		// pi drains what was queued before it settles.
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("judge a run the person's words began from idle, though an automated turn came after them", async () => {
+		await input("Why did the build fail?");
+		await automatedSays();
+		await begins("user");
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
 	it("judge a run the person steered, though an automated turn began it", async () => {
 		await automatedSays();
 		await runStarts();
@@ -522,7 +591,8 @@ describe("a reply left unjudged", () => {
 	});
 
 	it("is one in a run a custom message began after the person's words went unanswered by a run", async () => {
-		await personSays();
+		// A handler answered their words itself, starting no run.
+		await input("Why did the build fail?");
 		await customBegins();
 		await runEnds(assistant("stop", text(CAUSE)));
 		await settles();
@@ -541,12 +611,21 @@ describe("a reply left unjudged", () => {
 
 	it("is one in a hosted conversation no window views, which runs in the background", async () => {
 		hasUI = false;
-		unhost = installHost({ viewed: () => false } as never);
+		const asked: string[] = [];
+		unhost = installHost({
+			viewed: (id: string) => {
+				asked.push(id);
+				return false;
+			},
+		} as never);
 		await withSession(sessionId, async () => {
 			await turn(text(CAUSE));
 		});
 
 		expect(judgments).toEqual([]);
+		expect(asked, "the host is asked of this conversation").toEqual([
+			sessionId,
+		]);
 	});
 
 	it("is one whose judging failed before it began, said once in the log", async () => {
@@ -557,6 +636,7 @@ describe("a reply left unjudged", () => {
 			},
 		} as never);
 		await withSession(sessionId, async () => {
+			await turn(text(CAUSE));
 			await turn(text(CAUSE));
 		});
 
@@ -606,6 +686,16 @@ describe("a reply left unjudged", () => {
 		expect(lookups).toBe(2);
 		expect(judged).toEqual([CAUSE]);
 		expect(notes()).toHaveLength(1);
+		expect(pi.recorded.entries).toEqual([
+			{
+				customType: UNJUDGED,
+				data: {
+					why: "no classifier",
+					detail: "no Jev classifier has credentials",
+				},
+			},
+			{ customType: NOTED, data: { parts: 1 } },
+		]);
 	});
 
 	it("is every one while finding a classifier fails, which the log says once", async () => {
@@ -674,6 +764,45 @@ describe("a reply left unjudged", () => {
 			customType: UNJUDGED,
 			data: { why: "finding the classifier took over 2500 ms" },
 		});
+	});
+
+	it("lets a lookup go after three replies waited it out, and looks again at the next", async () => {
+		lookup = () => new Promise(() => {});
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			for (const _ of [1, 2, 3]) {
+				await turn(text(CAUSE));
+				await vi.advanceTimersByTimeAsync(2500);
+				await allJudged();
+			}
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(lookups, "one lookup, waited on three times").toBe(1);
+		lookup = async () => FOUND;
+		await turn(text(CAUSE));
+		await allJudged();
+
+		expect(lookups).toBe(2);
+		expect(notes()).toHaveLength(1);
+	});
+
+	it("reads the guard's switch for the conversation the reply is in", async () => {
+		hasUI = false;
+		sessionId = "hosted-1";
+		unhost = installHost({
+			viewed: (id: string) => id === "hosted-1",
+		} as never);
+		await withSession("hosted-1", async () => {
+			setSessionMode("untested-cause", "off");
+		});
+		// Settled under another conversation's context, as a host's
+		// emission could be; the reply's own context says hosted-1.
+		await withSession("hosted-2", async () => {
+			await turn(text(CAUSE));
+		});
+
+		expect(judgments).toEqual([]);
 	});
 
 	it("still ends quietly when the note can't be sent", async () => {
