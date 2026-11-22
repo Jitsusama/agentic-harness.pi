@@ -60,9 +60,13 @@ What it adds:
   (`pi.exec` from `.pi/extensions`, such as a linter after each edit)
   only through an exec an extension sets, and refuses them until one
   is. As each session starts, the shell sets one (`project-exec.ts`)
-  that wraps the command in the session's sandbox, with pi's time
-  limit, abort and output cap. An unfenced session runs them as pi
-  would. Plain pi, which has no such door, runs them as before.
+  that wraps the command in the session's sandbox and environment, as
+  the agent's commands are, with pi's time limit and abort. It keeps
+  the first 16 MiB of each stream, refuses a folder outside the
+  session's, and refuses everything once the session ends. That bounds
+  the commands, not the extension's own code, which runs in pi. An
+  unfenced session runs them as pi would. Plain pi, which has no such
+  door, runs them as before.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
   not to sleep to wait for something. Where `JOBS_CGROUP` places its

@@ -76,7 +76,11 @@ import {
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { runOrHandOff } from "./hand-off.ts";
 import { outlivingIt } from "./outliving.ts";
-import { projectExecIn, setsProjectExec } from "./project-exec.ts";
+import {
+	endedProjectExec,
+	projectExecIn,
+	setsProjectExec,
+} from "./project-exec.ts";
 
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
@@ -221,19 +225,29 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	let session: string | undefined;
 	pi.on("session_start", async (_event, ctx) => {
 		session = sessionKeyOf(ctx);
+		// A host's pi runs a folder's own extensions' commands only through
+		// the exec set here, and refuses them until one is, so it is set
+		// first, before anything here that could throw, and for every
+		// session, unfenced ones running them as pi would. The folder and
+		// environment are this session's, read from what it heard at its
+		// start, since its context may not be read once it has ended.
+		if (setsProjectExec(pi)) {
+			const key = session;
+			const folder = sessionCwd(ctx);
+			pi.setProjectExec(
+				projectExecIn({
+					sandbox,
+					environment: () => sessionEnv(key).snapshot(),
+					folder: () => folder,
+					sshGuard: sshGuard.current,
+				}),
+			);
+		}
 		// Before any command: every pi it starts compiles where the fence
 		// can't write (compile-cache-place.ts).
 		keepCompileCacheOutOfReach(sessionEnv(ctx));
 		retireBash();
 		bashFor(ctx);
-		// A host's pi runs a folder's own extensions' commands only through
-		// the exec set here, and refuses them until one is, so it is set
-		// for every session, unfenced ones running them as pi would.
-		if (setsProjectExec(pi)) {
-			pi.setProjectExec(
-				projectExecIn(sandbox, () => sessionEnv(ctx).snapshot()),
-			);
-		}
 		toldHost(ctx);
 		tell = ctx.hasUI ? (why) => ctx.ui.notify(why, "warning") : onStderr;
 		sshGuard.start();
@@ -248,6 +262,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		void sweepKeptNowAndThen();
 	});
 	pi.on("session_shutdown", () => {
+		// What a folder's extensions start after this is refused, rather
+		// than run in a session that has gone.
+		if (setsProjectExec(pi)) pi.setProjectExec(endedProjectExec);
 		retireBash();
 		sshGuard.stop();
 		// A read still out lands after this session's ctx is gone.

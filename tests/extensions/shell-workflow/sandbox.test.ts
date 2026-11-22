@@ -66,10 +66,13 @@ function worktreeLayout(base: string, tree: string, back: string): string {
  * tests started in: the strict sandbox refuses a plain clone's, which holds
  * its git folder, so the tests would fail wherever they're checked out so.
  */
+// A folder of its own by default: the run's temporary folder itself
+// holds the XDG state the setup points at, pi's host records among it,
+// which strict refuses as a command's folder (unfenced-folder.ts).
 async function run(
 	sandbox: Sandbox,
 	command: string,
-	cwd = tmpdir(),
+	cwd = mkdtempSync(join(tmpdir(), "cwd-")),
 ): Promise<string> {
 	const bash = agentBash(cwd, {}, sandbox);
 	try {

@@ -1,11 +1,21 @@
 /**
  * A folder's own extensions run their commands inside the session's
  * sandbox: a host's pi hands their exec to the one this package sets as
- * each session starts, which runs a command as pi's own exec does, its
- * time limit, abort and output cap held, wrapped in the sandbox.
+ * each session starts, which runs a command as the agent's own bash
+ * does, its environment, sandbox and folder the session's, its time
+ * limit, abort and output cap held over its whole process group, and
+ * anything that fails before it starts answered as a refusal.
  */
 
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,7 +23,9 @@ import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
 import {
+	endedProjectExec,
 	type ProjectExec,
+	type ProjectExecParts,
 	projectExecIn,
 	setsProjectExec,
 } from "../../../extensions/shell-workflow/project-exec.ts";
@@ -22,6 +34,7 @@ import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
 } from "../../../lib/internal/sandbox/sandbox.ts";
+import { SSH_GUARD_MACHINES } from "../../../lib/internal/shell/ssh-guard.ts";
 
 const NONE: Sandbox = { kind: "none" };
 
@@ -36,12 +49,21 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 });
 
+/** An exec over this test's folder, as a session with no sandbox has. */
+function execWith(parts: Partial<ProjectExecParts> = {}): ProjectExec {
+	return projectExecIn({
+		sandbox: NONE,
+		environment: () => process.env,
+		folder: () => folder,
+		...parts,
+	});
+}
+
 describe("a folder's extension's command", () => {
 	it("runs in the folder it names, with the session's environment, its words kept whole", async () => {
-		const exec = projectExecIn(NONE, () => ({
-			...process.env,
-			GIVEN: "from the session",
-		}));
+		const exec = execWith({
+			environment: () => ({ ...process.env, GIVEN: "from the session" }),
+		});
 		const done = await exec(
 			"bash",
 			["-c", 'printf "%s|%s|%s" "$PWD" "$GIVEN" "$0"', "two words"],
@@ -55,19 +77,33 @@ describe("a folder's extension's command", () => {
 	});
 
 	it("says a command's own exit code and what it wrote to stderr", async () => {
-		const exec = projectExecIn(NONE, () => process.env);
-		const done = await exec("bash", ["-c", "echo no >&2; exit 3"], folder);
+		const done = await execWith()(
+			"bash",
+			["-c", "echo no >&2; exit 3"],
+			folder,
+		);
 		expect(done).toMatchObject({ stderr: "no\n", code: 3 });
+	});
+
+	it("carries the ssh guard and asks nothing, as the agent's commands do", async () => {
+		const exec = execWith({
+			sshGuard: () => ({ refuse: true, machines: ["one", "two"] }),
+		});
+		const done = await exec(
+			"bash",
+			["-c", `printf "%s|%s" "$${SSH_GUARD_MACHINES}" "$GIT_TERMINAL_PROMPT"`],
+			folder,
+		);
+		expect(done.stdout).toBe("one two|0");
 	});
 
 	it("runs wrapped in the session's sandbox, as the agent's own commands do", async () => {
 		const fence = { kind: "fence" } as unknown as Sandbox;
 		const wrapped: string[] = [];
-		const exec = projectExecIn(
-			fence,
-			() => process.env,
-			"/home/person",
-			(sandbox, place, home) => {
+		const exec = execWith({
+			sandbox: fence,
+			home: "/home/person",
+			wrapping: (sandbox, place, home) => {
 				expect(sandbox).toBe(fence);
 				expect(place.cwd).toBe(folder);
 				expect(home).toBe("/home/person");
@@ -76,46 +112,145 @@ describe("a folder's extension's command", () => {
 					return `echo fenced; ${script}`;
 				};
 			},
-		);
+		});
 		const done = await exec("echo", ["it's"], folder);
 		expect(wrapped).toEqual(["'echo' 'it'\\''s'"]);
 		expect(done.stdout).toBe("fenced\nit's\n");
 	});
 
+	it("is refused, nothing run, where the sandbox refuses it", async () => {
+		const marker = join(folder, "ran");
+		const exec = execWith({
+			sandbox: { kind: "fence" } as unknown as Sandbox,
+			wrapping: () => {
+				throw new Error("the fence won't start here");
+			},
+		});
+		const done = await exec("touch", [marker], folder);
+		expect(done).toMatchObject({ code: 126, killed: false, stdout: "" });
+		expect(done.stderr).toContain("the fence won't start here");
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("is refused when the session's environment can't be read", async () => {
+		const done = await execWith({
+			environment: () => {
+				throw new Error("the session has gone");
+			},
+		})("true", [], folder);
+		expect(done.code).toBe(126);
+		expect(done.stderr).toContain("the session has gone");
+	});
+
+	it("is refused outside the session's folder, nothing run", async () => {
+		const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "elsewhere-")));
+		try {
+			const marker = join(elsewhere, "ran");
+			const done = await execWith()("touch", [marker], elsewhere);
+			expect(done.code).toBe(126);
+			expect(done.stderr).toContain("only in its session's folder");
+			expect(existsSync(marker)).toBe(false);
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	it("runs in a folder within the session's", async () => {
+		const inner = join(folder, "inner");
+		mkdirSync(inner);
+		const done = await execWith()("pwd", [], inner);
+		expect(done).toMatchObject({ stdout: `${inner}\n`, code: 0 });
+	});
+
+	it("is refused when no shell is found where the system puts programs", async () => {
+		const done = await execWith({ shell: () => undefined })("true", [], folder);
+		expect(done.code).toBe(126);
+	});
+
+	it("never runs a bash planted on the session's PATH", async () => {
+		const planted = join(folder, "bin");
+		const marker = join(folder, "planted-ran");
+		mkdirSync(planted);
+		writeFileSync(
+			join(planted, "bash"),
+			`#!/bin/sh\ntouch '${marker}'\nexit 0\n`,
+		);
+		chmodSync(join(planted, "bash"), 0o755);
+		const exec = execWith({
+			environment: () => ({
+				...process.env,
+				PATH: `${planted}:${process.env.PATH ?? ""}`,
+			}),
+		});
+		const done = await exec("printf", ["ran"], folder);
+		expect(done).toMatchObject({ stdout: "ran", code: 0 });
+		expect(existsSync(marker)).toBe(false);
+	});
+
 	it("is stopped at its time limit", async () => {
-		const exec = projectExecIn(NONE, () => process.env);
-		const done = await exec("sleep", ["10"], folder, { timeout: 100 });
+		const started = Date.now();
+		const done = await execWith()("sleep", ["10"], folder, { timeout: 100 });
 		expect(done.killed).toBe(true);
+		expect(done.code).not.toBe(0);
+		expect(Date.now() - started).toBeLessThan(5000);
 	});
 
 	it("is stopped when its signal aborts", async () => {
-		const exec = projectExecIn(NONE, () => process.env);
 		const stop = new AbortController();
-		const running = exec("sleep", ["10"], folder, { signal: stop.signal });
+		const running = execWith()("sleep", ["10"], folder, {
+			signal: stop.signal,
+		});
 		stop.abort();
 		expect((await running).killed).toBe(true);
 	});
 
+	it("is stopped at once when its signal has already aborted", async () => {
+		const stop = new AbortController();
+		stop.abort();
+		const started = Date.now();
+		const done = await execWith()("sleep", ["10"], folder, {
+			signal: stop.signal,
+		});
+		expect(done.killed).toBe(true);
+		expect(Date.now() - started).toBeLessThan(5000);
+	});
+
 	it("is cut off past the most output it may keep, and never says it passed", async () => {
-		const exec = projectExecIn(
-			NONE,
-			() => process.env,
-			undefined,
-			undefined,
-			1000,
-		);
-		const done = await exec("bash", ["-c", "yes | head -c 100000"], folder);
-		expect(done.stdout.length).toBeLessThanOrEqual(1000);
+		const done = await execWith({ most: 1000 })("yes", [], folder);
+		expect(done.stdout.length).toBe(1000);
 		expect(done.stderr).toContain("said more than 1000 bytes");
+		expect(done.killed).toBe(true);
 		expect(done.code).not.toBe(0);
 	});
 
 	it("ends once it exits, though a program it left running holds its output open", async () => {
-		const exec = projectExecIn(NONE, () => process.env);
 		const started = Date.now();
-		const done = await exec("bash", ["-c", "(sleep 5 &) ; echo left"], folder);
+		const done = await execWith()(
+			"bash",
+			["-c", "(sleep 5 &) ; echo left"],
+			folder,
+		);
 		expect(done).toMatchObject({ stdout: "left\n", code: 0 });
 		expect(Date.now() - started).toBeLessThan(4000);
+	});
+
+	it("ends soon after it exits, though a program it left keeps talking", async () => {
+		const started = Date.now();
+		const done = await execWith()(
+			"bash",
+			["-c", "(while :; do echo more; sleep 0.05; done &) ; echo left"],
+			folder,
+		);
+		expect(done.code).toBe(0);
+		expect(done.stdout.startsWith("left\n")).toBe(true);
+		expect(Date.now() - started).toBeLessThan(4000);
+	});
+
+	it("is refused once its session has ended", async () => {
+		const marker = join(folder, "ran");
+		const done = await endedProjectExec("touch", [marker], folder);
+		expect(done.code).toBe(126);
+		expect(existsSync(marker)).toBe(false);
 	});
 });
 
@@ -124,14 +259,14 @@ describe("setting a folder's extensions' exec", () => {
 	function piWith(sets: boolean) {
 		const handlers = new Map<
 			string,
-			(event: unknown, ctx: unknown) => Promise<void>
+			(event: unknown, ctx: unknown) => Promise<void> | void
 		>();
 		const set: ProjectExec[] = [];
 		const pi = {
 			events: createEventBus(),
 			on: (
 				event: string,
-				handler: (e: unknown, c: unknown) => Promise<void>,
+				handler: (e: unknown, c: unknown) => Promise<void> | void,
 			) => {
 				handlers.set(event, handler);
 			},
@@ -155,7 +290,15 @@ describe("setting a folder's extensions' exec", () => {
 		sessionManager: {
 			getSessionId: () => "session-1",
 			getSessionFile: () => undefined,
+			getCwd: () => folder,
 		},
+	});
+
+	beforeEach(() => {
+		// The extension reads pi's settings and writes its records under
+		// pi's own folder, kept to this test's.
+		vi.stubEnv("PI_CODING_AGENT_DIR", join(folder, ".agent"));
+		vi.stubEnv(SANDBOX_VARIABLE, OFF);
 	});
 
 	it("is asked of a host's pi, whose builds can take one", () => {
@@ -163,23 +306,27 @@ describe("setting a folder's extensions' exec", () => {
 		expect(setsProjectExec(piWith(false).pi)).toBe(false);
 	});
 
-	it("is set once a session starts, never while the extension loads", async () => {
-		vi.stubEnv(SANDBOX_VARIABLE, OFF);
+	it("is set once a session starts, never while the extension loads, and refused once it ends", async () => {
 		const { pi, handlers, set } = piWith(true);
 		shellWorkflow(pi);
 		expect(set).toEqual([]);
 		await handlers.get("session_start")?.({ type: "session_start" }, ctx());
-		expect(set).toHaveLength(1);
+		expect(set.length).toBeGreaterThanOrEqual(1);
 		const done = await set[0]?.("printf", ["ran"], folder);
 		expect(done?.stdout).toBe("ran");
+		await handlers.get("session_shutdown")?.(
+			{ type: "session_shutdown" },
+			ctx(),
+		);
+		expect(set.at(-1)).toBe(endedProjectExec);
 	});
 
 	it("is left alone on a pi that can't take one", async () => {
-		vi.stubEnv(SANDBOX_VARIABLE, OFF);
 		const { pi, handlers } = piWith(false);
 		shellWorkflow(pi);
 		await expect(
 			handlers.get("session_start")?.({ type: "session_start" }, ctx()),
 		).resolves.toBeUndefined();
+		handlers.get("session_shutdown")?.({ type: "session_shutdown" }, ctx());
 	});
 });
