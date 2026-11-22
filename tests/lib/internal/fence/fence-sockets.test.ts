@@ -215,10 +215,16 @@ describe.skipIf(landrun === undefined)(
 			// A strict session is landrun alone, so the socket stays where it
 			// is and only Landlock keeps it shut; the same rules with one on
 			// its folder reach it, so the refusal is theirs.
-			const strict = strictRules({ home: base, runtimeDir, cwd: base }).flat();
+			// Its rules name paths a machine may lack, so landrun is told to
+			// skip those, as the strict sandbox tells it.
+			const strict = [
+				landrun ?? "landrun",
+				"--unrestricted-network",
+				"--ignore-missing",
+				...strictRules({ home: base, runtimeDir, cwd: base }).flat(),
+			];
 			expect(
 				await tries(eero, [
-					landrun ?? "landrun",
 					...strict,
 					"--unix",
 					join(runtimeDir, "eero"),
@@ -227,7 +233,7 @@ describe.skipIf(landrun === undefined)(
 				"the eero daemon's socket wasn't reached by a strict command with a rule on its folder",
 			).toBe(CONNECTED);
 			expect(
-				await tries(eero, [landrun ?? "landrun", ...strict, "--"]),
+				await tries(eero, [...strict, "--"]),
 				"a strict command connected to the eero daemon's socket, or never tried",
 			).toBe(DENIED);
 		});
