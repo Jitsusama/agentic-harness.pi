@@ -108,13 +108,14 @@ async function sayHeld(
 ): Promise<void> {
 	const note = heldNote(await held);
 	const once = processGlobal("pi.install.held.said", () => ({ said: false }));
-	if (note === undefined || once.said || !ctx.hasUI) return;
-	once.said = true;
+	if (note === undefined || once.said) return;
 	try {
+		// Read after the hold: a session replaced meanwhile throws even here.
+		if (!ctx.hasUI) return;
 		ctx.ui.notify(note, "warning");
+		once.said = true;
 	} catch {
 		// The session was replaced while the hold ran: the next one says it.
-		once.said = false;
 	}
 }
 

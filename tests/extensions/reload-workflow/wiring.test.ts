@@ -154,7 +154,14 @@ function runtime() {
 	reloadWorkflow(pi as unknown as ExtensionAPI);
 	const fire = async (name: string, event: unknown = {}, ctx: unknown = {}) => {
 		for (const handler of handlers.get(name) ?? []) {
-			await handler(event, { ui, cwd: dir, ...(ctx as object) });
+			// Descriptors, not a spread, so a getter stays live as pi's does.
+			await handler(
+				event,
+				Object.defineProperties(
+					{ ui, cwd: dir },
+					Object.getOwnPropertyDescriptors(ctx as object),
+				),
+			);
 		}
 	};
 	return {
@@ -645,6 +652,57 @@ describe("running a tree in place of the install", LANDS, () => {
 			/^Reloaded onto .*, as asked: you asked with \/harness reload\. agentic-harness\.pi runs .*, not its install: /,
 		);
 		expect(reported).toEqual([]);
+	});
+
+	// 22 November: a hosted engine replaced its session while the hold
+	// ran, so reading the stale ctx's hasUI threw where nothing caught
+	// it, and the child died of the unhandled rejection.
+	it("says nothing of a missed hold through a session replaced while the hold ran", async () => {
+		const store = globalThis as Record<symbol, unknown>;
+		const heldKey = Symbol.for("pi.install.held");
+		const saidKey = Symbol.for("pi.install.held.said");
+		const before = { held: store[heldKey], said: store[saidKey] };
+		let letHold = () => {};
+		store[heldKey] = new Promise((resolve) => {
+			letHold = () => resolve({ links: [], missed: ["pi: not rooted"] });
+		});
+		store[saidKey] = { said: false };
+		const unhandled: unknown[] = [];
+		const heard = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", heard);
+		try {
+			runningTheInstall();
+			const now = runtime();
+			let replaced = false;
+			await now.fire(
+				"session_start",
+				{ reason: "startup" },
+				{
+					get hasUI() {
+						if (replaced)
+							throw new Error(
+								"This extension ctx is stale after session replacement or reload.",
+							);
+						return true;
+					},
+				},
+			);
+			replaced = true;
+			letHold();
+			await quietFor(10, 5);
+			expect(unhandled, "nothing thrown where none catches it").toEqual([]);
+			expect(now.notices, "the next session says it").toEqual([]);
+			expect(
+				(store[saidKey] as { said: boolean }).said,
+				"left for the next session to say",
+			).toBe(false);
+		} finally {
+			process.off("unhandledRejection", heard);
+			store[heldKey] = before.held;
+			store[saidKey] = before.said;
+			if (before.held === undefined) delete store[heldKey];
+			if (before.said === undefined) delete store[saidKey];
+		}
 	});
 
 	it("says what runs, and where the install is, on /harness", async () => {
