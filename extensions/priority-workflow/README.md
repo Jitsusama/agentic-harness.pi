@@ -245,7 +245,12 @@ is a build, never a VM check.
   seconds or the last minute, is at 70% or more, or its IO pressure at
   60% or more, though a Nix build still goes while a builder elsewhere
   has a build slot free, a changed-checks sent whole to a builder goes,
-  and quick work still goes. Both wait on `busy`. From 40% CPU pressure
+  an `elsewhere run` sent to another machine goes (from a session on a
+  quest, with no `--here`, its kind placed far by `elsewhere where`
+  within the last two minutes, and nothing in the step changing
+  `PI_QUEST` or `PATH` or expanding a command here), and quick work
+  still goes. Both wait on `busy`. The same sent runs start while
+  memory is short. From 40% CPU pressure
   a build given its turn is capped, its cargo jobs with it, so one
   build's links can't push the machine past the line. The
   machine's figure alone says little of the person: at 21:27 on 7

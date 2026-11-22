@@ -162,19 +162,48 @@ export function runsChangedChecks(command: string): boolean {
 	return CHANGED_CHECKS.test(command);
 }
 
-/** A shell variable set for one command, as `NAME=value`. */
-const ASSIGNS = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/** A shell variable set for one command, as `NAME=value`, and its name. */
+const ASSIGNS = /^([A-Za-z_][A-Za-z0-9_]*)=/;
 
-/** What `env` reads before the program it runs: its options and settings. */
-function envTakes(words: readonly string[], at: number): number {
+/**
+ * Variables a step may not change for itself and still be sent: with no
+ * `PI_QUEST` elsewhere runs the job here, and another `PATH` may find
+ * another elsewhere than the one asked where it places a kind.
+ */
+const KEEPS = new Set(["PI_QUEST", "PATH"]);
+
+/** A word that runs a command here as the shell expands it. */
+const SUBSTITUTES = /\$\(|`|<\(|>\(/;
+
+/** A word with one pair of quotes around it taken off. */
+function unquoted(word: string): string {
+	return /^(['"]).*\1$/s.test(word) ? word.slice(1, -1) : word;
+}
+
+/** Whether a word sets a variable for one command, and not one it keeps. */
+function setsOwn(word: string): boolean {
+	const name = ASSIGNS.exec(word)?.[1];
+	return name !== undefined && !KEEPS.has(name);
+}
+
+/**
+ * Where `env` stops reading and its program starts, or nothing when it
+ * clears or changes what a sent run needs, or takes an option read no
+ * further than `-u NAME`.
+ */
+function envTakes(words: readonly string[], at: number): number | undefined {
 	let next = at;
-	while (next < words.length) {
+	for (;;) {
 		const word = words[next] ?? "";
-		if (word === "-u") next += 2;
-		else if (word.startsWith("-") || ASSIGNS.test(word)) next += 1;
-		else break;
+		if (word === "-u") {
+			if (KEEPS.has(unquoted(words[next + 1] ?? ""))) return undefined;
+			next += 2;
+		} else if (word.startsWith("-")) return undefined;
+		else if (ASSIGNS.test(word)) {
+			if (!setsOwn(word)) return undefined;
+			next += 1;
+		} else return next;
 	}
-	return next;
 }
 
 /** What `timeout` reads before the program it runs: options, then a duration. */
@@ -187,6 +216,11 @@ function timeoutTakes(words: readonly string[], at: number): number {
 	return next + 1;
 }
 
+/** Whether a word names elsewhere: bare, as PATH finds it, or by an absolute path. */
+function isElsewhere(word: string): boolean {
+	return word === "elsewhere" || /^\/\S*\/elsewhere$/.test(word);
+}
+
 /**
  * The kind of job a step sends with `elsewhere run KIND -- ...`, which
  * carries its tracked files to the machine mycelium places it on
@@ -194,27 +228,36 @@ function timeoutTakes(words: readonly string[], at: number): number {
  * or asks with `--here` to run on this machine. Read from the step's
  * words, past one-command settings, `env`, `timeout` and `command`, so
  * the words inside a quoted argument or a test's name never count.
+ * Nothing, too, for a step that runs something here as the shell expands
+ * it (`$(...)`, backticks, `<(...)`), or that changes `PI_QUEST` or
+ * `PATH` for itself, since either keeps work on this machine.
  */
 export function elsewhereKindOf(words: readonly string[]): string | undefined {
-	let at = 0;
+	const expands = (word: string) =>
+		SUBSTITUTES.test(word) && !/^'[^']*'$/.test(word);
+	if (words.some(expands)) return undefined;
+	let at: number | undefined = 0;
 	for (;;) {
-		const word = words[at] ?? "";
-		if (ASSIGNS.test(word)) at += 1;
-		else if (word === "env") at = envTakes(words, at + 1);
-		else if (word === "timeout") at = timeoutTakes(words, at + 1);
+		const word: string = words[at] ?? "";
+		if (ASSIGNS.test(word)) {
+			if (!setsOwn(word)) return undefined;
+			at += 1;
+		} else if (word === "env") {
+			at = envTakes(words, at + 1);
+			if (at === undefined) return undefined;
+		} else if (word === "timeout") at = timeoutTakes(words, at + 1);
 		else if (word === "command" || word === "exec") at += 1;
 		else break;
 	}
-	const program = words[at] ?? "";
-	if (program !== "elsewhere" && !program.endsWith("/elsewhere")) {
-		return undefined;
-	}
-	const kind = words[at + 2] ?? "";
-	if (words[at + 1] !== "run" || kind === "" || kind.startsWith("-")) {
+	if (!isElsewhere(unquoted(words[at] ?? ""))) return undefined;
+	const kind = unquoted(words[at + 2] ?? "");
+	if (unquoted(words[at + 1] ?? "") !== "run" || !/^\w[\w.-]*$/.test(kind)) {
 		return undefined;
 	}
 	const end = words.indexOf("--", at + 3);
-	const options = words.slice(at + 3, end === -1 ? undefined : end);
+	const options = words
+		.slice(at + 3, end === -1 ? undefined : end)
+		.map(unquoted);
 	return options.includes("--here") ? undefined : kind;
 }
 

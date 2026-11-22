@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type Far,
+	placedFarKnown,
+	placesFar,
 	refusedHere,
 	sendsWholeRun,
 	whereItRuns,
@@ -248,6 +250,9 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 
 	describe("for an elsewhere run", () => {
 		const asked: string[] = [];
+		beforeEach(() => {
+			asked.length = 0;
+		});
 		const far: Far = {
 			quest: "QEST-X",
 			placedFar: (kind: string) => {
@@ -269,7 +274,12 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 					true,
 				);
 			}
-			expect(asked).toContain("delta-spec");
+			expect(asked).toEqual([
+				"harness-check",
+				"harness-check",
+				"delta-spec",
+				"harness-check",
+			]);
 		});
 
 		it("doesn't where elsewhere would run it here", () => {
@@ -286,12 +296,10 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				"placed on no other machine",
 			).toBe(false);
 			expect(
-				sendsWholeRun(run, "/tree", undefined, () => false, "/home", {
-					quest: "QEST-X",
-					placedFar: () => false,
-				}),
-				"before elsewhere first answers",
+				sent("PI_QUEST= elsewhere run harness-check -- pnpm typecheck"),
+				"with the quest cleared for the step",
 			).toBe(false);
+			expect(asked).toEqual(["stays"]);
 		});
 
 		it("doesn't for local heavy work that only mentions it", () => {
@@ -302,6 +310,76 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 				"elsewhere where harness-check && pnpm exec vitest run",
 			]) {
 				expect(sent(run), `${run} runs heavy work here`).toBe(false);
+			}
+		});
+	});
+
+	describe("placedFarKnown", () => {
+		const answers = () => {
+			const pending: ((far: boolean) => void)[] = [];
+			const ask = (_kind: string) =>
+				new Promise<boolean>((resolve) => {
+					pending.push(resolve);
+				});
+			return { ask, pending };
+		};
+		const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+		it("says here until elsewhere first answers far, then far", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			expect(placedFarKnown("first-answer", now, ask)).toBe(false);
+			expect(pending).toHaveLength(1);
+			expect(placedFarKnown("first-answer", now + 1_000, ask)).toBe(false);
+			expect(pending, "asked once a minute at most").toHaveLength(1);
+			pending[0]?.(true);
+			await settled();
+			expect(placedFarKnown("first-answer", Date.now(), ask)).toBe(true);
+		});
+
+		it("stops believing far once the answer outlives two asks", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			placedFarKnown("goes-stale", now, ask);
+			pending[0]?.(true);
+			await settled();
+			expect(placedFarKnown("goes-stale", now + 61_000, ask)).toBe(true);
+			expect(pending, "a minute on, it asks again").toHaveLength(2);
+			expect(
+				placedFarKnown("goes-stale", Date.now() + 121_000, ask),
+				"the ask still out leaves the old answer too old",
+			).toBe(false);
+		});
+
+		it("believes a later answer of here at once", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			placedFarKnown("turns-here", now, ask);
+			pending[0]?.(true);
+			await settled();
+			placedFarKnown("turns-here", now + 61_000, ask);
+			pending[1]?.(false);
+			await settled();
+			expect(placedFarKnown("turns-here", now + 62_000, ask)).toBe(false);
+		});
+	});
+
+	describe("placesFar", () => {
+		it("reads elsewhere's where answer, and anything else as here", () => {
+			expect(
+				placesFar(
+					'{"because":"placed","here":false,"kind":"harness-check","machine":"equilibrius","programs":["pnpm"],"schema":"elsewhere.where/1"}',
+				),
+			).toBe(true);
+			for (const answer of [
+				'{"here":true,"kind":"harness-check"}',
+				'{"kind":"harness-check"}',
+				'{"here":"false"}',
+				"null",
+				"here",
+				"",
+			]) {
+				expect(placesFar(answer), answer).toBe(false);
 			}
 		});
 	});

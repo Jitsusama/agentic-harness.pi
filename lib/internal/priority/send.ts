@@ -46,7 +46,7 @@ const DECIDED_MS = 10 * 60_000;
 interface Kept {
 	takes?: { readonly at: number; readonly takes: Promise<Takes> };
 	/** Where elsewhere last said each kind of job would run, by kind. */
-	placed?: Map<string, { readonly at: number; far?: boolean }>;
+	placed?: Map<string, Placed>;
 	/** What the last answer said, for a caller that can't wait for one. */
 	known?: Takes;
 	readonly decided: Map<
@@ -183,27 +183,51 @@ export function takesKnown(now = Date.now()): Takes | undefined {
 /** How long elsewhere may take to say where a kind of job would run. */
 const WHERE_MS = 10_000;
 
+/** What elsewhere last said of a kind, and when it was asked and answered. */
+interface Placed {
+	readonly asked: number;
+	answered?: { readonly at: number; readonly far: boolean };
+}
+
 /**
- * Whether elsewhere last said it would place a kind of job on another
- * machine, asking again at most once a minute, and false until it first
- * answers: for the queue, which can't wait. A job it places nowhere runs
- * here, as it does while the Mac is away.
+ * How old an answer from elsewhere may be and still say a job goes far:
+ * two of its asks, so one ask still out keeps the last answer good, and a
+ * Mac gone longer than that is believed gone.
  */
-export function placedFarKnown(kind: string, now = Date.now()): boolean {
+const PLACED_FOR_MS = 2 * TAKES_MS;
+
+/**
+ * Whether elsewhere said, within {@link PLACED_FOR_MS}, that it places a
+ * kind of job on another machine, asking again at most once a minute in
+ * the background, and false until it first answers: for the queue, which
+ * can't wait. The first run of a kind in a process is held as local
+ * work, as every run was before. Placement is asked by kind alone, since
+ * elsewhere's `where` reads neither the quest nor the folder (measured on
+ * 22 November: the same answer with `PI_QUEST` set and empty); the quest
+ * is checked where it is known, in `travels`.
+ */
+export function placedFarKnown(
+	kind: string,
+	now = Date.now(),
+	ask: (kind: string) => Promise<boolean> = placedFar,
+): boolean {
 	const store = kept();
 	store.placed ??= new Map();
 	const known = store.placed.get(kind);
-	if (known === undefined || now - known.at >= TAKES_MS) {
-		const asked: { at: number; far?: boolean } = {
-			at: now,
-			...(known?.far === undefined ? {} : { far: known.far }),
+	if (known === undefined || now - known.asked >= TAKES_MS) {
+		const asking: Placed = {
+			asked: now,
+			...(known?.answered ? { answered: known.answered } : {}),
 		};
-		store.placed.set(kind, asked);
-		void placedFar(kind).then((far) => {
-			asked.far = far;
+		store.placed.set(kind, asking);
+		void ask(kind).then((far) => {
+			asking.answered = { at: Date.now(), far };
 		});
 	}
-	return known?.far ?? false;
+	const answered = known?.answered;
+	return (
+		answered !== undefined && now - answered.at < PLACED_FOR_MS && answered.far
+	);
 }
 
 /** Whether `elsewhere where KIND` says the job would run on another machine. */
@@ -214,15 +238,30 @@ async function placedFar(kind: string): Promise<boolean> {
 			["where", kind, "--json"],
 			{ timeout: WHERE_MS },
 		);
-		const answer: unknown = JSON.parse(stdout);
+		return placesFar(stdout);
+	} catch {
+		// Not installed, a kind it doesn't know, or no answer in time: a run
+		// of it is believed to stay here, which holds it as before.
+		return false;
+	}
+}
+
+/**
+ * Whether `elsewhere where --json` placed a job on another machine, by
+ * its `elsewhere.where/1` answer: `here` false. Anything else, an answer
+ * that doesn't parse included, reads as here.
+ */
+export function placesFar(answer: string): boolean {
+	try {
+		const read: unknown = JSON.parse(answer);
 		return (
-			typeof answer === "object" &&
-			answer !== null &&
-			"here" in answer &&
-			answer.here === false
+			typeof read === "object" &&
+			read !== null &&
+			"here" in read &&
+			read.here === false
 		);
 	} catch {
-		// Not installed, a kind it doesn't know, or no answer in time: it runs here.
+		// Not JSON: nothing says it goes, so it stays.
 		return false;
 	}
 }
