@@ -198,8 +198,8 @@ export interface SweepAsks {
 	 */
 	idleTakes?: number;
 	/**
-	 * How long, in milliseconds of awake time, the sweep may go on judging
-	 * them past a host's share; no limit by default.
+	 * How long, in milliseconds of awake time from when it reaches them, the
+	 * sweep may go on judging them past a host's share; no limit by default.
 	 */
 	idleWithinMs?: number;
 	/** Waited on before each idle take but the first; nothing by default. */
@@ -624,6 +624,9 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		// A run its count or time cut short says how many it left, so it
 		// reads apart from one that found no more idle.
 		...(outcome.idleLeft === undefined ? {} : { idleLeft: outcome.idleLeft }),
+		// The idle phase's own time, so a slow run says whether its snapshots
+		// or the ended trees before them took it.
+		...(outcome.idleMs === undefined ? {} : { idleMs: outcome.idleMs }),
 	};
 }
 
