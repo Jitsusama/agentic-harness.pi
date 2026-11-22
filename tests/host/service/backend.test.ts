@@ -278,8 +278,10 @@ describe("hostBackend", () => {
 		await expect(backend.execute({ ...adopt, id: "a-again" })).rejects.toThrow(
 			"already held",
 		);
+		// The host's roster refuses it before the engine prepares anything, so nothing is left to discard.
+		expect(fake.prepare).toHaveBeenCalledOnce();
 		expect(fake.start).toHaveBeenCalledOnce();
-		expect(fake.discard).toHaveBeenCalledOnce();
+		expect(fake.discard).not.toHaveBeenCalled();
 	});
 
 	it("drops a hold only after close or release commits, never after stop", async () => {
