@@ -36,10 +36,13 @@ import {
 	strayKeptJobs,
 } from "../../../../lib/internal/shell/kept-jobs.ts";
 
-// What the code asks of the disk: each move and removal off the thread,
-// which can be held after the disk acts, as a busy disk's callback comes
-// late, or before, as a busy disk's pool gets to it late; and each
-// synchronous call that could stall the thread, by the path asked.
+// What the code asks of the disk: each move, link and removal off the
+// thread, which can be held after the disk acts, as a busy disk's
+// callback comes late, or before, as a busy disk's pool gets to it late,
+// either for every kind of ask or only one, and can be refused, as a
+// failing disk refuses it; and each synchronous call that could stall
+// the thread, by the path asked.
+type Ask = "rename" | "rm" | "link";
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
 	let release: () => void = () => undefined;
@@ -48,10 +51,13 @@ const disk = vi.hoisted(() => {
 		removed: [] as string[],
 		asked: [] as string[],
 		before: false,
+		only: undefined as Ask | undefined,
+		refused: undefined as Ask | undefined,
 		/** How many asks wait, held, for the disk to act at all. */
 		parked: 0,
-		hold(before = false): void {
+		hold(before = false, only?: Ask): void {
 			this.before = before;
+			this.only = only;
 			held = new Promise((done) => {
 				release = done;
 			});
@@ -59,16 +65,27 @@ const disk = vi.hoisted(() => {
 		go(): void {
 			held = undefined;
 			this.before = false;
+			this.only = undefined;
 			release();
 		},
-		async pass(): Promise<void> {
-			if (held !== undefined) await held;
+		holds(ask: Ask): boolean {
+			return held !== undefined && (this.only ?? ask) === ask;
 		},
-		async first(): Promise<void> {
-			if (!this.before) return;
+		async pass(ask: Ask): Promise<void> {
+			if (this.holds(ask)) await held;
+		},
+		async first(ask: Ask): Promise<void> {
+			if (!this.before || !this.holds(ask)) return;
 			this.parked += 1;
-			await this.pass();
+			await held;
 			this.parked -= 1;
+		},
+		/** Refuse `path` as a failing disk would, when `ask` is refused. */
+		refuse(ask: Ask, path: string): void {
+			if (this.refused !== ask) return;
+			throw Object.assign(new Error(`EIO: i/o error, ${ask} '${path}'`), {
+				code: "EIO",
+			});
 		},
 		/** What was asked of `keep`'s files: moved, removed and synchronously. */
 		of(keep: string): { moved: string[]; removed: string[]; asked: string[] } {
@@ -90,17 +107,24 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
 	const rename = (async (...args: Parameters<typeof real.rename>) => {
 		disk.moved.push(String(args[0]));
-		await disk.first();
+		await disk.first("rename");
 		await real.rename(...args);
-		await disk.pass();
+		await disk.pass("rename");
 	}) as typeof real.rename;
 	const rm = (async (...args: Parameters<typeof real.rm>) => {
 		disk.removed.push(String(args[0]));
-		await disk.first();
+		await disk.first("rm");
+		disk.refuse("rm", String(args[0]));
 		await real.rm(...args);
-		await disk.pass();
+		await disk.pass("rm");
 	}) as typeof real.rm;
-	const mocked = { ...real, rename, rm };
+	const link = (async (...args: Parameters<typeof real.link>) => {
+		await disk.first("link");
+		disk.refuse("link", String(args[1]));
+		await real.link(...args);
+		await disk.pass("link");
+	}) as typeof real.link;
+	const mocked = { ...real, rename, rm, link };
 	return { ...mocked, default: mocked };
 });
 
@@ -137,8 +161,11 @@ const HERE = process.pid;
 /** A pid no process has: past every kernel's highest. */
 const GONE = 999_999_999;
 
-/** How long a removal let go of is given to settle its call. */
-const SETTLES_IN_MS = 5_000;
+/**
+ * How long a removal let go of is given to settle its call: well within
+ * a test's own timeout, so a settle that never comes fails as itself.
+ */
+const SETTLES_IN_MS = 2_000;
 
 /** When the calls started, and a moment soon after. */
 const STARTED = 1_000;
@@ -147,6 +174,7 @@ const SOON = 2_000;
 const made: string[] = [];
 afterEach(() => {
 	disk.go();
+	disk.refused = undefined;
 	vi.restoreAllMocks();
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -418,6 +446,140 @@ describe("a call's own record, taken back as the call ends", () => {
 		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
 	});
 
+	// The unlink of what was set aside can't be called back either.
+	it("puts its record back when handed on while what it set aside went", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true, "rm");
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+		expect(
+			listed(where),
+			"nothing left set aside or staged",
+		).not.toContainEqual(expect.stringMatching(/\.(gone|back)$/));
+	});
+
+	it("leaves the taker's record when it was written while what it set aside went", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true, "rm");
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		recordKeptJob({ ...job, label: "taken up" });
+		disk.go();
+		await going;
+		expect(labelsIn(where), "the taker's record").toEqual(["taken up"]);
+		expect(listed(where), "nothing left staged").not.toContainEqual(
+			expect.stringMatching(/\.back$/),
+		);
+	});
+
+	it("says it couldn't put its record back when the disk refuses it, and what follows", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
+		);
+		disk.refused = "link";
+		disownKeptJob(job.work.keep);
+		disk.go();
+		await expect(going).resolves.toBeUndefined();
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line naming it and what follows",
+		).toEqual([
+			expect.stringMatching(/couldn't put .*\.job back .*: EIO.*to strays/),
+		]);
+	});
+
+	it("says what it set aside stays when the disk refuses its removal, and what follows", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.refused = "rm";
+		await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+		expect(existsSync(`${job.work.keep}.job`), "no record to read").toBe(false);
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line naming it and what follows",
+		).toEqual([
+			expect.stringMatching(
+				/couldn't remove .*\.gone: EIO.*no start reads it as a record/,
+			),
+		]);
+	});
+
+	it("says its record is set aside already when only that removal outlasts its wait", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold(true, "rm");
+		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 50 });
+		const bound = new Promise<"held">((done) =>
+			setTimeout(() => done("held"), SETTLES_IN_MS),
+		);
+		expect(
+			await Promise.race([going.then(() => "settled" as const), bound]),
+			"settled while the disk still holds it",
+		).toBe("settled");
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line, that no start reads it",
+		).toEqual([
+			expect.stringMatching(/set aside already, where no start reads it/),
+		]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where),
+				"what it set aside, gone once the disk lets it",
+			).not.toContainEqual(expect.stringMatching(/\.gone$/)),
+		);
+	});
+
+	it("leaves a second take-back to the removal already running", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		disk.hold(true);
+		await forgetOwnKeptJob(job.work.keep, { waitMs: 50 });
+		recordKeptJob(job);
+		disk.forget();
+		await forgetOwnKeptJob(job.work.keep, { waitMs: 50 });
+		expect(disk.of(job.work.keep).moved, "no second removal begun").toEqual([]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"the record written again, taken by the first",
+			).toEqual([]),
+		);
+	});
+
 	// A wedged disk would otherwise hold the call open with no end.
 	it("lets its call settle once its wait has passed, the removal going on", async () => {
 		const where = folder();
@@ -568,7 +730,11 @@ describe("a call's own record, taken back as the call ends", () => {
 					.map(([text]) => String(text))
 					.filter((text) => text.includes(job.work.keep)),
 				"one line naming it and what follows",
-			).toEqual([expect.stringMatching(/may say the call's end again/)]);
+			).toEqual([
+				expect.stringMatching(
+					/couldn't remove .*\.job: .*it stays, so this pi's next start may say the call's end again/,
+				),
+			]);
 		},
 	);
 

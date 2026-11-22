@@ -496,6 +496,10 @@ describe("a kept call", () => {
 			disk.asked.filter((said) => said.includes(`${call.keep()}.job`)),
 			"nothing asked of its record on the thread",
 		).toEqual([]);
+		expect(
+			disk.moved.filter((path) => path.startsWith(`${call.keep()}.job`)),
+			"nor set aside off it",
+		).toEqual([]);
 	});
 });
 
