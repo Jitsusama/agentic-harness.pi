@@ -2,6 +2,11 @@
  * A need put to what it is about: to the subject's hub where there is
  * one, else along the node's ties, each hop kept as one line the scale
  * run's judge reads.
+ *
+ * Long because it tests one module, need-route.ts, itself past 800
+ * lines: its cases split along with it, by what each part does, rather
+ * than ahead of it, and each shares the scratch root and the servers
+ * set up and closed here.
  */
 
 import {
@@ -584,7 +589,10 @@ describe("keeping a need once an ask", () => {
 		expect(before.split("\n").map((line) => JSON.parse(line).need)).toEqual([
 			"A/1",
 		]);
-		expect(existsSync(needsFile(root, midnight))).toBe(false);
+		expect(
+			existsSync(needsFile(root, midnight)),
+			"the ask sent again after midnight opened a file for the new day",
+		).toBe(false);
 	});
 
 	it("keeps each ask with no words, since nothing tells two apart", async () => {

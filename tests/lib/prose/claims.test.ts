@@ -348,9 +348,9 @@ describe("untestedCauses", () => {
 			(why) => told.push(why),
 		);
 		expect(judged).toHaveLength(12);
-		expect(judged[0]?.startsWith("It began at noon.")).toBe(true);
+		expect(judged[0]).toMatch(/^It began at noon\./);
 		expect(found).toHaveLength(1);
-		expect(found[0]?.endsWith("It failed because its disk filled.")).toBe(true);
+		expect(found[0]).toMatch(/It failed because its disk filled\.$/);
 		expect(told).toEqual(["a text ran past 12 parts"]);
 	});
 
@@ -361,9 +361,7 @@ describe("untestedCauses", () => {
 			judging((part) => (part.includes("because") ? 0.97 : 0)),
 		);
 		expect(found).toHaveLength(1);
-		expect(
-			found[0]?.endsWith("The build failed because the disk filled."),
-		).toBe(true);
+		expect(found[0]).toMatch(/The build failed because the disk filled\.$/);
 	});
 
 	it("says it judged in full only when a part was judged and none missed", async () => {
