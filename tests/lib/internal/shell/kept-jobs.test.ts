@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
@@ -157,6 +157,11 @@ function folder(): string {
 	const dir = mkdtempSync(join(tmpdir(), "kept-jobs-"));
 	made.push(dir);
 	return join(dir, "kept");
+}
+
+/** The labels of the calls recorded for `s1` in `where`, each one running. */
+function labelsIn(where: string): string[] {
+	return keptJobsOf("s1", where, () => true).map((one) => one.label);
 }
 
 /** What the kept folder holds, nothing staged left beside a record. */
@@ -375,10 +380,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		recordKeptJob({ ...job, label: "taken up" });
 		disk.go();
 		await going;
-		expect(
-			keptJobsOf("s1", where).map((one) => one.label),
-			"the taker's record",
-		).toEqual(["taken up"]);
+		expect(labelsIn(where), "the taker's record").toEqual(["taken up"]);
 	});
 
 	// The disk's pool may get to the removal only after the hand-off and the
@@ -395,10 +397,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		recordKeptJob({ ...job, label: "taken up" });
 		disk.go();
 		await going;
-		expect(
-			keptJobsOf("s1", where).map((one) => one.label),
-			"the taker's record",
-		).toEqual(["taken up"]);
+		expect(labelsIn(where), "the taker's record").toEqual(["taken up"]);
 		expect(listed(where), "nothing left set aside").not.toContainEqual(
 			expect.stringMatching(/\.gone$/),
 		);
@@ -416,10 +415,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		disownKeptJob(job.work.keep);
 		disk.go();
 		await going;
-		expect(
-			keptJobsOf("s1", where).map((one) => one.label),
-			"its record, for the taker",
-		).toEqual(["run j1"]);
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
 	});
 
 	// A wedged disk would otherwise hold the call open with no end.
@@ -557,12 +553,16 @@ describe("a call's own record, taken back as the call ends", () => {
 		async () => {
 			const where = folder();
 			const job = await recorded(where, "s1", "j1", HERE);
-			chmodSync(where, READ_ONLY);
-			onTestFinished(() => chmodSync(where, PRIVATE_FOLDER));
 			const said = vi
 				.spyOn(process.stderr, "write")
 				.mockImplementation(() => true);
-			await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+			chmodSync(where, READ_ONLY);
+			try {
+				await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+			} finally {
+				// Writable again before the folder is cleared away.
+				chmodSync(where, PRIVATE_FOLDER);
+			}
 			expect(
 				said.mock.calls
 					.map(([text]) => String(text))
