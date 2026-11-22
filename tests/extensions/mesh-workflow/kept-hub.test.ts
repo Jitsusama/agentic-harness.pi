@@ -76,6 +76,10 @@ function onMesh(
 	const peer = {
 		session: "session-s",
 		addresses: ["7M6JKG"],
+		groups: ["#quest/root01/7m6jkg"],
+		joined: [],
+		stops: [],
+		quest: "QEST-20261021-7M6JKG",
 		orchestratedBy: roles.orchestratedBy,
 		orchestrates: roles.orchestrates,
 		questHeads: roles.questHeads,
@@ -230,11 +234,23 @@ describe("a kept hub", () => {
 		const hub = keep(at);
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 
-		const self = at.presences.of("session-s");
-		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
-		at.presences.publish({ ...self, groups: ["#quest/other1/7m6jkg"] });
+		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
 
 		expect(hub.current()).toBeUndefined();
+	});
+
+	// A presence file can lag a move to another quest, and anything that
+	// can write the folder can forge one under this session, so the chain
+	// is read from the peer itself.
+	it("is found for the quest the peer is on, not the one a stale presence names", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
+
+		const above = await aboveFor(at);
+
+		expect(above).toMatchObject({
+			none: expect.stringContaining("no live cell on a quest above it"),
+		});
 	});
 
 	it("is none at once when the hub's presence says it ended", async () => {
@@ -337,9 +353,7 @@ describe("a kept hub", () => {
 	// Nothing above could be its hub, so ties could change nothing.
 	it("asks the node nothing for a peer with no quest above it", async () => {
 		const { at, asked } = onMesh(async () => [tie("ROOT01", 3)]);
-		const self = at.presences.of("session-s");
-		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
-		at.presences.publish({ ...self, groups: ["#quest/7m6jkg"] });
+		Object.assign(at.peer, { groups: ["#quest/7m6jkg"] });
 
 		const above = await aboveFor(at);
 

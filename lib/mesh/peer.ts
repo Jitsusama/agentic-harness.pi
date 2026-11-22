@@ -114,6 +114,8 @@ export interface Peer {
 	 * above it would be a second voice over that work.
 	 */
 	readonly questHeads?: string;
+	/** The quest it has loaded, as its presence says it, when it has one. */
+	readonly quest?: string;
 	/** What it waits on its person for, standing longest (see want.ts). */
 	readonly wants: Want | undefined;
 	/**
@@ -659,6 +661,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get questHeads() {
 			return questHeads;
+		},
+		get quest() {
+			return quest;
 		},
 		get wants() {
 			return longestStanding(personal());

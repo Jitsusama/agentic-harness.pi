@@ -17,6 +17,7 @@ import {
 	questsAbove,
 	stillAbove,
 } from "../../../lib/mesh/hub-from-use.ts";
+import type { Presence } from "../../../lib/mesh/presence.ts";
 import { type Local, peers } from "./local.ts";
 
 /** What finding the hub reads of this peer. */
@@ -86,8 +87,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 	}
 	const standing = await peers(at);
 	const gone = standing.gone.map((one) => one.session);
-	const self = standing.present.find((one) => one.session === at.peer.session);
-	if (self === undefined) {
+	if (!standing.present.some((one) => one.session === at.peer.session)) {
 		return {
 			above: {
 				none: "this peer has no presence on the mesh yet, so no orchestrator or hub from use is above it",
@@ -98,6 +98,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 	}
 	// A peer with nothing above it has no hub to find, so the node isn't
 	// asked for ties that could change nothing.
+	const self = asItStands(at.peer);
 	if (self.quest === undefined || questsAbove(self).length === 0) {
 		return {
 			above: hubFromUse(self, standing.present, undefined, standing.gone),
@@ -110,6 +111,30 @@ export async function findAbove(at: HubReading): Promise<Found> {
 		above: hubFromUse(self, standing.present, ties, standing.gone),
 		settled: at.ties === undefined || ties !== undefined,
 		gone,
+	};
+}
+
+/**
+ * This peer as finding its hub reads it: its addresses, groups, stops
+ * and quest as the peer holds them, never as a presence file says them.
+ * Anything that can write the folder can add a file under this session,
+ * and a file can lag a move to another quest, so read from there they
+ * could choose which quests are above it, or a hub for the quest it
+ * just left.
+ */
+function asItStands(
+	peer: HubReading["peer"],
+): Pick<
+	Presence,
+	"session" | "addresses" | "groups" | "joined" | "quest" | "stops"
+> {
+	return {
+		session: peer.session,
+		addresses: peer.addresses,
+		groups: peer.groups,
+		joined: peer.joined,
+		stops: peer.stops,
+		...(peer.quest === undefined ? {} : { quest: peer.quest }),
 	};
 }
 
@@ -224,9 +249,12 @@ export function keepHub(
 			const live = everyone
 				.filter((one) => one.ended === undefined && !gone.has(one.session))
 				.map((one) => ({ ...one, addresses: answeringTo(one, everyone) }));
-			const self = live.find((one) => one.session === reading.peer.session);
-			if (self === undefined) return undefined;
-			return stillAbove(self, live, address) ? address : undefined;
+			if (!live.some((one) => one.session === reading.peer.session)) {
+				return undefined;
+			}
+			return stillAbove(asItStands(reading.peer), live, address)
+				? address
+				: undefined;
 		},
 		stop: () => {
 			stopped = true;
