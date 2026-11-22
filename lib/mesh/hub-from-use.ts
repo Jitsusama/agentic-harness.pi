@@ -45,11 +45,16 @@ const QUEST_GROUP = "#quest/";
 const HUB_TIE_AGE_MS = 6 * 60 * 60 * 1000;
 
 /**
- * The least a cell's ties may add up to for it to be a hub: one message
- * of this cell's own, `HUB_TIE_AGE_MS` old, as the node fades it. A tie
+ * The least a cell's ties may add up to for it to be a hub: one message,
+ * from either side, `HUB_TIE_AGE_MS` old, as the node fades it. A tie
  * grows by one a message and halves every two hours, so one message
  * from yesterday reads about 0.001, a cell barely known rather than the
  * one talked with most; six hours keeps a hub through a quiet afternoon.
+ * It is weighed against the ties' whole strength, not this cell's share
+ * of it, since the node fades the two sides together and keeps no faded
+ * figure for each: a share would let a busy hub's own talk drown this
+ * cell's recent message. That this cell talks on the tie at all is the
+ * share's to say, and it says it in choosing.
  */
 const HUB_TIE_FLOOR = 2 ** -(HUB_TIE_AGE_MS / TIE_HALF_LIFE_MS);
 
@@ -60,8 +65,8 @@ const HUB_TIE_FLOOR = 2 ** -(HUB_TIE_AGE_MS / TIE_HALF_LIFE_MS);
  * written to by its signature and by its quest's address. Only a tie to
  * an address that could be the hub's counts, never one to a group or an
  * address two presences list. Equal ties go
- * to the cell whose single tie is strongest, and ties adding up to less
- * than `HUB_TIE_FLOOR` make no hub. A cell that has stopped
+ * to the cell whose single tie is strongest, and a cell whose ties add
+ * up, whole, to less than `HUB_TIE_FLOOR` is no hub. A cell that has stopped
  * this one is never its hub, since it would not be written to, and nor
  * is one this cell has stopped, whose answer it would drop.
  *
@@ -137,23 +142,26 @@ export function hubFromUse(
 		return own !== undefined && above.has(own) && one.addresses.some(writable);
 	});
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
-	const strength = new Map<Presence, number>();
+	const sums = new Map<Presence, { share: number; whole: number }>();
 	for (const tie of ties) {
 		const share = ownShare(tie);
 		if (share <= 0 || !writable(tie.other)) continue;
 		const hub = candidates.find((one) => lists(one, tie.other));
 		if (hub !== undefined) {
-			strength.set(hub, (strength.get(hub) ?? 0) + share);
+			const sum = sums.get(hub) ?? { share: 0, whole: 0 };
+			sums.set(hub, {
+				share: sum.share + share,
+				whole: sum.whole + tie.strength,
+			});
 		}
 	}
-	let best: { hub: Presence; strength: number } | undefined;
-	for (const [hub, sum] of strength) {
-		if (best === undefined || sum > best.strength)
-			best = { hub, strength: sum };
+	let best: { hub: Presence; share: number; whole: number } | undefined;
+	for (const [hub, sum] of sums) {
+		if (best === undefined || sum.share > best.share) best = { hub, ...sum };
 	}
-	if (best !== undefined && best.strength < HUB_TIE_FLOOR) {
+	if (best !== undefined && best.whole < HUB_TIE_FLOOR) {
 		return {
-			none: `${unmarked} and its ties to the live cells on the quests above it are too faint to make a hub: less than one message of its own in the last six hours`,
+			none: `${unmarked} and its ties to the live cells on the quests above it are too faint to make a hub: less than one message on them in the last six hours`,
 		};
 	}
 	const address = best?.hub.addresses.find(writable);
