@@ -32,6 +32,7 @@ function folded(manager: SessionManager) {
 		recorded: {
 			kinds: new Map(recorded.kinds),
 			entries: new Set(recorded.entries),
+			quotable: new Set(recorded.quotable),
 		},
 		live: live.map((entry) => entry.id),
 	};
@@ -88,6 +89,24 @@ describe("a session's branch as tagging reads it", () => {
 		expect(compacted?.recorded.kinds.size).toBe(2);
 		expect(asked.at(-1)?.[1].recorded.kinds.size).toBe(0);
 		expect(asked.at(-1)?.[1].live).toHaveLength(2);
+	});
+
+	it("names the messages a record found something worth quoting in", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		tag(manager, rule);
+		const chatter = say(manager, "Thanks, that reads well.");
+		const entry = manager.getEntry(chatter);
+		if (entry === undefined) throw new Error("no chatter");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: chatter,
+			units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: [] })),
+		});
+
+		const { quotable, entries } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule, chatter]);
+		expect([...quotable]).toEqual([rule]);
 	});
 
 	it("reads nothing of an empty session", () => {

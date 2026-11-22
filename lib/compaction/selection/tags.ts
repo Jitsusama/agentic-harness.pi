@@ -56,14 +56,20 @@ export interface TagIndex {
 	readonly kinds: ReadonlyMap<string, readonly SelectionKind[]>;
 	/** The entries some record names, tagged or failed. */
 	readonly entries: ReadonlySet<string>;
+	/**
+	 * The entries whose latest record found some paragraph of a kind, so
+	 * the messages worth reading back when a held log left them on disk.
+	 */
+	readonly quotable: ReadonlySet<string>;
 }
 
 /** An index with nothing in it yet, to be filled by {@link indexTags}. */
 export function emptyTagIndex(): {
 	kinds: Map<string, readonly SelectionKind[]>;
 	entries: Set<string>;
+	quotable: Set<string>;
 } {
-	return { kinds: new Map(), entries: new Set() };
+	return { kinds: new Map(), entries: new Set(), quotable: new Set() };
 }
 
 /** Add one record to an index. */
@@ -73,6 +79,11 @@ export function indexTags(
 ): void {
 	index.entries.add(tags.entryId);
 	for (const unit of tags.units) index.kinds.set(unit.hash, unit.kinds);
+	if (tags.units.some((unit) => unit.kinds.length > 0)) {
+		index.quotable.add(tags.entryId);
+	} else {
+		index.quotable.delete(tags.entryId);
+	}
 }
 
 /** Every tag recorded on a branch. */

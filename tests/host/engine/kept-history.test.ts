@@ -14,10 +14,12 @@ import {
 	holdKeptHistory,
 	holdsLikePi,
 } from "../../../host/engine/kept-history.ts";
+import { compactionHistory } from "../../../lib/compaction/history.ts";
 import {
 	ancestry,
 	carriedBy,
 	type Entry,
+	messagesOnDisk,
 	ROLLOVER_RECORD,
 } from "../../../lib/internal/session/rollover.ts";
 import {
@@ -50,7 +52,7 @@ interface Model {
 const FAUX: Model = { provider: "faux", model: "faux-1" };
 
 /** An answer as pi records one, costing `cost`. */
-function answer(text: string, cost: number, by: Model = FAUX) {
+function answer(text: string, cost: number, by: Model = FAUX, input = 10) {
 	return {
 		role: "assistant" as const,
 		content: [{ type: "text" as const, text }],
@@ -58,11 +60,11 @@ function answer(text: string, cost: number, by: Model = FAUX) {
 		provider: by.provider,
 		model: by.model,
 		usage: {
-			input: 10,
+			input,
 			output: 10,
 			cacheRead: 0,
 			cacheWrite: 0,
-			totalTokens: 20,
+			totalTokens: input + 10,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
 		},
 		stopReason: "stop" as const,
@@ -76,9 +78,10 @@ function exchange(
 	text: string,
 	cost = 0.5,
 	by: Model = FAUX,
+	input?: number,
 ): void {
 	sessions.appendMessage(user(text));
-	sessions.appendMessage(answer(`answer to ${text}`, cost, by));
+	sessions.appendMessage(answer(`answer to ${text}`, cost, by, input));
 }
 
 /** How a test log differs from the plain one. */
@@ -91,6 +94,8 @@ interface LogShape {
 	readonly earlyBy?: Model;
 	/** Whether an abandoned branch, costing 3, hangs off "early one". */
 	readonly abandoned?: boolean;
+	/** The prompt, in tokens, of the answer to "early one". */
+	readonly earlyPrompt?: number;
 }
 
 /**
@@ -108,7 +113,7 @@ function compactedLog(shape: LogShape = {}): string {
 		});
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendThinkingLevelChange("high");
-	exchange(sessions, "early one", 1, shape.earlyBy);
+	exchange(sessions, "early one", 1, shape.earlyBy, shape.earlyPrompt);
 	if (shape.abandoned) {
 		const fork = sessions.getLeafId() ?? "";
 		exchange(sessions, "abandoned", 3);
@@ -251,6 +256,27 @@ describe("a conversation held from a compacted log", () => {
 		const whole = spentOnBranch(SessionManager.open(file).getBranch());
 		expect(spentOnBranch(hold(file).getBranch())).toBeCloseTo(whole);
 		expect(whole).toBeCloseTo(4.5);
+	});
+
+	it("keeps the session's first prompt, its turn left on disk", () => {
+		const file = compactedLog({ earlyPrompt: 40_000 });
+		const whole = compactionHistory(SessionManager.open(file).getBranch());
+		expect(whole.firstPromptTokens).toBe(40_000);
+		expect(compactionHistory(hold(file).getBranch()).firstPromptTokens).toBe(
+			40_000,
+		);
+	});
+
+	it("lets a reader take back only the messages it asks for", () => {
+		const file = compactedLog();
+		const early = SessionManager.open(file)
+			.getBranch()
+			.filter((entry) => texts([entry]).some((text) => text.includes("early")))
+			.map((entry) => entry.id);
+		const answered = early[1];
+		if (answered === undefined) throw new Error("no early answer");
+		const read = messagesOnDisk(hold(file).getBranch(), new Set([answered]));
+		expect(texts(read)).toEqual(["answer to early one"]);
 	});
 
 	it("lets session_recall read what it left on disk", () => {

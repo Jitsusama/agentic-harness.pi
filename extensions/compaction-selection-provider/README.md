@@ -50,7 +50,10 @@ and a paragraph said more than once is tagged once and quoted once,
 from its latest saying. Tool results, thinking and the harness's resume
 messages are never tagged, and nor is anything from before the last
 compaction when an old session is opened, so opening one does not tag
-its whole history.
+its whole history. A message the host's held log, or a rollover, left
+on disk is still quoted: the tags name the messages they found
+something in, and only those lines are read back from the parent log,
+never the whole of it.
 
 When the `session_recall` tool is active, each quote names its
 paragraph, as `User (p:3f9a0c41de):`, and the note under the heading

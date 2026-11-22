@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
 	ClassifierContext,
 	ClassifierResult,
@@ -31,6 +34,7 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../../lib/compaction/selection/units.ts";
+import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
 import {
 	assistant,
 	compaction,
@@ -470,6 +474,40 @@ describe("contributing excerpts", () => {
 		expect(contributions.appendix[0]).toContain(`User (${ref}):`);
 		expect(contributions.appendix[0]).toContain("session_recall");
 		expect(recordOf(contributions)).toMatchObject({ refs: true });
+	});
+
+	it("quotes a tagged paragraph whose message a held log left on disk", () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			const older = user("u0", "An untagged message on disk.");
+			const parent = join(dir, "parent.jsonl");
+			const header = { type: "session", id: "s1", timestamp: "", cwd: dir };
+			writeFileSync(
+				parent,
+				`${[header, older, rule].map((line) => JSON.stringify(line)).join("\n")}\n`,
+			);
+			const held = {
+				type: "custom",
+				id: "r1",
+				parentId: null,
+				timestamp: "",
+				customType: ROLLOVER_RECORD,
+				data: { parentSession: parent, parentLeaf: "u1", carried: {} },
+			} as SessionEntry;
+			const branch = [held, tagged(rule, ["rule"]), kept];
+			const { ctx, store } = session(branch, answeringYesTo());
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+
+			selectionContributor(() => ctx, { store }).listener(contributions);
+
+			expect(contributions.appendix[0]).toContain(
+				"> Always sign every commit.",
+			);
+			expect(contributions.appendix[0]).not.toContain("untagged message");
+			expect(recordOf(contributions)).toMatchObject({ candidates: 1 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("says what it did with the compaction, quotes or none", () => {

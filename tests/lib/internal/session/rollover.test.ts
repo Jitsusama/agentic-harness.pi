@@ -21,6 +21,7 @@ import {
 	carriedBy,
 	type Entry,
 	leaveInParentLog,
+	messagesOnDisk,
 	ROLLOVER_RECORD,
 	recordIndex,
 	rolledFrom,
@@ -330,6 +331,84 @@ describe("the parent logs", () => {
 		expect(ancestry(manager.getBranch(), read)).toEqual([]);
 	});
 });
+
+describe("messages asked of the parent logs", () => {
+	it("are read from every parent, oldest first, and only those asked for", () => {
+		const { manager, ids } = longSession();
+		const first = rolledInto(manager).fresh;
+		const middle = first.appendMessage(user("in the middle"));
+		const middleAnswer = first.appendMessage(assistant("middle answer"));
+		first.appendCompaction("again", middleAnswer, 10);
+		const second = rolledInto(first).fresh;
+
+		const read = messagesOnDisk(
+			second.getBranch(),
+			new Set([middle, ids.early, ids.state]),
+		);
+
+		expect(read.map((entry) => entry.id)).toEqual([ids.early, middle]);
+		expect(texts(read)).toEqual(["early question", "in the middle"]);
+	});
+
+	it("leave out what the branch already holds", () => {
+		const { manager, ids } = longSession();
+		const { fresh } = rolledInto(manager);
+
+		const read = messagesOnDisk(
+			fresh.getBranch(),
+			new Set([ids.early, ids.kept]),
+		);
+
+		expect(read.map((entry) => entry.id)).toEqual([ids.early]);
+	});
+
+	it("end where a parent is gone from disk", () => {
+		const { manager, ids } = longSession();
+		const { fresh } = rolledInto(manager);
+		rmSync(manager.getSessionFile() ?? "");
+
+		expect(messagesOnDisk(fresh.getBranch(), new Set([ids.early]))).toEqual([]);
+	});
+
+	it("are read from a line pi wrote in another order", () => {
+		const { manager, ids } = longSession();
+		const file = manager.getSessionFile() ?? "";
+		const reordered = readFileSync(file, "utf8")
+			.split("\n")
+			.map((line) => {
+				if (line.trim() === "") return line;
+				const { type, ...rest } = JSON.parse(line) as { type: string };
+				return JSON.stringify({ ...rest, type });
+			})
+			.join("\n");
+		writeFileSync(file, reordered);
+		const { fresh } = rolledInto(SessionManager.open(file));
+
+		const read = messagesOnDisk(fresh.getBranch(), new Set([ids.early]));
+
+		expect(texts(read)).toEqual(["early question"]);
+	});
+
+	it("are not read for a log that never rolled over", () => {
+		const { manager, ids } = longSession();
+
+		expect(messagesOnDisk(manager.getBranch(), new Set([ids.early]))).toEqual(
+			[],
+		);
+	});
+});
+
+/** The text of each message entry, in order. */
+function texts(entries: readonly Entry[]): string[] {
+	return entries.map((entry) => {
+		const content = (entry.message as { content?: unknown } | undefined)
+			?.content;
+		if (typeof content === "string") return content;
+		return Array.isArray(content)
+			? content.map((part: { text?: string }) => part.text ?? "").join("")
+			: "";
+	});
+}
 
 describe("the fresh log on disk", () => {
 	it("is written whole, with no partial file left", () => {

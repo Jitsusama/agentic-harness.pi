@@ -26,6 +26,7 @@ import {
 	DEFAULT_COMPACTION_SETTINGS,
 	type ExtensionContext,
 	findCutPoint,
+	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import {
 	isSummaryContributions,
@@ -52,6 +53,7 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
+import { messagesOnDisk } from "../../lib/internal/session/rollover.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -70,6 +72,20 @@ export const SELECTION_RECORD_ID = "selection";
  * judged too by the time they are needed.
  */
 const CHECK_OVERSAMPLE = 2;
+
+/**
+ * The branch with the messages worth quoting that a held log left on
+ * disk read back before it, so a compaction still quotes them. Only
+ * those lines are parsed, never the whole parent log.
+ */
+function withQuotableOnDisk(
+	branch: readonly SessionEntry[],
+	quotable: ReadonlySet<string>,
+): SessionEntry[] {
+	// Each line read back is one pi wrote as a message entry, by its type.
+	const onDisk = messagesOnDisk(branch, quotable) as unknown as SessionEntry[];
+	return [...onDisk, ...branch];
+}
 
 /** The excerpt budget the environment sets. */
 export function excerptTokens(env: NodeJS.ProcessEnv = process.env): number {
@@ -120,7 +136,11 @@ export function selectionContributor(
 		const branch = ctx.sessionManager.getBranch();
 		const tags = store.tags(branch);
 		const holds = store.holds(branch);
-		const candidates = candidatesBefore(branch, tags, firstKeptEntryId);
+		const candidates = candidatesBefore(
+			withQuotableOnDisk(branch, tags.quotable),
+			tags,
+			firstKeptEntryId,
+		);
 		const chosen = selectExcerpts(candidates, budget, holds);
 		const refs = options.refs?.() ?? false;
 		const text = renderExcerpts(chosen, { refs });
@@ -176,12 +196,14 @@ export function selectionContributor(
 		if (!classifier.ok || signal.aborted) return;
 		const branch = ctx.sessionManager.getBranch();
 		const holds = store.holds(branch);
+		const tags = store.tags(branch);
+		const read = withQuotableOnDisk(branch, tags.quotable);
 		const pending = selectExcerpts(
-			candidatesBefore(branch, store.tags(branch), estimatedFirstKept(branch)),
+			candidatesBefore(read, tags, estimatedFirstKept(branch)),
 			budget * CHECK_OVERSAMPLE,
 			holds,
 		).filter((candidate) => !holds.has(candidate.unit.hash));
-		const requests = holdsRequests(pending, unitsOfBranch(branch));
+		const requests = holdsRequests(pending, unitsOfBranch(read));
 		for (const [at, request] of requests.entries()) {
 			if (signal.aborted) return;
 			const chunk = pending.slice(at * HOLDS_BATCH, (at + 1) * HOLDS_BATCH);

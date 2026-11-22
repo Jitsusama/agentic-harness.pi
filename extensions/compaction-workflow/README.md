@@ -53,7 +53,9 @@ each from measurement:
 
 A compaction that kept more than 100k past the default keep (the
 session's first prompt plus 30k) says nothing about what the next will
-keep, so its keep and rewrite are not taken. On 9 November two
+keep, so its keep and rewrite are not taken. The first prompt crosses a
+rollover, and a log the host holds only the kept part of, in the
+record they carry, since the turn that paid it stays on disk. On 9 November two
 compactions that had waited nine hours kept 510k and 616k; counted from
 there, the next ones waited until 748k and 903k.
 

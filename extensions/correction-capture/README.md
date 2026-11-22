@@ -10,7 +10,8 @@ Registers one tool, `capture_lesson`, that the agent invokes when
 you ask it to remember a lesson or turn a correction into a rule.
 There is no command; you drive it by talking.
 
-- With no arguments, it reads the current session, distills the
+- With no arguments, it reads the current session, the turns a
+  rollover or the host's held log left on disk included, distills the
   corrections into drafted behavioural rules using a cheap side
   model, and returns them without filing anything. You review the
   draft, refine it by talking, and only then file it.

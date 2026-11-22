@@ -41,8 +41,16 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	openSync,
+	readFileSync,
+	readSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import {
 	getCurrentSystemMessage,
 	type SystemMessage,
@@ -532,6 +540,117 @@ export function ancestry(
 		record = rolledFrom(parent);
 	}
 	return older.flat();
+}
+
+/** How much of a parent log is read at once. */
+const CHUNK_BYTES = 1024 * 1024;
+
+/** How pi starts each message line it writes. */
+const MESSAGE_HEAD = '{"type":"message","id":"';
+
+/** What marks a line that could be a message, whatever order it was written in. */
+const MESSAGE_TYPE = '"type":"message"';
+
+/** What marks a line that could be a rollover record. */
+const RECORD_TYPE = `"customType":"${ROLLOVER_RECORD}"`;
+
+/**
+ * The messages among `wanted` that the logs this one carries on from
+ * hold, oldest first and without those on the branch, for a reader
+ * that needs a few old messages back rather than the whole history.
+ * Each parent is read a chunk at a time and only a wanted message's
+ * line is parsed, so reading costs about what it returns, not the
+ * size of the log. A parent gone from disk ends the chain there.
+ */
+export function messagesOnDisk(
+	branch: readonly unknown[],
+	wanted: ReadonlySet<string>,
+): Entry[] {
+	if (wanted.size === 0) return [];
+	const seen = new Set(
+		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
+	);
+	const older: Entry[][] = [];
+	let record = rolledFrom(branch);
+	const visited = new Set<string>();
+	while (record && !visited.has(record.parentSession)) {
+		visited.add(record.parentSession);
+		const found: Entry[] = [];
+		let next: RolloverRecord | undefined;
+		try {
+			for (const line of linesOf(record.parentSession)) {
+				const entry = wantedLine(line, wanted, seen);
+				if (entry?.type === "message") found.push(entry);
+				else if (entry) next = rolledFrom([entry]) ?? next;
+			}
+		} catch {
+			// A parent gone from disk, or unreadable, ends the chain there.
+			break;
+		}
+		older.unshift(found);
+		for (const entry of found) seen.add(entry.id);
+		record = next;
+	}
+	return older.flat();
+}
+
+/**
+ * The entry a line holds when it is a wanted message or a rollover
+ * record, read without parsing any other line in full.
+ */
+function wantedLine(
+	line: string,
+	wanted: ReadonlySet<string>,
+	seen: ReadonlySet<string | undefined>,
+): Entry | undefined {
+	if (line.startsWith(MESSAGE_HEAD)) {
+		const id = line.slice(
+			MESSAGE_HEAD.length,
+			line.indexOf('"', MESSAGE_HEAD.length),
+		);
+		if (!wanted.has(id) || seen.has(id)) return undefined;
+	} else if (!line.includes(MESSAGE_TYPE) && !line.includes(RECORD_TYPE)) {
+		return undefined;
+	}
+	let entry: Entry;
+	try {
+		entry = JSON.parse(line) as Entry;
+	} catch {
+		// A line cut short by a crash holds nothing to read.
+		return undefined;
+	}
+	if (entry.type === "message")
+		return wanted.has(entry.id) && !seen.has(entry.id) ? entry : undefined;
+	return entry.type === "custom" && entry.customType === ROLLOVER_RECORD
+		? entry
+		: undefined;
+}
+
+/** A file's lines, read a chunk at a time. */
+function* linesOf(path: string): Generator<string> {
+	const fd = openSync(path, "r");
+	try {
+		const decoder = new StringDecoder("utf8");
+		const buffer = Buffer.alloc(CHUNK_BYTES);
+		let rest = "";
+		for (;;) {
+			const read = readSync(fd, buffer, 0, CHUNK_BYTES, null);
+			if (read === 0) break;
+			const chunk = decoder.write(buffer.subarray(0, read));
+			// A long line spans chunks: gather it until one ends it.
+			if (!chunk.includes("\n")) {
+				rest += chunk;
+				continue;
+			}
+			const lines = (rest + chunk).split("\n");
+			rest = lines.pop() ?? "";
+			yield* lines;
+		}
+		rest += decoder.end();
+		if (rest !== "") yield rest;
+	} finally {
+		closeSync(fd);
+	}
 }
 
 /**

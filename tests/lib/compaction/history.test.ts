@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { FIRST_PROMPT_CARRY } from "../../../lib/compaction/history.ts";
 import { compactionHistory } from "../../../lib/compaction/index.ts";
+import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
 
 function turn(
 	prompt: number,
@@ -17,6 +19,16 @@ function turn(
 				...(cost ? { cost } : {}),
 			},
 		},
+	};
+}
+
+function rolloverRecord(carried: Record<string, unknown>) {
+	return {
+		type: "custom",
+		id: "r",
+		parentId: null,
+		customType: ROLLOVER_RECORD,
+		data: { parentSession: "/logs/parent.jsonl", parentLeaf: "p", carried },
 	};
 }
 
@@ -88,6 +100,22 @@ describe("reading a session's compaction history", () => {
 		]);
 		expect(history.firstPromptTokens).toBe(90_000);
 		expect(history.turnsSinceCompaction).toBe(1);
+	});
+
+	it("takes the first prompt a rollover carried, since its first turn is left on disk", () => {
+		const history = compactionHistory([
+			rolloverRecord({ [FIRST_PROMPT_CARRY]: { firstPromptTokens: 40_000 } }),
+			turn(130_000),
+		]);
+		expect(history.firstPromptTokens).toBe(40_000);
+	});
+
+	it("reads the first prompt from its own turns when a rollover carried none", () => {
+		const history = compactionHistory([
+			rolloverRecord({ [FIRST_PROMPT_CARRY]: { firstPromptTokens: "many" } }),
+			turn(130_000),
+		]);
+		expect(history.firstPromptTokens).toBe(130_000);
 	});
 
 	it("reads what the last compaction cost, from the session's own record of it", () => {
