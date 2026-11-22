@@ -29,13 +29,13 @@ import {
 	hostRealm,
 	hostSocketPath,
 } from "../../host/service/address.ts";
-import { controlRequest } from "../../host/service/client.ts";
 import {
 	AGAIN_ENV,
 	flagsLost,
 	heldDirectly,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
+import { controlRequest } from "../../lib/mesh/host-control.ts";
 import type { Moving } from "../../lib/mesh/moving.ts";
 import type { HandOver } from "./in-place.ts";
 

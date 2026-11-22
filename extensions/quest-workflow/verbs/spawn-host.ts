@@ -20,13 +20,9 @@ import {
 	hostRealm,
 	hostSocketPath,
 } from "../../../host/service/address.ts";
-import { controlRequest } from "../../../host/service/client.ts";
-import {
-	type ControlRequest,
-	parseAdoptResult,
-	parseListResult,
-	parseOpenResult,
-	type SessionIdentity,
+import type {
+	ControlRequest,
+	SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
@@ -47,6 +43,10 @@ import {
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
+import {
+	controlRequest,
+	hostProtocol,
+} from "../../../lib/mesh/host-control.ts";
 import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../sessions/records.ts";
 import {
@@ -364,6 +364,7 @@ export async function spawnInHost(
 	}
 	let held: SessionIdentity;
 	try {
+		const { parseAdoptResult, parseOpenResult } = await hostProtocol();
 		held =
 			request.op === "adopt"
 				? parseAdoptResult(reply.result)
@@ -463,6 +464,7 @@ export async function resumeInHost(
 	}
 	let holds: boolean;
 	try {
+		const { parseListResult } = await hostProtocol();
 		holds = parseListResult(reply.result).sessions.some(
 			(held) => held.sessionId === session.id,
 		);
