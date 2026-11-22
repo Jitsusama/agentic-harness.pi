@@ -3,7 +3,7 @@
  */
 
 import type { OAuth2Client } from "google-auth-library";
-import type { drive_v3 } from "googleapis";
+import type { drive_v3 } from "googleapis/build/src/apis/drive";
 import type { DriveFile } from "../types.ts";
 import { google } from "./client.ts";
 

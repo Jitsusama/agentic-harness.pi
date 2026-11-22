@@ -17,6 +17,13 @@ import {
 /** Longer than a request given up on should take to end. */
 const STILL_RUNNING_MS = 3000;
 
+/**
+ * The first build of each API loads its module and googleapis' common
+ * code, which on a machine at load 200 can run past vitest's 5 s
+ * default; the limit is room for that, not an expected time.
+ */
+const FIRST_LOAD_MS = 60_000;
+
 /** The request's outcome, or a note that it was still waiting. */
 async function outcome(call: Promise<unknown>): Promise<string> {
 	const running = new Promise<string>((resolve) =>
@@ -85,4 +92,23 @@ describe("a Google API request nobody answers", () => {
 		setTimeout(() => fire.abort(), 200);
 		expect(await outcome(call)).toMatch(/^failed/);
 	});
+});
+
+// The client's type is written here rather than taken from googleapis'
+// root, so the typechecker no longer sees whether the real `google`
+// export has what it names. This asks the real one for each API at the
+// version this package calls, the factory's own way.
+describe("the google export", () => {
+	it(
+		"builds every API its type names, at the version called",
+		() => {
+			expect(google.calendar({ version: "v3" }).events).toBeDefined();
+			expect(google.docs({ version: "v1" }).documents).toBeDefined();
+			expect(google.drive({ version: "v3" }).files).toBeDefined();
+			expect(google.gmail({ version: "v1" }).users).toBeDefined();
+			expect(google.sheets({ version: "v4" }).spreadsheets).toBeDefined();
+			expect(google.slides({ version: "v1" }).presentations).toBeDefined();
+		},
+		FIRST_LOAD_MS,
+	);
 });
