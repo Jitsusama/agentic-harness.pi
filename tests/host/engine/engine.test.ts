@@ -803,12 +803,13 @@ describe("the host's engine", () => {
 	);
 
 	it(
-		"holds only the kept history of a compacted log it resumes, or that a command switches it to",
+		"holds only the kept history of a compacted log it resumes, adopts, or that a command switches it to",
 		async () => {
 			const seen = await step(hostFolder(), "kept-history");
 			const held = { record: true, keptNext: true, earlyHeld: false };
 			expect(seen.keptHistory).toEqual({
 				resumed: held,
+				adopted: held,
 				replaced: held,
 				switchedTo: true,
 			});

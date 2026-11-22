@@ -528,22 +528,38 @@ const scenarios: Record<string, Scenario> = {
 	},
 	/**
 	 * What the host holds of a compacted log on each way it builds one
-	 * from disk: a resume, through the engine's own binding, and a
-	 * conversation an extension's command switches to, through the parts
-	 * a replacement is built from.
+	 * from disk: a resume and an adopt, through the engine's own binding,
+	 * and a conversation an extension's command switches to, through the
+	 * parts a replacement is built from.
 	 */
 	"kept-history": {
 		responses: () =>
 			["early", "kept", "after"].flatMap((word) => [
 				say(`first ${word}`),
 				say(`second ${word}`),
+				say(`third ${word}`),
 			]),
 		run: async (engine, host) => {
 			const first = await compacted(engine, host);
 			const second = await compacted(engine, host);
+			const third = await compacted(engine, host);
+			const request = {
+				v: 1 as const,
+				id: "adopt-1",
+				op: "adopt" as const,
+				sessionFile: third.entry.file,
+				attended: false,
+			};
+			const prepared = await engine.prepare(request);
+			await engine.start(prepared, request);
+			await idle(engine, prepared.sessionId);
+			const adopted = heldOf(engine, prepared.sessionId, third.kept);
+			await host.close(prepared.sessionId);
 			await engine.resume(first.entry);
 			await idle(engine, first.entry.sessionId);
 			const resumed = heldOf(engine, first.entry.sessionId, first.kept);
+			// Closed once compacted, so only the switch can hold it again.
+			const closedBefore = engine.view(second.entry.sessionId) === undefined;
 			await host.run(first.entry.sessionId, () =>
 				prompt(
 					engine,
@@ -551,21 +567,17 @@ const scenarios: Record<string, Scenario> = {
 					`/probe-switch ${second.entry.file}`,
 				),
 			);
-			const switched = readEntry();
+			const switched = second.entry.sessionId;
 			await until(
 				"the conversation switched to to be held",
-				() => engine.view(switched.sessionId) !== undefined,
+				() => engine.view(switched) !== undefined,
 				UNTIL_MS,
 			);
-			const replaced = heldOf(engine, switched.sessionId, second.kept);
-			await host.close(switched.sessionId);
-			return {
-				keptHistory: {
-					resumed,
-					replaced,
-					switchedTo: switched.file === second.entry.file,
-				},
-			};
+			const replaced = heldOf(engine, switched, second.kept);
+			const switchedTo =
+				closedBefore && summary(engine, switched).file === second.entry.file;
+			await host.close(switched);
+			return { keptHistory: { resumed, adopted, replaced, switchedTo } };
 		},
 	},
 	/** Start again on a conversation parked before, which rests parked, its log held. */
