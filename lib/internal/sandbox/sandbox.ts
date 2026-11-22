@@ -336,9 +336,9 @@ export function withoutCloud(sandbox: Sandbox): Sandbox {
 
 /**
  * How a session's commands run: as they are, fenced, or not at all. A
- * strict command is handed a GitHub token from `github`, and a command
- * in either fence a cloud token and project from `gcloud`, when they
- * give them.
+ * strict command is handed a GitHub token from `github`, and a cloud
+ * token and project from `gcloud`, when they give them; a command in
+ * the agent fence only the reason it has none (`NO_CLOUD_IN_THE_FENCE`).
  */
 export type Sandbox =
 	| { readonly kind: "none" }
@@ -418,15 +418,27 @@ export function cloudVariables(
 }
 
 /**
- * Starts a fenced session's broker minting its first cloud token now,
+ * Starts a strict session's broker minting its first cloud token now,
  * rather than at its first command, so the commands a first turn runs
- * side by side don't all meet a token still on its way.
+ * side by side don't all meet a token still on its way. The agent fence
+ * asks no broker (`NO_CLOUD_IN_THE_FENCE`), so nothing is started for it.
  */
 export function askTheCloudAhead(sandbox: Sandbox): void {
-	if (sandbox.kind === "strict" || sandbox.kind === "fence") {
-		sandbox.gcloud?.();
-	}
+	if (sandbox.kind === "strict") sandbox.gcloud?.();
 }
+
+/**
+ * What the agent fence's gcloud is given: never a token, only why. The
+ * agents' account may change the cloud's machines, and a fenced session
+ * reads strangers' text, so a token in reach would let that text take
+ * over a machine. The fence keeps its own empty settings folder, so
+ * gcloud says it has no credentialed account rather than calling its
+ * install corrupt, until an account that only reads is named for it.
+ */
+export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
+	reason:
+		"the agent fence hands no command the agents' cloud account, which can change machines; run it from an unfenced session",
+});
 
 /**
  * `command`, preceded by a note on stderr saying why gcloud has no token
@@ -535,7 +547,7 @@ function askedFor(
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find, gcloud);
+	if (asked === FENCE) return fenceFor(platform, find, NO_CLOUD_IN_THE_FENCE);
 	if (platform !== "linux") {
 		return {
 			kind: "refused",
@@ -691,8 +703,9 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
-				// The person's cloud login stays hidden (fence-hidden.ts), so
-				// gcloud gets the agents' account's hour token, as in strict.
+				// The person's cloud login stays hidden (fence-hidden.ts), and
+				// gcloud gets a settings folder of its own, with a token only
+				// where the fence's source gives one (`NO_CLOUD_IN_THE_FENCE`).
 				const { grant, passed } = fenceCloud(sandbox, home, place.env);
 				const cloud = { ...made, ...(passed ? { passed } : {}) };
 				const guarded = guardedIn(watched);

@@ -11,8 +11,8 @@
  * logins pi's own tools read in pi's process, outside the fence, which no
  * command needs (Google's, Slack's and Vault's, and Tuple's sign-in); the
  * person's own cloud login, which fenced gcloud never reads, since it is
- * pointed at a settings folder of its own with the broker's hour token
- * (`../sandbox/gcloud-broker.ts`); and the login keyring with what
+ * pointed at an empty settings folder of its own and handed no token
+ * (`NO_CLOUD_IN_THE_FENCE` in `../sandbox/sandbox.ts`); and the login keyring with what
  * systemd sealed for the person (its password, eero's session), which
  * Landlock already keeps from systemd's credential service, so no copy
  * leaves for an offline guess either (IDEGAT, 13 November); and the

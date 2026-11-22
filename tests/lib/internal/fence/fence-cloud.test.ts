@@ -1,6 +1,7 @@
 /**
- * How a fenced command is handed the agents' cloud account: the
- * broker's token, its project and the session's own settings folder,
+ * How a fenced command is handed gcloud's variables: the session's own
+ * settings folder, and a token and project only where its source gives
+ * them, which the agent fence's never does (`NO_CLOUD_IN_THE_FENCE`),
  * set for the command alone and on neither bubblewrap's nor landrun's
  * command line, in place of any cloud variable the person's shell names,
  * run here through stand-ins for bubblewrap and landrun that write down
@@ -28,6 +29,7 @@ import { fenceFolders } from "../../../../lib/internal/fence/fence-home.ts";
 import {
 	askTheCloudAhead,
 	fenceCloud,
+	NO_CLOUD_IN_THE_FENCE,
 	sandboxFor,
 	withoutCloud,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
@@ -176,28 +178,61 @@ describe("a fenced command's cloud account", () => {
 		expect(text).not.toContain("touch /tmp/x");
 	});
 
-	it("is asked for ahead of the first command in the agent fence as in strict", () => {
+	it("is never asked for in the agent fence, which gets only why, though strict asks ahead", () => {
 		const asked: string[] = [];
 		const gcloud = () => {
 			asked.push("asked");
-			return { reason: "still minting" };
+			return { token, project: "a-lab-project" };
 		};
 		// No nix-offload is found, so nothing outside the test is started.
 		const found = (program: string) =>
 			program === "nix-offload" || program === "env"
 				? undefined
 				: `/run/current-system/sw/bin/${program}`;
-		const fence = sandboxFor(
-			{ PI_SANDBOX: "fence" },
-			"linux",
-			found,
-			() => undefined,
-			gcloud,
-			() => false,
-		);
-		expect(fence.kind).toBe("fence");
+		const made = (name: string) =>
+			sandboxFor(
+				{ PI_SANDBOX: name },
+				"linux",
+				found,
+				() => undefined,
+				gcloud,
+				() => false,
+			);
+		const fence = made("fence");
+		if (fence.kind !== "fence") throw new Error("not the fence");
 		askTheCloudAhead(fence);
+		expect(asked).toEqual([]);
+		expect(fence.gcloud?.()).toEqual(NO_CLOUD_IN_THE_FENCE());
+		expect(asked).toEqual([]);
+		const strict = made("strict");
+		expect(strict.kind).toBe("strict");
+		askTheCloudAhead(strict);
 		expect(asked).toEqual(["asked"]);
+	});
+
+	it("gives a fenced command no token, only the empty folder and the reason it has none", () => {
+		const home = mkdtempSync(join(tmpdir(), "fence-cloud-none-"));
+		try {
+			const { grant, passed } = fenceCloud(
+				{ gcloud: NO_CLOUD_IN_THE_FENCE },
+				home,
+				{ PI_SESSION_ID: "s-0" },
+			);
+			expect(grant && "reason" in grant).toBe(true);
+			expect(passed).toEqual({
+				CLOUDSDK_CONFIG: join(fenceFolders(home).gcloud, "s-0"),
+			});
+			expect(
+				fenced(
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+					'printf "%s\\n" "${CLOUDSDK_AUTH_ACCESS_TOKEN:-none}"',
+					passed ?? {},
+					{ CLOUDSDK_AUTH_ACCESS_TOKEN: token },
+				).trim(),
+			).toBe("none");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });
 

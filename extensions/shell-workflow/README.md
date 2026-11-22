@@ -159,6 +159,13 @@ through landrun:
   walk's shared slice outside the fence, before it starts.
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
+- **No cloud account.** Your own gcloud login is hidden, and gcloud
+  gets an empty settings folder of the session's own as
+  `CLOUDSDK_CONFIG`, but no token: the agents' account can change
+  machines, and a fenced session reads text a stranger may have
+  written. A command naming gcloud is told why. Run cloud work from an
+  unfenced session until an account that only reads is named for the
+  fence.
 
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a
