@@ -12,7 +12,7 @@ import { carriedCalls } from "../../lib/internal/shell/kept.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { CarriedShells } from "./carried-shells.ts";
 import { isHeavy } from "./heavy.ts";
-import { leftRunning } from "./left-running.ts";
+import { leftRunning, sparedUnder } from "./left-running.ts";
 import type { EventBus } from "./pi-session.ts";
 import {
 	callsLeftRunning,
@@ -182,11 +182,11 @@ export function stopKeeping(options: {
 
 	return {
 		async reapEarlier(hostKey) {
-			const reaped = await reapLeftBehind(
-				hostKey,
-				undefined,
-				left.spared(await carriedCalls()),
-			);
+			// The whole key's, so every child's notes too, not only this host's.
+			const spared = await sparedUnder(options.stateDir, await carriedCalls(), {
+				report,
+			});
+			const reaped = await reapLeftBehind(hostKey, undefined, spared);
 			if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(
