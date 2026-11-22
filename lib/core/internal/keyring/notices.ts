@@ -7,6 +7,12 @@
  * notice said before anyone listens waits for the first listener rather
  * than going nowhere, and the same words are said once a process, since
  * a locked keyring would otherwise repeat itself on every read.
+ *
+ * Each listener names the screen it shows notices on, and a notice
+ * reaches each screen once: two extensions keeping credentials in the
+ * keyring both listen in a session, and when they share this module
+ * rather than each loading its own copy, the person would otherwise
+ * read every notice twice.
  */
 
 /** One thing to tell the person. */
@@ -17,7 +23,8 @@ export interface KeyringNotice {
 
 type Listener = (notice: KeyringNotice) => void;
 
-const listeners = new Set<Listener>();
+/** Each listener, beside the screen it shows notices on. */
+const listeners = new Map<Listener, object>();
 const waiting: KeyringNotice[] = [];
 const said = new Set<string>();
 
@@ -29,15 +36,24 @@ export function sayKeyringNotice(notice: KeyringNotice): void {
 		waiting.push(notice);
 		return;
 	}
-	for (const listener of listeners) listener(notice);
+	const shown = new Set<object>();
+	for (const [listener, screen] of listeners) {
+		if (shown.has(screen)) continue;
+		shown.add(screen);
+		listener(notice);
+	}
 }
 
 /**
- * Hear every notice from now on, and those waiting for a listener.
- * Answers the function that stops listening.
+ * Hear every notice from now on, and those waiting for a listener,
+ * on `screen`, which no other listener on it hears again. Answers the
+ * function that stops listening.
  */
-export function onKeyringNotice(listener: Listener): () => void {
-	listeners.add(listener);
+export function onKeyringNotice(
+	listener: Listener,
+	screen: object = listener,
+): () => void {
+	listeners.set(listener, screen);
 	for (const notice of waiting.splice(0)) listener(notice);
 	return () => {
 		listeners.delete(listener);

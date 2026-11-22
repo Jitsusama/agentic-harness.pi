@@ -23,9 +23,12 @@ export function keepCredentialsInKeyring(
 
 	pi.on("session_start", async (_event, ctx) => {
 		stopListening?.();
+		// The screen as the session starts names it for every extension
+		// here; each notice still goes to the screen it has then, since the
+		// host may rebind it.
 		stopListening = onKeyringNotice((notice) => {
 			ctx.ui.notify(notice.message, notice.level);
-		});
+		}, ctx.ui);
 		move().catch((error: unknown) => {
 			sayKeyringNotice({
 				level: "warning",
