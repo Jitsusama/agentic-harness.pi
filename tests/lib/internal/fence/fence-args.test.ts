@@ -448,7 +448,8 @@ describe("the fence's arguments", () => {
 	it("lets none of the desktop's names through, by mount or by socket, nor a folder above one", () => {
 		expect(
 			[laidIn.githubDoor, laidIn.direnv, "agentic-harness.pi/quest-locks"].map(
-				(part) => laidArgs.some((arg) => arg.endsWith(part)),
+				(part) =>
+					part !== undefined && laidArgs.some((arg) => arg.endsWith(part)),
 			),
 			"the door's, direnv's or the quest locks' mount isn't laid to be checked",
 		).toEqual([true, true, true]);
