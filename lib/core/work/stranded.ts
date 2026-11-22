@@ -202,7 +202,10 @@ export const CANT_SAY =
  * which whatever ran in it could have written, so this says what git's
  * files hold rather than who put it there. A lock in the entry of the
  * checkout reclaim runs from never gets here: git there lists the tree,
- * and reclaim leaves every tree it lists to git.
+ * and reclaim leaves every tree it lists to git. A lock kept only in
+ * another clone's entry, where the tree's `.git` doesn't point, can't be
+ * seen from here, so that tree is set aside whole, and the clone's next
+ * cut of its name fails with git's word that it is missing but locked.
  */
 export const HAND_LOCKED =
 	"git won't read it, but git's entry for it is locked for a reason other than the English one a cut gives, as `git worktree lock` leaves or a cut killed before git here was told English, so it stays until `git worktree unlock`, run from the clone that cut it and never inside it or in a folder its `.git` names, which a sandboxed command could have written, takes that lock away; a lock that is neither a plain file nor a link to one, such as a fifo or a folder, which git never writes, may hold `git worktree unlock` and `git worktree list` waiting or fail them, so delete it from that clone's entry by hand without reading it; where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose `git worktree list` names it, never one found through its `.git`, or move it aside by hand";
@@ -382,14 +385,19 @@ function lockedByHand(entry: string): boolean {
 	return reason === undefined || reason.trim() !== "initializing";
 }
 
-/** Whether anything at all stands at `path`, a link included. */
+/**
+ * Whether anything at all stands at `path`, a link included. Only an
+ * answer that nothing is there says no: one that can't be looked at, a
+ * folder it won't search or a loop of links, may hold a lock, and a lock
+ * read as none would set aside a tree somebody locked.
+ */
 function standsAt(path: string): boolean {
 	try {
 		lstatSync(path);
 		return true;
-	} catch {
-		// Nothing there.
-		return false;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code !== "ENOENT" && code !== "ENOTDIR";
 	}
 }
 

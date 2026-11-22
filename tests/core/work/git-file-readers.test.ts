@@ -3,10 +3,12 @@
  *
  * Whatever ran in a tree chooses what stands at its `.git`, and so at
  * every git file that names. The in-use check, the orphan check, the
- * branch sweep and a re-cut's cleanup each read such a file, and a read
- * waiting on a fifo's writer would hold the work tool for good. Each
- * writer here is late and says what a good tree's file would, so a read
- * that waits is slow and finds what the plain file would have given.
+ * branch sweep, a re-cut's cleanup and a replay's notes each read such
+ * a file, and a read waiting on a fifo's writer would hold the work tool
+ * for good. Each writer here is late and says what a good tree's file
+ * would, so a read that waits is slow and finds what the plain file
+ * would have given. A replay writes its notes there too, and each late
+ * reader here holds a write that waits on its open just as long.
  * The guard's own reads are held in tree-git.test.ts and reclaim's in
  * stranded.test.ts.
  */
@@ -14,6 +16,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -25,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import { gitMovedAt } from "../../../lib/core/work/in-use.ts";
+import { createGitRebaser, recordOnto } from "../../../lib/core/work/rebase.ts";
 import {
 	forgetGoneEntry,
 	LOCK_STALE_MS,
@@ -34,6 +38,7 @@ import { goneGitDir } from "../../../lib/core/work/sweep-orphan.ts";
 import {
 	LATE_MS,
 	type LateWriter,
+	lateReader,
 	lateWriter,
 	timed,
 } from "../../support/late-writer.ts";
@@ -80,6 +85,109 @@ function failingExec(): { exec: Exec; asked: string[][] } {
 		asked,
 	};
 }
+
+/**
+ * An exec that answers where a replay keeps its notes, `first` the
+ * first `firstAsks` times and `later` after, says `conflicted` is
+ * unmerged, and fails every other command.
+ */
+function replayExec(
+	first: string,
+	later: string,
+	firstAsks: number,
+	conflicted: string,
+): Exec {
+	let asks = 0;
+	return (_command, args) => {
+		const said = (stdout: string) =>
+			Promise.resolve({ code: 0, stdout: `${stdout}\n`, stderr: "" });
+		const at = args.indexOf("--git-path");
+		const what = at < 0 ? undefined : args[at + 1];
+		if (what === "rebase-merge") {
+			asks += 1;
+			return said(asks <= firstAsks ? first : later);
+		}
+		if (what?.startsWith("rebase-merge/")) {
+			return said(join(first, what.slice("rebase-merge/".length)));
+		}
+		if (args.includes("--diff-filter=U")) return said(conflicted);
+		return Promise.resolve({ code: 1, stdout: "", stderr: "" });
+	};
+}
+
+describe("a replay's notes", () => {
+	it("reads none from a fifo and writes none into one, at once", async () => {
+		// The resume asks twice before its first note is read, and a
+		// third time where it writes the moves note back.
+		const first = join(root, "rebase-merge");
+		const later = join(root, "rebase-merge-later");
+		mkdirSync(first);
+		mkdirSync(later);
+		writeFileSync(
+			join(first, "agentic-harness-moves.json"),
+			JSON.stringify([{ path: "LOG.md", prefix: "#", from: 1, to: 2 }]),
+		);
+		for (const [name, words] of [
+			["onto", "0123456789abcdef\n"],
+			["head-name", "refs/heads/feature\n"],
+			["agentic-harness-onto", "main\n"],
+		] as const) {
+			writers.push(lateWriter(join(first, name), words));
+		}
+		writers.push(lateReader(join(later, "agentic-harness-moves.json")));
+		const rebaser = createGitRebaser({
+			exec: replayExec(first, later, 2, "LOG.md"),
+		});
+
+		const started = performance.now();
+		const halt = await rebaser.resume(join(root, "tree"));
+
+		expect(performance.now() - started, "nothing waited").toBeLessThan(
+			LATE_MS / 2,
+		);
+		expect(halt, "halted, no fifo read for its names").toEqual({
+			kind: "halted",
+			conflicted: ["LOG.md"],
+		});
+	});
+
+	it("writes no onto name into a fifo, at once", async () => {
+		const directory = join(root, "rebase-merge");
+		mkdirSync(directory);
+		writers.push(lateReader(join(directory, "agentic-harness-onto")));
+
+		const started = performance.now();
+		await recordOnto(
+			replayExec(directory, directory, 1, ""),
+			join(root, "tree"),
+			"main",
+		);
+
+		expect(performance.now() - started, "no write waited").toBeLessThan(
+			LATE_MS / 2,
+		);
+	});
+
+	it("still writes the onto name into a plain file", async () => {
+		const directory = join(root, "rebase-merge");
+		mkdirSync(directory);
+		writeFileSync(
+			join(directory, "agentic-harness-onto"),
+			"a much longer name\n",
+		);
+
+		await recordOnto(
+			replayExec(directory, directory, 1, ""),
+			join(root, "tree"),
+			"main",
+		);
+
+		expect(
+			readFileSync(join(directory, "agentic-harness-onto"), "utf8"),
+			"the whole note, cut to the new name",
+		).toBe("main\n");
+	});
+});
 
 describe("the in-use check", () => {
 	it("reads no git from a fifo at a tree's .git, at once", () => {

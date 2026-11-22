@@ -5,6 +5,7 @@
 
 import { execFile } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -28,6 +29,7 @@ import {
 	checkoutGitFolder,
 	cutRunning,
 	HAND_LOCKED,
+	handLocked,
 	handLockedIn,
 	LOCK_STALE_MS,
 	plainWords,
@@ -403,6 +405,22 @@ describe("splitStranded", () => {
 		expect(split.free).toEqual([]);
 		expect(split.kept[0]?.why).toBe(HAND_LOCKED);
 	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"reads an entry it may not look in as locked by hand",
+		() => {
+			// Read as nothing there, a lock git can't be asked about would let
+			// reclaim set aside a tree somebody locked.
+			const gitDir = standingGitDir("snapshot-x");
+			const path = treeNaming("snapshot-x", gitDir);
+			chmodSync(gitDir, 0o600);
+			try {
+				expect(handLocked(path), "kept, as a lock may stand").toBe(true);
+			} finally {
+				chmodSync(gitDir, 0o700);
+			}
+		},
+	);
 
 	it("reads no git folder from a fifo where a tree's .git should be", async () => {
 		// A read that waits takes as long as the writer is late, and gets a

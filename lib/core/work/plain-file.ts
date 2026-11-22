@@ -6,20 +6,33 @@
  * whatever ran in the tree could choose. A fifo or a device there turns
  * a plain read into one that never returns, holding the work tool, the
  * sweep and reclaim with it, so these files are opened without waiting
- * and read only once they prove plain.
+ * and read only once they prove plain. A note written beside git's own,
+ * as a replay's, is opened the same way, since a fifo waits on a writer's
+ * open as long as on a reader's.
  */
 
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	ftruncateSync,
+	openSync,
+	readSync,
+	writeSync,
+} from "node:fs";
 
 /** The most of a file of git's that {@link readPlain} reads. */
 const PLAIN_LIMIT = 4096;
 
 /**
- * The start of the plain file at `path`, at most {@link PLAIN_LIMIT}
- * bytes, or nothing when no plain file stands there: none at all, a
- * link, which git never writes, or a fifo, a device or a folder.
+ * The start of the plain file at `path`, at most `limit` bytes, or
+ * nothing when no plain file stands there: none at all, a link, which
+ * git never writes, or a fifo, a device or a folder.
  */
-export function readPlain(path: string): string | undefined {
+export function readPlain(
+	path: string,
+	limit = PLAIN_LIMIT,
+): string | undefined {
 	let fd: number;
 	try {
 		fd = openSync(
@@ -32,11 +45,50 @@ export function readPlain(path: string): string | undefined {
 	}
 	try {
 		if (!fstatSync(fd).isFile()) return undefined;
-		const buffer = Buffer.alloc(PLAIN_LIMIT);
-		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, PLAIN_LIMIT, 0));
+		const buffer = Buffer.alloc(limit);
+		return buffer.toString("utf8", 0, readSync(fd, buffer, 0, limit, 0));
 	} catch {
 		// It went or changed as it was read: nothing plain to say.
 		return undefined;
+	} finally {
+		closeQuietly(fd);
+	}
+}
+
+/**
+ * Write `text` as the whole of the plain file at `path`, answering
+ * whether it was written. Nothing is written where something other than
+ * a plain file stands, a link, a fifo, a device or a folder, and a fifo
+ * nobody reads is refused at its open rather than waited on.
+ */
+export function writePlain(path: string, text: string): boolean {
+	let fd: number;
+	try {
+		fd = openSync(
+			path,
+			constants.O_WRONLY |
+				constants.O_CREAT |
+				constants.O_NONBLOCK |
+				constants.O_NOFOLLOW,
+			0o644,
+		);
+	} catch {
+		// A link, a fifo with no reader, or no folder to write in.
+		return false;
+	}
+	try {
+		if (!fstatSync(fd).isFile()) return false;
+		// Cut only once it proves plain, so a fifo opened is never truncated.
+		const bytes = Buffer.from(text, "utf8");
+		let written = 0;
+		while (written < bytes.length) {
+			written += writeSync(fd, bytes, written, bytes.length - written, written);
+		}
+		ftruncateSync(fd, bytes.length);
+		return true;
+	} catch {
+		// It went or changed as it was written: unwritten, as the caller allows.
+		return false;
 	} finally {
 		closeQuietly(fd);
 	}

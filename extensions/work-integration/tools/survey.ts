@@ -207,7 +207,13 @@ async function treesLeftBehind(
 		// run there, goes only by being set aside under its record's lock.
 		// One a running session holds is among `keeping`. One the
 		// checkout's own entry names is among `worktrees`, whatever its
-		// `.git` says, so a lock git keeps there is never this sweep's.
+		// `.git` says, so a lock this checkout's git keeps is never this
+		// sweep's. A tree cut from another clone, one moved since included,
+		// is judged by what its `.git` names alone, since no record says
+		// which clone cut it: a lock only that clone's entry keeps can't be
+		// seen from here, so the tree is set aside whole, every file kept,
+		// and that clone's next cut of its name fails with git's own words:
+		// a missing but locked worktree, to unlock before it is cut again.
 		...(await strandedBeside(
 			[...keeping, ...unattributed, ...worktrees.map((tree) => tree.path)].map(
 				resolved,
