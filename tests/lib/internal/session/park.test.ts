@@ -4,6 +4,7 @@
 
 import {
 	existsSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -200,8 +201,10 @@ describe("whether a session parks, and after how long", () => {
 		writeFileSync(join(folder, "fresh"), "{}\n");
 		symlinkSync(join(folder, "fresh"), easePath("s-1", folder));
 		mkdirSync(easePath("s-2", folder));
+		linkSync(join(folder, "fresh"), easePath("s-3", folder));
 		expect(isEased("s-1", folder), "a link").toBe(false);
 		expect(isEased("s-2", folder), "a folder").toBe(false);
+		expect(isEased("s-3", folder), "a hard link").toBe(false);
 	});
 
 	it("reads and clears only a file of the session's own in the ease folder", () => {

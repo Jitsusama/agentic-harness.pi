@@ -1393,7 +1393,8 @@ describe("why a session stays awake", () => {
 		askToEase();
 		writeFileSync(parkSwitch(folder), "\n");
 		const watched = watching();
-		clock = PARK_AFTER_MS;
+		// Two minutes in: well inside the ask's half hour, and past its limit.
+		clock = EASED_PARK_AFTER_MS;
 		expect(watched.look()).toBe("parking is off");
 	});
 

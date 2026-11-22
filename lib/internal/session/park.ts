@@ -514,7 +514,7 @@ const namesOwnFile = (session: string) =>
 
 /**
  * Whether the node has asked `session` to park soon, by an ease file in
- * `folder`, a regular file and no link, written within
+ * `folder`, a regular file of one name and no link, written within
  * {@link EASE_LASTS_MS}. One dated past {@link EASE_SKEW_MS} ahead is
  * taken back, so it can't count once the clock catches up.
  */
@@ -526,7 +526,8 @@ export function isEased(
 	if (!namesOwnFile(session)) return false;
 	try {
 		const ask = lstatSync(easePath(session, folder));
-		if (!ask.isFile()) return false;
+		// A link, hard or soft, may share a busy file's times and never lapse.
+		if (!ask.isFile() || ask.nlink !== 1) return false;
 		const age = now - ask.mtimeMs;
 		if (age < -EASE_SKEW_MS) {
 			clearEase(session, folder);
