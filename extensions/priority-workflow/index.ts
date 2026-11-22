@@ -418,8 +418,10 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			session: ctx.sessionManager.getSessionId(),
 			room: recent,
 			cgroupFor,
-			sendsWholeRun: (command, cwd) =>
-				sendsWholeRun(command, cwd, takesKnown()),
+			sendsWholeRun: (command, cwd, quest) =>
+				sendsWholeRun(command, cwd, takesKnown(), undefined, undefined, {
+					...(quest === undefined ? {} : { quest }),
+				}),
 		});
 		timer = setInterval(() => {
 			if (keeping) return;

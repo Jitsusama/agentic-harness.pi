@@ -9,12 +9,13 @@
  * and its lease named a VM job here.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
+import { promisify } from "node:util";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
-import { type Step, stepsOf } from "../shell/steps.ts";
-import { runsElsewhere } from "./needs.ts";
+import { type Step, stepsOf, wordsOf } from "../shell/steps.ts";
+import { elsewhereKindOf } from "./needs.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
@@ -44,6 +45,8 @@ const DECIDED_MS = 10 * 60_000;
 
 interface Kept {
 	takes?: { readonly at: number; readonly takes: Promise<Takes> };
+	/** Where elsewhere last said each kind of job would run, by kind. */
+	placed?: Map<string, { readonly at: number; far?: boolean }>;
 	/** What the last answer said, for a caller that can't wait for one. */
 	known?: Takes;
 	readonly decided: Map<
@@ -177,6 +180,53 @@ export function takesKnown(now = Date.now()): Takes | undefined {
 	return kept().known;
 }
 
+/** How long elsewhere may take to say where a kind of job would run. */
+const WHERE_MS = 10_000;
+
+/**
+ * Whether elsewhere last said it would place a kind of job on another
+ * machine, asking again at most once a minute, and false until it first
+ * answers: for the queue, which can't wait. A job it places nowhere runs
+ * here, as it does while the Mac is away.
+ */
+export function placedFarKnown(kind: string, now = Date.now()): boolean {
+	const store = kept();
+	store.placed ??= new Map();
+	const known = store.placed.get(kind);
+	if (known === undefined || now - known.at >= TAKES_MS) {
+		const asked: { at: number; far?: boolean } = {
+			at: now,
+			...(known?.far === undefined ? {} : { far: known.far }),
+		};
+		store.placed.set(kind, asked);
+		void placedFar(kind).then((far) => {
+			asked.far = far;
+		});
+	}
+	return known?.far ?? false;
+}
+
+/** Whether `elsewhere where KIND` says the job would run on another machine. */
+async function placedFar(kind: string): Promise<boolean> {
+	try {
+		const { stdout } = await promisify(execFile)(
+			"elsewhere",
+			["where", kind, "--json"],
+			{ timeout: WHERE_MS },
+		);
+		const answer: unknown = JSON.parse(stdout);
+		return (
+			typeof answer === "object" &&
+			answer !== null &&
+			"here" in answer &&
+			answer.here === false
+		);
+	} catch {
+		// Not installed, a kind it doesn't know, or no answer in time: it runs here.
+		return false;
+	}
+}
+
 /** How long `git status` may take to say whether a tree is committed. */
 const STATUS_MS = 2_000;
 
@@ -184,13 +234,12 @@ const STATUS_MS = 2_000;
  * Whether every heavy step of `command`, run from `cwd`, sends its whole
  * run to a builder: a changed-checks run that sends itself, a
  * `nix-offload there --here-when-idle` that builds here only while this
- * machine is idle, or an `elsewhere run` that runs on the machine
- * mycelium places it on. Held as a build here, one such run waited 36
- * minutes on memory on 10 November, and changed-checks runs waited
- * behind it. On 22 November an `elsewhere run harness-check` bound for
- * the Mac, at load 5, waited over half an hour behind optimus's CPU and
- * memory, while vitest, tsc and cargo runs waited 79 hours that day to
- * run 2.4.
+ * machine is idle, or an `elsewhere run` that travels (see `travels`).
+ * Held as a build here, one such run waited 36 minutes on memory on 10
+ * November, and changed-checks runs waited behind it. On 22 November an
+ * `elsewhere run harness-check` bound for the Mac, at load 5, waited
+ * over half an hour behind optimus's CPU and memory, while vitest, tsc
+ * and cargo runs waited 79 hours that day to run 2.4.
  */
 export function sendsWholeRun(
 	command: string,
@@ -198,6 +247,7 @@ export function sendsWholeRun(
 	takes: Takes | undefined,
 	isCommitted: (folder: string) => boolean = committedAt,
 	home: string = homedir(),
+	far: Far = {},
 ): boolean {
 	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
 		(step) => kindOf(step.text) !== undefined,
@@ -207,10 +257,31 @@ export function sendsWholeRun(
 		heavy.every(
 			(step) =>
 				SENT_UNLESS_IDLE.test(step.text) ||
-				runsElsewhere(step.text) ||
+				travels(step, far) ||
 				changedChecksSent(step, takes, isCommitted),
 		)
 	);
+}
+
+/** What says whether an `elsewhere run` leaves this machine. */
+export interface Far {
+	/** The quest the command's session has loaded, if any. */
+	readonly quest?: string;
+	/** Whether elsewhere places a kind of job on another machine now. */
+	readonly placedFar?: (kind: string) => boolean;
+}
+
+/**
+ * Whether a step is an `elsewhere run` that leaves this machine: not
+ * asked to stay with `--here`, from a session on a quest (its tracked
+ * files travel through that quest's handover, and with no quest it runs
+ * here), and of a kind elsewhere places on another machine now. Only a
+ * placement that changes between asking and running keeps one here.
+ */
+function travels(step: Step, far: Far): boolean {
+	const kind = elsewhereKindOf(wordsOf(step.text));
+	if (kind === undefined || !far.quest) return false;
+	return (far.placedFar ?? placedFarKnown)(kind);
 }
 
 /**

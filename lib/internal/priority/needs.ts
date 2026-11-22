@@ -162,17 +162,60 @@ export function runsChangedChecks(command: string): boolean {
 	return CHANGED_CHECKS.test(command);
 }
 
-/**
- * `elsewhere run KIND`, which carries the job's tracked files to the
- * machine mycelium places it on and runs it there (core.nix's
- * elsewhere). It runs here only when no machine is placed, which is the
- * Mac being away, not this machine being busy.
- */
-const RUNS_ELSEWHERE = /(?<![\w./-])elsewhere\s+run\s+(?!-)[\w-]+/;
+/** A shell variable set for one command, as `NAME=value`. */
+const ASSIGNS = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/** Whether a command sends its run to another machine with `elsewhere run`. */
-export function runsElsewhere(command: string): boolean {
-	return RUNS_ELSEWHERE.test(command);
+/** What `env` reads before the program it runs: its options and settings. */
+function envTakes(words: readonly string[], at: number): number {
+	let next = at;
+	while (next < words.length) {
+		const word = words[next] ?? "";
+		if (word === "-u") next += 2;
+		else if (word.startsWith("-") || ASSIGNS.test(word)) next += 1;
+		else break;
+	}
+	return next;
+}
+
+/** What `timeout` reads before the program it runs: options, then a duration. */
+function timeoutTakes(words: readonly string[], at: number): number {
+	let next = at;
+	while ((words[next] ?? "").startsWith("-")) {
+		const word = words[next] ?? "";
+		next += word === "-s" || word === "-k" ? 2 : 1;
+	}
+	return next + 1;
+}
+
+/**
+ * The kind of job a step sends with `elsewhere run KIND -- ...`, which
+ * carries its tracked files to the machine mycelium places it on
+ * (core.nix's elsewhere), or nothing when the step runs something else,
+ * or asks with `--here` to run on this machine. Read from the step's
+ * words, past one-command settings, `env`, `timeout` and `command`, so
+ * the words inside a quoted argument or a test's name never count.
+ */
+export function elsewhereKindOf(words: readonly string[]): string | undefined {
+	let at = 0;
+	for (;;) {
+		const word = words[at] ?? "";
+		if (ASSIGNS.test(word)) at += 1;
+		else if (word === "env") at = envTakes(words, at + 1);
+		else if (word === "timeout") at = timeoutTakes(words, at + 1);
+		else if (word === "command" || word === "exec") at += 1;
+		else break;
+	}
+	const program = words[at] ?? "";
+	if (program !== "elsewhere" && !program.endsWith("/elsewhere")) {
+		return undefined;
+	}
+	const kind = words[at + 2] ?? "";
+	if (words[at + 1] !== "run" || kind === "" || kind.startsWith("-")) {
+		return undefined;
+	}
+	const end = words.indexOf("--", at + 3);
+	const options = words.slice(at + 3, end === -1 ? undefined : end);
+	return options.includes("--here") ? undefined : kind;
 }
 
 /**

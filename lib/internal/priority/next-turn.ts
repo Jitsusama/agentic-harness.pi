@@ -5,6 +5,7 @@
  */
 
 import { noun } from "../../ui/count.ts";
+import { wordsOf } from "../shell/steps.ts";
 import { NOBODY } from "./awaited.ts";
 import {
 	BUILDS_BESIDE_VMS,
@@ -37,8 +38,8 @@ import {
 	LIGHT_GIB,
 	NEEDS_GIB,
 	needsGibOf,
+	elsewhereKindOf,
 	runsChangedChecks,
-	runsElsewhere,
 	WALKS_AT_ONCE,
 	walksAtOnce,
 } from "./needs.ts";
@@ -116,13 +117,14 @@ const rank = (job: Job) =>
  * 0.4 GB at most yet waited 14,016 s on memory, a third of each one's
  * time to its result (80ECO2). A sent `nix-offload there
  * --here-when-idle` stays held: idle by CPU, it may build here while
- * memory is short. A sent `elsewhere run` goes too, since it runs on
- * another machine.
+ * memory is short. A sent `elsewhere run` goes too: it is sent only
+ * while elsewhere places its kind on another machine (send.ts).
  */
 function startsPressed(job: Job): boolean {
 	if (
 		job.sent === true &&
-		(runsChangedChecks(job.what) || runsElsewhere(job.what))
+		(runsChangedChecks(job.what) ||
+			elsewhereKindOf(wordsOf(job.what)) !== undefined)
 	) {
 		return true;
 	}
@@ -290,9 +292,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * beside one started within {@link WALK_SETTLES_MS}, and git's revert in
  * a World checkout reads as a walk. 15: a quick push opens no settling
  * window, and a command chaining another walk before a push is no quick
- * push, though its push still leaves out its LFS scan.
+ * push, though its push still leaves out its LFS scan. 16: an
+ * `elsewhere run` placed on another machine, from a session on a quest,
+ * is sent, so it skips the CPU hold and starts while memory is short.
  */
-export const RULES_VERSION = 15;
+export const RULES_VERSION = 16;
 
 /**
  * The job to start now, if any: the first waiting in order that its

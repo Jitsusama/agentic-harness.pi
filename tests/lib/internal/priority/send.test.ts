@@ -245,26 +245,64 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 		).toBe(true);
 	});
 
-	it("does for an elsewhere run, which runs where mycelium places it", () => {
-		for (const run of [
-			"elsewhere run harness-check -- pnpm exec vitest run tests/lib/internal/priority",
-			"elsewhere run harness-check -- pnpm typecheck > $TMPDIR/tc.log 2>&1",
-			"cd /tree && elsewhere run delta-spec -- cargo test",
-		]) {
+	describe("for an elsewhere run", () => {
+		const asked: string[] = [];
+		const far = {
+			quest: "QEST-X",
+			placedFar: (kind: string) => {
+				asked.push(kind);
+				return kind !== "stays";
+			},
+		};
+		const sent = (run: string, with_ = far) =>
+			sendsWholeRun(run, "/tree", undefined, () => false, "/home", with_);
+
+		it("does when a quest session's run is placed on another machine", () => {
+			for (const run of [
+				"elsewhere run harness-check -- pnpm exec vitest run tests/lib/internal/priority",
+				"timeout 900 elsewhere run harness-check -- pnpm typecheck > $TMPDIR/tc.log 2>&1",
+				"cd /tree && env -u SSH_AUTH_SOCK CI=1 elsewhere run delta-spec -- cargo test",
+				"/run/current-system/sw/bin/elsewhere run harness-check -- pnpm typecheck",
+			]) {
+				expect(sent(run), `${run} is sent whatever nix-offload takes`).toBe(
+					true,
+				);
+			}
+			expect(asked).toContain("delta-spec");
+		});
+
+		it("doesn't where elsewhere would run it here", () => {
+			const run = "elsewhere run harness-check -- pnpm typecheck";
+			expect(sent(run, { placedFar: far.placedFar }), "with no quest").toBe(
+				false,
+			);
 			expect(
-				sendsWholeRun(run, "/tree", undefined, () => false),
-				`${run} is sent whatever nix-offload takes`,
-			).toBe(true);
-		}
-		expect(
-			sendsWholeRun(
+				sent("elsewhere run harness-check --here -- pnpm typecheck"),
+				"asked to stay with --here",
+			).toBe(false);
+			expect(
+				sent("elsewhere run stays -- pnpm typecheck"),
+				"placed on no other machine",
+			).toBe(false);
+			expect(
+				sendsWholeRun(run, "/tree", undefined, () => false, "/home", {
+					quest: "QEST-X",
+					placedFar: () => false,
+				}),
+				"before elsewhere first answers",
+			).toBe(false);
+		});
+
+		it("doesn't for local heavy work that only mentions it", () => {
+			for (const run of [
 				"elsewhere run harness-check -- pnpm test && pnpm exec vitest run",
-				"/tree",
-				TAKES,
-				committed,
-			),
-			"a vitest run beside it runs here",
-		).toBe(false);
+				"pnpm exec vitest run -t 'elsewhere run harness-check'",
+				'cargo test -- "elsewhere run delta-spec"',
+				"elsewhere where harness-check && pnpm exec vitest run",
+			]) {
+				expect(sent(run), `${run} runs heavy work here`).toBe(false);
+			}
+		});
 	});
 
 	it("doesn't for a nix-offload there that may build here when unsent", () => {

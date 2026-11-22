@@ -110,10 +110,13 @@ describe("why each job waits", () => {
 		const pressed = { ...BUSY, memoryPressure: MOST_MEMORY_PRESSURE };
 
 		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
+		expect(waitReasons([sent], pressed, NOW).get("sent")).toBe("order");
 		const tight = { ...pressed, availableGib: 2 };
 		expect(nextTurn([sent], tight, NOW)).toBeUndefined();
+		expect(waitReasons([sent], tight, NOW).get("sent")).toBe("memory");
 		const { sent: _sent, ...unsent } = sent;
 		expect(nextTurn([unsent], pressed, NOW)).toBeUndefined();
+		expect(waitReasons([unsent], pressed, NOW).get("sent")).toBe("memory");
 	});
 
 	it("holds a sent nix-offload there that may build here while idle, while memory is pressed", () => {
