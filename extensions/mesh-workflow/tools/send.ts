@@ -3,6 +3,8 @@
  * what is refused, here or across into another realm.
  */
 
+import { refusalUnder } from "../../../lib/guardian/apply.ts";
+import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { namedAtStart } from "../../../lib/mesh/address.ts";
 import type { Crossed } from "../../../lib/mesh/flow.ts";
 import {
@@ -33,6 +35,7 @@ import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
+import { untestedCauseReason } from "../../../lib/prose/claims.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Found, findAbove } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
@@ -253,6 +256,18 @@ export async function sendAcross(
 	const re = params.re ? (messageNamed(at, params.re) ?? params.re) : undefined;
 	const refused = crossedAnswerRefused(at, re);
 	if (refused) return refused;
+	// Across a realm a cause told as fact is passed on as fact all the
+	// same, so it is judged as a send here is. A hold must arrive on time,
+	// so it goes unjudged; an end can't cross, so none is one here.
+	const untested =
+		params.intent === "hold"
+			? undefined
+			: await untestedRefusal(at, params, realm, to);
+	if (untested !== undefined) {
+		return answer(`Not sent: ${untested}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
 	const sent = await at.cross({
 		realm,
 		from: at.peer.signature,
@@ -304,6 +319,41 @@ function messageNamed(at: Local, written: string): string | undefined {
 		idNamed(written, at.transport.recentIds()) ??
 		idNamed(written, at.transport.ids())
 	);
+}
+
+/**
+ * Why a text may not go for stating an untested cause as settled, under
+ * the `untested-cause` guard's mode, or nothing. Sent again unchanged, a
+ * redirected text goes, and the person is shown it was let through.
+ * The send stands for the call (the realm and the groups the caller
+ * fixed, by naming, replacing or answering, its intent, what it answers
+ * and its text), not the reason, since the classifier may quote other
+ * parts of the same text the second time. Where routing chose the
+ * groups it stands for none, since routing may choose others the second
+ * time.
+ */
+async function untestedRefusal(
+	at: Local,
+	params: SendParams,
+	realm: string,
+	reaching: readonly string[],
+): Promise<string | undefined> {
+	const found = at.untested ? await at.untested(params.text) : [];
+	if (found.length === 0) return undefined;
+	const verdict = refusalUnder(
+		GUARDS.untestedCause.name,
+		{ block: true, reason: untestedCauseReason(found) },
+		"A mesh message stating an untested cause",
+		[
+			realm,
+			[...reaching].sort().join(","),
+			params.intent,
+			params.re ?? "",
+			params.text,
+		].join("\n"),
+		GUARDS.untestedCause.name,
+	);
+	return verdict?.reason;
 }
 
 export async function send(at: Local, params: SendParams): Promise<Answer> {
@@ -591,6 +641,23 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		notes.push(
 			`Not written to ${unheard.join(", ")}: ${unheardText(unheard, flows)}`,
 		);
+	}
+	// A cause stated as settled with no test behind it is passed on as
+	// settled, so it is refused before anyone reads it (lib/prose/claims.ts).
+	// It is judged after every refusal read from the send itself, so a
+	// resend it lets through goes. A hold, or a send ending one by answer
+	// or replacement, must arrive on time, so it goes unjudged.
+	const onTime =
+		intent.intent === "hold" ||
+		ownReplaced?.intent === "hold" ||
+		(params.endsHold === true && asker?.intent === "hold");
+	const untested = onTime
+		? undefined
+		: await untestedRefusal(at, params, "", aimed ?? chosen);
+	if (untested !== undefined) {
+		return answer(`Not sent: ${untested}`, {
+			sent: false,
+		} satisfies SendDetails);
 	}
 	// Only peers still there count as in a group: one whose every other
 	// member has ended is one nobody hears this in until someone joins.

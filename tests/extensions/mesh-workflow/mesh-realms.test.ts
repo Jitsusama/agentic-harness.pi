@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { shortId } from "../../../lib/mesh/message.ts";
 import { stopPresent } from "../../../lib/mesh/present.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
@@ -102,6 +103,7 @@ const flowing = (...to: string[]) => ({ Ok: { Flows: { to } } });
 describe("a send into another realm", () => {
 	afterEach(async () => {
 		stopPresent();
+		forgetRedirects();
 		await Promise.all(
 			realmServers
 				.splice(0)
@@ -174,6 +176,47 @@ describe("a send into another realm", () => {
 
 		expect(text).toContain("Its node lets it send to no other realm.");
 		expect(node.sends).toEqual([]);
+	});
+
+	it("refuses a cause told as fact before it crosses, and lets it cross sent again or as a hold, as a send here is", async () => {
+		const node = await realmNode(flowing("work"));
+		const sure = {
+			modelRegistry: {
+				getAvailableOfType: async () => [
+					{ provider: "typesafe", id: "jev-latest" },
+				],
+				classify: async (_model: unknown, context: { questions: object }) => ({
+					stopReason: "stop",
+					answers:
+						"cause" in context.questions
+							? { cause: { probabilities: { untested_cause: 0.97 } } }
+							: {},
+				}),
+			},
+		};
+		const { tools } = await startSession(node.env, sure);
+
+		const cause = {
+			to: "4uhc5q",
+			intent: "finding",
+			text: "The builder failed because its disk filled up.",
+			realm: "work",
+		} as const;
+		const { text } = await sendWith(tools, cause);
+
+		expect(text).toContain("Not sent: This states why");
+		expect(node.sends).toEqual([]);
+
+		const again = await sendWith(tools, cause);
+
+		expect(again.text).toContain("Sent to the work realm");
+		expect(node.sends).toHaveLength(1);
+
+		// A hold must arrive on time, so it crosses unjudged the first time.
+		const held = await sendWith(tools, { ...cause, intent: "hold" });
+
+		expect(held.text).toContain("Sent to the work realm");
+		expect(node.sends).toHaveLength(2);
 	});
 
 	it("hands the node's refusal back to the sender with its why", async () => {
