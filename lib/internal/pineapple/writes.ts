@@ -20,8 +20,15 @@ import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
 import type { CommandLine, SimpleCommand } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
-import { flatten, inlined, uncommented } from "./flatten.ts";
-import { readsStdin, runs, SHELLS, sshReadsStdin, unwrapped } from "./runs.ts";
+import { flatten, heredocRuns, inlined, uncommented } from "./flatten.ts";
+import {
+	ranAtLast,
+	readsStdin,
+	runs,
+	SHELLS,
+	sshReadsStdin,
+	unwrapped,
+} from "./runs.ts";
 import { startIn } from "./starts.ts";
 
 /**
@@ -261,11 +268,13 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
  */
 function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
 	// Comments and heredocs, which the command model misreads, go first.
-	const source = inlined(uncommented(command));
+	const plain = uncommented(command);
+	const source = inlined(plain);
 	const flat = flatten(source);
-	// What a double-quoted substitution runs, where isn't known.
-	const substituted = flat.substituted.flatMap((inner) =>
-		writesInLine(inner, undefined),
+	// What a substitution runs in double quotes or an unquoted heredoc,
+	// where isn't known.
+	const substituted = [...flat.substituted, ...heredocRuns(plain)].flatMap(
+		(inner) => writesInLine(inner, undefined),
 	);
 	const line = tokenize(source);
 	if (line.supported) return [...writesOf(line, cwd), ...substituted];
@@ -303,8 +312,8 @@ function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
  * What a command reading its commands on stdin is fed, as lines to read:
  * its here-strings, which its heredocs became, and the words and
  * here-strings of the command piped into it. That command is a shell
- * reading stdin, or ssh, whose starts alone count, as it says. Nothing
- * when it is neither.
+ * reading stdin, or ssh, whose starts alone count, as it says, behind
+ * any wrapper or launcher. Nothing when it is neither.
  */
 function fedTo(
 	line: CommandLine,
@@ -312,7 +321,7 @@ function fedTo(
 	argv: string[],
 	strings: string[],
 ): { lines: string[]; runner?: string } | undefined {
-	const [program, ...args] = argv;
+	const [program, ...args] = ranAtLast(argv);
 	const name = program?.split("/").at(-1) ?? "";
 	const shell = SHELLS.has(name) && readsStdin(args);
 	if (!shell && !(name === "ssh" && sshReadsStdin(args))) return undefined;
@@ -328,15 +337,28 @@ function fedTo(
 /**
  * The command piped into `simple`, found by where each sits in the line
  * rather than by its index, since the command model leaves an empty one
- * out but keeps the connector after it.
+ * out but keeps the connector after it. A pipe may end its line, the
+ * command it feeds starting the next, so the line breaks after it with
+ * no command between are passed over.
  */
 function pipedInto(
 	line: CommandLine,
 	simple: SimpleCommand,
 ): SimpleCommand | undefined {
-	const before = line.connectors
-		.filter((connector) => connector.span.end <= simple.span.start)
-		.at(-1);
+	const connectors = line.connectors.filter(
+		(connector) => connector.span.end <= simple.span.start,
+	);
+	let at = connectors.length - 1;
+	while (connectors[at]?.op === "\n" && at > 0) {
+		const after = connectors[at - 1]?.span.end ?? 0;
+		const until = connectors[at]?.span.start ?? 0;
+		const between = line.commands.some(
+			(command) => command.span.start >= after && command.span.end <= until,
+		);
+		if (between) break;
+		at -= 1;
+	}
+	const before = connectors[at];
 	if (before?.op !== "|" && before?.op !== "|&") return undefined;
 	return line.commands
 		.filter((command) => command.span.end <= before.span.start)

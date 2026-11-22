@@ -322,21 +322,50 @@ function splitString(
 	return value?.split(/\s+/).filter(Boolean);
 }
 
+/** A shell's long options that take the next word as their value. */
+const SHELL_VALUED = new Set(["--rcfile", "--init-file"]);
+
 /**
  * Whether a shell given `args` reads its commands on stdin: given no `-c`
- * line and no script, or told to with `-s`, whatever words follow.
+ * line and no script, or told to with `-s`, whatever words follow. `-o`
+ * and `-O` take a value, alone or ending a cluster as in `-euo pipefail`,
+ * and a lone `-` ends the options as `--` does.
  */
 export function readsStdin(args: string[]): boolean {
 	let told = false;
 	for (let at = 0; at < args.length; at += 1) {
 		const word = args[at] ?? "";
 		if (RUNS_LINE.test(word)) return false;
-		if (word === "--") return told || at === args.length - 1;
-		if (word === "-o" || word === "+o") at += 1;
-		else if (/^[-+][A-Za-z]+$/.test(word)) told ||= word.includes("s");
+		if (word === "--" || word === "-") return told || at === args.length - 1;
+		if (/^[-+][A-Za-z]+$/.test(word)) {
+			told ||= word.includes("s");
+			if (/[oO]$/.test(word)) at += 1;
+		} else if (SHELL_VALUED.has(word)) at += 1;
 		else if (!word.startsWith("--")) return told;
 	}
 	return true;
+}
+
+/** How many launchers deep `ranAtLast` looks before it gives up. */
+const LAUNCHED_DEPTH = 8;
+
+/**
+ * The words of the program a command runs at last, past every wrapper
+ * and every launcher that hands its words on, such as `nice`, `setsid`
+ * or `flock`; an opaque runner, or one handing on a line, is where it
+ * stops.
+ */
+export function ranAtLast(argv: string[]): string[] {
+	let words = unwrapped(argv);
+	for (let depth = 0; depth < LAUNCHED_DEPTH; depth += 1) {
+		const [program, ...args] = words;
+		if (program === undefined) return words;
+		const ran = runs(program.split("/").at(-1) ?? "", args);
+		if (ran === undefined || !("argv" in ran) || ran.opaque !== undefined)
+			return words;
+		words = unwrapped(ran.argv);
+	}
+	return words;
 }
 
 /**
@@ -347,7 +376,7 @@ export function sshReadsStdin(args: string[]): boolean {
 	const host = optionsEnd(args, SSH);
 	if (host >= args.length) return false;
 	const there = args.slice(optionsEnd(args, SSH, host + 1)).join(" ");
-	const [program, ...rest] = there.split(/\s+/).filter(Boolean);
+	const [program, ...rest] = ranAtLast(there.split(/\s+/).filter(Boolean));
 	if (program === undefined) return true;
 	return SHELLS.has(program.split("/").at(-1) ?? "") && readsStdin(rest);
 }

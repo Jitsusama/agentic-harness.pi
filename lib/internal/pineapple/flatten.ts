@@ -19,6 +19,8 @@
  * heredoc, whose opener line the model reads only up to the heredoc,
  * losing a pipe or a command after it. Each heredoc becomes a
  * here-string of its body, which keeps it data and keeps what follows.
+ * An unquoted heredoc's body is expanded as double quotes are, so the
+ * substitutions in it are handed back to read too.
  */
 
 import { matchHeredocs } from "../../shell/parse.ts";
@@ -79,8 +81,10 @@ export function uncommented(source: string): string {
 		let end = at + 1;
 		if (body) end = body.end;
 		else if (char === "\\") end = at + 2;
-		else if (char === "'") end = closingQuote(source, at, false);
-		else if (char === '"') end = closingQuote(source, at, true);
+		else if (char === "'") {
+			const close = source.indexOf("'", at + 1);
+			end = close < 0 ? source.length : close + 1;
+		} else if (char === '"') end = doubleQuoted(source, at, bodyAt).end;
 		else if (char === "#" && /^$|[\s;&|()]/.test(source[at - 1] ?? "")) {
 			const close = source.indexOf("\n", at);
 			at = close < 0 ? source.length : close;
@@ -92,30 +96,39 @@ export function uncommented(source: string): string {
 	return line;
 }
 
-/** Where a quote opened at `open` ends, past its escapes when it has them. */
-function closingQuote(source: string, open: number, escapes: boolean): number {
-	const quote = source[open];
-	let at = open + 1;
-	while (at < source.length && source[at] !== quote) {
-		at += escapes && source[at] === "\\" ? 2 : 1;
-	}
-	return Math.min(at + 1, source.length);
-}
-
 /**
  * The line with each heredoc made a here-string of its body, quoted as
- * data, and the rest of its opener line kept after it.
+ * data, and the rest of its opener line kept after it. An apostrophe in
+ * the body is closed, double-quoted and reopened, since the command
+ * model reads no backslash escape outside quotes.
  */
 export function inlined(source: string): string {
 	let line = source;
 	for (const match of matchHeredocs(source).reverse()) {
-		const body = `'${match.body.replaceAll("'", "'\\''")}'`;
+		const body = `'${match.body.replaceAll("'", `'"'"'`)}'`;
 		line =
 			line.slice(0, match.index) +
 			`<<< ${body}${match.openerRest}` +
 			line.slice(match.index + match.length);
 	}
 	return line;
+}
+
+/**
+ * What each unquoted heredoc's body runs: the substitutions in it, which
+ * the shell expands as it does in double quotes.
+ */
+export function heredocRuns(source: string): string[] {
+	return matchHeredocs(source)
+		.filter((match) => !match.quoted)
+		.flatMap(
+			(match) =>
+				doubleQuoted(
+					`"${match.body.replaceAll('"', '\\"')}"`,
+					0,
+					() => undefined,
+				).substituted,
+		);
 }
 
 /** The line with its structure flattened, and what its double quotes run. */

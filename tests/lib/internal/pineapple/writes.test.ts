@@ -357,6 +357,34 @@ describe("writesInBash", () => {
 		}
 	});
 
+	it("reads quotes, shell options and pipes as bash does", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("cat > notes.md <<'EOF' && pi -p go\nit's done\nEOF", "pi");
+		held("cat > n.md <<'EOF'\nit's\nEOF\ngit push origin fix", "git push");
+		held(
+			'git commit -m "$(printf "%s" "$msg")" -m "Refs #12" && git push origin fix',
+			"git push",
+		);
+		held(
+			'git commit -m "$(printf "%s #1" "$msg")" && git push origin fix',
+			"git push",
+		);
+		held("bash -euo pipefail <<'EOF'\npi -p go\nEOF", "pi");
+		held(
+			"ssh mac bash -euo pipefail <<'EOF'\nsystemctl --user restart pi-host-work-background\nEOF",
+			"ssh pi host restart",
+		);
+		held("echo 'pi -p go' |\n  bash", "pi");
+		held("echo 'pi -p go' | sh -", "pi");
+		held("cat <<EOF > f\n$(pi -p go)\nEOF", "pi");
+		held("echo 'pi -p go' | nice bash", "pi");
+		held("echo 'pi -p go' | ssh mac sudo bash", "ssh pi");
+		expect(actions("cat <<'EOF' > f\n$(pi -p go)\nEOF")).toEqual([]);
+	});
+
 	it("sees past a wrapper's options that take a value", () => {
 		const actions = (command: string) =>
 			writesInBash(command, HERE).map((write) => write.action);
