@@ -5,7 +5,7 @@
  * policy off the same fake disks, so its parts change together.
  */
 
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	fenceArgs,
@@ -17,10 +17,12 @@ import {
 	NEVER_THROUGH,
 } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
+import { githubDoorFolder } from "../../../../lib/internal/fence/fence-github.ts";
 import {
 	foldersMadeFirst,
 	READ_ONLY,
 } from "../../../../lib/internal/fence/fence-home.ts";
+import { mountsOf } from "../../../../lib/internal/fence/fence-pins.ts";
 import { plantedCache } from "../../../../lib/internal/fence/fence-temp-caches.ts";
 
 /**
@@ -41,12 +43,37 @@ function diskWith(
 	};
 }
 
+/** Whether `path` is `folder` or lies in it, however either is spelled. */
+function within(path: string, folder: string): boolean {
+	const at = relative(folder, path);
+	return at === "" || (!at.startsWith("..") && !isAbsolute(at));
+}
+
 /**
- * Each name the fence must keep out that its binds or Landlock rules
- * reach, by naming it or a folder above it. Only binds into the runtime
- * folder count, since it starts inside as an empty tmpfs: an absolute
- * name is seen through the whole disk's bind, and only the rules keep it
- * shut.
+ * Whether `given` reaches the never-through `name`, at `path` outside:
+ * it is the name, a folder above it, or, for a name ending in a
+ * wildcard, a match or something in one.
+ */
+function reaches(given: string, name: string, path: string): boolean {
+	if (!name.endsWith("*")) return within(path, given);
+	const folder = dirname(path);
+	if (within(folder, given)) return true;
+	const [first] = relative(folder, given).split(sep);
+	return (
+		within(given, folder) &&
+		(first ?? "").startsWith(basename(path).slice(0, -1))
+	);
+}
+
+/**
+ * Each name the fence must keep out that its Landlock rules or its
+ * mounts reach. A rule reaches a name by naming it or a folder above it.
+ * A mount reaches one whose host path its source holds, wherever that
+ * lands, unless it lands in the runtime folder before the tmpfs laid
+ * over it, as the whole disk's bind does; a mount laid after that tmpfs
+ * at or above the folder uncovers it. Every option bubblewrap is given
+ * is read as the fence reads it (`mountsOf`). An absolute name is seen
+ * through the whole disk's bind, so only the rules keep it shut.
  */
 function namesReached(
 	args: readonly string[],
@@ -56,24 +83,30 @@ function namesReached(
 	const ruled = rules.flatMap((rule, at) =>
 		rule === "--unix" ? [rules[at + 1] ?? ""] : [],
 	);
-	// Where each bind lands inside, which is the pair's second path, when
-	// that's the runtime folder or in it: one above it lies under the
-	// tmpfs laid over the folder.
-	const bound = args
-		.flatMap((arg, at) =>
-			arg === "--bind" || arg === "--ro-bind" ? [args[at + 2] ?? ""] : [],
-		)
-		.filter(
-			(given) => given === runtimeDir || given.startsWith(`${runtimeDir}/`),
-		);
+	const mounts = mountsOf(args);
+	const emptied = Math.max(
+		...mounts
+			.filter((mount) => mount.option === "--tmpfs" && mount.to === runtimeDir)
+			.map((mount) => mount.at),
+	);
 	return NEVER_THROUGH.filter((name) => {
-		const absolute = name.startsWith("/");
-		const path = absolute ? name : join(runtimeDir, name.replace(/\*$/, ""));
-		const reaches = (given: string) =>
-			given === path ||
-			path.startsWith(`${given}/`) ||
-			(name.endsWith("*") && given.startsWith(path));
-		return [...ruled, ...(absolute ? [] : bound)].some(reaches);
+		const path = isAbsolute(name) ? name : join(runtimeDir, name);
+		if (ruled.some((given) => reaches(given, name, path))) return true;
+		if (isAbsolute(name)) return false;
+		return mounts.some((mount) => {
+			// An overlay's sources aren't read here, so one over a name, or a
+			// folder above it, counts as showing it.
+			if (mount.option === "--tmp-overlay") {
+				return mount.to !== undefined && reaches(mount.to, name, path);
+			}
+			if (!mount.from || !mount.to || !reaches(mount.from, name, path)) {
+				return false;
+			}
+			const lands = within(path, mount.from)
+				? join(mount.to, relative(mount.from, path))
+				: mount.to;
+			return !(mount.at < emptied && within(lands, runtimeDir));
+		});
 	});
 }
 
@@ -381,27 +414,119 @@ describe("the fence's arguments", () => {
 		expect(readOnly).not.toContain("/home/someone/.local/bin");
 	});
 
-	it("lets none of the desktop's names through, by bind or by socket, nor a folder above one", () => {
+	// The whole fence, with everything it can lay in the runtime folder:
+	// the GitHub door's folder, direnv's settings and the quest locks.
+	const laidIn = {
+		...place,
+		githubDoor: githubDoorFolder(place.runtimeDir, "s1"),
+		direnv: join(place.runtimeDir, "agentic-harness.pi", "direnv"),
+	};
+	const laidArgs = fenceArgs(laidIn, {
+		...diskWith(place.home, ["src", ".config"]),
+		questLocks: (runtimeDir) => ({
+			folder: join(runtimeDir, "agentic-harness.pi", "quest-locks"),
+			ours: true,
+		}),
+	});
+	const laidRules = fenceRules(laidIn);
+
+	it("lets none of the desktop's names through, by mount or by socket, nor a folder above one", () => {
 		expect(
-			namesReached(args, rules, place.runtimeDir),
+			["--ro-bind-try", laidIn.direnv, "agentic-harness.pi/quest-locks"].map(
+				(part) => laidArgs.some((arg) => arg.endsWith(part)),
+			),
+			"the door's, direnv's or the quest locks' mount isn't laid to be checked",
+		).toEqual([true, true, true]);
+		expect(
+			namesReached(laidArgs, laidRules, place.runtimeDir),
 			"names the fence must keep out are let through",
 		).toEqual([]);
 	});
 
-	it("sees the eero daemon's folder let through, by rule or by bind, as its socket let through", () => {
+	it("sees the eero daemon's socket let through however a rule or a mount reaches it", () => {
 		const folder = join(place.runtimeDir, "eero");
-		expect(
-			namesReached(args, [...rules, "--unix", folder], place.runtimeDir),
-			"a Landlock rule on the socket's folder passed as leaving it shut",
-		).toEqual(["eero/socket"]);
-		expect(
-			namesReached(
+		const everyRuntimeName = NEVER_THROUGH.filter((name) => !isAbsolute(name));
+		const emptying = args.indexOf("--perms");
+		const cases: [string, string[], string[], readonly string[]][] = [
+			[
+				"a rule on its folder",
+				args,
+				[...rules, "--unix", folder],
+				["eero/socket"],
+			],
+			[
+				"a rule on its folder with a slash",
+				args,
+				[...rules, "--unix", `${folder}/`],
+				["eero/socket"],
+			],
+			[
+				"a rule on the runtime folder",
+				args,
+				[...rules, "--unix", place.runtimeDir],
+				everyRuntimeName,
+			],
+			[
+				"a read-only bind",
 				[...args, "--ro-bind", folder, folder],
 				rules,
-				place.runtimeDir,
-			),
-			"a read-only bind of the socket's folder passed as leaving it shut",
-		).toEqual(["eero/socket"]);
+				["eero/socket"],
+			],
+			[
+				"a bind tried",
+				[...args, "--ro-bind-try", folder, folder],
+				rules,
+				["eero/socket"],
+			],
+			[
+				"a device bind",
+				[...args, "--dev-bind", folder, folder],
+				rules,
+				["eero/socket"],
+			],
+			[
+				"a bind out of the folder",
+				[...args, "--ro-bind", folder, "/tmp/eero"],
+				rules,
+				["eero/socket"],
+			],
+			[
+				"an overlay",
+				[...args, "--overlay-src", folder, "--tmp-overlay", folder],
+				rules,
+				["eero/socket"],
+			],
+			[
+				"/run bound after the tmpfs",
+				[...args, "--ro-bind", "/run", "/run"],
+				rules,
+				everyRuntimeName,
+			],
+			[
+				"/run bound before the tmpfs",
+				[
+					...args.slice(0, emptying),
+					"--ro-bind",
+					"/run",
+					"/run",
+					...args.slice(emptying),
+				],
+				rules,
+				[],
+			],
+			[
+				"a stand-in bound over it",
+				[...args, "--ro-bind", "/dev/null", join(folder, "socket")],
+				rules,
+				[],
+			],
+		];
+		for (const [how, given, ruled, reached] of cases) {
+			expect(
+				namesReached(given, ruled, place.runtimeDir),
+				`${how} was judged wrongly`,
+			).toEqual(reached);
+		}
 	});
 
 	it("hides the system bus and X's sockets, and binds no read-only path writable", () => {

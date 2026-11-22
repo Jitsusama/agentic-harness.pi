@@ -41,19 +41,23 @@ const landrun = workingLandrun();
 const CREDENTIALS = "/run/systemd/io.systemd.Credentials";
 
 /**
- * How a node ends trying its socket: it connected, or it ran and its
- * connect failed. Any other end (landrun refusing its arguments, node
- * not starting under the rules, the run timing out) is neither, so a
- * broken fence never reads as a socket kept shut.
+ * How a node ends trying its socket: it connected, or its connect was
+ * refused access, which is how Landlock refuses one (EACCES, as landrun
+ * 0.1.17 on Linux 7.3 gives it; a missing socket is ENOENT). Any other
+ * end (another connect error, landrun refusing its arguments, which it
+ * exits 1 for, node not starting under the rules, the run timing out)
+ * is neither, so a broken fence or a gone socket never reads as one
+ * kept shut.
  */
 const CONNECTED = 0;
-const REFUSED = 2;
+const DENIED = 13;
+const OTHERWISE = 3;
 
 /** A script for node that exits with how its connect to its socket went. */
 const CONNECT = [
 	"const s = require('node:net').connect(process.argv[1]);",
 	`s.on('connect', () => process.exit(${CONNECTED}));`,
-	`s.on('error', () => process.exit(${REFUSED}));`,
+	`s.on('error', (e) => process.exit(e.code === 'EACCES' ? ${DENIED} : ${OTHERWISE}));`,
 ].join(" ");
 
 /** How a node, wrapped in `before`, ended trying the socket at `path`. */
@@ -141,7 +145,7 @@ describe.skipIf(landrun === undefined)(
 			expect(
 				await tries(standing, fenced()),
 				"a fenced command connected to a socket the fence doesn't list, or never tried",
-			).toBe(REFUSED);
+			).toBe(DENIED);
 		});
 
 		it("lets a fenced command reach the proxy's socket in its own folder, which the rule names as a folder", async (context) => {
@@ -166,28 +170,38 @@ describe.skipIf(landrun === undefined)(
 			if (!(await connects(CREDENTIALS, []))) context.skip();
 
 			expect(
+				await tries(letThrough, fenced()),
+				"the SSH agent's proxy, which the fence lets through, wasn't reached",
+			).toBe(CONNECTED);
+			expect(
 				await tries(CREDENTIALS, fenced()),
 				"a fenced command reached systemd's credential service, or never tried",
-			).toBe(REFUSED);
+			).toBe(DENIED);
 			expect(NEVER_THROUGH).toContain(CREDENTIALS);
 		});
 
 		it("keeps a fenced command from the eero daemon's socket, which changes the home network", async (context) => {
 			if (!(await connects(eero, []))) context.skip();
 
-			// The same rules reach the socket they let through, so the refusal
-			// below is Landlock's, not a fence that never ran.
+			// The same rules with one more, on the socket's folder, reach it,
+			// so its refusal below comes from no rule naming it or its folder,
+			// not from a fence that never ran or anything else about the path.
 			expect(
-				await tries(letThrough, fenced()),
-				"the SSH agent's proxy, which the fence lets through, wasn't reached",
+				await tries(eero, [
+					landrun ?? "landrun",
+					...fenceRules({ home: base, runtimeDir }),
+					"--unix",
+					join(runtimeDir, "eero"),
+					"--",
+				]),
+				"the eero daemon's socket wasn't reached with a rule on its folder",
 			).toBe(CONNECTED);
-			// Refused because no rule names the socket or its folder: the
-			// list below keeps nothing out, but names it for fence-args' test
-			// and the preflight to check.
+			// The list below keeps nothing out, but names it for fence-args'
+			// test and the preflight to check.
 			expect(
 				await tries(eero, fenced()),
 				"a fenced command connected to the eero daemon's socket, or never tried",
-			).toBe(REFUSED);
+			).toBe(DENIED);
 			expect(
 				NEVER_THROUGH,
 				"the list names another path than the socket this proves shut",

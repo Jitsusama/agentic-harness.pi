@@ -133,7 +133,7 @@ export const FENCE = "fence";
  * proxy's old place, now a link into the folder, kept for a machine
  * whose proxy hasn't moved yet.
  */
-const LET_THROUGH = [
+export const LET_THROUGH = [
 	"nix-untrusted.sock",
 	"pi-agent.sock",
 	"pi-agent",
@@ -216,10 +216,10 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
-	// The eero daemon's socket, where core's modules/eero/home.nix has it
-	// listen, which reserves addresses and changes the home network's
-	// settings as the person: an unfenced session asks it, after the
-	// person's yes (ISXEG8, 21 November).
+	// The eero daemon's socket, where core's daemon listens
+	// (modules/eero/src/daemon.rs), which reserves addresses and changes
+	// the home network's settings as the person: an unfenced session asks
+	// it, after the person's yes (ISXEG8, 21 November).
 	"eero/socket",
 	// The secret-asks daemon takes a yes from anything reaching its socket,
 	// and core's passwords daemon answers whatever ask lands in the asks
