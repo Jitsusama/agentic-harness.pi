@@ -51,7 +51,7 @@ export interface SweepOptions {
 	readonly stateDir?: string;
 	readonly table?: ProcessTable;
 	/** The calls handed on and not yet said ended; the shell's record by default. */
-	readonly carried?: () => CarriedCalls;
+	readonly carried?: () => CarriedCalls | Promise<CarriedCalls>;
 	/** Writes a line to the journal, as each call it stops. */
 	readonly say: (line: string) => void;
 	readonly report: (error: unknown) => void;
@@ -88,7 +88,7 @@ export async function sweepUnheld(
 		options.shells?.ownCgroup ??
 			(() => readFileSync("/proc/self/cgroup", "utf8")),
 	);
-	let spared = (options.carried ?? carriedCalls)();
+	let spared = await (options.carried ?? carriedCalls)();
 	for (const folder of folders)
 		spared = leftRunning({ stateDir: folder, report, ...now }).spared(spared);
 	const reaped = await reapLeftBehind(
@@ -101,13 +101,13 @@ export async function sweepUnheld(
 		say(
 			`Ended what a host's tools left running under ${key}: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
 		);
-	folders.forEach((folder, index) => {
+	for (const [index, folder] of folders.entries()) {
 		// A held conversation's own folder is its child's to keep: a look
 		// drops what a conversation holds from the file it reads, and the
 		// child would lose its record of what it carries.
-		if (index > 0 && held(basename(folder))) return;
+		if (index > 0 && held(basename(folder))) continue;
 		try {
-			carriedShells({
+			await carriedShells({
 				...options.shells,
 				ownCgroup,
 				stateDir: folder,
@@ -121,7 +121,7 @@ export async function sweepUnheld(
 		} catch (error) {
 			report(error);
 		}
-	});
+	}
 	return { reaped, folders: folders.length };
 }
 

@@ -48,10 +48,23 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { link, rename, rm, writeFile } from "node:fs/promises";
+import {
+	link,
+	readdir,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
-import { endOf, JOB_SUFFIX, keptFolder, processThere } from "./kept.ts";
+import {
+	endOf,
+	endRead,
+	JOB_SUFFIX,
+	keptFolder,
+	processThere,
+} from "./kept.ts";
 import {
 	asideOf,
 	beginJobRecordRemoval,
@@ -517,12 +530,27 @@ function isKeptJob(value: unknown): value is KeptJob {
 /** The record at `file`, or nothing when it is gone or not one. */
 function recordAt(file: string): KeptJob | undefined {
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		return isKeptJob(parsed) ? parsed : undefined;
+		return recordIn(readFileSync(file, "utf8"));
 	} catch {
 		// Removed as its call ended.
 		return undefined;
 	}
+}
+
+/** `recordAt`, read off the thread. */
+async function recordRead(file: string): Promise<KeptJob | undefined> {
+	try {
+		return recordIn(await readFile(file, "utf8"));
+	} catch {
+		// Removed as its call ended.
+		return undefined;
+	}
+}
+
+/** The record `text` holds; throws when it holds no JSON. */
+function recordIn(text: string): KeptJob | undefined {
+	const parsed: unknown = JSON.parse(text);
+	return isKeptJob(parsed) ? parsed : undefined;
 }
 
 /** Whether the pi that recorded `job` has gone, so nothing holds it. */
@@ -543,6 +571,24 @@ function recordsIn(folder: string): KeptJob[] {
 	for (const name of names) {
 		if (!name.endsWith(JOB_SUFFIX)) continue;
 		const job = recordAt(join(folder, name));
+		if (job !== undefined) found.push(job);
+	}
+	return found;
+}
+
+/** `recordsIn`, read off the thread a file at a time. */
+async function recordsRead(folder: string): Promise<KeptJob[]> {
+	let names: string[];
+	try {
+		names = await readdir(folder);
+	} catch {
+		// No folder yet: nothing was ever kept.
+		return [];
+	}
+	const found: KeptJob[] = [];
+	for (const name of names) {
+		if (!name.endsWith(JOB_SUFFIX)) continue;
+		const job = await recordRead(join(folder, name));
 		if (job !== undefined) found.push(job);
 	}
 	return found;
@@ -575,12 +621,16 @@ export function keptJobsOf(
 /**
  * The recorded calls whose pi has gone and whose end is not yet said:
  * the ones a host looks at to stop, once nobody takes them up in time.
+ * Read off the thread, since a host looks on the loop its conversations
+ * share.
  */
-export function strayKeptJobs(
+export async function strayKeptJobs(
 	folder: string = keptFolder(),
 	owner: (pid: number) => boolean = processThere,
-): KeptJob[] {
-	return recordsIn(folder).filter(
-		(job) => unheld(job, owner) && endOf(job.work.keep) === undefined,
-	);
+): Promise<KeptJob[]> {
+	const stray: KeptJob[] = [];
+	for (const job of await recordsRead(folder))
+		if (unheld(job, owner) && (await endRead(job.work.keep)) === undefined)
+			stray.push(job);
+	return stray;
 }
