@@ -62,9 +62,13 @@ describe("the mesh on screen", () => {
 		expect(noted(messages, [], { address: "WCJQSG", by: "mark" })).toContain(
 			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
 		);
-		expect(noted(messages, [], { address: "5GV2AH", by: "use" })).toContain(
-			"otherwise to your hub from use, 5GV2AH, as a question (mesh_send to: orchestrator)",
+		// A kept hub can be minutes old, and the send finds it afresh, so
+		// the note names no cell the send may no longer reach.
+		const byUse = noted(messages, [], { address: "5GV2AH", by: "use" });
+		expect(byUse).toContain(
+			"otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)",
 		);
+		expect(byUse).not.toContain("5GV2AH");
 		expect(noted(messages)).toContain(
 			"otherwise in your next reply, since no orchestrator is above your quest",
 		);

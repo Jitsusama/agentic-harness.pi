@@ -52,14 +52,17 @@ export const GLANCE_CHARS = 160;
  * at once, and that the person hears at once what waits on them.
  *
  * `above` is who `orchestrator` reaches: the mark's orchestrator, or
- * the hub from use of a quest with no mark (tools/above.ts).
+ * the hub from use of a quest with no mark (tools/above.ts). The hub is
+ * named by what it is rather than its address, since the one kept can
+ * be minutes old and the send finds it afresh: an address here could
+ * name a cell the send no longer reaches.
  */
 export function advisory(above?: Reached): string {
 	const otherwise =
 		above === undefined
 			? "otherwise in your next reply, since no orchestrator is above your quest"
 			: above.by === "use"
-				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: orchestrator)`
+				? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
