@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
+	let under: string | undefined;
 	let release = (): void => {};
 	let reach = (): void => {};
 	let reached: Promise<void> = Promise.resolve();
@@ -44,8 +45,16 @@ const disk = vi.hoisted(() => {
 		failing: false,
 		/** A record a reading off the thread can't read, while one is named. */
 		unreadable: undefined as string | undefined,
-		/** Stop the next reading where it looks for its trees. */
-		stop(): void {
+		/** A record a reading on the thread can't read, while one is named. */
+		unreadableOnThread: undefined as string | undefined,
+		/** Every record read off the thread, in order. */
+		reads: [] as string[],
+		/**
+		 * Stop the readings whose trees lie under `root` where they look for
+		 * them: only those, since an earlier test's reading may still run.
+		 */
+		stop(root: string): void {
+			under = root;
 			held = new Promise((done) => {
 				release = done;
 			});
@@ -58,10 +67,12 @@ const disk = vi.hoisted(() => {
 		/** Let a stopped reading go on. */
 		go(): void {
 			held = undefined;
+			under = undefined;
 			release();
 		},
-		async pass(): Promise<void> {
-			if (held === undefined) return;
+		async pass(path: string): Promise<void> {
+			if (held === undefined || under === undefined) return;
+			if (!path.startsWith(under)) return;
 			reach();
 			await held;
 		},
@@ -76,10 +87,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		return real.readdir(...args);
 	}) as typeof real.readdir;
 	const access = async (...args: Parameters<typeof real.access>) => {
-		await disk.pass();
+		await disk.pass(String(args[0]));
 		return real.access(...args);
 	};
 	const readFile = (async (...args: Parameters<typeof real.readFile>) => {
+		disk.reads.push(String(args[0]));
 		if (disk.unreadable !== undefined && args[0] === disk.unreadable) {
 			throw Object.assign(new Error("EMFILE: too many open files"), {
 				code: "EMFILE",
@@ -88,6 +100,23 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		return real.readFile(...args);
 	}) as typeof real.readFile;
 	const mocked = { ...real, readdir, access, readFile };
+	return { ...mocked, default: mocked };
+});
+
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	const readFileSync = ((...args: Parameters<typeof real.readFileSync>) => {
+		if (
+			disk.unreadableOnThread !== undefined &&
+			args[0] === disk.unreadableOnThread
+		) {
+			throw Object.assign(new Error("EMFILE: too many open files"), {
+				code: "EMFILE",
+			});
+		}
+		return real.readFileSync(...args);
+	}) as typeof real.readFileSync;
+	const mocked = { ...real, readFileSync };
 	return { ...mocked, default: mocked };
 });
 
@@ -109,6 +138,20 @@ const answered = (): Promise<void> =>
 	// A real pause is the point: it shows no second reading started, and
 	// nothing signals a reading that never began.
 	new Promise((done) => setTimeout(done, 50));
+
+/** Whether this runs as root, whom a folder's mode doesn't keep out. */
+const asRoot = process.getuid?.() === 0;
+
+/** What is said on stderr, a host's journal, from here on. */
+function stderrSaid(): { naming(dir: string): string[] } {
+	const said = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+	return {
+		naming: (dir) =>
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(dir)),
+	};
+}
 
 /** A record of a tree at `path`, held by `sessions`, its folder made. */
 function recorded(dir: string, path: string, sessions?: string[]): void {
@@ -194,9 +237,11 @@ function settled(dir: string): void {
 describe("the work broker's records", () => {
 	afterEach(() => {
 		vi.useRealTimers();
+		vi.restoreAllMocks();
 		disk.go();
 		disk.failing = false;
 		disk.unreadable = undefined;
+		disk.unreadableOnThread = undefined;
 	});
 
 	it("say which trees a session holds, and who holds each", () => {
@@ -276,24 +321,38 @@ describe("the work broker's records", () => {
 		expect(treesHeldBy("s-1", written)).toEqual([two]);
 	});
 
-	it("keep the last listing when their folder can't be looked at for a moment", () => {
-		const root = mkdtempSync(join(tmpdir(), "records-"));
-		const dir = join(root, "cut");
-		const one = join(root, "trees", "one");
-		recorded(dir, one, ["s-1"]);
-		settled(dir);
-		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+	// The second council on #1962: a folder nobody can look at grants
+	// nothing, as before the listing was kept, and says why.
+	it.skipIf(asRoot)(
+		"answer none while their folder can't be looked at, saying so once, and the kept listing once it can",
+		() => {
+			const root = mkdtempSync(join(tmpdir(), "records-"));
+			const dir = join(root, "cut");
+			const one = join(root, "trees", "one");
+			recorded(dir, one, ["s-1"]);
+			settled(dir);
+			expect(treesHeldBy("s-1", dir)).toEqual([one]);
+			const said = stderrSaid();
 
-		chmodSync(root, 0o000);
-		try {
-			expect(
-				treesHeldBy("s-1", dir),
-				"a folder that can't be looked at isn't a folder gone",
-			).toEqual([one]);
-		} finally {
-			chmodSync(root, 0o700);
-		}
-	});
+			chmodSync(root, 0o000);
+			try {
+				expect(() => statSync(dir), "the folder can't be looked at").toThrow();
+				expect(
+					treesHeldBy("s-1", dir),
+					"a folder that can't be looked at grants nothing",
+				).toEqual([]);
+				expect(isAgentCut(one, dir)).toBe(false);
+				expect(said.naming(dir), "said once").toHaveLength(1);
+			} finally {
+				chmodSync(root, 0o700);
+			}
+			const listed = disk.listingsOf(dir);
+			expect(treesHeldBy("s-1", dir)).toEqual([one]);
+			expect(disk.listingsOf(dir), "the listing was kept, not read again").toBe(
+				listed,
+			);
+		},
+	);
 
 	// Git calls such an index entry racily clean.
 	it("are read again once a read made just after their folder was written is old enough", async () => {
@@ -403,7 +462,7 @@ describe("the work broker's records", () => {
 		settled(dir);
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
-		disk.stop();
+		disk.stop(root);
 		recordedElsewhere(dir, two, ["s-1"]);
 		treesHeldBy("s-1", dir);
 		await disk.stopped();
@@ -474,8 +533,11 @@ describe("the work broker's records", () => {
 		treesHeldBy("s-1", dir);
 		await whenRefreshed(dir);
 		disk.failing = false;
-		expect(treesHeldBy("s-1", dir), "not at once").toEqual([one]);
+		const tried = disk.listingsOf(dir);
+		treesHeldBy("s-1", dir);
 		await whenRefreshed(dir);
+		expect(disk.listingsOf(dir), "not read again at once").toBe(tried);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
 		vi.setSystemTime(Date.now() + 61_000);
 		treesHeldBy("s-1", dir);
@@ -495,6 +557,7 @@ describe("the work broker's records", () => {
 		settled(dir);
 		expect(treesHeldBy("s-1", dir).sort()).toEqual([one, two]);
 
+		const said = stderrSaid();
 		disk.failing = true;
 		recordedElsewhere(dir, three, ["s-1"]);
 		treesHeldBy("s-1", dir);
@@ -508,6 +571,10 @@ describe("the work broker's records", () => {
 		}
 
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		expect(
+			said.naming(dir),
+			"a folder failing at one stamp is said once",
+		).toHaveLength(1);
 	});
 
 	it("fail a reading off the thread that can't read a record, rather than swap in one without it", async () => {
@@ -629,7 +696,7 @@ describe("the work broker's records", () => {
 		settled(dir);
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
-		disk.stop();
+		disk.stop(root);
 		recordedElsewhere(dir, two, ["s-1"]);
 		const before = disk.listingsOf(dir);
 		treesHeldBy("s-1", dir);
@@ -704,6 +771,272 @@ describe("the work broker's records", () => {
 			readdirSync(dir).includes("torn.json"),
 			"a record that won't parse is left where it is",
 		).toBe(true);
+	});
+
+	// The second council on #1962: both readers judge a record that won't
+	// read the same way, so neither freezes on one that never will.
+	it("pass over a record that fails to read for its own sake, read on the thread or off it", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		mkdirSync(join(dir, "a-folder.json"));
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+
+		expect(
+			treesHeldBy("s-1", dir).sort(),
+			"a folder named as a record freezes no reading",
+		).toEqual([one, two]);
+	});
+
+	it("answer none from a first reading the disk fails for now, keeping nothing of it", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		const said = stderrSaid();
+
+		disk.unreadableOnThread = recordOf(dir, one);
+		expect(treesHeldBy("s-1", dir), "it grants nothing").toEqual([]);
+		expect(said.naming(dir), "and says why").toHaveLength(1);
+		disk.unreadableOnThread = undefined;
+
+		expect(
+			treesHeldBy("s-1", dir),
+			"the next call reads them again, nothing kept from the failure",
+		).toEqual([one]);
+	});
+
+	it("fail the broker's own reading on a record the disk fails to hand over for now", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+
+		disk.unreadableOnThread = recordOf(dir, one);
+
+		expect(
+			() => createTreeMemory(dir).recall(),
+			"rather than rewrite a record without the holders it couldn't read",
+		).toThrow(/EMFILE/);
+	});
+
+	it("stop reading a folder's other records once one fails the reading", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		for (let made = 0; made < 40; made += 1) {
+			recordedElsewhere(dir, join(root, "trees", `t${made}`), ["s-2"]);
+		}
+		const first = readdirSync(dir).find((name) => name.endsWith(".json"));
+		disk.unreadable = join(dir, first ?? "");
+
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+		await answered();
+
+		expect(
+			disk.reads.filter((read) => read.startsWith(dir)).length,
+			"no lane takes another record once one failed",
+		).toBeLessThanOrEqual(16);
+	});
+
+	it("read a failed folder again only a minute on, though its trees are looked for meanwhile", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		const start = Date.now();
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		const said = stderrSaid();
+
+		vi.setSystemTime(start + 30_000);
+		disk.failing = true;
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+		vi.setSystemTime(start + 61_000);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+		const tried = disk.listingsOf(dir);
+		vi.setSystemTime(start + 62_000);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+
+		expect(
+			disk.listingsOf(dir),
+			"looking for its trees isn't a reading that cleared the failure",
+		).toBe(tried);
+		expect(said.naming(dir), "said once").toHaveLength(1);
+	});
+
+	it("answer a caller that asks once from a reading begun after it asked, when one under way predates a cut", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		recordedElsewhere(dir, three, ["s-1"]);
+		const asked = treesHeldByNow("s-1", dir);
+		disk.go();
+
+		expect((await asked).sort()).toEqual([one, three, two]);
+	});
+
+	it("refuse a caller that asks once when the reading it waits on fails, rather than answer stale", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.failing = true;
+		recordedElsewhere(dir, two, ["s-1"]);
+
+		await expect(treesHeldByNow("s-1", dir)).rejects.toThrow(
+			/couldn't be read/,
+		);
+	});
+
+	it("read at once for a caller that asks once, though a failed reading waits out its minute", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		disk.failing = true;
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await whenRefreshed(dir);
+
+		disk.failing = false;
+
+		expect((await treesHeldByNow("s-1", dir)).sort()).toEqual([one, two]);
+	});
+
+	it.skipIf(asRoot)(
+		"refuse a caller that asks once while their folder can't be looked at",
+		async () => {
+			const root = mkdtempSync(join(tmpdir(), "records-"));
+			const dir = join(root, "cut");
+			const one = join(root, "trees", "one");
+			recorded(dir, one, ["s-1"]);
+			settled(dir);
+			expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+			chmodSync(root, 0o000);
+			try {
+				await expect(treesHeldByNow("s-1", dir)).rejects.toThrow(
+					/can't be looked at/,
+				);
+			} finally {
+				chmodSync(root, 0o700);
+			}
+		},
+	);
+
+	it("refuse a caller that asks once when its reading doesn't land in time", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+
+		await expect(treesHeldByNow("s-1", dir, 50)).rejects.toThrow(/in 50 ms/);
+		disk.go();
+		await whenRefreshed(dir);
+	});
+
+	it("let go of a reading hung five minutes, start another, and keep the newer whichever lands last", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		const said = stderrSaid();
+
+		vi.setSystemTime(Date.now() + 5 * 60_000 + 1_000);
+		recordedElsewhere(dir, three, ["s-1"]);
+		const before = disk.listingsOf(dir);
+		treesHeldBy("s-1", dir);
+		await answered();
+		expect(disk.listingsOf(dir) - before, "another reading started").toBe(1);
+		expect(said.naming(dir), "the hung one said").toHaveLength(1);
+
+		disk.go();
+		await whenRefreshed(dir);
+		await answered();
+		expect(treesHeldBy("s-1", dir).sort()).toEqual([one, three, two]);
+	});
+
+	it("swap nothing into a folder made again from a reading begun before it went", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		const three = join(root, "trees", "three");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+
+		rmSync(dir, { recursive: true });
+		expect(treesHeldBy("s-1", dir), "a folder gone holds nothing").toEqual([]);
+		mkdirSync(dir);
+		recordedElsewhere(dir, three, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir), "made again, read afresh").toEqual([three]);
+		disk.go();
+		await whenRefreshed(dir);
+		await answered();
+
+		expect(
+			treesHeldBy("s-1", dir),
+			"the reading begun before it went swaps in nothing",
+		).toEqual([three]);
 	});
 
 	// Joel, 8 November: trees agents cut are trusted by default.
