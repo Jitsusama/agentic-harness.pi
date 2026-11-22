@@ -73,6 +73,8 @@ export function endBySignal(
  */
 interface SignalStampSlot {
 	sessionId?: string;
+	/** The session a signal took away, whether or not it had a record. */
+	signalled?: string;
 	/** Run after the stamp, to release the session wherever else it shows. */
 	release?: () => void;
 	listeners?: Map<NodeJS.Signals, () => void>;
@@ -135,6 +137,7 @@ export function installSignalStamp(
 	for (const signal of TERMINATING_SIGNALS) {
 		listeners.set(signal, () => {
 			if (slot.sessionId) {
+				slot.signalled = slot.sessionId;
 				stampSignalled(slot.sessionId, deps.now());
 				// Best-effort and after the stamp, so a failure here can
 				// cost the README but never the record restore reads.
@@ -167,6 +170,16 @@ export function followSessionForSignals(
 	setSignalStampSession(sessionId);
 	if (release) signalStampSlot().release = release;
 	installSignalStamp();
+}
+
+/**
+ * Whether a signal took `sessionId` away in this process. Kept apart
+ * from its record, which a session the registry never recorded lacks,
+ * and set in the signal's own synchronous dispatch, before any of pi's
+ * shutdown handlers can run.
+ */
+export function tookBySignal(sessionId: string): boolean {
+	return signalStampSlot().signalled === sessionId;
 }
 
 /** Stop listening, leaving the session the stamp follows in place. */

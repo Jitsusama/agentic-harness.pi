@@ -78,12 +78,20 @@ export interface SproutStartDeps {
 	readonly questOf?: (address: string) => string | undefined;
 }
 
-/** The quest the cell at `address` has loaded, read from its presence. */
-export function questOfCell(address: string): string | undefined {
-	const presences = createPresences(
-		join(stateDir("mesh-workflow"), "presence"),
-	);
-	return presences.all().find((one) => one.addresses.includes(address))?.quest;
+/**
+ * The quest the cell at `address` has loaded, read from its presence.
+ * Only the presence that signs with `address` counts: an older address
+ * is only a fallback for whoever signs with it now, and a presence kept
+ * after its session ended names a quest nobody is on.
+ */
+export function questOfCell(
+	address: string,
+	folder: string = join(stateDir("mesh-workflow"), "presence"),
+): string | undefined {
+	return createPresences(folder)
+		.all()
+		.find((one) => one.ended === undefined && one.addresses[0] === address)
+		?.quest;
 }
 
 /**

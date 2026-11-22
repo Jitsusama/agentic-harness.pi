@@ -12,12 +12,18 @@
  *
  * A quest made this way and then left as it was made is cleared when
  * its session ends for good: retired, which can be undone, rather than
- * kept as an empty quest nobody chose. Left as made means its summary
- * and journey read as they did, its folder holds nothing else, its
- * workspace holds no file, it has no trees and no other session ever
- * joined it. A session parked, restarted to roll over, or taken away by
- * a signal or its host comes back to its quest, so none of those clears
- * it; only a quit its person made does.
+ * kept as an empty quest nobody chose. Left as made means the session
+ * did no more than answer its first prompt (no tool ran, nothing more
+ * was typed), its summary and journey read as they did, its folder
+ * holds nothing else, its workspace holds no file, it has no trees and
+ * no child quest, and no other session ever joined it.
+ *
+ * A session coming back to a retired quest ends itself, so every doubt
+ * keeps the quest, which costs only a line in the lists. A session
+ * parked, restarted to roll over, moving to another holder or taken
+ * away by a signal comes back, so none of those clears it; only a quit
+ * its person made in plain pi does. A host's ends are never read as for
+ * good, since a close, a release and a /new look alike there.
  */
 
 import { createHash } from "node:crypto";
@@ -25,6 +31,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isQuestMachinery } from "../../../lib/core/internal/quest/record-audit.ts";
 import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { titleFromWords } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
@@ -140,13 +147,42 @@ export interface SessionEnd {
 	readonly restarting: boolean;
 	/** A signal took it away, which pi reports as a quit. */
 	readonly signalled: boolean;
+	/** It left a note to move to another holder, which takes it up there. */
+	readonly moving: boolean;
 }
 
 /** Whether a session's end is a quit its person made, the one end that clears. */
 export function endsForGood(end: SessionEnd): boolean {
 	return (
-		end.reason === "quit" && !end.parking && !end.restarting && !end.signalled
+		end.reason === "quit" &&
+		!end.parking &&
+		!end.restarting &&
+		!end.signalled &&
+		!end.moving
 	);
+}
+
+/**
+ * Whether a session log's entries show more than its first exchange: a
+ * tool the agent ran, or a second message its person sent. Work done
+ * outside the quest, in the person's own checkout say, leaves nothing in
+ * the quest to see, so the log is what tells it.
+ */
+export function workedBeyondFirstPrompt(entries: readonly unknown[]): boolean {
+	let typed = 0;
+	for (const entry of entries) {
+		if (!isRecord(entry) || entry.type !== "message") continue;
+		const message = entry.message;
+		if (!isRecord(message)) continue;
+		if (message.role === "user" && ++typed > 1) return true;
+		if (
+			message.role === "assistant" &&
+			Array.isArray(message.content) &&
+			message.content.some((part) => isRecord(part) && part.type === "toolCall")
+		)
+			return true;
+	}
+	return false;
 }
 
 /** Retires the loaded quest as `quest retire` does, for a test to stand in for. */
@@ -162,24 +198,31 @@ export async function clearIfLeftAsMade(
 	state: QuestState,
 	session: string,
 	retire: Retire,
+	log: readonly unknown[] = [],
 ): Promise<boolean> {
-	if (!leftAsMade(state, session)) return false;
+	if (!leftAsMade(state, session, log)) return false;
 	const sealed = await retire({ action: "retire", reason: LEFT_NOTHING });
 	return sealed.ok;
 }
 
 /** Whether the loaded quest is one `session` made from a prompt and left as made. */
-export function leftAsMade(state: QuestState, session: string): boolean {
-	return whyKept(state, session) === undefined;
+export function leftAsMade(
+	state: QuestState,
+	session: string,
+	log: readonly unknown[] = [],
+): boolean {
+	return whyKept(state, session, log) === undefined;
 }
 
 /**
- * Why the loaded quest stays when `session` ends, or nothing when
- * `session`'s first prompt made it and it is left as made.
+ * Why the loaded quest stays when `session`, whose log holds `log`,
+ * ends, or nothing when `session`'s first prompt made it and it is left
+ * as made.
  */
 export function whyKept(
 	state: QuestState,
 	session: string,
+	log: readonly unknown[] = [],
 ): string | undefined {
 	const { questDir: dir, questId: id } = state;
 	if (!dir || !id) return "no quest is loaded";
@@ -197,12 +240,18 @@ export function whyKept(
 	const mark = fm._extra?.[FORAGE_KEY];
 	if (!isRecord(mark) || mark.session !== session)
 		return "this session's first prompt didn't make it";
+	if (workedBeyondFirstPrompt(log))
+		return "its session did more than answer its first prompt";
 	const now = asMade(dir);
 	if (mark.readme !== now.readme) return "its README was changed";
 	if (mark.journey !== now.journey) return "its journey was written to";
 	const other = fm.sessions.find((one) => one.id !== session);
 	if (other) return `session ${other.id} was on it`;
 	if ((fm.trees ?? []).length > 0) return "it holds a tree";
+	// A child's folder sits beside its parent's, not in it, so the parent's
+	// own files can't show one was made under it.
+	const child = discoverQuests(state.questsRoot).index.children.get(id);
+	if (child && child.length > 0) return `quest ${child[0]} is under it`;
 	const extra = readdirSync(dir).find(
 		(name) => !MADE_FILES.has(name) && !isQuestMachinery(name),
 	);

@@ -269,6 +269,64 @@ describe("the quest a first prompt makes", () => {
 		});
 	}
 
+	it("stays when its session did more than answer its first prompt", async () => {
+		const { state, dir } = await foraged();
+		const said = (role: string, content: unknown) => ({
+			type: "message",
+			message: { role, content },
+		});
+		const first = said("user", WORDS);
+		const answered = said("assistant", [{ type: "text", text: "Looking." }]);
+		expect(
+			whyKept(state, SESSION, [first, answered]),
+			"a first prompt answered in words leaves it as made",
+		).toBeUndefined();
+		const ranATool = said("assistant", [
+			{ type: "toolCall", name: "bash", arguments: {} },
+		]);
+		const typedAgain = said("user", "And Wednesday?");
+		for (const [what, log] of [
+			["a tool the agent ran", [first, ranATool]],
+			["a second prompt", [first, answered, typedAgain]],
+		] as const) {
+			expect(whyKept(state, SESSION, log), `${what} keeps the quest`).toBe(
+				"its session did more than answer its first prompt",
+			);
+			expect(
+				await clearIfLeftAsMade(state, SESSION, retireOf(state), log),
+				`${what}: nothing is retired`,
+			).toBe(false);
+		}
+		expect(frontMatterOf(dir).status, "still active").toBe("active");
+	});
+
+	it("stays once a quest is made under it", async () => {
+		const { state, id } = await foraged();
+		const other = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const made = await create(other, fakePi(), ctxOf("sess-child"), {
+			action: "create",
+			kind: "subquest",
+			title: "Check the Tuesday cron",
+			parent: id,
+		});
+		const child = other.questId;
+		if (!child) throw new Error(`no child quest: ${JSON.stringify(made)}`);
+		clearDiscoveryCache();
+		expect(whyKept(state, SESSION), "a child keeps its parent").toBe(
+			`quest ${child} is under it`,
+		);
+	});
+
+	it("is still cleared beside the quest writer's own files", async () => {
+		const { state, dir } = await foraged();
+		writeFileSync(join(dir, ".quest.lock"), "");
+		mkdirSync(join(dir, ".writing"), { recursive: true });
+		expect(
+			whyKept(state, SESSION),
+			"a lock and the writer's folder aren't work",
+		).toBeUndefined();
+	});
+
 	it("stays when another session ends, or the quest was never one a prompt made", async () => {
 		const { state } = await foraged();
 		expect(
@@ -294,6 +352,7 @@ describe("which end clears it", () => {
 		parking: false,
 		restarting: false,
 		signalled: false,
+		moving: false,
 	};
 
 	it("clears only on a quit its person made", () => {
@@ -302,6 +361,7 @@ describe("which end clears it", () => {
 			["a park", { ...quit, parking: true }],
 			["a rollover's restart", { ...quit, restarting: true }],
 			["a signal pi reports as a quit", { ...quit, signalled: true }],
+			["a move to another holder", { ...quit, moving: true }],
 			["a reload", { ...quit, reason: "reload" }],
 			["a switch to another session", { ...quit, reason: "new" }],
 		] as const) {

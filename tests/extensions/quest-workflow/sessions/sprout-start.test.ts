@@ -15,6 +15,7 @@ import {
 import {
 	type Create,
 	hushReplayedSprout,
+	questOfCell,
 	startSprouted,
 } from "../../../../extensions/quest-workflow/sessions/sprout-start.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -31,6 +32,10 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import {
+	createPresences,
+	type Presence,
+} from "../../../../lib/mesh/presence.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
 import {
 	clearRefTypes,
@@ -768,5 +773,52 @@ describe("a sprouted session's start", () => {
 		const { state, words } = await start(undefined);
 		expect(state.questId, "a start with no seed made a quest").toBeFalsy();
 		expect(words).toBe("the node's prose");
+	});
+});
+
+describe("the quest a spawning cell is on", () => {
+	/** A presence for `session`, signing first with the first of `addresses`. */
+	const presence = (
+		session: string,
+		addresses: string[],
+		fields: Partial<Presence> = {},
+	): Presence => ({
+		session,
+		addresses,
+		groups: [],
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: "2026-11-22T00:00:00Z",
+		...fields,
+	});
+
+	it("is read only from the live presence that signs with its address", () => {
+		const folder = mkdtempSync(join(tmpdir(), "quest-of-cell-"));
+		try {
+			const presences = createPresences(folder);
+			presences.publish(
+				presence("sess-gone", ["ABC123"], {
+					quest: "QEST-GONE",
+					ended: "2026-11-22T00:00:00Z",
+				}),
+			);
+			presences.publish(
+				presence("sess-older", ["XYZ789", "ABC123"], { quest: "QEST-OLDER" }),
+			);
+			expect(
+				questOfCell("ABC123", folder),
+				"an ended session and one only answering to it name no quest",
+			).toBeUndefined();
+			presences.publish(
+				presence("sess-live", ["ABC123"], { quest: "QEST-LIVE" }),
+			);
+			expect(
+				questOfCell("ABC123", folder),
+				"the live session signing with it names its quest",
+			).toBe("QEST-LIVE");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
 	});
 });
