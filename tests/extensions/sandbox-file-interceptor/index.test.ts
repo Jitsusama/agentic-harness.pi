@@ -93,6 +93,11 @@ describe("a strict session's reads", () => {
 		expect(refusal("ls", {})).toBeUndefined();
 	});
 
+	it("reach a folder in the work named `..x`, which only looks like a way out", () => {
+		mkdirSync(join(work, "..x"), { recursive: true });
+		expect(refusal("read", { path: "..x/notes.md" })).toBeUndefined();
+	});
+
 	it("reach git's settings in the home folder, and the store", () => {
 		expect(refusal("read", { path: "~/.config/git/config" })).toBeUndefined();
 		expect(refusal("ls", { path: "/nix/store" })).toBeUndefined();
@@ -213,6 +218,33 @@ describe("a strict session the sandbox can't fence", () => {
 		expect(refusal("write", { path: ".git/hooks/post-checkout" })).toContain(
 			"file tools don't write there either",
 		);
+	});
+
+	it("reads nothing in a folder holding what the fence hides", () => {
+		const keys = join(home, ".gsutil");
+		mkdirSync(keys, { recursive: true });
+		expect(refusal("read", { path: "credstore2" }, strict, keys)).toContain(
+			`which holds ${join(keys, "credstore2")}, a path the fence hides`,
+		);
+	});
+
+	it("reads nothing in ~/.ssh, which the fence empties but for what it keeps", () => {
+		const ssh = join(home, ".ssh");
+		mkdirSync(ssh, { recursive: true });
+		expect(refusal("read", { path: "id_ed25519" }, strict, ssh)).toContain(
+			`which lies in ${ssh}, a path the fence hides`,
+		);
+	});
+
+	it("reads, but never writes, in a folder the fence keeps read-only and hides nothing in", () => {
+		const app = join(home, ".config/app");
+		mkdirSync(app, { recursive: true });
+		expect(
+			refusal("read", { path: "settings.json" }, strict, app),
+		).toBeUndefined();
+		expect(
+			refusal("write", { path: "settings.json", content: "x" }, strict, app),
+		).toContain("file tools don't write there either");
 	});
 
 	it("fences them where PI_SANDBOX names no sandbox, as the shell does", () => {
