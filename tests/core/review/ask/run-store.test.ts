@@ -203,6 +203,27 @@ describe("keeping runs per change", () => {
 		expect(await store.list(other)).toEqual([]);
 	});
 
+	it("keeps a round on a range read from a deeply nested tree", async () => {
+		// The key names the tree's whole path, and a ledger named from it
+		// whole ran past a file name's 255 bytes, so the round was lost
+		// with ENAMETOOLONG (21 Nov, core.nix#6040).
+		const tree = `/home/someone/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Someone-core.nix-${"a-long-branch-name-".repeat(4)}`;
+		const deep: ChangeRef = {
+			provider: "local-range",
+			repo: { key: `local:${tree}`, localPath: tree },
+			id: `origin/main..someone/${"a-long-branch-name-".repeat(4)}`,
+			label: "a deep range",
+		};
+		const store = createRunStore(root);
+
+		await store.record(deep, run());
+
+		expect(
+			await createRunStore(root).list(deep),
+			"the round is on disk and read back under the same change",
+		).toHaveLength(1);
+	});
+
 	it("survives a new store over the same directory", async () => {
 		// The rounds outlive the session that ran them, which is the
 		// whole reason they are on disk.

@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { fileReads } from "../../../internal/files/file-reads.ts";
 import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
-import { changeKey } from "../keys.ts";
+import { changeFileName } from "../keys.ts";
 import type { AskRound, AskRun } from "./run.ts";
 
 /** Rounds held against a change. */
@@ -505,11 +505,10 @@ function readOneOf(run: AskRun, commits: ReadonlySet<string>): boolean {
 }
 
 /**
- * The file a change's rounds live in.
- *
- * Slugged because the key names a file: a change id is somebody
- * else's string and may hold a separator.
+ * The bytes a pending write's suffix adds to a ledger's name: a dot,
+ * a pid of up to seven digits, a dot, a 36-character UUID and ".tmp".
  */
+const PENDING_SUFFIX_BYTES = 1 + 7 + 1 + 36 + ".tmp".length;
 
 /** Whether a ledger's `change` is a change, as a later write left it. */
 function isChangeRef(value: unknown): value is ChangeRef {
@@ -529,9 +528,14 @@ function isChangeRef(value: unknown): value is ChangeRef {
 	);
 }
 
+/**
+ * The file a change's rounds live in.
+ *
+ * Slugged because the key names a file: a change id is somebody
+ * else's string and may hold a separator. Short enough that the
+ * pending copy written beside it still has a name the filesystem
+ * takes.
+ */
 function fileFor(change: ChangeRef): string {
-	const safe = changeKey(change)
-		.replace(/[^A-Za-z0-9._-]/g, "_")
-		.replace(/^\.+/, "_");
-	return `${safe}.json`;
+	return changeFileName(change, PENDING_SUFFIX_BYTES);
 }

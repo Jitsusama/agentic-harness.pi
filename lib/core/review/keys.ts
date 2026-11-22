@@ -11,7 +11,14 @@
  * one segment.
  */
 
+import { createHash } from "node:crypto";
 import type { ChangeRef, RepoLocator, ReviewTarget } from "./change.ts";
+
+/** The longest file name the filesystems records are kept on take, in bytes. */
+const NAME_MAX = 255;
+
+/** How many hex digits of the key's hash a shortened name carries. */
+const HASH_DIGITS = 16;
 
 /** Folds path separators so the value is one path segment. */
 function segment(value: string): string {
@@ -26,6 +33,33 @@ export function repoKey(repo: RepoLocator): string {
 /** Stable key for a hosted change, scoped by provider. */
 export function changeKey(ref: ChangeRef): string {
 	return [ref.provider, segment(repoKey(ref.repo)), segment(ref.id)].join("/");
+}
+
+/**
+ * A change's key as one file name ending in `.json`, holding only
+ * letters, digits, dots, dashes and underscores, and no longer than
+ * a file name may be once `spare` bytes are added after it (a writer
+ * that renames a temporary file into place needs room for its suffix).
+ *
+ * A name that fits is the key folded, as it always was, so records
+ * already on disk keep their names. One that doesn't keeps as much of
+ * the front as fits and ends in a hash of the whole key, so two long
+ * keys sharing a front still name two files. Without this a range read
+ * from a deeply nested tree named a file the filesystem refused, with
+ * ENAMETOOLONG, and the round's record was lost (21 Nov, core.nix#6040).
+ */
+export function changeFileName(change: ChangeRef, spare = 0): string {
+	const key = changeKey(change);
+	const folded = key.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "_");
+	const most = NAME_MAX - spare;
+	const whole = `${folded}.json`;
+	if (whole.length <= most) return whole;
+	const hash = createHash("sha256")
+		.update(key)
+		.digest("hex")
+		.slice(0, HASH_DIGITS);
+	const front = folded.slice(0, most - ".json".length - hash.length - 1);
+	return `${front}-${hash}.json`;
 }
 
 /**

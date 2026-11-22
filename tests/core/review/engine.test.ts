@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Exec } from "../../../lib/core/exec/index.ts";
 import {
 	clearReviewProviders,
 	clearTargetBindings,
@@ -82,6 +83,64 @@ describe("probing a checkout", () => {
 		]);
 		const probe = await engine.probe("/tmp/elsewhere");
 		expect(probe.repoRoot).toBeUndefined();
+	});
+});
+
+describe("a checkout whose remotes git could not read", () => {
+	/** An exec whose remote read fails `failing` times before answering. */
+	function failingRemotes(failing: number): Exec {
+		const { exec } = fakeExec(inCheckout);
+		let failed = 0;
+		return async (command, args) => {
+			if (args.includes("--get-regexp") && failed < failing) {
+				failed += 1;
+				return { code: 124, stdout: "", stderr: "timed out\n" };
+			}
+			return exec(command, args);
+		};
+	}
+
+	function engineOver(exec: Exec): ReviewEngine {
+		registerReviewProvider(createGitHubProvider({ exec }));
+		registerReviewProvider(createGitProvider({ exec }));
+		return createReviewEngine({ exec, store: createDraftStore(root) });
+	}
+
+	it("asks once more, and binds a hosted range to its host", async () => {
+		const engine = engineOver(failingRemotes(1));
+		const bound = await engine.fromLocal("/src/world", {
+			base: "main",
+			head: "topic",
+		});
+		expect(
+			bound.repo.key,
+			"one failed read is asked again rather than taken as no remotes",
+		).toBe("github:Shopify/world");
+	});
+
+	it("refuses rather than keying a hosted range by its path", async () => {
+		const engine = engineOver(failingRemotes(2));
+		await expect(
+			engine.fromLocal("/src/world", { base: "main", head: "topic" }),
+			"a range whose remotes stay unread is refused, naming why",
+		).rejects.toThrow(/could not read the remotes of \/src\/world: timed out/);
+	});
+
+	it("reads a checkout with no remotes at all as plain git", async () => {
+		const engine = engineOver(
+			fakeExec([
+				{ when: ["--show-toplevel"], stdout: "/src/app\n" },
+				{ when: ["--get-regexp"], code: 1 },
+			]).exec,
+		);
+		const bound = await engine.fromLocal("/src/app", {
+			base: "main",
+			head: "topic",
+		});
+		expect(
+			bound.provider.id,
+			"git config's no-match answer is no remotes, not a failure",
+		).toBe("git");
 	});
 });
 

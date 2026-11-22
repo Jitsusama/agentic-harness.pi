@@ -10,7 +10,7 @@
  * draft about itself.
  */
 
-import type { Exec } from "../exec/index.ts";
+import type { Exec, ExecResult } from "../exec/index.ts";
 import { run } from "../exec/index.ts";
 import { resolveRepo, resolveTarget } from "./bind.ts";
 import type { Capabilities } from "./capabilities.ts";
@@ -147,38 +147,104 @@ function providerFor(id: string): ReviewProvider {
 	return provider;
 }
 
+/** What git rev-parse answers outside a repository. */
+const NOT_A_REPO = 128;
+
+/** What git config answers when no key matches the pattern. */
+const NO_MATCHING_KEY = 1;
+
+/**
+ * A probe, and what git failed to say while taking it.
+ *
+ * A remote read that failed used to answer "no remotes", and only the git
+ * provider claims a checkout with none, so a hosted repo was keyed by its
+ * path. Its rounds then sat where nothing asking by the hosted repo, such
+ * as a merge gate, ever looks (core.nix#6040, 21 Nov).
+ */
+interface Probed {
+	probe: RepoProbe;
+	unread?: string;
+}
+
+/** The first line git said on failing, or its exit when it said nothing. */
+function whatGitSaid(result: ExecResult): string {
+	const said = result.stderr.trim().split("\n")[0];
+	return said ? said : `it exited ${result.code}`;
+}
+
 /** Build the engine. */
 export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 	const draftDeps: DraftDeps = { store: deps.store };
 
-	async function probe(cwd: string): Promise<RepoProbe> {
-		const top = await deps.exec("git", [
-			"-C",
-			cwd,
-			"rev-parse",
-			"--show-toplevel",
-		]);
+	/**
+	 * Run a git read, asking once more when it fails in a way none of its
+	 * ordinary answers explain, as a command starved or killed under load
+	 * does.
+	 */
+	async function gitRead(
+		args: string[],
+		ordinary: (code: number) => boolean,
+	): Promise<ExecResult> {
+		const first = await deps.exec("git", args);
+		if (ordinary(first.code)) return first;
+		return deps.exec("git", args);
+	}
+
+	async function readProbe(cwd: string): Promise<Probed> {
+		const top = await gitRead(
+			["-C", cwd, "rev-parse", "--show-toplevel"],
+			(code) => code === 0 || code === NOT_A_REPO,
+		);
 		// Not being in a repo is an ordinary answer, not a failure:
 		// a reference can still be a URL.
-		if (top.code !== 0) return {};
+		if (top.code === NOT_A_REPO) return { probe: {} };
+		if (top.code !== 0) {
+			return {
+				probe: {},
+				unread: `git could not say whether ${cwd} is a checkout: ${whatGitSaid(top)}`,
+			};
+		}
 		const repoRoot = top.stdout.trim();
 
-		const remotes = await deps.exec("git", [
-			"-C",
-			repoRoot,
-			"config",
-			"--get-regexp",
-			"^remote\\..*\\.url$",
-		]);
-		const lines =
-			remotes.code === 0
-				? remotes.stdout.split("\n").map((line) => line.trim().split(/\s+/))
-				: [];
+		const remotes = await gitRead(
+			["-C", repoRoot, "config", "--get-regexp", "^remote\\..*\\.url$"],
+			(code) => code === 0 || code === NO_MATCHING_KEY,
+		);
+		if (remotes.code !== 0 && remotes.code !== NO_MATCHING_KEY) {
+			return {
+				probe: { repoRoot, remoteUrls: [] },
+				unread: `git could not read the remotes of ${repoRoot}: ${whatGitSaid(remotes)}`,
+			};
+		}
+		const lines = remotes.stdout
+			.split("\n")
+			.map((line) => line.trim().split(/\s+/));
 		const remoteUrls = lines
 			.map((words) => words[1])
 			.filter((url): url is string => Boolean(url));
 		const origin = lines.find((words) => words[0] === "remote.origin.url")?.[1];
-		return { repoRoot, remoteUrls, ...(origin ? { origin } : {}) };
+		return {
+			probe: { repoRoot, remoteUrls, ...(origin ? { origin } : {}) },
+		};
+	}
+
+	async function probe(cwd: string): Promise<RepoProbe> {
+		return (await readProbe(cwd)).probe;
+	}
+
+	/**
+	 * A probe of a checkout somebody named, refused when git could not say
+	 * whose it is, since the plain path is no answer: a round or a
+	 * capability read under it belongs to the wrong repo.
+	 */
+	async function probeNamed(cwd: string): Promise<RepoProbe> {
+		const { probe: probed, unread } = await readProbe(cwd);
+		if (unread !== undefined) {
+			throw new Error(
+				`${unread}. Without that, whose repo it is cannot be told, and anything recorded would sit under its path where nothing asking by the hosted repo finds it. Nothing was recorded; asking again usually gets through.`,
+			);
+		}
+		return probed;
 	}
 
 	/** Wrap a resolved target in everything reachable from it. */
@@ -363,7 +429,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		},
 
 		async serving(cwd) {
-			const probed = await probe(cwd);
+			const probed = await probeNamed(cwd);
 			const resolved = resolveRepo(probed, {
 				...(deps.config ? { config: deps.config } : {}),
 			});
@@ -377,7 +443,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		},
 
 		async fromLocal(repoRoot, spec) {
-			const probed = await probe(repoRoot);
+			const probed = await probeNamed(repoRoot);
 			const root = probed.repoRoot ?? repoRoot;
 			const repo: RepoLocator = { key: `local:${root}`, localPath: root };
 			const upstream =

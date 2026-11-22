@@ -7,6 +7,7 @@ import {
 	repoKey,
 	targetKey,
 } from "../../../lib/core/review/index.ts";
+import { changeFileName } from "../../../lib/core/review/keys.ts";
 
 const world: RepoLocator = {
 	key: "gitstream:shop/world",
@@ -22,6 +23,49 @@ const proposal: ReviewTarget = {
 		label: "shop/world#2000970",
 	},
 };
+
+describe("changeFileName", () => {
+	/** A range read from a tree nested as deep as the work layer cuts them. */
+	const deep = (head: string): ChangeRef => {
+		const root = `/home/someone/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Someone-core.nix-${"a-long-branch-name-".repeat(4)}`;
+		return {
+			provider: "local-range",
+			repo: { key: `local:${root}`, localPath: root },
+			id: `origin/main..${head}`,
+			label: head,
+		};
+	};
+
+	it("folds a key that fits, as records already on disk are named", () => {
+		const name = changeFileName({
+			provider: "meteorite",
+			repo: world,
+			id: "2000970",
+			label: "shop/world#2000970",
+		});
+		expect(name, "a short key keeps the name it always had").toBe(
+			"meteorite_gitstream_shop_world_2000970.json",
+		);
+	});
+
+	it("keeps a long key within a file name, leaving room it is asked for", () => {
+		const name = changeFileName(deep("topic"), 49);
+		expect(
+			name.length,
+			`${name} leaves 49 bytes of a 255-byte name for a pending suffix`,
+		).toBeLessThanOrEqual(255 - 49);
+		expect(name, "it is still one safe file name ending in .json").toMatch(
+			/^[A-Za-z0-9._-]+\.json$/,
+		);
+	});
+
+	it("names two long keys sharing a front as two files", () => {
+		const one = changeFileName(deep("topic-one"));
+		const two = changeFileName(deep("topic-two"));
+		expect(one, `${one} and ${two} are told apart`).not.toBe(two);
+		expect(one.length, `${one} fits a file name`).toBeLessThanOrEqual(255);
+	});
+});
 
 describe("repoKey", () => {
 	it("uses the locator's own key", () => {
