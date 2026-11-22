@@ -26,6 +26,7 @@ import {
 	removeKept,
 } from "../../../../lib/internal/shell/kept.ts";
 import {
+	disownKeptJob,
 	forgetKeptJob,
 	forgetOwnKeptJob,
 	type KeptJob,
@@ -33,6 +34,74 @@ import {
 	recordKeptJob,
 	strayKeptJobs,
 } from "../../../../lib/internal/shell/kept-jobs.ts";
+
+// What the code asks of the disk: each removal off the thread, which can
+// be held after it unlinks, as a busy disk's callback comes late; and
+// each synchronous call that could stall the thread, by the path asked.
+const disk = vi.hoisted(() => {
+	let held: Promise<void> | undefined;
+	let release: () => void = () => undefined;
+	return {
+		removed: [] as string[],
+		asked: [] as string[],
+		hold(): void {
+			held = new Promise((done) => {
+				release = done;
+			});
+		},
+		go(): void {
+			held = undefined;
+			release();
+		},
+		async pass(): Promise<void> {
+			if (held !== undefined) await held;
+		},
+		/** What was asked of `keep`'s files, removed and synchronously. */
+		of(keep: string): { removed: string[]; asked: string[] } {
+			return {
+				removed: this.removed.filter((path) => path.startsWith(keep)),
+				asked: this.asked.filter((said) => said.includes(keep)),
+			};
+		},
+		forget(): void {
+			this.removed.length = 0;
+			this.asked.length = 0;
+		},
+	};
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs/promises")>();
+	const rm = (async (...args: Parameters<typeof real.rm>) => {
+		disk.removed.push(String(args[0]));
+		await real.rm(...args);
+		await disk.pass();
+	}) as typeof real.rm;
+	const mocked = { ...real, rm };
+	return { ...mocked, default: mocked };
+});
+
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	const rmSync = ((...args: Parameters<typeof real.rmSync>) => {
+		disk.asked.push(`rmSync ${String(args[0])}`);
+		return real.rmSync(...args);
+	}) as typeof real.rmSync;
+	const statSync = ((...args: Parameters<typeof real.statSync>) => {
+		disk.asked.push(`statSync ${String(args[0])}`);
+		return real.statSync(...args);
+	}) as typeof real.statSync;
+	const lstatSync = ((...args: Parameters<typeof real.lstatSync>) => {
+		disk.asked.push(`lstatSync ${String(args[0])}`);
+		return real.lstatSync(...args);
+	}) as typeof real.lstatSync;
+	const existsSync = ((...args: Parameters<typeof real.existsSync>) => {
+		disk.asked.push(`existsSync ${String(args[0])}`);
+		return real.existsSync(...args);
+	}) as typeof real.existsSync;
+	const mocked = { ...real, rmSync, statSync, lstatSync, existsSync };
+	return { ...mocked, default: mocked };
+});
 
 const PRIVATE = 0o600;
 const PERMISSIONS = 0o777;
@@ -49,6 +118,8 @@ const SOON = 2_000;
 
 const made: string[] = [];
 afterEach(() => {
+	disk.go();
+	vi.restoreAllMocks();
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -231,11 +302,85 @@ describe("a call's own record, taken back as the call ends", () => {
 		const where = folder();
 		const keep = await makeKept(where);
 		writeFileSync(`${keep}.job`, "{}");
+		disk.forget();
 		await forgetOwnKeptJob(keep);
+		expect(disk.of(keep), "nothing asked, on the thread or off it").toEqual({
+			removed: [],
+			asked: [],
+		});
 		expect(
 			existsSync(`${keep}.job`),
 			"a record it never wrote, left unasked",
 		).toBe(true);
+	});
+
+	it("is removed off the thread, once, for a call this process recorded", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.forget();
+		await forgetOwnKeptJob(job.work.keep);
+		expect(disk.of(job.work.keep), "one removal, none on the thread").toEqual({
+			removed: [`${job.work.keep}.job`],
+			asked: [],
+		});
+	});
+
+	// A rollover gives a running job's recorder a new key, which writes its
+	// record again, maybe while the removal's callback is still to come.
+	it("is taken back though written again while its removal runs", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "the first removal").toBe(
+				false,
+			),
+		);
+		recordKeptJob(job);
+		disk.go();
+		await going;
+		expect(existsSync(`${job.work.keep}.job`), "its second record").toBe(false);
+	});
+
+	it("is no longer this process's once its files went with the call's", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		await removeKept(job.work.keep);
+		writeFileSync(`${job.work.keep}.job`, "{}");
+		disk.forget();
+		await forgetOwnKeptJob(job.work.keep);
+		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"a record written by another hand since",
+		).toBe(true);
+	});
+
+	it("is no longer this process's once its call was handed on", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disownKeptJob(job.work.keep);
+		disk.forget();
+		await forgetOwnKeptJob(job.work.keep);
+		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"left for whoever took the call up",
+		).toBe(true);
+	});
+
+	it("is never this process's when its write failed", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		await forgetOwnKeptJob(job.work.keep);
+		rmSync(where, { recursive: true });
+		recordKeptJob(job);
+		mkdirSync(where, { recursive: true });
+		writeFileSync(`${job.work.keep}.job`, "{}");
+		disk.forget();
+		await forgetOwnKeptJob(job.work.keep);
+		expect(disk.of(job.work.keep).removed, "nothing removed").toEqual([]);
 	});
 
 	it("is taken back again once written again", async () => {
@@ -259,16 +404,26 @@ describe("a call's own record, taken back as the call ends", () => {
 		).toBe(true);
 	});
 
-	it("never rejects when what holds its name won't go", async () => {
+	it("never rejects when what holds its name won't go, and says so", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		rmSync(`${job.work.keep}.job`);
 		mkdirSync(`${job.work.keep}.job`);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
 		await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line naming it",
+		).toHaveLength(1);
 	});
 
-	// A reload evaluates the module again while calls started before it
-	// still run, and the recorder and the call may sit in either copy.
+	// pi loads each extension as a module copy of its own, and job-workflow
+	// records the job while shell-workflow ends the call, so the two always
+	// sit in different copies; a reload makes another copy again.
 	it("is taken back by a copy of this code loaded after it was written", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);

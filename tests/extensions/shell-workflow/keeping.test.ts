@@ -36,8 +36,43 @@ import { recordKeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
+// Each removal off the thread, which can be held after it unlinks, as a
+// busy disk's callback comes late.
+const disk = vi.hoisted(() => {
+	let held: Promise<void> | undefined;
+	let release: () => void = () => undefined;
+	return {
+		removed: [] as string[],
+		hold(): void {
+			held = new Promise((done) => {
+				release = done;
+			});
+		},
+		go(): void {
+			held = undefined;
+			release();
+		},
+		async pass(): Promise<void> {
+			if (held !== undefined) await held;
+		},
+	};
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs/promises")>();
+	const rm = (async (...args: Parameters<typeof real.rm>) => {
+		disk.removed.push(String(args[0]));
+		await real.rm(...args);
+		await disk.pass();
+	}) as typeof real.rm;
+	const mocked = { ...real, rm };
+	return { ...mocked, default: mocked };
+});
+
 const made: string[] = [];
 afterEach(() => {
+	disk.go();
+	disk.removed.length = 0;
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -336,17 +371,93 @@ describe("a kept call", () => {
 
 	// A pi gone between the settle and the record's removal would leave a
 	// job its next start takes up and says the end of a second time.
-	it("takes back its job's record before it settles", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
-		made.push(dir);
-		const folder = join(dir, "kept");
-		let keep: string | undefined;
-		const kept = keepsOnDisk(
-			{
-				async exec(_command, _cwd, call) {
-					const at = call.env?.[KEEP_VARIABLE] ?? "";
-					keep = at;
-					// Recorded as a job's recorder records it, in this process.
+	it("takes back its job's record before it settles, waiting for the disk", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		let settled = false;
+		const running = run(call.kept.operations, "true", call.signal).then(
+			(result) => {
+				settled = true;
+				return result;
+			},
+		);
+		await until("its record unlinked", () => call.recordGone());
+		await turns(5);
+		expect(settled, "unsettled while the disk holds the removal").toBe(false);
+		disk.go();
+		await running;
+		expect(call.recordGone(), "its record, as it settles").toBe(true);
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+	});
+
+	// A move or a host's stop meeting a job neither carriable nor ended
+	// leaves it behind and stops it, its real status never said.
+	it("can still be carried while its record goes", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record unlinked", () => call.recordGone());
+		const work = call.kept.carryOf(call.signal)?.what();
+		expect(isCarriedShell(work), "carriable while it goes").toBe(true);
+		disk.go();
+		await running;
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry once settled here",
+		).toBeUndefined();
+	});
+
+	it("leaves its files to whoever it was handed to while its record went", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record unlinked", () => call.recordGone());
+		call.kept.carryOf(call.signal)?.handed();
+		disk.go();
+		await running;
+		expect(
+			disk.removed.filter((path) => path.startsWith(call.keep())),
+			"only its record removed, none of its other files",
+		).toEqual([`${call.keep()}.job`]);
+		expect(existsSync(`${call.keep()}.end`), "its end, for the taker").toBe(
+			true,
+		);
+	});
+
+	// Most calls record no job: their end waits on no disk at all.
+	it("settles though the disk holds every removal, when it recorded no job", async () => {
+		const call = endsRecorded({ records: false });
+		disk.hold();
+		const result = await run(call.kept.operations, "true", call.signal);
+		expect(result.code, "settled with its status").toBe(0);
+	});
+});
+
+/** Let `count` turns of the loop pass, for what would run in them. */
+async function turns(count: number): Promise<void> {
+	for (let turn = 0; turn < count; turn += 1) {
+		await new Promise((done) => setImmediate(done));
+	}
+}
+
+/**
+ * A kept call whose shell ends at once with status 0, its job recorded
+ * as a job's recorder records one in this process, unless `records` is
+ * false.
+ */
+function endsRecorded({ records = true }: { records?: boolean } = {}) {
+	const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+	made.push(dir);
+	const folder = join(dir, "kept");
+	let keep = "";
+	const kept = keepsOnDisk(
+		{
+			async exec(_command, _cwd, call) {
+				keep = call.env?.[KEEP_VARIABLE] ?? "";
+				writeFileSync(`${keep}.pid`, String(process.pid));
+				if (records) {
 					recordKeptJob({
 						session: "s1",
 						id: "j1",
@@ -354,22 +465,24 @@ describe("a kept call", () => {
 						label: "true",
 						work: {
 							kind: "shell",
-							keep: at,
+							keep,
 							pid: process.pid,
-							mark: "mark-j1",
+							mark: "mark-1",
 							startedAt: Date.now(),
 						},
 					});
-					writeFileSync(`${keep}.end`, "0");
-					return { exitCode: 0 };
-				},
+				}
+				writeFileSync(`${keep}.end`, "0");
+				return { exitCode: 0 };
 			},
-			{ can: () => true, folder: () => folder },
-		);
-		await run(kept.operations, "true", new AbortController().signal);
-		expect(existsSync(`${keep}.job`), "its record, as it settles").toBe(false);
-		await vi.waitFor(() =>
-			expect(readdirSync(folder), "its files go just after").toEqual([]),
-		);
-	});
-});
+		},
+		{ can: () => true, folder: () => folder },
+	);
+	return {
+		folder,
+		kept,
+		signal: new AbortController().signal,
+		keep: () => keep,
+		recordGone: () => keep !== "" && !existsSync(`${keep}.job`),
+	};
+}
