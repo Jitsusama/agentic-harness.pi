@@ -9,6 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type Far,
+	placedFarKnown,
+	placesFar,
+	placesNow,
 	refusedHere,
 	sendsWholeRun,
 	whereItRuns,
@@ -243,6 +247,205 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			),
 			"beside a changed-checks that sends itself, the whole run is sent",
 		).toBe(true);
+	});
+
+	describe("for an elsewhere run", () => {
+		const asked: string[] = [];
+		beforeEach(() => {
+			asked.length = 0;
+		});
+		const far: Far = {
+			quest: "QEST-X",
+			placedFar: (kind: string) => {
+				asked.push(kind);
+				return kind !== "stays";
+			},
+		};
+		const sent = (run: string, with_: Far = far) =>
+			sendsWholeRun(run, "/tree", undefined, () => false, "/home", with_);
+
+		it("does when a quest session's run is placed on another machine", () => {
+			for (const run of [
+				"elsewhere run harness-check -- pnpm exec vitest run tests/lib/internal/priority",
+				"timeout 900 elsewhere run harness-check -- pnpm typecheck > $TMPDIR/tc.log 2>&1",
+				"cd /tree && env -u SSH_AUTH_SOCK CI=1 elsewhere run delta-spec -- cargo test",
+			]) {
+				expect(sent(run), `${run} is sent whatever nix-offload takes`).toBe(
+					true,
+				);
+			}
+			expect(asked).toEqual(["harness-check", "harness-check", "delta-spec"]);
+		});
+
+		it("doesn't where elsewhere would run it here", () => {
+			const run = "elsewhere run harness-check -- pnpm typecheck";
+			expect(sent(run, { placedFar: far.placedFar }), "with no quest").toBe(
+				false,
+			);
+			expect(
+				sent("elsewhere run harness-check --here -- pnpm typecheck"),
+				"asked to stay with --here",
+			).toBe(false);
+			expect(
+				sent("elsewhere run stays -- pnpm typecheck"),
+				"placed on no other machine",
+			).toBe(false);
+			expect(
+				sent("PI_QUEST= elsewhere run harness-check -- pnpm typecheck"),
+				"with the quest cleared for the step",
+			).toBe(false);
+			expect(
+				sent("unset PI_QUEST; elsewhere run harness-check -- pnpm typecheck"),
+				"with the quest cleared by an earlier step",
+			).toBe(false);
+			expect(
+				sent(
+					"export PATH=/tmp/x:$PATH; elsewhere run harness-check -- pnpm test",
+				),
+				"with PATH changed by an earlier step",
+			).toBe(false);
+			expect(
+				sent(
+					"elsewhere run harness-check -- pnpm test && nix-offload there --here-when-idle . checks.x86_64-linux.x",
+				),
+				"beside an idle-only build, which may build here",
+			).toBe(false);
+			expect(asked).toEqual(["stays"]);
+		});
+
+		it("doesn't for local heavy work that only mentions it", () => {
+			for (const run of [
+				"elsewhere run harness-check -- pnpm test && pnpm exec vitest run",
+				"pnpm exec vitest run -t 'elsewhere run harness-check'",
+				'cargo test -- "elsewhere run delta-spec"',
+				"elsewhere where harness-check && pnpm exec vitest run",
+			]) {
+				expect(sent(run), `${run} runs heavy work here`).toBe(false);
+			}
+		});
+	});
+
+	describe("placedFarKnown", () => {
+		const answers = () => {
+			const pending: ((far: boolean) => void)[] = [];
+			const ask = (_kind: string) =>
+				new Promise<boolean>((resolve) => {
+					pending.push(resolve);
+				});
+			return { ask, pending };
+		};
+		const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+		it("says here until elsewhere first answers far, then far", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			expect(placedFarKnown("first-answer", now, ask)).toBe(false);
+			expect(pending).toHaveLength(1);
+			expect(placedFarKnown("first-answer", now + 1_000, ask)).toBe(false);
+			expect(pending, "asked once a minute at most").toHaveLength(1);
+			pending[0]?.(true);
+			await settled();
+			expect(placedFarKnown("first-answer", Date.now(), ask)).toBe(true);
+		});
+
+		it("stops believing far once the answer outlives two asks", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			placedFarKnown("goes-stale", now, ask);
+			pending[0]?.(true);
+			await settled();
+			expect(placedFarKnown("goes-stale", now + 61_000, ask)).toBe(true);
+			expect(pending, "a minute on, it asks again").toHaveLength(2);
+			expect(
+				placedFarKnown("goes-stale", Date.now() + 121_000, ask),
+				"the ask still out leaves the old answer too old",
+			).toBe(false);
+		});
+
+		it("believes a later answer of here at once", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			placedFarKnown("turns-here", now, ask);
+			pending[0]?.(true);
+			await settled();
+			placedFarKnown("turns-here", now + 61_000, ask);
+			pending[1]?.(false);
+			await settled();
+			expect(placedFarKnown("turns-here", now + 62_000, ask)).toBe(false);
+		});
+
+		// An agent runs a check, edits for minutes and runs it again, so an
+		// answer kept warm only by its runs would nearly always be stale.
+		it("has a fresh answer waited for before a run is queued", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			const run = "cd x && elsewhere run waits-first -- pnpm test";
+			let done = false;
+			const placed = placesNow(run, "/tree", "/home", ask, now, "Q").then(
+				() => {
+					done = true;
+				},
+			);
+			await settled();
+			expect(done, "waits for elsewhere's answer").toBe(false);
+			pending[0]?.(true);
+			await placed;
+			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+
+			const later = now + 5 * 60_000;
+			let doneAgain = false;
+			const again = placesNow(run, "/tree", "/home", ask, later, "Q").then(
+				() => {
+					doneAgain = true;
+				},
+			);
+			expect(pending, "five minutes on, it asks again").toHaveLength(2);
+			await settled();
+			expect(doneAgain, "and waits, the old answer being stale").toBe(false);
+			pending[1]?.(true);
+			await again;
+			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
+		});
+
+		it("waits for nothing when no step is an elsewhere run, or the answer is fresh", async () => {
+			const { ask, pending } = answers();
+			const now = Date.now();
+			const run = "elsewhere run fresh-already -- pnpm test";
+			for (const [command, quest] of [
+				["pnpm test # elsewhere later", "Q"],
+				["echo elsewhere run x -- y", "Q"],
+				[`unset PI_QUEST; ${run}`, "Q"],
+				[run, ""],
+			] as const) {
+				await placesNow(command, "/tree", "/home", ask, now, quest);
+			}
+			expect(pending, "no answer could make these sent").toHaveLength(0);
+			const first = placesNow(run, "/tree", "/home", ask, now, "Q");
+			pending[0]?.(true);
+			await first;
+			await placesNow(run, "/tree", "/home", ask, Date.now() + 1_000, "Q");
+			expect(pending, "asked once").toHaveLength(1);
+		});
+	});
+
+	describe("placesFar", () => {
+		it("reads elsewhere's where answer, and anything else as here", () => {
+			expect(
+				placesFar(
+					'{"because":"placed","here":false,"kind":"harness-check","machine":"equilibrius","programs":["pnpm"],"schema":"elsewhere.where/1"}',
+				),
+			).toBe(true);
+			for (const answer of [
+				'{"here":true,"kind":"harness-check"}',
+				'{"kind":"harness-check"}',
+				'{"here":"false"}',
+				"null",
+				"here",
+				"",
+			]) {
+				expect(placesFar(answer), answer).toBe(false);
+			}
+		});
 	});
 
 	it("doesn't for a nix-offload there that may build here when unsent", () => {

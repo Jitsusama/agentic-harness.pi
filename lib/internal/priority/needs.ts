@@ -162,6 +162,130 @@ export function runsChangedChecks(command: string): boolean {
 	return CHANGED_CHECKS.test(command);
 }
 
+/** A shell variable set for one command, as `NAME=value`, and its name. */
+const ASSIGNS = /^([A-Za-z_][A-Za-z0-9_]*)=/;
+
+/**
+ * Variables a step may not change for itself and still be sent: with no
+ * `PI_QUEST` elsewhere runs the job here, and another `PATH` may find
+ * another elsewhere than the one asked where it places a kind.
+ */
+const KEEPS = new Set(["PI_QUEST", "PATH"]);
+
+/** A word that runs a command here as the shell expands it. */
+const SUBSTITUTES = /\$\(|`|<\(|>\(/;
+
+/**
+ * A word as the shell reads it once its quotes and backslashes are gone,
+ * so `-""-here`, `\-\-here` and `PI_""QUEST` read as what they are.
+ */
+function unquoted(word: string): string {
+	return word.replace(/["'\\]/g, "");
+}
+
+/**
+ * Anything in a command that can change which elsewhere runs or where it
+ * places a run: `PI_QUEST` or `PATH` named anywhere, whether set, unset
+ * or exported by an earlier step, or `elsewhere` defined as a function
+ * or an alias. Read over the whole command, not one step, since an
+ * earlier step changes what a later one inherits.
+ */
+const REROUTES =
+	/\bPI_QUEST\b|(?<!\w)PATH\b|\belsewhere\s*\(|\bfunction\s+elsewhere\b|\balias\s+elsewhere\b/;
+
+/** Whether anything in a command can change where its elsewhere runs go. */
+export function reroutesElsewhere(command: string): boolean {
+	return REROUTES.test(command);
+}
+
+/** Whether a word sets a variable for one command, and not one it keeps. */
+function setsOwn(word: string): boolean {
+	const name = ASSIGNS.exec(word)?.[1];
+	return name !== undefined && !KEEPS.has(name);
+}
+
+/**
+ * Where `env` stops reading and its program starts, or nothing when it
+ * clears or changes what a sent run needs, or takes an option read no
+ * further than `-u NAME`.
+ */
+function envTakes(words: readonly string[], at: number): number | undefined {
+	let next = at;
+	for (;;) {
+		const word = words[next] ?? "";
+		if (unquoted(word) === "-u") {
+			if (KEEPS.has(unquoted(words[next + 1] ?? ""))) return undefined;
+			next += 2;
+		} else if (word.startsWith("-")) return undefined;
+		else if (ASSIGNS.test(word)) {
+			if (!setsOwn(word)) return undefined;
+			next += 1;
+		} else return next;
+	}
+}
+
+/** What `timeout` reads before the program it runs: options, then a duration. */
+function timeoutTakes(words: readonly string[], at: number): number {
+	let next = at;
+	while ((words[next] ?? "").startsWith("-")) {
+		const word = words[next] ?? "";
+		next += word === "-s" || word === "-k" ? 2 : 1;
+	}
+	return next + 1;
+}
+
+/**
+ * Whether a word names elsewhere as PATH finds it, the one asked where it
+ * places a kind. A path, even an absolute one, may name a script of the
+ * agent's own, so it never counts.
+ */
+function isElsewhere(word: string): boolean {
+	return word === "elsewhere";
+}
+
+/**
+ * The kind of job a step sends with `elsewhere run KIND [OPTIONS] -- ...`, which
+ * carries its tracked files to the machine mycelium places it on
+ * (core.nix's elsewhere), or nothing when the step runs something else,
+ * or asks with `--here` to run on this machine. Read from the step's
+ * words, past one-command settings, `env`, `timeout` and `command`, so
+ * the words inside a quoted argument or a test's name never count.
+ * Nothing, too, for a step that runs something here as the shell expands
+ * it (`$(...)`, backticks, `<(...)`), or that changes `PI_QUEST` or
+ * `PATH` for itself, since either keeps work on this machine.
+ */
+export function elsewhereKindOf(words: readonly string[]): string | undefined {
+	const expands = (word: string) =>
+		SUBSTITUTES.test(word) && !/^'[^']*'$/.test(word);
+	if (words.some(expands)) return undefined;
+	let at: number | undefined = 0;
+	for (;;) {
+		const word: string = words[at] ?? "";
+		if (ASSIGNS.test(word)) {
+			if (!setsOwn(word)) return undefined;
+			at += 1;
+		} else if (word === "env") {
+			at = envTakes(words, at + 1);
+			if (at === undefined) return undefined;
+		} else if (word === "timeout") at = timeoutTakes(words, at + 1);
+		else if (word === "command" || word === "exec") at += 1;
+		else break;
+	}
+	if (!isElsewhere(unquoted(words[at] ?? ""))) return undefined;
+	const kind = unquoted(words[at + 2] ?? "");
+	if (unquoted(words[at + 1] ?? "") !== "run" || !/^\w[\w.-]*$/.test(kind)) {
+		return undefined;
+	}
+	// elsewhere takes the job only after `--`, and refuses a run without
+	// one (exit 64, 22 November), so such a step sends nothing.
+	const end = words.indexOf("--", at + 3);
+	if (end === -1) return undefined;
+	const options = words.slice(at + 3, end);
+	const staysHere = (option: string) =>
+		option.includes("$") || unquoted(option) === "--here";
+	return options.some(staysHere) ? undefined : kind;
+}
+
 /**
  * `nix-offload there --here`, which builds on this machine when no
  * builder takes the build (core #1394), so it waits its turn here like
