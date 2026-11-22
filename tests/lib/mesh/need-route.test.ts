@@ -6,6 +6,7 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -560,6 +561,38 @@ describe("keeping a need once an ask", () => {
 
 		const lines = readFileSync(needsFile(root, AT), "utf8").trim().split("\n");
 		expect(lines).toHaveLength(2);
+	});
+
+	it("reads past a torn line before the one it matches", async () => {
+		const first = routed("A", "carry");
+		mkdirSync(join(root, "needs"), { recursive: true });
+		writeFileSync(needsFile(root, AT), '{"need":"A/9","ask\n');
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, { ...first, need: "A/2" });
+
+		const lines = readFileSync(needsFile(root, AT), "utf8").trim().split("\n");
+		expect(lines).toHaveLength(2);
+	});
+
+	it("keeps an ask sent again across UTC midnight once", async () => {
+		const midnight = Date.UTC(2026, 10, 18);
+		const first = { ...routed("A", "carry"), at: midnight - 60_000 };
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, { ...first, need: "A/2", at: midnight + 60_000 });
+
+		const before = readFileSync(needsFile(root, first.at), "utf8").trim();
+		expect(before.split("\n").map((line) => JSON.parse(line).need)).toEqual([
+			"A/1",
+		]);
+		expect(existsSync(needsFile(root, midnight))).toBe(false);
+	});
+
+	it("keeps each ask with no words, since nothing tells two apart", async () => {
+		const first = { ...routed("A", "carry"), words: [] };
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, { ...first, need: "A/2" });
+
+		expect(kept()).toEqual(["A/1", "A/2"]);
 	});
 });
 

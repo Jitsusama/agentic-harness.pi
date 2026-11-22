@@ -58,9 +58,14 @@ const SHORTEST_PART = 12;
  * classifier's provider a bounded amount: the joined rest past
  * `MOST_PARTS`, or one paragraph holding a pasted log. About 400 words,
  * far past any paragraph in the 54 mesh messages sampled on 21
- * November; a cause past it in one part goes unjudged.
+ * November. A longer part is judged by its first and last halves of
+ * this, since a cause most often opens or closes what it explains; one
+ * in the middle of such a part goes unjudged.
  */
 const LONGEST_PART = 2000;
+
+/** What stands between a long part's two ends where its middle is cut. */
+const CUT = "\n...\n";
 
 /**
  * Where a text breaks into parts: a blank line, or a line opening a
@@ -95,9 +100,8 @@ const QUESTIONS: ClassifierContext["questions"] = {
 /**
  * A text's parts as they are judged: its paragraphs, and each item of a
  * list, of those long enough to state a cause. Past `MOST_PARTS`, the
- * rest is joined into the last, so every part is read, though one in
- * that last part is judged among the rest. Each runs to `LONGEST_PART`
- * at most.
+ * rest is joined into the last, where a cause is judged among the rest.
+ * Each runs to `LONGEST_PART` at most, a longer one kept by its ends.
  */
 export function claimParts(text: string): string[] {
 	return partsOf(text).parts;
@@ -123,14 +127,29 @@ function partsOf(text: string): { parts: string[]; cut: boolean } {
 }
 
 /**
- * `part` cut to `LONGEST_PART`, a character short when the cut would
+ * `part` held to `LONGEST_PART`: a longer one keeps its first and last
+ * halves, with `CUT` between, each a character short where its cut would
  * fall between the two halves of one, so no half goes to the provider.
  */
 function boundedPart(part: string): string {
 	if (part.length <= LONGEST_PART) return part;
-	const last = part.charCodeAt(LONGEST_PART - 1);
-	const halved = last >= 0xd800 && last <= 0xdbff;
-	return part.slice(0, halved ? LONGEST_PART - 1 : LONGEST_PART);
+	const half = Math.floor((LONGEST_PART - CUT.length) / 2);
+	const headEnd = isHighSurrogate(part.charCodeAt(half - 1)) ? half - 1 : half;
+	const tailStart = part.length - half;
+	const tailFrom = isLowSurrogate(part.charCodeAt(tailStart))
+		? tailStart + 1
+		: tailStart;
+	return `${part.slice(0, headEnd)}${CUT}${part.slice(tailFrom)}`;
+}
+
+/** Whether `code` opens a character written in two halves. */
+function isHighSurrogate(code: number): boolean {
+	return code >= 0xd800 && code <= 0xdbff;
+}
+
+/** Whether `code` closes a character written in two halves. */
+function isLowSurrogate(code: number): boolean {
+	return code >= 0xdc00 && code <= 0xdfff;
 }
 
 /**
@@ -152,12 +171,15 @@ function detailOf(said: string): string {
  * The parts of `text` that state an untested cause, judged by the
  * classifier `lookup` finds. Finding none in time, or one that can't
  * judge, finds nothing, and `unjudged` is told why; a classifier
- * switched off is meant, so nothing is told of it.
+ * switched off is meant, so nothing is told of it. `inFull` is told when
+ * at least one part was judged and none went unjudged, so a caller knows
+ * the classifier answered rather than that nothing was asked.
  */
 export async function untestedCausesFound(
 	text: string,
 	lookup: Promise<FoundClassifier> | undefined,
 	unjudged: Unjudged = () => undefined,
+	inFull: () => void = () => undefined,
 ): Promise<string[]> {
 	if (lookup === undefined) return [];
 	const found = await settledWithin(lookup, JUDGE_MS);
@@ -169,7 +191,7 @@ export async function untestedCausesFound(
 		if (!found.off) unjudged("no classifier", detailOf(found.reason));
 		return [];
 	}
-	return untestedCauses(text, found.classify, unjudged);
+	return untestedCauses(text, found.classify, unjudged, inFull);
 }
 
 /**
@@ -177,12 +199,14 @@ export async function untestedCausesFound(
  * state an untested cause, in the order they stand. A part it couldn't
  * judge is not among them, and `unjudged` is told why the first wasn't,
  * in words that stay the same from text to text, so a caller can say
- * each reason once.
+ * each reason once; `inFull` is told when parts were judged and none
+ * went unjudged.
  */
 export async function untestedCauses(
 	text: string,
 	classify: Classify,
 	unjudged: Unjudged = () => undefined,
+	inFull: () => void = () => undefined,
 ): Promise<string[]> {
 	const { parts, cut } = partsOf(text);
 	if (cut) unjudged(`a part ran past ${LONGEST_PART} characters`);
@@ -193,6 +217,7 @@ export async function untestedCauses(
 	const [first] = missed;
 	if (first !== undefined)
 		unjudged(`a part went unjudged: ${first.why}`, first.detail);
+	else if (parts.length > 0) inFull();
 	return parts.filter((_, at) => {
 		const one = judged[at];
 		return one !== undefined && "sure" in one && one.sure >= UNTESTED_FLOOR;
@@ -217,9 +242,15 @@ async function untestedSureness(
 			),
 			JUDGE_MS,
 		);
-		if (result === undefined) return { why: `no answer in ${JUDGE_MS} ms` };
+		// A request the signal ended may come back stopped as aborted rather
+		// than thrown: the same slow answer either way.
+		if (result === undefined || result.stopReason === "aborted")
+			return { why: `no answer in ${JUDGE_MS} ms` };
 		if (result.stopReason !== "stop") {
-			return { why: `the classifier stopped: ${result.stopReason}` };
+			const why = `the classifier stopped: ${result.stopReason}`;
+			return result.errorMessage
+				? { why, detail: detailOf(result.errorMessage) }
+				: { why };
 		}
 		return { sure: untestedOf(result.answers[QUESTION]) };
 	} catch (error) {

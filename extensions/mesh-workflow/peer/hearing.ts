@@ -54,6 +54,9 @@ import {
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
 import { dayOf } from "../../../lib/mesh/transport.ts";
+// How long a message heard may take to judge, as a send may: the same
+// classifier over the same network, so one bound serves both.
+import { JUDGE_MS } from "../../../lib/prose/claims.ts";
 import { NOTED, UNVOUCHED } from "../delivery.ts";
 import { takenAtNextLook } from "../steer.ts";
 import type { Handing } from "./handing.ts";
@@ -66,15 +69,6 @@ import {
 	type MeshState,
 	STOPPED,
 } from "./mesh.ts";
-
-/**
- * How long a classifier may take over one message before it is noted
- * unjudged, and finding it may take. Jev answers in well under half a
- * second; this is for the network having gone, which must not leave a
- * message undelivered. A timer of its own keeps it, since a classifier
- * may not heed the signal it is handed.
- */
-const JUDGE_MS = 2500;
 
 /** Whether an id was stamped on a day before another's, both in time. */
 function dayBefore(id: string, other: string): boolean {

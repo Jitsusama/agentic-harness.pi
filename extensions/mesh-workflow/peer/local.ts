@@ -115,19 +115,16 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 						slackOfThePerson,
 					),
 					untested: async (text) => {
-						let missed = false;
 						try {
-							const found = await untestedCausesFound(
+							return await untestedCausesFound(
 								text,
 								m.classifier,
-								(why, detail) => {
-									missed = true;
-									unjudged(why, detail);
-								},
+								unjudged,
+								// Judged in full by a classifier that answered: a reason
+								// that comes back is news again. A send nothing judged, as
+								// with the guard off or no part long enough, clears nothing.
+								() => m.unjudgedSaid.clear(),
 							);
-							// Judged in full: a reason that comes back is news again.
-							if (!missed) m.unjudgedSaid.clear();
-							return found;
 						} catch {
 							// With no classifier to be had, nothing is judged and the
 							// message goes as written.

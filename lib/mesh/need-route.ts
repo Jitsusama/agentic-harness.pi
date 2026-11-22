@@ -838,14 +838,24 @@ export async function needAt(
  * the same asker, in the same words and routed to the same fit, asked
  * within `NEED_AGAIN_MS` before it: that is the same ask sent again, so
  * neither found nor lost counts it twice. Kept on the file rather than
- * in memory, so a reload or another session between the two changes
- * nothing.
+ * in memory, so a reload between the two changes nothing; the day before's
+ * file is read too when the window reaches back past UTC midnight. A need
+ * with no words any cell works on is kept each time, since nothing tells
+ * one such ask from another. Two sends of one ask at the same moment may
+ * both be kept, since the read and the append aren't one step: that costs
+ * the measure a line.
  */
 export async function keepNeedOnce(
 	dir: string,
 	record: NeedRecord,
 ): Promise<void> {
-	if (await keptAlready(needsFile(dir, record.at), record)) return;
+	const files = new Set([
+		needsFile(dir, record.at - NEED_AGAIN_MS),
+		needsFile(dir, record.at),
+	]);
+	for (const file of files) {
+		if (await keptAlready(file, record)) return;
+	}
 	await keepNeed(dir, record);
 }
 
@@ -858,6 +868,7 @@ async function keptAlready(file: string, record: NeedRecord): Promise<boolean> {
 		// No file yet for the day: nothing kept to match.
 		return false;
 	}
+	if (record.words.length === 0) return false;
 	const words = record.words.join(" ");
 	return lines.some((line) => {
 		const kept = keptLine(line);

@@ -509,6 +509,67 @@ describe("an untested cause on the mesh", () => {
 		]);
 	});
 
+	it("says a reason again for no send that judged nothing", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const judge = sureOfTheDisk();
+		let failing = true;
+		const flaky = {
+			modelRegistry: {
+				...judge.modelRegistry,
+				classify: async (
+					model: unknown,
+					context: { state: { message?: unknown }; questions: object },
+				) => {
+					if (failing && "cause" in context.questions)
+						throw new Error("the network has gone");
+					return judge.modelRegistry.classify(model, context);
+				},
+			},
+		};
+		const { tools, entries } = await startSession({}, flaky);
+
+		await send(tools, "p9r1ki", "fyi", "Tests ran and the deploy is done.");
+		failing = false;
+		// Too short to state a cause, so nothing is asked of the classifier.
+		await send(tools, "p9r1ki", "fyi", "Done.");
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is live and watched.");
+
+		expect(judge.judged(), "the short send asked nothing").toBe(0);
+		expect(entries.filter((entry) => entry.type === UNJUDGED)).toHaveLength(1);
+	});
+
+	it("says why again once a lookup that ended late gives its own reason", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const LATE_MS = 3500;
+		const late = {
+			modelRegistry: {
+				...sureOfTheDisk().modelRegistry,
+				getAvailableOfType: () =>
+					new Promise<never[]>((resolve) => {
+						setTimeout(() => resolve([]), LATE_MS);
+					}),
+			},
+		};
+		const { tools, entries } = await startSession({}, late);
+
+		await send(tools, "p9r1ki", "fyi", CAUSE);
+		// Past when the lookup ends with no classifier, so the next send
+		// reads the late answer rather than the capped one.
+		await new Promise((resolve) => setTimeout(resolve, LATE_MS));
+		await send(tools, "p9r1ki", "fyi", `${CAUSE} Again.`);
+
+		const said = entries
+			.filter((entry) => entry.type === UNJUDGED)
+			.map((entry) => entry.data as { why: string; detail?: string });
+		expect(said.map((one) => one.why)).toEqual([
+			"no classifier",
+			"no classifier",
+		]);
+		expect(said[0]?.detail).toBe("finding the classifier took over 2500 ms");
+		expect(said[1]?.detail).not.toBe(said[0]?.detail);
+	}, 60_000);
+
 	it("is refused again once reworded but still stated as settled", async () => {
 		peer("session-p", ["P9R1KI"], []);
 		const { tools } = await startSession({}, sureOfTheDisk());

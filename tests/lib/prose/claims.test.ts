@@ -89,7 +89,14 @@ describe("claimParts", () => {
 		const text = Array.from({ length: 14 }, () => long).join("\n\n");
 		const parts = claimParts(text);
 		expect(parts).toHaveLength(12);
-		expect(parts.every((part) => part.length === 2000)).toBe(true);
+		const lengths = parts.map((part) => part.length);
+		expect(lengths.filter((length) => length > 2000)).toEqual([]);
+	});
+
+	it("keeps a long part's first and last thousand characters, cut between", () => {
+		const part = `${"a".repeat(1200)}${"m".repeat(800)}${"z".repeat(1200)}`;
+		const [kept] = claimParts(part);
+		expect(kept).toBe(`${"a".repeat(997)}\n...\n${"z".repeat(997)}`);
 	});
 
 	it("keeps a part of exactly 2000 characters whole", () => {
@@ -97,10 +104,13 @@ describe("claimParts", () => {
 		expect(claimParts(part)).toEqual([part]);
 	});
 
-	it("never cuts a character in half at 2000", () => {
-		const part = `${"x".repeat(1999)}\u{1F4A5} and on`;
-		const [cut] = claimParts(part);
-		expect(cut).toBe("x".repeat(1999));
+	it("never cuts a character in half at either end of a long part", () => {
+		const atHead = `${"x".repeat(996)}\u{1F4A5}${"y".repeat(1100)}`;
+		const atTail = `${"y".repeat(1100)}\u{1F4A5}${"z".repeat(996)}`;
+		const [head] = claimParts(atHead);
+		const [tail] = claimParts(atTail);
+		expect(head).toBe(`${"x".repeat(996)}\n...\n${"y".repeat(997)}`);
+		expect(tail).toBe(`${"y".repeat(997)}\n...\n${"z".repeat(996)}`);
 	});
 });
 
@@ -165,11 +175,22 @@ describe("untestedCauses", () => {
 		const told: [string, string?][] = [];
 		const tell = (why: string, detail?: string) =>
 			told.push(detail === undefined ? [why] : [why, detail]);
+		const stoppedSaying: Classify = async () =>
+			({
+				stopReason: "error",
+				errorMessage: "429 too many requests\nretry after 30 s",
+				answers: {},
+			}) as unknown as ClassifierResult;
 		await untestedCauses(text, failing, tell);
 		await untestedCauses(text, stopped, tell);
+		await untestedCauses(text, stoppedSaying, tell);
 		expect(told).toEqual([
 			["a part went unjudged: the classifier failed", "the network has gone"],
 			["a part went unjudged: the classifier stopped: error"],
+			[
+				"a part went unjudged: the classifier stopped: error",
+				"429 too many requests",
+			],
 		]);
 	});
 
@@ -199,9 +220,15 @@ describe("untestedCauses", () => {
 		const aborted: Classify = async () => {
 			throw new DOMException("The operation timed out.", "TimeoutError");
 		};
+		const stoppedAborted: Classify = async () =>
+			({ stopReason: "aborted", answers: {} }) as unknown as ClassifierResult;
 		const told: string[] = [];
 		await untestedCauses(text, aborted, (why) => told.push(why));
-		expect(told).toEqual(["a part went unjudged: no answer in 2500 ms"]);
+		await untestedCauses(text, stoppedAborted, (why) => told.push(why));
+		expect(told).toEqual([
+			"a part went unjudged: no answer in 2500 ms",
+			"a part went unjudged: no answer in 2500 ms",
+		]);
 	});
 
 	it("finds what it judged when another part went unjudged", async () => {
@@ -220,15 +247,46 @@ describe("untestedCauses", () => {
 	});
 
 	it("says when a part ran past 2000 characters, and judges what it kept", async () => {
-		const long = `The builder failed because ${"its disk filled ".repeat(200)}`;
+		const long = `${"Notes from the run. ".repeat(200)}It failed because its disk filled.`;
 		const told: string[] = [];
 		const found = await untestedCauses(
 			long,
-			judging(() => 0.97),
+			judging((part) => (part.includes("because") ? 0.97 : 0)),
 			(why) => told.push(why),
 		);
 		expect(found).toHaveLength(1);
 		expect(told).toEqual(["a part ran past 2000 characters"]);
+	});
+
+	it("says it judged in full only when a part was judged and none missed", async () => {
+		let inFull = 0;
+		const counting = () => {
+			inFull += 1;
+		};
+		const failing: Classify = async () => {
+			throw new Error("the network has gone");
+		};
+		await untestedCauses(
+			text,
+			judging(() => 0),
+			undefined,
+			counting,
+		);
+		expect(inFull).toBe(1);
+		await untestedCauses(text, failing, undefined, counting);
+		await untestedCauses(
+			"ok",
+			judging(() => 0),
+			undefined,
+			counting,
+		);
+		await untestedCausesFound(
+			text,
+			Promise.resolve({ ok: false, reason: "off", off: true } as const),
+			undefined,
+			counting,
+		);
+		expect(inFull).toBe(1);
 	});
 
 	it("says nothing when every part is judged", async () => {
