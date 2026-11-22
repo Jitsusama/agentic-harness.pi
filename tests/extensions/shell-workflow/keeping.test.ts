@@ -32,6 +32,7 @@ import {
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
 import { endOf, outputOf } from "../../../lib/internal/shell/kept.ts";
+import { recordKeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
@@ -343,8 +344,22 @@ describe("a kept call", () => {
 		const kept = keepsOnDisk(
 			{
 				async exec(_command, _cwd, call) {
-					keep = call.env?.[KEEP_VARIABLE];
-					writeFileSync(`${keep}.job`, "{}");
+					const at = call.env?.[KEEP_VARIABLE] ?? "";
+					keep = at;
+					// Recorded as a job's recorder records it, in this process.
+					recordKeptJob({
+						session: "s1",
+						id: "j1",
+						kind: "shell",
+						label: "true",
+						work: {
+							kind: "shell",
+							keep: at,
+							pid: process.pid,
+							mark: "mark-j1",
+							startedAt: Date.now(),
+						},
+					});
 					writeFileSync(`${keep}.end`, "0");
 					return { exitCode: 0 };
 				},

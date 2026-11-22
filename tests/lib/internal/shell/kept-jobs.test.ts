@@ -7,6 +7,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -26,6 +27,7 @@ import {
 } from "../../../../lib/internal/shell/kept.ts";
 import {
 	forgetKeptJob,
+	forgetOwnKeptJob,
 	type KeptJob,
 	keptJobsOf,
 	recordKeptJob,
@@ -211,6 +213,71 @@ describe("a recorded job", () => {
 
 	it("reads nothing before there is a folder", () => {
 		expect(keptJobsOf("s1", folder(), () => true)).toEqual([]);
+	});
+});
+
+// Every bash call takes back its job's record as it ends, on the loop a
+// host's conversations share; most never wrote one, and asking the disk
+// for a name that isn't there held that loop up to 12 s under load.
+describe("a call's own record, taken back as the call ends", () => {
+	it("is gone once taken back", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		await forgetOwnKeptJob(job.work.keep);
+		expect(existsSync(`${job.work.keep}.job`), "its record").toBe(false);
+	});
+
+	it("asks nothing of the disk for a call this process recorded none for", async () => {
+		const where = folder();
+		const keep = await makeKept(where);
+		writeFileSync(`${keep}.job`, "{}");
+		await forgetOwnKeptJob(keep);
+		expect(
+			existsSync(`${keep}.job`),
+			"a record it never wrote, left unasked",
+		).toBe(true);
+	});
+
+	it("is taken back again once written again", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		await forgetOwnKeptJob(job.work.keep);
+		recordKeptJob(job);
+		await forgetOwnKeptJob(job.work.keep);
+		expect(existsSync(`${job.work.keep}.job`), "its second record").toBe(
+			false,
+		);
+	});
+
+	it("is no longer this process's once taken back by a session's close", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		forgetKeptJob(job.work.keep);
+		writeFileSync(`${job.work.keep}.job`, "{}");
+		await forgetOwnKeptJob(job.work.keep);
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"a record written by another hand since",
+		).toBe(true);
+	});
+
+	it("never rejects when what holds its name won't go", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		rmSync(`${job.work.keep}.job`);
+		mkdirSync(`${job.work.keep}.job`);
+		await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+	});
+
+	// A reload evaluates the module again while calls started before it
+	// still run, and the recorder and the call may sit in either copy.
+	it("is taken back by a copy of this code loaded after it was written", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		vi.resetModules();
+		const again = await import("../../../../lib/internal/shell/kept-jobs.ts");
+		await again.forgetOwnKeptJob(job.work.keep);
+		expect(existsSync(`${job.work.keep}.job`), "its record").toBe(false);
 	});
 });
 
