@@ -106,7 +106,9 @@ export type Answer = ReturnType<typeof answer>;
  * it is still on the mesh, and whether a restarting host is bringing it
  * back as mesh_end asks.
  */
-export function peers(at: Pick<Local, "presences">): Promise<Census> {
+export function peers(
+	at: Pick<Local, "presences" | "heldAsk">,
+): Promise<Census> {
 	const everyone = at.presences.all();
 	return census(
 		everyone.map((one) => ({

@@ -70,7 +70,7 @@ const ASK_PARAMETERS = Type.Object({
 	repo: Type.Optional(
 		Type.String({
 			description:
-				"Checkout path: the repo for a local review, and for a hosted change a checkout of its repo to cut the round's snapshot from, when the session is not sitting in one.",
+				"Checkout path: the repo for a local review, and for a hosted change a checkout of its repo: the snapshot is cut from it when the config names no checkout, and it is read as it stands when no snapshot can be cut and it is cleanly at the commit.",
 		}),
 	),
 	intent: Type.Optional(

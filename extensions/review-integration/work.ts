@@ -24,6 +24,7 @@
  * stand refuses instead of degrading.
  */
 
+import { realpath } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
@@ -457,9 +458,111 @@ async function headOf(directory: string): Promise<string | undefined> {
 }
 
 /**
+ * Whether a directory is the top of its checkout rather than a folder
+ * inside one: a round reads the folder it is given as the repo's root,
+ * so a subfolder, tracked or ignored, would be read as the whole
+ * commit while holding a part of it or none.
+ */
+async function isTopOfCheckout(directory: string): Promise<boolean> {
+	const { host } = standing();
+	if (host === undefined) return false;
+	try {
+		const said = await host.exec(
+			"git",
+			["-C", directory, "rev-parse", "--show-toplevel"],
+			{ timeout: REMOTE_PROBE_MS },
+		);
+		if (said.code !== 0) return false;
+		return said.stdout.trim() === (await realpath(directory));
+	} catch {
+		// A folder git or the filesystem won't resolve can't be shown to
+		// be a checkout's top, so it is not read as one.
+		return false;
+	}
+}
+
+/**
+ * Whether a directory's tracked files are as its HEAD has them, by
+ * asking git; undefined when git couldn't say, so a refusal doesn't
+ * claim edits nobody saw. Untracked files are left out: a checkout
+ * routinely holds scratch nobody added, and a reviewer reading one is
+ * told the diff, which they are not in.
+ *
+ * Asked without optional locks and with the repo's fsmonitor off, so
+ * reading a checkout the caller named neither takes its index lock
+ * nor runs a command its config names.
+ */
+async function isClean(directory: string): Promise<boolean | undefined> {
+	const { host } = standing();
+	if (host === undefined) return undefined;
+	try {
+		const said = await host.exec(
+			"git",
+			[
+				"--no-optional-locks",
+				"-c",
+				"core.fsmonitor=false",
+				"-C",
+				directory,
+				"status",
+				"--porcelain",
+				"--untracked-files=no",
+			],
+			{ timeout: REMOTE_PROBE_MS },
+		);
+		// A status the clock killed printed only part of what it found, so
+		// what it printed says nothing about the rest.
+		if (said.code !== 0 || said.killed) return undefined;
+		return said.stdout.trim() === "";
+	} catch {
+		// A git that will not run cannot vouch for the tree, and a round
+		// is refused rather than reading what nobody vouched for.
+		return undefined;
+	}
+}
+
+/**
+ * Whether a checkout can stand in for the commit: undefined when its
+ * HEAD is the commit and its tracked files are unchanged, or else how
+ * it stands, said for a refusal.
+ */
+async function standingApart(
+	directory: string,
+	commit: string,
+): Promise<string | undefined> {
+	const head = await headOf(directory);
+	if (head === undefined) return "is at a commit git would not name";
+	if (!head.startsWith(commit)) {
+		return `is at ${head.slice(0, 12)} rather than ${commit}`;
+	}
+	if (!(await isTopOfCheckout(directory))) {
+		return "is a folder inside a checkout, not the top of one";
+	}
+	const clean = await isClean(directory);
+	if (clean === undefined) {
+		return `is at ${commit}, but git couldn't say whether its tracked files are unchanged`;
+	}
+	return clean
+		? undefined
+		: `is at ${commit} with uncommitted changes to tracked files`;
+}
+
+/**
  * Where a round goes when no tree could be cut at the commit: the
- * fallback when it already has that commit checked out, and otherwise
- * a refusal naming why and what to do.
+ * ground when it stands cleanly at that commit, then the checkout the
+ * caller named when git says it is this repo and it stands cleanly at
+ * the commit, and otherwise a refusal naming each and how it stands.
+ *
+ * The named checkout is the repo parameter when one was given and the
+ * session's own directory when not, which is the same directory the
+ * ground falls back to with no checkout configured.
+ *
+ * The named checkout is tried second, not ignored. The ground is the
+ * configured checkout whenever one is configured, which is right for
+ * cutting a snapshot, and the refusal's own advice is to name a
+ * checkout that has the commit. A caller who did exactly that was
+ * refused anyway, with the configured path in the message and the one
+ * it named nowhere (XY9H5C, 21 Nov, core.nix's PR read from a tree).
  *
  * This used to read the fallback at whatever commit it stood on, with
  * a caveat. Two councils did that and returned fifty-nine findings
@@ -469,16 +572,25 @@ async function headOf(directory: string): Promise<string | undefined> {
  * left is rare and worth stopping for.
  */
 async function fallbackAt(
-	fallback: string,
+	choice: { repo: RepoLocator; ground: string; named: string },
 	commit: string,
 	why: string,
 ): Promise<RoundTree> {
-	const head = await headOf(fallback);
-	if (head?.startsWith(commit)) return { path: fallback };
-	const standing =
-		head === undefined ? "a commit git would not name" : head.slice(0, 12);
+	const { repo, ground, named } = choice;
+	const groundApart = await standingApart(ground, commit);
+	if (groundApart === undefined) return { path: ground };
+	let namedApart = "";
+	if (named !== ground) {
+		if (await isCheckoutOf(named, repo)) {
+			const apart = await standingApart(named, commit);
+			if (apart === undefined) return { path: named };
+			namedApart = ` The checkout it was pointed at (the repo parameter, else the session's folder), ${named}, ${apart}.`;
+		} else {
+			namedApart = ` The checkout it was pointed at (the repo parameter, else the session's folder), ${named}, is not a checkout of ${repo.key}.`;
+		}
+	}
 	return {
-		refusal: `${why} The checkout left to read, ${fallback}, is at ${standing} rather than ${commit}, and findings about other code read as plausibly as real ones. Fetch ${commit} there or check it out, or name a checkout that has it as the repo parameter, then ask again.`,
+		refusal: `${why} The checkout left to read, ${ground}, ${groundApart}, and findings about other code read as plausibly as real ones.${namedApart} Fetch ${commit} there or check it out cleanly, or name a checkout that has it as the repo parameter, then ask again.`,
 	};
 }
 
@@ -510,6 +622,7 @@ export async function treeForRound(
 	// does not contain, at $75.63. Every one of them read plausibly.
 	const ground = await groundFor(repo, fallback);
 	if ("refusal" in ground) return ground;
+	const choice = { repo, ground: ground.path, named: fallback };
 	fallback = ground.path;
 
 	if (commit === undefined) {
@@ -521,7 +634,7 @@ export async function treeForRound(
 	const { work } = standing();
 	if (work === undefined) {
 		return fallbackAt(
-			fallback,
+			choice,
 			commit,
 			"No working layer is loaded to cut a tree at the commit under review; load the work integration to have one cut.",
 		);
@@ -546,14 +659,14 @@ export async function treeForRound(
 		purpose: "review",
 		commit,
 	});
-	if ("refusal" in asked) return fallbackAt(fallback, commit, asked.refusal);
+	if ("refusal" in asked) return fallbackAt(choice, commit, asked.refusal);
 
 	try {
 		const held = await work.broker().ensure(asked.request);
 		return { path: held.path };
 	} catch (error) {
 		return fallbackAt(
-			fallback,
+			choice,
 			commit,
 			error instanceof Error ? error.message : String(error),
 		);
