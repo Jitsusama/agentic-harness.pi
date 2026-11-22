@@ -70,6 +70,9 @@ const LOOK_BACK = 500;
 const PATCH = [
 	"-c",
 	"core.quotepath=off",
+	// `rev-list` never follows a file, so neither may the log it is held to.
+	"-c",
+	"log.follow=false",
 	"log",
 	"--no-merges",
 	"--format=%x00%H %h",
@@ -139,7 +142,8 @@ export async function landedAs(
 	const rest = await restOf(exec, treePath, halted, touched);
 	if (rest === undefined) return undefined;
 	for (const one of alike) {
-		if ((await restOf(exec, treePath, one.commit, touched)) === rest)
+		// By its full id: an abbreviated one is a ref first, should one be named so.
+		if ((await restOf(exec, treePath, one.full, touched)) === rest)
 			return { commit: mine.commit, as: one.commit, paths: touched };
 	}
 	return undefined;
@@ -204,6 +208,15 @@ async function touchedBy(
 	return paths.filter((path) => named.has(path));
 }
 
+/** A commit's change to some files, as `patchesIn` reads it. */
+interface Patch {
+	/** The commit's full id, which names it whatever refs there are. */
+	readonly full: string;
+	/** The commit abbreviated, as it is said. */
+	readonly commit: string;
+	readonly change: string;
+}
+
 /**
  * Each commit `git log` printed with `PATCH`, newest first, with its change
  * kept only as far as a cherry-pick leaves it alone: not the line numbers,
@@ -216,7 +229,7 @@ async function touchedBy(
 function patchesIn(
 	said: string,
 	listed: readonly string[],
-): { commit: string; change: string }[] | undefined {
+): Patch[] | undefined {
 	// Each commit's piece follows a NUL, so the text before the first is empty.
 	const [before, ...pieces] = said.split("\0");
 	if (before !== "" || pieces.length !== listed.length) return undefined;
@@ -227,9 +240,7 @@ function patchesIn(
 		const change = normalised(from < 0 ? [] : lines.slice(from));
 		return { full, commit, change };
 	});
-	return read.every((one, at) => one.full === listed[at])
-		? read.map(({ commit, change }) => ({ commit, change }))
-		: undefined;
+	return read.every((one, at) => one.full === listed[at]) ? read : undefined;
 }
 
 /**
@@ -275,7 +286,7 @@ async function patches(
 	exec: Exec,
 	treePath: string,
 	args: readonly string[],
-): Promise<{ commit: string; change: string }[] | undefined> {
+): Promise<Patch[] | undefined> {
 	const [printed, listed] = await Promise.all([
 		exec("git", ["-C", treePath, ...PATCH, ...args]),
 		exec("git", ["-C", treePath, "rev-list", "--no-merges", ...args]),

@@ -52,7 +52,9 @@ import { unattended } from "./unattended.ts";
  *
  * So no commit is dropped for matching one upstream beforehand. One the
  * base holds unchanged applies empty, and git drops it as empty. One the
- * base has since edited halts, and one it has since reverted comes back.
+ * base has since edited halts, and one it has since reverted comes back, as
+ * does one whose lines the base only moved clear of where the commit put
+ * them: that merges cleanly, beside the base's copy.
  * In a Markdown file a halt like that would read as two additions, so
  * there the base's side is kept, edit or revert alike, and the answer
  * names the commit and where it landed (see `landed.ts`). A file whose
@@ -364,8 +366,7 @@ export async function carryOn(
 				);
 			landed.push(here);
 		}
-		// A kept base side is the base's text, its citations included.
-		const now = await settleAdditions(exec, treePath, moves, here?.paths ?? []);
+		const now = await settleAdditions(exec, treePath, moves);
 		settled.push(...now.settled);
 		moves.push(...now.moves);
 		for (const path of now.recited) recited.add(path);

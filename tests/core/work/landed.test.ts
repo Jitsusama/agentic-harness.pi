@@ -187,10 +187,11 @@ describe("asking where a halted commit landed", () => {
 	);
 
 	it(
-		"takes a base's log change cut short by a NUL and a line like an id for no landing",
+		"takes a base's log change cut short by a NUL for no landing",
 		async () => {
-			// Only the base's side holds the NUL, and what follows it reads like a
-			// commit's id, so its cut patch would read as the halted commit's.
+			// Only the base's side holds the NUL, and what follows it is hex, as
+			// an abbreviated id is: its cut patch would read as the halted
+			// commit's, but it starts one piece more than there are commits.
 			await commit("log.md", "# Log\n", "start");
 			await git(repo, "checkout", "-qb", "topic");
 			await commit("log.md", "# Log\n\n- Same\n", "halted");
@@ -223,9 +224,98 @@ describe("asking where a halted commit landed", () => {
 			await git(repo, "merge", "-q", "--no-ff", "-m", "take notes", notes);
 			await commit("log.md", "# Log\n\n- Again\n", "halted");
 			await git(repo, "update-ref", "REBASE_HEAD", "topic");
-			const bases = await git(repo, "merge-base", "--all", "main", "topic");
+			const bases = (
+				await git(repo, "merge-base", "--all", "main", "topic")
+			).split("\n");
+			const asked: string[][] = [];
+			const real = spawnExec();
+			const exec: Exec = (command, args) => {
+				asked.push(args);
+				return real(command, args);
+			};
 
-			expect(bases.split("\n")).toHaveLength(2);
+			const landed = await landedAs(exec, repo, "main", ["log.md"]);
+
+			// Which one base git would name alone is down to commit dates, so the
+			// walk is held to excluding both, whichever that is.
+			expect(bases).toHaveLength(2);
+			const walk = asked.find(
+				(args) => args.includes("log") && !args.includes("--no-walk"),
+			);
+			expect(walk).toEqual(
+				expect.arrayContaining(bases.map((base) => `^${base}`)),
+			);
+			expect(landed).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"takes a log whose commits aren't the ones rev-list names for no landing",
+		async () => {
+			// As many pieces as commits, but not the same commits: whatever made
+			// the log and rev-list choose apart, what the log printed can't be
+			// trusted to be the commit it names.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n## Mine\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "moves on");
+			await git(repo, "cherry-pick", "topic");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+			const real = spawnExec();
+			const exec: Exec = async (command, args) => {
+				const result = await real(command, args);
+				return args.includes("rev-list") && !args.includes("--no-walk")
+					? { ...result, stdout: `${"0".repeat(40)}\n` }
+					: result;
+			};
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeDefined();
+			expect(await landedAs(exec, repo, "main", ["log.md"])).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"finds a landing with log.follow set",
+		async () => {
+			// A setting `git log` reads and `rev-list` never does.
+			await git(repo, "config", "log.follow", "true");
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n## Mine\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "moves on");
+			await git(repo, "cherry-pick", "topic");
+			const as = await git(repo, "rev-parse", "--short", "HEAD");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toMatchObject({ as, paths: ["log.md"] });
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"reads the base's commit by its full id, whatever a ref is named",
+		async () => {
+			// A tag named as the base commit's abbreviation, at a commit whose
+			// code matches the halted one's, would otherwise be read in its place.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await stage("a.ts", "export const a = 1;\n");
+			await commit("log.md", "# Log\n\n- Fix a typo\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await stage("b.ts", "export const b = 2;\n");
+			await commit("log.md", "# Log\n\n- Fix a typo\n", "theirs");
+			const short = await git(repo, "rev-parse", "--short", "HEAD");
+			await git(repo, "tag", short, "topic");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
 			expect(
 				await landedAs(spawnExec(), repo, "main", ["log.md"]),
 			).toBeUndefined();

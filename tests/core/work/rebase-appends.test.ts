@@ -207,8 +207,8 @@ describe("a replay where both sides only added to a Markdown file", () => {
 	});
 
 	it("leaves the citations alone in a file whose base side a landing kept", async () => {
-		// The second commit had already landed, citing the number the base gave
-		// its own entry: the base's text, kept, is the base's to cite.
+		// The second commit had already landed: the base carries its text,
+		// citation and all, so the replay leaves it as the base has it.
 		await commit(
 			{ "docs/HISTORY.md": HISTORY, "NOTES.md": "# Notes\n\nTop.\n" },
 			"base",
@@ -240,6 +240,56 @@ describe("a replay where both sides only added to a Markdown file", () => {
 			landed: [{ paths: ["NOTES.md"] }],
 		});
 		expect(outcome).not.toHaveProperty("recited");
+		expect(read("NOTES.md")).toBe(kept);
+		expect(await git(repo, "status", "--porcelain")).toBe("");
+	});
+
+	it("leaves the citations alone in a kept file when a resume carries the landing on", async () => {
+		// The landing halts on code, so the base's side it kept is staged by
+		// the time the person resumes, and nothing is left to say it landed.
+		await commit(
+			{
+				"docs/HISTORY.md": HISTORY,
+				"NOTES.md": "# Notes\n\nTop.\n",
+				"code.txt": "start\n",
+			},
+			"base",
+		);
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit(
+			{ "docs/HISTORY.md": `${HISTORY}\n## 2. Mine\n\nOurs.\n` },
+			"topic 1",
+		);
+		await commit(
+			{
+				"NOTES.md": "# Notes\n\nTop.\n\nSee HISTORY §2.\n",
+				"code.txt": "mine\n",
+			},
+			"topic 2",
+		);
+		await git(repo, "checkout", "-q", "main");
+		await commit(
+			{ "docs/HISTORY.md": `${HISTORY}\n## 2. Landed\n\nTheirs.\n` },
+			"main moves",
+		);
+		await git(repo, "cherry-pick", "topic");
+		const kept = "# Notes\n\nTop, edited.\n\nSee HISTORY §2.\n";
+		await commit({ "NOTES.md": kept, "code.txt": "theirs\n" }, "main edits");
+		await git(repo, "checkout", "-q", "topic");
+		const replay = rebaser();
+
+		const halted = await replay.rebase(repo, "main");
+		writeFileSync(join(repo, "code.txt"), "both\n");
+		await git(repo, "add", "code.txt");
+		const resumed = await replay.resume(repo);
+
+		expect(halted).toMatchObject({
+			kind: "halted",
+			conflicted: ["code.txt"],
+			landed: [{ paths: ["NOTES.md"] }],
+		});
+		expect(resumed).toMatchObject({ kind: "replayed" });
+		expect(resumed).not.toHaveProperty("recited");
 		expect(read("NOTES.md")).toBe(kept);
 		expect(await git(repo, "status", "--porcelain")).toBe("");
 	});
