@@ -141,6 +141,18 @@ function seal(id: string): void {
 	clearDiscoveryCache();
 }
 
+/** Take every line naming `value` from quest `id`'s README, its alias too. */
+function unmark(id: string, value: string): void {
+	const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(id);
+	if (!entry) throw new Error(`no quest ${id} to unmark`);
+	const readme = join(entry.dir, "README.md");
+	const lines = readFileSync(readme, "utf8").split("\n");
+	const kept = lines.filter((line) => !line.includes(value));
+	if (kept.length === lines.length) throw new Error(`no line names ${value}`);
+	writeFileSync(readme, kept.join("\n"));
+	clearDiscoveryCache();
+}
+
 /** Mark quest `id` with link `url`'s alias. */
 function markWith(id: string, url: string): void {
 	const ref = parseRef(url);
@@ -368,6 +380,26 @@ describe("a sprouted session's start", () => {
 		expect(again.words).not.toMatch(/quest create/u);
 	});
 
+	it("ties its own quest again when its environment is replayed, since it came from the cell", async () => {
+		const asked: (readonly string[])[] = [];
+		const run = async (_program: string, args: readonly string[]) => {
+			asked.push(args);
+			return { code: 0, stdout: "", stderr: "" };
+		};
+		const first = await start(
+			{ words: "tea", id: "S7", from: "TERN02" },
+			{ run, sessionId: "sess-7" },
+		);
+		const again = await start(
+			{ words: "tea", id: "S7", from: "TERN02" },
+			{ run, sessionId: "sess-7-replay" },
+		);
+		expect(again.state.questId).toBe(first.state.questId);
+		expect(asked, "tied once on each start").toHaveLength(2);
+		expect(asked[1]).toEqual(asked[0]);
+		expect(again.words).toMatch(/tied on the map/u);
+	});
+
 	it("joins the quest already holding its link rather than making a second", async () => {
 		const first = await start({ words: "the PR's work", id: "S3" });
 		const ref = parseRef("https://github.com/o/r/pull/1");
@@ -413,7 +445,9 @@ describe("a sprouted session's start", () => {
 		expect(asked, "no tie was asked for").toEqual([]);
 		expect(again.words).not.toMatch(/tied on the map/u);
 		// The same seed replayed onto another session finds the quest by the
-		// mark its join left, and still ties nothing.
+		// mark its join left, the link's alias gone so nothing else can, and
+		// still ties nothing.
+		unmark(first.state.questId, ref.value);
 		const replay = await start(
 			{ link: "https://github.com/o/r/pull/5", id: "S6", from: "TERN02" },
 			{
@@ -718,6 +752,16 @@ describe("a sprouted session's start", () => {
 			/was cut off before it answered \(it said: Killed\) and may have landed anyway/u,
 		);
 		expect(words).not.toMatch(/failed/u);
+		const long = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: null, stdout: "", stderr: "x".repeat(5000) }),
+				sessionId: "sess-tie-signal-long",
+			},
+		);
+		expect(long.words, "quotes no more than a line's worth").toContain(
+			`(it said: ${"x".repeat(200)})`,
+		);
 	});
 
 	it("says a tie that never started failed, never that it may have landed", async () => {

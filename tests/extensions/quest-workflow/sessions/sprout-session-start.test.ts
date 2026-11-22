@@ -31,8 +31,12 @@ const SESSION = "sess-sprouted";
 const envGuard = createEnvGuard();
 let tmpRoot: string;
 let savedHome: string | undefined;
-/** The session's own ties, which would reach its live mesh, host and node. */
-const TIES = /^(PI_|MYCELIUM_)/u;
+/**
+ * The session's own ties, which would reach its live mesh, host and node,
+ * and the state folder, which would reach the live launcher's quest lists;
+ * without it they fall under HOME, here the test's own folder.
+ */
+const TIES = /^(PI_|MYCELIUM_|XDG_STATE_HOME$)/u;
 let savedTies: [string, string][] = [];
 
 beforeEach(() => {

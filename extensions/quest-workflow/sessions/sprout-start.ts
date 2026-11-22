@@ -49,6 +49,12 @@ import { create, load } from "../verbs/lifecycle.ts";
 /** How long a tie to the map may take before the start goes on without it. */
 const TIE_PATIENCE_MS = 15_000;
 
+/**
+ * The most of mycelium's last line an unsure tie quotes in the session's
+ * first words, enough for a reason such as "Killed", never a page.
+ */
+const MOST_QUOTED = 200;
+
 /** Makes a quest as `quest create` does, for a test to stand in for. */
 export type Create = (
 	params: Parameters<typeof create>[3],
@@ -463,7 +469,12 @@ async function tie(
 		ran.timedOut ||
 		(ran.code === null && !ran.neverRan && !ran.missing && !ran.noFolder)
 	) {
-		const said = ran.stderr.trim().split("\n").pop();
+		const said = ran.stderr
+			.trim()
+			.split("\n")
+			.pop()
+			?.trim()
+			.slice(0, MOST_QUOTED);
 		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
