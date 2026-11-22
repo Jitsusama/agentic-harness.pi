@@ -42,7 +42,6 @@ import {
 	STRICT,
 	sandboxedCommand,
 	sandboxFor,
-	withoutCloud,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
@@ -270,9 +269,9 @@ export function fenceRunText(
 	});
 	if ("refused" in away) return away;
 	if (mac) return macFenceText(ask, folder, place, treesRoot, away.tree);
-	// fence-child.ts runs the text as bash's argument, so it holds no
-	// cloud token.
-	const sandbox = withoutCloud(place.sandbox ?? sandboxFor(env));
+	// fence-child.ts runs the text as bash's argument, which the fence's
+	// text can be, since it holds no cloud token (`fenceCloud`).
+	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
 			refused:

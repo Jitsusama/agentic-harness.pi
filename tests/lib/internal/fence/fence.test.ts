@@ -68,8 +68,6 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
-			// The broker's hour tokens, asked for only once a command runs.
-			gcloud: expect.any(Function),
 			// No nix-offload is there to ask, so it is taken as one from before
 			// --lent-only and `outside`, which sends no commit out and is given
 			// the exemption's environment from here.
@@ -94,7 +92,6 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
-			gcloud: expect.any(Function),
 		});
 	});
 
@@ -357,18 +354,27 @@ describe("a command in the fence, through stand-ins", () => {
 		);
 	});
 
-	it("is handed the agents' cloud token and project, its settings in the fence's own place", () => {
-		const token = "ya29.agents-only";
+	it("is handed no cloud token, only settings in the fence's own place, and a command naming gcloud is told why", () => {
 		const result = run(
-			'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
-			{ PI_SESSION_ID: "s-cloud" },
-			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			'command -v gcloud >/dev/null; echo "${CLOUDSDK_AUTH_ACCESS_TOKEN:-none} ${CLOUDSDK_CORE_PROJECT:-none} $CLOUDSDK_CONFIG"',
+			{
+				PI_SESSION_ID: "s-cloud",
+				CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.the-person's",
+				CLOUDSDK_CORE_PROJECT: "the-person-s-project",
+			},
 		);
 		const [given, project, settings] = result.stdout.trim().split(" ");
-		expect(given, "the token wasn't handed in").toBe(token);
-		expect(project, "the project wasn't handed in").toBe("a-lab-project");
+		expect(given, "a token was handed in").toBe("none");
+		expect(project, "a project was handed in").toBe("none");
 		expect(settings, "gcloud's settings aren't the fence's").toMatch(
 			new RegExp(`^${join(home, ".cache/pi-fence/gcloud")}/`),
+		);
+		expect(result.stderr, "gcloud wasn't told why").toContain(
+			"pi: gcloud has no token in the sandbox: the agent fence hands no command",
+		);
+		expect(run("echo plain").stderr, "a plain command was noted").not.toContain(
+			"pi: gcloud",
 		);
 	});
 

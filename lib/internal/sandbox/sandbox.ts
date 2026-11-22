@@ -295,43 +295,27 @@ export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
 }
 
-/** The names a fenced command's cloud account travels in, counted before any grant. */
+/** The one cloud name a fenced command is handed, counted before it is made. */
 const CLOUD_COUNTED: Readonly<Record<string, string>> = {
-	CLOUDSDK_AUTH_ACCESS_TOKEN: "",
-	CLOUDSDK_CORE_PROJECT: "",
 	CLOUDSDK_CONFIG: "",
 };
 
 /**
- * What the agent fence hands a command for gcloud: nothing where
- * `sandbox` has no broker to ask (`withoutCloud`), and otherwise the
- * grant and its variables, the settings folder in the fence's own place
- * (`fenceFolders`), which no strict command can write.
+ * What the agent fence hands a command for gcloud, whatever the session
+ * or the machine: no token, only the reason (`NO_CLOUD_IN_THE_FENCE`) and
+ * an empty settings folder in the fence's own place (`fenceFolders`),
+ * which no strict command can write. The fence's type holds no source to
+ * ask, so no caller can hand it a token by mistake.
  */
 export function fenceCloud(
-	sandbox: { readonly gcloud?: CloudGrantSource },
 	home: string,
 	env: NodeJS.ProcessEnv,
-): { grant?: CloudGrant; passed?: Record<string, string> } {
-	if (!sandbox.gcloud) return {};
-	const grant = sandbox.gcloud();
+): { grant: CloudGrant; passed: Record<string, string> } {
+	const grant = NO_CLOUD_IN_THE_FENCE();
 	return {
 		grant,
 		passed: cloudVariables(grant, home, env, fenceFolders(home).gcloud),
 	};
-}
-
-/**
- * `sandbox` with no cloud account to hand on, for a runner that gives
- * bash the text as an argument (the fence's checks, `pi-fence`), where a
- * token in it would be a word any process of the person's could read in
- * `/proc`. Those runs never ask the broker, so they mint nothing and
- * leave no settings folder behind.
- */
-export function withoutCloud(sandbox: Sandbox): Sandbox {
-	if (sandbox.kind !== "fence" && sandbox.kind !== "strict") return sandbox;
-	const { gcloud: _, ...rest } = sandbox;
-	return rest;
 }
 
 /**
@@ -357,7 +341,6 @@ export type Sandbox =
 			readonly githubDoor?: string;
 			/** Said once in the session, when the fence wasn't what it asked. */
 			readonly note?: string;
-			readonly gcloud?: CloudGrantSource;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -478,7 +461,6 @@ export function githubRules(): Rule[] {
 function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
-	gcloud: CloudGrantSource,
 ): Sandbox {
 	if (platform !== "linux") {
 		return {
@@ -502,7 +484,6 @@ function fenceFor(
 		kind: "fence",
 		bwrap,
 		landrun,
-		gcloud,
 		...(githubDoor ? { githubDoor } : {}),
 		...(program && env ? { offload: offloadAt(program, env) } : {}),
 	};
@@ -547,7 +528,7 @@ function askedFor(
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find, NO_CLOUD_IN_THE_FENCE);
+	if (asked === FENCE) return fenceFor(platform, find);
 	if (platform !== "linux") {
 		return {
 			kind: "refused",
@@ -681,11 +662,8 @@ export function wrapFor(
 			// Said only for a command the fence would run, never one sent
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
-			// The cloud account's names are counted here though no grant has
-			// come yet, since they go in once one does.
-			const counted = bwrapWords(
-				sandbox.gcloud ? { ...made, passed: CLOUD_COUNTED } : made,
-			);
+			// gcloud's settings folder is counted here before it is made.
+			const counted = bwrapWords({ ...made, passed: CLOUD_COUNTED });
 			const tooMany =
 				counted > BWRAP_MOST_ARGS
 					? `The fence would hand bubblewrap at least ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`
@@ -704,10 +682,10 @@ export function wrapFor(
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
 				// The person's cloud login stays hidden (fence-hidden.ts), and
-				// gcloud gets a settings folder of its own, with a token only
-				// where the fence's source gives one (`NO_CLOUD_IN_THE_FENCE`).
-				const { grant, passed } = fenceCloud(sandbox, home, place.env);
-				const cloud = { ...made, ...(passed ? { passed } : {}) };
+				// gcloud gets an empty settings folder of its own and no token
+				// (`NO_CLOUD_IN_THE_FENCE`).
+				const { grant, passed } = fenceCloud(home, place.env);
+				const cloud = { ...made, passed };
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },

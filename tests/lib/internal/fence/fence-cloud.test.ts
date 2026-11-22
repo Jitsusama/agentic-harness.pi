@@ -11,7 +11,6 @@
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
-	existsSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -31,7 +30,6 @@ import {
 	fenceCloud,
 	NO_CLOUD_IN_THE_FENCE,
 	sandboxFor,
-	withoutCloud,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { sandboxFolders } from "../../../../lib/internal/sandbox/strict-rules.ts";
 
@@ -201,8 +199,7 @@ describe("a fenced command's cloud account", () => {
 		const fence = made("fence");
 		if (fence.kind !== "fence") throw new Error("not the fence");
 		askTheCloudAhead(fence);
-		expect(asked).toEqual([]);
-		expect(fence.gcloud?.()).toEqual(NO_CLOUD_IN_THE_FENCE());
+		expect("gcloud" in fence, "the fence holds a source to ask").toBe(false);
 		expect(asked).toEqual([]);
 		const strict = made("strict");
 		expect(strict.kind).toBe("strict");
@@ -213,12 +210,8 @@ describe("a fenced command's cloud account", () => {
 	it("gives a fenced command no token, only the empty folder and the reason it has none", () => {
 		const home = mkdtempSync(join(tmpdir(), "fence-cloud-none-"));
 		try {
-			const { grant, passed } = fenceCloud(
-				{ gcloud: NO_CLOUD_IN_THE_FENCE },
-				home,
-				{ PI_SESSION_ID: "s-0" },
-			);
-			expect(grant && "reason" in grant).toBe(true);
+			const { grant, passed } = fenceCloud(home, { PI_SESSION_ID: "s-0" });
+			expect(grant).toEqual(NO_CLOUD_IN_THE_FENCE());
 			expect(passed).toEqual({
 				CLOUDSDK_CONFIG: join(fenceFolders(home).gcloud, "s-0"),
 			});
@@ -226,7 +219,7 @@ describe("a fenced command's cloud account", () => {
 				fenced(
 					// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
 					'printf "%s\\n" "${CLOUDSDK_AUTH_ACCESS_TOKEN:-none}"',
-					passed ?? {},
+					passed,
 					{ CLOUDSDK_AUTH_ACCESS_TOKEN: token },
 				).trim(),
 			).toBe("none");
@@ -247,51 +240,11 @@ describe("what the agent fence hands gcloud", () => {
 		rmSync(home, { recursive: true, force: true });
 	});
 
-	it("is the broker's token and project, with a settings folder of the session's own in the fence's place", () => {
-		const { grant, passed } = fenceCloud(
-			{ gcloud: () => ({ token, project: "a-lab-project" }) },
-			home,
-			{ PI_SESSION_ID: "s-1" },
-		);
+	it("is an empty settings folder of the session's own in the fence's place, its own alone", () => {
+		const { passed } = fenceCloud(home, { PI_SESSION_ID: "s-1" });
 		const settings = join(fenceFolders(home).gcloud, "s-1");
-		expect(grant).toEqual({ token, project: "a-lab-project" });
-		expect(passed).toEqual({
-			CLOUDSDK_AUTH_ACCESS_TOKEN: token,
-			CLOUDSDK_CORE_PROJECT: "a-lab-project",
-			CLOUDSDK_CONFIG: settings,
-		});
+		expect(passed).toEqual({ CLOUDSDK_CONFIG: settings });
 		expect(statSync(settings).mode & 0o777).toBe(0o700);
-	});
-
-	it("is only the empty settings folder when the broker gave nothing, with why for the note", () => {
-		const { grant, passed } = fenceCloud(
-			{ gcloud: () => ({ reason: "gcloud-broker isn't on this machine" }) },
-			home,
-			{ PI_SESSION_ID: "s-2" },
-		);
-		expect(grant).toEqual({ reason: "gcloud-broker isn't on this machine" });
-		expect(passed).toEqual({
-			CLOUDSDK_CONFIG: join(fenceFolders(home).gcloud, "s-2"),
-		});
-	});
-
-	it("is nothing at all for a run with no broker to ask, which mints nothing and makes no folder", () => {
-		let asked = 0;
-		const fence = withoutCloud({
-			kind: "fence",
-			bwrap: "/bin/bwrap",
-			landrun: "/bin/landrun",
-			gcloud: () => {
-				asked += 1;
-				return { token, project: "a-lab-project" };
-			},
-		});
-		if (fence.kind !== "fence") throw new Error("no longer the fence");
-		expect("gcloud" in fence).toBe(false);
-		expect(fenceCloud(fence, home, { PI_SESSION_ID: "s-3" })).toEqual({});
-		askTheCloudAhead(fence);
-		expect(asked).toBe(0);
-		expect(existsSync(join(fenceFolders(home).gcloud, "s-3"))).toBe(false);
 	});
 
 	it("keeps its folders where no strict command can write", () => {

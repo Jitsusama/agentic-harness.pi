@@ -34,7 +34,7 @@ const UNSET = [
 	"NIX_REMOTE",
 	"NODE_COMPILE_CACHE",
 	// The person's own cloud login and settings, which fenced gcloud never
-	// uses: it is handed the agents' account's, or nothing (`passed`).
+	// uses: it is handed an empty settings folder of its own (`passed`).
 	// Google's client libraries and Terraform's provider read a login
 	// from the rest.
 	"CLOUDSDK_*",
@@ -62,13 +62,13 @@ const ARGS_FD = 3;
  * `agent`, the proxy, GitHub is reached through `github`, its door,
  * `shims`, the fence's `wl-copy` and `wl-paste`, go first on
  * `PATH`, and `display`, the sandboxed display, is the one
- * `WAYLAND_DISPLAY` names, each when there is one. Each of `passed`, the
- * agents' cloud token among them, is set for bubblewrap alone and named
- * to landrun, as `sandboxedCommand` hands strict's, so a token shows on
- * no command line of bubblewrap's or landrun's, and no cloud variable of
- * the person's goes in. The text itself holds the values, so it runs
- * through pi's spawner, which carries it in a variable, never as an
- * argument (`withoutCloud` in `../sandbox/sandbox.ts`). When `args` is the
+ * `WAYLAND_DISPLAY` names, each when there is one. Each of `passed`,
+ * gcloud's settings folder (never a token, `fenceCloud` in
+ * `../sandbox/sandbox.ts`), is set for bubblewrap alone and named to
+ * landrun, as `sandboxedCommand` hands strict's, so no command line of
+ * bubblewrap's or landrun's shows it, and no cloud variable of the
+ * person's goes in. The text itself holds the values, so pi's spawner
+ * carries it in a variable rather than as an argument. When `args` is the
  * file holding them (`fence-args-file.ts`), bubblewrap reads them from
  * it, so the text stays short however many there are.
  */

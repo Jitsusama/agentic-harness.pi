@@ -24,9 +24,10 @@ export const SHARED_SLICE_VARIABLE = "SHARED_SLICE";
 export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
 
 /**
- * The variable the command travels to the slice's shell in. A sandboxed
- * command holds the agents' hour token (`fencedCommand`,
- * `sandboxedCommand`), and a program's arguments are readable in `/proc`
+ * The variable the command travels to the slice's shell in. A strict
+ * command holds the agents' hour tokens (`sandboxedCommand`), and a
+ * fenced one values kept off every command line (`fencedCommand`), and a
+ * program's arguments are readable in `/proc`
  * by any process of the person's while it runs, where its environment is
  * not, so the command is never an argument of `systemd-run` or its bash.
  */
