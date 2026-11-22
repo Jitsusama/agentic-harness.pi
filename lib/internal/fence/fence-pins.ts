@@ -49,8 +49,12 @@ interface Mount {
 	readonly to?: string;
 }
 
-/** `args` read as bubblewrap reads them, each option with its values. */
-function mountsOf(args: readonly string[]): Mount[] {
+/**
+ * `args` read as bubblewrap reads them, each option with its values: the
+ * fence's tests read what it mounts the same way, so neither misreads an
+ * option the other knows.
+ */
+export function mountsOf(args: readonly string[]): Mount[] {
 	const mounts: Mount[] = [];
 	// Where the sources of the overlay still to come begin: an overlay and
 	// its sources are one mount, so nothing may go between them.
