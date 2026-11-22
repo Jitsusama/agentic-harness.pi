@@ -89,45 +89,53 @@ let_go() {
 trap let_go EXIT
 # A check stopped by the pid its holder's line names stops whole. Its
 # work runs without fd 9, so the turn would pass while that work ran on
-# in the shared worktree, and its wait for a turn would hold the signal
-# until the wait ended. Each runs as `job`, whose group this shell sends
-# a TERM, then waits on before it ends as signalled, killing what is
-# still there after `stop_wait_s` seconds. A command that leaves the
-# group, as a detached test does, is not reached; and a KILL to this
-# shell runs no trap, so its turn passes while its work runs on.
-job=
-# Whether `job`'s group has ended within $1 seconds, asked every tenth
-# of one, since nothing says when its last member goes.
+# in the shared worktree. So this shell sends a TERM to the group of
+# each job it started, read from its own table rather than a name it
+# sets after starting one, which a signal can land before; waits for
+# them before it ends as signalled; and kills what is still there after
+# `stop_wait_s` seconds. A command that leaves the group, as a detached
+# test does, is not reached; and a KILL to this shell runs no trap, so
+# its turn passes while its work runs on.
+# Whether the groups $2 onward have all ended within $1 seconds, asked
+# every tenth of one, since nothing says when a group's last member goes.
 gone_within() {
-  local tenths=$(( $1 * 10 ))
-  while kill -0 -- "-$job" 2>/dev/null; do
-    [ "$tenths" -gt 0 ] || return 1
-    sleep 0.1
-    tenths=$(( tenths - 1 ))
+  local tenths=$(( $1 * 10 )) group
+  shift
+  for group in "$@"; do
+    while kill -0 -- "-$group" 2>/dev/null; do
+      [ "$tenths" -gt 0 ] || return 1
+      sleep 0.1
+      tenths=$(( tenths - 1 ))
+    done
   done
 }
 stop_all() {
   trap '' TERM INT HUP
-  if [ -n "${job:-}" ]; then
-    kill -TERM -- "-$job" 2>/dev/null || true
-    if ! gone_within "${stop_wait_s:-10}"; then
-      kill -KILL -- "-$job" 2>/dev/null || true
-      gone_within 5 || true
-    fi
+  local groups group
+  groups=$(jobs -p)
+  for group in $groups; do kill -TERM -- "-$group" 2>/dev/null || true; done
+  # shellcheck disable=SC2086 # one word a group
+  if ! gone_within "${stop_wait_s:-10}" $groups; then
+    for group in $groups; do kill -KILL -- "-$group" 2>/dev/null || true; done
+    # shellcheck disable=SC2086 # one word a group
+    gone_within 5 $groups || true
   fi
   exit "$1"
 }
 trap 'stop_all 143' TERM
 trap 'stop_all 130' INT
 trap 'stop_all 129' HUP
-# Runs a command as `job` without fd 9, so nothing it leaves running,
-# such as git's fsmonitor daemon, holds the lock once it ends, and waits
-# on it, so a signal reaches stop_all at once rather than when it ends.
-# A job under `set -m` keeps this shell's stdin, the script `bash -s`
-# reads, so it gets none, and nothing in it can swallow the script.
+# Runs a command as a job without fd 9, so nothing it leaves running,
+# such as git's fsmonitor daemon, holds the lock once it ends, ending
+# with it. A job under `set -m` keeps this shell's stdin, the script
+# `bash -s` reads, so it gets none, and nothing in it can swallow the
+# script. It is asked after every second rather than waited on, since a
+# signal landing just as `wait` begins waits for the job's end; a trap
+# runs as soon as the second's sleep ends.
 alone() {
   "$@" 9>&- </dev/null &
-  job=$!
+  local job=$!
+  while kill -0 "$job" 2>/dev/null; do sleep 1; done
   wait "$job"
 }
 # A check killed outright runs no trap, so its node link stays; each
@@ -186,12 +194,14 @@ take_turn() {
   if [ "$tried" -eq 1 ]; then
     held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
     echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
-    tried=0
-    # Waited on as a job, holding fd 9, so a stop meanwhile lands at once.
-    lock -w "$wait_s" </dev/null &
-    job=$!
-    wait "$job" || tried=$?
-    job=
+    # A second's try at a time, so a stop meanwhile, held until the
+    # command it lands in ends, lands within one.
+    local tries=0
+    while [ "$tried" -eq 1 ] && [ "$tries" -lt "$wait_s" ]; do
+      tried=0
+      lock -w 1 || tried=$?
+      tries=$(( tries + 1 ))
+    done
     if [ "$tried" -eq 1 ]; then
       held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
       echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock, held by ($held)" >&2
