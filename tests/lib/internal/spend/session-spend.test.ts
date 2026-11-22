@@ -22,7 +22,7 @@ function turn(id: string, total: number) {
 }
 
 /** A rollover record carrying `spend`. */
-function record(spend: number) {
+function record(spend: unknown) {
 	return {
 		type: "custom",
 		id: "r",
@@ -51,6 +51,17 @@ describe("a session's spend", () => {
 		expect(
 			spentOnBranch([turn("a", 9), record(3), turn("b", 0.5)]),
 		).toBeCloseTo(3.5);
+	});
+
+	it.each([
+		["not a number", "3"],
+		["below zero", -3],
+		["not finite", Number.NaN],
+		["infinite", Number.POSITIVE_INFINITY],
+	])("adds every turn when the carried spend is %s", (_, spend) => {
+		expect(
+			spentOnBranch([turn("a", 9), record(spend), turn("b", 0.5)]),
+		).toBeCloseTo(9.5);
 	});
 
 	it("reads nothing from entries that are not messages", () => {

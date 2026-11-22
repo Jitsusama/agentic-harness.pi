@@ -130,7 +130,7 @@ describe("the session recall tool", () => {
 			expect(answer.content[0]?.text).toBe("[old1] the ancient flake");
 			expect(write).toHaveBeenCalledWith(
 				expect.stringMatching(
-					/^session-recall-workflow: read [\d.]+ MiB from 1 log\(s\) on disk, 1 entries, in \d+ ms\n$/,
+					/^session-recall-workflow: conversation \S+ read [\d.]+ MiB from 1 log\(s\) on disk, 1 entries, in \d+ ms\n$/,
 				),
 			);
 		} finally {

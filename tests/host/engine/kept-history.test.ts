@@ -4,9 +4,10 @@
  * its id and everything that reads the whole log stay as they were.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -39,14 +40,23 @@ function user(text: string) {
 	return { role: "user" as const, content: text, timestamp: Date.now() };
 }
 
+/** Which model answered a turn. */
+interface Model {
+	readonly provider: string;
+	readonly model: string;
+}
+
+/** The model a test log's turns are answered by unless it says otherwise. */
+const FAUX: Model = { provider: "faux", model: "faux-1" };
+
 /** An answer as pi records one, costing `cost`. */
-function answer(text: string, cost: number) {
+function answer(text: string, cost: number, by: Model = FAUX) {
 	return {
 		role: "assistant" as const,
 		content: [{ type: "text" as const, text }],
 		api: "openai-completions" as const,
-		provider: "faux",
-		model: "faux-1",
+		provider: by.provider,
+		model: by.model,
 		usage: {
 			input: 10,
 			output: 10,
@@ -61,9 +71,14 @@ function answer(text: string, cost: number) {
 }
 
 /** One exchange, its answer costing `cost`. */
-function exchange(sessions: SessionManager, text: string, cost = 0.5): void {
+function exchange(
+	sessions: SessionManager,
+	text: string,
+	cost = 0.5,
+	by: Model = FAUX,
+): void {
 	sessions.appendMessage(user(text));
-	sessions.appendMessage(answer(`answer to ${text}`, cost));
+	sessions.appendMessage(answer(`answer to ${text}`, cost, by));
 }
 
 /** How a test log differs from the plain one. */
@@ -72,6 +87,10 @@ interface LogShape {
 	readonly keepFrom?: "user" | "assistant";
 	/** Whether the log was itself rolled over, its record carrying `other`. */
 	readonly rolled?: boolean;
+	/** Another model answering "early one". */
+	readonly earlyBy?: Model;
+	/** Whether an abandoned branch, costing 3, hangs off "early one". */
+	readonly abandoned?: boolean;
 }
 
 /**
@@ -89,7 +108,12 @@ function compactedLog(shape: LogShape = {}): string {
 		});
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendThinkingLevelChange("high");
-	exchange(sessions, "early one", 1);
+	exchange(sessions, "early one", 1, shape.earlyBy);
+	if (shape.abandoned) {
+		const fork = sessions.getLeafId() ?? "";
+		exchange(sessions, "abandoned", 3);
+		sessions.branch(fork);
+	}
 	sessions.appendCustomEntry("away-state", { away: true });
 	exchange(sessions, "early two", 2);
 	sessions.appendCustomMessageEntry("peers", "a note", false);
@@ -109,6 +133,11 @@ function compactedLog(shape: LogShape = {}): string {
 	exchange(sessions, "kept two");
 	sessions.appendCompaction("what happened early", from?.id ?? "", 1000);
 	exchange(sessions, "after");
+	return fileOf(sessions);
+}
+
+/** The file pi writes `sessions` to. */
+function fileOf(sessions: SessionManager): string {
 	const file = sessions.getSessionFile();
 	if (!file) throw new Error("pi named no file");
 	return file;
@@ -127,9 +156,32 @@ function texts(entries: readonly unknown[]): string[] {
 	});
 }
 
+/**
+ * `file` opened by pi and held, failing here when the view did not go
+ * in, so no test of what the view keeps passes on a whole open.
+ */
+function hold(file: string, report?: (said: unknown) => void): SessionManager {
+	const held = holdKeptHistory(SessionManager.open(file), report);
+	expect(texts(held.getEntries())).not.toContain("early one");
+	expect(Object.hasOwn(held, "getTree")).toBe(true);
+	return held;
+}
+
+/** The lines `file` gained since it read `before`, parsed. */
+function linesAdded(file: string, before: string): Entry[] {
+	const after = readFileSync(file, "utf8");
+	expect(after.startsWith(before)).toBe(true);
+	expect(after).not.toContain(ROLLOVER_RECORD);
+	return after
+		.slice(before.length)
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as Entry);
+}
+
 describe("a conversation held from a compacted log", () => {
 	it("holds no message from before the kept entry", () => {
-		const held = holdKeptHistory(SessionManager.open(compactedLog()));
+		const held = hold(compactedLog());
 		expect(texts(held.getEntries())).toEqual([
 			"kept one",
 			"answer to kept one",
@@ -141,7 +193,7 @@ describe("a conversation held from a compacted log", () => {
 	});
 
 	it("holds the state written before the kept entry", () => {
-		const held = holdKeptHistory(SessionManager.open(compactedLog()));
+		const held = hold(compactedLog());
 		const types = held.getEntries().map((entry) => entry.type);
 		expect(types).toEqual(
 			expect.arrayContaining([
@@ -163,14 +215,13 @@ describe("a conversation held from a compacted log", () => {
 	it("builds the same context the whole log builds", () => {
 		const file = compactedLog();
 		const whole = SessionManager.open(file).buildSessionContext();
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(held.buildSessionContext()).toEqual(whole);
+		expect(hold(file).buildSessionContext()).toEqual(whole);
 	});
 
 	it("keeps the session id, the file and its leaf", () => {
 		const file = compactedLog();
 		const whole = SessionManager.open(file);
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		expect(held.getSessionId()).toBe(whole.getSessionId());
 		expect(held.getSessionFile()).toBe(file);
 		expect(held.getLeafId()).toBe(whole.getLeafId());
@@ -179,24 +230,17 @@ describe("a conversation held from a compacted log", () => {
 	it("appends after the true leaf and leaves every earlier line as it was", () => {
 		const file = compactedLog();
 		const before = readFileSync(file, "utf8");
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		const leaf = held.getLeafId();
 		exchange(held, "later");
-		const after = readFileSync(file, "utf8");
-		expect(after.startsWith(before)).toBe(true);
-		const added = after
-			.slice(before.length)
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line) as Entry);
+		const added = linesAdded(file, before);
+		expect(added).toHaveLength(2);
 		expect(added[0]?.parentId).toBe(leaf);
-		expect(after).not.toContain(ROLLOVER_RECORD);
 	});
 
 	it("comes back whole from disk after a new turn", () => {
 		const file = compactedLog();
-		const held = holdKeptHistory(SessionManager.open(file));
-		exchange(held, "later");
+		exchange(hold(file), "later");
 		const reopened = SessionManager.open(file);
 		expect(texts(reopened.getEntries())).toContain("early one");
 		expect(texts(reopened.getEntries())).toContain("later");
@@ -205,15 +249,12 @@ describe("a conversation held from a compacted log", () => {
 	it("keeps the session's spend, turns left on disk included", () => {
 		const file = compactedLog();
 		const whole = spentOnBranch(SessionManager.open(file).getBranch());
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(spentOnBranch(held.getBranch())).toBeCloseTo(whole);
+		expect(spentOnBranch(hold(file).getBranch())).toBeCloseTo(whole);
 		expect(whole).toBeCloseTo(4.5);
 	});
 
 	it("lets session_recall read what it left on disk", () => {
-		const file = compactedLog();
-		const held = holdKeptHistory(SessionManager.open(file));
-		const branch = held.getBranch();
+		const branch = hold(compactedLog()).getBranch();
 		const read = [...ancestry(branch), ...branch];
 		expect(texts(read)).toEqual(
 			expect.arrayContaining(["early one", "answer to early two", "after"]),
@@ -223,8 +264,7 @@ describe("a conversation held from a compacted log", () => {
 	it("shows the whole tree", () => {
 		const file = compactedLog();
 		const whole = SessionManager.open(file).getTree();
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(held.getTree()).toEqual(whole);
+		expect(hold(file).getTree()).toEqual(whole);
 	});
 
 	it("branches to an entry it left on disk", () => {
@@ -237,7 +277,7 @@ describe("a conversation held from a compacted log", () => {
 					entry.type === "message" && entry.message.role === "assistant",
 			);
 		if (!early) throw new Error("expected an early answer");
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		held.branch(early.id);
 		whole.branch(early.id);
 		expect(held.getBranch()).toEqual(whole.getBranch());
@@ -245,42 +285,40 @@ describe("a conversation held from a compacted log", () => {
 
 	it("forks the true branch", () => {
 		const file = compactedLog();
-		const whole = SessionManager.open(file);
-		const expected = texts(whole.getBranch());
-		const held = holdKeptHistory(SessionManager.open(file));
+		const expected = texts(SessionManager.open(file).getBranch());
+		const held = hold(file);
 		const forked = held.createBranchedSession(held.getLeafId() ?? "");
 		if (!forked) throw new Error("expected a fork");
 		expect(texts(SessionManager.open(forked).getBranch())).toEqual(expected);
 	});
 });
 
-/** The usage pi's footer and /session total over a manager's entries. */
-function usageTotals(entries: readonly unknown[]) {
-	const totals = { tokens: 0, cost: 0 };
-	for (const entry of entries) {
-		const e = entry as Record<string, unknown> & {
-			message?: { role?: string; usage?: unknown };
-		};
-		const usage =
-			e.type === "usage" ||
-			e.type === "compaction" ||
-			e.type === "branch_summary"
-				? e.usage
-				: e.type === "message"
-					? e.message?.usage
-					: undefined;
-		if (typeof usage !== "object" || usage === null) continue;
-		const u = usage as {
-			input: number;
-			output: number;
-			cacheRead: number;
-			cacheWrite: number;
-			cost: { total: number };
-		};
-		totals.tokens += u.input + u.output + u.cacheRead + u.cacheWrite;
-		totals.cost += u.cost.total;
-	}
-	return totals;
+/** pi's own usage breakdown, the one its /session view reads, by model. */
+type Breakdown = (
+	entries: readonly unknown[],
+) => { key: string; cost: number; tokens: number }[];
+
+/** pi's own `getUsageCostBreakdown`, which its package does not export. */
+async function pisBreakdown(): Promise<Breakdown> {
+	const file = join(
+		process.cwd(),
+		"node_modules/@earendil-works/pi-coding-agent/dist/core/usage-totals.js",
+	);
+	const module = (await import(pathToFileURL(file).href)) as {
+		getUsageCostBreakdown: Breakdown;
+	};
+	return module.getUsageCostBreakdown;
+}
+
+/** A breakdown as the test compares it: keys in order, costs rounded. */
+function rounded(breakdown: ReturnType<Breakdown>) {
+	return breakdown
+		.map(({ key, cost, tokens }) => ({
+			key,
+			cost: Math.round(cost * 1e6),
+			tokens,
+		}))
+		.sort((a, b) => a.key.localeCompare(b.key));
 }
 
 /** The entry of `manager`'s branch whose text is `text`. */
@@ -293,21 +331,27 @@ function entryReading(manager: SessionManager, text: string) {
 }
 
 describe("a held conversation and its whole log", () => {
-	it("keeps the footer's usage totals, turns left on disk included", () => {
-		const file = compactedLog();
-		const whole = usageTotals(SessionManager.open(file).getEntries());
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(texts(held.getEntries())).not.toContain("early one");
-		const kept = usageTotals(held.getEntries());
-		expect(kept.tokens).toBe(whole.tokens);
-		expect(kept.cost).toBeCloseTo(whole.cost);
-		expect(whole.cost).toBeCloseTo(4.5);
+	it("keeps pi's usage totals by model, other models and abandoned branches included", async () => {
+		const breakdown = await pisBreakdown();
+		const file = compactedLog({
+			earlyBy: { provider: "other", model: "other-1" },
+			abandoned: true,
+		});
+		const whole = breakdown(SessionManager.open(file).getEntries());
+		const held = breakdown(hold(file).getEntries());
+		expect(rounded(held)).toEqual(rounded(whole));
+		expect(whole.map((entry) => entry.key).sort()).toEqual([
+			"faux/faux-1",
+			"other/other-1",
+		]);
+		const cost = whole.reduce((total, entry) => total + entry.cost, 0);
+		expect(cost).toBeCloseTo(7.5);
 	});
 
 	it("keeps the spend when the kept entry is itself a costed answer", () => {
 		const file = compactedLog({ keepFrom: "assistant" });
 		const whole = spentOnBranch(SessionManager.open(file).getBranch());
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		expect(texts(held.getEntries())).not.toContain("kept one");
 		expect(spentOnBranch(held.getBranch())).toBeCloseTo(whole);
 		expect(whole).toBeCloseTo(4.5);
@@ -316,8 +360,7 @@ describe("a held conversation and its whole log", () => {
 	it("keeps what an earlier rollover record carried", () => {
 		const file = compactedLog({ rolled: true });
 		const whole = SessionManager.open(file).getBranch();
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(texts(held.getEntries())).not.toContain("early one");
+		const held = hold(file);
 		expect(carriedBy(held.getBranch(), "other")).toEqual({ kept: true });
 		expect(spentOnBranch(held.getBranch())).toBeCloseTo(spentOnBranch(whole));
 		expect(spentOnBranch(whole)).toBeCloseTo(14.5);
@@ -327,7 +370,7 @@ describe("a held conversation and its whole log", () => {
 		const file = compactedLog();
 		const whole = SessionManager.open(file);
 		const target = entryReading(whole, "answer to kept two").id;
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		held.branch(target);
 		whole.branch(target);
 		expect(held.getBranch()).toEqual(whole.getBranch());
@@ -339,7 +382,7 @@ describe("a held conversation and its whole log", () => {
 		const whole = SessionManager.open(file);
 		const target = entryReading(whole, "after").id;
 		const report = vi.fn();
-		const held = holdKeptHistory(SessionManager.open(file), report);
+		const held = hold(file, report);
 		held.branch(target);
 		whole.branch(target);
 		expect(texts(held.getEntries())).not.toContain("early one");
@@ -351,8 +394,7 @@ describe("a held conversation and its whole log", () => {
 		const file = compactedLog();
 		const early = entryReading(SessionManager.open(file), "early one");
 		const report = vi.fn();
-		const held = holdKeptHistory(SessionManager.open(file), report);
-		expect(texts(held.getEntries())).not.toContain("early one");
+		const held = hold(file, report);
 		expect(held.getEntry(early.id)).toEqual(early);
 		expect(report).toHaveBeenCalledWith(
 			expect.stringContaining("whole log back into memory"),
@@ -363,7 +405,7 @@ describe("a held conversation and its whole log", () => {
 		const file = compactedLog();
 		const whole = SessionManager.open(file);
 		const target = entryReading(whole, "answer to early one").id;
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		held.branchWithSummary(target, "went back");
 		whole.branchWithSummary(target, "went back");
 		expect(texts(held.getBranch())).toEqual(texts(whole.getBranch()));
@@ -373,8 +415,7 @@ describe("a held conversation and its whole log", () => {
 	});
 
 	it("keeps its leaf when it reads the whole log back", () => {
-		const file = compactedLog();
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(compactedLog());
 		const target = entryReading(held, "after").id;
 		held.branch(target);
 		held.getTree();
@@ -382,23 +423,37 @@ describe("a held conversation and its whole log", () => {
 		expect(held.getLeafId()).toBe(target);
 	});
 
+	it("keeps a reset leaf reset when it reads the whole log back", () => {
+		const held = hold(compactedLog());
+		held.resetLeaf();
+		held.getTree();
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(held.getLeafId()).toBeNull();
+	});
+
+	it("reads the log back once, even when its index was replaced", () => {
+		const file = compactedLog();
+		const whole = SessionManager.open(file).getTree();
+		const held = hold(file);
+		const own = held as unknown as { byId: Map<string, unknown> };
+		own.byId = new Map(own.byId);
+		expect(held.getTree()).toEqual(whole);
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
 	it("writes the whole log when pi rewrites its file", () => {
 		const file = compactedLog();
 		const before = readFileSync(file, "utf8");
-		const held = holdKeptHistory(SessionManager.open(file));
-		expect(texts(held.getEntries())).not.toContain("early one");
+		const held = hold(file);
 		(held as unknown as { _rewriteFile(): void })._rewriteFile();
-		const after = readFileSync(file, "utf8");
-		expect(after).toBe(before);
+		expect(readFileSync(file, "utf8")).toBe(before);
 	});
 
 	it("lets go of the view when it switches to another log", () => {
 		const other = SessionManager.create(dir, dir);
 		exchange(other, "elsewhere");
-		const otherFile = other.getSessionFile() ?? "";
-		const held = holdKeptHistory(SessionManager.open(compactedLog()));
-		expect(Object.hasOwn(held, "getTree")).toBe(true);
-		held.setSessionFile(otherFile);
+		const held = hold(compactedLog());
+		held.setSessionFile(fileOf(other));
 		expect(texts(held.getEntries())).toEqual([
 			"elsewhere",
 			"answer to elsewhere",
@@ -407,16 +462,16 @@ describe("a held conversation and its whole log", () => {
 	});
 
 	it("lets go of the view when it starts a new session", () => {
-		const held = holdKeptHistory(SessionManager.open(compactedLog()));
+		const held = hold(compactedLog());
 		held.newSession();
 		expect(held.getEntries()).toEqual([]);
 		expect(Object.hasOwn(held, "getTree")).toBe(false);
 		expect(Object.hasOwn(held, "getEntry")).toBe(false);
 	});
 
-	it("stays held and guarded when its log can't be read back", () => {
+	it("stays held and guarded when its log is gone", () => {
 		const file = compactedLog();
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = hold(file);
 		const id = held.getSessionId();
 		rmSync(file);
 		expect(() => held.getTree()).toThrow(/gone/);
@@ -424,6 +479,27 @@ describe("a held conversation and its whole log", () => {
 		expect(texts(held.getEntries())).not.toContain("early one");
 		expect(texts(held.getEntries())).toContain("after");
 		expect(Object.hasOwn(held, "getTree")).toBe(true);
+	});
+
+	it("stays held, guarded and appending when its file now holds another conversation", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		const id = held.getSessionId();
+		const leaf = held.getLeafId();
+		const other = SessionManager.create(dir, dir);
+		exchange(other, "elsewhere");
+		const elsewhere = readFileSync(fileOf(other), "utf8");
+		writeFileSync(file, elsewhere);
+		expect(() => held.getTree()).toThrow(/now holds conversation/);
+		expect(held.getSessionId()).toBe(id);
+		expect(held.getSessionFile()).toBe(file);
+		expect(held.getLeafId()).toBe(leaf);
+		expect(texts(held.getEntries())).not.toContain("elsewhere");
+		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		exchange(held, "later");
+		const added = linesAdded(file, elsewhere);
+		expect(added).toHaveLength(2);
+		expect(added[0]?.parentId).toBe(leaf);
 	});
 
 	it("falls back to pi's whole open when the view fails to install", () => {
@@ -441,7 +517,15 @@ describe("a held conversation and its whole log", () => {
 		};
 		const report = vi.fn();
 		const held = holdKeptHistory(opened, report);
-		expect(report).toHaveBeenCalledWith(new Error("index broke"));
+		expect(report).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: expect.stringMatching(
+					new RegExp(
+						`^Kept history couldn't hold conversation ${opened.getSessionId()}'s log, so it holds the whole log: index broke$`,
+					),
+				),
+			}),
+		);
 		expect(texts(held.getEntries())).toContain("early one");
 		expect(held.getLeafId()).toBe(SessionManager.open(file).getLeafId());
 		expect(Object.hasOwn(held, "getTree")).toBe(false);
@@ -453,14 +537,71 @@ describe("a conversation the view leaves whole", () => {
 		const sessions = SessionManager.create(dir, dir);
 		exchange(sessions, "one");
 		exchange(sessions, "two");
-		const file = sessions.getSessionFile() ?? "";
-		const held = holdKeptHistory(SessionManager.open(file));
+		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
 		expect(texts(held.getEntries())).toEqual([
 			"one",
 			"answer to one",
 			"two",
 			"answer to two",
 		]);
+	});
+
+	it("holds everything when it has no file", () => {
+		const sessions = SessionManager.inMemory(dir);
+		exchange(sessions, "early one");
+		exchange(sessions, "kept one");
+		const kept = entryReading(sessions, "kept one");
+		sessions.appendCompaction("what happened early", kept.id, 1000);
+		const held = holdKeptHistory(sessions);
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("holds everything when a rollover record sits after the kept entry", () => {
+		const sessions = SessionManager.create(dir, dir);
+		exchange(sessions, "early one");
+		exchange(sessions, "kept one");
+		const kept = entryReading(sessions, "kept one");
+		sessions.appendCustomEntry(ROLLOVER_RECORD, {
+			parentSession: join(dir, "gone.jsonl"),
+			parentLeaf: "00000000",
+			dropped: 3,
+			carried: { [SPEND_CARRY]: { spend: 10 } },
+		});
+		sessions.appendCompaction("what happened early", kept.id, 1000);
+		exchange(sessions, "after");
+		const held = holdKeptHistory(SessionManager.open(fileOf(sessions)));
+		expect(texts(held.getEntries())).toContain("early one");
+		expect(Object.hasOwn(held, "getTree")).toBe(false);
+	});
+
+	it("holds everything when its leaf is a label on an entry left on disk", () => {
+		const file = compactedLog();
+		const sessions = SessionManager.open(file);
+		const early = entryReading(sessions, "early one");
+		sessions.appendLabelChange(early.id, "start");
+		const label = sessions.getLeafId();
+		const before = readFileSync(file, "utf8");
+		const held = holdKeptHistory(SessionManager.open(file));
+		expect(texts(held.getEntries())).toContain("early one");
+		exchange(held, "later");
+		expect(linesAdded(file, before)[0]?.parentId).toBe(label);
+	});
+});
+
+describe("a held conversation and pi's writes", () => {
+	it("appends only its own lines when nothing kept was answered", () => {
+		const sessions = SessionManager.create(dir, dir);
+		exchange(sessions, "early one");
+		sessions.appendMessage(user("kept one"));
+		const kept = entryReading(sessions, "kept one");
+		sessions.appendCompaction("what happened early", kept.id, 1000);
+		const file = fileOf(sessions);
+		const before = readFileSync(file, "utf8");
+		const held = hold(file);
+		held.appendCustomEntry("away-state", { away: false });
+		held.appendMessage(answer("answer to kept one", 0.5));
+		expect(linesAdded(file, before)).toHaveLength(2);
 	});
 });
 
@@ -472,20 +613,47 @@ describe("pi's session manager", () => {
 	it("writes its file only where the view knows it does", () => {
 		// A method new to this list could write the view over the log: guard
 		// it in kept-history.ts, or show it only appends once flushed.
+		// `_persist` appends once flushed, which only `newSession` and
+		// `createBranchedSession` undo, so its callers are not followed.
 		const writes =
-			/writeFileSync|appendFileSync|writeSync|openSync|_rewriteFile\(|fileEntries\s*=/;
+			/writeFileSync|appendFileSync|writeSync|openSync|fileEntries\s*=/;
 		const proto = SessionManager.prototype as unknown as Record<
 			string,
 			unknown
 		>;
-		const writers = Object.getOwnPropertyNames(proto).filter((name) => {
-			const method = Object.getOwnPropertyDescriptor(proto, name)?.value;
-			return typeof method === "function" && writes.test(method.toString());
-		});
-		expect(writers.sort()).toEqual(
+		const sources = new Map(
+			Object.getOwnPropertyNames(proto).flatMap((name) => {
+				const method = Object.getOwnPropertyDescriptor(proto, name)?.value;
+				return typeof method === "function"
+					? [[name, String(method)] as const]
+					: [];
+			}),
+		);
+		const writers = new Set(
+			[...sources].filter(([, source]) => writes.test(source)).map(([n]) => n),
+		);
+		let grew = true;
+		while (grew) {
+			grew = false;
+			for (const [name, source] of sources) {
+				if (writers.has(name)) continue;
+				const reaches = [...writers].some(
+					(writer) =>
+						writer !== "_persist" &&
+						writer !== "constructor" &&
+						source.includes(`this.${writer}(`),
+				);
+				if (reaches) {
+					writers.add(name);
+					grew = true;
+				}
+			}
+		}
+		expect([...writers].sort()).toEqual(
 			[
 				"constructor",
 				"_setSessionFile",
+				"setSessionFile",
 				"newSession",
 				"_loadEntries",
 				"_rewriteFile",
@@ -495,11 +663,13 @@ describe("pi's session manager", () => {
 		);
 	});
 
-	it("is said once when it no longer has what the view reads", () => {
+	it("is said once when it no longer has what the view reads", async () => {
+		vi.resetModules();
+		const fresh = await import("../../../host/engine/kept-history.ts");
 		const report = vi.fn();
 		const unlike = { getSessionFile: () => "x" };
-		expect(holdKeptHistory(unlike, report)).toBe(unlike);
-		holdKeptHistory({}, report);
+		expect(fresh.holdKeptHistory(unlike, report)).toBe(unlike);
+		fresh.holdKeptHistory({}, report);
 		expect(report).toHaveBeenCalledTimes(1);
 		expect(report).toHaveBeenCalledWith(
 			expect.stringContaining("Kept history is off"),

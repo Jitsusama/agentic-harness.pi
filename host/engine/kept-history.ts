@@ -52,6 +52,7 @@ export interface HeldManager {
 	byId: Map<string, unknown>;
 	leafId: string | null;
 	sessionId: string;
+	sessionFile: string | undefined;
 	flushed: boolean;
 	_buildIndex(): void;
 	_rewriteFile(): void;
@@ -88,6 +89,7 @@ export function holdsLikePi(manager: unknown): manager is HeldManager {
 		m.byId instanceof Map &&
 		"leafId" in m &&
 		typeof m.sessionId === "string" &&
+		"sessionFile" in m &&
 		typeof m.flushed === "boolean" &&
 		typeof m._buildIndex === "function" &&
 		typeof m._rewriteFile === "function" &&
@@ -128,7 +130,7 @@ export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
 		held = heldEntries(manager, file);
 	} catch (error) {
 		// Nothing was changed yet: pi's full open stands.
-		report(error);
+		report(heldWhole(manager, error));
 		return manager;
 	}
 	if (!held) return manager;
@@ -137,10 +139,19 @@ export function holdKeptHistory<M>(manager: M, report: Report = () => {}): M {
 	try {
 		install(manager, file, held, report);
 	} catch (error) {
-		report(error);
+		report(heldWhole(manager, error));
 		restore(manager, original, leaf, file, report);
 	}
 	return manager;
+}
+
+/** What the journal says when `error` left `manager` holding its whole log. */
+function heldWhole(manager: HeldManager, error: unknown): Error {
+	const why = error instanceof Error ? error.message : String(error);
+	return new Error(
+		`Kept history couldn't hold conversation ${manager.sessionId}'s log, so it holds the whole log: ${why}`,
+		{ cause: error },
+	);
 }
 
 /** What a manager holds once it holds the kept view. */
@@ -169,6 +180,10 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const firstKept = branch[view.from];
 	const before = branch[view.from - 1];
 	if (!firstKept || !before) return undefined;
+	// A leaf the view leaves out, such as a label on an entry left on disk,
+	// would have the next turn hang off the entry before it, forking the log.
+	const leaf = branch[branch.length - 1];
+	if (!view.entries.some((entry) => entry.id === leaf?.id)) return undefined;
 
 	const record: RolloverRecord = {
 		parentSession: file,
@@ -243,7 +258,7 @@ function install(
 	manager.fileEntries = held.entries;
 	manager._buildIndex();
 	manager.byId = new TakenIds(manager.byId, taken);
-	guard(manager, file, held.dated, report);
+	guard(manager, file, held.dated, taken, report);
 }
 
 /** Put back pi's own full open after the view failed to install. */
@@ -261,7 +276,13 @@ function restore(
 		manager.leafId = leaf;
 	} catch (error) {
 		report(error);
-		manager.setSessionFile(file);
+		try {
+			manager.setSessionFile(file);
+		} catch (reread) {
+			// pi's own open would have read this same file and failed the same
+			// way; the resume goes on with whatever pi could keep.
+			report(reread);
+		}
 	}
 }
 
@@ -270,17 +291,13 @@ function restore(
  * pi's id choice never repeats one; reads and walks see only what is held.
  */
 class TakenIds<V> extends Map<string, V> {
-	readonly taken: Set<string>;
+	private readonly taken: Set<string>;
 	constructor(held: Map<string, V>, taken: Set<string>) {
 		super(held);
 		this.taken = taken;
 	}
 	override has(id: string): boolean {
 		return super.has(id) || this.taken.has(id);
-	}
-	/** Whether the view itself holds `id`. */
-	holds(id: string): boolean {
-		return super.has(id);
 	}
 }
 
@@ -289,57 +306,73 @@ function guard(
 	manager: HeldManager,
 	file: string,
 	dated: ReadonlySet<string>,
+	taken: Set<string>,
 	report: Report,
 ): void {
 	const own = manager as unknown as Record<string, unknown>;
-	// pi's own, taken before the view answers in their place.
+	// pi's own, taken before the view answers in their place, so no guard
+	// ever reaches itself, whatever has become of the view by then.
 	const pi = {
+		getEntry: manager.getEntry,
+		getTree: manager.getTree,
 		branch: manager.branch,
 		branchWithSummary: manager.branchWithSummary,
+		createBranchedSession: manager.createBranchedSession,
+		_rewriteFile: manager._rewriteFile,
+		setSessionFile: manager.setSessionFile,
+		newSession: manager.newSession,
 	};
-	const ids = (): TakenIds<unknown> | undefined =>
-		manager.byId instanceof TakenIds ? manager.byId : undefined;
+	/** Whether the view itself holds `id`, apart from the ids only taken. */
+	const holds = (id: string): boolean =>
+		Map.prototype.has.call(manager.byId, id);
 	/** Whether the view answers for `id` as the whole log would. */
 	const answers = (id: string | null): boolean =>
-		id === null || ((ids()?.holds(id) ?? true) && !dated.has(id));
+		id === null || (holds(id) && !dated.has(id));
+	let holding = true;
 	const whole = (why: string): void => {
-		const taken = ids()?.taken;
-		if (!taken) return;
+		if (!holding) return;
 		const leaf = manager.leafId;
 		const held = manager.fileEntries;
-		const sessionId = manager.sessionId;
+		const { sessionId, sessionFile, flushed } = manager;
+		holding = false;
 		release(manager);
 		try {
 			if (!existsSync(file))
 				throw new Error(`${file} is gone, so its whole log can't be read back`);
-			manager.setSessionFile(file);
+			pi.setSessionFile.call(manager, file);
 			if (manager.getSessionId() !== sessionId)
 				throw new Error(
 					`${file} now holds conversation ${manager.getSessionId()}, not ${sessionId}`,
 				);
 		} catch (error) {
-			manager.sessionId = sessionId;
+			Object.assign(manager, { sessionId, sessionFile, flushed });
 			manager.fileEntries = held;
 			manager._buildIndex();
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
-			guard(manager, file, dated, report);
+			guard(manager, file, dated, taken, report);
 			throw error;
 		}
-		if (leaf !== null && manager.byId.has(leaf)) manager.leafId = leaf;
+		// pi's open leaves its leaf on the file's last entry; a reset leaf
+		// stays reset and a moved one stays where it was moved.
+		if (leaf === null || manager.byId.has(leaf)) manager.leafId = leaf;
 		report(
 			`Read conversation ${sessionId}'s whole log back into memory to ${why}; it holds it all until it next opens`,
 		);
 	};
+	const letGo = (): void => {
+		holding = false;
+		release(manager);
+	};
 	own.getEntry = (id: string) => {
 		const entry = manager.byId.get(id);
-		if (entry !== undefined || !ids()?.taken.has(id)) return entry;
+		if (entry !== undefined || !taken.has(id)) return entry;
 		whole(`look up entry ${id}`);
-		return manager.getEntry(id);
+		return pi.getEntry.call(manager, id);
 	};
 	own.getTree = () => {
 		whole("show its tree");
-		return manager.getTree();
+		return pi.getTree.call(manager);
 	};
 	own.branch = (id: string) => {
 		if (!answers(id)) whole(`branch to entry ${id}`);
@@ -351,19 +384,19 @@ function guard(
 	};
 	own.createBranchedSession = (leafId: string) => {
 		whole("fork it");
-		return manager.createBranchedSession(leafId);
+		return pi.createBranchedSession.call(manager, leafId);
 	};
 	own._rewriteFile = () => {
 		whole("rewrite its file");
-		return manager._rewriteFile();
+		return pi._rewriteFile.call(manager);
 	};
 	own.setSessionFile = (path: string) => {
-		release(manager);
-		return manager.setSessionFile(path);
+		letGo();
+		return pi.setSessionFile.call(manager, path);
 	};
 	own.newSession = (...rest: unknown[]) => {
-		release(manager);
-		return manager.newSession(...rest);
+		letGo();
+		return pi.newSession.call(manager, ...rest);
 	};
 }
 

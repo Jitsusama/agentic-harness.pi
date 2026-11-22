@@ -75,6 +75,7 @@ interface RecallDetails {
  * answers; a read of any is said in the journal, its size and time.
  */
 function recallWhole(
+	sessionId: string,
 	branch: readonly unknown[],
 	params: Parameters<typeof recall>[1],
 ): Recalled {
@@ -90,7 +91,7 @@ function recallWhole(
 	if (logs > 0) {
 		const ms = Math.round(performance.now() - started);
 		process.stderr.write(
-			`session-recall-workflow: read ${(bytes / MIB).toFixed(1)} MiB from ${logs} log(s) on disk, ${older.length} entries, in ${ms} ms\n`,
+			`session-recall-workflow: conversation ${sessionId} read ${(bytes / MIB).toFixed(1)} MiB from ${logs} log(s) on disk, ${older.length} entries, in ${ms} ms\n`,
 		);
 	}
 	return recall([...older, ...branch] as Parameters<typeof recall>[0], params);
@@ -165,7 +166,11 @@ export default function sessionRecall(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const recalled = recallWhole(ctx.sessionManager.getBranch(), params);
+			const recalled = recallWhole(
+				ctx.sessionManager.getSessionId(),
+				ctx.sessionManager.getBranch(),
+				params,
+			);
 			return {
 				content: [{ type: "text", text: answerOf(recalled, ctx) }],
 				details: {
