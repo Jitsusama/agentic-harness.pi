@@ -361,9 +361,10 @@ Every delivery ends by saying what to do with it: act now on a
 question or a hold put to this peer, tell the person at once
 anything they must act on (in the reply when talking with them,
 to the quest's orchestrator as a question otherwise, saying
-what happened, why it matters and the one thing to do), take a
-question about work to its owner or to `need`, settled between
-peers, and take the rest as context, with no acknowledgement.
+what happened, why it matters and the one thing to do), keep
+that path for what needs the person alone, take a question
+about work to its owner or to `need`, settled between peers,
+and take the rest as context, with no acknowledgement.
 It once said only that messages were context, not a task, and
 models took that as leave to sit on questions and on what the
 person had to do. Later it named one address, the

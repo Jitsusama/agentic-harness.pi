@@ -78,7 +78,7 @@ describe("the mesh on screen", () => {
 			undefined,
 		]) {
 			expect(noted(messages, [], above)).toContain(
-				"A question about your work goes to its owner by address, or to need with about, and work you share with a peer is settled between you.",
+				"That path carries only what needs the person, never a question about work: that goes to its owner by address, or to need with about, and work you share with a peer is settled between you.",
 			);
 		}
 	});

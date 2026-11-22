@@ -66,7 +66,7 @@ export function advisory(above?: Reached): string {
 			: above.by === "use"
 				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: orchestrator)`
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
-	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying what happened, why it matters to them and the one thing to do. A question about your work goes to its owner by address, or to need with about, and work you share with a peer is settled between you. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
+	return `Act now on a question or a hold put to you, before you carry on, as its line above says. If a message holds something the person must act on (a decision, a login, a look, a yes), tell them at once: in your reply if you are talking with them, and ${otherwise}, saying what happened, why it matters to them and the one thing to do. That path carries only what needs the person, never a question about work: that goes to its owner by address, or to need with about, and work you share with a peer is settled between you. Everything else is context for your work: carry on with it, and send no acknowledgement.`;
 }
 
 /** The note for a session with no orchestrator above its quest. */
