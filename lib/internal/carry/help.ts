@@ -4,10 +4,11 @@
  */
 
 /**
- * What pi-carry exits with when it was asked wrongly, which its help
- * says and mycelium's settle reads as a pi-carry that can't settle.
+ * What pi-carry exits with when it was asked wrongly: sysexits' usage
+ * code, as core.nix's commands give, which its help says and
+ * mycelium's settle reads as a pi-carry that can't settle.
  */
-export const ASKED_WRONGLY = 2;
+export const ASKED_WRONGLY = 64;
 
 /** What `pi-carry --help` says, each line within 72 columns. */
 export const CARRY_HELP = `pi-carry carries a quest's work from one of the person's machines

@@ -16,6 +16,7 @@ import {
 	callsLeftRunning,
 	conversationMarker,
 	linuxProcessTable,
+	markAsOwner,
 	marked,
 	markedByConversation,
 	ownerMark,
@@ -23,6 +24,7 @@ import {
 	parseEnviron,
 	parseGroup,
 	parseStarted,
+	readsProcesses,
 	reapLeftBehind,
 	reapToolChildren,
 } from "../../../host/engine/tool-children.ts";
@@ -515,6 +517,87 @@ describe("reading the process table", () => {
 		}
 		return made;
 	}
+
+	/** A /proc that is not there: a fresh folder's child that is never made. */
+	function noProc(): string {
+		root = mkdtempSync(join(tmpdir(), "tool-children-no-proc-"));
+		return join(root, "proc");
+	}
+
+	it("lists no process and reaps nothing where there is no /proc, as on a Mac", async () => {
+		const table = linuxProcessTable(noProc());
+		expect(table.pids()).toEqual([]);
+		expect(await reapToolChildren("a", table)).toEqual({
+			groups: [],
+			pids: [],
+		});
+		expect(readsProcesses(table), "it reads no process there").toBe(false);
+	});
+
+	it("marks the host as an owner where there is no /proc, the same mark each time, led by its pid", () => {
+		const table = linuxProcessTable(noProc());
+		const mark = ownerMark(table);
+		expect(mark, "the pid a reap keys on, then a number").toMatch(
+			new RegExp(`^${process.pid}:\\d+$`),
+		);
+		expect(ownerMark(table), "every conversation carries one owner").toBe(mark);
+	});
+
+	it("says once as the host starts where there is no /proc that nothing is ever ended", () => {
+		const report = vi.fn();
+		markAsOwner(report, linuxProcessTable(noProc()));
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it",
+		);
+	});
+
+	it("says nothing as the host starts where /proc lists it", () => {
+		const report = vi.fn();
+		const table = fakeTable({ 7: { group: 7, env: {}, started: 42 } }, 7);
+		expect(markAsOwner(report, table)).toBe("7:42");
+		expect(report).not.toHaveBeenCalled();
+	});
+
+	it("refuses an owner mark where /proc is there but empty, as an unmounted one on Linux", () => {
+		root = mkdtempSync(join(tmpdir(), "tool-children-empty-proc-"));
+		const table = linuxProcessTable(root);
+		expect(readsProcesses(table), "an empty /proc is still one").toBe(true);
+		expect(() => ownerMark(table)).toThrow(
+			"The host cannot read when its own process started",
+		);
+	});
+
+	it("refuses an owner mark where the table lists processes but not this one", () => {
+		root = madeUpProc();
+		expect(() => ownerMark(linuxProcessTable(root))).toThrow(
+			"The host cannot read when its own process started",
+		);
+	});
+
+	it("fails to list where /proc is something other than a folder", () => {
+		root = mkdtempSync(join(tmpdir(), "tool-children-proc-file-"));
+		const file = join(root, "proc");
+		writeFileSync(file, "");
+		expect(() => linuxProcessTable(file).pids()).toThrow(/ENOTDIR/);
+	});
+
+	// Only a /proc that is not there at all is a machine without one.
+	it("refuses to call a /proc it can't reach for any other reason absent", () => {
+		root = mkdtempSync(join(tmpdir(), "tool-children-proc-under-file-"));
+		const file = join(root, "file");
+		writeFileSync(file, "");
+		const table = linuxProcessTable(join(file, "proc"));
+		expect(() => readsProcesses(table)).toThrow(/ENOTDIR/);
+		expect(() => markAsOwner(vi.fn(), table)).toThrow(/ENOTDIR/);
+	});
+
+	it("reads processes where /proc lists them", () => {
+		root = madeUpProc();
+		expect(
+			readsProcesses(linuxProcessTable(root)),
+			"it reads the processes listed",
+		).toBe(true);
+	});
 
 	it("leaves the host's loop free to serve its other conversations while it reads", async () => {
 		root = madeUpProc();

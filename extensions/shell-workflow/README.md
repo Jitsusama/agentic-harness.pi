@@ -252,7 +252,18 @@ sandbox rather than a fault.
 
 It runs no command in a working folder that is your home folder or
 holds it, whose startup files run outside, nor in one holding its
-repository's git folder, whose hooks and settings git runs outside. A
+repository's git folder (or a `.git` file naming one inside it, as a
+bare repository beside its worktrees) or lying in any git folder, a bare
+repository's included, wherever it lies, whose hooks and settings
+git runs outside (a folder further above a git folder outside the
+repository homes is not refused, nor a worktree kept inside its bare
+repository's folder, whose own git lies elsewhere), nor in one in `~/src` or `~/world` outside a repository's work, at any
+depth. Nor does it in one that lies in or holds the records the
+machine's node trusts, the code pi's host compiled, or a path the
+agent fence hides or keeps read-only, such as `~/.config` or `~/.ssh`,
+or, outside the home folder, the runtime folder, the system bus or X's
+sockets where they are there, so what strict grants reopens nothing
+the fence closes. A
 tree the work tool cuts (`work tree`), or a snapshot, keeps its git
 folder elsewhere, so a strict session works in one; a plain clone
 won't do. Its repository's git folder is readable, so git reads the

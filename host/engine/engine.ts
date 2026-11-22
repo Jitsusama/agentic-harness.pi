@@ -84,7 +84,7 @@ import {
 	pinSubagentInstall,
 	pinSubagentKey,
 } from "./subagent-install.ts";
-import { conversationMarker, ownerMark } from "./tool-children.ts";
+import { conversationMarker, markAsOwner } from "./tool-children.ts";
 
 /** A conversation prepare named, waiting for its start, with the launch derived for it. */
 interface Preparing {
@@ -108,7 +108,7 @@ export async function createEngine(
 	const { host } = options;
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
-	const owner = ownerMark();
+	const owner = markAsOwner(report);
 	const kept = options.oneConversation;
 	const stopping = stopKeeping({
 		stateDir: options.stateDir,

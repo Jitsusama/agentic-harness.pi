@@ -12,12 +12,15 @@ import {
 	AGAIN_ENV,
 	BACKGROUND_PARK_AFTER_MS,
 	clearAwake,
+	clearEase,
 	clearOutlivedParks,
 	clearParked,
+	EASED_PARK_AFTER_MS,
 	flagsLost,
 	heldDirectly,
 	holderCommand,
 	holderRecord,
+	isEased,
 	isRestartAsk,
 	noteWake,
 	OLD_PARK_AFTER_MS,
@@ -38,6 +41,7 @@ import {
 	SESSION_WOKEN,
 	STEERS_ENV,
 	sayParked,
+	switchOff,
 	tellHolderSteers,
 	WAKE_ENV,
 	whyNotPark,
@@ -186,7 +190,11 @@ export interface Watch {
 	 * parked or restarting, rather than a host's conversation.
 	 */
 	endedItsProcess(): boolean;
-	/** Stop watching, as the session ends. */
+	/**
+	 * Stop watching, as the session ends. An ask to park soon stays: a
+	 * host's stop and a reload both go on as the same conversation, and an
+	 * ask nobody answers lapses on its own.
+	 */
 	stop(): void;
 }
 
@@ -504,6 +512,9 @@ export function watch(
 		}
 	}
 	clearParked(session, folder);
+	// Woken, it was asked to park soon and did; the node asks again should
+	// its machine still read over.
+	if (woke) clearEase(session, folder);
 	// Markers a reboot outlived name sessions no holder will wake.
 	clearOutlivedParks(folder);
 	if (woke) bus.emit(SESSION_WOKEN, { session });
@@ -551,11 +562,16 @@ export function watch(
 		if (env[PARK_ENV] === "off") return usual;
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
-			if (usual === undefined || !inBackgroundHost(options.platform))
-				return usual;
+			if (!inBackgroundHost(options.platform)) return usual;
 			// One a window views may be read by the person, whose next key
-			// would wait out its wake, so it waits as an attended one does.
+			// would wait out its wake, so it waits as an attended one does,
+			// asked to ease or not.
 			if (hosted()?.viewed?.(session) === true) return usual;
+			// Asked to ease while its machine reads over, nobody watching, it
+			// parks two minutes idle, unless the switch says `off`.
+			if (!switchOff(options.switchPath) && isEased(session, folder, now()))
+				return EASED_PARK_AFTER_MS;
+			if (usual === undefined) return usual;
 			// Nobody watches a background conversation wake, and what it holds
 			// goes as it parks: its own process in a child, its share of the
 			// host's in the host.
@@ -570,6 +586,8 @@ export function watch(
 	};
 	const end = () => {
 		parked = true;
+		// Parked, it has done what an ask to park soon asked.
+		clearEase(session, folder);
 		// A host parks this conversation alone, keeping its window and wake.
 		const host = parkingHost();
 		if (host) {
