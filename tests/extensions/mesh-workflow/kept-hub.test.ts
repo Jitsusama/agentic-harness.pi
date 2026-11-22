@@ -219,6 +219,80 @@ describe("a kept hub", () => {
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 	});
 
+	// Every session asks the same node, so one that is down is asked less
+	// and less often rather than by all of them every retry.
+	it("waits longer after each find in a row the node gave no answer to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50 });
+
+			// Asked at once, then 50, 100 and 200 ms after each miss.
+			const askedBy = async (ms: number) => {
+				await vi.advanceTimersByTimeAsync(ms);
+				return asked.mock.calls.length;
+			};
+			expect(await askedBy(0)).toBe(1);
+			expect(await askedBy(50)).toBe(2);
+			expect(await askedBy(99)).toBe(2);
+			expect(await askedBy(1)).toBe(3);
+			expect(await askedBy(199)).toBe(3);
+			expect(await askedBy(1)).toBe(4);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits no longer than a keeping's wait, however many finds missed", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: 120, retry: 50 });
+
+			// At once, then 50 and 100 after, then 120 rather than 200.
+			await vi.advanceTimersByTimeAsync(150);
+			expect(asked).toHaveBeenCalledTimes(3);
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).toHaveBeenCalledTimes(4);
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).toHaveBeenCalledTimes(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits a retry again after a find that settled, not the longest it had come to", async () => {
+		vi.useFakeTimers();
+		try {
+			let answering = false;
+			const { at, asked } = onMesh(async () =>
+				answering ? [tie("ROOT01", 3)] : undefined,
+			);
+
+			const hub = keep(at, { every: 100, retry: 10 });
+
+			// Misses at 0, 10 and 30; the find at 70 settles, and its hub is
+			// kept for the keeping's 100 ms.
+			await vi.advanceTimersByTimeAsync(69);
+			expect(asked).toHaveBeenCalledTimes(3);
+			answering = true;
+			await vi.advanceTimersByTimeAsync(1);
+			expect(asked).toHaveBeenCalledTimes(4);
+			expect(hub.current()).toBe("ROOT01");
+			// The node goes quiet: the find at 170 misses, and the next comes
+			// a retry later at 180, not 80 later.
+			answering = false;
+			await vi.advanceTimersByTimeAsync(100);
+			expect(asked).toHaveBeenCalledTimes(5);
+			await vi.advanceTimersByTimeAsync(10);
+			expect(asked).toHaveBeenCalledTimes(6);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("is none at once when the peer takes a role after it was found", async () => {
 		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
 		const hub = keep(at);

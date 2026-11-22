@@ -30,8 +30,11 @@ export type Reached = Extract<Above, { address: string }>;
 export const HUB_KEEP_MS = 5 * 60_000;
 
 /**
- * How soon a find that could not finish is tried again: one that threw,
- * came before this peer's presence, or had no answer from the node.
+ * How soon a find that could not finish is first tried again: one that
+ * threw, came before this peer's presence, or had no answer from the
+ * node. Each such find after it waits twice as long, up to a keeping's
+ * wait, since every session asks the same node and one that is down is
+ * better asked less and less often.
  */
 export const HUB_RETRY_MS = 30_000;
 
@@ -159,7 +162,10 @@ export interface KeptHub {
 export interface HubKeeping {
 	/** Milliseconds from one finished find to the next. */
 	readonly every?: number;
-	/** Milliseconds to the next find after one that could not finish. */
+	/**
+	 * Milliseconds to the next find after one that could not finish,
+	 * doubled for each after it in a row, up to `every`.
+	 */
 	readonly retry?: number;
 	/**
 	 * Called each time a find keeps a hub, so what waited for one is told
@@ -168,10 +174,14 @@ export interface HubKeeping {
 	readonly found?: (address: string) => void;
 }
 
+/** How often a kept hub is found, as a session's mesh is told to. */
+export type HubTiming = Pick<HubKeeping, "every" | "retry">;
+
 /**
  * Keep the hub from use of whatever peer `at` gives, found at once and
  * again `every` milliseconds after each find, or `retry` after one that
- * could not finish. A peer under the mark, or on a quest heading an
+ * could not finish, twice that after a second in a row, and so on up to
+ * `every`. A peer under the mark, or on a quest heading an
  * orchestration, keeps none and never asks the node, since the mark is
  * its orchestrator; a find that fails keeps none rather than one that
  * may be gone.
@@ -193,6 +203,9 @@ export function keepHub(
 	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
 	let clock: ReturnType<typeof setTimeout> | undefined;
+	// Finds in a row that could not finish, so each waits longer.
+	let misses = 0;
+	const backingOff = () => Math.min(every, retry * 2 ** misses++);
 	// Each find schedules the next once it ends, so two never overlap.
 	const after = (wait: number) => {
 		if (stopped) return;
@@ -203,11 +216,12 @@ export function keepHub(
 		const reading = at();
 		if (reading === undefined) {
 			kept = undefined;
-			after(retry);
+			after(backingOff());
 			return;
 		}
 		if (!unmarked(reading.peer)) {
 			kept = undefined;
+			misses = 0;
 			after(every);
 			return;
 		}
@@ -219,13 +233,14 @@ export function keepHub(
 			if (stopped) return;
 			kept = "address" in finding.above ? finding.above.address : undefined;
 			gone = new Set(finding.gone);
-			if (!finding.settled) wait = retry;
+			if (finding.settled) misses = 0;
+			else wait = backingOff();
 		} catch {
 			// The node or presences unreadable now: no hub is better than a
 			// stale one, and the find is tried again soon.
 			if (stopped) return;
 			kept = undefined;
-			wait = retry;
+			wait = backingOff();
 		}
 		after(wait);
 		if (kept === undefined) return;
