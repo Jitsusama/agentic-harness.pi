@@ -86,6 +86,19 @@ describe("which calls are planned", () => {
 		).toEqual({ cds: [], args: "--no-link -L .#checks.x86_64-linux.vm-x" });
 	});
 
+	// A comment copied into the plan's lines would comment out the rest of
+	// the wrapper they are written into.
+	it("plans a build without its comment", () => {
+		expect(
+			planFor(
+				"# the VM check\ncd ~/src/core.nix && nix build .#checks.x86_64-linux.vm-x # then read it",
+			),
+		).toEqual({
+			cds: ["~/src/core.nix"],
+			args: ".#checks.x86_64-linux.vm-x",
+		});
+	});
+
 	it("repeats the directory the call builds from, and leaves braces to the shell", () => {
 		expect(
 			planFor(
