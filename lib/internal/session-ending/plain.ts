@@ -38,25 +38,56 @@ const OPENING = /^(?:[$#%>]\s+)?(?:sudo\s+)?/;
  * `kexec`, `init 1`, any kill, an option after a reboot (a hyphen with
  * a space after it is a dash). A soft or userspace reboot keeps the
  * boot however it is spelt, so its word counts too, and so does a next
- * root, which makes a reboot soft; and linger or KillUserProcesses: a
+ * root, which makes a reboot soft; linger or KillUserProcesses: a
  * reply changing either changes what a log-out ends after logind was
- * read.
+ * read; and a magic SysRq key or a window manager's own exit, which
+ * end a machine or a session past every word above.
  */
 const COMMAND_WORD =
-	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|skill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w+|now\b|\+)|reboot\s+-+\w+|poweroff\s+-+\w+|halt\b)/i;
+	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|skill|pkill|killall|xkill|ssh|swaymsg|hyprctl|i3-msg|bspc|gnome-session-quit|xfce4-session-logout|osascript|launchctl|sysrq(?:-trigger)?|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w+|now\b|\+)|reboot\s+-+\w+|poweroff\s+-+\w+|halt\b)/i;
 
 /** Every command word in a text, in turn, as `COMMAND_WORD` reads one. */
 const COMMAND_WORDS = new RegExp(COMMAND_WORD.source, "gi");
 
 /**
- * A command word standing whole: it ends where a word does, or on a
- * mark, as `shutdown +5`'s `+`. `skills`, `killed` and `sshd` only
- * open with one.
+ * A command word standing whole in prose: it ends where a word does,
+ * or on a mark, as `shutdown +5`'s `+`. `skills`, `killed` and `sshd`
+ * only open with one.
  */
 const WHOLE_COMMAND_WORD = new RegExp(
 	`(?:${COMMAND_WORD.source})(?:(?<=\\W)|(?!\\w))`,
 	"i",
 );
+
+/** What may stand before a command in a shell's line. */
+const SHELL_BREAK = "[\\s;&|()<>`'\"=]";
+
+/**
+ * A command word in code: where a word of the line starts, ending on
+ * anything but a letter, so `killall5` and `kill-server` count and
+ * `skills` doesn't; or as a path's last part, as `/usr/bin/kill` or
+ * `/proc/sysrq-trigger`. One inside a path, as `~/.ssh/config` or
+ * `/var/log/sudo.log`, names a file, not a command.
+ */
+const SHOWN_COMMAND_WORD = new RegExp(
+	`(?:^|(?<=${SHELL_BREAK}))(?:(?:${COMMAND_WORD.source})(?![A-Za-z_])|(?:[\\w.~-]*/)+(?:${COMMAND_WORD.source})\\d*(?=$|[\\s;&|()<>]))`,
+	"i",
+);
+
+/**
+ * A check that only reads the system, which a wait may run as the
+ * person beside a spare: systemd asked how a unit or the boot stands,
+ * with nothing but names after it.
+ */
+const READ_ONLY_CHECK =
+	/^(?:sudo\s+)?systemctl\s+(?:--user\s+)?(?:is-system-running|is-active|is-enabled|is-failed|status|show)(?:\s+[\w@.:=-]+)*\s*$/;
+
+/**
+ * Shell that hides what runs from a word's reading: quoting, a
+ * variable or substitution, or an escape. A check runs unread, so what
+ * the shell makes of these is never seen.
+ */
+const HIDDEN_BY_SHELL = /[`'"\\$]/;
 
 /** The rest of the word a match ends inside, which may be nothing. */
 const WORD_REST = /^\w*/;
@@ -121,7 +152,7 @@ export function plainlySaid(texts: readonly string[]): boolean {
  * that a backtick was left unpaired. Nothing where all is plain.
  */
 export function notPlainIn(texts: readonly string[]): string | undefined {
-	for (const offence of notPlainEach(texts)) return offence;
+	for (const offence of notPlainEach(texts)) return offence.text;
 	return undefined;
 }
 
@@ -133,14 +164,46 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
  * opens with one, as `skills` or `killed` do.
  */
 export function commandsNamedIn(texts: readonly string[]): string[] {
-	return [...notPlainEach(texts)].filter((offence) =>
-		WHOLE_COMMAND_WORD.test(offence),
+	// A command holding two listed words, as `tmux kill-server` does, is
+	// one offence a word; it is named once.
+	const named = [...notPlainEach(texts)]
+		.filter(({ text, word }) =>
+			(word ? WHOLE_COMMAND_WORD : SHOWN_COMMAND_WORD).test(text),
+		)
+		.map(({ text }) => text);
+	return [...new Set(named)];
+}
+
+/**
+ * The checks in `checks`, each run unread for the person, that a spare
+ * can't stand beside: each naming a command, as code shown would, or
+ * hiding what it runs behind the shell's quoting; but none that only
+ * reads the system, as `systemctl is-system-running` does.
+ */
+export function checksNamedIn(checks: readonly string[]): string[] {
+	return checks.filter(
+		(check) =>
+			!READ_ONLY_CHECK.test(check.trim()) &&
+			(HIDDEN_BY_SHELL.test(check) ||
+				commandsNamedIn([asShown(check)]).length > 0),
 	);
 }
 
-/** The checks run for the person that name a command: a stub, none. */
-export function checksNamedIn(_checks: readonly string[]): string[] {
-	return [];
+/**
+ * A command that runs for the person, as a wait's check, as code shown
+ * to type: it runs whole, so it is read and quoted whole.
+ */
+export function asShown(command: string): string {
+	return ["~~~", command, "~~~"].join("\n");
+}
+
+/**
+ * What stops a text being plain: the text a reader meets, and whether
+ * it is a word in prose, read whole, rather than code or a mark.
+ */
+interface Offence {
+	readonly text: string;
+	readonly word: boolean;
 }
 
 /**
@@ -148,11 +211,12 @@ export function checksNamedIn(_checks: readonly string[]): string[] {
  * reader meets them: in each text, a fence line out of shape, then each
  * part's commands and words.
  */
-function* notPlainEach(texts: readonly string[]): Generator<string> {
+function* notPlainEach(texts: readonly string[]): Generator<Offence> {
 	for (const text of texts) {
 		const said = folded(text);
 		for (const line of said.split("\n"))
-			if (FENCE_MARK.test(line) && !FENCE_LINE.test(line)) yield line.trim();
+			if (FENCE_MARK.test(line) && !FENCE_LINE.test(line))
+				yield shownOffence(line);
 		for (const part of parts(said)) yield* notPlainPart(part);
 	}
 }
@@ -162,13 +226,13 @@ function* notPlainEach(texts: readonly string[]): Generator<string> {
  * turn. Every fence is read line by line, a markdown one too, since it
  * is drawn as code whatever its language.
  */
-function* notPlainPart(part: Part): Generator<string> {
+function* notPlainPart(part: Part): Generator<Offence> {
 	if (part.fenced || !part.prose || part.commands !== "none") {
 		const comments = part.commands === "every";
 		for (const line of part.lines.filter((one) => !BLANK.test(one))) {
 			if (comments && COMMENT.test(line))
 				yield* notPlainPart(proseOf(line.replace(COMMENT, "")));
-			else if (!plainCommand(line)) yield line.trim();
+			else if (!plainCommand(line)) yield shownOffence(line);
 		}
 		return;
 	}
@@ -179,25 +243,33 @@ function* notPlainPart(part: Part): Generator<string> {
 		...spansToRun(written),
 		...shownLines,
 	])
-		if (!plainCommand(shown)) yield shown.trim();
+		if (!plainCommand(shown)) yield shownOffence(shown);
 	// What was shown is no command in prose, so its own words, cut where
 	// they sit, are left out; the same words written bare still count.
 	const rest = withoutSpansToRun(
 		part.lines.filter((line) => !SHOWN_LINE.test(line)).join("\n"),
 	).replace(CODE_SPAN, " ");
 	// A backtick left unpaired may open code a renderer shows, unchecked.
-	if (rest.includes("`")) yield UNPAIRED;
+	if (rest.includes("`")) yield { text: UNPAIRED, word: false };
 	yield* commandWordsIn(rest);
+}
+
+/** Code shown, or a mark out of shape, as what stops it being plain. */
+function shownOffence(line: string): Offence {
+	return { text: line.trim(), word: false };
 }
 
 /**
  * Each command word in `prose`, carried to the end of the word it sits
  * in, so a word that only opens with one is quoted whole.
  */
-function* commandWordsIn(prose: string): Generator<string> {
+function* commandWordsIn(prose: string): Generator<Offence> {
 	for (const found of prose.matchAll(COMMAND_WORDS)) {
 		const after = prose.slice(found.index + found[0].length);
-		yield `${found[0]}${WORD_REST.exec(after)?.[0] ?? ""}`;
+		yield {
+			text: `${found[0]}${WORD_REST.exec(after)?.[0] ?? ""}`,
+			word: true,
+		};
 	}
 }
 

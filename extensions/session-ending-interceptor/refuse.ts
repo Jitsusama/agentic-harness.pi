@@ -12,6 +12,7 @@ import {
 	asksInLabel,
 	asksInProse,
 	codeBesideAsks,
+	folded,
 	mayAsk,
 	type SessionEndingAsk,
 } from "../../lib/internal/session-ending/asks.ts";
@@ -24,6 +25,7 @@ import {
 	sparedBy,
 } from "../../lib/internal/session-ending/judge.ts";
 import {
+	checksNamedIn,
 	commandsNamedIn,
 	notPlainIn,
 } from "../../lib/internal/session-ending/plain.ts";
@@ -129,37 +131,45 @@ const notPlainBecause = (shown: string) =>
 const afterASpareBecause = (shown: string) =>
 	`An ask to end a machine's sessions was let through earlier in this run, past sessions only a plain reboot, shut-down or log-out spares, and this shows or names a command that isn't one ("${quotedShown(shown)}"), which could end them anyway.`;
 
+/** `text` on one line, its runs of space folded to one. */
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
 /**
- * A command that runs for the person, as a wait's check, read as code
- * shown to type: it runs whole, so it is quoted whole.
+ * What an override of a hold after a spare is known by: every command
+ * it names, whole, and every line of its words holding one, so an
+ * override told of one command, or of a word in one line, carries no
+ * other that merely starts the same or shares the word.
  */
-const asShown = (command: string) => ["~~~", command, "~~~"].join("\n");
+function overrideKey(said: Said, named: readonly string[]): string {
+	const commands = named.map(oneLine);
+	const lines = [...said.prose, ...said.labels]
+		.flatMap((text) => folded(text).split("\n"))
+		.map(oneLine)
+		.filter((line) => commands.some((command) => line.includes(command)));
+	return `after a spare: ${[...commands, ...lines].join(" | ")}`;
+}
 
 /**
  * Why what is said after a spare stood in the run may not go to the
- * person, or nothing when it may: held only where its words, or the
- * commands it runs for them, name a command that isn't a plain reboot,
- * shut-down or log-out, so a file named in code, or the spared ask said
- * again, still goes. The reason quotes the first command it names and
- * the key every one, so an override for one carries no other. What it
- * held is traced.
+ * person, or nothing when it may: held only where its words name a
+ * command that isn't a plain reboot, shut-down or log-out, or a check it
+ * runs for them does more than read the system, so a file named in
+ * code, or the spared ask said again, still goes. The reason quotes the
+ * first command it names; the override's key is every one, whole. What
+ * it held is traced.
  */
 export function refusalAfterASpare(
 	said: Said,
 	traced: (trace: SpareTrace) => void = () => {},
 ): Refusal | undefined {
-	const named = commandsNamedIn([
-		...said.prose,
-		...said.labels,
-		...(said.commands ?? []).map(asShown),
-	]);
+	const named = [
+		...commandsNamedIn([...said.prose, ...said.labels]),
+		...checksNamedIn(said.commands ?? []),
+	];
 	const [shown] = named;
 	if (shown === undefined) return undefined;
 	traced({ outcome: "after a spare", shown });
-	return {
-		reason: afterASpareBecause(shown),
-		key: `after a spare: ${named.map(quotedShown).join(" | ")}`,
-	};
+	return { reason: afterASpareBecause(shown), key: overrideKey(said, named) };
 }
 
 /**
@@ -287,6 +297,8 @@ function machinesSoFar(
  * The node is asked only when a word in it could open an ask. What is
  * `beside` it, as the text of the reply making a call, must be as
  * plain as what it says for a spare to stand: the person reads both.
+ * A check it runs for them may only read the system, since it runs
+ * unread as them.
  */
 export async function refusalFor(
 	said: Said,
@@ -323,7 +335,9 @@ export async function refusalFor(
 	let notPlain: string | undefined | null = null;
 	const shownNotPlain = () => {
 		if (notPlain === null)
-			notPlain = notPlainIn([...said.prose, ...said.labels, ...beside]);
+			notPlain =
+				notPlainIn([...said.prose, ...said.labels, ...beside]) ??
+				checksNamedIn(commands)[0];
 		return notPlain;
 	};
 	/**

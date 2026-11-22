@@ -336,7 +336,10 @@ describe("what follows a spare in the same run", () => {
 
 	it("spares no look beside a wait made before it in the same reply", async () => {
 		interceptorOver();
-		const waiting = { title: "Watch it", readyWhen: { check: "pkill -u joel node" } };
+		const waiting = {
+			title: "Watch it",
+			readyWhen: { check: "pkill -u joel node" },
+		};
 		const looking = {
 			kind: "page",
 			target: "https://example.org/bios",

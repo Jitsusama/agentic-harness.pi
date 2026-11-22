@@ -52,7 +52,6 @@ import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
-import { PERSON_TALKED } from "../../lib/internal/priority/typed.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
@@ -61,6 +60,10 @@ import {
 	withinPatience,
 } from "../../lib/internal/session-ending/here.ts";
 import type { Refusal } from "../../lib/internal/session-ending/judge.ts";
+import {
+	asShown,
+	checksNamedIn,
+} from "../../lib/internal/session-ending/plain.ts";
 import {
 	machineNamesAt,
 	type NodeSession,
@@ -136,7 +139,7 @@ const AFTER_A_SPARE: Withholding = {
 		"(Withheld: this named a command after an ask to end a machine's sessions went through.)",
 	instead: "Say what you meant without the command.",
 	overrideHint:
-		"If this is right as it is, say it again and it will go through as a recorded override.",
+		"If this is right as it is, say it again, with the same command lines, and it will go through as a recorded override.",
 };
 
 /** What reads the tool calls that say something to the person. */
@@ -147,12 +150,13 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 };
 
 /**
- * Forgets what the run showed once the person speaks, typed, through a
- * host, or from the launcher, whose words come as an extension's but
- * are said on the bus as theirs; they have answered it, and every spare
- * it let through.
+ * Forgets what the run showed once the person speaks, typed or through
+ * a host, since they have answered it, and every spare it let through.
  * An extension's message, a job's result or a peer's nudge, is no word
- * of theirs, so it forgets nothing.
+ * of theirs, so it forgets nothing. Nor is the launcher's talk, which
+ * comes as an extension's, or an ask's answer, both taken from a steer
+ * inbox anything running as the person can write; and an answer comes
+ * just as they act on the spared ask, when what follows matters most.
  */
 function forgetOnThePersonsWord(beside: Beside, source: string): void {
 	if (source === "extension") return;
@@ -162,27 +166,7 @@ function forgetOnThePersonsWord(beside: Beside, source: string): void {
 /** Forgets everything the run showed, and every spare in it. */
 function forgetTheRun(beside: Beside): void {
 	beside.texts = [];
-	beside.sparedAsks.clear();
-	beside.sparedUnanswered = false;
-}
-
-/**
- * Forgets a spared ask once the person answers it, having read it: not
- * one answered by its recommendation while they are away, which says no
- * answer of theirs, nor one cancelled or parked unanswered.
- */
-function forgetOnTheirAnswer(
-	beside: Beside,
-	result: { readonly toolName: string; readonly toolCallId: string },
-	details: unknown,
-): void {
-	if (result.toolName !== "ask" || !isRecord(details)) return;
-	const answered =
-		Array.isArray(details.answers) &&
-		details.answers.length > 0 &&
-		details.cancelled !== true &&
-		details.parked === undefined;
-	if (answered) beside.sparedAsks.delete(result.toolCallId);
+	beside.spareStood = false;
 }
 
 /** What reads the tool `name`, its own key only, never the prototype's. */
@@ -192,13 +176,14 @@ function readerOf(name: string): ((input: unknown) => Said) | undefined {
 
 /**
  * How often the model has been told of a withheld reply in this run,
- * so a rephrase withheld again is said too, up to TELLS_PER_RUN and no
- * more, lest a model that keeps asking loops until the run settles;
- * which run this is; and the asks it was told of in it, the only ones a
- * reply may override by asking again.
+ * by how it was withheld, so a rephrase withheld again is said too, up
+ * to TELLS_PER_RUN of each and no more, lest a model that keeps asking
+ * loops until the run settles, and replies held after a spare leave a
+ * real ask its own tells; which run this is; and the asks it was told
+ * of in it, the only ones a reply may override by asking again.
  */
 interface Told {
-	tells: number;
+	readonly tells: Map<string, number>;
 	run: string;
 	readonly keys: Set<string>;
 }
@@ -210,34 +195,17 @@ interface Told {
  */
 interface Beside {
 	texts: readonly string[];
-	/** The asks a spare let through whose answer may yet come, by call. */
-	readonly sparedAsks: Set<string>;
-	/**
-	 * Whether a spare let through what no answer comes back to: a reply,
-	 * a look, or a wait, whose result says only that it was recorded.
-	 */
-	sparedUnanswered: boolean;
+	/** Whether a spare let an ask through in this run. */
+	spareStood: boolean;
 }
 
-/** Whether a spare let an ask through in this run that still stands. */
-function spareStands(beside: Beside): boolean {
-	return beside.sparedUnanswered || beside.sparedAsks.size > 0;
-}
-
-/**
- * `traced`, noting in `beside` each spare it is told of: by its call
- * when that call is an ask, whose answer is the person's word on it.
- */
+/** `traced`, noting in `beside` each spare it is told of. */
 function notingSpares(
 	beside: Beside,
 	traced: (trace: SpareTrace) => void,
-	call?: { readonly toolName: string; readonly toolCallId: string },
 ): (trace: SpareTrace) => void {
 	return (trace) => {
-		if (trace.outcome === "spared") {
-			if (call?.toolName === "ask") beside.sparedAsks.add(call.toolCallId);
-			else beside.sparedUnanswered = true;
-		}
+		if (trace.outcome === "spared") beside.spareStood = true;
 		traced(trace);
 	};
 }
@@ -245,7 +213,8 @@ function notingSpares(
 /**
  * Why `said` may not go to the person: as `refusalFor` says, or, after a
  * spare stood in the run, for naming a command its sessions might not
- * outlive. `call` is the call saying it, when one does.
+ * outlive. pi awaits each call's `tool_call` before the next one's, so
+ * a spare one call lets through stands against the calls after it.
  */
 async function refusalOfSaid(
 	said: Said,
@@ -253,16 +222,16 @@ async function refusalOfSaid(
 	deps: SessionEndingDeps,
 	traced: (trace: SpareTrace) => void,
 	beside: Beside,
-	call?: { readonly toolName: string; readonly toolCallId: string },
 ): Promise<{ refusal: Refusal; afterASpare: boolean } | undefined> {
 	// Only a spare before this stands against it: one this lets through
-	// is judged with its own commands already.
-	const stoodBefore = spareStands(beside);
+	// already held its own words and checks to the plain list, which is
+	// stricter than what is held after it.
+	const stoodBefore = beside.spareStood;
 	const refusal = await refusalFor(
 		said,
 		selfOf(ctx),
 		deps,
-		notingSpares(beside, traced, call),
+		notingSpares(beside, traced),
 		beside.texts,
 	);
 	if (refusal) return { refusal, afterASpare: false };
@@ -288,11 +257,14 @@ const SPARES_KILL_GRACE_MS = 250;
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
-		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
+		const told: Told = {
+			tells: new Map(),
+			run: randomUUID(),
+			keys: new Set(),
+		};
 		const beside: Beside = {
 			texts: [],
-			sparedAsks: new Set(),
-			sparedUnanswered: false,
+			spareStood: false,
 		};
 		const traced = (trace: SpareTrace) => pi.appendEntry(SPARE_ENTRY, trace);
 		pi.on("tool_call", (event, ctx) =>
@@ -301,19 +273,13 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 		pi.on("input", (event) => {
 			forgetOnThePersonsWord(beside, event.source);
 		});
-		pi.events.on(PERSON_TALKED, () => {
-			forgetTheRun(beside);
-		});
-		pi.on("tool_result", (event) => {
-			forgetOnTheirAnswer(beside, event, event.details);
-		});
 		pi.on("message_end", (event, ctx) => {
 			noteBeside(beside, event.message);
 			return withholdReply(pi, event.message, ctx, deps, told, traced, beside);
 		});
 		pi.on("agent_settled", () => {
 			forgetTheRun(beside);
-			told.tells = 0;
+			told.tells.clear();
 			told.run = randomUUID();
 			told.keys.clear();
 		});
@@ -442,7 +408,6 @@ async function refuseCall(
 		deps,
 		traced,
 		beside,
-		call,
 	);
 	if (!refused) return undefined;
 	return refusalUnder(
@@ -458,8 +423,9 @@ async function refuseCall(
 
 /**
  * Adds what an assistant's reply says, refused or not, to what later
- * calls are read beside: its text, and what each call it makes says,
- * since pi ends the message before its calls run, in whatever order.
+ * calls are read beside: its text, what each call it makes says, and
+ * each check one runs that does more than read the system, since pi
+ * ends the message before its calls run, in whatever order.
  */
 function noteBeside(beside: Beside, message: { role: string }): void {
 	if (message.role !== "assistant" || !("content" in message)) return;
@@ -477,6 +443,7 @@ function noteBeside(beside: Beside, message: { role: string }): void {
 		...[saidInReply(message.content), ...calls].flatMap((said) => [
 			...said.prose,
 			...said.labels,
+			...checksNamedIn(said.commands ?? []).map(asShown),
 		]),
 	];
 }
@@ -507,7 +474,8 @@ async function withholdReply<M extends { role: string }>(
 	const stopped =
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
-	const telling = !stopped && told.tells < TELLS_PER_RUN;
+	const tells = told.tells.get(as.label) ?? 0;
+	const telling = !stopped && tells < TELLS_PER_RUN;
 	const mode = guardMode(GUARD.name);
 	const silent =
 		(stopped && mode !== "off") ||
@@ -522,7 +490,7 @@ async function withholdReply<M extends { role: string }>(
 	);
 	if (!verdict) return undefined;
 	if (telling) {
-		told.tells += 1;
+		told.tells.set(as.label, tells + 1);
 		told.keys.add(refusal.key);
 		const reason = verdict.reason.replace(OVERRIDE_HINT, as.overrideHint);
 		pi.sendMessage(
