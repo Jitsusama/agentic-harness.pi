@@ -21,8 +21,9 @@
 # nix-ld. Checks on one host take turns, since they share that worktree;
 # one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
 # check before it to end, and its holder's line names the pid that stops
-# the whole of a check with a TERM. Exits with what `pnpm check` exited
-# with, or 75 when its turn never came.
+# the whole of a check with a TERM, its turn passing once its work has
+# stopped. Exits with what `pnpm check` exited with, or 75 when its turn
+# never came.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -34,9 +35,19 @@ case "$wait_s" in
     exit 2
     ;;
 esac
-# ssh would read a host that opens with a dash as one of its options.
+# ssh joins its words into one line the host's login shell, bash or zsh,
+# reads again, and git lets a branch's name hold `;` and `$(`, so a check
+# takes only a branch named in plain characters. ssh would read a host
+# that opens with a dash as one of its options, and an older ssh puts the
+# name as it stands into a ProxyCommand's shell line.
+case "$branch" in
+  '' | -* | *[!A-Za-z0-9._/@+-]*)
+    echo "check-there: '$branch' names no branch a check can take" >&2
+    exit 2
+    ;;
+esac
 case "$host" in
-  -*)
+  -* | *[!A-Za-z0-9._@-]*)
     echo "check-there: '$host' names no host" >&2
     exit 2
     ;;
@@ -50,10 +61,13 @@ if [ "$#" -lt 1 ]; then
   fi
 fi
 
-# ssh joins its words into one line the host's shell reads again, so the
-# branch goes quoted: git lets a branch's name hold `;` and `$(`.
+# The branch goes quoted all the same, should its characters ever widen.
 exec ssh -o BatchMode=yes "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
 set -euo pipefail
+# Each job this shell starts leads a process group of its own, so a stop
+# reaches a check's work, and waits for all of it, without signalling
+# this shell or the one ssh started it from.
+set -m
 branch="$1"
 turn_wait_s="$2"
 # The check runs in a worktree of a bare clone, as the harness's own trees
@@ -73,16 +87,49 @@ let_go() {
   if [ -n "${holder:-}" ]; then rm -f "$holder"; fi
 }
 trap let_go EXIT
-# A check stopped by the pid its holder's line names stops whole: its work
-# runs without fd 9, so the turn would pass while that work ran on in the
-# shared worktree. Ignoring the signal itself, this shell sends it to its
-# group, every command the check started, then ends as signalled.
+# A check stopped by the pid its holder's line names stops whole. Its
+# work runs without fd 9, so the turn would pass while that work ran on
+# in the shared worktree, and its wait for a turn would hold the signal
+# until the wait ended. Each runs as `job`, whose group this shell sends
+# a TERM, then waits on before it ends as signalled, killing what is
+# still there after `stop_wait_s` seconds. A command that leaves the
+# group, as a detached test does, is not reached; and a KILL to this
+# shell runs no trap, so its turn passes while its work runs on.
+job=
+# Whether `job`'s group has ended within $1 seconds, asked every tenth
+# of one, since nothing says when its last member goes.
+gone_within() {
+  local tenths=$(( $1 * 10 ))
+  while kill -0 -- "-$job" 2>/dev/null; do
+    [ "$tenths" -gt 0 ] || return 1
+    sleep 0.1
+    tenths=$(( tenths - 1 ))
+  done
+}
 stop_all() {
   trap '' TERM INT HUP
-  kill -TERM 0 2>/dev/null || true
-  exit 143
+  if [ -n "${job:-}" ]; then
+    kill -TERM -- "-$job" 2>/dev/null || true
+    if ! gone_within "${stop_wait_s:-10}"; then
+      kill -KILL -- "-$job" 2>/dev/null || true
+      gone_within 5 || true
+    fi
+  fi
+  exit "$1"
 }
-trap stop_all TERM INT HUP
+trap 'stop_all 143' TERM
+trap 'stop_all 130' INT
+trap 'stop_all 129' HUP
+# Runs a command as `job` without fd 9, so nothing it leaves running,
+# such as git's fsmonitor daemon, holds the lock once it ends, and waits
+# on it, so a signal reaches stop_all at once rather than when it ends.
+# A job under `set -m` keeps this shell's stdin, the script `bash -s`
+# reads, so it gets none, and nothing in it can swallow the script.
+alone() {
+  "$@" 9>&- </dev/null &
+  job=$!
+  wait "$job"
+}
 # A check killed outright runs no trap, so its node link stays; each
 # check takes away the links of checks no longer running.
 let_go_of_dead() {
@@ -140,7 +187,11 @@ take_turn() {
     held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
     echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
     tried=0
-    lock -w "$wait_s" || tried=$?
+    # Waited on as a job, holding fd 9, so a stop meanwhile lands at once.
+    lock -w "$wait_s" </dev/null &
+    job=$!
+    wait "$job" || tried=$?
+    job=
     if [ "$tried" -eq 1 ]; then
       held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
       echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock, held by ($held)" >&2
@@ -157,12 +208,8 @@ take_turn() {
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
 take_turn
-# Everything the check starts runs without fd 9, so nothing it leaves
-# running, such as git's fsmonitor daemon, holds the lock once it ends.
-# It runs as a job this shell waits on, so a TERM reaches stop_all at
-# once rather than when pnpm check ends, and with no stdin, so nothing in
-# it that reads stdin can swallow the rest of this script.
-{
+# Everything the check starts runs alone.
+run_check() {
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
 fi
@@ -198,6 +245,6 @@ if [ -e /etc/NIXOS ]; then
 fi
 pnpm check
 pnpm exec vitest run tests/package --testTimeout=60000
-} 9>&- &
-wait $!
+}
+alone run_check
 THERE
