@@ -49,6 +49,7 @@ import {
 	WAKE_ENV,
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
+import { ROLLOVER_RECORD } from "../../../../lib/internal/session/rollover.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 import { until } from "../../../support/until.ts";
 
@@ -1273,6 +1274,68 @@ const scenarios: Record<string, Scenario> = {
 			return seen;
 		},
 	},
+	/** Resume a compacted log at the host's start, as from the roster. */
+	"kept-resume": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const entry = await compactedEntry();
+			await engine.resume(entry);
+			const seen = { kept: keptReading(engine, entry.sessionId, entry.file) };
+			await host.close(entry.sessionId);
+			return seen;
+		},
+	},
+	/** Wake a compacted log a host parked, as its wake file asks. */
+	"kept-wake": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const entry = await compactedEntry();
+			await engine.resume(entry, true);
+			const seen = { kept: keptReading(engine, entry.sessionId, entry.file) };
+			await host.close(entry.sessionId);
+			return seen;
+		},
+	},
+	/** Adopt a compacted log, as the service hands the host one plain pi held. */
+	"kept-adopt": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const entry = await compactedEntry();
+			const request = {
+				v: 1 as const,
+				id: "adopt-1",
+				op: "adopt" as const,
+				sessionFile: entry.file,
+				attended: false,
+			};
+			const prepared = await engine.prepare(request);
+			await engine.start(prepared, request);
+			const seen = {
+				sameId: prepared.sessionId === entry.sessionId,
+				kept: keptReading(engine, entry.sessionId, entry.file),
+			};
+			await host.close(entry.sessionId);
+			return seen;
+		},
+	},
+	/** Answer, then switch the conversation to a compacted log nobody holds, as /resume does. */
+	"kept-replace": {
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			const target = await compactedEntry();
+			await host.run(first, () =>
+				engine.view(first)?.runtime.switchSession(target.file),
+			);
+			const seen = {
+				held: host.list().map((conversation) => conversation.id),
+				kept: keptReading(engine, target.sessionId, target.file),
+			};
+			await host.close(target.sessionId);
+			return seen;
+		},
+	},
 };
 
 if (scenarioName === "reopen") await reopen();
@@ -1551,6 +1614,112 @@ async function idle(engine: HostEngine, id: string): Promise<void> {
 
 function readEntry(): RosterEntry {
 	return JSON.parse(readFileSync(entryFile, "utf8"));
+}
+
+/** What the fixture writes a compacted log with, of pi's session manager. */
+interface LogWriter {
+	appendModelChange(provider: string, modelId: string): string;
+	appendMessage(message: object): string;
+	appendCompaction(
+		summary: string,
+		firstKeptEntryId: string,
+		tokensBefore: number,
+	): string;
+	getSessionId(): string;
+	getSessionFile(): string | undefined;
+}
+
+/**
+ * A log of two early turns, a compaction keeping from the third, and a
+ * turn after it, written by the host's pi as it writes any, and the roster
+ * entry that names it.
+ */
+async function compactedEntry(): Promise<RosterEntry> {
+	const codingAgent = piModule<{
+		SessionManager: { create(cwd: string, sessionDir: string): LogWriter };
+	}>(await import(pathToFileURL(join(packageDir, "dist", "index.js")).href));
+	const logs = join(folder, "logs");
+	mkdirSync(logs, { recursive: true });
+	const log = codingAgent.SessionManager.create(work, logs);
+	log.appendModelChange(PROVIDER, MODEL);
+	const turn = (words: string): string => {
+		const asked = log.appendMessage({
+			role: "user",
+			content: words,
+			timestamp: Date.now(),
+		});
+		log.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: `answer to ${words}` }],
+			api: "openai-completions",
+			provider: PROVIDER,
+			model: MODEL,
+			usage: {
+				input: 10,
+				output: 10,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 20,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		});
+		return asked;
+	};
+	turn("early one");
+	turn("early two");
+	const kept = turn("kept one");
+	log.appendCompaction("what happened early", kept, 1000);
+	turn("after");
+	const file = log.getSessionFile();
+	if (!file) throw new Error("pi named no file for the compacted log");
+	const entry: RosterEntry = {
+		sessionId: log.getSessionId(),
+		file,
+		cwd: work,
+		attended: false,
+		since: new Date().toISOString(),
+	};
+	writeFileSync(entryFile, JSON.stringify(entry));
+	return entry;
+}
+
+/** An entry of a session manager, as far as the reading below looks. */
+interface HeldEntry {
+	readonly type: string;
+	readonly customType?: string;
+	readonly message?: { readonly role: string; readonly content: unknown };
+}
+
+/**
+ * What a conversation's session manager holds of its log: the first words
+ * of each turn, and whether rollover's record stands in for what it
+ * dropped; beside whether the file still keeps the early turns.
+ */
+function keptReading(
+	engine: HostEngine,
+	id: string,
+	file: string,
+): Record<string, unknown> {
+	const session = engine.view(id)?.runtime.session as unknown as
+		| { readonly sessionManager: { getEntries(): readonly HeldEntry[] } }
+		| undefined;
+	const entries = session?.sessionManager.getEntries() ?? [];
+	return {
+		turns: entries.flatMap((entry) =>
+			entry.type === "message" &&
+			entry.message?.role === "user" &&
+			typeof entry.message.content === "string"
+				? [entry.message.content]
+				: [],
+		),
+		record: entries.some(
+			(entry) =>
+				entry.type === "custom" && entry.customType === ROLLOVER_RECORD,
+		),
+		fileKeepsEarly: readFileSync(file, "utf8").includes("early one"),
+	};
 }
 
 /** What a conversation ended with: its id, its file, and its transcript as text. */

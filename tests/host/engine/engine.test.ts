@@ -158,6 +158,12 @@ interface Seen {
 	readonly screenFailures?: readonly { lost: boolean; message: string }[];
 	/** Each load of a project folder's own extension. */
 	readonly projectLoads?: readonly { loaded: string }[];
+	/** What a conversation opened on a compacted log held of it, and what its file kept. */
+	readonly kept?: {
+		readonly turns: readonly string[];
+		readonly record: boolean;
+		readonly fileKeepsEarly: boolean;
+	};
 	/** Which copy of a linked extension each load ran, once its link moved. */
 	readonly linked?: readonly { copy: string }[];
 	/** What the first conversation's extensions failed with once it reloaded. */
@@ -1170,6 +1176,53 @@ describe("the host's engine", () => {
 		},
 		HOST_LIFE_MS,
 	);
+
+	describe("holds only the history a compacted log keeps", () => {
+		/** What a conversation should hold of the fixture's compacted log. */
+		const keptOnly = {
+			turns: ["kept one", "after"],
+			record: true,
+			fileKeepsEarly: true,
+		};
+
+		it(
+			"when it resumes one",
+			async () => {
+				const seen = await step(hostFolder(), "kept-resume");
+				expect(seen.kept).toEqual(keptOnly);
+			},
+			HOST_LIFE_MS,
+		);
+
+		it(
+			"when it wakes one it parked",
+			async () => {
+				const seen = await step(hostFolder(), "kept-wake");
+				expect(seen.kept).toEqual(keptOnly);
+			},
+			HOST_LIFE_MS,
+		);
+
+		it(
+			"when it adopts one",
+			async () => {
+				const seen = await step(hostFolder(), "kept-adopt");
+				expect(seen.sameId, "the adopted log's own conversation").toBe(true);
+				expect(seen.kept).toEqual(keptOnly);
+			},
+			HOST_LIFE_MS,
+		);
+
+		it(
+			"when a conversation switches to one",
+			async () => {
+				const seen = await step(hostFolder(), "kept-replace");
+				expect(seen.held, "the switch replaced the first").toHaveLength(1);
+				expect(seen.kept).toEqual(keptOnly);
+			},
+			HOST_LIFE_MS,
+		);
+	});
 
 	it(
 		"ends at its start what a killed host's tools left, for a conversation it does not resume",
