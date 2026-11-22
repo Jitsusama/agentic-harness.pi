@@ -259,11 +259,22 @@ describe("saying a run parked", () => {
 		const env = { ...held(), MYCELIUM_PARKED: parked() };
 		sayParked(env, 4242);
 
-		unsayParked(env);
+		unsayParked(env, 4242);
 
 		expect(existsSync(parked()), "up, it hasn't parked").toBe(false);
-		expect(() => unsayParked(env), "already gone").not.toThrow();
-		expect(() => unsayParked({}), "none named").not.toThrow();
+		expect(() => unsayParked(env, 4242), "already gone").not.toThrow();
+		expect(() => unsayParked({}, 4242), "none named").not.toThrow();
+	});
+
+	// A subagent inherits its parent's variables: taking back the parent's
+	// real mark would lose the parent's park if its exit then hung.
+	it("takes back nothing for a process its holder doesn't run itself", () => {
+		const env = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(env, 4242);
+
+		unsayParked(env, 4243);
+
+		expect(readFileSync(parked(), "utf8"), "the parent's mark stands").toBe("");
 	});
 });
 
