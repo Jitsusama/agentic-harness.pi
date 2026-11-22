@@ -372,9 +372,10 @@ caller's slice puts it in the jobs slice, where it dies. So the agent
 is told to start a run meant to outlive its command and its host as a
 transient service instead (`systemd-run --user --unit=NAME --collect
 --same-dir --expand-environment=no`, passing each variable it needs
-with `--setenv`, its `TMPDIR` among them, so its temp files stay in the
-quest's scratch rather than the `/tmp` every run shares). A service starts from the user manager, so it
-carries none of the command's marks and no reap finds it, whatever
+with `--setenv`, its `TMPDIR` among them, so its temp files stay in
+the quest's scratch rather than the `/tmp` every run shares). A
+service starts from the user manager, with the manager's environment
+but for what it is passed, so it carries none of the command's marks and no reap finds it, whatever
 its slice; and the journal records how it ended, which for a scope
 nothing does. In the fence and the strict sandbox no command reaches
 systemd, and the agent is told so instead. The hand-off answer tells the agent

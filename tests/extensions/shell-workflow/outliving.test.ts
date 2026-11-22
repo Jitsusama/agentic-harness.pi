@@ -31,6 +31,7 @@ describe("outliving a command", () => {
 	// manager's SSH_ASKPASS and DISPLAY and no terminal.
 	it("asks nothing on the person's screen from the service it starts", () => {
 		const said = outlivingIt("none");
+		expect(said.indexOf(" -- "), "its options end at a --").toBeGreaterThan(0);
 		const options = said.slice(0, said.indexOf(" -- "));
 
 		// Before the `--`, so systemd-run takes them rather than the command.
@@ -47,9 +48,18 @@ describe("outliving a command", () => {
 	// and Nix's pinned host keys with it.
 	it("keeps the service's temp files in the command's temp folder, not the shared /tmp", () => {
 		const said = outlivingIt("none");
+		expect(said.indexOf(" -- "), "its options end at a --").toBeGreaterThan(0);
 		const options = said.slice(0, said.indexOf(" -- "));
 
-		expect(options).toContain('--setenv=TMPDIR="$TMPDIR" ');
+		// With no TMPDIR set, an empty one would be no folder at all.
+		expect(options).toContain(`--setenv=TMPDIR="\${TMPDIR:-/tmp}" `);
+	});
+
+	it("says the service takes the user manager's environment, not none", () => {
+		const said = outlivingIt("none");
+
+		expect(said).toMatch(/user manager's environment, not the command's/);
+		expect(said).not.toMatch(/starts with none of the command's environment/);
 	});
 
 	for (const kind of ["fence", "strict"] as const) {

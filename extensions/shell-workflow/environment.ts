@@ -128,8 +128,8 @@ export const WITHOUT_INTERACTION: Readonly<Record<string, string>> = {
 
 /**
  * Keep pi's own process from asking on the person's screen, and so
- * everything it starts outside the agent's shell: the work tool's git,
- * a council's checkout, a host's children.
+ * everything it starts outside the agent's shell: the work tool's git
+ * and a council's checkout.
  *
  * A host runs as a user service, so it inherits the user manager's
  * `SSH_ASKPASS` and `DISPLAY`, and an ssh it starts with no terminal
@@ -137,7 +137,10 @@ export const WITHOUT_INTERACTION: Readonly<Record<string, string>> = {
  * About 22 such windows reached the person on 21 November in six
  * minutes. Nobody answers an askpass window but the person, and no
  * agent's work is worth that, so the process drops the program for good
- * as it loads.
+ * as it loads. In a host, `process.env` is the loading conversation's
+ * view (`host/engine/process-env.ts`), so this blanks that
+ * conversation's environment, which its tools and commands start from,
+ * and leaves the host's own to the host.
  * What pi starts for the person inherits it too: a `!` command fails a
  * missing credential rather than opening a window, and a terminal pi
  * opens asks on its own terminal instead. Terminals the person opens
