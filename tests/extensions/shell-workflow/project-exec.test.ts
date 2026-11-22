@@ -238,7 +238,7 @@ describe("a folder's extension's command", () => {
 		const started = Date.now();
 		const done = await execWith()(
 			"bash",
-			["-c", "(while :; do echo more; sleep 0.05; done &) ; echo left"],
+			["-c", "echo left; (while :; do echo more; sleep 0.05; done &)"],
 			folder,
 		);
 		expect(done.code).toBe(0);
