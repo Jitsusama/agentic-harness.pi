@@ -20,13 +20,9 @@ import {
 	hostRealm,
 	hostSocketPath,
 } from "../../../host/service/address.ts";
-import { controlRequest } from "../../../host/service/client.ts";
-import {
-	type ControlRequest,
-	parseAdoptResult,
-	parseListResult,
-	parseOpenResult,
-	type SessionIdentity,
+import type {
+	ControlRequest,
+	SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
@@ -47,6 +43,11 @@ import {
 	hostHold,
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
+import {
+	controlRequest,
+	HostClientUnloaded,
+	hostProtocol,
+} from "../../../lib/mesh/host-control.ts";
 import { spawnHostSetting } from "../config.ts";
 import { readRecord } from "../sessions/records.ts";
 import {
@@ -191,6 +192,11 @@ export async function hostBySetting(
 		if (neverSent(error)) {
 			return {
 				note: `${said}, but no ${key} host is listening at ${socket}, so it opens in a terminal.`,
+			};
+		}
+		if (error instanceof HostClientUnloaded) {
+			return {
+				note: `${said}, but this pi couldn't ask the ${key} host anything (${messageOf(error)}), so it opens in a terminal.`,
 			};
 		}
 		// Anything else, such as a host too busy to list in time, is a host
@@ -354,6 +360,11 @@ export async function spawnInHost(
 				`No ${key} host is listening at ${socket}, so nothing was opened.`,
 			);
 		}
+		if (error instanceof HostClientUnloaded) {
+			return refuse(
+				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
+			);
+		}
 		return refuse(unknownOutcome(key, messageOf(error)));
 	}
 	const { reply, shed } = sent;
@@ -364,6 +375,7 @@ export async function spawnInHost(
 	}
 	let held: SessionIdentity;
 	try {
+		const { parseAdoptResult, parseOpenResult } = await hostProtocol();
 		held =
 			request.op === "adopt"
 				? parseAdoptResult(reply.result)
@@ -463,6 +475,7 @@ export async function resumeInHost(
 	}
 	let holds: boolean;
 	try {
+		const { parseListResult } = await hostProtocol();
 		holds = parseListResult(reply.result).sessions.some(
 			(held) => held.sessionId === session.id,
 		);

@@ -36,6 +36,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { bounded } from "../../../clock/bound.ts";
+import { loadOnce } from "../../../internal/process/single-flight.ts";
 import {
 	DEFAULT_SERVERS,
 	resolveBinary,
@@ -55,7 +56,15 @@ import type {
 	SymbolInfo,
 	WorkspaceEdit,
 } from "../types.ts";
-import { StandaloneServer } from "./server.ts";
+import type { StandaloneServer } from "./server.ts";
+
+/**
+ * The server module, loaded when the first server starts. It brings
+ * vscode-jsonrpc and the protocol's types, 2.0 MB of heap, 21 MB
+ * resident and 140 ms to load (21 November, node 22), which every pi
+ * paid at start while the lsp tool is called in a few sessions.
+ */
+const serverModule = loadOnce(() => import("./server.ts"));
 
 /** Raised when no server can serve a file, with why per candidate. */
 export class MissingServerError extends Error {
@@ -198,7 +207,9 @@ export function createStandaloneBackend(
 		const key = poolKey(server.name, root);
 		const existing = pool.get(key);
 		if (existing) return { key, started: existing };
-		const started = StandaloneServer.start(server, root, binary);
+		const started = serverModule().then(({ StandaloneServer }) =>
+			StandaloneServer.start(server, root, binary),
+		);
 		pool.set(key, started);
 		roots.set(key, root);
 		watch();
