@@ -324,7 +324,9 @@ describe("persist + restore", () => {
 
 		const next = buildState();
 		expect(restore(next, pi, fakeCtx(tmpRoot)), "not found yet").toBe(false);
+		const written = entries.length;
 		persist(next, pi, fakeCtx(tmpRoot));
+		expect(entries.length, "nothing is written over it").toBe(written);
 		const last = entries.at(-1)?.data as { questId?: string } | undefined;
 		expect(last?.questId).toBe(a.id);
 
@@ -333,6 +335,86 @@ describe("persist + restore", () => {
 		expect(retryPendingQuest(next, pi, later), "loads once it can").toBe(true);
 		expect(next.questId).toBe(a.id);
 		expect(next.pendingQuest).toBeUndefined();
+	});
+
+	it("keeps the log's focused document while its quest can't load, and focuses it once it can", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		await handle(state, pi, fakeCtx(tmpRoot), {
+			action: "draft",
+			kind: "plan",
+			note: "investigate",
+			title: "Doc One",
+		});
+		expect(state.documentPath).not.toBeNull();
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const written = entries.length;
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(entries.length, "a pending quest writes nothing").toBe(written);
+
+		renameSync(aside, a.dir);
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"loads once it can",
+		).toBe(true);
+		expect(next.documentPath).toBe(state.documentPath);
+		expect(next.documentId).toBe(state.documentId);
+	});
+
+	it("keeps a quest left unfocused on purpose unfocused once it loads", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		await handle(state, pi, fakeCtx(tmpRoot), {
+			action: "draft",
+			kind: "plan",
+			note: "investigate",
+			title: "Doc One",
+		});
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "unfocus" });
+		persist(state, pi);
+		const saved = entries.at(-1)?.data as { unfocused?: boolean } | undefined;
+		expect(saved?.unfocused, "the log says unfocused").toBe(true);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		renameSync(aside, a.dir);
+		retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS);
+		expect(next.questId).toBe(a.id);
+		expect(next.documentPath).toBeNull();
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as { unfocused?: boolean } | undefined;
+		expect(last?.unfocused, "still unfocused on purpose").toBe(true);
+	});
+
+	it("lets go of a quest still waiting to load once the session loads another", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Beta");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		await handle(next, pi, fakeCtx(tmpRoot), { action: "load", id: b.id });
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(next.pendingQuest, "the log's quest is let go").toBeUndefined();
+		renameSync(aside, a.dir);
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"nothing is tried again",
+		).toBe(false);
+		expect(next.questId).toBe(b.id);
 	});
 
 	// Each try walks and signs the whole quest tree, the walk a slow disk

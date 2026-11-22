@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	loadQuest,
+	questsAStartKnows,
 	resolveStartup,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -144,6 +145,38 @@ describe("resolveStartup precedence", () => {
 		expect(resolution.questId).toBe(requested);
 		// The env var is consumed so it never carries across a restart.
 		expect(process.env.QUEST_WORKFLOW_AUTOLOAD_ID).toBeUndefined();
+	});
+
+	// A host reads these again before a start, rather than its whole tree.
+	it("knows the quest it had, its log's and its spawn's before it resolves", () => {
+		const state = buildState();
+		state.questId = "QEST-20260101-HADONE";
+		expect(
+			questsAStartKnows(
+				state,
+				ctxWith({ cwd: tmpRoot, persistedQuestId: "QEST-20260101-LOGGED" }),
+				{ questId: "QEST-20260101-ASKED", orchestrate: false },
+			),
+		).toEqual([
+			"QEST-20260101-HADONE",
+			"QEST-20260101-LOGGED",
+			"QEST-20260101-ASKED",
+		]);
+	});
+
+	it("resolves from the hints a start took already, reading no others", async () => {
+		const requested = await createQuest("Requested");
+		const other = await createQuest("Other");
+		process.env.QUEST_WORKFLOW_AUTOLOAD_ID = other;
+		const resolution = resolveStartup(
+			buildState(),
+			fakePi(),
+			ctxWith({ cwd: tmpRoot }),
+			{ questId: requested, orchestrate: false },
+		);
+		expect(resolution.source).toBe("explicit");
+		expect(resolution.questId).toBe(requested);
+		expect(process.env.QUEST_WORKFLOW_AUTOLOAD_ID).toBe(other);
 	});
 
 	it("falls back to persisted history when there is no explicit request", async () => {

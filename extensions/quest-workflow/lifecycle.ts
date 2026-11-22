@@ -457,16 +457,17 @@ export interface StartupResolution {
  *    quest directory or working tree it launched inside.
  *
  * Consumes and clears the env var so the hint never carries across an
- * in-process session restart.
+ * in-process session restart; a caller that took them already, to
+ * read the quests they name first, passes them as `hints`.
  */
 export function resolveStartup(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
+	hints: LaunchHints = launchHints(ctx),
 ): StartupResolution {
 	// What an earlier conversation in this pi waited for is not this one's.
 	letPendingGo(state);
-	const hints = launchHints(ctx);
 	pendingWords(ctx).hints = hints;
 	const autoloadId = hints.questId;
 	const orchestrating = hints.orchestrate;
@@ -502,6 +503,20 @@ export function resolveStartup(
 		source: state.questId ? "cwd" : "none",
 		questId: state.questId,
 	};
+}
+
+/**
+ * The quests a start can know before it resolves one: the one it had,
+ * the one its log last named and the one its spawn asks for, so a host
+ * reads those again rather than signing its whole tree.
+ */
+export function questsAStartKnows(
+	state: QuestState,
+	ctx: ExtensionContext,
+	hints: LaunchHints,
+): (string | null | undefined)[] {
+	const logged = getLastEntry<PersistedState>(ctx, SESSION_KEY)?.questId;
+	return [state.questId, logged, hints.questId];
 }
 
 /**

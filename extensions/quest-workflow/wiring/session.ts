@@ -10,6 +10,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../../lib/core/session/host.ts";
+import { launchHints } from "../../../lib/core/session/index.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -45,6 +46,7 @@ import {
 	captureSessionIdentity,
 	persist,
 	prunePhantomSessionsOnLoaded,
+	questsAStartKnows,
 	reconcileSessionMembership,
 	releaseSessionOnShutdown,
 	resolveStartup,
@@ -133,7 +135,9 @@ export function followSessionLife(
 	// The start's every discovery after its first reads that walk, plus
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
 	pi.on("session_start", async (event, ctx) => {
-		await readyForStart(state);
+		// Taken once, here, so the quest a spawn asks for is read first.
+		const hints = launchHints(ctx);
+		await readyForStart(state, questsAStartKnows(state, ctx, hints));
 		const begin = (): StartupResolution["source"] => {
 			// What a start restores and records rests on its quest as it is:
 			// the one it had, here, and the one it resolves, once chosen.
@@ -171,7 +175,7 @@ export function followSessionLife(
 			// session's persisted history (a /reload restores the last
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
-			const { source } = resolveStartup(state, pi, ctx);
+			const { source } = resolveStartup(state, pi, ctx, hints);
 			if (state.questId !== had) {
 				refreshQuests(state.questsRoot, [state.questId]);
 			}
@@ -324,20 +328,26 @@ export function followSessionLife(
 
 /**
  * On a host, bring the tree up to now before a start resolves its
- * quest, off the thread: the quest it had is read again, and a start
- * with none signs the whole tree, since its spawn request, its history
- * or its folder may name any quest, and a tree another process just
- * added draws it only once read. When the disk gives no answer in
- * time, the start goes on from the last walk and the journal says so.
+ * quest, off the thread: the quests it can know (`known`: the one it
+ * had, its log's and its spawn's) are read again, and the rest of the
+ * tree comes from a walk under a minute old, or a signing when there is
+ * none. It never signs the whole tree only because it names no quest,
+ * as every hosted start then waited on the walk that timed out on 21
+ * November; a folder another process added in that minute draws its
+ * quest from the cwd only once the next walk reads it. When the disk
+ * gives no answer in time, the start goes on from the last walk and the journal says so.
  * With no walk at all, which only a signing on the thread could give,
  * it waits on the next signing instead, holding only itself, until
  * {@link START_TRIES} have given up, as a disk that hangs does.
  */
-async function readyForStart(state: QuestState): Promise<void> {
+async function readyForStart(
+	state: QuestState,
+	known: readonly (string | null | undefined)[],
+): Promise<void> {
 	const root = state.questsRoot;
 	for (let tries = 1; ; tries++) {
 		try {
-			await readyQuests(root, [state.questId], state.questId === undefined);
+			await readyQuests(root, known, false);
 			return;
 		} catch (error) {
 			if (!signingGaveUp(error)) throw error;
