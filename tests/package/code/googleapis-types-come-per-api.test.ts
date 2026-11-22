@@ -13,7 +13,11 @@
  * exports nothing, so a type taken from one fails `pnpm typecheck` on
  * every check. That catches it where this file would not run, since
  * `pnpm check` runs only the tests a changed file reaches. This file
- * checks that the mapping is still there, and catches what `paths`
+ * checks that the mapping is still there, though an edit to tsconfig.json
+ * alone does not run it there either. Dropping the mapping is a
+ * deliberate edit, left to review and a full run, since naming tsconfig
+ * among the files that rerun everything is a change to vitest.config.ts,
+ * which pi hosts run. It also catches what `paths`
  * cannot: `/// <reference types>`, `declare module`, and a path into
  * `node_modules` itself.
  *
