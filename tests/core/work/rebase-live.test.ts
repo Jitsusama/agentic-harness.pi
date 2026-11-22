@@ -50,8 +50,8 @@ async function above(): Promise<string[]> {
  * A log both main and the base start with, so a conflict in it has a common
  * ancestor, as an appended log's does, rather than being two new files.
  */
-async function seedLog() {
-	await commit("log.md", "# Log\n", "log");
+async function seedLog(text = "# Log\n") {
+	await commit("log.md", text, "log");
 	await git(repo, "checkout", "-q", "base");
 	await git(repo, "rebase", "-q", "main");
 	await git(repo, "checkout", "-q", "main");
@@ -196,6 +196,7 @@ describe("a commit its base already carries", () => {
 		await git(repo, "cherry-pick", "topic");
 		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
 		await commit("plain.txt", "theirs\n", "plain theirs");
+		const landed = await landing();
 		await git(repo, "checkout", "-q", "topic");
 		const rebaser = createGitRebaser({ exec: spawnExec() });
 
@@ -204,10 +205,7 @@ describe("a commit its base already carries", () => {
 		const resumed = await rebaser.resume(repo);
 
 		expect(halted).toMatchObject({ kind: "halted", conflicted: ["plain.txt"] });
-		expect(resumed).toMatchObject({
-			kind: "replayed",
-			landed: [{ paths: ["log.md"] }],
-		});
+		expect(resumed).toMatchObject({ kind: "replayed", landed: [landed] });
 		expect(await above()).toEqual(["plain mine"]);
 		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
 			`${entry}\n## 2. Later\n\nTwo.\n`,
@@ -230,5 +228,74 @@ describe("a commit its base already carries", () => {
 		expect(outcome).toMatchObject({ kind: "replayed" });
 		expect(outcome).not.toHaveProperty("landed");
 		expect(await above()).toEqual(["mine"]);
+	});
+
+	it("finds a landing in a log written with CRLF", async () => {
+		// Each changed line ends in a CR, which a read trimmed at its end took
+		// from the halted commit's last line but not from its landing's. Kept as
+		// written, whatever the person's own config would make of line ends.
+		await git(repo, "config", "core.autocrlf", "false");
+		const seed = "# Log\r\n\r\nintro\r\n\r\na\r\nb\r\nc\r\nd\r\n";
+		await seedLog(seed);
+		await git(repo, "checkout", "-q", "base");
+		await commit("log.md", seed.replace("intro", "intro, edited"), "intro");
+		await git(repo, "checkout", "-q", "main");
+		const entry = "\r\n## 1. First\r\n\r\nOne.\r\n";
+		await topicWithOneLanded("log.md", `${seed}${entry}`);
+		const after = `${seed.replace("intro", "intro, edited")}${entry}\r\n## 2. Later\r\n`;
+		await commit("log.md", after, "later");
+		const landed = await landing();
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).toMatchObject({ kind: "replayed", landed: [landed] });
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(after);
+	});
+
+	it("takes the same change made elsewhere in the file for no landing", async () => {
+		// The base ticked the box under A and the branch the one under B: the
+		// same changed lines, in other places, so the branch's tick is its own.
+		const seed = "# Log\n\n## A\n\n- [ ] ship\n\n## B\n\n- [ ] ship\n";
+		await seedLog(seed);
+		await git(repo, "checkout", "-q", "-b", "topic");
+		const tickedB = "# Log\n\n## A\n\n- [ ] ship\n\n## B\n\n- [x] ship\n";
+		await commit("log.md", tickedB, "tick b");
+		await git(repo, "checkout", "-q", "base");
+		const tickedA = "# Log\n\n## A\n\n- [x] ship\n\n## B\n\n- [ ] ship\n";
+		await commit("log.md", tickedA, "tick a");
+		await commit("log.md", `${tickedA}- [ ] more\n`, "more");
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).toMatchObject({ kind: "halted", conflicted: ["log.md"] });
+		expect(outcome).not.toHaveProperty("landed");
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toContain("<<<<<<<");
+	});
+
+	it("reads a log marked -diff as text, so unlike entries never match", async () => {
+		// Read as binary, every change to the log prints the same line.
+		await commit(".gitattributes", "log.md -diff\n", "attributes");
+		await seedLog();
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("log.md", "# Log\n\n## Mine\n", "mine");
+		await git(repo, "checkout", "-q", "base");
+		await commit("log.md", "# Log\n\n## Theirs\n", "theirs");
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).not.toHaveProperty("landed");
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toContain("## Mine");
 	});
 });

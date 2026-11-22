@@ -16,10 +16,13 @@
  * process, which is what keeps this from the walk of every commit the flag
  * exists to skip.
  *
- * The match is exact, as git's patch id is, so a landing that changed on the
- * way in (squashed with others, or renumbered) is not found, and the settler
- * keeps both sides, as it did before the flag, when git's own search missed
- * those too.
+ * A match throws the branch's side of those files away, so it is held to git's
+ * patch id: the changed lines with the lines around them, leaving out only line
+ * numbers, blob ids and trailing whitespace. The same lines changed elsewhere in
+ * the file are not a landing. A landing that changed on the way in (squashed
+ * with others, renumbered, or landed after the base moved the lines around it)
+ * is not found, and the settler keeps both sides, as it did before the flag,
+ * when git's own search missed those too.
  */
 
 import type { Exec } from "../exec/index.ts";
@@ -43,7 +46,13 @@ export interface Landed {
  */
 const LOOK_BACK = 500;
 
-/** What reads a commit's change to some files, the same way for every commit. */
+/**
+ * What reads a commit's change to some files, the same way for every commit:
+ * as text with git's usual three lines around each change, whatever the
+ * tree's attributes say. A file marked `-diff` would otherwise print every
+ * change as the same "Binary files differ", and a textconv would print a
+ * lossy reading, either of which could make unlike changes match.
+ */
 const PATCH = [
 	"-c",
 	"core.quotepath=off",
@@ -51,7 +60,9 @@ const PATCH = [
 	"--no-merges",
 	"--format=%x00%h",
 	"-p",
-	"-U0",
+	"-U3",
+	"--text",
+	"--no-textconv",
 	"--no-color",
 	"--no-ext-diff",
 	"--no-renames",
@@ -81,12 +92,11 @@ export async function landedAs(
 	const pathspecs = ["--", ...paths.map(literal)];
 
 	const [mine] = patchesIn(
-		await ask(exec, treePath, [...PATCH, "-1", halted, ...pathspecs]),
+		await patches(exec, treePath, ["-1", halted, ...pathspecs]),
 	);
-	if (mine === undefined || mine.change === "") return undefined;
+	if (mine === undefined || !changesLines(mine.change)) return undefined;
 	const since = patchesIn(
-		await ask(exec, treePath, [
-			...PATCH,
+		await patches(exec, treePath, [
 			`--max-count=${LOOK_BACK}`,
 			onto,
 			`^${fork}`,
@@ -100,8 +110,9 @@ export async function landedAs(
 
 /**
  * Each commit `git log` printed with `PATCH`, newest first, with its change
- * kept only as far as a cherry-pick leaves it alone: not the line numbers or
- * blob ids, as git's patch id leaves them out.
+ * kept only as far as a cherry-pick leaves it alone: not the line numbers,
+ * blob ids or trailing whitespace (a CR among it), as git's patch id leaves
+ * them out.
  */
 function patchesIn(
 	said: string | undefined,
@@ -118,9 +129,34 @@ function patchesIn(
 					(line) =>
 						line !== "" && !line.startsWith("@@") && !line.startsWith("index "),
 				)
+				.map((line) => line.trimEnd())
 				.join("\n");
 			return { commit: commit.trim(), change };
 		});
+}
+
+/**
+ * What `git log` prints with `PATCH`, read whole: trimmed, as `ask` reads,
+ * only the oldest commit's last line would lose its trailing whitespace.
+ */
+async function patches(
+	exec: Exec,
+	treePath: string,
+	args: readonly string[],
+): Promise<string | undefined> {
+	const result = await exec("git", ["-C", treePath, ...PATCH, ...args]);
+	return result.code === 0 ? result.stdout : undefined;
+}
+
+/** Whether a change adds or removes a line, rather than only naming files. */
+function changesLines(change: string): boolean {
+	return change
+		.split("\n")
+		.some(
+			(line) =>
+				(line.startsWith("+") && !line.startsWith("+++ ")) ||
+				(line.startsWith("-") && !line.startsWith("--- ")),
+		);
 }
 
 /** A path from the top of the tree, read as written. */

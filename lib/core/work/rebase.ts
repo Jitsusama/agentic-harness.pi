@@ -340,12 +340,18 @@ export async function carryOn(
 		...(recited.size > 0 ? { recited: [...recited] } : {}),
 		...(landed.length > 0 ? { landed } : {}),
 	});
+	// A refusal answers only why, so the base's side already kept for a landed
+	// commit is said in it, or the commit's dropped change would go unseen.
+	const refused = (reason: string): CarriedOn => ({
+		kind: "refused",
+		reason: [reason, ...landed.map(keptLine)].join("\n"),
+	});
 
 	for (let round = 0; round < CARRY_ON_LIMIT; round += 1) {
 		const here = await landedHalt(exec, treePath, onto);
 		if (here !== undefined) {
 			const kept = await keepBaseSide(exec, treePath, here.paths);
-			if (kept !== undefined) return { kind: "refused", reason: kept };
+			if (kept !== undefined) return refused(kept);
 			landed.push(here);
 		}
 		const now = await settleAdditions(exec, treePath, moves);
@@ -371,12 +377,8 @@ export async function carryOn(
 				"--",
 				...plain.map((path) => `:(top,literal)${path}`),
 			]);
-			if (added.code !== 0) {
-				return {
-					kind: "refused",
-					reason: added.stderr.trim() || `git add exited ${added.code}`,
-				};
-			}
+			if (added.code !== 0)
+				return refused(added.stderr.trim() || `git add exited ${added.code}`);
 		}
 		const left =
 			plain.length > 0 ? await conflictedIn(exec, treePath) : conflicted;
@@ -423,13 +425,10 @@ export async function carryOn(
 			};
 		}
 		const still = await conflictedIn(exec, treePath);
-		if (still.length === 0) {
-			return {
-				kind: "refused",
-				reason:
-					result.stderr.trim() || `git rebase --continue exited ${result.code}`,
-			};
-		}
+		if (still.length === 0)
+			return refused(
+				result.stderr.trim() || `git rebase --continue exited ${result.code}`,
+			);
 		// The next commit halted too; see whether it only added as well.
 	}
 	return {
@@ -455,24 +454,34 @@ async function landedHalt(
 }
 
 /**
- * Take the base's side of files whose change the base already has, and stage
- * it: in a replay, `--ours` is what has landed. The base's copy holds that
- * change, or a later edit or revert of it, so nothing is doubled, and the
- * files read as git's own search of the base left them before replays
- * reapplied cherry-picks. Answers why git refused, when it did.
+ * Take the base's side of files whose change the base already has, settled
+ * and staged in one checkout: in a replay, `HEAD` is the base with what has
+ * been replayed so far. The base's copy holds that change, or a later edit or
+ * revert of it, so nothing is doubled, and the files read as git's own search
+ * of the base left them before replays reapplied cherry-picks. One step, so a
+ * refusal never leaves a file taken but unstaged, which a resume would stage
+ * as settled by hand without a word. Answers why git refused, when it did.
  */
 async function keepBaseSide(
 	exec: Exec,
 	treePath: string,
 	paths: readonly string[],
 ): Promise<string | undefined> {
-	const pathspecs = ["--", ...paths.map((path) => `:(top,literal)${path}`)];
-	for (const step of [["checkout", "--ours"], ["add"]]) {
-		const done = await exec("git", ["-C", treePath, ...step, ...pathspecs]);
-		if (done.code !== 0)
-			return done.stderr.trim() || `git ${step[0]} exited ${done.code}`;
-	}
-	return undefined;
+	const done = await exec("git", [
+		"-C",
+		treePath,
+		"checkout",
+		"HEAD",
+		"--",
+		...paths.map((path) => `:(top,literal)${path}`),
+	]);
+	if (done.code === 0) return undefined;
+	return done.stderr.trim() || `git checkout exited ${done.code}`;
+}
+
+/** What a refusal says of a landed commit whose base side was already kept. */
+function keptLine(one: Landed): string {
+	return `${one.paths.join(", ")}: ${one.commit} had already landed as ${one.as}, so the base's side was kept before this; the replay is still in progress.`;
 }
 
 /** Replay with plain git. */
