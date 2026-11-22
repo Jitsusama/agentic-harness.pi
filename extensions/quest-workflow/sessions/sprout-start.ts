@@ -259,13 +259,23 @@ interface Found {
 	readonly sealed: boolean;
 }
 
-/** Take `mark` off every ended quest carrying it. */
+/**
+ * Take `mark` off every ended quest carrying it. One whose lock doesn't
+ * come keeps it, so the made quest's link mark is refused and logged,
+ * and the start still marks and ties the quest it made.
+ */
 function unmarkEnded(
 	state: QuestState,
 	mark: { type: string; value: string },
 ): void {
 	for (const one of questsWith(state, mark)) {
-		if (one.sealed && one.dir) removeAliasesFromQuest(one.dir, [mark]);
+		if (!one.sealed || !one.dir) continue;
+		try {
+			removeAliasesFromQuest(one.dir, [mark]);
+		} catch {
+			// A lock that didn't come or a write that failed: the ended quest
+			// keeps the mark, and the made quest's own is refused and logged.
+		}
 	}
 }
 

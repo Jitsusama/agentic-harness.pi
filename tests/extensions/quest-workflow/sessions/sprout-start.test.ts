@@ -48,14 +48,16 @@ import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
 /**
- * Whether a README write that records a need, or one that changes its
- * aliases, fails, as a lock that never comes does; every other write
- * goes through.
+ * Whether a README write that records a need, one that adds aliases or
+ * one that removes them fails, as a lock that never comes does; every
+ * other write goes through. `tried` keeps each alias a write would add.
  */
 const failing = vi.hoisted(() => ({
 	serves: false,
 	aliases: false,
+	removals: false,
 	linkedLog: false,
+	tried: [] as string[],
 }));
 /** The alias verb's own log of a mark it added fails, as its lock not coming does. */
 vi.mock(
@@ -93,7 +95,17 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 					const next = transform(fm);
 					if (failing.serves && next?._extra?.serves !== fm._extra?.serves)
 						throw new Error("the quest's lock didn't come");
-					if (failing.aliases && next && next.aliases !== fm.aliases)
+					const had = (fm.aliases ?? []).map(
+						(one) => `${one.type}:${one.value}`,
+					);
+					const has = (next?.aliases ?? []).map(
+						(one) => `${one.type}:${one.value}`,
+					);
+					const added = has.filter((one) => !had.includes(one));
+					failing.tried.push(...added);
+					if (failing.aliases && added.length > 0)
+						throw new Error("the quest's lock didn't come");
+					if (failing.removals && had.some((one) => !has.includes(one)))
 						throw new Error("the quest's lock didn't come");
 					return next;
 				},
@@ -217,6 +229,7 @@ function sproutedQuest(value: string): string | undefined {
 }
 
 beforeEach(() => {
+	failing.tried.length = 0;
 	// The extension registers them as it loads; a link reads by them.
 	registerBuiltinRefTypes();
 	envGuard.enter();
@@ -447,6 +460,128 @@ describe("a sprouted session's start", () => {
 		expect(log, "never what its own replay may do").not.toContain(
 			"so a replay of it may not find",
 		);
+	});
+
+	it("asks a busy quest for no mark after the first, though its link's is due", async () => {
+		const link = "https://github.com/o/r/pull/71";
+		const ended = await start({ words: "the PR's work", id: "S70" });
+		const endedId = ended.state.questId;
+		if (!endedId) throw new Error("no quest to end");
+		markWith(endedId, link);
+		seal(endedId);
+		failing.aliases = true;
+		failing.tried.length = 0;
+		try {
+			await start({ link, id: "S71" }, { sessionId: "sess-busy-two-marks" });
+		} finally {
+			failing.aliases = false;
+		}
+		const ref = parseRef(link);
+		expect(
+			failing.tried.filter((one) => one.startsWith("sprout")),
+			"only its own mark asked for the lock, never its link's after it",
+		).toEqual(["sprout:S71"]);
+		expect(failing.tried).not.toContain(
+			`sprout-link:${ref?.type}:${ref?.value}`,
+		);
+	});
+
+	it("still marks and ties the quest it made when an ended quest's lock doesn't come", async () => {
+		const link = "https://github.com/o/r/pull/73";
+		const ref = parseRef(link);
+		if (!ref) throw new Error(`no ref type reads ${link}`);
+		const linkMark = `sprout-link:${ref.type}:${ref.value}`;
+		const ended = await start({ words: "the PR's work", id: "S72" });
+		const endedId = ended.state.questId;
+		if (!endedId) throw new Error("no quest to end");
+		markWith(endedId, link);
+		aliasAdd(ended.state, { action: "alias-add", id: endedId, ref: linkMark });
+		seal(endedId);
+		const ran: string[][] = [];
+		failing.removals = true;
+		try {
+			const again = await start(
+				{ link, id: "S73", from: "TERN02" },
+				{
+					sessionId: "sess-ended-busy",
+					run: async (_program, args) => {
+						ran.push([...args]);
+						return { code: 0, stdout: "", stderr: "" };
+					},
+				},
+			);
+			const made = again.state.questId ?? "";
+			expect(made, "a quest of its own").not.toBe(endedId);
+			expect(sproutedQuest("S73"), "its own mark held").toBe(made);
+			expect(
+				ran.map((args) => args[2]),
+				"the tie to the map is still made",
+			).toEqual(["tie"]);
+			expect(again.words).toMatch(
+				/tied on the map to the cell it came from, TERN02/u,
+			);
+			const dir =
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(made)?.dir ??
+				"";
+			expect(
+				readFileSync(harnessLogPath(dir), "utf8"),
+				"the link's mark, still on the ended quest, is logged refused",
+			).toContain(
+				`sprout S73: its mark ${linkMark} wasn't written, so the next sprout of its link may not find this quest and make another`,
+			);
+		} finally {
+			failing.removals = false;
+		}
+	});
+
+	it("logs a joined quest's mark the alias verb refused with what a replay may do", async () => {
+		const link = "https://github.com/o/r/pull/81";
+		const need = "TERN02/mi1x.0123456789ab";
+		const first = await start({ words: "the PR's work", id: "S80" });
+		const id = first.state.questId;
+		if (!id) throw new Error("no quest to join");
+		markWith(id, link);
+		// An ended quest whose README id is forged holds the join mark, which
+		// no rejoin finds, so the verb refuses it on the quest joined.
+		const forged = await start(
+			{ words: "other work", id: "S82" },
+			{ sessionId: "sess-forged-join" },
+		);
+		const forgedId = forged.state.questId;
+		if (!forgedId) throw new Error("no quest to forge");
+		aliasAdd(forged.state, {
+			action: "alias-add",
+			id: forgedId,
+			ref: "sprout-joined:S81",
+		});
+		seal(forgedId);
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			forgedId,
+		);
+		if (!entry) throw new Error(`no quest ${forgedId} to forge`);
+		const readme = join(entry.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(/^id: .*$/mu, "id: QEST-1 forged"),
+		);
+		clearDiscoveryCache();
+
+		const again = await start(
+			{ link, id: "S81", need },
+			{ sessionId: "sess-join-mark-refused" },
+		);
+		expect(again.state.questId, "the quest it joined").toBe(id);
+		const joined = discoverQuests(join(tmpRoot, "quests")).index.quests.get(id);
+		expect(
+			readFileSync(harnessLogPath(joined?.dir ?? ""), "utf8"),
+			"its log says a replay may start the work again",
+		).toContain(
+			"sprout S81: its mark sprout-joined:S81 wasn't written, so a replay of it after this quest ends may start its work again",
+		);
+		expect(
+			joined?.doc.frontMatter._extra?.serves,
+			"its need is still recorded",
+		).toEqual([expect.objectContaining({ cell: "TERN02", id: need })]);
 	});
 
 	it("still loads a live quest it joined when its mark's lock doesn't come", async () => {
