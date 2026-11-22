@@ -240,7 +240,11 @@ reflog alone. Files the commit under review tells git to ignore go
 with it, as build output does. It looks again under
 the tree's record lock before acting, so a session that took the
 tree up since is seen. Under that lock it only moves the tree aside
-and forgets its record; the removal comes after. A tree claimed
+and forgets its record; the removal comes after. A lock another
+process holds past the wait keeps that tree alone, saying so, rather
+than end the run: on 22 November a live snapshot's lock, held past
+10 s on a loaded machine, failed a whole run 40 minutes in, and it
+logged none of what it took. A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
 the broker never cut are left alone. A taken tree's branch stays,
 unless origin's trunk holds every commit on it, as on release.
