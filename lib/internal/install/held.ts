@@ -196,6 +196,45 @@ export function heldNote(held: Held): string | undefined {
 	return `A system switch may collect the pi this session runs, so its subagents and councils would fail until it restarts: ${held.missed.join("; ")}`;
 }
 
+/** Where a session shows the person a note: pi's context, as far as a note needs it. */
+export interface NoteScreen {
+	readonly hasUI: boolean;
+	readonly ui: {
+		notify(message: string, level: "warning"): void;
+	};
+}
+
+/** Whether this process has said its hold's note yet. */
+export interface SaidOnce {
+	said: boolean;
+}
+
+/**
+ * Say once in this process, where the person sees it, what the hold
+ * missed. The hold resolves after the session that asked may have been
+ * replaced, and a replaced session's context throws on every read, its
+ * `hasUI` included; such a session says nothing, and the next one
+ * says the note instead, so a replacement never fails the call.
+ */
+export async function sayHeldOnce(
+	held: Promise<Held>,
+	screen: NoteScreen,
+	once: SaidOnce = processGlobal("pi.install.held.said", () => ({
+		said: false,
+	})),
+): Promise<void> {
+	const note = heldNote(await held);
+	if (note === undefined || once.said) return;
+	try {
+		if (!screen.hasUI) return;
+		once.said = true;
+		screen.ui.notify(note, "warning");
+	} catch {
+		// The session was replaced while the hold ran: the next one says it.
+		once.said = false;
+	}
+}
+
 /**
  * Hold this process's pi install in `folder`, once however many
  * extension instances or reloads ask: the install taken at start (a

@@ -19,8 +19,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addRootWithNixStore,
+	type Held,
 	heldNote,
 	holdInstall,
+	type NoteScreen,
+	sayHeldOnce,
 	startOf,
 	storePathsOf,
 	sweepHeld,
@@ -111,6 +114,53 @@ describe("holdInstall", () => {
 		expect(heldNote(held)).toContain(
 			`subagents and councils would fail until it restarts: ${NODE}: the daemon said no`,
 		);
+	});
+});
+
+describe("sayHeldOnce", () => {
+	const missed: Held = { links: [], missed: [`${NODE}: the daemon said no`] };
+
+	/** A screen that notes what it was told. */
+	function screen(told: string[]): NoteScreen {
+		return { hasUI: true, ui: { notify: (note) => told.push(note) } };
+	}
+
+	/** A replaced session's context, which throws on every read. */
+	const replaced: NoteScreen = {
+		get hasUI(): boolean {
+			throw new Error("This extension ctx is stale after session replacement");
+		},
+		get ui(): NoteScreen["ui"] {
+			throw new Error("This extension ctx is stale after session replacement");
+		},
+	};
+
+	it("says a missed hold once in a process, however many sessions start", async () => {
+		const once = { said: false };
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told), once);
+		await sayHeldOnce(Promise.resolve(missed), screen(told), once);
+		expect(told).toEqual([heldNote(missed)]);
+	});
+
+	it("says nothing, and fails nothing, in a session replaced before its hold resolved, leaving it for the next", async () => {
+		const once = { said: false };
+		await expect(
+			sayHeldOnce(Promise.resolve(missed), replaced, once),
+		).resolves.toBeUndefined();
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told), once);
+		expect(told).toEqual([heldNote(missed)]);
+	});
+
+	it("says nothing for a hold that missed nothing", async () => {
+		const told: string[] = [];
+		await sayHeldOnce(
+			Promise.resolve({ links: [], missed: [] }),
+			screen(told),
+			{ said: false },
+		);
+		expect(told).toEqual([]);
 	});
 });
 
