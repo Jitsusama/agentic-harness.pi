@@ -387,7 +387,7 @@ and it ends with `{"kind": "sessions", "sessions": [{"id", "cwd"}],
 "fence"}`, the fence naming what the session ran under; the node
 starts pi under that one, never another. It exits 1 when a tree was
 refused, the notes couldn't be added or nothing came, so nothing
-starts half arrived, and 2 when it was asked wrongly.
+starts half arrived, and 64 when it was asked wrongly.
 
 `pi-carry settle` lets the old place go, on the machine the session
 left. The node runs it once the arrival is confirmed and the carry
