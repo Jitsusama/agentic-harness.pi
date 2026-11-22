@@ -409,16 +409,12 @@ export async function setAside(
 			done.push({ kind: "gone", path: tree.path });
 			continue;
 		}
-		const aside = join(
-			deps.into,
-			`${basename(tree.path)}-${randomBytes(4).toString("hex")}`,
-		);
+		let aside = "";
 		let refused: string | undefined;
 		let gone = false;
 		const move = async () => {
 			try {
-				mkdirSync(deps.into, { recursive: true });
-				renameSync(tree.path, aside);
+				aside = setAsideWhole(tree.path, deps.into);
 			} catch (error) {
 				// Another reclaim, or the sweep, may have taken it first.
 				gone = !existsSync(tree.path);
@@ -427,7 +423,6 @@ export async function setAside(
 				);
 				return false;
 			}
-			unlink(aside);
 			return true;
 		};
 		const real = resolvedPath(tree.path);
@@ -466,6 +461,24 @@ export async function setAside(
 		else done.push({ kind: "refused", path: tree.path, why: refused ?? "" });
 	}
 	return done;
+}
+
+/**
+ * Move the tree at `path` aside whole, under a name of its own in
+ * `into`, parted from git's entry for it, and answer where it went.
+ * Running no git, so it serves a tree git won't run in as well as one
+ * git can't read. Throws, leaving the tree where it was, when the move
+ * is refused.
+ */
+export function setAsideWhole(path: string, into: string): string {
+	const aside = join(
+		into,
+		`${basename(path)}-${randomBytes(4).toString("hex")}`,
+	);
+	mkdirSync(into, { recursive: true });
+	renameSync(path, aside);
+	unlink(aside);
+	return aside;
 }
 
 /** The longest stretch of git's words said back. */

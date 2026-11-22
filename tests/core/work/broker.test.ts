@@ -483,6 +483,58 @@ describe("createTreeBroker", () => {
 		expect(broker.held()).toEqual([]);
 	});
 
+	it("sets a tree aside by the move it is given, never its provider, keeping it named while the move is refused", async () => {
+		const { provider, released } = fakeProvider("git-worktree");
+		const forgotten: string[] = [];
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				forget: (path) => {
+					forgotten.push(path);
+				},
+				recall: () => (forgotten.includes(held.path) ? [] : [held]),
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+		const moved: string[] = [];
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new Error("EXDEV: cross-device link not permitted");
+			}),
+		).rejects.toThrow(/EXDEV/);
+		expect(forgotten).toEqual([]);
+		expect(broker.held().map((tree) => tree.path)).toEqual([mine.path]);
+
+		const outcome = await broker.setAside(mine, (path) => {
+			moved.push(path);
+		});
+		expect(outcome).toEqual({ kind: "released" });
+		expect(moved).toEqual([mine.path]);
+		expect(released).toEqual([]);
+		expect(forgotten).toEqual([mine.path]);
+		expect(broker.held()).toEqual([]);
+	});
+
+	it("sets aside only its share of a tree another session holds, moving nothing", async () => {
+		const { provider } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: remembering(held, [4242]),
+		});
+		const moved: string[] = [];
+
+		const outcome = await broker.setAside(held, (path) => {
+			moved.push(path);
+		});
+
+		expect(outcome).toEqual({ kind: "released", kept: 1 });
+		expect(moved).toEqual([]);
+	});
+
 	it("reports what it is holding", async () => {
 		const { provider } = fakeProvider("git-worktree");
 		const broker = createTreeBroker([provider]);

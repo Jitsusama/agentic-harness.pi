@@ -7,8 +7,10 @@
 import {
 	existsSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -136,6 +138,27 @@ describe("giving a tree back", () => {
 		);
 		expect(released.details.ok).not.toBe(true);
 		expect(existsSync(join(path, "notes.txt")), "the work is kept").toBe(true);
+	});
+
+	it("sets a tree git won't run in aside whole, its work and all, and stops listing it", async () => {
+		const { key, path } = await cut();
+		writeFileSync(join(path, "notes.txt"), "work\n");
+		// A `.git` that is a link is one the guard won't follow, as a
+		// tree cut from a checkout the fence doesn't guard is refused.
+		renameSync(join(path, ".git"), join(path, ".git-real"));
+		symlinkSync(join(path, ".git-real"), join(path, ".git"));
+
+		const released = await work({ action: "release", tree: key });
+
+		const aside = released.details.aside;
+		if (typeof aside !== "string") throw new Error(released.text);
+		expect(released.text).toBe(
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and none of it was deleted. \`git worktree prune\` in the checkout it was cut from forgets git's entry for it.`,
+		);
+		expect(released.details).toEqual({ ok: true, released: key, aside });
+		expect(existsSync(path), "the tree is gone from where it was").toBe(false);
+		expect(existsSync(join(aside, "notes.txt")), "its work is kept").toBe(true);
+		expect((await work({})).details).toEqual({ ok: true, held: 0 });
 	});
 });
 

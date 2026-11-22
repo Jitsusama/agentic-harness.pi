@@ -1,7 +1,8 @@
 /**
  * The trees this session holds, listed, and one given back: refused while
  * it holds uncommitted work, or when a quest holds it, or when the
- * provider that cut it isn't here to remove it.
+ * provider that cut it isn't here to remove it; set aside whole when git
+ * won't run in it to say what it holds.
  */
 
 import { dirname, join } from "node:path";
@@ -14,11 +15,19 @@ import {
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
 import {
+	plainWords,
+	setAsideWhole,
+	strandedDir,
+} from "../../../lib/core/work/stranded.ts";
+import {
 	branchesKeptForSession,
 	KEPT_BRANCHES,
 	type KeptBranch,
 } from "../../../lib/core/work/sweep-kept-branches.ts";
+import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
+import { refusedIn } from "../../../lib/internal/sandbox/tree-git.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
+import { treeDir } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
 import { sweepLockPath } from "../sweep.ts";
 import { CLAIMED_PROVIDER } from "./held.ts";
@@ -124,6 +133,12 @@ export async function releaseTree(
 		);
 	}
 
+	// Git won't run in it, so neither its status nor its provider's
+	// removal can, and it had no way back but by hand.
+	if (refusedIn(found.path, gitRules()) !== undefined) {
+		return await setUnreadAside(broker, found);
+	}
+
 	// The work inside is the caller's, and losing it is not
 	// recoverable, so the same sentence that guards a repoint
 	// guards this.
@@ -149,4 +164,40 @@ export async function releaseTree(
 		ok: true,
 		released: found.identity.key,
 	});
+}
+
+/**
+ * Give back a tree git won't run in by setting it aside whole, where
+ * reclaim sets the trees git can't read: what it holds can't be read,
+ * so none of it is deleted. Only our share goes while another session
+ * holds it too, as a release's does.
+ */
+async function setUnreadAside(
+	broker: TreeBroker,
+	found: HeldTree,
+): Promise<Answer> {
+	let aside: string | undefined;
+	const into = strandedDir(treeDir());
+	try {
+		await broker.setAside(found, (path) => {
+			aside = setAsideWhole(path, into);
+		});
+	} catch (error) {
+		const why = plainWords(
+			error instanceof Error ? error.message : String(error),
+		);
+		return refuse(
+			`${GLYPH.refused} Git won't run in ${displayPath(found.path)}, so it was to be set aside whole, but the move was refused: ${why}. It is still there and still held.`,
+		);
+	}
+	if (aside === undefined) {
+		return say(`${GLYPH.named} Released ${found.identity.key}.`, {
+			ok: true,
+			released: found.identity.key,
+		});
+	}
+	return say(
+		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and none of it was deleted. \`git worktree prune\` in the checkout it was cut from forgets git's entry for it.`,
+		{ ok: true, released: found.identity.key, aside },
+	);
 }
