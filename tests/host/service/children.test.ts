@@ -117,6 +117,7 @@ function conversation(sessionId: string): SessionIdentity {
 async function strangeChild(
 	sessionId: string,
 	asked: (socket: Socket, request: { id: string }) => void,
+	identity: HostIdentity = child,
 ) {
 	const path = join(dir, "host.d", `${sessionId.slice(0, 1)}x.sock`);
 	const server = createServer((socket) => {
@@ -133,7 +134,7 @@ async function strangeChild(
 	});
 	await new Promise<void>((resolve) => server.listen(path, resolve));
 	servers.push(server);
-	routes.hold(conversation(sessionId), { socket: path, identity: child });
+	routes.hold(conversation(sessionId), { socket: path, identity });
 }
 
 beforeEach(async () => {
@@ -311,8 +312,33 @@ describe("a host with conversations in children", () => {
 		expect(childAsked).toEqual([
 			expect.objectContaining({ op: "close", expectedHost: child }),
 		]);
+		expect(asked).toEqual([]);
 	});
-	it("refuses a child's name for a conversation that child doesn't run", async () => {
+	it("refuses one child's name for a conversation another child runs", async () => {
+		const other: HostIdentity = {
+			key: "work-background",
+			owner: { pid: process.pid, startedAt: 3 },
+		};
+		const reached: unknown[] = [];
+		await strangeChild(c, (_socket, request) => reached.push(request), other);
+
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: c,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(reached, "the child running it was never asked").toEqual([]);
+		expect(childAsked).toEqual([]);
+		expect(asked).toEqual([]);
+	});
+	it("refuses a child's name for a conversation this host runs itself", async () => {
 		const reply = await controlRequest(hostPath, {
 			v: 1,
 			id: "close",
