@@ -9,11 +9,13 @@
  * a long digest's one causal sentence is lost when the digest is judged
  * whole. Every way of not judging (no classifier, an error, a slow
  * answer) finds nothing, so the check never stops a text it couldn't
- * read.
+ * read; a caller can be told why, so a check that judges nothing is
+ * seen to.
  */
 
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import type { Classify, FoundClassifier } from "../classifier/jev.ts";
+import { settledWithin } from "../internal/settled.ts";
 
 /**
  * How sure the classifier must be that a part states an untested cause
@@ -52,6 +54,15 @@ const MOST_PARTS = 12;
 const SHORTEST_PART = 12;
 
 /**
+ * The most of one part sent to be judged, so a long text costs the
+ * classifier's provider a bounded amount: the joined rest past
+ * `MOST_PARTS`, or one paragraph holding a pasted log. About 400 words,
+ * far past any paragraph in the 54 mesh messages sampled on 21
+ * November; a cause past it in one part goes unjudged.
+ */
+const LONGEST_PART = 2000;
+
+/**
  * Where a text breaks into parts: a blank line, or a line opening a
  * bullet or a numbered item.
  */
@@ -85,57 +96,84 @@ const QUESTIONS: ClassifierContext["questions"] = {
  * A text's parts as they are judged: its paragraphs, and each item of a
  * list, of those long enough to state a cause. Past `MOST_PARTS`, the
  * rest is joined into the last, so every part is read, though one in
- * that last part is judged among the rest.
+ * that last part is judged among the rest. Each runs to `LONGEST_PART`
+ * at most.
  */
 export function claimParts(text: string): string[] {
 	const parts = text
 		.split(PART_BREAK)
 		.map((part) => part.trim())
 		.filter((part) => part.length >= SHORTEST_PART);
-	if (parts.length <= MOST_PARTS) return parts;
-	return [
-		...parts.slice(0, MOST_PARTS - 1),
-		parts.slice(MOST_PARTS - 1).join("\n\n"),
-	];
+	const bounded =
+		parts.length <= MOST_PARTS
+			? parts
+			: [
+					...parts.slice(0, MOST_PARTS - 1),
+					parts.slice(MOST_PARTS - 1).join("\n\n"),
+				];
+	return bounded.map((part) => part.slice(0, LONGEST_PART));
 }
+
+/** Told why a text, or some of its parts, went unjudged. */
+export type Unjudged = (why: string) => void;
 
 /**
  * The parts of `text` that state an untested cause, judged by the
  * classifier `lookup` finds. Finding none in time, or one that can't
- * judge, finds nothing.
+ * judge, finds nothing, and `unjudged` is told why; a classifier
+ * switched off is meant, so nothing is told of it.
  */
 export async function untestedCausesFound(
 	text: string,
 	lookup: Promise<FoundClassifier> | undefined,
+	unjudged: Unjudged = () => undefined,
 ): Promise<string[]> {
-	const found = lookup ? await settledWithin(lookup, JUDGE_MS) : undefined;
-	return found?.ok ? untestedCauses(text, found.classify) : [];
+	if (lookup === undefined) return [];
+	const found = await settledWithin(lookup, JUDGE_MS);
+	if (found === undefined) {
+		unjudged(`finding the classifier took over ${JUDGE_MS} ms`);
+		return [];
+	}
+	if (!found.ok) {
+		if (!found.off) unjudged(`no classifier: ${found.reason}`);
+		return [];
+	}
+	return untestedCauses(text, found.classify, unjudged);
 }
 
 /**
  * The parts of `text` the classifier is at least `UNTESTED_FLOOR` sure
  * state an untested cause, in the order they stand. A part it couldn't
- * judge is not among them.
+ * judge is not among them, and `unjudged` is told why the first wasn't,
+ * in words that stay the same from text to text, so a caller can say
+ * each reason once.
  */
 export async function untestedCauses(
 	text: string,
 	classify: Classify,
+	unjudged: Unjudged = () => undefined,
 ): Promise<string[]> {
+	const parts = claimParts(text);
 	const judged = await Promise.all(
-		claimParts(text).map(async (part) =>
-			(await untestedSureness(part, classify)) >= UNTESTED_FLOOR
-				? part
-				: undefined,
-		),
+		parts.map((part) => untestedSureness(part, classify)),
 	);
-	return judged.filter((part) => part !== undefined);
+	const missed = judged.flatMap((one) => ("why" in one ? [one.why] : []));
+	const [first] = missed;
+	if (first !== undefined) unjudged(`a part went unjudged: ${first}`);
+	return parts.filter((_, at) => {
+		const one = judged[at];
+		return one !== undefined && "sure" in one && one.sure >= UNTESTED_FLOOR;
+	});
 }
 
-/** How sure the classifier is that one part states an untested cause. */
+/**
+ * How sure the classifier is that one part states an untested cause, or
+ * why it couldn't say.
+ */
 async function untestedSureness(
 	part: string,
 	classify: Classify,
-): Promise<number> {
+): Promise<{ readonly sure: number } | { readonly why: string }> {
 	try {
 		const result = await settledWithin(
 			classify(
@@ -144,28 +182,17 @@ async function untestedSureness(
 			),
 			JUDGE_MS,
 		);
-		if (result?.stopReason !== "stop") return 0;
-		return untestedOf(result.answers[QUESTION]);
-	} catch {
-		// A part that couldn't be judged is let go: the check refuses only
-		// what it read.
-		return 0;
-	}
-}
-
-/** What `work` settles to within `ms`, or nothing once that has passed. */
-async function settledWithin<T>(
-	work: Promise<T>,
-	ms: number,
-): Promise<T | undefined> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<undefined>((resolve) => {
-		timer = setTimeout(resolve, ms, undefined);
-	});
-	try {
-		return await Promise.race([work, late]);
-	} finally {
-		clearTimeout(timer);
+		if (result === undefined) return { why: `no answer in ${JUDGE_MS} ms` };
+		if (result.stopReason !== "stop") {
+			return { why: `the classifier stopped: ${result.stopReason}` };
+		}
+		return { sure: untestedOf(result.answers[QUESTION]) };
+	} catch (error) {
+		// A part that couldn't be judged is let go, and its caller told: the
+		// check refuses only what it read.
+		return {
+			why: `the classifier failed: ${error instanceof Error ? error.message : String(error)}`,
+		};
 	}
 }
 

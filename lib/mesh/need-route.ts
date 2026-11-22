@@ -791,7 +791,9 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
 
 /**
  * Routes a need over what the node serving `socket` keeps, its cells,
- * ties and hubs, and keeps it in `keep`; nothing, and nothing kept, when
+ * ties and hubs, and keeps it in `keep` when it is lost; one that found
+ * another cell its caller keeps once the send goes (`foundAnother`).
+ * Nothing, and nothing kept, when
  * no node lists its cells and ties there, since a need routed over half
  * of them would read as lost when it was never looked for. Who stopped
  * the asker is always said here, since it alone keeps such a cell from
@@ -817,11 +819,35 @@ export async function needAt(
 		live: how.live,
 		stopped: how.stopped,
 	});
-	await keepNeed(how.keep, record).catch(() => {
+	if (!foundAnother(record, asked.asker))
+		await keepNeedQuietly(how.keep, record);
+	return record;
+}
+
+/**
+ * Whether a need found a cell other than its asker to go to, so a send
+ * can go with it. Such a need is kept once its message goes, by
+ * `keepNeedQuietly`, since a send refused after it was routed, then
+ * sent again, would otherwise count as found twice; any other is lost,
+ * and kept as it is routed.
+ */
+export function foundAnother(record: NeedRecord, asker: string): boolean {
+	return record.fit !== null && record.fit !== asker;
+}
+
+/**
+ * Keeps a need as `keepNeed` does, never failing: a full or unwritable
+ * folder costs the measure this one line, and the send it routes still
+ * goes.
+ */
+export async function keepNeedQuietly(
+	dir: string,
+	record: NeedRecord,
+): Promise<void> {
+	await keepNeed(dir, record).catch(() => {
 		// A full or unwritable folder costs the measure this one line;
 		// the send it routes still goes, as the doc above says.
 	});
-	return record;
 }
 
 /** Whether a node answered a list with its records, if none. */

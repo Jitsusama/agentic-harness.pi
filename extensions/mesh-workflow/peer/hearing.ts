@@ -7,6 +7,7 @@ import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
+import { settledWithin } from "../../../lib/internal/settled.ts";
 import {
 	attend,
 	type Concern,
@@ -68,8 +69,10 @@ import {
 
 /**
  * How long a classifier may take over one message before it is noted
- * unjudged. Jev answers in well under half a second; this is for the
- * network having gone, which must not leave a message undelivered.
+ * unjudged, and finding it may take. Jev answers in well under half a
+ * second; this is for the network having gone, which must not leave a
+ * message undelivered. A timer of its own keeps it, since a classifier
+ * may not heed the signal it is handed.
  */
 const JUDGE_MS = 2500;
 
@@ -157,6 +160,10 @@ export function createHearing(m: MeshState, f: Handing) {
 		m.signed = m.peer.signature;
 	};
 
+	/** The session's classifier, if it is found in time to judge with. */
+	const classifierWithin = () =>
+		m.classifier ? settledWithin(m.classifier, JUDGE_MS) : undefined;
+
 	/** Whose business a message is, by the classifier, or nothing. */
 	const judge = async (
 		message: Message,
@@ -169,16 +176,19 @@ export function createHearing(m: MeshState, f: Handing) {
 		// or what it owns is about its work.
 		if (mentions(message, receiver)) return "receiver";
 		try {
-			const found = await m.classifier;
+			const found = await classifierWithin();
 			if (!found?.ok) return undefined;
-			const result = await found.classify(
-				{
-					state: concernState(message, receiver),
-					questions: concernQuestionFor(receiver),
-				},
-				AbortSignal.timeout(JUDGE_MS),
+			const result = await settledWithin(
+				found.classify(
+					{
+						state: concernState(message, receiver),
+						questions: concernQuestionFor(receiver),
+					},
+					AbortSignal.timeout(JUDGE_MS),
+				),
+				JUDGE_MS,
 			);
-			return result.stopReason === "stop"
+			return result?.stopReason === "stop"
 				? concernFrom(result.answers.about)
 				: undefined;
 		} catch {
@@ -192,10 +202,13 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * none for, or nothing, in which case it is routed by rule.
 	 */
 	const routing: Judge = async (context) => {
-		const found = await m.classifier;
+		const found = await classifierWithin();
 		if (!found?.ok) return undefined;
-		const result = await found.classify(context, AbortSignal.timeout(JUDGE_MS));
-		return result.stopReason === "stop" ? result.answers.to : undefined;
+		const result = await settledWithin(
+			found.classify(context, AbortSignal.timeout(JUDGE_MS)),
+			JUDGE_MS,
+		);
+		return result?.stopReason === "stop" ? result.answers.to : undefined;
 	};
 
 	/**

@@ -30,9 +30,16 @@ import type { SendDetails, SendParams } from "./send.ts";
 export const NEED_GRANTS_NOTHING =
 	"A need finds who works on something; a yes, ruling or grant still comes only from the owner you name by address.";
 
-/** What `to` says once a need in it is read, or why it may not be sent. */
+/**
+ * What `to` says once a need in it is read, with the need it found, to
+ * keep once the send goes; or why it may not be sent.
+ */
 export type NeedRead =
-	| { readonly to: string; readonly note?: string }
+	| {
+			readonly to: string;
+			readonly note?: string;
+			readonly found?: NeedRecord;
+	  }
 	| { readonly refused: Answer };
 
 /**
@@ -111,6 +118,7 @@ export async function needRead(
 	return {
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
 		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended} ${NEED_GRANTS_NOTHING}`,
+		found,
 	};
 }
 

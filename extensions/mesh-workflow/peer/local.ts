@@ -7,7 +7,7 @@ import { askWake, isParked } from "../../../lib/internal/session/park.ts";
 import { cross } from "../../../lib/mesh/crossing.ts";
 import { crossAt } from "../../../lib/mesh/flow.ts";
 import { isCurrent, ownerOf } from "../../../lib/mesh/lease.ts";
-import { needAt } from "../../../lib/mesh/need-route.ts";
+import { keepNeedQuietly, needAt } from "../../../lib/mesh/need-route.ts";
 import { nodeSocket, servedAt, tiesAt } from "../../../lib/mesh/node.ts";
 import { wakeParked } from "../../../lib/mesh/parked.ts";
 import {
@@ -16,6 +16,7 @@ import {
 } from "../../../lib/orchestration/done-acts.ts";
 import { slackOfThePerson } from "../../../lib/orchestration/done-acts-slack.ts";
 import { untestedCausesFound } from "../../../lib/prose/claims.ts";
+import { UNJUDGED } from "../delivery.ts";
 import { confirmEnd } from "../end-hold.ts";
 import { queueJobs } from "../leases.ts";
 import { type Local, registerTools } from "../tools.ts";
@@ -25,6 +26,13 @@ import type { Waits } from "./waits.ts";
 
 /** Register the mesh tools over this peer. */
 export function registerLocal(m: MeshState, f: Waits & Hearing) {
+	/** Why the claim check judged nothing, each said once in the log. */
+	const unjudgedSaid = new Set<string>();
+	const unjudged = (why: string) => {
+		if (unjudgedSaid.has(why)) return;
+		unjudgedSaid.add(why);
+		m.pi.appendEntry(UNJUDGED, { why });
+	};
 	/** Who waits on a hold, by the address each signs with. */
 	const waitingOn = (id: string): string[] => {
 		const now = Date.now();
@@ -62,6 +70,7 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 							stopped,
 							keep: m.paths.mesh,
 						}),
+					keepNeed: (record) => keepNeedQuietly(m.paths.mesh, record),
 					served: (ids) => servedAt(nodeSocket(m.env), ids),
 					asWrittenOff: m.asWrittenOff,
 					sent: (message) => {
@@ -97,7 +106,7 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					),
 					untested: async (text) => {
 						try {
-							return await untestedCausesFound(text, m.classifier);
+							return await untestedCausesFound(text, m.classifier, unjudged);
 						} catch {
 							// With no classifier to be had, nothing is judged and the
 							// message goes as written.

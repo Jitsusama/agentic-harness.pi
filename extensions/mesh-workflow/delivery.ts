@@ -32,6 +32,13 @@ export const GLANCE = "mesh-glance";
 export const UNVOUCHED = "mesh-unvouched";
 
 /**
+ * The customType of the log entry saying the claim check judged a send
+ * wholly or partly unjudged, and why: once for each reason, so a check
+ * that stopped judging is seen to without a line a send.
+ */
+export const UNJUDGED = "mesh-unjudged";
+
+/**
  * The most glances one digest spells out. Past it they are counted, so
  * a flood of other peers' news costs a line, not a page; the swarm
  * handed signals over "at most six of a kind".

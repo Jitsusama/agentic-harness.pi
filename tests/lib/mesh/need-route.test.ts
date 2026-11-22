@@ -17,9 +17,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	foragersFrom,
+	foundAnother,
 	type Hub,
 	hubsFrom,
 	keepNeed,
+	keepNeedQuietly,
 	MOST_HOPS,
 	MOST_WORDS,
 	needAt,
@@ -540,7 +542,7 @@ describe("asking the node for a need's fit", () => {
 		return socket;
 	}
 
-	it("routes over the node's cells and ties, with no hubs yet, and keeps the line", async () => {
+	it("routes over the node's cells and ties, with no hubs yet, leaving a found need for its send to keep", async () => {
 		const socket = await serving({
 			cell: [
 				{ key: "cell:A", title: "A Web, Not a Funnel" },
@@ -556,7 +558,29 @@ describe("asking the node for a need's fit", () => {
 		});
 
 		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
+		expect(found && foundAnother(found, "A")).toBe(true);
+		expect(existsSync(needsFile(root, AT))).toBe(false);
+		if (found) await keepNeedQuietly(root, found);
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
+	});
+
+	it("keeps a lost need as it is routed", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:B", title: "Carry a Session", repo: "mycelium" },
+			],
+			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+		});
+
+		const found = await needAt(socket, asked("A", "fonts"), {
+			live: () => true,
+			stopped: () => false,
+			keep: root,
+		});
+
+		expect(found).toMatchObject({ fit: null });
+		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":null');
 	});
 
 	it("asks the node for each cell's subjects, and routes by them", async () => {
