@@ -114,7 +114,7 @@ it("leaves a conversation alone when the socket answers for another process", as
 	expect(closed).not.toHaveBeenCalled();
 });
 
-it("closes a conversation a child of its host runs, named as the child its presence names", async () => {
+it("ends a conversation a child of its host runs, named as the child its presence names, and no longer once another child runs it", async () => {
 	const c = "c0000000-0000-4000-8000-000000000003";
 	const child = { pid: process.pid, startedAt: 2, startTicks: 9 };
 	const childAsked: string[] = [];
@@ -124,8 +124,9 @@ it("closes a conversation a child of its host runs, named as the child its prese
 		backend: {
 			identity: { key: host.key, owner: child },
 			execute: async (request) => {
-				if (request.op !== "close") throw new Error(request.op);
-				childAsked.push(`close by ${request.by}`);
+				if (request.op !== "close" && request.op !== "release")
+					throw new Error(request.op);
+				childAsked.push(`${request.op} by ${request.by}`);
 				return { sessionId: request.sessionId };
 			},
 		},
@@ -147,7 +148,29 @@ it("closes a conversation a child of its host runs, named as the child its prese
 		expect(childAsked, "the child running it heard the close").toEqual([
 			`close by ${BY}`,
 		]);
-		expect(asked, "the host's own thread closed nothing").toEqual([]);
+		expect(await releaseThroughHost(ownerOf(c, child), BY, dir)).toBe("ended");
+		expect(childAsked, "the child heard the release too").toEqual([
+			`close by ${BY}`,
+			`release by ${BY}`,
+		]);
+
+		// Another child takes the conversation up, under its own identity.
+		routes.hold(
+			{
+				sessionId: c,
+				file: join(dir, c),
+				cwd: dir,
+				state: "idle",
+				since: "2026-11-22T05:00:00.000Z",
+			},
+			{
+				socket: childSocket,
+				identity: { key: host.key, owner: { ...child, startedAt: 3 } },
+			},
+		);
+		expect(await closeThroughHost(ownerOf(c, child), BY, dir)).toBe("unsure");
+		expect(childAsked, "no child heard the stale close").toHaveLength(2);
+		expect(asked, "the host's own thread ended nothing").toEqual([]);
 		expect(host.list()).toHaveLength(2);
 	} finally {
 		await childListener.close();

@@ -7,9 +7,10 @@
  * `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, the realm and kind
  * read off the host key a presence names. The request carries, as
  * `expectedHost`, the full process identity the presence names: the
- * host's, or that of the host's child running the conversation. So a
- * socket some successor took over, or a child that replaced it, refuses
- * it rather than closing a stranger's conversation. Anything short of the host's own yes reads as unsure:
+ * host's, or that of the host's child running the conversation. A
+ * successor that took the socket over refuses it, and so does a host
+ * whose conversation another child now runs, rather than close a
+ * stranger's conversation. Anything short of the host's own yes reads as unsure:
  * the client never retries, since a close may already have landed.
  * Every request says who asked, as `by`, for the line the host's
  * journal writes as it lets the conversation go.

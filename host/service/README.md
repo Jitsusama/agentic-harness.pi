@@ -369,8 +369,8 @@ Attach replies precede initial screen output on the same connection.
 Close, release, abort and drain over a socket require expectedHost discovery
 identity. For a conversation a child runs, that may name the host or the
 child running it now, as the conversation's presence names it, each
-checked whole; a child that was replaced no longer answers to its old
-name. Direct internal dispatch still permits an unguarded request.
+checked whole; once another child runs it, the host refuses the old
+child's name. Direct internal dispatch still permits an unguarded request.
 
 Unknown fields and operations fail closed. Credentials and arbitrary
 environment maps are not accepted through this protocol. Engine failures
