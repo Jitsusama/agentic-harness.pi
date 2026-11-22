@@ -40,6 +40,7 @@ import { STANDING_RULES, standingRules } from "./standing-rules.ts";
 import { createQuestState } from "./state.ts";
 import { watchToolCalls } from "./wiring/calls.ts";
 import { registerQuestCommands } from "./wiring/commands.ts";
+import { followFirstPrompt } from "./wiring/first-prompt.ts";
 import { registerOnTop } from "./wiring/on-top.ts";
 import { followSessionLife } from "./wiring/session.ts";
 import { registerQuestTool } from "./wiring/tool.ts";
@@ -109,6 +110,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	watchToolCalls(pi, state, questsRoot, budgets);
 	keepTurnsCurrent(pi, state, budgets);
 	followSessionLife(pi, state, budgets, stayedBecause);
+	followFirstPrompt(pi, state);
 
 	// Tell the model which quest the conversation is on, which document
 	// is focused and at what stage, without re-deriving it from disk on

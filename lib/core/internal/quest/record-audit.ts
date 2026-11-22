@@ -47,7 +47,7 @@ export interface RecordAudit {
  * or beside the file and in the folder by code before 31 October), and
  * Finder's notes.
  */
-function isMachinery(name: string): boolean {
+export function isQuestMachinery(name: string): boolean {
 	return (
 		name === WRITING ||
 		name === ".quest.lock" ||
@@ -67,7 +67,7 @@ export function auditQuestRecord(questDir: string): RecordAudit {
 
 	const walk = (dir: string): void => {
 		for (const name of readdirSync(dir).sort()) {
-			if (isMachinery(name)) continue;
+			if (isQuestMachinery(name)) continue;
 			const path = join(dir, name);
 			const place = questRecordPath(questsRoot, path);
 			if (!place) continue;
@@ -130,7 +130,7 @@ export function recordStamp(questDir: string): string {
 	const parts: string[] = [];
 	const walk = (dir: string, rel: string): void => {
 		for (const name of readdirSync(dir).sort()) {
-			if (isMachinery(name)) continue;
+			if (isQuestMachinery(name)) continue;
 			const path = join(dir, name);
 			const stats = lstatSync(path);
 			const kind = stats.isDirectory() ? "d" : stats.isFile() ? "f" : "o";

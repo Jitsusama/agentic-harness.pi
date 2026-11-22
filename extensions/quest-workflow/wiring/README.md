@@ -15,6 +15,8 @@ each in turn, so it reads as the extension's table of contents.
   away-workflow, the loaded quest's slice and the budget.
 - `session.ts`: a session's life on its quest, from its start's
   loading, recording and hint to its shutdown's stamps and release.
+- `first-prompt.ts`: a held session's first prompt making its quest,
+  and its end for good clearing one left as made.
 - `scoreboard.ts`: the loaded quest's one line on screen.
 - `on-top.ts`: what the person put on top, said to every session as a
   standing context.
