@@ -15,7 +15,7 @@ import {
 	fingerprint,
 	REPEAT_WINDOW_MS,
 	type Repeatable,
-} from "../../../host/service/repeats.ts";
+} from "../../../host/service/repeat-key.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import { writeWhole } from "../../../lib/internal/write-whole.ts";
 
