@@ -54,8 +54,11 @@ interface Asked {
 /** A GitHub login or org: letters, digits and hyphens. */
 const LOGIN_SHAPE = /^[A-Za-z0-9-]+$/;
 
-/** A GitHub team slug: letters, digits, hyphens, underscores and dots. */
-const SLUG_SHAPE = /^[A-Za-z0-9_.-]+$/;
+/**
+ * A GitHub team slug: letters, digits, hyphens, underscores and dots,
+ * starting with a letter or digit, so `.` and `..` are never a team.
+ */
+const SLUG_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
 /**
  * Split the names a caller asked for into people and teams, or say why
@@ -169,11 +172,14 @@ interface Recorded {
  * specified subset of team members are assigned in the team's place"
  * (GitHub's team settings docs). So a team missing from the answer counts
  * as handed on only when someone nobody named, requested since `before`,
- * is shown an active member of it: anyone else requested meanwhile (a
- * code owner, a bot, another ask) is no sign of the team. Every other
- * missing team counts as dropped; when anybody new appeared, or `before`
- * couldn't be read, the doubt says it may have been handed on, so it is
- * checked rather than asked again, which would assign more members.
+ * is shown an active member of it, and each such newcomer stands for one
+ * team at most: anyone else requested meanwhile (a code owner, a bot,
+ * another ask) is no sign of the team. Every other missing team counts as
+ * dropped. The doubt that it may have been handed on, so it is checked
+ * rather than asked again (which would assign more members), is said when
+ * `before` couldn't be read, when someone nobody named appeared, or when
+ * someone named who appeared is shown a member; a person asked beside it
+ * appearing is otherwise no sign either way.
  */
 async function recordedOf(
 	asked: Asked,
@@ -188,45 +194,72 @@ async function recordedOf(
 			? []
 			: [...after.people].filter((login) => !before.people.has(login));
 	const unnamed = appeared.filter((login) => !named.has(login));
+	const namedNew = appeared.filter((login) => named.has(login));
 	const took: string[] = [];
 	const dropped: string[] = [];
-	const doubted: string[] = [];
+	const doubts: string[] = [];
 	for (const person of asked.people) {
 		(after.people.has(lower(person)) ? took : dropped).push(person);
 	}
+	/** Newcomers who already stand for a team, by login. */
+	const standing = new Map<string, string>();
 	for (const team of asked.teams) {
-		if (after.teams.has(team) || (await anyMember(team, unnamed, isMember))) {
+		if (after.teams.has(team)) {
+			took.push(`team ${team}`);
+			continue;
+		}
+		const members = await membersOf(team, unnamed, isMember);
+		const free = members.find((login) => !standing.has(login));
+		if (free !== undefined) {
+			standing.set(free, team);
 			took.push(`team ${team}`);
 			continue;
 		}
 		dropped.push(`team ${team}`);
-		if (before === undefined || appeared.length > 0) {
-			doubted.push(`team ${team}`);
+		if (before === undefined) {
+			doubts.push(
+				`who was requested before couldn't be read, so team ${team} may have been handed on to members by code review assignment rather than dropped`,
+			);
+		} else if (members.length > 0) {
+			const taken = members.map(
+				(login) => `${login} (for team ${standing.get(login)})`,
+			);
+			doubts.push(
+				`team ${team} may have been handed on to ${taken.join(", ")}, already counted for another team`,
+			);
+		} else {
+			const namedMembers = await membersOf(team, namedNew, isMember);
+			if (namedMembers.length > 0) {
+				doubts.push(
+					`team ${team} may have been handed on to ${namedMembers.join(", ")}, who was also asked by name and is its member`,
+				);
+			} else if (unnamed.length > 0) {
+				doubts.push(
+					`${unnamed.join(", ")} appeared unasked, and team ${team} may have been handed on to them by code review assignment, though none could be shown its member`,
+				);
+			}
 		}
 	}
-	if (doubted.length === 0) return { took, dropped };
-	const which = doubted.join(", ");
-	const why =
-		before === undefined
-			? `Who was requested before couldn't be read, so ${which} may have been handed on to members by code review assignment rather than dropped`
-			: `${appeared.join(", ")} appeared, and ${which} may have been handed on to them by code review assignment, though none could be shown a member`;
+	if (doubts.length === 0) return { took, dropped };
+	const said = doubts.join("; ");
 	return {
 		took,
 		dropped,
-		doubt: `${why}; check the pull request's reviewers before asking again, since another ask assigns more members.`,
+		doubt: `${said.charAt(0).toUpperCase()}${said.slice(1)}; check the pull request's reviewers before asking again, since another ask assigns more members.`,
 	};
 }
 
-/** Whether any of `logins` is a member of team `slug`, asked one at a time. */
-async function anyMember(
+/** Which of `logins` are members of team `slug`, asked one at a time. */
+async function membersOf(
 	slug: string,
 	logins: readonly string[],
 	isMember: (slug: string, login: string) => Promise<boolean>,
-): Promise<boolean> {
+): Promise<string[]> {
+	const members: string[] = [];
 	for (const login of logins) {
-		if (await isMember(slug, login)) return true;
+		if (await isMember(slug, login)) members.push(login);
 	}
-	return false;
+	return members;
 }
 
 /** Build the authoring facet. */
@@ -399,7 +432,10 @@ export function githubAuthoring(exec: Exec): AuthoringFacet {
 			answer = await run(
 				exec,
 				"gh",
-				["api", `orgs/${org}/teams/${slug}/memberships/${login}`],
+				[
+					"api",
+					`orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(slug)}/memberships/${encodeURIComponent(login)}`,
+				],
 				`reading whether ${login} is in team ${slug}`,
 			);
 		} catch {

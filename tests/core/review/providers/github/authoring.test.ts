@@ -488,7 +488,9 @@ describe("requesting reviewers", () => {
 		await expect(
 			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
 			"a success that recorded nobody for the team is no success",
-		).rejects.toThrow(/recorded no request for team ci\./);
+		).rejects.toThrow(
+			/recorded no request for team ci\. It did record wren, so ask again only for the rest\./,
+		);
 	});
 
 	it("says whether anybody was asked is unknown when the answer shows nothing", async () => {
@@ -605,6 +607,9 @@ describe("requesting reviewers", () => {
 			["wren finch", /isn't a GitHub login/],
 			["wren,finch", /isn't a GitHub login/],
 			["o/", /isn't a team GitHub can name/],
+			["o/.", /isn't a team GitHub can name/],
+			["o/..", /isn't a team GitHub can name/],
+			["o/.ci", /isn't a team GitHub can name/],
 			["/x", /isn't a team GitHub can name/],
 			["o/a/b", /isn't a team GitHub can name/],
 			["o/ ci", /isn't a team GitHub can name/],
@@ -678,7 +683,72 @@ describe("requesting reviewers", () => {
 			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
 			"dropped, with the doubt said and no ask-again advice",
 		).rejects.toThrow(
-			/recorded no request for team ci\. It did record wren\. wren, owner appeared, and team ci may have been handed on to them .*check the pull request's reviewers before asking again/,
+			/recorded no request for team ci\. It did record wren\. Owner appeared unasked, and team ci may have been handed on to them .*check the pull request's reviewers before asking again/,
+		);
+	});
+
+	it("says a team may have gone to someone also asked by name who is its member", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
+			{ when: ["teams/ci/memberships/wren"], stdout: ACTIVE_MEMBER },
+		]);
+
+		const asking = githubAuthoring(exec).requestReviewers?.(ref, [
+			"wren",
+			"o/ci",
+		]);
+		await expect(
+			asking,
+			"dropped, saying wren may stand for it, with no ask-again advice",
+		).rejects.toThrow(
+			/recorded no request for team ci\. It did record wren\. Team ci may have been handed on to wren, who was also asked by name and is its member; check the pull request's reviewers before asking again/,
+		);
+		await expect(asking, "no advice to ask only the rest").rejects.not.toThrow(
+			/ask again only for the rest/,
+		);
+	});
+
+	it("doesn't take a pending membership as the team handed on", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["picked"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
+			{
+				when: ["teams/ci/memberships/picked"],
+				stdout: JSON.stringify({ state: "pending", role: "member" }),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
+			"an invitation not yet taken is no membership",
+		).rejects.toThrow(
+			/recorded no request for team ci\. Picked appeared unasked, and team ci may have been handed on/,
+		);
+	});
+
+	it("lets one newcomer stand for one team, saying a second may share them", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["picked"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
+			{ when: ["teams/ci/memberships/picked"], stdout: ACTIVE_MEMBER },
+			{ when: ["teams/qa/memberships/picked"], stdout: ACTIVE_MEMBER },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci", "o/qa"]),
+			"picked counts for ci, so qa is dropped with the doubt",
+		).rejects.toThrow(
+			/recorded no request for team qa\. It did record team ci\. Team qa may have been handed on to picked \(for team ci\), already counted for another team; check/,
 		);
 	});
 
@@ -715,7 +785,9 @@ describe("requesting reviewers", () => {
 		await expect(
 			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
 			"nobody new appeared, so the team was dropped",
-		).rejects.toThrow(/recorded no request for team ci\. It did record wren/);
+		).rejects.toThrow(
+			/recorded no request for team ci\. It did record wren, so ask again only for the rest\./,
+		);
 	});
 
 	it("takes nobody as handed on when who was requested before can't be read", async () => {
