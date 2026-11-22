@@ -231,6 +231,17 @@ describe("carried shells", () => {
 			work,
 		});
 
+		it("says when each session's latest call still running was carried", () => {
+			keptEarlier(
+				call(shell("m1")),
+				{ ...call(shell("m2")), at: 1_000_500 },
+				{ ...call(shell("m3")), session: "s2", at: 1_000_900 },
+			);
+			const shells = make({ running: (work) => work.mark !== "m3" });
+			// One that ended runs under no fence at all.
+			expect(shells.noted()).toEqual(new Map([["s1", 1_000_500]]));
+		});
+
 		it("leaves a call that isn't due yet", () => {
 			keptEarlier(call(shell("m1")));
 			const look = watched(() => false);
@@ -268,6 +279,24 @@ describe("carried shells", () => {
 				kind: "bash",
 				label: "make test",
 				work,
+			});
+
+			it("is noted from its start, with what a restart carried, as a killed host leaves it", () => {
+				keptEarlier(call(shell("m1")));
+				const shells = make({
+					recorded: () => [
+						stray(shell("m2", { startedAt: 1_000_700 })),
+						stray(shell("m3", { startedAt: 1_000_200 }), "s2"),
+						stray(shell("m4", { startedAt: 1_000_900 }), "s3"),
+					],
+					running: (work) => work.mark !== "m4",
+				});
+				expect(shells.noted()).toEqual(
+					new Map([
+						["s1", 1_000_700],
+						["s2", 1_000_200],
+					]),
+				);
 			});
 
 			it("is left until a day from its start", () => {

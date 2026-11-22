@@ -129,6 +129,10 @@ would miss what another binds over it.
   files and programs' entries whose settings name a command, with
   the caches within them bound back and the programs given a home of
   their own in the sandbox's cache.
+- **`fence-pins.ts`**: the folders above what the fence closes, each
+  bound over itself before anything inside it, so a fenced command
+  can't rename one away and put its own in its place; a link is left
+  unpinned, and a host whose records lie past one names no fence.
 - **`fence-seed.ts`**: those own homes seeded from what the person's
   programs already downloaded (cargo's crates, index and git clones),
   copied one way by reflink, again at most every ten minutes.

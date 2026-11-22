@@ -44,8 +44,11 @@ export function nodeRecords(home: string): string[] {
  * the host's cache and node's in pi's state, where they now lie, and
  * in the cache folder, where an older install kept the host's, and
  * node's and jiti's in the temporary folder, where a pi left to itself
- * keeps them. The fence holds each closed to its other commands; strict
- * would make one writable as a command's own folder.
+ * keeps them. The fence holds each closed to its other commands but
+ * the older install's, in the cache folder, which every fenced command
+ * may write: this install compiles into pi's state, so only a rollback
+ * to one that compiled there would run what a command left. Strict
+ * would make any of them writable as a command's own folder.
  */
 export function compiledCode(home: string): string[] {
 	return unique([

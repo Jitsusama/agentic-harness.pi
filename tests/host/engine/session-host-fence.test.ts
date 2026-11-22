@@ -11,88 +11,36 @@
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
+	closeSync,
+	constants,
 	linkSync,
 	mkdirSync,
-	mkdtempSync,
+	openSync,
 	readFileSync,
-	realpathSync,
+	readSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-	type ConversationRegistration,
-	SessionHost,
-} from "../../../host/engine/index.ts";
+import { STRAY_FOR_MS } from "../../../host/engine/carried-shells.ts";
+import { SessionHost } from "../../../host/engine/index.ts";
+import { KEPT_FOR_MS } from "../../../host/engine/kept-fences.ts";
 import { tellHostFence } from "../../../lib/internal/sandbox/fence-told.ts";
-import type { FenceKind } from "../../../lib/mesh/presence.ts";
+import {
+	closedState,
+	fences,
+	owner,
+	putDown,
+	registration,
+	start,
+	told,
+} from "./fixtures/fence-host.ts";
 
-const owner = { pid: 123, startedAt: 1000, bootId: "boot", startTicks: 20 };
 const asked = { reason: "a test" };
-const hosts: SessionHost[] = [];
-const directories: string[] = [];
-afterEach(async () => {
-	for (const host of hosts.splice(0)) {
-		for (const { id } of host.list()) await host.close(id);
-		host.dispose();
-	}
-	for (const dir of directories.splice(0))
-		rmSync(dir, { recursive: true, force: true });
-});
-
-/** A closed state folder of its own, spelled as it really is. */
-function closedState(): string {
-	const dir = realpathSync(mkdtempSync(join(tmpdir(), "session-host-fence-")));
-	directories.push(dir);
-	return dir;
-}
-
-function start(
-	state = closedState(),
-	registryDir = join(state, "agentic-harness.pi/hosts"),
-): SessionHost {
-	const host = new SessionHost({
-		key: "test-host",
-		owner,
-		registryDir,
-		closedState: state,
-	});
-	hosts.push(host);
-	return host;
-}
-
-function registration(
-	id: string,
-	extra: Partial<ConversationRegistration> = {},
-): ConversationRegistration {
-	return {
-		id,
-		file: `/sessions/${id}.jsonl`,
-		cwd: `/repo/${id}`,
-		env: {},
-		hints: {},
-		close: () => {},
-		...extra,
-	};
-}
-
-/** Each session's fence, as the host's record says it. */
-function fences(host: SessionHost): Record<string, unknown> {
-	const read = JSON.parse(readFileSync(host.registryPath, "utf8")) as {
-		sessions: { id: string; fence?: unknown }[];
-	};
-	return Object.fromEntries(read.sessions.map(({ id, fence }) => [id, fence]));
-}
-
-/** A runner starting, its file guard and then its shell telling the host. */
-function told(host: SessionHost, id: string, fence: FenceKind): void {
-	host.fenced(id, fence, "files");
-	host.fenced(id, fence, "shell");
-}
+afterEach(putDown);
 
 it("says no session's fence until its shell and its file guard both tell it", () => {
 	const host = start();
@@ -193,16 +141,180 @@ it("keeps a looser fence through a park, since what it left running runs on", as
 	expect(fences(host)).toEqual({ a: "none" });
 });
 
-it("keeps a looser fence through a release, since what it left running is kept", async () => {
+it("keeps a looser fence through a close, a release's or one for good, since its reap may miss what it left", async () => {
 	const host = start();
 	host.register(registration("a"));
+	host.register(registration("b"));
 	told(host, "a", "none");
-	// A release ends the conversation here as a close, keeping its `&` commands.
-	host.handsOn("a");
-	await host.close("a", "released");
+	told(host, "b", "none");
+	// A release keeps its `&` commands; a close for good reaps only those
+	// still carrying its marker.
+	await host.close("a", "released", true);
+	await host.close("b", "closed");
 	host.register(registration("a"));
+	host.register(registration("b"));
 	told(host, "a", "strict");
-	expect(fences(host)).toEqual({ a: "none" });
+	told(host, "b", "strict");
+	expect(fences(host)).toEqual({ a: "none", b: "none" });
+});
+
+it("forgets a park's fence a day after, when what the park kept is no longer spared", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		host.register(registration("a"));
+		host.register(registration("b"));
+		told(host, "a", "none");
+		told(host, "b", "none");
+		await host.stop("a", "parked");
+		await host.stop("b", "parked");
+		vi.setSystemTime(Date.now() + KEPT_FOR_MS - 1);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		vi.setSystemTime(Date.now() + 2);
+		host.register(registration("b"));
+		told(host, "b", "strict");
+		expect(fences(host)).toEqual({ a: "none", b: "strict" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("keeps a park's fence past the day of the notes written before it, which spare what it kept", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		const parked = Date.now();
+		host.register(registration("a"));
+		told(host, "a", "none");
+		await host.stop("a", "parked");
+		vi.setSystemTime(parked + STRAY_FOR_MS + 60_000);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		expect(fences(host)).toEqual({ a: "none" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("gives an earlier park's fence a new day when a later park does, since its notes renew what the first left", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		const first = Date.now();
+		host.register(registration("a"));
+		told(host, "a", "none");
+		await host.stop("a", "parked");
+		const second = first + KEPT_FOR_MS - 2;
+		vi.setSystemTime(second);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		// The second park notes the first's `&` command again, sparing it a
+		// new day, whatever this hold was told.
+		await host.stop("a", "parked");
+		vi.setSystemTime(first + KEPT_FOR_MS + 1);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		const renewed = fences(host).a;
+		await host.stop("a", "parked");
+		vi.setSystemTime(Date.now() + KEPT_FOR_MS + 1);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		expect(renewed, "within the second park's day").toBe("none");
+		expect(fences(host), "past the last park's day").toEqual({
+			a: "strict",
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("gives an earlier host's unfenced count a new day when a park here renews its notes", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		const now = Date.now();
+		host.keptBefore(new Map([["a", now - KEPT_FOR_MS + 2]]));
+		host.register(registration("a"));
+		// This hold's runner tells no fence, but its park notes again what
+		// the earlier host's left.
+		await host.stop("a", "parked");
+		vi.setSystemTime(now + 3);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		expect(fences(host)).toEqual({ a: "none" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("counts what an earlier host's parks kept as unfenced, since it forgot their fence", () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		// The notes outlive the restart; the fence each park kept didn't.
+		const now = Date.now();
+		host.keptBefore(
+			new Map([
+				["a", now],
+				["b", now - KEPT_FOR_MS + 2],
+			]),
+		);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		vi.setSystemTime(now + 2);
+		host.register(registration("b"));
+		told(host, "b", "strict");
+		host.register(registration("c"));
+		told(host, "c", "strict");
+		expect(fences(host)).toEqual({ a: "none", b: "strict", c: "strict" });
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("says which sessions an earlier host's notes count as unfenced, and until when", () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	const said: string[] = [];
+	const spy = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((text) => said.push(String(text)) > 0);
+	try {
+		const host = start();
+		const now = Date.now();
+		host.keptBefore(
+			new Map([
+				["a", now],
+				["b", now - KEPT_FOR_MS],
+			]),
+		);
+		const until = new Date(now + KEPT_FOR_MS).toISOString();
+		expect(said.filter((line) => line.includes("as unfenced until"))).toEqual([
+			expect.stringContaining(`counts a as unfenced until ${until}`),
+		]);
+	} finally {
+		spy.mockRestore();
+		vi.useRealTimers();
+	}
+});
+
+it("counts an earlier host's latest note, a park's or a carried call's, to its day", () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		const host = start();
+		const now = Date.now();
+		// A park long ago, then a call its restart carried just now.
+		host.keptBefore(
+			new Map([["a", now - KEPT_FOR_MS + 2]]),
+			new Map([["a", now]]),
+		);
+		vi.setSystemTime(now + 2);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		expect(fences(host)).toEqual({ a: "none" });
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it("counts a runner whose shell never told as unfenced, since pi ran its own bash", async () => {
@@ -241,16 +353,6 @@ it("counts a runner whose file guard never told as unfenced", async () => {
 	expect(fences(host)).toEqual({ a: "none" });
 });
 
-it("forgets a fence once its conversation is closed for good", async () => {
-	const host = start();
-	host.register(registration("a"));
-	told(host, "a", "none");
-	await host.close("a");
-	host.register(registration("a"));
-	told(host, "a", "strict");
-	expect(fences(host)).toEqual({ a: "strict" });
-});
-
 it("hands a looser fence on to the conversation pi replaces one with", async () => {
 	const host = start();
 	host.register(registration("a"));
@@ -261,6 +363,33 @@ it("hands a looser fence on to the conversation pi replaces one with", async () 
 	host.inherit("a", "b");
 	await host.close("a", "replaced");
 	expect(fences(host)).toEqual({ b: "none" });
+});
+
+it("keeps through the replacement's park the fence it was handed, and what the first's park kept", async () => {
+	const host = start();
+	host.register(registration("a"));
+	told(host, "a", "none");
+	host.register(registration("b"));
+	told(host, "b", "strict");
+	host.inherit("a", "b");
+	await host.close("a", "replaced");
+	await host.stop("b", "parked");
+	host.register(registration("b"));
+	told(host, "b", "strict");
+	// And one whose first was parked unfenced before pi replaced it.
+	host.register(registration("c"));
+	told(host, "c", "none");
+	await host.stop("c", "parked");
+	host.register(registration("c"));
+	told(host, "c", "strict");
+	host.register(registration("d"));
+	told(host, "d", "strict");
+	host.inherit("c", "d");
+	await host.close("c", "replaced");
+	await host.stop("d", "parked");
+	host.register(registration("d"));
+	told(host, "d", "strict");
+	expect(fences(host)).toEqual({ b: "none", d: "none" });
 });
 
 it("says no fence after a reload whose shell tells none, whatever else does", async () => {
@@ -422,6 +551,35 @@ it.skipIf(asRoot)(
 		const folder = join(state, "agentic-harness.pi/hosts");
 		chmodSync(folder, 0o555);
 		try {
+			// Refused, and rewritten naming none, though both guards told one.
+			expect(host.fenced("a", "none", "files"), "went unrefused").toBe(false);
+			expect(fences(host), "the rewrite named a fence").toEqual({
+				a: undefined,
+			});
+			expect(
+				host.fenced("a", "none", "files"),
+				"a looser fence went unrefused",
+			).toBe(false);
+		} finally {
+			chmodSync(folder, 0o755);
+		}
+		expect(host.fenced("a", "none", "files"), "the write failed again").toBe(
+			true,
+		);
+	},
+);
+
+it.skipIf(asRoot)(
+	"unsays the fence of a runner that left, when no new record can be written",
+	() => {
+		const state = closedState();
+		const host = start(state);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		const folder = join(state, "agentic-harness.pi/hosts");
+		chmodSync(folder, 0o555);
+		try {
+			// The runner's shell shuts down, as at a reload under a full disk.
 			host.left("a");
 			expect(fences(host), "the record kept a fence the host dropped").toEqual({
 				a: undefined,
@@ -455,19 +613,56 @@ it("names no fence where its records lay past a link as it started", () => {
 	const real = join(state, "real");
 	mkdirSync(real);
 	symlinkSync(real, join(state, "linked"));
-	const host = new SessionHost({
-		key: "test-host",
-		owner,
-		registryDir: join(state, "linked/hosts"),
-		closedState: state,
-	});
-	hosts.push(host);
+	const host = start(state, join(state, "linked/hosts"));
 	// A fenced command swaps the link for a folder of its own.
 	rmSync(join(state, "linked"));
 	mkdirSync(join(state, "linked/hosts"), { recursive: true });
 	host.register(registration("a"));
 	told(host, "a", "strict");
 	expect(fences(host)).toEqual({ a: undefined });
+});
+
+/** What the host says on its log while `act` runs, naming no fence. */
+function saidUnclosed(act: () => void): string | undefined {
+	const said: string[] = [];
+	const spy = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((text) => said.push(String(text)) > 0);
+	try {
+		act();
+	} finally {
+		spy.mockRestore();
+	}
+	return said.find((line) => line.includes("names no"));
+}
+
+it("says which folder names no fence and why, needing no restart once it's put right", () => {
+	const state = closedState();
+	const host = start(state);
+	const said = saidUnclosed(() => {
+		chmodSync(join(state, "agentic-harness.pi"), 0o777);
+		host.register(registration("a"));
+	});
+	expect(said, "didn't name the folder others may write").toContain(
+		`${join(state, "agentic-harness.pi")} may be written by another account`,
+	);
+	expect(said, "asked a restart for what clears as it's fixed").not.toMatch(
+		/restart/,
+	);
+});
+
+it("says which folder named no fence as the host started, and to restart once it's put right", () => {
+	const state = closedState();
+	const real = join(state, "real");
+	mkdirSync(real);
+	symlinkSync(real, join(state, "linked"));
+	const said = saidUnclosed(() =>
+		start(state, join(state, "linked/hosts")).register(registration("a")),
+	);
+	expect(said, "didn't name the link").toContain(
+		`${join(state, "linked")} is a link`,
+	);
+	expect(said, "didn't ask a restart").toMatch(/restart/);
 });
 
 it("names no fence where others may write its records' folder", () => {
@@ -504,6 +699,17 @@ it("leaves a folder past a link as it is, closing nothing it doesn't judge", () 
 	expect(statSync(shared).mode & 0o777, "closed past a link").toBe(0o775);
 });
 
+it("leaves pi's state as it is where a link lies above it, as a dotfile manager's may", () => {
+	const base = closedState();
+	const shared = join(base, "real/state/agentic-harness.pi");
+	mkdirSync(join(shared, "hosts"), { recursive: true });
+	chmodSync(shared, 0o775);
+	symlinkSync(join(base, "real"), join(base, "linked"));
+	// No step of the walk ends in the link, so only its real path tells.
+	start(join(base, "linked/state"));
+	expect(statSync(shared).mode & 0o777, "closed past a link").toBe(0o775);
+});
+
 it.skipIf(asRoot)(
 	"neither waits on nor writes through what was put at its record's path",
 	() => {
@@ -517,6 +723,7 @@ it.skipIf(asRoot)(
 		for (const put of [
 			() => execFileSync("mkfifo", [host.registryPath]),
 			() => linkSync(kept, host.registryPath),
+			() => symlinkSync(kept, host.registryPath),
 		]) {
 			rmSync(host.registryPath);
 			put();
@@ -527,10 +734,38 @@ it.skipIf(asRoot)(
 			} finally {
 				chmodSync(folder, 0o755);
 			}
-			expect(readFileSync(kept, "utf8"), "wrote through a hard link").toBe(
+			expect(readFileSync(kept, "utf8"), "wrote through what was put").toBe(
 				"the person's own",
 			);
 			told(host, "a", "strict");
+		}
+	},
+);
+
+it.skipIf(asRoot)(
+	"writes nothing into a FIFO that has a reader, by its file check or the pipe's refusal",
+	() => {
+		const state = closedState();
+		const host = start(state);
+		host.register(registration("a"));
+		told(host, "a", "strict");
+		const folder = join(state, "agentic-harness.pi/hosts");
+		rmSync(host.registryPath);
+		execFileSync("mkfifo", [host.registryPath]);
+		// With a reader the host's open succeeds. Its file check refuses
+		// then, and a positioned write, which a pipe refuses, would too, so
+		// this guards the outcome rather than either.
+		const reader = openSync(
+			host.registryPath,
+			constants.O_RDONLY | constants.O_NONBLOCK,
+		);
+		chmodSync(folder, 0o555);
+		try {
+			host.left("a");
+			expect(readSync(reader, Buffer.alloc(64)), "wrote into a FIFO").toBe(0);
+		} finally {
+			closeSync(reader);
+			chmodSync(folder, 0o755);
 		}
 	},
 );
@@ -545,6 +780,42 @@ it("names a fence where earlier code left the folders above its records open to 
 	host.register(registration("a"));
 	told(host, "a", "strict");
 	expect(fences(host)).toEqual({ a: "strict" });
+});
+
+it("names a fence where earlier code left the home's folders above pi's state open to the group", () => {
+	const home = closedState();
+	const state = join(home, ".local/state/pi");
+	mkdirSync(state, { recursive: true });
+	// As other code makes them under a umask of 002; the home is the
+	// person's, and one the group may write but no one else's entries.
+	chmodSync(join(home, ".local"), 0o775);
+	chmodSync(join(home, ".local/state"), 0o775);
+	chmodSync(home, 0o1775);
+	const said: string[] = [];
+	const spy = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((text) => said.push(String(text)) > 0);
+	let host: SessionHost;
+	try {
+		host = start(state);
+	} finally {
+		spy.mockRestore();
+	}
+	expect(
+		said.filter((line) => line.includes("to others' writes")),
+		"said each folder it closed",
+	).toEqual([
+		expect.stringContaining(
+			`${join(home, ".local")} to others' writes, from 775 to 755`,
+		),
+		expect.stringContaining(
+			`${join(home, ".local/state")} to others' writes, from 775 to 755`,
+		),
+	]);
+	host.register(registration("a"));
+	told(host, "a", "strict");
+	expect(fences(host)).toEqual({ a: "strict" });
+	expect(statSync(home).mode & 0o7777, "changed the home").toBe(0o1775);
 });
 
 it("names no fence where its records lie outside what the fence closes", () => {
@@ -600,6 +871,9 @@ it("says once why a record couldn't be written", () => {
 	const why = said.filter((line) => line.includes("couldn't write"));
 	expect(why, "said other than once").toHaveLength(1);
 	expect(why[0]).toMatch(/ENOTDIR|EEXIST/);
+	expect(why[0], "didn't say no record lies there").toMatch(
+		/no record lies there to name a fence/,
+	);
 });
 
 it.skipIf(asRoot)(
@@ -636,32 +910,41 @@ it.skipIf(asRoot)(
 	},
 );
 
-it("names a fence where pi keeps its records by default, in the folder the fence closes", async () => {
-	const home = closedState();
-	const was = { HOME: process.env.HOME, XDG: process.env.XDG_STATE_HOME };
-	process.env.HOME = home;
-	delete process.env.XDG_STATE_HOME;
-	let host: SessionHost | undefined;
-	try {
-		host = new SessionHost({ key: "test-host", owner });
-		host.register(registration("a"));
-		told(host, "a", "strict");
-		expect(
-			host.registryPath.startsWith(join(home, ".local/state/pi/")),
-			host.registryPath,
-		).toBe(true);
-		expect(fences(host)).toEqual({ a: "strict" });
-	} finally {
-		// Put down before the environment it read is put back.
-		if (host) {
-			await host.close("a");
-			host.dispose();
+it.each([
+	["as it is", (base: string) => base],
+	[
+		"reached through a link above it, as /home to /var/home",
+		(base: string) => {
+			mkdirSync(join(base, "real/home"), { recursive: true });
+			symlinkSync(join(base, "real"), join(base, "linked"));
+			return join(base, "linked/home");
+		},
+	],
+])(
+	"names a fence where pi keeps its records by default, in the folder the fence closes, with a home %s",
+	async (_, homeIn) => {
+		const home = homeIn(closedState());
+		vi.stubEnv("HOME", home);
+		vi.stubEnv("XDG_STATE_HOME", undefined);
+		let host: SessionHost | undefined;
+		try {
+			host = new SessionHost({ key: "test-host", owner });
+			host.register(registration("a"));
+			told(host, "a", "strict");
+			expect(relative(home, host.registryPath)).toMatch(
+				/^\.local\/state\/pi\//,
+			);
+			expect(fences(host)).toEqual({ a: "strict" });
+		} finally {
+			// Put down before the environment it read is put back.
+			if (host) {
+				await host.close("a");
+				host.dispose();
+			}
+			vi.unstubAllEnvs();
 		}
-		process.env.HOME = was.HOME;
-		if (was.XDG === undefined) delete process.env.XDG_STATE_HOME;
-		else process.env.XDG_STATE_HOME = was.XDG;
-	}
-});
+	},
+);
 
 it("hears the session each tool names, as the extensions name it from pi's", () => {
 	const host = start();

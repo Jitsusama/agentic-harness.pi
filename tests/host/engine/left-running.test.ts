@@ -60,6 +60,19 @@ describe("what parks kept running", () => {
 		]);
 	});
 
+	it("says when each conversation's latest note within its day was made, to the next host too", () => {
+		kept().note("a", ["call-1"]);
+		kept().note("gone", ["call-2"]);
+		at += STRAY_FOR_MS / 2;
+		kept().note("a", ["call-3"]);
+		kept().note("b", ["call-4"]);
+		at += STRAY_FOR_MS / 2;
+		expect(Object.fromEntries(kept().noted())).toEqual({
+			a: at - STRAY_FOR_MS / 2,
+			b: at - STRAY_FOR_MS / 2,
+		});
+	});
+
 	it("spares a note no longer once its day is out", () => {
 		const left = kept();
 		left.note("a", ["expires"]);

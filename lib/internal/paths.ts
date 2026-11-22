@@ -152,14 +152,27 @@ export function runtimeDir(
 ): string | undefined {
 	if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR;
 	if (platform() !== "darwin") return undefined;
-	if (darwinTemporary === undefined) {
+	return accountsTemporary();
+}
+
+/**
+ * The account's own temporary folder on a Mac, as the system names it
+ * whatever TMPDIR says, asked of getconf until it answers, since it is
+ * the login's and never changes under it; nothing where the system
+ * won't say, asking again next time, since the fence guards the code
+ * caches there and one failed ask mustn't leave them unguarded.
+ */
+export function accountsTemporary(): string | undefined {
+	if (!darwinTemporary) {
 		try {
-			darwinTemporary = execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"], {
-				encoding: "utf8",
-			}).trim();
+			darwinTemporary = execFileSync(
+				"/usr/bin/getconf",
+				["DARWIN_USER_TEMP_DIR"],
+				{ encoding: "utf8" },
+			).trim();
 		} catch {
-			// The system won't say, so there is no runtime folder to name.
-			darwinTemporary = "";
+			// The system won't say this time, so there is no folder to name.
+			return undefined;
 		}
 	}
 	return darwinTemporary || undefined;

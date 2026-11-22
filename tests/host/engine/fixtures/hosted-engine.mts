@@ -394,6 +394,8 @@ interface Scenario {
 	hostEnv?: Readonly<Record<string, string>>;
 	/** The engine runs one conversation, as a child's does, its notes kept apart. */
 	oneConversation?: true;
+	/** What an earlier host left in the folder, laid just before this host starts. */
+	before?: () => void;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -421,7 +423,31 @@ async function answerOnce(
 	return {};
 }
 
+/** What the host says on its log from the moment it is heard. */
+const heard: string[] = [];
+
 const scenarios: Record<string, Scenario> = {
+	/** Start where an earlier host's park noted a call left running, as a restart does. */
+	"kept-before": {
+		responses: () => [],
+		before: () => {
+			mkdirSync(join(folder, "state"), { recursive: true });
+			writeFileSync(
+				join(folder, "state", "left-running.json"),
+				JSON.stringify([
+					{ session: "s-noted", mark: "m-noted", at: Date.now() },
+				]),
+			);
+			const write = process.stderr.write.bind(process.stderr);
+			process.stderr.write = ((text: string | Uint8Array, ...rest: never[]) => {
+				heard.push(String(text));
+				return write(text, ...rest);
+			}) as typeof process.stderr.write;
+		},
+		run: async () => ({
+			unfenced: heard.filter((line) => line.includes("as unfenced until")),
+		}),
+	},
 	/** Open with first words, answer them, then close. */
 	open: {
 		responses: () => [say("hello there")],
@@ -1397,6 +1423,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		scenario.keyVariable,
 	);
 	Object.assign(process.env, scenario.hostEnv);
+	scenario.before?.();
 	// pi counts any .agents/skills above a folder but HOME's as a project's own, and this folder may sit under a
 	// home holding one, so the work folder is trusted as its person would have trusted it.
 	writeFileSync(

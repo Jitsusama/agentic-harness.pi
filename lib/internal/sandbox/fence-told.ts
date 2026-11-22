@@ -26,14 +26,15 @@ export function fenceOf(sandbox: Sandbox): FenceKind {
 
 /** Why a tool refuses what it would run when its host couldn't say its fence. */
 export const FENCE_UNSAID =
-	"This session's pi host couldn't write the fence it runs under into its record, so nothing runs that the record would show tighter than it is. Until the person frees room where pi keeps its state (~/.local/state/pi) or puts right what keeps it from being written, every command and file tool, reads included, is refused: stop and tell them so, rather than trying again.";
+	"This session's pi host couldn't write the fence it runs under into its record, so nothing runs that the record would show tighter than it is. Until the person frees room where pi keeps its state (its state folder, ~/.local/state/pi unless XDG_STATE_HOME moves it) or puts right what keeps it from being written, every command and file tool, reads included, is refused: stop and tell them so, rather than trying again.";
 
 /**
  * Tell the host holding this session that its shell, or another tool,
- * holds it to `fence`. False only when the host couldn't write it, so
- * the tool refuses what it would run; true outside a host, in a host
- * that keeps no record, or one that holds no such session, whose record
- * then names no fence for it, so the node refuses its carry.
+ * holds it to `fence`. False when the host couldn't write it, or broke
+ * telling while it still holds the session, so the tool refuses what
+ * it would run; true outside a host, in a host that keeps no record,
+ * or one that holds no such session, whose record then names no fence
+ * for it, so the node refuses its carry.
  */
 export function tellHostFence(
 	fence: FenceKind,
@@ -46,7 +47,14 @@ export function tellHostFence(
 	try {
 		return host.fenced(session, fence, by);
 	} catch {
-		return true;
+		// A tell that broke partway may have left the record tighter than
+		// the tool runs; only a session the host no longer holds is named
+		// nowhere.
+		try {
+			return host.holds(session) === undefined;
+		} catch {
+			return false;
+		}
 	}
 }
 

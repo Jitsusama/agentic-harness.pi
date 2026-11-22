@@ -54,6 +54,8 @@ export interface LeftRunning {
 	spared(carried: CarriedCalls): CarriedCalls;
 	/** A conversation closed for good: spare no longer what its parks kept, answering how many calls' notes went. */
 	closed(session: string): number;
+	/** When each session's latest note still within its day was written. */
+	noted(): ReadonlyMap<string, number>;
 }
 
 function isLeftCall(value: unknown): value is LeftCall {
@@ -105,6 +107,12 @@ export function leftRunning(options: {
 			} catch (error) {
 				options.report(error);
 			}
+		},
+		noted() {
+			const latest = new Map<string, number>();
+			for (const { session, at } of read())
+				latest.set(session, Math.max(at, latest.get(session) ?? at));
+			return latest;
 		},
 		spared(carried) {
 			const left = read();

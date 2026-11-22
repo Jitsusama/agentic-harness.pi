@@ -389,10 +389,8 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		}
 		seat.current = next;
 		seat.next = undefined;
-		// Plain pi keeps what the conversation it replaces left running, so
-		// the host keeps its fence too, for when it is held again.
+		// Plain pi keeps what the conversation it replaces left running.
 		previous.handsOn = true;
-		host.handsOn(previousId);
 		previous.runtime = undefined;
 		previous.disposed = true;
 		previous.unsubscribe?.();

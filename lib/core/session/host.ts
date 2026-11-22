@@ -174,7 +174,12 @@ export interface HostedSession {
 	 * what pi's shell and file guards hold: a runner where neither loaded
 	 * tells nothing, so what it started isn't counted here, and the
 	 * language servers the lsp tool starts, a project's own among them,
-	 * run outside any fence. Missing until its
+	 * run outside any fence. So does the plain `nix-offload there` call a
+	 * fenced shell sends past the fence, held to derivations or a held
+	 * tree's commit in a scrubbed environment. So, for now, does a
+	 * folder's .pi code, which a fenced command may write and a reload
+	 * loads into the host; the host's pins of that code, still to land,
+	 * hold it, not the fence. Missing until its
 	 * present runner's shell and file guard both say, from an older
 	 * harness's record, where a later harness's word isn't known here, and
 	 * wherever the record lies past a link, outside what the fence keeps

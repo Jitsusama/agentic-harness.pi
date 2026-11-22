@@ -30,7 +30,13 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import type { FenceKind } from "../../lib/mesh/presence.ts";
-import { closedIn, closeToOthers } from "./closed-folders.ts";
+import {
+	CLOSED_STATE,
+	closeToOthers,
+	throughHome,
+	unclosedIn,
+} from "./closed-folders.ts";
+import { KeptFences, loosest } from "./kept-fences.ts";
 import { HOST_READS, installConversationEnv } from "./process-env.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
@@ -76,6 +82,12 @@ interface Conversation extends ConversationIdentity {
 	 * replacements, since a command an earlier runner started may still run.
 	 */
 	fence?: FenceKind;
+	/**
+	 * The loosest fence its tools said, or a conversation it replaced
+	 * handed on, in this hold alone: what a park keeps, dated by it, while
+	 * what earlier holds kept stays on its own day (kept-fences.ts).
+	 */
+	heldFence?: FenceKind;
 	/** Whether its present runner's shell has told its fence. */
 	shellTold?: boolean;
 	/** Whether its present runner's guard on pi's file tools has told its fence. */
@@ -90,8 +102,6 @@ interface Conversation extends ConversationIdentity {
 	restartingCallback: ConversationRegistration["restarting"];
 	reloading?: Promise<void>;
 	ending?: "signalled" | "closed";
-	/** Whether its close hands it on, keeping what it left running (handsOn). */
-	handsOn?: boolean;
 	// Closed because it was handed to another holder, as a release is, so
 	// its ending reads released rather than closed.
 	handedOn?: boolean;
@@ -122,18 +132,17 @@ export class SessionHost implements Host {
 	readonly owner: SessionOwner;
 	readonly registryPath: string;
 	private readonly closedState: string;
-	// Whether the records' folder lay closed as the host started: one a
-	// fenced command swapped for its own later reads as closed by then.
-	private readonly closedAtStart: boolean;
+	// Why the records' folder didn't lie closed as the host started, if
+	// it didn't: one a fenced command swapped for its own later reads as
+	// closed by then, so only a restart clears it.
+	private readonly unclosedAtStart: string | undefined;
 	// Whether the host has said, once, that its records name no fence.
 	private saidUnclosed = false;
 	// Why the record last couldn't be written, as the host said it.
 	private saidUnwritten?: string;
 	private readonly conversations = new Map<string, Conversation>();
-	// The loosest fence told each conversation that ended short of a close
-	// for good, as a park ends one while its `&` commands run on; it
-	// counts again once the conversation is held again.
-	private readonly leftRunning = new Map<string, FenceKind>();
+	// The fence each conversation's parks left running under (kept-fences.ts).
+	private readonly leftRunning = new KeptFences();
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
@@ -164,13 +173,15 @@ export class SessionHost implements Host {
 		this.key = options.key;
 		this.owner = Object.freeze({ ...options.owner });
 		this.registryPath = hostRegistryPath(this.owner, options.registryDir);
-		this.closedState = options.closedState ?? join(homedir(), CLOSED_STATE);
+		this.closedState = throughHome(
+			options.closedState ?? join(homedir(), CLOSED_STATE),
+		);
 		const folder = dirname(this.registryPath);
-		// Made writable by its owner alone whatever the umask, as closedIn
+		// Made writable by its owner alone whatever the umask, as unclosedIn
 		// asks, so a umask that lets the person's group write still names one.
 		mkdirSync(folder, { recursive: true, mode: 0o755 });
-		closeToOthers(folder, this.closedState);
-		this.closedAtStart = closedIn(folder, this.closedState);
+		closeToOthers(throughHome(folder), this.closedState);
+		this.unclosedAtStart = unclosedIn(throughHome(folder), this.closedState);
 		if (options.changes) this.changes = options.changes;
 		if (options.viewed) this.viewedBy = options.viewed;
 		const unhost = installHost(this);
@@ -212,7 +223,7 @@ export class SessionHost implements Host {
 		const file = resolve(input.file);
 		if ([...this.conversations.values()].some((s) => s.file === file))
 			throw new Error(`Conversation file already held: ${input.file}`);
-		const left = this.leftRunning.get(input.id);
+		const left = this.leftRunning.fenceOf(input.id);
 		this.conversations.set(input.id, {
 			...(left ? { fence: left } : {}),
 			id: input.id,
@@ -275,6 +286,7 @@ export class SessionHost implements Host {
 	 */
 	fenced(id: string, fence: FenceKind, by: FenceTeller): boolean {
 		const conversation = this.require(id);
+		conversation.heldFence = loosest(conversation.heldFence, fence);
 		const kept = loosest(conversation.fence, fence);
 		const shellTold = conversation.shellTold || by === "shell";
 		const filesTold = conversation.filesTold || by === "files";
@@ -293,12 +305,17 @@ export class SessionHost implements Host {
 	}
 
 	/**
-	 * Note that `id`'s next close hands it on, as a release does, keeping
-	 * what it left running, so its fence counts when it is held again.
+	 * What an earlier host's parks kept running, and the calls its restart
+	 * carried, each by when it was noted, counted as unfenced for its day,
+	 * said on stderr so a record naming none for a strict session reads
+	 * why.
 	 */
-	handsOn(id: string): void {
-		const conversation = this.conversations.get(id);
-		if (conversation) conversation.handsOn = true;
+	keptBefore(...noted: ReadonlyMap<string, number>[]): void {
+		for (const each of noted) this.leftRunning.before(each);
+		for (const [id, until] of this.leftRunning.unfencedUntil())
+			process.stderr.write(
+				`pi-host: counts ${id} as unfenced until ${new Date(until).toISOString()}, since an earlier host left its commands running under a fence this one can't know\n`,
+			);
 	}
 
 	/**
@@ -311,6 +328,8 @@ export class SessionHost implements Host {
 		const next = this.conversations.get(to);
 		if (previous) untold(previous);
 		if (!previous?.fence || !next) return;
+		next.heldFence = loosest(next.heldFence, previous.heldFence);
+		this.leftRunning.inherit(from, to);
 		const kept = loosest(next.fence, previous.fence);
 		if (kept === next.fence) return;
 		next.fence = kept;
@@ -474,15 +493,11 @@ export class SessionHost implements Host {
 					this.conversations.set(id, conversation);
 					throw error;
 				}
-				// A close for good ends what it left running; any other stop,
-				// or a close that hands it on, keeps it, so its fence counts
-				// when the conversation is held again.
-				if (conversation.ending === "closed" && !conversation.handsOn)
-					this.leftRunning.delete(id);
-				else {
-					untold(conversation);
-					if (conversation.fence) this.leftRunning.set(id, conversation.fence);
-				}
+				// Every end keeps its fence for the day its notes spare what it
+				// left running, a close for good's too, whose reap may miss some
+				// (kept-fences.ts).
+				untold(conversation);
+				this.leftRunning.keep(id, conversation.heldFence);
 				releaseSession(id);
 				const ending = conversation.ending ?? how;
 				this.changes?.left(
@@ -544,7 +559,9 @@ export class SessionHost implements Host {
 	/**
 	 * Name no fence for a conversation until its next runner's shell and
 	 * file guard say one. A reload's outcome mustn't turn on its record,
-	 * so one that can't be written is left naming no fence at all.
+	 * so one that can't be written is left naming no fence wherever it
+	 * can be opened in place (unsay); where it can't, it may still name the
+	 * old fence until a write lands.
 	 */
 	private unshelled(conversation: Conversation): void {
 		untold(conversation);
@@ -555,8 +572,11 @@ export class SessionHost implements Host {
 	}
 
 	/**
-	 * Write the record, or failing that leave none of its fences on disk,
-	 * so the file never names one the host no longer holds: a runner
+	 * Write the record, or failing that leave none of its fences on disk
+	 * where it can open the record in place, so the file names none the
+	 * host no longer holds. Where it can't (the record read-only, gone
+	 * or refused, or a full disk that won't even empty it), the old fence
+	 * stays until a write lands, which the log says. A runner
 	 * without the shell runs pi's own bash unfenced and tells nothing, so
 	 * no tool would refuse in its place. False when it wasn't written,
 	 * which is tried again at the next change or ask.
@@ -584,12 +604,14 @@ export class SessionHost implements Host {
 
 	/**
 	 * Rewrite the record where it lies, naming no fence, which needs no
-	 * new file and mostly no more room, as on a full disk; failing that,
-	 * empty it, which the node refuses and pi reads as no host, so its
+	 * new file and, on a disk that overwrites in place, no more room, so
+	 * it holds on a full one; a copy-on-write disk (btrfs, ZFS, APFS
+	 * under a snapshot) needs room even for that. Failing that, empty it, which the node refuses and pi reads as no host, so its
 	 * sessions are held only where its service keeps them, until the next
 	 * write lands. Only a record of its own: never through a link, and
 	 * never into a FIFO, which would hold the host's one thread, or a
-	 * file linked elsewhere too, which may be the person's own.
+	 * file linked elsewhere too, which may be the person's own. Where
+	 * none lies, there is none left to name a fence.
 	 */
 	private unsay(): Unsaid {
 		let held: number;
@@ -598,8 +620,9 @@ export class SessionHost implements Host {
 				this.registryPath,
 				constants.O_WRONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
 			);
-		} catch {
-			return "left";
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "left";
 		}
 		try {
 			const record = fstatSync(held);
@@ -653,11 +676,17 @@ export class SessionHost implements Host {
 		// fenced command or another account could put its own record in
 		// this one's place, so none names a fence and the node refuses
 		// each session's carry.
-		const closed = this.closedAtStart && closedIn(folder, this.closedState);
+		const why =
+			this.unclosedAtStart ?? unclosedIn(throughHome(folder), this.closedState);
+		const closed = why === undefined;
 		if (!closed && !this.saidUnclosed) {
 			this.saidUnclosed = true;
+			const after =
+				this.unclosedAtStart === undefined
+					? "until that's put right"
+					: "until the host restarts once that's put right, as it was so when the host started";
 			process.stderr.write(
-				`pi-host: ${folder} lies past a link, outside ${this.closedState}, or under a folder another account may write, now or as the host started, so its record names no session's fence and a mycelium node carries none of them.\n`,
+				`pi-host: ${why}, so ${this.registryPath} names no session's fence and a mycelium node carries none of them, ${after}.\n`,
 			);
 		}
 		const registry = this.registry(closed);
@@ -680,7 +709,7 @@ export class SessionHost implements Host {
 }
 
 /** What became of the record when a write failed (SessionHost.unsay). */
-type Unsaid = "rewritten" | "emptied" | "left";
+type Unsaid = "rewritten" | "emptied" | "absent" | "left";
 
 /** What the host's log says of each, after why the write failed. */
 const UNSAID: Readonly<Record<Unsaid, string>> = {
@@ -688,28 +717,10 @@ const UNSAID: Readonly<Record<Unsaid, string>> = {
 		"so it was rewritten where it lies naming no session's fence, until a write lands",
 	emptied:
 		"so it was emptied, which names no session's fence, and which pi reads as no host at all, so its sessions are held only where its service keeps them, until a write lands",
+	absent:
+		"and no record lies there to name a fence, which the node refuses, until a write lands",
 	left: "nor rewritten where it lies, so it may still name a fence the host has dropped until a write lands",
 };
-
-/** Where in the home folder the fence keeps pi's state read-only (fence-home.ts). */
-const CLOSED_STATE = ".local/state/pi";
-
-/** How tight each fence holds a session's tools. */
-const TIGHTNESS: Readonly<Record<FenceKind, number>> = {
-	none: 0,
-	fence: 1,
-	strict: 2,
-};
-
-/** The looser of two fences, where an unsaid one is no fence yet. */
-function loosest(
-	kept: FenceKind | undefined,
-	told: FenceKind | undefined,
-): FenceKind | undefined {
-	if (kept === undefined) return told;
-	if (told === undefined) return kept;
-	return TIGHTNESS[told] < TIGHTNESS[kept] ? told : kept;
-}
 
 /**
  * Count a runner whose shell or file guard told a fence and the other
@@ -717,8 +728,10 @@ function loosest(
  * they started may still run.
  */
 function untold(conversation: Conversation): void {
-	if (Boolean(conversation.shellTold) !== Boolean(conversation.filesTold))
+	if (Boolean(conversation.shellTold) !== Boolean(conversation.filesTold)) {
 		conversation.fence = "none";
+		conversation.heldFence = "none";
+	}
 }
 
 /** A conversation's private environment: `input` under its own id, never process.env. */

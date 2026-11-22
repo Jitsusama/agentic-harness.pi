@@ -21,11 +21,11 @@
  * mount, which a command inside can neither rename nor remove.
  */
 
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lstatSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { accountsTemporary } from "../paths.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 
 /** The folders, where pi and node keep them in the real `/tmp`. */
@@ -36,18 +36,13 @@ export const TEMP_CODE_CACHES = [
 
 /**
  * The account's own temporary folder on a Mac, as the system names it
- * whatever TMPDIR says, or nothing where it won't say.
+ * whatever TMPDIR says, or nothing where it won't say. Kept once the
+ * system answers, since strict's file tools ask on each call on the
+ * host's one thread; asked again after a failure (accountsTemporary),
+ * so a getconf that keeps failing is asked at each call.
  */
 export function accountsTemp(): string | undefined {
-	try {
-		return (
-			execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
-				encoding: "utf8",
-			}).trim() || undefined
-		);
-	} catch {
-		return undefined;
-	}
+	return accountsTemporary();
 }
 
 /**

@@ -122,6 +122,14 @@ export interface CarriedShells {
 	 * once it is due, those its jobs recorded as running among them.
 	 */
 	look(holds: (session: string) => boolean): void;
+	/**
+	 * When an earlier restart last carried each session's calls that still
+	 * run, as the next host reads them, so it counts them under the fence
+	 * the old host's runner told, which it never heard. A call a killed
+	 * host left only as its job's record counts from its start, the day
+	 * it is spared for.
+	 */
+	noted(): ReadonlyMap<string, number>;
 }
 
 /** What the carried calls need of the machine, for tests to stand in for. */
@@ -294,6 +302,16 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	}
 
 	return {
+		noted() {
+			const latest = new Map<string, number>();
+			const note = (session: string, at: number) =>
+				latest.set(session, Math.max(at, latest.get(session) ?? at));
+			for (const { session, at, work } of readKept(keptFile()))
+				if (isRunning(work)) note(session, at);
+			for (const { session, work } of recorded())
+				if (isRunning(work)) note(session, work.startedAt);
+			return latest;
+		},
 		get keeps() {
 			return procs !== undefined || (options.scoped ?? spawnersScoped());
 		},

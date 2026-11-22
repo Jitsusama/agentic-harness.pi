@@ -71,6 +71,8 @@ export interface StopKeeping {
 	handsOn(sessionId: string): void;
 	/** A parked conversation is dropped: closed for good, what its parks kept ends with it; released, it is kept. */
 	dropped(sessionId: string): Promise<void>;
+	/** When each conversation's parks, here or in an earlier host, last noted what they kept, within its day. */
+	noted(): ReadonlyMap<string, number>;
 }
 
 /** Keep what stops leave in the engine's state folder, saying in the journal what it keeps and ends. */
@@ -177,6 +179,7 @@ export function stopKeeping(options: {
 	}
 
 	return {
+		noted: () => left.noted(),
 		async reapEarlier(hostKey) {
 			const reaped = await reapLeftBehind(
 				hostKey,

@@ -70,6 +70,8 @@ interface Seen {
 		readonly packageDir?: string;
 	}[];
 	readonly reported: readonly string[];
+	/** What the host said of the sessions it counts as unfenced as it started. */
+	readonly unfenced?: readonly string[];
 	readonly piVersion: string;
 	/** The request each launch environment was derived for, in that run. */
 	readonly derived: readonly string[];
@@ -349,6 +351,17 @@ describe("the host's engine", () => {
 				"a conversation opened and closed leaves the process's listeners as pi left them",
 			).toEqual(seen.listeners.atStart);
 			expect(seen.reported).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"counts a session an earlier host's park noted as unfenced as it starts, since it never heard that fence",
+		async () => {
+			const seen = await step(hostFolder(), "kept-before");
+			expect(seen.unfenced).toEqual([
+				expect.stringContaining("counts s-noted as unfenced until"),
+			]);
 		},
 		HOST_LIFE_MS,
 	);

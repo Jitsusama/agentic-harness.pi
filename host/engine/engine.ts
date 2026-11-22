@@ -128,6 +128,9 @@ export async function createEngine(
 		say: report,
 		report,
 	});
+	// What an earlier host's parks kept, and the calls its restart carried,
+	// run on under a fence this host never heard.
+	host.keptBefore(stopping.noted(), shells.noted());
 	// What an earlier restart kept and no conversation here took up is
 	// stopped once due; a child's are the supervisor's to look over.
 	if (!kept) shells.watch((sessionId) => live.has(sessionId));
@@ -592,7 +595,6 @@ export async function createEngine(
 
 		handsOn(sessionId) {
 			stopping.handsOn(sessionId);
-			host.handsOn(sessionId);
 		},
 
 		async dropped(sessionId, why) {

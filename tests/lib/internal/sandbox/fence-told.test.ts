@@ -22,10 +22,15 @@ const refused = { kind: "refused", reason: "no landrun" } as Sandbox;
 
 type Told = [string, FenceKind | "left", FenceTeller?][];
 
-function host(told: Told, answer: "written" | "unwritten" | "gone"): Host {
+function host(
+	told: Told,
+	answer: "written" | "unwritten" | "gone" | "broken",
+): Host {
 	return {
+		holds: () => (answer === "gone" ? undefined : "idle"),
 		fenced: (session: string, kind: FenceKind, by: FenceTeller) => {
 			if (answer === "gone") throw new Error(`not held: ${session}`);
+			if (answer === "broken") throw new Error("partway through a write");
 			told.push([session, kind, by]);
 			return answer === "written";
 		},
@@ -92,6 +97,18 @@ describe("tellHostFence", () => {
 			tellHostFence("fence", "files", { PI_SESSION_ID: "a" }, host([], "gone")),
 			"refused where the record names no such session",
 		).toBe(true);
+	});
+
+	it("refuses where the host still holds the session but its tell broke partway", () => {
+		expect(
+			tellHostFence(
+				"fence",
+				"files",
+				{ PI_SESSION_ID: "a" },
+				host([], "broken"),
+			),
+			"a broken tell let the tool run under a record it may not match",
+		).toBe(false);
 	});
 });
 
