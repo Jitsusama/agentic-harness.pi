@@ -93,9 +93,11 @@ export function createParking(deps: ParkingDeps): Parking {
 	 * again after KNOWN_FOR answers all the same, since a lookup a busy
 	 * host timed out drops a repository, and a stop counted late beats
 	 * one missed. What is asked again only adds to what was found, never
-	 * takes from it, until the session runs: nothing moved it, so a
-	 * repository it drops is a lookup that failed, and taking it away
-	 * would let a parked session go under a stop that still stands.
+	 * takes from it, until an unparked session runs: nothing moved it, so
+	 * a repository it drops is a lookup that failed, and taking it away
+	 * would let a parked session go under a stop that still stands. A
+	 * parked session keeps widening through its runs too, its own cut
+	 * turn's end among them, so it stays parked until the stops change.
 	 */
 	let known:
 		| { readonly stops: string; readonly session: Session; used: number }
@@ -111,6 +113,11 @@ export function createParking(deps: ParkingDeps): Parking {
 		const session = known === undefined ? found : widened(known.session, found);
 		known = { stops: key, session, used: 1 };
 		return session;
+	}
+
+	/** Forget where the session is, unless it is parked. */
+	function forget(): void {
+		if (!parked) known = undefined;
 	}
 
 	async function parkers(): Promise<Parked[]> {
@@ -159,14 +166,14 @@ export function createParking(deps: ParkingDeps): Parking {
 		},
 		async started() {
 			// A run may move the session, so where it is is asked afresh.
-			known = undefined;
+			forget();
 			personRun = personNext;
 			personNext = false;
 			if (personRun) return;
 			await park();
 		},
 		async turnEnded() {
-			known = undefined;
+			forget();
 			if (personRun) return;
 			await park();
 		},

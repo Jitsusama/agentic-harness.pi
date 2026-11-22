@@ -163,7 +163,7 @@ describe("parking", () => {
 		expect(seen.notes, "the session is told once").toHaveLength(1);
 	});
 
-	it("asks where an idle session is at most once a minute, and afresh on a run or new stops", async () => {
+	it("asks where an idle session is at most once a minute, and afresh on new stops", async () => {
 		const { seen, parking } = world([quest]);
 		await parking.tick();
 		await parking.tick();
@@ -173,7 +173,16 @@ describe("parking", () => {
 		await parking.tick();
 		expect(seen.looked, "a new stop is asked afresh").toBe(2);
 		await parking.started();
-		expect(seen.looked, "a run may move it").toBe(3);
+		expect(seen.looked, "a parked session's run forgot it").toBe(2);
+	});
+
+	it("asks afresh where an unparked session is when it runs", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.tick();
+		expect(parking.parked, "the stop doesn't reach it").toBe(false);
+		await parking.started();
+		expect(seen.looked, "a run may move it").toBe(2);
 	});
 
 	it("asks again within a minute, so a lookup that missed the repository mends", async () => {
@@ -187,6 +196,20 @@ describe("parking", () => {
 			true,
 		);
 		expect(seen.looked, "asked once a minute, not each tick").toBe(2);
+	});
+
+	it("keeps a parked session parked when a lookup after its own run misses its repository", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		await parking.started();
+		expect(parking.parked, "the repository stop parked it").toBe(true);
+		seen.repos = [];
+		await parking.turnEnded();
+		parking.heard(true);
+		await parking.started();
+		await parking.turnEnded();
+		for (let tick = 0; tick < 12; tick += 1) await parking.tick();
+		expect(parking.parked, "a lookup that missed let it go").toBe(true);
+		expect(seen.carried, "and carried on under the stop").toEqual([]);
 	});
 
 	it("keeps a parked session parked when asking again misses its repository", async () => {
