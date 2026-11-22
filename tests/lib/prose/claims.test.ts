@@ -47,13 +47,13 @@ describe("claimParts", () => {
 		]);
 	});
 
-	it("packs a text past twelve paragraphs into parts in order, all of it read", () => {
+	it("packs a text past twelve paragraphs into twelve parts in order, all of it read", () => {
 		const paragraphs = Array.from(
 			{ length: 60 },
 			(_, i) => `Paragraph ${i} says something long enough to judge.`,
 		);
 		const parts = claimParts(paragraphs.join("\n\n"));
-		expect(parts).toHaveLength(2);
+		expect(parts).toHaveLength(12);
 		expect(parts.join("\n\n")).toBe(paragraphs.join("\n\n"));
 		expect(parts.filter((part) => part.length > 2000)).toEqual([]);
 	});
@@ -104,7 +104,7 @@ describe("claimParts", () => {
 		expect(claimParts("Disk is full\n\nDisk at 99%")).toEqual(["Disk is full"]);
 	});
 
-	it("packs what follows twelve paragraphs into parts of at most 2000 characters", () => {
+	it("joins only the shortest neighbours past twelve paragraphs, the long ones left alone", () => {
 		const paragraphs = [
 			...Array.from({ length: 11 }, (_, i) => `Paragraph ${i} is short.`),
 			...Array.from({ length: 3 }, (_, i) =>
@@ -115,11 +115,22 @@ describe("claimParts", () => {
 		expect(parts.join("\n\n"), "none of it left out").toBe(
 			paragraphs.join("\n\n"),
 		);
-		expect(parts.length).toBeLessThanOrEqual(12);
-		expect(parts.filter((part) => part.length > 2000)).toEqual([]);
-		expect(parts.at(-1), "the last long paragraph a part of its own").toBe(
-			paragraphs.at(-1),
+		expect(parts).toHaveLength(12);
+		expect(parts.slice(-3), "each long paragraph a part of its own").toEqual(
+			paragraphs.slice(-3),
 		);
+	});
+
+	it("judges a digest one item past twelve with eleven of its items alone", () => {
+		const items = Array.from({ length: 13 }, (_, i) =>
+			`- Item ${i} of the digest, ${"with its details ".repeat(5)}`.trim(),
+		);
+		const parts = claimParts(items.join("\n"));
+		expect(parts).toHaveLength(12);
+		expect(
+			parts.filter((part) => items.includes(part)),
+			"one break lost, not all of them",
+		).toHaveLength(11);
 	});
 
 	it("judges a long part in stretches broken at sentence ends, none of it left out", () => {
@@ -151,7 +162,12 @@ describe("claimParts", () => {
 		const part = `Disk ${"x".repeat(1996)}`;
 		const parts = claimParts(part);
 		expect(parts.join(""), "none of it left out").toBe(part);
-		expect(parts.map((stretch) => stretch.length)).toEqual([1989, 12]);
+		expect(parts.map((stretch) => stretch.length)).toEqual([1988, 13]);
+		const spaced = `${"x".repeat(1989)} ${"y".repeat(11)}`;
+		expect(
+			claimParts(spaced).map((stretch) => stretch.length),
+			"a space where the last 12 begin is no place to break",
+		).toEqual([1988, 13]);
 	});
 
 	it("keeps a part of exactly 2000 characters whole", () => {

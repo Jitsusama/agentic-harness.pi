@@ -797,7 +797,10 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
  * So another text on the same subject from the same asker within it is
  * counted as that one too: by its words alone it can't be told from a
  * reworded resend, and keeping the text, or a digest of it, would keep
- * what a need file is meant to leave out.
+ * what a need file is meant to leave out. The words are what `about`
+ * gives, so this holds for a need sent with one; a need without it is
+ * matched on its text's words, and a rewording that changes them counts
+ * as a second ask.
  */
 export const NEED_AGAIN_MS = 10 * 60 * 1000;
 

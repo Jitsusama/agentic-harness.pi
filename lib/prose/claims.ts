@@ -43,9 +43,12 @@ export const JUDGE_MS = 2500;
  * The most parts of one text judged, so a long text costs a bounded
  * wait and sends the classifier's provider a bounded amount. A paragraph
  * past `LONGEST_PART` takes a part for each stretch of it. Past this many,
- * the paragraphs and stretches are packed together in order, each part
- * up to `LONGEST_PART`, so a long text of short paragraphs is still read
- * whole. One that still runs past this many has its first parts and its
+ * neighbouring paragraphs and stretches are joined, the pair shortest
+ * together first and each part up to `LONGEST_PART`, only until this many
+ * are left, so a long text of short paragraphs is still read whole and a
+ * text one past this many loses one break, not all of them, since a
+ * digest judged whole loses its one causal sentence. One that still runs
+ * past this many has its first parts and its
  * last judged, since a cause most often opens or closes what it explains,
  * and its middle not, which the caller is told. Of the 54 mesh messages
  * sampled on 21 November, split by paragraph, none ran past 7 parts.
@@ -107,9 +110,9 @@ const QUESTIONS: ClassifierContext["questions"] = {
 /**
  * A text's parts as they are judged: its paragraphs, and each item of a
  * list, of those long enough to state a cause, a longer one than
- * `LONGEST_PART` in stretches. Past `MOST_PARTS` they are packed together
- * in order, and past it still, the first and the last are judged, as
- * `MOST_PARTS` says.
+ * `LONGEST_PART` in stretches. Past `MOST_PARTS` neighbours are joined
+ * until it is met, and past it still, the first and the last are judged,
+ * as `MOST_PARTS` says.
  */
 export function claimParts(text: string): string[] {
 	return partsOf(text).parts;
@@ -122,7 +125,7 @@ function partsOf(text: string): { parts: string[]; cut: boolean } {
 		.map((part) => part.trim())
 		.filter((part) => part.length >= SHORTEST_PART)
 		.flatMap(stretchesOf);
-	const parts = pieces.length <= MOST_PARTS ? pieces : packed(pieces);
+	const parts = packed(pieces);
 	if (parts.length <= MOST_PARTS) return { parts, cut: false };
 	return {
 		parts: [...parts.slice(0, MOST_PARTS - 1), ...parts.slice(-1)],
@@ -131,17 +134,27 @@ function partsOf(text: string): { parts: string[]; cut: boolean } {
 }
 
 /**
- * `pieces` in order, each joined to those before it while together they
- * run to `LONGEST_PART` at most.
+ * `pieces` in order, joined only as far as `MOST_PARTS` needs: the
+ * neighbouring pair shortest together is joined first, the earlier of
+ * two alike, while it runs to `LONGEST_PART` at most, until no more than
+ * `MOST_PARTS` are left or no pair fits, so most parts are still judged
+ * alone.
  */
 function packed(pieces: readonly string[]): string[] {
-	const parts: string[] = [];
-	for (const piece of pieces) {
-		const last = parts.pop();
-		if (last === undefined) parts.push(piece);
-		else if (last.length + 2 + piece.length <= LONGEST_PART)
-			parts.push(`${last}\n\n${piece}`);
-		else parts.push(last, piece);
+	const parts = [...pieces];
+	while (parts.length > MOST_PARTS) {
+		let shortest = -1;
+		let shortestLength = LONGEST_PART + 1;
+		for (let at = 0; at + 1 < parts.length; at += 1) {
+			const length =
+				(parts[at] ?? "").length + 2 + (parts[at + 1] ?? "").length;
+			if (length < shortestLength) {
+				shortest = at;
+				shortestLength = length;
+			}
+		}
+		if (shortest < 0) break;
+		parts.splice(shortest, 2, `${parts[shortest]}\n\n${parts[shortest + 1]}`);
 	}
 	return parts;
 }
@@ -155,7 +168,9 @@ function stretchesOf(part: string): string[] {
 	const stretches: string[] = [];
 	let from = 0;
 	while (part.length - from > LONGEST_PART) {
-		const most = Math.min(from + LONGEST_PART, part.length - SHORTEST_PART);
+		// One short of the bar, since a break at a space leaves what follows
+		// it trimmed of that space.
+		const most = Math.min(from + LONGEST_PART, part.length - SHORTEST_PART - 1);
 		const end = stretchEnd(part, most);
 		stretches.push(part.slice(from, end).trim());
 		from = end;
