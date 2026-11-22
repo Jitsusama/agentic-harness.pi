@@ -231,9 +231,10 @@ describe("a commit its base already carries", () => {
 	});
 
 	it("finds a landing in a log written with CRLF", async () => {
-		// Each changed line ends in a CR, which a read trimmed at its end took
-		// from the halted commit's last line but not from its landing's. Kept as
-		// written, whatever the person's own config would make of line ends.
+		// Each line ends in a CR, which git's patch id leaves out with the rest
+		// of a line's trailing whitespace, and the file the base's side keeps
+		// still ends its lines in one. Kept as written, whatever the person's
+		// own config would make of line ends.
 		await git(repo, "config", "core.autocrlf", "false");
 		const seed = "# Log\r\n\r\nintro\r\n\r\na\r\nb\r\nc\r\nd\r\n";
 		await seedLog(seed);

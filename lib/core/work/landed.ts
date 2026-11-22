@@ -10,16 +10,18 @@
  * clean. Run on a scratch repo on 21 November, a landed log entry edited on
  * main came back as both its edited and its first wording.
  *
- * So before settling, a halt asks whether the commit's change to the files in
- * conflict is one the base gained since the branch left it. Only commits that
- * touched those files are read, and only their change to them, in one git
- * process, which is what keeps this from the walk of every commit the flag
- * exists to skip.
+ * So before settling, a halt asks whether the commit is one the base gained
+ * since the branch left it. Only commits that touched the files in conflict
+ * are read, and only their change to them, in one git process, which is what
+ * keeps this from the walk of every commit the flag exists to skip; a commit
+ * whose change there matches is then read whole.
  *
  * A match throws the branch's side of those files away, so it is held to git's
- * patch id: the changed lines with the lines around them, leaving out only line
- * numbers, blob ids and trailing whitespace. The same lines changed elsewhere in
- * the file are not a landing. A landing that changed on the way in (squashed
+ * patch id over the whole commit: the changed lines with the lines around
+ * them, leaving out only line numbers, blob ids and trailing whitespace. The
+ * same lines changed elsewhere in the file are not a landing, and nor is
+ * another commit that made the same change to the log beside changes of its
+ * own, as two commits adding one changelog bullet do. A landing that changed on the way in (squashed
  * with others, renumbered, or landed after the base moved the lines around it)
  * is not found, and the settler keeps both sides, as it did before the flag,
  * when git's own search missed those too.
@@ -75,6 +77,8 @@ const PATCH = [
 	"--no-color",
 	"--no-ext-diff",
 	"--no-renames",
+	// A signature's lines would land among a commit's patch.
+	"--no-show-signature",
 ];
 
 /**
@@ -105,8 +109,6 @@ export async function landedAs(
 	if (touched.length === 0) return undefined;
 	const pathspecs = ["--", ...touched.map(literal)];
 
-	// The halted commit alone: limited to paths, `-1` would walk on to an
-	// ancestor that touched them and answer for that commit's change instead.
 	const [mine] = patchesIn(
 		await patches(exec, treePath, ["--no-walk", halted, ...pathspecs]),
 	);
@@ -119,9 +121,29 @@ export async function landedAs(
 			...pathspecs,
 		]),
 	);
-	const landing = since.find((one) => one.change === mine.change);
-	if (landing === undefined) return undefined;
-	return { commit: mine.commit, as: landing.commit, paths: touched };
+	const alike = since.filter((one) => one.change === mine.change);
+	if (alike.length === 0) return undefined;
+	// Alike in the log is not yet the same commit: as git's patch id does,
+	// the rest of each commit has to match too.
+	const whole = await wholeChange(exec, treePath, halted);
+	if (whole === undefined) return undefined;
+	for (const one of alike) {
+		if ((await wholeChange(exec, treePath, one.commit)) === whole)
+			return { commit: mine.commit, as: one.commit, paths: touched };
+	}
+	return undefined;
+}
+
+/** A commit's change to every file it touches, read as `PATCH` reads. */
+async function wholeChange(
+	exec: Exec,
+	treePath: string,
+	commit: string,
+): Promise<string | undefined> {
+	const [one] = patchesIn(
+		await patches(exec, treePath, ["--no-walk", commit, "--"]),
+	);
+	return one?.change;
 }
 
 /** Which of `paths` the commit changes, in the order given. */

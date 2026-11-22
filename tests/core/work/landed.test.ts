@@ -60,11 +60,11 @@ describe("asking where a halted commit landed", () => {
 	});
 
 	it(
-		"answers for the halted commit alone, never an ancestor",
+		"answers nothing when the halted commit didn't change the file",
 		async () => {
-			// A file the base renamed is in conflict under the base's name, one
-			// the halted commit never touched; an ancestor that did, and landed,
-			// is not the halted commit landing.
+			// As for a file the base renamed, in conflict under the base's name:
+			// an ancestor that changed it, and landed, is not the halted commit
+			// landing.
 			await commit("log.md", "# Log\n", "start");
 			await git(repo, "checkout", "-qb", "topic");
 			await commit("log.md", "# Log\n\n## Mine\n", "mine");
@@ -84,8 +84,8 @@ describe("asking where a halted commit landed", () => {
 	it(
 		"names only the files the halted commit changed",
 		async () => {
-			// The renamed file's branch side is the commit's own change under its
-			// old name, which never landed, so it is left to the settler.
+			// Asked of a file it never touched too, as of one the base renamed:
+			// that file's branch side never landed, so it is left to the settler.
 			await commit("log.md", "# Log\n", "start");
 			await git(repo, "checkout", "-qb", "topic");
 			await commit("log.md", "# Log\n\n## Mine\n", "halted");
@@ -98,6 +98,29 @@ describe("asking where a halted commit landed", () => {
 			expect(
 				await landedAs(spawnExec(), repo, "main", ["new.md", "log.md"]),
 			).toMatchObject({ as, paths: ["log.md"] });
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"takes another commit making the same log change for no landing",
+		async () => {
+			// Two fixes that each add the same changelog bullet: alike in the log,
+			// but the branch's own fix never landed.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			writeFileSync(join(repo, "a.ts"), "export const a = 1;\n");
+			await git(repo, "add", "a.ts");
+			await commit("log.md", "# Log\n\n- Fix a typo\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			writeFileSync(join(repo, "b.ts"), "export const b = 2;\n");
+			await git(repo, "add", "b.ts");
+			await commit("log.md", "# Log\n\n- Fix a typo\n", "theirs");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
 		},
 		REAL_GIT_MS,
 	);
