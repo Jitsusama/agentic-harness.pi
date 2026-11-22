@@ -27,12 +27,13 @@
  * writes would reach what runs outside later. So is one inside a path
  * the fence hides or keeps read-only, but the work broker's trees: the
  * folder is granted to the command, which would reopen what the fence
- * closed there; so is one that holds such a path. A machine without
+ * closed there; so is one that holds such a path (unfenced-folder.ts,
+ * which strict asks too). A machine without
  * bubblewrap or landrun in the system's own profile refuses too: nothing
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
 	makeFoldersFirst,
@@ -47,15 +48,12 @@ import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import { sandboxFolders, strictRules } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
-import { unfencedFolder } from "../sandbox/unfenced-folder.ts";
+import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
-import { FENCE_HIDDEN } from "./fence-hidden.ts";
-import { readOnlyPaths } from "./fence-home.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
-	MAC_HIDDEN,
 	SANDBOX_EXEC,
 	seatbeltProfile,
 	seatbeltText,
@@ -242,9 +240,19 @@ export function fenceRunText(
 	const spelling = (path: string) =>
 		mac ? onDisk(real(resolve(path))) : real(resolve(path));
 	const treesRoot = spelling(place.treesRoot ?? cutTreeDir());
-	const unfenced = unfencedFolder(folder, home, asker);
+	// The fence lays the temporary folder's code caches as its own, and a
+	// Mac's profile denies them again, so a folder such as /tmp that holds
+	// one is still its to grant; the compiled code anywhere else is refused
+	// as strict refuses it. On Linux it lays the runtime folder, the system
+	// bus and X's sockets as its own too, so /tmp, holding those sockets, is
+	// granted; a Mac's unchecked profile keeps them refused.
+	const unfenced = unfencedFolder(folder, home, asker, {
+		treesRoot,
+		mac,
+		cachesClosed: true,
+	});
 	if (unfenced) return { refused: unfenced };
-	const away = fencedAway(folder, home, asker, {
+	const away = fencedAway(folder, asker, {
 		treesRoot,
 		held: () =>
 			ask.shared === true
@@ -315,21 +323,15 @@ export function fenceRunText(
 }
 
 /**
- * Why a run can't have `folder`: it lies inside, or holds, a path the
- * fence hides or keeps read-only, where granting the command its folder
- * would reopen what the fence closed (its keys in ~/.ssh, git's settings
- * and hooks in ~/.config, pi's state under a grant of ~/.local). A tree
- * the work broker cut, in pi's own state, is spared for the one holding
- * it alone, since the fence grants it to whoever works in it: a session
- * by the broker's records, or an asker the caller says it was shared to;
- * anyone else's is refused (ISXEG8, 16 November). Each path is matched as
- * written and where its links lead, from the home as named and as it
- * really is, so a link can't walk round it. On a Mac the Mac's own
- * hides count too, and the match ignores case, as its volume does.
+ * Why a run can't have `folder`, a tree the work broker cut: the fence
+ * grants a tree to whoever works in it, so a tree is spared the fence's
+ * closed paths (unfenced-folder.ts) for the one holding it alone, a
+ * session by the broker's records, or an asker the caller says it was
+ * shared to; anyone else's is refused (ISXEG8, 16 November). A folder
+ * outside the trees is judged there.
  */
 function fencedAway(
 	folder: string,
-	home: string,
 	asker: string,
 	where: {
 		readonly treesRoot: string;
@@ -364,26 +366,7 @@ function fencedAway(
 			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold${why}, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
 		};
 	}
-	const closedFrom = (from: string) => [
-		...FENCE_HIDDEN.home
-			.filter((entry) => entry.endsWith("/"))
-			.map((entry) => join(from, entry.slice(0, -1))),
-		...readOnlyPaths(from),
-		...(where.mac ? MAC_HIDDEN.map((entry) => join(from, entry)) : []),
-	];
-	const closed = [...new Set([home, real(home)])]
-		.flatMap(closedFrom)
-		.flatMap((path) => [path, real(path)])
-		.find((path) => within(at, spelled(path)) || within(spelled(path), at));
-	if (!closed) return {};
-	if (within(at, spelled(closed))) {
-		return {
-			refused: `${asker} won't run in ${folder}, which lies in ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in the folder it works on, or in a tree the work tool cuts.`,
-		};
-	}
-	return {
-		refused: `${asker} won't run in ${folder}, which holds ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in a folder within, beside none of them, or in a tree the work tool cuts.`,
-	};
+	return {};
 }
 
 /** The trees an asker holds, and why it holds none where that isn't plain. */
@@ -412,16 +395,6 @@ function heldBy(
 			trees: [],
 			why: `the work broker's records at ${records} couldn't be read: ${said}`,
 		};
-	}
-}
-
-/** `path` as its volume spells it, or as given where it isn't there. */
-function onDisk(path: string): string {
-	try {
-		return realpathSync.native(path);
-	} catch {
-		// Not there yet: nothing on disk to spell it otherwise.
-		return path;
 	}
 }
 

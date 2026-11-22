@@ -18,6 +18,7 @@ import {
 	join,
 	relative,
 	resolve,
+	sep,
 } from "node:path";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
@@ -29,7 +30,7 @@ import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
 import { type FileUse, fileReach } from "./strict-rules.ts";
 import { treeGit, within, worktreeRepository } from "./tree-git.ts";
-import { unfencedFolder } from "./unfenced-folder.ts";
+import { hiddenFolder, unfencedFolder } from "./unfenced-folder.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
@@ -97,7 +98,12 @@ export function leadsTo(path: string, links = 0): string | undefined {
 /** Whether `path` is `folder` or lies inside it, both already resolved. */
 function inside(path: string, folder: string): boolean {
 	const between = relative(folder, path);
-	return between === "" || !(between.startsWith("..") || isAbsolute(between));
+	// A child named `..x` lies inside; only `..` itself or `../` leads out.
+	return !(
+		between === ".." ||
+		between.startsWith(`..${sep}`) ||
+		isAbsolute(between)
+	);
 }
 
 /** The path a file tool's call names, or the working folder for a search. */
@@ -171,11 +177,14 @@ export function fileToolRefusal(
 		// A folder holding its git folder is refused for what writing there
 		// would reach, which reading it doesn't, so a review that falls back
 		// to a plain clone still reads it. The home folder is refused both
-		// ways.
+		// ways, and a folder lying in or holding what the fence hides, since
+		// reading there hands it over.
 		const unfenced = unfencedFolder(place.cwd, place.home);
 		if (unfenced && (tool.use === "write" || within(place.home, place.cwd))) {
 			return `${unfenced} pi's file tools don't ${tool.use} there either.`;
 		}
+		const hidden = unfenced && hiddenFolder(place.cwd, place.home);
+		if (hidden) return hidden;
 	}
 	const path = pathOf(call.input, tool.searches);
 	if (path === undefined) {

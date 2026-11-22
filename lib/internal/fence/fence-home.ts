@@ -8,7 +8,7 @@
  * mounts change only with how bubblewrap is driven.
  */
 
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 /**
  * The person's files that run code as them later, or say what does,
@@ -175,4 +175,56 @@ export function readOnlyEntry(entry: string): boolean {
 /** The read-only paths, for the home folder `home`. */
 export function readOnlyPaths(home: string): string[] {
 	return READ_ONLY.map((path) => join(home, path));
+}
+
+/**
+ * Folders that may hold repositories, and how many levels down: the
+ * home folder's own entries, `src` as deep as `src/github.com/org/repo`
+ * and a level more, and `world`. `src` and `world` are kept read-only
+ * inside, so no command can make a repository there, and only theirs
+ * count as guarded: a command can still make a git folder in a hidden
+ * entry of the home folder, or the browsed one its session works in,
+ * and write its settings before the fence ever guards them.
+ */
+export const REPOSITORY_HOMES = [
+	{ where: "", depth: 1, kept: false },
+	{ where: "src", depth: 4, kept: true },
+	{ where: "world", depth: 1, kept: true },
+] as const;
+
+/**
+ * The repository home kept read-only that `folder` lies in outside any
+ * repository's work, as `src`, `src/github.com/org` or a plain folder
+ * at any depth does, or inside a git folder: a command written there
+ * could write the git settings of a repository below it, or make one
+ * the fence would then take as guarded. Nothing where it lies in a
+ * repository's work, or in no kept home. `isRepository` says whether a
+ * folder is one, as a `.git` in it says. `fold` spells a path as the
+ * volume compares it (lowered on a Mac), used only to compare: the
+ * folders are asked about as they are spelled.
+ */
+export function keptHomeAbove(
+	folder: string,
+	home: string,
+	isRepository: (folder: string) => boolean,
+	fold: (path: string) => string = (path) => path,
+): string | undefined {
+	for (const { where, kept } of REPOSITORY_HOMES) {
+		if (!kept) continue;
+		const top = join(home, where);
+		const at = relative(fold(top), fold(folder));
+		if (at.startsWith(`..${sep}`) || at === ".." || isAbsolute(at)) continue;
+		const depth = at === "" ? 0 : at.split(sep).length;
+		const parts = depth === 0 ? [] : folder.split(sep).slice(-depth);
+		if (parts.some((part) => fold(part) === ".git")) return top;
+		let each = top;
+		const inRepository =
+			isRepository(top) ||
+			parts.some((part) => {
+				each = join(each, part);
+				return isRepository(each);
+			});
+		if (!inRepository) return top;
+	}
+	return undefined;
 }
