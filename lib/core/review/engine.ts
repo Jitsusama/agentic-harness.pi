@@ -86,7 +86,10 @@ export interface ServingRepo {
 
 /** The substrate, assembled. */
 export interface ReviewEngine {
-	/** What a directory says about the repo it sits in. */
+	/**
+	 * What a directory says about the repo it sits in, refused when git
+	 * could not say, rather than answered as a checkout with no remotes.
+	 */
 	probe(cwd: string): Promise<RepoProbe>;
 	/** Resolve a reference, throwing the resolver's guidance. */
 	resolve(input: string, cwd?: string): Promise<BoundTarget>;
@@ -154,23 +157,37 @@ function providerFor(id: string): ReviewProvider {
  */
 const GIT_FATAL = 128;
 
-/** What git says on stderr when the directory is in no repository. */
-const NOT_A_REPO_SAYS = "not a git repository";
+/**
+ * What git says on stderr when the directory is in no repository. Its
+ * whole opening, since a worktree whose git folder was pruned says
+ * "not a git repository: <path>", which is a broken checkout, not none.
+ * Git's English: a translated message reads as unread, which refuses
+ * rather than misfiles.
+ */
+const NOT_A_REPO_SAYS = "not a git repository (or any";
 
 /**
  * What git config answers, saying nothing, when no key matches. A spawn
- * that failed or a git killed by a signal comes back as exit 1 too, but
- * with something on stderr, so only a silent 1 means no remotes.
+ * that failed comes back as exit 1 too, but with its error on stderr,
+ * and a git a signal killed as 128 and the signal's number (spawnExec),
+ * so only a silent 1 means no remotes.
  */
 const NO_MATCHING_KEY = 1;
 
-/** What the fence answers when it refuses a git command. */
+/** How long a failed git read waits before it is asked again. */
+const RETRY_PAUSE_MS = 250;
+
+/**
+ * What the fence answers when it refuses a git command, as tree-git's
+ * GIT_REFUSED says; a test holds the two equal, since importing the fence
+ * here would pull it into every review read.
+ */
 const GIT_REFUSED = 126;
 
 /**
- * Failures asking again cannot help: the clock already gave the command
- * its ten minutes, the call was stopped, the fence refused, or git died
- * of something it will die of again.
+ * Failures not asked again at once: the clock already spent its ten
+ * minutes on the command, the call was stopped, the fence refused, or git
+ * died of something it will die of again.
  */
 const NOT_RETRIED = new Set([
 	EXIT_TIMED_OUT,
@@ -219,6 +236,9 @@ function adviceFor(result: ExecResult): string {
 	if (result.code === EXIT_ABORTED) {
 		return "The call was stopped before git answered.";
 	}
+	if (result.code === EXIT_TIMED_OUT) {
+		return "git ran its whole time without answering; ask again once whatever held it, the machine's load or a lock in the checkout, has cleared.";
+	}
 	if (result.code === GIT_REFUSED || result.code === GIT_FATAL) {
 		return "Asking again will fail the same way until what git said is fixed.";
 	}
@@ -243,6 +263,9 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		if (answered(first) || NOT_RETRIED.has(first.code)) {
 			return { result: first };
 		}
+		// A moment's pause, so a host out of processes or memory has a
+		// chance to free some before the second spawn meets the same limit.
+		await new Promise((done) => setTimeout(done, RETRY_PAUSE_MS));
 		return { result: await deps.exec("git", args), first };
 	}
 
@@ -292,14 +315,11 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 		};
 	}
 
-	async function probe(cwd: string): Promise<RepoProbe> {
-		return (await readProbe(cwd)).probe;
-	}
-
 	/**
-	 * A probe of a checkout somebody named, refused when git could not say
-	 * whose it is, since the plain path is no answer: a round or a
-	 * capability read under it belongs to the wrong repo.
+	 * A probe of a checkout, refused when git could not say whose it is,
+	 * since the plain path is no answer: a round or a capability read
+	 * under it belongs to the wrong repo, and a probe with no remotes is
+	 * one only the git provider claims.
 	 */
 	async function probeNamed(cwd: string): Promise<RepoProbe> {
 		const { probe: probed, unread } = await readProbe(cwd);
@@ -461,7 +481,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 	}
 
 	return {
-		probe,
+		probe: probeNamed,
 
 		async resolve(input, cwd) {
 			const read = cwd ? await readProbe(cwd) : undefined;
@@ -471,8 +491,13 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			// branch would be claimed by the checkout's path, so it is
 			// refused rather than keyed there.
 			if (read?.unread !== undefined) {
+				// Only a provider's own claim: a configured pattern would
+				// bind a bare number to its fixed repo, which a readable
+				// checkout's claim would have beaten.
 				const alone = resolveReference(input, config);
-				if (!alone.resolved) throw unreadRefusal(read.unread);
+				if (!alone.resolved || alone.via !== "claim") {
+					throw unreadRefusal(read.unread);
+				}
 			}
 			const probed = read?.unread === undefined ? read?.probe : undefined;
 			const resolution = resolveReference(input, {

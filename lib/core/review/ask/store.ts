@@ -13,7 +13,14 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rename,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { fileReads } from "../../../internal/files/file-reads.ts";
 import { withFileLock } from "../../internal/file-lock.ts";
@@ -227,7 +234,24 @@ export function createRunStore(root: string): RunStore {
 		await mkdir(root, { recursive: true });
 		await withFileLock(join(root, fileFor(change)), async () => {
 			await write(change, next(await read(change)));
+			await dropCarriedOver(change);
 		});
+	}
+
+	/**
+	 * Remove a ledger's plain-named copy once its rounds are written under
+	 * the bounded name. Left behind, the sweeps that read every file would
+	 * keep finding its rounds open after they were settled here.
+	 */
+	async function dropCarriedOver(change: ChangeRef): Promise<void> {
+		const plain = changeFileName(change);
+		if (plain === fileFor(change)) return;
+		try {
+			await unlink(join(root, plain));
+		} catch (error) {
+			if (!isMissing(error)) throw error;
+			// Most ledgers never had a plain-named copy; nothing to remove.
+		}
 	}
 
 	return {

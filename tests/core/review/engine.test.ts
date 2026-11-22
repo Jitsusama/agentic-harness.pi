@@ -13,6 +13,7 @@ import {
 	type ReviewEngine,
 	registerReviewProvider,
 } from "../../../lib/core/review/index.ts";
+import { GIT_REFUSED } from "../../../lib/internal/sandbox/tree-git.ts";
 import { fakeExec, type Reply } from "../../support/fake-exec.ts";
 import { stubProvider } from "../../support/stub-provider.ts";
 
@@ -89,6 +90,36 @@ describe("probing a checkout", () => {
 		const probe = await engine.probe("/tmp/elsewhere");
 		expect(probe.repoRoot).toBeUndefined();
 	});
+
+	it("refuses a worktree whose git folder was pruned, not taking it as no repo", async () => {
+		const { engine } = engineWith([
+			{
+				when: ["--show-toplevel"],
+				code: 128,
+				stderr:
+					"fatal: not a git repository: /src/world/.git/worktrees/topic\n",
+			},
+		]);
+		await expect(
+			engine.probe("/src/topic"),
+			"a broken worktree is refused, naming what git said",
+		).rejects.toThrow(/could not say whether \/src\/topic is a checkout/);
+	});
+
+	it("refuses a checkout whose remotes went unread, rather than answering none", async () => {
+		const { engine } = engineWith([
+			{ when: ["--show-toplevel"], stdout: "/src/world\n" },
+			{
+				when: ["--get-regexp"],
+				code: 137,
+				stderr: "git was killed by SIGKILL.",
+			},
+		]);
+		await expect(
+			engine.probe("/src/world"),
+			"a probe never passes an unread checkout off as one with no remotes",
+		).rejects.toThrow(/could not read the remotes of \/src\/world/);
+	});
 });
 
 describe("a checkout whose remotes git could not read", () => {
@@ -159,8 +190,43 @@ describe("a checkout whose remotes git could not read", () => {
 		await expect(
 			engineOver(remotes.exec).fromLocal("/src/world", range),
 			"a read that already had its ten minutes is refused at once",
-		).rejects.toThrow(/timed out \(exit 124\)\. Asking again usually/);
+		).rejects.toThrow(
+			/timed out \(exit 124\)\. git ran its whole time without answering; ask again once whatever held it/,
+		);
 		expect(remotes.asked(), "a stopped read is asked only once").toBe(1);
+	});
+
+	it("refuses what the fence refused without asking again", async () => {
+		const remotes = failing(
+			"--get-regexp",
+			{
+				code: GIT_REFUSED,
+				stdout: "",
+				stderr: "git refused: outside the stage",
+			},
+			1,
+		);
+		await expect(
+			engineOver(remotes.exec).fromLocal("/src/world", range),
+			"the fence's refusal is said as one that will repeat",
+		).rejects.toThrow(/git refused: outside the stage.*will fail the same way/);
+		expect(remotes.asked(), "a refusal by the fence is asked only once").toBe(
+			1,
+		);
+	});
+
+	it("asks again after a signal killed the read", async () => {
+		const remotes = failing(
+			"--get-regexp",
+			{ code: 137, stdout: "", stderr: "git was killed by SIGKILL." },
+			1,
+		);
+		const bound = await engineOver(remotes.exec).fromLocal("/src/world", range);
+		expect(
+			bound.repo.key,
+			"a killed read is never taken as no remotes, and the second answer binds",
+		).toBe("github:Shopify/world");
+		expect(remotes.asked(), "a killed read is asked twice").toBe(2);
 	});
 
 	it("refuses a stopped call without advice to ask again", async () => {
@@ -229,6 +295,39 @@ describe("a checkout whose remotes git could not read", () => {
 		await expect(
 			engine.resolve("123", "/src/world"),
 			"a number read against an unread checkout is refused",
+		).rejects.toThrow(/could not read the remotes of \/src\/world/);
+	});
+
+	it("refuses a number there whose top git could not say", async () => {
+		const engine = engineOver(
+			failing("--show-toplevel", couldNotStart, 2).exec,
+		);
+		await expect(
+			engine.resolve("123", "/src/world"),
+			"a number read where the checkout itself is unread is refused",
+		).rejects.toThrow(/could not say whether \/src\/world is a checkout/);
+	});
+
+	it("refuses a number there that only a configured pattern would claim", async () => {
+		const exec = failing("--get-regexp", couldNotStart, 2).exec;
+		registerReviewProvider(createGitHubProvider({ exec }));
+		registerReviewProvider(createGitProvider({ exec }));
+		const engine = createReviewEngine({
+			exec,
+			store: createDraftStore(root),
+			config: {
+				references: [
+					{
+						pattern: "^(?<id>\\d+)$",
+						provider: "github",
+						repo: "Shopify/main",
+					},
+				],
+			},
+		});
+		await expect(
+			engine.resolve("123", "/src/world"),
+			"a catch-all pattern doesn't bind a number to another repo past an unread checkout",
 		).rejects.toThrow(/could not read the remotes of \/src\/world/);
 	});
 

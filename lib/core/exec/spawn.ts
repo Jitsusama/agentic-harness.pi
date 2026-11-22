@@ -24,6 +24,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { constants } from "node:os";
 import { count } from "../../ui/count.ts";
 import { callSignal } from "./call-signal.ts";
 import { startClock, type Turn } from "./clock.ts";
@@ -46,6 +47,12 @@ export const EXIT_SAID_TOO_MUCH = 141;
  * longest string, so a caller can still copy or join what it gets.
  */
 const MAX_OUTPUT_CHARS = 128 * 1024 * 1024;
+
+/**
+ * What a shell adds to a signal's number for the exit code of a command
+ * the signal killed.
+ */
+const KILLED_BY_SIGNAL = 128;
 
 /** How long a stopped command has to exit before it is killed outright. */
 const KILL_GRACE_MS = 2000;
@@ -194,11 +201,22 @@ function runUnattended(
 		});
 		// `close` rather than `exit`, so the output is all read; a stopped
 		// group's pipes close once the group is gone.
-		child.on("close", (code) => {
+		child.on("close", (code, killedBy) => {
 			if (stopped !== undefined) {
 				const said =
 					stderr === "" || stderr.endsWith("\n") ? stderr : `${stderr}\n`;
 				settle({ code: stopped.code, stdout, stderr: `${said}${stopped.why}` });
+				return;
+			}
+			// A signal from outside (the OOM killer, a group kill) leaves no
+			// exit code. Said as a shell says it, so it never reads as a
+			// command that ran and answered 1 with nothing to say.
+			if (code === null && killedBy !== null) {
+				settle({
+					code: KILLED_BY_SIGNAL + (constants.signals[killedBy] ?? 0),
+					stdout,
+					stderr: `${stderr}${command} was killed by ${killedBy}.`,
+				});
 				return;
 			}
 			settle({ code: code ?? 1, stdout, stderr });

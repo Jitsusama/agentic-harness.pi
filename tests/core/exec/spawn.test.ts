@@ -57,6 +57,17 @@ describe("a command run unattended", () => {
 		expect(result).toEqual({ code: 3, stdout: "out\n", stderr: "err\n" });
 	});
 
+	it("says a signal from outside killed it, rather than a silent exit 1", async () => {
+		// A git config the OOM killer took read as config's quiet "no key
+		// matched", so a hosted repo was keyed by its path (#1960).
+		const result = await spawnExec()("sh", ["-c", "kill -KILL $$"]);
+		expect(result, "a killed child exits as a shell says, 128 + 9").toEqual({
+			code: 137,
+			stdout: "",
+			stderr: "sh was killed by SIGKILL.",
+		});
+	});
+
 	it("reports a missing binary as a failure rather than throwing", async () => {
 		const result = await spawnExec()("no-such-binary-anywhere", []);
 		expect(result.code).not.toBe(0);

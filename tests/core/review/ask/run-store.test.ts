@@ -241,6 +241,7 @@ describe("keeping runs per change", () => {
 		const [ledger] = readdirSync(root);
 		const lock = join(root, `${ledger}.lock`);
 		// Held by a pid nothing runs as, and older than the lock's patience.
+		// Both, since a raised pid_max could make that pid a live one.
 		await writeFile(lock, "4194303", "utf8");
 		const long = new Date(Date.now() - 60 * 60 * 1000);
 		await utimes(lock, long, long);
@@ -251,18 +252,27 @@ describe("keeping runs per change", () => {
 			await createRunStore(root).list(deep),
 			"the stale lock is taken over and the second round kept",
 		).toHaveLength(2);
+		expect(
+			readdirSync(root).filter((name) => name.includes("stale")),
+			"the stale lock moved aside is removed once taken over",
+		).toEqual([]);
 	});
 
 	it("reads a ledger saved under its whole name before names were cut", async () => {
-		// A name of 207 to 255 bytes was saved whole by a writer whose pid
-		// left room for its pending suffix; it is now cut, and its rounds
-		// are still found and carried over by the next write.
-		const padded: ChangeRef = { ...change, id: "x".repeat(200) };
+		// A name of 207 to about 212 bytes was saved whole by a writer whose
+		// pid left room for its pending suffix (a longer one never saved at
+		// all); it is now cut, and its rounds are still found and carried
+		// over by the next write.
+		const padded: ChangeRef = { ...change, id: "x".repeat(177) };
 		const whole = changeFileName(padded);
 		expect(
 			whole.length,
 			`${whole} is a whole name between the cut and a file name's limit`,
 		).toBeGreaterThan(206);
+		expect(
+			whole.length,
+			`${whole} is short enough that an old writer could have saved it`,
+		).toBeLessThanOrEqual(212);
 		await writeFile(
 			join(root, whole),
 			JSON.stringify({ change: padded, runs: [run()] }),
@@ -279,6 +289,10 @@ describe("keeping runs per change", () => {
 			await createRunStore(root).list(padded),
 			"the next write keeps the old round beside the new one",
 		).toHaveLength(2);
+		expect(
+			readdirSync(root),
+			"the whole-named copy is gone, so no sweep reads its rounds again",
+		).not.toContain(whole);
 	});
 
 	it("survives a new store over the same directory", async () => {
