@@ -277,7 +277,6 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 				const next = await ended(check(host, "lock -n"));
 				expect(next.code, `a try after ${shape}`).toBe(code);
 				process.kill(pid, "SIGKILL");
-				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
 		},
 		TEST_MS,
