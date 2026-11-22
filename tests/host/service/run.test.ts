@@ -715,8 +715,153 @@ describe("runHost", () => {
 		if (!reply.ok) throw new Error(reply.error.message);
 		const { sessionId } = parseOpenResult(reply.result);
 
+		expect(run.signalled(), "no stop signal has come yet").toBe(false);
 		signals.emit("SIGTERM");
 		await run.stopped;
+		expect(run.signalled(), "it was stopped by a signal").toBe(true);
+		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
+			false,
+		);
+		expect(
+			await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
+		).toBe("held");
+	});
+
+	// A `launchctl stop` while a Mac's host parks to restart keeps it down.
+	it("remembers a stop signal that comes while a stop it asked of itself parks, and hears a second", async () => {
+		const signals = new EventEmitter();
+		// The stop's status holds until the test lets it go, so both signals
+		// come while the stop is under way, not before it began.
+		let letGo = (): void => undefined;
+		const held = new Promise<void>((resolve) => {
+			letGo = resolve;
+		});
+		const told: string[] = [];
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals,
+			ready: async () => {},
+			status: async (_env, now) => {
+				told.push(now);
+				if (now.startsWith("stopping")) await held;
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		const stopping = run.stop();
+		await vi.waitFor(() => {
+			expect(told, "the stop is under way").toContain(
+				"stopping, parking 1 conversation",
+			);
+		});
+		signals.emit("SIGTERM");
+		expect(
+			signals.listenerCount("SIGTERM"),
+			"a second stop signal is still heard, so node's default never kills the host by it",
+		).toBeGreaterThan(0);
+		signals.emit("SIGTERM");
+		letGo();
+		await stopping;
+		await run.stopped;
+		expect(run.signalled(), "the signal came during the stop").toBe(true);
+	});
+
+	// Node's default would kill a host signalled as it starts, which
+	// launchd starts again.
+	it("hears a stop signal that comes while it starts, and stops once it serves", async () => {
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => {
+				signals.emit("SIGTERM");
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await run.stopped;
+		expect(run.signalled(), "the signal came during the start").toBe(true);
+		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
+			false,
+		);
+	});
+
+	// launchd counts its ExitTimeOut from the signal, not from when the
+	// host serves, so a slow start leaves the stop that much less.
+	it("counts a stop's bounds from a signal that came while it started", async () => {
+		const signals = new EventEmitter();
+		const armed: number[] = [];
+		const run = await runHost({
+			argv: ["background"],
+			// A unit stopping within 160 s, of which the backstop takes 7/8.
+			env: { ...env(), PI_HOST_STOP_USEC: "160000000" },
+			engine: async (host) => {
+				signals.emit("SIGTERM");
+				// The start goes on a while after the signal, as a slow one would.
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			backstop: ({ within }) => {
+				armed.push(within);
+				return { held() {}, done() {} };
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await run.stopped;
+		expect(armed, "armed once, as the stop began").toHaveLength(1);
+		expect(
+			armed[0],
+			"the backstop's 140 s counts from the signal, 300 ms before the stop",
+		).toBeLessThanOrEqual(140_000 - 300);
+		expect(
+			armed[0],
+			"nor does it count from much before the signal",
+		).toBeGreaterThan(140_000 - 10_000);
+	});
+
+	it("parks on a stop it asks of itself as on a stop signal, as a Mac's restart does", async () => {
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine,
+			signals: new EventEmitter(),
+			ready: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		await run.stop();
+		await run.stopped;
+		expect(run.signalled(), "it stopped without a signal").toBe(false);
 		expect(await exists(socket()), "a stopped host leaves no socket").toBe(
 			false,
 		);

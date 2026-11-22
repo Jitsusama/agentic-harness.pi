@@ -65,7 +65,11 @@ import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { spawnersScoped } from "../../lib/internal/shell/spawner-scope.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { isJobsCarried, JOBS_CARRIED } from "../../lib/jobs/host.ts";
-import { linuxProcessTable, type ProcessTable } from "./tool-children.ts";
+import {
+	linuxProcessTable,
+	type ProcessTable,
+	readsProcesses,
+} from "./tool-children.ts";
 
 /**
  * How long a carried call nobody took up may run on before it is
@@ -221,7 +225,11 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	const move =
 		options.move ??
 		((path: string, pid: number) => writeFile(path, `${pid}\n`));
-	const isRunning = options.running ?? running;
+	// Where no process table can say a pid is still the call it was, as on
+	// a Mac, a reused pid could lead anyone's group, so none is judged
+	// running and none is ever killed: each record is let go unread.
+	const isRunning =
+		options.running ?? (readsProcesses(table) ? running : () => false);
 	const stop = options.stop ?? stopCarried;
 	const recorded = options.recorded ?? (() => strayKeptJobs());
 	const carried: KeptCall[] = [];

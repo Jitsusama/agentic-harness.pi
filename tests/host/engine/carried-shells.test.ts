@@ -1,7 +1,16 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+} from "vitest";
 import {
 	type CarriedShellsOptions,
 	carriedShells,
@@ -14,6 +23,7 @@ import type { ProcessTable } from "../../../host/engine/tool-children.ts";
 import { HOST_RESTARTING_EVENT } from "../../../lib/core/session/host.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
 import type { KeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
+import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
 
 const OWN = "/user.slice/user@1000.service/agents.slice/pi-host.service";
@@ -119,6 +129,42 @@ describe("carried shells", () => {
 	function kept(): KeptCall[] {
 		return JSON.parse(readFileSync(join(stateDir, KEPT_FILE), "utf8"));
 	}
+
+	it("never kills a carried call's group by its pid alone where there is no process table, as on a Mac", async () => {
+		// A real process carrying the call's mark, so the host's own
+		// judgement finds it the call wherever it can read its environment.
+		const call = spawn("sleep", ["30"], {
+			env: { ...process.env, [CALL_VARIABLE]: "m1" },
+			stdio: "ignore",
+		});
+		await once(call, "spawn");
+		onTestFinished(() => {
+			call.kill("SIGKILL");
+		});
+		const due: KeptCall = {
+			session: "s1",
+			job: "j1",
+			label: "make test",
+			at: 0,
+			work: shell("m1", { pid: call.pid ?? 0 }),
+		};
+		now = STRAY_FOR_MS + 1;
+		const write = () =>
+			writeFileSync(join(stateDir, KEPT_FILE), `${JSON.stringify([due])}\n`);
+		// The host's own judgement of running, not this file's stand-in.
+		write();
+		make({ running: undefined }).look(() => false);
+		expect(stopped, "where /proc is, the pid and its mark say").toHaveLength(1);
+
+		stopped = [];
+		write();
+		make({
+			running: undefined,
+			table: { ...table({}), absent: () => true, pids: () => [] },
+		}).look(() => false);
+		expect(stopped, "no group is killed on a pid's word alone").toEqual([]);
+		expect(kept(), "the record is let go").toEqual([]);
+	});
 
 	it("keeps nothing where there is no jobs cgroup", () => {
 		expect(
