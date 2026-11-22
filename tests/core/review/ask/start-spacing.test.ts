@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newRunId } from "../../../../lib/core/review/ask/run.ts";
 import {
 	awaitCouncilStart,
@@ -19,6 +19,9 @@ import {
 const AT = new Date("2026-11-22T09:00:00.000Z");
 const later = (ms: number) => new Date(AT.getTime() + ms);
 const SPACING = COUNCIL_START_SPACING_MS;
+
+/** How early a Node timer may fire against `Date.now()`. */
+const TIMER_EARLY_MS = 2;
 
 let folder: string;
 let path: string;
@@ -33,6 +36,13 @@ afterEach(() => {
 });
 
 const kept = () => JSON.parse(readFileSync(path, "utf8"));
+
+/** Until `by` holds the last slot, read as often as the file changes. */
+const slotTakenBy = (by: string) =>
+	vi.waitFor(() => expect(kept().by).toBe(by), {
+		timeout: 10_000,
+		interval: 20,
+	});
 
 describe("spacing council starts on one machine", () => {
 	it("starts the first at once, and keeps its slot for the next to read", async () => {
@@ -129,6 +139,22 @@ describe("spacing council starts on one machine", () => {
 		expect(slot.behind, "nobody named, since no slot was kept").toBeUndefined();
 	});
 
+	// The round that took a slot stamps its transcripts folder a moment
+	// after it, which is the start read elsewhere for the next claim.
+	it("names the kept slot's round though its own folder was stamped a moment after its slot", async () => {
+		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
+
+		const slot = await claimCouncilStart(path, {
+			by: "ISXEG8",
+			change: "o/r#2",
+			now: later(60_000),
+			startedElsewhereAt: later(40),
+		});
+
+		expect(slot.startAt).toEqual(later(SPACING + 40));
+		expect(slot.behind).toEqual({ by: "A2VLJN", change: "o/r#1" });
+	});
+
 	it("names no kept slot's round when a later start read elsewhere set the wait", async () => {
 		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
 
@@ -182,7 +208,8 @@ describe("waiting for a start", () => {
 			now: new Date(),
 		});
 
-		expect(waited).toEqual({});
+		expect(waited.waited).toBeUndefined();
+		expect(waited.cancelled).toBeUndefined();
 	});
 
 	it("waits for its slot and says its place and start time", async () => {
@@ -197,9 +224,10 @@ describe("waiting for a start", () => {
 		});
 
 		// Measured against its slot, not the call, so a slow first claim
-		// on a loaded machine can't fail it.
+		// on a loaded machine can't fail it; a Node timer may fire a
+		// millisecond or so early.
 		expect(Date.now(), "it waited for its slot").toBeGreaterThanOrEqual(
-			now.getTime() + 300,
+			now.getTime() + 300 - TIMER_EARLY_MS,
 		);
 		expect(waited.waited).toContain(
 			`at ${new Date(now.getTime() + 300).toISOString().slice(11, 19)} UTC, next in line, behind o/r#1 (asked by A2VLJN)`,
@@ -218,8 +246,7 @@ describe("waiting for a start", () => {
 			giving.signal,
 		);
 		// Given up once it holds its slot and sleeps, not before.
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		expect(kept().by, "it took its slot").toBe("ISXEG8");
+		await slotTakenBy("ISXEG8");
 		giving.abort();
 
 		const waited = await waiting;
@@ -237,12 +264,28 @@ describe("waiting for a start", () => {
 			{ by: "ISXEG8", change: "o/r#2", now },
 			giving.signal,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await slotTakenBy("ISXEG8");
 		await claimCouncilStart(path, { by: "85PKB2", change: "o/r#3", now });
 		giving.abort();
 
 		await waiting;
 		expect(kept().by, "the later claim keeps its slot").toBe("85PKB2");
+	});
+
+	it("gives back a slot it waited for when the round is refused once its wait is over", async () => {
+		const now = new Date();
+		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now });
+		const start = await awaitCouncilStart(path, {
+			by: "ISXEG8",
+			change: "o/r#2",
+			now,
+			spacingMs: 100,
+		});
+		expect(start.waited).toBeDefined();
+
+		await start.release?.();
+
+		expect(kept().by, "the slot before it is the last again").toBe("A2VLJN");
 	});
 
 	it("takes no slot when stopped before it asks", async () => {

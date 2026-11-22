@@ -12,6 +12,7 @@
 import { join } from "node:path";
 import {
 	awaitCouncilStart,
+	type CouncilStart,
 	newestRosterStartIn,
 } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
@@ -160,7 +161,7 @@ export function nextSeq(): number {
 export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
-): Promise<{ readonly waited?: string; readonly cancelled?: string }> {
+): Promise<CouncilStart> {
 	// A round a session on an older install started never took a slot,
 	// but its reviewers' folder says when it began.
 	const elsewhere = await newestRosterStartIn(join(runArtifactDir(), "runs"));

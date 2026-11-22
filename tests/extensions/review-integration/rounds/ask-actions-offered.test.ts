@@ -223,6 +223,20 @@ describe("review_ask", () => {
 			];
 		});
 		expect(wrong).toEqual([]);
+
+		// A council on this head queued ahead writes its ledger entry only
+		// as it opens, so the council asks again once its wait is over, and
+		// refused then gives its slot back.
+		const council = rounds.find((round) => round.name === "councilRound");
+		const afterWait = council?.body.slice(
+			council.body.indexOf("await awaitRosterStart("),
+		);
+		expect(afterWait, "asks the ledger again after its wait").toContain(
+			"councilRefused(",
+		);
+		expect(afterWait, "gives its slot back when refused then").toContain(
+			"start.release",
+		);
 	});
 
 	it("reads every round's lenses out of the tree that round reads", () => {

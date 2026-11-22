@@ -44,6 +44,13 @@ export const COUNCIL_START_SPACING_MS = 3 * 60_000;
  */
 const FURTHEST_SLOT_AHEAD_MS = 2 * 60 * 60_000;
 
+/**
+ * How soon after a kept slot a round's transcripts folder may be
+ * stamped and still be that round's own: it is written as the round
+ * opens, a moment after its wait ends.
+ */
+const SAME_ROUND_WITHIN_MS = 30_000;
+
 /** The last slot taken on the machine, as kept on disk. */
 interface KeptSlot {
 	/** When it starts, in ISO form. */
@@ -126,13 +133,15 @@ async function takeSlot(path: string, claim: StartClaim): Promise<Taken> {
 		await keep(path, kept);
 		const ahead = Math.max(0, Math.ceil((startAt - now) / spacing) - 1);
 		// Named only when the kept slot is what set the wait, not a start
-		// read from the transcripts.
+		// read from the transcripts. A round that took the kept slot stamps
+		// its own folder a moment after it, so a start read that soon after
+		// the slot is that same round.
 		const behindLast =
 			startAt > now &&
 			last !== undefined &&
 			lastAt !== undefined &&
 			before.includes(lastAt) &&
-			lastAt + spacing === startAt;
+			startAt - (lastAt + spacing) <= SAME_ROUND_WITHIN_MS;
 		return {
 			slot: {
 				startAt: new Date(startAt),
@@ -170,6 +179,19 @@ async function giveBack(path: string, taken: Taken): Promise<void> {
 	});
 }
 
+/** What a wait for a start answers. */
+export interface CouncilStart {
+	/** What the round's answer should say about its wait, when it waited. */
+	readonly waited?: string;
+	/** Why it starts nothing, when it was stopped before or while it waited. */
+	readonly cancelled?: string;
+	/**
+	 * Gives the slot back, for a round refused once its wait is over, so
+	 * the next round waits behind none that never started (`giveBack`).
+	 */
+	readonly release?: () => Promise<void>;
+}
+
 /**
  * Takes the next slot and waits for it, answering what the round's
  * answer should say about the wait, or nothing when it started at
@@ -180,14 +202,15 @@ export async function awaitCouncilStart(
 	path: string,
 	claim: StartClaim,
 	signal?: AbortSignal,
-): Promise<{ readonly waited?: string; readonly cancelled?: string }> {
+): Promise<CouncilStart> {
 	if (signal?.aborted === true) {
 		return { cancelled: "It was stopped before it took a start." };
 	}
 	const taken = await takeSlot(path, claim);
 	const { slot } = taken;
+	const release = () => giveBack(path, taken);
 	const waitMs = slot.startAt.getTime() - Date.now();
-	if (waitMs <= 0) return {};
+	if (waitMs <= 0) return { release };
 	const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
 	try {
 		await sleep(waitMs, undefined, signal === undefined ? {} : { signal });
@@ -197,7 +220,7 @@ export async function awaitCouncilStart(
 		await giveBack(path, taken);
 		return { cancelled: stoppedSaid(slot, spacing) };
 	}
-	return { waited: waitSaid(slot, spacing) };
+	return { waited: waitSaid(slot, spacing), release };
 }
 
 /**

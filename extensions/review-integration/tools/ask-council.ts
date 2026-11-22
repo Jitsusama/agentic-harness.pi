@@ -157,9 +157,14 @@ async function councilRound(
 		return { refused: refuse(start.cancelled) };
 	// Asked again after the wait: a council on this head queued ahead of
 	// this one writes its ledger entry only as it opens, a spacing ago.
+	// Refused then, it gives its slot back, so the next round on the
+	// machine waits behind none that never started.
 	if (start.waited !== undefined) {
 		const since = await councilRefused(change, proposal.headCommit, params);
-		if (since !== undefined) return { refused: refuse(since) };
+		if (since !== undefined) {
+			await start.release?.();
+			return { refused: refuse(since) };
+		}
 	}
 	return {
 		roster,
