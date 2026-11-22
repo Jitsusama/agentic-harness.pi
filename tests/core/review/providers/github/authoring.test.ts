@@ -442,9 +442,10 @@ describe("requesting reviewers", () => {
 		// so `o/reviewers` has to go as the team slug `reviewers`.
 		const { exec, calls } = fakeExec([
 			{
-				when: ["requested_reviewers"],
+				when: ["POST", "requested_reviewers"],
 				stdout: recorded(["wren"], ["reviewers"]),
 			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
 		]);
 
 		await githubAuthoring(exec).requestReviewers?.(ref, [
@@ -477,7 +478,11 @@ describe("requesting reviewers", () => {
 
 	it("names whoever GitHub took the request for and didn't record", async () => {
 		const { exec } = fakeExec([
-			{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
 		]);
 
 		await expect(
@@ -533,6 +538,30 @@ describe("requesting reviewers", () => {
 		);
 	});
 
+	it("says it's unknown when the answer holds only one of the lists", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["requested_reviewers"],
+				stdout: JSON.stringify({ requested_reviewers: [{ login: "wren" }] }),
+			},
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren"]),
+			"an answer missing the teams list says nothing of teams",
+		).rejects.toThrow(/whether anybody was asked is unknown/);
+	});
+
+	it("asks a person-only list in one call, reading nothing first", async () => {
+		const { exec, calls } = fakeExec([
+			{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
+		]);
+
+		await githubAuthoring(exec).requestReviewers?.(ref, ["wren"]);
+
+		expect(calls, "only the request itself").toHaveLength(1);
+	});
+
 	it("says it's unknown when the answer holds neither list", async () => {
 		const { exec } = fakeExec([
 			{ when: ["requested_reviewers"], stdout: "{}" },
@@ -562,21 +591,40 @@ describe("requesting reviewers", () => {
 		expect(sent.reviewers, "the person trimmed and without its @").toEqual([
 			"wren",
 		]);
-		expect(sent.team_reviewers, "the slug as it was asked").toEqual([
-			"Reviewers",
-		]);
+		expect(
+			sent.team_reviewers,
+			"the slug lowercased, as GitHub keeps it",
+		).toEqual(["reviewers"]);
 	});
 
-	it("refuses a name that names nobody before asking anybody", async () => {
-		for (const name of [" ", "@", "o/", "/x", "o/a/b"]) {
+	it("refuses a name no login or team could be before asking anybody", async () => {
+		const refusals: [string, RegExp][] = [
+			[" ", /names nobody/],
+			["@", /names nobody/],
+			["@ wren", /isn't a GitHub login/],
+			["wren finch", /isn't a GitHub login/],
+			["wren,finch", /isn't a GitHub login/],
+			["o/", /isn't a team GitHub can name/],
+			["/x", /isn't a team GitHub can name/],
+			["o/a/b", /isn't a team GitHub can name/],
+			["o/ ci", /isn't a team GitHub can name/],
+			["o /ci", /isn't a team GitHub can name/],
+		];
+		for (const [name, why] of refusals) {
 			const { exec, calls } = fakeExec([
 				{ when: ["requested_reviewers"], stdout: recorded(["wren"], []) },
 			]);
 
-			await expect(
-				githubAuthoring(exec).requestReviewers?.(ref, ["wren", name]),
-				`"${name}" is refused`,
-			).rejects.toThrow(/Nobody was asked\./);
+			const asking = githubAuthoring(exec).requestReviewers?.(ref, [
+				"wren",
+				name,
+			]);
+			await expect(asking, `"${name}" is refused, saying why`).rejects.toThrow(
+				why,
+			);
+			await expect(asking, `"${name}" asks nobody`).rejects.toThrow(
+				/Nobody was asked\./,
+			);
 			expect(calls, `nothing reaches GitHub for "${name}"`).toEqual([]);
 		}
 	});
@@ -584,21 +632,72 @@ describe("requesting reviewers", () => {
 	it("counts a team handed on to its members as asked", async () => {
 		// GitHub's code review assignment removes the team and requests
 		// some of its members in its place.
-		const { exec } = fakeExec([
+		const { exec, calls } = fakeExec([
 			{
 				when: ["POST", "requested_reviewers"],
 				stdout: recorded(["wren", "earlier", "picked"], []),
 			},
 			{
 				when: ["requested_reviewers"],
-				stdout: JSON.stringify({ users: [{ login: "earlier" }], teams: [] }),
+				stdout: requestedEarlier(["earlier"], []),
 			},
+			{ when: ["teams/ci/memberships/picked"], stdout: ACTIVE_MEMBER },
 		]);
 
 		await expect(
 			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
-			"someone nobody named appeared in the team's place",
+			"a member of the team nobody named appeared in its place",
 		).resolves.toBeUndefined();
+		const read = calls.findIndex(
+			(call) =>
+				call.args.some((arg) => arg.endsWith("/requested_reviewers")) &&
+				!call.args.includes("POST"),
+		);
+		const asked = calls.findIndex((call) => call.args.includes("POST"));
+		expect(read, "who was requested is read").toBeGreaterThanOrEqual(0);
+		expect(read, "and read before the request, not after").toBeLessThan(asked);
+		expect(
+			callMatching(calls, "orgs/o/teams/ci/memberships/picked"),
+			"the newcomer's membership is read from the repo's org",
+		).toBeDefined();
+	});
+
+	it("doesn't take a newcomer who isn't the team's member as the team handed on", async () => {
+		// A code owner's request landing between the read and the ask would
+		// otherwise hide a dropped team.
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["wren", "owner"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
+			{ when: ["memberships/owner"], code: 1, stderr: "HTTP 404" },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["wren", "o/ci"]),
+			"dropped, with the doubt said and no ask-again advice",
+		).rejects.toThrow(
+			/recorded no request for team ci\. It did record wren\. wren, owner appeared, and team ci may have been handed on to them .*check the pull request's reviewers before asking again/,
+		);
+	});
+
+	it("counts each team on its own members, so a dropped one beside one handed on is said", async () => {
+		const { exec } = fakeExec([
+			{
+				when: ["POST", "requested_reviewers"],
+				stdout: recorded(["picked"], []),
+			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], []) },
+			{ when: ["teams/ci/memberships/picked"], stdout: ACTIVE_MEMBER },
+		]);
+
+		await expect(
+			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci", "o/typo"]),
+			"typo has no member among the newcomers",
+		).rejects.toThrow(
+			/recorded no request for team typo\. It did record team ci\./,
+		);
 	});
 
 	it("doesn't take someone requested earlier as a team handed on", async () => {
@@ -630,26 +729,25 @@ describe("requesting reviewers", () => {
 
 		await expect(
 			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
-			"the strict reading when the earlier list is unread",
-		).rejects.toThrow(/recorded no request for team ci\./);
+			"dropped, saying it may have been handed on as the list was unread",
+		).rejects.toThrow(
+			/recorded no request for team ci\. Who was requested before couldn't be read, so team ci may have been handed on/,
+		);
 	});
 
-	it("keeps a team already requested as recorded", async () => {
+	it("doesn't take a team requested earlier as recorded when the answer lacks it", async () => {
 		const { exec } = fakeExec([
 			{
 				when: ["POST", "requested_reviewers"],
-				stdout: recorded([], ["ci"]),
+				stdout: recorded([], []),
 			},
-			{
-				when: ["requested_reviewers"],
-				stdout: JSON.stringify({ users: [], teams: [{ slug: "ci" }] }),
-			},
+			{ when: ["requested_reviewers"], stdout: requestedEarlier([], ["ci"]) },
 		]);
 
 		await expect(
 			githubAuthoring(exec).requestReviewers?.(ref, ["o/ci"]),
-			"a team still requested is recorded",
-		).resolves.toBeUndefined();
+			"nobody new appeared, so dropped without a doubt",
+		).rejects.toThrow(/recorded no request for team ci\. Check the name/);
 	});
 });
 
@@ -673,6 +771,17 @@ describe("reviewers no ask could take", () => {
 		expect(calls, "nothing reaches GitHub").toEqual([]);
 	});
 });
+
+/** GitHub's answer for a login that is an active member of a team. */
+const ACTIVE_MEMBER = JSON.stringify({ state: "active", role: "member" });
+
+/** Who a pull request had requested, as its requested_reviewers route lists them. */
+function requestedEarlier(logins: string[], slugs: string[]): string {
+	return JSON.stringify({
+		users: logins.map((login) => ({ login })),
+		teams: slugs.map((slug) => ({ slug })),
+	});
+}
 
 /** A pull request answer recording these logins and team slugs. */
 function recorded(logins: string[], slugs: string[]): string {

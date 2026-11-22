@@ -250,6 +250,27 @@ describe("proposing through the tool", () => {
 		);
 	});
 
+	it("proposes and asks reviewers the names alone don't refuse", async () => {
+		const requested: string[][] = [];
+		const { provider, asked } = recordingProvider(
+			{ ...CAN_ONLY_PROPOSE, reviewersAt: "any-time", identifies: "login" },
+			{
+				reviewersRefusal: () => undefined,
+				requestReviewers: async (_change: unknown, actors: string[]) => {
+					requested.push(actors);
+				},
+			},
+		);
+		registerReviewProvider(provider);
+
+		await offer({ ...proposal, reviewers: ["@shop/ci"] });
+
+		expect(asked, "proposed").toHaveLength(1);
+		expect(requested, "the team asked, its @ let through").toEqual([
+			["@shop/ci"],
+		]);
+	});
+
 	it("lets an email through to a backend that wants one", async () => {
 		const { provider, asked } = recordingProvider();
 		registerReviewProvider(provider);

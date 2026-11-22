@@ -110,8 +110,10 @@ export function misnamedPeople(
 	// An address has an @ and a login does not. Crude on purpose: the job is
 	// to catch a whole set given in the other form, which is what happens
 	// when somebody carries habits from one backend to another, not to
-	// validate an address.
-	const wrong = who.filter((one) => one.includes("@") !== (form === "email"));
+	// validate an address. A leading @ is a mention (`@wren`, `@org/team`,
+	// as GitHub writes them), not an address, so only an @ after it counts.
+	const address = (one: string) => one.trim().replace(/^@/, "").includes("@");
+	const wrong = who.filter((one) => address(one) !== (form === "email"));
 	if (wrong.length === 0) return undefined;
 
 	const wanted =
