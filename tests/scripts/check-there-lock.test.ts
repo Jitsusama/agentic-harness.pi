@@ -63,6 +63,7 @@ function turnTaking(): string {
 	const functions = [
 		"let_go",
 		"gone_within",
+		"end_groups",
 		"stop_all",
 		"alone",
 		"let_go_of_dead",

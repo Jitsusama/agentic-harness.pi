@@ -22,24 +22,28 @@
 # one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
 # check before it to end, and its holder's line names the pid that stops
 # the whole of a check with a TERM, its turn passing once its work has
-# stopped. Exits with what `pnpm check` exited with, or 75 when its turn
-# never came.
+# stopped. A check whose caller goes away runs on, since without a pty
+# sshd signals nothing. Exits with what `pnpm check` exited with, or 75
+# when its turn never came.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
 wait_s="${CHECK_THERE_WAIT_S:-5400}"
+# Eight digits or more would pass bash's integers on the host, as a wait
+# that ends at once.
 case "$wait_s" in
-  '' | *[!0-9]*)
-    echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds" >&2
+  '' | *[!0-9]* | ????????*)
+    echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds under ten million" >&2
     exit 2
     ;;
 esac
 # ssh joins its words into one line the host's login shell, bash or zsh,
 # reads again, and git lets a branch's name hold `;` and `$(`, so a check
 # takes only a branch named in plain characters. ssh would read a host
-# that opens with a dash as one of its options, and an older ssh puts the
-# name as it stands into a ProxyCommand's shell line.
+# that opens with a dash, or a name after its user that does, as one of
+# its options, and an older ssh puts the name as it stands into a
+# ProxyCommand's shell line.
 case "$branch" in
   '' | -* | *[!A-Za-z0-9._/@+-]*)
     echo "check-there: '$branch' names no branch a check can take" >&2
@@ -47,7 +51,7 @@ case "$branch" in
     ;;
 esac
 case "$host" in
-  -* | *[!A-Za-z0-9._@-]*)
+  -* | *@-* | *[!A-Za-z0-9._@-]*)
     echo "check-there: '$host' names no host" >&2
     exit 2
     ;;
@@ -109,34 +113,49 @@ gone_within() {
     done
   done
 }
+# Ends the groups named: a TERM, `stop_wait_s` seconds for them to go,
+# then a KILL to what is left.
+end_groups() {
+  local group
+  for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
+  gone_within "${stop_wait_s:-10}" "$@" && return
+  for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
+  gone_within 5 "$@" || true
+}
 stop_all() {
   trap '' TERM INT HUP
-  local groups group
+  local groups
   groups=$(jobs -p)
-  for group in $groups; do kill -TERM -- "-$group" 2>/dev/null || true; done
   # shellcheck disable=SC2086 # one word a group
-  if ! gone_within "${stop_wait_s:-10}" $groups; then
-    for group in $groups; do kill -KILL -- "-$group" 2>/dev/null || true; done
-    # shellcheck disable=SC2086 # one word a group
-    gone_within 5 $groups || true
-  fi
+  end_groups $groups
   exit "$1"
 }
 trap 'stop_all 143' TERM
 trap 'stop_all 130' INT
 trap 'stop_all 129' HUP
-# Runs a command as a job without fd 9, so nothing it leaves running,
-# such as git's fsmonitor daemon, holds the lock once it ends, ending
-# with it. A job under `set -m` keeps this shell's stdin, the script
-# `bash -s` reads, so it gets none, and nothing in it can swallow the
-# script. It is asked after every second rather than waited on, since a
-# signal landing just as `wait` begins waits for the job's end; a trap
-# runs as soon as the second's sleep ends.
+# Runs a command as a job in a group of its own and without fd 9, and
+# ends what it left in its group as it ends, so the turn passes with
+# none of it running; what leaves the group, as git's fsmonitor daemon
+# may, holds no lock as it runs on. A job under `set -m` keeps this
+# shell's stdin, the script `bash -s` reads, so it gets none, and
+# nothing in it can swallow the script. It is asked after every second
+# rather than waited on, since a signal landing just as `wait` begins
+# waits for the job's end; a trap runs as soon as the second's sleep
+# ends. Work with no group of its own, as job control that didn't take
+# would leave it, is ended and refused, since no stop could reach it.
 alone() {
   "$@" 9>&- </dev/null &
-  local job=$!
+  local job=$! status=0
+  if kill -0 "$job" 2>/dev/null && ! kill -0 -- "-$job" 2>/dev/null; then
+    kill -KILL "$job" 2>/dev/null || true
+    wait "$job" 2>/dev/null || true
+    echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
+    return 1
+  fi
   while kill -0 "$job" 2>/dev/null; do sleep 1; done
-  wait "$job"
+  wait "$job" || status=$?
+  end_groups "$job"
+  return "$status"
 }
 # A check killed outright runs no trap, so its node link stays; each
 # check takes away the links of checks no longer running.
@@ -152,15 +171,17 @@ let_go_of_dead() {
 # harness's other scripts run on, from the host's nixpkgs. It is found
 # before the lock, so no other check waits on a fetch, and linked from
 # ~/.cache under this check's own name, so the store keeps it while the
-# check runs and a check started beside it can't repoint the link.
+# check runs and a check started beside it can't repoint the link. The
+# build runs alone, so a stop meanwhile reaches it; a substitution's
+# shell would start it with no job control.
 let_go_of_dead
 if ! command -v node >/dev/null 2>&1; then
   node_link=~/.cache/harness-check-node.$$
-  if ! node=$(nix build --out-link "$node_link" --print-out-paths nixpkgs#nodejs_24); then
+  if ! alone nix build --out-link "$node_link" nixpkgs#nodejs_24; then
     echo "check-there: no node on $(hostname), and nix gave none" >&2
     exit 1
   fi
-  export PATH="$node/bin:$PATH"
+  export PATH="$node_link/bin:$PATH"
 fi
 # flock(1) is util-linux's, which a Mac lacks, so there perl takes the
 # same lock on fd 9's open file. A flock lock belongs to the open file,
