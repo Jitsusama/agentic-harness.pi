@@ -176,6 +176,19 @@ describe("parking", () => {
 		expect(seen.looked, "a run may move it").toBe(3);
 	});
 
+	it("asks again within a minute, so a lookup that missed the repository mends", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.tick();
+		expect(parking.parked, "a lookup that missed parked it").toBe(false);
+		seen.repos = ["example/shop"];
+		for (let tick = 0; tick < 6; tick += 1) await parking.tick();
+		expect(parking.parked, "six ticks on, it still wasn't asked again").toBe(
+			true,
+		);
+		expect(seen.looked, "asked once a minute, not each tick").toBe(2);
+	});
+
 	it("asks again at a turn's end, so a run that moved into a stopped repository parks", async () => {
 		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
 		seen.repos = [];

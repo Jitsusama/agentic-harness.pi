@@ -147,6 +147,12 @@ describe("writesInBash", () => {
 		held("systemd-run --user --unit x --slice app.slice pi", "pi");
 		held("setsid nohup pi", "pi");
 		held("mycelium run --need machine=mac -- pi", "pi");
+		held("jobs-broker run -- pi -p go", "pi");
+		held("jobs-broker run --quest 0tud09 -- pi", "pi");
+		held("/usr/bin/env pi -p go", "pi");
+		held("/run/wrappers/bin/sudo pi -p go", "pi");
+		held("/usr/bin/timeout 60 pi", "pi");
+		held("/usr/bin/env bash -c 'pi -p go'", "pi");
 		held("bash -c 'pi -p hi'", "pi");
 		held("bash -lc 'pi -p hi'", "pi");
 		held("sh -ec pi", "pi");
@@ -201,6 +207,9 @@ describe("writesInBash", () => {
 			"xargs -n1 echo",
 			"pnpm exec vitest run",
 			"mycelium run --need machine=mac -- uptime",
+			"jobs-broker run -- nix build .#thing",
+			"jobs-broker status pi-agent-proxy.socket",
+			"/run/wrappers/bin/sudo systemctl status pi-host-work-attended",
 		]) {
 			expect(start(command), command).toEqual([]);
 		}
@@ -398,6 +407,7 @@ describe("writesInBash", () => {
 		held("echo $(date)#; pi -p go", "pi");
 		held("echo a\\ #; pi -p go", "pi");
 		held("echo 'pi -p go' | sudo -s", "pi");
+		held("echo 'pi -p go' | /run/wrappers/bin/sudo bash", "pi");
 		held("sudo -i <<'EOF'\npi -p go\nEOF", "pi");
 		held("echo 'pi -p go' | su", "pi");
 		held("echo 'pi -p go' | run0", "pi");

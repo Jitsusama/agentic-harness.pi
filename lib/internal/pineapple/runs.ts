@@ -337,7 +337,9 @@ export function unwrapped(argv: string[]): string[] {
 	let words = argv;
 	let at = 0;
 	while (at < words.length) {
-		const word = words[at] ?? "";
+		// A wrapper given by its path (/usr/bin/env, /run/wrappers/bin/sudo)
+		// is the same wrapper, as everything after this reads it.
+		const word = (words[at] ?? "").split("/").at(-1) ?? "";
 		if (word === "command" && LOOKS_UP.test(words[at + 1] ?? "")) return [];
 		if (word === "env") {
 			at += 1;
@@ -502,8 +504,11 @@ export function runs(name: string, args: string[]): Runs | undefined {
 	}
 	if (name === "eval")
 		return args.length === 0 ? undefined : { line: args.join(" ") };
+	// jobs-broker is what a fenced session is told to run in place of
+	// systemd-run, and like mycelium it runs only what follows `--`.
 	if (
 		name === "mycelium" ||
+		name === "jobs-broker" ||
 		(SCRIPT_RUNNERS.has(name) && args.some((word) => FENCE.test(word)))
 	) {
 		const after = args.indexOf("--");

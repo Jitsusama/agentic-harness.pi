@@ -71,6 +71,12 @@ export const RESUMED_TEXT = automatedText(
 	"Carry on where you left off, but before any push, pull-request write or merge where the stop stood, check what changed there while it did: others may have moved on.",
 );
 
+/**
+ * How many times where an idle session is may be answered from what was
+ * last found: at the clock's ten seconds, a minute.
+ */
+const KNOWN_FOR = 6;
+
 /** Make the parking for one session. */
 export function createParking(deps: ParkingDeps): Parking {
 	let personNext = false;
@@ -83,15 +89,23 @@ export function createParking(deps: ParkingDeps): Parking {
 	/**
 	 * Where the session was found, for the stops that asked, kept between
 	 * runs: nothing moves an idle session, and the clock asks every ten
-	 * seconds, which would rerun its git lookups each time.
+	 * seconds, which would rerun its git lookups each time. It is asked
+	 * again after KNOWN_FOR answers all the same, since a lookup a busy
+	 * host timed out drops a repository, and a stop counted late beats
+	 * one missed.
 	 */
-	let known: { readonly stops: string; readonly session: Session } | undefined;
+	let known:
+		| { readonly stops: string; readonly session: Session; used: number }
+		| undefined;
 
 	async function whereabouts(stops: readonly Stop[]): Promise<Session> {
 		const key = stops.map((stop) => stop.id).join(" ");
-		if (known?.stops === key) return known.session;
+		if (known?.stops === key && known.used < KNOWN_FOR) {
+			known.used += 1;
+			return known.session;
+		}
 		const session = await deps.session(stops);
-		known = { stops: key, session };
+		known = { stops: key, session, used: 1 };
 		return session;
 	}
 
