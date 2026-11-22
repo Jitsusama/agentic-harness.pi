@@ -231,6 +231,7 @@ describe("what the agent fence hands gcloud", () => {
 				return { token, project: "a-lab-project" };
 			},
 		});
+		if (fence.kind !== "fence") throw new Error("no longer the fence");
 		expect("gcloud" in fence).toBe(false);
 		expect(fenceCloud(fence, home, { PI_SESSION_ID: "s-3" })).toEqual({});
 		askTheCloudAhead(fence);
