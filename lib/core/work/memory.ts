@@ -21,6 +21,11 @@
  * so every tree ever cut answered "something still holds it" forever: measured
  * at 59 records and 649MB on one machine, growing by a snapshot per review
  * round.
+ *
+ * Long because the records are read two ways, on the thread for a first
+ * answer and off it for a host whose conversations share one loop, and both
+ * readers parse one record format and judge it by the same rules: a change to
+ * what a record holds, or to who still holds it, is a change to both.
  */
 
 import { randomBytes } from "node:crypto";

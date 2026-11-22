@@ -106,6 +106,8 @@ const {
 
 /** Settles once what the disk was asked has had time to answer. */
 const answered = (): Promise<void> =>
+	// A real pause is the point: it shows no second reading started, and
+	// nothing signals a reading that never began.
 	new Promise((done) => setTimeout(done, 50));
 
 /** A record of a tree at `path`, held by `sessions`, its folder made. */
