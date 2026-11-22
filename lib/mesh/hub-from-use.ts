@@ -66,7 +66,9 @@ const HUB_TIE_FLOOR = 2 ** -(HUB_TIE_AGE_MS / TIE_HALF_LIFE_MS);
  * an address that could be the hub's counts, never one to a group or an
  * address two presences list. Equal ties go
  * to the cell whose single tie is strongest, and a cell whose ties add
- * up, whole, to less than `HUB_TIE_FLOOR` is no hub. A cell that has stopped
+ * up, whole, to less than `HUB_TIE_FLOOR` is no hub, so the cell next in
+ * line is weighed instead; the answer says the ties were too faint only
+ * when every cell tied to fell short. A cell that has stopped
  * this one is never its hub, since it would not be written to, and nor
  * is one this cell has stopped, whose answer it would drop.
  *
@@ -115,32 +117,8 @@ export function hubFromUse(
 			none: `${unmarked} and no ties came from the node (none answered in time, or it keeps none) to find its hub from use`,
 		};
 	}
-	const stoppers = new Set(
-		stoppedBy(self, live).map(({ stopper }) => stopper.session),
-	);
-	// Held by exactly one live presence, and by no ended one on another
-	// quest, so the cell it names is that one, in any case, since a send
-	// reads an address upper-cased.
-	const alone = (address: string) => {
-		const [holder, ...others] = live.filter((one) => lists(one, address));
-		if (holder === undefined || others.length > 0) return false;
-		const quest = ownQuestOf(holder);
-		return !ended.some(
-			(one) => lists(one, address) && ownQuestOf(one) !== quest,
-		);
-	};
-	const writable = (address: string) => isHub(address) && alone(address);
-	const candidates = live.filter((one) => {
-		if (
-			one.session === self.session ||
-			stoppers.has(one.session) ||
-			stoppedHere(self, one)
-		) {
-			return false;
-		}
-		const own = ownQuestOf(one);
-		return own !== undefined && above.has(own) && one.addresses.some(writable);
-	});
+	const { writable, eligible } = hubRules(self, live, ended);
+	const candidates = live.filter(eligible);
 	// Strongest first, so the first cell to reach a sum keeps it on a tie.
 	const sums = new Map<Presence, { share: number; whole: number }>();
 	for (const tie of ties) {
@@ -155,11 +133,14 @@ export function hubFromUse(
 			});
 		}
 	}
-	let best: { hub: Presence; share: number; whole: number } | undefined;
+	let best: { hub: Presence; share: number } | undefined;
 	for (const [hub, sum] of sums) {
-		if (best === undefined || sum.share > best.share) best = { hub, ...sum };
+		if (sum.whole < HUB_TIE_FLOOR) continue;
+		if (best === undefined || sum.share > best.share) {
+			best = { hub, share: sum.share };
+		}
 	}
-	if (best !== undefined && best.whole < HUB_TIE_FLOOR) {
+	if (best === undefined && sums.size > 0) {
 		return {
 			none: `${unmarked} and its ties to the live cells on the quests above it are too faint to make a hub: less than one message on them in the last six hours`,
 		};
@@ -182,6 +163,54 @@ function ownShare(tie: Tie): number {
 	const [mine, theirs] = tie.today;
 	const total = mine + theirs;
 	return total > 0 ? (tie.strength * mine) / total : 0;
+}
+
+/**
+ * Who may be `self`'s hub from use, as finding one and reading it again
+ * both judge it, so a hub read again is refused for whatever would have
+ * kept it from being found. `writable` is whether an address could be a
+ * hub's: shaped as a peer's, listed by exactly one live presence, and by
+ * no ended one on another quest, in any case, since a send reads an
+ * address upper-cased. `eligible` is whether a live presence could be
+ * the hub: another cell, on a quest above, written to at such an
+ * address, that neither has stopped the other.
+ */
+function hubRules(
+	self: Pick<
+		Presence,
+		"session" | "addresses" | "groups" | "joined" | "quest" | "stops"
+	>,
+	live: readonly Presence[],
+	ended: readonly Presence[],
+): {
+	readonly writable: (address: string) => boolean;
+	readonly eligible: (one: Presence) => boolean;
+} {
+	const above = new Set(questsAbove(self));
+	const stoppers = new Set(
+		stoppedBy(self, live).map(({ stopper }) => stopper.session),
+	);
+	const alone = (address: string) => {
+		const [holder, ...others] = live.filter((one) => lists(one, address));
+		if (holder === undefined || others.length > 0) return false;
+		const quest = ownQuestOf(holder);
+		return !ended.some(
+			(one) => lists(one, address) && ownQuestOf(one) !== quest,
+		);
+	};
+	const writable = (address: string) => isHub(address) && alone(address);
+	const eligible = (one: Presence) => {
+		if (
+			one.session === self.session ||
+			stoppers.has(one.session) ||
+			stoppedHere(self, one)
+		) {
+			return false;
+		}
+		const own = ownQuestOf(one);
+		return own !== undefined && above.has(own) && one.addresses.some(writable);
+	};
+	return { writable, eligible };
 }
 
 /** Whether `self` has stopped `one`, by its session or an address. */
@@ -226,19 +255,26 @@ export function questsAbove(
 }
 
 /**
- * Whether a hub found earlier still stands as `self` reads it now: its
- * address listed by exactly one of the `live` presences, and that one
- * on a quest above `self`'s, as the find required when it chose it.
+ * Whether a hub found earlier still stands as `self` reads it now, by
+ * the rules finding it used: its address one only the hub's live
+ * presence lists, with no `ended` one on another quest listing it too,
+ * that presence on a quest above `self`'s, and neither of the two having
+ * stopped the other since. Its ties aren't weighed again, since only
+ * the node keeps them.
  */
 export function stillAbove(
-	self: Pick<Presence, "groups" | "joined" | "quest">,
+	self: Pick<
+		Presence,
+		"session" | "addresses" | "groups" | "joined" | "quest" | "stops"
+	>,
 	live: readonly Presence[],
 	address: string,
+	ended: readonly Presence[] = [],
 ): boolean {
-	const [holder, ...others] = live.filter((one) => lists(one, address));
-	if (holder === undefined || others.length > 0) return false;
-	const own = ownQuestOf(holder);
-	return own !== undefined && questsAbove(self).includes(own);
+	const { writable, eligible } = hubRules(self, live, ended);
+	if (!writable(address)) return false;
+	const holder = live.find((one) => lists(one, address));
+	return holder !== undefined && eligible(holder);
 }
 
 /** The quest `one` works on, the last of its chain, if it has one. */

@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { hubFromUse } from "../../../lib/mesh/hub-from-use.ts";
+import { hubFromUse, stillAbove } from "../../../lib/mesh/hub-from-use.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 
@@ -211,6 +211,38 @@ describe("a hub from use", () => {
 		);
 
 		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// A cell written to once six and a half hours ago has the larger
+	// share, all of it this cell's own, but the busy hub beside it was
+	// written to half an hour ago: the faint one is no hub, and mustn't
+	// hide one that is.
+	it("passes over a faint cell with the larger share for one above the floor", () => {
+		const faintButAllMine = tie("ROOT01", 2 ** -3.25);
+		const busyHub = {
+			...tie("MID002", 2 ** -0.25 + 20 * 2 ** -4),
+			today: [1, 20] as const,
+		};
+
+		const above = hubFromUse(
+			self,
+			[self, root, parent],
+			[busyHub, faintButAllMine],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is nobody, as too faint, when every cell above falls short of the floor", () => {
+		const above = hubFromUse(
+			self,
+			[self, root, parent],
+			[tie("ROOT01", 2 ** -4), tie("MID002", 2 ** -5)],
+		);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
 	});
 
 	it("is nobody when one of those ties is all it has", () => {
@@ -474,5 +506,41 @@ describe("a hub from use", () => {
 		expect(hubFromUse(loose, [loose, root], [tie("ROOT01", 9)])).toMatchObject({
 			none: expect.stringContaining("on no quest"),
 		});
+	});
+});
+
+// A kept hub decides where a send goes when the node is slow, so reading
+// it again must refuse what finding it would have.
+describe("a hub found earlier, read again", () => {
+	const at = new Date(0).toISOString();
+
+	it("still stands while its one holder is live on a quest above", () => {
+		expect(stillAbove(self, [self, root], "ROOT01")).toBe(true);
+	});
+
+	it("no longer stands once this cell has stopped it, by address or by session", () => {
+		const byAddress = { ...self, stops: [{ address: "ROOT01", at }] };
+		const bySession = {
+			...self,
+			stops: [{ address: "OLD999", session: "r", at }],
+		};
+
+		expect(stillAbove(byAddress, [byAddress, root], "ROOT01")).toBe(false);
+		expect(stillAbove(bySession, [bySession, root], "ROOT01")).toBe(false);
+	});
+
+	it("no longer stands once it has stopped this cell", () => {
+		const stopper = cell("r", ["ROOT01"], ["root01"], {
+			stops: [{ address: "7M6JKG", at }],
+		});
+
+		expect(stillAbove(self, [self, stopper], "ROOT01")).toBe(false);
+	});
+
+	it("no longer stands once an ended presence on another quest lists it", () => {
+		const forged = cell("f", ["HARN01"], ["root01"]);
+		const ended = cell("h", ["HARN01"], ["harn01"]);
+
+		expect(stillAbove(self, [self, forged], "HARN01", [ended])).toBe(false);
 	});
 });

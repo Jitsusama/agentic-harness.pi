@@ -404,9 +404,9 @@ describe("a kept hub", () => {
 		expect(hub.current()).toBeUndefined();
 	});
 
-	// A presence file can lag a move to another quest, or be overwritten
-	// by another process mid-session, so the chain is read from the peer
-	// itself.
+	// Another process can overwrite a presence file mid-session, and a
+	// publish that failed leaves it stale, so the chain is read from the
+	// peer itself.
 	it("is found for the quest the peer is on, not the one a stale presence names", async () => {
 		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
 		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
@@ -452,6 +452,58 @@ describe("a kept hub", () => {
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 
 		live("session-x", "ROOT01", "root01");
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	// A kept hub is where a send goes when the node is slow, so reading it
+	// refuses whatever the find would have.
+	it("is none at once when the peer stops the hub after it was found", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		Object.assign(at.peer, {
+			stops: [{ address: "ROOT01", at: new Date().toISOString() }],
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	it("is none at once when the hub stops the peer after it was found", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		const root = at.presences.of("session-r");
+		if (root === undefined) throw new Error("ROOT01 is not on the mesh");
+		at.presences.publish({
+			...root,
+			stops: [{ address: "7M6JKG", at: new Date().toISOString() }],
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	// A send to an ended peer's address reaches it once it is restored,
+	// and this one is on no quest above.
+	it("is none at once when an ended presence on another quest lists the hub's address", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		at.presences.publish({
+			session: "session-e",
+			addresses: ["ROOT01"],
+			groups: ["#quest/harn01"],
+			joined: [],
+			quest: "QEST-20261021-HARN01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+			ended: new Date().toISOString(),
+		});
 
 		expect(hub.current()).toBeUndefined();
 	});

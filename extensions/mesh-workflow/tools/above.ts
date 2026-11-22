@@ -120,11 +120,10 @@ export async function findAbove(at: HubReading): Promise<Found> {
 /**
  * This peer as finding its hub reads it: its addresses, groups, stops
  * and quest as the peer holds them now, rather than as its presence file
- * last said them. The file is written only when the peer next
- * publishes, so it can lag a move to another quest, and another process
- * can overwrite it until the peer's next refresh puts it back; read
- * from there, it could find a hub for the quest just left. This closes
- * that lag and no more: the peer's own values come from the same user's
+ * last said them. Another process can overwrite the file until the
+ * peer's next refresh puts it back, and a publish that failed leaves it
+ * as it was; read from there, it could find a hub for a quest this peer
+ * isn't on. This covers those two and no more: the peer's own values come from the same user's
  * session records and quest files, and its joined groups and stops are
  * seeded from this presence when the peer is built.
  */
@@ -198,9 +197,11 @@ const HUB_SPREAD = 0.2;
  * Keep the hub from use of whatever peer `at` gives, found at once and
  * again `every` milliseconds after each find, or `retry` after one that
  * could not finish, twice that after a second in a row, and so on up to
- * `every`, each wait lengthened by up to a fifth at random. Only a find
- * that reached for the node counts toward the doubling: with no peer to
- * read yet, the next find comes a plain `retry` later. A peer under the
+ * `every`, each wait lengthened by up to a fifth at random. With no
+ * peer to read yet, the next find comes a plain `retry` later, since that
+ * says nothing of the node. A find that throws counts toward the
+ * doubling, and so does one that comes before this peer's presence,
+ * since a presence missing settles itself a find or two later. A peer under the
  * mark, or on a quest heading an
  * orchestration, keeps none and never asks the node, since the mark is
  * its orchestrator; a find that fails keeps none rather than one that
@@ -208,8 +209,9 @@ const HUB_SPREAD = 0.2;
  *
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
- * one whose quest is no longer below the hub's, nor one whose hub's
- * address is now listed by no live presence, or by more than one. Live
+ * one whose hub no longer passes the rules the find chose it by
+ * (`stillAbove`): its address listed by its live presence alone, that
+ * one on a quest above, and neither having stopped the other. Live
  * is as the last find's census judged it, less any presence that has
  * said since that it ended, since a census can wait and a read can't:
  * so a session that crashed is no second holder, and a hub that stopped
@@ -287,14 +289,19 @@ export function keepHub(
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
 			// Read as the find's census was: each presence answering only to
 			// the addresses no other signs with, as `peers` gives them.
-			const everyone = reading.presences.all();
-			const live = everyone
-				.filter((one) => one.ended === undefined && !gone.has(one.session))
-				.map((one) => ({ ...one, addresses: answeringTo(one, everyone) }));
+			const all = reading.presences.all();
+			const everyone = all.map((one) => ({
+				...one,
+				addresses: answeringTo(one, all),
+			}));
+			const isGone = (one: Presence) =>
+				one.ended !== undefined || gone.has(one.session);
+			const live = everyone.filter((one) => !isGone(one));
+			const ended = everyone.filter(isGone);
 			if (!live.some((one) => one.session === reading.peer.session)) {
 				return undefined;
 			}
-			return stillAbove(asItStands(reading.peer), live, address)
+			return stillAbove(asItStands(reading.peer), live, address, ended)
 				? address
 				: undefined;
 		},
