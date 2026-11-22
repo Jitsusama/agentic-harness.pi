@@ -1,13 +1,14 @@
 /**
  * Sending to `need`: a message goes to the live cell that works on what
  * it is about, found over the node's ties, and is kept for the measure;
- * a need nothing within reach works on is refused, never sent to a
- * leader in its place.
+ * a need nothing within reach works on is refused, and passed to nobody
+ * in its place.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { NEED_GRANTS_NOTHING } from "../../../extensions/mesh-workflow/tools/need.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, peer, startSession } from "./support/mesh.ts";
@@ -25,6 +26,15 @@ async function sending(
 ): Promise<string> {
 	const answer = await tools.get("mesh_send")?.execute("call-1", params);
 	return answer?.content[0]?.text ?? "";
+}
+
+/**
+ * A refusal is read at the moment a need fails, and the note's next step
+ * is to ask whoever is above who owns it, so no refusal may say a need
+ * never goes to an orchestrator. Naming whom to ask there is still free.
+ */
+function expectNoBarAbove(said: string): void {
+	expect(said).not.toMatch(/never sent to an orchestrator|no orchestrator/);
 }
 
 describe("sending to a need", () => {
@@ -48,7 +58,12 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("Sent as 7M6JKG");
 		expect(said).toContain("went to 5HJZ8Z");
-		expect(said).toContain("a yes, ruling or grant still comes only from");
+		// A fit works on it, which is no grant: that comes from the person or
+		// the peer whose quest holds the work, and the answer says how to see.
+		expect(said).toContain(NEED_GRANTS_NOTHING);
+		expect(NEED_GRANTS_NOTHING).toContain(
+			"the person or from the work's owner: the peer whose quest holds it (mesh_groups shows each peer's quest)",
+		);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		const [id] = transport.ids();
 		expect(id && transport.read(id)).toMatchObject({
@@ -67,7 +82,7 @@ describe("sending to a need", () => {
 		});
 	});
 
-	it("is refused, and sent to nobody, when no live cell works on it", async () => {
+	it("is refused, and sent to nobody, when no cell works on any word of its about", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(
 			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
@@ -82,13 +97,30 @@ describe("sending to a need", () => {
 			about: "fonts",
 		});
 
-		expect(said).toContain("Not sent");
+		expect(said).toContain("Not sent: no word of its about");
 		expect(said).toContain("counted as lost and passed to nobody in its place");
-		// The note's last resort is to ask who owns it, so the refusal read
-		// at the moment of failure must not forbid asking the orchestrator.
-		expect(said).not.toContain("orchestrator");
+		expectNoBarAbove(said);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
+	});
+
+	it("is refused, and sent to nobody, when no cell works on any word of its text", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Who keeps the launcher's fonts?",
+		});
+
+		expect(said).toContain("Not sent: no word of its text");
+		expect(said).toContain("counted as lost and passed to nobody in its place");
+		expectNoBarAbove(said);
 	});
 
 	it("keeps only the text's words a cell works on when about is left out", async () => {
@@ -129,7 +161,9 @@ describe("sending to a need", () => {
 			about: "carry",
 		});
 
-		expect(said).toContain("Not sent");
+		expect(said).toContain("Not sent: no live cell within three ties");
+		expect(said).toContain("counted as lost and passed to nobody in its place");
+		expectNoBarAbove(said);
 		expect(said).toContain("5HJZ8Z works on it but has ended");
 		expect(said, "with no stopper, any peer may be named").toContain(
 			"Name the peers it is for by address.",
@@ -252,5 +286,7 @@ describe("sending to a need", () => {
 		});
 
 		expect(said).toContain("Not sent: no node answered");
+		expect(said).toContain("passed to nobody in its place");
+		expectNoBarAbove(said);
 	});
 });

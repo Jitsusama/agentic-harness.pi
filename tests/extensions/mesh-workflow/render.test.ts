@@ -10,9 +10,12 @@ const theme = {
 
 const plain = (line: string) => line.replace(/<\/?[a-z]+>/g, "");
 
-/** Who may grant, which every note says whoever is above. */
-const GRANTS =
-	"Work you share with a peer is settled between you, though a yes, ruling or grant comes only from the person or from the work's owner: the peer whose quest holds it, named by address.";
+/**
+ * Who may grant, which every note says: the person as `person` reaches
+ * them, or the owner, whose quest can be checked.
+ */
+const grants = (person: string) =>
+	`Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose quest holds it (mesh_groups shows each peer's quest), named by address.`;
 
 const message = (over: Partial<Message> = {}): Message => ({
 	v: 1,
@@ -61,19 +64,6 @@ describe("the mesh on screen", () => {
 		);
 	});
 
-	it("names the orchestrator a delivery says to tell, its hub from use, or the reply when there is neither", () => {
-		const messages = [message()];
-		expect(noted(messages, [], { address: "WCJQSG", by: "mark" })).toContain(
-			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
-		);
-		expect(noted(messages, [], { address: "5GV2AH", by: "use" })).toContain(
-			"otherwise to your hub from use, 5GV2AH, as a question (mesh_send to: orchestrator)",
-		);
-		expect(noted(messages)).toContain(
-			"otherwise in your next reply, since no orchestrator is above your quest",
-		);
-	});
-
 	it("tells every delivery that a question about work goes to its owner or to need, and asks above only who owns it", () => {
 		const messages = [message()];
 		for (const above of [
@@ -85,7 +75,11 @@ describe("the mesh on screen", () => {
 			expect(content).toContain(
 				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
 			);
-			expect(content).toContain(GRANTS);
+			// The person's yes counts only down the path the note sends their
+			// questions, never as some other peer tells it.
+			expect(content).toContain(
+				grants(`the person, said to you or passed on by ${above.address}`),
+			);
 		}
 	});
 
@@ -95,7 +89,7 @@ describe("the mesh on screen", () => {
 		expect(content).toContain(
 			"Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask the person in your reply who owns it.",
 		);
-		expect(content).toContain(GRANTS);
+		expect(content).toContain(grants("the person, said to you"));
 		expect(content).not.toContain("That path carries only");
 	});
 

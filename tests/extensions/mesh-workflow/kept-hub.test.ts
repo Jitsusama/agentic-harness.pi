@@ -1,9 +1,10 @@
 /**
  * The hub from use a peer keeps for what the mesh says by itself: found
  * at once, read without waiting, never sought under the mark or on a
- * quest heading an orchestration, and none rather than a stale one when
- * a find fails, a role is taken, the quest moves, the hub ends or its
- * address is shared, or the keeping stops.
+ * quest heading an orchestration, kept through a find that fails or gets
+ * no answer, and none once a find finishes finding none, a role is
+ * taken, the quest moves, the hub ends or its address is shared, or the
+ * keeping stops.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -176,16 +177,55 @@ describe("a kept hub", () => {
 		expect(keptAbove(undefined, hub)).toBeUndefined();
 	});
 
-	it("is none once a later find fails, rather than the one found before", async () => {
+	// The node going quiet says nothing about who is above, and dropping
+	// the hub then would send every unmarked session's questions to the
+	// person just as need stops finding owners too.
+	it("keeps the hub found before while later finds fail, unsaid", async () => {
 		let failing = false;
-		const { at } = onMesh(async () => {
+		const { at, asked } = onMesh(async () => {
 			if (failing) throw new Error("node gone");
 			return [tie("ROOT01", 3)];
 		});
-
-		const hub = keep(at, QUICK);
+		const found = vi.fn();
+		const hub = keep(at, { ...QUICK, found });
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 		failing = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 2),
+		);
+		const said = found.mock.calls.length;
+		const failedSince = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(failedSince + 2),
+		);
+
+		expect(hub.current()).toBe("ROOT01");
+		expect(found, "a failed find says no hub").toHaveBeenCalledTimes(said);
+	});
+
+	it("keeps the hub found before while the node gives no ties", async () => {
+		let quiet = false;
+		const { at, asked } = onMesh(async () =>
+			quiet ? undefined : [tie("ROOT01", 3)],
+		);
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+		const before = asked.mock.calls.length;
+
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 2),
+		);
+		expect(hub.current()).toBe("ROOT01");
+	});
+
+	it("is none once a later find finishes and finds none", async () => {
+		let tied = true;
+		const { at } = onMesh(async () => (tied ? [tie("ROOT01", 3)] : []));
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		tied = false;
 
 		await vi.waitFor(() => expect(hub.current()).toBeUndefined());
 	});

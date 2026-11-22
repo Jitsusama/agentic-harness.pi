@@ -148,8 +148,12 @@ export interface HubKeeping {
  * again `every` milliseconds after each find, or `retry` after one that
  * could not finish. A peer under the mark, or on a quest heading an
  * orchestration, keeps none and never asks the node, since the mark is
- * its orchestrator; a find that fails keeps none rather than one that
- * may be gone.
+ * its orchestrator. A find that fails, or can't be finished, keeps the
+ * hub found before: the node going quiet says nothing about who is
+ * above, and dropping the hub then sent every unmarked session's
+ * questions to the person at once, told nothing was above it, just as
+ * need stopped finding owners too. A find that finishes and finds none
+ * keeps none.
  *
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
@@ -187,23 +191,29 @@ export function keepHub(
 			return;
 		}
 		let wait = every;
+		// Only a find that came to a hub says one; a kept one rides out a
+		// failure unsaid.
+		let came = false;
 		try {
 			const finding = await findAbove(reading);
 			// Stopped while it asked: what it found is no longer this
 			// peer's to keep.
 			if (stopped) return;
-			kept = "address" in finding.above ? finding.above.address : undefined;
+			if ("address" in finding.above) {
+				kept = finding.above.address;
+				came = true;
+			} else if (finding.settled) kept = undefined;
 			gone = new Set(finding.gone);
 			if (!finding.settled) wait = retry;
 		} catch {
-			// The node or presences unreadable now: no hub is better than a
-			// stale one, and the find is tried again soon.
+			// The node or presences unreadable now: the hub found before is
+			// kept, since reading it still checks it against the presences,
+			// and the find is tried again soon.
 			if (stopped) return;
-			kept = undefined;
 			wait = retry;
 		}
 		after(wait);
-		if (kept === undefined) return;
+		if (!came || kept === undefined) return;
 		try {
 			found?.(kept);
 		} catch {

@@ -77,7 +77,12 @@ and can answer a question or a gate left open on screen.
   cell on a quest above its own that it talks with most, each
   tie counted for its own share of today's messages on it
   (`lib/mesh/hub-from-use.ts`). That is an address only, and
-  grants nothing the mark does. With no such cell the send is
+  grants nothing the mark does. What the mesh says by itself
+  reads the hub each session keeps, which rides out a node
+  that does not answer rather than reading as no hub, since
+  the node going quiet says nothing about who is above and
+  every unmarked session would otherwise send its questions
+  to the person at once. With no such cell the send is
   refused, and so it is for any session on a quest heading an
   orchestration, which is told the head's address. The tree is walked on the quest side; the mesh reads
   only presence. Within a mission, an unaddressed message now
