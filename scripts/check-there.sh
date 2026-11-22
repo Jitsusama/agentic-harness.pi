@@ -62,8 +62,9 @@ fi
 # flock(1) is util-linux's, which a Mac lacks, so there perl takes the
 # same lock on fd 9's open file. A flock lock belongs to the open file,
 # not the process, so it holds after perl exits, while this shell keeps
-# fd 9 open. Given -n, it exits 1 at once when another holds the lock,
-# and anything else but 0 when it couldn't try it, as flock(1) does.
+# fd 9 open. `lock -n` tries once and `lock -w SECONDS` waits that long;
+# each exits 1 while another holds the lock, and anything else but 0
+# when it couldn't try it, as flock(1) does.
 lock() {
   if command -v flock >/dev/null 2>&1; then
     flock "$@" 9
@@ -71,29 +72,43 @@ lock() {
   fi
   perl -MFcntl=:flock -MPOSIX=EWOULDBLOCK -e '
     open(my $f, ">&=", 9) or do { print STDERR "check-there: fd 9: $!\n"; exit 2 };
-    flock($f, $ARGV[0] eq "-n" ? LOCK_EX | LOCK_NB : LOCK_EX)
-      or exit($! == EWOULDBLOCK ? 1 : 2);
-  ' -- "${1:-}"
+    my $until = time + ($ARGV[0] eq "-w" ? $ARGV[1] : 0);
+    until (flock($f, LOCK_EX | LOCK_NB)) {
+      $! == EWOULDBLOCK or do { print STDERR "check-there: flock: $!\n"; exit 2 };
+      exit 1 if time >= $until;
+      sleep 1;
+    }
+  ' -- "$@"
 }
-# Wait for the lock only while another check holds it; a lock that can't
-# be tried fails the check, which would otherwise share the worktree.
+# Wait for the lock only while another check holds it, saying whose turn
+# it is, and at most `turn_wait_s`: a check that hung would otherwise keep
+# every later one waiting with no word. A lock that can't be tried fails
+# the check, which would otherwise share the worktree.
 take_turn() {
-  local tried=0
+  local tried=0 wait_s="${turn_wait_s:-5400}"
   lock -n || tried=$?
-  if [ "$tried" -eq 0 ]; then
-    return
+  if [ "$tried" -eq 1 ]; then
+    echo "check-there: another check runs on $(hostname) ($(cat "$turn.holder" 2>/dev/null || echo "unsaid")); waiting its turn" >&2
+    tried=0
+    lock -w "$wait_s" || tried=$?
+    if [ "$tried" -eq 1 ]; then
+      echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock" >&2
+      return 1
+    fi
   fi
-  if [ "$tried" -ne 1 ]; then
+  if [ "$tried" -ne 0 ]; then
     echo "check-there: can't take $(hostname)'s check lock" >&2
     return "$tried"
   fi
-  echo "check-there: another check runs on $(hostname); waiting its turn" >&2
-  lock
+  printf '%s, from %s\n' "${branch:-a branch}" "$(date '+%H:%M')" > "$turn.holder" || true
 }
-exec 9> ~/.cache/harness-check.lock
+turn=~/.cache/harness-check.lock
+exec 9> "$turn"
 take_turn
 # Everything the check starts runs without fd 9, so nothing it leaves
 # running, such as git's fsmonitor daemon, holds the lock once it ends.
+# bash -s reads the whole group before it runs any of it, so no command
+# in it that reads stdin can swallow the rest of this script either.
 {
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
