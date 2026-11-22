@@ -20,7 +20,7 @@
 
 import { questAddress } from "./address.ts";
 import { groupNamed } from "./group.ts";
-import type { Tie } from "./node.ts";
+import { TIE_HALF_LIFE_MS, type Tie } from "./node.ts";
 import type { Presence } from "./presence.ts";
 import { isAddress } from "./steer-who.ts";
 import { stoppedBy } from "./stop.ts";
@@ -41,6 +41,18 @@ export type Above =
 /** The group prefix every quest chain is said under (see scope.ts). */
 const QUEST_GROUP = "#quest/";
 
+/** How old one message of a cell's own may be and still make a hub. */
+const HUB_TIE_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The least a cell's ties may add up to for it to be a hub: one message
+ * of this cell's own, `HUB_TIE_AGE_MS` old, as the node fades it. A tie
+ * grows by one a message and halves every two hours, so one message
+ * from yesterday reads about 0.001, a cell barely known rather than the
+ * one talked with most; six hours keeps a hub through a quiet afternoon.
+ */
+const HUB_TIE_FLOOR = 2 ** -(HUB_TIE_AGE_MS / TIE_HALF_LIFE_MS);
+
 /**
  * The hub from use of a cell whose quest carries no orchestrator mark:
  * the live cell on a quest above its own that it talks with most, its
@@ -48,7 +60,8 @@ const QUEST_GROUP = "#quest/";
  * written to by its signature and by its quest's address. Only a tie to
  * an address that could be the hub's counts, never one to a group or an
  * address two presences list. Equal ties go
- * to the cell whose single tie is strongest. A cell that has stopped
+ * to the cell whose single tie is strongest, and ties adding up to less
+ * than `HUB_TIE_FLOOR` make no hub. A cell that has stopped
  * this one is never its hub, since it would not be written to, and nor
  * is one this cell has stopped, whose answer it would drop.
  *
@@ -137,6 +150,11 @@ export function hubFromUse(
 	for (const [hub, sum] of strength) {
 		if (best === undefined || sum > best.strength)
 			best = { hub, strength: sum };
+	}
+	if (best !== undefined && best.strength < HUB_TIE_FLOOR) {
+		return {
+			none: `${unmarked} and its ties to the live cells on the quests above it are too faint to make a hub: less than one message of its own in the last six hours`,
+		};
 	}
 	const address = best?.hub.addresses.find(writable);
 	if (address !== undefined) return { address, by: "use" };

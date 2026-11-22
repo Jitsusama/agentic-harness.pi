@@ -143,6 +143,39 @@ describe("a hub from use", () => {
 		});
 	});
 
+	// A tie halves every two hours, so one message sent 20 hours ago
+	// reads about 0.001: a cell this one barely knows, not one it talks
+	// with most.
+	it("is nobody when the only tie above has faded below one message six hours old", () => {
+		const faded = tie("ROOT01", 2 ** -10);
+
+		const above = hubFromUse(self, [self, root], [faded]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	// A quiet afternoon mustn't lose the hub: one message of its own six
+	// hours old is the floor, and is enough.
+	it("is the cell tied above by one message of this cell's own six hours old", () => {
+		const quietAfternoon = tie("ROOT01", 2 ** -3);
+
+		const above = hubFromUse(self, [self, root], [quietAfternoon]);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
+	it("weighs the floor against a cell's ties to all its addresses added up", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent],
+			[tie("MID002", 2 ** -4), tie("AAAAAA", 2 ** -4)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
 	// The node keeps no tie without a message in the last day, so one
 	// that reads none can't say whose talk it was.
 	it("is nobody when the only tie above reads no messages today", () => {
