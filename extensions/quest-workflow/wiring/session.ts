@@ -137,7 +137,10 @@ export function followSessionLife(
 	pi.on("session_start", async (event, ctx) => {
 		// Taken once, here, so the quest a spawn asks for is read first.
 		const hints = launchHints(ctx);
-		await readyForStart(state, questsAStartKnows(state, ctx, hints));
+		const behind = !(await readyForStart(
+			state,
+			questsAStartKnows(state, ctx, hints),
+		));
 		const begin = (): StartupResolution["source"] => {
 			// What a start restores and records rests on its quest as it is:
 			// the one it had, here, and the one it resolves, once chosen.
@@ -175,7 +178,7 @@ export function followSessionLife(
 			// session's persisted history (a /reload restores the last
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
-			const { source } = resolveStartup(state, pi, ctx, hints);
+			const { source } = resolveStartup(state, pi, ctx, hints, behind);
 			if (state.questId !== had) {
 				refreshQuests(state.questsRoot, [state.questId]);
 			}
@@ -331,35 +334,39 @@ export function followSessionLife(
  * quest, off the thread: the quests it can know (`known`: the one it
  * had, its log's and its spawn's) are read again, and the rest of the
  * tree comes from a walk under a minute old, or a signing when there is
- * none. It never signs the whole tree only because it names no quest,
- * as every hosted start then waited on the walk that timed out on 21
- * November; a folder another process added in that minute draws its
- * quest from the cwd only once the next walk reads it. When the disk
- * gives no answer in time, the start goes on from the last walk and the journal says so.
+ * none. A folder another process added in that minute draws its quest
+ * from the cwd only once the next walk reads it. When the disk gives
+ * no answer in time, the start reads the quests it can know by name,
+ * goes on from the last walk for the rest, and the journal says so.
  * With no walk at all, which only a signing on the thread could give,
  * it waits on the next signing instead, holding only itself, until
  * {@link START_TRIES} have given up, as a disk that hangs does.
+ * Resolves whether the walk caught up; one that didn't may be behind
+ * the disk, so a quest it lacks may yet be there.
  */
 async function readyForStart(
 	state: QuestState,
 	known: readonly (string | null | undefined)[],
-): Promise<void> {
+): Promise<boolean> {
 	const root = state.questsRoot;
 	for (let tries = 1; ; tries++) {
 		try {
 			await readyQuests(root, known, false);
-			return;
+			return true;
 		} catch (error) {
 			if (!signingGaveUp(error)) throw error;
 			const walked = questsWalked(root);
 			if (walked || tries >= START_TRIES) {
+				refreshQuests(root, known);
 				const reads = walked
 					? "reads the last walk of"
 					: `signs on the thread, after ${tries} waits gave up,`;
 				process.stderr.write(
 					`[quest-workflow] a session's start ${reads} ${root}: ${error.message}\n`,
 				);
-				return;
+				// With no walk, the read just made signed the tree on the thread,
+				// so only a start reading the last walk may be behind.
+				return !walked;
 			}
 			process.stderr.write(
 				`[quest-workflow] a session's start waits on a first walk of ${root}: ${error.message}\n`,

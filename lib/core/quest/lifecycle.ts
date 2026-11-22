@@ -163,6 +163,7 @@ export function refreshLoadedSlice(state: QuestState): void {
 export function unloadQuest(state: QuestState): void {
 	delete state.pendingQuest;
 	delete state.pendingRetryAt;
+	delete state.pendingTries;
 	state.questDir = null;
 	state.questId = null;
 	state.questTitle = null;

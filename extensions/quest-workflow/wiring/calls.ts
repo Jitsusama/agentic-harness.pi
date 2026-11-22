@@ -9,7 +9,6 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { refreshQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
@@ -117,11 +116,16 @@ export function watchToolCalls(
 		}
 		// A quest the log named that a slow walk hid at the start loads now,
 		// and this session settles on it as its start would have.
-		if (retryPendingQuest(state, pi)) {
-			refreshQuests(state.questsRoot, [state.questId]);
+		const tried = retryPendingQuest(state, pi);
+		if (tried === "loaded") {
 			settleOnLoadedQuest(state, pi, ctx);
 			updateScoreboard(state, ctx);
 		}
+		if (tried === "gone" && ctx.hasUI)
+			ctx.ui.notify(
+				"The quest this session last held was never found again, so it has none loaded now.",
+				"warning",
+			);
 		persist(state, pi, ctx);
 		// A quest action can change what a quest's work is weighted by, and
 		// which quests orchestrate, and what the desktop lists.

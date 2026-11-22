@@ -27,11 +27,15 @@ import {
 	refreshProgress,
 	stampQuestUpdated,
 	unfocusDocument,
+	unloadQuest,
 } from "../../lib/core/quest/lifecycle.ts";
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+import {
+	discoverQuests,
+	refreshQuests,
+} from "../../lib/internal/quest/discovery/discovery.ts";
 import { questIdForCwd } from "../../lib/internal/quest/discovery/resolve-cwd.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/documents/append-journey.ts";
 import { appendHarnessLog } from "../../lib/internal/quest/documents/harness-log.ts";
@@ -354,11 +358,16 @@ function snapshotsEqual(a: PersistedState, b: PersistedState): boolean {
  * was recorded or the quest no longer exists on disk so
  * the caller can fall through to its other restore paths
  * (the spawn autoload-env hint, then the cwd walk).
+ * `behind` says the start's walk may be behind the disk, as one
+ * whose signing gave up is: a quest it can't find is then held
+ * pending rather than taken as gone. A caller that can't tell
+ * passes nothing, and the tries' bound lets a gone one go.
  */
 export function restore(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
+	behind = true,
 ): boolean {
 	const saved = getLastEntry<PersistedState>(ctx, SESSION_KEY);
 	if (!saved?.questId) return false;
@@ -368,39 +377,73 @@ export function restore(
 		...(saved.unfocused ? { unfocused: true } : {}),
 	};
 	if (hydrate(state, pi, named)) return true;
+	if (!behind) return false;
 	// The walk a start reads may be stale, as a host's is when its
-	// signings time out: the quest is held, not forgotten.
+	// signings time out: the quest is held, not forgotten. A quest this
+	// pi had loaded for an earlier conversation is not this one's, and
+	// would otherwise be written over the log's word at the next persist.
+	if (state.questId) unloadQuest(state);
 	state.pendingQuest = named;
 	state.pendingRetryAt = Date.now() + PENDING_RETRY_MS;
+	state.pendingTries = 1;
+	process.stderr.write(
+		`[quest-workflow] a session waits for ${named.questId}, which its log names, while the walk of ${state.questsRoot} is behind\n`,
+	);
 	return false;
 }
 
 /**
- * How long a quest still waiting to load waits between tries: each try
- * signs the whole quest tree, the walk a slow disk made time out.
+ * How long a quest still waiting to load waits between tries. On a
+ * host each try reads the quest's own folder again, and signs the
+ * tree off the thread only when that can't catch it up.
  */
 export const PENDING_RETRY_MS = 60_000;
 
 /**
+ * How many tries, the start's among them, a quest waiting to load gets
+ * before it is taken as gone: ten minutes, longer than a signing holds
+ * its root before its disk is taken to hang.
+ */
+export const PENDING_TRIES = 10;
+
+/** What a try at the quest a session's log names came to. */
+export type PendingTry = "loaded" | "waiting" | "gone";
+
+/**
  * Try once more to load the quest this session's log names, at most
- * once in PENDING_RETRY_MS, saying whether it loaded now. The caller
- * then does what a start does for a quest it loaded.
+ * once in PENDING_RETRY_MS, reading its folder again first. `loaded`:
+ * the caller then does what a start does for a quest it loaded.
+ * `gone`: PENDING_TRIES found no such quest, so it is let go, and the
+ * session is free to persist and load another. `waiting` otherwise,
+ * and for a session with nothing pending.
  */
 export function retryPendingQuest(
 	state: QuestState,
 	pi: ExtensionAPI,
 	now = Date.now(),
-): boolean {
+): PendingTry {
 	const pending = state.pendingQuest;
-	if (!pending || state.questId) return false;
-	if (now < (state.pendingRetryAt ?? 0)) return false;
+	if (!pending || state.questId) return "waiting";
+	if (now < (state.pendingRetryAt ?? 0)) return "waiting";
 	state.pendingRetryAt = now + PENDING_RETRY_MS;
-	return hydrate(state, pi, pending);
+	refreshQuests(state.questsRoot, [pending.questId]);
+	if (hydrate(state, pi, pending)) return "loaded";
+	const tries = (state.pendingTries ?? 1) + 1;
+	if (tries < PENDING_TRIES) {
+		state.pendingTries = tries;
+		return "waiting";
+	}
+	letPendingGo(state);
+	process.stderr.write(
+		`[quest-workflow] a session lets go of ${pending.questId}, which its log names: ${tries} tries found no such quest\n`,
+	);
+	return "gone";
 }
 
 function letPendingGo(state: QuestState): void {
 	delete state.pendingQuest;
 	delete state.pendingRetryAt;
+	delete state.pendingTries;
 }
 
 /**
@@ -458,13 +501,17 @@ export interface StartupResolution {
  *
  * Consumes and clears the env var so the hint never carries across an
  * in-process session restart; a caller that took them already, to
- * read the quests they name first, passes them as `hints`.
+ * read the quests they name first, passes them as `hints`. `behind`
+ * is restore's: whether the walk may be behind the disk. A spawn's
+ * quest is never held pending: the start read it by name first, so
+ * one it can't load is refused, as an explicit load is.
  */
 export function resolveStartup(
 	state: QuestState,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	hints: LaunchHints = launchHints(ctx),
+	behind = true,
 ): StartupResolution {
 	// What an earlier conversation in this pi waited for is not this one's.
 	letPendingGo(state);
@@ -476,7 +523,7 @@ export function resolveStartup(
 		if (orchestrating) orchestrate(state, { action: "orchestrate" }, true);
 		return { source: "explicit", questId: state.questId };
 	}
-	if (restore(state, pi, ctx)) {
+	if (restore(state, pi, ctx, behind)) {
 		return { source: "persisted", questId: state.questId };
 	}
 	// A log that names a quest has said; the record answers only one
