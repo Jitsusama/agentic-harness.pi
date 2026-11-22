@@ -79,6 +79,30 @@ describe("finding the JSON in what came back", () => {
 		expect(warnings).toEqual([]);
 	});
 
+	it("reads a clean answer followed by a remark with a brace in it", () => {
+		// A Mac round on 22 November answered `{"findings": []}` and then
+		// a closing remark; the brace in it left no span that parsed, and
+		// a clean review read as one that said nothing readable.
+		const text = `${answer()}\n\nI read the diff; the guard (see \`if (x) { y }\`) holds, and nothing } here needs raising.`;
+
+		const { findings, warnings } = harvestFindings(text, origin);
+
+		expect(findings, "a clean review has no findings").toEqual([]);
+		expect(warnings, "and is not said to be unreadable").toEqual([]);
+	});
+
+	it("reads a finding followed by a remark with a stray brace", () => {
+		const text = `${answer(wire({ subject: "before the remark" }))}\nOne more thought: a stray } here.`;
+
+		const { findings, warnings } = harvestFindings(text, origin);
+
+		expect(
+			findings.map((finding) => finding.subject),
+			"the finding before the remark is read",
+		).toEqual(["before the remark"]);
+		expect(warnings, "whole, not cut off").toEqual([]);
+	});
+
 	it("warns when there is no JSON at all", () => {
 		const { findings, warnings } = harvestFindings(
 			"I could not read it.",
