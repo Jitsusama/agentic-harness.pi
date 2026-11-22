@@ -46,6 +46,7 @@ const seen = vi.hoisted(() => ({
 	trees: 1,
 	partly: undefined as string | undefined,
 	left: undefined as number | undefined,
+	idleMs: undefined as number | undefined,
 	fails: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
@@ -103,6 +104,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 			branches: [],
 			...(seen.partly === undefined ? {} : { idleUnjudged: seen.partly }),
 			...(seen.left === undefined ? {} : { idleLeft: seen.left }),
+			...(seen.idleMs === undefined ? {} : { idleMs: seen.idleMs }),
 		};
 	},
 }));
@@ -125,6 +127,7 @@ beforeEach(() => {
 	seen.trees = 1;
 	seen.partly = undefined;
 	seen.left = undefined;
+	seen.idleMs = undefined;
 	seen.fails = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
@@ -505,10 +508,12 @@ it("passes over a module whose provider's judgement is null", async () => {
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
 });
 
-it("logs how many idle snapshots its time left, as a run that ran", async () => {
+it("logs how many idle snapshots its time left, and how long their phase took, as a run that ran", async () => {
 	// Its time stops only what lies past a host's share, so the hosts may
-	// stand down as after any run that judged everything it was given.
+	// stand down as after any run that judged everything it was given. The
+	// phase's own time tells a slow run's idle takes from what came before.
 	seen.left = 3;
+	seen.idleMs = 1234;
 
 	const ran = await sweepOutside({ env: {} });
 
@@ -516,7 +521,7 @@ it("logs how many idle snapshots its time left, as a run that ran", async () => 
 	expect(exitCodeOf(ran), "the code the run exits with").toBe(0);
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
 	expect(logLines()[0], "the line it logged").toEqual(
-		expect.objectContaining({ idleLeft: 3 }),
+		expect.objectContaining({ idleLeft: 3, idleMs: 1234 }),
 	);
 });
 

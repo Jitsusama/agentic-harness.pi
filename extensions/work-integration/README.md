@@ -271,9 +271,18 @@ is its protection. At most 20 go a sweep, oldest first, each logged
 with its sessions and commit; the sweep outside the hosts takes up to
 200, each judged only once the one before is taken, pausing 2 seconds
 between takes, and starts judging no more past its first 20 once 10
-minutes have gone. A run its count or time stops gives in `idleLeft`
-how many it left unjudged, those seen busy aside, though judging may
-refuse some of them. A session that asks for one again gets
+minutes have gone since it reached them, the ended trees before them
+not counted. A run its count or time stops gives in `idleLeft` how
+many it left unjudged, those seen busy aside, though judging may
+refuse some of them, and every run that reaches them gives in `idleMs`
+how long they took, its census of processes, its pauses and the dating
+of every live snapshot included.
+`idleMs` is awake time, which stops while the machine sleeps, and the
+line's `ms` is wall time. Without a suspend, `ms` less `idleMs` is the
+rest of the run: before the idle snapshots, the claims, the census of
+trees in use, the ended trees and the settled-branch search, and after
+them, the other providers' trees and the dev shells' roots; across a
+suspend, it isn't even that. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 
 A tree cut from a clone in a quest's scratch folder outlives the

@@ -126,6 +126,7 @@ function sweepWhileOpen(
 			| "betweenIdleTakes"
 			| "busyAmong"
 			| "claims"
+			| "exec"
 			| "idleTakes"
 			| "idleWithinMs"
 			| "memory"
@@ -161,6 +162,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 		]);
 		expect(existsSync(tree), `${tree} is still there`).toBe(false);
 		expect(setup.memory.recall().map((one) => one.path)).not.toContain(tree);
+		expect(
+			outcome.idleMs,
+			"a run with no bound, as a host's, said how long its idle phase took",
+		).toBeGreaterThanOrEqual(0);
 	});
 
 	it("takes as many as its runner says, oldest first, keeping the rest for the next", async () => {
@@ -213,30 +218,94 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
-	it("stops judging past a host's share once its awake time since it began runs out, saying how many it left", async () => {
-		// Its clock, started far from zero, moves only as it pauses between
-		// takes, so taking is what spends its time: it runs out once the
-		// share and one more are taken, and the newest waits. A run that
-		// chose every one before taking any would take them all.
+	it("stops judging past a host's share once its awake time since its idle phase began runs out, saying how many it left and how long they took", async () => {
+		// Its clock leaps an hour as the run lists the ended tree's
+		// repository's worktrees, and again as it searches for settled
+		// branches, the last work before the idle snapshots, as the ended
+		// trees and those branches can take most of an hour on a loaded
+		// machine; that time isn't the idle phase's, so a run counting any of
+		// it would take only the share. After the leaps the clock moves only
+		// as the idle phase works: as it reads which processes hold the
+		// snapshots, as each is taken and as it pauses between them, so it
+		// runs out exactly as the share and one more are taken, and the newest
+		// waits. A run that chose every one before taking any would take them
+		// all. The ended tree is cut from a repository of its own,
+		// since the ended trees' pass asks the status of each tree beside one,
+		// which rewrites the index these trees have dated back and would make
+		// them look just used.
 		const setup = await setUp();
+		const ended = join(setup.state, "ended");
+		await pinnedWhereNoRefHolds((await setUp()).main, setup.memory, ended);
 		const trees: string[] = [];
 		for (let at = 0; at <= IDLE_TAKES_PER_SWEEP + 1; at += 1) {
 			const { tree } = await leftAlone(setup, `left-${at}`, IDLE + at * HOUR);
 			trees.push(tree);
 		}
+		const CENSUS = 5;
+		const TAKE = 2;
+		const PAUSE = 1;
 		let clock = 100;
+		let leaps = 0;
+		let searches = 0;
+		// The idle phase's time once the share and one more are taken: the
+		// census, each take, and a pause before each but the first.
+		const IDLE_COST =
+			CENSUS + (IDLE_TAKES_PER_SWEEP + 1) * TAKE + IDLE_TAKES_PER_SWEEP * PAUSE;
+		const real = setup.memory;
+		const memory: typeof real = Object.create(real);
+		memory.whileUnusedSince = (path, since, take, key) => {
+			clock += TAKE;
+			return real.whileUnusedSince(path, since, take, key);
+		};
 
 		const outcome = await sweepWhileOpen(setup, {
+			exec: async (command, args) => {
+				// Only the ended trees' pass lists a repository's worktrees.
+				if (args.includes("worktree") && args.includes("list")) {
+					clock += HOUR;
+					leaps += 1;
+				}
+				// Only the search for settled branches asks what trunk merged.
+				if (args.some((arg) => arg.startsWith("--merged="))) {
+					clock += HOUR;
+					searches += 1;
+				}
+				return exec(command, args);
+			},
+			memory,
+			// The census reads every snapshot's holders at once; a take reads
+			// its own alone.
+			busyAmong: async (paths) => {
+				if (paths.length > 1) clock += CENSUS;
+				return new Set();
+			},
 			idleTakes: 200,
-			idleWithinMs: IDLE_TAKES_PER_SWEEP,
+			// Reached only once that one more is taken, so a run that stopped
+			// short of its bound, rather than at it, would judge another.
+			idleWithinMs: IDLE_COST,
 			awake: () => clock,
 			betweenIdleTakes: async () => {
-				clock += 1;
+				clock += PAUSE;
 			},
 		});
 
-		expect(outcome.taken).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
+		expect(leaps, "the ended trees' pass listed worktrees").toBeGreaterThan(0);
+		expect(searches, "the settled branches were searched for").toBeGreaterThan(
+			0,
+		);
+		expect(
+			outcome.taken.map((one) => one.path),
+			"the ended tree went",
+		).toContain(ended);
+		expect(
+			outcome.taken.filter((one) => one.path !== ended),
+			"the share and one more, past the time before the idle phase",
+		).toHaveLength(IDLE_TAKES_PER_SWEEP + 1);
 		expect(outcome.idleLeft, "the newest, left for the next run").toBe(1);
+		expect(
+			outcome.idleMs,
+			"the idle phase's own time: its census, takes and pauses",
+		).toBe(IDLE_COST);
 		expect(existsSync(trees[0] ?? ""), "the newest waits").toBe(true);
 		// Twenty-one real worktrees took 128 s on a machine at load 170.
 	}, 300_000);
@@ -313,6 +382,10 @@ describe("taking the snapshots a live session pinned and left", () => {
 			"a refused take was filed as kept",
 		).toEqual([]);
 		expect(asked, "it went on taking past the failure").toBe(1);
+		expect(
+			outcome.idleMs,
+			"a run cut short in its idle phase said how long it took",
+		).toBeGreaterThanOrEqual(0);
 		for (const tree of trees) {
 			expect(existsSync(tree), `${tree} went`).toBe(true);
 		}

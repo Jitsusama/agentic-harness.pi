@@ -33,7 +33,15 @@ Each call to one of them is checked before it runs:
   home folder it runs no file tool either. One holding its repository's
   git folder, a plain clone, may be read but never written, since only
   writing reaches the hooks git runs outside; a review that falls back
-  to the session's own checkout still reads it.
+  to the session's own checkout still reads it. One that lies in or
+  holds a path the agent fence keeps read-only, such as an app's folder
+  in `~/.config`, is read but never written; one that lies in or holds
+  a path it hides, such as `~/.ssh`, `~/.config` itself (which holds
+  gcloud's keys), npm's and Docker's configs, whose tokens the fence
+  keeps from its commands, nix-offload's lenders' folders or the
+  runtime folder, is neither, wherever a link to one leads, even one
+  not yet written. The system bus's and X's socket folders hold
+  nothing to read, so one beside them is read but never written.
 
 A session with no sandbox is let through untouched, and a `PI_SANDBOX`
 naming no sandbox refuses every file tool, as it refuses every command.
