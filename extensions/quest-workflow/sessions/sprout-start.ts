@@ -24,6 +24,7 @@ import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/creation/alias-index.ts";
+import { isId } from "../../../lib/internal/quest/creation/id.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import {
@@ -131,8 +132,10 @@ export async function startSprouted(
 				...new Set([...(linked.sealed ? [] : [linked.id]), ...linked.also]),
 			].filter((one) => one !== id)
 		: [];
-	// A live quest it joined predates the ask, so it is never tied to the
-	// cell that asked, which its words name instead.
+	// A quest found already there is never tied by this start to the cell
+	// that asked, which its words name instead: one it joined predates the
+	// ask, and one whose mark didn't hold, or whose seed had no id, can't
+	// be told from one.
 	const askedBy = !made && seed.from ? { askedBy: seed.from } : {};
 	const joined = held !== undefined ? { peers, also, ...askedBy } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
@@ -287,7 +290,11 @@ function questsWith(
 			: found.kind === "collision"
 				? found.questIds
 				: [];
+	// A README's id is its own front matter's, which can say anything, and
+	// a sprout's first words name the quest it found: one not spelled as an
+	// id is never joined, replayed or named.
 	return ids
+		.filter(isId)
 		.map((id) => ({
 			id,
 			dir: index.quests.get(id)?.dir,

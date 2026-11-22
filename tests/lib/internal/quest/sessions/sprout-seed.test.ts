@@ -282,12 +282,19 @@ describe("a sprouted session's first words", () => {
 	it("count every other live quest holding the work, one or many", () => {
 		const said = (also: string[]) =>
 			sproutedWords("QEST-1-ABC", { words: "tea" }, { kind: "none" }, { also });
-		const [two, three] = ["QEST-20261122-DEF222", "QEST-20261122-GHI333"];
+		const [two, three, four] = [
+			"QEST-20261122-DEF222",
+			"QEST-20261122-GHI333",
+			"QEST-20261122-JKL444",
+		];
 		expect(said([two])).toContain(
 			`Quest ${two} holds this work as well, where one quest should: tell the person, so the two can be made one.`,
 		);
 		expect(said([two, three])).toContain(
 			`Quests ${two} and ${three} hold this work as well, where one quest should: tell the person, so all 3 can be made one.`,
+		);
+		expect(said([two, three, four])).toContain(
+			`Quests ${two}, ${three} and ${four} hold this work as well, where one quest should: tell the person, so all 4 can be made one.`,
 		);
 	});
 

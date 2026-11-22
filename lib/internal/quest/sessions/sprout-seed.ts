@@ -205,10 +205,13 @@ function alsoSaid(also: readonly string[]): string {
  * happens (linkIs "place") is never called the work. Other live
  * quests holding the same work (joined.also) are named, never passed
  * over in silence, since one work belongs on one quest; only those
- * spelled as ids, so a README's id can't put words of its own here. A
- * joined quest predates the ask, so it is never tied to the cell that
- * asked (joined.askedBy), which is named instead, so the session knows
- * who asked.
+ * spelled as ids, so a README's id can't put words of its own here, as
+ * the quest joined is only ever one whose id is (sprout-start.ts's
+ * questsWith). A quest the start found already there, one it joined or
+ * its own whose mark didn't hold, is not tied by this start to the cell
+ * that asked (joined.askedBy), which is named instead, so the session
+ * knows who asked; whether an earlier start tied it isn't known here, so
+ * nothing is said of the map.
  */
 export function sproutedWords(
 	questId: string,
@@ -240,7 +243,7 @@ export function sproutedWords(
 		const others = (joined.also ?? []).filter(isId);
 		const also = others.length ? alsoSaid(others) : "";
 		const askedBy = joined.askedBy
-			? ` Cell ${joined.askedBy} asked for it; this quest predates the ask, so it isn't tied to that cell on the map.`
+			? ` Cell ${joined.askedBy} asked for it; this start found the quest already there, so it doesn't tie it to that cell.`
 			: "";
 		return `This session was sprouted, and quest ${questId}, which already holds this work, is loaded for it${source}${seed.words ? whose : ""}${tie}${askedBy}${peers}${also} Read its README and Journey before you act, since others may have worked on it; carry it on from where it stands, merge what passes its checks, and tell the person what it needs from them as it comes.`;
 	}
