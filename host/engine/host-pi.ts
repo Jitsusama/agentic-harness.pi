@@ -25,7 +25,11 @@ export interface HostPiModules {
 	readonly projectTrust: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-agent-core`'s main entry: the agent loop's defaults. */
 	readonly agentCore: Readonly<Record<string, unknown>>;
-	/** `@earendil-works/pi-ai`'s main entry: tool validation and transcript helpers. */
+	/**
+	 * `@earendil-works/pi-ai`'s main entry, or from a bundle the module it
+	 * hands extensions, which holds all of it: tool validation and transcript
+	 * helpers.
+	 */
 	readonly ai: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-tui`'s main entry: the main-screen TUI a startup question is drawn in. */
 	readonly tui: Readonly<Record<string, unknown>>;
@@ -39,13 +43,18 @@ export interface HostPiModules {
 	readonly context: Readonly<Record<string, unknown>>;
 }
 
+/** How the host loaded its pi: from the bundle's host entry, or file by file. */
+export interface HostPiLoad {
+	readonly bundled: boolean;
+}
+
 /** One patch the host build applies, and how a loaded pi shows it is there. */
 export interface HostSeam {
 	/** The patch's file in core.nix's modules/pi, named in a refusal. */
 	readonly patch: string;
 	/** What the host loses without it, said in a refusal. */
 	readonly why: string;
-	readonly present: (modules: HostPiModules) => boolean;
+	readonly present: (modules: HostPiModules, load: HostPiLoad) => boolean;
 }
 
 /** The seams the engine refuses to open a conversation without. */
@@ -105,6 +114,11 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 		present: ({ codingAgent }) =>
 			hasFields(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostRuns === true,
+	},
+	{
+		patch: "pi-host-loads-one-bundle.patch",
+		why: "each conversation loads pi file by file, with about 10 MB more heap and three times the CPU its bundle takes",
+		present: (_modules, { bundled }) => bundled,
 	},
 ];
 
@@ -198,10 +212,31 @@ export function hostPiFiles(
 }
 
 /**
+ * The bundle's host entry, which the one-bundle patch adds: what the host
+ * loads beside the coding agent, built into the bundle's own chunks, so the
+ * host and the extensions pi loads share one copy of every library.
+ */
+export function hostPiBundle(packageDir: string): string {
+	return join(packageDir, "dist", "bundle", "host.js");
+}
+
+/** The host entry's version from the one-bundle patch on. */
+const BUNDLE_HOST_ENTRY_VERSION = 1;
+
+/** The libraries the host takes from the bundle's virtual modules, as extensions import them. */
+const BUNDLED_LIBRARIES = {
+	codingAgent: "@earendil-works/pi-coding-agent",
+	agentCore: "@earendil-works/pi-agent-core",
+	ai: "@earendil-works/pi-ai",
+	tui: "@earendil-works/pi-tui",
+} as const;
+
+/**
  * Load pi from the install at packageDir and check every seam, refusing with
  * each missing patch named, so a host on ordinary pi never opens a
  * conversation it would run wrongly. A wanted seam it lacks is listed in
- * lacking instead, for the host to report.
+ * lacking instead, for the host to report. An install with the bundle's host
+ * entry is loaded from it; one without is loaded file by file.
  */
 export async function loadHostPi(packageDir: string): Promise<HostPi> {
 	if (!isAbsolute(packageDir)) {
@@ -209,6 +244,68 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 			`The host's pi install must be an absolute path, not ${packageDir}`,
 		);
 	}
+	const bundle = hostPiBundle(packageDir);
+	const bundled = existsSync(bundle);
+	const modules = bundled
+		? await bundledModules(bundle)
+		: await unbundledModules(packageDir);
+	const missing = HOST_SEAMS.filter(
+		(seam) => !seam.present(modules, { bundled }),
+	);
+	if (missing.length > 0) throw new HostPiRefused(packageDir, missing);
+	const version = modules.codingAgent.VERSION;
+	if (typeof version !== "string" || version === "")
+		throw new Error(`The pi at ${packageDir} names no version`);
+	const lacking = HOST_WANTED_SEAMS.filter(
+		(seam) => !seam.present(modules, { bundled }),
+	);
+	return {
+		packageDir,
+		version,
+		command: piCommand(packageDir),
+		modules,
+		lacking,
+	};
+}
+
+/**
+ * pi's modules from the bundle's host entry: the coding agent and its
+ * libraries as its virtual modules hand them to extensions, and the rest as
+ * the entry exports them, all from the bundle's chunks.
+ */
+async function bundledModules(bundle: string): Promise<HostPiModules> {
+	const entry = await importModule(bundle);
+	const version = entry.hostEntryVersion;
+	if (typeof version !== "number" || version < BUNDLE_HOST_ENTRY_VERSION)
+		throw new Error(`${bundle} names no host entry version the host reads`);
+	const virtual = entry.VIRTUAL_MODULES;
+	const library = (name: string) => {
+		const found = hasFields(virtual) ? virtual[name] : undefined;
+		if (!hasFields(found))
+			throw new Error(`${bundle} hands extensions no ${name}`);
+		return found;
+	};
+	const exported = (name: string) => {
+		const found = entry[name];
+		if (!hasFields(found)) throw new Error(`${bundle} exports no ${name}`);
+		return found;
+	};
+	return {
+		codingAgent: library(BUNDLED_LIBRARIES.codingAgent),
+		agentCore: library(BUNDLED_LIBRARIES.agentCore),
+		ai: library(BUNDLED_LIBRARIES.ai),
+		tui: library(BUNDLED_LIBRARIES.tui),
+		builtins: { builtInExtensions: entry.builtInExtensions },
+		projectTrust: { resolveProjectTrusted: entry.resolveProjectTrusted },
+		durable: exported("durable"),
+		sqlite: exported("durableSqlite"),
+		nodeEnv: exported("durableNodeEnv"),
+		context: exported("chordContext"),
+	};
+}
+
+/** pi's modules file by file, from an install without the bundle's host entry. */
+async function unbundledModules(packageDir: string): Promise<HostPiModules> {
 	const files = hostPiFiles(packageDir);
 	const absent = Object.values(files).filter((file) => !existsSync(file));
 	if (absent.length > 0) {
@@ -216,7 +313,7 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 			`The pi at ${packageDir} is incomplete; it has no ${absent.join(", ")}`,
 		);
 	}
-	const modules: HostPiModules = {
+	return {
 		codingAgent: await importModule(files.codingAgent),
 		builtins: await importModule(files.builtins),
 		projectTrust: await importModule(files.projectTrust),
@@ -227,19 +324,6 @@ export async function loadHostPi(packageDir: string): Promise<HostPi> {
 		sqlite: await importModule(files.sqlite),
 		nodeEnv: await importModule(files.nodeEnv),
 		context: await importModule(files.context),
-	};
-	const missing = HOST_SEAMS.filter((seam) => !seam.present(modules));
-	if (missing.length > 0) throw new HostPiRefused(packageDir, missing);
-	const version = modules.codingAgent.VERSION;
-	if (typeof version !== "string" || version === "")
-		throw new Error(`The pi at ${packageDir} names no version`);
-	const lacking = HOST_WANTED_SEAMS.filter((seam) => !seam.present(modules));
-	return {
-		packageDir,
-		version,
-		command: piCommand(packageDir),
-		modules,
-		lacking,
 	};
 }
 

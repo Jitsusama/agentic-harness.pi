@@ -16,6 +16,7 @@ import { afterEach, expect, it } from "vitest";
 import {
 	HOST_SEAMS,
 	HostPiRefused,
+	hostPiBundle,
 	hostPiFiles,
 	lackingSeams,
 	loadHostPi,
@@ -43,6 +44,36 @@ interface FakeSeams {
 	/** Whether the runs-through-pi patch lets the host run its own turns as pi's; it does with the agent interface unless said. */
 	readonly runs?: boolean;
 	readonly auth?: boolean;
+	/** Whether the install has the bundle's host entry; it does unless said. */
+	readonly bundle?: boolean;
+}
+
+/** The libraries a fake bundle hands extensions, as its virtual modules name them. */
+const FAKE_VIRTUAL = {
+	"@earendil-works/pi-coding-agent": "codingAgent",
+	"@earendil-works/pi-agent-core": "agentCore",
+	"@earendil-works/pi-ai": "ai",
+	"@earendil-works/pi-tui": "tui",
+} as const;
+
+/** A bundle's host entry over a fake install's files, shaped as the one-bundle patch emits it. */
+function fakeHostEntry(files: ReturnType<typeof hostPiFiles>): string {
+	const at = (file: string) => JSON.stringify(pathToFileURL(file).href);
+	return [
+		...Object.values(FAKE_VIRTUAL).map(
+			(name) => `import * as ${name} from ${at(files[name])};`,
+		),
+		`export const VIRTUAL_MODULES = { ${Object.entries(FAKE_VIRTUAL)
+			.map(([specifier, name]) => `${JSON.stringify(specifier)}: ${name}`)
+			.join(", ")} };`,
+		`export { builtInExtensions } from ${at(files.builtins)};`,
+		`export { resolveProjectTrusted } from ${at(files.projectTrust)};`,
+		`export * as durable from ${at(files.durable)};`,
+		`export * as durableSqlite from ${at(files.sqlite)};`,
+		`export * as durableNodeEnv from ${at(files.nodeEnv)};`,
+		`export * as chordContext from ${at(files.context)};`,
+		"export const hostEntryVersion = 1;",
+	].join("\n");
 }
 
 /** The version every fake install says it is. */
@@ -94,6 +125,8 @@ function fakeInstall(
 	const command = join(dir, "dist", "bundle", "cli.js");
 	mkdirSync(dirname(command), { recursive: true });
 	writeFileSync(command, "");
+	if (seams.bundle !== false)
+		writeFileSync(hostPiBundle(dir), fakeHostEntry(files));
 	writeFileSync(
 		join(dir, "package.json"),
 		JSON.stringify({ bin: { pi: "dist/bundle/cli.js" } }),
@@ -275,9 +308,91 @@ it("refuses a generation at the committed-turn version without its phases", asyn
 	]);
 });
 
+it("loads pi's libraries from its bundle as the extensions it loads get them", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	// A real bundle holds copies of its own, apart from the files an unbundled load reads.
+	const files = hostPiFiles(dir);
+	const chunks = join(dirname(hostPiBundle(dir)), "chunks");
+	mkdirSync(chunks, { recursive: true });
+	const copies = Object.fromEntries(
+		Object.entries(files).map(([name, file]) => {
+			const copy = join(chunks, `${name}.js`);
+			writeFileSync(copy, readFileSync(file, "utf8"));
+			return [name, copy];
+		}),
+	) as typeof files;
+	writeFileSync(hostPiBundle(dir), fakeHostEntry(copies));
+	const entry: unknown = await import(pathToFileURL(hostPiBundle(dir)).href);
+	if (!isRecord(entry) || !isRecord(entry.VIRTUAL_MODULES))
+		throw new Error("the fake host entry hands extensions nothing");
+	const virtual = entry.VIRTUAL_MODULES;
+	const pi = await loadHostPi(dir);
+	for (const [specifier, name] of Object.entries(FAKE_VIRTUAL))
+		expect(pi.modules[name], specifier).toBe(virtual[specifier]);
+	expect(pi.modules.durable).toBe(entry.durable);
+	expect(pi.lacking).toEqual([]);
+});
+
+it("loads a pi without its bundle's host entry file by file, saying what that costs", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+		bundle: false,
+	});
+	const pi = await loadHostPi(dir);
+	expect(Object.keys(pi.modules.durable)).toEqual(["GenerationTask"]);
+	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
+		`The pi at ${dir} lacks pi-host-loads-one-bundle.patch: without it each conversation loads pi file by file, with about 10 MB more heap and three times the CPU its bundle takes`,
+	);
+});
+
+it("refuses a bundle's host entry that names no version it reads", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	const entry = hostPiBundle(dir);
+	writeFileSync(
+		entry,
+		readFileSync(entry, "utf8").replace(
+			"hostEntryVersion = 1",
+			"hostEntryVersion = 0",
+		),
+	);
+	await expect(loadHostPi(dir)).rejects.toThrow(
+		"names no host entry version the host reads",
+	);
+});
+
+it("refuses a bundle's host entry that hands extensions no pi-ai", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		auth: true,
+	});
+	const entry = hostPiBundle(dir);
+	writeFileSync(
+		entry,
+		readFileSync(entry, "utf8").replace('"@earendil-works/pi-ai": ai, ', ""),
+	);
+	await expect(loadHostPi(dir)).rejects.toThrow(
+		"hands extensions no @earendil-works/pi-ai",
+	);
+});
+
 it("says which module files an incomplete install lacks", async () => {
 	const dir = fakeInstall(
-		{ agent: true, turn: true, screen: true, auth: true },
+		{ agent: true, turn: true, screen: true, auth: true, bundle: false },
 		"sqlite",
 	);
 	await expect(loadHostPi(dir)).rejects.toThrow(
