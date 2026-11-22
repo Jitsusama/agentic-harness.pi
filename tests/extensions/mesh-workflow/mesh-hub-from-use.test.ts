@@ -8,6 +8,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
+import { TIES_PATIENCE_MS } from "../../../lib/mesh/node.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
@@ -65,6 +67,31 @@ function markedParent() {
 }
 
 /** The last message on the mesh, as the transport keeps it. */
+/**
+ * Wait until the session keeps 5GV2AH as its hub, as seen by a quest's
+ * ending reaching it, which the mesh tells only the hub it keeps.
+ */
+async function untilHubKept(
+	emit: (event: string, payload: unknown) => void,
+	timeout = 5_000,
+) {
+	await vi.waitFor(
+		() => {
+			emit(QUEST_CONCLUDED, {
+				how: "concluded",
+				ids: ["PLAN-20261021-AAAAAA"],
+				said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
+			});
+			expect(lastSent()).toMatchObject({
+				to: ["@5GV2AH"],
+				intent: "fyi",
+				text: expect.stringContaining("PLAN-20261021-AAAAAA concluded"),
+			});
+		},
+		{ timeout },
+	);
+}
+
 function lastSent() {
 	const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 	return transport.read(transport.ids().at(-1) ?? "");
@@ -257,18 +284,17 @@ describe("orchestrator, on a quest with no mark", () => {
 		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
 		const ties = [tieTo("5GV2AH", 2)];
 		const env = await node([asker, { key: "cell:5GV2AH" }], ties);
-		const { tools } = await startSession(env);
-		// The session's own find is answered with the tie before it goes.
-		await vi.waitFor(() => expect(nodeAsked).toContain("tie"));
+		const started = await startSession(env);
+		await untilHubKept(started.emit);
 		ties.length = 0;
 
-		const refused = await send(tools, "orchestrator", "fyi", "Landed.");
+		const refused = await send(started.tools, "orchestrator", "fyi", "Landed.");
 
 		expect(refused).toContain(
 			"Not sent: no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no live cell on a quest above it has a tie to this peer yet",
 		);
 		expect(refused).not.toContain("last found");
-		expect(lastSent()).toBeUndefined();
+		expect(lastSent()?.text).not.toBe("Landed.");
 	}, 15_000);
 
 	// The hub's process went away after this session's find kept it,
@@ -286,8 +312,8 @@ describe("orchestrator, on a quest with no mark", () => {
 				return asks === 1 ? Promise.resolve() : new Promise(() => {});
 			},
 		);
-		const { tools } = await startSession(env);
-		await vi.waitFor(() => expect(asks).toBe(1));
+		const started = await startSession(env);
+		await untilHubKept(started.emit);
 		createPresences(join(fixture.paths.mesh, "presence")).publish({
 			session: "session-q",
 			addresses: ["5GV2AH"],
@@ -302,11 +328,49 @@ describe("orchestrator, on a quest with no mark", () => {
 			at: new Date().toISOString(),
 		});
 
-		const refused = await send(tools, "orchestrator", "fyi", "Landed.");
+		const refused = await send(started.tools, "orchestrator", "fyi", "Landed.");
 
-		expect(refused).toContain("Not sent:");
-		expect(refused).not.toContain("last found");
-		expect(lastSent()).toBeUndefined();
+		// The find was left unfinished by the node, and the kept hub, read
+		// for it, was refused.
+		expect(refused).toContain(
+			"Not sent: no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no ties came from the node",
+		);
+		expect(lastSent()?.text).not.toBe("Landed.");
+	}, 15_000);
+
+	// The node was down when the session's own find asked, so its keeping
+	// backs off for a long while; the send that hears it back up says so,
+	// and the hub is kept now rather than at the keeping's next find.
+	it("keeps the hub at once once a send hears the node answer, though its keeping was backing off", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? new Promise(() => {}) : Promise.resolve();
+			},
+		);
+		const started = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 600_000, retry: 300_000, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(asks).toBe(1));
+		// Past the node's patience, so the keeping's find has missed and
+		// waits its retry, which no test outlasts.
+		await new Promise((done) => setTimeout(done, TIES_PATIENCE_MS + 500));
+
+		await send(started.tools, "orchestrator", "fyi", "Landed.");
+
+		await untilHubKept(started.emit, 3_000);
 	}, 15_000);
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {

@@ -190,7 +190,7 @@ describe("a hub from use", () => {
 		expect(above).toEqual({ address: "ROOT01", by: "use" });
 	});
 
-	it("is nobody when every message on the only tie above is from yesterday", () => {
+	it("is nobody when every message on the only tie above is twenty hours old", () => {
 		const yesterday = {
 			...tie("ROOT01", 4 * 2 ** -10),
 			today: [1, 3] as const,
