@@ -3,7 +3,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
@@ -28,6 +28,7 @@ import {
 	opensOnlyItself,
 	PARK_ASK,
 	PARK_ENV,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -39,6 +40,7 @@ import {
 	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
+	sayParked,
 	switchOff,
 	tellHolderSteers,
 	WAKE_ENV,
@@ -219,7 +221,10 @@ export interface WatchOptions {
 	 * can't be told; asked only as a restart is weighed.
 	 */
 	readonly focusedWindow?: () => string | null;
-	/** Start this process again in place on `sessionFile`, once pi exits. */
+	/**
+	 * Start this process again in place on `sessionFile`, once pi exits,
+	 * running `fallback` where it can't be.
+	 */
 	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
@@ -260,27 +265,73 @@ const FIRST_START_ONLY = [
 function restartWith(sessionFile: string, fallback: () => void): void {
 	process.once("exit", () => {
 		process.stdout.write(`\r\n${RESTART_LINE}\r\n`);
-		const env = { ...process.env };
-		for (const name of FIRST_START_ONLY) delete env[name];
+		const env = restartEnvironment(process.env, process.pid);
 		const [script = ""] = process.argv.slice(1);
-		try {
-			// Node calls execve experimental and would print so in the window.
-			process.removeAllListeners("warning");
-			process.execve?.(
+		// Node calls execve experimental and would print so in the window.
+		process.removeAllListeners("warning");
+		replaceInPlace(
+			process.execve?.bind(process),
+			[
 				process.execPath,
-				[
-					process.execPath,
-					...process.execArgv,
-					script,
-					...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
-				],
-				env,
-			);
-		} catch {
-			// Not replaced: its holder starts it again instead, below.
-		}
+				...process.execArgv,
+				script,
+				...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
+			],
+			env,
+		);
+		// Not replaced: its holder starts it again instead.
 		fallback();
 	});
+}
+
+/**
+ * The variables the pi a restart in place of process `pid` becomes
+ * runs with: `env` without those a spawn gave its first start alone,
+ * and naming `pid` as the process that said its park, for that pi to
+ * take back as it loads.
+ */
+export function restartEnvironment(
+	env: NodeJS.ProcessEnv,
+	pid: number,
+): NodeJS.ProcessEnv {
+	const next: NodeJS.ProcessEnv = { ...env, [PARK_SAID_ENV]: String(pid) };
+	for (const name of FIRST_START_ONLY) delete next[name];
+	return next;
+}
+
+/**
+ * Replaces this process with `argv` by `execve`. It returns only when it
+ * couldn't, as on a Node without execve, where `argv[0]` can't be run,
+ * or when execve throws, for the caller to start it another way.
+ *
+ * Node ends the process by abort, never returning, when the execve call
+ * itself fails (PV3TE0 saw ENOENT do so on node 24, 21 November), so
+ * the program is checked first: Node upgraded or collected under a
+ * long-running pi is the likeliest way it fails, and that way the
+ * caller's fallback still runs.
+ */
+export function replaceInPlace(
+	execve: NodeJS.Process["execve"],
+	argv: readonly [string, ...string[]],
+	env: NodeJS.ProcessEnv,
+	canRun: (file: string) => boolean = runnable,
+): void {
+	if (execve === undefined || !canRun(argv[0])) return;
+	try {
+		execve(argv[0], argv, env);
+	} catch {
+		// Not replaced: the process runs on as it was, and the caller knows.
+	}
+}
+
+/** Whether this account may run `file`. */
+function runnable(file: string): boolean {
+	try {
+		accessSync(file, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -544,6 +595,7 @@ export function watch(
 			return;
 		}
 		endedProcess = true;
+		sayParked(env, options.pid ?? process.pid);
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
@@ -679,6 +731,12 @@ export function watch(
 		};
 		parked = true;
 		endedProcess = true;
+		// Said now, so a shutdown that hangs and ends by a signal before
+		// the exit, or an execve that aborts, still leaves its holder a
+		// park, as a park says it. Replaced in place, the pi it becomes
+		// takes it back as it loads (takeBackRestartPark), since its holder
+		// saw no exit and never clears it.
+		sayParked(env, options.pid ?? process.pid);
 		(options.restartWith ?? restartWith)(fresh, throughHolder);
 		void ctx.shutdown();
 		return undefined;
