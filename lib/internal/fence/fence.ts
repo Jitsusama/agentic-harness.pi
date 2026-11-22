@@ -90,6 +90,7 @@ import { FENCE_HIDDEN } from "./fence-hidden.ts";
 import {
 	cachesWithin,
 	READ_ONLY,
+	REPOSITORY_HOMES,
 	readOnlyEntry,
 	readOnlyPaths,
 } from "./fence-home.ts";
@@ -542,21 +543,6 @@ const GIT_CODE = ["config", "config.worktree", "hooks", "info"] as const;
  * git folder under `modules`.
  */
 const GIT_WRITTEN = ["objects", "refs", "logs", "lfs", "rr-cache"] as const;
-
-/**
- * Folders that may hold repositories, and how many levels down: the
- * home folder's own entries, `src` as deep as `src/github.com/org/repo`
- * and a level more, and `world`. `src` and `world` are kept read-only
- * inside, so no command can make a repository there, and only theirs
- * count as guarded: a command can still make a git folder in a hidden
- * entry of the home folder, or the browsed one its session works in,
- * and write its settings before the fence ever guards them.
- */
-const REPOSITORY_HOMES = [
-	{ where: "", depth: 1, kept: false },
-	{ where: "src", depth: 4, kept: true },
-	{ where: "world", depth: 1, kept: true },
-] as const;
 
 /** The repository homes the fence keeps read-only, that are folders here. */
 function keptHomes(home: string, disk: Disk): string[] {

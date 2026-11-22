@@ -7,7 +7,9 @@ import {
 	hostCodeOf,
 	hostModules,
 	isUnitMain,
+	ownLaunchdJob,
 	ownUnit,
+	processLaunchdFacts,
 	relativeImports,
 	unitDefinition,
 } from "../../../host/service/what-starts.ts";
@@ -101,6 +103,63 @@ describe("ownUnit", () => {
 		);
 		expect(await ownUnit(join(root, "in-scope"))).toBeUndefined();
 		expect(await ownUnit(join(root, "absent"))).toBeUndefined();
+	});
+});
+
+describe("ownLaunchdJob", () => {
+	const label = "org.jitsusama.pi-host-work-background";
+
+	it("names the job of a Mac's host whose parent is launchd", () => {
+		expect(ownLaunchdJob({ platform: "darwin", ppid: 1, service: label })).toBe(
+			label,
+		);
+	});
+
+	it("names none for a host started any other way", () => {
+		// Started in a terminal, its parent a shell.
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 4242, service: label }),
+		).toBeUndefined();
+		// Left behind by its parent, carrying the terminal's name.
+		expect(
+			ownLaunchdJob({
+				platform: "darwin",
+				ppid: 1,
+				service: "application.com.apple.Terminal.1234",
+			}),
+		).toBeUndefined();
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 1, service: undefined }),
+		).toBeUndefined();
+		// Linux's host is systemd's, whatever it carries.
+		expect(
+			ownLaunchdJob({ platform: "linux", ppid: 1, service: label }),
+		).toBeUndefined();
+	});
+
+	it.each([
+		"org.jitsusama.not-pi-host-x",
+		"org.jitsusama.pi-host-",
+		"org.jitsusama.pi-host-work.attended",
+		"org.jitsusama.pi-hostwork",
+	])("names none for the near miss %s", (service) => {
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 1, service }),
+		).toBeUndefined();
+	});
+
+	it("names a Label that is the job's name alone", () => {
+		expect(
+			ownLaunchdJob({ platform: "darwin", ppid: 1, service: "pi-host-work" }),
+		).toBe("pi-host-work");
+	});
+
+	it("reads this process's Label from launchd's variable", () => {
+		const facts = processLaunchdFacts({ XPC_SERVICE_NAME: label });
+		expect(facts.service).toBe(label);
+		expect(facts.platform).toBe(process.platform);
+		expect(facts.ppid).toBe(process.ppid);
+		expect(processLaunchdFacts({}).service).toBeUndefined();
 	});
 });
 

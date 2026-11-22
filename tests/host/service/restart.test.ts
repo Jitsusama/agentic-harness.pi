@@ -29,7 +29,10 @@ import {
 	SETTLE_CEILING_MS,
 	settled,
 } from "../../../host/service/restart.ts";
-import type { Systemctl } from "../../../host/service/what-starts.ts";
+import type {
+	LaunchdFacts,
+	Systemctl,
+} from "../../../host/service/what-starts.ts";
 
 const NOW = Date.parse("2026-11-10T20:00:00Z");
 const MB = 1024 * 1024;
@@ -1253,6 +1256,9 @@ describe("followWhatStarts", () => {
 		};
 	}
 
+	// A host systemd runs, which launchd's facts never read as a job.
+	const linux = { platform: "linux" as const, ppid: 0, service: undefined };
+
 	// A heap far under V8's limit, unless a test says otherwise.
 	const small = () => ({ usedBytes: MB, limitBytes: 4144 * MB });
 
@@ -1278,8 +1284,11 @@ describe("followWhatStarts", () => {
 			restartComing: vi.fn(),
 			stopping: () => false,
 		};
+		// Every host the program starts is given one, a Linux host too.
+		const exitToRestart = vi.fn(async () => undefined);
 		const stop = await followWhatStarts({
 			serving,
+			exitToRestart,
 			background: holds.background ?? (() => 0),
 			...(holds.holding ? { holding: holds.holding } : {}),
 			resting: holds.resting ?? (() => true),
@@ -1291,10 +1300,12 @@ describe("followWhatStarts", () => {
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
+			// Linux's, whatever machine runs the tests.
+			launchd: linux,
 			heap,
 			timing: { after: timers.after, settledMs: 0 },
 		});
-		return { timers, serving, stop, report };
+		return { timers, serving, stop, report, exitToRestart };
 	}
 
 	async function moveTo(version: string) {
@@ -1305,7 +1316,7 @@ describe("followWhatStarts", () => {
 
 	it("restarts its own unit once the install changes the host's own code", async () => {
 		const { systemctl, calls } = systemd();
-		const { timers, serving, report } = await follow(systemctl);
+		const { timers, serving, report, exitToRestart } = await follow(systemctl);
 		await timers.fire();
 		expect(serving.restartComing).not.toHaveBeenCalled();
 
@@ -1314,6 +1325,10 @@ describe("followWhatStarts", () => {
 
 		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+		expect(
+			exitToRestart,
+			"a unit restarts through systemctl, never by exiting",
+		).not.toHaveBeenCalled();
 		expect(String(report.mock.calls[0]?.[0])).toContain(
 			"the install's two changes the host's own code",
 		);
@@ -1377,6 +1392,8 @@ describe("followWhatStarts", () => {
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
+			// Linux's, whatever machine runs the tests.
+			launchd: linux,
 			timing: { after: timers.after, ceilingMs: 0 },
 		});
 		await moveTo("two");
@@ -1532,5 +1549,103 @@ describe("followWhatStarts", () => {
 		const { timers } = await follow(systemctl);
 		expect(timers.pending()).toEqual([]);
 		expect(calls).toEqual([]);
+	});
+
+	// A Mac's host as launchd runs it: launchd its parent, its Label core's.
+	const job = {
+		platform: "darwin" as const,
+		ppid: 1,
+		service: "org.jitsusama.pi-host-work-attended",
+	};
+
+	// It reads the unit's own cgroup, as the main process systemd names, so
+	// any way past launchd to systemd would show in the calls.
+	async function followAsJob(
+		exitToRestart?: () => Promise<void>,
+		launchd: LaunchdFacts = job,
+	) {
+		const timers = manualTimers();
+		const serving = {
+			held: () => [{ state: "idle" as const, since: long }],
+			restartComing: vi.fn(),
+			stopping: () => false,
+		};
+		const { systemctl, calls } = systemd();
+		const report = vi.fn();
+		const stop = await followWhatStarts({
+			serving,
+			background: () => 0,
+			resting: () => true,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			launchd,
+			...(exitToRestart ? { exitToRestart } : {}),
+			heap: small,
+			timing: { after: timers.after, settledMs: 0 },
+		});
+		return { timers, serving, calls, report, stop };
+	}
+
+	it("exits to restart as a launchd job once the install changes the host's own code", async () => {
+		// It answers once the test says the host has parked, and ends no
+		// following itself, so the follow must stop of its own accord.
+		let parked = (): void => undefined;
+		const exits = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					parked = resolve;
+				}),
+		);
+		const { timers, serving, calls, report } = await followAsJob(exits);
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"The host follows its install as launchd's job org.jitsusama.pi-host-work-attended, exiting to be started again",
+		);
+		await timers.fire();
+		expect(exits).not.toHaveBeenCalled();
+
+		await moveTo("two");
+		await timers.fire(() => exits.mock.calls.length > 0);
+
+		parked();
+		// Each turn of the loop settles what the parked exit set going.
+		await new Promise((resolve) => setImmediate(resolve));
+		await new Promise((resolve) => setImmediate(resolve));
+
+		expect(exits).toHaveBeenCalledOnce();
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
+		expect(calls, "no systemctl on a Mac").toEqual([]);
+		expect(String(report.mock.calls.at(-1)?.[0])).toContain(
+			"the install's two changes the host's own code",
+		);
+		expect(
+			timers.pending(),
+			"no wait for systemd to start it again is armed",
+		).toEqual([]);
+	});
+
+	it("follows nothing as a launchd job it can't exit to restart, saying why", async () => {
+		const { timers, calls, report } = await followAsJob();
+		expect(timers.pending()).toEqual([]);
+		expect(calls).toEqual([]);
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"The host follows nothing: it is launchd's job org.jitsusama.pi-host-work-attended but has no way to exit to be started again",
+		);
+	});
+
+	it("follows nothing on a Mac launchd doesn't run as its job, saying why", async () => {
+		const exits = vi.fn(async () => {});
+		const { timers, calls, report } = await followAsJob(exits, {
+			platform: "darwin",
+			ppid: 4242,
+			service: undefined,
+		});
+		expect(timers.pending()).toEqual([]);
+		expect(calls, "no systemctl on a Mac").toEqual([]);
+		expect(report).toHaveBeenCalledExactlyOnceWith(
+			"The host follows nothing: launchd runs no pi host job here (its parent is 4242, its XPC_SERVICE_NAME unset)",
+		);
 	});
 });

@@ -53,9 +53,15 @@
  * marker counts as no park, and the next session to start clears it.
  */
 
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+	lstatSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type Booted, machineBooted } from "../machine/booted.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
@@ -460,6 +466,117 @@ export function parkFolder(): string {
 /** The switch that turns parking on while sessions run. */
 export function parkSwitch(folder: string = parkFolder()): string {
 	return join(folder, "switch");
+}
+
+/**
+ * The file through which the node asks `session` to park soon, while
+ * its machine reads over: its presence is the ask, and its line (when
+ * and why) is for people, never read for meaning.
+ */
+export function easePath(
+	session: string,
+	folder: string = parkFolder(),
+): string {
+	return join(folder, "ease", session);
+}
+
+/**
+ * How long an ask to park soon stands once written: the node writes it
+ * again while its machine still reads over, so an ask a crashed node,
+ * a stuck sensor or a killed session left behind lapses on its own
+ * rather than parking its session two minutes after every turn.
+ */
+export const EASE_LASTS_MS = 30 * 60 * 1000;
+
+/**
+ * How long a background conversation asked to park soon waits idle: as
+ * long as one the switch names, long enough to read what it said last,
+ * but its own rule, for memory rather than a trial.
+ */
+export const EASED_PARK_AFTER_MS = 2 * 60 * 1000;
+
+/**
+ * How far ahead of now an ask may be dated and still count: the skew two
+ * clocks on one machine may show. One dated later, by a clock stepped
+ * back or a copy that kept its times, would not lapse when it should,
+ * so it is none, and taken back so it can't count once the clock
+ * catches up.
+ */
+export const EASE_SKEW_MS = 60 * 1000;
+
+// A session id names a file of its own in `ease/`, never one elsewhere:
+// it comes from a log's header, and a log can come from another machine.
+const namesOwnFile = (session: string) =>
+	session !== "" &&
+	session !== "." &&
+	session !== ".." &&
+	basename(session) === session;
+
+/**
+ * Whether the node has asked `session` to park soon, by an ease file in
+ * `folder`, a regular file of one name and no link, written within
+ * {@link EASE_LASTS_MS}. One dated past {@link EASE_SKEW_MS} ahead is
+ * taken back, so it can't count once the clock catches up.
+ */
+export function isEased(
+	session: string,
+	folder: string = parkFolder(),
+	now: number = Date.now(),
+): boolean {
+	if (!namesOwnFile(session)) return false;
+	try {
+		const ask = lstatSync(easePath(session, folder));
+		// A link, hard or soft, may share a busy file's times and never lapse.
+		if (!ask.isFile() || ask.nlink !== 1) return false;
+		const age = now - ask.mtimeMs;
+		if (age < -EASE_SKEW_MS) {
+			clearEase(session, folder);
+			return false;
+		}
+		return age <= EASE_LASTS_MS;
+	} catch {
+		// No file is no ask.
+		return false;
+	}
+}
+
+/** Take back an ask to park soon, as its session wakes or parks. */
+export function clearEase(
+	session: string,
+	folder: string = parkFolder(),
+): void {
+	if (!namesOwnFile(session)) return;
+	try {
+		rmSync(easePath(session, folder), { force: true });
+	} catch {
+		// An ask left behind parks this session soon once more, until it
+		// lapses or the node takes it back once the machine reads calm.
+	}
+}
+
+/**
+ * Whether the switch at `switchPath` holds the line `off`, which keeps
+ * the node's asks to ease from parking anyone, so emptying the switch
+ * and writing `off` stops every park but a session it names, one file
+ * a person edits. A Mac's switch already holds `off` beside the names
+ * it parks, which park as before.
+ */
+export function switchOff(switchPath: string = parkSwitch()): boolean {
+	try {
+		return readFileSync(switchPath, "utf8")
+			.split("\n")
+			.some((line) => line.trim() === "off");
+	} catch (error) {
+		// No switch says nothing; one there that this account can't read
+		// may say off, so it is taken as off, the kill switch failing shut.
+		// A switch rewritten in place can read empty for a moment: it is
+		// only as atomic as whoever writes it.
+		return !(
+			error instanceof Error &&
+			"code" in error &&
+			error.code === "ENOENT"
+		);
+	}
 }
 
 /**

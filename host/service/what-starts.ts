@@ -123,6 +123,51 @@ export async function ownUnit(
 	return unit?.endsWith(".service") ? unit : undefined;
 }
 
+/** What says whether launchd runs a process as a job of its own. */
+export interface LaunchdFacts {
+	readonly platform: NodeJS.Platform;
+	/** Its parent's pid, launchd's being 1. */
+	readonly ppid: number;
+	/** XPC_SERVICE_NAME, which launchd sets to a job's Label. */
+	readonly service: string | undefined;
+}
+
+/**
+ * The Label of the launchd job this process is, or nothing: a Mac's host
+ * whose parent is launchd and whose Label names a pi host, as core's
+ * darwin.nix starts it, through sh and env, each exec'd into the next.
+ * A host started in a terminal carries the terminal's own name, and one
+ * left behind by an exited parent has launchd as its parent too, so the
+ * Label must name a pi host as well. The host keeps its Label from its
+ * conversations (program.ts's HOST_ONLY), so a pi-host a tool starts
+ * never carries it.
+ */
+export function ownLaunchdJob(
+	facts: LaunchdFacts = processLaunchdFacts(),
+): string | undefined {
+	if (facts.platform !== "darwin" || facts.ppid !== LAUNCHD_PID)
+		return undefined;
+	const label = facts.service;
+	return label !== undefined && PI_HOST_LABEL.test(label) ? label : undefined;
+}
+
+/** This process's facts for {@link ownLaunchdJob}, its Label read from `env`. */
+export function processLaunchdFacts(
+	env: NodeJS.ProcessEnv = process.env,
+): LaunchdFacts {
+	return {
+		platform: process.platform,
+		ppid: process.ppid,
+		service: env.XPC_SERVICE_NAME,
+	};
+}
+
+/** launchd's pid, every job's parent. */
+const LAUNCHD_PID = 1;
+
+/** A launchd Label naming a pi host: its last part starts `pi-host-`. */
+const PI_HOST_LABEL = /(^|\.)pi-host-[^.]+$/;
+
 /** Runs `systemctl --user` with these arguments, answering what it printed. */
 export type Systemctl = (args: readonly string[]) => Promise<string>;
 
