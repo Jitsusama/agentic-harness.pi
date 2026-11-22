@@ -185,9 +185,11 @@ async function toHubByAddress(
  * A fresh find the node left unfinished with nobody above, read instead
  * as the hub this peer keeps, when it keeps one. That hub was found by a
  * finished find within a keeping's wait, and is checked again as it is
- * read against the presences now, so what is for the hub still reaches
- * it while the node is slow. It stays unsettled, so the checks a send
- * to the hub gets are still made.
+ * read against the presences now, by the rules the find used, so what is
+ * for the hub still reaches it while the node has only just slowed. The
+ * keeping's own next find meets the same slow node and keeps none, so
+ * past that this refuses as before. It stays unsettled, so the checks a
+ * send to the hub gets are still made.
  */
 function orKept(
 	found: Found,

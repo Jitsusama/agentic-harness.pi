@@ -281,7 +281,10 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		// Room for the pause above, and for finding the hub first on a busy machine.
 	}, 15_000);
 
-	it("leaves no search for its hub running beside the next session's", async () => {
+	// Either stop keeps this: the ending's, and the next start's guard.
+	// The ending's alone can't be seen, since an ended session has no
+	// peer for its search to read; the next test holds the guard alone.
+	it("leaves no search for its hub running beside the next session's, once one ends", async () => {
 		// One search never asks twice at once, since each find waits for the
 		// last, so two asks out together mean an ended session's search
 		// went on beside the next one's.
@@ -321,6 +324,53 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		// came after the answer to the ask the ended search had out, since
 		// every answer waits the same 60 ms and that ask went first: so by
 		// then only an ask the ended search made after it ended can be out.
+		await vi.waitFor(() =>
+			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
+		);
+		most = out;
+		// Several of the next search's finds, each 60 ms out and 20 ms apart.
+		await new Promise((done) => setTimeout(done, 400));
+
+		expect(most).toBeLessThanOrEqual(1);
+	}, 15_000);
+
+	// A start with no ending before it, as a reload that skipped the
+	// ending gives, leaves the last search with a peer to read: only the
+	// start's own guard stops it.
+	it("stops the last search for its hub when a session starts again without ending", async () => {
+		let out = 0;
+		let most = 0;
+		const answerLate = () => {
+			out += 1;
+			most = Math.max(most, out);
+			// Long enough that a second search's ask lands while one is out.
+			return new Promise<void>((answered) =>
+				setTimeout(() => {
+					out -= 1;
+					answered();
+				}, 60),
+			);
+		};
+		const tieAsks = () => nodeAsked.filter((kind) => kind === "tie").length;
+		onQuest();
+		parentLive();
+		const env = await node([asker], [tieTo("5GV2AH", 4)], answerLate);
+		const { restart } = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 20, retry: 20, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(tieAsks()).toBeGreaterThanOrEqual(2));
+
+		await restart();
+		const restarted = tieAsks();
+		// As above: past the next search's second ask, only a search the
+		// start left running can have one out beside it.
 		await vi.waitFor(() =>
 			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
 		);

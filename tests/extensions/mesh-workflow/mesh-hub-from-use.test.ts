@@ -220,7 +220,35 @@ describe("orchestrator, on a quest with no mark", () => {
 			"`orchestrator` was read as 5GV2AH, the hub from use this peer last found",
 		);
 		expect(lastSent()).toMatchObject({ to: ["@5GV2AH"], text: "Landed." });
-	});
+	}, 15_000);
+
+	// Reaching the kept hub is still reaching the hub, so the checks that
+	// hold a question for the person's hands there hold here too.
+	it("counts the person's acts in a question for his hands put to the hub it last found", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? Promise.resolve() : new Promise(() => {});
+			},
+		);
+		const { tools } = await startSession(env);
+		await vi.waitFor(() => expect(asks).toBe(1));
+
+		const refused = await send(
+			tools,
+			"orchestrator",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	}, 15_000);
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {
 		onQuest();
