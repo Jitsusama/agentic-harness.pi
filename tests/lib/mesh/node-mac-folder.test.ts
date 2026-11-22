@@ -3,12 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import {
-	AGENTS_RUNTIME_ENV,
-	formerRuntimeDir,
-	runtimeDir,
-} from "../../../lib/internal/paths.ts";
-import { nodeSocket, nodeSockets } from "../../../lib/mesh/node.ts";
+
+type Paths = typeof import("../../../lib/internal/paths.ts");
+type Node = typeof import("../../../lib/mesh/node.ts");
 
 /** The folders getconf names on this pretend Mac, set once the test's folder exists. */
 const folders = vi.hoisted(() => ({ cache: "", temporary: "" }));
@@ -33,12 +30,24 @@ vi.mock("node:child_process", async (actual) => {
 });
 
 let root = "";
+let AGENTS_RUNTIME_ENV: Paths["AGENTS_RUNTIME_ENV"];
+let formerRuntimeDir: Paths["formerRuntimeDir"];
+let runtimeDir: Paths["runtimeDir"];
+let nodeSocket: Node["nodeSocket"];
+let nodeSockets: Node["nodeSockets"];
 
-beforeAll(() => {
+beforeAll(async () => {
 	// tmpdir is the real one: only platform is pretended.
 	root = mkdtempSync(join(tmpdir(), "mac-folder-"));
 	folders.cache = join(root, "C");
 	folders.temporary = join(root, "T");
+	// The suite's setup loads the paths module before these mocks, and it
+	// keeps what getconf said, so the modules are loaded afresh here.
+	vi.resetModules();
+	({ AGENTS_RUNTIME_ENV, formerRuntimeDir, runtimeDir } = await import(
+		"../../../lib/internal/paths.ts"
+	));
+	({ nodeSocket, nodeSockets } = await import("../../../lib/mesh/node.ts"));
 });
 
 afterAll(() => {
