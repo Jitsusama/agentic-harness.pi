@@ -112,7 +112,7 @@ describe("why each job waits", () => {
 		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
 		const tight = { ...pressed, availableGib: 2 };
 		expect(nextTurn([sent], tight, NOW)).toBeUndefined();
-		const unsent = { ...sent, sent: false };
+		const { sent: _sent, ...unsent } = sent;
 		expect(nextTurn([unsent], pressed, NOW)).toBeUndefined();
 	});
 
