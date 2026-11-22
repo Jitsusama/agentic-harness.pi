@@ -57,6 +57,7 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					cross: (crossing) => crossAt(nodeSocket(m.env), crossing),
 					ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
 					keptHub: (gone) => m.hub?.current(gone),
+					nodeAnswered: () => m.hub?.nodeAnswered(),
 					need: (asked, live, stopped) =>
 						needAt(nodeSocket(m.env), asked, {
 							live,

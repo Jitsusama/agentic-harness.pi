@@ -13,11 +13,14 @@
  * The hub from use is only an address. It grants nothing: a pivot, an
  * end, a carry or a view over another cell's questions is still the
  * marked orchestrator's alone, since a cell becomes a hub by being
- * talked to, and being talked to is no warrant. Nor is talking at a
- * cell that hasn't written to it today a way to become its hub: a tie
- * counts for the share of today's messages on it that this cell sent.
- * Once this cell has written one, the other side's talk lifts the tie
- * too, since the node fades the two sides together.
+ * talked to, and being talked to is no warrant. Talking at a cell that
+ * hasn't written to it today is no way to become its hub: a tie counts
+ * for the share of today's messages on it that this cell sent. Once
+ * this cell has written one, though, the other side's talk lifts both
+ * the tie and that share, since the node fades the two sides together
+ * and counts today's messages unfaded, so a cell above that talks at
+ * this one hard enough can become its hub. Which is why it grants
+ * nothing.
  */
 
 import { questAddress } from "./address.ts";
@@ -51,7 +54,7 @@ const HUB_TIE_AGE_MS = 6 * 60 * 60 * 1000;
  * it to be a hub: one message, from either side, `HUB_TIE_AGE_MS` old,
  * as the node fades it. A tie
  * grows by one a message and halves every two hours, so one message
- * from yesterday reads about 0.001, a cell barely known rather than the
+ * twenty hours old reads about 0.001, a cell barely known rather than the
  * one talked with most; six hours keeps a hub through a quiet afternoon.
  * It is weighed against the ties' whole strength, not this cell's share
  * of it, since the node fades the two sides together and keeps no faded

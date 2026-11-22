@@ -186,9 +186,10 @@ async function toHubByAddress(
  * as the hub this peer keeps, when it keeps one. That hub was found by a
  * finished find within a keeping's wait, and is checked again as it is
  * read against the presences now, by the rules the find used, with the
- * sessions the fresh find's own census judged gone taken as gone, so
- * what is for the hub still reaches it while the node has only just
- * slowed. The keeping's own next find meets the same slow node and keeps
+ * fresh find's own census judging who is live, so what is for the hub
+ * still reaches it while the node has only just slowed. A find that
+ * ended before it asked the node says nothing of the node, so it falls
+ * back to nothing. The keeping's own next find meets the same slow node and keeps
  * none, so past that this refuses as before. A send to it gets the
  * checks a send to the hub gets, since `orchestrator` then names its
  * address; it stays unsettled only so it is never taken for a find the
@@ -199,7 +200,12 @@ function orKept(
 	found: Found,
 	keptHub: ((gone: readonly string[]) => string | undefined) | undefined,
 ): Found & { readonly kept?: true } {
-	if (found.settled || !("none" in found.above) || keptHub === undefined) {
+	if (
+		found.settled ||
+		found.unasked === true ||
+		!("none" in found.above) ||
+		keptHub === undefined
+	) {
 		return found;
 	}
 	const kept = keptHub(found.gone);
@@ -427,6 +433,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// this peer keeps, which may be minutes old, unless the node gives it
 	// no answer in time.
 	const fresh = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	if (fresh?.settled === true) at.nodeAnswered?.();
 	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
 	const above = found?.above;
 	const orchestrator =
@@ -454,7 +461,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			: "",
 		above !== undefined && "by" in above && above.by === "use"
 			? found?.kept === true
-				? `\`orchestrator\` was read as ${above.address}, the hub from use this peer last found: the node gave no answer in time to find it afresh, and as only an address it grants nothing an orchestrator's mark does`
+				? `\`orchestrator\` was read as ${above.address}, the hub from use this peer last found: the node gave no answer it could use in time to find it afresh, and as only an address it grants nothing an orchestrator's mark does`
 				: `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, it talks with that one most, and as only an address it grants nothing an orchestrator's mark does`
 			: "",
 		params.re && !answersNamed

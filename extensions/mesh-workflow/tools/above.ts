@@ -32,11 +32,20 @@ export const HUB_KEEP_MS = 5 * 60_000;
 /**
  * How soon a find that could not finish is tried again: one that threw,
  * came before this peer's presence, or had no answer from the node. Each
- * find in a row that threw or had no answer waits twice as long, up to a
+ * find in a row the node gave no answer to waits twice as long, up to a
  * keeping's wait, since every session asks the same node and one that is
- * down is better asked less and less often.
+ * down is better asked less and less often. The cost is a slow return:
+ * a peer whose node comes back keeps no hub until its next find, up to
+ * a keeping's wait away, unless a send of its own hears the node answer
+ * first (`KeptHub.nodeAnswered`).
  */
 export const HUB_RETRY_MS = 30_000;
+
+/**
+ * The least any wait between finds may be, so a keeping given no wait
+ * never asks the node in a loop.
+ */
+const HUB_LEAST_WAIT_MS = 1;
 
 /** What a find came to, and whether it could be finished. */
 export interface Found {
@@ -107,7 +116,7 @@ export async function findAbove(at: HubReading): Promise<Found> {
 	}
 	// A peer with nothing above it has no hub to find, so the node isn't
 	// asked for ties that could change nothing.
-	const self = asItStands(at.peer);
+	const self = asItStands(at.peer, at.presences.all());
 	if (self.quest === undefined || questsAbove(self).length === 0) {
 		return {
 			above: hubFromUse(self, standing.present, undefined, standing.gone),
@@ -134,17 +143,21 @@ export async function findAbove(at: HubReading): Promise<Found> {
  * joined groups and stops are seeded from this presence when the peer
  * is built: a file rewritten before then can add a joined group that
  * picks which quests are above, or drop a stop, until the session
- * changes them itself.
+ * changes them itself. Its addresses are those it still answers to, as
+ * the census reads every presence: an older quest's address that a
+ * newer session now signs with is that session's, and a stop aimed at
+ * it is no stop of this peer's.
  */
 function asItStands(
 	peer: HubReading["peer"],
+	everyone: readonly Presence[],
 ): Pick<
 	Presence,
 	"session" | "addresses" | "groups" | "joined" | "quest" | "stops"
 > {
 	return {
 		session: peer.session,
-		addresses: peer.addresses,
+		addresses: answeringTo(peer, everyone),
 		groups: peer.groups,
 		joined: peer.joined,
 		stops: peer.stops,
@@ -164,11 +177,17 @@ function unmarked(peer: HubReading["peer"]): boolean {
 /** A peer's hub from use, found now and again, and read without waiting. */
 export interface KeptHub {
 	/**
-	 * The hub last found, if it still holds as the peer stands now, with
-	 * the sessions in `gone` taken as gone too, as a census newer than the
-	 * last find's judged them.
+	 * The hub last found, if it still holds as the peer stands now. Given
+	 * `gone`, the sessions a census newer than the last find's judged gone,
+	 * that census alone says who is live, since it judged every presence
+	 * the last one did and more lately.
 	 */
 	current(gone?: readonly string[]): string | undefined;
+	/**
+	 * Find again now if the last finds had no answer from the node, since
+	 * something else has just heard it answer; otherwise nothing.
+	 */
+	nodeAnswered(): void;
 	/** Stop finding it again, and keep none. */
 	stop(): void;
 }
@@ -211,9 +230,10 @@ const HUB_SPREAD = 0.2;
  * again `every` milliseconds after each find, or `retry` after one that
  * could not finish, twice that after a second in a row, and so on up to
  * `every`, each wait lengthened by up to a fifth at random. A find
- * that throws counts toward the doubling. With no peer to read yet, or
- * no presence of this peer's, the next find comes a plain `retry` later
- * and counts nothing, since neither asked the node. A peer under the
+ * that throws, which only reading the presences can do, comes a plain
+ * `retry` later and counts nothing toward the doubling, as does one
+ * with no peer to read yet or no presence of this peer's, since none of
+ * them says the node is down. A peer under the
  * mark, or on a quest heading an orchestration, keeps none and never
  * asks the node, since the mark is its orchestrator; a find that fails
  * keeps none rather than one that may be gone.
@@ -223,11 +243,11 @@ const HUB_SPREAD = 0.2;
  * one whose hub no longer passes the rules the find chose it by
  * (`stillAbove`): its address listed by its live presence alone, that
  * one on a quest above, and neither having stopped the other. Live
- * is as the last find's census judged it, less any presence that has
- * said since that it ended and any session a newer census given to the
- * read judged gone, since a census can wait and a read can't: so a
- * session that crashed is no second holder, and a hub that stopped
- * without saying so is kept until the next find or census.
+ * is as the last find's census judged it, or a newer census given to
+ * the read, less any presence that has said since that it ended, since
+ * a census can wait and a read can't: so a session that crashed is no
+ * second holder, and a hub that stopped without saying so is kept until
+ * the next find or census.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
@@ -244,7 +264,16 @@ export function keepHub(
 	let clock: ReturnType<typeof setTimeout> | undefined;
 	// Finds in a row that could not finish, so each waits longer.
 	let misses = 0;
-	const backingOff = () => Math.min(every, retry * 2 ** misses++);
+	// Set while a find waits on the node, so a nudge starts no second one.
+	let asking = false;
+	const longest = Math.max(HUB_LEAST_WAIT_MS, every);
+	const soonest = Math.max(HUB_LEAST_WAIT_MS, retry);
+	const backingOff = () => {
+		const wait = Math.min(longest, soonest * 2 ** misses);
+		// Counted no further once the wait is the longest, so it stays a number.
+		if (wait < longest) misses += 1;
+		return wait;
+	};
 	// Each find schedules the next once it ends, so two never overlap.
 	const after = (wait: number) => {
 		if (stopped) return;
@@ -257,16 +286,17 @@ export function keepHub(
 		// lengthen the wait a node that is down has earned.
 		if (reading === undefined) {
 			kept = undefined;
-			after(retry);
+			after(soonest);
 			return;
 		}
 		if (!unmarked(reading.peer)) {
 			kept = undefined;
 			misses = 0;
-			after(every);
+			after(longest);
 			return;
 		}
-		let wait = every;
+		let wait = longest;
+		asking = true;
 		try {
 			const finding = await findAbove(reading);
 			// Stopped while it asked: what it found is no longer this
@@ -275,13 +305,16 @@ export function keepHub(
 			kept = "address" in finding.above ? finding.above.address : undefined;
 			gone = new Set(finding.gone);
 			if (finding.settled) misses = 0;
-			else wait = finding.unasked ? retry : backingOff();
+			else wait = finding.unasked ? soonest : backingOff();
 		} catch {
-			// The node or presences unreadable now: no hub is better than a
-			// stale one, and the find is tried again soon.
+			// The presences unreadable now, since asking the node never
+			// throws: no hub is better than a stale one, and the find is
+			// tried again soon.
 			if (stopped) return;
 			kept = undefined;
-			wait = backingOff();
+			wait = soonest;
+		} finally {
+			asking = false;
 		}
 		after(wait);
 		if (kept === undefined) return;
@@ -294,7 +327,7 @@ export function keepHub(
 	};
 	void find();
 	return {
-		current: (newer = []) => {
+		current: (newer) => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
 			const reading = at();
@@ -308,16 +341,22 @@ export function keepHub(
 			}));
 			const isGone = (one: Presence) =>
 				one.ended !== undefined ||
-				gone.has(one.session) ||
-				newer.includes(one.session);
+				(newer === undefined
+					? gone.has(one.session)
+					: newer.includes(one.session));
 			const live = everyone.filter((one) => !isGone(one));
 			const ended = everyone.filter(isGone);
 			if (!live.some((one) => one.session === reading.peer.session)) {
 				return undefined;
 			}
-			return stillAbove(asItStands(reading.peer), live, address, ended)
+			return stillAbove(asItStands(reading.peer, all), live, address, ended)
 				? address
 				: undefined;
+		},
+		nodeAnswered: () => {
+			if (stopped || misses === 0 || asking) return;
+			if (clock !== undefined) clearTimeout(clock);
+			void find();
 		},
 		stop: () => {
 			stopped = true;

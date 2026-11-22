@@ -43,10 +43,16 @@ export interface Local {
 	/**
 	 * The hub from use this peer keeps, if it still holds as the peer
 	 * stands now (see `keepHub` in above.ts), for a send whose own find
-	 * the node left unfinished, with the sessions that find's census
-	 * judged gone taken as gone.
+	 * the node left unfinished, with that find's census judging who is
+	 * live.
 	 */
 	readonly keptHub?: (gone: readonly string[]) => string | undefined;
+	/**
+	 * Tell the hub this peer keeps that a send's own find heard the node
+	 * answer, so a keeping backed off from a node that was down finds its
+	 * hub now rather than at its next wait.
+	 */
+	readonly nodeAnswered?: () => void;
 	/**
 	 * Find the live cell that works on a need, over the node's hubs and
 	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
