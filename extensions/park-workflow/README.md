@@ -87,9 +87,9 @@ It is off until one of these turns it on:
 
 - **A host's drain,** which drops the idle wait for each
   conversation it holds, with the switch empty or its line `off`
-  too, since the host itself asked for it. Each still parks only once its turn ends and
-  the rest of the rule holds, and `PI_PARK=off` still keeps a
-  session out of a drain's park.
+  too, since the host itself asked for it. Each still parks only
+  once its turn ends and the rest of the rule holds, and
+  `PI_PARK=off` still keeps a session out of a drain's park.
 
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule
