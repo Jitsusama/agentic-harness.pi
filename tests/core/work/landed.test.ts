@@ -128,8 +128,9 @@ describe("asking where a halted commit landed", () => {
 	it(
 		"takes another binary beside the same log change for no landing",
 		async () => {
-			// Read as text, both images would end at the NUL their headers share,
-			// and the commits would read the same from there on.
+			// A binary is matched by its blob ids, as git's patch id matches it;
+			// read as text, both images would read alike up to the NUL their
+			// headers share.
 			await commit("log.md", "# Log\n", "start");
 			await git(repo, "checkout", "-qb", "topic");
 			await stage("shot.png", image("mine"));
@@ -137,6 +138,26 @@ describe("asking where a halted commit landed", () => {
 			await git(repo, "checkout", "-q", "main");
 			await stage("shot.png", image("theirs"));
 			await commit("log.md", "# Log\n\n- Add a shot\n", "theirs");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"takes another non-UTF-8 text beside the same log change for no landing",
+		async () => {
+			// Read as UTF-8, each unlike byte would come out as the same U+FFFD.
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await stage("a.txt", Buffer.from("caf\xe9\n", "latin1"));
+			await commit("log.md", "# Log\n\n- Name the caf\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await stage("a.txt", Buffer.from("caf\xe8\n", "latin1"));
+			await commit("log.md", "# Log\n\n- Name the caf\n", "theirs");
 			await git(repo, "update-ref", "REBASE_HEAD", "topic");
 
 			expect(

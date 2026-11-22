@@ -19,12 +19,12 @@
  * A match throws the branch's side of those files away, so it is held to git's
  * patch id over the whole commit: the changed lines with the lines around
  * them, leaving out only line numbers, blob ids and trailing whitespace, and
- * a binary file compared by its blob ids. The same lines changed elsewhere in
- * the file, among other lines, are not a landing, and nor is another commit
- * that made the same change to the log beside changes of its own, as two
- * commits adding one changelog bullet do. As with git's patch id, a place is
- * known only by the lines around it, so a change among lines repeated
- * elsewhere reads as either. A landing that changed on the way in (squashed
+ * a binary file, or one that isn't UTF-8, compared by its blob ids. The same
+ * lines changed elsewhere in the file, among other lines, are not a landing,
+ * and nor is another commit that made the same change to the log beside
+ * changes of its own, as two commits adding one changelog bullet do. As with
+ * git's patch id, a place is known only by the lines around it, so a change
+ * among lines repeated elsewhere reads as either. A landing that changed on the way in (squashed
  * with others, renumbered, or landed after the base moved the lines around it)
  * is not found, and the settler keeps both sides, as it did before the flag,
  * when git's own search missed those too.
@@ -219,24 +219,32 @@ function patchesIn(
 
 /**
  * A patch's lines as git's patch id reads them: no line numbers, no blob ids
- * but a binary file's, which are all that says what it changed, and no
- * trailing whitespace (a CR among it).
+ * and no trailing whitespace (a CR among it). A file whose bytes the read
+ * can't carry keeps its blob ids, which are then all that says what it
+ * changed: a binary one, and one read as UTF-8 that isn't, whose unlike bytes
+ * would each have come out as the same U+FFFD.
  */
 function normalised(lines: readonly string[]): string {
-	const kept: string[] = [];
-	let index: string | undefined;
+	const files: string[][] = [];
 	for (const line of lines) {
-		if (line.startsWith("diff --git ")) index = undefined;
-		if (line.startsWith("index ")) {
-			index = line;
-			continue;
-		}
-		if (line.startsWith("Binary files ") && index !== undefined)
-			kept.push(index);
-		if (line === "" || line.startsWith("@@")) continue;
-		kept.push(line.trimEnd());
+		if (line.startsWith("diff --git ") || files.length === 0) files.push([]);
+		files[files.length - 1]?.push(line);
 	}
-	return kept.join("\n");
+	return files
+		.flatMap((file) => {
+			const lossy = file.some(
+				(line) => line.startsWith("Binary files ") || line.includes("\uFFFD"),
+			);
+			return file
+				.filter(
+					(line) =>
+						line !== "" &&
+						!line.startsWith("@@") &&
+						(lossy || !line.startsWith("index ")),
+				)
+				.map((line) => line.trimEnd());
+		})
+		.join("\n");
 }
 
 /**

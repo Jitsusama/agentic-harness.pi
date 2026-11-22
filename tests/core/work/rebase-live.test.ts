@@ -212,6 +212,51 @@ describe("a commit its base already carries", () => {
 		);
 	});
 
+	it("keeps the base's side for a landed halt a raw continue reached", async () => {
+		// The person settles the tool's halt and carries on with git itself,
+		// which halts on the landed commit. The tool never asked about that
+		// halt, so the resume starting from it must.
+		await seedLog();
+		await commit("plain.txt", "start\n", "plain");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "rebase", "-q", "main");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("plain.txt", "mine\n", "plain mine");
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		await commit("log.md", entry, "carried");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "topic");
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		await commit("plain.txt", "theirs\n", "plain theirs");
+		const landed = await landing();
+		await git(repo, "checkout", "-q", "topic");
+		const rebaser = createGitRebaser({ exec: spawnExec() });
+
+		const halted = await rebaser.rebase(repo, "base");
+		writeFileSync(join(repo, "plain.txt"), "both\n");
+		await git(repo, "add", "plain.txt");
+		const raw = await git(
+			repo,
+			"-c",
+			"core.editor=true",
+			"rebase",
+			"--continue",
+		).then(
+			() => "replayed",
+			() => "halted",
+		);
+		const resumed = await rebaser.resume(repo);
+
+		expect(halted).toMatchObject({ kind: "halted", conflicted: ["plain.txt"] });
+		expect(raw).toBe("halted");
+		expect(resumed).toMatchObject({ kind: "replayed", landed: [landed] });
+		expect(await above()).toEqual(["plain mine"]);
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			`${entry}\n## 2. Later\n\nTwo.\n`,
+		);
+	});
+
 	it("still settles Markdown both sides only added to when it never landed", async () => {
 		await seedLog();
 		await git(repo, "checkout", "-q", "-b", "topic");
@@ -231,10 +276,10 @@ describe("a commit its base already carries", () => {
 	});
 
 	it("finds a landing in a log written with CRLF", async () => {
-		// Each line ends in a CR, which git's patch id leaves out with the rest
-		// of a line's trailing whitespace, and the file the base's side keeps
-		// still ends its lines in one. Kept as written, whatever the person's
-		// own config would make of line ends.
+		// The base's edit to the intro changes the log's blob ids, so the
+		// landing is found only with blob ids left out of a text file, and the
+		// file the base's side keeps still ends its lines in CR. Kept as
+		// written, whatever the person's own config would make of line ends.
 		await git(repo, "config", "core.autocrlf", "false");
 		const seed = "# Log\r\n\r\nintro\r\n\r\na\r\nb\r\nc\r\nd\r\n";
 		await seedLog(seed);
