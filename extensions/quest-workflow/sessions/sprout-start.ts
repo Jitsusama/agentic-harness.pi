@@ -148,30 +148,39 @@ export async function startSprouted(
 	// there, never the prose that asks it to make one.
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
 	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined, linkIs);
+	// A write whose quest's lock didn't come spins the thread for seconds,
+	// and every write left would ask for it again, so once one throws this
+	// start writes that quest no more: its tie and first words still go.
+	let locked = false;
 	if (held === undefined) {
 		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
 		// alias goes on one quest only, and the next sprout must find this.
 		if (link) unmarkEnded(state, link);
-		const marks = [alias, link].filter((one) => one !== undefined);
-		for (const mark of marks) {
-			// A mark refused or left off leaves the quest made, so it is still
-			// tied below rather than left untied, and its log says a replay
-			// may not find it.
-			if (!marked(state, id, mark)) {
-				markUnwritten(state, id, seed, mark, UNFOUND);
-			}
+		const marks = [
+			...(alias ? [{ mark: alias, so: UNFOUND }] : []),
+			...(link ? [{ mark: link, so: LINK_UNFOUND }] : []),
+		];
+		for (const { mark, so } of marks) {
+			// A mark refused leaves the quest made, so it is still tied below
+			// rather than left untied, and its log says what may not find it.
+			const got = marking(state, id, mark);
+			if (got === "refused") markUnwritten(state, id, seed, mark, so);
+			locked = got === "locked";
+			if (locked) break;
 		}
-	} else if (!replayed && joinMark && !marked(state, id, joinMark)) {
+	} else if (!replayed && joinMark) {
 		// A live quest it joined takes a mark of its own, so a replay after
 		// that quest ends is told its work is done, never starts it again,
 		// and a replay while it lives joins it again, never ties it. A mark
-		// refused or left off leaves the session working the quest it
-		// joined, its need still recorded below, and its log says a replay
-		// after the quest ends may start the work again.
-		markUnwritten(state, id, seed, joinMark, RESTARTED);
+		// refused leaves the session working the quest it joined, its need
+		// still recorded below, and its log says a replay after the quest
+		// ends may start the work again.
+		const got = marking(state, id, joinMark);
+		if (got === "refused") markUnwritten(state, id, seed, joinMark, RESTARTED);
+		locked = got === "locked";
 	}
-	servesNeed(state, id, seed);
+	if (!locked) servesNeed(state, id, seed);
 	// Only a quest it made, or its own replayed, is sprouted from the cell
 	// that asked: a live one it joined predates it, and may be that very
 	// cell's own, so the map is left saying where it really came from.
@@ -275,27 +284,38 @@ function joinedMark(alias: { type: string; value: string }): {
 /** What a made quest's missing mark costs a replay of its sprout. */
 const UNFOUND = "a replay of it may not find this quest and make another";
 
+/** What a made quest's missing link mark costs the next sprout of its link. */
+const LINK_UNFOUND =
+	"the next sprout of its link may not find this quest and make another";
+
 /** What a joined quest's missing mark costs a replay of its sprout. */
 const RESTARTED =
 	"a replay of it after this quest ends may start its work again";
 
 /**
- * Whether quest `id` now carries `mark`: false where the alias verb
- * refused it (held by another quest, or a README it couldn't read or
- * write) or its lock never came and the README holds no such mark.
+ * What became of a mark: written; refused, by the alias verb's answer
+ * (held by another quest, or a README it couldn't read); or locked,
+ * when it threw, as a lock that never came does, whether or not the mark
+ * landed first.
  */
-function marked(
+type Marking = "written" | "refused" | "locked";
+
+/** Add `mark` to quest `id`, saying what became of it. */
+function marking(
 	state: QuestState,
 	id: string,
 	mark: { type: string; value: string },
-): boolean {
+): Marking {
 	const ref = `${mark.type}:${mark.value}`;
 	try {
-		return aliasAdd(state, { action: "alias-add", id, ref }).ok;
+		return aliasAdd(state, { action: "alias-add", id, ref }).ok
+			? "written"
+			: "refused";
 	} catch {
-		// The verb also throws when the lock for its own log line doesn't
-		// come, after the mark has landed, so the README says which.
-		return idsWith(state, mark).includes(id);
+		// A lock that didn't come, or a write that failed; the verb also
+		// throws when the lock for its own log line doesn't come, after the
+		// mark has landed. Either way the quest's lock is held elsewhere.
+		return "locked";
 	}
 }
 

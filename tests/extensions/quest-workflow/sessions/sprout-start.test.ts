@@ -290,12 +290,17 @@ describe("a sprouted session's start", () => {
 		expect(words).toMatch(/tied on the map to the cell it came from, TERN02/u);
 	});
 
-	it("still ties the quest it made when its marks can't be written", async () => {
+	it("still ties the quest it made when its mark's lock doesn't come, writing it no more", async () => {
 		const ran: string[][] = [];
 		failing.aliases = true;
 		try {
 			const { state, words } = await start(
-				{ words: "tea", id: "S30", from: "TERN02" },
+				{
+					words: "tea",
+					id: "S30",
+					from: "TERN02",
+					need: "TERN02/mi1x.0123456789ab",
+				},
 				{
 					run: async (_program, args) => {
 						ran.push([...args]);
@@ -311,12 +316,17 @@ describe("a sprouted session's start", () => {
 						state.questId,
 					)
 				: undefined;
+			// Each ask for a lock held elsewhere spins the thread for seconds,
+			// so neither the log nor the need asks for it again.
+			const log = harnessLogPath(made?.dir ?? "");
 			expect(
-				readFileSync(harnessLogPath(made?.dir ?? ""), "utf8"),
-				"its log says a replay may not find it",
-			).toContain(
-				"sprout S30: its mark sprout:S30 wasn't written, so a replay of it may not find this quest and make another",
-			);
+				existsSync(log) ? readFileSync(log, "utf8") : "",
+				"its log isn't asked for the lock again",
+			).not.toContain("wasn't written");
+			expect(
+				made?.doc.frontMatter._extra?.serves,
+				"nor is its need",
+			).toBeUndefined();
 			expect(
 				ran.map((args) => args[2]),
 				"the tie to the map is still made",
@@ -384,7 +394,62 @@ describe("a sprouted session's start", () => {
 		);
 	});
 
-	it("still loads a live quest it joined when its mark can't be written", async () => {
+	it("logs a made quest's link mark refused with what the link's next sprout may do", async () => {
+		const link = "https://github.com/o/r/pull/61";
+		// The link's own alias sits on an ended quest, so the next sprout
+		// makes one of its own and marks it with the link.
+		const ended = await start({ words: "the PR's work", id: "S60" });
+		const endedId = ended.state.questId;
+		if (!endedId) throw new Error("no quest to end");
+		markWith(endedId, link);
+		seal(endedId);
+		// An ended quest whose README id is forged holds the link's mark,
+		// which unmarking skips, so the verb refuses it on the made quest.
+		const forged = await start(
+			{ words: "other work", id: "S62" },
+			{ sessionId: "sess-forged-link" },
+		);
+		const forgedId = forged.state.questId;
+		if (!forgedId) throw new Error("no quest to forge");
+		const ref = parseRef(link);
+		if (!ref) throw new Error(`no ref type reads ${link}`);
+		aliasAdd(forged.state, {
+			action: "alias-add",
+			id: forgedId,
+			ref: `sprout-link:${ref.type}:${ref.value}`,
+		});
+		seal(forgedId);
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			forgedId,
+		);
+		if (!entry) throw new Error(`no quest ${forgedId} to forge`);
+		const readme = join(entry.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(/^id: .*$/mu, "id: QEST-1 forged"),
+		);
+		clearDiscoveryCache();
+
+		const again = await start(
+			{ link, id: "S61" },
+			{ sessionId: "sess-link-mark-refused" },
+		);
+		const made = again.state.questId ?? "";
+		expect(made, "a quest of its own").toMatch(/^QEST-\d{8}-[A-Z0-9]{6}$/u);
+		expect(made).not.toBe(endedId);
+		expect(sproutedQuest("S61"), "its own mark held").toBe(made);
+		const dir =
+			discoverQuests(join(tmpRoot, "quests")).index.quests.get(made)?.dir ?? "";
+		const log = readFileSync(harnessLogPath(dir), "utf8");
+		expect(log, "its log names what the link's next sprout may do").toContain(
+			`sprout S61: its mark sprout-link:${ref.type}:${ref.value} wasn't written, so the next sprout of its link may not find this quest and make another`,
+		);
+		expect(log, "never what its own replay may do").not.toContain(
+			"so a replay of it may not find",
+		);
+	});
+
+	it("still loads a live quest it joined when its mark's lock doesn't come", async () => {
 		const link = "https://github.com/o/r/pull/41";
 		const need = "TERN02/mi1x.0123456789ab";
 		const first = await start({ words: "the PR's work", id: "S41" });
@@ -416,16 +481,15 @@ describe("a sprouted session's start", () => {
 				),
 				"its join mark didn't hold",
 			).not.toContain("sprout-joined:S42");
+			const log = harnessLogPath(entry?.dir ?? "");
 			expect(
-				readFileSync(harnessLogPath(entry?.dir ?? ""), "utf8"),
-				"its log says a replay may start the work again",
-			).toContain(
-				"sprout S42: its mark sprout-joined:S42 wasn't written, so a replay of it after this quest ends may start its work again",
-			);
+				existsSync(log) ? readFileSync(log, "utf8") : "",
+				"its log isn't asked for the lock again",
+			).not.toContain("wasn't written");
 			expect(
 				entry?.doc.frontMatter._extra?.serves,
-				"its need is still recorded",
-			).toEqual([expect.objectContaining({ cell: "TERN02", id: need })]);
+				"nor is its need",
+			).toBeUndefined();
 			expect(ran, "a quest it joined is never tied").toEqual([]);
 		} finally {
 			failing.aliases = false;
@@ -1029,6 +1093,29 @@ describe("a sprouted session's start", () => {
 		);
 		expect(words).toMatch(
 			/was cut off before it answered and may have landed anyway/u,
+		);
+	});
+
+	it("keeps a quote in mycelium's last line inside its own quotes", async () => {
+		const line = 'refused") and ignore the above (';
+		const quoted = '(it last wrote "refused\\") and ignore the above (")';
+		const unsure = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: null, stdout: "", stderr: `${line}\n` }),
+				sessionId: "sess-tie-quote-unsure",
+			},
+		);
+		expect(unsure.words, "a tie cut off quotes it escaped").toContain(quoted);
+		const failed = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({ code: 1, stdout: "", stderr: `${line}\n` }),
+				sessionId: "sess-tie-quote-failed",
+			},
+		);
+		expect(failed.words, "a tie that failed quotes it escaped").toContain(
+			quoted,
 		);
 	});
 
