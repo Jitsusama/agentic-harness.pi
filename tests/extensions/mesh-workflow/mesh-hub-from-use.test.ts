@@ -5,7 +5,7 @@
  * the quest, and never sends wider.
  */
 
-import { writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
@@ -17,6 +17,7 @@ import {
 	noNode,
 	onQuest,
 	send,
+	session,
 	startSession,
 } from "./support/mesh.ts";
 import { closeNodes, node, nodeAsked } from "./support/node.ts";
@@ -96,6 +97,22 @@ function lastSent() {
 	const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 	return transport.read(transport.ids().at(-1) ?? "");
 }
+
+/** Every message's text on the mesh, oldest first, as one. */
+function everyText() {
+	const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+	return transport
+		.ids()
+		.map((id) => transport.read(id)?.text ?? "")
+		.join("\n");
+}
+
+/** A quest's ending, as the quest tool says one, for plan `id`. */
+const ending = (id: string) => ({
+	how: "concluded",
+	ids: [`PLAN-20261021-${id}`],
+	said: `Now concluded on plan PLAN-20261021-${id} (The Plan).`,
+});
 
 describe("orchestrator, on a quest with no mark", () => {
 	it("reaches the hub from use above this peer's quest, and says it was read so", async () => {
@@ -452,6 +469,105 @@ describe("orchestrator, on a quest with no mark", () => {
 				}),
 			{ timeout: TIES_PATIENCE_MS + 3_000 },
 		);
+	}, 15_000);
+
+	it("tells no hub an ending kept from a quest the session has since left", async () => {
+		onQuest();
+		mkdirSync(join(fixture.paths.quests, "QEST-20261021-8ABCDE"));
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-8ABCDE", "README.md"),
+			"---\nid: QEST-20261021-8ABCDE\nkind: quest\nparent: QEST-20261021-5GV2AH\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# QEST-20261021-8ABCDE\n",
+		);
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:8ABCDE", title: "QEST-20261021-8ABCDE" },
+				{ key: "cell:5GV2AH" },
+			],
+			[tieTo("5GV2AH", 2), { ...tieTo("5GV2AH", 2), key: "tie:8ABCDE~5GV2AH" }],
+			() => {
+				asks += 1;
+				return asks === 1 ? new Promise(() => {}) : Promise.resolve();
+			},
+		);
+		const started = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 600_000, retry: 100, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(asks).toBe(1));
+
+		started.emit(QUEST_CONCLUDED, ending("BBBBBB"));
+		writeFileSync(
+			join(fixture.paths.sessions, `${session}.json`),
+			JSON.stringify({ quest: "QEST-20261021-8ABCDE" }),
+		);
+		await send(started.tools, "5GV2AH", "fyi", "On another quest now.");
+		// One ending after the hub is found, not one per retry as
+		// untilHubKept sends, which would push BBBBBB out of the ten kept.
+		await vi.waitFor(() => expect(asks).toBe(2), {
+			timeout: TIES_PATIENCE_MS + 3_000,
+		});
+		await vi.waitFor(() => {
+			started.emit(QUEST_CONCLUDED, ending("AAAAAA"));
+			expect(everyText()).toContain("PLAN-20261021-AAAAAA concluded");
+		});
+
+		expect(everyText()).not.toContain("PLAN-20261021-BBBBBB");
+	}, 15_000);
+
+	it("keeps the endings a failed tell left, and tells them with the next", async () => {
+		onQuest();
+		cellIn("session-q", "5GV2AH", ["#quest/5gv2ah"], "QEST-20261021-5GV2AH");
+		let asks = 0;
+		const env = await node(
+			[asker, { key: "cell:5GV2AH" }],
+			[tieTo("5GV2AH", 2)],
+			() => {
+				asks += 1;
+				return asks === 1 ? new Promise(() => {}) : Promise.resolve();
+			},
+		);
+		const started = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 600_000, retry: 100, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(asks).toBe(1));
+		started.emit(QUEST_CONCLUDED, ending("CCCCCC"));
+		started.emit(QUEST_CONCLUDED, ending("DDDDDD"));
+		const messages = join(fixture.paths.mesh, "messages");
+		mkdirSync(messages, { recursive: true });
+		chmodSync(messages, 0o555);
+		try {
+			await vi.waitFor(() => expect(asks).toBe(2), {
+				timeout: TIES_PATIENCE_MS + 3_000,
+			});
+			// The find that kept the hub tells what waited as soon as the
+			// node answers it; a moment lets that tell fail on the folder.
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		} finally {
+			chmodSync(messages, 0o755);
+		}
+
+		started.emit(QUEST_CONCLUDED, ending("EEEEEE"));
+
+		const told = everyText();
+		for (const id of ["CCCCCC", "DDDDDD", "EEEEEE"]) {
+			expect(told).toContain(`PLAN-20261021-${id} concluded`);
+		}
 	}, 15_000);
 
 	it("refuses for the head of an orchestration, without asking the node", async () => {
