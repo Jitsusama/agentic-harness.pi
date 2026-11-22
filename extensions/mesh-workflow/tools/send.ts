@@ -697,9 +697,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		...(ended.hold && re === ended.hold.id ? { endsHold: true as const } : {}),
 	});
 	at.sent(message);
-	// Kept only now it went, so a need refused after it was routed, then
-	// sent again, is counted once.
-	if (needed.found) await at.keepNeed?.(needed.found);
 	// A peer reads what it writes to: overnight Skynet listened to one
 	// channel while it spoke in others, so an objection there went unheard.
 	const reading = to.filter(

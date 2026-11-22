@@ -221,8 +221,10 @@ and can answer a question or a gate left open on screen.
   so setting `send` leaves it as it was, though setting
   `form` or `all` reaches it. With no classifier nothing is
   judged, and a `mesh-unjudged` entry in the session's log says
-  why, once for each reason a session meets, as it does for a
-  slow or failing classifier; with the guard off a
+  why, once for each kind of reason a session meets, with the
+  first line of what went wrong, as it does for a slow or
+  failing classifier or a part cut at 2000 characters; a send
+  judged in full lets each be said again. With the guard off a
   message is still judged and the person shown what it would
   have refused. So every message's text goes to the
   classifier's provider, one to a single peer's address or

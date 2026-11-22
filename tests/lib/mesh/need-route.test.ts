@@ -17,13 +17,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	foragersFrom,
-	foundAnother,
 	type Hub,
 	hubsFrom,
 	keepNeed,
-	keepNeedQuietly,
+	keepNeedOnce,
 	MOST_HOPS,
 	MOST_WORDS,
+	NEED_AGAIN_MS,
 	needAt,
 	needId,
 	needsFile,
@@ -506,6 +506,63 @@ describe("keeping a need", () => {
 	});
 });
 
+describe("keeping a need once an ask", () => {
+	const routed = (asker: string, ...words: string[]) =>
+		routeNeed(asked(asker, ...words), {
+			foragers: cells({ A: [], C: [], B: ["carry", "fonts"] }),
+			ties: ties(["A", "B", 1], ["C", "B", 1]),
+			hubs: [],
+		});
+	const kept = () =>
+		readFileSync(needsFile(root, AT), "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line).need);
+
+	it("keeps the same ask sent again within ten minutes once", async () => {
+		const first = routed("A", "carry");
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, {
+			...first,
+			need: "A/2",
+			at: AT + NEED_AGAIN_MS - 1,
+		});
+
+		expect(kept()).toEqual(["A/1"]);
+	});
+
+	it("keeps it again once ten minutes have gone", async () => {
+		const first = routed("A", "carry");
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, { ...first, need: "A/2", at: AT + NEED_AGAIN_MS });
+
+		expect(kept()).toEqual(["A/1", "A/2"]);
+	});
+
+	it("keeps another asker's, other words, or another fit, as other asks", async () => {
+		const first = routed("A", "carry");
+		await keepNeedOnce(root, first);
+		await keepNeedOnce(root, { ...routed("C", "carry"), need: "C/1" });
+		await keepNeedOnce(root, { ...routed("A", "fonts"), need: "A/2" });
+		await keepNeedOnce(root, { ...first, need: "A/3", fit: null, path: [] });
+
+		expect(kept()).toEqual(["A/1", "C/1", "A/2", "A/3"]);
+	});
+
+	it("reads past a torn line", async () => {
+		const first = routed("A", "carry");
+		await keepNeedOnce(root, first);
+		writeFileSync(
+			needsFile(root, AT),
+			`${readFileSync(needsFile(root, AT), "utf8")}{"need":"A/9","ask\n`,
+		);
+		await keepNeedOnce(root, { ...first, need: "A/2" });
+
+		const lines = readFileSync(needsFile(root, AT), "utf8").trim().split("\n");
+		expect(lines).toHaveLength(2);
+	});
+});
+
 describe("asking the node for a need's fit", () => {
 	/**
 	 * A node answering each daemon ask by its kind, with only the fields
@@ -542,7 +599,7 @@ describe("asking the node for a need's fit", () => {
 		return socket;
 	}
 
-	it("routes over the node's cells and ties, with no hubs yet, leaving a found need for its send to keep", async () => {
+	it("routes over the node's cells and ties, with no hubs yet, and keeps the line", async () => {
 		const socket = await serving({
 			cell: [
 				{ key: "cell:A", title: "A Web, Not a Funnel" },
@@ -558,9 +615,6 @@ describe("asking the node for a need's fit", () => {
 		});
 
 		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
-		expect(found && foundAnother(found, "A")).toBe(true);
-		expect(existsSync(needsFile(root, AT))).toBe(false);
-		if (found) await keepNeedQuietly(root, found);
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
 	});
 

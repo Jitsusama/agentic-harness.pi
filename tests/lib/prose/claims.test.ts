@@ -91,6 +91,17 @@ describe("claimParts", () => {
 		expect(parts).toHaveLength(12);
 		expect(parts.every((part) => part.length === 2000)).toBe(true);
 	});
+
+	it("keeps a part of exactly 2000 characters whole", () => {
+		const part = `Disk ${"x".repeat(1995)}`;
+		expect(claimParts(part)).toEqual([part]);
+	});
+
+	it("never cuts a character in half at 2000", () => {
+		const part = `${"x".repeat(1999)}\u{1F4A5} and on`;
+		const [cut] = claimParts(part);
+		expect(cut).toBe("x".repeat(1999));
+	});
 });
 
 describe("untestedCauses", () => {
@@ -151,13 +162,73 @@ describe("untestedCauses", () => {
 		};
 		const stopped: Classify = async () =>
 			({ stopReason: "error", answers: {} }) as unknown as ClassifierResult;
-		const told: string[] = [];
-		await untestedCauses(text, failing, (why) => told.push(why));
-		await untestedCauses(text, stopped, (why) => told.push(why));
+		const told: [string, string?][] = [];
+		const tell = (why: string, detail?: string) =>
+			told.push(detail === undefined ? [why] : [why, detail]);
+		await untestedCauses(text, failing, tell);
+		await untestedCauses(text, stopped, tell);
 		expect(told).toEqual([
-			"a part went unjudged: the classifier failed: the network has gone",
-			"a part went unjudged: the classifier stopped: error",
+			["a part went unjudged: the classifier failed", "the network has gone"],
+			["a part went unjudged: the classifier stopped: error"],
 		]);
+	});
+
+	it("keeps what went wrong out of why, so two errors are one reason", async () => {
+		const failingWith =
+			(said: string): Classify =>
+			async () => {
+				throw new Error(said);
+			};
+		const whys = new Set<string>();
+		const details: string[] = [];
+		const tell = (why: string, detail?: string) => {
+			whys.add(why);
+			if (detail) details.push(detail);
+		};
+		await untestedCauses(text, failingWith("request 41 failed"), tell);
+		await untestedCauses(
+			text,
+			failingWith(`request 42 failed\n${"y".repeat(400)}`),
+			tell,
+		);
+		expect([...whys]).toEqual(["a part went unjudged: the classifier failed"]);
+		expect(details).toEqual(["request 41 failed", "request 42 failed"]);
+	});
+
+	it("reads a signal that ran out as no answer, not a failure", async () => {
+		const aborted: Classify = async () => {
+			throw new DOMException("The operation timed out.", "TimeoutError");
+		};
+		const told: string[] = [];
+		await untestedCauses(text, aborted, (why) => told.push(why));
+		expect(told).toEqual(["a part went unjudged: no answer in 2500 ms"]);
+	});
+
+	it("finds what it judged when another part went unjudged", async () => {
+		const sure = judging(() => 0.97);
+		const halfway: Classify = async (context, signal) => {
+			if (String(context.state["message"]).includes("Merged"))
+				throw new Error("the network has gone");
+			return sure(context, signal);
+		};
+		const told: string[] = [];
+		const found = await untestedCauses(text, halfway, (why) => told.push(why));
+		expect(found).toEqual([
+			"The builder failed because its disk filled up with old paths.",
+		]);
+		expect(told).toEqual(["a part went unjudged: the classifier failed"]);
+	});
+
+	it("says when a part ran past 2000 characters, and judges what it kept", async () => {
+		const long = `The builder failed because ${"its disk filled ".repeat(200)}`;
+		const told: string[] = [];
+		const found = await untestedCauses(
+			long,
+			judging(() => 0.97),
+			(why) => told.push(why),
+		);
+		expect(found).toHaveLength(1);
+		expect(told).toEqual(["a part ran past 2000 characters"]);
 	});
 
 	it("says nothing when every part is judged", async () => {
@@ -229,8 +300,9 @@ describe("untestedCausesFound", () => {
 	});
 
 	it("says why it judged nothing, but not of a classifier switched off", async () => {
-		const told: string[] = [];
-		const tell = (why: string) => told.push(why);
+		const told: [string, string?][] = [];
+		const tell = (why: string, detail?: string) =>
+			told.push(detail === undefined ? [why] : [why, detail]);
 		await untestedCausesFound(
 			cause,
 			Promise.resolve({ ok: false, reason: "none set" } as const),
@@ -250,8 +322,8 @@ describe("untestedCausesFound", () => {
 			vi.useRealTimers();
 		}
 		expect(told).toEqual([
-			"no classifier: none set",
-			"finding the classifier took over 2500 ms",
+			["no classifier", "none set"],
+			["finding the classifier took over 2500 ms"],
 		]);
 	});
 });

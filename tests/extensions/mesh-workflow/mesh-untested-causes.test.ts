@@ -276,7 +276,9 @@ describe("an untested cause on the mesh", () => {
 		const unheard = await send(tools, "zz9zz9", "finding", CAUSE);
 		const heard = await send(tools, "p9r1ki", "finding", CAUSE);
 
-		expect(unheard).toContain("Not sent:");
+		expect(unheard).toMatch(
+			/Not sent: no session in this realm goes by zz9zz9/i,
+		);
 		expect(unheard).not.toContain("This states why");
 		expect(heard).toContain("Not sent: This states why");
 		expect(written()).toBe(0);
@@ -368,13 +370,15 @@ describe("an untested cause on the mesh", () => {
 	it("judges nothing and routes by rule when finding the classifier never ends", async () => {
 		peer("session-p", ["P9R1KI"], ["#alpha"]);
 		peer("session-q", ["Q4W2E3"], ["#beta"]);
+		// Sure of the disk, so a lookup that ended would refuse the cause.
 		const neverFound = {
 			modelRegistry: {
+				...sureOfTheDisk().modelRegistry,
 				getAvailableOfType: () => new Promise<never>(() => undefined),
-				classify: async () => ({ stopReason: "stop", answers: {} }),
 			},
 		};
-		const { tools } = await startSession({}, neverFound);
+		const { tools, entries } = await startSession({}, neverFound);
+		const began = Date.now();
 
 		const said =
 			(
@@ -383,8 +387,24 @@ describe("an untested cause on the mesh", () => {
 					?.execute("call-1", { intent: "finding", text: CAUSE })
 			)?.content[0]?.text ?? "";
 
+		// What routing sent to #machine is refused before it is judged, so
+		// a send to a peer shows the cause went unjudged.
+		const direct = await send(tools, "p9r1ki", "finding", CAUSE);
+
+		// Held to 2.5 s from the session's start, with room for a loaded machine.
+		expect(Date.now() - began).toBeLessThan(15_000);
 		expect(said).not.toContain("This states why");
 		expect(said).toContain("#machine takes only holds");
+		expect(direct).toContain("Sent as");
+		expect(entries.filter((entry) => entry.type === UNJUDGED)).toEqual([
+			{
+				type: UNJUDGED,
+				data: {
+					why: "no classifier",
+					detail: "finding the classifier took over 2500 ms",
+				},
+			},
+		]);
 	}, 60_000);
 
 	it("asks the classifier nothing about a send nobody would hear", async () => {
@@ -396,7 +416,7 @@ describe("an untested cause on the mesh", () => {
 		expect(judge.judged()).toBe(0);
 	});
 
-	it("keeps a need it refused after routing once, when it goes again unchanged", async () => {
+	it("keeps a need once when it is refused and sent again unchanged", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(
 			[
@@ -416,16 +436,21 @@ describe("an untested cause on the mesh", () => {
 				})
 			)?.content[0]?.text ?? "";
 
+		const needs = join(fixture.paths.mesh, "needs");
+		const kept = () =>
+			readdirSync(needs).flatMap((day) =>
+				readFileSync(join(needs, day), "utf8").trim().split("\n"),
+			);
+
 		const first = await toNeed();
+		// Kept as it was routed, so a send refused and never sent again
+		// still counts as found.
+		expect(kept(), "kept once routed").toHaveLength(1);
 		const again = await toNeed();
 
 		expect(first).toContain("Not sent: This states why");
 		expect(again).toContain("Sent as");
-		const needs = join(fixture.paths.mesh, "needs");
-		const kept = readdirSync(needs).flatMap((day) =>
-			readFileSync(join(needs, day), "utf8").trim().split("\n"),
-		);
-		expect(kept, "one need, kept as it went").toHaveLength(1);
+		expect(kept(), "one need, the ask sent twice").toHaveLength(1);
 	});
 
 	it("says once in the log why it judged nothing, however many sends", async () => {
@@ -440,9 +465,47 @@ describe("an untested cause on the mesh", () => {
 			{
 				type: UNJUDGED,
 				data: {
-					why: "a part went unjudged: the classifier failed: the network has gone",
+					why: "a part went unjudged: the classifier failed",
+					detail: "the network has gone",
 				},
 			},
+		]);
+	});
+
+	it("says each reason in the log, and one again once a send was judged in full", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const judge = sureOfTheDisk();
+		let failing = true;
+		const flaky = {
+			modelRegistry: {
+				...judge.modelRegistry,
+				classify: async (
+					model: unknown,
+					context: { state: { message?: unknown }; questions: object },
+				) => {
+					if (failing && "cause" in context.questions)
+						throw new Error("the network has gone");
+					return judge.modelRegistry.classify(model, context);
+				},
+			},
+		};
+		const { tools, entries } = await startSession({}, flaky);
+		const long = `Tests ran. ${"The log goes on. ".repeat(130)}`;
+
+		await send(tools, "p9r1ki", "fyi", "Tests ran and the deploy is done.");
+		failing = false;
+		await send(tools, "p9r1ki", "fyi", long);
+		await send(tools, "p9r1ki", "fyi", "The deploy is done and live.");
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is live and watched.");
+
+		const whys = entries
+			.filter((entry) => entry.type === UNJUDGED)
+			.map((entry) => (entry.data as { why: string }).why);
+		expect(whys).toEqual([
+			"a part went unjudged: the classifier failed",
+			"a part ran past 2000 characters",
+			"a part went unjudged: the classifier failed",
 		]);
 	});
 

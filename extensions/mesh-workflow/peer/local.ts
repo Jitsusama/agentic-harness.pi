@@ -7,7 +7,7 @@ import { askWake, isParked } from "../../../lib/internal/session/park.ts";
 import { cross } from "../../../lib/mesh/crossing.ts";
 import { crossAt } from "../../../lib/mesh/flow.ts";
 import { isCurrent, ownerOf } from "../../../lib/mesh/lease.ts";
-import { keepNeedQuietly, needAt } from "../../../lib/mesh/need-route.ts";
+import { needAt } from "../../../lib/mesh/need-route.ts";
 import { nodeSocket, servedAt, tiesAt } from "../../../lib/mesh/node.ts";
 import { wakeParked } from "../../../lib/mesh/parked.ts";
 import {
@@ -26,12 +26,23 @@ import type { Waits } from "./waits.ts";
 
 /** Register the mesh tools over this peer. */
 export function registerLocal(m: MeshState, f: Waits & Hearing) {
-	/** Why the claim check judged nothing, each said once in the log. */
-	const unjudgedSaid = new Set<string>();
-	const unjudged = (why: string) => {
-		if (unjudgedSaid.has(why)) return;
-		unjudgedSaid.add(why);
-		m.pi.appendEntry(UNJUDGED, { why });
+	/**
+	 * Why the claim check judged nothing, each kind said once a session in
+	 * the log, with the first line of what went wrong. Counted only once
+	 * written, so a log that refused one line says it at the next send.
+	 */
+	const unjudged = (why: string, detail?: string) => {
+		if (m.unjudgedSaid.has(why)) return;
+		try {
+			m.pi.appendEntry(
+				UNJUDGED,
+				detail === undefined ? { why } : { why, detail },
+			);
+			m.unjudgedSaid.add(why);
+		} catch {
+			// A log that won't take the line costs it here; the send is judged
+			// as far as it was, and the next one tries the line again.
+		}
 	};
 	/** Who waits on a hold, by the address each signs with. */
 	const waitingOn = (id: string): string[] => {
@@ -70,7 +81,6 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 							stopped,
 							keep: m.paths.mesh,
 						}),
-					keepNeed: (record) => keepNeedQuietly(m.paths.mesh, record),
 					served: (ids) => servedAt(nodeSocket(m.env), ids),
 					asWrittenOff: m.asWrittenOff,
 					sent: (message) => {
@@ -105,8 +115,19 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 						slackOfThePerson,
 					),
 					untested: async (text) => {
+						let missed = false;
 						try {
-							return await untestedCausesFound(text, m.classifier, unjudged);
+							const found = await untestedCausesFound(
+								text,
+								m.classifier,
+								(why, detail) => {
+									missed = true;
+									unjudged(why, detail);
+								},
+							);
+							// Judged in full: a reason that comes back is news again.
+							if (!missed) m.unjudgedSaid.clear();
+							return found;
 						} catch {
 							// With no classifier to be had, nothing is judged and the
 							// message goes as written.

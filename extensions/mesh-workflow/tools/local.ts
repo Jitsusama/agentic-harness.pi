@@ -42,7 +42,7 @@ export interface Local {
 	readonly ties?: () => Promise<readonly Tie[] | undefined>;
 	/**
 	 * Find the live cell that works on a need, over the node's hubs and
-	 * ties, keeping a lost one (lib/mesh/need-route.ts); nothing when
+	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
 	 * no node answers. `live` names every present cell, those that stopped
 	 * this peer among them, since a need goes to its fit alone and may be
 	 * found through one. `stopped` is always said, as it alone keeps such a
@@ -53,8 +53,6 @@ export interface Local {
 		live: (address: string) => boolean,
 		stopped: (address: string) => boolean,
 	) => Promise<NeedRecord | undefined>;
-	/** Keep a need that found its cell, once the send it routed goes. */
-	readonly keepNeed?: (record: NeedRecord) => Promise<void>;
 	/**
 	 * Which messages the node serves, which vouches for one under a
 	 * receptor's name (lib/mesh/receptor.ts). Without it, none is vouched.

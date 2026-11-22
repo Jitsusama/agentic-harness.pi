@@ -33,8 +33,9 @@ export const UNVOUCHED = "mesh-unvouched";
 
 /**
  * The customType of the log entry saying the claim check judged a send
- * wholly or partly unjudged, and why: once for each reason, so a check
- * that stopped judging is seen to without a line a send.
+ * wholly or partly unjudged, and why: once a session for each kind of
+ * reason, until a send is judged in full, so a check that stopped
+ * judging is seen to without a line a send.
  */
 export const UNJUDGED = "mesh-unjudged";
 

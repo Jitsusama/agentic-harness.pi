@@ -34,9 +34,9 @@ export const UNTESTED_FLOOR = 0.9;
  * having gone. It is kept by a timer of its own, not only the signal
  * handed on, since a send waits on it. Finding the classifier and judging
  * the parts each have it in turn, so this holds a send at most twice
- * this long.
+ * this long. A session's own lookup is held to it from its start too.
  */
-const JUDGE_MS = 2500;
+export const JUDGE_MS = 2500;
 
 /**
  * The most parts of one text judged, so a long text costs a bounded
@@ -100,6 +100,11 @@ const QUESTIONS: ClassifierContext["questions"] = {
  * at most.
  */
 export function claimParts(text: string): string[] {
+	return partsOf(text).parts;
+}
+
+/** A text's parts, as `claimParts`, and whether any ran past its bound. */
+function partsOf(text: string): { parts: string[]; cut: boolean } {
 	const parts = text
 		.split(PART_BREAK)
 		.map((part) => part.trim())
@@ -111,11 +116,37 @@ export function claimParts(text: string): string[] {
 					...parts.slice(0, MOST_PARTS - 1),
 					parts.slice(MOST_PARTS - 1).join("\n\n"),
 				];
-	return bounded.map((part) => part.slice(0, LONGEST_PART));
+	return {
+		parts: bounded.map(boundedPart),
+		cut: bounded.some((part) => part.length > LONGEST_PART),
+	};
 }
 
-/** Told why a text, or some of its parts, went unjudged. */
-export type Unjudged = (why: string) => void;
+/**
+ * `part` cut to `LONGEST_PART`, a character short when the cut would
+ * fall between the two halves of one, so no half goes to the provider.
+ */
+function boundedPart(part: string): string {
+	if (part.length <= LONGEST_PART) return part;
+	const last = part.charCodeAt(LONGEST_PART - 1);
+	const halved = last >= 0xd800 && last <= 0xdbff;
+	return part.slice(0, halved ? LONGEST_PART - 1 : LONGEST_PART);
+}
+
+/**
+ * Told why a text, or some of its parts, went unjudged: `why` in words
+ * that stay the same from text to text, so a caller can say each once,
+ * and `detail`, when there is one, the first line of what went wrong.
+ */
+export type Unjudged = (why: string, detail?: string) => void;
+
+/** The longest `detail` runs, so a page-long error costs a line. */
+const DETAIL_LENGTH = 200;
+
+/** The first line of `said`, at most `DETAIL_LENGTH` long. */
+function detailOf(said: string): string {
+	return (said.split("\n")[0] ?? "").slice(0, DETAIL_LENGTH);
+}
 
 /**
  * The parts of `text` that state an untested cause, judged by the
@@ -135,7 +166,7 @@ export async function untestedCausesFound(
 		return [];
 	}
 	if (!found.ok) {
-		if (!found.off) unjudged(`no classifier: ${found.reason}`);
+		if (!found.off) unjudged("no classifier", detailOf(found.reason));
 		return [];
 	}
 	return untestedCauses(text, found.classify, unjudged);
@@ -153,13 +184,15 @@ export async function untestedCauses(
 	classify: Classify,
 	unjudged: Unjudged = () => undefined,
 ): Promise<string[]> {
-	const parts = claimParts(text);
+	const { parts, cut } = partsOf(text);
+	if (cut) unjudged(`a part ran past ${LONGEST_PART} characters`);
 	const judged = await Promise.all(
 		parts.map((part) => untestedSureness(part, classify)),
 	);
-	const missed = judged.flatMap((one) => ("why" in one ? [one.why] : []));
+	const missed = judged.flatMap((one) => ("why" in one ? [one] : []));
 	const [first] = missed;
-	if (first !== undefined) unjudged(`a part went unjudged: ${first}`);
+	if (first !== undefined)
+		unjudged(`a part went unjudged: ${first.why}`, first.detail);
 	return parts.filter((_, at) => {
 		const one = judged[at];
 		return one !== undefined && "sure" in one && one.sure >= UNTESTED_FLOOR;
@@ -173,7 +206,9 @@ export async function untestedCauses(
 async function untestedSureness(
 	part: string,
 	classify: Classify,
-): Promise<{ readonly sure: number } | { readonly why: string }> {
+): Promise<
+	{ readonly sure: number } | { readonly why: string; readonly detail?: string }
+> {
 	try {
 		const result = await settledWithin(
 			classify(
@@ -189,9 +224,17 @@ async function untestedSureness(
 		return { sure: untestedOf(result.answers[QUESTION]) };
 	} catch (error) {
 		// A part that couldn't be judged is let go, and its caller told: the
-		// check refuses only what it read.
+		// check refuses only what it read. A signal that ran out is the
+		// same slow answer the timer reads, said the same way.
+		if (
+			error instanceof Error &&
+			(error.name === "AbortError" || error.name === "TimeoutError")
+		) {
+			return { why: `no answer in ${JUDGE_MS} ms` };
+		}
 		return {
-			why: `the classifier failed: ${error instanceof Error ? error.message : String(error)}`,
+			why: "the classifier failed",
+			detail: detailOf(error instanceof Error ? error.message : String(error)),
 		};
 	}
 }
