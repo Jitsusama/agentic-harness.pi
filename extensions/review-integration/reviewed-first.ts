@@ -65,7 +65,7 @@
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -135,10 +135,13 @@ interface Ledgers {
 	readonly said: () => Promise<string>;
 }
 
-/** The mirrors under runs-from, or why they couldn't be listed. */
+/**
+ * The mirrors under runs-from that could be read, and, as sentences,
+ * why the rest, or the folder itself, couldn't be.
+ */
 interface Mirrors {
 	readonly ledgers: readonly string[];
-	readonly trouble?: string;
+	readonly trouble: readonly string[];
 }
 
 /**
@@ -148,8 +151,13 @@ interface Mirrors {
  * and its ledger is mirrored here rather than merged into ours. The
  * mirrors are listed once for the judgement, however often it asks.
  *
- * Any writer in the realm is trusted, as this machine's own ledger
- * already is: whoever can write runs-from can write runs.
+ * runs-from is the machine's, as runs is, so a mirror counts for every
+ * realm here. Whatever fills it is trusted as this machine's own ledger
+ * is: the other machine, anything there that can write its ledger, the
+ * copy between, and whoever writes where a node's link leads. A council
+ * entry carries no proof it ran, so the gate is only as true as they
+ * are. A node is meant to be a local copy: a link to a network mount
+ * that hangs would hang the gate with it.
  */
 function realmLedgers(): Ledgers {
 	let listing: Promise<Mirrors> | undefined;
@@ -169,10 +177,12 @@ function realmLedgers(): Ledgers {
 		},
 		said: async () => {
 			const { ledgers, trouble } = await mirrors();
-			if (trouble !== undefined) return ` ${trouble}`;
-			if (ledgers.length === 0) return "";
 			const nodes = ledgers.map((ledger) => basename(ledger)).join(", ");
-			return ` Asked this machine's ledger and those mirrored from ${nodes}.`;
+			const asked =
+				ledgers.length > 0
+					? [`Asked this machine's ledger and those mirrored from ${nodes}.`]
+					: [];
+			return [...asked, ...trouble].map((line) => ` ${line}`).join("");
 		},
 	};
 }
@@ -189,34 +199,72 @@ async function mirroredLedgers(): Promise<Mirrors> {
 	} catch (error) {
 		// No mirror on this machine is ordinary: only the local ledger is
 		// asked, as before mirrors existed. Any other failure is said.
-		if (hasCode(error, "ENOENT")) return { ledgers: [] };
+		if (hasCode(error, "ENOENT")) return { ledgers: [], trouble: [] };
 		return {
 			ledgers: [],
-			trouble: `The councils mirrored under ${root} couldn't be listed (${error instanceof Error ? error.message : String(error)}), so only this machine's ledger was asked.`,
+			trouble: [
+				`The councils mirrored under ${root} couldn't be listed (${messageOf(error)}), so only this machine's ledger was asked.`,
+			],
 		};
 	}
 	const ledgers: string[] = [];
-	for (const node of nodes) {
+	const trouble: string[] = [];
+	const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+	for (const node of sorted) {
+		if (!node.isDirectory() && !node.isSymbolicLink()) continue;
 		const path = join(root, node.name);
-		if (node.isDirectory() || (node.isSymbolicLink() && (await isFolder(path))))
-			ledgers.push(path);
+		const read = await readNode(path);
+		if (read.kind === "file") continue;
+		if (read.kind === "unread") {
+			trouble.push(
+				`The mirror from ${node.name} couldn't be read (${read.why}), so it wasn't asked.`,
+			);
+			continue;
+		}
+		ledgers.push(path);
+		if (read.oneTooHigh) {
+			trouble.push(
+				`The mirror from ${node.name} holds a runs folder and no ledger, as if mirrored one folder too high.`,
+			);
+		}
 	}
-	return { ledgers: ledgers.sort() };
+	return { ledgers, trouble };
+}
+
+/** What a node under runs-from turned out to be when listed. */
+type NodeRead =
+	| { kind: "folder"; oneTooHigh: boolean }
+	| { kind: "file" }
+	| { kind: "unread"; why: string };
+
+/**
+ * List a node's folder, following a link, so one that can't be read is
+ * said rather than asked and taken as empty. A link to a file is a
+ * stray, like a file beside the folders.
+ */
+async function readNode(path: string): Promise<NodeRead> {
+	try {
+		const names = await readdir(path);
+		const oneTooHigh =
+			names.includes("runs") && !names.some((name) => name.endsWith(".json"));
+		return { kind: "folder", oneTooHigh };
+	} catch (error) {
+		if (hasCode(error, "ENOTDIR")) return { kind: "file" };
+		if (hasCode(error, "ENOENT")) {
+			return { kind: "unread", why: "it is a link to nothing" };
+		}
+		return { kind: "unread", why: messageOf(error) };
+	}
+}
+
+/** An error's message, or the thing thrown as text. */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** The entries under runs-from, with their types. */
 function readNodes(root: string) {
 	return readdir(root, { withFileTypes: true });
-}
-
-/** Whether `path` leads to a folder, following links. */
-async function isFolder(path: string): Promise<boolean> {
-	try {
-		return (await stat(path)).isDirectory();
-	} catch {
-		// A dangling link leads nowhere, so it holds no ledger to ask.
-		return false;
-	}
 }
 
 /** Whether `error` carries the errno `code`. */
@@ -289,7 +337,7 @@ export async function councilFirst(
 	if (await witnessed(change.repo, commits)) return undefined;
 	const range = `${change.base}..${change.head}`;
 	if ("unread" in read) {
-		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.`;
+		return `${range} isn't ${doing}: ${read.unread}, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's). Push the branch, or pass repo naming a checkout that has it, then ask again.${await said()}`;
 	}
 	if (await rebasedReviewed(exec, change, read, witnessed)) return undefined;
 	if (
@@ -298,7 +346,7 @@ export async function councilFirst(
 	) {
 		const named = read.holders.slice(0, HOLDERS_NAMED).join(", ");
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
-		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
+		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.${await said()}`;
 	}
 	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.${await said()}`;
 }

@@ -9,6 +9,7 @@
 
 import { execFile } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -119,7 +120,7 @@ describe("counting a council another machine ran", () => {
 		expect(
 			await councilFirst(exec, topic(), "proposed"),
 			"a council of another repo at the same commit does not count",
-		).toContain("isn't proposed");
+		).toContain("No council of ours has read main..topic");
 	});
 
 	it("holds it back with no mirror, as before", async () => {
@@ -190,6 +191,64 @@ describe("counting a council another machine ran", () => {
 		).toContain("those mirrored from equilibrius.");
 	});
 
+	it("names every node folder in order, leaving out a stray file", async () => {
+		await councilIn(
+			join(mirroredRunsDir(), "aardvark"),
+			"github:Jitsusama/other",
+			head,
+		);
+		await councilIn(equilibrius(), "github:Jitsusama/other", head);
+		writeFileSync(join(mirroredRunsDir(), "stray.json"), "{}");
+
+		const said = await councilFirst(exec, topic(), "proposed");
+		expect(said, "both node folders are named, in name order").toContain(
+			"those mirrored from aardvark, equilibrius.",
+		);
+		expect(said, "a file beside the node folders is no mirror").not.toContain(
+			"stray",
+		);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"says a node folder it can't read, rather than naming it as asked",
+		async () => {
+			await councilIn(equilibrius(), REPO, head);
+			chmodSync(equilibrius(), 0);
+			try {
+				const said = await councilFirst(exec, topic(), "proposed");
+				expect(said, "the unreadable mirror is said").toMatch(
+					/The mirror from equilibrius couldn't be read \(.*EACCES.*\), so it wasn't asked\./,
+				);
+				expect(said, "an unread mirror is never named as asked").not.toContain(
+					"mirrored from equilibrius",
+				);
+			} finally {
+				chmodSync(equilibrius(), 0o755);
+			}
+		},
+	);
+
+	it("says a node link that leads nowhere", async () => {
+		mkdirSync(mirroredRunsDir(), { recursive: true });
+		symlinkSync(join(repo, "..", `gone-${Date.now()}`), equilibrius());
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"a dangling node link is said, not dropped without a word",
+		).toContain(
+			"The mirror from equilibrius couldn't be read (it is a link to nothing)",
+		);
+	});
+
+	it("says a mirror copied one folder too high", async () => {
+		await councilIn(join(equilibrius(), "runs"), REPO, head);
+
+		expect(
+			await councilFirst(exec, topic(), "proposed"),
+			"a node holding a runs folder and no ledger is pointed out",
+		).toContain("as if mirrored one folder too high");
+	});
+
 	it("says so when the mirrors can't be listed", async () => {
 		mkdirSync(join(mirroredRunsDir(), ".."), { recursive: true });
 		writeFileSync(mirroredRunsDir(), "not a folder");
@@ -200,9 +259,9 @@ describe("counting a council another machine ran", () => {
 		).toMatch(/runs-from couldn't be listed \(.*ENOTDIR/);
 	});
 
-	it("counts a council here beside a mirror without listing it", async () => {
+	it("counts a council here whatever the mirrors are", async () => {
 		await councilIn(runDir(), REPO, head);
-		await councilIn(equilibrius(), "github:Jitsusama/other", head);
+		writeFileSync(mirroredRunsDir(), "not a folder");
 
 		expect(
 			await councilFirst(exec, topic(), "proposed"),

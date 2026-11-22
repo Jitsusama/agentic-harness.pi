@@ -206,7 +206,8 @@ export function runDir(): string {
 
 /**
  * Where other machines' rounds are mirrored, a folder a node, each
- * holding its `runs` as that machine wrote them.
+ * holding the ledgers of that machine's `review/runs` directly, as
+ * `runs-from/<node>/*.json`, and on local disk.
  *
  * Filled from outside the harness (a user unit in World's dotfiles
  * syncs a Mac's ledger here), and only ever read: a council run on

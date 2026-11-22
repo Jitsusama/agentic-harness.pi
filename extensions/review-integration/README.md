@@ -212,6 +212,17 @@ five minutes, since a gate skipped whenever it breaks guards
 nothing. It came of four checks going red on core.nix's main on 8
 November, each from a branch that built before rebasing.
 
+### Councils Mirrored From Another Machine
+
+Proposing or merging waits for a council of ours. A round run on
+another machine counts once its ledger is mirrored here, in the
+review state's `runs-from/<node>/*.json`: the files of that
+machine's `review/runs`, on local disk. The harness only reads it,
+and only when this machine's ledger has no council for the change;
+a unit outside the harness fills it. A refusal names the mirrors it
+asked and any it couldn't read. Whatever fills the folder is
+trusted as this machine's own ledger is.
+
 ### When a Queued Change Lands
 
 A merge that lands at once is said landed then, so the mesh keeps
