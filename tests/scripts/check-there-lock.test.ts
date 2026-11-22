@@ -175,7 +175,10 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 
 			const waiter = check(host, "take_turn\necho took");
 			const waited = ended(waiter);
-			expect(await stillRunsAfter(waiter, WAITS_FOR_MS)).toBe(true);
+			expect(
+				await stillRunsAfter(waiter, WAITS_FOR_MS),
+				"a second check waits its turn while the first holds the lock",
+			).toBe(true);
 
 			holder.stdin?.end();
 			await ended(holder);
