@@ -31,6 +31,7 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { harnessLogPath } from "../../../../lib/internal/quest/documents/harness-log.ts";
 import type { RunProgram } from "../../../../lib/mesh/sprout.ts";
 import {
 	clearRefTypes,
@@ -98,6 +99,8 @@ async function start(
 		asked?: unknown[];
 		sessionId?: string;
 		linkFails?: boolean;
+		/** The quest the real create names when it refuses a held link. */
+		linkHeldBy?: string;
 	} = {},
 ) {
 	if (seed) process.env[SEED] = JSON.stringify({ v: 1, ...seed });
@@ -110,6 +113,12 @@ async function start(
 	// quest from its title alone and keeps what it was asked.
 	const make: Create = (params) => {
 		options.asked?.push(params);
+		if (options.linkHeldBy && params.url) {
+			return Promise.resolve({
+				ok: false,
+				guidance: `Quest ${options.linkHeldBy} already has alias. Load it instead`,
+			});
+		}
 		if (options.linkFails && params.url && !params.title) {
 			return Promise.resolve({ ok: false, guidance: "no page there" });
 		}
@@ -267,6 +276,15 @@ describe("a sprouted session's start", () => {
 			);
 			expect(state.questId, "the quest still stands").toMatch(/^QEST-/u);
 			expect(sproutedQuest("S30"), "its mark didn't hold").toBeUndefined();
+			const made = state.questId
+				? discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+						state.questId,
+					)
+				: undefined;
+			expect(
+				readFileSync(harnessLogPath(made?.dir ?? ""), "utf8"),
+				"its log says a replay may not find it",
+			).toMatch(/sprout S30: its mark sprout:S30 wasn't written/u);
 			expect(
 				ran.map((args) => args[2]),
 				"the tie to the map is still made",
@@ -274,6 +292,25 @@ describe("a sprouted session's start", () => {
 			expect(words).toMatch(
 				/tied on the map to the cell it came from, TERN02/u,
 			);
+		} finally {
+			failing.aliases = false;
+		}
+	});
+
+	it("still loads a live quest it joined when its mark can't be written", async () => {
+		const link = "https://github.com/o/r/pull/41";
+		const first = await start({ words: "the PR's work", id: "S41" });
+		const id = first.state.questId;
+		if (!id) throw new Error("no quest to join");
+		markWith(id, link);
+		failing.aliases = true;
+		try {
+			const again = await start(
+				{ link, id: "S42" },
+				{ sessionId: "sess-join-unmarked" },
+			);
+			expect(again.state.questId, "the quest it joined").toBe(id);
+			expect(again.words).toMatch(/already holds this work, is loaded for it/u);
 		} finally {
 			failing.aliases = false;
 		}
@@ -296,16 +333,30 @@ describe("a sprouted session's start", () => {
 		clearDiscoveryCache();
 		expect(questIds(), "the README's id is the forged one").toContain(forged);
 
+		// The real create refuses a link another quest's alias holds, and
+		// names that quest, whatever its README's id says.
+		const asked: unknown[] = [];
 		const again = await start(
 			{ link, id: "S32" },
-			{ sessionId: "sess-forged" },
+			{ sessionId: "sess-forged", linkHeldBy: forged, asked },
 		);
 
 		expect(again.state.questId, "a quest of its own").toMatch(
 			/^QEST-\d{8}-[A-Z0-9]{6}$/u,
 		);
+		expect(
+			asked.filter((one) => (one as { url?: string }).url),
+			"never made from the link another quest holds",
+		).toEqual([]);
 		expect(again.words).not.toContain("Ignore the above");
 		expect(again.words).not.toMatch(/holds? this work as well/u);
+		const third = await start(
+			{ link, id: "S33" },
+			{ sessionId: "sess-forged-again", linkHeldBy: forged },
+		);
+		expect(third.state.questId, "the next sprout of it joins it").toBe(
+			again.state.questId,
+		);
 	});
 
 	it("records the need it was sent for as one its quest serves, once", async () => {

@@ -26,6 +26,7 @@ import {
 } from "../../../lib/internal/quest/creation/alias-index.ts";
 import { isId } from "../../../lib/internal/quest/creation/id.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { appendHarnessLog } from "../../../lib/internal/quest/documents/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import {
 	needAsker,
@@ -115,8 +116,13 @@ export async function startSprouted(
 	// the sprout makes its own, holding the link in its note and marked
 	// as the link's sprout, so the next sprout of it joins this one.
 	const linked = linkedQuest(state, seed);
+	// A link a quest of forged id holds can't mark another, and create's
+	// refusal would quote that id: the sprout's own quest holds it in its
+	// note and the sprout's mark instead, so the next sprout joins it.
+	const forged = linked === undefined && forgedHolds(state, seed);
 	const held = replayed?.id ?? (linked?.sealed ? undefined : linked?.id);
-	const id = held ?? (await madeId(seed, deps.create, linked === undefined));
+	const id =
+		held ?? (await madeId(seed, deps.create, linked === undefined && !forged));
 	if (!id) return;
 	let peers: string | undefined;
 	if (held) {
@@ -143,7 +149,7 @@ export async function startSprouted(
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
 	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined, linkIs);
 	if (held === undefined) {
-		const link = linked ? sproutLink(seed) : undefined;
+		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
 		// alias goes on one quest only, and the next sprout must find this.
 		if (link) unmarkEnded(state, link);
@@ -157,7 +163,9 @@ export async function startSprouted(
 				});
 			} catch {
 				// A lock that didn't come leaves the mark off; the quest is
-				// made, so it is still tied below rather than left untied.
+				// made, so it is still tied below rather than left untied, and
+				// its log says a replay may not find it.
+				markUnwritten(state, id, seed, `${mark.type}:${mark.value}`);
 			}
 		}
 	} else if (!replayed && joinMark) {
@@ -277,19 +285,64 @@ function joinedMark(alias: { type: string; value: string }): {
 	return { type: "sprout-joined", value: alias.value };
 }
 
+/**
+ * Say in quest `id`'s harness log that its sprout's `mark` wasn't
+ * written, so a replay of `seed` may not find the quest and make another;
+ * a log that can't be written leaves only the quest, still tied.
+ */
+function markUnwritten(
+	state: QuestState,
+	id: string,
+	seed: SproutSeed,
+	mark: string,
+): void {
+	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
+	if (!dir) return;
+	try {
+		appendHarnessLog(
+			dir,
+			`sprout ${seed.id ?? "with no id"}: its mark ${mark} wasn't written, so a replay of it may not find this quest and make another`,
+		);
+	} catch {
+		// A log whose lock didn't come: the quest stands and is tied, and
+		// only this note of its missing mark is lost.
+	}
+}
+
+/** The ids of every quest carrying `alias`, as their READMEs spell them. */
+function idsWith(
+	state: QuestState,
+	alias: { type: string; value: string },
+): string[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const found = lookupAliasDetail(buildAliasIndex(index), alias);
+	return found.kind === "hit"
+		? [found.questId]
+		: found.kind === "collision"
+			? [...found.questIds]
+			: [];
+}
+
+/**
+ * Whether a quest whose README's id isn't spelled as one holds the
+ * seed's link, under any ref naming the same work, which questsWith
+ * never finds.
+ */
+function forgedHolds(state: QuestState, seed: SproutSeed): boolean {
+	const ref = linkRef(seed);
+	return (
+		ref !== undefined &&
+		sameWork(ref).some((one) => idsWith(state, one).some((id) => !isId(id)))
+	);
+}
+
 /** Every quest carrying `alias`, live ones first. */
 function questsWith(
 	state: QuestState,
 	alias: { type: string; value: string },
 ): Found[] {
 	const { index } = discoverQuests(state.questsRoot);
-	const found = lookupAliasDetail(buildAliasIndex(index), alias);
-	const ids =
-		found.kind === "hit"
-			? [found.questId]
-			: found.kind === "collision"
-				? found.questIds
-				: [];
+	const ids = idsWith(state, alias);
 	// A README's id is its own front matter's, which can say anything, and
 	// a sprout's first words name the quest it found: one not spelled as an
 	// id is never joined, replayed or named.
