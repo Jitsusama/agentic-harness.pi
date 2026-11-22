@@ -177,8 +177,11 @@ describe("repeats", () => {
 	it("refuses a repeat carrying a stage token when the first carried none", async () => {
 		const memory = repeats();
 		const start = vi.fn(async () => ({ sessionId: "s1" }));
-		await memory.answer(asked, start);
-		const staged = { ...asked, env: { [STAGE_VARIABLE]: "token-1" } };
+		// The same environment either way but the token, so only the
+		// token's presence can tell them apart.
+		const env = { MYCELIUM_REALM: "home" };
+		await memory.answer({ ...asked, env }, start);
+		const staged = { ...asked, env: { ...env, [STAGE_VARIABLE]: "token-1" } };
 		await expect(memory.answer(staged, start)).rejects.toThrow(/already used/);
 		expect(start).toHaveBeenCalledOnce();
 	});
