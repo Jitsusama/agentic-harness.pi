@@ -503,8 +503,12 @@ describe("a kept call", () => {
 	});
 });
 
-/** How long a call whose disk is held is given to settle. */
-const SETTLES_IN_MS = 5_000;
+/**
+ * How long a call whose disk is held is given to settle: under the 5 s a
+ * call waits for its record's removal, so one that waits on the disk at
+ * all fails, and within a test's own timeout, so it fails as itself.
+ */
+const SETTLES_IN_MS = 2_000;
 
 /** Let `count` turns of the loop pass, for what would run in them. */
 async function turns(count: number): Promise<void> {

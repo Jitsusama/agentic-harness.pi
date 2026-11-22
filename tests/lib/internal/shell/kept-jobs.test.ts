@@ -12,8 +12,10 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,9 +41,9 @@ import {
 // What the code asks of the disk: each move, link and removal off the
 // thread, which can be held after the disk acts, as a busy disk's
 // callback comes late, or before, as a busy disk's pool gets to it late,
-// either for every kind of ask or only one, and can be refused, as a
-// failing disk refuses it; and each synchronous call that could stall
-// the thread, by the path asked.
+// either for every kind of ask or only one, on every path or only those
+// matching, and can be refused, as a failing disk refuses it; and each
+// synchronous call that could stall the thread, by the path asked.
 type Ask = "rename" | "rm" | "link";
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
@@ -52,12 +54,14 @@ const disk = vi.hoisted(() => {
 		asked: [] as string[],
 		before: false,
 		only: undefined as Ask | undefined,
+		on: undefined as RegExp | undefined,
 		refused: undefined as Ask | undefined,
 		/** How many asks wait, held, for the disk to act at all. */
 		parked: 0,
-		hold(before = false, only?: Ask): void {
+		hold(before = false, only?: Ask, on?: RegExp): void {
 			this.before = before;
 			this.only = only;
+			this.on = on;
 			held = new Promise((done) => {
 				release = done;
 			});
@@ -66,16 +70,21 @@ const disk = vi.hoisted(() => {
 			held = undefined;
 			this.before = false;
 			this.only = undefined;
+			this.on = undefined;
 			release();
 		},
-		holds(ask: Ask): boolean {
-			return held !== undefined && (this.only ?? ask) === ask;
+		holds(ask: Ask, path: string): boolean {
+			return (
+				held !== undefined &&
+				(this.only ?? ask) === ask &&
+				(this.on?.test(path) ?? true)
+			);
 		},
-		async pass(ask: Ask): Promise<void> {
-			if (this.holds(ask)) await held;
+		async pass(ask: Ask, path: string): Promise<void> {
+			if (this.holds(ask, path)) await held;
 		},
-		async first(ask: Ask): Promise<void> {
-			if (!this.before || !this.holds(ask)) return;
+		async first(ask: Ask, path: string): Promise<void> {
+			if (!this.before || !this.holds(ask, path)) return;
 			this.parked += 1;
 			await held;
 			this.parked -= 1;
@@ -106,23 +115,27 @@ const disk = vi.hoisted(() => {
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
 	const rename = (async (...args: Parameters<typeof real.rename>) => {
-		disk.moved.push(String(args[0]));
-		await disk.first("rename");
+		const path = String(args[0]);
+		disk.moved.push(path);
+		await disk.first("rename", path);
+		disk.refuse("rename", path);
 		await real.rename(...args);
-		await disk.pass("rename");
+		await disk.pass("rename", path);
 	}) as typeof real.rename;
 	const rm = (async (...args: Parameters<typeof real.rm>) => {
-		disk.removed.push(String(args[0]));
-		await disk.first("rm");
-		disk.refuse("rm", String(args[0]));
+		const path = String(args[0]);
+		disk.removed.push(path);
+		await disk.first("rm", path);
+		disk.refuse("rm", path);
 		await real.rm(...args);
-		await disk.pass("rm");
+		await disk.pass("rm", path);
 	}) as typeof real.rm;
 	const link = (async (...args: Parameters<typeof real.link>) => {
-		await disk.first("link");
-		disk.refuse("link", String(args[1]));
+		const path = String(args[1]);
+		await disk.first("link", path);
+		disk.refuse("link", path);
 		await real.link(...args);
-		await disk.pass("link");
+		await disk.pass("link", path);
 	}) as typeof real.link;
 	const mocked = { ...real, rename, rm, link };
 	return { ...mocked, default: mocked };
@@ -483,6 +496,104 @@ describe("a call's own record, taken back as the call ends", () => {
 		);
 	});
 
+	// A taker in this process that ended the call removed its files, end
+	// and all; a record put back beside them has a start say it again.
+	it("puts nothing back once its taker has ended the call and removed its files", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		writeFileSync(`${job.work.keep}.end`, "0\n");
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		await removeKept(job.work.keep);
+		disk.go();
+		await going;
+		expect(
+			listed(where).filter((name) => name.includes(".job")),
+			"no record beside the call's files, nor one staged",
+		).toEqual([]);
+	});
+
+	it("takes back what it put back when its taker removed the call's files as it landed", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		writeFileSync(`${job.work.keep}.end`, "0\n");
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		disk.go();
+		disk.hold(true, "link");
+		await vi.waitFor(() =>
+			expect(disk.parked, "its put-back, waiting on the disk").toBe(1),
+		);
+		await removeKept(job.work.keep);
+		disk.go();
+		await going;
+		expect(
+			listed(where).filter((name) => name.includes(".job")),
+			"no record beside the call's files, nor one staged",
+		).toEqual([]);
+	});
+
+	// A fenced command can write the kept folder, and the staged name
+	// carries the host's pid, which every record names.
+	it("writes its record back through nothing planted at its staged name", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const target = join(where, "..", "read-only");
+		writeFileSync(target, "untouched\n");
+		symlinkSync(target, `${job.work.keep}.job.${process.pid}.back`);
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(readFileSync(target, "utf8"), "what the planted link names").toBe(
+			"untouched\n",
+		);
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+		expect(listed(where), "nothing left staged").not.toContainEqual(
+			expect.stringMatching(/\.back$/),
+		);
+	});
+
+	it("says it couldn't write its record back when the disk refuses it, leaving nothing staged", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disk.refused = "link";
+		disownKeptJob(job.work.keep);
+		disk.go();
+		await expect(going).resolves.toBeUndefined();
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line naming it and what follows",
+		).toEqual([
+			expect.stringMatching(/couldn't put .*\.job back .*: EIO.*to strays/),
+		]);
+		expect(listed(where), "nothing left staged").not.toContainEqual(
+			expect.stringMatching(/\.back$/),
+		);
+	});
+
 	it("says it couldn't put its record back when the disk refuses it, and what follows", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
@@ -561,6 +672,61 @@ describe("a call's own record, taken back as the call ends", () => {
 		);
 	});
 
+	it("says its call was handed on when that came before its removal outlasted its wait", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 200 });
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		disownKeptJob(job.work.keep);
+		await going;
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line, that the call is its taker's",
+		).toEqual([expect.stringMatching(/handed on meanwhile.*to strays/)]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(labelsIn(where), "its record, back for the taker").toEqual([
+				"run j1",
+			]),
+		);
+	});
+
+	it("says a record written again stands at its name when its removal outlasts its wait", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 200 });
+		await vi.waitFor(() =>
+			expect(disk.parked, "what it set aside, waiting on the disk").toBe(1),
+		);
+		recordKeptJob(job);
+		await going;
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line, that a start may take it up",
+		).toEqual([expect.stringMatching(/may say the call's end again/)]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"the record written again, taken in turn",
+			).toEqual([]),
+		);
+	});
+
 	it("leaves a second take-back to the removal already running", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
@@ -627,6 +793,43 @@ describe("a call's own record, taken back as the call ends", () => {
 				.filter((text) => text.includes(job.work.keep)),
 			"one line, saying how long",
 		).toEqual([expect.stringMatching(/took 1500 ms/)]);
+	});
+
+	// A slow refusal is the busy disk's own signature.
+	it("says a removal that took more than a second though the disk refused it", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.refused = "rename";
+		const clock = [0, 1_500];
+		await forgetOwnKeptJob(job.work.keep, { now: () => clock.shift() ?? 0 });
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"that it stays, and how long it took",
+		).toEqual([
+			expect.stringMatching(/couldn't remove .*\.job: EIO.*it stays/),
+			expect.stringMatching(/took 1500 ms/),
+		]);
+	});
+
+	it("is written through nothing planted at its staged name", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const target = join(where, "..", "read-only");
+		writeFileSync(target, "untouched\n");
+		symlinkSync(target, `${job.work.keep}.job.${process.pid}.new`);
+		recordKeptJob({ ...job, label: "again" });
+		expect(readFileSync(target, "utf8"), "what the planted link names").toBe(
+			"untouched\n",
+		);
+		expect(labelsIn(where), "its record, written whole").toEqual(["again"]);
+		expect(listed(where), "nothing left staged").not.toContainEqual(
+			expect.stringMatching(/\.new$/),
+		);
 	});
 
 	// A rollover gives a running job's recorder a new key, which writes its
