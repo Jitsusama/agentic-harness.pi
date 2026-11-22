@@ -26,7 +26,8 @@
  * conversations share, and most calls never wrote one: asking the disk
  * for a name that isn't there held that loop up to 12 s under load. So
  * the process keeps which records it wrote (kept.ts), and a call it
- * wrote none for asks nothing; one it wrote is removed off the thread.
+ * wrote none for asks nothing; one it wrote is removed off the thread,
+ * set aside first, so a hand-off while it goes can put it back.
  */
 
 import {
@@ -36,13 +37,17 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { rm } from "node:fs/promises";
+import { link, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
+	beginJobRecordRemoval,
 	disownJobRecord,
+	endJobRecordRemoval,
 	endOf,
+	handJobRecordOn,
 	JOB_SUFFIX,
+	type JobRecordRemoval,
 	keptFolder,
 	ownJobRecord,
 	processThere,
@@ -71,6 +76,20 @@ const FILE_MODE = 0o600;
  * thread now and holds no loop a watcher would see.
  */
 const SLOW_REMOVAL_MS = 1_000;
+
+/**
+ * How long a call waits for its record's removal before it settles
+ * anyway: a wedged disk would otherwise hold the call open with no end.
+ */
+const REMOVAL_WAIT_MS = 5_000;
+
+/** What the final removal of a call's own record may be told. */
+export interface ForgetOwnOptions {
+	/** How long to wait for the disk before settling without it. */
+	readonly waitMs?: number;
+	/** The clock a removal's time is read from. */
+	readonly now?: () => number;
+}
 
 /**
  * Write the record of a call handed to a job, replacing one there, whole
@@ -109,27 +128,78 @@ export function forgetKeptJob(keep: string): void {
  * Take back the record of the call kept at `keep` when this process
  * wrote one, off the thread; a call it wrote none for asks nothing of
  * the disk. A record written again while the removal runs, as a
- * rollover's recorder does, is removed in turn. Never rejects, as
+ * rollover's recorder does, is removed in turn, unless the call was
+ * handed on meanwhile, when the record is its taker's. Waits at most
+ * `waitMs`, saying so, the removal going on behind. Never rejects, as
  * `forgetKeptJob` never throws: it runs in a call's finally, where a
  * rejection would stand in for the call's own outcome.
  */
-export async function forgetOwnKeptJob(keep: string): Promise<void> {
-	while (disownJobRecord(keep)) {
-		const file = `${keep}${JOB_SUFFIX}`;
-		const began = Date.now();
+export async function forgetOwnKeptJob(
+	keep: string,
+	options: ForgetOwnOptions = {},
+): Promise<void> {
+	const removal = beginJobRecordRemoval(keep);
+	if (removal === undefined) return;
+	const waitMs = options.waitMs ?? REMOVAL_WAIT_MS;
+	const going = removeOwn(keep, removal, options.now ?? Date.now).finally(() =>
+		endJobRecordRemoval(keep, removal),
+	);
+	let timer: NodeJS.Timeout | undefined;
+	const waited = new Promise<"waited">((done) => {
+		timer = setTimeout(() => done("waited"), waitMs);
+		timer.unref();
+	});
+	const ended = await Promise.race([
+		going.then(() => "removed" as const),
+		waited,
+	]);
+	clearTimeout(timer);
+	if (ended === "waited") {
+		process.stderr.write(
+			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, so a pi gone before it goes may say the call's end again\n`,
+		);
+	}
+}
+
+/**
+ * Remove this process's record of the call kept at `keep` while it is
+ * this process's. Each pass renames it aside before removing it, since a
+ * rename or unlink the disk has yet to reach can't be called back: a
+ * hand-off meanwhile puts the record back, linked rather than renamed so
+ * it never replaces the one a taker wrote first.
+ */
+async function removeOwn(
+	keep: string,
+	removal: JobRecordRemoval,
+	now: () => number,
+): Promise<void> {
+	const file = `${keep}${JOB_SUFFIX}`;
+	const aside = `${file}.${process.pid}.gone`;
+	while (!removal.handed && disownJobRecord(keep)) {
+		const began = now();
 		try {
-			await rm(file, { force: true });
+			await rename(file, aside);
 		} catch (error) {
-			// A folder in its place, or a disk refusing it (read-only after
-			// an error, failing, or the file made immutable): the record
-			// stays, and `removeKept` just after stops at it, so the next
-			// start may say this call's end again. Said, since nothing else
-			// would show it.
-			const why = error instanceof Error ? error.message : String(error);
-			process.stderr.write(`[shell] couldn't remove ${file}: ${why}\n`);
+			// Gone already, with the call's other files: nothing to remove.
+			if (isMissing(error)) continue;
+			// A disk refusing it (read-only after an error, failing, or the
+			// file made immutable): the record stays, and `removeKept` just
+			// after stops at it. Said, since nothing else would show it.
+			sayStays(file, error);
 			continue;
 		}
-		const took = Date.now() - began;
+		if (removal.handed) await putBack(aside, file);
+		try {
+			await rm(aside, { force: true });
+		} catch (error) {
+			// A folder in its place, set aside: no record is read under that
+			// name, and the week's sweep takes it.
+			const why = error instanceof Error ? error.message : String(error);
+			process.stderr.write(
+				`[shell] couldn't remove ${aside}: ${why}; no record is read there, and the week's sweep takes it\n`,
+			);
+		}
+		const took = now() - began;
 		if (took > SLOW_REMOVAL_MS) {
 			process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
 		}
@@ -137,12 +207,47 @@ export async function forgetOwnKeptJob(keep: string): Promise<void> {
 }
 
 /**
+ * Put a record set aside back for the call's taker, unless the taker has
+ * written its own there already, which is the newer.
+ */
+async function putBack(aside: string, file: string): Promise<void> {
+	try {
+		await link(aside, file);
+	} catch (error) {
+		if (isTaken(error)) return;
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(
+			`[shell] couldn't put ${file} back for the call's taker: ${why}; a pi gone before the taker records it leaves the call to strays\n`,
+		);
+	}
+}
+
+/** Say that `file` stays where it is, and what follows from that. */
+function sayStays(file: string, error: unknown): void {
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`[shell] couldn't remove ${file}: ${why}; it stays, so this pi's next start may say the call's end again\n`,
+	);
+}
+
+/** Whether `error` says the name it was asked about isn't there. */
+function isMissing(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** Whether `error` says the name it would make is taken already. */
+function isTaken(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
+/**
  * Let go of the record of the call kept at `keep` as this process's,
  * asking nothing of the disk: the call was handed on, and whoever takes
- * it up records it again and takes it back.
+ * it up records it again and takes it back. A removal of it still
+ * running puts back what it set aside.
  */
 export function disownKeptJob(keep: string): void {
-	disownJobRecord(keep);
+	handJobRecordOn(keep);
 }
 
 /** Whether a record read back is one this code wrote. */

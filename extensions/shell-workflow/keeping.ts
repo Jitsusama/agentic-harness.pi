@@ -165,10 +165,11 @@ export function keepsOnDisk(
 					// the end of again. Waited for off the thread, and only when this
 					// process wrote one: most calls have none, and asking the disk
 					// for a name that isn't there held every conversation's loop for
-					// seconds when the disk was busy. While it goes the call can
-					// still be carried, so a move or a host's stop meeting it then
-					// carries it, its end said where it lands, rather than finding a
-					// job neither carriable nor ended and stopping it.
+					// seconds when the disk was busy, and for a few seconds at most,
+					// so a wedged disk never holds the call open. While it goes the
+					// call can still be carried, so a move or a host's stop meeting
+					// it then carries it, its end said where it lands, rather than
+					// finding a job neither carriable nor ended and stopping it.
 					if (!kept.handed) await forgetOwnKeptJob(path);
 					// Handed on meanwhile, its files are the taker's. Otherwise ended
 					// here, so nothing may carry or hand it on while they go, which
@@ -206,7 +207,8 @@ export function keepsOnDisk(
 					if (!kept) return;
 					kept.handed = true;
 					kept.disarm();
-					// Its record is the taker's to write again and take back.
+					// Its record is the taker's to write again and take back; one
+					// set aside by its removal meanwhile is put back.
 					disownKeptJob(kept.path);
 					// A host's reaper spares it until its end is said elsewhere.
 					markCarried(kept.path, kept.mark);
