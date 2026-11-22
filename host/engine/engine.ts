@@ -140,7 +140,8 @@ export async function createEngine(
 		shells.keepsThroughPark(kept !== undefined);
 	// Conversations released to another holder, whose carried calls it takes up.
 	const released = new Set<string>();
-	host.keepsCarried(parkCarries);
+	// One whose carried calls couldn't be recorded carries none for a while.
+	host.keepsCarried((sessionId) => parkCarries() && parked.mayCarry(sessionId));
 	// What an earlier restart kept and no conversation here took up is
 	// stopped once due; a child's are the supervisor's to look over.
 	if (!kept) shells.watch((sessionId) => live.has(sessionId));

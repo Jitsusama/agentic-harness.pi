@@ -1,13 +1,18 @@
 /** Parking a conversation: a park under way can be waited on, and a wake says how it went. */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PARKED, type Parking, parking } from "../../../host/engine/parking.ts";
+import {
+	PARKED,
+	type Parking,
+	parking,
+	UNRECORDED_HOLDS_MS,
+} from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
@@ -577,7 +582,8 @@ function call(name: string): CarriedShell {
 	return {
 		kind: "shell",
 		keep: join(dir, name),
-		pid: 1,
+		// No such pid: a close for good over it must kill nothing (#1981 F77).
+		pid: 2 ** 22 + 1,
 		mark: `mark-${name}`,
 		startedAt: 0,
 	};
@@ -596,7 +602,11 @@ function carrying(
 	more: {
 		asking?: (sessionId: string) => Promise<void>;
 		beforeCarry?: () => void;
+		/** Runs in the stop once the carry is told, as a stop failing late. */
+		afterCarry?: () => void;
 		wakeAgainMs?: number;
+		holding?: () => boolean;
+		now?: () => number;
 	} = {},
 ) {
 	const bus = createEventBus();
@@ -619,6 +629,7 @@ function carrying(
 				})),
 			};
 			bus.emit(JOBS_CARRIED, carried);
+			more.afterCarry?.();
 		},
 	);
 	const parked = parking({
@@ -626,6 +637,8 @@ function carrying(
 		stop,
 		asking: () => asking,
 		report: vi.fn(),
+		...(more.holding ? { holding: more.holding } : {}),
+		...(more.now ? { now: more.now } : {}),
 		carries: () => keeps,
 		callRuns: (work) => runs.has(work.keep),
 		lookEveryMs: CALLS_LOOKED_AT_MS,
@@ -721,14 +734,70 @@ describe("a park that carries bash calls", () => {
 		expect(asking.mock.calls.length, "none once it runs").toBe(asked);
 	});
 
-	it("wakes it as soon as it parks when the calls it carried can't be recorded", async () => {
+	it("wakes it as soon as it parks when the calls it carried can't be recorded, then carries none for an hour", async () => {
 		const runs = new Set([join(dir, "loop")]);
-		const { parked, asking } = carrying([call("loop")], runs, true, {
+		let clock = 0;
+		const { parked, asking, stop } = carrying([call("loop")], runs, true, {
 			// The record can't be renamed over a folder.
 			beforeCarry: () => mkdirSync(callsFile(), { recursive: true }),
+			now: () => clock,
 		});
 		await parked.park("a");
 		await until("a wake at once", () => asking.mock.calls.length > 0);
+		parked.unwatch("a");
+		// Each park it can't record would end in a wake: it holds its calls
+		// awake instead, rather than park and wake in a loop (#1981 F73).
+		expect(parked.mayCarry("a"), "carries none").toBe(false);
+		// The folder in its record's place goes, so the next park gets as far
+		// as its stop; a write that would fail again is never tried.
+		rmSync(callsFile(), { recursive: true });
+		await parked.park("a");
+		expect(stop, "its next park cuts nothing off").toHaveBeenLastCalledWith(
+			"a",
+			PARKED,
+			false,
+		);
+		parked.unwatch("a");
+		clock = UNRECORDED_HOLDS_MS - 1;
+		expect(parked.mayCarry("a"), "within the hour").toBe(false);
+		clock = UNRECORDED_HOLDS_MS;
+		expect(parked.mayCarry("a"), "an hour on, it tries again").toBe(true);
+	});
+
+	it("holds the wake for calls it couldn't record while the host drains, as any wake", async () => {
+		let draining = true;
+		const { parked, asking } = carrying([call("loop")], new Set(), true, {
+			beforeCarry: () => mkdirSync(callsFile(), { recursive: true }),
+			holding: () => draining,
+		});
+		await parked.park("a");
+		await quietFor(CALLS_LOOKED_AT_MS, 5);
+		expect(asking, "held through the drain").not.toHaveBeenCalled();
+		draining = false;
+		parked.release();
+		await until(
+			"its wake once the drain lifts",
+			() => asking.mock.calls.length > 0,
+		);
+		parked.unwatch("a");
+	});
+
+	it("wakes it when its stop fails after its calls were carried, with nobody watching them", async () => {
+		const { parked, asking } = carrying(
+			[call("loop")],
+			new Set([join(dir, "loop")]),
+			true,
+			{
+				afterCarry: () => {
+					throw new Error("the stop failed late");
+				},
+			},
+		);
+		await parked.park("a");
+		await until(
+			"a wake for calls nobody watches",
+			() => asking.mock.calls.length > 0,
+		);
 		parked.unwatch("a");
 	});
 
@@ -744,13 +813,15 @@ describe("a park that carries bash calls", () => {
 	});
 
 	it("keeps no watch on calls carried outside its park, as a move's are", async () => {
-		const { parked, asking, bus } = carrying([], new Set());
+		const { parked, asking, bus, said } = carrying([], new Set());
 		const moved: JobsCarried = {
 			session: "a",
 			jobs: [{ id: "j9", kind: "shell", label: "moved", work: call("moved") }],
 		};
-		bus.emit(JOBS_CARRIED, moved);
 		await parked.park("a");
+		// Heard once it parked, with no park to clear a record after it.
+		bus.emit(JOBS_CARRIED, moved);
+		expect(said, "no carry said").toEqual([]);
 
 		await quietFor(CALLS_LOOKED_AT_MS, 5);
 		expect(existsSync(callsFile()), "nothing recorded").toBe(false);
@@ -816,6 +887,10 @@ describe("a park that carries bash calls", () => {
 		await parked.park("a");
 		// Woken by a message, its build fails after it registered: still parked.
 		parked.running("a");
+		expect(
+			existsSync(callsFile()),
+			"the record stays for the next holder",
+		).toBe(true);
 		runs.delete(looping.keep);
 		await until(
 			"its calls' end to wake it",
@@ -824,40 +899,73 @@ describe("a park that carries bash calls", () => {
 		parked.unwatch("a");
 	});
 
-	it("stops the calls a park carried as it closes for good, and only forgets them as it is released", async () => {
-		const running = (name: string) => {
-			const mark = `mark-${name}-${process.pid}`;
-			const child = spawn("sleep", ["60"], {
-				detached: true,
-				stdio: "ignore",
-				env: { ...process.env, [CALL_VARIABLE]: mark },
-			});
-			const ended = new Promise<void>((done) =>
-				child.once("exit", () => done()),
-			);
-			const work: CarriedShell = { ...call(name), pid: child.pid ?? 0, mark };
-			return { child, ended, work };
-		};
-		const closed = running("closed");
-		const released = running("released");
-		try {
-			const forGood = carrying([closed.work], new Set([closed.work.keep]));
-			await forGood.parked.park("a");
-			forGood.parked.closed("a", true);
-			await closed.ended;
-			expect(existsSync(callsFile()), "closed: forgotten").toBe(false);
+	// The calls' marks are read from /proc, so only where there is one.
+	it.runIf(process.platform === "linux")(
+		"stops the calls a park carried as it closes for good, and only forgets them as it is released",
+		async () => {
+			const running = (name: string, carries = true) => {
+				const mark = `mark-${name}-${process.pid}`;
+				const child = spawn("sleep", ["60"], {
+					detached: true,
+					stdio: "ignore",
+					env: carries
+						? { ...process.env, [CALL_VARIABLE]: mark }
+						: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+				});
+				const ended = new Promise<void>((done) =>
+					child.once("exit", () => done()),
+				);
+				if (child.pid === undefined) throw new Error("sleep did not start");
+				const pid = child.pid;
+				const work: CarriedShell = { ...call(name), pid, mark };
+				const lives = () => {
+					try {
+						process.kill(pid, 0);
+						return true;
+					} catch {
+						// Gone: nothing to signal.
+						return false;
+					}
+				};
+				return { child, ended, work, lives };
+			};
+			const closed = running("closed");
+			const released = running("released");
+			// Its pid taken by a process that isn't the call (#1981 F71).
+			const reused = running("reused", false);
+			try {
+				const forGood = carrying([closed.work], new Set([closed.work.keep]));
+				await forGood.parked.park("a");
+				forGood.parked.closed("a", true);
+				await closed.ended;
+				expect(existsSync(callsFile()), "closed: forgotten").toBe(false);
 
-			const handed = carrying([released.work], new Set([released.work.keep]));
-			await handed.parked.park("a");
-			handed.parked.closed("a", false);
-			expect(existsSync(callsFile()), "released: forgotten").toBe(false);
-			expect(
-				released.child.exitCode === null && released.child.signalCode === null,
-				"its new holder takes it up",
-			).toBe(true);
-		} finally {
-			closed.child.kill("SIGKILL");
-			released.child.kill("SIGKILL");
-		}
+				const handed = carrying([released.work], new Set([released.work.keep]));
+				await handed.parked.park("a");
+				handed.parked.closed("a", false);
+				expect(existsSync(callsFile()), "released: forgotten").toBe(false);
+
+				const other = carrying([reused.work], new Set([reused.work.keep]));
+				await other.parked.park("a");
+				other.parked.closed("a", true);
+				// A kill lands in moments; give it time to before looking.
+				await quietFor(50, 3);
+				expect(released.lives(), "its new holder takes it up").toBe(true);
+				expect(reused.lives(), "a pid that isn't the call lives on").toBe(true);
+			} finally {
+				closed.child.kill("SIGKILL");
+				released.child.kill("SIGKILL");
+				reused.child.kill("SIGKILL");
+			}
+		},
+	);
+
+	it("closes on when what it carried can't be read or removed", async () => {
+		const { parked } = carrying([], new Set());
+		await parked.park("a");
+		mkdirSync(join(callsFile(), "inside"), { recursive: true });
+		expect(() => parked.closed("a", true), "for good").not.toThrow();
+		expect(() => parked.closed("a", false), "released").not.toThrow();
+		expect(() => parked.ran("a"), "as it runs").not.toThrow();
 	});
 });

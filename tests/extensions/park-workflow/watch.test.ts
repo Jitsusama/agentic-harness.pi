@@ -49,6 +49,7 @@ import {
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { CALLS_WATCHED_MS } from "../../../lib/internal/shell/carried.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -1262,17 +1263,25 @@ describe("why a session stays awake", () => {
 		host.host.viewed = () => viewed;
 		// As job-workflow's own: a job whose spec can't carry it (a shell
 		// whose tee won't outlive pi) holds, whatever the host keeps.
+		const shell = (over: Record<string, unknown> = {}) => ({
+			kind: "shell",
+			keep: join(folder, "kept"),
+			pid: 2 ** 22 + 1,
+			mark: "a-mark",
+			startedAt: 0,
+			...over,
+		});
 		const out: {
 			id: string;
 			kind: string;
 			label: string;
-			carry?: { kind: string };
+			carry?: { kind: string; [field: string]: unknown };
 		}[] = [
 			{
 				id: "j1",
 				kind: "shell",
 				label: "until grep -q rc= run.log",
-				carry: { kind: "shell" },
+				carry: shell(),
 			},
 		];
 		let unsaid = 0;
@@ -1311,6 +1320,28 @@ describe("why a session stays awake", () => {
 			out.push({ id: "j2", kind: "subagent", label: "k7-read" });
 			expect(watched.look(), "a fleet goes nowhere").toBe(
 				"a fleet is out (j2: k7-read)",
+			);
+			out.pop();
+			// One its watch would wake for at once holds it, rather than a park
+			// and a wake every few minutes (#1981 F72).
+			out.push({
+				id: "j4",
+				kind: "shell",
+				label: "sleep 1d",
+				carry: shell({ startedAt: PARK_AFTER_MS - CALLS_WATCHED_MS }),
+			});
+			expect(watched.look(), "a call a day old").toBe(
+				"a command is out (j4: sleep 1d)",
+			);
+			out.pop();
+			out.push({
+				id: "j5",
+				kind: "shell",
+				label: "timeout 60",
+				carry: shell({ deadline: PARK_AFTER_MS }),
+			});
+			expect(watched.look(), "a call past its limit").toBe(
+				"a command is out (j5: timeout 60)",
 			);
 			out.pop();
 			out.push({ id: "j3", kind: "shell", label: "tee run.log" });

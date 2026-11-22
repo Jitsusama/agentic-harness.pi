@@ -144,7 +144,7 @@ export class SessionHost implements Host {
 	// Whether a window views a conversation, as the host's screens say.
 	private readonly viewedBy?: (sessionId: string) => boolean;
 	// Whether a park keeps a conversation's bash calls, as the engine says once it can.
-	private carriedBy?: () => boolean;
+	private carriedBy?: (id: string) => boolean;
 
 	constructor(options: {
 		key: string;
@@ -430,12 +430,12 @@ export class SessionHost implements Host {
 	}
 
 	/** Whether a park of this conversation carries its bash calls; none until the engine says. */
-	carries(_id: string): boolean {
-		return this.carriedBy?.() ?? false;
+	carries(id: string): boolean {
+		return this.carriedBy?.(id) ?? false;
 	}
 
 	/** Say how to tell whether a park carries a conversation's bash calls, as the engine knows. */
-	keepsCarried(carried: () => boolean): void {
+	keepsCarried(carried: (id: string) => boolean): void {
 		this.carriedBy = carried;
 	}
 
