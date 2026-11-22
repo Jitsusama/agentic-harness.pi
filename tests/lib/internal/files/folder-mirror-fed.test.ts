@@ -102,14 +102,15 @@ async function feedAsked(count = 1): Promise<Fed> {
 	return last;
 }
 
+// A lost feed's folder is read at once unless a test spreads it.
 const fedMirror = (times = {}) =>
-	folderMirrors(FED, { pollMs: 20, ...times })(dir);
+	folderMirrors(FED, { pollMs: 20, feedFallbackMs: 0, ...times })(dir);
 
 describe("a mirror its kind's feed follows", () => {
 	it("takes its files from the feed, and once ready never lists or reads the folder", async () => {
 		put("a.txt", "on disk");
 		put("x.txt", "on disk alone");
-		const folder = fedMirror();
+		const folder = fedMirror({ backstopMs: 100 });
 		expect(wordsOf(folder.files()), "the first ask reads the disk").toEqual([
 			"on disk",
 			"on disk alone",
@@ -268,6 +269,80 @@ describe("a mirror its kind's feed follows", () => {
 				]),
 			{ timeout: 2000 },
 		);
+	});
+
+	it("drops both feeds when the one asked to replace another ends, and asks again only later", async () => {
+		const folder = fedMirror({ feedRefreshMs: 50, feedAgainMs: 600 });
+		folder.files();
+		const fed = await feedAsked();
+		fed.events.put("a.txt", "as the node said");
+		fed.events.ready();
+		const again = await feedAsked(2);
+		again.events.ended();
+		expect(fed.closed, "the one it was to replace closed too").toBe(true);
+		put("b.txt", "read here");
+		await vi.waitFor(
+			() =>
+				expect(wordsOf(folder.files()), "read from the disk").toEqual([
+					"read here",
+				]),
+			{ timeout: 2000 },
+		);
+		// Many polls, each of which would ask again were it not waiting.
+		await new Promise((done) => setTimeout(done, 300));
+		folder.files();
+		expect(asked.length, "not asked again meanwhile").toBe(2);
+		await vi.waitFor(
+			() => {
+				folder.files();
+				expect(asked.length, "asked again after a while").toBe(3);
+			},
+			{ timeout: 3000 },
+		);
+	});
+
+	it("keeps what a lost feed said until its own moment to read the folder", async () => {
+		const random = vi.spyOn(Math, "random").mockReturnValue(1);
+		try {
+			const folder = fedMirror({ feedFallbackMs: 600, feedAgainMs: 5000 });
+			folder.files();
+			const fed = await feedAsked();
+			fed.events.put("a.txt", "as the node said");
+			fed.events.ready();
+			put("b.txt", "on disk");
+			const listed = listings();
+			fed.events.ended();
+			// Many polls, each of which would list it were it not waiting.
+			await new Promise((done) => setTimeout(done, 300));
+			expect(wordsOf(folder.files()), "the lost feed's word").toEqual([
+				"as the node said",
+			]);
+			expect(listings() - listed, "not listed yet").toBe(0);
+			await vi.waitFor(
+				() =>
+					expect(wordsOf(folder.files()), "read from the disk").toEqual([
+						"on disk",
+					]),
+				{ timeout: 3000 },
+			);
+		} finally {
+			random.mockRestore();
+		}
+	});
+
+	it("passes over a feed's word for a file in another folder", async () => {
+		const folder = fedMirror();
+		folder.files();
+		const fed = await feedAsked();
+		fed.events.put("a.txt", "here");
+		fed.events.put("../b.txt", "beside it");
+		fed.events.ready();
+		expect(wordsOf(folder.files()), "its own folder's alone").toEqual(["here"]);
+		// Joined, it would name a.txt itself.
+		fed.events.gone("sub/../a.txt");
+		expect(wordsOf(folder.files()), "not gone by another's name").toEqual([
+			"here",
+		]);
 	});
 
 	it("keeps its own write made while the feed was still listing", async () => {

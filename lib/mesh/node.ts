@@ -927,6 +927,21 @@ function boundAt(socket: string): number | undefined {
 }
 
 /**
+ * The socket of the node of the machine's home realm, `PI_HOME_REALM`,
+ * whatever the session's own realm or the node's kept one; unset, the
+ * session's own realm is home, as {@link sessionRealm} reads it.
+ */
+export function homeNodeSocket(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	const home = env.PI_HOME_REALM?.trim();
+	if (!home) return nodeSocket(env);
+	return isRealmName(home)
+		? nodeSocket({ ...env, MYCELIUM_REALM: home })
+		: undefined;
+}
+
+/**
  * The socket of every realm's node on this machine: the session's own
  * realm's first, though its node hasn't started, then each other realm
  * a socket is served for. A machine in two realms runs a node for each,

@@ -93,6 +93,8 @@ export function linesOf(
 ): (chunk: string) => void {
 	let pieces: string[] = [];
 	let length = 0;
+	// Past a line too long, until its newline: its tail is no line.
+	let skipping = false;
 	return (chunk) => {
 		let from = 0;
 		let newline = chunk.indexOf("\n");
@@ -101,7 +103,8 @@ export function linesOf(
 			const line = pieces.join("");
 			pieces = [];
 			length = 0;
-			hear(line);
+			if (skipping) skipping = false;
+			else hear(line);
 			from = newline + 1;
 			newline = chunk.indexOf("\n", from);
 		}
@@ -109,9 +112,13 @@ export function linesOf(
 			pieces.push(chunk.slice(from));
 			length += chunk.length - from;
 		}
-		if (length > LONGEST_LINE) {
+		if (skipping) {
 			pieces = [];
 			length = 0;
+		} else if (length > LONGEST_LINE) {
+			pieces = [];
+			length = 0;
+			skipping = true;
 			overlong();
 		}
 	};

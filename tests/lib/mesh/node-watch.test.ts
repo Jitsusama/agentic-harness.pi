@@ -151,8 +151,9 @@ describe("a socket's text, taken as lines", () => {
 		take(piece);
 		take("x");
 		expect(overlong, "past sixteen mebibytes").toHaveBeenCalledTimes(1);
-		take("tail\n");
-		expect(heard, "the rest of it alone").toEqual(["tail"]);
+		take("tail\nnext\n");
+		expect(heard, "the line after it alone").toEqual(["next"]);
+		expect(overlong, "said once").toHaveBeenCalledTimes(1);
 	});
 });
 

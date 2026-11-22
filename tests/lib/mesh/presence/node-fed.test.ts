@@ -102,6 +102,110 @@ describe("presence on a host, where the node follows its folder", () => {
 		expect(presences.of("fed"), "the presence the node carried").toEqual(said);
 	});
 
+	it("files a session the node says by the name its own file has", async () => {
+		const said = presence({ session: "s.1/x", addresses: ["FED001"] });
+		await node([{ id: "s.1/x", address: "FED001", presence: said }]);
+		const presences = createPresences(homeFolder());
+		presences.all();
+		await vi.waitFor(
+			() => expect(presences.of("s.1/x"), "found by its session").toEqual(said),
+			{ timeout: 5000 },
+		);
+	});
+
+	it("reads the folder itself once the node goes", async () => {
+		// Its moment to read the folder comes at once.
+		const random = vi.spyOn(Math, "random").mockReturnValue(0);
+		try {
+			const dir = homeFolder();
+			mkdirSync(dir, { recursive: true });
+			const said = presence({ session: "fed", addresses: ["FED001"] });
+			await node([{ id: "fed", address: "FED001", presence: said }]);
+			const presences = createPresences(dir);
+			presences.all();
+			await vi.waitFor(
+				() =>
+					expect(
+						presences.all().map((one) => one.session),
+						"fed",
+					).toEqual(["fed"]),
+				{ timeout: 5000 },
+			);
+			writeFileSync(
+				join(dir, "on-disk.json"),
+				JSON.stringify(presence({ session: "on-disk" })),
+			);
+			for (const client of clients) client.destroy();
+			await vi.waitFor(
+				() =>
+					expect(
+						presences.all().map((one) => one.session),
+						"read from its folder",
+					).toEqual(["on-disk"]),
+				{ timeout: 5000 },
+			);
+		} finally {
+			random.mockRestore();
+		}
+	});
+
+	it("dials the home realm's node, whichever realm the node keeps", async () => {
+		vi.stubEnv("MYCELIUM_REALM", "");
+		mkdirSync(join(root, "state", "mycelium"), { recursive: true });
+		writeFileSync(join(root, "state", "mycelium", "realm"), "second\n");
+		const said = presence({ session: "fed", addresses: ["FED001"] });
+		await node([{ id: "fed", address: "FED001", presence: said }]);
+		const presences = createPresences(homeFolder());
+		presences.all();
+		await vi.waitFor(
+			() =>
+				expect(
+					presences.all().map((one) => one.session),
+					"the home node's sessions",
+				).toEqual(["fed"]),
+			{ timeout: 5000 },
+		);
+	});
+
+	it("asks the node again later when none could be named at first", async () => {
+		const dir = homeFolder();
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "on-disk.json"),
+			JSON.stringify(presence({ session: "on-disk" })),
+		);
+		vi.stubEnv("PI_HOME_REALM", "No Realm");
+		const presences = createPresences(dir);
+		presences.all();
+		await vi.waitFor(
+			() =>
+				expect(
+					presences.all().map((one) => one.session),
+					"read from its folder",
+				).toEqual(["on-disk"]),
+			{ timeout: 5000 },
+		);
+		// Polls, the first of which would have asked and been refused.
+		await new Promise((done) => setTimeout(done, 1500));
+		vi.stubEnv("PI_HOME_REALM", "home");
+		await node([{ id: "fed", address: "FED001", presence: presence() }]);
+		// Past the wait before asking again, the clock alone moved on.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.now() + 60_000);
+			await vi.waitFor(
+				() =>
+					expect(
+						presences.all().map((one) => one.session),
+						"fed once a node is named",
+					).toEqual(["fed"]),
+				{ timeout: 5000 },
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	}, 20_000);
+
 	it("reads any other folder itself, never asking the node", async () => {
 		await node([{ id: "fed", address: "FED001", presence: presence() }]);
 		const dir = join(root, "elsewhere");

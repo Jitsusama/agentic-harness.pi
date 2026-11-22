@@ -67,6 +67,14 @@ const BACKSTOP_MS = 30_000;
  */
 const FEED_AGAIN_MS = 30_000;
 
+/**
+ * Up to how long a mirror whose feed was lost waits before it lists the
+ * folder itself, keeping what the feed last said meanwhile: a node that
+ * restarts loses every host's feed at once, and their listings, spread
+ * over this, don't all land on the disk in the same second.
+ */
+const FEED_FALLBACK_MS = 10_000;
+
 /** How long a feed asked has to say every file before it counts as lost. */
 const FEED_READY_MS = 10_000;
 
@@ -125,6 +133,7 @@ export interface MirrorTimes {
 	readonly idleMs?: number;
 	readonly backstopMs?: number;
 	readonly feedAgainMs?: number;
+	readonly feedFallbackMs?: number;
 	readonly feedReadyMs?: number;
 	readonly feedRefreshMs?: number;
 }
@@ -298,6 +307,7 @@ function mirrorOf<T>(
 	// a feed neither holds says is passed over. None given, it is never
 	// asked again; lost, not again for a while.
 	const feedAgainMs = times.feedAgainMs ?? FEED_AGAIN_MS;
+	const feedFallbackMs = times.feedFallbackMs ?? FEED_FALLBACK_MS;
 	const feedReadyMs = times.feedReadyMs ?? FEED_READY_MS;
 	const feedRefreshMs = times.feedRefreshMs ?? FEED_REFRESH_MS;
 	let serving: Following<T> | undefined;
@@ -305,6 +315,8 @@ function mirrorOf<T>(
 	let feedIds = 0;
 	let refused = false;
 	let feedAgainAt = Number.NEGATIVE_INFINITY;
+	// Until when a mirror whose feed was lost keeps what it last said.
+	let fallbackAt = Number.NEGATIVE_INFINITY;
 	let refreshAt = Number.POSITIVE_INFINITY;
 	const fed = (): boolean => serving !== undefined;
 
@@ -465,8 +477,15 @@ function mirrorOf<T>(
 			});
 	};
 	const watchFolder = (folder: string): void => {
-		// Put down meanwhile, watched already or fed: nothing to make.
-		if (clock === undefined || watcher !== undefined || fed()) return;
+		// Put down meanwhile, watched already, fed, or lost and not yet at its
+		// moment to read the folder, which a new watch would list: none made.
+		if (
+			clock === undefined ||
+			watcher !== undefined ||
+			fed() ||
+			Date.now() < fallbackAt
+		)
+			return;
 		const made = watch(dir, { persistent: false }, (_kind, name) => {
 			// The folder itself removed or renamed away, as libuv names it: the
 			// watch hears nothing more, so the next tick makes one and lists.
@@ -523,9 +542,18 @@ function mirrorOf<T>(
 		asking?.feed?.close();
 		asking = undefined;
 	};
+	// Lost, the feed is asked again later, and a folder it was serving is
+	// read again, each mirror at its own moment in the spell; one never fed
+	// kept reading its folder meanwhile.
+	const fallBack = (wasFed: boolean): void => {
+		const now = Date.now();
+		if (wasFed) fallbackAt = now + Math.random() * feedFallbackMs;
+		feedAgainAt = now + spread(feedAgainMs);
+	};
 	const feedLost = (): void => {
+		const wasFed = fed();
 		unfeed();
-		feedAgainAt = Date.now() + spread(feedAgainMs);
+		fallBack(wasFed);
 	};
 	// What the feed says puts a file in or takes it out, as a named read
 	// would, and stands over this process's own write to it.
@@ -554,12 +582,13 @@ function mirrorOf<T>(
 		asking = one;
 		const feed = kind.feed(dir, {
 			put(name, value) {
-				if (!name.endsWith(kind.suffix)) return;
+				if (!name.endsWith(kind.suffix) || basename(name) !== name) return;
 				const path = join(dir, name);
 				if (serving?.id === id) fedPut(path, value);
 				else if (asking?.id === id) asking.said.set(path, value);
 			},
 			gone(name) {
+				if (basename(name) !== name) return;
 				const path = join(dir, name);
 				if (serving?.id === id) fedGone(path);
 				else if (asking?.id === id) asking.said.delete(path);
@@ -581,13 +610,18 @@ function mirrorOf<T>(
 				unwatch();
 			},
 			ended() {
-				if (serving?.id === id) serving = undefined;
-				else if (asking?.id === id) asking = undefined;
-				else return;
+				// One asked that ends before it is ready is a node not answering, as
+				// one that never comes ready is: neither it nor the one it was to
+				// replace is trusted, and it is asked again only after a while.
+				if (asking?.id === id) {
+					feedLost();
+					return;
+				}
+				if (serving?.id !== id) return;
+				serving = undefined;
 				one.feed?.close();
 				// The one asked to replace it may still come ready.
-				if (asking === undefined)
-					feedAgainAt = Date.now() + spread(feedAgainMs);
+				if (asking === undefined) fallBack(true);
 			},
 		});
 		// Nothing follows this folder: it is read here, and never asked again.
@@ -620,8 +654,9 @@ function mirrorOf<T>(
 			return;
 		}
 		follow();
-		// Fed, the reader keeps the folder: nothing here reads it.
-		if (fed()) {
+		// Fed, the reader keeps the folder: nothing here reads it; lost, what
+		// it last said stands until this mirror's moment to read it comes.
+		if (fed() || Date.now() < fallbackAt) {
 			landed = Date.now();
 			return;
 		}

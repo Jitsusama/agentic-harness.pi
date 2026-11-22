@@ -27,6 +27,8 @@ import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
 import { hosted } from "../core/session/host.ts";
 import {
+	type Feed,
+	type FeedEvents,
 	type FolderMirror,
 	folderMirrors,
 	folderRead,
@@ -75,7 +77,7 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
-import { nodeSocket } from "./node.ts";
+import { homeNodeSocket } from "./node.ts";
 import { watchSessions } from "./node-watch.ts";
 import { oneLine } from "./one-line.ts";
 import { questShared, type Share, sharesSaid } from "./presence-shares.ts";
@@ -693,8 +695,13 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 	read,
 	readOff,
 	feed(dir, events) {
-		const socket = nodeSocket();
-		if (socket === undefined || dir !== nodesPresenceFolder()) return undefined;
+		// `PI_PRESENCE_FEED=off` reads the folder, should the node's word
+		// ever be doubted, without stopping the node.
+		if (process.env.PI_PRESENCE_FEED === "off") return undefined;
+		if (dir !== nodesPresenceFolder()) return undefined;
+		const socket = homeNodeSocket();
+		// No node named yet, as before one first runs: lost, so asked again.
+		if (socket === undefined) return endedAtOnce(events);
 		return watchSessions(
 			socket,
 			{
@@ -712,6 +719,19 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 		);
 	},
 };
+
+/** A feed that ends as soon as it is asked, for a node not yet named. */
+function endedAtOnce(events: FeedEvents<Presence>): Feed {
+	let closed = false;
+	queueMicrotask(() => {
+		if (!closed) events.ended();
+	});
+	return {
+		close() {
+			closed = true;
+		},
+	};
+}
 
 /** A session's presence file's name, by its id. */
 function presenceFileName(session: string): string {
