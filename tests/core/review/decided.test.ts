@@ -136,6 +136,28 @@ describe("the decision ledger", () => {
 		expect(await ledger.list(change)).toEqual([]);
 	});
 
+	it("keeps decisions on a range read from a deeply nested tree", async () => {
+		const tree = `/home/someone/${"deeply-nested-folder/".repeat(14)}tree`;
+		const deep: ChangeRef = {
+			provider: "git",
+			repo: { key: `local:${tree}`, localPath: tree },
+			id: "origin/main..topic",
+			label: "origin/main..topic",
+		};
+		const ledger = createDecisionLedger(root);
+
+		await ledger.record(deep, 4, "dismiss");
+
+		expect(
+			await ledger.list(deep),
+			"a key whose repo part is longer than a file name still keeps its decisions",
+		).toMatchObject([{ findingId: 4, verdict: "dismiss" }]);
+		expect(
+			ledgerFiles(root).map((path) => path.slice(root.length + 1)),
+			"the long key is filed flat under one bounded name",
+		).toEqual([expect.stringMatching(/^git_local_.*-[0-9a-f]{16}\.json$/)]);
+	});
+
 	it("survives being read across two ledger handles", async () => {
 		// Nothing is cached in the handle: a second session must see what
 		// the first decided.

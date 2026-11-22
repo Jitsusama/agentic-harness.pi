@@ -24,7 +24,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "./change.ts";
-import { changeKey } from "./keys.ts";
+import { changeFileName, changeKey } from "./keys.ts";
 
 /** A change this session is working on. */
 export interface Attachment {
@@ -234,10 +234,11 @@ async function newestWithin(path: string): Promise<number> {
  * because a label is for people: two systems can spell the same
  * repo differently, and a label carrying a slash or a pair of
  * dots would otherwise name a path outside the store. The key is
- * hashed to a flat name for the same reason.
+ * folded to a flat name for the same reason, ending in a hash of it
+ * where it is too long to be a file name whole.
  */
 function fileFor(change: ChangeRef): string {
-	return `${safeName(changeKey(change))}.json`;
+	return changeFileName(change);
 }
 
 /**

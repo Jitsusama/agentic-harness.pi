@@ -30,7 +30,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChangeRef } from "./change.ts";
 import type { Finding } from "./finding.ts";
-import { changeKey } from "./keys.ts";
+import { changeFileName } from "./keys.ts";
 
 /** What became of a queued fix. */
 export type FixOutcome =
@@ -305,8 +305,5 @@ export function createFixQueue(root: string): FixQueue {
  * of dots cannot name a path outside the queue directory.
  */
 function fileFor(change: ChangeRef): string {
-	const safe = changeKey(change)
-		.replace(/[^A-Za-z0-9._-]/g, "_")
-		.replace(/^\.+/, "_");
-	return `${safe}.json`;
+	return changeFileName(change);
 }

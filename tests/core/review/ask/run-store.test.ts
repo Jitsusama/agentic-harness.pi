@@ -7,12 +7,13 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import { createRunStore } from "../../../../lib/core/review/index.ts";
+import { changeFileName } from "../../../../lib/core/review/keys.ts";
 import { at } from "../../../support/at.ts";
 
 const change: ChangeRef = {
@@ -201,6 +202,157 @@ describe("keeping runs per change", () => {
 		await store.record(change, run());
 
 		expect(await store.list(other)).toEqual([]);
+	});
+
+	it("keeps a round on a range read from a deeply nested tree", async () => {
+		// The key names the tree's whole path, and a ledger named from it
+		// whole ran past a file name's 255 bytes, so the round was lost
+		// with ENAMETOOLONG (21 Nov, core.nix#6040).
+		const tree = `/home/someone/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Someone-core.nix-${"a-long-branch-name-".repeat(4)}`;
+		const deep: ChangeRef = {
+			provider: "local-range",
+			repo: { key: `local:${tree}`, localPath: tree },
+			id: `origin/main..someone/${"a-long-branch-name-".repeat(4)}`,
+			label: "a deep range",
+		};
+		const store = createRunStore(root);
+
+		await store.record(deep, run());
+
+		expect(
+			await createRunStore(root).list(deep),
+			"the round is on disk and read back under the same change",
+		).toHaveLength(1);
+	});
+
+	it("takes over a crashed writer's lock beside a deep ledger", async () => {
+		// A cut name fills the room left for the pending suffix, so a stale
+		// lock moved aside under a name grown from it ran past 255 bytes,
+		// and every later round on the change failed with ENAMETOOLONG.
+		const tree = `/home/someone/${"deeply-nested-folder/".repeat(12)}tree`;
+		const deep: ChangeRef = {
+			provider: "local-range",
+			repo: { key: `local:${tree}`, localPath: tree },
+			id: "origin/main..topic",
+			label: "a deep range",
+		};
+		const store = createRunStore(root);
+		await store.record(deep, run());
+		const [ledger] = readdirSync(root);
+		const lock = join(root, `${ledger}.lock`);
+		// Held by a pid nothing runs as, and older than the lock's patience.
+		// Both, since a raised pid_max could make that pid a live one.
+		await writeFile(lock, "4194303", "utf8");
+		const long = new Date(Date.now() - 60 * 60 * 1000);
+		await utimes(lock, long, long);
+
+		await store.record(deep, run());
+
+		expect(
+			await createRunStore(root).list(deep),
+			"the stale lock is taken over and the second round kept",
+		).toHaveLength(2);
+		expect(
+			readdirSync(root).filter((name) => name.includes("stale")),
+			"the stale lock moved aside is removed once taken over",
+		).toEqual([]);
+	});
+
+	it("reads a ledger saved under its whole name before names were cut", async () => {
+		// A name of 207 to about 212 bytes was saved whole by a writer whose
+		// pid left room for its pending suffix (a longer one never saved at
+		// all); it is now cut, and its rounds are still found and carried
+		// over by the next write.
+		const padded: ChangeRef = { ...change, id: "x".repeat(177) };
+		const whole = changeFileName(padded);
+		expect(
+			whole.length,
+			`${whole} is a whole name between the cut and a file name's limit`,
+		).toBeGreaterThan(206);
+		expect(
+			whole.length,
+			`${whole} is short enough that an old writer could have saved it`,
+		).toBeLessThanOrEqual(212);
+		await writeFile(
+			join(root, whole),
+			JSON.stringify({ change: padded, runs: [run()] }),
+			"utf8",
+		);
+		const store = createRunStore(root);
+
+		expect(
+			await store.list(padded),
+			"the round under the whole name is read",
+		).toHaveLength(1);
+		await store.record(padded, run());
+		expect(
+			await createRunStore(root).list(padded),
+			"the next write keeps the old round beside the new one",
+		).toHaveLength(2);
+		expect(
+			readdirSync(root),
+			"the whole-named copy is gone, so no sweep reads its rounds again",
+		).not.toContain(whole);
+	});
+
+	it("keeps a round an old session wrote under the whole name after the carry-over", async () => {
+		// A session still on the old code finds no whole-named copy once it
+		// was carried over, and writes a fresh one holding only its round;
+		// shadowed by the cut name and then removed, that round was lost.
+		const padded: ChangeRef = { ...change, id: "x".repeat(177) };
+		const whole = changeFileName(padded);
+		const store = createRunStore(root);
+		await store.record(padded, run({ id: "council-new-1" }));
+		await writeFile(
+			join(root, whole),
+			JSON.stringify({ change: padded, runs: [run({ id: "council-old-1" })] }),
+			"utf8",
+		);
+
+		expect(
+			(await store.list(padded)).map((one) => one.id),
+			"both copies' rounds are read, the cut name's first",
+		).toEqual(["council-new-1", "council-old-1"]);
+		await store.record(padded, run({ id: "council-new-2" }));
+		expect(
+			(await createRunStore(root).list(padded)).map((one) => one.id),
+			"the old session's round is carried over, not removed unread",
+		).toEqual(["council-new-1", "council-old-1", "council-new-2"]);
+		expect(
+			readdirSync(root),
+			"the whole-named copy is gone once its round is carried",
+		).not.toContain(whole);
+	});
+
+	it("keeps an old session's later update to a round already carried over", async () => {
+		// A round carried to the cut name, then finished by a session still
+		// on the old code, which writes it under the whole name: that copy
+		// is the newer, so its version is the one kept.
+		const padded: ChangeRef = { ...change, id: "x".repeat(177) };
+		const whole = changeFileName(padded);
+		const store = createRunStore(root);
+		await store.record(padded, run({ id: "council-1", outcomes: [] }));
+		await writeFile(
+			join(root, whole),
+			JSON.stringify({ change: padded, runs: [run({ id: "council-1" })] }),
+			"utf8",
+		);
+
+		expect(
+			(await store.list(padded)).map((one) => one.outcomes.length),
+			"the whole name's update is read",
+		).toEqual([1]);
+		await store.record(padded, run({ id: "council-2" }));
+		expect(
+			(await createRunStore(root).list(padded)).map((one) => [
+				one.id,
+				one.outcomes.length,
+			]),
+			"and kept once the whole-named copy is removed",
+		).toEqual([
+			["council-1", 1],
+			["council-2", 1],
+		]);
 	});
 
 	it("survives a new store over the same directory", async () => {

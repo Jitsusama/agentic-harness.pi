@@ -18,7 +18,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Anchor } from "./anchor.ts";
 import type { ChangeRef } from "./change.ts";
-import { changeKey } from "./keys.ts";
+import { changeFileName } from "./keys.ts";
 
 /**
  * Conventional Comments labels, which say what kind of remark
@@ -210,8 +210,5 @@ export function createFindingStore(root: string): FindingStore {
  * two systems can spell one label the same way.
  */
 function fileFor(change: ChangeRef): string {
-	const safe = changeKey(change)
-		.replace(/[^A-Za-z0-9._-]/g, "_")
-		.replace(/^\.+/, "_");
-	return `${safe}.json`;
+	return changeFileName(change);
 }

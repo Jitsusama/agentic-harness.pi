@@ -24,6 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { processGlobal } from "../../internal/process/process-global.ts";
 
 /** How long a writer waits for a live holder before saying so. */
@@ -152,7 +153,13 @@ async function takeOverIfStale(lockPath: string): Promise<boolean> {
 	const gone = holder !== undefined && !isAlive(holder);
 	if (!old && !gone) return false;
 
-	const aside = `${lockPath}.stale-${process.pid}-${randomUUID()}`;
+	// Named apart from the lock rather than after it, so a lock whose name
+	// is already near a file name's limit can still be moved: a ledger
+	// name cut to fit left no room for a suffix this long (#1960).
+	const aside = join(
+		dirname(lockPath),
+		`.lock-stale-${process.pid}-${randomUUID()}`,
+	);
 	try {
 		await rename(lockPath, aside);
 	} catch (error) {

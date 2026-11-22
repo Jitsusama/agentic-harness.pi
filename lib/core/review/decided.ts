@@ -21,7 +21,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ChangeRef } from "./change.ts";
-import { changeKey } from "./keys.ts";
+import { changeFileName, changeKey } from "./keys.ts";
+
+/** The most bytes one name in a path may hold on Linux and macOS. */
+const NAME_MAX = 255;
 
 /**
  * What was decided.
@@ -67,9 +70,18 @@ export interface DecisionLedger {
 	list(change: ChangeRef): Promise<Decision[]>;
 }
 
-/** Where one change's decisions live. */
+/**
+ * Where one change's decisions live: nested by the key's parts, as they
+ * always were, while every part fits a file name. A range read from a
+ * deeply nested tree has a repo part longer than that, so its decisions
+ * sit flat under the bounded name the findings use (#1960).
+ */
 function fileFor(root: string, change: ChangeRef): string {
-	return join(root, `${changeKey(change)}.json`);
+	const parts = changeKey(change).split("/");
+	const last = parts.length - 1;
+	const named = parts.map((part, at) => (at === last ? `${part}.json` : part));
+	const fits = named.every((part) => Buffer.byteLength(part) <= NAME_MAX);
+	return fits ? join(root, ...named) : join(root, changeFileName(change));
 }
 
 /** Read the ledger, treating anything unreadable as empty. */
