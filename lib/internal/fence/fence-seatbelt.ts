@@ -433,6 +433,10 @@ export function seatbeltProfile(
 				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,
 			),
 			`(allow file-read* (subpath ${path(tree)}))`,
+			// Seatbelt ranks a rule naming one operation above a wildcard, so
+			// strict's metadata deny on the folder holding the trees would
+			// outrank file-read* above and leave the tree's files unstatable.
+			`(allow file-read-metadata (subpath ${path(tree)}))`,
 			`(allow file-write* (subpath ${path(writes)}))`,
 			...closing
 				.filter(({ to }) => within(to, tree) && to !== tree)
