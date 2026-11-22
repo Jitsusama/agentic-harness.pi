@@ -12,6 +12,13 @@
  * message about pi starts nothing. The one exception is a substitution
  * inside double quotes, which the shell runs, so each is handed back as
  * a line of its own to read.
+ *
+ * Two things are undone before any line is read, readable or not, since
+ * the command model knows neither: a comment, which runs nothing, so
+ * its words are no command and its apostrophe opens no quote; and a
+ * heredoc, whose opener line the model reads only up to the heredoc,
+ * losing a pipe or a command after it. Each heredoc becomes a
+ * here-string of its body, which keeps it data and keeps what follows.
  */
 
 import { matchHeredocs } from "../../shell/parse.ts";
@@ -47,14 +54,73 @@ const BARE = /^[A-Za-z!]+(?=[\s;&|)]|$)/;
 /** Characters that end a command, so the next word starts one. */
 const BREAKS = new Set([";", "&", "|", "\n"]);
 
-/** The line with its structure flattened, and what its double quotes run. */
-export function flatten(source: string): Flattened {
+/** Where each heredoc's body is in a line, to be passed over as data. */
+function bodiesOf(
+	source: string,
+): (at: number) => { start: number; end: number } | undefined {
 	const bodies = matchHeredocs(source).map((match) => {
 		const start = source.indexOf("\n", match.index) + 1;
 		return { start, end: start + match.body.length };
 	});
-	const bodyAt = (at: number) =>
-		bodies.find((body) => at >= body.start && at < body.end);
+	return (at) => bodies.find((body) => at >= body.start && at < body.end);
+}
+
+/**
+ * The line without its comments: an unquoted `#` starting a word, to the
+ * end of its line, outside a heredoc's body.
+ */
+export function uncommented(source: string): string {
+	const bodyAt = bodiesOf(source);
+	let line = "";
+	let at = 0;
+	while (at < source.length) {
+		const body = bodyAt(at);
+		const char = source[at] ?? "";
+		let end = at + 1;
+		if (body) end = body.end;
+		else if (char === "\\") end = at + 2;
+		else if (char === "'") end = closingQuote(source, at, false);
+		else if (char === '"') end = closingQuote(source, at, true);
+		else if (char === "#" && /^$|[\s;&|()]/.test(source[at - 1] ?? "")) {
+			const close = source.indexOf("\n", at);
+			at = close < 0 ? source.length : close;
+			continue;
+		}
+		line += source.slice(at, end);
+		at = end;
+	}
+	return line;
+}
+
+/** Where a quote opened at `open` ends, past its escapes when it has them. */
+function closingQuote(source: string, open: number, escapes: boolean): number {
+	const quote = source[open];
+	let at = open + 1;
+	while (at < source.length && source[at] !== quote) {
+		at += escapes && source[at] === "\\" ? 2 : 1;
+	}
+	return Math.min(at + 1, source.length);
+}
+
+/**
+ * The line with each heredoc made a here-string of its body, quoted as
+ * data, and the rest of its opener line kept after it.
+ */
+export function inlined(source: string): string {
+	let line = source;
+	for (const match of matchHeredocs(source).reverse()) {
+		const body = `'${match.body.replaceAll("'", "'\\''")}'`;
+		line =
+			line.slice(0, match.index) +
+			`<<< ${body}${match.openerRest}` +
+			line.slice(match.index + match.length);
+	}
+	return line;
+}
+
+/** The line with its structure flattened, and what its double quotes run. */
+export function flatten(source: string): Flattened {
+	const bodyAt = bodiesOf(source);
 	const substituted: string[] = [];
 	let line = "";
 	let at = 0;

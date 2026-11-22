@@ -20,8 +20,8 @@ import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
 import type { CommandLine, SimpleCommand } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
-import { flatten } from "./flatten.ts";
-import { runs, SHELLS, unwrapped } from "./runs.ts";
+import { flatten, inlined, uncommented } from "./flatten.ts";
+import { readsStdin, runs, SHELLS, sshReadsStdin, unwrapped } from "./runs.ts";
 import { startIn } from "./starts.ts";
 
 /**
@@ -260,15 +260,17 @@ export function writesInBash(command: string, cwd: string): WriteCall[] {
  * left without a directory, rather than read from this process's own.
  */
 function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
-	const flat = flatten(command);
+	// Comments and heredocs, which the command model misreads, go first.
+	const source = inlined(uncommented(command));
+	const flat = flatten(source);
 	// What a double-quoted substitution runs, where isn't known.
 	const substituted = flat.substituted.flatMap((inner) =>
 		writesInLine(inner, undefined),
 	);
-	const line = tokenize(command);
+	const line = tokenize(source);
 	if (line.supported) return [...writesOf(line, cwd), ...substituted];
 	const flattened = tokenize(flat.line);
-	if (!flattened.supported) return patternWrites(command);
+	if (!flattened.supported) return patternWrites(source);
 	// Its structure moves offsets and may move directories, so no
 	// command in it is said to run anywhere known.
 	return [...writesOf(flattened, undefined), ...substituted];
@@ -277,55 +279,94 @@ function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
 /** The writes of each command a readable line holds, in order. */
 function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 	const writes: WriteCall[] = [];
-	line.commands.forEach((simple, at) => {
+	for (const simple of line.commands) {
 		const here =
 			cwd === undefined
 				? undefined
 				: effectiveCwd(line, cwd, simple.span.start);
 		const dir = here !== undefined && "dir" in here ? here.dir : undefined;
-		const argv = words(simple);
-		writes.push(...writeIn(argv, dir));
-		const fed = fedToShell(line, at, argv);
-		if (fed !== undefined)
-			writes.push(...fed.flatMap((one) => writesInLine(one, dir)));
-	});
+		const { own, strings } = hereStrings(words(simple));
+		writes.push(...writeIn(own, dir));
+		const fed = fedTo(line, simple, own, strings);
+		if (fed === undefined) continue;
+		const read = fed.lines.flatMap((one) =>
+			writesInLine(one, fed.runner === undefined ? dir : undefined),
+		);
+		writes.push(
+			...(fed.runner === undefined ? read : startsBy(fed.runner, read)),
+		);
+	}
 	return writes;
 }
 
 /**
- * What a shell reading its commands on stdin is fed, as lines to read: a
- * heredoc's body, a here-string, or each word of the command piped into
- * it. Nothing when the command is no such shell.
+ * What a command reading its commands on stdin is fed, as lines to read:
+ * its here-strings, which its heredocs became, and the words and
+ * here-strings of the command piped into it. That command is a shell
+ * reading stdin, or ssh, whose starts alone count, as it says. Nothing
+ * when it is neither.
  */
-function fedToShell(
+function fedTo(
 	line: CommandLine,
-	at: number,
+	simple: SimpleCommand,
 	argv: string[],
-): string[] | undefined {
+	strings: string[],
+): { lines: string[]; runner?: string } | undefined {
 	const [program, ...args] = argv;
-	const name = program?.split("/").at(-1);
-	if (name === undefined || !SHELLS.has(name)) return undefined;
-	// The command model leaves a here-string among the words.
-	const here = args.findIndex((word) => word.startsWith("<<<"));
-	const own = here < 0 ? args : args.slice(0, here);
-	// A shell given a -c line or a script file reads neither from stdin.
-	if (own.some((word) => !word.startsWith("-") || /^-[A-Za-z]*c/.test(word)))
-		return undefined;
-	const simple = line.commands[at];
-	if (simple === undefined) return undefined;
-	const fed: string[] = [];
-	if (simple.heredoc) {
-		const { start, end } = simple.heredoc.bodySpan;
-		fed.push(line.source.slice(start, end));
+	const name = program?.split("/").at(-1) ?? "";
+	const shell = SHELLS.has(name) && readsStdin(args);
+	if (!shell && !(name === "ssh" && sshReadsStdin(args))) return undefined;
+	const lines = [...strings];
+	const producer = pipedInto(line, simple);
+	if (producer !== undefined) {
+		const fed = hereStrings(words(producer));
+		lines.push(...fed.own.slice(1), ...fed.strings);
 	}
-	const string = args[here]?.slice(3) || args[here + 1];
-	if (here >= 0 && string !== undefined) fed.push(string);
-	const pipe = line.connectors[at - 1]?.op;
-	const producer = line.commands[at - 1];
-	if ((pipe === "|" || pipe === "|&") && producer) {
-		fed.push(...words(producer).slice(1));
+	return shell ? { lines } : { lines, runner: name };
+}
+
+/**
+ * The command piped into `simple`, found by where each sits in the line
+ * rather than by its index, since the command model leaves an empty one
+ * out but keeps the connector after it.
+ */
+function pipedInto(
+	line: CommandLine,
+	simple: SimpleCommand,
+): SimpleCommand | undefined {
+	const before = line.connectors
+		.filter((connector) => connector.span.end <= simple.span.start)
+		.at(-1);
+	if (before?.op !== "|" && before?.op !== "|&") return undefined;
+	return line.commands
+		.filter((command) => command.span.end <= before.span.start)
+		.at(-1);
+}
+
+/**
+ * A command's own words, and the here-strings the command model leaves
+ * among them as words: `<<<` and its string, or the two as one.
+ */
+function hereStrings(argv: string[]): { own: string[]; strings: string[] } {
+	const own: string[] = [];
+	const strings: string[] = [];
+	for (let at = 0; at < argv.length; at += 1) {
+		const word = argv[at] ?? "";
+		if (word === "<<<") {
+			const string = argv[at + 1];
+			if (string !== undefined) strings.push(string);
+			at += 1;
+		} else if (word.startsWith("<<<")) strings.push(word.slice(3));
+		else own.push(word);
 	}
-	return fed;
+	return { own, strings };
+}
+
+/** Of what a runner runs, only its starts, named by the runner. */
+function startsBy(runner: string, writes: WriteCall[]): WriteCall[] {
+	return writes
+		.filter((write) => write.kind === "start")
+		.map((write) => ({ ...write, action: `${runner} ${write.action}` }));
 }
 
 /** A command's words, unquoted, from the program it runs past any wrapper. */
@@ -388,10 +429,7 @@ function launchedBy(
 			"line" in ran
 				? writesInLine(ran.line, at)
 				: writeIn(unwrapped(ran.argv), at);
-		if (ran.opaque === undefined) return writes;
-		return writes
-			.filter((write) => write.kind === "start")
-			.map((write) => ({ ...write, action: `${ran.opaque} ${write.action}` }));
+		return ran.opaque === undefined ? writes : startsBy(ran.opaque, writes);
 	};
 }
 

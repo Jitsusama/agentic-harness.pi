@@ -6,9 +6,14 @@
  * seen however many programs stand in front of it.
  *
  * A runner that hands its command on some way this can't follow to the
- * letter (on another host, in a terminal multiplexer, once per input, or
- * from a package) is named as `opaque`, and only the starts in what it
- * runs are kept, without a directory, since where it runs isn't known.
+ * letter (on another host, in a terminal or a multiplexer, once per
+ * input, or from a package) is named as `opaque`, and only the starts in
+ * what it runs are kept, without a directory, since where it runs isn't
+ * known.
+ *
+ * The programs known here are a closed list, so one it doesn't know
+ * hands its command on unseen: this reads the usual ways a command runs
+ * another, and is no wall against a session set on getting past it.
  */
 
 /** What a command runs: its words, or a line a shell reads. */
@@ -83,7 +88,20 @@ const WRAPPERS = new Map<string, Options & { readonly takes: number }>([
 		"timeout",
 		{ letters: "ks", long: new Set(["--kill-after", "--signal"]), takes: 1 },
 	],
+	["doas", { letters: "uC", takes: 0 }],
+	[
+		"ionice",
+		{
+			letters: "cnp",
+			long: new Set(["--class", "--classdata", "--pid", "--pgid", "--uid"]),
+			takes: 0,
+		},
+	],
+	["caffeinate", { letters: "wt", takes: 0 }],
 ]);
+
+/** `command`'s options that look a name up rather than run it. */
+const LOOKS_UP = /^-[A-Za-z]*[vV]/;
 
 /** env's options. */
 const ENV: Options = {
@@ -131,6 +149,22 @@ const LAUNCHERS = new Map<string, Options>([
 /** ssh's options. */
 const SSH: Options = { letters: "BbcDEeFIiJLlmOoPpQRSWw" };
 
+/** flock's options, before the file it locks. */
+const FLOCK: Options = {
+	letters: "wE",
+	long: new Set(["--timeout", "--wait", "--conflict-exit-code"]),
+};
+
+/** watch's options, before the command it runs again and again. */
+const WATCH: Options = {
+	letters: "nq",
+	long: new Set(["--interval", "--equexit"]),
+};
+
+/** Programs that run a script, and the harness's own that runs a program after its `--`. */
+const SCRIPT_RUNNERS = new Set(["node", "tsx", "bun", "deno"]);
+const FENCE = /(?:^|\/)pi-fence\.[cm]?[jt]s$/;
+
 /** xargs's options. */
 const XARGS: Options = {
 	letters: "adEILnPs",
@@ -171,26 +205,26 @@ const PNPM: Options = {
 };
 const PNPM_RUNS = new Set(["exec", "dlx", "x"]);
 
-/** tmux's options, and the verbs that run a command. */
-const TMUX: Options = { letters: "cfLSTtsnexyFlNw" };
-const TMUX_RUNS = new Set([
-	"new-session",
-	"new",
-	"new-window",
-	"neww",
-	"split-window",
-	"splitw",
-	"respawn-pane",
-	"respawnp",
-	"respawn-window",
-	"respawnw",
-	"run-shell",
-	"run",
-	"send-keys",
-	"send",
-	"display-popup",
-	"popup",
-]);
+/**
+ * tmux's own options, and the verbs that run a command, by the options
+ * of each that take a value, as its manual gives them.
+ */
+const TMUX: Options = { letters: "cfLST" };
+const TMUX_RUNS = new Map<string, Options>(
+	(
+		[
+			[["new-session", "new"], "cefFnstxy"],
+			[["new-window", "neww"], "ceFnt"],
+			[["split-window", "splitw"], "celtF"],
+			[["respawn-pane", "respawnp", "respawn-window", "respawnw"], "cet"],
+			[["run-shell", "run"], "cdt"],
+			[["send-keys", "send"], "cNt"],
+			[["display-popup", "popup"], "bcdehsStTwxy"],
+		] as const
+	).flatMap(([verbs, letters]) =>
+		verbs.map((verb): [string, Options] => [verb, { letters }]),
+	),
+);
 
 /** screen's options, and those that only reach a session already there. */
 const SCREEN: Options = { letters: "SctehpTsX" };
@@ -235,12 +269,16 @@ function takesNext(word: string, options: Options): boolean {
 	return false;
 }
 
-/** Words from the program they run, past any wrapper. */
+/**
+ * Words from the program they run, past any wrapper; none when a wrapper
+ * only looks the program up, as `command -v` does.
+ */
 export function unwrapped(argv: string[]): string[] {
 	let words = argv;
 	let at = 0;
 	while (at < words.length) {
 		const word = words[at] ?? "";
+		if (word === "command" && LOOKS_UP.test(words[at + 1] ?? "")) return [];
 		if (word === "env") {
 			at += 1;
 			while (at < words.length) {
@@ -284,6 +322,36 @@ function splitString(
 	return value?.split(/\s+/).filter(Boolean);
 }
 
+/**
+ * Whether a shell given `args` reads its commands on stdin: given no `-c`
+ * line and no script, or told to with `-s`, whatever words follow.
+ */
+export function readsStdin(args: string[]): boolean {
+	let told = false;
+	for (let at = 0; at < args.length; at += 1) {
+		const word = args[at] ?? "";
+		if (RUNS_LINE.test(word)) return false;
+		if (word === "--") return told || at === args.length - 1;
+		if (word === "-o" || word === "+o") at += 1;
+		else if (/^[-+][A-Za-z]+$/.test(word)) told ||= word.includes("s");
+		else if (!word.startsWith("--")) return told;
+	}
+	return true;
+}
+
+/**
+ * Where ssh reads the commands it runs on stdin: given a host and no
+ * command, or a shell there that reads its own on stdin.
+ */
+export function sshReadsStdin(args: string[]): boolean {
+	const host = optionsEnd(args, SSH);
+	if (host >= args.length) return false;
+	const there = args.slice(optionsEnd(args, SSH, host + 1)).join(" ");
+	const [program, ...rest] = there.split(/\s+/).filter(Boolean);
+	if (program === undefined) return true;
+	return SHELLS.has(program.split("/").at(-1) ?? "") && readsStdin(rest);
+}
+
 /** What a command runs of another command, if it runs one. */
 export function runs(name: string, args: string[]): Runs | undefined {
 	if (SHELLS.has(name)) {
@@ -291,10 +359,17 @@ export function runs(name: string, args: string[]): Runs | undefined {
 		const line = flag < 0 ? undefined : args[flag + 1];
 		return line === undefined ? undefined : { line };
 	}
-	if (name === "mycelium") {
+	if (name === "eval")
+		return args.length === 0 ? undefined : { line: args.join(" ") };
+	if (
+		name === "mycelium" ||
+		(SCRIPT_RUNNERS.has(name) && args.some((word) => FENCE.test(word)))
+	) {
 		const after = args.indexOf("--");
 		return after < 0 ? undefined : { argv: args.slice(after + 1) };
 	}
+	const ran = LINE_RUNNERS.get(name)?.(args);
+	if (ran !== undefined) return ran;
 	if (name === "nix") return nixRuns(args);
 	if (name === "nix-shell") {
 		const flag = args.findIndex(
@@ -314,6 +389,43 @@ export function runs(name: string, args: string[]): Runs | undefined {
 		: { argv: args.slice(optionsEnd(args, launcher)) };
 }
 
+/** Programs that run a command of their own, after a lock or again and again. */
+const LINE_RUNNERS = new Map<string, (args: string[]) => Runs | undefined>([
+	[
+		"flock",
+		(args) => {
+			// Past its options comes the file it locks, then what runs.
+			const rest = args.slice(optionsEnd(args, FLOCK) + 1);
+			if (rest[0] === "-c" || rest[0] === "--command")
+				return rest[1] === undefined ? undefined : { line: rest[1] };
+			return argvFrom(rest[0] === "--" ? rest.slice(1) : rest);
+		},
+	],
+	[
+		"watch",
+		(args) => {
+			const at = optionsEnd(args, WATCH);
+			const rest = args.slice(at);
+			if (rest.length === 0) return undefined;
+			const exec = args
+				.slice(0, at)
+				.some((word) => word === "--exec" || /^-[A-Za-z]*x/.test(word));
+			// Without -x, watch hands its words to a shell as one line.
+			return exec ? { argv: rest } : { line: rest.join(" ") };
+		},
+	],
+	[
+		"script",
+		(args) => {
+			const flag = args.findIndex(
+				(word) => word === "-c" || word === "--command",
+			);
+			const line = flag < 0 ? undefined : args[flag + 1];
+			return line === undefined ? undefined : { line };
+		},
+	],
+]);
+
 /** `nix shell …` and `nix develop …`, whose `-c` runs the words after it. */
 function nixRuns(args: string[]): Runs | undefined {
 	if (args[0] !== "shell" && args[0] !== "develop") return undefined;
@@ -326,8 +438,10 @@ const OPAQUE = new Map<string, (args: string[]) => Runs | undefined>([
 	[
 		"ssh",
 		(args) => {
-			// Past ssh's options comes the host, then what runs there.
-			const rest = args.slice(optionsEnd(args, SSH) + 1);
+			// Past ssh's options comes the host, then what runs there, which
+			// ssh reads more options and a `--` ahead of, as its own source does.
+			const host = optionsEnd(args, SSH);
+			const rest = args.slice(optionsEnd(args, SSH, host + 1));
 			return rest.length === 0 ? undefined : { line: rest.join(" ") };
 		},
 	],
@@ -359,13 +473,13 @@ const OPAQUE = new Map<string, (args: string[]) => Runs | undefined>([
 			const shell = args.findIndex((word, at) => at < verbAt && word === "-c");
 			if (shell >= 0 && args[shell + 1] !== undefined)
 				return { line: args[shell + 1] ?? "" };
-			const verb = args[verbAt];
-			if (verb === undefined || !TMUX_RUNS.has(verb)) return undefined;
+			const options = TMUX_RUNS.get(args[verbAt] ?? "");
+			if (options === undefined) return undefined;
 			const said: string[] = [];
 			for (let at = verbAt + 1; at < args.length; at += 1) {
 				const word = args[at] ?? "";
 				if (word.startsWith("-") && word !== "-") {
-					if (takesNext(word, TMUX)) at += 1;
+					if (takesNext(word, options)) at += 1;
 					continue;
 				}
 				said.push(word);
@@ -380,7 +494,134 @@ const OPAQUE = new Map<string, (args: string[]) => Runs | undefined>([
 			return argvFrom(args.slice(optionsEnd(args, SCREEN)));
 		},
 	],
+	...terminals(),
 ]);
+
+/**
+ * The terminals the harness opens sessions in, each running the command
+ * after its `--` or `-e`, or after its own options: kitty, and its
+ * remote control's `launch`; wezterm's `start` and `cli spawn`; ghostty,
+ * alacritty, foot, xterm and konsole; zellij and niri, past their verbs;
+ * and macOS's `open`, past its `--args`.
+ */
+function terminals(): [string, (args: string[]) => Runs | undefined][] {
+	const KITTY: Options = {
+		letters: "cdoT",
+		long: new Set([
+			"--config",
+			"--override",
+			"--directory",
+			"--title",
+			"--class",
+			"--name",
+			"--session",
+			"--listen-on",
+			"--start-as",
+			"--watcher",
+		]),
+	};
+	const LAUNCH: Options = {
+		letters: "m",
+		long: new Set([
+			"--match",
+			"--to",
+			"--title",
+			"--tab-title",
+			"--type",
+			"--cwd",
+			"--env",
+			"--var",
+			"--location",
+			"--next-to",
+			"--os-window-title",
+			"--os-window-name",
+			"--os-window-class",
+			"--os-window-state",
+			"--color",
+			"--spacing",
+			"--watcher",
+			"--marker",
+			"--stdin-source",
+			"--source-window",
+			"--bias",
+			"--logo",
+			"--remote-control-password",
+		]),
+	};
+	const WEZTERM: Options = {
+		letters: "",
+		long: new Set([
+			"--cwd",
+			"--class",
+			"--workspace",
+			"--position",
+			"--domain",
+			"--domain-name",
+			"--pane-id",
+			"--window-id",
+			"--config-file",
+			"--config",
+		]),
+	};
+	const FOOT: Options = { letters: "coftTawWDpd" };
+	// kitty, or its remote control's launch, past its own options.
+	const kitty = (args: string[]): Runs | undefined => {
+		if (args[0] === "@") {
+			const launch = args.indexOf("launch");
+			return launch < 0
+				? undefined
+				: argvFrom(args.slice(optionsEnd(args, LAUNCH, launch + 1)));
+		}
+		return argvFrom(args.slice(optionsEnd(args, KITTY)));
+	};
+	// What follows `-e` or `--`, as most terminals take it.
+	const after = (args: string[], flags: string[]): Runs | undefined => {
+		const flag = args.findIndex((word) => flags.includes(word));
+		return flag < 0 ? undefined : argvFrom(args.slice(flag + 1));
+	};
+	return [
+		["kitty", kitty],
+		["kitten", kitty],
+		[
+			"wezterm",
+			(args) => {
+				const verb = args.findIndex(
+					(word) => word === "start" || word === "spawn",
+				);
+				return verb < 0
+					? undefined
+					: argvFrom(args.slice(optionsEnd(args, WEZTERM, verb + 1)));
+			},
+		],
+		["ghostty", (args) => after(args, ["-e"])],
+		["alacritty", (args) => after(args, ["-e", "--command"])],
+		["xterm", (args) => after(args, ["-e"])],
+		["konsole", (args) => after(args, ["-e"])],
+		["gnome-terminal", (args) => after(args, ["--"])],
+		["foot", (args) => argvFrom(args.slice(optionsEnd(args, FOOT)))],
+		["zellij", (args) => after(args, ["--"])],
+		[
+			"niri",
+			(args) => {
+				const sh = args.indexOf("spawn-sh");
+				if (sh >= 0) {
+					const line = args.slice(sh + 1).filter((word) => word !== "--");
+					return line.length === 0 ? undefined : { line: line.join(" ") };
+				}
+				return after(args, ["--"]);
+			},
+		],
+		[
+			"open",
+			(args) => {
+				const passed = args.indexOf("--args");
+				return passed < 0
+					? undefined
+					: after(args.slice(passed + 1), ["-e", "--"]);
+			},
+		],
+	];
+}
 
 /** The words a runner runs, or nothing when there are none. */
 function argvFrom(argv: string[]): Runs | undefined {

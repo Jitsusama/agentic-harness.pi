@@ -284,7 +284,34 @@ describe("writesInBash", () => {
 			"pi pi-host",
 		);
 		held("nix-shell --run 'pi -p go'", "pi");
+		held("ssh mac -t pi", "ssh pi");
+		held("ssh mac -- pi", "ssh pi");
+		held("node scripts/pi-fence.ts --kind fence -- pi -p go", "pi");
+		held("tmux send-keys -t w -l 'pi -p go' Enter", "tmux pi");
+		held("npx @earendil-works/pi-coding-agent -p go", "npx pi");
+		held(
+			"node lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js -p go",
+			"pi",
+		);
+		held("eval 'pi -p go'", "pi");
+		held("flock /tmp/lock pi -p go", "pi");
+		held("watch -n 5 pi -p go", "pi");
+		held("doas -u joel pi", "pi");
+		held("kitten @ launch --type=tab pi --session X", "kitten pi");
+		held("kitty --directory=/x -- pi -p go", "kitty pi");
+		held("wezterm start --always-new-process --cwd /x -- pi", "wezterm pi");
+		held("ghostty --working-directory=/x -e pi", "ghostty pi");
 		for (const command of [
+			"command -v pi",
+			"command -V pi-host",
+			"command -v pi >/dev/null && echo yes",
+			"pi --list-models",
+			"pi --export s.jsonl out.html",
+			"pi list",
+			"pi install npm:x",
+			"kitty @ ls",
+			"ssh mac ls -- pi",
+			"tmux send-keys -t w -l 'echo hi' Enter",
 			"ssh mac ls ~/.local/state/pi",
 			"ssh pi uptime",
 			"ls | xargs grep -n pi",
@@ -295,6 +322,36 @@ describe("writesInBash", () => {
 			"pnpm install",
 			"pnpm deploy out",
 			"nix shell nixpkgs#jq -c jq . x.json",
+		]) {
+			expect(actions(command), command).toEqual([]);
+		}
+	});
+
+	it("reads a heredoc, a comment and stdin as the shell does", () => {
+		const actions = (command: string) =>
+			writesInBash(command, HERE).map((write) => write.action);
+		const held = (command: string, action: string) =>
+			expect(actions(command), command).toEqual([action]);
+		held("cat <<'EOF' | bash\npi -p go\nEOF", "pi");
+		held("cat > notes.md <<'EOF' && pi -p go\nnotes\nEOF", "pi");
+		held("cd /tmp\n\necho 'pi-packages update' | bash", "pi-packages update");
+		held("(cd /x; echo 'pi -p go' | bash)", "pi");
+		held(
+			"ssh mac bash -s <<'EOF'\nsystemctl --user restart pi-host-work-background\nEOF",
+			"ssh pi host restart",
+		);
+		held("ssh mac <<'EOF'\npi-packages update\nEOF", "ssh pi-packages update");
+		held("echo 'pi -p go' | ssh mac bash", "ssh pi");
+		held("# don't wait\npi -p go\necho 'done'", "pi");
+		for (const command of [
+			"# rebuild first; pi picks it up\npnpm build",
+			"# restart the host (pi-host) after\npnpm build",
+			"systemctl --user status pi-host-x  # the host (pi-host) runs here",
+			"ls  # list them; pi comes next",
+			"cat <<'EOF' > notes.md\n# pi; then (pi-host)\nEOF",
+			"ssh mac uptime <<< 'pi -p go'",
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			"echo ${#PATH}",
 		]) {
 			expect(actions(command), command).toEqual([]);
 		}

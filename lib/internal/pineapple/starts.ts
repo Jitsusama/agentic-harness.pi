@@ -59,6 +59,27 @@ const PI_PROGRAMS = new Set(["pi", "pi-host", "pi-carry"]);
 /** What a pi program is asked that starts nothing. */
 const PI_ASKS = new Set(["--version", "-v", "--help", "-h"]);
 
+/**
+ * pi's commands and modes that start no agent, as its CLI documents
+ * them: its packages and settings, listing its models and exporting a
+ * session.
+ */
+const PI_TOOLS = new Set([
+	"install",
+	"remove",
+	"uninstall",
+	"update",
+	"list",
+	"config",
+]);
+const PI_MODES = new Set(["--list-models", "--export"]);
+
+/** pi's own package, as a package runner names it, with any version. */
+const PI_PACKAGE = /^pi-coding-agent(?:@.*)?$/;
+
+/** pi's command-line program, run as a script from its package. */
+const PI_CLI = /(?:^|\/)pi-coding-agent\/(?:.*\/)?[^/]+\.[cm]?js$/;
+
 /** Programs that run a script named after their options. */
 const RUNNERS = new Set(["node", "tsx", "bun", "deno"]);
 
@@ -82,16 +103,27 @@ export function startIn(name: string, args: string[]): WriteCall | undefined {
 	if (name === "pi-packages" && args.includes("update")) {
 		return { action: "pi-packages update", kind: "start" };
 	}
-	if (PI_PROGRAMS.has(name)) {
+	const program = PI_PACKAGE.test(name) ? "pi" : name;
+	if (PI_PROGRAMS.has(program)) {
 		if (args.length > 0 && args.every((word) => PI_ASKS.has(word))) {
 			return undefined;
 		}
-		return { action: name, kind: "start" };
+		if (program === "pi" && startsNoAgent(args)) return undefined;
+		return { action: program, kind: "start" };
 	}
 	const script = RUNNERS.has(name) ? scriptRun(args) : name;
+	if (script !== undefined && PI_CLI.test(script)) {
+		const after = args.slice(args.indexOf(script) + 1);
+		return startsNoAgent(after) ? undefined : { action: "pi", kind: "start" };
+	}
 	if (script === undefined || !HOST_SCRIPT.test(script)) return undefined;
 	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
 	return { action: `pi ${moves}`, kind: "start" };
+}
+
+/** Whether pi, given `args`, runs one of its commands or modes that start no agent. */
+function startsNoAgent(args: string[]): boolean {
+	return PI_TOOLS.has(args[0] ?? "") || args.some((word) => PI_MODES.has(word));
 }
 
 /**
