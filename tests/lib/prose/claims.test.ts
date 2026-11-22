@@ -47,15 +47,34 @@ describe("claimParts", () => {
 		]);
 	});
 
-	it("judges a long text in twelve parts, the last holding the rest", () => {
-		const text = Array.from(
-			{ length: 20 },
+	it("packs a text past twelve paragraphs into parts in order, all of it read", () => {
+		const paragraphs = Array.from(
+			{ length: 60 },
 			(_, i) => `Paragraph ${i} says something long enough to judge.`,
-		).join("\n\n");
-		const parts = claimParts(text);
-		expect(parts).toHaveLength(12);
-		expect(parts[11]).toContain("Paragraph 11 ");
-		expect(parts[11]).toContain("Paragraph 19 ");
+		);
+		const parts = claimParts(paragraphs.join("\n\n"));
+		expect(parts).toHaveLength(2);
+		expect(parts.join("\n\n")).toBe(paragraphs.join("\n\n"));
+		expect(parts.filter((part) => part.length > 2000)).toEqual([]);
+	});
+
+	it("reads a list of 40 items whole, though it has more items than parts", async () => {
+		const items = Array.from(
+			{ length: 40 },
+			(_, i) => `- Item ${i} of the digest, ${"with its details ".repeat(5)}`,
+		);
+		let inFull = 0;
+		const told: string[] = [];
+		await untestedCauses(
+			items.join("\n"),
+			judging(() => 0),
+			(why) => told.push(why),
+			() => {
+				inFull += 1;
+			},
+		);
+		expect(told).toEqual([]);
+		expect(inFull).toBe(1);
 	});
 
 	it("judges each item of a numbered list, and other bullets", () => {
@@ -85,16 +104,25 @@ describe("claimParts", () => {
 		expect(claimParts("Disk is full\n\nDisk at 99%")).toEqual(["Disk is full"]);
 	});
 
-	it("judges no part past 2000 characters, the joined rest included", () => {
-		const long = `The builder failed because ${"its disk filled ".repeat(200)}`;
-		const text = Array.from({ length: 14 }, () => long).join("\n\n");
-		const parts = claimParts(text);
-		expect(parts).toHaveLength(12);
-		const lengths = parts.map((part) => part.length);
-		expect(lengths.filter((length) => length > 2000)).toEqual([]);
+	it("packs what follows twelve paragraphs into parts of at most 2000 characters", () => {
+		const paragraphs = [
+			...Array.from({ length: 11 }, (_, i) => `Paragraph ${i} is short.`),
+			...Array.from({ length: 3 }, (_, i) =>
+				`Long ${i}: ${"notes ".repeat(182)}`.trim(),
+			),
+		];
+		const parts = claimParts(paragraphs.join("\n\n"));
+		expect(parts.join("\n\n"), "none of it left out").toBe(
+			paragraphs.join("\n\n"),
+		);
+		expect(parts.length).toBeLessThanOrEqual(12);
+		expect(parts.filter((part) => part.length > 2000)).toEqual([]);
+		expect(parts.at(-1), "the last long paragraph a part of its own").toBe(
+			paragraphs.at(-1),
+		);
 	});
 
-	it("judges a long part in stretches broken at spaces, none of it left out", () => {
+	it("judges a long part in stretches broken at sentence ends, none of it left out", () => {
 		const part = "The disk filled. ".repeat(300).trim();
 		const parts = claimParts(part);
 		expect(parts).toHaveLength(3);
@@ -108,6 +136,22 @@ describe("claimParts", () => {
 			"a".repeat(2000),
 			"a".repeat(500),
 		]);
+	});
+
+	it("breaks a stretch after a sentence's end rather than at a later space", () => {
+		const sentence = "It failed because its disk filled.";
+		const part =
+			`${"word ".repeat(380)}${sentence} ${"more ".repeat(100)}`.trim();
+		const [first, ...rest] = claimParts(part);
+		expect(first?.endsWith(sentence), first?.slice(-60)).toBe(true);
+		expect([first, ...rest].join(" ")).toBe(part);
+	});
+
+	it("leaves no scrap too short to judge where a long part ends", () => {
+		const part = `Disk ${"x".repeat(1996)}`;
+		const parts = claimParts(part);
+		expect(parts.join(""), "none of it left out").toBe(part);
+		expect(parts.map((stretch) => stretch.length)).toEqual([1989, 12]);
 	});
 
 	it("keeps a part of exactly 2000 characters whole", () => {
@@ -274,24 +318,36 @@ describe("untestedCauses", () => {
 		expect(told).toEqual([]);
 	});
 
-	it("says when a text ran past 12 parts, and judges the first 12", async () => {
-		const long = `${"Notes from the run. ".repeat(1300)}It failed because its disk filled.`;
+	it("judges the first 11 parts and the last of a text past 12, and says so", async () => {
+		const long = `It began at noon. ${"Notes from the run. ".repeat(1300)}It failed because its disk filled.`;
 		const judged: string[] = [];
 		const told: string[] = [];
+		const sure = judging((part) => (part.includes("because") ? 0.97 : 0));
 		const found = await untestedCauses(
 			long,
-			async (context) => {
+			async (context, signal) => {
 				judged.push(String(context.state["message"]));
-				return {
-					stopReason: "stop",
-					answers: {},
-				} as unknown as ClassifierResult;
+				return await sure(context, signal);
 			},
 			(why) => told.push(why),
 		);
-		expect(found).toEqual([]);
 		expect(judged).toHaveLength(12);
+		expect(judged[0]?.startsWith("It began at noon.")).toBe(true);
+		expect(found).toHaveLength(1);
+		expect(found[0]?.endsWith("It failed because its disk filled.")).toBe(true);
 		expect(told).toEqual(["a text ran past 12 parts"]);
+	});
+
+	it("finds a cause closing a text after a long pasted log", async () => {
+		const log = "line of the build log ".repeat(1400).trim();
+		const found = await untestedCauses(
+			`${log}\n\nThe build failed because the disk filled.`,
+			judging((part) => (part.includes("because") ? 0.97 : 0)),
+		);
+		expect(found).toHaveLength(1);
+		expect(
+			found[0]?.endsWith("The build failed because the disk filled."),
+		).toBe(true);
 	});
 
 	it("says it judged in full only when a part was judged and none missed", async () => {

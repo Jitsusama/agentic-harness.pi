@@ -41,12 +41,14 @@ export const JUDGE_MS = 2500;
 
 /**
  * The most parts of one text judged, so a long text costs a bounded
- * wait and sends the classifier's provider a bounded amount. Past this
- * many paragraphs the rest are joined into one, judged among each other;
- * a paragraph past `LONGEST_PART` takes a part for each stretch of it,
- * and what runs past this many parts goes unjudged, which the caller is
- * told. Of the 54 mesh messages sampled on 21 November, split by
- * paragraph, none ran past 7 parts.
+ * wait and sends the classifier's provider a bounded amount. A paragraph
+ * past `LONGEST_PART` takes a part for each stretch of it. Past this many,
+ * the paragraphs and stretches are packed together in order, each part
+ * up to `LONGEST_PART`, so a long text of short paragraphs is still read
+ * whole. One that still runs past this many has its first parts and its
+ * last judged, since a cause most often opens or closes what it explains,
+ * and its middle not, which the caller is told. Of the 54 mesh messages
+ * sampled on 21 November, split by paragraph, none ran past 7 parts.
  */
 const MOST_PARTS = 12;
 
@@ -59,15 +61,16 @@ const SHORTEST_PART = 12;
 /**
  * The most of one part sent to be judged at once: about 400 words, far
  * past any paragraph in the 54 mesh messages sampled on 21 November. A
- * longer paragraph, as one holding a pasted log, or the joined rest past
- * `MOST_PARTS`, is judged in consecutive stretches of at most this, so
- * none of it goes unread while the parts last.
+ * longer paragraph, as one holding a pasted log, is judged in consecutive
+ * stretches of at most this, so none of it goes unread while the parts
+ * last.
  */
 const LONGEST_PART = 2000;
 
 /**
- * How far back from a stretch's end a space is looked for to break it
- * at, so a word is seldom cut in two.
+ * How far back from a stretch's end a sentence's end, or else a space,
+ * is looked for to break it at, so a sentence, or at least a word, is
+ * seldom cut in two.
  */
 const BREAK_SEARCH = 200;
 
@@ -103,11 +106,10 @@ const QUESTIONS: ClassifierContext["questions"] = {
 
 /**
  * A text's parts as they are judged: its paragraphs, and each item of a
- * list, of those long enough to state a cause. Past `MOST_PARTS`
- * paragraphs, the rest is joined into the last, where a cause is judged
- * among the rest. Each runs to `LONGEST_PART` at most, a longer one
- * judged in stretches, and past `MOST_PARTS` parts the rest is not
- * judged.
+ * list, of those long enough to state a cause, a longer one than
+ * `LONGEST_PART` in stretches. Past `MOST_PARTS` they are packed together
+ * in order, and past it still, the first and the last are judged, as
+ * `MOST_PARTS` says.
  */
 export function claimParts(text: string): string[] {
 	return partsOf(text).parts;
@@ -115,46 +117,66 @@ export function claimParts(text: string): string[] {
 
 /** A text's parts, as `claimParts`, and whether any went unjudged. */
 function partsOf(text: string): { parts: string[]; cut: boolean } {
-	const paragraphs = text
+	const pieces = text
 		.split(PART_BREAK)
 		.map((part) => part.trim())
-		.filter((part) => part.length >= SHORTEST_PART);
-	const joined =
-		paragraphs.length <= MOST_PARTS
-			? paragraphs
-			: [
-					...paragraphs.slice(0, MOST_PARTS - 1),
-					paragraphs.slice(MOST_PARTS - 1).join("\n\n"),
-				];
-	const parts = joined.flatMap(stretchesOf);
+		.filter((part) => part.length >= SHORTEST_PART)
+		.flatMap(stretchesOf);
+	const parts = pieces.length <= MOST_PARTS ? pieces : packed(pieces);
+	if (parts.length <= MOST_PARTS) return { parts, cut: false };
 	return {
-		parts: parts.slice(0, MOST_PARTS),
-		cut: parts.length > MOST_PARTS,
+		parts: [...parts.slice(0, MOST_PARTS - 1), ...parts.slice(-1)],
+		cut: true,
 	};
 }
 
 /**
+ * `pieces` in order, each joined to those before it while together they
+ * run to `LONGEST_PART` at most.
+ */
+function packed(pieces: readonly string[]): string[] {
+	const parts: string[] = [];
+	for (const piece of pieces) {
+		const last = parts.pop();
+		if (last === undefined) parts.push(piece);
+		else if (last.length + 2 + piece.length <= LONGEST_PART)
+			parts.push(`${last}\n\n${piece}`);
+		else parts.push(last, piece);
+	}
+	return parts;
+}
+
+/**
  * `part` in consecutive stretches of at most `LONGEST_PART`, each broken
- * at the last space in its last `BREAK_SEARCH` characters, or else a
- * character short where its end would fall between the two halves of
- * one, so no half goes to the provider. A stretch too short to state a
- * cause is left out.
+ * as `stretchEnd` says, and never so near the part's end that what is left
+ * is too short to state a cause, so none of it is left out.
  */
 function stretchesOf(part: string): string[] {
 	const stretches: string[] = [];
 	let from = 0;
 	while (part.length - from > LONGEST_PART) {
-		const end = stretchEnd(part, from + LONGEST_PART);
+		const most = Math.min(from + LONGEST_PART, part.length - SHORTEST_PART);
+		const end = stretchEnd(part, most);
 		stretches.push(part.slice(from, end).trim());
 		from = end;
 	}
 	stretches.push(part.slice(from).trim());
-	return stretches.filter((stretch) => stretch.length >= SHORTEST_PART);
+	return stretches;
 }
 
-/** Where a stretch that may run to `most` ends, as `stretchesOf` says. */
+/**
+ * Where a stretch that may run to `most` ends: after the last sentence's
+ * end in its last `BREAK_SEARCH` characters, or else at the last space
+ * there, or else a character short where its end would fall between the
+ * two halves of one, so no half goes to the provider.
+ */
 function stretchEnd(part: string, most: number): number {
-	for (let at = most; at > most - BREAK_SEARCH; at -= 1) {
+	const least = most - BREAK_SEARCH;
+	for (let at = most; at > least; at -= 1) {
+		if (/[.!?]/.test(part.charAt(at - 1)) && /\s/.test(part.charAt(at)))
+			return at;
+	}
+	for (let at = most; at > least; at -= 1) {
 		if (/\s/.test(part.charAt(at))) return at;
 	}
 	return isHighSurrogate(part.charCodeAt(most - 1)) ? most - 1 : most;

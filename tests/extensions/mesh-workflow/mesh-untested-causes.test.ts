@@ -413,42 +413,54 @@ describe("an untested cause on the mesh", () => {
 		expect(judge.judged()).toBe(0);
 	});
 
-	it("keeps a need once when it is refused and sent again unchanged", async () => {
-		peer("session-c", ["5HJZ8Z"], []);
-		const env = await node(
-			[
-				{ key: "cell:7M6JKG", title: "A Web, Not a Funnel" },
-				{ key: "cell:5HJZ8Z", title: "Carry a Session", repo: "mycelium" },
-			],
-			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
-		);
-		const { tools } = await startSession(env, sureOfTheDisk());
-		const toNeed = async () =>
-			(
-				await tools.get("mesh_send")?.execute("call-1", {
-					to: "need",
-					intent: "finding",
-					text: CAUSE,
-					about: "carry",
-				})
-			)?.content[0]?.text ?? "";
-
-		const needs = join(fixture.paths.mesh, "needs");
-		const kept = () =>
-			readdirSync(needs).flatMap((day) =>
-				readFileSync(join(needs, day), "utf8").trim().split("\n"),
+	it.each([
+		["unchanged", CAUSE],
+		[
+			"reworded as the refusal asks",
+			"The builder may have failed on its store; on trial.",
+		],
+	])(
+		"keeps a need once when it is refused and sent again %s",
+		async (_, resent) => {
+			peer("session-c", ["5HJZ8Z"], []);
+			const env = await node(
+				[
+					{ key: "cell:7M6JKG", title: "A Web, Not a Funnel" },
+					{ key: "cell:5HJZ8Z", title: "Carry a Session", repo: "mycelium" },
+				],
+				[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
 			);
+			const { tools } = await startSession(env, sureOfTheDisk());
+			const toNeed = async (text: string) =>
+				(
+					await tools.get("mesh_send")?.execute("call-1", {
+						to: "need",
+						intent: "finding",
+						text,
+						about: "carry",
+					})
+				)?.content[0]?.text ?? "";
 
-		const first = await toNeed();
-		// Kept as it was routed, so a send refused and never sent again
-		// still counts as found.
-		expect(kept(), "kept once routed").toHaveLength(1);
-		const again = await toNeed();
+			const needs = join(fixture.paths.mesh, "needs");
+			const kept = () =>
+				readdirSync(needs).flatMap((day) =>
+					readFileSync(join(needs, day), "utf8").trim().split("\n"),
+				);
 
-		expect(first).toContain("Not sent: This states why");
-		expect(again).toContain("Sent as");
-		expect(kept(), "one need, the ask sent twice").toHaveLength(1);
-	});
+			const first = await toNeed(CAUSE);
+			// Kept as it was routed, so a send refused and never sent again
+			// still counts as found.
+			expect(kept(), "kept once routed").toHaveLength(1);
+			const again = await toNeed(resent);
+
+			expect(first).toContain("Not sent: This states why");
+			expect(again).toContain("Sent as");
+			expect(kept(), "one need, the ask sent twice").toHaveLength(1);
+			expect(kept().join("\n"), "what was sent is never kept").not.toMatch(
+				/builder|store paths/,
+			);
+		},
+	);
 
 	it("says once in the log why it judged nothing, however many sends", async () => {
 		peer("session-p", ["P9R1KI"], []);

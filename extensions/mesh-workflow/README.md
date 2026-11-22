@@ -224,9 +224,12 @@ and can answer a question or a gate left open on screen.
   why, once for each kind of reason a session meets, with the
   first line of what went wrong, its secrets scrubbed, as it
   does for a slow or failing classifier or a text past 12
-  parts, whose rest goes unjudged; a paragraph past 2000
-  characters is judged in stretches of 2000, each a part. A
-  send the classifier judged in full lets each be said again.
+  parts. A paragraph past 2000 characters is judged in
+  stretches of 2000, each a part; past 12 parts they are
+  packed together up to 2000 characters each, and a text
+  still past 12 has its first 11 and its last judged, its
+  middle not. A send the classifier judged in full lets each
+  be said again.
   With the guard off a message is still judged and the person
   shown what it would have refused. So every message's text goes to the
   classifier's provider, one to a single peer's address or

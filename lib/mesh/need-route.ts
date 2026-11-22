@@ -80,11 +80,6 @@ export interface NeedAsked {
 	/** When it was asked, in milliseconds. */
 	readonly at: number;
 	/**
-	 * What was sent, as `saidDigest` gives it, so an ask sent again is told
-	 * from another on the same subject without keeping what it said.
-	 */
-	readonly said?: string;
-	/**
 	 * Whether its words were read from the message's text rather than
 	 * said as what it is about, which a refusal says; never kept.
 	 */
@@ -152,20 +147,6 @@ const LONGEST_WORD = 32;
  * count kept process-wide, which a host's conversations would share.
  */
 const ID_TAIL_BYTES = 6;
-
-/** How many hex digits of a digest a need keeps of what was sent. */
-const SAID_DIGITS = 16;
-
-/**
- * A digest of a need's text, trimmed, that tells two texts apart without
- * saying either.
- */
-export function saidDigest(text: string): string {
-	return createHash("sha256")
-		.update(text.trim())
-		.digest("hex")
-		.slice(0, SAID_DIGITS);
-}
 
 /** A new need's id: its asker's address, then a stamp and a random tail. */
 export function needId(asker: string, at: number): string {
@@ -464,7 +445,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		need: asked.need,
 		asker: asked.asker,
 		words: asked.words,
-		...(asked.said === undefined ? {} : { said: asked.said }),
 		path,
 		fit,
 		at: asked.at,
@@ -813,7 +793,11 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
  * How long a need asked again, by the same asker in the same words and
  * routed to the same fit, counts as the one already kept: a send refused
  * for how it was worded, or for anything else, is most often sent again
- * within minutes, and the ask is still one.
+ * within minutes, reworded as the refusal asks, and the ask is still one.
+ * So another text on the same subject from the same asker within it is
+ * counted as that one too: by its words alone it can't be told from a
+ * reworded resend, and keeping the text, or a digest of it, would keep
+ * what a need file is meant to leave out.
  */
 export const NEED_AGAIN_MS = 10 * 60 * 1000;
 
@@ -855,9 +839,8 @@ export async function needAt(
 
 /**
  * Keeps a need as `keepNeed` does, unless its day's file holds one from
- * the same asker, in the same words, of the same text by its digest, and
- * routed to the same fit, asked within `NEED_AGAIN_MS` before it: that is
- * the same ask sent again, so
+ * the same asker, in the same words and routed to the same fit, asked
+ * within `NEED_AGAIN_MS` before it: that is the same ask sent again, so
  * neither found nor lost counts it twice. Kept on the file rather than
  * in memory, so a reload between the two changes nothing; the day before's
  * file is read too when the window reaches back past UTC midnight. A need
@@ -898,7 +881,6 @@ async function keptAlready(file: string, record: NeedRecord): Promise<boolean> {
 			kept.asker === record.asker &&
 			kept.fit === record.fit &&
 			kept.words.join(" ") === words &&
-			kept.said === record.said &&
 			record.at - kept.at >= 0 &&
 			record.at - kept.at < NEED_AGAIN_MS
 		);
@@ -908,17 +890,16 @@ async function keptAlready(file: string, record: NeedRecord): Promise<boolean> {
 /** A kept line's ask, or nothing for a line this reader can't use. */
 function keptLine(
 	line: string,
-): Pick<NeedRecord, "asker" | "fit" | "words" | "at" | "said"> | undefined {
+): Pick<NeedRecord, "asker" | "fit" | "words" | "at"> | undefined {
 	if (line.trim() === "") return undefined;
 	try {
 		const kept: unknown = JSON.parse(line);
 		if (!isRecord(kept)) return undefined;
-		const { asker, fit, words, at, said } = kept;
+		const { asker, fit, words, at } = kept;
 		if (typeof asker !== "string" || typeof at !== "number") return undefined;
 		if (fit !== null && typeof fit !== "string") return undefined;
 		if (!Array.isArray(words)) return undefined;
-		const text = typeof said === "string" ? { said } : {};
-		return { asker, fit, at, words: words.map(String), ...text };
+		return { asker, fit, at, words: words.map(String) };
 	} catch {
 		// A torn or foreign line matches no ask.
 		return undefined;

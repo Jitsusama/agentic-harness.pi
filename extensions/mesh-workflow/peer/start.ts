@@ -256,12 +256,11 @@ export function onSessionStart(
 		);
 		m.classifier = capped;
 		// A lookup that ends late is read from then on, unless another
-		// session has looked since. What the capped one had said once is
-		// forgotten, so a reason the late one gives is said in its turn.
+		// session has looked since; a reason it gives is its own, so it is
+		// said once in its turn.
 		void finding.then((found) => {
 			if (m.classifier !== capped) return;
 			m.classifier = Promise.resolve(found);
-			m.unjudgedSaid.clear();
 		});
 		// A peer reads afresh: what another session took is not this one's,
 		// and what this one handed over before a reload its entries say.

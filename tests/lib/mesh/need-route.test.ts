@@ -28,7 +28,6 @@ import {
 	needAt,
 	needId,
 	needsFile,
-	saidDigest,
 	tieGraphFrom,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
@@ -549,30 +548,6 @@ describe("keeping a need once an ask", () => {
 		await keepNeedOnce(root, { ...first, need: "A/3", fit: null, path: [] });
 
 		expect(kept()).toEqual(["A/1", "C/1", "A/2", "A/3"]);
-	});
-
-	it("keeps another text on the same subject as another ask, and the same text once", async () => {
-		const first = {
-			...routed("A", "carry"),
-			said: saidDigest("Carry this session to the other machine."),
-		};
-		await keepNeedOnce(root, first);
-		await keepNeedOnce(root, {
-			...first,
-			need: "A/2",
-			said: saidDigest("Carry fails on the fonts."),
-		});
-		await keepNeedOnce(root, {
-			...first,
-			need: "A/3",
-			said: saidDigest("  Carry this session to the other machine.\n"),
-		});
-
-		expect(kept()).toEqual(["A/1", "A/2"]);
-		expect(
-			readFileSync(needsFile(root, AT), "utf8"),
-			"the text itself is never kept",
-		).not.toContain("fonts");
 	});
 
 	it("reads past a torn line", async () => {

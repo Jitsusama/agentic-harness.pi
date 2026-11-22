@@ -20,7 +20,6 @@ import { needNamed } from "../../../lib/mesh/group.ts";
 import {
 	type NeedRecord,
 	needId,
-	saidDigest,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -76,15 +75,7 @@ export async function needRead(
 	);
 	const live = new Set(standing.present.flatMap((one) => one.addresses));
 	const found = await at.need(
-		{
-			need: needId(asker, now),
-			asker,
-			words,
-			at: now,
-			said: saidDigest(params.text),
-			fromText,
-			selves,
-		},
+		{ need: needId(asker, now), asker, words, at: now, fromText, selves },
 		(address) => live.has(address),
 		(address) => stopped.has(address),
 	);
