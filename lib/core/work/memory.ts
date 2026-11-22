@@ -42,6 +42,7 @@ import {
 } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { isGone, isPassingFault } from "../../internal/files/errno.ts";
 import { processGlobal } from "../../internal/process/process-global.ts";
 import {
 	askedOnceWithTicks,
@@ -425,7 +426,11 @@ function parsedRecord(at: string, text: string): Found | undefined {
 	}
 }
 
-/** `fn` over each of `items`, `atOnce` running at a time, in order. */
+/**
+ * `fn` over each of `items`, `atOnce` running at a time, in order. Once
+ * one fails, no lane takes another item: the whole is failed, and a
+ * process out of descriptors opens no more for an answer thrown away.
+ */
 async function eachAtOnce<T, R>(
 	items: readonly T[],
 	atOnce: number,
@@ -433,11 +438,17 @@ async function eachAtOnce<T, R>(
 ): Promise<R[]> {
 	const out: R[] = new Array(items.length);
 	let next = 0;
+	let failed = false;
 	const lane = async (): Promise<void> => {
-		while (next < items.length) {
+		while (!failed && next < items.length) {
 			const at = next;
 			next += 1;
-			out[at] = await fn(items[at] as T);
+			try {
+				out[at] = await fn(items[at] as T);
+			} catch (error) {
+				failed = true;
+				throw error;
+			}
 		}
 	};
 	await Promise.all(
@@ -454,7 +465,7 @@ async function listingOff(dir: string): Promise<Found[]> {
 	} catch (error) {
 		// No directory yet is no records; anything else fails the reading,
 		// so a reader keeps what it had rather than swapping in none.
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+		if (isGone(error)) return [];
 		throw error;
 	}
 	const read = await eachAtOnce(
@@ -465,17 +476,25 @@ async function listingOff(dir: string): Promise<Found[]> {
 			try {
 				return parsedRecord(at, await readFile(at, "utf8"));
 			} catch (error) {
-				// Gone since the listing: as no record. Any other failure, out
-				// of descriptors or the disk erring, fails the reading, so a
-				// reader keeps what it had rather than swapping in a listing a
-				// tree is missing from.
-				if ((error as NodeJS.ErrnoException).code === "ENOENT")
-					return undefined;
-				throw error;
+				return unreadRecord(error);
 			}
 		},
 	);
 	return read.filter((one): one is Found => one !== undefined);
+}
+
+/**
+ * What a record that failed to read counts as, read on the thread or off
+ * it alike, so the two readers of one folder never disagree. A fault of
+ * the moment, the process out of descriptors, fails the whole reading,
+ * so a reader keeps what it had rather than a listing a tree is missing
+ * from. A record gone since the listing, or one wrong in itself, a
+ * folder named as a record, one nobody may read, a loop, is no record:
+ * failing on it would fail every reading for as long as it stays.
+ */
+function unreadRecord(error: unknown): undefined {
+	if (isPassingFault(error)) throw error;
+	return undefined;
 }
 
 /** Whether something stands at `path`, asked off the thread. */
@@ -593,7 +612,10 @@ export function createTreeMemory(
 	 * release takes down and a holder rewriting the owners drops everyone
 	 * from. So a listing the directory changed under is read again, and
 	 * when it never holds still, every record any listing found is kept,
-	 * since a record seen once is a tree somebody may be standing in.
+	 * since a record seen once is a tree somebody may be standing in. For
+	 * the same reason a record the disk fails to hand over for now, out
+	 * of descriptors, fails the whole reading rather than reading as none
+	 * (`unreadRecord`).
 	 */
 	function all(): readonly { at: string; held: HeldTree }[] {
 		if (!existsSync(dir)) return [];
@@ -617,8 +639,8 @@ export function createTreeMemory(
 				let text: string;
 				try {
 					text = readFileSync(at, "utf8");
-				} catch {
-					// Unreadable, or gone since the listing: as no record.
+				} catch (error) {
+					unreadRecord(error);
 					return [];
 				}
 				const found = parsedRecord(at, text);

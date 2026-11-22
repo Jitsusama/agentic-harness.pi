@@ -176,7 +176,15 @@ export async function heldTreeGit(context: PreflightContext): Promise<Verdict> {
 			`a commit and a fetch in a held tree from the scratch folder (${inHeld.ms} ms), and a tree not held still refused: ${tailOf(inUnheld, 1)}`,
 		);
 	} finally {
-		rmSync(record, { force: true });
+		// Forgotten as the broker forgets one, so this process's kept
+		// listing drops it at once rather than a reading later.
+		try {
+			createTreeMemory(treeRecordDir()).forget(held);
+		} catch {
+			// The records couldn't be read for now: the file goes by its
+			// name, and the listing sees it gone a reading later.
+			rmSync(record, { force: true });
+		}
 		await outside(
 			`git -C '${root}' worktree remove --force '${held}'; git -C '${root}' worktree remove --force '${unheld}'`,
 			context.scratch,
