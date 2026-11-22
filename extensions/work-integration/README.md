@@ -275,7 +275,10 @@ minutes have gone since it reached them, the ended trees before them
 not counted. A run its count or time stops gives in `idleLeft` how
 many it left unjudged, those seen busy aside, though judging may
 refuse some of them, and every run that reaches them gives in `idleMs`
-how long they took. A session that asks for one again gets
+how long they took, its census of processes and its pauses included.
+`idleMs` is awake time, which stops while the machine sleeps, and the
+line's `ms` is wall time, so after a suspend `ms` less `idleMs` is not
+how long the ended trees took. A session that asks for one again gets
 it cut afresh, with a line in `sweep.log` saying why.
 
 A tree cut from a clone in a quest's scratch folder outlives the

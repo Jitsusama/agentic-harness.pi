@@ -144,9 +144,10 @@ export interface SweepDeps extends UseSigns {
 	 * time, a sweep may go on judging them past the `IDLE_TAKES_PER_SWEEP`
 	 * a host takes, so a loaded machine, where each is slow, gets fewer
 	 * rather than a longer sweep; no limit by default. The ended trees
-	 * judged before them, which can take most of an hour, don't count. It stops new judging only:
-	 * a judgement or take begun runs to its end, each git call within its
-	 * own limit, so the bound is soft by as long as one of those takes.
+	 * judged before them, which can take most of an hour, don't count.
+	 * It stops new judging only: a judgement or take begun runs to its
+	 * end, each git call within its own limit, so the bound is soft by as
+	 * long as one of those takes.
 	 */
 	idleWithinMs?: number;
 	/**
@@ -231,8 +232,10 @@ export interface SweepOutcome {
 	idleLeft?: number;
 	/**
 	 * How long, in milliseconds of awake time, judging and taking those
-	 * snapshots took, pauses included, so a slow run's idle phase can be
-	 * told from what came before it; unset when the sweep never reached it.
+	 * snapshots took, the census of processes and the pauses included, so
+	 * a slow run's idle phase can be told from the rest; unset when the
+	 * sweep never reached it. Awake time stops while the machine sleeps,
+	 * so it can't be taken from a wall-clock span to time the rest.
 	 */
 	idleMs?: number;
 }

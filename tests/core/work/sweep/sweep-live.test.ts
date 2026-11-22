@@ -255,6 +255,7 @@ describe("sweeping the trees whose sessions have ended", () => {
 		writeFileSync(lockPath, String(process.pid));
 		const busy = await sweep();
 		expect(busy.skipped).toContain(String(process.pid));
+		expect(busy.idleMs, "a skipped run timed an idle phase").toBeUndefined();
 		expect(existsSync(tree), `${tree} is kept while another sweep runs`).toBe(
 			true,
 		);
@@ -308,6 +309,7 @@ describe("sweeping the trees whose sessions have ended", () => {
 		clock += REST_MS / 2;
 		const soon = await rested();
 		expect(soon.rested).toContain("a sweep ended");
+		expect(soon.idleMs, "a resting run timed an idle phase").toBeUndefined();
 		expect(soon.skipped, "a rest is not a held lock").toBeUndefined();
 		expect(existsSync(tree), `${tree} is kept while the sweeps rest`).toBe(
 			true,
