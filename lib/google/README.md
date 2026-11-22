@@ -31,7 +31,11 @@ const rendered = renderEventList(events);
 ## Sub-Modules
 
 - **`./apis`** and **`./renderers`**: API functions for all six
-  Google services, and how their answers are shown.
+  Google services, and how their answers are shown. Their types come
+  from each API's own module under googleapis, never its root, which
+  reaches all 328 APIs: tsconfig maps the root to
+  `apis/googleapis-root.d.ts`, which exports nothing, so a type taken
+  from it fails the typecheck.
 - **`./auth`**: credential state readers (`getCredentials`,
   `getDefaultAccount`, `listAccounts`), async since the credentials
   live in the desktop's keyring, `formatAuthError`, and

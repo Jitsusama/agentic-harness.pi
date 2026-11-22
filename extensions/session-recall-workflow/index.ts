@@ -18,12 +18,16 @@
  * silently cut. `/compaction-status` says whether the tool is active,
  * how many summaries mention it and how often it has been called.
  *
- * A session rolled over into a fresh log (rollover-workflow) left its
- * history in the logs before it; recall reads those from disk for each
- * call, oldest first, so the session's whole history stays one call
- * away.
+ * A session rolled over into a fresh log (rollover-workflow), or a
+ * hosted conversation holding only its kept history, left its history
+ * on disk; recall reads it from there for each call, oldest first, so
+ * the session's whole history stays one call away. The parsed copy is
+ * dropped as the call answers, and each read says in the journal how
+ * much it parsed and how long it took, since a large log costs seconds.
  */
 
+import { readFileSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -64,6 +68,37 @@ interface RecallDetails {
 	readonly kind: Recalled["kind"];
 	readonly hits?: number;
 }
+
+/**
+ * Recall over `branch` and the history it left on disk. The entries
+ * read from disk live only in this call, so they are garbage once it
+ * answers; a read of any is said in the journal, its size and time.
+ */
+function recallWhole(
+	sessionId: string,
+	branch: readonly unknown[],
+	params: Parameters<typeof recall>[1],
+): Recalled {
+	let bytes = 0;
+	let logs = 0;
+	const started = performance.now();
+	const older = ancestry(branch, (path) => {
+		const text = readFileSync(path, "utf8");
+		bytes += Buffer.byteLength(text);
+		logs++;
+		return text;
+	});
+	if (logs > 0) {
+		const ms = Math.round(performance.now() - started);
+		process.stderr.write(
+			`session-recall-workflow: conversation ${sessionId} read ${(bytes / MIB).toFixed(1)} MiB from ${logs} log(s) on disk, ${older.length} entries, in ${ms} ms\n`,
+		);
+	}
+	return recall([...older, ...branch] as Parameters<typeof recall>[0], params);
+}
+
+/** Bytes in a mebibyte, for the journal's read size. */
+const MIB = 1024 * 1024;
 
 /** The bounded answer, with anything left out stored and cited. */
 function answerOf(recalled: Recalled, ctx: ExtensionContext): string {
@@ -131,9 +166,9 @@ export default function sessionRecall(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const branch = ctx.sessionManager.getBranch();
-			const recalled = recall(
-				[...(ancestry(branch) as unknown as typeof branch), ...branch],
+			const recalled = recallWhole(
+				ctx.sessionManager.getSessionId(),
+				ctx.sessionManager.getBranch(),
 				params,
 			);
 			return {

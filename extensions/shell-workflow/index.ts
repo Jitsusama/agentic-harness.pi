@@ -74,6 +74,7 @@ import {
 	spoken,
 } from "../../lib/jobs/hand-off.ts";
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
+import { askNothingOnScreen } from "./environment.ts";
 import { runOrHandOff } from "./hand-off.ts";
 import { outlivingIt } from "./outliving.ts";
 
@@ -176,6 +177,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// with the fence lifted from all but subagents and spawns that declared
 	// it, until it relands.
 	liftFence();
+	// Before anything this process starts: no git or ssh of pi's own asks
+	// on the person's screen (environment.ts).
+	askNothingOnScreen();
 	const sandbox = sandboxFor();
 	// Said to a host, whose record a mycelium node carrying it reads, once
 	// this shell's bash stands in pi's (as the session starts), and before
