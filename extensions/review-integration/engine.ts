@@ -199,6 +199,14 @@ export function findingDir(): string {
 	return join(stateDir("review"), "findings");
 }
 
+/**
+ * Where the machine's last council start is kept, which every session
+ * reads and writes under one lock to space starts apart.
+ */
+export function councilStartsPath(): string {
+	return join(stateDir("review"), "council-starts", "last.json");
+}
+
 /** Where the rounds asked about a change live. */
 export function runDir(): string {
 	return join(stateDir("review"), "runs");

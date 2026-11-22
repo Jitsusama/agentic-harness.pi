@@ -9,6 +9,12 @@
  * not with how any one kind of round runs.
  */
 
+import { join } from "node:path";
+import {
+	awaitCouncilStart,
+	type CouncilStart,
+	newestRosterStartIn,
+} from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	type AskRun,
 	type ChangeRef,
@@ -23,7 +29,13 @@ import {
 	type RunStore,
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
-import { findingDir, personaDir } from "../engine.ts";
+import {
+	councilStartsPath,
+	findingDir,
+	personaDir,
+	runArtifactDir,
+	sessionKey,
+} from "../engine.ts";
 import { rangeProposal } from "../range.ts";
 import { builtInPersonaDir } from "../roster.ts";
 import { roundToRead } from "../round-to-read.ts";
@@ -134,6 +146,35 @@ let roundsStarted = 0;
 export function nextSeq(): number {
 	roundsStarted += 1;
 	return roundsStarted;
+}
+
+/**
+ * Takes the machine's next start for a round that asks the whole
+ * roster at once (a council, a stack or a critique) and waits for it,
+ * answering what the round should say about the wait, or why it was
+ * stopped while it waited.
+ *
+ * Called last, once nothing else refuses the round, so only a round
+ * about to start its reviewers holds the slot. A judge, an audit and a
+ * retry each ask one participant, so they start whenever they are asked.
+ */
+export async function awaitRosterStart(
+	change: string,
+	signal: AbortSignal | undefined,
+): Promise<CouncilStart> {
+	// A round a session on an older install started never took a slot,
+	// but its reviewers' folder says when it began.
+	const elsewhere = await newestRosterStartIn(join(runArtifactDir(), "runs"));
+	return await awaitCouncilStart(
+		councilStartsPath(),
+		{
+			by: sessionKey(),
+			change,
+			now: new Date(),
+			...(elsewhere === undefined ? {} : { startedElsewhereAt: elsewhere }),
+		},
+		signal,
+	);
 }
 
 /**

@@ -10,6 +10,7 @@
  */
 
 import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
+import type { CouncilStart } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	auditPrompt,
 	type ChangeRef,
@@ -35,6 +36,7 @@ import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
+	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
 	findingsOf,
@@ -186,6 +188,13 @@ export async function askCritique(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	// Nothing to challenge asks nobody (runCritique), so it takes no
+	// slot to hold the next round behind.
+	const start: CouncilStart =
+		raised.length === 0
+			? {}
+			: await awaitRosterStart(change.label, seat.signal);
+	if (start.cancelled !== undefined) return refuse(start.cancelled);
 
 	const asking = deps(change, tree.path, watch, charters);
 	const { run, critiques, warnings } = await runCritique(
@@ -209,6 +218,7 @@ export async function askCritique(
 	return say(
 		[
 			`It pushed back on ${judged.id}.`,
+			...(start.waited === undefined ? [] : [start.waited]),
 			answerFor(run, warnings, tree.caveat),
 			...(critiques.length === 0
 				? ["Nobody took a position."]

@@ -60,6 +60,8 @@ export interface RoundSeat {
 	readonly sessionModel?: string;
 	/** What the person typed to this session, for a model only they may ask for. */
 	readonly said: readonly string[];
+	/** Tripped when the call is given up, which ends a wait for a start. */
+	readonly signal?: AbortSignal;
 }
 
 /** Which of a roster a round puts to work. */
