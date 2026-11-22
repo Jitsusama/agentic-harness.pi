@@ -24,7 +24,7 @@ import type {
 	ControlRequest,
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
-import { REPEAT_WINDOW_MS } from "../../../host/service/repeats.ts";
+import { REPEAT_WINDOW_MS } from "../../../host/service/repeat-key.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
 import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
@@ -369,20 +369,21 @@ export async function spawnInHost(
 	try {
 		sent = await sendShedding(call, socket, request);
 	} catch (error) {
+		// What this send opened is nothing, but an earlier unanswered ask it
+		// repeats may have opened one, which a host gone since keeps held
+		// without the ask itself, so it is said here.
+		const earlier =
+			request.id === built.request.id
+				? ""
+				: ` An earlier spawn of ${spawn.questId} (id ${request.id}) went unanswered, so check the host's list for it once a host answers.`;
 		if (neverSent(error)) {
-			// A host gone since an unanswered ask restarts with what that ask
-			// opened held, but not the ask itself, so it is said here.
-			const earlier =
-				request.id === built.request.id
-					? ""
-					: ` An earlier spawn of ${spawn.questId} (id ${request.id}) went unanswered, so check the host's list for it once the host is back.`;
 			return refuse(
 				`No ${key} host is listening at ${socket}, so nothing was opened.${earlier}`,
 			);
 		}
 		if (error instanceof HostClientUnloaded) {
 			return refuse(
-				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
+				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.${earlier}`,
 			);
 		}
 		const repeat = noteUnanswered(where, request, asked)

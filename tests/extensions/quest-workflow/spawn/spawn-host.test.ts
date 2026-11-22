@@ -1009,6 +1009,29 @@ describe("spawn into a host", () => {
 		expect(down.guidance).toContain(`(id ${sent[0]?.id}) went unanswered`);
 	});
 
+	// What this send opened is nothing, but the ask it repeats may have.
+	it("names an earlier unanswered spawn when the host's client didn't load to repeat it", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			throw new HostClientUnloaded(new Error("Cannot find module 'zod'"));
+		};
+		await spawnInHost(spawn, call);
+		const unloaded = await spawnInHost(spawn, call);
+		if (unloaded.ok) throw new Error("expected an unloaded client to refuse");
+		expect(unloaded.guidance).toContain("Nothing was sent");
+		expect(unloaded.guidance).toContain(`(id ${sent[0]?.id}) went unanswered`);
+	});
+
 	it("sends a plain spawn to the host quest-workflow.spawnHost names, with no window", async () => {
 		setSpawnHost("background");
 		await serveHost("home", "background");
