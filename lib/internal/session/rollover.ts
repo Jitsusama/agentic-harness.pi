@@ -626,8 +626,11 @@ function wantedLine(
 		: undefined;
 }
 
-/** A file's lines, read a chunk at a time. */
-function* linesOf(path: string): Generator<string> {
+/**
+ * A file's lines, read a chunk at a time, so a reader of a log holds
+ * one line of it rather than the whole file.
+ */
+export function* linesOf(path: string): Generator<string> {
 	const fd = openSync(path, "r");
 	try {
 		const decoder = new StringDecoder("utf8");
