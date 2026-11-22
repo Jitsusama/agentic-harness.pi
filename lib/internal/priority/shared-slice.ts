@@ -23,6 +23,16 @@ export const SHARED_SLICE_VARIABLE = "SHARED_SLICE";
  */
 export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
 
+/**
+ * The variable the command travels to the slice's shell in. A strict
+ * command holds the agents' hour tokens (`sandboxedCommand`), and a
+ * fenced one values kept off every command line (`fencedCommand`), and a
+ * program's arguments are readable in `/proc`
+ * by any process of the person's while it runs, where its environment is
+ * not, so the command is never an argument of `systemd-run` or its bash.
+ */
+export const SLICED_COMMAND = "__pi_sliced";
+
 /** The longest one string Linux passes a program (MAX_ARG_STRLEN). */
 const LONGEST_STRING = 128 * 1024;
 
@@ -59,6 +69,10 @@ export const SLICE_GIVEN_UP =
  * fetch of World's main lost the fence's `"${__pi_env[@]}"` that way
  * and never ran (ISXEG8, 15 November). It is told not to, which systemd
  * has understood since version 254.
+ *
+ * The command goes to the scope in `SLICED_COMMAND`, exported for the
+ * one call, which the scope's shell unsets before it runs it, so it is
+ * no argument of either (ISXEG8, 21 November).
  */
 export function inSharedSlice(
 	command: string,
@@ -72,7 +86,7 @@ export function inSharedSlice(
 	const form = [
 		named,
 		`if [ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] && [ -n "\${XDG_RUNTIME_DIR:-}" ] && command -v systemd-run > /dev/null 2>&1; then`,
-		`systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" --expand-environment=no -- bash -c ${quoted}`,
+		`${SLICED_COMMAND}=${quoted} systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" --expand-environment=no -- bash -c 'eval "unset ${SLICED_COMMAND}; $${SLICED_COMMAND}"'`,
 		"else",
 		command,
 		"fi",

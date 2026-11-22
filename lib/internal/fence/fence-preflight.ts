@@ -149,6 +149,8 @@ export function fenced(
 		[SANDBOX_VARIABLE]: FENCE,
 		PI_SESSION_ID: session,
 	};
+	// Run as bash's argument, which the fence's text can be, since it
+	// holds no cloud token (`fenceCloud`).
 	const sandbox = sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		throw new Error(
