@@ -221,11 +221,53 @@ describe("giving a tree back", () => {
 		const released = await work({ action: "release", tree: key });
 
 		expect(released.details.aside, released.text).toBeUndefined();
-		expect(released.text).not.toMatch(/set aside whole/);
+		expect(released.text).toMatch(
+			new RegExp(
+				`^${GLYPH.refused} Git won't run in .+: its \\.git names .+moved/\\.git/worktrees/x, a worktree's git folder that isn't there, or whose repository isn't, as when the checkout that cut it moved or its volume isn't mounted\\. It is still there and still held\\. `,
+			),
+		);
+		expect(released.text).toContain(
+			`\`git worktree repair ${path}\` mends it, or mount its volume, then release it again. If that checkout is gone for good, move the tree aside by hand.`,
+		);
 		expect(existsSync(join(path, ".git")), "the tree is where it was").toBe(
 			true,
 		);
 		expect(heldHere(), "this session still holds it").toBe(true);
+	});
+
+	it("sets aside a tree whose .git names a folder that is no worktree's, saying only why", async () => {
+		// A command in the tree may point its .git anywhere; that is no
+		// tree a repair mends, and git's advice to release it is left out,
+		// since this is that release.
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		const elsewhere = join(scratchDir(), "elsewhere");
+		mkdirSync(elsewhere, { recursive: true });
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${elsewhere}\n`);
+
+		const released = await work({ action: "release", tree: key });
+
+		const aside = released.details.aside;
+		if (typeof aside !== "string") throw new Error(released.text);
+		expect(released.text).toBe(
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it. Its branch stays where it was, but that entry, with its index and HEAD, goes when the name is next cut. Git's refusal: its .git file names no worktree whose repository names it back, so git won't run there: a command may have pointed it at a git folder of its own.`,
+		);
+	});
+
+	it("says a tree holding a repository of its own keeps its commits only in what was set aside", async () => {
+		// No branch of the checkout holds what was committed in such a
+		// .git, so the answer mustn't say the branch stays.
+		cutWhereTheToolCuts();
+		const { key } = await cut();
+
+		const released = await work({ action: "release", tree: key });
+
+		const aside = released.details.aside;
+		if (typeof aside !== "string") throw new Error(released.text);
+		expect(released.text).toBe(
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git, a repository of its own rather than a worktree's, was renamed, and whatever was committed in it is there alone, on no branch of the checkout that cut it. Git's refusal: it lies where the work tool cuts trees but holds a repository of its own rather than a worktree, so git won't run there.`,
+		);
 	});
 
 	it("leaves a tree git won't run in to a session that still holds it", async () => {

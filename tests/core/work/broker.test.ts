@@ -581,6 +581,31 @@ describe("createTreeBroker", () => {
 		expect(broker.cutHere(mine.path), "not held here").toBe(false);
 	});
 
+	it("says a tree stuck aside even when its record then can't be forgotten", async () => {
+		// Where the tree stands is what the answer must carry; the forget's
+		// own failure would have the answer say it is still there and held.
+		const { provider } = fakeProvider("git-worktree");
+		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory: {
+				...remembering(held, []),
+				whileHeldAlone: async (_path, take) => {
+					await take();
+					throw new Error("EACCES: permission denied");
+				},
+			},
+		});
+		const mine = await broker.ensure(snapshot("abc123"));
+
+		await expect(
+			broker.setAside(mine, () => {
+				throw new StuckAside("/elsewhere", "it stands at /elsewhere");
+			}),
+		).rejects.toBeInstanceOf(StuckAside);
+		expect(broker.cutHere(mine.path), "not held here").toBe(false);
+	});
+
 	it("lets go of a tree set aside though its record couldn't be forgotten", async () => {
 		const { provider } = fakeProvider("git-worktree");
 		const held = await createTreeBroker([provider]).ensure(snapshot("abc123"));

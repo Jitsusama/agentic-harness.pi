@@ -358,7 +358,9 @@ export function createTreeBroker(
 		} catch (error) {
 			// A tree already moved is no longer where our hold says it is.
 			if (!moved) trees.push(...ours);
-			throw error;
+			// Where the tree stands is what an answer must carry, so a stuck
+			// move is said even when forgetting its record fails after it.
+			throw stuck ?? error;
 		}
 	};
 	/** The tree of ours that fell and this request asks for again, said once. */
