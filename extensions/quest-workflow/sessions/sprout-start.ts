@@ -162,16 +162,14 @@ export async function startSprouted(
 				markUnwritten(state, id, seed, mark, UNFOUND);
 			}
 		}
-	} else if (!replayed && joinMark) {
+	} else if (!replayed && joinMark && !marked(state, id, joinMark)) {
 		// A live quest it joined takes a mark of its own, so a replay after
 		// that quest ends is told its work is done, never starts it again,
-		// and a replay while it lives joins it again, never ties it.
-		// A mark refused or left off leaves the session working the quest
-		// it joined, its need still recorded below, and its log says a
-		// replay after the quest ends may start the work again.
-		if (!marked(state, id, joinMark)) {
-			markUnwritten(state, id, seed, joinMark, RESTARTED);
-		}
+		// and a replay while it lives joins it again, never ties it. A mark
+		// refused or left off leaves the session working the quest it
+		// joined, its need still recorded below, and its log says a replay
+		// after the quest ends may start the work again.
+		markUnwritten(state, id, seed, joinMark, RESTARTED);
 	}
 	servesNeed(state, id, seed);
 	// Only a quest it made, or its own replayed, is sprouted from the cell
