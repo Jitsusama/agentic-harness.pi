@@ -111,7 +111,11 @@ describe("a working folder the sandbox won't let commands write", () => {
 			]) {
 				expect(unfencedFolder(at, home), at).toContain("compiled");
 			}
-			expect(unfencedFolder("/run/user/1000/pi-fence", home)).toBeUndefined();
+			// Its neighbours are refused too, as the runtime folder the fence
+			// hides, and not as compiled code.
+			const beside = unfencedFolder("/run/user/1000/pi-fence", home);
+			expect(beside).toContain("a path the fence hides");
+			expect(beside).not.toContain("compiled");
 		} finally {
 			vi.unstubAllEnvs();
 		}
