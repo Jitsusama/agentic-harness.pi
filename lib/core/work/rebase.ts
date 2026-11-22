@@ -365,12 +365,7 @@ export async function carryOn(
 			landed.push(here);
 		}
 		// A kept base side is the base's text, its citations included.
-		const now = await settleAdditions(
-			exec,
-			treePath,
-			moves,
-			here?.paths ?? [],
-		);
+		const now = await settleAdditions(exec, treePath, moves, here?.paths ?? []);
 		settled.push(...now.settled);
 		moves.push(...now.moves);
 		for (const path of now.recited) recited.add(path);
