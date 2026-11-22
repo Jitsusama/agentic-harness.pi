@@ -27,11 +27,25 @@ import type {
  * listed here gate.
  *
  * Many of these are nouns too, so a read named for one asks first:
- * `get_merge_request`, `getPost`, `get_workflow_run`. That costs a
- * confirmation, where a missing word lets a write run unasked, so a word
- * that names a write is listed even when some reads hold it. Words read
- * tools use far more often than writes, such as `schedule` and `resolve`,
- * are left out.
+ * `get_merge_request`, `getPost`, `get_workflow_run`. With a screen that
+ * costs a confirmation; with none, as in a subagent or print mode, a gate
+ * that asks refuses it. A missing word lets a write run unasked, so a
+ * word that names an act is listed even when some reads hold it. A word
+ * read tools hold far more often than writes stays off, since every
+ * server's reads would pay for it: an act such as `resolve`, or a noun
+ * for what a tool looks after, such as `review`, `schedule`, `management`
+ * or `register` (`read_register` on a debugger's server).
+ *
+ * A write named only by such a word, as `register_webhook`, runs unasked
+ * unless its server gates it by name: in the `writeSignal` it hands
+ * `makeDefaultWrap` or `defaultResolved`, which takes the place of
+ * `defaultWriteSignal` and so is composed with it to keep the rest gated,
+ * or in a wrap of its own, as the tool gateway's frontend does with the
+ * writes its policy names. `ServerPolicy.writeSignal` alone gates nothing.
+ * The undoing forms `unregister`, `deregister` and `unschedule`, and
+ * `reschedule`, are listed though the doing forms aren't: reads seldom
+ * hold them, and taking something out of service, or moving when it
+ * runs, is the act most worth a question.
  */
 const GATING_WORDS: ReadonlySet<string> = new Set([
 	"create",
@@ -171,6 +185,12 @@ const GATING_WORDS: ReadonlySet<string> = new Set([
 	"acknowledge",
 	"kick",
 	"ban",
+	"manage",
+	"unregister",
+	"deregister",
+	"reschedule",
+	"unschedule",
+	"advance",
 ]);
 
 /**
