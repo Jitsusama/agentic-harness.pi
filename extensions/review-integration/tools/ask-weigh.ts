@@ -10,6 +10,7 @@
  */
 
 import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
+import type { CouncilStart } from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	auditPrompt,
 	type ChangeRef,
@@ -187,7 +188,12 @@ export async function askCritique(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
 	if (tooLarge !== undefined) return refuse(tooLarge);
-	const start = await awaitRosterStart(change.label, seat.signal);
+	// Nothing to challenge asks nobody (runCritique), so it takes no
+	// slot to hold the next round behind.
+	const start: CouncilStart =
+		raised.length === 0
+			? {}
+			: await awaitRosterStart(change.label, seat.signal);
 	if (start.cancelled !== undefined) return refuse(start.cancelled);
 
 	const asking = deps(change, tree.path, watch, charters);

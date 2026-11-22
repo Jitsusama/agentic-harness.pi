@@ -37,10 +37,13 @@ afterEach(() => {
 
 const kept = () => JSON.parse(readFileSync(path, "utf8"));
 
-/** Until `by` holds the last slot, read as often as the file changes. */
+/**
+ * Until `by` holds the last slot, read as often as the file changes;
+ * given up inside vitest's 5 s, so its own message is what shows.
+ */
 const slotTakenBy = (by: string) =>
 	vi.waitFor(() => expect(kept().by).toBe(by), {
-		timeout: 10_000,
+		timeout: 4_000,
 		interval: 20,
 	});
 
@@ -182,9 +185,9 @@ describe("spacing council starts on one machine", () => {
 					change: "o/r#2",
 					now: AT,
 				})
-			).ahead,
+			).startAt,
 			"a clock that moved back holds nobody",
-		).toBe(0);
+		).toEqual(AT);
 
 		writeFileSync(path, "{ cut short");
 		expect(
@@ -194,11 +197,17 @@ describe("spacing council starts on one machine", () => {
 					change: "o/r#3",
 					now: later(1000),
 				})
-			).ahead,
+			).startAt,
 			"a record cut short holds nobody",
-		).toBe(0);
+		).toEqual(later(1000));
 	});
 });
+
+/**
+ * A real wait's spacing: long enough that both claims land inside it
+ * on a loaded machine, so the second still waits.
+ */
+const REAL_WAIT_MS = 1_500;
 
 describe("waiting for a start", () => {
 	it("starts at once, saying nothing, when nothing is ahead", async () => {
@@ -220,17 +229,17 @@ describe("waiting for a start", () => {
 			by: "ISXEG8",
 			change: "o/r#2",
 			now,
-			spacingMs: 300,
+			spacingMs: REAL_WAIT_MS,
 		});
 
 		// Measured against its slot, not the call, so a slow first claim
 		// on a loaded machine can't fail it; a Node timer may fire a
 		// millisecond or so early.
 		expect(Date.now(), "it waited for its slot").toBeGreaterThanOrEqual(
-			now.getTime() + 300 - TIMER_EARLY_MS,
+			now.getTime() + REAL_WAIT_MS - TIMER_EARLY_MS,
 		);
 		expect(waited.waited).toContain(
-			`at ${new Date(now.getTime() + 300).toISOString().slice(11, 19)} UTC, next in line, behind o/r#1 (asked by A2VLJN)`,
+			`at ${new Date(now.getTime() + REAL_WAIT_MS).toISOString().slice(11, 19)} UTC, next in line, behind o/r#1 (asked by A2VLJN)`,
 		);
 		expect(waited.cancelled).toBeUndefined();
 	});
@@ -279,7 +288,7 @@ describe("waiting for a start", () => {
 			by: "ISXEG8",
 			change: "o/r#2",
 			now,
-			spacingMs: 100,
+			spacingMs: REAL_WAIT_MS,
 		});
 		expect(start.waited).toBeDefined();
 

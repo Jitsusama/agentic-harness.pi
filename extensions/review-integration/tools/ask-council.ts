@@ -175,6 +175,7 @@ async function councilRound(
 		conventions,
 		prompt,
 		waited: start.waited,
+		...(start.release === undefined ? {} : { release: start.release }),
 	};
 }
 
@@ -296,6 +297,9 @@ export async function startRound(
 	// Left there it is an alarm about a round that never ran, pointing
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
+	// A round that started nobody gives its slot back, so a retry after a
+	// failed dispatch waits behind none that never ran.
+	if (started === 0) await set.release?.();
 	// Its record says each reviewer until it ends, and anyone who could
 	// not be started as failed.
 	await roundDispatched(run.id);

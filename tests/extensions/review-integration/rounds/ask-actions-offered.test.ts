@@ -237,6 +237,26 @@ describe("review_ask", () => {
 		expect(afterWait, "gives its slot back when refused then").toContain(
 			"start.release",
 		);
+
+		// A started round that started nobody gives its slot back too, so
+		// a retry after a failed dispatch waits behind none that never ran.
+		const started = [...functions].find(([, body]) =>
+			body.includes("await startCouncil("),
+		)?.[1];
+		expect(started, "a round that started nobody gives its slot back").toMatch(
+			/if \(started === 0\) await set\.release\?\.\(\)/,
+		);
+
+		// A critique with nothing to challenge asks nobody, so it takes no
+		// slot at all.
+		const critique = rounds.find((round) =>
+			round.body.includes("await runCritique("),
+		)?.body;
+		const claim = critique?.indexOf("await awaitRosterStart(") ?? -1;
+		const none = critique?.indexOf("raised.length === 0") ?? -1;
+		expect(none !== -1 && none < claim, "an empty critique takes no slot").toBe(
+			true,
+		);
 	});
 
 	it("reads every round's lenses out of the tree that round reads", () => {

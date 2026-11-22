@@ -296,6 +296,16 @@ function waitSaid(slot: StartSlot, spacing: number): string {
 	return `It waited for its start at ${placeSaid(slot)}, since one roster round starts on this machine each ${spacing / 60_000} minutes.`;
 }
 
+/** Longest name read from the shared slot file that an answer repeats. */
+const NAME_SAID_AT_MOST = 120;
+
+/** Another session wrote it, so the answer repeats only so much of it. */
+function bounded(name: string): string {
+	return name.length <= NAME_SAID_AT_MOST
+		? name
+		: `${name.slice(0, NAME_SAID_AT_MOST)}...`;
+}
+
 function stoppedSaid(slot: StartSlot, spacing: number): string {
 	return `It was stopped while it waited for its start at ${placeSaid(slot)}, so nothing was started. One roster round starts on this machine each ${spacing / 60_000} minutes.`;
 }
@@ -305,7 +315,7 @@ function placeSaid(slot: StartSlot): string {
 	const behind =
 		slot.behind === undefined
 			? ""
-			: `, behind ${slot.behind.change} (asked by ${slot.behind.by})`;
+			: `, behind ${bounded(slot.behind.change)} (asked by ${bounded(slot.behind.by)})`;
 	const place =
 		slot.ahead === 0
 			? "next in line"
