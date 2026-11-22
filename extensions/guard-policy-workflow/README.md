@@ -59,7 +59,9 @@ refusal tells the agent exactly what to do instead:
   leaves it as it was, though setting `form` or `all`
   reaches it. When `off`, it still sends each message's text to
   the classifier's provider to report it waved;
-  `PI_MESH_CLASSIFIER=off` stops that.
+  `PI_MESH_CLASSIFIER=off` stops that. It also has a note follow
+  a finished reply to you that states such a cause, which `off`
+  stops along with that reply's trip to the provider.
 - Safety blocks only the irrecoverable: `history` redirects,
   `history-destructive` blocks with the safe form, and leases a
   bare force push rather than refusing it.

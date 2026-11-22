@@ -340,13 +340,14 @@ export const GUARDS = {
 		name: "untested-cause",
 		class: "form",
 		description:
-			"Refuses a mesh message stating why something happened as settled fact, with no test behind it",
+			"Refuses a mesh message, and follows a reply with a note, stating why something happened as settled fact with no test behind it",
 		defaultMode: "redirect",
 		// In no group: `send block` means ask before anything goes out, and
 		// this would then block a sentence the classifier misjudges for good.
 		// Its class and `all` still reach it, as they reach every form guard.
-		// Off still judges each message, to report it waved; only
-		// PI_MESH_CLASSIFIER=off keeps the text from the classifier's provider.
+		// Off still judges each mesh message, to report it waved; only
+		// PI_MESH_CLASSIFIER=off keeps its text from the classifier's provider.
+		// Off judges no reply (extensions/reply-cause-interceptor).
 	}),
 	vmHere: declare({
 		name: "vm-here",

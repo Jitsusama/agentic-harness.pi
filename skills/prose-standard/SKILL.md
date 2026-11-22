@@ -415,6 +415,9 @@ reached me that way, and I knew it was wrong. By default a mesh
 message that states one is refused once with this guidance, and
 goes if sent again unchanged to the same peers. A hold, and a
 send ending one, go unjudged, since they must arrive on time.
+A finished reply to me that states one is judged after I've
+read it, and you're sent a note: tell me in a line whether it
+is a hypothesis or what tested it.
 
 ### A Language Model Reading
 
