@@ -510,7 +510,9 @@ async function isClean(directory: string): Promise<boolean | undefined> {
 			],
 			{ timeout: REMOTE_PROBE_MS },
 		);
-		if (said.code !== 0) return undefined;
+		// A status the clock killed printed only part of what it found, so
+		// what it printed says nothing about the rest.
+		if (said.code !== 0 || said.killed) return undefined;
 		return said.stdout.trim() === "";
 	} catch {
 		// A git that will not run cannot vouch for the tree, and a round
