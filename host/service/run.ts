@@ -150,7 +150,7 @@ export interface HostRunOptions {
 	/** What a second conversation must pass; serve's rollout gate by default. */
 	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
-	signals?: { once(signal: string, listener: () => void): unknown };
+	signals?: { on(signal: string, listener: () => void): unknown };
 	/**
 	 * Says the host is ready, with its status; by default systemd's notify,
 	 * said again until the unit reads active.
@@ -248,6 +248,10 @@ export interface HostRun {
 	 * parked, since its watch already heard it parked.
 	 */
 	readonly stopped: Promise<void>;
+	/** Stop as a stop signal would, answering `stopped`. */
+	stop(): Promise<void>;
+	/** Whether a stop signal has come, before or during any stop it asked of itself. */
+	signalled(): boolean;
 }
 
 /**
@@ -311,7 +315,7 @@ export function hostKind(argv: readonly string[]): HostKind {
 	throw new Error("Usage: pi-host attended|background");
 }
 
-/** Start a host for this process and stop it on the first stop signal. */
+/** Start a host for this process and stop it on a stop signal. */
 export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const { child } = options;
 	const kind = child ? child.slot.kind : hostKind(options.argv);
@@ -405,6 +409,26 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		renewing?.();
 		for (const under of resuming.values()) under.renewing?.();
 	};
+	// A stop signal is heard from before the start, for as long as the
+	// host lives: one during the start stops it once it serves, and a
+	// second while it parks rejoins the stop, where node's own default
+	// would kill it by signal, which launchd starts again.
+	const signals = options.signals ?? process;
+	// A stop the host asks of itself ends it as a signal's would; until
+	// the host serves there is nothing to stop, so it is only remembered.
+	let stopAsked = (): void => undefined;
+	// launchd and systemd count their kill from the first signal, so a
+	// stop that only begins once the host serves has that much less time.
+	let signalledAt: number | undefined;
+	for (const signal of STOP_SIGNALS)
+		signals.on(signal, () => {
+			signalledAt ??= performance.now();
+			stopAsked();
+		});
+	// In whole ms, as the bounds are, so a signal the stop follows at
+	// once takes nothing off them.
+	const sinceSignal = () =>
+		signalledAt === undefined ? 0 : Math.floor(performance.now() - signalledAt);
 	let serving: ServingHost;
 	try {
 		serving = await serveHost({
@@ -438,7 +462,6 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		options.status
 			? options.status(options.env, now)
 			: notifyStatus(options.env, now, toldWithin);
-	const signals = options.signals ?? process;
 	const every = watchdogEvery(options.env);
 	const unwatchBeats =
 		every === undefined
@@ -482,14 +505,18 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
 			.then(() => serving.stop());
-		const bound = options.stopWithin ?? stopWithin(options.env);
+		const spent = sinceSignal();
+		const whole = options.stopWithin ?? stopWithin(options.env);
+		const bound = Math.max(0, whole - spent);
 		const unparkedIds = () => serving.held().map(({ id }) => id);
 		// The bound is a timer on this loop, which a loop held on a CPU never
 		// comes back to, as at 04:33 on 18 November; a thread beside it ends
 		// the host later, still short of systemd's kill.
 		// A loop already held as SIGTERM comes never arms it, since this
 		// handler runs on that loop.
-		const within = backstopWithin(options.env, bound);
+		const wholeWithin = backstopWithin(options.env, whole);
+		const within =
+			wholeWithin === undefined ? undefined : Math.max(0, wholeWithin - spent);
 		const backstop: Backstop =
 			within === undefined
 				? UNARMED
@@ -524,10 +551,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
-		for (const signal of STOP_SIGNALS)
-			signals.once(signal, () => {
-				stop().then(resolve, reject);
-			});
+		stopAsked = () => {
+			stop().then(resolve, reject);
+		};
+		// A signal heard while the host started stops it now it serves.
+		if (signalledAt !== undefined) stopAsked();
 		// A child stops once its conversation ends, as a signal would stop it.
 		void child?.life.ending.then(stop).then(resolve, reject);
 		options.faults?.on("uncaughtException", (error) => {
@@ -574,7 +602,15 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	if (lastStop) unparked.clear();
 	const named = droppedNames(serving.dropped);
 	say(`${since()}: ${status()}${named}, listening on ${serving.path}`);
-	return { serving, stopped };
+	return {
+		serving,
+		stopped,
+		stop: () => {
+			stopAsked();
+			return stopped;
+		},
+		signalled: () => signalledAt !== undefined,
+	};
 }
 
 /**

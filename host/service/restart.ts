@@ -16,6 +16,13 @@
  * systemd has it now, and viewers hear of it only once systemd has it
  * queued, as the host stops (serve.ts).
  *
+ * A Mac's host is a launchd job, which has no systemctl to restart it
+ * through: the host stops as a stop signal would stop it, parking every
+ * conversation, and exits 75, which launchd starts again as it does any
+ * failure (core's darwin.nix). Only the install and the heap move such a
+ * host: launchd reads a job's plist as it loads it, and a switch that
+ * changes one reloads the job itself.
+ *
  * Conversations that take turns may never all rest at once for long: on
  * 12 November the background host's three shared one pause in 14.5
  * hours, of 10 s, and it ran code its install had moved past all that
@@ -118,7 +125,10 @@ import type { ServingHost } from "./serve.ts";
 import {
 	hostCodeOf,
 	isUnitMain,
+	type LaunchdFacts,
+	ownLaunchdJob,
 	ownUnit,
+	processLaunchdFacts,
 	type Systemctl,
 	unitDefinition,
 	userSystemctl,
@@ -698,35 +708,103 @@ export interface Following {
 	readonly systemctl?: Systemctl;
 	readonly cgroupFile?: string;
 	readonly pid?: number;
+	/** Whether launchd runs this host as a job; this process's by default. */
+	readonly launchd?: LaunchdFacts;
+	/**
+	 * How a host launchd runs restarts: it stops, parking every
+	 * conversation, answering once it has, and exits for launchd to start
+	 * it again. A launchd job given none follows nothing.
+	 */
+	readonly exitToRestart?: () => Promise<void>;
 	/** How much heap the host uses; this process's as its last major collection left it by default. */
 	readonly heap?: () => HeapUse;
 	/** Passed on to restartWhenSettled, for tests. */
 	readonly timing?: Parameters<typeof restartWhenSettled>[1];
 }
 
+/** What runs a host and starts it again: systemd's unit, or launchd's job. */
+interface Supervisor {
+	/** Why what the supervisor would start differs, or nothing while it doesn't. */
+	changed(): Promise<string | undefined>;
+	/** Ask for the host to be started again. */
+	restart(): Promise<void>;
+	/**
+	 * Whether its restart answers only once the host has stopped, so
+	 * nothing is left to follow; systemd's answers once it is queued.
+	 */
+	readonly exits?: boolean;
+}
+
 /**
- * Follow what this host would start, when systemd runs it as a unit's
- * main process, and restart once it differs and everything has settled.
- * A host run any other way, by hand or by a test, follows nothing.
- * Answers the function that stops following.
+ * What runs this host, when it is a systemd unit's main process or a
+ * launchd job that can exit to restart; nothing for a host run by hand
+ * or by a test.
  */
-export async function followWhatStarts(
+async function supervisorOf(
 	options: Following,
-): Promise<() => void> {
+): Promise<Supervisor | undefined> {
+	const launchd = options.launchd ?? processLaunchdFacts();
+	const job = ownLaunchdJob(launchd);
+	if (job !== undefined) {
+		const exit = options.exitToRestart;
+		if (exit === undefined) {
+			options.report(
+				`The host follows nothing: it is launchd's job ${job} but has no way to exit to be started again`,
+			);
+			return undefined;
+		}
+		options.report(
+			`The host follows its install as launchd's job ${job}, exiting to be started again`,
+		);
+		return {
+			changed: async () => undefined,
+			restart: () => exit(),
+			exits: true,
+		};
+	}
+	// A Mac's host that isn't its job would run its old code unsaid.
+	if (launchd.platform === "darwin") {
+		options.report(
+			`The host follows nothing: launchd runs no pi host job here (its parent is ${launchd.ppid}, its XPC_SERVICE_NAME ${launchd.service ?? "unset"})`,
+		);
+		return undefined;
+	}
 	const systemctl = options.systemctl ?? userSystemctl;
 	const unit = await ownUnit(options.cgroupFile);
 	if (
 		unit === undefined ||
 		!(await isUnitMain(unit, options.pid ?? process.pid, systemctl))
 	)
-		return () => undefined;
+		return undefined;
+	const definition = await unitDefinition(unit, systemctl);
+	return {
+		changed: async () => {
+			if (definition === undefined) return undefined;
+			const now = await unitDefinition(unit, systemctl);
+			if (now === undefined || now === definition) return undefined;
+			return `systemd has a new ${unit}, such as one naming a new pi`;
+		},
+		restart: async () => {
+			await systemctl(["--no-block", "restart", unit]);
+		},
+	};
+}
+
+/**
+ * Follow what this host would start, when systemd runs it as a unit's
+ * main process or launchd as a job, and restart once it differs and
+ * everything has settled. A host run any other way, by hand or by a
+ * test, follows nothing. Answers the function that stops following.
+ */
+export async function followWhatStarts(
+	options: Following,
+): Promise<() => void> {
+	const supervisor = await supervisorOf(options);
+	if (supervisor === undefined) return () => undefined;
 	const root = options.root ?? hostRoot();
 	const install = installOfVersion(root);
 	const link = install === undefined ? undefined : join(install, "current");
-	const [code, definition] = await Promise.all([
-		hostCodeOf(root),
-		unitDefinition(unit, systemctl),
-	]);
+	const code = await hostCodeOf(root);
 	// A version's code never changes under its name, so each is read once.
 	const codeOf = new Map<string, Promise<string>>();
 
@@ -742,13 +820,6 @@ export async function followWhatStarts(
 		}
 		if ((await next) === code) return undefined;
 		return `the install's ${basename(now).slice(0, 12)} changes the host's own code`;
-	}
-
-	async function unitChanged(): Promise<string | undefined> {
-		if (definition === undefined || unit === undefined) return undefined;
-		const now = await unitDefinition(unit, systemctl);
-		if (now === undefined || now === definition) return undefined;
-		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
 	const watched = options.heap ? undefined : liveHeap();
@@ -771,7 +842,7 @@ export async function followWhatStarts(
 	const unfollow = restartWhenSettled(
 		{
 			differs: async () => {
-				otherwise = (await installMoved()) ?? (await unitChanged());
+				otherwise = (await installMoved()) ?? (await supervisor.changed());
 				return otherwise ?? heapPastShare(heap());
 			},
 			held: () => options.serving.held(),
@@ -797,7 +868,10 @@ export async function followWhatStarts(
 				options.report(
 					`Restarting ${restartedUnder(under, settledMs)}, as ${as}`,
 				);
-				await systemctl(["--no-block", "restart", unit]);
+				await supervisor.restart();
+				// A host that exits to restart has parked by now, so it follows
+				// nothing more and arms no wait for systemd's start.
+				if (supervisor.exits) unfollow();
 			},
 			report: options.report,
 			now: Date.now,

@@ -50,7 +50,7 @@
  * something live here stands in one, or a pi runs the session here
  * again (KP0L6A [e034b3f1], [893e1f9f]).
  *
- * Each exits 2 when it was asked wrongly. `--help` says how to ask it,
+ * Each exits 64 when it was asked wrongly. `--help` says how to ask it,
  * on stdout, before any of the person's state is read.
  */
 

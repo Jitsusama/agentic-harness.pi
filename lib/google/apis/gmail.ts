@@ -3,7 +3,7 @@
  */
 
 import type { OAuth2Client } from "google-auth-library";
-import type { gmail_v1 } from "googleapis";
+import type { gmail_v1 } from "googleapis/build/src/apis/gmail";
 import type { EmailMessage, EmailMessageFull } from "../types.ts";
 import { google } from "./client.ts";
 
