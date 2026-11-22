@@ -35,7 +35,10 @@ import {
 	heldDirectly,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
-import { controlRequest } from "../../lib/mesh/host-control.ts";
+import {
+	controlRequest,
+	HostClientUnloaded,
+} from "../../lib/mesh/host-control.ts";
 import type { Moving } from "../../lib/mesh/moving.ts";
 import type { HandOver } from "./in-place.ts";
 
@@ -152,6 +155,9 @@ export async function moveIntoHost(
 	} catch (error) {
 		if (notListening(error))
 			return `No ${key} host is listening at ${socket}, so this session stays here.`;
+		// Nothing reached the host, so nothing says it is there.
+		if (error instanceof HostClientUnloaded)
+			return `This pi couldn't ask the ${key} host anything: ${messageOf(error)}. So this session stays here.`;
 		// Anything else, such as a host too busy to list in time, is a host
 		// that is there, and its adopt decides.
 	}

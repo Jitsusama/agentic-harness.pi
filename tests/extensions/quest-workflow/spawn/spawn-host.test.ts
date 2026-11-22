@@ -23,6 +23,7 @@ import {
 } from "../../../../lib/internal/fence/fence-stage.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 import { openRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
+import { HostClientUnloaded } from "../../../../lib/mesh/host-control.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard } from "../_helpers.ts";
@@ -794,6 +795,46 @@ describe("spawn into a host", () => {
 		if (result.ok) throw new Error("expected a refusal");
 		expect(result.guidance).toContain("is unknown");
 		expect(result.guidance).toContain("timed out");
+	});
+
+	it("says nothing was opened, not that the outcome is unknown, when the host's client didn't load", async () => {
+		const result = await spawnInHost(
+			{
+				kind: "background",
+				questId: "QEST-1",
+				cwd: tmpRoot,
+				chosenBy: "the folder the call named",
+				env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			},
+			async () => {
+				throw new HostClientUnloaded(new Error("Cannot find module 'zod'"));
+			},
+		);
+		expect(result).toMatchObject({ ok: false });
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.guidance).toContain(
+			"This pi couldn't ask the home-background host anything: the host's client didn't load (Cannot find module 'zod'). Nothing was sent, so nothing was opened.",
+		);
+		expect(result.guidance).not.toContain("is unknown");
+	});
+
+	it("opens in a terminal, saying why, when the host's client didn't load to ask", async () => {
+		const chosen = await hostBySetting(
+			{
+				setting: "background",
+				params: { action: "spawn" },
+				placedHere: true,
+				agent: async () => "pi",
+				env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			},
+			async () => {
+				throw new HostClientUnloaded(new Error("Cannot find module 'zod'"));
+			},
+		);
+		expect(chosen.kind).toBeUndefined();
+		expect(chosen.note).toContain(
+			"but this pi couldn't ask the home-background host anything (the host's client didn't load (Cannot find module 'zod')), so it opens in a terminal.",
+		);
 	});
 
 	it("sends a plain spawn to the host quest-workflow.spawnHost names, with no window", async () => {

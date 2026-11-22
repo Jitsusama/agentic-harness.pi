@@ -12,6 +12,13 @@
  * start: every static import from each extension's entry, leaving out
  * `import type` and `export type`, which load nothing, and dynamic
  * imports, which load when called.
+ *
+ * The walk follows the package's own files and stops at a bare
+ * specifier: the packages it reaches at start are pi's own, typebox,
+ * yaml and jsonpath-plus, none of which loads these. packs/ isn't loaded
+ * at start, since the package's manifest names only extensions/. A
+ * library loaded later is also missed by the load check, which loads
+ * only what start loads, so each must be a production dependency.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -76,7 +83,11 @@ function fileOf(from: string, specifier: string): string | undefined {
  * Each library in `wanted` an entry reaches at start, with the chain of
  * files that reaches it, shortest first, and the call that wants it.
  */
-function reached(entry: string, wanted: ReadonlyMap<string, string>): string[] {
+function reached(
+	entry: string,
+	wanted: ReadonlyMap<string, string>,
+	unresolved: string[] = [],
+): string[] {
 	const chains = new Map([[entry, [entry]]]);
 	const queue = [entry];
 	const found: string[] = [];
@@ -85,7 +96,11 @@ function reached(entry: string, wanted: ReadonlyMap<string, string>): string[] {
 		for (const specifier of loadsOf(file)) {
 			if (specifier.startsWith(".")) {
 				const next = fileOf(file, specifier);
-				if (next === undefined || chains.has(next)) continue;
+				if (next === undefined) {
+					unresolved.push(`${relative(ROOT, file)}: ${specifier}`);
+					continue;
+				}
+				if (chains.has(next)) continue;
 				chains.set(next, [...chain, next]);
 				queue.push(next);
 			} else {
@@ -104,13 +119,40 @@ function reached(entry: string, wanted: ReadonlyMap<string, string>): string[] {
 describe("what loads at start", () => {
 	it("leaves out each library only a rare call needs", () => {
 		const extensions = join(ROOT, "extensions");
-		const found = readdirSync(extensions)
+		const entries = readdirSync(extensions)
 			.map((name) => join(extensions, name, "index.ts"))
-			.filter((entry) => existsSync(entry))
-			.flatMap((entry) => reached(entry, ON_FIRST_USE));
+			.filter((entry) => existsSync(entry));
+		const unresolved: string[] = [];
+		const found = entries.flatMap((entry) =>
+			reached(entry, ON_FIRST_USE, unresolved),
+		);
+		expect(entries.length, "extension entries walked").toBeGreaterThan(40);
+		expect(unresolved, "relative imports the walk couldn't follow").toEqual([]);
 		expect(found, "chains from an extension to a first-use library").toEqual(
 			[],
 		);
+	});
+
+	it("sees each library from the module that loads it on first use", () => {
+		const seen = [
+			"host/service/client.ts",
+			"lib/core/lsp/standalone/server.ts",
+		].flatMap((module) => reached(join(ROOT, module), ON_FIRST_USE));
+		for (const library of ON_FIRST_USE.keys())
+			expect(
+				seen.some((chain) => chain.includes(` → ${library}`)),
+				library,
+			).toBe(true);
+	});
+
+	it("keeps each library loaded on first use among the production dependencies", () => {
+		const manifest = JSON.parse(
+			readFileSync(join(ROOT, "package.json"), "utf8"),
+		) as { dependencies?: Record<string, string> };
+		const missing = [...ON_FIRST_USE.keys()].filter(
+			(library) => manifest.dependencies?.[library] === undefined,
+		);
+		expect(missing, "libraries a production install would lack").toEqual([]);
 	});
 
 	it("counts value imports and re-exports, not types or later imports", () => {
@@ -124,7 +166,22 @@ describe("what loads at start", () => {
 			'const g = loadOnce(() => import("./g.ts"));',
 			'// import { h } from "./h.ts";',
 			'/** import { i } from "./i.ts"; */',
+			'export * from "./j.ts";',
+			'import * as k from "./k.ts";',
+			'import l, { m } from "./l.ts";',
+			'import { type N, type O } from "./n.ts";',
 		].join("\n");
-		expect(loads(source)).toEqual(["./a.ts", "./c.ts", "./d.ts", "./f.ts"]);
+		// An import naming only inline types still counts, to err on the side
+		// of a load.
+		expect(loads(source)).toEqual([
+			"./a.ts",
+			"./c.ts",
+			"./d.ts",
+			"./f.ts",
+			"./j.ts",
+			"./k.ts",
+			"./l.ts",
+			"./n.ts",
+		]);
 	});
 });

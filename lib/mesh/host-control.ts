@@ -8,6 +8,11 @@
  * close or release a conversation there. So the client and protocol
  * load the first time one of those asks, and every later ask reuses
  * them. A host loads them anyway, for its own side of the socket.
+ *
+ * A client that fails to load has sent nothing, which no socket error
+ * can say, so it fails as `HostClientUnloaded`: a caller that would read
+ * an unknown error as "a host is there" or "it may have landed" can
+ * tell it apart and refuse instead.
  */
 
 import { loadOnce } from "../internal/process/single-flight.ts";
@@ -21,6 +26,15 @@ export const hostProtocol = loadOnce(
 	() => import("../../host/service/protocol.ts"),
 );
 
+/** The host's client didn't load, so nothing was sent to any host. */
+export class HostClientUnloaded extends Error {
+	constructor(cause: unknown) {
+		const why = cause instanceof Error ? cause.message : String(cause);
+		super(`the host's client didn't load (${why})`, { cause });
+		this.name = "HostClientUnloaded";
+	}
+}
+
 /**
  * Send one control request to the host at `path` and read its reply,
  * as the host's own client does, loading that client on first use.
@@ -28,5 +42,11 @@ export const hostProtocol = loadOnce(
 export async function controlRequest(
 	...request: Parameters<Client["controlRequest"]>
 ): ReturnType<Client["controlRequest"]> {
-	return (await client()).controlRequest(...request);
+	let loaded: Client;
+	try {
+		loaded = await client();
+	} catch (error) {
+		throw new HostClientUnloaded(error);
+	}
+	return loaded.controlRequest(...request);
 }

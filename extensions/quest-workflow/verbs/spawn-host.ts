@@ -45,6 +45,7 @@ import {
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import {
 	controlRequest,
+	HostClientUnloaded,
 	hostProtocol,
 } from "../../../lib/mesh/host-control.ts";
 import { spawnHostSetting } from "../config.ts";
@@ -191,6 +192,11 @@ export async function hostBySetting(
 		if (neverSent(error)) {
 			return {
 				note: `${said}, but no ${key} host is listening at ${socket}, so it opens in a terminal.`,
+			};
+		}
+		if (error instanceof HostClientUnloaded) {
+			return {
+				note: `${said}, but this pi couldn't ask the ${key} host anything (${messageOf(error)}), so it opens in a terminal.`,
 			};
 		}
 		// Anything else, such as a host too busy to list in time, is a host
@@ -352,6 +358,11 @@ export async function spawnInHost(
 		if (neverSent(error)) {
 			return refuse(
 				`No ${key} host is listening at ${socket}, so nothing was opened.`,
+			);
+		}
+		if (error instanceof HostClientUnloaded) {
+			return refuse(
+				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
 			);
 		}
 		return refuse(unknownOutcome(key, messageOf(error)));
