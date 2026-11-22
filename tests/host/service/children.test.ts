@@ -296,6 +296,37 @@ describe("a host with conversations in children", () => {
 		]);
 		expect(asked).toEqual([]);
 	});
+	it("ends a child's conversation asked under the child's name, as the child lists it", async () => {
+		// The machine's host registry, and so a mesh presence, names the
+		// child's process for a conversation a child runs.
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: a } });
+		expect(childAsked).toEqual([
+			expect.objectContaining({ op: "close", expectedHost: child }),
+		]);
+	});
+	it("refuses a child's name for a conversation that child doesn't run", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: b,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(asked).toEqual([]);
+	});
 	it("answers what is asked after a child's answer itself, on the same connection", async () => {
 		const caller = createConnection(hostPath);
 		const seen = messages(caller);

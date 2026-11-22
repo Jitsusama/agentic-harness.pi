@@ -442,10 +442,13 @@ export async function listenControl(options: {
 			request: ControlRequest,
 			route: ChildRoute,
 		): Promise<PassedOn | undefined> {
-			// The caller named this host, so this host checks it.
+			// The caller named this host, or the child, as the machine's host
+			// registry and so a mesh presence name a child's conversation; this
+			// host checks either against the whole process identity.
 			if (
 				request.expectedHost &&
-				!sameHost(request.expectedHost, backend.identity)
+				!sameHost(request.expectedHost, backend.identity) &&
+				!sameHost(request.expectedHost, route.identity)
 			) {
 				send(staleHost(request.id));
 				return;
