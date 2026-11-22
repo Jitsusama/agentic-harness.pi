@@ -145,6 +145,8 @@ export interface HostRunOptions {
 	engine: (host: SessionHost) => Promise<ConversationEngine>;
 	/** The screens viewers attach to; without one, attach is refused. */
 	viewer?: (host: SessionHost) => ViewerBridge;
+	/** Whether a window views a conversation now, as the screens say. */
+	viewed?: (sessionId: string) => boolean;
 	/** What a second conversation must pass; serve's rollout gate by default. */
 	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
@@ -411,6 +413,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			kind,
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
+			...(options.viewed ? { viewed: options.viewed } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
 			...(child ? childPlaces(child.slot, child.life) : {}),
 			// A child shares its supervisor's key, so that key's policy would

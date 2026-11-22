@@ -296,6 +296,11 @@ export class ViewerTerminal implements Terminal {
 		};
 	}
 
+	/** Whether any viewer has it on a screen now. */
+	isViewed(): boolean {
+		return this.viewers.size > 0;
+	}
+
 	/** Whether a viewer is editing a draft in its own editor now. */
 	isEditing(): boolean {
 		return [...this.viewers].some((viewer) => viewer.editing !== undefined);
