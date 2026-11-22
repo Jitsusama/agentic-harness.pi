@@ -14,10 +14,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { forgetTreeBroker } from "../../../extensions/work-integration/broker.ts";
 import workIntegration from "../../../extensions/work-integration/index.ts";
-import {
-	landedLines,
-	settlingLines,
-} from "../../../extensions/work-integration/tools/settling.ts";
+import { settlingLines } from "../../../extensions/work-integration/tools/settling.ts";
 import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
@@ -62,17 +59,16 @@ describe("the lines a replay's settling is said in", () => {
 
 	it("says nothing when nothing was settled", () => {
 		expect(settlingLines()).toEqual([]);
-		expect(landedLines()).toEqual([]);
 	});
 
-	it("says where a halted commit landed and how to drop it", () => {
-		const said = landedLines({
-			landed: { commit: "abc1234", as: "def5678", paths: ["HISTORY.md"] },
+	it("names a commit that had landed, where, and which side was kept", () => {
+		const said = settlingLines({
+			landed: [{ commit: "abc1234", as: "def5678", paths: ["HISTORY.md"] }],
 		}).join("\n");
 
-		expect(said).toContain("abc1234 already landed on the base as def5678");
-		expect(said).toContain("HISTORY.md changed there since");
-		expect(said).toContain("Take the base's side and resume");
+		expect(said).toContain(
+			"HISTORY.md: abc1234 had already landed as def5678, so the base's side was kept",
+		);
 	});
 });
 
@@ -190,7 +186,7 @@ describe("a rebase through a log both sides appended to", () => {
 });
 
 describe("a rebase through a log entry that landed and was edited since", () => {
-	it("halts with both wordings left for judgement, and says where it landed", async () => {
+	it("keeps the edited wording alone, and says where the entry landed", async () => {
 		const base = "# History\n\n## 1. First\n\nOne.\n";
 		await commit("HISTORY.md", base, "docs: start the history");
 		await git(repo, "checkout", "-qb", "topic");
@@ -219,9 +215,12 @@ describe("a rebase through a log entry that landed and was edited since", () => 
 		});
 		const said = answer.content[0]?.text ?? "";
 
-		expect(said).toContain("Replay halted");
-		expect(said).toContain(`already landed on the base as ${landed}`);
+		expect(answer).toMatchObject({ details: { ok: true } });
+		expect(said).toContain(`had already landed as ${landed}`);
 		expect(said).not.toContain("both sides only added");
+		expect(await git(repo, "show", "HEAD:HISTORY.md")).toBe(
+			"# History\n\n## 1. First\n\nOne.\n\n## 2. Mine\n\nTwo, edited.",
+		);
 	}, 20_000);
 });
 

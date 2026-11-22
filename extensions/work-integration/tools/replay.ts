@@ -13,7 +13,7 @@ import {
 } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { GLYPH } from "../render.ts";
-import { landedLines, settlingLines } from "./settling.ts";
+import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
 /**
@@ -162,11 +162,9 @@ function haltLines(
 			? ["   nothing is unmerged, so something else stopped it"]
 			: conflicted.map((path) => `   ${GLYPH.dirty} ${path}`);
 	const before = settlingLines(settling);
-	const landed = landedLines(settling);
 	return [
 		`${GLYPH.refused} ${head}`,
 		...paths,
-		...(landed.length > 0 ? ["", ...landed] : []),
 		...(before.length > 0 ? ["", "Settled on the way:", ...before] : []),
 		"",
 		"Settle these, then resume: a text file edited clean of its markers is staged by the resume itself. Or abandon, and the tree goes back to where it started.",

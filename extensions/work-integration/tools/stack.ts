@@ -18,7 +18,7 @@ import type {
 	WorkStacks,
 } from "../../../lib/core/work/stacks.ts";
 import { GLYPH } from "../render.ts";
-import { landedLines, settlingLines } from "./settling.ts";
+import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
 /** How far in a branch sits, so the shape is visible at a glance. */
@@ -100,9 +100,7 @@ function replayLine(result: ReplayResult): string {
 function replayLines(result: ReplayResult): string[] {
 	return [
 		replayLine(result),
-		...[...landedLines(result), ...settlingLines(result)].map((line) =>
-			line === "" ? line : `   ${line}`,
-		),
+		...settlingLines(result).map((line) => (line === "" ? line : `   ${line}`)),
 	];
 }
 

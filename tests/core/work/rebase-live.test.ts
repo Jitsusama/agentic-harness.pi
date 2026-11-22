@@ -66,6 +66,19 @@ async function topicWithOneLanded(path: string, text: string) {
 	await git(repo, "cherry-pick", "topic");
 }
 
+/**
+ * What a replay of topic's tip should say landed: the commit and the one
+ * the base carries it as, read with the base checked out after the landing
+ * and anything committed on top of it.
+ */
+async function landing() {
+	const as = (
+		await git(repo, "log", "--format=%h", "--grep=^carried$", "-1", "base")
+	).trim();
+	const commit = (await git(repo, "rev-parse", "--short", "topic")).trim();
+	return { commit, as, paths: ["log.md"] };
+}
+
 describe("a branch with no commits of its own", () => {
 	it("moves up to a base that moved on", async () => {
 		await git(repo, "checkout", "-q", "-b", "topic");
@@ -123,13 +136,13 @@ describe("a commit its base already carries", () => {
 		expect(await above()).toEqual(["marker", "carried"]);
 	});
 
-	it("halts unsettled, saying where it landed, when the base has since edited its Markdown", async () => {
+	it("keeps the base's side, saying where it landed, when the base has since edited its Markdown", async () => {
 		// Both wordings read as additions over the commit's parent, so the
 		// append settler would keep the old beside the new.
 		await seedLog();
 		await topicWithOneLanded("log.md", "# Log\n\n## 1. First\n\nOne.\n");
 		await commit("log.md", "# Log\n\n## 1. First\n\nOne, edited.\n", "edit");
-		const landedAs = (await git(repo, "rev-parse", "--short", "HEAD~1")).trim();
+		const landed = await landing();
 		await git(repo, "checkout", "-q", "topic");
 
 		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
@@ -137,13 +150,68 @@ describe("a commit its base already carries", () => {
 			"base",
 		);
 
-		expect(outcome).toMatchObject({
-			kind: "halted",
-			conflicted: ["log.md"],
-			landed: { as: landedAs, paths: ["log.md"] },
-		});
+		expect(outcome).toMatchObject({ kind: "replayed", landed: [landed] });
 		expect(outcome).not.toHaveProperty("settled");
-		expect(readFileSync(join(repo, "log.md"), "utf8")).toContain("<<<<<<<");
+		expect(await above()).toEqual(["marker"]);
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			"# Log\n\n## 1. First\n\nOne, edited.\n",
+		);
+	});
+
+	it("keeps the base's side when the base has only appended since it landed", async () => {
+		// The usual shape in a busy log, where settling both sides as additions
+		// would bring the landed entry back a second time.
+		await seedLog();
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		await topicWithOneLanded("log.md", entry);
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		const landed = await landing();
+		await git(repo, "checkout", "-q", "topic");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome).toMatchObject({ kind: "replayed", landed: [landed] });
+		expect(await above()).toEqual(["marker"]);
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			`${entry}\n## 2. Later\n\nTwo.\n`,
+		);
+	});
+
+	it("keeps the base's side for a landed commit a resume reaches", async () => {
+		// The first commit halts on a conflict only a person can settle; the
+		// landed one comes up on the resume's own round.
+		await seedLog();
+		await commit("plain.txt", "start\n", "plain");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "rebase", "-q", "main");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("plain.txt", "mine\n", "plain mine");
+		const entry = "# Log\n\n## 1. First\n\nOne.\n";
+		await commit("log.md", entry, "carried");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "topic");
+		await commit("log.md", `${entry}\n## 2. Later\n\nTwo.\n`, "later");
+		await commit("plain.txt", "theirs\n", "plain theirs");
+		await git(repo, "checkout", "-q", "topic");
+		const rebaser = createGitRebaser({ exec: spawnExec() });
+
+		const halted = await rebaser.rebase(repo, "base");
+		writeFileSync(join(repo, "plain.txt"), "both\n");
+		const resumed = await rebaser.resume(repo);
+
+		expect(halted).toMatchObject({ kind: "halted", conflicted: ["plain.txt"] });
+		expect(resumed).toMatchObject({
+			kind: "replayed",
+			landed: [{ paths: ["log.md"] }],
+		});
+		expect(await above()).toEqual(["plain mine"]);
+		expect(readFileSync(join(repo, "log.md"), "utf8")).toBe(
+			`${entry}\n## 2. Later\n\nTwo.\n`,
+		);
 	});
 
 	it("still settles Markdown both sides only added to when it never landed", async () => {

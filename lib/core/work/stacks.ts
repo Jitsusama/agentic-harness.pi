@@ -72,8 +72,8 @@ export interface ReplayResult {
 	recited?: readonly string[];
 	/** Lines the branch added still citing a number one of its entries moved off. */
 	stale?: readonly StaleCitation[];
-	/** A halt left unsettled because its commit already landed on the base. */
-	landed?: Landed;
+	/** Commits that had already landed, whose Markdown kept the parent's side. */
+	landed?: readonly Landed[];
 }
 
 /** How a restack went. */

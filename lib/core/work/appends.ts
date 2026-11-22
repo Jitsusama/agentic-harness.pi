@@ -468,6 +468,28 @@ async function unmerged(
 	return { every: new Set(stages.keys()), marked };
 }
 
+/** Whether a path names a Markdown file, the only kind settled by itself. */
+function isMarkdown(path: string): boolean {
+	return /\.md$/i.test(path);
+}
+
+/**
+ * The conflicted Markdown files a halt's settling would consider, from the
+ * top of the tree: all three stages, with git's markers still in the working
+ * copy. Empty when git will not say.
+ */
+export async function markedMarkdown(
+	exec: Exec,
+	treePath: string,
+): Promise<string[]> {
+	const top = (
+		await git(exec, treePath, ["rev-parse", "--show-toplevel"])
+	)?.trim();
+	if (!top) return [];
+	const open = await unmerged(exec, treePath, top);
+	return open?.marked.filter(isMarkdown) ?? [];
+}
+
 /**
  * Settle every conflicted Markdown file in a halted replay whose conflicts
  * are all additions on both sides, staging each one, and rewrite the halted
@@ -519,7 +541,7 @@ export async function settleAdditions(
 		hunks: number;
 		moves: Move[];
 	}[] = [];
-	for (const path of open.marked.filter((one) => /\.md$/i.test(one))) {
+	for (const path of open.marked.filter(isMarkdown)) {
 		// zdiff3 moves lines both sides share out of each conflict, so a pure
 		// addition reads as one with an empty base.
 		const pieces = await merge(path, "--zdiff3");

@@ -8,26 +8,23 @@
  * names each file and every number moved, so nothing changed unseen. Lines
  * the branch's other commits added that still cite a moved number cannot be
  * rewritten mid-replay, so those are named as the one thing left to do.
- * A halt on a commit that already landed is left as it is, and says where.
+ * A commit that had already landed keeps the base's side of its Markdown,
+ * and the answer says where it landed, so a dropped change is never unseen.
  */
 
 import type { Settling } from "../../../lib/core/work/rebase.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 
-/** Lines saying why a halt was left unsettled, when its commit already landed. */
-export function landedLines(said: Settling = {}): string[] {
-	const { landed } = said;
-	if (!landed) return [];
-	return [
-		`   ${GLYPH.dirty} ${landed.commit} already landed on the base as ${landed.as}, and ${landed.paths.join(", ")} changed there since, so keeping both sides would bring its old text back. Take the base's side and resume, and the commit drops as empty.`,
-	];
-}
-
 /** Lines saying what a replay settled and what still cites a moved number. */
 export function settlingLines(said: Settling = {}): string[] {
-	const { settled = [], recited = [], stale = [] } = said;
+	const { settled = [], recited = [], stale = [], landed = [] } = said;
 	const lines: string[] = [];
+	for (const one of landed) {
+		lines.push(
+			`   ${GLYPH.clean} ${one.paths.join(", ")}: ${one.commit} had already landed as ${one.as}, so the base's side was kept, with whatever the base changed since.`,
+		);
+	}
 	for (const file of settled) {
 		lines.push(
 			`   ${GLYPH.clean} ${file.path}: both sides only added, at ${count(file.hunks, "place")}, so both were kept, what had landed first.`,

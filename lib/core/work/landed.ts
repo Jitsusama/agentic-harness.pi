@@ -12,8 +12,14 @@
  *
  * So before settling, a halt asks whether the commit's change to the files in
  * conflict is one the base gained since the branch left it. Only commits that
- * touched those files are read, and only their change to them, which is what
- * keeps this from the walk of every commit the flag exists to skip.
+ * touched those files are read, and only their change to them, in one git
+ * process, which is what keeps this from the walk of every commit the flag
+ * exists to skip.
+ *
+ * The match is exact, as git's patch id is, so a landing that changed on the
+ * way in (squashed with others, or renumbered) is not found, and the settler
+ * keeps both sides, as it did before the flag, when git's own search missed
+ * those too.
  */
 
 import type { Exec } from "../exec/index.ts";
@@ -30,11 +36,26 @@ export interface Landed {
 }
 
 /**
- * How many of the base's commits touching the files in conflict are read:
- * far past what a log gains while a branch is open, and a bound on the reads
- * should one have gained thousands.
+ * How many of the base's commits touching the files in conflict are read,
+ * newest first: far past what a log gains while a branch is open, and a bound
+ * on the patches read should one have gained thousands. A landing older than
+ * that is not found, and is settled as before.
  */
 const LOOK_BACK = 500;
+
+/** What reads a commit's change to some files, the same way for every commit. */
+const PATCH = [
+	"-c",
+	"core.quotepath=off",
+	"log",
+	"--no-merges",
+	"--format=%x00%h",
+	"-p",
+	"-U0",
+	"--no-color",
+	"--no-ext-diff",
+	"--no-renames",
+];
 
 /**
  * The commit on `onto` that carries the halted commit's change to `paths`,
@@ -57,74 +78,52 @@ export async function landedAs(
 	if (halted === undefined) return undefined;
 	const fork = await ask(exec, treePath, ["merge-base", onto, halted]);
 	if (fork === undefined) return undefined;
-	const mine = await changeTo(exec, treePath, halted, paths);
-	if (mine === undefined) return undefined;
+	const pathspecs = ["--", ...paths.map(literal)];
 
-	const since = await ask(exec, treePath, [
-		"rev-list",
-		"--no-merges",
-		`--max-count=${LOOK_BACK}`,
-		onto,
-		`^${fork}`,
-		"--",
-		...paths.map(literal),
-	]);
-	for (const commit of since?.split("\n") ?? []) {
-		if ((await changeTo(exec, treePath, commit, paths)) !== mine) continue;
-		return {
-			commit: await short(exec, treePath, halted),
-			as: await short(exec, treePath, commit),
-			paths,
-		};
-	}
-	return undefined;
+	const [mine] = patchesIn(
+		await ask(exec, treePath, [...PATCH, "-1", halted, ...pathspecs]),
+	);
+	if (mine === undefined || mine.change === "") return undefined;
+	const since = patchesIn(
+		await ask(exec, treePath, [
+			...PATCH,
+			`--max-count=${LOOK_BACK}`,
+			onto,
+			`^${fork}`,
+			...pathspecs,
+		]),
+	);
+	const landing = since.find((one) => one.change === mine.change);
+	if (landing === undefined) return undefined;
+	return { commit: mine.commit, as: landing.commit, paths };
 }
 
 /**
- * What `commit` changed in `paths`, without the line numbers or blob ids a
- * cherry-pick changes, as git's patch id leaves them out. Nothing when it
- * changed none of them.
+ * Each commit `git log` printed with `PATCH`, newest first, with its change
+ * kept only as far as a cherry-pick leaves it alone: not the line numbers or
+ * blob ids, as git's patch id leaves them out.
  */
-async function changeTo(
-	exec: Exec,
-	treePath: string,
-	commit: string,
-	paths: readonly string[],
-): Promise<string | undefined> {
-	const said = await ask(exec, treePath, [
-		"-c",
-		"core.quotepath=off",
-		"diff-tree",
-		"-p",
-		"-U0",
-		"--root",
-		"--no-color",
-		"--no-ext-diff",
-		"--no-renames",
-		"--no-commit-id",
-		commit,
-		"--",
-		...paths.map(literal),
-	]);
-	if (said === undefined) return undefined;
-	const kept = said
-		.split("\n")
-		.filter((line) => !line.startsWith("@@") && !line.startsWith("index "));
-	return kept.join("\n");
+function patchesIn(
+	said: string | undefined,
+): { commit: string; change: string }[] {
+	if (said === undefined) return [];
+	return said
+		.split("\0")
+		.filter((chunk) => chunk.trim() !== "")
+		.map((chunk) => {
+			const [commit = "", ...lines] = chunk.split("\n");
+			const from = lines.findIndex((line) => line.startsWith("diff --git "));
+			const change = (from < 0 ? [] : lines.slice(from))
+				.filter(
+					(line) =>
+						line !== "" && !line.startsWith("@@") && !line.startsWith("index "),
+				)
+				.join("\n");
+			return { commit: commit.trim(), change };
+		});
 }
 
 /** A path from the top of the tree, read as written. */
 function literal(path: string): string {
 	return `:(top,literal)${path}`;
-}
-
-/** The commit's abbreviated name, or its full one when git won't shorten it. */
-async function short(
-	exec: Exec,
-	treePath: string,
-	commit: string,
-): Promise<string> {
-	return (
-		(await ask(exec, treePath, ["rev-parse", "--short", commit])) ?? commit
-	);
 }
