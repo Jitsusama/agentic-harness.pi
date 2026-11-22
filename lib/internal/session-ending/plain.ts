@@ -105,17 +105,7 @@ export function plainlySaid(texts: readonly string[]): boolean {
  * that a backtick was left unpaired. Nothing where all is plain.
  */
 export function notPlainIn(texts: readonly string[]): string | undefined {
-	for (const text of texts) {
-		const said = folded(text);
-		const fence = said
-			.split("\n")
-			.find((line) => FENCE_MARK.test(line) && !FENCE_LINE.test(line));
-		if (fence !== undefined) return fence.trim();
-		for (const part of parts(said)) {
-			const offence = notPlainPart(part);
-			if (offence !== undefined) return offence;
-		}
-	}
+	for (const offence of notPlainEach(texts)) return offence;
 	return undefined;
 }
 
@@ -124,42 +114,58 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
  * shown that isn't plain and holds a command word, or a command word in
  * prose. Nothing where it names none, a file name in code included.
  */
-export function commandNamedIn(_texts: readonly string[]): string | undefined {
+export function commandNamedIn(texts: readonly string[]): string | undefined {
+	for (const offence of notPlainEach(texts))
+		if (COMMAND_WORD.test(offence)) return offence;
 	return undefined;
 }
 
 /**
- * What first stops one part of a text, prose or fenced, being plain.
- * Every fence is read line by line, a markdown one too, since it is
- * drawn as code whatever its language.
+ * Each thing that stops `texts` being plainly said, in the order a
+ * reader meets them: in each text, a fence line out of shape, then each
+ * part's commands and words.
  */
-function notPlainPart(part: Part): string | undefined {
+function* notPlainEach(texts: readonly string[]): Generator<string> {
+	for (const text of texts) {
+		const said = folded(text);
+		for (const line of said.split("\n"))
+			if (FENCE_MARK.test(line) && !FENCE_LINE.test(line)) yield line.trim();
+		for (const part of parts(said)) yield* notPlainPart(part);
+	}
+}
+
+/**
+ * What stops one part of a text, prose or fenced, being plain, each in
+ * turn. Every fence is read line by line, a markdown one too, since it
+ * is drawn as code whatever its language.
+ */
+function* notPlainPart(part: Part): Generator<string> {
 	if (part.fenced || !part.prose || part.commands !== "none") {
 		const comments = part.commands === "every";
 		for (const line of part.lines.filter((one) => !BLANK.test(one))) {
-			if (comments && COMMENT.test(line)) {
-				const offence = notPlainPart(proseOf(line.replace(COMMENT, "")));
-				if (offence !== undefined) return offence;
-			} else if (!plainCommand(line)) return line.trim();
+			if (comments && COMMENT.test(line))
+				yield* notPlainPart(proseOf(line.replace(COMMENT, "")));
+			else if (!plainCommand(line)) yield line.trim();
 		}
-		return undefined;
+		return;
 	}
 	const written = part.lines.join("\n");
 	const shownLines = part.lines.filter((line) => SHOWN_LINE.test(line));
-	const shown = [
+	for (const shown of [
 		...codeSpans(written),
 		...spansToRun(written),
 		...shownLines,
-	].find((one) => !plainCommand(one));
-	if (shown !== undefined) return shown.trim();
-	// What was shown is plain, so its own words, cut where they sit, are
-	// no command in prose; the same words written bare still are.
+	])
+		if (!plainCommand(shown)) yield shown.trim();
+	// What was shown is no command in prose, so its own words, cut where
+	// they sit, are left out; the same words written bare still count.
 	const rest = withoutSpansToRun(
 		part.lines.filter((line) => !SHOWN_LINE.test(line)).join("\n"),
 	).replace(CODE_SPAN, " ");
 	// A backtick left unpaired may open code a renderer shows, unchecked.
-	if (rest.includes("`")) return UNPAIRED;
-	return COMMAND_WORD.exec(rest)?.[0];
+	if (rest.includes("`")) yield UNPAIRED;
+	const word = COMMAND_WORD.exec(rest)?.[0];
+	if (word !== undefined) yield word;
 }
 
 /** One line read as prose, as a comment's words are. */

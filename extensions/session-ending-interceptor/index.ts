@@ -52,6 +52,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
+import type { Refusal } from "../../lib/internal/session-ending/judge.ts";
 import {
 	logOutSpares,
 	parkedHere,
@@ -66,6 +67,7 @@ import {
 	realmNamed,
 } from "../../lib/mesh/node.ts";
 import {
+	refusalAfterASpare,
 	refusalFor,
 	type Said,
 	type SessionEndingDeps,
@@ -97,6 +99,35 @@ const WITHHELD_TOLD =
 /** What stands in its place when it isn't: stopped, or told already. */
 const WITHHELD =
 	"(Withheld: this asked the person to end a machine's sessions.)";
+
+/**
+ * How a withheld reply is described: what the guard calls it, what
+ * stands in its place, told or not, and what the model is asked for
+ * instead.
+ */
+interface Withholding {
+	readonly label: string;
+	readonly told: string;
+	readonly silent: string;
+	readonly instead: string;
+}
+
+/** A reply withheld for asking to end a machine's sessions. */
+const ASKED: Withholding = {
+	label: "A reply asking to end a machine's sessions",
+	told: WITHHELD_TOLD,
+	silent: WITHHELD,
+	instead: "Say what you meant without the ask.",
+};
+
+/** A reply withheld for naming a command after a spare stood. */
+const AFTER_A_SPARE: Withholding = {
+	label: "A reply naming a command after an ask to end sessions went through",
+	told: "(Withheld: this named a command after an ask to end a machine's sessions went through. The reason follows.)",
+	silent:
+		"(Withheld: this named a command after an ask to end a machine's sessions went through.)",
+	instead: "Say what you meant without the command.",
+};
 
 /**
  * How a redirected reply's refusal says it may go through: the model no
@@ -146,6 +177,62 @@ interface Told {
  */
 interface Beside {
 	texts: readonly string[];
+	/** The asks a spare let through whose answer may yet come, by call. */
+	readonly sparedAsks: Set<string>;
+	/**
+	 * Whether a spare let through what no answer comes back to: a reply,
+	 * a look, or a wait, whose result says only that it was recorded.
+	 */
+	sparedUnanswered: boolean;
+}
+
+/** Whether a spare let an ask through in this run that still stands. */
+function spareStands(beside: Beside): boolean {
+	return beside.sparedUnanswered || beside.sparedAsks.size > 0;
+}
+
+/**
+ * `traced`, noting in `beside` each spare it is told of: by its call
+ * when that call is an ask, whose answer is the person's word on it.
+ */
+function notingSpares(
+	beside: Beside,
+	traced: (trace: SpareTrace) => void,
+	call?: { readonly toolName: string; readonly toolCallId: string },
+): (trace: SpareTrace) => void {
+	return (trace) => {
+		if (trace.outcome === "spared") {
+			if (call?.toolName === "ask") beside.sparedAsks.add(call.toolCallId);
+			else beside.sparedUnanswered = true;
+		}
+		traced(trace);
+	};
+}
+
+/**
+ * Why `said` may not go to the person: as `refusalFor` says, or, after a
+ * spare stood in the run, for naming a command its sessions might not
+ * outlive. `call` is the call saying it, when one does.
+ */
+async function refusalOfSaid(
+	said: Said,
+	ctx: ExtensionContext,
+	deps: SessionEndingDeps,
+	traced: (trace: SpareTrace) => void,
+	beside: Beside,
+	call?: { readonly toolName: string; readonly toolCallId: string },
+): Promise<{ refusal: Refusal; afterASpare: boolean } | undefined> {
+	const refusal = await refusalFor(
+		said,
+		selfOf(ctx),
+		deps,
+		notingSpares(beside, traced, call),
+		beside.texts,
+	);
+	if (refusal) return { refusal, afterASpare: false };
+	if (!spareStands(beside)) return undefined;
+	const after = refusalAfterASpare(said, traced);
+	return after ? { refusal: after, afterASpare: true } : undefined;
 }
 
 /** How many withheld replies in a run the model is told of. */
@@ -166,10 +253,14 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
 		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
-		const beside: Beside = { texts: [] };
+		const beside: Beside = {
+			texts: [],
+			sparedAsks: new Set(),
+			sparedUnanswered: false,
+		};
 		const traced = (trace: SpareTrace) => pi.appendEntry(SPARE_ENTRY, trace);
 		pi.on("tool_call", (event, ctx) =>
-			refuseCall(event.toolName, event.input, ctx, deps, traced, beside.texts),
+			refuseCall(event, ctx, deps, traced, beside),
 		);
 		pi.on("input", (event) => {
 			forgetOnThePersonsWord(beside, event.source);
@@ -291,29 +382,35 @@ async function everyRealmsSessions(
 export default sessionEndingInterceptor(nodeDeps());
 
 async function refuseCall(
-	toolName: string,
-	input: unknown,
+	call: {
+		readonly toolName: string;
+		readonly toolCallId: string;
+		readonly input: unknown;
+	},
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
 	traced: (trace: SpareTrace) => void,
-	beside: readonly string[],
+	beside: Beside,
 ) {
-	const read = readerOf(toolName);
+	const read = readerOf(call.toolName);
 	if (!read) return undefined;
-	const refusal = await refusalFor(
-		read(input),
-		selfOf(ctx),
+	const refused = await refusalOfSaid(
+		read(call.input),
+		ctx,
 		deps,
 		traced,
 		beside,
+		call,
 	);
-	if (!refusal) return undefined;
+	if (!refused) return undefined;
 	return refusalUnder(
 		GUARD.name,
-		{ block: true, reason: refusal.reason },
-		"An ask to end a machine's sessions",
-		JSON.stringify(input),
-		refusal.key,
+		{ block: true, reason: refused.refusal.reason },
+		refused.afterASpare
+			? "A command named after an ask to end sessions went through"
+			: "An ask to end a machine's sessions",
+		JSON.stringify(call.input),
+		refused.refusal.key,
 	);
 }
 
@@ -361,14 +458,10 @@ async function withholdReply<M extends { role: string }>(
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
-	const refusal = await refusalFor(
-		said,
-		selfOf(ctx),
-		deps,
-		traced,
-		beside.texts,
-	);
-	if (!refusal) return undefined;
+	const refused = await refusalOfSaid(said, ctx, deps, traced, beside);
+	if (!refused) return undefined;
+	const { refusal } = refused;
+	const as = refused.afterASpare ? AFTER_A_SPARE : ASKED;
 	const stopped =
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
@@ -377,11 +470,11 @@ async function withholdReply<M extends { role: string }>(
 	const silent =
 		(stopped && mode !== "off") ||
 		(!telling && !told.keys.has(refusal.key) && mode === "redirect");
-	if (silent) return replaced(pi, message, WITHHELD);
+	if (silent) return replaced(pi, message, as.silent);
 	const verdict = refusalUnder(
 		GUARD.name,
 		{ block: true, reason: refusal.reason },
-		"A reply asking to end a machine's sessions",
+		as.label,
 		undefined,
 		`${refusal.key}@${told.run}`,
 	);
@@ -393,13 +486,13 @@ async function withholdReply<M extends { role: string }>(
 		pi.sendMessage(
 			{
 				customType: WITHHELD_MESSAGE,
-				content: `Your last reply was withheld from the person. ${reason} Say what you meant without the ask.`,
+				content: `Your last reply was withheld from the person. ${reason} ${as.instead}`,
 				display: true,
 			},
 			{ deliverAs: "followUp" },
 		);
 	}
-	return replaced(pi, message, telling ? WITHHELD_TOLD : WITHHELD);
+	return replaced(pi, message, telling ? as.told : as.silent);
 }
 
 /**

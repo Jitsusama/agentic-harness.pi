@@ -23,7 +23,10 @@ import {
 	type Spared,
 	sparedBy,
 } from "../../lib/internal/session-ending/judge.ts";
-import { notPlainIn } from "../../lib/internal/session-ending/plain.ts";
+import {
+	commandNamedIn,
+	notPlainIn,
+} from "../../lib/internal/session-ending/plain.ts";
 import type { NodeSession } from "../../lib/mesh/node.ts";
 
 /** Where the interceptor reads the node and names this machine. */
@@ -71,7 +74,8 @@ interface AskTraced {
 /**
  * What a spare did with an ask that would otherwise be refused: let it
  * past these sessions, or stand on nothing, its read having failed or
- * a command shown not being plain.
+ * a command shown not being plain; or what was held after one stood,
+ * for naming a command its sessions might not outlive.
  */
 export type SpareTrace =
 	| {
@@ -89,6 +93,11 @@ export type SpareTrace =
 			readonly asks: readonly AskTraced[];
 			/** What wasn't plain: a command, a fence line or a word. */
 			readonly shown: string;
+	  }
+	| {
+			readonly outcome: "after a spare";
+			/** The command, or the word naming one, that was held. */
+			readonly shown: string;
 	  };
 
 /** Said in a refusal when what spares sessions couldn't be read. */
@@ -97,16 +106,48 @@ const unreadBecause = (why: string) => `None here was spared: ${why}.`;
 /** How much of what wasn't plain a refusal quotes. */
 const SHOWN_AT_MOST = 60;
 
+/** What a refusal quotes of `shown`: one line, cut short. */
+const quotedShown = (shown: string) => {
+	const line = shown.replace(/\s+/g, " ").trim();
+	return line.length > SHOWN_AT_MOST
+		? `${line.slice(0, SHOWN_AT_MOST)}...`
+		: line;
+};
+
 /**
  * Said in a refusal when what it shows isn't on the plain list, quoting
- * what wasn't on one line, cut short.
+ * what wasn't.
  */
-const notPlainBecause = (shown: string) => {
-	const line = shown.replace(/\s+/g, " ").trim();
-	const quoted =
-		line.length > SHOWN_AT_MOST ? `${line.slice(0, SHOWN_AT_MOST)}...` : line;
-	return `It shows or names a command that isn't a plain reboot, shut-down or log-out ("${quoted}"), so none was spared.`;
-};
+const notPlainBecause = (shown: string) =>
+	`It shows or names a command that isn't a plain reboot, shut-down or log-out ("${quotedShown(shown)}"), so none was spared.`;
+
+/**
+ * Why what follows a spare is held, quoting the command it names: the
+ * sessions the spare let an ask past outlive only a plain reboot,
+ * shut-down or log-out.
+ */
+const afterASpareBecause = (shown: string) =>
+	`An ask to end a machine's sessions was let through earlier in this run, past sessions only a plain reboot, shut-down or log-out spares, and this shows or names a command that isn't one ("${quotedShown(shown)}"), which could end them anyway.`;
+
+/**
+ * Why what is said after a spare stood in the run may not go to the
+ * person, or nothing when it may: held only where its words name a
+ * command that isn't a plain reboot, shut-down or log-out, so a file
+ * named in code, or the spared ask said again, still goes. What it
+ * held is traced.
+ */
+export function refusalAfterASpare(
+	said: Said,
+	traced: (trace: SpareTrace) => void = () => {},
+): Refusal | undefined {
+	const shown = commandNamedIn([...said.prose, ...said.labels]);
+	if (shown === undefined) return undefined;
+	traced({ outcome: "after a spare", shown });
+	return {
+		reason: afterASpareBecause(shown),
+		key: `after a spare: ${quotedShown(shown)}`,
+	};
+}
 
 /**
  * What a call or reply says to the person: prose, read for the form of
