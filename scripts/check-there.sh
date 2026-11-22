@@ -114,11 +114,12 @@ gone_within() {
   done
 }
 # Ends the groups named: a TERM, `stop_wait_s` seconds for them to go,
-# then a KILL to what is left.
+# then a KILL to what is left. Its return says 0 outright: in a trap, a
+# bare one says what the command the trap landed in ended with.
 end_groups() {
   local group
   for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
-  gone_within "${stop_wait_s:-10}" "$@" && return
+  gone_within "${stop_wait_s:-10}" "$@" && return 0
   for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
   gone_within 5 "$@" || true
 }
