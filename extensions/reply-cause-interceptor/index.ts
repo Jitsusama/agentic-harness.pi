@@ -31,7 +31,11 @@ import {
 	type FoundClassifier,
 	findClassifier,
 } from "../../lib/classifier/jev.ts";
-import { hosted } from "../../lib/core/session/index.ts";
+import {
+	hosted,
+	sessionEnv,
+	sessionKeyOf,
+} from "../../lib/core/session/index.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
 import { isAway } from "../../lib/internal/away/state.ts";
@@ -57,8 +61,11 @@ export const NOTED = "reply-cause-note";
 /** The log entry saying, once for each reason, why no reply was judged. */
 export const UNJUDGED = "reply-cause-unjudged";
 
-/** How long finding the classifier may take, as long as judging waits on it. */
+/** How long a reply's judging waits on finding the classifier. */
 const LOOKUP_MS = 2500;
+
+/** The most of what went wrong the log keeps, its first line alone. */
+const DETAIL_LENGTH = 160;
 
 /**
  * A fenced code block, which quotes rather than says: at any indent, so
@@ -72,7 +79,7 @@ const FENCED =
 export interface ReplyCauseDeps {
 	/** The classifier to judge with, looked up until one is found. */
 	readonly classifier: (
-		ctx: Pick<ExtensionContext, "modelRegistry">,
+		ctx: Pick<ExtensionContext, "modelRegistry" | "sessionManager">,
 	) => Promise<FoundClassifier>;
 	/** Told of each judgment as it starts, so a test can wait on it. */
 	readonly judging?: (judgment: Promise<void>) => void;
@@ -81,20 +88,27 @@ export interface ReplyCauseDeps {
 /** What a settle needs of pi's context. */
 type SettledContext = Pick<
 	ExtensionContext,
-	"modelRegistry" | "hasUI" | "isIdle" | "hasPendingMessages" | "ui"
+	| "modelRegistry"
+	| "sessionManager"
+	| "hasUI"
+	| "isIdle"
+	| "hasPendingMessages"
+	| "ui"
 >;
 
 /**
- * What the session has heard: whether the person's own words came for
- * the run that starts next and for the run under way, the last reply
- * of a run they began since pi last settled, how often anything has
- * come at all, so a judgment knows it was overtaken, the classifier
- * once found, and the reasons already logged for judging nothing.
+ * What the session has heard, by pi's own order: one settle ends each
+ * stretch of runs pi starts from idle, its retries, continues and the
+ * words queued while it ran among them. Whether the person's own words
+ * wait for the next stretch, whether a stretch is open and whether their
+ * words began or joined it, its last reply, how often anything has come
+ * at all, so a judgment knows it was overtaken, the classifier once
+ * found, and the reasons already logged for judging nothing.
  */
 interface Heard {
 	personNext: boolean;
-	personRun: boolean;
-	running: boolean;
+	open: boolean;
+	personOpen: boolean;
 	reply?: string;
 	moved: number;
 	lookup?: Promise<FoundClassifier>;
@@ -107,14 +121,12 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 		declareGuards(GUARD);
 		const heard: Heard = {
 			personNext: false,
-			personRun: false,
-			running: false,
+			open: false,
+			personOpen: false,
 			moved: 0,
 			unjudgedSaid: new Set(),
 		};
-		pi.on("input", (event) =>
-			hearInput(heard, event.text, event.streamingBehavior),
-		);
+		pi.on("input", (event) => hearInput(heard, event.text));
 		pi.on("before_agent_start", (event) =>
 			hearRunBegin(heard, event.messageType),
 		);
@@ -127,54 +139,55 @@ export function replyCauseInterceptor(deps: ReplyCauseDeps) {
 }
 
 /**
- * Notes what came in and whose run it is. The person's own words make a
- * run a reply to them: the next run's when pi is idle or queues them,
- * the run under way's when they steer it. An automated turn, a note's
- * among them, a peer's steer or a job's result is no word of theirs, so
- * the run a note starts goes unjudged and a note can't follow a note.
+ * Notes what came in and whose words they are. While a stretch is open
+ * pi drains what is queued into it, steered or followed up, so the
+ * person's words there make its replies theirs; from idle they wait for
+ * the stretch they begin. Whether a stretch is open is this session's
+ * own count, not the input's streaming mark, since a host queues words
+ * as a follow-up while idle too. An automated turn, a note's among
+ * them, a peer's steer or a job's result is no word of theirs, so the
+ * stretch a note starts goes unjudged and a note can't follow a note.
  */
-function hearInput(
-	heard: Heard,
-	text: string,
-	streaming: "steer" | "followUp" | undefined,
-): void {
+function hearInput(heard: Heard, text: string): void {
 	heard.moved += 1;
 	const persons = isPersonsOwnText(text);
-	if (streaming === "steer" && heard.running) heard.personRun ||= persons;
-	else if (streaming === "followUp") heard.personNext ||= persons;
+	if (heard.open) heard.personOpen ||= persons;
 	else heard.personNext = persons;
 }
 
 /**
- * A run begins from idle. One a custom message began, a peer's or a
- * job's, carries no word of the person's, though an input of theirs a
- * handler answered itself may still be marked.
+ * A stretch is about to begin from idle. Only a prompt carries the words
+ * `input` heard; a custom message's, a peer's or a job's, or the host's
+ * continue carries none of the person's, though words of theirs a
+ * handler answered itself, starting no run, may still be marked.
  */
 function hearRunBegin(heard: Heard, messageType: string): void {
-	if (messageType === "custom") heard.personNext = false;
+	if (messageType !== "user") heard.personNext = false;
 }
 
 /**
- * A low-level run starts: one a custom message or queued words began
- * as well as a prompt, so whose words began it is settled here, and a
- * judgment still out knows something came.
+ * A run starts. The first since pi settled opens a stretch, which is
+ * the person's when their words began it; a retry, a continue or queued
+ * words run inside the stretch already open and change nothing of whose
+ * it is. Either way a judgment still out knows something came.
  */
 function startRun(heard: Heard): void {
 	heard.moved += 1;
-	heard.running = true;
-	heard.personRun = heard.personNext;
+	if (heard.open) return;
+	heard.open = true;
+	heard.personOpen = heard.personNext;
 	heard.personNext = false;
 }
 
 /**
- * Keeps the last reply of a run the person began, when it is finished;
- * a run anyone else began keeps what came before. The run's messages
- * are the ones the session keeps, so a reply another extension
+ * Keeps the last reply of a run in a stretch the person began or joined,
+ * when it is finished; a reply unfinished, still calling tools or cut
+ * off, keeps none, since it is what they were last shown. The run's
+ * messages are the ones the session keeps, so a reply another extension
  * replaced, one withheld among them, is read as replaced.
  */
 function keepPersonsReply(heard: Heard, messages: readonly unknown[]): void {
-	heard.running = false;
-	if (!heard.personRun) return;
+	if (!heard.personOpen) return;
 	const replies = messages.filter(
 		(message) => isRecord(message) && message.role === "assistant",
 	);
@@ -182,11 +195,10 @@ function keepPersonsReply(heard: Heard, messages: readonly unknown[]): void {
 }
 
 /**
- * Once pi settles, starts judging the reply kept for the person when
- * someone reads it and the guard is on, never waiting for the judgment.
- * A session on the shared host reads as having no screen, though the
- * person talks to it from the launcher; print and JSON runs have no
- * person reading.
+ * Once pi settles, starts judging the stretch's reply kept for the
+ * person when they may read it now and the guard is on, never waiting
+ * for the judgment. What fails before the judgment starts sends nothing
+ * and says so once in the log.
  */
 function judgeSettledReply(
 	pi: ExtensionAPI,
@@ -197,26 +209,47 @@ function judgeSettledReply(
 ): void {
 	const { reply } = heard;
 	heard.reply = undefined;
+	heard.open = false;
+	heard.personOpen = false;
 	if (aborted || reply === undefined) return;
-	if (!ctx.hasUI && !hosted()) return;
-	if (guardMode(GUARD.name) === "off") return;
-	const said = scrubSecrets(reply.replace(FENCED, "")).text.trim();
-	if (said === "") return;
-	const judgment = noteUntested(
-		pi,
-		said,
-		heard,
-		lookupOf(pi, heard, deps, ctx),
-		ctx,
-	);
-	deps.judging?.(judgment);
+	try {
+		if (!personReads(ctx)) return;
+		if (guardMode(GUARD.name) === "off") return;
+		const said = scrubSecrets(reply.replace(FENCED, "")).text.trim();
+		if (said === "") return;
+		const judgment = noteUntested(
+			pi,
+			said,
+			heard,
+			lookupOf(pi, heard, deps, ctx),
+			ctx,
+		);
+		deps.judging?.(judgment);
+	} catch (error) {
+		// A settle must end whatever judging meets; a reply missed costs
+		// less than an error in the session.
+		sayUnjudged(pi, heard, "judging a reply failed", error);
+	}
+}
+
+/**
+ * Whether the person may be reading the reply now: the session has a
+ * screen of its own, or a host's window views the conversation. One on
+ * a shared host nobody views runs in the background, its replies read
+ * later if at all, so a note started there would run unasked and
+ * unseen; print and JSON runs have no person reading.
+ */
+function personReads(ctx: SettledContext): boolean {
+	if (ctx.hasUI) return true;
+	return hosted()?.viewed?.(sessionKeyOf(ctx)) === true;
 }
 
 /**
  * The classifier, looked up once it is found or switched off. A lookup
- * that failed, or took longer than judging waits, is looked up again at
- * the next reply, so a login or a network back later starts the
- * judging; the log says why once for each reason.
+ * still out is waited on again rather than started anew, each wait held
+ * to `LOOKUP_MS`; one that failed is looked up again at the next reply,
+ * so a login or a network back later starts the judging. The log says
+ * why once for each kind of reason.
  */
 function lookupOf(
 	pi: ExtensionAPI,
@@ -224,27 +257,34 @@ function lookupOf(
 	deps: ReplyCauseDeps,
 	ctx: SettledContext,
 ): Promise<FoundClassifier> {
-	const failed = (reason: string): FoundClassifier => {
-		heard.lookup = undefined;
+	const forget = (failed: Promise<FoundClassifier>) => {
+		if (heard.lookup === failed) heard.lookup = undefined;
+	};
+	if (heard.lookup === undefined) {
+		const looking: Promise<FoundClassifier> = Promise.resolve()
+			.then(() => deps.classifier(ctx))
+			.then(
+				(found) => {
+					if (!found.ok && !found.off) {
+						forget(looking);
+						sayUnjudged(pi, heard, "no classifier", found.reason);
+					}
+					return found;
+				},
+				(error: unknown): FoundClassifier => {
+					forget(looking);
+					sayUnjudged(pi, heard, "finding the classifier failed", error);
+					return { ok: false, reason: "finding the classifier failed" };
+				},
+			);
+		heard.lookup = looking;
+	}
+	return settledWithin(heard.lookup, LOOKUP_MS).then((found) => {
+		if (found !== undefined) return found;
+		const reason = `finding the classifier took over ${LOOKUP_MS} ms`;
 		sayUnjudged(pi, heard, reason);
 		return { ok: false, reason };
-	};
-	heard.lookup ??= settledWithin(
-		Promise.resolve().then(() => deps.classifier(ctx)),
-		LOOKUP_MS,
-	).then(
-		(found) => {
-			if (found === undefined)
-				return failed(`finding the classifier took over ${LOOKUP_MS} ms`);
-			if (!found.ok && !found.off) return failed(found.reason);
-			return found;
-		},
-		(error: unknown) =>
-			failed(
-				`finding the classifier failed: ${error instanceof Error ? error.message : String(error)}`,
-			),
-	);
-	return heard.lookup;
+	});
 }
 
 /**
@@ -262,8 +302,9 @@ async function noteUntested(
 	ctx: SettledContext,
 ): Promise<void> {
 	const moved = heard.moved;
+	let found: string[];
 	try {
-		const found = await untestedCausesFound(text, lookup);
+		found = await untestedCausesFound(text, lookup);
 		if (found.length === 0 || heard.moved !== moved || holds(ctx)) return;
 		pi.sendUserMessage(
 			automatedText(
@@ -276,11 +317,17 @@ async function noteUntested(
 				].join("\n"),
 			),
 		);
-		pi.appendEntry(NOTED, { parts: found.length });
-	} catch {
+	} catch (error) {
 		// A judgment that failed, or a pi a reload replaced since, sends
 		// nothing: a missed note costs less than an error in the session.
-		sayUnjudged(pi, heard, "judging a reply or sending its note failed");
+		sayUnjudged(pi, heard, "judging a reply or sending its note failed", error);
+		return;
+	}
+	try {
+		pi.appendEntry(NOTED, { parts: found.length });
+	} catch {
+		// The note went; a log that won't take its record costs the count
+		// one note, and is no reason to say it went unsent.
 	}
 }
 
@@ -299,11 +346,21 @@ function holds(ctx: SettledContext): boolean {
 	}
 }
 
-/** Says in the session's log why no reply was judged, once per reason. */
-function sayUnjudged(pi: ExtensionAPI, heard: Heard, why: string): void {
+/**
+ * Says in the session's log why no reply was judged, once for each kind
+ * of reason: `why` is fixed words, and what went wrong rides beside it
+ * as its first line, its secrets scrubbed, so two errors are one reason.
+ */
+function sayUnjudged(
+	pi: ExtensionAPI,
+	heard: Heard,
+	why: string,
+	wrong?: unknown,
+): void {
 	if (heard.unjudgedSaid.has(why)) return;
+	const detail = wrong === undefined ? undefined : detailOf(wrong);
 	try {
-		pi.appendEntry(UNJUDGED, { why });
+		pi.appendEntry(UNJUDGED, detail ? { why, detail } : { why });
 		heard.unjudgedSaid.add(why);
 	} catch {
 		// A pi a reload replaced has no log to say it in; the next reply
@@ -336,13 +393,28 @@ function finishedReplyText(message: unknown): string | undefined {
 	return text === "" ? undefined : text;
 }
 
-/** The classifier the mesh's setting names, or none when it is `off`. */
-export function replyClassifier(
-	env: NodeJS.ProcessEnv,
-): ReplyCauseDeps["classifier"] {
-	return (ctx) => findClassifier(ctx, env[CLASSIFIER_ENV], CLASSIFIER_ENV);
+/** What went wrong, as the log keeps it: its first line, scrubbed and cut. */
+function detailOf(wrong: unknown): string {
+	const said = wrong instanceof Error ? wrong.message : String(wrong);
+	const [first = ""] = said.split("\n");
+	return scrubSecrets(first).text.slice(0, DETAIL_LENGTH);
 }
 
-export default replyCauseInterceptor({
-	classifier: replyClassifier(process.env),
-});
+/**
+ * The classifier the mesh's setting names, or none when it is `off`:
+ * from `env` when given, otherwise from the conversation's own
+ * environment at each lookup, since one host serves conversations
+ * set apart.
+ */
+export function replyClassifier(
+	env?: NodeJS.ProcessEnv,
+): ReplyCauseDeps["classifier"] {
+	return (ctx) =>
+		findClassifier(
+			ctx,
+			env ? env[CLASSIFIER_ENV] : sessionEnv(ctx).get(CLASSIFIER_ENV),
+			CLASSIFIER_ENV,
+		);
+}
+
+export default replyCauseInterceptor({ classifier: replyClassifier() });

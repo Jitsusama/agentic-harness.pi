@@ -38,6 +38,7 @@ let idle: boolean;
 let hasUI: boolean;
 let pending: boolean;
 let typed: string;
+let sessionId: string;
 let unhost: (() => void) | undefined;
 
 /** A classifier sure of an untested cause in any part naming a cache. */
@@ -85,6 +86,7 @@ beforeEach(() => {
 	hasUI = true;
 	pending = false;
 	typed = "";
+	sessionId = "session-1";
 	lookup = async () => FOUND;
 	install(() => {
 		lookups += 1;
@@ -112,6 +114,7 @@ const ctx = () => ({
 	hasPendingMessages: () => pending,
 	ui: { getEditorText: () => typed },
 	modelRegistry: {},
+	sessionManager: { getSessionId: () => sessionId },
 });
 
 const input = (text: string, streamingBehavior?: "steer" | "followUp") =>
@@ -120,12 +123,15 @@ const input = (text: string, streamingBehavior?: "steer" | "followUp") =>
 		ctx(),
 	);
 
-/** A custom message, a peer's or a job's, wakes pi and begins a run. */
-const customBegins = () =>
+/** A stretch is about to begin, by what pi says began it. */
+const begins = (messageType: string) =>
 	handler("before_agent_start")(
-		{ type: "before_agent_start", messageType: "custom" },
+		{ type: "before_agent_start", messageType },
 		ctx(),
 	);
+
+/** A custom message, a peer's or a job's, wakes pi and begins a run. */
+const customBegins = () => begins("custom");
 
 /** A peer's steer, framed as the mesh frames one from outside the window. */
 const peerSteers = () =>
@@ -137,7 +143,11 @@ const personSteers = () =>
 		"[the person is asking from outside this window] Why did the build fail?",
 	);
 
-const personSays = () => input("Why did the build fail?");
+/** The person's words from idle, as pi hears them before the run they begin. */
+const personSays = async () => {
+	await input("Why did the build fail?");
+	await begins("user");
+};
 
 const automatedSays = () =>
 	input(automatedText("background work is reporting", "j1 ended."));
@@ -204,9 +214,12 @@ describe("a reply to the person", () => {
 		expect(judged).toEqual([CAUSE]);
 	});
 
-	it("is judged in a hosted conversation, which has no screen of its own", async () => {
+	it("is judged in a hosted conversation a window views, which has no screen of its own", async () => {
 		hasUI = false;
-		unhost = installHost({} as never);
+		sessionId = "hosted-1";
+		unhost = installHost({
+			viewed: (id: string) => id === "hosted-1",
+		} as never);
 		// The host runs each conversation's hooks as that conversation.
 		await withSession("hosted-1", async () => {
 			await turn(text(CAUSE));
@@ -214,6 +227,27 @@ describe("a reply to the person", () => {
 		});
 
 		expect(notes()).toHaveLength(1);
+	});
+
+	it("is judged by the stretch's last reply, a retry inside it among its runs", async () => {
+		await personSays();
+		await runEnds(assistant("error", text("The provider failed.")));
+		// pi retries inside the stretch the person's words began.
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
+	});
+
+	it("is judged when a host queues the person's words as a follow-up while idle", async () => {
+		await input("Why did the build fail?", "followUp");
+		await begins("user");
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+		await allJudged();
+
+		expect(judged).toEqual([CAUSE]);
 	});
 
 	it("is judged with its secrets scrubbed, so none reaches the provider", async () => {
@@ -415,10 +449,13 @@ describe("runs before one settle", () => {
 	const runStops = (...messages: object[]) =>
 		handler("agent_end")({ type: "agent_end", messages }, ctx());
 
-	it("judge the person's reply, not the one to a run queued after it", async () => {
+	it("judge the reply the person was shown last, after words queued behind theirs", async () => {
 		await personSays();
+		await runStarts();
+		await automatedSays();
+		await runStops(assistant("stop", text(STATUS)));
+		// What was queued runs inside the same stretch, before pi settles.
 		await runEnds(assistant("stop", text(CAUSE)));
-		await runEnds(assistant("stop", text(STATUS)));
 		await settles();
 		await allJudged();
 
@@ -493,6 +530,45 @@ describe("a reply left unjudged", () => {
 		expect(judgments).toEqual([]);
 	});
 
+	it("is one in a run the host continued, though the person's words were handled before it", async () => {
+		await input("Why did the build fail?");
+		await begins("continue");
+		await runEnds(assistant("stop", text(CAUSE)));
+		await settles();
+
+		expect(judgments).toEqual([]);
+	});
+
+	it("is one in a hosted conversation no window views, which runs in the background", async () => {
+		hasUI = false;
+		unhost = installHost({ viewed: () => false } as never);
+		await withSession(sessionId, async () => {
+			await turn(text(CAUSE));
+		});
+
+		expect(judgments).toEqual([]);
+	});
+
+	it("is one whose judging failed before it began, said once in the log", async () => {
+		hasUI = false;
+		unhost = installHost({
+			viewed: () => {
+				throw new Error("the host has gone");
+			},
+		} as never);
+		await withSession(sessionId, async () => {
+			await turn(text(CAUSE));
+		});
+
+		expect(judgments).toEqual([]);
+		expect(pi.recorded.entries).toEqual([
+			{
+				customType: UNJUDGED,
+				data: { why: "judging a reply failed", detail: "the host has gone" },
+			},
+		]);
+	});
+
 	it("is one in a run an automated turn began, since nobody asked", async () => {
 		await automatedSays();
 		await runEnds(assistant("stop", text(CAUSE)));
@@ -548,27 +624,51 @@ describe("a reply left unjudged", () => {
 			{
 				customType: UNJUDGED,
 				data: {
-					why: "finding the classifier failed: the registry is not ready",
+					why: "finding the classifier failed",
+					detail: "the registry is not ready",
 				},
 			},
 		]);
 	});
 
-	it("is every one while finding a classifier never ends, which is looked for again at the next", async () => {
+	it("logs what went wrong by its first line, its secrets scrubbed", async () => {
+		const token = `github_pat_${"A1".repeat(20)}`;
+		lookup = async () => {
+			throw new Error(`refused ${token}\nat the registry`);
+		};
+		await turn(text(CAUSE));
+		await allJudged();
+
+		const [entry] = pi.recorded.entries;
+		const data = (entry?.data ?? {}) as { detail?: unknown };
+		const detail = String(data.detail);
+		expect(detail).toContain("refused");
+		expect(detail).not.toContain(token);
+		expect(detail).not.toContain("at the registry");
+	});
+
+	it("waits again on a lookup still out rather than starting another, and judges once it ends", async () => {
+		let foundLate: (found: FoundClassifier) => void = () => {};
+		lookup = () =>
+			new Promise((resolve) => {
+				foundLate = resolve;
+			});
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {
-			lookup = () => new Promise(() => {});
+			await turn(text(CAUSE));
+			await vi.advanceTimersByTimeAsync(2500);
+			await allJudged();
 			await turn(text(CAUSE));
 			await vi.advanceTimersByTimeAsync(2500);
 			await allJudged();
 		} finally {
 			vi.useRealTimers();
 		}
-		lookup = async () => FOUND;
+		foundLate(FOUND);
 		await turn(text(CAUSE));
 		await allJudged();
 
-		expect(lookups).toBe(2);
+		expect(lookups, "one lookup, waited on three times").toBe(1);
 		expect(notes()).toHaveLength(1);
 		expect(pi.recorded.entries[0]).toEqual({
 			customType: UNJUDGED,
@@ -586,9 +686,25 @@ describe("a reply left unjudged", () => {
 		expect(pi.recorded.entries).toEqual([
 			{
 				customType: UNJUDGED,
-				data: { why: "judging a reply or sending its note failed" },
+				data: {
+					why: "judging a reply or sending its note failed",
+					detail: "This extension ctx is stale",
+				},
 			},
 		]);
+	});
+
+	it("says nothing went unsent when only the note's record fails", async () => {
+		const record = pi.appendEntry.bind(pi);
+		pi.appendEntry = (customType: string, data?: unknown) => {
+			if (customType === NOTED) throw new Error("the log is full");
+			record(customType, data);
+		};
+		await turn(text(CAUSE));
+		await allJudged();
+
+		expect(notes()).toHaveLength(1);
+		expect(pi.recorded.entries).toEqual([]);
 	});
 
 	it("finds the classifier once across replies once it is found", async () => {
@@ -638,6 +754,22 @@ describe("the classifier for replies", () => {
 
 		expect(asked).toEqual([]);
 		expect(notes()).toEqual([]);
+	});
+
+	it("reads a hosted conversation's own setting at each lookup", async () => {
+		const asked: string[] = [];
+		unhost = installHost({
+			env: () => ({
+				get: (name: string) =>
+					name === "PI_MESH_CLASSIFIER" ? "off" : undefined,
+			}),
+		} as never);
+		const found = await replyClassifier()({
+			...registry(asked),
+			sessionManager: { getSessionId: () => "hosted-1" },
+		} as never);
+
+		expect(found).toMatchObject({ ok: false, off: true });
 	});
 
 	it("is the one the mesh's setting names", async () => {

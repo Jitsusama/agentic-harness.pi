@@ -24,13 +24,16 @@ what tested it.
 
 ## What Is Judged
 
-Only the last reply of the last run the person's own words
-began, once pi has settled: an assistant message pi stopped for
-good, with no tool call left to run. Whose words began a run is
-read run by run, since pi goes on to queued messages before it
-settles: a run the person's words started, queued or steered
-into, answers them; one an automated turn, a peer's steer, a
-job's result or another custom message began does not. A reply
+Only the last reply before pi settles, when the person's own
+words are among what it answers: an assistant message pi stopped
+for good, with no tool call left to run. pi runs everything
+queued, and retries, before it settles once, so whose words a
+reply answers is read over that whole stretch: one the person's
+words began from idle, or that they queued or steered words
+into, answers them, and its last reply is the one they read. A
+stretch an automated turn, a peer's steer, a job's result,
+another custom message or the host's continuing began, with no
+word of the person's in it, is not judged. A reply
 cut off by the person, an error or the length limit is left
 alone, and so is its thinking: only its text blocks are judged,
 with fenced code blocks left out, open or closed and at any
@@ -41,9 +44,12 @@ replies judged whole and 54 mesh messages judged part by part.
 It reads the reply as the session keeps it, so one another
 extension replaced, a withheld reply among them, is judged as
 replaced. A conversation on the shared host is judged though it
-has no screen of its own, since the person talks to it from the
-launcher; print or JSON mode has no person reading, so it is
-not.
+has no screen of its own, while a window views it, since the
+person talks to it from the launcher; one running in the
+background has no one reading, and nor has print or JSON mode,
+so neither is. On the host the person's typing is not seen
+until sent, so a note there is not held back for an ask still
+being typed.
 
 Two replies are never followed by a note:
 
@@ -66,9 +72,11 @@ It is the mesh's `untested-cause` guard, so one switch covers a
 cause told as fact wherever it is told. Set `off`
 (`/guards untested-cause off`), no reply is judged and no
 reply's text goes to the classifier's provider. It reads the
-mesh's classifier setting too: `PI_MESH_CLASSIFIER=off` judges
-no reply either, and the classifier it names as
-`provider/model` judges replies as it does messages. Otherwise
+mesh's classifier setting too, as each conversation has it on
+the shared host: `PI_MESH_CLASSIFIER=off` judges no reply
+either, and the classifier it names as `provider/model` judges
+replies as it does messages, so replies go only where mesh
+messages already go. Otherwise
 each judged reply's text goes to the classifier's provider, with
 the secrets the harness knows scrubbed first. The classifier is
 chosen apart from the session's model, so a session on a local
@@ -81,10 +89,12 @@ would only send the text away.
 With no classifier, an error or a slow answer, nothing is
 judged and nothing is said in the session. Its log gets a
 `reply-cause-unjudged` entry saying why, once for each reason,
+with the first line of what went wrong, its secrets scrubbed,
 and each note sent leaves a `reply-cause-note` entry, so notes
-can be counted. A lookup that failed, or took over 2.5 seconds,
-is tried again at the next reply, so logging in later starts
-the judging.
+can be counted. A lookup that failed is tried again at the next
+reply, so logging in later starts the judging; one still out
+after 2.5 seconds is waited on again at the next reply rather
+than started anew.
 
 A note costs one turn. It refuses nothing, so the guard's
 `block` and `redirect` modes act alike here.
