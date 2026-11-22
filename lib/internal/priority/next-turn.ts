@@ -175,9 +175,11 @@ function either(one: Holds, other: Holds): Holds {
 /**
  * What the jobs behind `job`, which waits, are held back by once it
  * does. While memory is short a queue-first job that got this far only
- * by the first quests' pass holds nobody: before that pass every job
- * held while short stopped short of here, so a sent changed-checks run,
- * built on the builder, started past them all.
+ * by the first quests' pass holds no work that starts while short
+ * anyway: before that pass every job held while short stopped short of
+ * here, so a sent changed-checks run, built on the builder, started past
+ * them all. It still holds the first quests' other jobs as the line
+ * does, so their smaller ones never starve it.
  */
 function keptBehind(
 	holds: Holds,
@@ -188,8 +190,11 @@ function keptBehind(
 	room: Room,
 	now: number,
 ): Holds {
-	if (pressed && !startsPressed(job)) return holds;
-	return either(holds, ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now));
+	const kept = ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now);
+	if (pressed && !startsPressed(job)) {
+		return either(holds, (behind) => !startsPressed(behind) && kept(behind));
+	}
+	return either(holds, kept);
 }
 
 /**

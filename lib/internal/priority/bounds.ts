@@ -138,15 +138,20 @@ export const MOST_MEMORY_PRESSURE = 10;
  * at all, would hardly bind, since full avg60 sits far under the felt
  * avg10 that holds the rest. Readings of 13.6 to 17.8 on 21 November
  * already slowed core.nix's git calls to 9 to 70 s (needs.ts's
- * `ONE_WALK_FROM_PRESSURE`), so the bar keeps under most of that range.
+ * `ONE_WALK_FROM_PRESSURE`). The bar sits inside that range on purpose:
+ * from 13.6 to 15 one such job may still start, slowing small git calls,
+ * since a bar under the machine's usual reading while short lets out
+ * none of the capacity work that makes it less short.
  */
 export const FIRST_MOST_MEMORY_FULL = 15;
 
 /**
  * The most a queue-first quest's job may be held to need, in GiB, to
  * start while memory is short: a type check or a test run, never a
- * whole flake's evaluation of 17 to 24 GiB, which would add its heap to
- * a machine already paging.
+ * whole flake's evaluation of 17 to 24 GiB, nor an unsent changed-checks
+ * run of 16, which would add its heap to a machine already paging. It
+ * counts the job's own scope, so {@link firstStartsShort} leaves out the
+ * kinds whose memory sits outside it.
  */
 export const FIRST_MOST_GIB_SHORT = 8;
 
@@ -155,10 +160,13 @@ export const FIRST_MOST_GIB_SHORT = 8;
  * lets such a job start while short: it is held to need no more than
  * {@link FIRST_MOST_GIB_SHORT}, everything stalled on memory for no
  * more than {@link FIRST_MOST_MEMORY_FULL} of the last minute, and the
- * person's own programs aren't stalling ({@link floorsWait}), since
- * full avg60 can sit low while app.slice pages. Where that minute isn't
+ * person's own programs are read and aren't stalling ({@link floorsWait}),
+ * since full avg60 can sit low while app.slice pages. Where either isn't
  * read, as on a Mac or from a pressure file with no `full` line, the
- * usual bar holds it.
+ * usual bar holds it, the pass failing shut. Neither a VM, whose guest
+ * takes its memory at once, nor a walk of World, whose packs the queue
+ * counts as free, nor a Nix build here, whose daemon's builds its own
+ * scope leaves out, gets the pass: only what its booking bounds.
  */
 export function firstStartsShort(
 	job: Job,
@@ -168,11 +176,24 @@ export function firstStartsShort(
 	return (
 		job.quest !== undefined &&
 		first.has(job.quest) &&
+		boundedByBooking(job, room) &&
 		needsGibOf(job) <= FIRST_MOST_GIB_SHORT &&
 		room.memoryFullMinute !== undefined &&
 		room.memoryFullMinute <= FIRST_MOST_MEMORY_FULL &&
+		room.floorsPressure !== undefined &&
 		!floorsWait(room)
 	);
+}
+
+/**
+ * Whether the memory `job` takes here is the memory it is booked at: not
+ * a VM's guest, a walk's packs, or a Nix build's daemon builds, unless a
+ * builder elsewhere has a slot free to take them.
+ */
+function boundedByBooking(job: Job, room: Room): boolean {
+	if (isVm(job) || job.kind === "world-walk") return false;
+	if (job.kind !== "build" || !HOOK_BUILDS.test(job.what)) return true;
+	return (room.offload?.builds ?? 0) > 0;
 }
 
 /**
@@ -294,8 +315,9 @@ export const FIRST_PASSES_UNDER_S = 60;
 
 /**
  * Whether a job is a queue-first quest's, and ran short last time, so
- * the machine's CPU and IO hold lets it by: memory and the person's own
- * programs still hold it. On 8 November a deploy lane's 13-second cargo
+ * the machine's CPU and IO hold lets it by: the person's own programs
+ * still hold it, and memory does as far as {@link firstStartsShort}'s
+ * bars and its fit do, so while memory is short both passes may stack. On 8 November a deploy lane's 13-second cargo
  * test waited 1,524 s, 671 of them on that hold, booked past a quick
  * job's memory by one 5.5 GB peak (L3V9AA, with 5FWIUS's rule).
  */

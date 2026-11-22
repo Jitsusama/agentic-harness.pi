@@ -289,9 +289,17 @@ is a build, never a VM check.
   memory pressure read 13.3% and 29 of 30 waiting jobs waited on
   memory, the capacity work among them. A first job running counts
   unless it is an answered fetch or work that starts while short
-  anyway. Where that minute isn't read, as on a Mac or from a pressure
-  file with no `full` line, the 10% bar holds it. `queue.json` gives
-  the minute read as `machine.memoryFullMinute`.
+  anyway. The 8 GiB is the job's booking, its own scope, so a VM, a
+  walk of World and a Nix build no builder elsewhere has a slot for
+  never get the pass: their guest, packs or daemon builds sit outside
+  it. Where that minute or the person's programs' pressure isn't read,
+  as on a Mac or from a pressure file with no `full` line, the 10% bar
+  holds it. A first job that doesn't fit still holds its quest's other
+  jobs behind it as the line does, so its smaller ones never starve
+  it. 15% sits inside the 13.6 to 17.8 at which small git calls slowed
+  on 21 November: one such job may start there, since a lower bar
+  would let out none of the capacity work. `queue.json` gives the
+  minute read as `machine.memoryFullMinute`.
 - **Quick work** is a build that takes seconds: its last run of the
   same work took under a minute, or, never run, it builds checks named
   in full (`.#checks.<system>.<name>`), none a VM test's. The same work

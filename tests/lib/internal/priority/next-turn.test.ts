@@ -108,8 +108,11 @@ describe("whose turn it is", () => {
 			...ROOMY,
 			memoryPressure: 13,
 			memoryFullMinute,
+			floorsPressure: 0,
 		});
-		const cap = job("cap", { quest: "QEST-CAP" });
+		// A test run, whose memory is its own scope's and so its booking's.
+		const TEST_RUN = "direnv exec . pnpm exec vitest run";
+		const cap = job("cap", { quest: "QEST-CAP", what: TEST_RUN });
 		const other = job("other", { since: startedAgo(600_000) });
 		const turn = (jobs: Job[], room: Room) =>
 			nextTurn(jobs, room, NOW, undefined, NOBODY, first)?.id;
@@ -132,11 +135,50 @@ describe("whose turn it is", () => {
 			expect(
 				turn([other, cap], { ...paging, floorsPressure: MOST_FLOORS_PRESSURE }),
 			).toBe("cap");
+			expect(
+				turn([other, cap], { ...paging, floorsPressure: undefined }),
+				"floors unread, as the minute unread, fail shut",
+			).toBe(undefined);
+		});
+
+		// Its booking bounds only its own scope (#1978 F55, F59).
+		it("starts no VM, walk or Nix build here, whose memory its booking leaves out", () => {
+			for (const over of [
+				{ kind: "vm-test" as const, what: "nix build .#checks.x.vm" },
+				{ kind: "vm-check" as const, what: "nix build .#checks.x.vm" },
+				{ kind: "world-walk" as const, what: "git fetch origin main" },
+				{ what: "nix build .#pi", needsGib: 1 },
+			]) {
+				const one = job("one", { quest: "QEST-CAP", ...over });
+				expect(turn([other, one], short(12)), over.what).toBe(undefined);
+			}
+			const built = job("built", {
+				quest: "QEST-CAP",
+				what: "nix build .#pi",
+				needsGib: 1,
+			});
+			expect(
+				turn([other, built], {
+					...short(12),
+					offload: { builds: 1, vms: 0 },
+				}),
+				"a Nix build a builder elsewhere takes",
+			).toBe("built");
+		});
+
+		it("starts no unsent changed-checks run, booked past a test run", () => {
+			const checks = job("checks", {
+				quest: "QEST-CAP",
+				what: "direnv exec . changed-checks",
+			});
+			expect(needsGibOf(checks)).toBeGreaterThan(FIRST_MOST_GIB_SHORT);
+			expect(turn([other, checks], short(12))).toBe(undefined);
 		});
 
 		it("starts none held to need more than a test run's memory", () => {
 			const evaluation = job("eval", {
 				quest: "QEST-CAP",
+				what: TEST_RUN,
 				needsGib: FIRST_MOST_GIB_SHORT + 1,
 			});
 			expect(turn([other, evaluation], short(12))).toBe(undefined);
@@ -180,6 +222,16 @@ describe("whose turn it is", () => {
 				answered: true as const,
 			};
 			expect(turn([fetch, cap], short(12))).toBe("cap");
+			// Work that starts while short anyway takes no place (#1978 F58).
+			const sent = {
+				...busy,
+				id: "sent",
+				quest: "QEST-CAP",
+				what: "direnv exec . changed-checks",
+				sent: true as const,
+				needsGib: 6,
+			};
+			expect(turn([sent, cap], short(12)), "beside a sent run").toBe("cap");
 		});
 
 		it("lets nobody else's start", () => {
@@ -196,8 +248,8 @@ describe("whose turn it is", () => {
 			const tight = { ...short(12), availableGib: 7 };
 			const big = job("big", {
 				quest: "QEST-CAP",
+				what: TEST_RUN,
 				needsGib: FIRST_MOST_GIB_SHORT,
-				since: startedAgo(600_000),
 			});
 			const sent = job("sent", {
 				what: "direnv exec . changed-checks",
@@ -210,6 +262,28 @@ describe("whose turn it is", () => {
 					waitReasons([big, sent], tight, NOW, undefined, NOBODY, first),
 				),
 			).toEqual({ big: "memory", sent: "order" });
+		});
+
+		// Its smaller jobs would pass it for as long as memory stays short
+		// (#1978 F57), so the line holds them as it holds any.
+		it("holds a first quest's smaller job behind its own that doesn't fit", () => {
+			const tight = { ...short(12), availableGib: 7 };
+			const big = job("big", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: FIRST_MOST_GIB_SHORT,
+			});
+			const small = job("small", {
+				quest: "QEST-CAP",
+				what: TEST_RUN,
+				needsGib: 2,
+				since: startedAgo(1),
+			});
+			expect(turn([big, small], tight)).toBe(undefined);
+			expect(
+				turn([big, small], tight),
+				"unpressed, the same line holds it",
+			).toBe(nextTurn([big, small], { ...tight, memoryPressure: 0 }, NOW)?.id);
 		});
 
 		it("still must fit, and waits on the CPU as a build does", () => {
