@@ -8,7 +8,13 @@
  * without making a case easier to find.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -903,6 +909,61 @@ describe("a tree standing where git won't read it", () => {
 		await expect(cut).rejects.toThrow("nothing here takes that lock away");
 		await expect(cut).rejects.toThrow("the clone this cut comes from");
 	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"says a lock it may not look at can't be told, sending nobody to unlock it",
+		async () => {
+			// An unsearchable entry would read as a hand lock, and its words
+			// would send Joel to unlock a lock that may not be there.
+			const { exec } = fakeExec([
+				{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+				{ when: ["cat-file"], stdout: "" },
+			]);
+			const provider = createGitTreeProvider({ exec, stateDir });
+			standingTree();
+			chmodSync(gitDirOf(), 0o600);
+			try {
+				const cut = provider.ensure(snapshot());
+
+				await expect(cut).rejects.toThrow("couldn't be looked at (EACCES)");
+				await expect(cut).rejects.not.toThrow("git worktree unlock");
+			} finally {
+				chmodSync(gitDirOf(), 0o700);
+			}
+		},
+	);
+
+	it.skipIf(process.getuid?.() === 0)(
+		"says the clone's own lock where the tree's .git names a folder it may not look in",
+		async () => {
+			// Anything in the tree can point its `.git` at such a folder, and
+			// the clone's entry, which nothing there writes, answers first.
+			const { exec } = fakeExec([
+				{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+				{ when: ["cat-file"], stdout: "" },
+			]);
+			const provider = createGitTreeProvider({ exec, stateDir });
+			const clone = join(stateDir, "moved");
+			const request = snapshot({ ...checkedOut, localPath: clone });
+			const path = join(stateDir, treeIdentity(request).key);
+			mkdirSync(path);
+			mkdirSync(gitDirOf(), { recursive: true });
+			writeFileSync(join(path, ".git"), `gitdir: ${gitDirOf()}\n`);
+			const entry = join(clone, ".git", "worktrees", "x");
+			mkdirSync(entry, { recursive: true });
+			writeFileSync(join(entry, "gitdir"), `${join(path, ".git")}\n`);
+			writeFileSync(join(entry, "locked"), "on a drive away\n");
+			chmodSync(gitDirOf(), 0o600);
+			try {
+				const cut = provider.ensure(request);
+
+				await expect(cut).rejects.toThrow("nothing here takes that lock away");
+				await expect(cut).rejects.not.toThrow("couldn't be looked at");
+			} finally {
+				chmodSync(gitDirOf(), 0o700);
+			}
+		},
+	);
 
 	it("cuts into an empty folder, as git does", async () => {
 		const { exec, calls } = fakeExec(ok);

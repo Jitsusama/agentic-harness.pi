@@ -57,7 +57,9 @@ const GUARD_REFUSED = 126;
  * sandboxed command could have written, where git would run its hooks.
  * The lock is read through the tree's `.git` and through `clone`'s own
  * entry for the path, which still names it where that `.git` points
- * elsewhere, as it does once the clone has moved.
+ * elsewhere, as it does once the clone has moved. The clone's entry is
+ * read first: nothing in the tree can write it, so a lock it holds is
+ * said even where the folder the tree's `.git` names can't be looked at.
  */
 function unreadTree(
 	path: string,
@@ -77,15 +79,13 @@ function unreadTree(
 				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
-	const unseen = lockUnseen(path);
+	const cloneGit = clone === undefined ? undefined : checkoutGitFolder(clone);
+	const lockedInClone = cloneGit !== undefined && handLockedIn(cloneGit, path);
+	const unseen = lockedInClone ? undefined : lockUnseen(path);
 	if (unseen !== undefined) {
 		return `${where} Git's entry for it, where its \`.git\` points, couldn't be looked at (${unseen}), so whether a lock stands there can't be told, and nothing here sets it aside. Once that folder can be read, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
 	}
-	const cloneGit = clone === undefined ? undefined : checkoutGitFolder(clone);
-	if (
-		handLocked(path) ||
-		(cloneGit !== undefined && handLockedIn(cloneGit, path))
-	) {
+	if (lockedInClone || handLocked(path)) {
 		return `${where} Git's entry for it is locked for a reason other than the English one a cut gives, as \`git worktree lock\` leaves or a cut killed before git here was told English, and nothing here takes that lock away. If nothing in it is wanted, run \`git worktree unlock\` on it from ${clone === undefined ? "the clone that cut it" : `${displayPath(clone)}, the clone this cut comes from`}, never inside it or in a folder its \`.git\` names, which a sandboxed command could have written, then \`work tidy\` says whether \`work reclaim\`, run from there, can set it aside. Reclaim leaves alone a tree that clone's \`git worktree list\` names, so where tidy doesn't list it, move it aside by hand once unlocked, and the next cut forgets git's entry for it. A lock that is neither a plain file nor a link to one, such as a fifo or a folder, which git never writes, may hold \`git worktree unlock\` and \`git worktree list\` waiting or fail them, so delete it from that clone's entry by hand without reading it. Where that clone doesn't know it, another checkout of the repository may have cut it, or a sandboxed command written the lock, so unlock it from a checkout of yours whose \`git worktree list\` names it, never one found through its \`.git\`, or move it aside by hand.`;
 	}
 	if (cutRunning(path)) {
