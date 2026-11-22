@@ -376,7 +376,9 @@ export async function spawnInHost(
 				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
 			);
 		}
-		const repeat = noteUnanswered(where, request, kept) ? request.id : undefined;
+		const repeat = noteUnanswered(where, request, kept)
+			? request.id
+			: undefined;
 		return refuse(unknownOutcome(key, messageOf(error), repeat));
 	}
 	const { reply, shed } = sent;
@@ -396,7 +398,9 @@ export async function spawnInHost(
 				: parseOpenResult(reply.result);
 	} catch {
 		// A yes unread is no answer to trust, so its id is kept for a retry.
-		const repeat = noteUnanswered(where, request, kept) ? request.id : undefined;
+		const repeat = noteUnanswered(where, request, kept)
+			? request.id
+			: undefined;
 		return refuse(
 			unknownOutcome(
 				key,

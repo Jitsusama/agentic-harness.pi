@@ -150,7 +150,9 @@ describe("hostBackend", () => {
 		});
 		const backend = backendWith(fake);
 		const lingering = parseOpenResult(await backend.execute(anOpen()));
-		const quiet = parseOpenResult(await backend.execute({ ...anOpen(), id: "o2" }));
+		const quiet = parseOpenResult(
+			await backend.execute({ ...anOpen(), id: "o2" }),
+		);
 		working.add(lingering.sessionId);
 		const states = async () =>
 			Object.fromEntries(
@@ -273,9 +275,9 @@ describe("hostBackend", () => {
 		} as const;
 		const backend = backendWith(fake);
 		await backend.execute(adopt);
-		await expect(
-			backend.execute({ ...adopt, id: "a-again" }),
-		).rejects.toThrow("already held");
+		await expect(backend.execute({ ...adopt, id: "a-again" })).rejects.toThrow(
+			"already held",
+		);
 		expect(fake.start).toHaveBeenCalledOnce();
 		expect(fake.discard).toHaveBeenCalledOnce();
 	});
@@ -361,7 +363,9 @@ describe("hostBackend", () => {
 				engine: fake,
 				changes: { left: (ending, why) => left.push([ending, why]) },
 			});
-			const stranded = parseOpenResult(await backend.execute(anOpen())).sessionId;
+			const stranded = parseOpenResult(
+				await backend.execute(anOpen()),
+			).sessionId;
 			await host.stop(stranded);
 			left.length = 0;
 
@@ -783,7 +787,9 @@ describe("hostBackend", () => {
 			).sessionId;
 			await host.stop(a);
 			const { stale, gate } = refusing();
-			await expect(backendWith(fake, gate).execute(anOpen())).rejects.toBe(stale);
+			await expect(backendWith(fake, gate).execute(anOpen())).rejects.toBe(
+				stale,
+			);
 		});
 
 		it("leaves a hold that rests parked unbuilt, asking the gate only for each built after the first", async () => {
@@ -1192,7 +1198,9 @@ describe("hostBackend", () => {
 		try {
 			const ids: string[] = [];
 			for (const id of ["o1", "o2"])
-				ids.push(parseOpenResult(await ask(path, { ...anOpen(), id })).sessionId);
+				ids.push(
+					parseOpenResult(await ask(path, { ...anOpen(), id })).sessionId,
+				);
 			const expectedHost = { key: host.key, owner: host.owner };
 			const aborted = await Promise.all(
 				ids.map((sessionId, n) =>

@@ -43,7 +43,9 @@ describe("repeats", () => {
 	it("answers a repeat within its window as the first was, and starts anew once the window has passed", async () => {
 		let now = 0;
 		const memory = repeats(() => now);
-		const start = vi.fn(async () => ({ sessionId: `s${start.mock.calls.length}` }));
+		const start = vi.fn(async () => ({
+			sessionId: `s${start.mock.calls.length}`,
+		}));
 		expect(await memory.answer(asked, start)).toEqual({ sessionId: "s1" });
 		now = REPEAT_WINDOW_MS;
 		expect(await memory.answer(asked, start), "within the window").toEqual({
@@ -93,10 +95,7 @@ describe("repeats", () => {
 	it("matches a repeat whatever order its fields come in, and whichever host it expects", async () => {
 		const memory = repeats();
 		const start = vi.fn(async () => ({ sessionId: "s1" }));
-		await memory.answer(
-			{ ...asked, model: { provider: "p", id: "m" } },
-			start,
-		);
+		await memory.answer({ ...asked, model: { provider: "p", id: "m" } }, start);
 		const reordered = {
 			model: { id: "m", provider: "p" },
 			attended: false,
@@ -149,6 +148,8 @@ describe("repeats", () => {
 			...asked,
 			env: { [STAGE_VARIABLE]: "token-3", [SANDBOX_VARIABLE]: "off" },
 		};
-		await expect(memory.answer(refenced, start)).rejects.toThrow(/already used/);
+		await expect(memory.answer(refenced, start)).rejects.toThrow(
+			/already used/,
+		);
 	});
 });
