@@ -661,7 +661,9 @@ export function wrapFor(
 			};
 		}
 		case "strict": {
-			const unfenced = unfencedFolder(place.cwd, home);
+			const unfenced = unfencedFolder(place.cwd, home, undefined, {
+				runtimeDir: place.env.XDG_RUNTIME_DIR,
+			});
 			if (unfenced) return () => refused(unfenced);
 			// landrun skips a path that isn't there, and nothing inside could
 			// make one, so the sandbox's folders are made before a command.

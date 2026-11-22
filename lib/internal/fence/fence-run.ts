@@ -245,11 +245,15 @@ export function fenceRunText(
 	// one is still its to grant; the compiled code anywhere else is refused
 	// as strict refuses it. On Linux it lays the runtime folder, the system
 	// bus and X's sockets as its own too, so /tmp, holding those sockets, is
-	// granted; a Mac's unchecked profile keeps them refused.
+	// granted, as is a folder in ~/src outside a repository's work, which
+	// its bubblewrap keeps read-only; a Mac's unchecked profile keeps them
+	// refused. The runtime folder it hides is the one its commands get.
 	const unfenced = unfencedFolder(folder, home, asker, {
 		treesRoot,
 		mac,
-		cachesClosed: true,
+		cachesLaid: true,
+		bubblewrap: !mac,
+		runtimeDir: place.env.XDG_RUNTIME_DIR,
 	});
 	if (unfenced) return { refused: unfenced };
 	const away = fencedAway(folder, asker, {

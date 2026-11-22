@@ -178,12 +178,19 @@ export function fileToolRefusal(
 		// would reach, which reading it doesn't, so a review that falls back
 		// to a plain clone still reads it. The home folder is refused both
 		// ways, and a folder lying in or holding what the fence hides, since
-		// reading there hands it over.
-		const unfenced = unfencedFolder(place.cwd, place.home);
-		if (unfenced && (tool.use === "write" || within(place.home, place.cwd))) {
+		// reading there hands it over, asked on its own so it stands should
+		// a hidden path ever leave the write-closed ones. A read asks the
+		// write's question only where the folder holds the home folder, so
+		// it pays for no walk whose answer it wouldn't heed.
+		const judged = { runtimeDir: place.env.XDG_RUNTIME_DIR };
+		const unfenced =
+			tool.use === "write" || within(place.home, place.cwd)
+				? unfencedFolder(place.cwd, place.home, undefined, judged)
+				: undefined;
+		if (unfenced) {
 			return `${unfenced} pi's file tools don't ${tool.use} there either.`;
 		}
-		const hidden = unfenced && hiddenFolder(place.cwd, place.home);
+		const hidden = hiddenFolder(place.cwd, place.home, undefined, judged);
 		if (hidden) return hidden;
 	}
 	const path = pathOf(call.input, tool.searches);

@@ -66,12 +66,13 @@ function worktreeLayout(base: string, tree: string, back: string): string {
  * otherwise, not the folder the tests started in: the strict sandbox
  * refuses a plain clone's, which holds its git folder, so the tests would
  * fail wherever they're checked out so; nor the temporary folder itself,
- * which holds the tests' runtime folder, one the fence hides.
+ * which holds the tests' runtime folder, one the fence hides. Each is
+ * made in one folder the suite removes as it ends.
  */
 async function run(
 	sandbox: Sandbox,
 	command: string,
-	cwd = mkdtempSync(join(tmpdir(), "sandbox-run-")),
+	cwd = mkdtempSync(join(runs, "run-")),
 ): Promise<string> {
 	const bash = agentBash(cwd, {}, sandbox);
 	try {
@@ -87,6 +88,15 @@ async function run(
 		return (error as Error).message;
 	}
 }
+
+/** Where each run's own folder is made. */
+let runs: string;
+
+beforeAll(() => {
+	runs = mkdtempSync(join(tmpdir(), "sandbox-run-"));
+});
+
+afterAll(() => rmSync(runs, { recursive: true, force: true }));
 
 describe("what a session asks for", () => {
 	const found = () => "/bin/landrun";

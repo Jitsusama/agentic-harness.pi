@@ -26,6 +26,9 @@ import {
 } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
 import { cutTreeDir } from "../../../../lib/internal/work-records.ts";
 
+/** How pi-fence judges a folder on Linux: it lays the caches, by bubblewrap. */
+const agentFence = { cachesLaid: true, bubblewrap: true } as const;
+
 describe("a working folder the sandbox won't let commands write", () => {
 	let home: string;
 
@@ -227,7 +230,7 @@ describe("a working folder the sandbox won't let commands write", () => {
 			["linked/.git/hooks", join(at, "linked/.git")],
 			["to-hooks", notes],
 		] as const) {
-			for (const judged of [place, { ...place, cachesClosed: true }]) {
+			for (const judged of [place, { ...place, ...agentFence }]) {
 				expect(
 					unfencedFolder(join(at, inside), at, ASKED, judged),
 					inside,
@@ -248,7 +251,7 @@ describe("a working folder the sandbox won't let commands write", () => {
 		);
 		const place = { treesRoot: join(at, "trees"), mac: false };
 		for (const inside of ["proj/main", "proj/main/lib"]) {
-			for (const judged of [place, { ...place, cachesClosed: true }]) {
+			for (const judged of [place, { ...place, ...agentFence }]) {
 				expect(
 					unfencedFolder(join(at, inside), at, ASKED, judged),
 					inside,
@@ -291,10 +294,10 @@ describe("a working folder the sandbox won't let commands write", () => {
 			const place = { treesRoot: join(home, "trees"), mac: false };
 			expect(
 				unfencedFolder(join(runtime, "inner"), home, ASKED, place),
-			).toContain(`which lies in ${runtime}, a path`);
+			).toContain(`which lies in ${runtime}, the runtime folder`);
 			expect(
 				hiddenFolder(join(runtime, "inner"), home, ASKED, place),
-			).toContain(`which lies in ${runtime}, a path the fence hides`);
+			).toContain(`which lies in ${runtime}, the runtime folder`);
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -453,7 +456,7 @@ describe("a working folder the sandbox won't let commands write", () => {
 	});
 
 	it("leaves the temporary folder's code caches to a fence that lays its own, and no other", () => {
-		const place = { treesRoot: join(home, "trees"), cachesClosed: true };
+		const place = { treesRoot: join(home, "trees"), cachesLaid: true };
 		expect(
 			unfencedFolder("/tmp/jiti", home, ASKED, place),
 			"jiti's cache, which the fence overlays",

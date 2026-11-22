@@ -261,9 +261,23 @@ repository's folder, whose own git lies elsewhere), nor in one in `~/src` or `~/
 depth. Nor does it in one that lies in or holds the records the
 machine's node trusts, the code pi's host compiled, or a path the
 agent fence hides or keeps read-only, such as `~/.config` or `~/.ssh`,
-or, outside the home folder, the runtime folder, the system bus or X's
-sockets where they are there, so what strict grants reopens nothing
-the fence closes. A
+or, outside the home folder, nix-offload's lenders' folders, the
+session's runtime folder, pi's and, on Linux, the login's own
+(`/run/user/<uid>`), the system bus or X's sockets where they are
+there, so what strict grants reopens nothing the fence closes. A
+relative `XDG_RUNTIME_DIR` names no runtime folder. Nor in one holding
+any link on the way to such a path, the node's records or the compiled
+code, since a command there could point the path elsewhere. Nor in one
+holding another repository's git folder that a command there could
+write, up to three levels down, hidden folders included: a vendored
+clone's, or one pip keeps in `.venv/src`. A submodule or worktree
+whose git folder lies outside is no such repository, and node_modules
+is passed by. A folder holding more than 2000 folders within those
+levels is refused, as too many to judge; deeper ones, and a repository
+a command makes, go unjudged. A `.git` that names no folder makes no
+repository. Any tree the work tool cuts is spared whole, vendored
+clones in it included, as the agent fence grants it, held or not,
+where the agent fence spares only the asker's. A
 tree the work tool cuts (`work tree`), or a snapshot, keeps its git
 folder elsewhere, so a strict session works in one; a plain clone
 won't do. Its repository's git folder is readable, so git reads the
