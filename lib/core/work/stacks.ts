@@ -624,9 +624,10 @@ export function createGitStacks(deps: {
 					);
 				}
 
-				// With a boundary that is an ancestor of the branch, git finds
-				// nothing to match against anyway, so the flag matters for a step
-				// with no boundary recorded, or one no longer below the branch.
+				// Git matches the branch's commits against the boundary's side, so
+				// with a boundary that is an ancestor of the branch (recorded, or
+				// the merge-base) it finds nothing to match anyway; the flag matters
+				// for a recorded boundary no longer below the branch.
 				const args = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
 				// The boundary is what separates this branch's commits from its
 				// parent's. Without it the branch is handed copies of

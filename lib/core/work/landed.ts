@@ -100,8 +100,11 @@ export async function landedAs(
 	if (fork === undefined) return undefined;
 	const pathspecs = ["--", ...paths.map(literal)];
 
+	// The halted commit alone: limited to paths it didn't touch, as a file
+	// the base renamed is in conflict under the base's name, `-1` would walk
+	// on to an ancestor and answer for that commit's change instead.
 	const [mine] = patchesIn(
-		await patches(exec, treePath, ["-1", halted, ...pathspecs]),
+		await patches(exec, treePath, ["--no-walk", halted, ...pathspecs]),
 	);
 	if (mine === undefined || !changesLines(mine.change)) return undefined;
 	const since = patchesIn(

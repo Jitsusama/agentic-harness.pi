@@ -349,7 +349,12 @@ export async function carryOn(
 		const here = await landedHalt(exec, treePath, onto);
 		if (here !== undefined) {
 			const kept = await keepBaseSide(exec, treePath, here.paths);
-			if (kept !== undefined) return refused(kept);
+			// Said with the landing, since the checkout may have rewritten some
+			// of those files before it failed.
+			if (kept !== undefined)
+				return refused(
+					`Could not keep the base's side of ${here.paths.join(", ")}, where ${here.commit} had already landed as ${here.as}: ${kept}`,
+				);
 			landed.push(here);
 		}
 		const now = await settleAdditions(exec, treePath, moves);

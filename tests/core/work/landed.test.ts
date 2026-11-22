@@ -5,10 +5,17 @@
  * `rebase-live.test.ts`; these are the edges that never reach a rebase.
  */
 
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import { keptLine, landedAs } from "../../../lib/core/work/landed.ts";
-import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	git,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 
 let repo: string;
 
@@ -51,4 +58,31 @@ describe("asking where a halted commit landed", () => {
 		expect(landed).toBeUndefined();
 		expect(asked).toEqual([]);
 	});
+
+	it(
+		"answers for the halted commit alone, never an ancestor",
+		async () => {
+			// A file the base renamed is in conflict under the base's name, one
+			// the halted commit never touched; an ancestor that did, and landed,
+			// is not the halted commit landing.
+			const commit = async (path: string, text: string, subject: string) => {
+				writeFileSync(join(repo, path), text);
+				await git(repo, "add", path);
+				await git(repo, "commit", "-q", "-m", subject);
+			};
+			await commit("log.md", "# Log\n", "start");
+			await git(repo, "checkout", "-qb", "topic");
+			await commit("log.md", "# Log\n\n## Mine\n", "mine");
+			await commit("other.md", "# Other\n", "halted");
+			await git(repo, "checkout", "-q", "main");
+			await commit("notes.md", "# Notes\n", "moves on");
+			await git(repo, "cherry-pick", "topic~1");
+			await git(repo, "update-ref", "REBASE_HEAD", "topic");
+
+			expect(
+				await landedAs(spawnExec(), repo, "main", ["log.md"]),
+			).toBeUndefined();
+		},
+		REAL_GIT_MS,
+	);
 });
