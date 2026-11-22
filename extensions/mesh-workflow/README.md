@@ -1370,9 +1370,11 @@ mesh_end closes just the addressed conversation when it belongs to the
 installed host. A hosted owner in another process, once its host's list
 still holds the conversation, is closed through that host's control
 socket, `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, named by the host
-key `<realm>-<kind>`. The request carries the host's whole process
-identity as expectedHost, so a successor on the same socket refuses it,
-and says who asked (`by`, as `mesh_end from <address>`), which the
+key `<realm>-<kind>`. The request carries, as expectedHost, the whole
+process identity the presence names: the host's, or that of the host's
+child running the conversation. A successor on the same socket refuses
+it, and so does a host whose conversation another child now runs. The
+request also says who asked (`by`, as `mesh_end from <address>`), which the
 host's journal writes as it lets the conversation go; a move's release
 says the move the same way.
 An unreachable socket, a refusal or a lost reply leaves the conversation

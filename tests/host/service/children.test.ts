@@ -335,6 +335,140 @@ describe("a host with conversations in children", () => {
 		});
 		expect(childAsked).toEqual([]);
 	});
+	it.each(["close", "release", "abort"] as const)(
+		"ends a conversation by %s under the name of the child running it, as its presence names it",
+		async (op) => {
+			const reply = await controlRequest(hostPath, {
+				v: 1,
+				id: op,
+				op,
+				sessionId: a,
+				expectedHost: child,
+			});
+
+			expect(reply).toMatchObject({ ok: true, result: { sessionId: a } });
+			expect(childAsked).toEqual([
+				expect.objectContaining({ op, expectedHost: child }),
+			]);
+			expect(asked).toEqual([]);
+		},
+	);
+	it("refuses one child's name for a conversation another child runs", async () => {
+		const other: HostIdentity = {
+			...child,
+			owner: { pid: process.pid, startedAt: 4 },
+		};
+		const otherAsked: string[] = [];
+		await strangeChild(c, (socket, request) => {
+			otherAsked.push(request.id);
+			socket.end();
+		});
+		routes.hold(conversation(c), {
+			socket: join(dir, "host.d", "cx.sock"),
+			identity: other,
+		});
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: c,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(otherAsked, "the child running it heard nothing").toEqual([]);
+		expect(childAsked, "nor did the child named").toEqual([]);
+	});
+	it("refuses a child's name once another child runs its conversation", async () => {
+		const replacement: HostIdentity = {
+			...child,
+			owner: { pid: process.pid, startedAt: 3 },
+		};
+		routes.hold(conversation(a), { socket: childPath, identity: replacement });
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(childAsked).toEqual([]);
+	});
+	it.each([
+		["its start time", { startedAt: 5 }],
+		["its boot", { bootId: "another-boot" }],
+		["its start ticks", { startTicks: 7 }],
+	])(
+		"refuses a child's name with its pid but another of %s",
+		async (_field, change) => {
+			const reply = await controlRequest(hostPath, {
+				v: 1,
+				id: "close",
+				op: "close",
+				sessionId: a,
+				expectedHost: { ...child, owner: { ...child.owner, ...change } },
+			});
+
+			expect(reply).toMatchObject({
+				ok: false,
+				error: { code: "stale_host" },
+			});
+			expect(childAsked).toEqual([]);
+		},
+	);
+	it("refuses a child's name for a conversation the host runs itself", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: b,
+			expectedHost: child,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(asked).toEqual([]);
+		expect(childAsked).toEqual([]);
+	});
+	it("refuses a child's name on an attach whose wake would start the conversation in a child", async () => {
+		hostAttach = (sessionId) =>
+			routes.hold(conversation(sessionId), {
+				socket: childPath,
+				identity: child,
+			});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(
+			line({
+				v: 1,
+				id: "view",
+				op: "attach",
+				sessionId: b,
+				rows: 20,
+				columns: 80,
+				expectedHost: child,
+			}),
+		);
+
+		expect((await seen.next()).value).toMatchObject({
+			id: "view",
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		window.end();
+		expect(asked, "the host woke nothing").toEqual([]);
+		expect(childAsked).toEqual([]);
+	});
 	it("says a child answering as another process doesn't answer, not that the caller's host changed", async () => {
 		await strangeChild(b, (socket, request) => {
 			socket.write(

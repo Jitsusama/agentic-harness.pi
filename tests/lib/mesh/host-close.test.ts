@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
 import { hostSocketPath } from "../../../host/service/address.ts";
+import { heldChildren } from "../../../host/service/children.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import type { TickedOwner } from "../../../lib/internal/process-ticks.ts";
 import {
@@ -27,9 +28,12 @@ let closed: ReturnType<typeof vi.fn<(why: string) => void>>;
 let asked: string[];
 let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 let answer: (sessionId: string) => unknown;
+// The conversations the host's children run, none until a test starts one.
+let routes: ReturnType<typeof heldChildren>;
 beforeEach(async () => {
 	answer = (sessionId) => ({ sessionId });
 	asked = [];
+	routes = heldChildren();
 	dir = await mkdtemp(join(tmpdir(), "mesh-host-close-"));
 	host = new SessionHost({
 		key: "work-attended",
@@ -57,6 +61,7 @@ beforeEach(async () => {
 				return answer(request.sessionId);
 			},
 		},
+		children: routes,
 		report() {},
 	});
 });
@@ -107,6 +112,69 @@ it("leaves a conversation alone when the socket answers for another process", as
 	).toBe("unsure");
 	expect(host.list()).toHaveLength(2);
 	expect(closed).not.toHaveBeenCalled();
+});
+
+it("ends a conversation a child of its host runs, named as the child its presence names, and no longer once another child runs it", async () => {
+	const c = "c0000000-0000-4000-8000-000000000003";
+	const child = { pid: process.pid, startedAt: 2, startTicks: 9 };
+	const childAsked: string[] = [];
+	const childSocket = join(dir, "c.sock");
+	const childListener = await listenControl({
+		path: childSocket,
+		backend: {
+			identity: { key: host.key, owner: child },
+			execute: async (request) => {
+				if (request.op !== "close" && request.op !== "release")
+					throw new Error(request.op);
+				childAsked.push(`${request.op} by ${request.by}`);
+				return { sessionId: request.sessionId };
+			},
+		},
+		report() {},
+	});
+	try {
+		routes.hold(
+			{
+				sessionId: c,
+				file: join(dir, c),
+				cwd: dir,
+				state: "idle",
+				since: "2026-11-22T05:00:00.000Z",
+			},
+			{ socket: childSocket, identity: { key: host.key, owner: child } },
+		);
+
+		expect(await closeThroughHost(ownerOf(c, child), BY, dir)).toBe("ended");
+		expect(childAsked, "the child running it heard the close").toEqual([
+			`close by ${BY}`,
+		]);
+		expect(await releaseThroughHost(ownerOf(c, child), BY, dir)).toBe("ended");
+		expect(childAsked, "the child heard the release too").toEqual([
+			`close by ${BY}`,
+			`release by ${BY}`,
+		]);
+
+		// Another child takes the conversation up, under its own identity.
+		routes.hold(
+			{
+				sessionId: c,
+				file: join(dir, c),
+				cwd: dir,
+				state: "idle",
+				since: "2026-11-22T05:00:00.000Z",
+			},
+			{
+				socket: childSocket,
+				identity: { key: host.key, owner: { ...child, startedAt: 3 } },
+			},
+		);
+		expect(await closeThroughHost(ownerOf(c, child), BY, dir)).toBe("unsure");
+		expect(childAsked, "no child heard the stale close").toHaveLength(2);
+		expect(asked, "the host's own thread ended nothing").toEqual([]);
+		expect(host.list()).toHaveLength(2);
+	} finally {
+		await childListener.close();
+	}
 });
 
 it("is unsure when the host's yes does not name the conversation", async () => {
