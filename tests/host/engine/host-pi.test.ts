@@ -458,6 +458,19 @@ it("refuses a bundle with no host module for a library it hands extensions, whic
 	);
 });
 
+it("refuses, as the host starts, a bundle that hands extensions typebox but shares none with the host", async () => {
+	// As a bundle built before typebox had its host module would.
+	const dir = installWithEntry((source) =>
+		source.replace(
+			"export const VIRTUAL_MODULES = { ",
+			'export const VIRTUAL_MODULES = { "typebox": ai, "typebox/value": ai, ',
+		),
+	);
+	await expect(loadHostPi(dir)).rejects.toThrow(
+		"has no host module for typebox, typebox/value, so the host's own imports would load a second copy",
+	);
+});
+
 it("refuses a bundle's host entry that hands extensions no pi-ai", async () => {
 	const dir = fakeInstall({
 		agent: true,

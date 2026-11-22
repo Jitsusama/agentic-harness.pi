@@ -1,4 +1,4 @@
-/** The host program binds the harness's pi imports to the host's own pi, and nothing else. */
+/** The host program binds the harness's pi and typebox imports to the host's own pi, and nothing else. */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -36,6 +36,8 @@ describe("piFromHost", () => {
 		for (const specifier of [
 			"@earendil-works/pi-tui",
 			"@earendil-works/pi-ai/compat",
+			"typebox",
+			"typebox/value",
 		]) {
 			const { asked, context } = resolved(specifier, HARNESS);
 			expect(asked).toBe(specifier);
@@ -69,13 +71,19 @@ describe("piFromHost", () => {
 		}
 
 		it("resolves a harness module's pi import to the bundle's copy, which pi hands its extensions", () => {
-			const install = bundledInstall(["pi-tui", "pi-ai/compat"]);
-			for (const name of ["pi-tui", "pi-ai/compat"]) {
-				const { asked, context } = resolved(
-					`@earendil-works/${name}`,
-					HARNESS,
-					install,
-				);
+			const install = bundledInstall([
+				"pi-tui",
+				"pi-ai/compat",
+				"typebox",
+				"typebox/compile",
+			]);
+			for (const [specifier, name] of [
+				["@earendil-works/pi-tui", "pi-tui"],
+				["@earendil-works/pi-ai/compat", "pi-ai/compat"],
+				["typebox", "typebox"],
+				["typebox/compile", "typebox/compile"],
+			] as const) {
+				const { asked, context } = resolved(specifier, HARNESS, install);
 				expect(asked).toBe(
 					pathToFileURL(
 						join(install, "dist", "bundle", "host-modules", `${name}.js`),
@@ -90,6 +98,9 @@ describe("piFromHost", () => {
 			for (const specifier of [
 				"@earendil-works/pi-durable",
 				"@earendil-works/pi-tui/../pi-tui",
+				// A bundle from before typebox was shared gives the host none.
+				"typebox",
+				"typebox/value",
 			])
 				expect(() => resolved(specifier, HARNESS, install)).toThrow(
 					`The host's pi bundle shares no ${specifier} with the host`,
@@ -114,7 +125,13 @@ describe("piFromHost", () => {
 	it("leaves pi's own imports and every other package to node", () => {
 		const own = `file://${PI}/packages/coding-agent/dist/index.js`;
 		expect(resolved("@earendil-works/pi-ai", own).context.parentURL).toBe(own);
-		for (const specifier of ["zod", "node:fs", "./terminal.ts"])
+		for (const specifier of [
+			"zod",
+			"node:fs",
+			"./terminal.ts",
+			"typeboxes",
+			"@sinclair/typebox",
+		])
 			expect(resolved(specifier, HARNESS).context.parentURL).toBe(HARNESS);
 	});
 });

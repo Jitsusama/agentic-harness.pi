@@ -1,155 +1,204 @@
-/** Versioned control requests and viewer frames for a realm's host socket. */
+/**
+ * Versioned control requests and viewer frames for a realm's host socket.
+ *
+ * Each shape is a TypeBox schema, checked with the TypeBox pi's bundle
+ * already loads in every hosted conversation, so a host's child carries no
+ * validation library of its own. Every object refuses keys it doesn't name.
+ * A string's length counts UTF-16 units, as JavaScript's own length does,
+ * rather than JSON Schema's code points; integers are held to the safe
+ * range, and an id and a time to the patterns below.
+ */
 import { isAbsolute } from "node:path";
-import { z } from "zod";
+import { type Static, type TSchema, Type } from "typebox";
+import { Compile, type Validator } from "typebox/compile";
 import {
 	isRosterEntry,
 	type RosterEntry,
 } from "../../lib/core/session/roster.ts";
 import { asCarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 
-const text = z.string().min(1);
-const path = text.refine(isAbsolute);
-const sessionId = z.uuid();
-const geometry = {
-	rows: z.int().min(1).max(1000),
-	columns: z.int().min(1).max(1000),
-};
-const expectedHost = z.strictObject({
-	key: text,
-	owner: z.strictObject({
-		pid: z.int().positive(),
-		startedAt: z.number().positive().finite(),
-		bootId: text.optional(),
-		startTicks: z.int().nonnegative().optional(),
+/** An RFC 9562 UUID of any version, or the nil or the max one. */
+const UUID =
+	/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
+/** A calendar date, leap days included. */
+const DATE =
+	"(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))";
+/** An ISO 8601 date and time, in UTC or at an offset. */
+const DATETIME = new RegExp(
+	`^${DATE}T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$`,
+);
+
+/** A string of at least one UTF-16 unit, and at most `most` when given. */
+function text(most?: number) {
+	return Type.Refine(
+		Type.String(),
+		(value) =>
+			value.length >= 1 && (most === undefined || value.length <= most),
+	);
+}
+/** An integer from `least` to `most`, kept within the safe range. */
+function int(least: number, most = Number.MAX_SAFE_INTEGER) {
+	return Type.Integer({ minimum: least, maximum: most });
+}
+/** An object of exactly these keys, the optional ones aside. */
+function exactly<Properties extends Record<string, TSchema>>(
+	properties: Properties,
+) {
+	return Type.Object(properties, { additionalProperties: false });
+}
+
+const path = Type.Refine(
+	Type.String(),
+	(value) => value.length >= 1 && isAbsolute(value),
+);
+const sessionId = Type.String({ pattern: UUID.source });
+const geometry = { rows: int(1, 1000), columns: int(1, 1000) };
+const expectedHost = exactly({
+	key: text(),
+	owner: exactly({
+		pid: int(1),
+		startedAt: Type.Number({ exclusiveMinimum: 0 }),
+		bootId: Type.Optional(text()),
+		startTicks: Type.Optional(int(0)),
 	}),
 });
 const envelope = {
-	v: z.literal(1),
-	id: text.max(128),
-	expectedHost: expectedHost.optional(),
+	v: Type.Literal(1),
+	id: text(128),
+	expectedHost: Type.Optional(expectedHost),
 };
 const session = { ...envelope, sessionId };
-const caller = text.max(128).optional();
+const caller = Type.Optional(text(128));
 // How the conversation runs its commands, as the session it continues was
 // started (the fence, the spawner): those variables alone, each a word.
-const carried = z
-	.record(text, text)
-	.refine((env) => asCarriedEnvironment(env) !== undefined, {
-		message: "only the carried variables, each set to a plain word",
-	})
-	.optional();
-const request = z.discriminatedUnion("op", [
-	z.strictObject({
+const carried = Type.Optional(
+	Type.Refine(
+		Type.Record(Type.String(), Type.String()),
+		(env) =>
+			Object.entries(env).every(
+				([name, value]) => name.length >= 1 && value.length >= 1,
+			) && asCarriedEnvironment(env) !== undefined,
+		() => "only the carried variables, each set to a plain word",
+	),
+);
+const request = Type.Union([
+	exactly({
 		...envelope,
-		op: z.literal("open"),
+		op: Type.Literal("open"),
 		cwd: path,
-		attended: z.boolean(),
-		quest: text.optional(),
-		model: z.strictObject({ provider: text, id: text }).optional(),
-		thinkingLevel: z
-			.enum(["off", "minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
-		first: text.optional(),
+		attended: Type.Boolean(),
+		quest: Type.Optional(text()),
+		model: Type.Optional(exactly({ provider: text(), id: text() })),
+		thinkingLevel: Type.Optional(
+			Type.Enum(["off", "minimal", "low", "medium", "high", "xhigh"]),
+		),
+		first: Type.Optional(text()),
 		// Whether it orchestrates its quest, as the launcher's Orchestrate asks.
-		orchestrate: z.boolean().optional(),
+		orchestrate: Type.Optional(Type.Boolean()),
 		env: carried,
 	}),
-	z.strictObject({
+	exactly({
 		...envelope,
-		op: z.literal("adopt"),
+		op: Type.Literal("adopt"),
 		sessionFile: path,
-		attended: z.boolean(),
-		quest: text.optional(),
+		attended: Type.Boolean(),
+		quest: Type.Optional(text()),
 		env: carried,
 	}),
-	z.strictObject({ ...envelope, op: z.literal("list") }),
+	exactly({ ...envelope, op: Type.Literal("list") }),
 	// A child host's one conversation, followed for as long as the
 	// connection lasts (child.ts): what the supervisor that started it
 	// hears it by.
-	z.strictObject({ ...envelope, op: z.literal("watch") }),
+	exactly({ ...envelope, op: Type.Literal("watch") }),
 	// Who asks, as the caller names itself (the launcher, a command), for
 	// the line the host's journal writes as it lets the conversation go.
-	z.strictObject({ ...session, op: z.literal("release"), by: caller }),
-	z.strictObject({ ...session, op: z.literal("close"), by: caller }),
-	z.strictObject({ ...session, op: z.literal("abort") }),
+	exactly({ ...session, op: Type.Literal("release"), by: caller }),
+	exactly({ ...session, op: Type.Literal("close"), by: caller }),
+	exactly({ ...session, op: Type.Literal("abort") }),
 	// Start or lift a drain for a restart: each conversation parks as soon
 	// as its park rule holds, and a wake by file or steer waits for the lift.
-	z.strictObject({
+	exactly({
 		...envelope,
-		op: z.literal("drain"),
-		on: z.boolean(),
+		op: Type.Literal("drain"),
+		on: Type.Boolean(),
 		by: caller,
 	}),
-	z.strictObject({
+	exactly({
 		...session,
 		...geometry,
-		op: z.literal("attach"),
-		window: text.max(256).optional(),
+		op: Type.Literal("attach"),
+		window: Type.Optional(text(256)),
 		// What the client can do, such as edit and suspend; a host passes over
 		// what it doesn't know, so a newer client still attaches.
-		features: z.array(text.max(64)).max(16).optional(),
+		features: Type.Optional(Type.Array(text(64), { maxItems: 16 })),
 	}),
 ]);
-const viewer = z.discriminatedUnion("type", [
-	z.strictObject({ type: z.literal("input"), data: z.string() }),
-	z.strictObject({ type: z.literal("resize"), ...geometry }),
+const viewer = Type.Union([
+	exactly({ type: Type.Literal("input"), data: Type.String() }),
+	exactly({ type: Type.Literal("resize"), ...geometry }),
 	// An edit's answer: the draft as it became, or no text to keep it.
-	z.strictObject({
-		type: z.literal("edited"),
-		id: text.max(128),
-		text: z.string().optional(),
+	exactly({
+		type: Type.Literal("edited"),
+		id: text(128),
+		text: Type.Optional(Type.String()),
 	}),
 ]);
 
-const reply = z.discriminatedUnion("ok", [
-	z.strictObject({
-		v: z.literal(1),
-		id: text,
-		ok: z.literal(true),
-		result: z.unknown(),
+const reply = Type.Union([
+	exactly({
+		v: Type.Literal(1),
+		id: text(),
+		ok: Type.Literal(true),
+		result: Type.Unknown(),
 	}),
-	z.strictObject({
-		v: z.literal(1),
-		id: text.nullable(),
-		ok: z.literal(false),
-		error: z.strictObject({ code: text, message: text }),
+	exactly({
+		v: Type.Literal(1),
+		id: Type.Union([text(), Type.Null()]),
+		ok: Type.Literal(false),
+		error: exactly({ code: text(), message: text() }),
 	}),
 ]);
 
-const identity = z.strictObject({
+/** A conversation's states, as a host reports them. */
+const STATES = ["busy", "idle", "parked"] as const;
+
+const since = Type.String({ pattern: DATETIME.source });
+const identity = exactly({
 	sessionId,
 	file: path,
 	cwd: path,
-	state: z.enum(["busy", "idle", "parked"]),
-	since: z.iso.datetime({ offset: true }),
+	state: Type.Enum(STATES),
+	since,
 });
-const listed = z.strictObject({
-	sessions: z.array(identity),
+const listed = exactly({
+	sessions: Type.Array(identity),
 	host: expectedHost,
 });
-const ended = z.strictObject({ sessionId });
-const count = z.int().nonnegative();
-const drained = z.strictObject({
-	draining: z.boolean(),
+const ended = exactly({ sessionId });
+const count = int(0);
+const drained = exactly({
+	draining: Type.Boolean(),
 	busy: count,
 	idle: count,
 	parked: count,
 	// The heavy runs going now, a line each, which hold a draining host's restart.
-	heavy: z.array(text),
+	heavy: Type.Array(text()),
 });
 
 /** A hosted conversation as open, adopt and list report it. */
-export type SessionIdentity = z.infer<typeof identity>;
+export type SessionIdentity = Static<typeof identity>;
 
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
 
 // The child's roster entry for its conversation, launch and all, which
 // the supervisor holds in the shared roster so a later resume replays it.
-const entry = z.custom<RosterEntry>(isRosterEntry, "Invalid roster entry");
+const entry = Type.Unsafe<RosterEntry>(
+	Type.Refine(Type.Unknown(), isRosterEntry, () => "Invalid roster entry"),
+);
 
-const watched = z.strictObject({
-	version: text,
+const watched = exactly({
+	version: text(),
 	host: expectedHost,
 	conversation: identity,
 	entry,
@@ -158,94 +207,113 @@ const watched = z.strictObject({
 /** Why a child host ends, as the last line its watch sends says. */
 export const ENDINGS = ["parked", "closed", "released", "failed"] as const;
 
-const watchLine = z.discriminatedUnion("type", [
-	z.strictObject({
-		type: z.literal("state"),
+const watchLine = Type.Union([
+	exactly({
+		type: Type.Literal("state"),
 		conversation: identity,
-		state: z.enum(["busy", "idle"]),
-		heap: z.strictObject({ used: count, limit: count }),
+		state: Type.Union([Type.Literal("busy"), Type.Literal("idle")]),
+		heap: exactly({ used: count, limit: count }),
 		viewers: count,
 	}),
-	z.strictObject({
-		type: z.literal("became"),
+	exactly({
+		type: Type.Literal("became"),
 		previousId: sessionId,
 		conversation: identity,
 		entry,
 	}),
-	z.strictObject({ type: z.literal("ending"), why: z.enum(ENDINGS) }),
+	exactly({
+		type: Type.Literal("ending"),
+		why: Type.Enum(ENDINGS),
+	}),
 ]);
 
 /** Watch's answer: the child's harness version, its own identity and its conversation. */
-export type WatchAnswer = z.infer<typeof watched>;
+export type WatchAnswer = Static<typeof watched>;
 
 /** A line a child's watch sends after its answer. */
-export type WatchLine = z.infer<typeof watchLine>;
+export type WatchLine = Static<typeof watchLine>;
+
+/** Each schema's checker, compiled the first time a value is checked against it. */
+const checkers = new WeakMap<TSchema, Validator>();
+
+/** A schema checked on its own, with no definitions beside it. */
+type Alone = Record<never, never>;
+
+/**
+ * The checker for `schema`: compiled once, as a function of its own,
+ * since interpreting the schema again for every message is far slower.
+ */
+export function checkerOf<Schema extends TSchema>(
+	schema: Schema,
+): Validator<Alone, Schema> {
+	const known = checkers.get(schema);
+	if (known !== undefined) return known as Validator<Alone, Schema>;
+	const checker = Compile(schema);
+	checkers.set(schema, checker);
+	return checker;
+}
+
+/** `value` as `schema` holds it, or an error saying `refused`. */
+function checked<Schema extends TSchema>(
+	schema: Schema,
+	value: unknown,
+	refused: string,
+): Static<Schema> {
+	if (!checkerOf(schema).Check(value)) throw new Error(refused);
+	return value;
+}
 
 /** Watch's result, sent once the child holds its conversation. */
 export function parseWatchResult(value: unknown): WatchAnswer {
-	return result(watched, value);
+	return checked(watched, value, "Invalid host control result");
 }
 
 /** One line a child's watch sent, refused when it isn't one. */
 export function parseWatchLine(value: unknown): WatchLine {
-	const parsed = watchLine.safeParse(value);
-	if (!parsed.success) throw new Error("Invalid child watch line");
-	return parsed.data;
-}
-
-function result<T>(schema: z.ZodType<T>, value: unknown): T {
-	const parsed = schema.safeParse(value);
-	if (!parsed.success) throw new Error("Invalid host control result");
-	return parsed.data;
+	return checked(watchLine, value, "Invalid child watch line");
 }
 
 /** Open's result, sent once ownership and the first durable submit committed. */
 export function parseOpenResult(value: unknown): SessionIdentity {
-	return result(identity, value);
+	return checked(identity, value, "Invalid host control result");
 }
 
 /** Adopt's result: the original pi file, now held by the host. */
 export function parseAdoptResult(value: unknown): SessionIdentity {
-	return result(identity, value);
+	return checked(identity, value, "Invalid host control result");
 }
 
 /** List's result, with the full identity to guard a later request with. */
-export function parseListResult(value: unknown): z.infer<typeof listed> {
-	return result(listed, value);
+export function parseListResult(value: unknown): Static<typeof listed> {
+	return checked(listed, value, "Invalid host control result");
 }
 
 /** Release, close, abort and attach answer with the session they acted on. */
-export function parseSessionResult(value: unknown): z.infer<typeof ended> {
-	return result(ended, value);
+export function parseSessionResult(value: unknown): Static<typeof ended> {
+	return checked(ended, value, "Invalid host control result");
 }
 
 /** Drain's result: whether the host drains now, and how its conversations stand. */
-export function parseDrainResult(value: unknown): z.infer<typeof drained> {
-	return result(drained, value);
+export function parseDrainResult(value: unknown): Static<typeof drained> {
+	return checked(drained, value, "Invalid host control result");
 }
 
 /** Validate the engine's reply without trusting the connected socket's identity. */
 export function parseReply(value: unknown) {
-	const parsed = reply.safeParse(value);
-	if (!parsed.success) throw new Error("Invalid host control reply");
-	return parsed.data;
+	return checked(reply, value, "Invalid host control reply");
 }
 
 /** A validated request; sessionId always names pi's stable UUID. */
-export type ControlRequest = z.infer<typeof request>;
+export type ControlRequest = Static<typeof request>;
 /** A validated event from one attached viewer. */
-export type ViewerInput = z.infer<typeof viewer>;
+export type ViewerInput = Static<typeof viewer>;
 
 /** Refuse unknown fields, ambiguous identities and unsupported operations. */
 export function parseControl(value: unknown): ControlRequest {
-	const parsed = request.safeParse(value);
-	if (!parsed.success) throw new Error("Invalid host control request");
-	return parsed.data;
+	return checked(request, value, "Invalid host control request");
 }
 
 /** Validate viewer input separately from the control protocol. */
 export function parseViewer(value: unknown): ViewerInput {
-	const parsed = viewer.safeParse(value);
-	if (!parsed.success) throw new Error("Invalid host viewer frame");
-	return parsed.data;
+	return checked(viewer, value, "Invalid host viewer frame");
 }

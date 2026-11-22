@@ -22,7 +22,7 @@
  * exit by itself.
  */
 import { createConnection } from "node:net";
-import { z } from "zod";
+import { type Static, type TSchema, Type } from "typebox";
 import {
 	isRosterEntry,
 	type RosterEntry,
@@ -30,7 +30,12 @@ import {
 import { isRecord } from "../../lib/internal/record.ts";
 import type { HostIdentity } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
-import { identities, type SessionIdentity } from "./protocol.ts";
+import {
+	checkerOf,
+	ENDINGS,
+	identities,
+	type SessionIdentity,
+} from "./protocol.ts";
 
 /**
  * The longest line a watch reads: each carries one conversation and its
@@ -41,17 +46,47 @@ const WATCH_FRAME_BYTES = 64 * 1024;
 /** How much of why a line couldn't be read goes in the host's journal. */
 const MISREAD_SAID_CHARS = 300;
 
-const sessionId = z.uuid();
-// What a newer child says beyond these, at any depth, is passed over.
-const conversation = identities.conversation
-	.extend({ state: identities.conversation.shape.state.catch("busy") })
-	.strip();
-const host = identities.host
-	.extend({ owner: identities.host.shape.owner.strip() })
-	.strip();
-const entry = z
-	.custom<RosterEntry>(isRosterEntry, "not a roster entry")
-	.transform(known);
+// What a newer child says beyond these, at any depth, is passed over:
+// each object takes keys it doesn't name, and what it is read as keeps
+// only those this host knows.
+const { sessionId, state: knownState } = identities.conversation.properties;
+const conversation = Type.Object({
+	...identities.conversation.properties,
+	state: Type.Optional(Type.Unknown()),
+});
+const host = Type.Object({
+	key: identities.host.properties.key,
+	owner: Type.Object(identities.host.properties.owner.properties),
+});
+const entry = Type.Unsafe<RosterEntry>(
+	Type.Refine(Type.Unknown(), isRosterEntry, () => "not a roster entry"),
+);
+
+/** The conversation as this host knows it: a state it doesn't know is busy. */
+function conversationOf(said: Static<typeof conversation>): SessionIdentity {
+	const { sessionId, file, cwd, state, since } = said;
+	return {
+		sessionId,
+		file,
+		cwd,
+		state: checkerOf(knownState).Check(state) ? state : "busy",
+		since,
+	};
+}
+
+/** The child's identity as this host knows it. */
+function hostOf(said: Static<typeof host>): HostIdentity {
+	const { pid, startedAt, bootId, startTicks } = said.owner;
+	return {
+		key: said.key,
+		owner: {
+			pid,
+			startedAt,
+			...(bootId === undefined ? {} : { bootId }),
+			...(startTicks === undefined ? {} : { startTicks }),
+		},
+	};
+}
 
 /** The fields of `entry` this host knows, as the shared roster keeps them. */
 function known(entry: RosterEntry): RosterEntry {
@@ -66,43 +101,116 @@ function known(entry: RosterEntry): RosterEntry {
 		...(launch === undefined ? {} : { launch }),
 	};
 }
-const answer = z.discriminatedUnion("ok", [
-	z.object({ ok: z.literal(true), result: z.unknown() }),
-	z.object({
-		ok: z.literal(false),
-		error: z.object({ message: z.string() }),
-	}),
-]);
-const watched = z.object({
-	version: z.string().min(1),
-	host,
-	conversation,
-	entry,
+const refused = Type.Object({
+	ok: Type.Literal(false),
+	error: Type.Object({ message: Type.String() }),
 });
-const line = z.discriminatedUnion("type", [
-	z.object({
-		type: z.literal("state"),
-		conversation,
-		state: z.enum(["busy", "idle"]).optional().catch(undefined),
-		heap: z
-			.object({ used: z.number().nonnegative(), limit: z.number() })
-			.optional()
-			.catch(undefined),
-	}),
-	z.object({
-		type: z.literal("became"),
-		previousId: sessionId,
+const answered = Type.Object({
+	ok: Type.Literal(true),
+	result: Type.Object({
+		version: Type.String({ minLength: 1 }),
+		host,
 		conversation,
 		entry,
 	}),
-	z.object({
-		type: z.literal("ending"),
-		why: z.enum(["parked", "closed", "released", "failed"]),
-	}),
-]);
+});
+// A state line's own state and heap are this host's to pass over: it
+// reads the conversation alone.
+const stateLine = Type.Object({ type: Type.Literal("state"), conversation });
+const becameLine = Type.Object({
+	type: Type.Literal("became"),
+	previousId: sessionId,
+	conversation,
+	entry,
+});
+const endingLine = Type.Object({
+	type: Type.Literal("ending"),
+	why: Type.Enum(ENDINGS),
+});
 
 /** Why a child's conversation ended, as it said just before it exited. */
-export type ChildEnding = "parked" | "closed" | "released" | "failed";
+export type ChildEnding = (typeof ENDINGS)[number];
+
+/** A line read as this host knows it. */
+type Said =
+	| { readonly type: "state"; readonly conversation: SessionIdentity }
+	| {
+			readonly type: "became";
+			readonly previousId: string;
+			readonly conversation: SessionIdentity;
+			readonly entry: RosterEntry;
+	  }
+	| { readonly type: "ending"; readonly why: ChildEnding };
+
+/** What was read, or why it couldn't be. */
+type Read<T> =
+	| { readonly ok: true; readonly data: T }
+	| { readonly ok: false; readonly error: Error };
+
+/** `value` read through `schema`, then as this host knows it. */
+function read<Schema extends TSchema, T>(
+	schema: Schema,
+	value: unknown,
+	know: (said: Static<Schema>) => T,
+): Read<T> {
+	const checker = checkerOf(schema);
+	if (checker.Check(value)) return { ok: true, data: know(value) };
+	const why = checker
+		.Errors(value)
+		.map((error) => `${error.instancePath || "/"}: ${error.message}`)
+		.join("; ");
+	return { ok: false, error: new Error(why) };
+}
+
+/** One line the child sent after its answer. */
+function readLine(value: unknown): Read<Said> {
+	const type = isRecord(value) ? value.type : undefined;
+	if (type === "state")
+		return read(stateLine, value, (said) => ({
+			type: "state",
+			conversation: conversationOf(said.conversation),
+		}));
+	if (type === "became")
+		return read(becameLine, value, (said) => ({
+			type: "became",
+			previousId: said.previousId,
+			conversation: conversationOf(said.conversation),
+			entry: known(said.entry),
+		}));
+	if (type === "ending")
+		return read(endingLine, value, (said) => ({
+			type: "ending",
+			why: said.why,
+		}));
+	return {
+		ok: false,
+		error: new Error(`no line of type ${JSON.stringify(type) ?? "undefined"}`),
+	};
+}
+
+/**
+ * The child's answer to its watch, or an error saying it refused or
+ * answered with something else.
+ */
+function answerOf(value: unknown): Watched {
+	if (checkerOf(refused).Check(value)) {
+		const said = JSON.stringify(
+			value.error.message.slice(0, MISREAD_SAID_CHARS),
+		);
+		throw new Error(`The child refused its watch: ${said}`);
+	}
+	const first = read(answered, value, ({ result }) => ({
+		version: result.version,
+		host: hostOf(result.host),
+		conversation: conversationOf(result.conversation),
+		entry: known(result.entry),
+	}));
+	if (!first.ok) {
+		const why = first.error.message.slice(0, MISREAD_SAID_CHARS);
+		throw new Error(`The child answered its watch with no watch: ${why}`);
+	}
+	return first.data;
+}
 
 /** What a child first says when it is watched. */
 export interface Watched {
@@ -214,14 +322,7 @@ export function watchChild(
 			try {
 				for (const value of frames.push(chunk)) {
 					if (!answered) {
-						const reply = answer.parse(value);
-						if (!reply.ok) {
-							const said = JSON.stringify(
-								reply.error.message.slice(0, MISREAD_SAID_CHARS),
-							);
-							throw new Error(`The child refused its watch: ${said}`);
-						}
-						const first = watched.parse(reply.result);
+						const first = answerOf(value);
 						clearTimeout(unanswered);
 						answered = true;
 						signal?.removeEventListener("abort", abandoned);
@@ -237,8 +338,8 @@ export function watchChild(
 						});
 						continue;
 					}
-					const read = line.safeParse(value);
-					if (!read.success) {
+					const read = readLine(value);
+					if (!read.ok) {
 						const type = isRecord(value) ? value.type : undefined;
 						if (type === "became") throw read.error;
 						if (type === "ending") {
