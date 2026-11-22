@@ -217,6 +217,10 @@ export const HAND_LOCKED =
  * there is never taken away here.
  */
 function makingWhy(path: string, now: number): string | undefined {
+	const unseen = lockUnseen(path);
+	if (unseen !== undefined) {
+		return `git won't read it, and git's entry for it, where its .git points, couldn't be looked at (${unseen}), so whether it is locked can't be told and it stays; once that folder can be read, \`work tidy\` judges it again, or move it aside by hand`;
+	}
 	if (handLocked(path)) return HAND_LOCKED;
 	if (cutRunning(path, now)) {
 		return "git won't read it, but git marks it locked, as it does while a cut runs, so it stays";
@@ -253,6 +257,26 @@ export function cutRunning(path: string, now = Date.now()): boolean {
 export function handLocked(path: string): boolean {
 	const gitDir = namedGitDir(path);
 	return gitDir !== undefined && lockedByHand(gitDir);
+}
+
+/**
+ * The error that kept the lock in the git entry the worktree at `path`
+ * names from being looked at, a folder it may not search or a loop of
+ * links, or nothing when it could be. Such a tree counts as locked, so
+ * it is kept, but is told apart from one locked by hand, since
+ * `git worktree unlock` has no lock there to take away.
+ */
+export function lockUnseen(path: string): string | undefined {
+	const gitDir = namedGitDir(path);
+	if (gitDir === undefined) return undefined;
+	try {
+		lstatSync(join(gitDir, "locked"));
+		return undefined;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+		return code ?? "an error with no code";
+	}
 }
 
 /**
@@ -381,6 +405,10 @@ function lockedByHand(entry: string): boolean {
 	// Asked in this order, a cut's lock written between the two reads is
 	// read as the cut's, and one gone between them keeps the tree.
 	if (!standsAt(lock)) return false;
+	// An empty lock is `git worktree lock`'s with no reason given. A read
+	// between git's open of its own lock and its write of `initializing`
+	// reads empty too, and says the hand lock's words for that moment,
+	// keeping the tree either way, which is the side to err on.
 	const reason = readPlain(lock);
 	return reason === undefined || reason.trim() !== "initializing";
 }

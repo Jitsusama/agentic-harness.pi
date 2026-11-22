@@ -32,6 +32,7 @@ import {
 	handLocked,
 	handLockedIn,
 	LOCK_STALE_MS,
+	lockUnseen,
 	plainWords,
 	type StrandedRecords,
 	setAside,
@@ -407,15 +408,24 @@ describe("splitStranded", () => {
 	});
 
 	it.skipIf(process.getuid?.() === 0)(
-		"reads an entry it may not look in as locked by hand",
-		() => {
+		"keeps a tree whose entry it may not look in, saying so rather than that it is locked",
+		async () => {
 			// Read as nothing there, a lock git can't be asked about would let
-			// reclaim set aside a tree somebody locked.
+			// reclaim set aside a tree somebody locked; read as a hand lock,
+			// it would send Joel to an unlock with nothing to take away.
 			const gitDir = standingGitDir("snapshot-x");
 			const path = treeNaming("snapshot-x", gitDir);
 			chmodSync(gitDir, 0o600);
 			try {
 				expect(handLocked(path), "kept, as a lock may stand").toBe(true);
+				expect(lockUnseen(path)).toBe("EACCES");
+				const split = await splitStranded([{ path, why: REFUSED }], {
+					busyAmong: nobody,
+				});
+				expect(split.kept[0]?.why).toMatch(
+					/couldn't be looked at \(EACCES\), so whether it is locked can't be told/,
+				);
+				expect(split.kept[0]?.why).not.toContain("git worktree unlock");
 			} finally {
 				chmodSync(gitDir, 0o700);
 			}

@@ -208,7 +208,9 @@ async function treesLeftBehind(
 		// One a running session holds is among `keeping`. One the
 		// checkout's own entry names is among `worktrees`, whatever its
 		// `.git` says, so a lock this checkout's git keeps is never this
-		// sweep's. A tree cut from another clone, one moved since included,
+		// sweep's, as long as git can list them: a lock in any entry that
+		// is a fifo holds the listing until its time runs out, and then
+		// every tree is kept with the timeout's words. A tree cut from another clone, one moved since included,
 		// is judged by what its `.git` names alone, since no record says
 		// which clone cut it: a lock only that clone's entry keeps can't be
 		// seen from here, so the tree is set aside whole, every file kept,

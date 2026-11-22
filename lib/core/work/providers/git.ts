@@ -32,6 +32,7 @@ import {
 	GUARD_WORDS,
 	handLocked,
 	handLockedIn,
+	lockUnseen,
 	looksCut,
 	plainWords,
 	strandedWhy,
@@ -76,6 +77,10 @@ function unreadTree(
 				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	const unseen = lockUnseen(path);
+	if (unseen !== undefined) {
+		return `${where} Git's entry for it, where its \`.git\` points, couldn't be looked at (${unseen}), so whether a lock stands there can't be told, and nothing here sets it aside. Once that folder can be read, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
+	}
 	const cloneGit = clone === undefined ? undefined : checkoutGitFolder(clone);
 	if (
 		handLocked(path) ||

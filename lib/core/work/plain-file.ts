@@ -58,8 +58,10 @@ export function readPlain(
 /**
  * Write `text` as the whole of the plain file at `path`, answering
  * whether it was written. Nothing is written where something other than
- * a plain file stands, a link, a fifo, a device or a folder, and a fifo
- * nobody reads is refused at its open rather than waited on.
+ * a plain file of one name stands: a link of either kind, since a hard
+ * link planted at a note's name would have the file it shares rewritten,
+ * a fifo, a device or a folder. A fifo nobody reads is refused at its
+ * open rather than waited on.
  */
 export function writePlain(path: string, text: string): boolean {
 	let fd: number;
@@ -77,7 +79,8 @@ export function writePlain(path: string, text: string): boolean {
 		return false;
 	}
 	try {
-		if (!fstatSync(fd).isFile()) return false;
+		const stat = fstatSync(fd);
+		if (!stat.isFile() || stat.nlink !== 1) return false;
 		// Cut only once it proves plain, so a fifo opened is never truncated.
 		const bytes = Buffer.from(text, "utf8");
 		let written = 0;

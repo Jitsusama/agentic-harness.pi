@@ -232,10 +232,13 @@ describe("reclaim", () => {
 	});
 
 	it.runIf(machineCanSay)(
-		"keeps a tree the checkout's own entry locks, asked from it or a tree it holds",
+		"keeps a tree the checkout's own entry names, asked from it or a tree it holds, and keeps that entry's lock",
 		async () => {
 			// Once the clone has moved, the tree's `.git` names a folder that
-			// is gone, and only the clone's own entry still says it's locked.
+			// is gone, and only the clone's own entry still names it. Git
+			// lists the tree for that entry, locked or not, which is what
+			// keeps it: reclaim leaves every tree git lists to git, and the
+			// lock a later cut must meet is left as it was.
 			const path = strandedTree("snapshot-locked", AN_HOUR);
 			const entry = join(checkout(), ".git", "worktrees", "snapshot-locked");
 			mkdirSync(entry, { recursive: true });
@@ -251,6 +254,7 @@ describe("reclaim", () => {
 				setAside: 0,
 			});
 			expect(existsSync(path), "it stays where it was").toBe(true);
+			expect(existsSync(join(entry, "locked")), "its lock stays").toBe(true);
 		},
 	);
 
