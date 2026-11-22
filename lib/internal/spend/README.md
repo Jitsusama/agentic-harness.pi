@@ -16,6 +16,9 @@ and the status line.
   after each turn, for spend-workflow's budget item.
 - **`resources.ts`**: the CPU, disk and memory this pi process and
   its work used, from the kernel's counters.
+- **`session-spend.ts`**: what a session's log says it has spent,
+  read from its branch and any rollover record's carried total, so
+  spend-workflow and the host's kept history count the same way.
 - **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
   command line where it is installed, for the spend tool.
 - **`spend-watch-budgets.ts`**: where every budget stands, its

@@ -361,6 +361,56 @@ function freshId(taken: ReadonlySet<string>): string {
 	}
 }
 
+/** What a branch keeps after its last compaction, and where that starts. */
+export interface KeptView {
+	/** The kept entries in branch order, their parents as the branch had them. */
+	readonly entries: readonly Entry[];
+	/** The branch's index of the compaction's first kept entry. */
+	readonly from: number;
+	/** How many of the branch's entries the view leaves out. */
+	readonly dropped: number;
+}
+
+/**
+ * The entries of `branch` that a rollover keeps: the state before the
+ * last compaction's first kept entry, the system messages folded, and
+ * everything from that entry on. Undefined when the branch has no
+ * compaction to start from, names a first kept entry it does not hold,
+ * or would leave nothing out. A rolled log and a hosted conversation
+ * held in memory both keep this, so the two can never disagree.
+ */
+export function keptView(
+	branch: readonly Entry[],
+	leftBehind: ReadonlySet<string> = typesLeftBehind(),
+): KeptView | undefined {
+	let compaction = -1;
+	for (let i = branch.length - 1; i >= 0; i--) {
+		if (branch[i]?.type === "compaction") {
+			compaction = i;
+			break;
+		}
+	}
+	if (compaction === -1) return undefined;
+	const firstKept = branch[compaction]?.firstKeptEntryId;
+	const from = branch.findIndex((entry) => entry.id === firstKept);
+	// An id the branch does not hold is a log pi itself could not build
+	// a context from; better to leave it as it is.
+	if (from === -1 || from > compaction) return undefined;
+
+	const chosen = [
+		...keptBefore(branch.slice(0, from), leftBehind),
+		...branch.slice(from),
+	];
+	const kept = new Set(chosen.map((entry) => entry.id));
+	const entries = chosen.filter((entry) => {
+		const field = POINTING[entry.type];
+		return field === undefined || kept.has(entry[field] as string);
+	});
+	const dropped = branch.length - entries.length;
+	if (dropped === 0) return undefined;
+	return { entries, from, dropped };
+}
+
 /**
  * The fresh log for a branch, or undefined when it has no compaction to
  * start from or nothing before it to leave behind.
@@ -378,34 +428,10 @@ export function rollOver(
 		readonly leftBehind?: ReadonlySet<string>;
 	},
 ): Rolled | undefined {
-	let compaction = -1;
-	for (let i = branch.length - 1; i >= 0; i--) {
-		if (branch[i]?.type === "compaction") {
-			compaction = i;
-			break;
-		}
-	}
-	if (compaction === -1) return undefined;
-	const firstKept = branch[compaction]?.firstKeptEntryId;
-	const from = branch.findIndex((entry) => entry.id === firstKept);
-	// An id the branch does not hold is a log pi itself could not build
-	// a context from; better to leave it as it is.
-	if (from === -1 || from > compaction) return undefined;
-
-	const chosen = [
-		...keptBefore(
-			branch.slice(0, from),
-			options.leftBehind ?? typesLeftBehind(),
-		),
-		...branch.slice(from),
-	];
-	const kept = new Set(chosen.map((entry) => entry.id));
-	const pointed = chosen.filter((entry) => {
-		const field = POINTING[entry.type];
-		return field === undefined || kept.has(entry[field] as string);
-	});
-	const dropped = branch.length - pointed.length;
-	if (dropped === 0) return undefined;
+	const view = keptView(branch, options.leftBehind ?? typesLeftBehind());
+	if (!view) return undefined;
+	const { entries: pointed, dropped } = view;
+	const kept = new Set(pointed.map((entry) => entry.id));
 
 	const leaf = branch[branch.length - 1];
 	if (!leaf) return undefined;
