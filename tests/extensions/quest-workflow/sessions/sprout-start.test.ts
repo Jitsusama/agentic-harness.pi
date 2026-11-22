@@ -284,7 +284,9 @@ describe("a sprouted session's start", () => {
 			expect(
 				readFileSync(harnessLogPath(made?.dir ?? ""), "utf8"),
 				"its log says a replay may not find it",
-			).toMatch(/sprout S30: its mark sprout:S30 wasn't written/u);
+			).toContain(
+				"sprout S30: its mark sprout:S30 wasn't written, so a replay of it may not find this quest and make another",
+			);
 			expect(
 				ran.map((args) => args[2]),
 				"the tie to the map is still made",
@@ -297,20 +299,82 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("logs a made quest's mark the alias verb refused, never throwing", async () => {
+		const first = await start({ words: "tea", id: "S50" });
+		const held = first.state.questId;
+		if (!held) throw new Error("no quest to forge");
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			held,
+		);
+		if (!entry) throw new Error(`no quest ${held} to forge`);
+		const readme = join(entry.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(/^id: .*$/mu, "id: QEST-1 forged"),
+		);
+		clearDiscoveryCache();
+
+		// The forged quest still holds sprout:S50, so the verb refuses the
+		// made quest's mark with an answer rather than a throw.
+		const again = await start(
+			{ words: "tea", id: "S50" },
+			{ sessionId: "sess-mark-refused" },
+		);
+		const made = again.state.questId ?? "";
+		expect(made, "a quest of its own").toMatch(/^QEST-\d{8}-[A-Z0-9]{6}$/u);
+		const dir =
+			discoverQuests(join(tmpRoot, "quests")).index.quests.get(made)?.dir ?? "";
+		expect(
+			readFileSync(harnessLogPath(dir), "utf8"),
+			"its log says a replay may not find it",
+		).toContain(
+			"sprout S50: its mark sprout:S50 wasn't written, so a replay of it may not find this quest and make another",
+		);
+	});
+
 	it("still loads a live quest it joined when its mark can't be written", async () => {
 		const link = "https://github.com/o/r/pull/41";
+		const need = "TERN02/mi1x.0123456789ab";
 		const first = await start({ words: "the PR's work", id: "S41" });
 		const id = first.state.questId;
 		if (!id) throw new Error("no quest to join");
 		markWith(id, link);
+		const ran: string[][] = [];
 		failing.aliases = true;
 		try {
 			const again = await start(
-				{ link, id: "S42" },
-				{ sessionId: "sess-join-unmarked" },
+				{ link, id: "S42", from: "TERN02", need },
+				{
+					sessionId: "sess-join-unmarked",
+					run: async (_program, args) => {
+						ran.push([...args]);
+						return { code: 0, stdout: "", stderr: "" };
+					},
+				},
 			);
 			expect(again.state.questId, "the quest it joined").toBe(id);
 			expect(again.words).toMatch(/already holds this work, is loaded for it/u);
+			clearDiscoveryCache();
+			const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+				id,
+			);
+			expect(
+				entry?.doc.frontMatter.aliases?.map(
+					(one: { type: string; value: string }) => `${one.type}:${one.value}`,
+				),
+				"its join mark didn't hold",
+			).not.toContain("sprout-joined:S42");
+			expect(
+				readFileSync(harnessLogPath(entry?.dir ?? ""), "utf8"),
+				"its log says a replay may start the work again",
+			).toContain(
+				"sprout S42: its mark sprout-joined:S42 wasn't written, so a replay of it after this quest ends may start its work again",
+			);
+			expect(
+				entry?.doc.frontMatter._extra?.serves,
+				"its need is still recorded",
+			).toEqual([expect.objectContaining({ cell: "TERN02", id: need })]);
+			expect(ran, "a quest it joined is never tied").toEqual([]);
 		} finally {
 			failing.aliases = false;
 		}
