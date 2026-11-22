@@ -281,7 +281,13 @@ is a build, never a VM check.
   each job knowing its quest from the `PI_QUEST` its commands
   carry), then the oldest; a job memory holds back holds everyone
   behind it but quick work. `queue.json` gives each job's `quest`,
-  and marks it `first` when that quest is put first.
+  and marks it `first` when that quest is put first. Past 10% memory
+  pressure, one job of a quest put first still starts at a time while
+  everything stalled on memory for no more than 25% of the last minute
+  (full avg60), and jobs memory holds ahead of it don't hold it: at
+  04:13 on 22 November memory pressure read 13.3% and 29 of 30 waiting
+  jobs waited on memory, the capacity work among them. Where that
+  minute isn't read, as on a Mac, the 10% bar holds it.
 - **Quick work** is a build that takes seconds: its last run of the
   same work took under a minute, or, never run, it builds checks named
   in full (`.#checks.<system>.<name>`), none a VM test's. The same work

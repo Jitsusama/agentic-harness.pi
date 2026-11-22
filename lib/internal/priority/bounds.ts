@@ -128,6 +128,36 @@ export function floorsWait(room: Room): boolean {
 export const MOST_MEMORY_PRESSURE = 10;
 
 /**
+ * The share of the last minute everything stalled on memory (full
+ * avg60, percent) up to which one job of a quest put first still starts
+ * past {@link MOST_MEMORY_PRESSURE}. At 04:13 on 22 November memory
+ * pressure read 13.3% with one job running and 29 of 30 waiting on
+ * memory, the capacity work among them: a bar the machine doesn't meet
+ * lets nothing out. 25 is the orchestrator's standing bar, past which
+ * nothing new starts on the machine at all (WCJQSG).
+ */
+export const FIRST_MOST_MEMORY_FULL = 25;
+
+/**
+ * Whether `job` is a queue-first quest's and the machine's memory still
+ * lets such a job start while short: everything stalled on memory for
+ * no more than {@link FIRST_MOST_MEMORY_FULL} of the last minute. Where
+ * that minute isn't read, as on a Mac, the usual bar holds it.
+ */
+export function firstStartsShort(
+	job: Job,
+	room: Room,
+	first: ReadonlySet<string>,
+): boolean {
+	return (
+		job.quest !== undefined &&
+		first.has(job.quest) &&
+		room.memoryFullMinute !== undefined &&
+		room.memoryFullMinute <= FIRST_MOST_MEMORY_FULL
+	);
+}
+
+/**
  * CPU pressure (avg10, percent) the person's own programs, those a
  * memory floor keeps, may feel before no job starts. CPU weights keep
  * them first, so the machine's figure says little of them: at 21:27 on

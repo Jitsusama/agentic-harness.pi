@@ -5,6 +5,7 @@ import {
 	EVAL_TESTS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
+	FIRST_MOST_MEMORY_FULL,
 	type Job,
 	KEEPS_LINE_FOR_MS,
 	kindOf,
@@ -95,6 +96,79 @@ describe("whose turn it is", () => {
 		expect(
 			nextTurn([job("next")], { ...ROOMY, memoryPressure: 10 }, NOW),
 		).toBeUndefined();
+	});
+
+	describe("a quest put first while memory is short", () => {
+		// 22 November, 04:13: memory pressure at 13.3% held 29 of 30 waiting
+		// jobs on memory, the capacity path's among them.
+		const first = new Set(["QEST-CAP"]);
+		const short = (memoryFullMinute: number | undefined) => ({
+			...ROOMY,
+			memoryPressure: 13,
+			memoryFullMinute,
+		});
+		const cap = job("cap", { quest: "QEST-CAP" });
+		const other = job("other", { since: startedAgo(600_000) });
+		const turn = (jobs: Job[], room: ReturnType<typeof short>) =>
+			nextTurn(jobs, room, NOW, undefined, NOBODY, first)?.id;
+
+		it("starts one up to the most of the minute stalled", () => {
+			expect(turn([other, cap], short(18))).toBe("cap");
+			expect(turn([other, cap], short(FIRST_MOST_MEMORY_FULL))).toBe("cap");
+		});
+
+		it("starts none past it, nor where the minute isn't read", () => {
+			expect(turn([other, cap], short(FIRST_MOST_MEMORY_FULL + 1))).toBe(
+				undefined,
+			);
+			expect(turn([other, cap], short(undefined))).toBe(undefined);
+		});
+
+		it("starts no second while one of a first quest runs", () => {
+			const running = job("running", {
+				quest: "QEST-CAP",
+				started: startedAgo(SPREAD_MS + 60_000),
+			});
+			expect(turn([running, cap], short(18))).toBe(undefined);
+		});
+
+		it("lets nobody else's start", () => {
+			expect(turn([other], short(18))).toBe(undefined);
+		});
+
+		it("isn't held behind a job memory holds at the head", () => {
+			const vm = job("vm", { kind: "vm-test", since: startedAgo(900_000) });
+			const bench = job("bench", {
+				kind: "benchmark",
+				since: startedAgo(900_000),
+			});
+			expect(turn([vm, bench, other, cap], short(18))).toBe("cap");
+			expect(
+				Object.fromEntries(
+					waitReasons(
+						[vm, bench, other, cap],
+						short(18),
+						NOW,
+						undefined,
+						NOBODY,
+						first,
+					),
+				),
+			).toEqual({
+				vm: "memory",
+				bench: "memory",
+				other: "memory",
+				cap: "order",
+			});
+		});
+
+		it("says it waits on memory when the minute holds it too", () => {
+			expect(
+				Object.fromEntries(
+					waitReasons([cap], short(30), NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ cap: "memory" });
+		});
 	});
 
 	it("holds everyone behind a job the memory left can't fit", () => {
