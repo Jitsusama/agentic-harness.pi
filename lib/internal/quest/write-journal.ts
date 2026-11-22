@@ -29,10 +29,10 @@ import {
 	closeSync,
 	constants,
 	fstatSync,
-	lstatSync,
 	openSync,
 	readSync,
 	renameSync,
+	rmSync,
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -141,13 +141,47 @@ function openToAppend(file: string): number {
 	return openPlain(file, flags);
 }
 
-/** Move the journal aside, whatever stands at its name. */
+/**
+ * Move the journal aside, whatever stands at its name. What stands at
+ * the moved name and blocks the move, as a folder planted there would,
+ * is removed and the move tried again; what still won't move is
+ * removed, so the next write makes a fresh journal rather than leave
+ * one that has stopped hearing writes. Said once when nothing works.
+ */
 function moveAside(file: string): void {
+	const aside = `${file}${MOVED_ASIDE}`;
+	if (renamed(file, aside)) return;
+	rmSync(aside, { recursive: true, force: true });
+	if (renamed(file, aside)) return;
 	try {
-		renameSync(file, `${file}${MOVED_ASIDE}`);
-	} catch {
-		// Another writer moved it first, which is the same fresh start.
+		rmSync(file, { recursive: true, force: true });
+	} catch (error) {
+		sayStuck(file, error);
 	}
+}
+
+/** Whether `from` moved to `to`, or was already gone. */
+function renamed(from: string, to: string): boolean {
+	try {
+		renameSync(from, to);
+		return true;
+	} catch (error) {
+		// Another writer moved it first, which is the same fresh start.
+		return isMissing(error);
+	}
+}
+
+/** Whether a stuck journal was said yet, so it is said once a process. */
+let saidStuck = false;
+
+/** Say once that the journal at `file` could be neither moved nor removed. */
+function sayStuck(file: string, error: unknown): void {
+	if (saidStuck) return;
+	saidStuck = true;
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`quest journal ${file} stopped hearing writes and could be neither moved aside nor removed (${why}); hosts sign whole walks until it is.\n`,
+	);
 }
 
 /** Whether `error` says a path isn't there. */
@@ -157,15 +191,24 @@ function isMissing(error: unknown): boolean {
 
 /**
  * Where the journal at `file` stands now, to read on from: its start,
- * under no inode, when no write has made it yet.
+ * under no inode, when no write has made it yet. Undefined when what
+ * stands there can't be read as a journal (a link, a folder, a pipe, a
+ * file this user can't read), so its reader goes without one, signing
+ * at the usual pace, rather than start afresh at every ask.
  */
-export function journalNow(file: string): JournalMark {
+export function journalNow(file: string): JournalMark | undefined {
+	let fd: number;
 	try {
-		const stat = lstatSync(file);
-		return stat.isFile() ? { ino: stat.ino, at: stat.size } : { ino: 0, at: 0 };
-	} catch {
+		fd = openPlain(file, constants.O_RDONLY);
+	} catch (error) {
 		// Made by the first write after this; until then nothing is noted.
-		return { ino: 0, at: 0 };
+		return isMissing(error) ? { ino: 0, at: 0 } : undefined;
+	}
+	try {
+		const { ino, size } = fstatSync(fd);
+		return { ino, at: size };
+	} finally {
+		closeSync(fd);
 	}
 }
 

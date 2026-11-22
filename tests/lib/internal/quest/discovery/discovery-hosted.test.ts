@@ -14,6 +14,7 @@
  * one fake filesystem, and splitting them would copy that counting.
  */
 
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import {
 	mkdirSync,
@@ -991,7 +992,7 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 		expect(signing.walks, "no signing for a journal moved aside").toBe(0);
 	});
 
-	it("signs the tree whole when the journal was replaced since its mark", async () => {
+	it("signs the tree whole when the journal was replaced since its mark, five seconds after the last", async () => {
 		noteQuestWrite(journal, join(root, ID));
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
@@ -999,8 +1000,37 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 		noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
 		statusNow();
 		await discoverySettled(root);
+		expect(signing.walks, "no signing inside five seconds").toBe(0);
+		later(6_000);
+		statusNow();
+		await discoverySettled(root);
 		expect(signing.walks).toBe(1);
 		expect(statusNow()).toBe("paused");
+	});
+
+	it("signs no faster than every five seconds while the journal keeps starting afresh", async () => {
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		for (let step = 0; step < 3; step++) {
+			unlinkSync(journal);
+			noteQuestWrite(journal, join(root, "QEST-20260604-EEE555"));
+			later(2_000);
+			statusNow();
+			await discoverySettled(root);
+		}
+		expect(signing.walks, "one signing over six seconds").toBe(1);
+	});
+
+	it("goes without the journal while a pipe stands at its name", async () => {
+		execFileSync("mkfifo", [journal]);
+		discoverQuests(root);
+		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks, "no signing at once").toBe(0);
+		later(6_000);
+		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks, "a signing at the usual five seconds").toBe(1);
 	});
 
 	it("waits on a signing for an action when the journal was replaced since its mark", async () => {

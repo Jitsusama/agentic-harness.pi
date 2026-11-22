@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
 	appendFileSync,
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -17,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type JournalMark,
 	journalIn,
 	journalNow,
 	journalSince,
@@ -35,12 +37,21 @@ afterEach(() => {
 	rmSync(folder, { recursive: true, force: true });
 });
 
-/** The folders `journalSince` reads from `mark`, or its fresh start. */
-function dirsSince(
-	mark: ReturnType<typeof journalNow>,
-): readonly string[] | string {
+/**
+ * The folders `journalSince` reads from `mark`, its fresh start, or
+ * "no journal" when `journalNow` gave no mark.
+ */
+function dirsSince(mark: JournalMark | undefined): readonly string[] | string {
+	if (mark === undefined) return "no journal";
 	const read = journalSince(file, mark);
 	return read === "started afresh" ? read : read.dirs;
+}
+
+/** Where the journal stands now, which a plain journal always gives. */
+function markNow(): JournalMark {
+	const mark = journalNow(file);
+	if (mark === undefined) throw new Error("no mark from a plain journal");
+	return mark;
 }
 
 describe("the journal of quest writes", () => {
@@ -53,7 +64,7 @@ describe("the journal of quest writes", () => {
 	});
 
 	it("reads on from the mark a read gives back", () => {
-		const first = journalNow(file);
+		const first = markNow();
 		noteQuestWrite(file, "/q/QEST-A");
 		const read = journalSince(file, first);
 		if (read === "started afresh") throw new Error("not afresh");
@@ -73,7 +84,7 @@ describe("the journal of quest writes", () => {
 	});
 
 	it("leaves a line still being written for the next read", () => {
-		const mark = journalNow(file);
+		const mark = markNow();
 		noteQuestWrite(file, "/q/QEST-A");
 		appendFileSync(file, "/q/QEST-");
 		const read = journalSince(file, mark);
@@ -100,7 +111,7 @@ describe("the journal of quest writes", () => {
 	});
 
 	it("reads the last line of a multi-byte name whole", () => {
-		const mark = journalNow(file);
+		const mark = markNow();
 		noteQuestWrite(file, "/q/QEST-\u00e9\u00e9");
 		appendFileSync(file, Buffer.from([0x2f, 0xc3]));
 		const read = journalSince(file, mark);
@@ -143,7 +154,7 @@ describe("the journal of quest writes", () => {
 
 	it("reads on through a journal moved aside before the next is made", () => {
 		noteQuestWrite(file, "/q/QEST-A");
-		const mark = journalNow(file);
+		const mark = markNow();
 		noteQuestWrite(file, "/q/QEST-B");
 		renameSync(file, `${file}.old`);
 		const read = journalSince(file, mark);
@@ -184,8 +195,7 @@ describe("the journal of quest writes", () => {
 
 	it("never waits on a pipe planted at the journal's name", () => {
 		execFileSync("mkfifo", [file]);
-		const mark = journalNow(file);
-		expect(dirsSince(mark), "a pipe is no journal").toBe("started afresh");
+		expect(journalNow(file), "a pipe is no journal").toBeUndefined();
 		noteQuestWrite(file, "/q/QEST-A");
 		expect(statSync(file).isFile(), "the pipe moved aside").toBe(true);
 		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
@@ -193,9 +203,34 @@ describe("the journal of quest writes", () => {
 
 	it("moves aside a folder planted at the journal's name", () => {
 		mkdirSync(file);
+		expect(journalNow(file), "a folder is no journal").toBeUndefined();
 		noteQuestWrite(file, "/q/QEST-A");
 		noteQuestWrite(file, "/q/QEST-B");
 		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n/q/QEST-B\n");
+	});
+
+	it("clears a folder at the moved name that blocks moving a folder aside", () => {
+		mkdirSync(file);
+		mkdirSync(`${file}.old`);
+		writeFileSync(join(`${file}.old`, "inside"), "x");
+		noteQuestWrite(file, "/q/QEST-A");
+		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
+		const mark = markNow();
+		noteQuestWrite(file, "/q/QEST-B");
+		expect(dirsSince(mark)).toEqual(["/q/QEST-B"]);
+	});
+
+	it("moves a folder aside over a plain journal moved aside before", () => {
+		writeFileSync(`${file}.old`, "/q/QEST-OLD\n");
+		mkdirSync(file);
+		noteQuestWrite(file, "/q/QEST-A");
+		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
+	});
+
+	it("gives no mark for a journal this user can't read", () => {
+		noteQuestWrite(file, "/q/QEST-A");
+		chmodSync(file, 0o200);
+		expect(journalNow(file), "an unreadable journal").toBeUndefined();
 	});
 
 	it("never throws when it can't write, so the quest write stands", () => {

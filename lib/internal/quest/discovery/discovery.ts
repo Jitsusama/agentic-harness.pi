@@ -445,6 +445,15 @@ function signAgainAfter(slot: CacheSlot): number {
 	return slot.journal ? SIGN_AGAIN_JOURNALED_AFTER_MS : SIGN_AGAIN_AFTER_MS;
 }
 
+/**
+ * Whether `slot` was signed more than `SIGN_AGAIN_AFTER_MS` ago, or at
+ * a time a clock stepped back since, which no limit bounds.
+ */
+function signedLongAgo(slot: CacheSlot): boolean {
+	const age = Date.now() - slot.signedAt;
+	return age < 0 || age > SIGN_AGAIN_AFTER_MS;
+}
+
 /** How old `slot` may be for an action to act on it, read on since. */
 function staleAfter(slot: CacheSlot | undefined): number {
 	return slot?.journal ? SIGN_AGAIN_JOURNALED_AFTER_MS : STALE_AFTER_MS;
@@ -568,9 +577,13 @@ function caughtUp(
 	}
 	const names = new Set([...named, ...(written ?? [])]);
 	// Other processes' writes, by the journal; one that started afresh
-	// is read by a signing, begun now, whose mark starts it again.
+	// is read by a signing whose mark starts it again, begun no sooner
+	// than `SIGN_AGAIN_AFTER_MS` after the last, so a journal that keeps
+	// starting afresh costs what no journal costs and no more.
 	const journaled = journaledSince(questsRoot, slot);
-	if (journaled === "started afresh") void startSigning(questsRoot);
+	if (journaled === "started afresh" && signedLongAgo(slot)) {
+		void startSigning(questsRoot);
+	}
 	const readOn = journaled !== undefined && journaled !== "started afresh";
 	if (readOn) for (const name of journaled.names) names.add(name);
 	const journal = readOn ? journaled.mark : slot.journal;
