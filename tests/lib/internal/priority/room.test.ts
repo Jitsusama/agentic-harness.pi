@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	WALKS_AT_ONCE,
+	walksAtOnce,
+} from "../../../../lib/internal/priority/queue.ts";
+import {
 	floorsIn,
 	memoryPeakOf,
 	offloadIn,
@@ -105,7 +109,7 @@ describe("the machine's room", () => {
 		expect(reading.memoryFullMinute).toBe(11.04);
 	});
 
-	it("reads the minute as calm when memory's file has no full line, so walks fail open", async () => {
+	it("reads no minute when memory's file has no full line, so walks fail open and a first quest's pass shut", async () => {
 		const dir = proc(40);
 		writeFileSync(
 			join(dir, "pressure", "memory"),
@@ -115,7 +119,8 @@ describe("the machine's room", () => {
 			proc: dir,
 			cgroups: join(root, "cgroups"),
 		});
-		expect(reading.memoryFullMinute).toBe(0);
+		expect(reading.memoryFullMinute).toBeUndefined();
+		expect(walksAtOnce(reading.memoryFullMinute)).toBe(WALKS_AT_ONCE);
 	});
 
 	it("reads the CPU pressure the person's own programs feel, apart from the machine's", async () => {

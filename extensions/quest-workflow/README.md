@@ -22,7 +22,8 @@ shipped and tested.
   `before`, `after`, `renumber`.
 - **The machine's queue**: `queue-first` marks the quest `id`
   names with `queue: first`, so its sessions' builds and checks go
-  ahead of other agents' bulk work; `queue-normal` takes it off.
+  ahead of other agents' bulk work, and one of its jobs at a time
+  still starts while memory is short; `queue-normal` takes it off.
   Either works on any quest, loaded or not, and journals it.
   Priority could not say this: 14 quests sat at driving on 25
   October when one lab's builds were to go ahead.

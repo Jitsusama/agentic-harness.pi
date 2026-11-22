@@ -13,7 +13,7 @@ import {
 	type Room,
 	type Rules,
 } from "./job.ts";
-import { THERE_HERE } from "./needs.ts";
+import { needsGibOf, THERE_HERE } from "./needs.ts";
 
 /**
  * How many VMs run at once. 2HN63P's run 1 to 4 vCPUs each and kvm
@@ -133,16 +133,32 @@ export const MOST_MEMORY_PRESSURE = 10;
  * past {@link MOST_MEMORY_PRESSURE}. At 04:13 on 22 November memory
  * pressure read 13.3% with one job running and 29 of 30 waiting on
  * memory, the capacity work among them: a bar the machine doesn't meet
- * lets nothing out. 25 is the orchestrator's standing bar, past which
- * nothing new starts on the machine at all (WCJQSG).
+ * lets nothing out. 15 is the orchestrator's bar for a local test run
+ * (WCJQSG, 22 November); its last-resort 25, past which nothing starts
+ * at all, would hardly bind, since full avg60 sits far under the felt
+ * avg10 that holds the rest. Readings of 13.6 to 17.8 on 21 November
+ * already slowed core.nix's git calls to 9 to 70 s (needs.ts's
+ * `ONE_WALK_FROM_PRESSURE`), so the bar keeps under most of that range.
  */
-export const FIRST_MOST_MEMORY_FULL = 25;
+export const FIRST_MOST_MEMORY_FULL = 15;
+
+/**
+ * The most a queue-first quest's job may be held to need, in GiB, to
+ * start while memory is short: a type check or a test run, never a
+ * whole flake's evaluation of 17 to 24 GiB, which would add its heap to
+ * a machine already paging.
+ */
+export const FIRST_MOST_GIB_SHORT = 8;
 
 /**
  * Whether `job` is a queue-first quest's and the machine's memory still
- * lets such a job start while short: everything stalled on memory for
- * no more than {@link FIRST_MOST_MEMORY_FULL} of the last minute. Where
- * that minute isn't read, as on a Mac, the usual bar holds it.
+ * lets such a job start while short: it is held to need no more than
+ * {@link FIRST_MOST_GIB_SHORT}, everything stalled on memory for no
+ * more than {@link FIRST_MOST_MEMORY_FULL} of the last minute, and the
+ * person's own programs aren't stalling ({@link floorsWait}), since
+ * full avg60 can sit low while app.slice pages. Where that minute isn't
+ * read, as on a Mac or from a pressure file with no `full` line, the
+ * usual bar holds it.
  */
 export function firstStartsShort(
 	job: Job,
@@ -152,8 +168,10 @@ export function firstStartsShort(
 	return (
 		job.quest !== undefined &&
 		first.has(job.quest) &&
+		needsGibOf(job) <= FIRST_MOST_GIB_SHORT &&
 		room.memoryFullMinute !== undefined &&
-		room.memoryFullMinute <= FIRST_MOST_MEMORY_FULL
+		room.memoryFullMinute <= FIRST_MOST_MEMORY_FULL &&
+		!floorsWait(room)
 	);
 }
 

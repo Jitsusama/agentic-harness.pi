@@ -282,12 +282,16 @@ is a build, never a VM check.
   carry), then the oldest; a job memory holds back holds everyone
   behind it but quick work. `queue.json` gives each job's `quest`,
   and marks it `first` when that quest is put first. Past 10% memory
-  pressure, one job of a quest put first still starts at a time while
-  everything stalled on memory for no more than 25% of the last minute
-  (full avg60), and jobs memory holds ahead of it don't hold it: at
-  04:13 on 22 November memory pressure read 13.3% and 29 of 30 waiting
-  jobs waited on memory, the capacity work among them. Where that
-  minute isn't read, as on a Mac, the 10% bar holds it.
+  pressure, one job of a quest put first still starts at a time, held
+  to need no more than 8 GiB, while everything stalled on memory for
+  no more than 15% of the last minute (full avg60) and the person's
+  own programs aren't stalling on memory: at 04:13 on 22 November
+  memory pressure read 13.3% and 29 of 30 waiting jobs waited on
+  memory, the capacity work among them. A first job running counts
+  unless it is an answered fetch or work that starts while short
+  anyway. Where that minute isn't read, as on a Mac or from a pressure
+  file with no `full` line, the 10% bar holds it. `queue.json` gives
+  the minute read as `machine.memoryFullMinute`.
 - **Quick work** is a build that takes seconds: its last run of the
   same work took under a minute, or, never run, it builds checks named
   in full (`.#checks.<system>.<name>`), none a VM test's. The same work

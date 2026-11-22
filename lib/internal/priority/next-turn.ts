@@ -128,7 +128,8 @@ function startsPressed(job: Job): boolean {
  * what {@link startsPressed} lets start, and one job of a quest put
  * first at a time, while bounds.ts's `firstStartsShort` lets it. One at
  * a time, since each such job adds its memory to a machine already
- * short, and the next waits to see what the last one held.
+ * short; an answered fetch, which holds no memory to speak of, and work
+ * that starts while short anyway take no place.
  */
 function pressedStarts(
 	jobs: readonly Job[],
@@ -138,6 +139,8 @@ function pressedStarts(
 	const firstRunning = jobs.some(
 		(one) =>
 			one.started !== undefined &&
+			!one.answered &&
+			!startsPressed(one) &&
 			one.quest !== undefined &&
 			first.has(one.quest),
 	);
@@ -167,6 +170,26 @@ const HOLDS_NONE: Holds = () => false;
 /** What either holds back. */
 function either(one: Holds, other: Holds): Holds {
 	return (job) => one(job) || other(job);
+}
+
+/**
+ * What the jobs behind `job`, which waits, are held back by once it
+ * does. While memory is short a queue-first job that got this far only
+ * by the first quests' pass holds nobody: before that pass every job
+ * held while short stopped short of here, so a sent changed-checks run,
+ * built on the builder, started past them all.
+ */
+function keptBehind(
+	holds: Holds,
+	pressed: boolean,
+	job: Job,
+	ruledOut: boolean,
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+): Holds {
+	if (pressed && !startsPressed(job)) return holds;
+	return either(holds, ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now));
 }
 
 /**
@@ -308,8 +331,9 @@ function memoryWaitedMs(job: Job, now: number): number {
  * window, and a command chaining another walk before a push is no quick
  * push, though its push still leaves out its LFS scan. 16: one job of a
  * quest put first starts while memory is short, up to bounds.ts's
- * `FIRST_MOST_MEMORY_FULL` of full avg60, and jobs memory holds ahead
- * of it hold it no longer.
+ * `FIRST_MOST_MEMORY_FULL` of full avg60 while the floors aren't
+ * stalling, held to `FIRST_MOST_GIB_SHORT`; one that doesn't fit then
+ * holds nobody behind it.
  */
 export const RULES_VERSION = 16;
 
@@ -374,10 +398,7 @@ export function nextTurn(
 			job.kind === "build" &&
 			(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 		if (ruledOut || !fits(job)) {
-			holds = either(
-				holds,
-				ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
-			);
+			holds = keptBehind(holds, pressed, job, ruledOut, jobs, room, now);
 			continue;
 		}
 		return job.kind === "build" && (Number.isFinite(builds) || warm(room))
@@ -486,10 +507,7 @@ export function waitReasons(
 				job.kind === "build" &&
 				(builds < 1 || (Number.isFinite(builds) && !job.cappable));
 			if (ruledOut || !fits(job)) {
-				holds = either(
-					holds,
-					ruledOut ? HOLDS_ALL : lineKept(job, jobs, room, now),
-				);
+				holds = keptBehind(holds, pressed, job, ruledOut, jobs, room, now);
 				return ruledOut ? "behind" : "memory";
 			}
 			given = true;

@@ -43,6 +43,12 @@ export interface QueueRecord {
 		readonly cores: number;
 		readonly availableGib: number;
 		readonly pressure: Reading["pressure"];
+		/**
+		 * The share of the last minute everything stalled on memory (full
+		 * avg60), which a queue-first quest's job is held to while memory is
+		 * short; left out where it isn't read.
+		 */
+		readonly memoryFullMinute?: number;
 		readonly vms: number;
 		/** The queue's pressure limits the machine is at or past now. */
 		readonly over: readonly Pressed[];
@@ -154,6 +160,9 @@ export function queueRecord(
 			cores: reading.cores,
 			availableGib: Math.round(reading.availableGib * 10) / 10,
 			pressure: reading.pressure,
+			...(reading.memoryFullMinute === undefined
+				? {}
+				: { memoryFullMinute: reading.memoryFullMinute }),
 			vms: reading.vms,
 			over: pressedPast(reading),
 			...(reading.offload ? { offload: reading.offload } : {}),

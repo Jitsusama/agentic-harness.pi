@@ -5,6 +5,7 @@ import {
 	EVAL_TESTS_GIB,
 	EVALUATION_GIB,
 	EVERY_CHECK_GIB,
+	FIRST_MOST_GIB_SHORT,
 	FIRST_MOST_MEMORY_FULL,
 	type Job,
 	KEEPS_LINE_FOR_MS,
@@ -113,7 +114,7 @@ describe("whose turn it is", () => {
 			nextTurn(jobs, room, NOW, undefined, NOBODY, first)?.id;
 
 		it("starts one up to the most of the minute stalled", () => {
-			expect(turn([other, cap], short(18))).toBe("cap");
+			expect(turn([other, cap], short(12))).toBe("cap");
 			expect(turn([other, cap], short(FIRST_MOST_MEMORY_FULL))).toBe("cap");
 		});
 
@@ -124,42 +125,109 @@ describe("whose turn it is", () => {
 			expect(turn([other, cap], short(undefined))).toBe(undefined);
 		});
 
-		it("starts no second while one of a first quest runs", () => {
+		it("starts none while the person's own programs stall on memory", () => {
+			const paging = { ...short(12), floorsPressure: MOST_FLOORS_PRESSURE + 1 };
+			expect(turn([other, cap], paging)).toBe(undefined);
+			expect(
+				turn([other, cap], { ...paging, floorsPressure: MOST_FLOORS_PRESSURE }),
+			).toBe("cap");
+		});
+
+		it("starts none held to need more than a test run's memory", () => {
+			const evaluation = job("eval", {
+				quest: "QEST-CAP",
+				needsGib: FIRST_MOST_GIB_SHORT + 1,
+			});
+			expect(turn([other, evaluation], short(12))).toBe(undefined);
+			expect(
+				turn(
+					[other, { ...evaluation, needsGib: FIRST_MOST_GIB_SHORT }],
+					short(12),
+				),
+			).toBe("eval");
+		});
+
+		it("starts no second while one of any first quest runs", () => {
 			const running = job("running", {
 				quest: "QEST-CAP",
 				started: startedAgo(SPREAD_MS + 60_000),
 			});
-			expect(turn([running, cap], short(18))).toBe(undefined);
+			expect(turn([running, cap], short(12))).toBe(undefined);
+			const both = new Set(["QEST-CAP", "QEST-LAB"]);
+			const lab = { ...running, id: "lab", quest: "QEST-LAB" };
+			expect(
+				nextTurn([lab, cap], short(12), NOW, undefined, NOBODY, both),
+				"another first quest's job takes the one place",
+			).toBe(undefined);
+			expect(
+				Object.fromEntries(
+					waitReasons([running, cap], short(12), NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ cap: "memory" });
+		});
+
+		it("starts one beside a running job of nobody's first quest, and beside an answered fetch", () => {
+			const busy = job("busy", {
+				quest: "QEST-ELSE",
+				started: startedAgo(SPREAD_MS + 60_000),
+			});
+			expect(turn([busy, cap], short(12))).toBe("cap");
+			const fetch = {
+				...busy,
+				id: "fetch",
+				quest: "QEST-CAP",
+				answered: true,
+			};
+			expect(turn([fetch, cap], short(12))).toBe("cap");
 		});
 
 		it("lets nobody else's start", () => {
-			expect(turn([other], short(18))).toBe(undefined);
+			expect(turn([other], short(12))).toBe(undefined);
+			expect(
+				turn([job("else", { quest: "QEST-ELSE" })], short(12)),
+				"a quest not put first",
+			).toBe(undefined);
 		});
 
-		it("isn't held behind a job memory holds at the head", () => {
-			const vm = job("vm", { kind: "vm-test", since: startedAgo(900_000) });
-			const bench = job("bench", {
-				kind: "benchmark",
-				since: startedAgo(900_000),
+		// The sent run built on the builder and started past every job held
+		// while short before the first quests' pass (startsPressed's JSDoc).
+		it("holds no sent changed-checks run behind a first job that doesn't fit", () => {
+			const tight = { ...short(12), availableGib: 7 };
+			const big = job("big", {
+				quest: "QEST-CAP",
+				needsGib: FIRST_MOST_GIB_SHORT,
+				since: startedAgo(600_000),
 			});
-			expect(turn([vm, bench, other, cap], short(18))).toBe("cap");
+			const sent = job("sent", {
+				what: "direnv exec . changed-checks",
+				needsGib: 6,
+				sent: true,
+			});
+			expect(turn([big, sent], tight)).toBe("sent");
+			expect(
+				Object.fromEntries(
+					waitReasons([big, sent], tight, NOW, undefined, NOBODY, first),
+				),
+			).toEqual({ big: "memory", sent: "order" });
+		});
+
+		it("still must fit, and waits on the CPU as a build does", () => {
+			expect(turn([cap], { ...short(12), availableGib: 1 })).toBe(undefined);
 			expect(
 				Object.fromEntries(
 					waitReasons(
-						[vm, bench, other, cap],
-						short(18),
+						[cap],
+						{ ...short(12), availableGib: 1 },
 						NOW,
 						undefined,
 						NOBODY,
 						first,
 					),
 				),
-			).toEqual({
-				vm: "memory",
-				bench: "memory",
-				other: "memory",
-				cap: "order",
-			});
+			).toEqual({ cap: "memory" });
+			expect(turn([cap], { ...short(12), cpuPressure: BUSY.cpuPressure })).toBe(
+				undefined,
+			);
 		});
 
 		it("says it waits on memory when the minute holds it too", () => {
