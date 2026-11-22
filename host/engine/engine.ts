@@ -97,9 +97,10 @@ export async function createEngine(
 	options: EngineOptions,
 ): Promise<HostEngine> {
 	const pi = await loadHostPi(options.packageDir);
-	// Only now: kept history binds pi's own modules, which resolve once
-	// pi has loaded, so a host whose pi install is missing still refuses
-	// it with the reason rather than failing on the import.
+	// Only here, never at the top: kept history binds values from pi's
+	// modules, which pi-host resolves from the host's install. Bound as
+	// the program loads, a missing install would fail the import before
+	// the program's configuration check refuses it with exit 78.
 	const { holdKeptHistory } = await import("./kept-history.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
