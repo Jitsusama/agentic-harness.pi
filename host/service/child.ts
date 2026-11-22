@@ -552,12 +552,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
-			// A wake ends the rest: a wake that dies before it answers failed,
-			// rather than resting parked as it was. One listed parked only while
-			// it closes hasn't woken.
+			// A wake ends the rest: one that dies before its roster names it,
+			// so before it answers, failed, rather than resting parked as it
+			// was. A wake answers as it registers once its roster names it, and
+			// one whose build fails after that ends as its conversation does.
 			if (held) {
 				away = false;
-				if (held.state !== "parked") resting = false;
+				resting = false;
 			}
 			followChange(held);
 			weighAlone();

@@ -450,11 +450,17 @@ describe("a child's life", () => {
 	it.each(["closed", "released"] as const)(
 		"ends %s, not failed, when the conversation it rests leaves so before a wake",
 		async (how) => {
-			const { life, timers } = following({ aloneWithin: 2, resumes: true });
+			const { life, timers, lines } = following({
+				aloneWithin: 2,
+				resumes: true,
+			});
+			const answer = life.watch.answer();
 			life.resumed("parked");
 			life.left(how, `${how}, asked by the launcher`);
 			expect(await life.ending).toBe(how);
 			expect(timers.has(2), "its grace ends with it").toBe(false);
+			await expect(answer).rejects.toThrow(`The child ended: ${how}`);
+			expect(lines.at(-1)).toEqual({ type: "ending", why: how });
 		},
 	);
 
@@ -467,9 +473,9 @@ describe("a child's life", () => {
 		expect(await life.ending).toBe("parked");
 	});
 
-	// A wake ends the rest, so one that dies before it answers is no
-	// rest kept but a failure.
-	it("ends failed when the conversation it rests wakes and dies before it answers", async () => {
+	// A wake ends the rest, so one that dies before its roster names it,
+	// and so before it answers, is no rest kept but a failure.
+	it("ends failed when the conversation it rests wakes and dies before its roster names it", async () => {
 		const child = following({ aloneWithin: 2, resumes: true });
 		child.life.resumed("parked");
 		child.rostered(false);
@@ -477,6 +483,45 @@ describe("a child's life", () => {
 		child.hold();
 		child.life.left("closed", "the wake crashed");
 		expect(await child.life.ending).toBe("failed");
+	});
+
+	// As production wakes: its roster names it, so it answers as it
+	// registers, and a build failing after that leaves it held parked.
+	it("ends as its conversation does when a wake answers as it registers and its build then fails", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		const answer = child.life.watch.answer();
+		child.life.resumed("parked");
+		child.hold(conversation(A));
+		expect(parseWatchResult(await answer).conversation.sessionId).toBe(A);
+		child.hold(conversation(A, "parked"));
+		child.hold();
+		child.life.left("closed", "closed, asked by the launcher");
+		expect(await child.life.ending).toBe("closed");
+	});
+
+	it("ends parked on a stop while it rests, before any wake", async () => {
+		const { life } = following({ aloneWithin: 2, resumes: true });
+		life.resumed("parked");
+		life.stopping();
+		expect(await life.ending).toBe("parked");
+	});
+
+	it("ends failed on a stop once a wake it rests died before answering", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.rostered(false);
+		child.hold(conversation(A));
+		child.hold();
+		child.life.stopping();
+		expect(await child.life.ending).toBe("failed");
+	});
+
+	it("ends parked on a stop once a wake it rests answered", async () => {
+		const child = following({ aloneWithin: 2, resumes: true });
+		child.life.resumed("parked");
+		child.hold(conversation(A));
+		child.life.stopping();
+		expect(await child.life.ending).toBe("parked");
 	});
 
 	// The other side of the rule: a start that neither answered nor
