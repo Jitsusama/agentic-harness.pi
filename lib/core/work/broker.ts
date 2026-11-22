@@ -149,8 +149,10 @@ export interface TreeBroker {
 	/**
 	 * Give a tree back by `move`, which takes its folder out of the way
 	 * without its provider, as for one git won't run in, so its provider
-	 * can't remove it. Held as a release is: while another session
-	 * holds it, only our share goes; a move that throws keeps the record.
+	 * can't remove it. Held as a release is, but judged under the tree's
+	 * record lock, so a session joining it as it moves is seen: while
+	 * another session holds it, only our share goes and nothing moves;
+	 * a move that throws keeps the record and our hold.
 	 */
 	setAside(
 		held: HeldTree,
@@ -288,35 +290,27 @@ export function createTreeBroker(
 	): Promise<ReleaseOutcome> => {
 		const at = trees.findIndex((tree) => tree.path === held.path);
 		const ours = at >= 0 ? trees.splice(at, 1) : [];
-
-		// Giving up our share of a shared tree is not taking it away.
-		// A snapshot can be held by two sessions, and once this change
-		// started writing that down, releasing had to read it: taking
-		// the directory while somebody else is standing in it is the
-		// failure this whole change is about, arriving through the one
-		// door that always could remove a tree.
-		let others: readonly Owner[] | undefined;
 		try {
-			others = await memory?.otherHolders(held.path);
-		} catch (error) {
-			// Holders unread leave the tree held, as a refused release does.
-			trees.push(...ours);
-			throw error;
-		}
-		if (others !== undefined && others.length > 0) {
-			await memory?.forgetUsAsHolder(held.path);
-			return { kind: "released", kept: others.length };
-		}
+			// Giving up our share of a shared tree is not taking it away.
+			// A snapshot can be held by two sessions, and once this change
+			// started writing that down, releasing had to read it: taking
+			// the directory while somebody else is standing in it is the
+			// failure this whole change is about, arriving through the one
+			// door that always could remove a tree.
+			const others = await memory?.otherHolders(held.path);
+			if (others !== undefined && others.length > 0) {
+				await memory?.forgetUsAsHolder(held.path);
+				return { kind: "released", kept: others.length };
+			}
 
-		// Forgotten only once the provider has taken the tree. A release
-		// refused, failed or cut off leaves the tree on disk and in git,
-		// and the record is all that names it: forgetting first left two
-		// clean World trees no release could reach, after a script's time
-		// limit stopped git part-way (2AF2DH, 10 November). A tree left
-		// half-removed stays named too, so a second release finishes it,
-		// and a cut that finds its record asks the provider whether it
-		// still stands.
-		try {
+			// Forgotten only once the provider has taken the tree. A release
+			// refused, failed or cut off leaves the tree on disk and in git,
+			// and the record is all that names it: forgetting first left two
+			// clean World trees no release could reach, after a script's time
+			// limit stopped git part-way (2AF2DH, 10 November). A tree left
+			// half-removed stays named too, so a second release finishes it,
+			// and a cut that finds its record asks the provider whether it
+			// still stands. A record that couldn't be read keeps our hold too.
 			await take();
 		} catch (error) {
 			trees.push(...ours);
@@ -324,6 +318,37 @@ export function createTreeBroker(
 		}
 		memory?.forget(held.path);
 		return { kind: "released" };
+	};
+
+	/**
+	 * Set `held` aside by `move`, judged under its record's lock, so a
+	 * session joining it while it moves is seen and the tree left to it.
+	 * Our hold stays whenever the record or the move throws before the
+	 * tree has moved, and goes once it has, whatever follows.
+	 */
+	const moveAside = async (
+		held: HeldTree,
+		move: (path: string) => void,
+	): Promise<ReleaseOutcome> => {
+		const at = trees.findIndex((tree) => tree.path === held.path);
+		const ours = at >= 0 ? trees.splice(at, 1) : [];
+		let moved = false;
+		const take = async (): Promise<void> => {
+			move(held.path);
+			moved = true;
+		};
+		try {
+			if (memory === undefined) {
+				await take();
+				return { kind: "released" };
+			}
+			const kept = await memory.whileHeldAlone(held.path, take);
+			return kept > 0 ? { kind: "released", kept } : { kind: "released" };
+		} catch (error) {
+			// A tree already moved is no longer where our hold says it is.
+			if (!moved) trees.push(...ours);
+			throw error;
+		}
 	};
 	/** The tree of ours that fell and this request asks for again, said once. */
 	const askedAgain = (request: TreeRequest): HeldTree | undefined => {
@@ -499,7 +524,7 @@ export function createTreeBroker(
 			return await giveBack(held, () => owner.release(held, options));
 		},
 
-		setAside: (held, move) => giveBack(held, async () => move(held.path)),
+		setAside: (held, move) => moveAside(held, move),
 
 		held: () => everything(),
 

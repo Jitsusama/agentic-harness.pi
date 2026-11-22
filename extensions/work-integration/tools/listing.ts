@@ -5,6 +5,7 @@
  * won't run in it to say what it holds.
  */
 
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { citeListing } from "../../../lib/core/result/listing.ts";
@@ -15,6 +16,8 @@ import {
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
 import {
+	HAND_LOCKED,
+	handLocked,
 	plainWords,
 	setAsideWhole,
 	strandedDir,
@@ -25,7 +28,11 @@ import {
 	type KeptBranch,
 } from "../../../lib/core/work/sweep-kept-branches.ts";
 import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
-import { refusedIn } from "../../../lib/internal/sandbox/tree-git.ts";
+import {
+	real,
+	refusedIn,
+	within,
+} from "../../../lib/internal/sandbox/tree-git.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { treeDir } from "../broker.ts";
 import { GLYPH, treeLine } from "../render.ts";
@@ -134,8 +141,12 @@ export async function releaseTree(
 	}
 
 	// Git won't run in it, so neither its status nor its provider's
-	// removal can, and it had no way back but by hand.
-	if (refusedIn(found.path, gitRules()) !== undefined) {
+	// removal can, and it had no way back but by hand. Only a tree cut
+	// where this tool cuts them, and refused for itself rather than for
+	// a repository above it: another provider's tree is its provider's
+	// to take down, which a move behind its back would leave naming a
+	// folder that is gone.
+	if (unreadHere(found.path)) {
 		return await setUnreadAside(broker, found);
 	}
 
@@ -167,37 +178,68 @@ export async function releaseTree(
 }
 
 /**
+ * Whether `path` is a tree this tool cut that git won't run in for
+ * itself, as opposed to one whose refusal comes from a repository
+ * above it or one another provider cut somewhere else.
+ */
+function unreadHere(path: string): boolean {
+	const top = refusedIn(path, gitRules());
+	return (
+		top !== undefined && real(top) === real(path) && within(path, treeDir())
+	);
+}
+
+/**
  * Give back a tree git won't run in by setting it aside whole, where
  * reclaim sets the trees git can't read: what it holds can't be read,
- * so none of it is deleted. Only our share goes while another session
- * holds it too, as a release's does.
+ * so every file is kept. Only our share goes while another session
+ * holds it too, as a release's does, and a tree whose git entry is
+ * locked by hand stays, as reclaim leaves one.
  */
 async function setUnreadAside(
 	broker: TreeBroker,
 	found: HeldTree,
 ): Promise<Answer> {
+	const where = displayPath(found.path);
+	if (handLocked(found.path)) {
+		return refuse(
+			`${GLYPH.refused} ${where} is still held, and still there: ${HAND_LOCKED}.`,
+		);
+	}
 	let aside: string | undefined;
 	const into = strandedDir(treeDir());
+	let others = 0;
 	try {
-		await broker.setAside(found, (path) => {
+		const outcome = await broker.setAside(found, (path) => {
 			aside = setAsideWhole(path, into);
 		});
+		if (outcome.kind === "released") others = outcome.kept ?? 0;
 	} catch (error) {
 		const why = plainWords(
 			error instanceof Error ? error.message : String(error),
 		);
+		if (aside !== undefined) {
+			return refuse(
+				`${GLYPH.refused} ${found.identity.key} was set aside whole at ${displayPath(aside)}, every file in it kept, but its record couldn't be forgotten: ${why}. It is no longer held here.`,
+			);
+		}
+		const still = existsSync(found.path)
+			? "It is still there and still held."
+			: "Nothing is there now, though it is still held.";
 		return refuse(
-			`${GLYPH.refused} Git won't run in ${displayPath(found.path)}, so it was to be set aside whole, but the move was refused: ${why}. It is still there and still held.`,
+			`${GLYPH.refused} Git won't run in ${where}, so it was to be set aside whole, but that was refused: ${why}. ${still}`,
 		);
 	}
 	if (aside === undefined) {
-		return say(`${GLYPH.named} Released ${found.identity.key}.`, {
-			ok: true,
-			released: found.identity.key,
-		});
+		const sessions =
+			others === 1 ? "session still holds" : "sessions still hold";
+		return say(
+			`${GLYPH.named} Released ${found.identity.key}, though ${others} other ${sessions} it, so it stays at ${where} for them. Git won't run in it, so the last to release it sets it aside whole.`,
+			{ ok: true, released: found.identity.key, kept: others },
+		);
 	}
 	return say(
-		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and none of it was deleted. \`git worktree prune\` in the checkout it was cut from forgets git's entry for it.`,
+		`${GLYPH.named} Released ${found.identity.key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it, which stays in the checkout it was cut from, holding its index and HEAD.`,
 		{ ok: true, released: found.identity.key, aside },
 	);
 }

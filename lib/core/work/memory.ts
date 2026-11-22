@@ -122,6 +122,23 @@ export interface TreeMemory {
 	/** Take this session off a tree's record, leaving the record. */
 	forgetUsAsHolder(path: string, facts?: ProcessFacts): Promise<void>;
 	/**
+	 * Run `take` on a tree this session gives back, but only while no
+	 * other running session holds it, and forget its record once `take`
+	 * has run; while one does, take this session off the record instead
+	 * and leave the tree. Answers how many others hold it, 0 once taken.
+	 *
+	 * Judged under the record's lock, as {@link whileUnheld} judges, so a
+	 * session that joined the tree since the caller looked is seen, and
+	 * `take` must be as quick: a move, never a removal. A `take` that
+	 * throws keeps the record, and the throw goes on to the caller. A
+	 * tree with no record names nobody else, so `take` runs as it is.
+	 */
+	whileHeldAlone(
+		path: string,
+		take: () => Promise<void>,
+		facts?: ProcessFacts,
+	): Promise<number>;
+	/**
 	 * Run `take` on a tree only while every session its record names has
 	 * ended, and forget the record once `take` says the tree is out of
 	 * the way.
@@ -857,6 +874,34 @@ export function createTreeMemory(
 					...sessionsWith(tree, true),
 				});
 			});
+		},
+
+		async whileHeldAlone(path, take, facts = systemFacts) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) {
+				await take();
+				return 0;
+			}
+			let kept = 0;
+			await underLock(found.identity.key, async () => {
+				const others = await this.otherHolders(path, facts);
+				const tree = this.recall().find((one) => one.path === path);
+				if (tree !== undefined && others.length > 0) {
+					kept = others.length;
+					const us = await holderNow(facts);
+					if (us === undefined) return;
+					const { sessions: _, ...rest } = tree;
+					this.remember({
+						...rest,
+						owners: named(tree).filter((owner) => !sameOwner(owner, us)),
+						...sessionsWith(tree, true),
+					});
+					return;
+				}
+				await take();
+				this.forget(path);
+			});
+			return kept;
 		},
 
 		async whileUnheld(path, take, facts = systemFacts) {

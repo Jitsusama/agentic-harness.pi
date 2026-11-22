@@ -257,10 +257,29 @@ export function handLocked(path: string): boolean {
  * new tree's index and HEAD.
  */
 function unlink(aside: string): void {
+	// A `.git-was` the tree already holds is its own, which a rename
+	// onto it would quietly replace, so the `.git` takes a free name.
+	let was = join(aside, ".git-was");
+	while (existsLink(was)) {
+		was = join(aside, `.git-was-${randomBytes(2).toString("hex")}`);
+	}
 	try {
-		renameSync(join(aside, ".git"), join(aside, ".git-was"));
+		renameSync(join(aside, ".git"), was);
+	} catch (error) {
+		// No `.git` left to part it from: nothing names an entry. Any
+		// other refusal leaves it naming one, which the caller must hear.
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
+}
+
+/** Whether anything at all stands at `path`, a dangling link included. */
+function existsLink(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
 	} catch {
-		// No `.git` file left to part it from: nothing names an entry.
+		// Nothing there to stat.
+		return false;
 	}
 }
 
@@ -468,16 +487,28 @@ export async function setAside(
  * `into`, parted from git's entry for it, and answer where it went.
  * Running no git, so it serves a tree git won't run in as well as one
  * git can't read. Throws, leaving the tree where it was, when the move
- * is refused.
+ * or the parting is refused, or when `path` is a link rather than a
+ * folder.
  */
 export function setAsideWhole(path: string, into: string): string {
+	// A link moves as itself, but parting its `.git` would rename the
+	// `.git` of whatever it points at, somewhere nothing chose.
+	if (!lstatSync(path).isDirectory()) {
+		throw new Error(`${path} isn't a folder of its own`);
+	}
 	const aside = join(
 		into,
 		`${basename(path)}-${randomBytes(4).toString("hex")}`,
 	);
 	mkdirSync(into, { recursive: true });
 	renameSync(path, aside);
-	unlink(aside);
+	try {
+		unlink(aside);
+	} catch (error) {
+		// Still naming git's entry, it isn't set aside: it goes back.
+		renameSync(aside, path);
+		throw error;
+	}
 	return aside;
 }
 

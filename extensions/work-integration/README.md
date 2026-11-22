@@ -253,10 +253,13 @@ whose git folder is gone. No checkout's git lists one cut from
 such a clone, and every cut at its name died on git's bare
 `already exists`, as a snapshot a host restart left on 20
 November did. Release can't run git there either, so a session
-releasing one it holds has it set aside whole, as reclaim would,
-without reading it; while another session holds it too, it stays
-where it is for that one, and only this session's hold goes. Cutting at its name now refuses, naming the tree and the
-way out that fits it. `tidy` lists each one no running session
+releasing one the work tool cut has it set aside whole, as
+reclaim would, without reading it. While another session holds
+it too, it stays where it is for that one, and only this
+session's hold goes; one whose git entry is locked by hand stays,
+as reclaim leaves it. A tree another provider cut is left to it.
+Cutting at its name now refuses, naming the tree and the way out
+that fits it. `tidy` lists each one no running session
 holds, counted apart from the checkout's own trees, and
 `reclaim` moves it aside whole to `work/stranded/`, since git
 can't say whether it holds work. They are asked about again,
@@ -542,7 +545,9 @@ and refuses while anything is uncommitted, using the same sentence
 that guards a repoint. An untracked file counts: overwriting a
 modified file is bad and recoverable, and overwriting an untracked
 one is neither. A tree git won't run in can't be read, so it is
-set aside whole with everything in it rather than removed.
+set aside whole with everything in it rather than removed, and
+its branch and git's entry for it stay in the checkout it was cut
+from.
 
 **It will not keep a branch trunk already has.** Releasing or
 reclaiming a tree deletes its branch, and the `[branch]` section a

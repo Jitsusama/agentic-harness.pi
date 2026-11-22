@@ -692,6 +692,64 @@ describe("a tree remembers which session cut it", () => {
 		]);
 	});
 
+	it("takes a tree this session alone holds, and forgets it", async () => {
+		const memory = memoryAt();
+		const ours = tree("ours", { pid: process.pid, startedAt: 5000 });
+		memory.remember(ours);
+		const taken: string[] = [];
+
+		const kept = await memory.whileHeldAlone(
+			ours.path,
+			async () => {
+				taken.push(ours.path);
+			},
+			machine({ [process.pid]: 5000 }),
+		);
+
+		expect(kept).toBe(0);
+		expect(taken).toEqual([ours.path]);
+		expect(memory.recall()).toEqual([]);
+	});
+
+	it("leaves a tree another running session joined, taking only this session off it", async () => {
+		// What the record says when the take is judged, not when the
+		// caller looked: here a session joined in between.
+		const memory = memoryAt();
+		const ours = { pid: process.pid, startedAt: 5000 };
+		const theirs = { pid: 4001, startedAt: 1000 };
+		memory.remember(tree("shared", ours, theirs));
+		const taken: string[] = [];
+
+		const kept = await memory.whileHeldAlone(
+			tree("shared").path,
+			async () => {
+				taken.push("shared");
+			},
+			machine({ 4001: 1000, [process.pid]: 5000 }),
+		);
+
+		expect(kept).toBe(1);
+		expect(taken).toEqual([]);
+		expect(memory.recall()[0]?.owners).toEqual([theirs]);
+	});
+
+	it("keeps the record of a tree whose take throws", async () => {
+		const memory = memoryAt();
+		const ours = tree("ours", { pid: process.pid, startedAt: 5000 });
+		memory.remember(ours);
+
+		await expect(
+			memory.whileHeldAlone(
+				ours.path,
+				async () => {
+					throw new Error("EXDEV: cross-device link not permitted");
+				},
+				machine({ [process.pid]: 5000 }),
+			),
+		).rejects.toThrow(/EXDEV/);
+		expect(memory.recall().map((one) => one.identity.key)).toEqual(["ours"]);
+	});
+
 	it("won't take a tree a running session holds, or one that names nobody", async () => {
 		const memory = memoryAt();
 		const live = tree("live", { pid: 4001, startedAt: 1000 });

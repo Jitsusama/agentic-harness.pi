@@ -6,7 +6,10 @@
 
 import {
 	existsSync,
+	lstatSync,
+	mkdirSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -14,12 +17,16 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { treeDir } from "../../../extensions/work-integration/broker.ts";
 import { GLYPH } from "../../../extensions/work-integration/render.ts";
+import { systemFacts } from "../../../lib/core/process/process.ts";
+import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import { HAND_LOCKED, strandedDir } from "../../../lib/core/work/stranded.ts";
 import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
-import { cut, work } from "./worked.ts";
+import { cut, cutWhereTheToolCuts, scratchDir, work } from "./worked.ts";
 
 describe("listing what is held", () => {
 	it("says how to get a tree when none is held", async () => {
@@ -141,26 +148,146 @@ describe("giving a tree back", () => {
 	});
 
 	it("sets a tree git won't run in aside whole, its work and all, and stops listing it", async () => {
-		const { key, path } = await cut();
+		cutWhereTheToolCuts();
+		const { key, path } = await unread();
 		writeFileSync(join(path, "notes.txt"), "work\n");
-		// A `.git` that is a link is one the guard won't follow, as a
-		// tree cut from a checkout the fence doesn't guard is refused.
-		renameSync(join(path, ".git"), join(path, ".git-real"));
-		symlinkSync(join(path, ".git-real"), join(path, ".git"));
 
 		const released = await work({ action: "release", tree: key });
 
 		const aside = released.details.aside;
 		if (typeof aside !== "string") throw new Error(released.text);
 		expect(released.text).toBe(
-			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and none of it was deleted. \`git worktree prune\` in the checkout it was cut from forgets git's entry for it.`,
+			`${GLYPH.named} Released ${key} by setting it aside whole at ${displayPath(aside)}: git won't run in it outside the sandbox, so what it holds couldn't be read, and every file in it was kept. Its .git was renamed so it no longer names git's entry for it, which stays in the checkout it was cut from, holding its index and HEAD.`,
 		);
 		expect(released.details).toEqual({ ok: true, released: key, aside });
+		expect(dirname(aside), "set aside where reclaim sets them").toBe(
+			strandedDir(treeDir()),
+		);
 		expect(existsSync(path), "the tree is gone from where it was").toBe(false);
 		expect(existsSync(join(aside, "notes.txt")), "its work is kept").toBe(true);
+		expect(lstatSync(join(aside, ".git-was")).isSymbolicLink()).toBe(true);
+		expect(existsLink(join(aside, ".git")), "parted from git").toBe(false);
+		expect(existsSync(join(aside, ".git-real")), "git's own kept").toBe(true);
 		expect((await work({})).details).toEqual({ ok: true, held: 0 });
 	});
+
+	it("keeps a .git-was the tree holds, parting its .git under a free name", async () => {
+		cutWhereTheToolCuts();
+		const { key, path } = await unread();
+		writeFileSync(join(path, ".git-was"), "mine\n");
+
+		const { details } = await work({ action: "release", tree: key });
+
+		const aside = String(details.aside);
+		expect(readFileSync(join(aside, ".git-was"), "utf8")).toBe("mine\n");
+		const parted = readdirSync(aside).filter((name) =>
+			/^\.git-was-[0-9a-f]{4}$/.test(name),
+		);
+		expect(parted).toHaveLength(1);
+		expect(lstatSync(join(aside, parted[0] ?? "")).isSymbolicLink()).toBe(true);
+	});
+
+	it("keeps a tree git won't run in, still held, when it can't be set aside", async () => {
+		cutWhereTheToolCuts();
+		const { key, path } = await unread();
+		// A file where the folder for set-aside trees goes stops its making.
+		mkdirSync(dirname(strandedDir(treeDir())), { recursive: true });
+		writeFileSync(strandedDir(treeDir()), "in the way\n");
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released.text).toMatch(
+			new RegExp(
+				`^${GLYPH.refused} Git won't run in .+, so it was to be set aside whole, but that was refused: .+\\. It is still there and still held\\.$`,
+			),
+		);
+		expect(released.details.ok).not.toBe(true);
+		expect(existsSync(path), "the tree is where it was").toBe(true);
+		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+	});
+
+	it("leaves a tree git won't run in to a session that still holds it", async () => {
+		cutWhereTheToolCuts();
+		const { key, path } = await unread();
+		// The process that started this one runs throughout, so it stands
+		// for another session holding the tree.
+		const memory = createTreeMemory(treeRecordDir());
+		const [record] = memory.recall();
+		if (record === undefined) throw new Error("the cut left no record");
+		const startedAt = await systemFacts.startedAt(process.ppid);
+		if (startedAt === undefined) throw new Error("no start for the parent");
+		memory.remember({
+			...record,
+			owners: [...(record.owners ?? []), { pid: process.ppid, startedAt }],
+		});
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released).toEqual({
+			text: `${GLYPH.named} Released ${key}, though 1 other session still holds it, so it stays at ${displayPath(path)} for them. Git won't run in it, so the last to release it sets it aside whole.`,
+			details: { ok: true, released: key, kept: 1 },
+		});
+		expect(existsSync(join(path, ".git")), "nothing moved").toBe(true);
+		expect(memory.recall()[0]?.owners).toEqual([
+			{ pid: process.ppid, startedAt },
+		]);
+	});
+
+	it("keeps a tree git won't run in whose git entry is locked by hand", async () => {
+		cutWhereTheToolCuts();
+		const { key, path } = await cut();
+		// A `.git` file naming an entry no repository names back is refused,
+		// and its entry's lock says why somebody wants it kept.
+		const entry = join(scratchDir(), "entry");
+		mkdirSync(entry, { recursive: true });
+		writeFileSync(join(entry, "locked"), "on a stick\n");
+		rmSync(join(path, ".git"), { recursive: true, force: true });
+		writeFileSync(join(path, ".git"), `gitdir: ${entry}\n`);
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released.text).toBe(
+			`${GLYPH.refused} ${displayPath(path)} is still held, and still there: ${HAND_LOCKED}.`,
+		);
+		expect(existsSync(join(path, ".git")), "nothing moved").toBe(true);
+		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+	});
+
+	it("leaves a tree cut elsewhere to its provider, though git won't run in it", async () => {
+		// Another provider's tree is its own to take down: one moved
+		// behind its back leaves it naming a folder that is gone.
+		const { key, path } = await unread();
+
+		const released = await work({ action: "release", tree: key });
+
+		expect(released.text).toContain("is a link, which pi won't follow");
+		expect(existsSync(path), "the tree is where it was").toBe(true);
+		expect((await work({})).details).toMatchObject({ ok: true, held: 1 });
+	});
 });
+
+/**
+ * Cut a tree git won't run in: its `.git` a link, which the guard won't
+ * follow, as it refuses a tree cut from a checkout the fence doesn't
+ * guard.
+ */
+async function unread(): Promise<{ key: string; path: string }> {
+	const tree = await cut();
+	renameSync(join(tree.path, ".git"), join(tree.path, ".git-real"));
+	symlinkSync(join(tree.path, ".git-real"), join(tree.path, ".git"));
+	return tree;
+}
+
+/** Whether anything stands at `path`, a link included. */
+function existsLink(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		// Nothing there to stat.
+		return false;
+	}
+}
 
 describe("which tree a call means", () => {
 	it("names what is held when the tree named is not", async () => {
