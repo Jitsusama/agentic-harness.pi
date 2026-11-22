@@ -15,7 +15,7 @@ import { execFile, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	fenceRules,
@@ -40,21 +40,41 @@ const landrun = workingLandrun();
  */
 const CREDENTIALS = "/run/systemd/io.systemd.Credentials";
 
-/** A script for node that exits 0 once it connects to its socket. */
+/**
+ * How a node ends trying its socket: it connected, or it ran and its
+ * connect failed. Any other end (landrun refusing its arguments, node
+ * not starting under the rules, the run timing out) is neither, so a
+ * broken fence never reads as a socket kept shut.
+ */
+const CONNECTED = 0;
+const REFUSED = 2;
+
+/** A script for node that exits with how its connect to its socket went. */
 const CONNECT = [
 	"const s = require('node:net').connect(process.argv[1]);",
-	"s.on('connect', () => process.exit(0));",
-	"s.on('error', () => process.exit(2));",
+	`s.on('connect', () => process.exit(${CONNECTED}));`,
+	`s.on('error', () => process.exit(${REFUSED}));`,
 ].join(" ");
 
-/** Whether a node, wrapped in `before`, connects to the socket at `path`. */
-function connects(path: string, before: readonly string[]): Promise<boolean> {
+/** How a node, wrapped in `before`, ended trying the socket at `path`. */
+function tries(
+	path: string,
+	before: readonly string[],
+): Promise<number | string | null> {
 	const [program, ...rest] = [...before, process.execPath, "-e", CONNECT];
 	return new Promise((settle) => {
 		execFile(program ?? "", [...rest, path], { timeout: 20_000 }, (error) =>
-			settle(error === null),
+			settle(error === null ? CONNECTED : (error.code ?? error.signal ?? null)),
 		);
 	});
+}
+
+/** Whether a node, wrapped in `before`, connects to the socket at `path`. */
+async function connects(
+	path: string,
+	before: readonly string[],
+): Promise<boolean> {
+	return (await tries(path, before)) === CONNECTED;
 }
 
 /** A socket served at `path` until closed. */
@@ -119,9 +139,9 @@ describe.skipIf(landrun === undefined)(
 				"the SSH agent's proxy, which the fence lets through, wasn't reached",
 			).toBe(true);
 			expect(
-				await connects(standing, fenced()),
-				"a fenced command connected to a socket the fence doesn't list",
-			).toBe(false);
+				await tries(standing, fenced()),
+				"a fenced command connected to a socket the fence doesn't list, or never tried",
+			).toBe(REFUSED);
 		});
 
 		it("lets a fenced command reach the proxy's socket in its own folder, which the rule names as a folder", async (context) => {
@@ -146,23 +166,32 @@ describe.skipIf(landrun === undefined)(
 			if (!(await connects(CREDENTIALS, []))) context.skip();
 
 			expect(
-				await connects(CREDENTIALS, fenced()),
-				"a fenced command reached systemd's credential service",
-			).toBe(false);
+				await tries(CREDENTIALS, fenced()),
+				"a fenced command reached systemd's credential service, or never tried",
+			).toBe(REFUSED);
 			expect(NEVER_THROUGH).toContain(CREDENTIALS);
 		});
 
 		it("keeps a fenced command from the eero daemon's socket, which changes the home network", async (context) => {
 			if (!(await connects(eero, []))) context.skip();
 
+			// The same rules reach the socket they let through, so the refusal
+			// below is Landlock's, not a fence that never ran.
 			expect(
-				await connects(eero, fenced()),
-				"a fenced command connected to the eero daemon's socket",
-			).toBe(false);
+				await tries(letThrough, fenced()),
+				"the SSH agent's proxy, which the fence lets through, wasn't reached",
+			).toBe(CONNECTED);
+			// Refused because no rule names the socket or its folder: the
+			// list below keeps nothing out, but names it for fence-args' test
+			// and the preflight to check.
+			expect(
+				await tries(eero, fenced()),
+				"a fenced command connected to the eero daemon's socket, or never tried",
+			).toBe(REFUSED);
 			expect(
 				NEVER_THROUGH,
-				"a change to the fence could let the eero socket through unseen",
-			).toContain("eero/socket");
+				"the list names another path than the socket this proves shut",
+			).toContain(relative(runtimeDir, eero));
 		});
 	},
 );

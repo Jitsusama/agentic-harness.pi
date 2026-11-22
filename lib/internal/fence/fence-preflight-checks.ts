@@ -17,7 +17,7 @@ import {
 	rmSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
 import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
@@ -153,11 +153,20 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 		: failed(`readable inside: ${read.join(", ")}`);
 }
 
-/** Check (13b): each socket the fence never lets through is absent inside. */
+/**
+ * Check (13b): each socket in the runtime folder the fence never lets
+ * through is absent inside. Only runtime names are tried, since the
+ * runtime folder starts inside as an empty tmpfs: an absolute one is
+ * seen through the whole disk's bind, and only Landlock keeps it shut,
+ * as fence-sockets' test proves. One not served outside can't be tried,
+ * so how many weren't is said rather than passed over.
+ */
 async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
-	const sockets = NEVER_THROUGH.filter((name) => !/[*?]/.test(name))
-		.map((name) => join(runtime(), name))
-		.filter((path) => existsSync(path));
+	const named = NEVER_THROUGH.filter(
+		(name) => !/[*?]/.test(name) && !isAbsolute(name),
+	).map((name) => join(runtime(), name));
+	const sockets = named.filter((path) => existsSync(path));
+	const unserved = named.length - sockets.length;
 	const reached: string[] = [];
 	for (const path of sockets) {
 		const ran = await fenced(
@@ -168,7 +177,9 @@ async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
 		if (ran.code === 0) reached.push(path);
 	}
 	return reached.length === 0
-		? passed(`${sockets.length} sockets, none there inside`)
+		? passed(
+				`${sockets.length} sockets, none there inside; ${unserved} not served here`,
+			)
 		: failed(`there inside: ${reached.join(", ")}`);
 }
 

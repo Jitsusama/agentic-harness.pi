@@ -41,6 +41,42 @@ function diskWith(
 	};
 }
 
+/**
+ * Each name the fence must keep out that its binds or Landlock rules
+ * reach, by naming it or a folder above it. Only binds into the runtime
+ * folder count, since it starts inside as an empty tmpfs: an absolute
+ * name is seen through the whole disk's bind, and only the rules keep it
+ * shut.
+ */
+function namesReached(
+	args: readonly string[],
+	rules: readonly string[],
+	runtimeDir: string,
+): string[] {
+	const ruled = rules.flatMap((rule, at) =>
+		rule === "--unix" ? [rules[at + 1] ?? ""] : [],
+	);
+	// Where each bind lands inside, which is the pair's second path, when
+	// that's the runtime folder or in it: one above it lies under the
+	// tmpfs laid over the folder.
+	const bound = args
+		.flatMap((arg, at) =>
+			arg === "--bind" || arg === "--ro-bind" ? [args[at + 2] ?? ""] : [],
+		)
+		.filter(
+			(given) => given === runtimeDir || given.startsWith(`${runtimeDir}/`),
+		);
+	return NEVER_THROUGH.filter((name) => {
+		const absolute = name.startsWith("/");
+		const path = absolute ? name : join(runtimeDir, name.replace(/\*$/, ""));
+		const reaches = (given: string) =>
+			given === path ||
+			path.startsWith(`${given}/`) ||
+			(name.endsWith("*") && given.startsWith(path));
+		return [...ruled, ...(absolute ? [] : bound)].some(reaches);
+	});
+}
+
 describe("the fence's arguments", () => {
 	const place = { home: "/home/someone", runtimeDir: "/run/user/1000" };
 	const args = fenceArgs(
@@ -345,26 +381,27 @@ describe("the fence's arguments", () => {
 		expect(readOnly).not.toContain("/home/someone/.local/bin");
 	});
 
-	it("lets none of the desktop's names through, by bind or by socket", () => {
-		const through = [
-			...args.flatMap((arg, at) =>
-				arg === "--bind" ? [args[at + 1] ?? ""] : [],
+	it("lets none of the desktop's names through, by bind or by socket, nor a folder above one", () => {
+		expect(
+			namesReached(args, rules, place.runtimeDir),
+			"names the fence must keep out are let through",
+		).toEqual([]);
+	});
+
+	it("sees the eero daemon's folder let through, by rule or by bind, as its socket let through", () => {
+		const folder = join(place.runtimeDir, "eero");
+		expect(
+			namesReached(args, [...rules, "--unix", folder], place.runtimeDir),
+			"a Landlock rule on the socket's folder passed as leaving it shut",
+		).toEqual(["eero/socket"]);
+		expect(
+			namesReached(
+				[...args, "--ro-bind", folder, folder],
+				rules,
+				place.runtimeDir,
 			),
-			...rules.flatMap((rule, at) =>
-				rule === "--unix" ? [rules[at + 1] ?? ""] : [],
-			),
-		];
-		for (const name of NEVER_THROUGH) {
-			const path = name.startsWith("/")
-				? name
-				: join(place.runtimeDir, name.replace(/\*$/, ""));
-			const matches = (given: string) =>
-				name.endsWith("*") ? given.startsWith(path) : given === path;
-			expect(
-				through.filter(matches),
-				`${name} is let through the fence`,
-			).toEqual([]);
-		}
+			"a read-only bind of the socket's folder passed as leaving it shut",
+		).toEqual(["eero/socket"]);
 	});
 
 	it("hides the system bus and X's sockets, and binds no read-only path writable", () => {
