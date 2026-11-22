@@ -37,7 +37,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { link, rename, rm } from "node:fs/promises";
+import { link, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
@@ -52,6 +52,7 @@ import {
 	ownJobRecord,
 	processThere,
 	removeKept,
+	takeJobRecord,
 } from "./kept.ts";
 
 /** One background bash call, as its session takes it up again. */
@@ -101,10 +102,11 @@ export interface ForgetOwnOptions {
 export function recordKeptJob(job: KeptJob): void {
 	const file = `${job.work.keep}${JOB_SUFFIX}`;
 	const staged = `${file}.${process.pid}.new`;
+	const record = JSON.stringify(job);
 	try {
-		writeFileSync(staged, JSON.stringify(job), { mode: FILE_MODE });
+		writeFileSync(staged, record, { mode: FILE_MODE });
 		renameSync(staged, file);
-		ownJobRecord(job.work.keep);
+		ownJobRecord(job.work.keep, record);
 	} catch {
 		// Its files went as it ended: nothing is left to take up.
 		rmSync(staged, { force: true });
@@ -155,8 +157,13 @@ export async function forgetOwnKeptJob(
 	]);
 	clearTimeout(timer);
 	if (ended === "waited") {
+		// Once set aside, no start reads it, so only a removal still to move
+		// it leaves a record a pi gone meanwhile would take up again.
+		const follows = removal.setAside
+			? "it is set aside already, where no start reads it"
+			: "a pi gone before it goes may say the call's end again";
 		process.stderr.write(
-			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, so a pi gone before it goes may say the call's end again\n`,
+			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, and ${follows}\n`,
 		);
 	}
 }
@@ -164,9 +171,12 @@ export async function forgetOwnKeptJob(
 /**
  * Remove this process's record of the call kept at `keep` while it is
  * this process's. Each pass renames it aside before removing it, since a
- * rename or unlink the disk has yet to reach can't be called back: a
- * hand-off meanwhile puts the record back, linked rather than renamed so
- * it never replaces the one a taker wrote first.
+ * rename or unlink the disk has yet to reach can't be called back. A
+ * hand-off meanwhile puts the record back for its taker, linked rather
+ * than renamed so it never replaces one the taker wrote first: what was
+ * set aside, when the hand-off came before the rename landed, since a
+ * taker's write may have been what it moved; otherwise, once the aside
+ * is gone, what this process wrote.
  */
 async function removeOwn(
 	keep: string,
@@ -175,7 +185,9 @@ async function removeOwn(
 ): Promise<void> {
 	const file = `${keep}${JOB_SUFFIX}`;
 	const aside = `${file}.${process.pid}.gone`;
-	while (!removal.handed && disownJobRecord(keep)) {
+	while (!removal.handed) {
+		const record = takeJobRecord(keep);
+		if (record === undefined) return;
 		const began = now();
 		try {
 			await rename(file, aside);
@@ -188,17 +200,22 @@ async function removeOwn(
 			sayStays(file, error);
 			continue;
 		}
-		if (removal.handed) await putBack(aside, file);
+		const handedFirst = removal.handed;
+		removal.setAside = !handedFirst;
+		if (handedFirst) await linkBack(aside, file);
 		try {
 			await rm(aside, { force: true });
 		} catch (error) {
-			// A folder in its place, set aside: no record is read under that
-			// name, and the week's sweep takes it.
+			// A disk refusing it: what stays is under a name no start reads
+			// as a record, and the week's sweep takes a file left that long.
 			const why = error instanceof Error ? error.message : String(error);
 			process.stderr.write(
-				`[shell] couldn't remove ${aside}: ${why}; no record is read there, and the week's sweep takes it\n`,
+				`[shell] couldn't remove ${aside}: ${why}; no start reads it as a record, and the week's sweep takes it\n`,
 			);
 		}
+		if (removal.handed && !handedFirst)
+			await writeBack(file, removal.latest ?? record);
+		removal.setAside = false;
 		const took = now() - began;
 		if (took > SLOW_REMOVAL_MS) {
 			process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
@@ -210,16 +227,39 @@ async function removeOwn(
  * Put a record set aside back for the call's taker, unless the taker has
  * written its own there already, which is the newer.
  */
-async function putBack(aside: string, file: string): Promise<void> {
+async function linkBack(aside: string, file: string): Promise<void> {
 	try {
 		await link(aside, file);
 	} catch (error) {
-		if (isTaken(error)) return;
-		const why = error instanceof Error ? error.message : String(error);
-		process.stderr.write(
-			`[shell] couldn't put ${file} back for the call's taker: ${why}; a pi gone before the taker records it leaves the call to strays\n`,
-		);
+		if (!isTaken(error)) sayNotBack(file, error);
 	}
+}
+
+/**
+ * Write `record` back for the call's taker once what was set aside is
+ * gone, whole, under a name of its own first, and linked into place
+ * unless the taker has written its own there already.
+ */
+async function writeBack(file: string, record: string): Promise<void> {
+	const staged = `${file}.${process.pid}.back`;
+	try {
+		await writeFile(staged, record, { mode: FILE_MODE });
+		await link(staged, file);
+	} catch (error) {
+		if (!isTaken(error)) sayNotBack(file, error);
+	} finally {
+		await rm(staged, { force: true }).catch(() => {
+			// Under a name no start reads as a record; the week's sweep takes it.
+		});
+	}
+}
+
+/** Say that `file` couldn't be put back for its call's taker, and what follows. */
+function sayNotBack(file: string, error: unknown): void {
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`[shell] couldn't put ${file} back for the call's taker: ${why}; a pi gone before the taker records it leaves the call to strays\n`,
+	);
 }
 
 /** Say that `file` stays where it is, and what follows from that. */

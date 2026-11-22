@@ -340,12 +340,17 @@ function textOf(file: string): string {
 export interface JobRecordRemoval {
 	/** Whether its call was handed on while it ran. */
 	handed: boolean;
+	/** The record this process last wrote, as its call was handed on. */
+	latest?: string;
+	/** Whether the record is off its name, set aside, and not yet put back. */
+	setAside: boolean;
 }
 
 // The kept paths whose job record (kept-jobs.ts) this process wrote and
-// hasn't taken back, so a call that wrote none asks nothing of the disk
-// as it ends, and the removals of such records still running, so a
-// hand-off meanwhile leaves the record to its taker. For the process
+// hasn't taken back, each with the record it wrote, so a call that wrote
+// none asks nothing of the disk as it ends, and the removals of such
+// records still running, so a hand-off meanwhile can put the record
+// back for its taker from what this process wrote. For the process
 // rather than a module copy: pi loads each extension as a copy of its
 // own, and job-workflow records a job while shell-workflow ends its
 // call, so the two always sit in different copies, and a reload makes
@@ -357,14 +362,24 @@ export interface JobRecordRemoval {
 const jobRecords = processGlobal(
 	"agentic-harness.internal/shell/kept-jobs/records.v2",
 	() => ({
-		own: new Set<string>(),
+		own: new Map<string, string>(),
 		removing: new Map<string, JobRecordRemoval>(),
 	}),
 );
 
-/** Note that this process wrote the job record of the call kept at `path`. */
-export function ownJobRecord(path: string): void {
-	jobRecords.own.add(path);
+/** Note that this process wrote `record`, the job record of the call kept at `path`. */
+export function ownJobRecord(path: string, record: string): void {
+	jobRecords.own.set(path, record);
+}
+
+/**
+ * Let go of the job record of the call kept at `path` as this process's,
+ * answering the record it wrote, or nothing when there is none it holds.
+ */
+export function takeJobRecord(path: string): string | undefined {
+	const record = jobRecords.own.get(path);
+	jobRecords.own.delete(path);
+	return record;
 }
 
 /**
@@ -380,20 +395,24 @@ export function disownJobRecord(path: string): boolean {
  * handed on, marking a removal of it still running as handed.
  */
 export function handJobRecordOn(path: string): void {
-	jobRecords.own.delete(path);
+	const record = takeJobRecord(path);
 	const removal = jobRecords.removing.get(path);
-	if (removal !== undefined) removal.handed = true;
+	if (removal === undefined) return;
+	removal.handed = true;
+	if (record !== undefined) removal.latest = record;
 }
 
 /**
  * Begin removing the job record of the call kept at `path`, answering
- * the removal, or nothing when this process wrote none to remove.
+ * the removal, or nothing when this process wrote none to remove or one
+ * removal of it runs already, which takes a record written again too.
  */
 export function beginJobRecordRemoval(
 	path: string,
 ): JobRecordRemoval | undefined {
-	if (!jobRecords.own.has(path)) return undefined;
-	const removal: JobRecordRemoval = { handed: false };
+	if (!jobRecords.own.has(path) || jobRecords.removing.has(path))
+		return undefined;
+	const removal: JobRecordRemoval = { handed: false, setAside: false };
 	jobRecords.removing.set(path, removal);
 	return removal;
 }

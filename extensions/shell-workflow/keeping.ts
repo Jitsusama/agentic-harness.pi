@@ -162,14 +162,15 @@ export function keepsOnDisk(
 					call.signal?.removeEventListener("abort", stop);
 					// Its job's record goes before it settles, so a pi gone just
 					// after never leaves one for its next start to take up and say
-					// the end of again. Waited for off the thread, and only when this
+					// the end of again. It goes off the thread, and only when this
 					// process wrote one: most calls have none, and asking the disk
 					// for a name that isn't there held every conversation's loop for
-					// seconds when the disk was busy, and for a few seconds at most,
-					// so a wedged disk never holds the call open. While it goes the
-					// call can still be carried, so a move or a host's stop meeting
-					// it then carries it, its end said where it lands, rather than
-					// finding a job neither carriable nor ended and stopping it.
+					// seconds when the disk was busy. The call waits for it a few
+					// seconds at most, so a wedged disk never holds it open. While
+					// it goes the call can still be carried, so a move or a host's
+					// stop meeting it then carries it, its end said where it lands,
+					// rather than finding a job neither carriable nor ended and
+					// stopping it.
 					if (!kept.handed) await forgetOwnKeptJob(path);
 					// Handed on meanwhile, its files are the taker's. Otherwise ended
 					// here, so nothing may carry or hand it on while they go, which
