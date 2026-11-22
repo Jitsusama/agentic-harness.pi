@@ -15,8 +15,9 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { realpathSync, statSync } from "node:fs";
 import { constants, homedir } from "node:os";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type {
 	ExecOptions,
@@ -26,7 +27,11 @@ import type {
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
 import { quoted } from "../../lib/internal/sandbox/sandbox-shell.ts";
-import { systemProgram } from "../../lib/internal/sandbox/system-program.ts";
+import {
+	systemFolders,
+	systemProgram,
+} from "../../lib/internal/sandbox/system-program.ts";
+import { within } from "../../lib/internal/sandbox/tree-git.ts";
 import {
 	guardedEnvironment,
 	SSH_GUARD_OFF,
@@ -119,12 +124,9 @@ function run(
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 		} catch (error) {
-			settle({
-				stdout: "",
-				stderr: `${shell} didn't start in ${cwd}: ${(error as Error).message}\n`,
-				code: 1,
-				killed: false,
-			});
+			settle(
+				refusal(`${shell} didn't start in ${cwd}: ${(error as Error).message}`),
+			);
 			return;
 		}
 		const out = new StringDecoder("utf8");
@@ -198,7 +200,8 @@ function run(
 		};
 		child.on("error", (error) => {
 			stderr += `${shell} didn't start in ${cwd}: ${error.message}\n`;
-			done(1);
+			// Nothing ran, so it answers as a refusal does.
+			done(126);
 		});
 		child.stdout?.on("data", (chunk: Buffer) => take(chunk, "out"));
 		child.stderr?.on("data", (chunk: Buffer) => take(chunk, "err"));
@@ -218,10 +221,12 @@ function run(
 	});
 }
 
-/** Whether `path` is `folder` or lies within it. */
-function within(path: string, folder: string): boolean {
-	const way = relative(resolve(folder), resolve(path));
-	return way === "" || (!way.startsWith("..") && !way.startsWith("/"));
+/**
+ * The system's bash: from its Nix profiles first, else the one a Mac or
+ * another Linux keeps in /bin or /usr/bin, root's alone either way.
+ */
+function systemBash(): string | undefined {
+	return systemProgram("bash", [...systemFolders(), "/bin", "/usr/bin"]);
 }
 
 /** What a folder's extensions' exec is built from. */
@@ -241,6 +246,8 @@ export interface ProjectExecParts {
 	 * fenced command planted in a folder the fence leaves writable.
 	 */
 	readonly shell?: () => string | undefined;
+	/** The real path of a folder, its links followed; throws when it isn't there. */
+	readonly realFolder?: (path: string) => string;
 	readonly wrapping?: typeof wrapFor;
 	readonly most?: number;
 }
@@ -249,10 +256,16 @@ export interface ProjectExecParts {
  * The exec a folder's extensions run commands through: its environment
  * built as the agent's commands' is, wrapped in the session's sandbox and
  * placed as they are, so it lands where they do and is refused where
- * they are refused. A folder outside the session's is refused, since the
- * fence grants what it lets a command write from where it runs. Anything
- * that fails before the command starts answers as a refusal rather than
- * throwing. With no sandbox asked for, a command runs as pi would run it.
+ * they are refused. Each is wrapped as the agent's own are, from the
+ * session's folder, whatever folder it asks for, and moves into that one
+ * inside the wrap: the wraps grant from the folder they start in, and a
+ * fenced command could have planted a link or a `.git` file in any
+ * folder below the session's. The folder asked for, a relative one read
+ * from the session's, is refused unless it really lies within the
+ * session's, its links followed. Anything that fails before the command
+ * starts answers as a refusal, 126, rather than throwing, and a sandbox
+ * that gives no wrap is refused unless none was asked for, when a
+ * command runs as pi would run it.
  */
 export function projectExecIn(parts: ProjectExecParts): ProjectExec {
 	const {
@@ -261,16 +274,34 @@ export function projectExecIn(parts: ProjectExecParts): ProjectExec {
 		folder,
 		sshGuard = () => SSH_GUARD_OFF,
 		home = homedir(),
-		shell = () => systemProgram("bash"),
+		shell = systemBash,
+		realFolder = (path: string) => {
+			const at = realpathSync(path);
+			if (!statSync(at).isDirectory()) throw new Error(`${path} is no folder`);
+			return at;
+		},
 		wrapping = wrapFor,
 		most = MOST_OUTPUT,
 	} = parts;
 	return async (command, args, cwd, options = {}) => {
 		const script = [command, ...args].map(quoted).join(" ");
-		let ready: { bash: string; text: string; env: NodeJS.ProcessEnv };
+		let ready: {
+			bash: string;
+			text: string;
+			env: NodeJS.ProcessEnv;
+			session: string;
+		};
 		try {
 			const session = folder();
-			if (!within(cwd, session))
+			let at: string;
+			try {
+				at = realFolder(resolve(session, cwd));
+			} catch {
+				return refusal(
+					`A folder's extension may run a command only in a folder that is there, not ${cwd}.`,
+				);
+			}
+			if (!within(at, session))
 				return refusal(
 					`A folder's extension may run a command only in its session's folder, ${session}, not ${cwd}.`,
 				);
@@ -281,23 +312,31 @@ export function projectExecIn(parts: ProjectExecParts): ProjectExec {
 				);
 			const plain = withoutInteraction({
 				command: script,
-				cwd,
+				cwd: session,
 				env: environment(),
 			});
 			const env = guardedEnvironment(plain.env, sshGuard(), sandbox.kind);
-			const wrap = wrapping(sandbox, { cwd, env }, home);
+			const wrap = wrapping(sandbox, { cwd: session, env }, home);
+			if (!wrap && sandbox.kind !== "none")
+				return refusal(
+					`The session's ${sandbox.kind} sandbox gave no way to run a folder's extension's command, so it doesn't run.`,
+				);
+			// Into the folder asked for inside the wrap, which the session's
+			// folder decided: a link swapped there since stays within its grants.
+			const moved =
+				at === session ? script : `cd -- ${quoted(at)} && ${script}`;
 			const text = placedCommand(
-				script,
-				cwd,
-				wrap ?? ((run: string) => `exec ${run}`),
+				moved,
+				session,
+				wrap ?? ((run: string) => run),
 			);
-			ready = { bash, text, env };
+			ready = { bash, text, env, session };
 		} catch (error) {
 			return refusal(
 				`A folder's extension's command didn't start: ${(error as Error).message}`,
 			);
 		}
-		return run(ready.bash, ready.text, cwd, ready.env, options, most);
+		return run(ready.bash, ready.text, ready.session, ready.env, options, most);
 	};
 }
 

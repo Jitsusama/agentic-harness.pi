@@ -62,13 +62,13 @@ function worktreeLayout(base: string, tree: string, back: string): string {
 
 /**
  * Run a command as a session with `sandbox` would; its text and exit. It
- * runs in the temporary folder unless told otherwise, not the folder the
- * tests started in: the strict sandbox refuses a plain clone's, which holds
- * its git folder, so the tests would fail wherever they're checked out so.
+ * runs in a folder of its own in the temporary folder unless told
+ * otherwise, not the folder the tests started in: the strict sandbox
+ * refuses a plain clone's, which holds its git folder, so the tests would
+ * fail wherever they're checked out so. Nor the temporary folder itself,
+ * which holds the XDG state the setup points at, pi's host records among
+ * it, and strict refuses that as a command's folder (unfenced-folder.ts).
  */
-// A folder of its own by default: the run's temporary folder itself
-// holds the XDG state the setup points at, pi's host records among it,
-// which strict refuses as a command's folder (unfenced-folder.ts).
 async function run(
 	sandbox: Sandbox,
 	command: string,

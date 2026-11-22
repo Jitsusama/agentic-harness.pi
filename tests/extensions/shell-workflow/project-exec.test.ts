@@ -14,6 +14,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,10 +104,14 @@ describe("a folder's extension's command", () => {
 		const exec = execWith({
 			sandbox: fence,
 			home: "/home/person",
+			environment: () => ({ ...process.env, GIVEN: "from the session" }),
 			wrapping: (sandbox, place, home) => {
 				expect(sandbox).toBe(fence);
 				expect(place.cwd).toBe(folder);
 				expect(home).toBe("/home/person");
+				// The fence places its scratch and session from what it's handed.
+				expect(place.env.GIVEN).toBe("from the session");
+				expect(place.env.GIT_TERMINAL_PROMPT).toBe("0");
 				return (script) => {
 					wrapped.push(script);
 					return `echo fenced; ${script}`;
@@ -116,6 +121,68 @@ describe("a folder's extension's command", () => {
 		const done = await exec("echo", ["it's"], folder);
 		expect(wrapped).toEqual(["'echo' 'it'\\''s'"]);
 		expect(done.stdout).toBe("fenced\nit's\n");
+	});
+
+	it("is wrapped from the session's folder and moves into a folder below it inside the wrap", async () => {
+		const inner = join(folder, "inner");
+		mkdirSync(inner);
+		const wrapped: string[] = [];
+		const exec = execWith({
+			sandbox: { kind: "fence" } as unknown as Sandbox,
+			wrapping: (_sandbox, place) => {
+				// The grants are the session folder's, whatever the folder asked:
+				// one below could hold a link or a .git file a command planted.
+				expect(place.cwd).toBe(folder);
+				return (script) => {
+					wrapped.push(script);
+					return script;
+				};
+			},
+		});
+		const done = await exec("pwd", [], "inner");
+		expect(wrapped).toEqual([`cd -- '${inner}' && 'pwd'`]);
+		expect(done).toMatchObject({ stdout: `${inner}\n`, code: 0 });
+	});
+
+	it("is refused through a link in the session's folder to one outside it, nothing run", async () => {
+		const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "elsewhere-")));
+		try {
+			symlinkSync(elsewhere, join(folder, "out"));
+			const marker = join(elsewhere, "ran");
+			const done = await execWith()("touch", ["ran"], join(folder, "out"));
+			expect(done.code).toBe(126);
+			expect(done.stderr).toContain("only in its session's folder");
+			expect(existsSync(marker)).toBe(false);
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	it("is refused in a folder that isn't there", async () => {
+		const done = await execWith()("true", [], join(folder, "gone"));
+		expect(done.code).toBe(126);
+		expect(done.stderr).toContain("a folder that is there");
+	});
+
+	it("is refused when a sandbox other than none gives no wrap, rather than run unfenced", async () => {
+		const marker = join(folder, "ran");
+		const done = await execWith({
+			sandbox: { kind: "strict" } as unknown as Sandbox,
+			wrapping: () => undefined,
+		})("touch", [marker], folder);
+		expect(done.code).toBe(126);
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("answers 126, nothing run, where the real wrap refuses the sandbox", async () => {
+		const marker = join(folder, "ran");
+		const done = await execWith({
+			sandbox: { kind: "refused", reason: "the fence can't hold here" },
+			home: folder,
+		})("touch", [marker], folder);
+		expect(done.code).toBe(126);
+		expect(done.stderr).toContain("the fence can't hold here");
+		expect(existsSync(marker)).toBe(false);
 	});
 
 	it("is refused, nothing run, where the sandbox refuses it", async () => {
@@ -185,6 +252,25 @@ describe("a folder's extension's command", () => {
 		const done = await exec("printf", ["ran"], folder);
 		expect(done).toMatchObject({ stdout: "ran", code: 0 });
 		expect(existsSync(marker)).toBe(false);
+	});
+
+	it("takes what it left running in its group with it when it ends", async () => {
+		const done = await execWith()(
+			"bash",
+			["-c", "sleep 30 >/dev/null 2>&1 & echo $!"],
+			folder,
+		);
+		const left = Number(done.stdout.trim());
+		expect(left).toBeGreaterThan(0);
+		const gone = () => {
+			try {
+				process.kill(left, 0);
+				return false;
+			} catch {
+				return true;
+			}
+		};
+		await vi.waitFor(() => expect(gone()).toBe(true), { timeout: 2000 });
 	});
 
 	it("is stopped at its time limit", async () => {

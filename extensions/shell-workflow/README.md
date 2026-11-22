@@ -71,12 +71,15 @@ What it adds:
   only through an exec an extension sets, and refuses them until one
   is. As each session starts, the shell sets one (`project-exec.ts`)
   that wraps the command in the session's sandbox and environment, as
-  the agent's commands are, with pi's time limit and abort. It keeps
-  the first 16 MiB of each stream, refuses a folder outside the
-  session's, and refuses everything once the session ends. That bounds
+  the agent's commands are, with pi's time limit and abort. It wraps
+  each from the session's folder and moves into the folder asked for
+  inside the wrap, refusing one that isn't really within the session's,
+  links followed. It keeps the first 16 MiB of output, both streams
+  together, kills what a command leaves in its process group when the
+  call ends, and refuses everything once the session ends. That bounds
   the commands, not the extension's own code, which runs in pi. An
-  unfenced session runs them as pi would. Plain pi, which has no such
-  door, runs them as before.
+  unfenced session runs them unwrapped, through the system's own bash,
+  as above. Plain pi, which has no such door, runs them as before.
 - **Guidance.** The tool tells the agent not to pipe output through
   `tail` or `head` (pi already keeps the end and saves the rest), and
   not to sleep to wait for something. Where `JOBS_CGROUP` places its
