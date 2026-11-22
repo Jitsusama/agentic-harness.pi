@@ -20,8 +20,9 @@
 # npm's prebuilt biome through glibc's own loader where the host has no
 # nix-ld. Checks on one host take turns, since they share that worktree;
 # one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
-# check before it to end. Exits with what `pnpm check` exited with, or
-# 75 when its turn never came.
+# check before it to end, and its holder's line names the pid that stops
+# the whole of a check with a TERM. Exits with what `pnpm check` exited
+# with, or 75 when its turn never came.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -72,12 +73,32 @@ let_go() {
   if [ -n "${holder:-}" ]; then rm -f "$holder"; fi
 }
 trap let_go EXIT
+# A check stopped by the pid its holder's line names stops whole: its work
+# runs without fd 9, so the turn would pass while that work ran on in the
+# shared worktree. Ignoring the signal itself, this shell sends it to its
+# group, every command the check started, then ends as signalled.
+stop_all() {
+  trap '' TERM INT HUP
+  kill -TERM 0 2>/dev/null || true
+  exit 143
+}
+trap stop_all TERM INT HUP
+# A check killed outright runs no trap, so its node link stays; each
+# check takes away the links of checks no longer running.
+let_go_of_dead() {
+  local link
+  for link in ~/.cache/harness-check-node.*; do
+    [ -L "$link" ] || continue
+    kill -0 "${link##*.}" 2>/dev/null || rm -f "$link"
+  done
+}
 # A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
 # with its own node inside, so the check's scripts get the node 24 the
 # harness's other scripts run on, from the host's nixpkgs. It is found
 # before the lock, so no other check waits on a fetch, and linked from
 # ~/.cache under this check's own name, so the store keeps it while the
 # check runs and a check started beside it can't repoint the link.
+let_go_of_dead
 if ! command -v node >/dev/null 2>&1; then
   node_link=~/.cache/harness-check-node.$$
   if ! node=$(nix build --out-link "$node_link" --print-out-paths nixpkgs#nodejs_24); then
@@ -121,6 +142,7 @@ take_turn() {
     tried=0
     lock -w "$wait_s" || tried=$?
     if [ "$tried" -eq 1 ]; then
+      held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
       echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock, held by ($held)" >&2
       return 75
     fi
@@ -137,8 +159,9 @@ exec 9> "$turn"
 take_turn
 # Everything the check starts runs without fd 9, so nothing it leaves
 # running, such as git's fsmonitor daemon, holds the lock once it ends.
-# bash -s reads the whole group before it runs any of it, so no command
-# in it that reads stdin can swallow the rest of this script either.
+# It runs as a job this shell waits on, so a TERM reaches stop_all at
+# once rather than when pnpm check ends, and with no stdin, so nothing in
+# it that reads stdin can swallow the rest of this script.
 {
 if [ ! -d "$repo" ]; then
   git clone -q --bare https://github.com/Jitsusama/agentic-harness.pi.git "$repo"
@@ -175,5 +198,6 @@ if [ -e /etc/NIXOS ]; then
 fi
 pnpm check
 pnpm exec vitest run tests/package --testTimeout=60000
-} 9>&-
+} 9>&- &
+wait $!
 THERE
