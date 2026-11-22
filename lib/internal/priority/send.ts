@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
+import { offeredShellEnvironment } from "../shell/environment.ts";
 import { type Step, stepsOf, wordsOf } from "../shell/steps.ts";
 import { elsewhereKindOf, reroutesElsewhere } from "./needs.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
@@ -222,6 +223,9 @@ function placing(
  */
 const PLACED_FOR_MS = 2 * TAKES_MS;
 
+/** The variable quest-workflow offers every command, naming its quest. */
+const QUEST_VARIABLE = "PI_QUEST";
+
 /**
  * Whether elsewhere said, within {@link PLACED_FOR_MS}, that it places a
  * kind of job on another machine, asking again at most once a minute in
@@ -248,7 +252,9 @@ export function placedFarKnown(
  * Has elsewhere say where it places each kind of job `command` sends
  * with `elsewhere run`, waiting for any answer older than
  * {@link TAKES_MS}, so a run queued straight after is judged on a fresh
- * one rather than held for want of it. An agent runs a check, edits for
+ * one rather than held for want of it. It asks nothing for a session on
+ * no quest or a command that changes what elsewhere means, whose runs
+ * no answer could count as sent. An agent runs a check, edits for
  * minutes and runs it again, so an answer kept warm only by the runs
  * themselves is nearly always stale. `elsewhere where` answered in 0.67 s
  * on 22 November, and gives up within {@link WHERE_MS}.
@@ -259,8 +265,10 @@ export async function placesNow(
 	home: string = homedir(),
 	ask: (kind: string) => Promise<boolean> = placedFar,
 	now = Date.now(),
+	quest: string | undefined = offeredShellEnvironment()[QUEST_VARIABLE],
 ): Promise<void> {
-	if (!command.includes("elsewhere")) return;
+	if (!quest || !command.includes("elsewhere")) return;
+	if (reroutesElsewhere(command)) return;
 	const kinds = new Set<string>();
 	for (const step of stepsOf(command, cwd, home) ?? []) {
 		const kind = elsewhereKindOf(wordsOf(step.text));

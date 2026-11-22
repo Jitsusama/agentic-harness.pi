@@ -244,7 +244,7 @@ function isElsewhere(word: string): boolean {
 }
 
 /**
- * The kind of job a step sends with `elsewhere run KIND -- ...`, which
+ * The kind of job a step sends with `elsewhere run KIND [OPTIONS] -- ...`, which
  * carries its tracked files to the machine mycelium places it on
  * (core.nix's elsewhere), or nothing when the step runs something else,
  * or asks with `--here` to run on this machine. Read from the step's
@@ -276,14 +276,11 @@ export function elsewhereKindOf(words: readonly string[]): string | undefined {
 	if (unquoted(words[at + 1] ?? "") !== "run" || !/^\w[\w.-]*$/.test(kind)) {
 		return undefined;
 	}
+	// elsewhere takes the job only after `--`, and refuses a run without
+	// one (exit 64, 22 November), so such a step sends nothing.
 	const end = words.indexOf("--", at + 3);
-	// With no `--`, elsewhere's options are the words before the job's
-	// first, and the job's own words are its business.
-	const rest = words.slice(at + 3, end === -1 ? undefined : end);
-	const first = rest.findIndex(
-		(word) => !unquoted(word).startsWith("-") && !word.includes("$"),
-	);
-	const options = end === -1 && first !== -1 ? rest.slice(0, first) : rest;
+	if (end === -1) return undefined;
+	const options = words.slice(at + 3, end);
 	const staysHere = (option: string) =>
 		option.includes("$") || unquoted(option) === "--here";
 	return options.some(staysHere) ? undefined : kind;

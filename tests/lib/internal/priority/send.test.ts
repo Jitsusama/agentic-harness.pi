@@ -381,9 +381,11 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			const now = Date.now();
 			const run = "cd x && elsewhere run waits-first -- pnpm test";
 			let done = false;
-			const placed = placesNow(run, "/tree", "/home", ask, now).then(() => {
-				done = true;
-			});
+			const placed = placesNow(run, "/tree", "/home", ask, now, "Q").then(
+				() => {
+					done = true;
+				},
+			);
 			await settled();
 			expect(done, "waits for elsewhere's answer").toBe(false);
 			pending[0]?.(true);
@@ -391,8 +393,15 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
 
 			const later = now + 5 * 60_000;
-			const again = placesNow(run, "/tree", "/home", ask, later);
+			let doneAgain = false;
+			const again = placesNow(run, "/tree", "/home", ask, later, "Q").then(
+				() => {
+					doneAgain = true;
+				},
+			);
 			expect(pending, "five minutes on, it asks again").toHaveLength(2);
+			await settled();
+			expect(doneAgain, "and waits, the old answer being stale").toBe(false);
 			pending[1]?.(true);
 			await again;
 			expect(placedFarKnown("waits-first", Date.now(), ask)).toBe(true);
@@ -400,15 +409,21 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 
 		it("waits for nothing when no step is an elsewhere run, or the answer is fresh", async () => {
 			const { ask, pending } = answers();
-			await placesNow("pnpm test # elsewhere later", "/tree", "/home", ask);
-			await placesNow("echo elsewhere run x -- y", "/tree", "/home", ask);
-			expect(pending).toHaveLength(0);
 			const now = Date.now();
 			const run = "elsewhere run fresh-already -- pnpm test";
-			const first = placesNow(run, "/tree", "/home", ask, now);
+			for (const [command, quest] of [
+				["pnpm test # elsewhere later", "Q"],
+				["echo elsewhere run x -- y", "Q"],
+				[`unset PI_QUEST; ${run}`, "Q"],
+				[run, ""],
+			] as const) {
+				await placesNow(command, "/tree", "/home", ask, now, quest);
+			}
+			expect(pending, "no answer could make these sent").toHaveLength(0);
+			const first = placesNow(run, "/tree", "/home", ask, now, "Q");
 			pending[0]?.(true);
 			await first;
-			await placesNow(run, "/tree", "/home", ask, Date.now() + 1_000);
+			await placesNow(run, "/tree", "/home", ask, Date.now() + 1_000, "Q");
 			expect(pending, "asked once").toHaveLength(1);
 		});
 	});
