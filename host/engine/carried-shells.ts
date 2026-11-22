@@ -98,6 +98,14 @@ export interface CarriedShells {
 	 */
 	readonly keeps: boolean;
 	/**
+	 * Whether a park keeps a carried call alive (parked-calls.ts). A host
+	 * that runs on through the park holds the call in its own cgroup until
+	 * its own stop keeps it, as `keeps` says; a child, whose process ends
+	 * once it parks (`processEnds`), keeps only what its spawners' scopes
+	 * hold apart from its unit.
+	 */
+	keepsThroughPark(processEnds: boolean): boolean;
+	/**
 	 * Hear the calls a conversation's bus says it carried through a
 	 * restart, once the host told it of one; a move's carry is the place
 	 * it moved to's to watch. Returns a disposer.
@@ -293,9 +301,13 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		if (left.length !== kept.length) write(left);
 	}
 
+	const scoped = () => options.scoped ?? spawnersScoped();
 	return {
 		get keeps() {
-			return procs !== undefined || (options.scoped ?? spawnersScoped());
+			return procs !== undefined || scoped();
+		},
+		keepsThroughPark(processEnds) {
+			return processEnds ? scoped() : procs !== undefined || scoped();
 		},
 		heard(bus) {
 			let restarting = false;

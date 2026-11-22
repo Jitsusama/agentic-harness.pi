@@ -284,7 +284,13 @@ it sleeps on; the conversation's next start or its close clears it.
 While it rests, parking.ts also watches the steer inbox of each address
 its park marker names (`lib/mesh/parked.ts`), and wakes it the same
 way as soon as a talk, close, carry, move, fill or answer lands, rather
-than at the mesh's once-a-minute pass, which stays as the backstop. A
+than at the mesh's once-a-minute pass, which stays as the backstop.
+Where a park keeps carried bash calls (a shared host with a jobs
+cgroup, or spawners in scopes of their own), it stops the conversation
+carrying them as a restart does; parked-calls.ts writes the calls the
+conversation's bus said it carried to `carried-calls.json` beside its
+wake file, and whoever watches that wake looks at them every five
+seconds, writing the wake file once none still runs. A
 host starting leaves parked what its last process parked this boot,
 plain pi's marker still naming this host's wake file
 (`restsParked`): it builds nothing, watches the wake file as the park

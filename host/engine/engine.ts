@@ -129,6 +129,10 @@ export async function createEngine(
 		say: report,
 		report,
 	});
+	// A park carries a conversation's bash calls where they outlive it: a
+	// child's process ends once it parks, while a shared host runs on.
+	const parkCarries = () => shells.keepsThroughPark(kept !== undefined);
+	host.keepsCarried(parkCarries);
 	// What an earlier restart kept and no conversation here took up is
 	// stopped once due; a child's are the supervisor's to look over.
 	if (!kept) shells.watch((sessionId) => live.has(sessionId));
@@ -137,7 +141,8 @@ export async function createEngine(
 	const { warming } = requests;
 	const parked = parking({
 		stateDir: options.stateDir,
-		stop: (sessionId, why) => host.stop(sessionId, why),
+		stop: (sessionId, why, carrying) => host.stop(sessionId, why, carrying),
+		carries: parkCarries,
 		asking: () => watched?.wake,
 		report,
 		parked: (sessionId) => warming.start(sessionId),
@@ -256,6 +261,7 @@ export async function createEngine(
 		const { sessionId } = traits;
 		const record: Live = { traits, launch, bus: sessions.createEventBus() };
 		shells.heard(record.bus);
+		parked.hears(sessionId, record.bus);
 		host.register({
 			id: sessionId,
 			file: traits.file,

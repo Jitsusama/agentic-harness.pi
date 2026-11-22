@@ -55,7 +55,7 @@ import {
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
-import { findJobHost } from "../../lib/jobs/host.ts";
+import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -78,6 +78,28 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
  * on 21 November four Mac holders were lost as their sessions parked,
  * so a Mac keeps the usual limit until its holder survives a park.
  */
+/**
+ * The jobs that keep a conversation awake, named where its job host can
+ * say which. Where its park would carry its bash calls (`carried`), a
+ * call out holds it no longer; any other job, and an end not yet said,
+ * still does. A job host from before `holds` counts every pending job.
+ */
+function jobsHolding(
+	jobs: JobHost | undefined,
+	carried: boolean,
+): Pick<Holding, "jobs" | "heldBy"> {
+	const pending = jobs?.pending?.() ?? 0;
+	if (!jobs?.holds || !jobs.running) return { jobs: pending };
+	const heldBy = jobs.holds(
+		carried ? (work) => work.kind === "shell" : () => false,
+	);
+	const unsaid = Math.max(0, pending - jobs.running().length);
+	return {
+		jobs: heldBy.length + unsaid,
+		...(heldBy.length > 0 && unsaid === 0 ? { heldBy } : {}),
+	};
+}
+
 function inBackgroundHost(
 	platform: NodeJS.Platform = process.platform,
 ): boolean {
@@ -471,7 +493,12 @@ export function watch(
 	const holding = (): Holding => ({
 		agentIdle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
-		jobs: findJobHost(bus)?.pending?.() ?? 0,
+		...jobsHolding(
+			findJobHost(bus),
+			inBackgroundHost(options.platform) &&
+				hosted()?.carries?.(session) === true &&
+				hosted()?.viewed?.(session) !== true,
+		),
 		prompting: prompts > 0,
 		typed: ctx.ui.getEditorText().trim() !== "",
 	});

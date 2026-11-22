@@ -149,6 +149,25 @@ describe("carried shells", () => {
 		).toEqual(["j1"]);
 	});
 
+	it("keeps a park's calls in a child only where its spawners have scopes, and in a shared host as its stop would", () => {
+		expect(
+			make({ scoped: false }).keepsThroughPark(true),
+			"a child's unit ends with its park, jobs cgroup or not",
+		).toBe(false);
+		expect(
+			make({ jobs: "", scoped: true }).keepsThroughPark(true),
+			"a child whose spawners have scopes",
+		).toBe(true);
+		expect(
+			make({ scoped: false }).keepsThroughPark(false),
+			"a shared host moves them into the jobs cgroup at its stop",
+		).toBe(true);
+		expect(
+			make({ jobs: "", scoped: false }).keepsThroughPark(false),
+			"nowhere to keep them",
+		).toBe(false);
+	});
+
 	it("moves only the processes in its own cgroup that carry the call's mark", async () => {
 		const shells = make({
 			table: table({

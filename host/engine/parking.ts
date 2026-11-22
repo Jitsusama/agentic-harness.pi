@@ -13,6 +13,10 @@
  * close, a carry, a move or a fill. The mesh's once-a-minute pass stays
  * as the backstop.
  *
+ * Where the host keeps a carried bash call alive (`carries`), a park
+ * carries the conversation's calls as a restart does, and the calls it
+ * carried wake it once the last one ends (parked-calls.ts).
+ *
  * While the host drains for a restart (`holding`), a wake through the
  * file or a steer is held: the file stays on disk and the steer in its
  * inbox, so a conversation parked to let the host restart stays parked.
@@ -43,7 +47,14 @@ import {
 	wakeAskedBy,
 	writeRefusedWake,
 } from "../../lib/internal/session/refused-wake.ts";
+import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
+import {
+	forgetCarriedCalls,
+	hearParkCarry,
+	keepCarriedCalls,
+	watchCarriedCalls,
+} from "./parked-calls.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
@@ -87,8 +98,18 @@ export interface Parking {
 	 * as it started, after `running` cleared the last.
 	 */
 	unwatch(sessionId: string): void;
-	/** It was closed: stop watching, and forget a wake refused it. */
+	/** It was closed: stop watching, and forget a wake refused it and the calls its park carried. */
 	closed(sessionId: string): void;
+	/**
+	 * Hear the bash calls its bus says a park of it carried, to wake it once
+	 * they end. Answers the disposer.
+	 */
+	hears(
+		sessionId: string,
+		bus: {
+			on(channel: string, listener: (data: unknown) => void): () => void;
+		},
+	): () => void;
 	/** The drain lifted: wake each one asked for through its file or a steer while it held. */
 	release(): void;
 	/**
@@ -113,6 +134,8 @@ interface Sleeper {
 	steered?: (steer: string) => void;
 	/** A steer that landed while the host held its wakes. */
 	heldSteer?: string;
+	/** Stops looking at the bash calls its park carried. */
+	calls?: () => void;
 }
 
 /** Where the person's steers wait, and whose they are for each conversation. */
@@ -136,7 +159,12 @@ interface Settling {
  */
 export function parking(options: {
 	readonly stateDir: string;
-	readonly stop: (sessionId: string, why: string) => Promise<void>;
+	/** Ends its session as a host stop does, `carrying` its bash calls where the host keeps them. */
+	readonly stop: (
+		sessionId: string,
+		why: string,
+		carrying: boolean,
+	) => Promise<void>;
 	readonly asking: () => ((sessionId: string) => Promise<void>) | undefined;
 	readonly report: (error: unknown) => void;
 	/** It parked: said before its wake is watched, so any wake comes after. */
@@ -145,6 +173,15 @@ export function parking(options: {
 	readonly steers?: SteerInboxes;
 	/** Whether wakes through the file and steers are held now, as the host drains. */
 	readonly holding?: () => boolean;
+	/**
+	 * Whether the host keeps a carried bash call alive through a stop, so a
+	 * park carries them (carried-shells.ts); none, it carries none.
+	 */
+	readonly carries?: () => boolean;
+	/** Whether a carried call still runs; its shell, read from the machine, by default. */
+	readonly callRuns?: (work: CarriedShell) => boolean;
+	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
+	readonly lookEveryMs?: number;
 }): Parking {
 	// Whether this drain's restart passed its ceiling, until the drain lifts.
 	let through = false;
@@ -154,6 +191,8 @@ export function parking(options: {
 	const sleepers = new Map<string, Sleeper>();
 	// Conversations parking now.
 	const settling = new Map<string, Settling>();
+	// Conversations whose stop for a park is under way, whose carried calls are theirs to watch.
+	const stopping = new Set<string>();
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
@@ -161,6 +200,7 @@ export function parking(options: {
 		const sleeper = sleepers.get(sessionId);
 		sleeper?.wake.close();
 		sleeper?.steers?.close();
+		sleeper?.calls?.();
 		sleepers.delete(sessionId);
 	}
 
@@ -233,6 +273,17 @@ export function parking(options: {
 				waking: steered,
 				report,
 			});
+		// The calls its park carried wake it through its file once they end.
+		if (sleepers.get(sessionId) === sleeper)
+			sleeper.calls = watchCarriedCalls({
+				folder: folderOf(sessionId),
+				wakeFile: file,
+				...(options.callRuns ? { runs: options.callRuns } : {}),
+				...(options.lookEveryMs === undefined
+					? {}
+					: { lookEveryMs: options.lookEveryMs }),
+				report,
+			});
 	}
 
 	function wake(sessionId: string): Promise<void> {
@@ -257,7 +308,12 @@ export function parking(options: {
 
 	async function park(sessionId: string, asked: Settling["asked"]) {
 		try {
-			await options.stop(sessionId, PARKED);
+			stopping.add(sessionId);
+			try {
+				await options.stop(sessionId, PARKED, options.carries?.() ?? false);
+			} finally {
+				stopping.delete(sessionId);
+			}
 			options.parked?.(sessionId);
 			watchWake(sessionId);
 		} catch (error) {
@@ -284,6 +340,23 @@ export function parking(options: {
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
 			clearRefusedWake(wakeFile(sessionId));
+			// It takes up what its park carried from its log as it starts.
+			forgetCarriedCalls(folderOf(sessionId));
+		},
+		hears(sessionId, bus) {
+			return hearParkCarry(
+				bus,
+				() => stopping.has(sessionId),
+				(calls) => {
+					try {
+						mkdirSync(folderOf(sessionId), { recursive: true });
+						keepCarriedCalls(folderOf(sessionId), calls);
+					} catch (error) {
+						// Unwritten, only a message, a viewer or the host's look wakes it.
+						report(error);
+					}
+				},
+			);
 		},
 		park(sessionId) {
 			const asked: Settling["asked"] = [];
@@ -295,7 +368,10 @@ export function parking(options: {
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch: forget,
-		closed: forget,
+		closed(sessionId) {
+			forget(sessionId);
+			forgetCarriedCalls(folderOf(sessionId));
+		},
 		release() {
 			through = false;
 			wakeHeld();

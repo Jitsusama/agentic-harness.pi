@@ -143,6 +143,8 @@ export class SessionHost implements Host {
 	private wokenInDrain?: Set<string>;
 	// Whether a window views a conversation, as the host's screens say.
 	private readonly viewedBy?: (sessionId: string) => boolean;
+	// Whether a park keeps a conversation's bash calls, as the engine says once it can.
+	private carriedBy?: () => boolean;
 
 	constructor(options: {
 		key: string;
@@ -425,6 +427,16 @@ export class SessionHost implements Host {
 	/** Whether a window views this conversation now; none without screens. */
 	viewed(id: string): boolean {
 		return this.viewedBy?.(id) ?? false;
+	}
+
+	/** Whether a park of this conversation carries its bash calls; none until the engine says. */
+	carries(_id: string): boolean {
+		return this.carriedBy?.() ?? false;
+	}
+
+	/** Say how to tell whether a park carries a conversation's bash calls, as the engine knows. */
+	keepsCarried(carried: () => boolean): void {
+		this.carriedBy = carried;
 	}
 
 	/** Start or lift a drain; each conversation reads it at its next look. */
