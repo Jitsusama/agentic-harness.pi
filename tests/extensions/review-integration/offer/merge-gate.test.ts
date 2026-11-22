@@ -210,6 +210,10 @@ describe("a repo's merge gate", () => {
 		).toMatch(
 			/still running after its 30 minutes[\s\S]*\{ "command": "merge-net ready", "minutes": 60 \}/,
 		);
+		expect(
+			await gateRefusal({ ...GATE, minutes: 100 }, HEAD, dir, slow),
+			"the more time offered stops at the most a gate may name",
+		).toContain(`"minutes": ${MOST_GATE_MINUTES} }`);
 		const broken: RunGate = async () => {
 			throw new Error("spawn bash ENOENT");
 		};
@@ -222,12 +226,16 @@ describe("a repo's merge gate", () => {
 	it("reads a gate's own exit 124 or 130 as its refusal, not as a clock or an Escape", async () => {
 		// A gate wrapping a step in timeout(1) exits 124, and one whose child
 		// took a SIGINT exits 130; neither ran out its minutes or was stopped.
+		// Run under a call signal nothing aborts, as a real call is, so a
+		// signal merely being there can't read as an Escape.
 		for (const code of [124, 130]) {
-			const said = await gateRefusal(
-				{ ...GATE, command: `echo inner step gave up >&2; exit ${code};` },
-				HEAD,
-				dir,
-				shell,
+			const said = await withCallSignal(new AbortController().signal, () =>
+				gateRefusal(
+					{ ...GATE, command: `echo inner step gave up >&2; exit ${code};` },
+					HEAD,
+					dir,
+					shell,
+				),
 			);
 			expect(said, `exit ${code} reads as the gate refusing`).toContain(
 				`refused ${HEAD.slice(0, 12)} (exit ${code})`,
@@ -292,17 +300,20 @@ describe("a repo's merge gate", () => {
 		expect(said, "the missing folder is named").toContain(
 			`couldn't run in ${join(dir, "gone")}: there is no such folder`,
 		);
+		expect(said, "the way out is named").toContain(
+			"name a checkout of the repo with `repo`",
+		);
 		expect(said, "no gate is said to have refused").not.toContain("refused");
 	});
 
 	it("stops a gate past its time, with everything it started", async () => {
 		// pi.exec killed only the shell, so a gate's children ran on after
 		// a refusal said it had stopped.
+		// Under a call signal nothing aborts, as a real call is, so its own
+		// clock is told from an Escape with a signal there.
 		const marker = join(dir, "still-running");
-		const ran = await shell(
-			`(sleep 2; touch ${JSON.stringify(marker)}) & wait`,
-			dir,
-			200,
+		const ran = await withCallSignal(new AbortController().signal, () =>
+			shell(`(sleep 2; touch ${JSON.stringify(marker)}) & wait`, dir, 200),
 		);
 		expect(ran.killed, "a gate past its time is said to be stopped").toBe(true);
 		expect(ran.aborted, "its own clock is no Escape").toBe(false);

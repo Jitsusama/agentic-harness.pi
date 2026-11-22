@@ -13,6 +13,7 @@
  * actually at, is known here and was not being said.
  */
 
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
@@ -92,9 +93,9 @@ const PUSHED = "0f3c9a1d7e2b4c6a8d0e1f2a3b4c5d6e7f8a9b0c";
 
 /**
  * A backend that merges, and records whether it was ever asked to. Its
- * change is at AT, or at PUSHED once `movedOnce` is true.
+ * change reads as `read` says, at AT unless a test moves it.
  */
-function mergingProvider(movedOnce: () => boolean = () => false) {
+function mergingProvider(read: () => Change = () => proposal) {
 	const merges: unknown[] = [];
 	const provider = stubProvider({
 		id: "meteorite",
@@ -109,8 +110,7 @@ function mergingProvider(movedOnce: () => boolean = () => false) {
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
 			changes: {
-				fetch: async () =>
-					movedOnce() ? { ...proposal, headCommit: PUSHED } : proposal,
+				fetch: async () => read(),
 				diff: unused("diff a change"),
 			},
 			authoring: {
@@ -143,6 +143,45 @@ function gateIs(command: string): void {
 			},
 		}),
 	);
+}
+
+/**
+ * A checkout whose origin, a bare repo beside it, has `main` and a
+ * `later` commit on it to move `main` to, written by fast-import so no
+ * commit is signed; `moveMain` is the shell line that moves it.
+ */
+function checkoutWithOrigin(): {
+	checkout: string;
+	root: string;
+	moveMain: string;
+} {
+	const root = mkdtempSync(join(tmpdir(), "gated-"));
+	const origin = join(root, "origin.git");
+	const checkout = join(root, "checkout");
+	execFileSync("git", ["init", "-q", "--bare", origin]);
+	const stamp = "committer Test <test@example.com> 1700000000 +0000";
+	execFileSync("git", ["--git-dir", origin, "fast-import", "--quiet"], {
+		input: [
+			"commit refs/heads/main",
+			stamp,
+			"data 5",
+			"main",
+			"",
+			"commit refs/heads/later",
+			stamp,
+			"data 6",
+			"later",
+			"from refs/heads/main",
+			"",
+		].join("\n"),
+	});
+	execFileSync("git", ["init", "-q", checkout]);
+	execFileSync("git", ["-C", checkout, "remote", "add", "origin", origin]);
+	return {
+		checkout,
+		root,
+		moveMain: `git --git-dir ${JSON.stringify(origin)} update-ref refs/heads/main refs/heads/later`,
+	};
 }
 
 async function offer(params: Record<string, unknown>) {
@@ -225,12 +264,12 @@ describe("merging behind a head guard", () => {
 		const { provider, merges } = mergingProvider();
 		registerReviewProvider(provider);
 		gateIs(`test ${AT} =`);
-		const checkout = mkdtempSync(join(tmpdir(), "gated-"));
+		const { checkout, root } = checkoutWithOrigin();
 
 		try {
 			await offer({ action: "merge", change: "438", repo: checkout });
 		} finally {
-			rmSync(checkout, { recursive: true, force: true });
+			rmSync(root, { recursive: true, force: true });
 		}
 
 		expect(
@@ -242,24 +281,161 @@ describe("merging behind a head guard", () => {
 	it("refuses a merge when a push landed while the gate ran", async () => {
 		// Not every backend keeps expectedHead, so the head is read again
 		// once the gate passes rather than left to the backend.
-		const checkout = mkdtempSync(join(tmpdir(), "gated-"));
-		const pushed = join(checkout, "pushed");
-		const { provider, merges } = mergingProvider(() => existsSync(pushed));
+		for (const expectedHead of [undefined, AT]) {
+			const { checkout, root } = checkoutWithOrigin();
+			const pushed = join(root, "pushed");
+			const { provider, merges } = mergingProvider(() =>
+				existsSync(pushed) ? { ...proposal, headCommit: PUSHED } : proposal,
+			);
+			registerReviewProvider(provider);
+			gateIs(`touch ${JSON.stringify(pushed)} && test ${AT} =`);
+
+			let answer: unknown;
+			try {
+				answer = await offer({
+					action: "merge",
+					change: "438",
+					repo: checkout,
+					...(expectedHead ? { expectedHead } : {}),
+				});
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+				clearReviewProviders();
+				clearTargetBindings();
+			}
+
+			expect(
+				JSON.stringify(answer),
+				`the refusal names the head it moved to, expectedHead ${expectedHead ?? "left out"}`,
+			).toContain(`moved to ${PUSHED.slice(0, 12)} while its merge gate read`);
+			expect(
+				merges,
+				`nothing the gate didn't read is merged, expectedHead ${expectedHead ?? "left out"}`,
+			).toEqual([]);
+		}
+	});
+
+	it("refuses a merge when the base moved on origin while the gate ran", async () => {
+		// Two gated merges overlapping: the other lands while this gate
+		// reads the head onto the base as it was.
+		const { checkout, root, moveMain } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider();
 		registerReviewProvider(provider);
-		gateIs(`touch ${JSON.stringify(pushed)} && test ${AT} =`);
+		gateIs(`${moveMain} && test ${AT} =`);
 
 		let answer: unknown;
 		try {
 			answer = await offer({ action: "merge", change: "438", repo: checkout });
 		} finally {
-			rmSync(checkout, { recursive: true, force: true });
+			rmSync(root, { recursive: true, force: true });
 		}
 
 		expect(
 			JSON.stringify(answer),
-			"the refusal names the head it moved to",
-		).toContain(`moved to ${PUSHED.slice(0, 12)} while its merge gate read`);
-		expect(merges, "nothing the gate didn't read is merged").toEqual([]);
+			"the refusal says the base moved while the gate ran",
+		).toContain("main moved on origin from");
+		expect(merges, "a pair nothing built isn't merged").toEqual([]);
+	});
+
+	it("refuses before its gate runs when the base can't be read", async () => {
+		// A folder with no origin: nothing could tell a merge landing
+		// while the gate ran, so the gate isn't spent finding that out.
+		const root = mkdtempSync(join(tmpdir(), "gated-"));
+		const ran = join(root, "ran");
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(ran)} && test ${AT} =`);
+
+		let answer: unknown;
+		let gateRan = false;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: root });
+			gateRan = existsSync(ran);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"the refusal says the base couldn't be read",
+		).toContain("base is on origin couldn't be read");
+		expect(gateRan, "the gate never ran").toBe(false);
+		expect(merges, "nothing merges").toEqual([]);
+	});
+
+	it("refuses before its gate runs when the backend reports no head", async () => {
+		// The head named as expectedHead used to be gated, then refused
+		// once the gate was done because nothing could read it again.
+		const { checkout, root } = checkoutWithOrigin();
+		const ran = join(root, "ran");
+		const { headCommit: _dropped, ...headless } = proposal;
+		const { provider, merges } = mergingProvider(() => headless);
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(ran)}`);
+
+		let answer: unknown;
+		let gateRan = false;
+		try {
+			answer = await offer({
+				action: "merge",
+				change: "438",
+				repo: checkout,
+				expectedHead: AT,
+			});
+			gateRan = existsSync(ran);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"the refusal says no gate can be held to a head",
+		).toContain("so no gate can be held to one");
+		expect(gateRan, "the gate never ran").toBe(false);
+		expect(merges, "nothing merges").toEqual([]);
+	});
+
+	it("names the head the gate passed when it can't be read again", async () => {
+		for (const afterwards of ["gone", "throws"] as const) {
+			const { checkout, root } = checkoutWithOrigin();
+			const ran = join(root, "ran");
+			const { provider, merges } = mergingProvider(() => {
+				if (!existsSync(ran)) return proposal;
+				if (afterwards === "gone") {
+					const { headCommit: _gone, ...headless } = proposal;
+					return headless;
+				}
+				throw new Error("the host didn't answer");
+			});
+			registerReviewProvider(provider);
+			gateIs(`touch ${JSON.stringify(ran)} && test ${AT} =`);
+
+			let answer: unknown;
+			try {
+				answer = await offer({
+					action: "merge",
+					change: "438",
+					repo: checkout,
+					expectedHead: AT,
+				});
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+				clearReviewProviders();
+				clearTargetBindings();
+			}
+
+			const said = JSON.stringify(answer);
+			expect(
+				said,
+				`the refusal names the head that passed (${afterwards})`,
+			).toContain(`The merge gate passed ${AT.slice(0, 12)}`);
+			if (afterwards === "throws") {
+				expect(said, "the read's own error is said").toContain(
+					"the host didn't answer",
+				);
+			}
+			expect(merges, `nothing merges (${afterwards})`).toEqual([]);
+		}
 	});
 
 	it("refuses a merge when the package config can't be parsed", async () => {

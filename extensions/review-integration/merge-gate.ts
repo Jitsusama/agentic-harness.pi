@@ -25,6 +25,12 @@
  * time stays the repo's to say rather than a longer default for all,
  * since a quick gate that hangs should still be told apart from a
  * slow one doing its work.
+ *
+ * A gate reads the head onto the base as it was, so where the base is
+ * on origin is read before and after (`baseTip`), and offer-merge.ts
+ * refuses when it moved: core.nix's main has no branch protection to
+ * refuse two gated merges overlapping, and the longer a gate the wider
+ * that window.
  */
 
 import { stat } from "node:fs/promises";
@@ -43,6 +49,12 @@ export const MOST_GATE_MINUTES = 180;
 
 /** Milliseconds in a minute. */
 const MINUTE_MS = 60_000;
+
+/**
+ * How long reading where the base is on origin may take: a network round
+ * trip, not a build, so a minute past this is a remote that isn't answering.
+ */
+const BASE_READ_MS = 2 * MINUTE_MS;
 
 /** Exit code a shell gives a command it can't find. */
 const NOT_FOUND = 127;
@@ -197,6 +209,48 @@ function quoted(word: string): string {
 }
 
 /**
+ * Why a gate can't run in `cwd`, or nothing when the folder is there. The
+ * real runner never throws: a folder it can't start in comes back as exit
+ * 1, which would read as the gate judging the head.
+ */
+export async function missingCheckout(
+	gate: Gate,
+	cwd: string,
+): Promise<string | undefined> {
+	if (await isFolder(cwd)) return undefined;
+	return `The merge gate \`${gate.command}\` couldn't run in ${cwd}: there is no such folder. Not merged; name a checkout of the repo with \`repo\`, or mend the repo's localPath in the config.`;
+}
+
+/**
+ * The commit `base` is at on the checkout's origin, or why that couldn't
+ * be read. A gate reads the head merged onto the base as it was, so a base
+ * that moves while the gate runs merges a pair nothing built: two gated
+ * merges overlapping is how that happens, and the longer a gate runs the
+ * likelier it is.
+ */
+export async function baseTip(
+	base: string,
+	cwd: string,
+	run: RunGate,
+): Promise<{ at: string } | { unread: string }> {
+	if (base === "") return { unread: "the change names no base" };
+	const ran = await run(
+		`git ls-remote --exit-code origin ${quoted(`refs/heads/${base}`)}`,
+		cwd,
+		BASE_READ_MS,
+	);
+	const at = ran.stdout.trim().split(/\s/)[0] ?? "";
+	if (ran.code === 0 && !ran.killed && /^[0-9a-f]{40,64}$/.test(at)) {
+		return { at };
+	}
+	if (ran.killed) return { unread: "origin didn't answer in 2 minutes" };
+	const said = (ran.stderr.trim() || ran.stdout.trim()).split("\n").at(-1);
+	return {
+		unread: `git ls-remote origin refs/heads/${base} gave exit ${ran.code}${said ? `: ${said}` : ""}`,
+	};
+}
+
+/**
  * Why a gate refuses this head, or nothing when it lets it merge.
  */
 export async function gateRefusal(
@@ -206,11 +260,8 @@ export async function gateRefusal(
 	run: RunGate,
 ): Promise<string | undefined> {
 	const { command } = gate;
-	// The real runner never throws: a folder it can't start in comes back
-	// as exit 1, which would read as the gate judging the head.
-	if (!(await isFolder(cwd))) {
-		return `The merge gate \`${command}\` couldn't run in ${cwd}: there is no such folder. Not merged.`;
-	}
+	const missing = await missingCheckout(gate, cwd);
+	if (missing !== undefined) return missing;
 	let ran: GateRun;
 	try {
 		ran = await run(`${command} ${quoted(head)}`, cwd, gateTimeoutMs(gate));

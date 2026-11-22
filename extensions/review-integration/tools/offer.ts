@@ -23,6 +23,7 @@
  * `offer-request.ts`.
  */
 
+import { resolve } from "node:path";
 import type {
 	EventBus,
 	ExtensionAPI,
@@ -488,7 +489,12 @@ export async function runOffer(
 			case "merge":
 				return merge(ctx, bound, change, authoring, params, pi.events, {
 					...(await reviewSection()),
-					cwd: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
+					// A relative repo is the session's, not the host process's,
+					// which in a shared host is some other folder.
+					cwd: resolve(
+						sessionCwd(ctx),
+						params.repo ?? change.repo.localPath ?? ".",
+					),
 					run: gateRunner(),
 				});
 			case "reviewers": {

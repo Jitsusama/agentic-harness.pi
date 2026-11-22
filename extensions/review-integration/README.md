@@ -226,9 +226,14 @@ the merge rather than leaving the gate five, and a package config
 that can't be parsed refuses every merge rather than reading as no
 gate. A gate past its time, or a call stopped while it runs, ends
 with everything it started; a gate exiting 124 or 130 itself is a
-refusal like any other. Once the gate passes, the head is read
-again, and a change that moved while it ran is refused; the merge
-is held to the head the gate was handed as well.
+refusal like any other. Once the gate passes, the head and where
+the base is on origin (`git ls-remote` in the checkout) are read
+again, and a merge whose head or base moved while the gate ran is
+refused: two gated merges overlapping would otherwise land a pair
+nothing built. A backend that doesn't report the head can't be
+gated, and says so before the gate runs. A push during the
+confirmation after the gate is left to the backend's own guard:
+the merge is held to the head the gate was handed.
 
 ### When a Queued Change Lands
 
