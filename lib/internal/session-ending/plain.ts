@@ -43,7 +43,23 @@ const OPENING = /^(?:[$#%>]\s+)?(?:sudo\s+)?/;
  * read.
  */
 const COMMAND_WORD =
-	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|skill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w|now\b|\+)|reboot\s+-+\w|poweroff\s+-+\w|halt\b)/i;
+	/\b(?:soft(?!ware)|user[\s-]?space|nextroot|linger(?:ing|s)?|killuserprocesses|sudo|doas|run0|pkexec|systemctl|loginctl|busctl|dbus-send|gdbus|qdbus|kexec|telinit|kill|skill|pkill|killall|ssh|swaymsg|hyprctl|osascript|launchctl|niri\s+msg|init\s+[0-6sS]\b|shutdown\s+(?:-+\w+|now\b|\+)|reboot\s+-+\w+|poweroff\s+-+\w+|halt\b)/i;
+
+/** Every command word in a text, in turn, as `COMMAND_WORD` reads one. */
+const COMMAND_WORDS = new RegExp(COMMAND_WORD.source, "gi");
+
+/**
+ * A command word standing whole: it ends where a word does, or on a
+ * mark, as `shutdown +5`'s `+`. `skills`, `killed` and `sshd` only
+ * open with one.
+ */
+const WHOLE_COMMAND_WORD = new RegExp(
+	`(?:${COMMAND_WORD.source})(?:(?<=\\W)|(?!\\w))`,
+	"i",
+);
+
+/** The rest of the word a match ends inside, which may be nothing. */
+const WORD_REST = /^\w*/;
 
 /** A line with nothing on it, which runs nothing. */
 const BLANK = /^\s*$/;
@@ -110,20 +126,16 @@ export function notPlainIn(texts: readonly string[]): string | undefined {
 }
 
 /**
- * What in `texts` names a command a spare can't stand beside: a command
- * shown that isn't plain and holds a command word, or a command word in
- * prose. Nothing where it names none, a file name in code included.
+ * Every command in `texts` a spare can't stand beside, in the order a
+ * reader meets them: each command shown that isn't plain and holds a
+ * whole command word, and each whole command word in prose. None where
+ * it names none, a file name in code included, or a word that only
+ * opens with one, as `skills` or `killed` do.
  */
-export function commandNamedIn(texts: readonly string[]): string | undefined {
-	for (const offence of notPlainEach(texts))
-		if (COMMAND_WORD.test(offence)) return offence;
-	return undefined;
-}
-
-/** Every command `texts` names, in order: a stub, the first only. */
 export function commandsNamedIn(texts: readonly string[]): string[] {
-	const first = commandNamedIn(texts);
-	return first === undefined ? [] : [first];
+	return [...notPlainEach(texts)].filter((offence) =>
+		WHOLE_COMMAND_WORD.test(offence),
+	);
 }
 
 /**
@@ -170,8 +182,18 @@ function* notPlainPart(part: Part): Generator<string> {
 	).replace(CODE_SPAN, " ");
 	// A backtick left unpaired may open code a renderer shows, unchecked.
 	if (rest.includes("`")) yield UNPAIRED;
-	const word = COMMAND_WORD.exec(rest)?.[0];
-	if (word !== undefined) yield word;
+	yield* commandWordsIn(rest);
+}
+
+/**
+ * Each command word in `prose`, carried to the end of the word it sits
+ * in, so a word that only opens with one is quoted whole.
+ */
+function* commandWordsIn(prose: string): Generator<string> {
+	for (const found of prose.matchAll(COMMAND_WORDS)) {
+		const after = prose.slice(found.index + found[0].length);
+		yield `${found[0]}${WORD_REST.exec(after)?.[0] ?? ""}`;
+	}
 }
 
 /** One line read as prose, as a comment's words are. */

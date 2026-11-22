@@ -24,7 +24,7 @@ import {
 	sparedBy,
 } from "../../lib/internal/session-ending/judge.ts";
 import {
-	commandNamedIn,
+	commandsNamedIn,
 	notPlainIn,
 } from "../../lib/internal/session-ending/plain.ts";
 import type { NodeSession } from "../../lib/mesh/node.ts";
@@ -130,22 +130,35 @@ const afterASpareBecause = (shown: string) =>
 	`An ask to end a machine's sessions was let through earlier in this run, past sessions only a plain reboot, shut-down or log-out spares, and this shows or names a command that isn't one ("${quotedShown(shown)}"), which could end them anyway.`;
 
 /**
+ * A command that runs for the person, as a wait's check, read as code
+ * shown to type: it runs whole, so it is quoted whole.
+ */
+const asShown = (command: string) => ["~~~", command, "~~~"].join("\n");
+
+/**
  * Why what is said after a spare stood in the run may not go to the
- * person, or nothing when it may: held only where its words name a
- * command that isn't a plain reboot, shut-down or log-out, so a file
- * named in code, or the spared ask said again, still goes. What it
+ * person, or nothing when it may: held only where its words, or the
+ * commands it runs for them, name a command that isn't a plain reboot,
+ * shut-down or log-out, so a file named in code, or the spared ask said
+ * again, still goes. The reason quotes the first command it names and
+ * the key every one, so an override for one carries no other. What it
  * held is traced.
  */
 export function refusalAfterASpare(
 	said: Said,
 	traced: (trace: SpareTrace) => void = () => {},
 ): Refusal | undefined {
-	const shown = commandNamedIn([...said.prose, ...said.labels]);
+	const named = commandsNamedIn([
+		...said.prose,
+		...said.labels,
+		...(said.commands ?? []).map(asShown),
+	]);
+	const [shown] = named;
 	if (shown === undefined) return undefined;
 	traced({ outcome: "after a spare", shown });
 	return {
 		reason: afterASpareBecause(shown),
-		key: `after a spare: ${quotedShown(shown)}`,
+		key: `after a spare: ${named.map(quotedShown).join(" | ")}`,
 	};
 }
 

@@ -134,13 +134,19 @@ through, a later reply, look, ask or wait in the same run whose words
 name a command spares nothing either: a command shown that isn't a
 plain one and holds a command word, such as `sudo systemctl isolate
 rescue.target`, or a command word in prose, such as "copy the tree
-into /run/nextroot". The reply is withheld or the call refused, saying
-an ask went through earlier in the run, and the log's entry reads
-"after a spare". Only words naming a command count, not the whole
-plain list, so a file named in code, a plain `sudo reboot` or the
-spared ask said again still goes; holding every code span would
-withhold every later reply. It holds until the person next speaks,
-the run ends, or the person answers the spared ask. An ask answered
+into /run/nextroot". A later wait's checks count too, read as
+commands shown, since they run as the person; the spared call's own
+checks don't, since they were judged with it. The reply is withheld or
+the call refused, saying an ask went through earlier in the run, and
+the log's entry reads "after a spare". Only whole words naming a
+command count, not the whole plain list or a word that only opens
+with one (`skills`, `killed`, `sshd`), so a file named in code, a
+plain `sudo reboot` or the spared ask said again still goes; holding
+every code span would withhold every later reply. Under redirect, the
+same text said again goes through as a recorded override, keyed on
+every command it names, so it carries no other. It holds until the
+person next speaks, typed, through a host or from the launcher, the
+run ends, or the person answers the spared ask. An ask answered
 by its recommendation while they are away, cancelled or parked
 unanswered isn't their answer, and a look or a wait has none, so
 those hold until they speak or the run ends. Nothing is held across

@@ -52,6 +52,7 @@ import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
+import { PERSON_TALKED } from "../../lib/internal/priority/typed.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
@@ -104,14 +105,17 @@ const WITHHELD =
 
 /**
  * How a withheld reply is described: what the guard calls it, what
- * stands in its place, told or not, and what the model is asked for
- * instead.
+ * stands in its place, told or not, what the model is asked for
+ * instead, and how a redirected refusal says it may go through: the
+ * model no longer has the withheld text, so it says again what the
+ * refusal is keyed on, not the same words.
  */
 interface Withholding {
 	readonly label: string;
 	readonly told: string;
 	readonly silent: string;
 	readonly instead: string;
+	readonly overrideHint: string;
 }
 
 /** A reply withheld for asking to end a machine's sessions. */
@@ -120,6 +124,8 @@ const ASKED: Withholding = {
 	told: WITHHELD_TOLD,
 	silent: WITHHELD,
 	instead: "Say what you meant without the ask.",
+	overrideHint:
+		"If this is right as it is, ask it again and it will go through as a recorded override.",
 };
 
 /** A reply withheld for naming a command after a spare stood. */
@@ -129,14 +135,9 @@ const AFTER_A_SPARE: Withholding = {
 	silent:
 		"(Withheld: this named a command after an ask to end a machine's sessions went through.)",
 	instead: "Say what you meant without the command.",
+	overrideHint:
+		"If this is right as it is, say it again and it will go through as a recorded override.",
 };
-
-/**
- * How a redirected reply's refusal says it may go through: the model no
- * longer has the withheld text, so the same ask, not the same words.
- */
-const REPLY_OVERRIDE_HINT =
-	"If this is right as it is, ask it again and it will go through as a recorded override.";
 
 /** What reads the tool calls that say something to the person. */
 const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
@@ -146,8 +147,10 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 };
 
 /**
- * Forgets what the run showed once the person speaks, typed or through
- * a host, since they have answered it, and every spare it let through.
+ * Forgets what the run showed once the person speaks, typed, through a
+ * host, or from the launcher, whose words come as an extension's but
+ * are said on the bus as theirs; they have answered it, and every spare
+ * it let through.
  * An extension's message, a job's result or a peer's nudge, is no word
  * of theirs, so it forgets nothing.
  */
@@ -252,6 +255,9 @@ async function refusalOfSaid(
 	beside: Beside,
 	call?: { readonly toolName: string; readonly toolCallId: string },
 ): Promise<{ refusal: Refusal; afterASpare: boolean } | undefined> {
+	// Only a spare before this stands against it: one this lets through
+	// is judged with its own commands already.
+	const stoodBefore = spareStands(beside);
 	const refusal = await refusalFor(
 		said,
 		selfOf(ctx),
@@ -260,7 +266,7 @@ async function refusalOfSaid(
 		beside.texts,
 	);
 	if (refusal) return { refusal, afterASpare: false };
-	if (!spareStands(beside)) return undefined;
+	if (!stoodBefore) return undefined;
 	const after = refusalAfterASpare(said, traced);
 	return after ? { refusal: after, afterASpare: true } : undefined;
 }
@@ -294,6 +300,9 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 		);
 		pi.on("input", (event) => {
 			forgetOnThePersonsWord(beside, event.source);
+		});
+		pi.events.on(PERSON_TALKED, () => {
+			forgetTheRun(beside);
 		});
 		pi.on("tool_result", (event) => {
 			forgetOnTheirAnswer(beside, event, event.details);
@@ -515,7 +524,7 @@ async function withholdReply<M extends { role: string }>(
 	if (telling) {
 		told.tells += 1;
 		told.keys.add(refusal.key);
-		const reason = verdict.reason.replace(OVERRIDE_HINT, REPLY_OVERRIDE_HINT);
+		const reason = verdict.reason.replace(OVERRIDE_HINT, as.overrideHint);
 		pi.sendMessage(
 			{
 				customType: WITHHELD_MESSAGE,

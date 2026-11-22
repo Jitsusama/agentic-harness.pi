@@ -327,7 +327,7 @@ export const GUARDS = {
 		name: "no-session-ending-ask-while-live",
 		class: "safety",
 		description:
-			"Refuses a reply, ask or look asking the person to log out, reboot, restart, shut down or switch users on a machine while other sessions are live there",
+			"Refuses a reply, ask or look asking the person to log out, reboot, restart, shut down or switch users on a machine while other sessions are live there, and, once one went through past sessions it spared, a later reply, ask, look or wait in the same run naming a command that isn't a plain reboot, shut-down or log-out",
 		defaultMode: "block",
 		groups: ["send"],
 	}),
