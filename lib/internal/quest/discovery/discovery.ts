@@ -478,8 +478,11 @@ function journalMark(): JournalMark | undefined {
  * The most quests a read of the journal brings up to date on the thread.
  * More than this since the last read, as after a host sat busy while
  * a sweep wrote hundreds, is read by a whole signing off the thread.
+ * Each quest it names is read whole on the thread every conversation
+ * shares, so this bounds that stretch; past it, the cost moves to one
+ * signing off the thread, which a busy stretch can afford.
  */
-const JOURNALED_MOST_QUESTS = 256;
+const JOURNALED_MOST_QUESTS = 64;
 
 /**
  * The root entries of `questsRoot` the journal names since `slot`'s

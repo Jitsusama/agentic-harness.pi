@@ -155,6 +155,8 @@ const stats = vi.mocked(fs.statSync);
 const linkStats = vi.mocked(fs.lstatSync);
 
 const OTHER = "QEST-20260604-CCC333";
+/** How long a test of thousands of locked writes may take on a busy machine. */
+const MANY_WRITES_TIMEOUT_MS = 30_000;
 
 let root: string;
 let readmePath: string;
@@ -799,7 +801,9 @@ describe("discovery on a host", () => {
 		} finally {
 			rmSync(elsewhere, { recursive: true, force: true });
 		}
-	});
+		// 8,193 locked writes took 4 to 7 s on main and here alike on a
+		// busy machine (22 November), past vitest's 5 s.
+	}, MANY_WRITES_TIMEOUT_MS);
 
 	it("has an action that names its quests read them, and wait on no signing", async () => {
 		settledOther();
@@ -978,6 +982,47 @@ describe("discovery on a host, read on through the journal of quest writes", () 
 		later(90_000);
 		await readyQuests(root, [OTHER], false);
 		expect(signing.walks, "no signing waited on").toBe(0);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("has an action wait on a signing once the last is five minutes old, journal and all", async () => {
+		settledOther();
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		later(5 * 60_000 + 1_000);
+		await readyQuests(root, [OTHER], false);
+		expect(signing.walks, "a signing waited on").toBe(1);
+		expect(statusNow()).toBe("paused");
+	});
+
+	/** Notes writes to `count` quests that were never made, after `ID`. */
+	function notedMore(count: number): void {
+		for (let one = 0; one < count; one++) {
+			const name = `QEST-20260604-M${String(one).padStart(5, "0")}`;
+			noteQuestWrite(journal, join(root, name));
+		}
+	}
+
+	it("reads as many as 64 quests the journal names on the thread, with no signing", async () => {
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		writtenElsewhere("paused");
+		notedMore(63);
+		later(6_000);
+		expect(statusNow()).toBe("paused");
+		await discoverySettled(root);
+		expect(signing.walks, "no signing for 64 quests").toBe(0);
+	});
+
+	it("signs the tree whole off the thread once the journal names more than 64 quests", async () => {
+		noteQuestWrite(journal, join(root, ID));
+		discoverQuests(root);
+		writtenElsewhere("paused");
+		notedMore(64);
+		later(6_000);
+		statusNow();
+		await discoverySettled(root);
+		expect(signing.walks, "a signing for 65 quests").toBe(1);
 		expect(statusNow()).toBe("paused");
 	});
 

@@ -22,7 +22,10 @@
  * on trust: it is opened without following a link and without waiting
  * on a pipe, and anything there but a plain file is moved aside, which
  * every reader reads as a fresh start and settles with a whole signing.
- * The worst a planted file can do is send hosts back to walking.
+ * A fenced command can still write lines, or stop appending lines it
+ * doesn't, so the most it can do is send hosts back to walking or keep
+ * a write from them until their next whole signing, at most five
+ * minutes on (discovery's SIGN_AGAIN_JOURNALED_AFTER_MS).
  */
 
 import {
@@ -78,9 +81,15 @@ export interface JournalMark {
 	readonly ino: number;
 	/**
 	 * The bytes read so far. A writer's one short append lands whole, so
-	 * this ends a line; one that doesn't is read from the next newline.
+	 * this ends a line, and a read always stops at one.
 	 */
 	readonly at: number;
+	/**
+	 * For a mark taken while no journal stood (`ino` 0): the inode of the
+	 * one moved aside then, or 0 for none. Another there since means a
+	 * journal was made and moved aside after the mark, unread.
+	 */
+	readonly aside?: number;
 }
 
 /** What a read since a mark found, or that what came between is lost. */
@@ -128,10 +137,15 @@ function appended(file: string, line: Buffer): "appended" | "moved aside" {
 	return "moved aside";
 }
 
-/** Open `file` as a plain file, refusing a link, a pipe or a device. */
+/**
+ * Open `file` as a plain file of one name, refusing a link, symbolic or
+ * hard, a pipe or a device: a hard link would have writers append to,
+ * and chmod, whatever file it names.
+ */
 function openPlain(file: string, flags: number): number {
 	const fd = openSync(file, flags | UNTRUSTED, JOURNAL_MODE);
-	if (fstatSync(fd).isFile()) return fd;
+	const stat = fstatSync(fd);
+	if (stat.isFile() && stat.nlink === 1) return fd;
 	closeSync(fd);
 	throw new Error(`${file} is not a plain file`);
 }
@@ -244,7 +258,9 @@ export function journalNow(file: string): JournalMark | undefined {
 		fd = openPlain(file, constants.O_RDONLY);
 	} catch (error) {
 		// Made by the first write after this; until then nothing is noted.
-		return isMissing(error) ? { ino: 0, at: 0 } : undefined;
+		return isMissing(error)
+			? { ino: 0, at: 0, aside: asideOf(file) }
+			: undefined;
 	}
 	try {
 		const { ino, size } = fstatSync(fd);
@@ -268,16 +284,35 @@ export function journalSince(file: string, mark: JournalMark): JournalRead {
 	const now = linesIn(file, mark, 0);
 	if (now === "started afresh") return now;
 	const same = now !== "none" && now.mark.ino === mark.ino;
-	// Never made since a mark taken before it was, or read on as it was.
-	if (mark.ino === 0 || same) {
+	if (mark.ino === 0) {
+		// One made and moved aside since a mark taken while none stood was
+		// never read (#1944 F61).
+		if (asideOf(file) !== (mark.aside ?? 0)) return "started afresh";
 		return now === "none" ? { dirs: [], mark } : now;
 	}
+	// Read on as it was.
+	if (same) return now;
 	// Moved aside since the mark: what the mark's file gained, then the
 	// fresh one, if one is made yet.
 	const moved = linesIn(`${file}${MOVED_ASIDE}`, mark, undefined);
 	if (moved === "started afresh" || moved === "none") return "started afresh";
-	if (now === "none") return { dirs: moved.dirs, mark: { ino: 0, at: 0 } };
+	if (now === "none") {
+		return {
+			dirs: moved.dirs,
+			mark: { ino: 0, at: 0, aside: asideOf(file) },
+		};
+	}
 	return { dirs: [...moved.dirs, ...now.dirs], mark: now.mark };
+}
+
+/** The inode of the journal moved aside beside `file`, or 0 for none. */
+function asideOf(file: string): number {
+	try {
+		return lstatSync(`${file}${MOVED_ASIDE}`).ino;
+	} catch {
+		// None there, or unreadable: either way no inode to compare.
+		return 0;
+	}
 }
 
 /**

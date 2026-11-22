@@ -3,6 +3,7 @@ import {
 	appendFileSync,
 	chmodSync,
 	existsSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -74,7 +75,30 @@ describe("the journal of quest writes", () => {
 
 	it("reads every line of a journal made after a mark taken before it", () => {
 		const before = journalNow(file);
-		expect(before).toEqual({ ino: 0, at: 0 });
+		expect(before).toEqual({ ino: 0, at: 0, aside: 0 });
+		noteQuestWrite(file, "/q/QEST-A");
+		expect(dirsSince(before)).toEqual(["/q/QEST-A"]);
+	});
+
+	it("says it started afresh when a journal made after a mark was moved aside", () => {
+		const before = journalNow(file);
+		noteQuestWrite(file, "/q/QEST-A");
+		renameSync(file, `${file}.old`);
+		noteQuestWrite(file, "/q/QEST-B");
+		expect(dirsSince(before)).toBe("started afresh");
+	});
+
+	it("says it started afresh when one made after a mark was moved aside and none stands", () => {
+		const before = journalNow(file);
+		noteQuestWrite(file, "/q/QEST-A");
+		renameSync(file, `${file}.old`);
+		expect(dirsSince(before)).toBe("started afresh");
+	});
+
+	it("reads a journal made after a mark taken beside one moved aside before", () => {
+		noteQuestWrite(file, "/q/QEST-OLD");
+		renameSync(file, `${file}.old`);
+		const before = journalNow(file);
 		noteQuestWrite(file, "/q/QEST-A");
 		expect(dirsSince(before)).toEqual(["/q/QEST-A"]);
 	});
@@ -191,6 +215,18 @@ describe("the journal of quest writes", () => {
 		renameSync(file, join(folder, "moved"));
 		symlinkSync(elsewhere, file);
 		expect(dirsSince(mark)).toBe("started afresh");
+	});
+
+	it("never writes through a hard link planted at the journal's name", () => {
+		const elsewhere = join(folder, "elsewhere");
+		writeFileSync(elsewhere, "");
+		chmodSync(elsewhere, 0o644);
+		linkSync(elsewhere, file);
+		expect(journalNow(file), "a hard link is no journal").toBeUndefined();
+		noteQuestWrite(file, "/q/QEST-A");
+		expect(readFileSync(elsewhere, "utf8"), "the link's target").toBe("");
+		expect(statSync(elsewhere).mode & 0o777, "its mode").toBe(0o644);
+		expect(readFileSync(file, "utf8")).toBe("/q/QEST-A\n");
 	});
 
 	it("never waits on a pipe planted at the journal's name", () => {

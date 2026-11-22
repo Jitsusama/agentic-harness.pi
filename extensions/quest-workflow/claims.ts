@@ -318,10 +318,15 @@ async function signed(store: string): Promise<DiscoveryResult | undefined> {
 		// The disk didn't answer the signing; the last walk still stands,
 		// and the journal says so, since its trees may be a while old.
 		const why = error instanceof Error ? error.message : String(error);
+		if (hosted() && !questsWalked(store)) {
+			process.stderr.write(
+				`[quest-workflow] tree claims in ${store} wait for the next sweep, never walked here: ${why}\n`,
+			);
+			return undefined;
+		}
 		process.stderr.write(
 			`[quest-workflow] tree claims in ${store} answer its last walk: ${why}\n`,
 		);
-		if (hosted() && !questsWalked(store)) return undefined;
 		return discoverQuests(store);
 	}
 }

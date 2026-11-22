@@ -705,6 +705,32 @@ describe("running a tree in place of the install", LANDS, () => {
 		}
 	});
 
+	it("says a missed hold once, where a live session shows it", async () => {
+		const store = globalThis as Record<symbol, unknown>;
+		const heldKey = Symbol.for("pi.install.held");
+		const saidKey = Symbol.for("pi.install.held.said");
+		const before = { held: store[heldKey], said: store[saidKey] };
+		store[heldKey] = Promise.resolve({ links: [], missed: ["pi: not rooted"] });
+		store[saidKey] = { said: false };
+		try {
+			runningTheInstall();
+			const now = runtime();
+			await now.fire("session_start", { reason: "startup" }, { hasUI: true });
+			await now.fire("session_start", { reason: "new" }, { hasUI: true });
+			await quietFor(10, 5);
+			const said = now.notices.filter((text) =>
+				text.includes("pi: not rooted"),
+			);
+			expect(said, "said once across two sessions").toHaveLength(1);
+			expect(said[0]).toContain("A system switch may collect the pi");
+		} finally {
+			store[heldKey] = before.held;
+			store[saidKey] = before.said;
+			if (before.held === undefined) delete store[heldKey];
+			if (before.said === undefined) delete store[saidKey];
+		}
+	});
+
 	it("says what runs, and where the install is, on /harness", async () => {
 		const install = runningATree();
 		const now = runtime();
