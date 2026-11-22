@@ -73,21 +73,24 @@ const NAMED = [
 
 /**
  * The forms that only ever name types: a type-only static import or
- * re-export, a JSDoc `@import`, and an `import()` call or type query,
- * which at worst loads one API on first use. The specifier is group 2.
+ * re-export, a JSDoc `@import` (wrapped over lines or not, within its
+ * comment), and an `import()` call or type query, which at worst loads
+ * one API on first use. The specifier is group 2.
  */
 const TYPE_ONLY = [
 	/^[\t ]*(?:import|export)\s+type\b[^;]*?\bfrom\s*(["'])([^"']+)\1/gm,
-	/@import\b[^*]*?\bfrom\s*(["'])([^"']+)\1/g,
+	/@import\b(?:(?!\*\/)[^;])*?\bfrom\s*(["'])([^"']+)\1/g,
 	/\bimport\s*\(\s*(["'])([^"']+)\1/g,
 ];
 
 /**
- * One API's folder, or one version's module in it (`v3`, `v3.5`,
- * `v1alpha1`) or its index; never `apis/index`, which is every API.
+ * One API's folder, or one module in it: a version (`v3`, `v3.5`,
+ * admin's `directory_v1`) or its index, with or without `.js`. Never
+ * `apis/index`, which is every API, and never a climb back out, since
+ * a module's name starts and ends with a letter or digit.
  */
 const ONE_API = new RegExp(
-	`^${PACKAGE}/build/src/apis/(?!index$)\\w+(?:/(?:v[\\w.]*\\w|index))?$`,
+	`^${PACKAGE}/build/src/apis/(?!index$)\\w+(?:/\\w(?:[\\w.]*\\w)?)?$`,
 );
 
 /** What tsconfig.json maps to the stub, so a type from one fails tsc. */
@@ -284,6 +287,15 @@ describe("googleapis", () => {
 		["one camelCase API", `import type { s } from "${deep}/siteVerification";`],
 		["one API's version", `export type { drive_v3 } from "${deep}/drive/v3";`],
 		["a dotted version", `import type { d } from "${deep}/dfareporting/v3.5";`],
+		["a named version", `import type { a } from "${deep}/admin/directory_v1";`],
+		[
+			"one API's index by its .js",
+			`import type { d } from "${deep}/drive/index.js";`,
+		],
+		[
+			"a JSDoc import over lines",
+			`/**\n * @import {\n *   drive_v3,\n * } from "${deep}/drive"\n */`,
+		],
 		["a JSDoc import", `/** @import { drive_v3 } from "${deep}/drive" */`],
 		["a type query", `type D = typeof import("${deep}/drive").drive;`],
 	])("lets %s's types through", (_, line) => {

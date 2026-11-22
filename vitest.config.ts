@@ -12,14 +12,16 @@ import { defineConfig } from "vitest/config";
  * and `pnpm test:changed` ran no tests at all. The setup folder is here
  * too, since no test imports a setup file, so the import graph never
  * reaches one. The browser lane's config reads it too, so the gate's
- * browser run follows the same files. So is tsconfig.json, which no test
- * imports either, though the googleapis rule test reads its `paths`, and
- * a change there can reach any file the typecheck reads.
+ * browser run follows the same files. So are tsconfig.json and the
+ * googleapis stub it maps the root to, which no test imports either,
+ * though the googleapis rule test reads both, and a change to either can
+ * reach any file the typecheck reads.
  */
 export const RERUN_EVERYTHING = [
 	"package.json",
 	"pnpm-lock.yaml",
 	"tsconfig.json",
+	"lib/google/apis/googleapis-root.d.ts",
 	"vitest.config.ts",
 	"vitest.browser.config.ts",
 	"tests/setup/**",
