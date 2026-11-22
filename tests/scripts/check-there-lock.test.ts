@@ -311,16 +311,23 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 	);
 
 	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
-		"lets the next check in once the first ends, whatever it left running without fd 9",
+		"lets the next check in once the first ends, whatever it left running outside its work",
 		async () => {
 			const host = hostWith(tools);
-			// As git's fsmonitor outlives the check that started it.
-			const leftover = "sleep 30 >/dev/null 2>&1 <&- &\necho $!";
+			// As git's fsmonitor outlives the check that started it, in a
+			// group of its own that the work's end doesn't reach.
+			const leaving = [
+				"escape() {",
+				"  ( set -m; sleep 30 >/dev/null 2>&1 <&- & echo $! )",
+				"}",
+			].join("\n");
 			for (const [shape, code] of [
-				[`{ ${leftover}\n} 9>&-`, 0],
-				[`{ ${leftover}\n}`, 1],
+				["alone escape", 0],
+				["escape", 1],
 			] as const) {
-				const first = await ended(check(host, `take_turn\n${shape}`));
+				const first = await ended(
+					check(host, `${leaving}\ntake_turn\n${shape}`),
+				);
 				const pid = Number(first.out.trim());
 				onTestFinished(() => {
 					try {
@@ -371,11 +378,16 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 				`pid ${holder.pid}`,
 			);
 
+			// Read as its shell ends, which `close` would wait past for the
+			// work, since the work holds the shell's output too.
+			const tidiedAtExit = new Promise<boolean>((resolve) =>
+				holder.once("exit", () => resolve(existsSync(join(host, "tidied")))),
+			);
 			holder.kill("SIGTERM");
 			expect((await stopped).code, "it ends as signalled").toBe(143);
 			expect(
-				existsSync(join(host, "tidied")),
-				"its work had tidied up before its turn passed",
+				await tidiedAtExit,
+				"its work had tidied up before its shell, and its turn, ended",
 			).toBe(true);
 			expect(await goneWithin(work), "its work stopped with it").toBe(true);
 			const after = await ended(check(host, "lock -n"));
@@ -426,6 +438,62 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			expect(await goneWithin(work), "its work killed with it").toBe(true);
 			const after = await ended(check(host, "lock -n"));
 			expect(after.code, "the next check gets its turn").toBe(0);
+		},
+		TEST_MS,
+	);
+
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"ends what its work left in the work's group as the work ends, with the work's status",
+		async () => {
+			const host = hostWith(tools);
+			const first = await ended(
+				check(
+					host,
+					[
+						"work() {",
+						"  sleep 30 >/dev/null 2>&1 <&- &",
+						"  echo $!",
+						"  return 3",
+						"}",
+						"take_turn",
+						"alone work",
+					].join("\n"),
+				),
+			);
+			expect(first.code, "it ends as its work did").toBe(3);
+			const left = Number(first.out.trim());
+			onTestFinished(() => {
+				try {
+					process.kill(left, "SIGKILL");
+				} catch {
+					// Already gone: nothing left to stop.
+				}
+			});
+			expect(await goneWithin(left), "what its work left, ended with it").toBe(
+				true,
+			);
+			const next = await ended(check(host, "lock -n"));
+			expect(next.code, "the next check gets its turn").toBe(0);
+		},
+		TEST_MS,
+	);
+
+	// Without a group of the work's own, a stop would signal nothing and
+	// read the work as gone while it ran on in the shared worktree.
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"refuses to run work no stop could reach, ending it",
+		async () => {
+			const host = hostWith(tools);
+			// The sleep keeps the shell's output: an end waits for it unless
+			// it is ended too.
+			const refused = await ended(
+				check(host, "set +m\ntake_turn\nalone sleep 30\necho ran"),
+			);
+			expect(refused.code, "the check fails").toBe(1);
+			expect(refused.out, "going no further").toBe("");
+			expect(refused.err, "saying why").toMatch(/no process group of its own/);
+			const next = await ended(check(host, "lock -n"));
+			expect(next.code, "the next check gets its turn").toBe(0);
 		},
 		TEST_MS,
 	);
@@ -634,16 +702,25 @@ describe("the check's local half", () => {
 		},
 	);
 
-	it("refuses a wait that isn't a number of seconds, reaching no host", () => {
-		const sent = sendFrom(["feature", "there"], "abc");
-		expect(sent.code).toBe(2);
-		expect(sent.err).toMatch(/CHECK_THERE_WAIT_S is 'abc'/);
-		expect(sent.sent, "no ssh").toBeNull();
-	});
+	// Past bash's integers, a wait reads as negative and ends at once.
+	it.each(["abc", "12345678"])(
+		"refuses a wait that isn't a number of seconds under ten million, '%s', reaching no host",
+		(wait) => {
+			const sent = sendFrom(["feature", "there"], wait);
+			expect(sent.code).toBe(2);
+			expect(sent.err).toContain(`CHECK_THERE_WAIT_S is '${wait}'`);
+			expect(sent.sent, "no ssh").toBeNull();
+		},
+	);
 
 	// A dash opens one of ssh's options; older ssh puts the name into a
 	// ProxyCommand's shell line as it stands.
-	it.each(["-oProxyCommand=touch pwned", "there;touch x", "there$(id)"])(
+	it.each([
+		"-oProxyCommand=touch pwned",
+		"x@-esh",
+		"there;touch x",
+		"there$(id)",
+	])(
 		"refuses a host ssh would read as more than a name, %s, reaching none",
 		(host) => {
 			const sent = sendFrom(["feature", host]);
@@ -676,6 +753,15 @@ describe("the check's work on its host", () => {
 			after.filter((line) => line.startsWith("}") || line.endsWith("{")),
 			"one function, holding all of it",
 		).toEqual(["run_check() {", "}"]);
+	});
+
+	// A stop during the build would otherwise wait for nix to finish.
+	it("builds its node as a job a stop reaches", () => {
+		const build = lines.filter((line) => line.includes("nix build"));
+		expect(build, "one build of node").toHaveLength(1);
+		expect(build[0], "run alone, with no substitution around it").toMatch(
+			/^\s*if ! alone nix build /,
+		);
 	});
 
 	it("sweeps dead checks' node links before finding its own", () => {
