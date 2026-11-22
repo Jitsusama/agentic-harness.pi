@@ -809,12 +809,17 @@ describe("starting again on a fresh log", () => {
 	});
 
 	// One-writer's hand-over says a park in the same session_start
-	// (F14, #1951), and pi may run its handler first.
-	it("leaves a park something else said as its session starts", () => {
+	// (F14, #1951), and pi may run its handler first: only the factory,
+	// as pi loads it, takes a restart's park back (index.test.ts).
+	it("takes back no park as it starts watching, even one a restart said", () => {
 		const parked = join(folder, "held.parked");
 		writeFileSync(parked, "");
 
-		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		restarting({
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			[PARK_SAID_ENV]: String(HELD_PID),
+		});
 
 		expect(readFileSync(parked, "utf8"), "another's park stands").toBe("");
 	});
