@@ -196,6 +196,8 @@ export interface CustomMessageOptions {
 export interface AgentSession {
 	readonly sessionId: string;
 	readonly sessionFile: string | undefined;
+	/** Its log, asked what it holds before the host adds to it. */
+	readonly sessionManager: SessionManager;
 	readonly isStreaming: boolean;
 	/** The extensions' runner, asked which commands they registered and told when a run the host began settled. */
 	readonly extensionRunner: {
@@ -254,6 +256,8 @@ export interface AgentSession {
 /** pi's AgentSessionRuntime: the session and its services, replaced together. */
 export interface AgentSessionRuntime {
 	readonly session: AgentSession;
+	/** The folder its session works in, as pi resolved it. */
+	readonly cwd: string;
 	readonly services: SessionServices;
 	/** What its factory said as the session started, which a screen shows. */
 	readonly diagnostics: readonly StartupDiagnostic[];

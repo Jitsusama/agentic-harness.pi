@@ -20,7 +20,7 @@
  * end, in stopping.ts.
  */
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
 	type HostRestarting,
@@ -76,7 +76,7 @@ import {
 	quietCollection,
 	runningTools,
 } from "./quiet-collection.ts";
-import { adoptable, folder, hintsFor } from "./requests.ts";
+import { adoptable, folder, hintsFor, standingFolder } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
 import {
@@ -107,6 +107,10 @@ export async function createEngine(
 	const library = piLibrary(pi.modules);
 	const { host } = options;
 	const report = options.report ?? (() => {});
+	// Beside the engine's folder, not in it: a conversation's commands may
+	// write the folder it works in, which must hold no record the host reads.
+	const movedFolder = (sessionId: string) =>
+		join(`${options.stateDir}-moved`, sessionId);
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = markAsOwner(report);
 	const kept = options.oneConversation;
@@ -484,20 +488,27 @@ export async function createEngine(
 			if (!file) throw new Error("pi named no file for the conversation");
 			if (held(sessionId, file))
 				throw new Error(`Conversation already held: ${sessionId}`);
-			const cwd = manager.getCwd();
+			// An open's folder stands, as folder() holds; an adopted log's may not.
+			const { cwd, gone } = standingFolder(
+				manager.getCwd(),
+				movedFolder(sessionId),
+			);
 			const traits: ConversationTraits = {
 				sessionId,
 				file,
 				cwd,
 				attended: request.attended,
 				...(request.quest ? { quest: request.quest } : {}),
+				...(gone ? { movedFrom: gone } : {}),
 			};
 			const launch = { ...options.conversationEnv?.(traits, request) };
 			prepared.set(sessionId, { manager, traits, launch });
 			return {
 				sessionId,
 				file,
-				cwd,
+				// The roster keeps the folder the log names, as a resume's does, so
+				// each start checks it again and one cut again is gone back to.
+				cwd: gone ?? cwd,
 				...(Object.keys(launch).length > 0 ? { launch } : {}),
 			};
 		},
@@ -543,9 +554,18 @@ export async function createEngine(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,
 				);
 			mark?.("log");
-			const { sessionId, file, cwd, attended, quest, launch } = entry;
+			const { sessionId, file, attended, quest, launch } = entry;
+			// A tree deleted while it was parked or the host was down.
+			const { cwd, gone } = standingFolder(entry.cwd, movedFolder(sessionId));
 			await begin(
-				{ sessionId, file, cwd, attended, ...(quest ? { quest } : {}) },
+				{
+					sessionId,
+					file,
+					cwd,
+					attended,
+					...(quest ? { quest } : {}),
+					...(gone ? { movedFrom: gone } : {}),
+				},
 				manager,
 				launch ?? {},
 				undefined,

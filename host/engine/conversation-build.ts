@@ -52,9 +52,16 @@ import {
 	type StartupDiagnostic,
 	startupDiagnostics,
 } from "./pi-session.ts";
+import { printable } from "./project-code.ts";
 import type { ProjectTrust, StartupQuestion } from "./project-trust.ts";
 import { holdReplacements } from "./replacement.ts";
-import { namesCommand, requireModel } from "./requests.ts";
+import {
+	FOLDER_MOVED_TYPE,
+	movedWords,
+	namesCommand,
+	requireModel,
+	toldOf,
+} from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
 import type { TakeTurn } from "./resume-turns.ts";
 import type { StopKeeping } from "./stopping.ts";
@@ -480,6 +487,10 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			await bindHeadless(runtime, host, report);
 		}
 		mark?.("screen");
+		// Before a carried run goes on: what it does lands in the empty folder,
+		// and its next turn learns why.
+		if (record.traits.movedFrom !== undefined)
+			tellMoved(record, record.traits.movedFrom, cwd);
 		const recovery = await agent.recover(turn);
 		mark?.("recovery");
 		if (first === undefined) {
@@ -488,6 +499,36 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		}
 		await recovery.settled;
 		await promptFirst(record, agent, first);
+	}
+
+	/**
+	 * Tell a conversation whose folder went that it now works in `cwd`, so
+	 * paths it remembers under the old folder don't puzzle it or the
+	 * person. pi holds the words for its next turn, which writes them to
+	 * its log and shows them; a park before then loses them, and the next
+	 * start says them again. Said once a move: a log that already holds
+	 * them for this one is told nothing more.
+	 */
+	function tellMoved(record: Live, gone: string, cwd: string): void {
+		const { sessionId } = record.traits;
+		const session = record.runtime?.session;
+		// Replaced as it started, so no session of its own is left to tell.
+		if (!session) return;
+		if (toldOf(session.sessionManager.getEntries(), gone, cwd)) return;
+		report(
+			`Conversation ${sessionId}: its folder ${printable(gone)} is gone, so it works in ${printable(cwd)}`,
+		);
+		session
+			.sendCustomMessage(
+				{
+					customType: FOLDER_MOVED_TYPE,
+					content: movedWords(gone, cwd),
+					display: true,
+					details: { gone, cwd },
+				},
+				{ deliverAs: "nextTurn" },
+			)
+			.catch(report);
 	}
 
 	/** Send the first words; resolve once durable holds them, or pi took them as a command. */

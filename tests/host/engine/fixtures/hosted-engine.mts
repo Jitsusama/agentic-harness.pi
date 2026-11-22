@@ -1255,6 +1255,34 @@ const scenarios: Record<string, Scenario> = {
 		oneConversation: true,
 		run: async () => ({}),
 	},
+	/**
+	 * The host's next start once the folder the last run held its
+	 * conversation in went: resume it, then talk, saying the folder it
+	 * worked in and how often its log was told of the move.
+	 */
+	"resume-moved": {
+		responses: () => [say("in the kept folder")],
+		run: async (engine, host) => {
+			const entry = { ...readEntry(), cwd: join(folder, "gone-tree") };
+			await engine.resume(entry);
+			await idle(engine, entry.sessionId);
+			const runtime = engine.view(entry.sessionId)?.runtime;
+			const cwd = runtime?.cwd;
+			await runtime?.session.prompt("where are you");
+			await idle(engine, entry.sessionId);
+			const told = (runtime?.session.sessionManager.getEntries() ?? []).filter(
+				(logged) =>
+					"type" in logged &&
+					logged.type === "custom_message" &&
+					"customType" in logged &&
+					logged.customType === "host-folder-moved",
+			).length;
+			const seen = { ...summary(engine, entry.sessionId), cwd, told };
+			// Held on, as a host stopping leaves it, for the next start to resume.
+			await host.stop(entry.sessionId);
+			return seen;
+		},
+	},
 	/** The host's next start: resume what the last run held, then talk. */
 	resume: {
 		responses: () => [say("after the restart"), say("and again")],
