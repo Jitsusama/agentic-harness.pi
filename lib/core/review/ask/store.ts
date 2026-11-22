@@ -143,16 +143,22 @@ export function createRunStore(root: string): RunStore {
 		// next write carries them over to the bounded name. A session still
 		// on the old code can write it again after that, so a plain copy
 		// beside a bounded one adds the rounds the bounded one lacks,
-		// rather than being shadowed and then removed unread.
+		// rather than being shadowed and then removed unread. Every write
+		// here removes the plain copy under both locks, so one still there
+		// was written since: its version of a round both hold is the newer.
 		const plain = changeFileName(change);
 		if (plain === fileFor(change)) return bounded ?? { runs: [] };
 		const old = await readAt(change, plain);
 		if (!old) return bounded ?? { runs: [] };
 		if (!bounded) return old;
 		const known = new Set(bounded.runs.map((run) => run.id));
+		const newer = new Map(old.runs.map((run) => [run.id, run]));
 		return {
 			...bounded,
-			runs: [...bounded.runs, ...old.runs.filter((run) => !known.has(run.id))],
+			runs: [
+				...bounded.runs.map((run) => newer.get(run.id) ?? run),
+				...old.runs.filter((run) => !known.has(run.id)),
+			],
 		};
 	}
 

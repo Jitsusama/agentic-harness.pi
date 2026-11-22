@@ -324,6 +324,37 @@ describe("keeping runs per change", () => {
 		).not.toContain(whole);
 	});
 
+	it("keeps an old session's later update to a round already carried over", async () => {
+		// A round carried to the cut name, then finished by a session still
+		// on the old code, which writes it under the whole name: that copy
+		// is the newer, so its version is the one kept.
+		const padded: ChangeRef = { ...change, id: "x".repeat(177) };
+		const whole = changeFileName(padded);
+		const store = createRunStore(root);
+		await store.record(padded, run({ id: "council-1", outcomes: [] }));
+		await writeFile(
+			join(root, whole),
+			JSON.stringify({ change: padded, runs: [run({ id: "council-1" })] }),
+			"utf8",
+		);
+
+		expect(
+			(await store.list(padded)).map((one) => one.outcomes.length),
+			"the whole name's update is read",
+		).toEqual([1]);
+		await store.record(padded, run({ id: "council-2" }));
+		expect(
+			(await createRunStore(root).list(padded)).map((one) => [
+				one.id,
+				one.outcomes.length,
+			]),
+			"and kept once the whole-named copy is removed",
+		).toEqual([
+			["council-1", 1],
+			["council-2", 1],
+		]);
+	});
+
 	it("survives a new store over the same directory", async () => {
 		// The rounds outlive the session that ran them, which is the
 		// whole reason they are on disk.
