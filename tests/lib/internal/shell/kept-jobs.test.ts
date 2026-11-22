@@ -7,6 +7,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -17,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
@@ -126,6 +127,8 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 const PRIVATE = 0o600;
+const PRIVATE_FOLDER = 0o700;
+const READ_ONLY = 0o500;
 const PERMISSIONS = 0o777;
 
 /** A shell that is there: this process, which answers as one would. */
@@ -547,23 +550,27 @@ describe("a call's own record, taken back as the call ends", () => {
 		).toBe(true);
 	});
 
-	it("never rejects when what holds its name won't go, and says what follows", async () => {
-		const where = folder();
-		const job = await recorded(where, "s1", "j1", HERE);
-		rmSync(`${job.work.keep}.job`);
-		mkdirSync(`${job.work.keep}.job`);
-		writeFileSync(join(`${job.work.keep}.job`, "inside"), "");
-		const said = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
-		await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
-		expect(
-			said.mock.calls
-				.map(([text]) => String(text))
-				.filter((text) => text.includes(job.work.keep)),
-			"one line naming it and what follows",
-		).toEqual([expect.stringMatching(/may say the call's end again/)]);
-	});
+	// As a disk read-only after an error refuses it; root's renames pass a
+	// folder's mode, so there is nothing to refuse them.
+	it.skipIf(process.getuid?.() === 0)(
+		"never rejects when the disk won't let it go, and says what follows",
+		async () => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			chmodSync(where, READ_ONLY);
+			onTestFinished(() => chmodSync(where, PRIVATE_FOLDER));
+			const said = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			await expect(forgetOwnKeptJob(job.work.keep)).resolves.toBeUndefined();
+			expect(
+				said.mock.calls
+					.map(([text]) => String(text))
+					.filter((text) => text.includes(job.work.keep)),
+				"one line naming it and what follows",
+			).toEqual([expect.stringMatching(/may say the call's end again/)]);
+		},
+	);
 
 	// pi loads each extension as a module copy of its own, and job-workflow
 	// records the job while shell-workflow ends the call, so the two always
