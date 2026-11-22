@@ -58,6 +58,7 @@ import {
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
+	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
 	councilFindingsBehind,
@@ -79,6 +80,7 @@ export async function askCouncil(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
+	const { waited } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -102,6 +104,7 @@ export async function askCouncil(
 	return say(
 		[
 			`Asked ${chosen}.`,
+			...(waited === undefined ? [] : [waited]),
 			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),
 		{ run, warnings },
@@ -149,7 +152,19 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	return { roster, chosen, proposal, tree, charters, conventions, prompt };
+	const start = await awaitRosterStart(change.label, seat.signal);
+	if (start.cancelled !== undefined)
+		return { refused: refuse(start.cancelled) };
+	return {
+		roster,
+		chosen,
+		proposal,
+		tree,
+		charters,
+		conventions,
+		prompt,
+		waited: start.waited,
+	};
 }
 
 /**
@@ -294,6 +309,7 @@ export async function startRound(
 			started === 0
 				? `Started nothing for ${run.id}, so there is nothing to collect.`
 				: `Started ${run.id} in the background: ${count(started, "reviewer")} running from ${chosen}, nothing waiting for them.`,
+			...(set.waited === undefined ? [] : [set.waited]),
 			...(started === 0
 				? []
 				: watched === undefined

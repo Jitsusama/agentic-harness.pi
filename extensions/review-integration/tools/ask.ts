@@ -62,11 +62,13 @@ async function seatFor(
 	ctx: ExtensionContext,
 	params: AskParams,
 	change?: ChangeRef,
+	signal?: AbortSignal,
 ): Promise<RoundSeat> {
 	const quest = await questLoadedIn(ctx.sessionManager.getSessionId());
 	return {
 		cwd: sessionCwd(ctx),
 		said: person.said,
+		...(signal === undefined ? {} : { signal }),
 		place: {
 			...(params.set === undefined ? {} : { set: params.set }),
 			...(quest === undefined ? {} : { quest }),
@@ -134,7 +136,7 @@ export async function runAsk(
 					);
 				}
 
-				const seat = await seatFor(ctx, params, change);
+				const seat = await seatFor(ctx, params, change, signal);
 				switch (action) {
 					case "runs":
 						return await reportRuns(change);

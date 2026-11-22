@@ -185,6 +185,34 @@ describe("review_ask", () => {
 		expect(source).not.toMatch(/rosterOrThrow\(params\)/);
 	});
 
+	it("spaces every round that asks the whole roster, once nothing else refuses it", () => {
+		// Each reviewer is a pi's worth of memory for minutes, and on 22
+		// November councils started every few minutes on a machine near its
+		// memory bar, each session having read that none had started. A
+		// round asking the reviewers that skips the claim starts beside
+		// whatever else just did, which is the race the claim exists for.
+		const rounds = [...functions].flatMap(([name, body]) =>
+			body.includes('rosterOrThrow(params, "reviewers", seat)')
+				? [{ name, body }]
+				: [],
+		);
+		expect(
+			rounds.map((round) => round.name).sort(),
+			"the council, the stack and the critique each read the reviewers",
+		).toEqual(["askCritique", "askStack", "councilRound"]);
+
+		const wrong = rounds.flatMap(({ name, body }) => {
+			const claims = body.indexOf("await awaitRosterStart(");
+			if (claims === -1) return [`${name} starts without claiming a start`];
+			// After the size check, so a round refused as too large holds
+			// no slot for three minutes it never used.
+			return body.indexOf("tooLargeToAsk(") < claims
+				? []
+				: [`${name} claims a start before its last refusal`];
+		});
+		expect(wrong).toEqual([]);
+	});
+
 	it("reads every round's lenses out of the tree that round reads", () => {
 		// The composition is driven for real elsewhere. What cannot be
 		// driven is whether these seven call sites hand it the right tree,

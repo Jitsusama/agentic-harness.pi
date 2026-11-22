@@ -35,6 +35,7 @@ import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
+	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
 	findingsOf,
@@ -186,6 +187,8 @@ export async function askCritique(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	const start = await awaitRosterStart(change.label, seat.signal);
+	if (start.cancelled !== undefined) return refuse(start.cancelled);
 
 	const asking = deps(change, tree.path, watch, charters);
 	const { run, critiques, warnings } = await runCritique(
@@ -209,6 +212,7 @@ export async function askCritique(
 	return say(
 		[
 			`It pushed back on ${judged.id}.`,
+			...(start.waited === undefined ? [] : [start.waited]),
 			answerFor(run, warnings, tree.caveat),
 			...(critiques.length === 0
 				? ["Nobody took a position."]
