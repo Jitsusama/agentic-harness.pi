@@ -20,6 +20,7 @@ import {
 	PASS_AFTER_MS,
 	QUICK_OUTRUN_MS,
 	RAMP_MS,
+	type Room,
 	SPREAD_MS,
 	VM_SETTLE_MS,
 	VM_SPREAD_MS,
@@ -103,14 +104,14 @@ describe("whose turn it is", () => {
 		// 22 November, 04:13: memory pressure at 13.3% held 29 of 30 waiting
 		// jobs on memory, the capacity path's among them.
 		const first = new Set(["QEST-CAP"]);
-		const short = (memoryFullMinute: number | undefined) => ({
+		const short = (memoryFullMinute: number | undefined): Room => ({
 			...ROOMY,
 			memoryPressure: 13,
 			memoryFullMinute,
 		});
 		const cap = job("cap", { quest: "QEST-CAP" });
 		const other = job("other", { since: startedAgo(600_000) });
-		const turn = (jobs: Job[], room: ReturnType<typeof short>) =>
+		const turn = (jobs: Job[], room: Room) =>
 			nextTurn(jobs, room, NOW, undefined, NOBODY, first)?.id;
 
 		it("starts one up to the most of the minute stalled", () => {
@@ -176,7 +177,7 @@ describe("whose turn it is", () => {
 				...busy,
 				id: "fetch",
 				quest: "QEST-CAP",
-				answered: true,
+				answered: true as const,
 			};
 			expect(turn([fetch, cap], short(12))).toBe("cap");
 		});
