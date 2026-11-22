@@ -34,11 +34,11 @@ import {
 } from "./job.ts";
 import {
 	CLASS_OF,
+	elsewhereKindOf,
 	type Kind,
 	LIGHT_GIB,
 	NEEDS_GIB,
 	needsGibOf,
-	elsewhereKindOf,
 	runsChangedChecks,
 	WALKS_AT_ONCE,
 	walksAtOnce,

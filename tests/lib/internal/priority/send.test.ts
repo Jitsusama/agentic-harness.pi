@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type Far,
 	refusedHere,
 	sendsWholeRun,
 	whereItRuns,
@@ -247,14 +248,14 @@ describe("whether a changed-checks run sends itself to the builder", () => {
 
 	describe("for an elsewhere run", () => {
 		const asked: string[] = [];
-		const far = {
+		const far: Far = {
 			quest: "QEST-X",
 			placedFar: (kind: string) => {
 				asked.push(kind);
 				return kind !== "stays";
 			},
 		};
-		const sent = (run: string, with_ = far) =>
+		const sent = (run: string, with_: Far = far) =>
 			sendsWholeRun(run, "/tree", undefined, () => false, "/home", with_);
 
 		it("does when a quest session's run is placed on another machine", () => {
