@@ -314,7 +314,12 @@ function swapRead(dir: string, kept: Kept, count: number, listing: Listing) {
 	kept.read = count;
 	kept.failed = undefined;
 	recordWritesRead(dir, listing.through);
-	untell(recordDirKey(dir), (what) => what.startsWith("failed at "));
+	// What failed or hung before is told again should it happen again, and
+	// the folder's told set stays as small as what is wrong with it now.
+	untell(
+		recordDirKey(dir),
+		(what) => what.startsWith("failed at ") || what.startsWith("hung "),
+	);
 }
 
 /**
