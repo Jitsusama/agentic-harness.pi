@@ -171,4 +171,15 @@ describe("repeats", () => {
 			/already used/,
 		);
 	});
+
+	// A retry that gained the fence is owed a fenced conversation, so it
+	// never matches an unfenced first (F38).
+	it("refuses a repeat carrying a stage token when the first carried none", async () => {
+		const memory = repeats();
+		const start = vi.fn(async () => ({ sessionId: "s1" }));
+		await memory.answer(asked, start);
+		const staged = { ...asked, env: { [STAGE_VARIABLE]: "token-1" } };
+		await expect(memory.answer(staged, start)).rejects.toThrow(/already used/);
+		expect(start).toHaveBeenCalledOnce();
+	});
 });

@@ -363,12 +363,21 @@ export async function spawnInHost(
 		});
 	}
 	let sent: Shedding;
+	// The kept id's window runs from when it was first sent, which is before
+	// the host settles it, so the host never forgets one the spawn repeats.
+	const asked = { ...kept, now: Date.now() };
 	try {
 		sent = await sendShedding(call, socket, request);
 	} catch (error) {
 		if (neverSent(error)) {
+			// A host gone since an unanswered ask restarts with what that ask
+			// opened held, but not the ask itself, so it is said here.
+			const earlier =
+				request.id === built.request.id
+					? ""
+					: ` An earlier spawn of ${spawn.questId} (id ${request.id}) went unanswered, so check the host's list for it once the host is back.`;
 			return refuse(
-				`No ${key} host is listening at ${socket}, so nothing was opened.`,
+				`No ${key} host is listening at ${socket}, so nothing was opened.${earlier}`,
 			);
 		}
 		if (error instanceof HostClientUnloaded) {
@@ -376,14 +385,16 @@ export async function spawnInHost(
 				`This pi couldn't ask the ${key} host anything: ${messageOf(error)}. Nothing was sent, so nothing was opened.`,
 			);
 		}
-		const repeat = noteUnanswered(where, request, kept)
+		const repeat = noteUnanswered(where, request, asked)
 			? request.id
 			: undefined;
 		return refuse(unknownOutcome(key, messageOf(error), repeat));
 	}
 	const { reply, shed } = sent;
 	if (!reply.ok) {
-		// A refusal is an answer: nothing was opened under this id.
+		// A refusal is an answer, and a repeat would get the same one, so the
+		// next spawn sends a new id. What a failed start left held is named
+		// in the refusal and listed by the host.
 		clearUnanswered(where, request, kept);
 		return refuse(
 			`The ${key} host refused to ${what}: ${reply.error.code}, ${reply.error.message}. Nothing else was opened.`,
@@ -398,7 +409,7 @@ export async function spawnInHost(
 				: parseOpenResult(reply.result);
 	} catch {
 		// A yes unread is no answer to trust, so its id is kept for a retry.
-		const repeat = noteUnanswered(where, request, kept)
+		const repeat = noteUnanswered(where, request, asked)
 			? request.id
 			: undefined;
 		return refuse(
@@ -737,14 +748,16 @@ function neverSent(error: unknown): boolean {
 
 /**
  * What a spawn with no answer to trust says. With `repeat`, the id kept
- * for the spawn asked again, which the host answers with what this one
- * opened, unless it restarted in between and forgot it.
+ * for the spawn asked again, which a host answers with what this one
+ * opened; the client can't tell a host that restarted since, or runs
+ * code from before repeats, which opens another, so the list comes first
+ * either way.
  */
 function unknownOutcome(key: string, why: string, repeat?: string): string {
-	const unknown = `The ${key} host gave no answer to trust (${why}), so whether it opened the session is unknown. Nothing else was opened and nothing was retried;`;
+	const unknown = `The ${key} host gave no answer to trust (${why}), so whether it opened the session is unknown. Nothing else was opened and nothing was retried; check the host's list before spawning again.`;
 	return repeat === undefined
-		? `${unknown} check the host's list before spawning again.`
-		: `${unknown} spawning again within ${REPEAT_WINDOW_MS / 60_000} minutes sends this same request (id ${repeat}), which the host answers with what it opened rather than opening another, unless it restarted meanwhile: after a restart, check the host's list first.`;
+		? unknown
+		: `${unknown} A spawn asked again within ${REPEAT_WINDOW_MS / 60_000} minutes sends this same request (id ${repeat}), which a host that remembers it answers with what it opened; one that restarted since, or runs code from before it remembered requests, may open another.`;
 }
 
 function messageOf(error: unknown): string {

@@ -52,6 +52,10 @@ export function pendingId(
 
 /**
  * Keep `request` as unanswered, so the spawn asked again repeats its id.
+ * `now` is when it was sent, which is before the host settled it, so
+ * the window here ends before the host's. One kept already under this
+ * id keeps its first time: a start that never settles is joined by each
+ * retry, and the window still ends, so a later spawn sends a new id.
  * Answers whether it was kept.
  */
 export function noteUnanswered(
@@ -60,16 +64,17 @@ export function noteUnanswered(
 	options: { dir?: string; now?: number } = {},
 ): boolean {
 	const what = hashOf(request);
+	const file = fileOf(where, what, options.dir);
+	const sentAt = options.now ?? Date.now();
+	const earlier = readPending(file);
 	const pending: Pending = {
 		id: request.id,
 		what,
-		askedAt: options.now ?? Date.now(),
+		askedAt:
+			earlier?.id === request.id ? Math.min(earlier.askedAt, sentAt) : sentAt,
 	};
 	try {
-		writeWhole(
-			fileOf(where, what, options.dir),
-			`${JSON.stringify(pending)}\n`,
-		);
+		writeWhole(file, `${JSON.stringify(pending)}\n`);
 		return true;
 	} catch {
 		// Unkept, a retry sends a new id, as every spawn did before, and the
@@ -97,7 +102,9 @@ function fileOf(
 	what: string,
 	dir = pendingDir(),
 ): string {
-	return join(dir, `${where.questId}.${where.kind}.${what.slice(0, 16)}.json`);
+	// The quest's id comes from its README, so it is kept to one name in dir.
+	const quest = encodeURIComponent(where.questId);
+	return join(dir, `${quest}.${where.kind}.${what.slice(0, 16)}.json`);
 }
 
 function hashOf(request: Repeatable): string {

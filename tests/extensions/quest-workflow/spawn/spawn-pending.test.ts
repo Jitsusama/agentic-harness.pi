@@ -125,4 +125,32 @@ describe("a spawn left unanswered", () => {
 		expect(kept).not.toContain("/work");
 		expect(files[0]).not.toContain("never kept");
 	});
+
+	// A start that never settles is joined by each retry; were each one to
+	// renew the window, a spawn would wait on it for as long as anyone
+	// retried (F36), and the window would outlast the host's (F40).
+	it("keeps the window from when the id was first sent, however often it goes unanswered again", () => {
+		noteUnanswered(alpha, open, { dir, now: 1000 });
+		noteUnanswered(alpha, open, { dir, now: 1000 + REPEAT_WINDOW_MS / 2 });
+		const again = { ...open, id: "fresh" };
+		expect(
+			pendingId(alpha, again, "fresh", { dir, now: 1001 + REPEAT_WINDOW_MS }),
+			"past the first's window",
+		).toBe("fresh");
+	});
+
+	// The id comes from a README, which an agent may write.
+	it("keeps a quest id holding a path inside its folder", () => {
+		const wandering = { ...alpha, questId: "../../elsewhere/x" };
+		const inner = join(dir, "inner");
+		noteUnanswered(wandering, open, { dir: inner, now: 1000 });
+		expect(keptIn(inner)).toHaveLength(1);
+		expect(keptIn(dir)).toEqual(["inner"]);
+		expect(
+			pendingId(wandering, { ...open, id: "fresh" }, "fresh", {
+				dir: inner,
+				now: 1000,
+			}),
+		).toBe("first");
+	});
 });

@@ -915,6 +915,100 @@ describe("spawn into a host", () => {
 		expect(two, "another ask, another id").not.toBe(one);
 	});
 
+	it("sends a new id after a refusal, which a repeat would only get again", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const replies: Awaited<ReturnType<ControlCall>>[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			const reply =
+				sent.length === 2
+					? {
+							v: 1 as const,
+							id: request.id,
+							ok: false as const,
+							error: { code: "busy", message: "Not now" },
+						}
+					: {
+							v: 1 as const,
+							id: request.id,
+							ok: true as const,
+							result: identityFor(request),
+						};
+			replies.push(reply);
+			return reply;
+		};
+		await spawnInHost(spawn, call);
+		const refused = await spawnInHost(spawn, call);
+		expect(refused, "refused").toMatchObject({ ok: false });
+		await spawnInHost(spawn, call);
+		const [one, two, three] = sent.map((request) => request.id);
+		expect(two, "the retry repeats the lost one's id").toBe(one);
+		expect(three, "a spawn after a refusal is new").not.toBe(one);
+	});
+
+	it("keeps the id of a yes it couldn't read, and says to check the list first", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			return {
+				v: 1,
+				id: request.id,
+				ok: true,
+				result: { sessionId: "not-a-uuid" },
+			};
+		};
+		const unread = await spawnInHost(spawn, call);
+		if (unread.ok) throw new Error("expected an unreadable yes to refuse");
+		expect(unread.guidance, "names the id kept").toContain(sent[0]?.id);
+		expect(unread.guidance).toContain("check the host's list");
+		await spawnInHost(spawn, call);
+		const [one, two] = sent.map((request) => request.id);
+		expect(two, "the retry repeats the unread one's id").toBe(one);
+	});
+
+	// A host gone since restarts holding what the lost ask opened, but not
+	// the ask, so the spawn names it rather than only the missing host.
+	it("names an earlier unanswered spawn when it finds no host listening", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			throw Object.assign(new Error("connect ECONNREFUSED"), {
+				code: "ECONNREFUSED",
+			});
+		};
+		await spawnInHost(spawn, call);
+		const down = await spawnInHost(spawn, call);
+		if (down.ok) throw new Error("expected no host to refuse");
+		expect(down.guidance).toContain("nothing was opened");
+		expect(down.guidance).toContain(`(id ${sent[0]?.id}) went unanswered`);
+	});
+
 	it("sends a plain spawn to the host quest-workflow.spawnHost names, with no window", async () => {
 		setSpawnHost("background");
 		await serveHost("home", "background");

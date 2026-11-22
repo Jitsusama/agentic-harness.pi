@@ -119,13 +119,14 @@ export function repeats(
  * repeat sent after a restart of the requester still matches; keys in
  * order, so two spellings of one request match. A requester keeping its
  * id across a retry compares by it too (spawn-pending.ts). The fence's
- * first-stage token is left out too: each spawn lists a new one, and a
- * repeat is answered with the first's conversation, which already holds
- * the first's (fence-stage.ts).
+ * first-stage token's value is left out too: each spawn lists a new one,
+ * and a repeat is answered with the first's conversation, which already
+ * holds the first's (fence-stage.ts). Whether there is one stays in, so
+ * a retry that gains the fence is never answered with an unfenced one.
  */
 export function fingerprint(request: Repeatable): string {
 	const { id: _id, expectedHost: _expected, env, ...rest } = request;
-	const kept = isPlain(env) ? withoutStage(env) : env;
+	const kept = isPlain(env) ? withStageUnvalued(env) : env;
 	const asked = kept === undefined ? rest : { ...rest, env: kept };
 	return JSON.stringify(asked, (_key, value: unknown) =>
 		isPlain(value)
@@ -136,12 +137,11 @@ export function fingerprint(request: Repeatable): string {
 	);
 }
 
-/** `env` without the stage's token, or nothing when that was all it held. */
-function withoutStage(
+/** `env` with the stage's token, when it holds one, said without its value. */
+function withStageUnvalued(
 	env: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-	const { [STAGE_VARIABLE]: _token, ...rest } = env;
-	return Object.keys(rest).length === 0 ? undefined : rest;
+): Record<string, unknown> {
+	return STAGE_VARIABLE in env ? { ...env, [STAGE_VARIABLE]: "staged" } : env;
 }
 
 function isPlain(value: unknown): value is Record<string, unknown> {

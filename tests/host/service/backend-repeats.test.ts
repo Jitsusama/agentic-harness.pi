@@ -17,6 +17,7 @@ import {
 	hostBackend,
 	type Prepared,
 } from "../../../host/service/backend.ts";
+import { unsettledReply } from "../../../host/service/child-requests.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import {
 	type ControlReply,
@@ -183,6 +184,102 @@ describe("a start asked again under its id", () => {
 		expect(roster.entries()).toHaveLength(1);
 	});
 
+	// What a repeat answers for must still stand: a spawn retried after its
+	// first conversation closed is owed a conversation, not a gone one.
+	it("opens anew on a repeat once the first's conversation was closed", async () => {
+		const { fake, loaded } = slowEngine();
+		loaded();
+		const backend = backendWith(fake);
+		const opened = parseOpenResult(await backend.execute(open));
+		await backend.execute({
+			v: 1,
+			id: randomUUID(),
+			op: "close",
+			sessionId: opened.sessionId,
+		});
+		const again = parseOpenResult(await backend.execute({ ...open }));
+		expect(again.sessionId).not.toBe(opened.sessionId);
+		expect(fake.prepare).toHaveBeenCalledTimes(2);
+		expect(roster.entries().map((held) => held.sessionId)).toEqual([
+			again.sessionId,
+		]);
+	});
+
+	// A start that registered and then failed is parked and held; its
+	// repeat is told the same failure rather than opening a twin beside it.
+	it("answers a repeat of a start that failed after registering with its failure while that one is held, and opens anew once closed", async () => {
+		const { fake, loaded } = slowEngine();
+		loaded();
+		const failed = new Error("its first submit failed");
+		vi.mocked(fake.start).mockImplementationOnce(async (prepared) => {
+			host.register({
+				id: prepared.sessionId,
+				file: prepared.file,
+				cwd: prepared.cwd,
+				env: { PI_SESSION_ID: prepared.sessionId },
+				close: () => undefined,
+			});
+			throw failed;
+		});
+		const backend = backendWith(fake);
+		await expect(backend.execute(open)).rejects.toBe(failed);
+		await expect(backend.execute({ ...open })).rejects.toBe(failed);
+		expect(fake.start).toHaveBeenCalledOnce();
+		expect(roster.entries()).toHaveLength(1);
+		const left = roster.entries()[0]?.sessionId ?? "";
+		await backend.execute({
+			v: 1,
+			id: randomUUID(),
+			op: "close",
+			sessionId: left,
+		});
+		const again = parseOpenResult(await backend.execute({ ...open }));
+		expect(again.sessionId).not.toBe(left);
+		expect(fake.start).toHaveBeenCalledTimes(2);
+	});
+
+	// Held but no longer running, as after a stop: the repeat is answered
+	// for it, as it is now, rather than as it was when it opened.
+	it("answers a repeat for a conversation stopped since as parked, opening nothing", async () => {
+		const { fake, loaded } = slowEngine();
+		loaded();
+		const backend = backendWith(fake);
+		const opened = parseOpenResult(await backend.execute(open));
+		expect(opened.state).toBe("idle");
+		await host.stop(opened.sessionId);
+		const again = parseOpenResult(await backend.execute({ ...open }));
+		expect(again).toMatchObject({
+			sessionId: opened.sessionId,
+			state: "parked",
+		});
+		expect(fake.prepare).toHaveBeenCalledOnce();
+	});
+
+	// pi's new, fork or resume makes a held conversation another under a
+	// new id; its repeat is answered with that one, not with a twin.
+	it("answers a repeat for a conversation that became another with the one it became", async () => {
+		const { fake, loaded } = slowEngine();
+		loaded();
+		const backend = backendWith(fake);
+		const opened = parseOpenResult(await backend.execute(open));
+		const next = randomUUID();
+		const held = roster.entries()[0];
+		if (!held) throw new Error("the open is held");
+		await roster.replace(opened.sessionId, { ...held, sessionId: next });
+		await host.stop(opened.sessionId);
+		host.register({
+			id: next,
+			file: join(dir, `${next}.jsonl`),
+			cwd: "/work",
+			env: { PI_SESSION_ID: next },
+			close: () => undefined,
+		});
+		backend.became(opened.sessionId, next);
+		const again = parseOpenResult(await backend.execute({ ...open }));
+		expect(again.sessionId).toBe(next);
+		expect(fake.prepare).toHaveBeenCalledOnce();
+	});
+
 	it("refuses to the requester an id used again for another open, opening nothing more", async () => {
 		const { fake, loaded } = slowEngine();
 		loaded();
@@ -223,6 +320,9 @@ describe("a start asked again under its id", () => {
 				controlRequest(socket, request, 300);
 			const lost = await spawnInHost(spawn, impatient);
 			expect(lost, "the first goes unanswered").toMatchObject({ ok: false });
+			expect(lost.guidance).toContain("timed out");
+			// The first reached the host and loads, so the retry is a repeat.
+			await vi.waitFor(() => expect(fake.start).toHaveBeenCalledOnce());
 			loaded();
 			const again = await spawnInHost(spawn);
 			if (!again.ok) throw new Error(again.guidance);
@@ -275,5 +375,44 @@ describe("a start asked again under its id", () => {
 		expect(repeated?.sessionId).toBe(opened?.sessionId);
 		expect(children.begin).toHaveBeenCalledOnce();
 		expect(fake.prepare).not.toHaveBeenCalled();
+	});
+
+	// A child that gave no answer in time but runs its conversation is
+	// refused, naming that one; its repeat is refused the same, while the
+	// child runs it, rather than beginning a second child (F24).
+	it("refuses a repeat of an open a child left unsettled while the child runs its conversation", async () => {
+		const { fake } = slowEngine();
+		const sessionId = randomUUID();
+		let runs = true;
+		const children: BackendChildren = {
+			moves: () => false,
+			opens: () => true,
+			running: (id) =>
+				runs && id === sessionId
+					? {
+							sessionId,
+							file: join(dir, `${sessionId}.jsonl`),
+							cwd: "/work",
+							state: "idle",
+							since: "2026-11-21T10:00:00.000Z",
+						}
+					: undefined,
+			resume: vi.fn(),
+			begin: vi.fn(async (request) => unsettledReply(request.id, sessionId)),
+			ask: vi.fn(),
+			left: vi.fn(async () => {}),
+		};
+		const backend = backendWith(fake, children);
+		const first = await dispatchControl(open, backend);
+		const again = await dispatchControl({ ...open }, backend);
+		expect(first).toMatchObject({
+			ok: false,
+			error: { code: "open_unsettled" },
+		});
+		expect(again).toEqual(first);
+		expect(children.begin).toHaveBeenCalledOnce();
+		runs = false;
+		await dispatchControl({ ...open }, backend);
+		expect(children.begin).toHaveBeenCalledTimes(2);
 	});
 });
