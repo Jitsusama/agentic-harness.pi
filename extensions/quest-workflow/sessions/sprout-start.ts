@@ -50,8 +50,10 @@ import { create, load } from "../verbs/lifecycle.ts";
 const TIE_PATIENCE_MS = 15_000;
 
 /**
- * The most of mycelium's last line an unsure tie quotes in the session's
- * first words, enough for a reason such as "Killed", never a page.
+ * The most of mycelium's last line a tie that didn't land quotes in the
+ * session's first words: enough for a line of a reason, never a page. It
+ * is only what mycelium last wrote, which a kill (SIGKILL) leaves unsaid,
+ * so it is quoted as that, never as why.
  */
 const MOST_QUOTED = 200;
 
@@ -122,7 +124,13 @@ export async function startSprouted(
 		const said = loaded.details?.peers;
 		peers = typeof said === "string" ? said : undefined;
 	}
-	const also = !replayed && linked ? linked.also : [];
+	// Every other live quest holding the work, told on a replay too, whose
+	// session is new and never heard the first one's words.
+	const also = linked
+		? [
+				...new Set([...(linked.sealed ? [] : [linked.id]), ...linked.also]),
+			].filter((one) => one !== id)
+		: [];
 	const joined = held !== undefined ? { peers, also } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
@@ -135,11 +143,16 @@ export async function startSprouted(
 		if (link) unmarkEnded(state, link);
 		const marks = [alias, link].filter((one) => one !== undefined);
 		for (const mark of marks) {
-			aliasAdd(state, {
-				action: "alias-add",
-				id,
-				ref: `${mark.type}:${mark.value}`,
-			});
+			try {
+				aliasAdd(state, {
+					action: "alias-add",
+					id,
+					ref: `${mark.type}:${mark.value}`,
+				});
+			} catch {
+				// A lock that didn't come leaves the mark off; the quest is
+				// made, so it is still tied below rather than left untied.
+			}
 		}
 	} else if (!replayed && joinMark) {
 		// A live quest it joined takes a mark of its own, so a replay after
@@ -338,12 +351,30 @@ function linkIsPlace(seed: SproutSeed): boolean {
 	return (
 		path.length === 1 ||
 		path.length === 2 ||
+		(path.length === 3 && GITHUB_LISTS.has(path[2] ?? "")) ||
 		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
 	);
 }
 
 /** Where in a GitHub repository its own code is, never a piece of work. */
 const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree"]);
+
+/**
+ * A GitHub repository's own lists, such as every open pull request: a
+ * place, though one in them (/pull/9, /issues/4) is the work.
+ */
+const GITHUB_LISTS: ReadonlySet<string> = new Set([
+	"pulls",
+	"issues",
+	"actions",
+	"releases",
+	"branches",
+	"tags",
+	"commits",
+	"discussions",
+	"projects",
+	"wiki",
+]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
@@ -467,14 +498,13 @@ async function tie(
 	// killer's), its ask may already be with the node, as a sprout's is.
 	if (
 		ran.timedOut ||
-		(ran.code === null && !ran.neverRan && !ran.missing && !ran.noFolder)
+		(ran.code === null &&
+			!ran.neverRan &&
+			!ran.missing &&
+			!ran.noFolder &&
+			!ran.stopped)
 	) {
-		const said = ran.stderr
-			.trim()
-			.split("\n")
-			.pop()
-			?.trim()
-			.slice(0, MOST_QUOTED);
+		const said = lastLine(ran.stderr);
 		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
 	}
 	if (ran.neverRan) {
@@ -490,8 +520,23 @@ async function tie(
 			: "this session's folder is gone";
 		return { kind: "failed", from, why, retry: false };
 	}
-	const why =
-		ran.stderr.trim().split("\n").pop() ||
-		`it ended with ${ran.code ?? "no code"}`;
+	const said = lastLine(ran.stderr);
+	const why = said
+		? `it last wrote ${JSON.stringify(said)}`
+		: `it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
+}
+
+/**
+ * The last line mycelium wrote, a progress bar's last redraw included, cut
+ * to MOST_QUOTED whole characters, or "" where it wrote none.
+ */
+function lastLine(stderr: string): string {
+	const line =
+		stderr
+			.trim()
+			.split(/\r?\n|\r/u)
+			.pop()
+			?.trim() ?? "";
+	return Array.from(line).slice(0, MOST_QUOTED).join("");
 }

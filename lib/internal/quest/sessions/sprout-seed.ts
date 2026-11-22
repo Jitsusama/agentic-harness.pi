@@ -171,7 +171,11 @@ function tieSaid(questId: string, tied: Tied): string {
 	}
 	const command = `\`mycelium ${tieArguments(questId, tied.from).join(" ")}\``;
 	if (tied.kind === "unsure") {
-		const said = tied.said ? ` (it said: ${tied.said})` : "";
+		// Quoted as a JSON string, so a bracket or a stop in what mycelium
+		// wrote can't end the clause and start words of its own.
+		const said = tied.said
+			? ` (it last wrote ${JSON.stringify(tied.said)})`
+			: "";
 		return ` Tying it to the cell it came from, ${tied.from}, was cut off before it answered${said} and may have landed anyway; only if the map shows no tie to ${tied.from}, run ${command} once.`;
 	}
 	const retry = tied.retry === false ? "" : `; run ${command} once`;

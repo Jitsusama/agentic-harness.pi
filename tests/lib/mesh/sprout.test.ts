@@ -348,6 +348,20 @@ describe("running a program", () => {
 		expect(ran).not.toHaveProperty("stopped");
 	});
 
+	it("says one killed from outside ended with no code, and nothing more", async () => {
+		const ran = await runProgram("sh", ["-c", "kill -9 $$"], patience);
+		expect(ran.code).toBeNull();
+		for (const flag of [
+			"timedOut",
+			"stopped",
+			"neverRan",
+			"missing",
+			"noFolder",
+		]) {
+			expect(ran, flag).not.toHaveProperty(flag);
+		}
+	});
+
 	it("says one its asker stopped was stopped, not timed out", async () => {
 		const stopping = new AbortController();
 		const running = runProgram("sleep", ["5"], {

@@ -348,7 +348,9 @@ describe("a sprouted session's start", () => {
 			{ run: async () => ({ code: 1, stdout: "", stderr: "no such cell\n" }) },
 		);
 		expect(state.questId).toMatch(/^QEST-/);
-		expect(words).toMatch(/failed \(no such cell\); run `mycelium web /u);
+		expect(words).toMatch(
+			/failed \(it last wrote "no such cell"\); run `mycelium web /u,
+		);
 	});
 
 	it("names it from the words, keeping the link, when the link's page gives no title", async () => {
@@ -591,6 +593,22 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("reads a GitHub repository's own lists as a place, never the work", async () => {
+		for (const [n, link] of [
+			"https://github.com/o/repo/pulls",
+			"https://github.com/o/repo/issues",
+			"https://github.com/o/repo/actions",
+		].entries()) {
+			const one = await start(
+				{ link, words: `list ${n}`, id: `SL${n}` },
+				{ sessionId: `sess-list-${n}` },
+			);
+			expect(one.words, link).toMatch(
+				/is where the work happens, not the work/u,
+			);
+		}
+	});
+
 	it("makes its quest from the link less its fragment, so a fragment names no other page", async () => {
 		for (const [n, link] of [
 			"https://github.com/o/r/pull/1#x/y#2",
@@ -678,6 +696,9 @@ describe("a sprouted session's start", () => {
 			replied.state.questId,
 		);
 		expect(parented.words).toMatch(/already holds this work/u);
+		expect(parented.words, "an ended quest is never named").not.toMatch(
+			/holds this work as well/u,
+		);
 	});
 
 	it("names every other live quest holding its work, never passing one over", async () => {
@@ -703,6 +724,17 @@ describe("a sprouted session's start", () => {
 		expect(held).toContain(sprouted.state.questId);
 		const other = held.find((id) => id !== sprouted.state.questId);
 		expect(sprouted.words).toContain(`Quest ${other} holds this work as well`);
+		const replayed = await start(
+			{ link: parent, id: "S17" },
+			{ sessionId: "sess-collide-replay" },
+		);
+		expect(replayed.state.questId).toBe(sprouted.state.questId);
+		expect(replayed.words, "a replay's new session is told too").toContain(
+			`Quest ${other} holds this work as well`,
+		);
+		expect(replayed.words).not.toContain(
+			`Quest ${sprouted.state.questId} holds`,
+		);
 	});
 
 	it("says its work is done when a quest it joined has since ended", async () => {
@@ -727,8 +759,9 @@ describe("a sprouted session's start", () => {
 		const { words } = await start(
 			{ words: "tea", from: "TERN02" },
 			{
+				// A code, so only its patience marks it as cut off.
 				run: async () => ({
-					code: null,
+					code: 143,
 					stdout: "",
 					stderr: "",
 					timedOut: true,
@@ -744,12 +777,16 @@ describe("a sprouted session's start", () => {
 		const { words } = await start(
 			{ words: "tea", from: "TERN02" },
 			{
-				run: async () => ({ code: null, stdout: "", stderr: "Killed\n" }),
+				run: async () => ({
+					code: null,
+					stdout: "",
+					stderr: "tying 42P0R4\nasked the node\n",
+				}),
 				sessionId: "sess-tie-signal",
 			},
 		);
 		expect(words).toMatch(
-			/was cut off before it answered \(it said: Killed\) and may have landed anyway/u,
+			/was cut off before it answered \(it last wrote "asked the node"\) and may have landed anyway/u,
 		);
 		expect(words).not.toMatch(/failed/u);
 		const long = await start(
@@ -760,8 +797,43 @@ describe("a sprouted session's start", () => {
 			},
 		);
 		expect(long.words, "quotes no more than a line's worth").toContain(
-			`(it said: ${"x".repeat(200)})`,
+			`(it last wrote "${"x".repeat(200)}")`,
 		);
+		const stopped = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: null,
+					stdout: "",
+					stderr: "",
+					stopped: true,
+				}),
+				sessionId: "sess-tie-stopped",
+			},
+		);
+		expect(
+			stopped.words,
+			"one stopped here is no stranger's signal",
+		).not.toMatch(/may have landed/u);
+	});
+
+	it("quotes a failed tie's last line as it wrote it, cut to whole characters", async () => {
+		const failed = await start(
+			{ words: "tea", from: "TERN02" },
+			{
+				run: async () => ({
+					code: 1,
+					stdout: "",
+					stderr: `starting\n${"\u{1F600}".repeat(300)}\n`,
+				}),
+				sessionId: "sess-tie-failed-long",
+			},
+		);
+		expect(failed.words).toContain(
+			`failed (it last wrote "${"\u{1F600}".repeat(200)}")`,
+		);
+		expect(failed.words).not.toContain("\u{1F600}".repeat(201));
+		expect(failed.words).not.toContain("starting");
 	});
 
 	it("says a tie that never started failed, never that it may have landed", async () => {
