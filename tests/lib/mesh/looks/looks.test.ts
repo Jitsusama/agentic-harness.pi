@@ -12,6 +12,7 @@ import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	ANSWER_CHARACTERS,
 	answerLook,
 	expireLooks,
 	type LookState,
@@ -134,7 +135,7 @@ describe("the person's look list", () => {
 			new Date("2026-11-01T09:00:00Z"),
 		);
 
-		answerLook(dir, answered.id, "Yes");
+		answerLook(dir, answered.id, { value: "Yes" });
 		resolveLooks(dir, "https://github.com/Jitsusama/core.nix/pull/1", "merged");
 		expect(expireLooks(dir, () => true).map((look) => look.id)).toEqual([
 			lapsed.id,
@@ -307,6 +308,9 @@ describe("a look written for the person", () => {
 	it.each([
 		["a mesh message's id", { why: "As settled in [4a4ae257], it restarts." }],
 		["a quest's id", { title: "QEST-20261025-85PKB2's restart" }],
+		// All digits at its end, so no session address hides in it and
+		// only the quest-id pattern reads it.
+		["a quest's id alone", { title: "QEST-20261025-123456's restart" }],
 		["a session's address", { why: "WCJQSG wants it read." }],
 		["code", { ask: "Run `/harness restart` once." }],
 		["a path", { why: "The design is in ~/src/core.nix/design.md." }],
@@ -315,6 +319,13 @@ describe("a look written for the person", () => {
 		expect(refusalOf({ ...pr, ...part }), JSON.stringify(part)).toMatch(
 			/can't place|name no path/,
 		);
+	});
+
+	it("names a quest's id as one", () => {
+		expect(
+			refusalOf({ ...pr, title: "QEST-20261025-123456's restart" }),
+			"read as a quest's id, not an address",
+		).toMatch(/a quest's or document's id/);
 	});
 
 	it("refuses a why past a sentence and an ask past a line", () => {
@@ -427,6 +438,207 @@ describe("a look written for the person", () => {
 	});
 });
 
+// Joel, 22 November: the look list is inscrutable. QGB4ON's For You
+// lays a look out by what happened, why it matters, and what he presses.
+describe("a look in its second form", () => {
+	const bar = {
+		kind: "pr" as const,
+		target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1378",
+		title: "The status bar at narrow widths",
+		why: "",
+		ask: "",
+		happened:
+			"The status bar now keeps the model, the cost and the branch at narrow widths",
+		matters:
+			"At 76 columns it showed only the folder, so you couldn't see what a session cost.",
+		act: "Try the Bar",
+		choices: ["Keep It", "Roll It Back"],
+		follows: ["It stays as it is.", "I put the old bar back tonight."],
+	};
+
+	it("keeps both forms, so a reader of only the first still shows it", () => {
+		pointAt(dir, { ...bar, words: true }, who);
+
+		expect(looksIn(dir)[0], "the look as kept").toMatchObject({
+			v: 1,
+			title: bar.title,
+			why: `${bar.happened}. ${bar.matters}`,
+			ask: "Try the Bar: Keep It, or Roll It Back.",
+			choices: [
+				{ value: "Keep It", label: "Keep It", follows: "It stays as it is." },
+				{
+					value: "Roll It Back",
+					label: "Roll It Back",
+					follows: "I put the old bar back tonight.",
+				},
+			],
+			happened: bar.happened,
+			matters: bar.matters,
+			act: "Try the Bar",
+			wants: {
+				choices: [
+					{ label: "Keep It", follows: "It stays as it is." },
+					{ label: "Roll It Back", follows: "I put the old bar back tonight." },
+				],
+				words: true,
+			},
+			about: { kind: "pr", target: bar.target, title: bar.title },
+			asks: true,
+		});
+	});
+
+	it("asks nothing back when it wants nothing and only shows", () => {
+		const shows = pointAt(
+			dir,
+			{ ...bar, act: "Just See", choices: [], follows: [] },
+			who,
+		);
+
+		expect(shows.asks, "a look to see").toBe(false);
+		expect(shows.wants, "nothing wanted back").toBeUndefined();
+		// Only words set it asking: the act alone would ask nothing.
+		expect(
+			pointAt(
+				dir,
+				{ ...bar, act: "Just See", choices: [], follows: [], words: true },
+				who,
+			).asks,
+			"a look he may answer in words",
+		).toBe(true);
+		expect(
+			pointAt(dir, { ...bar, act: "Read It", choices: [], follows: [] }, who)
+				.asks,
+			"an act beyond seeing",
+		).toBe(true);
+	});
+
+	// A parked question's prompt can open "Just look" and still ask, so
+	// only a second form's act is read for seeing alone.
+	it("reads a first form's ask that opens 'Just look' as asking", () => {
+		// Words only the act's pattern would read as seeing alone.
+		expect(
+			pointAt(dir, { ...pr, ask: "Just look" }, who).asks,
+			"a first form's ask, never read as an act",
+		).toBe(true);
+	});
+
+	it("reads an act of Just See with its stop as seeing alone", () => {
+		for (const act of ["Just See.", "Just See!"]) {
+			expect(
+				pointAt(
+					dir,
+					{
+						...bar,
+						target: `${bar.target}/${act === "Just See." ? "files" : "checks"}`,
+						act,
+						choices: [],
+						follows: [],
+					},
+					who,
+				).asks,
+				act,
+			).toBe(false);
+		}
+	});
+
+	it("takes a happened and matters at their limits, past the first form's", () => {
+		const long = {
+			...bar,
+			happened: `${"a".repeat(96)} ok.`,
+			matters: `${"word ".repeat(39)}words`,
+		};
+
+		expect(long.happened, "happened").toHaveLength(100);
+		expect(long.matters, "matters").toHaveLength(200);
+		expect(refusalOf(long), "at the limits").toBeUndefined();
+	});
+
+	it("refuses a pointing in both forms, whose why and ask nothing reads", () => {
+		expect(
+			refusalOf({ ...bar, why: "See WCJQSG's note." }),
+			"a why beside the second form",
+		).toMatch(/one form, not both/);
+		expect(
+			refusalOf({ ...bar, ask: "Read ~/notes/plan.md" }),
+			"an ask beside the second form",
+		).toMatch(/one form, not both/);
+	});
+
+	it.each([
+		["a name with a capital inside", { act: "Open on macOS" }],
+		[
+			"an abbreviation in a follows",
+			{
+				follows: ["It stays, e.g. at this width.", "I put it back tonight."],
+			},
+		],
+	])("takes %s", (_what, part) => {
+		expect(
+			refusalOf({ ...bar, ...part }),
+			JSON.stringify(part),
+		).toBeUndefined();
+	});
+
+	it.each([
+		["no happened", { happened: " " }, /what happened/],
+		["no matters", { matters: "" }, /why what happened matters/],
+		["no act", { act: "" }, /its act/],
+		["a happened past 100", { happened: "a".repeat(101) }, /at most 100/],
+		[
+			"a happened past a sentence",
+			{ happened: "Done. It works." },
+			/one plain sentence/,
+		],
+		["a matters past 200", { matters: "a".repeat(201) }, /at most 200/],
+		["an act past 4 words", { act: "Try the Bar Right Now" }, /a button/],
+		["an act not in Title Case", { act: "try it" }, /a button/],
+		["an act that opens on a symbol", { act: "🎉 Ship It" }, /a button/],
+		["a session's address in the act", { act: "Ask WCJQSG" }, /can't place/],
+		[
+			"a quest's id",
+			{ happened: "QEST-20261025-85PKB2 finished the bar." },
+			/can't place/,
+		],
+		["code", { matters: "Run `pnpm check` to see it." }, /can't place/],
+		[
+			"a choice not in Title Case",
+			{ choices: ["Keep it", "Roll It Back"] },
+			/Title Case/,
+		],
+		[
+			"choices alike",
+			{ choices: ["Keep It", "Keep It"] },
+			/each say something different/,
+		],
+		["a follows missing", { follows: ["It stays as it is."] }, /2 choices, 1/],
+		[
+			"a follows past a sentence",
+			{ follows: ["It stays. Nothing more.", "Back tonight."] },
+			/one sentence/,
+		],
+		[
+			"a session's address",
+			{ matters: "WCJQSG wants it read." },
+			/can't place/,
+		],
+		[
+			"a mesh message's id in a follows",
+			{ follows: ["As in [4a4ae257].", "Back tonight."] },
+			/can't place/,
+		],
+		["a path", { happened: "Wrote ~/notes/plan.md for you." }, /no path/],
+	])("refuses %s", (_what, part, said) => {
+		expect(refusalOf({ ...bar, ...part }), JSON.stringify(part)).toMatch(said);
+	});
+
+	it("reads short words inside a label as Title Case leaves them", () => {
+		expect(
+			refusalOf({ ...bar, act: "Look at the Bar" }),
+			"Look at the Bar",
+		).toBeUndefined();
+	});
+});
+
 // The looks clock asks this each minute, so a look outlives no quest
 // that ended in another session.
 // 2RCBOJ, 12 November: most looks ask for a word back, and the only way
@@ -448,7 +660,7 @@ describe("a look answered where the person is", () => {
 		const answered = answerLook(
 			dir,
 			look.id,
-			"Not yet",
+			{ value: "Not yet" },
 			new Date("2026-11-12T07:00:00Z"),
 		);
 
@@ -463,11 +675,115 @@ describe("a look answered where the person is", () => {
 
 	it("answers nothing it doesn't offer, nor a look no longer waiting", () => {
 		const look = pointAt(dir, asking, who);
-		expect(answerLook(dir, look.id, "Maybe"), "no such choice").toBeUndefined();
-		expect(answerLook(dir, "0000", "Posted"), "no such look").toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { value: "Maybe" }),
+			"no such choice",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { other: "Posted" }),
+			"a choice's words given as his own, to a look wanting none",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, "0000", { value: "Posted" }),
+			"no such look",
+		).toBeUndefined();
 		withdrawLook(dir, who, look.kind, look.target);
-		expect(answerLook(dir, look.id, "Posted"), "taken back").toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { value: "Posted" }),
+			"taken back",
+		).toBeUndefined();
 		expect(looksIn(dir)[0]?.how, "left as taken back").toBe("taken back");
+	});
+
+	it("takes his own words when the look wants them, and only then", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const picky = pointAt(dir, { ...asking, target: `${pr.target}9` }, who);
+
+		expect(
+			answerLook(dir, wordy.id, { other: "  " }),
+			"no words",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, wordy.id, { value: "the darker one" }),
+			"words sent as a pick, which the look doesn't offer",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, picky.id, { other: "the darker one" }),
+			"words to a look that offers only choices",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, wordy.id, { other: " the darker one " }),
+			"his words",
+		).toMatchObject({
+			state: "resolved",
+			how: "answered: the darker one",
+			answer: "the darker one",
+			answeredInWords: true,
+		});
+	});
+
+	it("keeps no more of his words than a look holds", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const answered = answerLook(dir, wordy.id, {
+			other: "g".repeat(ANSWER_CHARACTERS + 50),
+		});
+		expect(answered?.answer?.length, "cut to what a look holds").toBe(
+			ANSWER_CHARACTERS,
+		);
+	});
+
+	it("cuts his words by character, never through an emoji", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				target: `${pr.target}/emoji`,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const answered = answerLook(dir, wordy.id, {
+			other: `${"g".repeat(ANSWER_CHARACTERS - 1)}🌿🌿`,
+		});
+		expect(answered?.answer, "the last whole emoji kept").toBe(
+			`${"g".repeat(ANSWER_CHARACTERS - 1)}🌿`,
+		);
+	});
+
+	it("refuses words asked in a look's first form, which can't keep them", () => {
+		expect(
+			refusalOf({ ...asking, words: true }),
+			"words with only why and ask",
+		).toMatch(/second form/u);
 	});
 
 	it("refuses choices past a row's room, repeated, or not his words", () => {

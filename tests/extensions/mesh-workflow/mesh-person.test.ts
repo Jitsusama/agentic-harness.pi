@@ -155,8 +155,13 @@ describe("the person's look list, from show_person", () => {
 		kind: "pr",
 		target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1378",
 		title: "The status bar at narrow widths",
-		why: "Your status bar showed only dotfiles at 76 columns; now it keeps the model, the cost and the branch.",
-		ask: "Say whether it reads right: keep it, or tell me what to drop.",
+		happened:
+			"Your status bar keeps the model, the cost and the branch at 76 columns.",
+		matters:
+			"It showed only the folder there, so you couldn't see what a session cost.",
+		act: "Try the Bar",
+		choices: ["Keep It", "Roll It Back"],
+		follows: ["It stays as it is.", "I put the old bar back tonight."],
 	};
 
 	it("keeps what he is asked, and refuses a look written in the agents' talk", async () => {
@@ -168,18 +173,33 @@ describe("the person's look list, from show_person", () => {
 
 		const talk = await show({
 			...pr,
-			why: "Settled with WCJQSG in [4a4ae257].",
+			matters: "Settled with WCJQSG in [4a4ae257].",
 		});
 		expect(talk?.content[0]?.text, "agent talk").toContain("can't place");
-		const terse = await show({ ...pr, ask: undefined });
-		expect(terse?.content[0]?.text, "no ask").toContain("asked to do");
+		const terse = await show({ ...pr, act: undefined });
+		expect(terse?.content[0]?.text, "no act").toContain("its act");
+		const firstForm = await show({
+			kind: pr.kind,
+			target: pr.target,
+			title: pr.title,
+			why: "It keeps the model now.",
+			ask: "Keep it?",
+		});
+		// The tool takes no why or ask, so a first form is refused for
+		// want of what happened, never as both forms at once.
+		expect(firstForm?.content[0]?.text, "why and ask alone").toContain(
+			"what happened",
+		);
 		expect(looksIn(join(fixture.root, "looks")), "neither was kept").toEqual(
 			[],
 		);
 
 		await show(pr);
 		expect(looksIn(join(fixture.root, "looks"))[0]).toMatchObject({
-			ask: pr.ask,
+			happened: pr.happened,
+			matters: pr.matters,
+			act: pr.act,
+			ask: "Try the Bar: Keep It, or Roll It Back.",
 			quest: "QEST-20261021-7M6JKG",
 			state: "waiting",
 		});
@@ -223,7 +243,9 @@ describe("the person's look list, from show_person", () => {
 
 		const shown = await show({
 			...pr,
-			ask: "Nothing, just to see.",
+			act: "Just See",
+			choices: [],
+			follows: [],
 			thread: "the bar",
 		});
 		await show({
