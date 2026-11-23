@@ -1060,21 +1060,28 @@ describe("taking a tree in a repository of thousands", () => {
 		);
 	});
 
-	it("reads a tree aside without rewriting the index it is about to remove", async () => {
+	it("reads a tree's status without rewriting its index, in the survey or the take", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		const tree = await cut("stale", ["--detach", "@", "main"]);
-		// A tracked file whose stat the index no longer matches, so a status
-		// that may lock would refresh the index and write it back.
-		const later = new Date(Date.now() + 60_000);
-		lutimesSync(join(tree, ".gitignore"), later, later);
-		const written: boolean[] = [];
+		// A tracked file whose stat the index no longer matches, an hour
+		// back, so a status that may lock would refresh the index and write
+		// it back.
+		const earlier = new Date(Date.now() - 60 * 60_000);
+		lutimesSync(join(tree, ".gitignore"), earlier, earlier);
+		const written: { take: boolean; wrote: boolean }[] = [];
 		const watched: Exec = async (command, args) => {
-			if (command !== "git" || !args.includes("--ignore-submodules=none")) {
+			// The tree itself, or set aside as it is taken, never the checkout
+			// the survey reads beside it.
+			const where = args[args.indexOf("-C") + 1] ?? "";
+			if (
+				command !== "git" ||
+				!args.includes("status") ||
+				!where.startsWith(tree)
+			) {
 				return await exec(command, args);
 			}
-			const aside = args[args.indexOf("-C") + 1] ?? "";
 			const index = join(
-				await git(aside, "rev-parse", "--absolute-git-dir"),
+				await git(where, "rev-parse", "--absolute-git-dir"),
 				"index",
 			);
 			// Git writes an index through a lock file it renames into place, so
@@ -1085,7 +1092,10 @@ describe("taking a tree in a repository of thousands", () => {
 			};
 			const before = stamp();
 			const result = await exec(command, args);
-			written.push(stamp() !== before);
+			written.push({
+				take: args.includes("--ignore-submodules=none"),
+				wrote: stamp() !== before,
+			});
 			return result;
 		};
 
@@ -1098,14 +1108,21 @@ describe("taking a tree in a repository of thousands", () => {
 		});
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
-		expect(written, "the take's status left the index alone").toEqual([false]);
+		expect(
+			written.map((one) => one.take),
+			"the survey asked, then the take",
+		).toEqual([false, true]);
+		expect(
+			written.map((one) => one.wrote),
+			"no status rewrote the index",
+		).toEqual([false, false]);
 	});
 
 	it("keeps a tree aside whose tracked file changed under a stale stat", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		const tree = await cut("edited", ["--detach", "@", "main"]);
-		// The same size as what the index holds, and newer, so only reading
-		// the file, not its stat, shows git the change.
+		// The same size as what the index holds, under a stat it doesn't
+		// match, so only reading the file shows git the change.
 		const edit: Exec = async (command, args) => {
 			if (command === "git" && args.includes("--ignore-submodules=none")) {
 				const where = args[args.indexOf("-C") + 1] ?? "";

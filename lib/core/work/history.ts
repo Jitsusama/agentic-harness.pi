@@ -407,10 +407,13 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			const ask = async (): Promise<void> => {
 				for (let next = waiting.next(); !next.done; next = waiting.next()) {
 					const { path } = next.value;
+					// No optional locks, so asking leaves each tree's index as its
+					// session had it rather than rewriting thousands of them a run.
 					const state = await statusExec("git", [
 						"-C",
 						path,
 						...NO_FSMONITOR,
+						"--no-optional-locks",
 						"status",
 						"--porcelain=v1",
 						"--untracked-files=normal",
