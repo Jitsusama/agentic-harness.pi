@@ -98,7 +98,10 @@ describe("making a quest the person's steward", () => {
 		expect(
 			[said(again), readmeOf(id) === readme],
 			"already, and unchanged",
-		).toEqual([expect.stringContaining("already is the person's steward"), true]);
+		).toEqual([
+			expect.stringContaining("already is the person's steward"),
+			true,
+		]);
 	});
 
 	it("refuses a value it doesn't know, changing nothing", async () => {

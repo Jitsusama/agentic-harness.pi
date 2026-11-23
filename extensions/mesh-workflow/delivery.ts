@@ -97,10 +97,10 @@ export function advisory(above?: Reached, steward?: string): string {
 		steward !== undefined
 			? `otherwise to the person's steward, ${steward}, as a question (mesh_send to: person)`
 			: above === undefined
-			? "otherwise in your next reply, since no orchestrator is above your quest"
-			: above.by === "use"
-				? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
-				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
+				? "otherwise in your next reply, since no orchestrator is above your quest"
+				: above.by === "use"
+					? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
+					: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	const asked =
 		above === undefined
 			? steward

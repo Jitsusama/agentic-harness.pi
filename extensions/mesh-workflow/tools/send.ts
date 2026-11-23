@@ -466,8 +466,8 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// no answer in time. `person` reaches the steward, or reads as
 	// `orchestrator` while no steward is set, so it is read first.
 	const steward = at.peer.stewardedBy;
-	const to = personNamed(needed.to, steward);
-	const fresh = namesOrchestrator(to) ? await findAbove(at) : undefined;
+	const written = personNamed(needed.to, steward);
+	const fresh = namesOrchestrator(written) ? await findAbove(at) : undefined;
 	if (fresh?.settled === true) at.nodeAnswered?.();
 	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
 	const above = found?.above;
@@ -477,7 +477,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			: "address" in above
 				? above.address
 				: undefined;
-	const named = groupsNamed(orchestratorNamed(to, orchestrator).to);
+	const named = groupsNamed(orchestratorNamed(written, orchestrator).to);
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const nobody =
 		above !== undefined && "none" in above ? above.none : undefined;
@@ -491,7 +491,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	const said = [
-		steward !== undefined && to !== needed.to
+		steward !== undefined && written !== needed.to
 			? `\`person\` was read as ${steward}, the person's steward, which carries only what needs the person`
 			: "",
 		nobody !== undefined
