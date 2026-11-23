@@ -40,8 +40,7 @@ import {
 	staleIn,
 } from "./appends.ts";
 import { keptLine, type Landed, landedAs } from "./landed.ts";
-import { remoteTrunk } from "./merged-branch.ts";
-import { ask, conflictedIn } from "./tree-git.ts";
+import { ask, conflictedIn, remoteTrunk } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
 /**
@@ -96,6 +95,7 @@ export type RebaseOutcome =
 			branch: string;
 			onto: string;
 			commits: number;
+			trunk?: TrunkLeft;
 	  } & Settling)
 	| { kind: "already-there"; branch: string; onto: string }
 	| {
@@ -104,6 +104,7 @@ export type RebaseOutcome =
 			onto: string;
 			/** The commit being replayed when it stopped, when git says. */
 			at?: string;
+			trunk?: TrunkLeft;
 			/** Paths that disagree, which is what has to be settled. */
 			conflicted: readonly string[];
 			settled?: readonly SettledFile[];
@@ -111,6 +112,16 @@ export type RebaseOutcome =
 			landed?: readonly Landed[];
 	  }
 	| { kind: "refused"; reason: string };
+
+/**
+ * A replay started from trunk rather than where git would, since the base
+ * lacks trunk commits the branch held: trunk's name, and how many of its
+ * commits were left off the branch.
+ */
+export interface TrunkLeft {
+	name: string;
+	left: number;
+}
 
 /** How a halted replay ends. */
 export type ResumeOutcome =
@@ -510,9 +521,39 @@ async function isAncestor(
 	return said.code === 0;
 }
 
+/** How many commits, merges left out since a replay drops them, git counts. */
+async function counted(
+	exec: Exec,
+	treePath: string,
+	revisions: readonly string[],
+): Promise<number | undefined> {
+	const said = await ask(exec, treePath, [
+		"rev-list",
+		"--count",
+		"--no-merges",
+		...revisions,
+	]);
+	const count = said === undefined ? Number.NaN : Number(said);
+	return Number.isInteger(count) ? count : undefined;
+}
+
 /**
- * Where the branch leaves trunk, when a plain replay onto `onto` would
- * carry trunk's commits along as though they were the branch's own.
+ * How a replay onto `onto` keeps trunk's commits off the branch.
+ *
+ * - `plain`: replay every commit the base lacks, as git does, since none
+ *   of them is trunk's or there is no remote trunk to judge by;
+ * - `cut`: replay only the commits trunk lacks too, from trunk itself,
+ *   leaving off the `left` commits of trunk's the base lacks;
+ * - `refused`: neither is right, and `reason` says why and what to do.
+ */
+type TrunkCut =
+	| { kind: "plain" }
+	| { kind: "cut"; trunk: string; own: number; left: number }
+	| { kind: "refused"; reason: string };
+
+/**
+ * Whether a plain replay onto `onto` would carry trunk's commits along as
+ * though they were the branch's own, and what to do instead.
  *
  * A replay takes every commit the base lacks. A base cut before trunk
  * merged some work lacks the merged commits, though it may hold copies of
@@ -522,31 +563,70 @@ async function isAncestor(
  * "replayed 8 commits" and put seven of main's back, reverting main's later
  * edits to eight files.
  *
- * So the replay starts where the branch leaves trunk whenever the base
- * doesn't hold that point. A base that does (trunk itself, or a branch
- * built on the trunk the branch was cut from) is replayed onto as before,
- * and so is every base in a checkout with no remote trunk to judge by.
+ * So when the base lacks trunk commits the branch holds, the replay starts
+ * from trunk itself, which git reads as every commit trunk holds, however
+ * many merge bases the two share. That is right only when everything the
+ * branch shares with the base is trunk's too: a branch stacked on the base
+ * that merged trunk shares the base's own commits, which a replay from
+ * trunk would pick again, so it is refused with the order that works. So
+ * is a branch with nothing of its own above trunk, which would become the
+ * base. A trunk git can't judge by refuses rather than replaying whole.
  */
-async function trunkFork(
+async function trunkCut(
 	exec: Exec,
 	treePath: string,
+	branch: string,
 	onto: string,
-): Promise<string | undefined> {
+): Promise<TrunkCut> {
 	const trunk = await remoteTrunk(exec, treePath);
-	if (trunk === undefined) return undefined;
-	const fork = await ask(exec, treePath, ["merge-base", "HEAD", trunk]);
-	if (fork === undefined) return undefined;
-	const held = await exec("git", [
-		"-C",
-		treePath,
+	if (trunk === undefined) return { kind: "plain" };
+	const trunkName = trunk.replace(/^refs\/remotes\//, "");
+	const all = await counted(exec, treePath, ["HEAD", `^${onto}`]);
+	const own = await counted(exec, treePath, ["HEAD", `^${onto}`, `^${trunk}`]);
+	const cannot = (what: string): TrunkCut => ({
+		kind: "refused",
+		reason: `git couldn't say ${what}, so ${branch} isn't replayed: a replay of everything ${onto} lacks could carry ${trunkName}'s commits as though they were its own.`,
+	});
+	if (all === undefined || own === undefined) {
+		return cannot(`which of ${branch}'s commits are ${trunkName}'s`);
+	}
+	const left = all - own;
+	if (left === 0) return { kind: "plain" };
+	if (own === 0) {
+		return {
+			kind: "refused",
+			reason: `Every commit on ${branch} is already on ${trunkName}, and ${onto} lacks ${left} of them, so replaying would either carry ${trunkName}'s commits onto ${onto} or leave ${branch} as ${onto} itself. Cut a fresh branch from ${onto}, or replay onto ${trunkName}.`,
+		};
+	}
+	const bases = await ask(exec, treePath, [
 		"merge-base",
-		"--is-ancestor",
-		fork,
+		"--all",
+		"HEAD",
 		onto,
 	]);
-	// Exit 1 is git saying no; anything else is git failing to say, and a
-	// replay git can't judge is left as it always was.
-	return held.code === 1 ? fork : undefined;
+	if (bases === undefined) {
+		return cannot(`where ${branch} and ${onto} meet`);
+	}
+	for (const base of bases.split("\n").filter((one) => one !== "")) {
+		const held = await exec("git", [
+			"-C",
+			treePath,
+			"merge-base",
+			"--is-ancestor",
+			base,
+			trunk,
+		]);
+		if (held.code === 1) {
+			return {
+				kind: "refused",
+				reason: `${branch} holds ${left} of ${trunkName}'s commits that ${onto} lacks, and shares commits with ${onto} that aren't on ${trunkName}, so no one replay carries only its own. Replay ${onto} onto ${trunkName} first, then ${branch} onto ${onto}.`,
+			};
+		}
+		if (held.code !== 0) {
+			return cannot(`whether ${onto}'s history is ${trunkName}'s`);
+		}
+	}
+	return { kind: "cut", trunk, own, left };
 }
 
 /** Replay with plain git. */
@@ -681,6 +761,15 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				};
 			}
 
+			// git reads a word opening with a dash as an option, and rebase's
+			// --exec runs a shell command after each commit it replays.
+			if (onto.startsWith("-")) {
+				return {
+					kind: "refused",
+					reason: `${onto} opens with a dash, which git would read as an option rather than a commit to replay onto.`,
+				};
+			}
+
 			const branch = await ask(exec, treePath, [
 				"rev-parse",
 				"--abbrev-ref",
@@ -720,27 +809,35 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				return { kind: "already-there", branch, onto };
 			}
 
-			const fork = ontoHeld ? undefined : await trunkFork(exec, treePath, onto);
+			const cut: TrunkCut = ontoHeld
+				? { kind: "plain" }
+				: await trunkCut(exec, treePath, branch, onto);
+			if (cut.kind === "refused") return cut;
+			// Merges aren't replayed, so they aren't counted; a count git can't
+			// give falls back to every commit above the base, never to none.
 			const before =
-				fork === undefined
-					? above
-					: await ask(exec, treePath, [
-							"rev-list",
-							"--count",
-							"HEAD",
-							`^${onto}`,
-							`^${fork}`,
-						]);
+				cut.kind === "cut"
+					? cut.own
+					: ((await counted(exec, treePath, ["HEAD", `^${onto}`])) ??
+						(Number.parseInt(above ?? "0", 10) || 0));
+			// What the answer says of trunk's commits left off, so a replay cut at
+			// trunk never reads as the plain one.
+			const trunk =
+				cut.kind === "cut"
+					? {
+							trunk: {
+								name: cut.trunk.replace(/^refs\/remotes\//, ""),
+								left: cut.left,
+							},
+						}
+					: {};
 			const replay = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
-			replay.push(...(fork === undefined ? [onto] : ["--onto", onto, fork]));
+			replay.push(
+				...(cut.kind === "cut" ? ["--onto", onto, cut.trunk] : [onto]),
+			);
 			const result = await exec("git", unattended(replay));
 			if (result.code === 0) {
-				return {
-					kind: "replayed",
-					branch,
-					onto,
-					commits: Number.parseInt(before ?? "0", 10) || 0,
-				};
+				return { kind: "replayed", branch, onto, commits: before, ...trunk };
 			}
 
 			const conflicted = await conflictedIn(exec, treePath);
@@ -753,7 +850,8 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 						kind: "replayed",
 						branch,
 						onto,
-						commits: Number.parseInt(before ?? "0", 10) || 0,
+						commits: before,
+						...trunk,
 						...settling,
 					};
 				}
@@ -768,6 +866,7 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 					branch,
 					onto,
 					...(at === undefined ? {} : { at }),
+					...trunk,
 					...(carried.kind === "halted"
 						? { conflicted: carried.conflicted, ...settlingOf(carried) }
 						: { conflicted }),

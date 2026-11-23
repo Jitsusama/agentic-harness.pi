@@ -10,8 +10,10 @@ import { FETCH_MS, refreshStart } from "../../../lib/core/work/fresh-start.ts";
 import {
 	createGitRebaser,
 	type Settling,
+	type TrunkLeft,
 } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
+import { remoteTrunk } from "../../../lib/core/work/tree-git.ts";
 import { GLYPH } from "../render.ts";
 import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -80,13 +82,22 @@ export async function replay(
 	// A remote's branch is replayed onto as the remote holds it: replayed
 	// onto the last fetch's origin/main, a branch went up a merge behind and
 	// its checks ran against a main that was no longer there.
-	const fresh = await refreshStart(
-		spawnExec({ ...(signal ? { signal } : {}), timeoutMs: FETCH_MS }),
-		found.path,
-		onto,
-		signal,
+	const fetching = spawnExec({
+		...(signal ? { signal } : {}),
+		timeoutMs: FETCH_MS,
+	});
+	const fresh = await refreshStart(fetching, found.path, onto, signal);
+	// Which commits are trunk's is judged by the remote's trunk, so it is
+	// fetched too: one fetched long ago would take trunk's later commits on
+	// the branch for its own.
+	const trunk = await remoteTrunk(exec, found.path);
+	const trunkFresh =
+		trunk === undefined || trunk === fresh.start
+			? undefined
+			: await refreshStart(fetching, found.path, trunk, signal);
+	const stale = [fresh.stale, trunkFresh?.stale].filter(
+		(said): said is string => said !== undefined,
 	);
-	const stale = fresh.stale ? [fresh.stale] : [];
 	const named = (ref: string) => (ref === fresh.start ? onto : ref);
 	const outcome = await rebaser.rebase(found.path, fresh.start);
 	if (outcome.kind === "refused") {
@@ -103,11 +114,14 @@ export async function replay(
 	}
 	if (outcome.kind === "halted") {
 		return refuse(
-			haltLines(
-				outcome.conflicted,
-				`${outcome.branch} onto ${named(outcome.onto)}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
-				outcome,
-			),
+			[
+				haltLines(
+					outcome.conflicted,
+					`${outcome.branch} onto ${named(outcome.onto)}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
+					outcome,
+				),
+				...cutLines(outcome.trunk, named(outcome.onto)),
+			].join("\n"),
 		);
 	}
 	// A branch with no commits of its own isn't replayed but moved up to a
@@ -117,7 +131,12 @@ export async function replay(
 			? `${outcome.branch} moved up to ${named(outcome.onto)}, with no commits of its own to replay.`
 			: `${outcome.branch} replayed onto ${named(outcome.onto)}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`;
 	return say(
-		[`${GLYPH.tree} ${done}`, ...settlingLines(outcome), ...stale].join("\n"),
+		[
+			`${GLYPH.tree} ${done}`,
+			...cutLines(outcome.trunk, named(outcome.onto)),
+			...settlingLines(outcome),
+			...stale,
+		].join("\n"),
 		{
 			ok: true,
 			branch: outcome.branch,
@@ -150,6 +169,18 @@ function subjectOfHalt(halt: {
  * named. A halt is reported through the refusal path because the tree is not
  * where it was asked to be, but it is a state to act on rather than an error.
  */
+/**
+ * What a replay started from trunk says, since it left trunk's commits
+ * off the branch where a plain one would have carried them.
+ */
+function cutLines(trunk: TrunkLeft | undefined, onto: string): string[] {
+	if (trunk === undefined) return [];
+	const commits = trunk.left === 1 ? "commit" : "commits";
+	return [
+		`   Replayed from ${trunk.name}: the branch held ${trunk.left} of its ${commits} that ${onto} lacks, which stay on ${trunk.name} rather than being carried as the branch's own.`,
+	];
+}
+
 function haltLines(
 	conflicted: readonly string[],
 	what?: string,
