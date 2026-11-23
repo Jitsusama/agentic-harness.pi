@@ -230,7 +230,7 @@ function complains(child: ChildProcess, said: RegExp): Promise<string> {
 const EVERY_HOST = ["hostname", "cat", "date", "rm", "sleep"] as const;
 
 /** The hosts a check's turns are taken on, by the lock tool each offers. */
-export const HOSTS = {
+const HOSTS = {
 	"with util-linux's flock": ["flock", ...EVERY_HOST],
 	"with only perl, as a Mac": ["perl", ...EVERY_HOST],
 } as const;
