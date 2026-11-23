@@ -893,7 +893,11 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 			);
 			const result = await exec("git", unattended(replay));
 			if (result.code === 0) {
-				return { kind: "replayed", branch, onto, commits: before, ...trunk };
+				// git drops a commit that is already upstream or left empty, so what
+				// landed is counted afresh; the count before stands if git can't say.
+				const landed =
+					(await counted(exec, treePath, [`${ontoAt}..HEAD`])) ?? before;
+				return { kind: "replayed", branch, onto, commits: landed, ...trunk };
 			}
 
 			const conflicted = await conflictedIn(exec, treePath);

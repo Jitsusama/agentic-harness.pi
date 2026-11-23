@@ -278,12 +278,14 @@ describe("halting on a conflict", () => {
 /**
  * A checkout whose remote trunk is commit t1, with topic holding 3
  * commits main lacks, 1 of them its own above trunk, meeting main at b1.
+ * `base` is the commit main names, and 1 commit sits above it once replayed.
  */
-const onTrunk: Reply[] = [
+const onTrunk = (base = "main"): Reply[] => [
 	{ when: ["symbolic-ref"], code: 1 },
 	{ when: ["--quiet refs/remotes/origin/main^{commit}"], stdout: "t1\n" },
-	{ when: ["--no-merges", "HEAD", "^main", "^t1"], stdout: "1\n" },
-	{ when: ["--no-merges", "HEAD", "^main"], stdout: "3\n" },
+	{ when: ["--no-merges", "HEAD", `^${base}`, "^t1"], stdout: "1\n" },
+	{ when: ["--no-merges", "HEAD", `^${base}`], stdout: "3\n" },
+	{ when: ["--no-merges", `${base}..HEAD`], stdout: "1\n" },
 	{ when: ["merge-base", "--all"], stdout: "b1\n" },
 	{ when: ["--is-ancestor", "b1", "t1"], code: 0 },
 ];
@@ -292,7 +294,8 @@ describe("judging a replay by trunk", () => {
 	it("replays from trunk's commit, onto the base's, once trunk is freshened", async () => {
 		const freshened: string[] = [];
 		const { exec, calls } = fakeExec([
-			...onTrunk,
+			{ when: ["--quiet main^{commit}"], stdout: "b0\n" },
+			...onTrunk("b0"),
 			...ready,
 			{ when: ["rebase"], code: 0 },
 		]);
@@ -315,13 +318,13 @@ describe("judging a replay by trunk", () => {
 		expect(
 			replay?.args.slice(-3),
 			"trunk was replayed from by a name another fetch could move",
-		).toEqual(["--onto", "main", "t1"]);
+		).toEqual(["--onto", "b0", "t1"]);
 	});
 
 	it("fetches no trunk for a branch already on its base", async () => {
 		const freshened: string[] = [];
 		const { exec } = fakeExec([
-			...onTrunk,
+			...onTrunk(),
 			{ when: ["merge-base", "--is-ancestor", "main", "HEAD"], code: 0 },
 			...ready,
 		]);
@@ -361,7 +364,7 @@ describe("judging a replay by trunk", () => {
 			// commits that judging by trunk exists to stop.
 			const { exec, calls } = fakeExec([
 				failing,
-				...onTrunk,
+				...onTrunk(),
 				...ready,
 				{ when: ["rebase"], code: 0 },
 			]);

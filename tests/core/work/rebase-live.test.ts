@@ -395,6 +395,10 @@ describe("a branch that leaves trunk at a merge", () => {
 				unjudged: true,
 			},
 		);
+		expect(
+			outcome,
+			"the copy of work one git dropped was counted as replayed",
+		).toMatchObject({ commits: 2 });
 		expect(outcome, "a cut was claimed with no trunk").not.toHaveProperty(
 			"trunk",
 		);

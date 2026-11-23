@@ -101,7 +101,14 @@ export async function replay(
 		const got = await refreshStart(fetching, found.path, trunk, signal, {
 			fetchedWithin: FETCHED_LATELY_MS,
 		});
-		if (got.stale !== undefined) stale.push(got.stale);
+		// The fetch's own sentence says where new work starts, which is not
+		// what trunk is for here: it only judges which commits are trunk's.
+		if (got.stale !== undefined) {
+			const name = trunk.replace(/^refs\/remotes\//, "");
+			stale.push(
+				`Couldn't fetch ${name} just now, so which commits are ${name}'s was judged by its last fetch.`,
+			);
+		}
 	};
 	const named = (ref: string) => (ref === fresh.start ? onto : ref);
 	const outcome = await rebaser.rebase(found.path, fresh.start, {
@@ -186,7 +193,7 @@ function cutLines(
 	}
 	return replay.unjudged
 		? [
-				`   No remote trunk here to judge by, so every commit ${onto} lacks was replayed, a merged trunk's included.`,
+				`   No remote trunk here to judge by, so every commit ${onto} lacks was replayed, any of trunk's among them included.`,
 			]
 		: [];
 }
