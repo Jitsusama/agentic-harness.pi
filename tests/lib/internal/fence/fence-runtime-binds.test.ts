@@ -110,13 +110,21 @@ describe.skipIf(bwrap === undefined)(
 
 		it("sees no compiled code there, and what it writes there never reaches it", () => {
 			// node runs what it reads back from pi-compile outside the fence.
-			const host = compileFolderOf("host", { XDG_RUNTIME_DIR: runtimeDir });
+			const host = compileFolderOf("host", {
+				XDG_RUNTIME_DIR: runtimeDir,
+				HOME: home,
+			});
 			expect(host).toBe(join(runtimeDir, RUNTIME_COMPILE, "host"));
 			expect(
 				fenced(`test -e '${join(runtimeDir, RUNTIME_COMPILE)}'`),
 				"the compile folder is there inside",
 			).toBe(false);
-			fenced(`mkdir -p '${host}' && echo planted > '${host}/entry'`);
+			expect(
+				fenced(
+					`mkdir -p '${host}' && echo planted > '${host}/entry' && test -s '${host}/entry'`,
+				),
+				"the fenced command ran and wrote inside",
+			).toBe(true);
 			expect(
 				existsSync(join(host, "entry")),
 				"a fenced command wrote into the compile folder outside",

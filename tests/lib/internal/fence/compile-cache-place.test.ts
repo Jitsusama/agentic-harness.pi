@@ -27,6 +27,9 @@ import {
 } from "../../../../lib/internal/fence/compile-cache-place.ts";
 import { fenceRefusesWrite } from "../../../../lib/internal/fence/fence.ts";
 
+/** Only Linux keeps the cache in the runtime folder; elsewhere it's pi's state. */
+const onLinux = process.platform === "linux";
+
 const STATE = "/home/someone/.local/state";
 const IN_STATE = join(STATE, "pi/agentic-harness.pi");
 
@@ -39,6 +42,7 @@ beforeEach(() => {
 	mkdirSync(runtime, { mode: 0o700 });
 	chmodSync(runtime, 0o700);
 	vi.stubEnv("XDG_STATE_HOME", STATE);
+	vi.stubEnv("HOME", "/home/someone");
 });
 
 afterEach(() => {
@@ -47,16 +51,19 @@ afterEach(() => {
 });
 
 describe("where pi's compile cache is kept", () => {
-	it("is a private folder of the runtime folder, not the temporary folder", () => {
-		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
-		vi.stubEnv("TMPDIR", "/tmp/pi-quest-QEST-1");
-		const folder = compileCacheFolder();
-		expect(folder).toBe(join(runtime, RUNTIME_COMPILE, "node"));
-		expect(statSync(folder).mode & 0o777).toBe(0o700);
-		expect(statSync(join(runtime, RUNTIME_COMPILE)).mode & 0o777).toBe(0o700);
-	});
+	it.runIf(onLinux)(
+		"is a private folder of the runtime folder, not the temporary folder",
+		() => {
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			vi.stubEnv("TMPDIR", "/tmp/pi-quest-QEST-1");
+			const folder = compileCacheFolder();
+			expect(folder).toBe(join(runtime, RUNTIME_COMPILE, "node"));
+			expect(statSync(folder).mode & 0o777).toBe(0o700);
+			expect(statSync(join(runtime, RUNTIME_COMPILE)).mode & 0o777).toBe(0o700);
+		},
+	);
 
-	it("keeps the host's beside node's, each its own", () => {
+	it.runIf(onLinux)("keeps the host's beside node's, each its own", () => {
 		const env = { XDG_RUNTIME_DIR: runtime };
 		expect(compileFolderOf("host", env)).toBe(
 			join(runtime, RUNTIME_COMPILE, "host"),
@@ -74,6 +81,37 @@ describe("where pi's compile cache is kept", () => {
 		expect(compileFolderOf("host", {})).toBe(join(IN_STATE, "host-compile"));
 		expect(runtimeCompileFolders({ XDG_RUNTIME_DIR: "run/user" })).toEqual([]);
 	});
+
+	it("passes over a runtime folder on any platform but Linux, whose fence alone empties it", () => {
+		for (const platform of ["darwin", "freebsd"] as const) {
+			expect(
+				compileFolderOf("node", { XDG_RUNTIME_DIR: runtime }, platform),
+				platform,
+			).toBe(join(IN_STATE, "node-compile-cache"));
+		}
+		expect(compileFolderOf("node", { XDG_RUNTIME_DIR: runtime }, "linux")).toBe(
+			join(runtime, RUNTIME_COMPILE, "node"),
+		);
+	});
+
+	it.runIf(onLinux)(
+		"passes over a runtime folder in the home folder, whose binds the fence lays back over it",
+		() => {
+			expect(
+				compileFolderOf("node", { XDG_RUNTIME_DIR: runtime, HOME: dir }),
+			).toBe(join(IN_STATE, "node-compile-cache"));
+			expect(
+				compileFolderOf("host", { XDG_RUNTIME_DIR: runtime, HOME: runtime }),
+			).toBe(join(IN_STATE, "host-compile"));
+			expect(
+				compileFolderOf("node", {
+					XDG_RUNTIME_DIR: runtime,
+					HOME: `${dir}-beside`,
+				}),
+				"a home beside it, sharing only a prefix",
+			).toBe(join(runtime, RUNTIME_COMPILE, "node"));
+		},
+	);
 
 	it("passes over a runtime folder others may enter", () => {
 		chmodSync(runtime, 0o755);
@@ -135,18 +173,21 @@ describe("where pi's compile cache is kept", () => {
 		).toBe(true);
 	});
 
-	it("is named over whatever the environment named before", () => {
-		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
-		const env: Record<string, string> = {
-			[COMPILE_CACHE_VARIABLE]: "/tmp/pi-quest-QEST-1/node-compile-cache",
-		};
-		keepCompileCacheOutOfReach({
-			set: (name, value) => {
-				env[name] = value;
-			},
-		});
-		expect(env[COMPILE_CACHE_VARIABLE]).toBe(
-			join(runtime, RUNTIME_COMPILE, "node"),
-		);
-	});
+	it.runIf(onLinux)(
+		"is named over whatever the environment named before",
+		() => {
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			const env: Record<string, string> = {
+				[COMPILE_CACHE_VARIABLE]: "/tmp/pi-quest-QEST-1/node-compile-cache",
+			};
+			keepCompileCacheOutOfReach({
+				set: (name, value) => {
+					env[name] = value;
+				},
+			});
+			expect(env[COMPILE_CACHE_VARIABLE]).toBe(
+				join(runtime, RUNTIME_COMPILE, "node"),
+			);
+		},
+	);
 });

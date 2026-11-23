@@ -14,12 +14,15 @@
  * renaming about 1,900 entries into pi's state while btrfs's root lock
  * was contended; in memory a flush waits on no disk. It empties at each
  * reboot, which costs one cold start. A runtime folder that isn't the
- * login's own and private, or is reached through a link, is passed over
- * for pi's state, as the Mac is, which has no `XDG_RUNTIME_DIR`.
+ * login's own and private, is reached through a link, or lies in the
+ * home folder, is passed over for pi's state, as is any platform but
+ * Linux: only Linux's fence empties the runtime folder, and a home
+ * folder's binds are laid back over it.
  */
 
 import { lstatSync, mkdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative } from "node:path";
 import type { SessionEnvironment } from "../../core/session/host.ts";
 import { stateDir } from "../paths.ts";
 
@@ -61,16 +64,23 @@ export function runtimeCompileFolders(
 
 /**
  * The folder `by`'s compile cache is kept in: its folder in the runtime
- * folder, made private, when each level from the runtime folder down is
- * a folder of this login's own, open to nobody else and reached through
- * no link; its folder in pi's state otherwise.
+ * folder, made private, on Linux, outside the home folder, when each
+ * level from the runtime folder down is a folder of this login's own,
+ * open to nobody else and reached through no link; its folder in pi's
+ * state otherwise.
  */
 export function compileFolderOf(
 	by: CompiledBy,
 	env: NodeJS.ProcessEnv = process.env,
+	platform: NodeJS.Platform = process.platform,
 ): string {
 	const root = env.XDG_RUNTIME_DIR;
-	if (root && isAbsolute(root)) {
+	if (
+		platform === "linux" &&
+		root &&
+		isAbsolute(root) &&
+		!insideHome(root, env.HOME || homedir())
+	) {
 		const shared = join(root, RUNTIME_COMPILE);
 		const own = join(shared, by);
 		if (isPrivate(root) && madePrivate(shared) && madePrivate(own)) return own;
@@ -92,6 +102,12 @@ export function keepCompileCacheOutOfReach(
 	env: Pick<SessionEnvironment, "set">,
 ): void {
 	env.set(COMPILE_CACHE_VARIABLE, compileCacheFolder());
+}
+
+/** Whether `folder` is the home folder or lies within it. */
+function insideHome(folder: string, home: string): boolean {
+	const path = relative(home, folder);
+	return path === "" || !(path.startsWith("..") || isAbsolute(path));
 }
 
 /** Make `folder` private if it is missing, then whether it is private. */
