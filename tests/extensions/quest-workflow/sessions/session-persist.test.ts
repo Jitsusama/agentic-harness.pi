@@ -65,25 +65,32 @@ const TRIES_PAST_LETTING_GO = 2;
 
 /**
  * Hand the tool_result handler a read's result for every try of a
- * pending quest, a minute apart, and then a few more once it is let go.
+ * pending quest, a minute apart, until it is let go, and then exactly
+ * TRIES_PAST_LETTING_GO more, however many tries letting go took.
  */
 async function triesPastLettingGo(
 	state: ReturnType<typeof buildState>,
 	result: (event: unknown, ctx: unknown) => unknown,
 	ctx: unknown,
 ): Promise<void> {
-	const last = PENDING_TRIES + TRIES_PAST_LETTING_GO;
-	for (let tries = 1; tries < last; tries++) {
+	let results = 0;
+	let letGoAt: number | undefined;
+	while (letGoAt === undefined || results - letGoAt < TRIES_PAST_LETTING_GO) {
+		if (results > PENDING_TRIES) throw new Error("the quest was never let go");
 		state.pendingRetryAt = 0;
+		results++;
 		await result(
 			{
 				toolName: "read",
 				input: { path: "x" },
-				toolCallId: `c${tries}`,
+				toolCallId: `c${results}`,
 				content: [],
 			},
 			ctx,
 		);
+		if (letGoAt === undefined && state.pendingQuest === undefined) {
+			letGoAt = results;
+		}
 	}
 }
 
@@ -667,6 +674,8 @@ describe("persist + restore", () => {
 		if (!result) throw new Error("no tool_result handler");
 		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
 		const ctx = { ...fakeCtx(tmpRoot), hasUI: true, ui };
+		const sent = pi.recorded.sent.length;
+		const sentAsUser = pi.recorded.sentAsUser.length;
 		await triesPastLettingGo(next, result, ctx);
 		expect(next.pendingQuest, "let go").toBeUndefined();
 		expect(ui.notify, "warned once").toHaveBeenCalledTimes(1);
@@ -674,10 +683,13 @@ describe("persist + restore", () => {
 			expect.stringContaining("never found again"),
 			"warning",
 		);
-		const said = pi.recorded.sent.filter((m) =>
-			String(m.content).includes("never found again"),
+		expect(
+			pi.recorded.sent.slice(sent),
+			"the screen says it, not the log",
+		).toEqual([]);
+		expect(pi.recorded.sentAsUser.slice(sentAsUser), "nor as the user").toEqual(
+			[],
 		);
-		expect(said, "the screen says it, not the log").toHaveLength(0);
 	});
 
 	// Plain pi with no screen (a spawn, print or RPC mode) has no viewer to
@@ -698,12 +710,14 @@ describe("persist + restore", () => {
 		if (!result) throw new Error("no tool_result handler");
 		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
 		const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+		const sent = pi.recorded.sent.length;
+		const sentAsUser = pi.recorded.sentAsUser.length;
 		await triesPastLettingGo(next, result, ctx);
 		expect(next.pendingQuest, "let go").toBeUndefined();
-		const said = pi.recorded.sent.filter((m) =>
-			String(m.content).includes("never found again"),
+		expect(pi.recorded.sent.slice(sent), "nothing in the log").toEqual([]);
+		expect(pi.recorded.sentAsUser.slice(sentAsUser), "nor as the user").toEqual(
+			[],
 		);
-		expect(said, "nothing in the log").toHaveLength(0);
 		expect(ui.notify, "no screen to tell").not.toHaveBeenCalled();
 	});
 
