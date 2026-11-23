@@ -54,6 +54,7 @@ import {
 } from "node:fs";
 import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { count } from "../../ui/count.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
 
@@ -372,7 +373,11 @@ export interface JobRecordRemoval {
 // `removeKept`'s removals of each call run, and whether the process
 // takes back, as it exits, what those and the record removals had yet
 // to remove, asked once however many copies there are and done by the
-// copy loaded last, so a reload's fix reaches it.
+// copy loaded last, so a reload's fix reaches it. A call begun under a
+// copy older than this store and written again by a newer one is held
+// here though the old copy removes its files, so its session's close
+// unlinks a missing name on the thread once: only for the calls that
+// span the reload onto it.
 const jobRecords = processGlobal(
 	"agentic-harness.internal/shell/kept-jobs/records.v4",
 	() => ({
@@ -474,17 +479,31 @@ function takeBackAtExit(): void {
  * process exits, since its pool does nothing more once it has, and a
  * record or carried mark left would stand beside the call's end for its
  * next start to say again: the record of each removal still running
- * for a call not handed on, and the marks of each call `removeKept`
- * still removes, which takes in a call handed on whose files then went. Only an exit does it, never a session's
+ * for a call not handed on, or whose files went, as one put back for a
+ * taker can land after they did, and the marks of each call
+ * `removeKept` still removes. Only an exit does it, never a session's
  * close, since in a host the process lives on and the disk gets to them
  * off the thread; a pi killed outright runs nothing, and its next start
- * says the call's end again.
+ * says the call's end again. Each waits on the disk that left it, so
+ * how many it asks after is said first, for a slow exit to be read by.
  */
 function takeRecordsBack(): void {
-	for (const [path, removal] of jobRecords.removing)
-		if (!removal.handed) unlinkNow(`${path}${JOB_SUFFIX}`);
-	for (const path of jobRecords.ending.keys())
-		for (const mark of MARKS) unlinkNow(`${path}${mark}`);
+	const records = [...jobRecords.removing]
+		.filter(([, removal]) => !removal.handed || removal.gone)
+		.map(([path]) => `${path}${JOB_SUFFIX}`);
+	const marks = [...jobRecords.ending.keys()].flatMap((path) =>
+		[...MARKS].map((mark) => `${path}${mark}`),
+	);
+	const files = [...records, ...marks];
+	if (files.length === 0) return;
+	try {
+		process.stderr.write(
+			`[shell] taking back ${count(files.length, "kept file")} the disk had yet to remove as pi exits\n`,
+		);
+	} catch {
+		// Its error output gone with whatever read it; the files still go.
+	}
+	for (const file of files) unlinkNow(file);
 }
 jobRecords.takeBack = takeRecordsBack;
 
@@ -512,6 +531,9 @@ export function endJobRecordRemoval(
  * nothing to wait for can leave it to run. A mark it can't remove stops
  * it there, leaving the call's status beside the mark so whatever finds
  * it reads the call as ended; any other file it can't remove it passes.
+ * As it begins, its record is no longer this process's, a removal of
+ * the record still running is marked gone so nothing puts it back, and
+ * a process exiting before it ends takes back its marks.
  */
 export async function removeKept(path: string): Promise<void> {
 	letJobRecordGo(path);
