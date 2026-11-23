@@ -589,6 +589,70 @@ export function parseDocumentFrontMatter(
 	return { frontMatter: fm, body: split.body };
 }
 
+/** The order a session's process is written in, whatever built it. */
+const PROCESS_KEYS = [
+	"hostId",
+	"pid",
+	"startToken",
+	"bootToken",
+	"startTicks",
+	"hosted",
+] as const;
+
+/** The order a hosted process is written in. */
+const HOSTED_KEYS = ["host", "session", "owner"] as const;
+
+/** The order a process's owner is written in. */
+const OWNER_KEYS = [
+	"pid",
+	"startedAt",
+	"bootId",
+	"startTicks",
+	"session",
+	"host",
+] as const;
+
+/** The order a session's terminal is written in. */
+const TERMINAL_KEYS = ["driverId", "value", "scope", "hostId"] as const;
+
+/**
+ * `record`'s fields with `known` first, in that order, and any others
+ * after them by name, so the same record is written the same way
+ * whichever code built it. A quest README is shared between machines,
+ * and a rewrite that only moves keys reads there as a change of its own,
+ * which the share can't tell from one made apart (315D0071 [884962e9]).
+ */
+function inOrder(
+	record: object,
+	known: readonly string[],
+): Record<string, unknown> {
+	const fields = new Map<string, unknown>(Object.entries(record));
+	const out: Record<string, unknown> = {};
+	for (const key of known) {
+		if (fields.get(key) !== undefined) out[key] = fields.get(key);
+	}
+	const others = [...fields.keys()]
+		.filter((key) => !known.includes(key))
+		.sort();
+	for (const key of others) {
+		if (fields.get(key) !== undefined) out[key] = fields.get(key);
+	}
+	return out;
+}
+
+function processToPlain(
+	process: NonNullable<QuestSession["process"]>,
+): Record<string, unknown> {
+	const out = inOrder(process, PROCESS_KEYS);
+	if (process.hosted !== undefined) {
+		out.hosted = {
+			...inOrder(process.hosted, HOSTED_KEYS),
+			owner: inOrder(process.hosted.owner, OWNER_KEYS),
+		};
+	}
+	return out;
+}
+
 function sessionToPlain(session: QuestSession): Record<string, unknown> {
 	const out: Record<string, unknown> = { id: session.id };
 	if (session.name !== undefined) out.name = session.name;
@@ -596,8 +660,12 @@ function sessionToPlain(session: QuestSession): Record<string, unknown> {
 	if (session.started !== undefined) out.started = session.started;
 	if (session.status !== undefined) out.status = session.status;
 	if (session.instanceId !== undefined) out.instanceId = session.instanceId;
-	if (session.process !== undefined) out.process = { ...session.process };
-	if (session.terminal !== undefined) out.terminal = { ...session.terminal };
+	if (session.process !== undefined) {
+		out.process = processToPlain(session.process);
+	}
+	if (session.terminal !== undefined) {
+		out.terminal = inOrder(session.terminal, TERMINAL_KEYS);
+	}
 	return out;
 }
 
