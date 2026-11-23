@@ -270,7 +270,7 @@ export function sayBackgroundTurns(
 }
 
 /** What the queue reads of the machine it keeps, on each kind of machine. */
-interface Machine {
+export interface Machine {
 	readonly processes: Parameters<typeof queueFolder>[1];
 	/** The machine's room now, read off pi's main thread. */
 	readonly room: () => Promise<Reading>;
@@ -376,7 +376,11 @@ function placeWork(pi: ExtensionAPI, own: string | undefined) {
 	});
 }
 
-function keepQueue(pi: ExtensionAPI, machine: Machine) {
+/**
+ * Keeps the machine's queue from this session, and holds the session's
+ * heavy work to its turns, once a queue folder can be named.
+ */
+export function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	const { cgroupFor } = machine;
 	// A Mac names its folder through getconf, which can fail under load,
 	// so a session that found none looks again on each tick, rather than
