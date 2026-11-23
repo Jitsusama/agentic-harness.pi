@@ -228,10 +228,14 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	// Whether this session was carried, so it is closing: a later order
 	// is left, and a run that starts is ended.
 	let carried = false;
-	// Whether a run an order ended waits to be taken up: once, by the
+	// The run an order ended that waits to be taken up, with the order
+	// that ended it and why that one couldn't go: taken up once, by the
 	// first refusal to finish with no order under way, however many
-	// orders ended runs while their refusals were written.
-	let owed = false;
+	// orders ended runs while their refusals were written, and said as
+	// the order's that ended the newest.
+	let owed:
+		| { readonly ordered: OrderedCarry; readonly why: string }
+		| undefined;
 	// Whether a refusal stamped as it was asked is being written, while
 	// which a carry is said on screen alone, since its node may read that
 	// refusal as its own. One stamped from its steer's name is older than
@@ -267,7 +271,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				? new Date(ordered.put.getTime() + 1)
 				: new Date(asked);
 		taken.settled = true;
-		if (taken.ended) owed = true;
+		if (taken.ended) owed = { ordered, why };
 		if (underWay === taken) underWay = undefined;
 		// Refused, it carries nothing, so it holds nothing while its refusal
 		// is written: a later order, or a person's Carry, would otherwise be
@@ -306,8 +310,9 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		// was. An order taken since takes it up in its turn, if it refuses
 		// too, since it ends no run of its own on a session already idle; a
 		// refusal that finished first has taken it up already.
-		if (!owed || carried || underWay !== undefined) return;
-		owed = false;
+		const debt = owed;
+		if (debt === undefined || carried || underWay !== undefined) return;
+		owed = undefined;
 		if (host.carrying?.() === true) {
 			say(
 				"The run it ended isn't taken up: a carry begun since is taking this session.",
@@ -319,7 +324,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			host.carryOn(
 				automatedText(
 					"a carry couldn't go",
-					`${opening(carryOf(ordered).a)} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.`,
+					`${opening(carryOf(debt.ordered).a)} ended this run to go, then couldn't: ${debt.why}. Nothing was carried; carry on where you left off.`,
 				),
 			);
 		} catch (error) {

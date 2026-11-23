@@ -4,7 +4,7 @@
  * subagent working as its peer's hands, and a folder left untrusted.
  */
 
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -15,8 +15,10 @@ import {
 import { HAND_EXTENSION } from "../../../extensions/mesh-workflow/index.ts";
 import {
 	type CarryHold,
+	carryUnderWay,
 	holdForCarry,
 } from "../../../lib/internal/carry/under-way.ts";
+import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import { leaveUntrusted } from "../../../lib/internal/session/carried-trust.ts";
 import {
 	leaveSession,
@@ -331,7 +333,7 @@ describe("parking", () => {
 							: () => undefined,
 				},
 			);
-			const { emit } = await startSession(
+			const { emit, fire } = await startSession(
 				{},
 				{
 					hasUI: true,
@@ -350,6 +352,8 @@ describe("parking", () => {
 					isIdle: () => run.idle,
 					hasPendingMessages: () => false,
 					abort: () => {},
+					// Plain pi's close, which a carry that carried asks for.
+					shutdown: () => {},
 				},
 			);
 			// Whatever the test did, its run ends and its carry lets go, so
@@ -381,10 +385,10 @@ describe("parking", () => {
 						`${error instanceof Error ? error.message : String(error)} Told: ${JSON.stringify(told)}`,
 					);
 				});
-			return { emit, run, told, steered, toldOf };
+			return { emit, fire, run, told, steered, toldOf };
 		};
 
-		it("carries an ordered carry steered in, its own hold set aside, and holds the park meanwhile", async () => {
+		it("takes an ordered carry steered in as far as its carry, its own hold set aside, and holds the park meanwhile", async () => {
 			const { emit, run, told, steered, toldOf } = await steeredSession();
 			steered({
 				act: "ordered-carry",
@@ -437,6 +441,51 @@ describe("parking", () => {
 			expect(told.filter((text) => text.startsWith("A Carry"))).toEqual([
 				`A Carry to equilibrius from outside its window, steered by ${FROM_PERSON}, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.`,
 			]);
+		});
+
+		// PV3TE0's round 8 (F3, F4, F6, F9, F12): only state.ts hands the
+		// registry an ordered carry's carried, and only the session's
+		// shutdown says its close landed; drop either and nothing else fails.
+		it("keeps an ordered carry that carried holding the session until its close lands", async () => {
+			const loaded = join(sessionRegistryDir(), `${session}.json`);
+			mkdirSync(sessionRegistryDir(), { recursive: true });
+			writeFileSync(
+				loaded,
+				JSON.stringify({
+					sessionId: session,
+					instanceId: "i-1",
+					cwd: fixture.root,
+					quest: "QEST-20261123-CARRY8",
+					openedAt: "2026-11-23T11:00:00.000Z",
+				}),
+			);
+			// Every other test here carries with no quest loaded.
+			left.push(async () => rmSync(loaded, { force: true }));
+			const { fire, run, told, steered, toldOf } = await steeredSession();
+			run.idle = true;
+			steered({
+				act: "ordered-carry",
+				to: "penelope",
+				why: "its camera work needs the Mac",
+				by: "WCJQSG",
+				from: "WCJQSG",
+			});
+			await toldOf("the ordered carry carries", (text) =>
+				text.startsWith("Carried to penelope"),
+			);
+
+			steered({ act: "carry", to: "equilibrius", from: FROM_PERSON });
+			await toldOf("the Carry is left to the one that carried", (text) =>
+				text.startsWith("A Carry to equilibrius"),
+			);
+			const closing = carryUnderWay(session);
+			await fire("session_shutdown");
+
+			expect(told.filter((text) => text.startsWith("A Carry"))).toEqual([
+				expect.stringContaining("was left to the carry to penelope"),
+			]);
+			expect(closing, "held while it closes").toBe("penelope");
+			expect(carryUnderWay(session), "let go once it closed").toBeUndefined();
 		});
 
 		// PV3TE0's round 5 (F13, F18) and 6 (F6): read bare, the id threw

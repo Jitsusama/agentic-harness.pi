@@ -128,11 +128,18 @@ async function carryOut(
 	const stayed = carried.trees.flatMap((one) =>
 		one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
 	);
-	if (stayed.length > 0 && ctx.hasUI) {
-		ctx.ui.notify(
-			`Carried to ${to}, but these trees stay here:\n${stayed.join("\n")}`,
-			"warning",
-		);
+	// Its done file is written, so it has carried: a stale screen that
+	// throws here would report a carry that went as refused, and let a
+	// second carry write its work again.
+	try {
+		if (stayed.length > 0 && ctx.hasUI) {
+			ctx.ui.notify(
+				`Carried to ${to}, but these trees stay here:\n${stayed.join("\n")}`,
+				"warning",
+			);
+		}
+	} catch {
+		// The screen is gone with its context; the carry went either way.
 	}
 	return carried.file;
 }

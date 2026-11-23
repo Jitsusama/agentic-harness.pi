@@ -647,6 +647,42 @@ describe("an ordered carry", () => {
 		expect(one.said[0]).toContain("carry on where you left off");
 	});
 
+	// PV3TE0's round 8 (F2): the take-up named the order whose refusal
+	// finished first, which may not be the order that ended the run.
+	it("names the order that ended the run as it takes it up, though a later order's refusal does", async () => {
+		let writes = 0;
+		let written: () => void = () => undefined;
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			writing: () => {
+				writes += 1;
+				return writes > 1
+					? Promise.resolve()
+					: new Promise<void>((done) => {
+							written = done;
+						});
+			},
+			carrying: () => one.holdsTaken() > 0,
+		});
+		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await until("its refusal is being written", () => writes === 1);
+		// Taken on a session already idle, it ends no run of its own.
+		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		written();
+		await first;
+
+		expect(one.refused).toEqual([HELD, HELD]);
+		expect(one.said, "taken up once, as the first order's").toEqual([
+			expect.stringContaining(
+				`An ordered carry to penelope by WCJQSG ended this run to go, then couldn't: ${HELD}.`,
+			),
+		]);
+	});
+
 	// Each refusal took up the run it ended, so a later order that
 	// ended a run and refused before the first's write landed started
 	// two turns (PV3TE0's round 7, F5 and F10).

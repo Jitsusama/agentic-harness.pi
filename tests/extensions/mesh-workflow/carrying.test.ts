@@ -131,6 +131,32 @@ describe("carrying a steered session's work", () => {
 		);
 	});
 
+	// PV3TE0's round 8 (F11): a stale screen that threw as it named the
+	// trees that stayed reported a carry that went as refused.
+	it("answers a carry that went, though its screen throws once its done file is written", async () => {
+		const home = folder(made, "home");
+		// On no branch and no snapshot, so it stays and is named on screen.
+		const plain = folder(made, "plain");
+		createTreeMemory(treeRecordDir()).remember({
+			identity: { key: "plain-carry", shareable: false },
+			path: plain,
+			providerId: "git",
+			sessions: ["s-stale"],
+		});
+		loaded("s-stale", QUEST);
+		const stale: CarriedContext = {
+			...session("s-stale", home, join(home, "none.jsonl")),
+			get hasUI(): boolean {
+				throw new Error("the context is stale");
+			},
+		};
+
+		const done = await carryThisSession(stale, "penelope", { home });
+
+		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
+		expect(done).toBe(join(into, "s-stale.done.json"));
+	});
+
 	it("refuses with no quest loaded, having no handover to carry into", async () => {
 		const home = folder(made, "home");
 

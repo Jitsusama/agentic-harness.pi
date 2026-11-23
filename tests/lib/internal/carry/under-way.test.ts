@@ -5,6 +5,7 @@ import {
 	CARRY_HOLDS_MOST_MS,
 	type CarryHold,
 	carryUnderWay,
+	closeLanded,
 	type HoldTiming,
 	holdForCarry,
 } from "../../../../lib/internal/carry/under-way.ts";
@@ -108,22 +109,59 @@ describe("a carry under way", () => {
 		expect(carryUnderWay(closing(1), { now })).toBeUndefined();
 	});
 
-	it("lets a carried hold go at its time, saying nothing", () => {
+	// PV3TE0's round 8 (F8): a close that never landed let the hold go
+	// unsaid, and a second carry then wrote the work again.
+	it("lets a carried hold go at its time, saying its close never landed", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const told: string[] = [];
+		const told: [string, boolean][] = [];
 		const carry = hold(
 			"penelope",
-			{ lapsed: (one) => told.push(one.to) },
+			{ lapsed: (one, carried) => told.push([one.to, carried]) },
 			closing(2),
 		);
 
 		carry.carried();
 		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
 
-		expect(told).toEqual([]);
+		expect(told).toEqual([["penelope", true]]);
 		// Read on a clock where its time is never up, so only a hold the
 		// timer let go is gone.
 		expect(carryUnderWay(closing(2), { now: 0 })).toBeUndefined();
+	});
+
+	// PV3TE0's round 8 (F3, F9, F12): in a host, whose process outlives
+	// the conversation, a carried hold turned the session away for the
+	// rest of its time if it opened there again.
+	it("lets a carried hold go once its session's close lands", () => {
+		const carry = hold("penelope", {}, closing(3));
+
+		carry.carried();
+		closeLanded(closing(3));
+
+		expect(carryUnderWay(closing(3))).toBeUndefined();
+	});
+
+	it("keeps the hold of a carry still under way as its session's close lands", () => {
+		hold("penelope");
+
+		closeLanded(session);
+
+		expect(carryUnderWay(session)).toBe("penelope");
+	});
+
+	// PV3TE0's round 8 (F7): one called carried past its time stayed in
+	// the registry for the life of its process.
+	it("lets a hold called carried once its time is up go at its release", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const carry = hold("penelope", {}, closing(4));
+
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+		carry.carried();
+		carry.release();
+
+		// Read on a clock where its time is never up, so only a hold let go
+		// is gone.
+		expect(carryUnderWay(closing(4), { now: 0 })).toBeUndefined();
 	});
 
 	it("lets go of one released before it is called carried", () => {

@@ -219,8 +219,12 @@ export function createState(
 	// A carry that outlives its hold is said, so the park that may end it
 	// next isn't taken for an ordinary one. Called from a bare timer, it
 	// never throws: a host would end every conversation for a warning.
-	const lapsed = (hold: CarryHold) => {
-		const text = `a carry to ${hold.to} has held this session its whole time and lets it go; a park, a restart or a second carry may now go beside it.`;
+	// One that carried says its close never landed, as a failed host close
+	// leaves it, since a second carry would now write its work again.
+	const lapsed = (hold: CarryHold, carried: boolean) => {
+		const text = carried
+			? `a carry to ${hold.to} carried, but this session's close never landed in its whole time, so it lets the session go; a park, a restart or a second carry may now go, and a second carry would write its work again.`
+			: `a carry to ${hold.to} has held this session its whole time and lets it go; a park, a restart or a second carry may now go beside it.`;
 		try {
 			journal(text);
 		} catch {
