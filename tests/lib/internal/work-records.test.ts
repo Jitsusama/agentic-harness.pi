@@ -270,7 +270,6 @@ function recordedElsewhere(
 	return tick;
 }
 
-/** `dir` as last written a while ago, so a listing of it is settled. */
 /**
  * A folder whose record of tree x is half written when the first listing
  * reads it, and written whole by the second listing, which moves the
@@ -297,6 +296,35 @@ function halfWritten(): {
 	return { dir, x, half };
 }
 
+/**
+ * A folder whose record of tree a is removed by the second listing, its
+ * tree left standing, while the folder moves once more; the third
+ * listing holds still.
+ */
+function removedMidway(): { dir: string; a: string; one: string } {
+	const root = mkdtempSync(join(tmpdir(), "records-"));
+	const dir = join(root, "cut");
+	const one = join(root, "trees", "one");
+	const a = join(root, "trees", "a");
+	recorded(dir, one, ["s-1"]);
+	recorded(dir, a, ["s-2"]);
+	const record = recordOf(dir, a);
+	let listings = 0;
+	disk.onList = (listed) => {
+		if (listed !== dir) return;
+		listings += 1;
+		if (listings === 1)
+			recordedElsewhere(dir, join(root, "trees", "more"), ["s-3"]);
+		if (listings === 2) {
+			rmSync(record);
+			const tick = new Date(Date.now() + 1000);
+			utimesSync(dir, tick, tick);
+		}
+	};
+	return { dir, a, one };
+}
+
+/** `dir` as last written a while ago, so a listing of it is settled. */
 function settled(dir: string): void {
 	const while_ago = new Date(Date.now() - 10_000);
 	utimesSync(dir, while_ago, while_ago);
@@ -1186,6 +1214,58 @@ describe("the work broker's records", () => {
 
 		expect(half.listings).toBe(3);
 		expect(trees).toContain(x);
+	});
+
+	it("answer a settled reading from its last listing, leaving out a record removed before it", async () => {
+		const { dir, a, one } = removedMidway();
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+
+		expect(trees).toContain(one);
+		expect(trees).not.toContain(a);
+	});
+
+	it("answer a settled reading on the thread from its last listing too", () => {
+		const { dir, a, one } = removedMidway();
+
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+
+		expect(trees).toContain(one);
+		expect(trees).not.toContain(a);
+	});
+
+	it("see a holder a moving reading went past, before a release takes the tree", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one);
+		const record = recordOf(dir, one);
+		const startedAt = 1_760_000_000_000;
+		const other = { pid: 4242, startedAt };
+		let listings = 0;
+		// The first listing's read finds nobody; the second listing finds
+		// the record renamed over with a session that took the tree up.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			if (listings === 1)
+				recordedElsewhere(dir, join(root, "trees", "more-1"), ["s-2"]);
+			if (listings === 2) {
+				const held = JSON.parse(readFileSync(record, "utf8"));
+				const staged = `${record}.staged`;
+				writeFileSync(staged, JSON.stringify({ ...held, owners: [other] }));
+				renameSync(staged, record);
+				recordedElsewhere(dir, join(root, "trees", "more-2"), ["s-2"]);
+			}
+		};
+		const facts = { alive: () => true, startedAt: async () => startedAt };
+
+		const others = await createTreeMemory(dir).otherHolders(one, facts);
+
+		expect(listings).toBe(3);
+		expect(others).toEqual([other]);
 	});
 
 	it("read again on the thread a name that held no record when first read", () => {
