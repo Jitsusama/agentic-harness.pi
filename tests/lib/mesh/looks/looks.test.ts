@@ -756,6 +756,29 @@ describe("a look answered where the person is", () => {
 		);
 	});
 
+	it("cuts his words by character, never through an emoji", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				target: `${pr.target}/emoji`,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const answered = answerLook(dir, wordy.id, {
+			other: `${"g".repeat(ANSWER_CHARACTERS - 1)}🌿🌿`,
+		});
+		expect(answered?.answer, "the last whole emoji kept").toBe(
+			`${"g".repeat(ANSWER_CHARACTERS - 1)}🌿`,
+		);
+	});
+
 	it("refuses words asked in a look's first form, which can't keep them", () => {
 		expect(
 			refusalOf({ ...asking, words: true }),

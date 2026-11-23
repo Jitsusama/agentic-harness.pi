@@ -237,6 +237,13 @@ export function answerSteered(
 export const LOOK_GONE =
 	"An answer from outside this window came for something on the person's look list that no longer waits, so nothing was answered.";
 
+/**
+ * What the window says of words that came for a look still waiting that
+ * takes only its choices: it still waits, so he can pick one.
+ */
+export const LOOK_TAKES_CHOICES =
+	"An answer from outside this window came in words for something on the person's look list that takes only its choices, so nothing was answered and it still waits for a pick.";
+
 /** The session a look's answer reaches, and its quest. */
 export interface Answering {
 	readonly session: string;
@@ -266,7 +273,12 @@ export function answerLookSteered(
 	const answered =
 		ours && given !== undefined ? answerLook(looks, look.id, given) : undefined;
 	if (!answered) {
-		tell(LOOK_GONE);
+		const waits = look?.state === "waiting" || look?.state === "opened";
+		tell(
+			ours && waits && given !== undefined && "other" in given
+				? LOOK_TAKES_CHOICES
+				: LOOK_GONE,
+		);
 		return;
 	}
 	say(lookAnswerText(answered, steer.from));
@@ -283,8 +295,10 @@ export function lookAnswerText(look: Look, from?: string): string {
 	const said = picked
 		? `They picked: ${picked.label}.`
 		: `They answered in their own words: ${JSON.stringify(look.answer ?? "")}.`;
+	// His list doesn't show follows until its readers read the second
+	// form, so what this session wrote would follow is no yes to it.
 	const promised = picked?.follows
-		? ` The look told them what follows: ${picked.follows}`
+		? ` The look said this would follow, though his list may not have shown it, so it is no yes to it: ${picked.follows}`
 		: "";
 	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} ${said}${promised} Act on it, and take nothing back: the look is already off their list.]`;
 }

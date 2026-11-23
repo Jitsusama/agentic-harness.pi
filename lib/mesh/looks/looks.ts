@@ -782,7 +782,11 @@ export function answerLook(
 			answeredAt,
 		});
 	}
-	const words = given.other.trim().slice(0, ANSWER_CHARACTERS);
+	// By code point, so the cut never leaves half an emoji that a strict
+	// reader of the file refuses.
+	const words = Array.from(given.other.trim())
+		.slice(0, ANSWER_CHARACTERS)
+		.join("");
 	if (look.wants?.words !== true || words === "") return undefined;
 	return markResolvedLook(dir, look, `answered: ${words}`, now, {
 		answer: words,

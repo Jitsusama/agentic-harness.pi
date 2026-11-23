@@ -185,6 +185,8 @@ describe("the person's look list, from show_person", () => {
 			why: "It keeps the model now.",
 			ask: "Keep it?",
 		});
+		// The tool takes no why or ask, so a first form is refused for
+		// want of what happened, never as both forms at once.
 		expect(firstForm?.content[0]?.text, "why and ask alone").toContain(
 			"what happened",
 		);
