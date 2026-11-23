@@ -1022,7 +1022,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		const going = forgetOwnKeptJob(job.work.keep);
 		await vi.waitFor(() =>
 			expect(
-				disk.removed.some((path) => path.endsWith(".gone")) &&
+				disk.of(job.work.keep).removed.some((path) => path.endsWith(".gone")) &&
 					!listed(where).some((name) => name.endsWith(".gone")),
 				"what it set aside, gone, its callback yet to come",
 			).toBe(true),
