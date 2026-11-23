@@ -21,11 +21,22 @@
  * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import {
+	createReadStream,
+	createWriteStream,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+} from "node:fs";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import type { Exec } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/reopening/carried.ts";
+import { ZIPPED } from "./carry-away.ts";
 import {
 	doneFileOf,
 	type HandedTree,
@@ -121,12 +132,22 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		arriving.scratch,
 	);
 	mkdirSync(cwd, { recursive: true });
-	const placed = placeTakenOver(
-		handover.session,
-		join(from, handover.sessionFile),
-		cwd,
-		arriving.sessions,
-	);
+	let placed: string | undefined;
+	try {
+		placed = await placeSession(
+			handover.session,
+			join(from, handover.sessionFile),
+			cwd,
+			arriving,
+		);
+	} catch (error) {
+		say({
+			kind: "failed",
+			why: `${handover.sessionFile} couldn't be placed: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		say({ kind: "sessions", sessions: [] });
+		return false;
+	}
 	if (placed === undefined) {
 		say({
 			kind: "failed",
@@ -143,6 +164,38 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		...(handover.fence === undefined ? {} : { fence: handover.fence }),
 	});
 	return whole;
+}
+
+/**
+ * Places the session `id` carried at `file` for `cwd`, as
+ * `placeTakenOver` does, answering where. A file carried gzipped, as
+ * one larger than the share takes is, is unzipped first into the
+ * scratch's tmp/, which is never shared, under its own name, and that
+ * copy is removed once placed.
+ */
+async function placeSession(
+	id: string,
+	file: string,
+	cwd: string,
+	arriving: Arriving,
+): Promise<string | undefined> {
+	if (!file.endsWith(ZIPPED)) {
+		return placeTakenOver(id, file, cwd, arriving.sessions);
+	}
+	const tmp = join(arriving.scratch, "tmp");
+	mkdirSync(tmp, { recursive: true });
+	const unzipping = mkdtempSync(join(tmp, "arriving-"));
+	try {
+		const plain = join(unzipping, basename(file).slice(0, -ZIPPED.length));
+		await pipeline(
+			createReadStream(file),
+			createGunzip(),
+			createWriteStream(plain),
+		);
+		return placeTakenOver(id, plain, cwd, arriving.sessions);
+	} finally {
+		rmSync(unzipping, { recursive: true, force: true });
+	}
 }
 
 /**

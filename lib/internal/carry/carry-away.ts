@@ -12,11 +12,23 @@
  * carry, a snapshot of a commit a remote has, which the other machine
  * cuts again if it wants one; any other is refused and named, never a
  * reason to carry nothing, since the rest of the work still goes.
+ *
+ * A session file larger than a mycelium share lets a file be goes
+ * gzipped, named with `.gz`, which arriving unzips; any other goes as
+ * it is, so a machine whose harness can't unzip still takes it.
  */
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync } from "node:fs";
+import {
+	copyFileSync,
+	createReadStream,
+	createWriteStream,
+	mkdirSync,
+	statSync,
+} from "node:fs";
 import { basename, join } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 import type { Exec } from "../../core/exec/index.ts";
 import { bundleTree, neededFrom } from "../../core/work/carry.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
@@ -51,7 +63,20 @@ export interface Carrying {
 	readonly fence?: FenceKind;
 	/** Its quest's remembered facts. */
 	readonly notes?: readonly CarriedNote[];
+	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
+	readonly largestFile?: number;
 }
+
+/**
+ * The largest file mycelium's share takes from a folder named for
+ * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
+ * since the machine it lands on holds each file whole. A long-lived
+ * session's log passes it.
+ */
+export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
+
+/** What a gzipped session file's name ends in. */
+export const ZIPPED = ".gz";
 
 /** What became of one tree. */
 export type TreeCarried =
@@ -78,7 +103,13 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 	const { exec, into, home, session } = carrying;
 	const trees = await carryTrees(exec, carrying.trees, into, home);
 	const sessionFile =
-		session.file === undefined ? undefined : copyBeside(session.file, into);
+		session.file === undefined
+			? undefined
+			: await copyBeside(
+					session.file,
+					into,
+					carrying.largestFile ?? SHARE_LARGEST_FILE,
+				);
 	const handover: Handover = {
 		session: session.id,
 		quest: carrying.quest,
@@ -192,9 +223,25 @@ function nameFor(path: string): string {
 	return `${readable || "tree"}-${hash}`;
 }
 
-/** Copies a session's file beside the done file, answering its name there. */
-function copyBeside(file: string, into: string): string {
+/**
+ * Copies a session's file beside the done file, answering its name
+ * there: gzipped when it is larger than `largest`, so the share takes it.
+ */
+async function copyBeside(
+	file: string,
+	into: string,
+	largest: number,
+): Promise<string> {
 	const name = basename(file);
-	copyFileSync(file, join(into, name));
-	return name;
+	if (statSync(file).size <= largest) {
+		copyFileSync(file, join(into, name));
+		return name;
+	}
+	const zipped = `${name}${ZIPPED}`;
+	await pipeline(
+		createReadStream(file),
+		createGzip(),
+		createWriteStream(join(into, zipped)),
+	);
+	return zipped;
 }

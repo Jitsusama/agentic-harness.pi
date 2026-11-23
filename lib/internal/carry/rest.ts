@@ -31,7 +31,12 @@ export type RestLine =
 			readonly did: TreeCarried["kind"];
 			readonly why?: string;
 	  }
-	| { readonly kind: "done"; readonly files: readonly string[] };
+	| { readonly kind: "done"; readonly files: readonly string[] }
+	/**
+	 * Every tree refused, each with its why, said once at the end, since
+	 * mycelium reads only a failed line for why `pi-carry` exited 1.
+	 */
+	| { readonly kind: "failed"; readonly why: string };
 
 /** What carrying the rest needs. */
 export interface CarryingRest {
@@ -57,11 +62,11 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 			.map((tree) => tree.path),
 	);
 	const files: string[] = [];
-	let whole = true;
+	const refused: string[] = [];
 	// Each tree is said once, and tried once, whatever became of it.
 	const tell = (under: string, trees: readonly TreeCarried[]) => {
 		for (const tree of trees) {
-			if (tree.kind === "refused") whole = false;
+			if (tree.kind === "refused") refused.push(`${tree.path}: ${tree.why}`);
 			handled.add(withinHome(tree.path, home));
 			say({
 				kind: "tree",
@@ -115,7 +120,12 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 		);
 	}
 	say({ kind: "done", files });
-	return whole;
+	if (refused.length === 0) return true;
+	say({
+		kind: "failed",
+		why: `${refused.length === 1 ? "a tree was" : `${refused.length} trees were`} refused, so the carry isn't whole: ${refused.join("; ")}`,
+	});
+	return false;
 }
 
 function listing(dir: string): string[] {

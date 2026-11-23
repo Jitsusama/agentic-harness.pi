@@ -61,7 +61,7 @@ function fakeClock(at: (now: number) => void = () => {}): Clock {
  */
 async function carried(
 	ranIn?: string,
-	moved: Pick<Carrying, "fence" | "notes"> = {},
+	moved: Pick<Carrying, "fence" | "notes" | "largestFile"> = {},
 ) {
 	const origin = await bareOrigin(made);
 	const leaving = folder(made, "leaving");
@@ -163,6 +163,26 @@ describe("arriving with a carried session", () => {
 		expect(
 			JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd,
 		).toBe(tree);
+	});
+
+	it("unzips a session file carried gzipped and places it, leaving nothing in the scratch's tmp", async () => {
+		const { from } = await carried(undefined, { largestFile: 1 });
+		const home = folder(made, "arriving");
+		const tree = join(home, "src", "app");
+
+		const { whole, said, store } = await arriveAt(home, from);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: tree }],
+		});
+		expect(placedCwd(store, tree), "its file opens in the tree").toBe(tree);
+		const tmp = join(scratchOf(from), "tmp");
+		expect(
+			existsSync(tmp) ? readdirSync(tmp) : [],
+			"the unzipped copy is gone",
+		).toEqual([]);
 	});
 
 	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {

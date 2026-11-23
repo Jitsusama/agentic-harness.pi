@@ -187,5 +187,25 @@ describe("carrying what a quest's steered sessions left", () => {
 			did: "refused",
 			path: trees.stuck,
 		});
+		const failed = said.at(-1);
+		expect(failed?.kind, "mycelium reads why from a failed line").toBe(
+			"failed",
+		);
+		expect(
+			failed?.kind === "failed" ? failed.why : "",
+			"it names the tree and why",
+		).toContain(`${trees.stuck}: `);
+	});
+
+	it("says no failed line when every tree went", async () => {
+		const { home, trees, into } = await homeWith("fine");
+
+		const { said } = await carry(
+			home,
+			into,
+			questHere({ trees: [trees.fine ?? ""] }),
+		);
+
+		expect(said.some((line) => line.kind === "failed")).toBe(false);
 	});
 });

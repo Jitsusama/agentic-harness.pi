@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
 import { readHandover } from "../../../../lib/internal/carry/handover.ts";
@@ -168,5 +169,47 @@ describe("carrying a session's work away", () => {
 		expect(carried.handover.trees.map((one) => one.path)).toEqual([
 			"~/src/other",
 		]);
+	});
+
+	it("gzips a session file larger than the share takes, and carries one at the limit as it is", async () => {
+		const { home, into } = await homeWithTree();
+		const log = '{"type":"session","id":"s-5"}\n{"type":"message"}\n';
+		const big = join(folder(made, "sessions"), "2026-11-07_s-5.jsonl");
+		writeFileSync(big, log);
+		const small = join(folder(made, "sessions"), "2026-11-07_s-6.jsonl");
+		writeFileSync(small, log);
+
+		const zipped = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-5", cwd: home, file: big },
+			trees: [],
+			largestFile: log.length - 1,
+		});
+		const plain = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-6", cwd: home, file: small },
+			trees: [],
+			largestFile: log.length,
+		});
+
+		expect(zipped.handover.sessionFile).toBe("2026-11-07_s-5.jsonl.gz");
+		expect(
+			gunzipSync(
+				readFileSync(join(into, "2026-11-07_s-5.jsonl.gz")),
+			).toString(),
+			"it unzips to the same bytes",
+		).toBe(log);
+		expect(
+			readHandover(join(into, "s-5.done.json"))?.sessionFile,
+			"the done file names the zipped file and reads back",
+		).toBe("2026-11-07_s-5.jsonl.gz");
+		expect(plain.handover.sessionFile).toBe("2026-11-07_s-6.jsonl");
+		expect(readFileSync(join(into, "2026-11-07_s-6.jsonl"), "utf8")).toBe(log);
 	});
 });
