@@ -12,9 +12,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+	findingDir,
 	runArtifactDir,
 	runDir,
 } from "../../../../extensions/review-integration/engine.ts";
+import {
+	settledHere,
+	settlingHere,
+} from "../../../../extensions/review-integration/settling.ts";
 import {
 	collectOne,
 	stopRound,
@@ -22,6 +27,7 @@ import {
 import {
 	type AskRun,
 	type ChangeRef,
+	createFindingStore,
 	createRunStore,
 } from "../../../../lib/core/review/index.ts";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/index.ts";
@@ -121,6 +127,59 @@ describe("stopping a round", () => {
 		expect(text).toContain("No rounds are held against o/stopped#5");
 		expect(text).toContain("github");
 		expect(text).not.toContain("settled on its own");
+	});
+
+	// PV3TE0's second round on #2007: a stop waits out a round this
+	// process is settling, and once the old load has filed it, a collect
+	// from the copy read before the wait would file it all again.
+	it("files nothing again when the round settled while it waited", async () => {
+		const settled: ChangeRef = { ...change, id: "6", label: "o/stopped#6" };
+		const run = "council-20261030T224405000-000001";
+		const store = createRunStore(runDir());
+		const findings = createFindingStore(findingDir());
+		await store.keep(settled, opened(run));
+		gone(run, true);
+		const oldLoad = {};
+		settlingHere(run, oldLoad);
+
+		const stopping = stopRound(settled, { run });
+		// Long enough for the stop to be polling, well inside its 15 s:
+		// the old load then files the round and its call answers.
+		await new Promise((done) => setTimeout(done, 600));
+		const [filed] = await findings.record(settled, [
+			{
+				anchor: { subject: "file", path: "lib/a.ts" },
+				label: "issue",
+				origin: { kind: "reviewer", runId: run, reviewerId: "hawk" },
+				subject: "the handle leaks",
+				discussion: "because",
+			},
+		]);
+		const { open: _open, ...rest } = opened(run);
+		await store.keep(settled, {
+			...rest,
+			outcomes: [
+				{
+					participantId: "hawk",
+					findingIds: filed === undefined ? [] : [filed.id],
+				},
+			],
+		});
+		settledHere(oldLoad);
+		const answer = await stopping;
+
+		expect(
+			answer.content[0]?.type === "text" ? answer.content[0].text : "",
+			"says it settled, not that it collected",
+		).toContain("settled on its own");
+		expect(
+			(await findings.list(settled)).length,
+			"each finding filed once",
+		).toBe(1);
+		expect(
+			(await store.byId(settled, run))?.outcomes,
+			"the old load's ledger kept",
+		).toEqual([{ participantId: "hawk", findingIds: [filed?.id] }]);
 	});
 
 	it("closes one that left nothing, rather than leaving it open", async () => {

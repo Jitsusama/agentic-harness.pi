@@ -53,7 +53,8 @@ import {
 	RESUME_SUFFIX,
 	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/subagent.ts";
-import { isSettlingHere } from "./settling.ts";
+import { count } from "../../lib/ui/count.ts";
+import { settlingSince } from "./settling.ts";
 
 /**
  * Which of our limits took the reviewer away.
@@ -251,8 +252,8 @@ function safeSegment(name: string): string {
  * lease and calls the round free.
  */
 /**
- * Why this round must not be collected yet, when a supervisor still
- * holds it.
+ * Why this round must not be collected yet: this process is still
+ * settling it, or a supervisor still holds it.
  *
  * Beside the read it is built on rather than private to the tool,
  * because the sentence is the behaviour: a collect that lands while
@@ -268,14 +269,16 @@ export async function whyNotYet(
 	facts: TickFacts = tickFacts,
 	now: number = Date.now(),
 ): Promise<string | undefined> {
+	// Asked first: a round this process settles is held whatever its
+	// leases say, since its reviewers can all be gone while the call
+	// that asked them still files what they found.
+	const settling = whySettling(held.id, now);
+	if (settling !== undefined) return settling;
 	// One look at each run, judged on both counts at once. This was two
 	// passes, one for running and one for starting, and a supervisor
 	// writing its first lease between them read as starting in the
 	// first and running in the second, so neither held it: a watcher
 	// told the model to collect from under two live reviewers.
-	if (isSettlingHere(held.id)) {
-		return `${held.id} is still being settled in this pi process, perhaps by a load a reload replaced, which files its findings and writes the ledger itself. Collecting now would file them twice. Wait for it, or stop the round.`;
-	}
 	for (const participant of held.participants) {
 		for (const id of everyRunOf(participant.id)) {
 			const standing = await supervisorStanding(
@@ -298,6 +301,20 @@ export async function whyNotYet(
 		}
 	}
 	return undefined;
+}
+
+/**
+ * Why a round this process is still settling can't be collected, with
+ * how long it has been, or nothing when it settles none.
+ */
+export function whySettling(
+	runId: string,
+	now: number = Date.now(),
+): string | undefined {
+	const since = settlingSince(runId);
+	if (since === undefined) return undefined;
+	const minutes = Math.max(0, Math.round((now - since) / 60_000));
+	return `${runId} has been settling in this pi process for ${count(minutes, "minute")}, perhaps in a load a reload replaced, which files its findings and writes the ledger itself. Collecting now would file them twice. Wait for it; stopping the round winds its reviewers down so it settles sooner, and only a restart of pi frees a round held past its reviewers' backstops.`;
 }
 
 export async function heldByLiveSupervisor(

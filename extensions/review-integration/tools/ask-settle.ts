@@ -120,7 +120,7 @@ export async function stopRound(
 	// Something left behind is collected, so stopping a round never
 	// leaves it open: its findings are filed rather than binned.
 	if ((await somethingLeftBehind(artifacts, held)) !== undefined) {
-		return collectHeld(change, held, artifacts);
+		return collectFresh(change, held.id, artifacts);
 	}
 
 	// Marked closed rather than merely un-opened. A round with no
@@ -228,7 +228,41 @@ export async function collectOne(
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const alive = await whyNotYet(artifacts, held);
 	if (alive !== undefined) return refuse(alive);
-	return collectHeld(change, held, artifacts);
+	return collectFresh(change, held.id, artifacts);
+}
+
+/**
+ * Collect round `runId` as the ledger holds it now, under the lock a
+ * session start's collect takes, so a round is filed once whoever gets
+ * there first. Read again rather than trusting the caller's copy: a stop
+ * waits up to {@link STOP_SETTLE_MS} for its reviewers, and a session
+ * whose load was replaced can settle and file the round inside that
+ * wait, which a collect from the copy read before it would file again.
+ */
+async function collectFresh(
+	change: ChangeRef,
+	runId: string,
+	artifacts: ReviewerArtifactsStore,
+	now: number = Date.now(),
+): Promise<Answer> {
+	const store = createRunStore(runDir());
+	return withFileLock(
+		join(runArtifactDir(), `${runId}.collecting`),
+		async () => {
+			const held = await store.byId(change, runId);
+			if (held?.open !== true) {
+				return say(
+					`${runId} settled on its own, so there is nothing to collect.`,
+					{
+						runs: held === undefined ? [] : [held],
+					},
+				);
+			}
+			const alive = await whyNotYet(artifacts, held, undefined, now);
+			if (alive !== undefined) return refuse(alive);
+			return collectHeld(change, held, artifacts);
+		},
+	);
 }
 
 /**
@@ -389,7 +423,7 @@ export async function collectFinished(
 			running.push(alive);
 			continue;
 		}
-		const answer = await collectHeld(change, held, artifacts);
+		const answer = await collectFresh(change, held.id, artifacts, now);
 		said.push(
 			answer.content
 				.map((part) => (part.type === "text" ? part.text : ""))

@@ -689,10 +689,14 @@ export function substituteOutcome(
 	// retries is a council that reported, so it stops saying closed:
 	// every gate passes over a closed round, merge-net's among them, and a
 	// round stopped after a reload and then retried counted for none of
-	// them (Y2YBTS, 22 November). Only once the last gap is filled, as
-	// `open` comes off: a stopped round holds no outcomes, and one retry
-	// of several would else stand as the council at its head.
-	const held = outcome.failure === undefined && !waiting ? unclosed(run) : run;
+	// them (Y2YBTS, 22 November). Only once no gap is left and none of
+	// its outcomes failed, read from them all rather than this retry's,
+	// so the order retries land in can't decide it: a stopped round holds
+	// no outcomes, and one retry of several would else stand as the
+	// council at its head.
+	const answered =
+		!waiting && outcomes.every((held) => held.failure === undefined);
+	const held = answered ? unclosed(run) : run;
 	const { open: _wasOpen, ...rest } = held;
 	return waiting
 		? { ...held, outcomes, ...fell }

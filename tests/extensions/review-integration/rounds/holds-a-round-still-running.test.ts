@@ -13,15 +13,19 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { answerWatching } from "../../../../extensions/review-integration/progress.ts";
 import {
 	heldByLiveSupervisor,
 	whyNotYet,
 } from "../../../../extensions/review-integration/reviewer.ts";
 import {
+	isSettlingHere,
 	settledHere,
 	settlingHere,
 } from "../../../../extensions/review-integration/settling.ts";
+import { deps } from "../../../../extensions/review-integration/tools/ask-reviewer.ts";
+import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import type { ProcessFacts } from "../../../../lib/subagent/index.ts";
 import {
 	ReviewerArtifactsStore,
@@ -54,18 +58,19 @@ describe("whyNotYet", () => {
 		const store = new ReviewerArtifactsStore(root);
 		const call = {};
 		const another = {};
-		settlingHere(RUN, call);
+		const since = Date.now();
+		settlingHere(RUN, call, since);
 
 		try {
 			expect(
-				await whyNotYet(store, HELD, NOBODY, Date.now()),
-				"held while settling, with no lease",
-			).toContain("still being settled in this pi process");
+				await whyNotYet(store, HELD, NOBODY, since + 3 * 60_000),
+				"held while settling, with no lease, saying for how long",
+			).toContain("has been settling in this pi process for 3 minutes");
 			settledHere(another);
 			expect(
 				await whyNotYet(store, HELD, NOBODY, Date.now()),
 				"another call clears only its own",
-			).toContain("still being settled");
+			).toContain("has been settling");
 		} finally {
 			settledHere(call);
 		}
@@ -73,6 +78,64 @@ describe("whyNotYet", () => {
 			await whyNotYet(store, HELD, NOBODY, Date.now()),
 			"free once its call has answered",
 		).toBeUndefined();
+	});
+
+	// The reload case itself: the load a reload brings in has a module
+	// graph of its own, and must still read the old one's marks.
+	it("reads a mark another load of the module made", async () => {
+		const call = {};
+		settlingHere(RUN, call);
+		try {
+			vi.resetModules();
+			const fresh = await import(
+				"../../../../extensions/review-integration/settling.ts"
+			);
+			expect(fresh.isSettlingHere(RUN), "seen from a fresh load").toBe(true);
+			fresh.settledHere(call);
+			expect(isSettlingHere(RUN), "cleared from it too").toBe(false);
+		} finally {
+			settledHere(call);
+		}
+	});
+
+	// The mark is made in a round's opened and cleared when the call
+	// that watched it answers; both must hold the same watch.
+	it("marks a round its call opens until that call answers or throws", async () => {
+		const change: ChangeRef = {
+			provider: "github",
+			repo: { key: "github:o/settling" },
+			id: "1",
+			label: "o/settling#1",
+		};
+		const opened = (id: string): AskRun => ({
+			id,
+			round: "council",
+			startedAt: new Date().toISOString(),
+			participants: [{ id: "hawk", role: "reviewer" }],
+			outcomes: [],
+			open: true,
+		});
+		const answered = "council-20260806T120000000-000002";
+		const threw = "council-20260806T120000000-000003";
+		const during: boolean[] = [];
+
+		await answerWatching(null, undefined, async (watch) => {
+			await deps(change, root, watch("council")).opened?.(opened(answered));
+			during.push(isSettlingHere(answered));
+			return { content: [], details: {} };
+		});
+		await expect(
+			answerWatching(null, undefined, async (watch) => {
+				await deps(change, root, watch("council")).opened?.(opened(threw));
+				during.push(isSettlingHere(threw));
+				throw new Error("the round failed");
+			}),
+			"the round's own failure",
+		).rejects.toThrow("the round failed");
+
+		expect(during, "marked while each call ran").toEqual([true, true]);
+		expect(isSettlingHere(answered), "cleared once it answered").toBe(false);
+		expect(isSettlingHere(threw), "cleared once it threw").toBe(false);
 	});
 
 	it("refuses while a reviewer is handed over and its supervisor has not begun", async () => {

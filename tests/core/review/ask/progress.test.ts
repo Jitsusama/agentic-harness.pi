@@ -188,8 +188,10 @@ describe("a round reporting as it goes", () => {
 
 		const { run } = await round(
 			[alice, bob],
-			async (participant): Promise<AskAnswer> => {
+			async (participant, _prompt, context): Promise<AskAnswer> => {
 				asked.push(participant.id);
+				// The beat a long round fires most, through its own path.
+				context.report?.("reading");
 				return {
 					text: JSON.stringify({
 						findings: [
