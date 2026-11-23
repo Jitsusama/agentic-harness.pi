@@ -25,8 +25,8 @@
  * and its start, keeps what it is owed and is owed what is said
  * meanwhile; a listener that stops for good and leaves its screen with
  * none forgets it, so an ended session holds nothing here. A screen
- * whose listeners never come back after a reload stays owed until the
- * process ends. pi evaluates each extension's copy of this module again
+ * whose listeners never come back after a reload stays owed, and held
+ * here with whatever it keeps, until the process ends. pi evaluates each extension's copy of this module again
  * as it reloads, so all of this outlives a reload only in a copy loaded
  * once for every extension.
  */
@@ -109,18 +109,13 @@ function offer(notice: KeyringNotice, to: Owed): Owed {
 }
 
 /**
- * Keep `notice` owed `to` whom, beside the screens its words were owed
- * before: screens join screens, and whether anyone is owed them is the
- * latest answer, as a screen may have taken them since.
+ * Keep `notice` owed `to` whom, in place of what its words were owed
+ * before: each screen owed them before is listening, and so was offered
+ * them again, or away, and so is owed them again.
  */
 function keep(notice: KeyringNotice, to: Owed): void {
-	const before = waiting.get(notice.message)?.to.screens ?? [];
-	const owed = {
-		screens: new Set([...before, ...to.screens]),
-		anyone: to.anyone,
-	};
-	if (owed.screens.size === 0 && !owed.anyone) waiting.delete(notice.message);
-	else waiting.set(notice.message, { notice, to: owed });
+	if (to.screens.size === 0 && !to.anyone) waiting.delete(notice.message);
+	else waiting.set(notice.message, { notice, to });
 }
 
 /** Tell each screen that hasn't heard it, or the next listener to come. */

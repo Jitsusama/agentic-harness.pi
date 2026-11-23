@@ -203,6 +203,29 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		expect([endedScreen.told, nextScreen.told]).toEqual([[], ["info: moved"]]);
 	});
 
+	it("says so, once, when the move into the keyring fails, keeping the plain file", async () => {
+		const one = extensionRunner(
+			[
+				keeping("Slack", async () => {
+					throw new Error("keyring locked");
+				}),
+				keeping("Slack", async () => {
+					throw new Error("keyring locked");
+				}),
+			],
+			process.cwd(),
+		);
+		const shown = screen();
+		one.runner.setUIContext(shown.ui, "tui");
+		await one.start();
+		await new Promise((settled) => setImmediate(settled));
+		expect(shown.told).toEqual([
+			expect.stringMatching(
+				/^warning: Slack could not be moved into the keyring: .*keyring locked.*\. The plain file is kept\.$/,
+			),
+		]);
+	});
+
 	it("still moves the credentials when a screen fails to show what was waiting", async () => {
 		sayKeyringNotice({ level: "warning", message: "early" });
 		let moved = 0;

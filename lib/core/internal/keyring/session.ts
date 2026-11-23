@@ -16,7 +16,9 @@
  * again, where they share one copy of the notices rather than each
  * loading its own as pi does today; any other end forgets it. pi makes
  * a new manager for each new, resumed or saved forked session, so the
- * key is one conversation; only forking an unsaved one reuses it.
+ * key is one conversation; only forking an unsaved one reuses it, and
+ * that fork, ending the session other than by a reload, forgets what it
+ * was owed.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
