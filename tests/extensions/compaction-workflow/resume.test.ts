@@ -145,6 +145,8 @@ async function runUntilCompaction(
 		await turnEnd({ toolResults });
 	}
 	if (!compacted) throw new Error("the policy never compacted");
+	// A run for waiting messages is started once pi is idle, a turn on.
+	await nextTurn();
 	return calls;
 }
 
@@ -208,7 +210,7 @@ describe("resuming the run a compaction interrupted", () => {
 
 		expect(calls.sendMessage).toEqual([]);
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(RESUME_TEXT);
 	});
 
 	it("tries again after a compaction that could not start", async () => {
@@ -316,7 +318,7 @@ describe("resuming the run a compaction interrupted", () => {
 		);
 
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(RESUME_TEXT);
 	});
 
 	// pi's compaction aborts the run, and an abort leaves what was queued
@@ -358,6 +360,29 @@ describe("resuming the run a compaction interrupted", () => {
 		expect(appended(calls, SETTLED_ENTRY)).toEqual([
 			expect.objectContaining({ resumed: false, by: "asker" }),
 		]);
+	});
+
+	it("starts nothing for messages pi's screen sent as the compaction ended, whose run drained them", async () => {
+		// pi's interactive screen sends what was typed during a compaction
+		// at its end, before onComplete, and that run delivers the rest.
+		let idle = true;
+		let pending = false;
+		const calls = await runUntilCompaction(
+			(options) => {
+				idle = false;
+				pending = true;
+				options.onComplete?.();
+			},
+			() => [],
+			[],
+			{ isIdle: () => idle, hasPendingMessages: () => pending },
+		);
+		expect(calls.sendUserMessage, "nothing while that run goes").toEqual([]);
+		pending = false;
+		idle = true;
+		await nextLook();
+
+		expect(calls.sendUserMessage).toEqual([]);
 	});
 
 	it("starts a run for messages that waited through a failed compaction that cut nothing", async () => {
@@ -457,7 +482,7 @@ describe("resuming the run a compaction interrupted", () => {
 		);
 
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(FAILED_RESUME_TEXT);
 		expect(calls.order.slice(-2), "settled before the send").toEqual([
 			SETTLED_ENTRY,
 			"send",
@@ -539,7 +564,7 @@ describe("resuming from the log a run another runtime owed", () => {
 
 		expect(duringStart, "nothing sent from session_start").toBe(0);
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(RESUME_TEXT);
 		expect(calls.order, "settled before the send").toEqual([
 			SETTLED_ENTRY,
 			"send",
@@ -650,7 +675,7 @@ describe("resuming from the log a run another runtime owed", () => {
 		await nextTurn();
 
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(FAILED_RESUME_TEXT);
 		expect(calls.order).toEqual([SETTLED_ENTRY, "send"]);
 		expect(appended(calls, SETTLED_ENTRY)).toEqual([
 			expect.objectContaining({ resumed: true, by: "successor" }),
@@ -730,6 +755,28 @@ describe("resuming from the log a run another runtime owed", () => {
 		]);
 	});
 
+	it("starts a run for messages waiting on a reload's start after a landing its asker never answered", async () => {
+		// The compaction landed during the reload, between session_compact
+		// and the asker's onComplete, which went with its runtime.
+		const now = Date.now();
+		const { calls, duringStart } = await startOn(
+			[
+				askEntry(now - 8000, { at: now - 8000, resume: false }),
+				compactionEntry(now - 100),
+			],
+			"reload",
+			{ hasPendingMessages: () => true },
+		);
+
+		expect(duringStart, "nothing sent from session_start").toBe(0);
+		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
+			WAITING_TEXT,
+		]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "successor" }),
+		]);
+	});
+
 	it("starts nothing for waiting messages after a landing nobody asked for", async () => {
 		// pi's own compaction goes on to a turn for queued messages itself
 		// (_runAutoCompaction answers hasQueuedMessages), so one from here
@@ -777,7 +824,7 @@ describe("resuming from the log a run another runtime owed", () => {
 		);
 
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(FAILED_RESUME_TEXT);
 		expect(calls.order, "settled before the send").toEqual([
 			SETTLED_ENTRY,
 			"send",
@@ -936,6 +983,6 @@ describe("resuming after a failed compaction", () => {
 
 		expect(calls.sendMessage).toEqual([]);
 		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(String(calls.sendUserMessage[0]?.[0])).toBe(FAILED_RESUME_TEXT);
 	});
 });

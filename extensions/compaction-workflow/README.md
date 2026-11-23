@@ -220,7 +220,15 @@ from the branch alone, so every request in a cycle agrees.
 pi's `compact()` aborts the run in progress and does not continue it.
 When the turn that tripped the decision made tool calls, so the run was
 going to carry on, a message resumes it once the compaction lands,
-unless a message of yours is already queued. Tested end to end in RPC
+whether or not messages of yours are queued: the abort leaves them
+queued, and only a run delivers them. With no run to resume, messages
+still queued once pi rests get a run of their own, under its own
+header (`WAITED`, or `WAITED_FAILED` after a failed compaction), so
+nobody's typing waits for their next message. A cancel starts nothing,
+since somebody stopped it, and neither does a compaction nobody here
+asked for, which pi follows with a turn of its own. pi counts only
+queued typed text as waiting (`pendingMessageCount`); a mesh notice or
+another custom message never starts that run. Tested end to end in RPC
 mode: a run compacted between tool turns resumed and finished its task.
 A compaction applied while the session is idle interrupts nothing, so
 it resumes only a run begun after it was asked for, such as one a job's

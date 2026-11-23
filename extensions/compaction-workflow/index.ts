@@ -485,7 +485,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				const resume = owed();
 				settleAsk(pi, resume, "asker");
 				if (resume) resumeRun(pi, RESUME_TEXT);
-				else if (ctx.hasPendingMessages()) resumeRun(pi, WAITING_TEXT);
+				else answerWaiting(ctx, WAITING_TEXT);
 			}),
 			onError: whileCurrent((error: Error) => {
 				askOpen = false;
@@ -510,12 +510,22 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				const resume = !cancelled && owed();
 				settleAsk(pi, resume, "asker");
 				if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
-				else if (!cancelled && ctx.hasPendingMessages()) {
-					resumeRun(pi, FAILED_WAITING_TEXT);
-				}
+				else if (!cancelled) answerWaiting(ctx, FAILED_WAITING_TEXT);
 			}),
 		});
 	};
+
+	/**
+	 * Start a run for messages still waiting once pi is idle. pi's
+	 * interactive screen sends what was typed during the compaction itself
+	 * as it ends, and any run drains the queue before it ends, so messages
+	 * still waiting once pi rests are those only a run of ours delivers.
+	 */
+	function answerWaiting(ctx: ExtensionContext, text: string): void {
+		whenIdle(ctx, () => {
+			if (ctx.hasPendingMessages()) resumeRun(pi, text);
+		});
+	}
 
 	// A summary finished while nobody is working is applied at once: a
 	// compaction between runs interrupts nothing.
@@ -613,8 +623,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 *
 	 * Resumed though messages wait to go: pi's compaction aborted the run
 	 * they were queued for, which leaves them queued, and only a run
-	 * delivers them. With no run owed, a landing (no `reason`) that
-	 * answers an ask, with messages waiting, starts one for them alone.
+	 * delivers them. With no run owed, a landing that answers an ask, seen
+	 * as it lands or from a reload's start (when the asker's onComplete
+	 * went with the runtime it replaced), starts one for messages waiting.
 	 * A landing nobody here asked for starts nothing: after its own
 	 * compaction pi goes on to a turn for queued messages itself
 	 * (`_runAutoCompaction` answers `hasQueuedMessages`), so one from here
@@ -630,7 +641,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				resumeRun(pi, RESUME_TEXT);
 				return;
 			}
-			if (reason === undefined && landed && ctx.hasPendingMessages()) {
+			if (landed && ctx.hasPendingMessages()) {
 				settleAsk(pi, false, "successor");
 				resumeRun(pi, WAITING_TEXT);
 				return;
