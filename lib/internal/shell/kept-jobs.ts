@@ -635,15 +635,16 @@ export async function strayKeptJobs(
 }
 
 /**
- * Whether the call at `keep` wrote how it ended. An end that won't read
- * is not said, so one bad file keeps the watch from no other stray; the
- * stop still checks the process's own mark before it ends anything.
+ * Whether the call at `keep` wrote how it ended. An end failing to read
+ * for the moment is not said, so one file keeps the watch from no other
+ * stray; the stop still checks the process's own mark before it ends
+ * anything.
  */
 async function endSaid(keep: string): Promise<boolean> {
 	try {
 		return (await endRead(keep)) !== undefined;
 	} catch {
-		// Unreadable, not gone: whether it ended is not known, so not said.
+		// For the moment: whether it ended is not known, so not said.
 		return false;
 	}
 }

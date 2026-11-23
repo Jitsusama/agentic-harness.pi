@@ -64,7 +64,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { isGone } from "../files/errno.ts";
+import { isPassingFault } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
 
@@ -236,9 +236,11 @@ export interface CarriedCalls {
 	/** Their shells' process groups: each shell leads its own. */
 	readonly groups: ReadonlySet<number>;
 	/**
-	 * Some call's file failed to read for a reason other than its absence,
-	 * such as EIO or too many open files, so whom to spare isn't known
-	 * and a reap ends nothing until a reading is whole.
+	 * The folder or some call's file failed to read for the moment, such
+	 * as with too many open files, so whom to spare isn't known and a reap
+	 * ends nothing until a reading is whole. A file that fails for good,
+	 * as EIO or a folder at its name, says nothing instead: waiting on it
+	 * would end no reap again.
 	 */
 	readonly unread?: true;
 }
@@ -270,8 +272,10 @@ export async function carriedCalls(
 	let names: string[];
 	try {
 		names = await readdir(folder);
-	} catch {
-		// No folder yet: nothing was ever kept, so nothing is carried.
+	} catch (error) {
+		// For the moment: what it holds may be running calls'.
+		if (isPassingFault(error)) return { marks, groups, unread: true };
+		// No folder yet, or one that will never list: nothing to read.
 		return { marks, groups };
 	}
 	let unread = false;
@@ -279,7 +283,7 @@ export async function carriedCalls(
 		try {
 			await spareFrom(folder, name, now, marks, groups);
 		} catch {
-			// Not its absence, which reads as empty: it may be a running call's.
+			// textRead throws only for the moment: it may be a running call's.
 			unread = true;
 		}
 	}
@@ -372,15 +376,16 @@ export function processThere(pid: number): boolean {
 
 /**
  * What a kept file holds, read off the thread, or nothing once it is
- * gone. Any other failure throws, since a file that is there but won't
- * read may still say a running call's to spare.
+ * gone or will never read. A failure of the moment throws, since the
+ * file may yet say a running call's to spare when read again.
  */
 async function textRead(file: string): Promise<string> {
 	try {
 		return await readFile(file, "utf8");
 	} catch (error) {
-		if (isGone(error)) return "";
-		throw error;
+		if (isPassingFault(error)) throw error;
+		// Gone, or failing for good as EIO or EISDIR: it says nothing.
+		return "";
 	}
 }
 

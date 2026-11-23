@@ -104,7 +104,13 @@ export interface ProcessTable {
 export interface Reaped {
 	readonly groups: number[];
 	readonly pids: number[];
+	/** It ended nothing, since a kept call's file failed to read for the moment. */
+	readonly waited?: true;
 }
+
+/** What a caller says of a reap that waited, which the next reap retries. */
+export const REAP_WAITED =
+	"A kept call's file failed to read for the moment, so this reap ended nothing rather than guess whom to spare";
 
 /** The host a conversation runs under: its key, and its process's owner mark. */
 export interface HostMark {
@@ -317,7 +323,7 @@ async function reapWhere(
 ): Promise<Reaped> {
 	// Whom to spare isn't known: a running call's record may be the one
 	// that failed to read, so this reap ends nothing and the next tries.
-	if (spared.unread) return { groups: [], pids: [] };
+	if (spared.unread) return { groups: [], pids: [], waited: true };
 	const own = table.group(table.self);
 	const ownCgroup = table.cgroup(table.self);
 	const jobs = process.env.JOBS_CGROUP;
