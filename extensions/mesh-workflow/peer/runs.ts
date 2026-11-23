@@ -163,10 +163,6 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 	});
 	m.pi.on("agent_settled", async (event) => {
 		m.talks.settled(event.aborted);
-		// A move waiting finds the session free the moment its run settles,
-		// which is also when a reload follower's turn comes; left to its
-		// next look, a reload started meanwhile stops it unwritten.
-		m.moving.look();
 	});
 	m.pi.on("agent_end", async () => {
 		f.lookAgain();
