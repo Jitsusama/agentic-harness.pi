@@ -29,6 +29,7 @@ let reported: unknown[];
 let said: string[];
 let told: [string, string][];
 let rested: RosterEntry[];
+let givenUp: RosterEntry[];
 let resting: boolean;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
 let children: HostedChildren;
@@ -58,6 +59,7 @@ beforeEach(async () => {
 	said = [];
 	told = [];
 	rested = [];
+	givenUp = [];
 	resting = true;
 	const moving = new Set<string>();
 	policy = {
@@ -76,6 +78,10 @@ beforeEach(async () => {
 		restsParked(entry) {
 			rested.push(entry);
 			return resting;
+		},
+		restsGivenUp(entry) {
+			givenUp.push(entry);
+			return true;
 		},
 		report: (error) => reported.push(error),
 		say: (line) => said.push(line),
@@ -138,8 +144,9 @@ describe("a host's children", () => {
 	// F167: a bounded resume, as a start's, that gives its child up before
 	// its first answer ends no watch, so no ending rests it; left unrested,
 	// a message written to its wake file would wake nothing until a window
-	// asked for it.
-	it("rests one whose bounded resume gave its child up, since it is still held", async () => {
+	// asked for it. restsParked would decline one that never parked, so it
+	// rests as given up, which writes the marker a park would.
+	it("rests one whose bounded resume gave its child up as given up, since it is still held", async () => {
 		units.next = { silent: true };
 
 		await expect(
@@ -152,13 +159,14 @@ describe("a host's children", () => {
 		).toEqual([a]);
 		await vi.waitFor(() =>
 			expect(
-				rested.map(({ sessionId }) => sessionId),
+				givenUp.map(({ sessionId }) => sessionId),
 				"its wake watched again",
 			).toEqual([a]),
 		);
+		expect(rested, "not asked whether it parked").toEqual([]);
 	});
 
-	it("rests one whose wake gave its child up too, since it is still held", async () => {
+	it("rests one whose wake gave its child up too as given up, since it is still held", async () => {
 		units.next = { silent: true };
 
 		await expect(
@@ -167,11 +175,22 @@ describe("a host's children", () => {
 
 		await vi.waitFor(() =>
 			expect(
-				rested.map(({ sessionId }) => sessionId),
+				givenUp.map(({ sessionId }) => sessionId),
 				"its wake watched again",
 			).toEqual([a]),
 		);
+		expect(rested, "not asked whether it parked").toEqual([]);
 	}, 15_000);
+
+	it("rests nothing as given up for a resume its child takes, nor for one whose child ended", async () => {
+		await children.backend.resume(entryIn(folder, a), false);
+		expect(givenUp, "an ordinary resume writes no marker").toEqual([]);
+		await units.childOf(a).end("parked");
+		await vi.waitFor(() =>
+			expect(rested.map(({ sessionId }) => sessionId)).toEqual([a]),
+		);
+		expect(givenUp, "a park writes its own marker").toEqual([]);
+	});
 
 	it("lets a child start still waiting go at once as it closes", async () => {
 		const resuming = children.backend.resume(held[0] as RosterEntry, false);
@@ -180,6 +199,7 @@ describe("a host's children", () => {
 
 		await expect(resuming).rejects.toThrow();
 		expect(rested, "left to the next host, not rested").toEqual([]);
+		expect(givenUp, "nor rested as given up").toEqual([]);
 		const [unit] = units.started;
 		expect(
 			units.children.get(unit as string),
