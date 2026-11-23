@@ -184,8 +184,14 @@ export async function awaitCouncilStart(
 	}
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
-	const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
+	// Never under two looks, whoever asks: the line's own guard against a
+	// failed look losing its start, and against a tight loop, holds here
+	// rather than only in whichever reader of a config remembered it.
+	const spacing = Math.max(
+		claim.spacingMs ?? COUNCIL_START_SPACING_MS,
+		2 * lookAgain,
+	);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -504,13 +510,17 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 	}
 }
 
-/** Read errors that say nothing about the line, only about this moment. */
+/**
+ * Read errors that say nothing about the line, only about this moment:
+ * a process or machine short of descriptors, or a call interrupted. EIO
+ * and EBUSY are left out, since a disk or mount that answers so often
+ * goes on answering so, and a line that can never be read must heal
+ * rather than fail every round on the machine.
+ */
 const PASSING_READ_ERRORS: ReadonlySet<string> = new Set([
 	"EMFILE",
 	"ENFILE",
-	"EIO",
 	"EAGAIN",
-	"EBUSY",
 	"EINTR",
 ]);
 

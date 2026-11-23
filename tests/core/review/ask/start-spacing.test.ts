@@ -64,6 +64,9 @@ let folder: string;
 let path: string;
 
 beforeEach(() => {
+	// A fault a failed test left armed must not reach the next one.
+	readFault.code = undefined;
+	nextTicket.id = undefined;
 	folder = mkdtempSync(join(tmpdir(), "council-starts-"));
 	path = join(folder, "starts", "last.json");
 });
@@ -429,7 +432,8 @@ describe("spacing council starts on one machine", () => {
 					ticket: "mine",
 					follows: before,
 				},
-				waiting: line().waiting,
+				// A look that takes the start drops its ticket from the line.
+				waiting: [],
 			}),
 		);
 
@@ -438,6 +442,44 @@ describe("spacing council starts on one machine", () => {
 		expect((await waiting).cancelled).toContain("stopped");
 		expect(line().started).toEqual(before);
 		expect(line().waiting).toEqual([]);
+	});
+
+	it("says the spacing in whole minutes, or else in seconds", async () => {
+		for (const [spacingMs, said] of [
+			[120_000, "each 2 minutes"],
+			[60_000, "each minute"],
+			[90_000, "each 90 seconds"],
+		] as const) {
+			startedAt("A2VLJN", new Date());
+			const giving = new AbortController();
+			const waiting = awaitCouncilStart(
+				path,
+				claim("ISXEG8", { spacingMs }),
+				giving.signal,
+			);
+			await expect
+				.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+				.toBe(1);
+			giving.abort();
+
+			expect((await waiting).cancelled).toContain(said);
+		}
+	});
+
+	// The line keeps its own floor, so no caller can make it loop tightly
+	// or let a failed look lose its start, whatever spacing it asks for.
+	it("spaces starts at least two looks apart, whatever it is asked", async () => {
+		const first = new Date();
+		startedAt("A2VLJN", first);
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 0, lookAgainMs: 150 }),
+		);
+
+		expect(Date.now()).toBeGreaterThanOrEqual(
+			first.getTime() + 300 - TIMER_EARLY_MS,
+		);
 	});
 
 	it("gives the start back when stopped during the look that took it", async () => {

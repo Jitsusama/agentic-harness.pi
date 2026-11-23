@@ -180,6 +180,7 @@ describe("how far apart rounds start on this machine", () => {
 	// tickets that never start would read the line in a tight loop.
 	it("holds a spacing between half a minute and half an hour", () => {
 		expect(startSpacingMs({ startSpacingMinutes: 0 })).toBe(30_000);
+		expect(startSpacingMs({ startSpacingMinutes: -1 })).toBe(30_000);
 		expect(startSpacingMs({ startSpacingMinutes: 0.1 })).toBe(30_000);
 		expect(startSpacingMs({ startSpacingMinutes: 600 })).toBe(30 * 60_000);
 		expect(
@@ -192,7 +193,7 @@ describe("how far apart rounds start on this machine", () => {
 	});
 
 	it("ignores a spacing that is not a number of minutes", () => {
-		for (const said of [-1, Number.NaN, "2", null]) {
+		for (const said of [Number.NaN, "2", null]) {
 			expect(startSpacingMs({ startSpacingMinutes: said })).toBeUndefined();
 		}
 	});
