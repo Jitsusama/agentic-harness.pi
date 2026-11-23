@@ -25,6 +25,7 @@ import type {
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import { REPEAT_WINDOW_MS } from "../../../host/service/repeat-key.ts";
+import { unsettledSession } from "../../../host/service/unsettled-open.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
 import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
@@ -58,6 +59,7 @@ import {
 	refuse,
 } from "./shared.ts";
 import { clearUnanswered, noteUnanswered, pendingId } from "./spawn-pending.ts";
+import { stillOpening } from "./spawn-still-opening.ts";
 
 /** Sends one control request to a host's socket and reads its reply. */
 export type ControlCall = typeof controlRequest;
@@ -392,6 +394,15 @@ export async function spawnInHost(
 		return refuse(unknownOutcome(key, messageOf(error), repeat));
 	}
 	const { reply, shed } = sent;
+	// The host's own child runs it, though it answered late: it is opened,
+	// so the spawn attaches rather than report a refusal and open another.
+	const late = reply.ok ? undefined : unsettledSession(reply.error);
+	if (late !== undefined) {
+		clearUnanswered(where, request, kept);
+		const adopting = request.op === "adopt";
+		const opening = stillOpening(spawn, key, late, adopting);
+		return shedSaid(opening, shed, spawn.questId);
+	}
 	if (!reply.ok) {
 		// A refusal is an answer, and a repeat would get the same one, so the
 		// next spawn sends a new id. What a failed start left held is named

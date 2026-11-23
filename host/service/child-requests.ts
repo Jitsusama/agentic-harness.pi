@@ -10,6 +10,7 @@
 import { createConnection, type Socket } from "node:net";
 import type { ControlReply } from "./dispatch.ts";
 import { parseReply } from "./protocol.ts";
+import { OPEN_UNSETTLED, unsettledMessage } from "./unsettled-open.ts";
 
 /** The most an answer from a child may hold before its first line ends. */
 export const MAX_ANSWER_BYTES = 1024 * 1024;
@@ -52,10 +53,7 @@ export function unsettledReply(id: string, sessionId: string): ControlReply {
 		v: 1,
 		id,
 		ok: false,
-		error: {
-			code: "open_unsettled",
-			message: `The conversation's process gave no answer in time, but runs ${sessionId}: attach to it, or close it, rather than open another`,
-		},
+		error: { code: OPEN_UNSETTLED, message: unsettledMessage(sessionId) },
 	};
 	leftRunningBy.set(reply, sessionId);
 	return reply;
@@ -76,6 +74,70 @@ export function childUnreachable(id: string, message?: string): ControlReply {
 			code: "child_unreachable",
 			message:
 				message ?? "The process running this conversation does not answer",
+		},
+	};
+	madeHere.add(reply);
+	return reply;
+}
+
+/** The code of a begin the host refused, since its time had gone before any child started. */
+export const BEGIN_TOO_LATE = "begin_too_late";
+
+/**
+ * What the caller is told when a child said of itself that it gave no
+ * answer in time, which only the host may say: the child was stopped, so
+ * the words name no conversation to attach to, and none of the child's.
+ */
+export const CHILD_SAID_UNSETTLED =
+	"The conversation's process said of itself that it gave no answer in time, which only the host may say, so the host stopped it: nothing was opened, so ask again";
+
+/**
+ * Where a begin's time went when the host spent `spentMs` of its
+ * `withinMs` before it could begin. It asks for a wait, since what took
+ * the time was the host weighing a loaded machine, which an ask at once
+ * would only weigh again.
+ */
+function tooLateWords(spentMs: number, withinMs: number): string {
+	const spent = Math.round(spentMs / 1000);
+	const within = Math.round(withinMs / 1000);
+	return `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
+}
+
+/**
+ * The journal's line for a begin refused as too late, naming its request
+ * and quest. Both are only the caller's words, so each is kept to one
+ * plain line, as backend.ts keeps a caller's name, and none can read as
+ * a journal line of its own.
+ */
+export function tooLateLine(
+	request: { readonly id: string; readonly quest?: string | undefined },
+	spentMs: number,
+	withinMs: number,
+): string {
+	const plain = (word: string) => word.replace(/\p{Cc}/gu, " ");
+	const quest =
+		request.quest !== undefined ? ` for quest ${plain(request.quest)}` : "";
+	return `Request ${plain(request.id)}${quest}: ${tooLateWords(spentMs, withinMs)}`;
+}
+
+/**
+ * The answer to `id` when the host spent `spentMs` of its `withinMs`
+ * before it could begin, leaving too little for a child to start and
+ * answer: refused before any child starts, naming where the time went,
+ * since a start then would only be stopped again on a loaded machine.
+ */
+export function beganTooLate(
+	id: string,
+	spentMs: number,
+	withinMs: number,
+): ControlReply {
+	const reply: ControlReply = {
+		v: 1,
+		id,
+		ok: false,
+		error: {
+			code: BEGIN_TOO_LATE,
+			message: tooLateWords(spentMs, withinMs),
 		},
 	};
 	madeHere.add(reply);

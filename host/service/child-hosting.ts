@@ -47,6 +47,8 @@ export function hostChildren(options: {
 	restsParked?: (entry: RosterEntry) => boolean;
 	report: (error: unknown) => void;
 	say?: (line: string) => void;
+	/** A child's conversation became another, as its supervisor heard. */
+	became?: (previousId: string, nextId: string) => void;
 	/** For tests: the supervisor's own timings. */
 	timings?: Pick<
 		Parameters<typeof childSupervisor>[0],
@@ -64,6 +66,7 @@ export function hostChildren(options: {
 		report,
 		...(options.say ? { say: options.say } : {}),
 		ended: (sessionId, why) => rest(sessionId, why),
+		...(options.became ? { became: options.became } : {}),
 		...options.timings,
 	});
 
@@ -117,7 +120,7 @@ export function hostChildren(options: {
 			running: (sessionId) =>
 				routes.listed().find((held) => held.sessionId === sessionId),
 			resume: resumed,
-			begin: (request) => supervisor.begin(request),
+			begin: (request, taken) => supervisor.begin(request, taken),
 			ask,
 			left: (sessionId) => supervisor.left(sessionId),
 		},

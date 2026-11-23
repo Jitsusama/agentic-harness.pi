@@ -31,7 +31,6 @@ import {
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
 	type ConversationEngine,
-	conversationEvents,
 	type HostBackend,
 	hostBackend,
 	type ResumePhase,
@@ -40,6 +39,7 @@ import {
 import { type HostedChildren, hostChildren } from "./child-hosting.ts";
 import type { ChildPolicy } from "./child-policy.ts";
 import { slotFolder, type Units } from "./child-units.ts";
+import { conversationEvents } from "./conversation-events.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import {
 	heldOrder,
@@ -249,6 +249,9 @@ export async function serveHost(options: {
 					policy,
 					roster,
 					restsParked: (entry) => engine.restsParked?.(entry) ?? false,
+					// A child's conversation that became another is told the backend
+					// as one the host runs is, so a repeat names the one now.
+					became: (previousId, nextId) => succeeded?.(previousId, nextId),
 					report: options.report,
 					...(options.say ? { say: options.say } : {}),
 				});
