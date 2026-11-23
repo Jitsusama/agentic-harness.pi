@@ -170,7 +170,9 @@ export function keepsOnDisk(
 					// it goes the call can still be carried, so a move or a host's
 					// stop meeting it then carries it, its end said where it lands,
 					// rather than finding a job neither carriable nor ended and
-					// stopping it.
+					// stopping it. Not one this pi stopped or timed out: it is said
+					// stopped here, and a taker would call it lost.
+					if (stopping.signal.aborted && call.signal) calls.delete(call.signal);
 					if (!kept.handed) await forgetOwnKeptJob(path);
 					// Handed on meanwhile, its files are the taker's. Otherwise ended
 					// here, so nothing may carry or hand it on while they go, which

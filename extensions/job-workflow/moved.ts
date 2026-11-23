@@ -53,11 +53,8 @@ import {
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
-import {
-	handJobRecordOn,
-	isMarkedCarried,
-	removeKept,
-} from "../../lib/internal/shell/kept.ts";
+import { isMarkedCarried, removeKept } from "../../lib/internal/shell/kept.ts";
+import { disownKeptJob } from "../../lib/internal/shell/kept-jobs.ts";
 import {
 	finishedSummary,
 	keepInTemp,
@@ -365,7 +362,7 @@ function takeUpShell(
 		carry: {
 			what: () => (ended ? undefined : work),
 			handed: () => {
-				handJobRecordOn(work.keep);
+				disownKeptJob(work.keep);
 				watching?.handed();
 			},
 		},

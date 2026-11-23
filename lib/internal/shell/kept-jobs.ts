@@ -102,6 +102,8 @@ export interface ForgetOwnOptions {
  * write's own beside it and renamed into place. Not through the kept
  * folder's `.writing`, which would stay there once every call's files
  * went; one left by a pi that died mid-write goes with the week's sweep.
+ * A record the disk won't take is said, since a pi gone before its call
+ * ends then leaves nothing for its next start to take up.
  */
 export function recordKeptJob(job: KeptJob): void {
 	const file = `${job.work.keep}${JOB_SUFFIX}`;
@@ -115,13 +117,23 @@ export function recordKeptJob(job: KeptJob): void {
 			// One left by a write that died, or put there by whatever can write
 			// the folder: taken away, not written through.
 			rmSync(staged, { force: true });
-			writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+			try {
+				writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
+			} catch (again) {
+				if (!isTaken(again)) throw again;
+				throw new Error(`${staged} was taken again as it was written`);
+			}
 		}
 		renameSync(staged, file);
 		ownJobRecord(job.work.keep, record);
-	} catch {
-		// Its files went as it ended: nothing is left to take up.
+	} catch (error) {
 		rmSync(staged, { force: true });
+		// Its files went as it ended: nothing is left to take up or say.
+		if (isMissing(error)) return;
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(
+			`[shell] couldn't record ${file}: ${why}; a pi gone before the call ends leaves it unsaid\n`,
+		);
 	}
 }
 

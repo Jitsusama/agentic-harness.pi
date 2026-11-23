@@ -397,20 +397,11 @@ export function takeJobRecord(path: string): string | undefined {
 }
 
 /**
- * Let go of the job record of the call kept at `path` as this process's,
- * answering whether it was: its files went, or the call was handed on.
- */
-function disownJobRecord(path: string): boolean {
-	return jobRecords.own.delete(path);
-}
-
-/**
  * Let go of the job record of the call kept at `path` as its call is
  * handed on, marking a removal of it still running as handed.
  */
 export function handJobRecordOn(path: string): void {
-	const latest = jobRecords.own.get(path);
-	disownJobRecord(path);
+	const latest = takeJobRecord(path);
 	const removal = jobRecords.removing.get(path);
 	if (removal === undefined) return;
 	removal.handed = true;
@@ -423,7 +414,7 @@ export function handJobRecordOn(path: string): void {
  * still running as gone, so nothing puts it back after.
  */
 export function letJobRecordGo(path: string): void {
-	disownJobRecord(path);
+	jobRecords.own.delete(path);
 	const removal = jobRecords.removing.get(path);
 	if (removal !== undefined) removal.gone = true;
 }
