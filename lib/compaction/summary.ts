@@ -235,14 +235,15 @@ export function summaryInstruction(options: SummaryInstructionOptions): string {
 /** How a fold carries the summary before it: pi's way unsized, held under a ceiling that binds, else in full. */
 function foldFor(length: SummaryLength | undefined): string {
 	if (!length) return FOLD_PREVIOUS;
-	return ceilingBinds(length) ? FOLD_HELD : FOLD_CARRY;
+	return limitBinds(length) ? FOLD_HELD : FOLD_CARRY;
 }
 
-/** Whether a ceiling holds the summary under what its share of what it replaces would ask. */
-function ceilingBinds(length: SummaryLength): boolean {
+/** Whether a ceiling, or halving after a capped try, holds the summary under what its share of what it replaces would ask. */
+function limitBinds(length: SummaryLength): boolean {
 	const { ceilingTokens, halved, ...unheld } = length;
 	return (
-		ceilingTokens !== undefined && summaryTarget(length) < summaryTarget(unheld)
+		(ceilingTokens !== undefined || halved === true) &&
+		summaryTarget(length) < summaryTarget(unheld)
 	);
 }
 
@@ -285,7 +286,7 @@ function lengthLine(length: SummaryLength, folding: boolean): string {
 	const target = summaryTarget(length);
 	const words = roundToHundred(target * WORDS_PER_TOKEN);
 	const replaces = `This summary replaces about ${count(roundToHundred(length.replacedTokens))} tokens of conversation${folding ? ", the earlier summary included" : ""}.`;
-	if (ceilingBinds(length)) {
+	if (limitBinds(length)) {
 		return `${replaces} Keep it to at most ${count(target)} tokens (roughly ${count(words)} words). That is a limit, not a target to stretch toward: what it replaces would fill more, so choose what goes in. Spend it on what a successor needs to carry on without asking: each decision and its reason, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages the open work depends on. Give each finished item one line. Do not narrate how the session went.`;
 	}
 	return `${replaces} Make it about ${count(target)} tokens long (roughly ${count(words)} words): its length should grow with what it replaces, so do not squeeze it onto a short page. Spend that length on what a successor needs to carry on without asking: each decision and its reason, each point where the plan changed course and what replaced it, what was finished and how it ended, what is still open, standing instructions in the user's own terms, and the exact file paths, commands, numbers, names, identifiers and error messages they depend on. Do not narrate how the session went.`;

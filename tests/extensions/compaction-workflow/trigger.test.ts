@@ -400,6 +400,11 @@ describe("the compaction trigger", () => {
 			await fire("session_compact", { compactionEntry: {} }, ctx);
 			state.compactions[0]?.onComplete?.();
 			const before = completeSimple.mock.calls.length;
+			// The first turn after measures what the compaction kept, and the
+			// conversation then grows back to the edge.
+			state.tokens = 60_000;
+			await endTurn(fire, ranTools, ctx);
+			state.tokens = 300_000;
 
 			completeSimple.mockResolvedValueOnce(refused);
 			for (let turn = 0; turn < 40; turn++) {
