@@ -145,6 +145,124 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
+	it("empties the login's compile caches even where no runtime folder is fenced, as from ssh", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const everything: Disk = { kind: () => "folder", entries: () => [] };
+		const tmpfsOf = (given: string[]) =>
+			given.flatMap((arg, at) => (arg === "--tmpfs" ? [given[at + 1]] : []));
+		const unfenced = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			everything,
+		);
+		expect(tmpfsOf(unfenced), "a tmpfs of its own over them").toContain(
+			"/run/user/1000/pi-compile",
+		);
+		expect(
+			tmpfsOf(fenceArgs({ ...place, compileRoots: roots }, everything)).filter(
+				(path) => path?.startsWith("/run/user/1000/"),
+			),
+			"none more where the runtime folder is emptied already",
+		).toEqual([]);
+		const noLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user") ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+					noLogin,
+				),
+			).filter((path) => path?.startsWith("/run") && path !== "/run/dbus"),
+			"none, nor over a folder above, where no runtime folder can be made",
+		).toEqual([]);
+	});
+
+	it("hides where the login's runtime folder would be made, when it has none yet, so one made later is out of reach", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const beforeLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user/") ? undefined : "folder"),
+			entries: () => [],
+		};
+		const args = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			beforeLogin,
+		);
+		expect(args.join(" ")).toContain("--tmpfs /run/user ");
+	});
+
+	it("hides nothing above a missing runtime folder that holds the fence's own, or that is no plain folder", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const tmpfsOf = (given: string[]) =>
+			given.flatMap((arg, at) => (arg === "--tmpfs" ? [given[at + 1]] : []));
+		const missing = (above: "folder" | "link"): Disk => ({
+			kind: (path) =>
+				path === "/run/user/1000" || path.startsWith("/run/user/1000/")
+					? undefined
+					: path === "/run/user"
+						? above
+						: "folder",
+			entries: () => [],
+		});
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{
+						home: place.home,
+						runtimeDir: "/run/user/2000",
+						compileRoots: roots,
+					},
+					missing("folder"),
+				),
+			),
+			"the fence's own runtime folder kept in reach",
+		).not.toContain("/run/user");
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+					missing("link"),
+				),
+			),
+			"nothing mounted over a link",
+		).not.toContain("/run/user");
+	});
+
+	it("keeps read-only the runtime folder holding a compile root that is no folder, so nothing inside swaps it for a folder a host trusts", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		for (const kind of ["file", "link"] as const) {
+			const planted: Disk = {
+				kind: (path) => (path === roots[0] ? kind : "folder"),
+				entries: () => [],
+			};
+			const given = fenceArgs(
+				{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+				planted,
+			).join(" ");
+			expect(
+				given,
+				`nothing over a ${kind} left there, which bubblewrap can't mount over`,
+			).not.toContain("--tmpfs /run/user/1000/pi-compile");
+			expect(
+				given,
+				`the folder a ${kind} is left in kept read-only, its sockets still reached`,
+			).toContain("--ro-bind /run/user/1000 /run/user/1000");
+			const inside = fenceArgs(
+				{
+					home: place.home,
+					runtimeDir: "/run/user/1000/own",
+					compileRoots: roots,
+				},
+				planted,
+			).join(" ");
+			expect(
+				inside.indexOf("--ro-bind /run/user/1000 "),
+				"kept read-only before the fence's own runtime folder goes over it",
+			).toBeLessThan(inside.indexOf("--tmpfs /run/user/1000/own"));
+			expect(inside.indexOf("--ro-bind /run/user/1000 ")).toBeGreaterThan(0);
+		}
+	});
+
 	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, the jobs broker, the clipboard door's folder and the sandboxed display's in the runtime folder, each read-only", () => {
 		expect(
 			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),

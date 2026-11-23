@@ -71,6 +71,7 @@
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";
+import { loginCompileRoots } from "./compile-cache-place.ts";
 import {
 	type BrokerTrees,
 	brokerTreeArgs,
@@ -226,6 +227,10 @@ export const NEVER_THROUGH = [
 	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).
 	"daemons/secret-asks.sock",
 	"secret-asks",
+	// The compile caches a host and pi's node run outside the fence
+	// (compile-cache-place.ts): emptied with the runtime folder, or a
+	// tmpfs of the fence's own where it fences none (`compileRoots`).
+	"pi-compile",
 ] as const;
 
 /** Where a fenced command runs, and the worktrees it writes (`fence-worktrees.ts`). */
@@ -269,6 +274,14 @@ export interface FencePlace extends Worktrees {
 	 * a test names its own.
 	 */
 	readonly tempCaches?: readonly string[];
+	/**
+	 * The login's runtime folder's compile caches, where a host keeps its
+	 * compiled code (`compile-cache-place.ts`), `loginCompileRoots()`
+	 * unless a test names its own. One the fenced runtime folder holds is
+	 * emptied with it; any other is a tmpfs of the fence's own, since a pi
+	 * started without `XDG_RUNTIME_DIR`, as from ssh, fences none.
+	 */
+	readonly compileRoots?: readonly string[];
 	/**
 	 * The session's writable copies of dev's settings and git's global
 	 * folder, bound in their place (`fence-dev.ts`).
@@ -381,6 +394,8 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		"--proc",
 		"/proc",
 		...renderNodeArgs(disk),
+		// First, so the fence's own mounts inside go over it, writable.
+		...frozenRuntimeArgs(unfencedCompileRoots(place), disk),
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);
@@ -404,6 +419,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
+	args.push(...compileRootArgs(unfencedCompileRoots(place), place, disk));
 	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
@@ -755,6 +771,75 @@ export function fenceDisplay(
 	return disk.kind(path) === undefined ? undefined : path;
 }
 
+/**
+ * The login's compile caches that the fenced runtime folder doesn't
+ * hold, which the fence lays a tmpfs of its own over.
+ */
+function unfencedCompileRoots(place: FencePlace): readonly string[] {
+	const runtime = place.runtimeDir;
+	return (place.compileRoots ?? loginCompileRoots()).filter(
+		(root) =>
+			!(runtime && (root === runtime || root.startsWith(`${runtime}/`))),
+	);
+}
+
+/**
+ * A tmpfs of the fence's own over each compile root, whether or not it
+ * is there yet, or a command could make it and plant code a host runs;
+ * bubblewrap makes the folder for its mount. Where the runtime folder it
+ * lies in isn't made yet, as before a login, the folder that runtime
+ * folder would be made in is hidden instead, so one mounted there later
+ * never shows inside. Nothing goes over a root that is no folder, since
+ * bubblewrap can't mount over it: `frozenRuntimeArgs` keeps that one.
+ */
+function compileRootArgs(
+	roots: readonly string[],
+	place: FencePlace,
+	disk: Disk,
+): string[] {
+	const args: string[] = [];
+	const runtime = place.runtimeDir;
+	const hidden = new Set<string>();
+	for (const root of roots) {
+		const runtimeFolder = dirname(root);
+		if (disk.kind(runtimeFolder) === undefined) {
+			const above = dirname(runtimeFolder);
+			const holdsRuntime =
+				runtime !== undefined &&
+				(runtime === above || runtime.startsWith(`${above}/`));
+			if (
+				disk.kind(above) === "folder" &&
+				!holdsRuntime &&
+				!hidden.has(above)
+			) {
+				hidden.add(above);
+				args.push("--tmpfs", above);
+			}
+			continue;
+		}
+		const kind = disk.kind(root);
+		if (kind === undefined || kind === "folder")
+			args.push("--perms", "0700", "--tmpfs", root);
+	}
+	return args;
+}
+
+/**
+ * The runtime folder holding a compile root that is no folder, as one
+ * planted there would be, kept read-only: bubblewrap can't mount over
+ * the root, and a command could otherwise swap it for a private folder
+ * of planted code the next host trusts. Its sockets are still reached,
+ * as a connect writes nothing.
+ */
+function frozenRuntimeArgs(roots: readonly string[], disk: Disk): string[] {
+	const frozen = new Set<string>();
+	for (const root of roots) {
+		const kind = disk.kind(root);
+		if (kind !== undefined && kind !== "folder") frozen.add(dirname(root));
+	}
+	return [...frozen].flatMap((folder) => ["--ro-bind", folder, folder]);
+}
+
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */
 export function nixDoor(runtimeDir: string | undefined): string | undefined {
 	return runtimeDir ? `unix://${join(runtimeDir, LET_THROUGH[0])}` : undefined;
@@ -780,6 +865,7 @@ export function fenceRefusesWrite(
 		...(place.runtimeDir ? [place.runtimeDir] : []),
 		// Written inside, but only to a tmpfs that goes with the command.
 		...(place.tempCaches ?? tempCodeCaches()),
+		...unfencedCompileRoots(place),
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
