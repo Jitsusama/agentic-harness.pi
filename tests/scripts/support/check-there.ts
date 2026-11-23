@@ -1127,7 +1127,160 @@ export function describeTheRest(): void {
 	noLock();
 	nodeLink();
 	localHalf();
+	lookups();
+	itsEnd();
 	workThere();
+}
+
+/** Make `path`, with the folders it sits in, as an empty program. */
+function madeAt(path: string): string {
+	mkdirSync(join(path, ".."), { recursive: true });
+	writeFileSync(path, "");
+	return path;
+}
+
+function lookups(): void {
+	describe("what the check finds on its host", () => {
+		clearsAfterEach();
+		// Under errexit and pipefail, a lookup that ended the shell on a
+		// match of none would end the check before it said what was missing.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds the pnpm a store holds for the version named, and says none where it holds none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const store = join(host, "store");
+				mkdirSync(join(store, "a1-pnpm-10.2.0", "bin"), { recursive: true });
+				mkdirSync(join(store, "b2-pnpm-10.2.1", "bin"), { recursive: true });
+				const found = await ended(
+					check(
+						host,
+						`pnpm_in 10.2.0 "${store}"\nnone=$(pnpm_in 9.9.9 "${store}")\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "the version named, then none").toBe(
+					`${join(store, "a1-pnpm-10.2.0", "bin")}\nnone:\n`,
+				);
+			},
+			TEST_MS,
+		);
+
+		// glibc's -bin output holds a loader too, a stub that runs nothing.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds glibc's own loader in a store, never its -bin output's, and says none where there is none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const store = join(host, "store");
+				const loader = "lib/ld-linux-x86-64.so.2";
+				const own = madeAt(join(store, "a1-glibc-2.40-66", loader));
+				madeAt(join(store, "b2-glibc-2.40-66-bin", loader));
+				const found = await ended(
+					check(
+						host,
+						`loader_in "${store}"\nnone=$(loader_in "${join(host, "empty")}")\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "glibc's own, then none").toBe(`${own}\nnone:\n`);
+			},
+			TEST_MS,
+		);
+
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds the biome a tree's install holds, and says none where it holds none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const tree = join(host, "tree");
+				const biome = madeAt(
+					join(
+						tree,
+						"node_modules/.pnpm/@biomejs+cli-linux-x64@2.5.3/node_modules/@biomejs/cli-linux-x64/biome",
+					),
+				);
+				const found = await ended(
+					check(
+						host,
+						`biome_in "${tree}"\nnone=$(biome_in "${join(host, "empty")}")\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "the tree's biome, then none").toBe(
+					`${biome}\nnone:\n`,
+				);
+			},
+			TEST_MS,
+		);
+
+		// The lookups' tests hold only what the check itself calls.
+		it("finds its pnpm, loader and biome by those lookups", () => {
+			const work = defined(there(), "run_check") ?? "";
+			for (const line of [
+				'bin=$(pnpm_in "$want" /nix/store)',
+				"ld=$(loader_in /nix/store)",
+				'real=$(biome_in "$PWD")',
+			])
+				expect(work.split("\n"), `${line}, in the check`).toContain(
+					`${line.startsWith("bin") ? "" : "  "}${line}`,
+				);
+		});
+	});
+}
+
+/** What the script runs once its work is defined: the work, and its end. */
+function afterTheWork(): string {
+	const text = there();
+	const work = defined(text, "run_check");
+	if (work === undefined)
+		throw new Error("check-there.sh defines no run_check");
+	return text.slice(text.indexOf(work) + work.length);
+}
+
+function itsEnd(): void {
+	describe("how the check there ends", () => {
+		clearsAfterEach();
+		// A caller acts on 3 and 75 as this script's own, so the branch's
+		// code, which can exit with either, can't say them.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined)).each([
+			[75, 1],
+			[3, 1],
+			[2, 2],
+			[0, 0],
+		])(
+			"ends %i's work there with %i",
+			async (work, code) => {
+				const host = hostWith(EVERY_HOST);
+				const run = await ended(
+					check(host, `run_check() { return ${work}; }${afterTheWork()}`),
+				);
+				expect(run.code, run.err).toBe(code);
+				if (code === work)
+					expect(run.err, "nothing said of its code").not.toMatch(/exited/);
+				else
+					expect(run.err, "said why").toMatch(
+						new RegExp(
+							`^check-there: the check on .* exited ${work}, a code this script keeps for its own, so it ends 1$`,
+							"m",
+						),
+					);
+			},
+			TEST_MS,
+		);
+
+		// Its code is read with errexit off, which the work's own shell
+		// would otherwise keep, running on past a failed step.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"stops its work at the first step that fails",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const run = await ended(
+					check(host, `run_check() {\nfalse\necho past\n}${afterTheWork()}`),
+				);
+				expect(run.code, run.err).toBe(1);
+				expect(run.out, "nothing past the failed step").not.toMatch(/past/);
+			},
+			TEST_MS,
+		);
+	});
 }
 
 function clockWait(): void {
@@ -1729,10 +1882,14 @@ function workThere(): void {
 			expect(after[0], "the work opens as its turn is taken").toBe(
 				"run_check() {",
 			);
-			expect(after.at(-2), "and closes once").toBe("}");
-			expect(after.at(-1), "run as the stops above stop it").toBe(
-				"alone run_check",
-			);
+			expect(
+				after.filter((line) => /(^|\s)alone\s/.test(line)),
+				"run once its function closes, as the stops above stop it",
+			).toEqual(["alone with_errexit run_check"]);
+			expect(
+				after.indexOf("alone with_errexit run_check"),
+				"after its function",
+			).toBeGreaterThan(after.indexOf("}"));
 			expect(
 				after.filter((line) => line.startsWith("}") || line.endsWith("{")),
 				"one function, holding all of it",
