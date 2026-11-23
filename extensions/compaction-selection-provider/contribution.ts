@@ -56,9 +56,12 @@ import {
 } from "../../lib/compaction/selection/units.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import {
+	type DiskFinds,
+	diskFinds,
 	type Entry,
 	messagesOnDisk,
 	messagesOnDiskAsync,
+	type PacedRead,
 } from "../../lib/internal/session/rollover.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
@@ -82,26 +85,37 @@ const CHECK_OVERSAMPLE = 2;
 /**
  * The branch with the messages worth quoting that a held log left on
  * disk read back before it, so a compaction still quotes them. Only
- * those lines are parsed, never the whole parent log.
+ * those lines are parsed, never the whole parent log, and a line the
+ * check already found is read straight from where it sits.
+ *
+ * Only the session store's tags are read back from disk. The memory
+ * store keeps one index for the whole process, so its tags can name a
+ * message on a branch the person has left, which the log still holds.
  */
 function withQuotableOnDisk(
 	branch: readonly SessionEntry[],
 	quotable: ReadonlySet<string>,
+	store: SelectionStore,
+	finds: DiskFinds,
 ): SessionEntry[] {
-	return [...messagesOnly(messagesOnDisk(branch, quotable)), ...branch];
+	if (store.kind !== "session") return [...branch];
+	return [...messagesOnly(messagesOnDisk(branch, quotable, finds)), ...branch];
 }
 
 /**
  * As {@link withQuotableOnDisk}, giving the event loop back as it reads,
- * for the check, which runs while the conversation goes on.
+ * for the check, which runs while the conversation goes on and leaves
+ * what it finds for the compaction.
  */
 async function withQuotableOnDiskAsync(
 	branch: readonly SessionEntry[],
 	quotable: ReadonlySet<string>,
-	signal: AbortSignal,
+	store: SelectionStore,
+	read: PacedRead,
 ): Promise<SessionEntry[]> {
-	const read = await messagesOnDiskAsync(branch, quotable, signal);
-	return [...messagesOnly(read), ...branch];
+	if (store.kind !== "session") return [...branch];
+	const messages = await messagesOnDiskAsync(branch, quotable, read);
+	return [...messagesOnly(messages), ...branch];
 }
 
 /** The lines read back that are messages as pi writes them. */
@@ -172,6 +186,9 @@ export function selectionContributor(
 ): SelectionContributor {
 	const { store } = options;
 	const status = options.status ?? classifierStatus();
+	// Shared by the check and the compaction, so the compaction, which
+	// cannot wait, reads only lines the check has already found.
+	const finds = diskFinds();
 	let controller = new AbortController();
 	let checking: Promise<void> | null = null;
 
@@ -184,11 +201,13 @@ export function selectionContributor(
 		const branch = ctx.sessionManager.getBranch();
 		const tags = store.tags(branch);
 		const holds = store.holds(branch);
+		const scannedBefore = finds.scanned;
 		const candidates = candidatesBefore(
-			withQuotableOnDisk(branch, tags.quotable),
+			withQuotableOnDisk(branch, tags.quotable, store, finds),
 			tags,
 			firstKeptEntryId,
 		);
+		const logsScanned = finds.scanned - scannedBefore;
 		const chosen = selectExcerpts(candidates, budget, holds);
 		const refs = options.refs?.() ?? false;
 		const text = renderExcerpts(chosen, { refs });
@@ -206,6 +225,7 @@ export function selectionContributor(
 			...status.current(),
 			store: store.kind,
 			budget,
+			logsScanned,
 			candidates: candidates.length,
 			chosen: chosen.length,
 			excerptTokens: chosen.reduce(
@@ -245,7 +265,10 @@ export function selectionContributor(
 		const branch = ctx.sessionManager.getBranch();
 		const holds = store.holds(branch);
 		const tags = store.tags(branch);
-		const read = await withQuotableOnDiskAsync(branch, tags.quotable, signal);
+		const read = await withQuotableOnDiskAsync(branch, tags.quotable, store, {
+			signal,
+			finds,
+		});
 		if (signal.aborted) return;
 		const pending = selectExcerpts(
 			candidatesBefore(read, tags, estimatedFirstKept(branch)),

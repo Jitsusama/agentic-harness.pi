@@ -253,6 +253,23 @@ describe("tagging", () => {
 		);
 	});
 
+	it("leaves a message untagged when the person moved off it while it was asked about", async () => {
+		const branch: SessionEntry[] = [user("u1", "Always sign every commit.")];
+		const yes = answeringYesTo(".rule");
+		const { ctx, store, sent, appended } = session(branch, (context) => {
+			// Moved to another branch while the classifier answered.
+			branch.splice(0, branch.length, user("u9", "Try another way instead."));
+			return yes(context);
+		});
+		const tags = tagger(store);
+
+		tags.schedule(ctx);
+		await tags.idle();
+
+		expect(sent).toHaveLength(1);
+		expect(appended).toEqual([]);
+	});
+
 	it("tags the newest messages first", async () => {
 		const branch = Array.from({ length: 6 }, (_, at) =>
 			user(`u${at}`, `Message number ${at} of the session.`),
@@ -308,8 +325,10 @@ describe("tagging", () => {
 		expect(sent).toHaveLength(2);
 		expect(passages(sent[0]?.context, "context")).toEqual(context);
 		expect(reads.branches, "whole branches read").toBe(0);
-		// The two new entries, and the twelve before each as its context.
-		expect(reads.entries, "entries read").toBeLessThanOrEqual(2 + 2 * 12);
+		// The two new entries, the twelve before each as its context, and
+		// the first tag recorded, which the second answer's check walks
+		// back over to see the branch has only gone on.
+		expect(reads.entries, "entries read").toBeLessThanOrEqual(2 + 2 * 12 + 1);
 	});
 
 	it("does nothing when no classifier has credentials", async () => {
@@ -554,7 +573,63 @@ describe("contributing excerpts", () => {
 			expect(contributions.appendix[0]).toContain(
 				"> Always sign every commit.",
 			);
-			expect(recordOf(contributions)).toMatchObject({ candidates: 1 });
+			// With no check before it, the compaction reads the log itself.
+			expect(recordOf(contributions)).toMatchObject({
+				candidates: 1,
+				logsScanned: 1,
+			});
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads at the compaction only the lines its check found on disk", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			const held = heldOver(dir, [rule]);
+			const branch = [held, tagged(rule, ["rule"]), kept];
+			const { ctx, store } = session(branch, answeringYesTo(".holds"));
+			const contributor = selectionContributor(() => ctx, { store });
+			contributor.listener(newContributions({}));
+			await contributor.idle();
+
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+			contributor.listener(contributions);
+
+			expect(contributions.appendix[0]).toContain(
+				"> Always sign every commit.",
+			);
+			expect(recordOf(contributions)).toMatchObject({ logsScanned: 0 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads nothing back from disk with tags kept in the process", () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			// The process's index can name a message on a branch left behind,
+			// which the log still holds.
+			const held = heldOver(dir, [rule]);
+			const branch = [held, kept];
+			const { ctx } = session(branch, answeringYesTo());
+			const store = memoryStore();
+			store.recordTags({
+				entryId: rule.id,
+				units: unitsOf(rule).map((unit) => ({
+					hash: unit.hash,
+					kinds: ["rule"],
+				})),
+			});
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+
+			selectionContributor(() => ctx, { store }).listener(contributions);
+
+			expect(contributions.appendix.join("")).not.toContain("Always sign");
+			expect(recordOf(contributions)).toMatchObject({
+				store: "memory",
+				logsScanned: 0,
+			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -599,6 +674,7 @@ describe("contributing excerpts", () => {
 			unresolved: true,
 			store: "session",
 			budget: 3000,
+			logsScanned: 0,
 			candidates: 1,
 			chosen: 1,
 			excerptTokens: 7,

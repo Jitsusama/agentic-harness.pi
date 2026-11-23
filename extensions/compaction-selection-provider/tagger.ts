@@ -26,7 +26,11 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
-import { entriesBefore } from "../../lib/internal/session/branch-walk.ts";
+import {
+	type BranchReader,
+	entriesBefore,
+	type LinkedEntry,
+} from "../../lib/internal/session/branch-walk.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -70,6 +74,8 @@ export function tagger(
 		// Read from what the branch gained since the last pass, not the
 		// whole branch, since a pass follows every turn.
 		const session = ctx.sessionManager;
+		// Every message queued lies behind this leaf.
+		const under = { leaf: session.getLeafId() };
 		const { live } = taggedBranchAt(session);
 		const queue = untagged(live, store.tagsAt(session))
 			.filter((entry) => (attempts.get(entry.id) ?? 0) < ATTEMPTS)
@@ -89,6 +95,10 @@ export function tagger(
 			);
 			const ms = Date.now() - started;
 			if (signal.aborted) return;
+			// A tag lands wherever the branch is now, so a message the person
+			// moved away from while it was asked about is left untagged: its
+			// tag would name, from this branch, a message only the log holds.
+			if (!stillUnder(session, under)) return;
 			if (result.ok) {
 				store.recordTags({
 					entryId: entry.id,
@@ -171,4 +181,23 @@ export function tagger(
 			while (running) await running;
 		},
 	};
+}
+
+/**
+ * Whether the session's leaf now still lies on or after `under.leaf`,
+ * so the branch holds everything that was behind it. The walk back
+ * stops there, so a conversation that only went on reads just what it
+ * gained, and `under.leaf` moves up to the leaf now for the next check.
+ */
+function stillUnder(
+	session: BranchReader<LinkedEntry>,
+	under: { leaf: string | null | undefined },
+): boolean {
+	const leaf = session.getLeafId();
+	for (let id = leaf; id; id = session.getEntry(id)?.parentId) {
+		if (id !== under.leaf) continue;
+		under.leaf = leaf;
+		return true;
+	}
+	return !under.leaf;
 }

@@ -69,6 +69,11 @@ Every compaction records what the selection did under
 - `label`, or `unavailable` with the reason, for the classifier, or
   `unresolved` when none was asked for yet this session;
 - `store`, `budget` and `refs`;
+- `logsScanned`, how many parent logs the compaction read through for
+  messages a held or rolled-over log left on disk. The check ahead of
+  it reads them while the conversation goes on and says where each
+  message sits, so after a check this is 0. Only the session store's
+  tags are read back from disk;
 - `candidates` before the tail, how many were `chosen`, and their
   `excerptTokens`;
 - `notHolding`, judged no longer to hold, and `unchecked`, chosen

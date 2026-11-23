@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ancestry,
 	carriedBy,
+	diskFinds,
 	type Entry,
 	leaveInParentLog,
 	messagesOnDisk,
@@ -447,6 +448,24 @@ describe("messages asked of the parent logs", () => {
 		expect(texts(read)).toEqual(["early question", long, `${long}ü`]);
 	});
 
+	it("are read again from lines longer than a chunk, where they start", () => {
+		const { manager, ids } = longSession();
+		const long = "é🌲a".repeat(300_000);
+		const first = manager.appendMessage(user(long));
+		const second = manager.appendMessage(user(`${long}ü`));
+		const kept = manager.appendMessage(user("kept after the long lines"));
+		manager.appendCompaction("long lines", kept, 10);
+		const branch = rolledInto(manager).fresh.getBranch();
+		const wanted = new Set([ids.early, first, second]);
+		const finds = diskFinds();
+		messagesOnDisk(branch, wanted, finds);
+
+		const read = messagesOnDisk(branch, wanted, finds);
+
+		expect(texts(read)).toEqual(["early question", long, `${long}ü`]);
+		expect(finds.scanned).toBe(1);
+	});
+
 	it("are read whole where a chunk ends inside a letter", () => {
 		const { manager } = longSession();
 		const { fresh } = rolledInto(manager);
@@ -498,6 +517,78 @@ describe("messages asked of the parent logs", () => {
 		}
 	});
 
+	it("are read again straight from the lines found before, with no scan", () => {
+		const { manager, ids } = longSession();
+		const branch = rolledInto(manager).fresh.getBranch();
+		const finds = diskFinds();
+		messagesOnDisk(branch, new Set([ids.early]), finds);
+		const parse = vi.spyOn(JSON, "parse");
+		try {
+			const read = messagesOnDisk(branch, new Set([ids.early]), finds);
+
+			expect(texts(read)).toEqual(["early question"]);
+			expect(finds.scanned).toBe(1);
+			expect(parse).toHaveBeenCalledTimes(1);
+		} finally {
+			parse.mockRestore();
+		}
+	});
+
+	it("are not looked for again once no parent held them", () => {
+		const { manager } = longSession();
+		const branch = rolledInto(manager).fresh.getBranch();
+		const finds = diskFinds();
+		messagesOnDisk(branch, new Set(["nowhere"]), finds);
+		const parse = vi.spyOn(JSON, "parse");
+		try {
+			expect(messagesOnDisk(branch, new Set(["nowhere"]), finds)).toEqual([]);
+			expect(finds.scanned).toBe(1);
+			expect(parse).not.toHaveBeenCalled();
+		} finally {
+			parse.mockRestore();
+		}
+	});
+
+	it("are looked for afresh when the line found before holds another message", () => {
+		const { manager } = longSession();
+		const said = manager.appendMessage(user("first said"));
+		const other = manager.appendMessage(user("other said"));
+		const kept = manager.appendMessage(user("kept after them"));
+		manager.appendCompaction("two of a size", kept, 10);
+		const branch = rolledInto(manager).fresh.getBranch();
+		const finds = diskFinds();
+		messagesOnDisk(branch, new Set([said]), finds);
+		// The two lines change places, so where `said` was, `other` is.
+		const file = manager.getSessionFile() ?? "";
+		const lines = readFileSync(file, "utf8").split("\n");
+		const at = lines.findIndex((line) => line.includes(`"id":"${said}"`));
+		const saidLine = lines[at] ?? "";
+		const otherLine = lines[at + 1] ?? "";
+		expect(otherLine).toContain(`"id":"${other}"`);
+		expect(otherLine.length).toBe(saidLine.length);
+		lines.splice(at, 2, otherLine, saidLine);
+		writeFileSync(file, lines.join("\n"));
+
+		const read = messagesOnDisk(branch, new Set([said]), finds);
+
+		expect(read.map((entry) => entry.id)).toEqual([said]);
+		expect(texts(read)).toEqual(["first said"]);
+		expect(finds.scanned).toBe(2);
+	});
+
+	it("start over what they know when the branch carries on from another log", () => {
+		const one = rolledInto(longSession().manager).fresh.getBranch();
+		const { manager, ids } = longSession();
+		const two = rolledInto(manager).fresh.getBranch();
+		const finds = diskFinds();
+		// The first log's parents hold none of the second's messages.
+		expect(messagesOnDisk(one, new Set([ids.early]), finds)).toEqual([]);
+
+		const read = messagesOnDisk(two, new Set([ids.early]), finds);
+
+		expect(texts(read)).toEqual(["early question"]);
+	});
+
 	it("give the event loop back while they read a large parent", async () => {
 		const { manager, ids } = longSession();
 		const { fresh } = withFillerBefore(manager);
@@ -523,10 +614,48 @@ describe("messages asked of the parent logs", () => {
 		const read = await messagesOnDiskAsync(
 			fresh.getBranch(),
 			new Set([ids.early]),
-			controller.signal,
+			{ signal: controller.signal },
 		);
 
 		expect(read).toEqual([]);
+	});
+
+	it("stop partway once their reader is aborted during the scan", async () => {
+		const { manager, ids } = longSession();
+		const { fresh } = withFillerBefore(manager);
+		const controller = new AbortController();
+		// Aborted at the first pause, once a chunk has been read.
+		setImmediate(() => controller.abort());
+
+		const read = await messagesOnDiskAsync(
+			fresh.getBranch(),
+			new Set([ids.early]),
+			{ signal: controller.signal },
+		);
+
+		expect(read).toEqual([]);
+	});
+
+	it("pause once a chunk, all through a long log", async () => {
+		const { manager, ids } = longSession();
+		const { fresh } = withFillerBefore(manager);
+		let turns = 0;
+		let reading = true;
+		const tick = () => {
+			turns++;
+			if (reading) setImmediate(tick);
+		};
+		setImmediate(tick);
+
+		const read = await messagesOnDiskAsync(
+			fresh.getBranch(),
+			new Set([ids.early]),
+		);
+		reading = false;
+
+		// Three chunks of filler come before the message: one pause each.
+		expect(turns).toBeGreaterThanOrEqual(3);
+		expect(read.map((entry) => entry.id)).toEqual([ids.early]);
 	});
 });
 

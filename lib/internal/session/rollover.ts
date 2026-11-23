@@ -562,38 +562,85 @@ const RECORD_TYPE = Buffer.from(`"customType":"${ROLLOVER_RECORD}"`);
 const QUOTE = 0x22;
 
 /**
+ * How a parent log is opened: without blocking, so a pipe is refused
+ * rather than waited on, and never as the host's terminal, should a
+ * parent name one, before it is found not to be a file.
+ */
+const READ_FLAGS =
+	constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
+
+/**
+ * What readers of one session's parent logs have learnt: where each
+ * message they found sits, and which they found in no log of the
+ * chain. A message never changes once written and a log only grows at
+ * its end, so a later read goes straight to a line found before, after
+ * checking it still holds that message, and skips an id found nowhere.
+ * It starts afresh when the branch carries on from another log.
+ */
+export interface DiskFinds {
+	/** The log the branch carried on from when these were learnt. */
+	from?: string;
+	readonly located: Map<string, Located>;
+	readonly absent: Set<string>;
+	/** How many parent logs have been scanned for messages, in all. */
+	scanned: number;
+}
+
+/** Where a message was found: its log, how far back, and its line's bytes. */
+interface Located {
+	readonly path: string;
+	/** 0 for the log the branch carries on from, 1 for that log's parent. */
+	readonly depth: number;
+	readonly offset: number;
+	readonly length: number;
+}
+
+/** Nothing learnt yet, for a reader to keep between reads. */
+export function diskFinds(): DiskFinds {
+	return { located: new Map(), absent: new Set(), scanned: 0 };
+}
+
+/**
  * The messages among `wanted` that the logs this one carries on from
  * hold, oldest first and without those on the branch, for a reader
  * that needs a few old messages back rather than the whole history.
  * Each parent is read a chunk at a time, and a line is decoded and
  * parsed only when it is a wanted message or a rollover record, so
  * reading costs little more than scanning the bytes. No log is opened
- * when every wanted message is on the branch, and the walk ends once
- * all are found. A parent gone from disk, or not a regular file, ends
- * the chain there.
+ * when every wanted message is on the branch or in `finds`, and the
+ * walk ends once all are found. A parent gone from disk, or not a
+ * regular file, ends the chain there.
  */
 export function messagesOnDisk(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
+	finds: DiskFinds = diskFinds(),
 ): Entry[] {
-	const scan = scanParents(branch, wanted);
+	const scan = scanParents(branch, wanted, finds);
 	let step = scan.next();
 	while (!step.done) step = scan.next();
 	return step.value;
 }
 
+/** How a reader that can wait reads. */
+export interface PacedRead {
+	/** Once aborted, the read stops, giving back nothing. */
+	readonly signal?: AbortSignal;
+	/** What earlier reads learnt, and where this one leaves what it learns. */
+	readonly finds?: DiskFinds;
+}
+
 /**
  * As {@link messagesOnDisk}, for a reader that can wait: the event loop
- * is given back after each chunk's worth of lines, so a scan of a large
- * parent never holds up the conversation for longer than one chunk
- * takes. Once `signal` is aborted it stops, giving back nothing.
+ * is given back after each chunk's worth of lines. A pause comes only
+ * between lines, so a line longer than a chunk is read whole first.
  */
 export async function messagesOnDiskAsync(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
-	signal?: AbortSignal,
+	{ signal, finds = diskFinds() }: PacedRead = {},
 ): Promise<Entry[]> {
-	const scan = scanParents(branch, wanted);
+	const scan = scanParents(branch, wanted, finds);
 	try {
 		let step = scan.next();
 		while (!step.done) {
@@ -616,21 +663,33 @@ export async function messagesOnDiskAsync(
 function* scanParents(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
+	finds: DiskFinds,
 ): Generator<void, Entry[]> {
 	const seen = new Set(
 		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
 	);
-	const missing = new Set([...wanted].filter((id) => !seen.has(id)));
-	const older: Entry[][] = [];
 	let record = rolledFrom(branch);
+	if (finds.from !== record?.parentSession) {
+		finds.located.clear();
+		finds.absent.clear();
+		finds.from = record?.parentSession;
+	}
+	const missing = new Set(
+		[...wanted].filter((id) => !seen.has(id) && !finds.absent.has(id)),
+	);
+	const found = foundBefore(missing, finds);
 	const visited = new Set<string>();
+	let depth = 0;
+	let ended = true;
 	while (missing.size > 0 && record && !visited.has(record.parentSession)) {
-		visited.add(record.parentSession);
-		const found: Entry[] = [];
+		const path = record.parentSession;
+		visited.add(path);
+		finds.scanned++;
 		let next: RolloverRecord | undefined;
 		let sincePause = 0;
+		const where = { offset: 0 };
 		try {
-			for (const line of linesOf(record.parentSession)) {
+			for (const line of linesOf(path, where)) {
 				sincePause += line.length + 1;
 				if (sincePause >= CHUNK_BYTES) {
 					sincePause = 0;
@@ -641,19 +700,72 @@ function* scanParents(
 					if (entry) next = rolledFrom([entry]) ?? next;
 					continue;
 				}
-				found.push(entry);
+				const at = { path, depth, offset: where.offset, length: line.length };
+				found.push({ at, entry });
+				finds.located.set(entry.id, at);
 				// An older log may hold it again; the newest copy is the one read.
 				missing.delete(entry.id);
 				if (missing.size === 0) break;
 			}
 		} catch {
-			// A parent gone from disk, or unreadable, ends the chain there.
+			// A parent gone from disk, or unreadable, ends the chain there,
+			// keeping what it gave; what is still missing may yet be read.
+			ended = false;
 			break;
 		}
-		older.unshift(found);
 		record = next;
+		depth++;
 	}
-	return older.flat();
+	if (ended) for (const id of missing) finds.absent.add(id);
+	// Oldest first: the furthest log back, then each log's own order.
+	found.sort((a, b) => b.at.depth - a.at.depth || a.at.offset - b.at.offset);
+	return found.map(({ entry }) => entry);
+}
+
+/** A message read back, and where it was. */
+interface Found {
+	readonly at: Located;
+	readonly entry: Entry;
+}
+
+/**
+ * The missing messages an earlier read found, read straight from their
+ * lines and taken out of `missing`. A line that no longer holds its
+ * message is forgotten, so a scan looks for that message again.
+ */
+function foundBefore(missing: Set<string>, finds: DiskFinds): Found[] {
+	const found: Found[] = [];
+	for (const id of [...missing]) {
+		const at = finds.located.get(id);
+		if (!at) continue;
+		const entry = lineAt(at, id);
+		if (entry) {
+			found.push({ at, entry });
+			missing.delete(id);
+		} else {
+			finds.located.delete(id);
+		}
+	}
+	return found;
+}
+
+/** The message `id` at `at`, if that line still holds it. */
+function lineAt(at: Located, id: string): Entry | undefined {
+	let fd: number | undefined;
+	try {
+		fd = openSync(at.path, READ_FLAGS);
+		if (!fstatSync(fd).isFile()) return undefined;
+		const bytes = Buffer.alloc(at.length);
+		if (readSync(fd, bytes, 0, at.length, at.offset) !== at.length)
+			return undefined;
+		const entry = wantedLine(bytes, new Set([id]));
+		return entry?.type === "message" ? entry : undefined;
+	} catch {
+		// A log gone or unreadable: a scan will say what is there now.
+		return undefined;
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+	}
 }
 
 /**
@@ -701,19 +813,24 @@ function wantedLine(
  * lines it wants, and a line decoded alone reads exactly as it would in
  * the whole file: no byte of a multibyte UTF-8 letter is a newline. A
  * line that fits in one chunk is a view of a buffer read into again, so
- * a reader must be done with it before asking for the next.
+ * a reader must be done with it before asking for the next. As each
+ * line is handed over, `where.offset` says where in the file it starts.
  *
  * Only a regular file is read. A pipe or a device named as a parent
  * could block a read for good, so anything else throws.
  */
-function* linesOf(path: string): Generator<Buffer> {
-	// Opened without blocking, so a pipe is refused rather than waited on.
-	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+function* linesOf(
+	path: string,
+	where: { offset: number } = { offset: 0 },
+): Generator<Buffer> {
+	const fd = openSync(path, READ_FLAGS);
 	try {
 		if (!fstatSync(fd).isFile()) throw new Error(`${path} is not a log file`);
 		const buffer = Buffer.alloc(CHUNK_BYTES);
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
+		let heldAt = 0;
+		let base = 0;
 		for (;;) {
 			const read = readSync(fd, buffer, 0, CHUNK_BYTES, null);
 			if (read === 0) break;
@@ -721,19 +838,28 @@ function* linesOf(path: string): Generator<Buffer> {
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
 			if (end !== -1 && held.length > 0) {
+				where.offset = heldAt;
 				yield Buffer.concat([...held, chunk.subarray(0, end)]);
 				held = [];
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
 			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
+				where.offset = base + start;
 				yield chunk.subarray(start, end);
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
-			if (start < read) held.push(Buffer.from(chunk.subarray(start)));
+			if (start < read) {
+				if (held.length === 0) heldAt = base + start;
+				held.push(Buffer.from(chunk.subarray(start)));
+			}
+			base += read;
 		}
-		if (held.length > 0) yield Buffer.concat(held);
+		if (held.length > 0) {
+			where.offset = heldAt;
+			yield Buffer.concat(held);
+		}
 	} finally {
 		closeSync(fd);
 	}
