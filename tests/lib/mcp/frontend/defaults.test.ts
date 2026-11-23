@@ -177,6 +177,12 @@ const ONE_NAME_PER_WORD = [
 	"acknowledge_incident",
 	"kick_member",
 	"ban_user",
+	"experiment_rollout_manage",
+	"unregister_application",
+	"deregister_targets",
+	"reschedule_meeting",
+	"unschedule_job",
+	"flag_rollout_auto_advance",
 ];
 
 describe("identityShape", () => {
@@ -396,15 +402,20 @@ describe("defaultWriteSignal", () => {
 		).toBe(true);
 	});
 
-	it.each(["get_schedule", "resolve-library-id"])(
-		"leaves %s a read, by a word kept off the list",
-		(name) => {
-			expect(
-				defaultWriteSignal(tool(name)),
-				`${name}'s words are kept off the list since reads use them most, so it is a read`,
-			).toBe(false);
-		},
-	);
+	// Words most servers' reads hold: a write named only by one asks first
+	// only where its server gates it by name, so these reads never pay.
+	it.each([
+		"resolve-library-id",
+		"get_schedule",
+		"get_review",
+		"list_management_groups",
+		"read_register",
+	])("leaves %s a read, by a word kept off the list", (name) => {
+		expect(
+			defaultWriteSignal(tool(name)),
+			`${name}'s words are kept off the list since reads use them most, so it is a read`,
+		).toBe(false);
+	});
 });
 
 describe("toAgentContent", () => {
@@ -447,6 +458,26 @@ describe("makeDefaultWrap", () => {
 		);
 		await wrapped({ a: 1 }, ctx);
 		expect(invoke).toHaveBeenCalledWith({ a: 2 }, undefined);
+	});
+
+	it("gates a server's named write and the default's writes with the two composed", async () => {
+		const invoke = vi.fn(async () => okResult);
+		const showGate = vi.fn(async () => null);
+		const named = new Set(["register_webhook"]);
+		expect(
+			defaultWriteSignal(tool("register_webhook")),
+			"the default alone gated the named write, so the name proves nothing",
+		).toBe(false);
+		const wrap = makeDefaultWrap({
+			writeSignal: (one) => defaultWriteSignal(one) || named.has(one.name),
+			showGate,
+		});
+		for (const name of ["register_webhook", "delete_branch"]) {
+			await wrap(invoke, tool(name))({}, ctx);
+		}
+		await wrap(invoke, tool("get_schedule"))({}, ctx);
+		expect(showGate, "both writes asked").toHaveBeenCalledTimes(2);
+		expect(invoke, "only the read ran").toHaveBeenCalledOnce();
 	});
 
 	it("returns the cancel sentinel and does not invoke when cancelled with a UI", async () => {

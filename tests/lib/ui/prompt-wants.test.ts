@@ -172,6 +172,58 @@ describe("a prompt waited on", () => {
 		await answer;
 	});
 
+	// This pins the prompts' half of a contract whose other half lives in
+	// each gate: one built on these prompts reads a null with no screen as no
+	// one asked, and tells the model so (`unattendedRefusal`), as
+	// `makeDefaultWrap` does (its "says no one was asked" test in
+	// tests/lib/mcp/frontend/defaults.test.ts) and the tool gateway's write
+	// gate does in its own package. A want said here could be answered from
+	// the launcher, and a No given there would reach the model as no one
+	// being at the session.
+	const headless = { hasUI: false } as unknown as ExtensionContext;
+	it.each([
+		[
+			"a single prompt",
+			() =>
+				promptSingle(headless, {
+					title: "Run delete_branch",
+					content,
+					options: CHOICES,
+					want: { kind: "approval", said: "Run it?", ask: ASK },
+				}),
+		],
+		[
+			"a single prompt that asks nothing elsewhere",
+			() =>
+				promptSingle(headless, {
+					title: "Run delete_branch",
+					content,
+					options: CHOICES,
+					want: { kind: "approval", said: "Run it?" },
+				}),
+		],
+		[
+			"a tabbed prompt",
+			() =>
+				promptTabbed(headless, {
+					items: [],
+					want: { kind: "question", said: "2 questions: Which?" },
+				}),
+		],
+	])(
+		"wants nothing and answers nothing in %s with no screen",
+		async (_, ask) => {
+			const answer = ask();
+			vi.advanceTimersByTime(WANT_AFTER_MS);
+
+			// Before the answer is awaited, so a prompt shown by mistake fails
+			// here, on what it said, rather than waiting out the test's time.
+			expect(heard, "no want reaches the launcher").toEqual([]);
+			answers.resolve("shown");
+			expect(await answer, "nothing is shown to answer").toBeNull();
+		},
+	);
+
 	it("wants nothing when answered before the wait counts", async () => {
 		const answer = promptSingle(ctx, { content, actions: [] });
 		vi.advanceTimersByTime(WANT_AFTER_MS - 1);
