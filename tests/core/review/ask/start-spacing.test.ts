@@ -32,6 +32,22 @@ const GONE = 999_999_001;
 /** The next ticket's id, when a test needs to know it before it is drawn. */
 const nextTicket = vi.hoisted(() => ({ id: undefined as string | undefined }));
 
+/** A read of the line to fail once, with this code, as the machine might. */
+const readFault = vi.hoisted(() => ({ code: undefined as string | undefined }));
+
+vi.mock("node:fs/promises", async (original) => {
+	const fs = await original<typeof import("node:fs/promises")>();
+	const readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+		const code = readFault.code;
+		if (code !== undefined && String(args[0]).endsWith("line.json")) {
+			readFault.code = undefined;
+			throw Object.assign(new Error(`${code}: as the test asked`), { code });
+		}
+		return fs.readFile(...args);
+	}) as typeof fs.readFile;
+	return { ...fs, readFile };
+});
+
 vi.mock("node:crypto", async (original) => {
 	const crypto = await original<typeof import("node:crypto")>();
 	return {
@@ -48,6 +64,9 @@ let folder: string;
 let path: string;
 
 beforeEach(() => {
+	// A fault a failed test left armed must not reach the next one.
+	readFault.code = undefined;
+	nextTicket.id = undefined;
 	folder = mkdtempSync(join(tmpdir(), "council-starts-"));
 	path = join(folder, "starts", "last.json");
 });
@@ -347,7 +366,7 @@ describe("spacing council starts on one machine", () => {
 			),
 		).rejects.toThrow("lock held too long");
 
-		expect(looks, "it joined, then every look failed").toBeGreaterThan(1);
+		expect(looks, "it joined, then four looks in a row failed").toBe(5);
 		expect(line().waiting, "no ticket left holding the head").toEqual([]);
 		expect(line().started.by, "the start before stands").toBe("A2VLJN");
 	});
@@ -381,6 +400,86 @@ describe("spacing council starts on one machine", () => {
 		await start.release?.();
 
 		expect(line().started).toEqual(before);
+	});
+
+	it("gives back a start taken in its name when stopped before it looks again", async () => {
+		const first = new Date();
+		const before = {
+			at: first.toISOString(),
+			by: "A2VLJN",
+			change: "o/r#A2VLJN",
+		};
+		startedAt("A2VLJN", first);
+		nextTicket.id = "mine";
+		const giving = new AbortController();
+		// Long waits both ways, so the round sleeps through what follows.
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000, lookAgainMs: 60_000 }),
+			giving.signal,
+		);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(1);
+		// What a look leaves when it took the start and failed on its way out.
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: {
+					at: new Date().toISOString(),
+					by: "ISXEG8",
+					change: "o/r#ISXEG8",
+					ticket: "mine",
+					follows: before,
+				},
+				// A look that takes the start drops its ticket from the line.
+				waiting: [],
+			}),
+		);
+
+		giving.abort();
+
+		expect((await waiting).cancelled).toContain("stopped");
+		expect(line().started).toEqual(before);
+		expect(line().waiting).toEqual([]);
+	});
+
+	it("says the spacing in whole minutes, or else in seconds", async () => {
+		for (const [spacingMs, said] of [
+			[120_000, "each 2 minutes"],
+			[60_000, "each minute"],
+			[90_000, "each 90 seconds"],
+		] as const) {
+			startedAt("A2VLJN", new Date());
+			const giving = new AbortController();
+			const waiting = awaitCouncilStart(
+				path,
+				claim("ISXEG8", { spacingMs }),
+				giving.signal,
+			);
+			await expect
+				.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+				.toBe(1);
+			giving.abort();
+
+			expect((await waiting).cancelled).toContain(said);
+		}
+	});
+
+	// The line keeps its own floor, so no caller can make it loop tightly
+	// or let a failed look lose its start, whatever spacing it asks for.
+	it("spaces starts at least two looks apart, whatever it is asked", async () => {
+		const first = new Date();
+		startedAt("A2VLJN", first);
+
+		await awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 0, lookAgainMs: 150 }),
+		);
+
+		expect(Date.now()).toBeGreaterThanOrEqual(
+			first.getTime() + 300 - TIMER_EARLY_MS,
+		);
 	});
 
 	it("gives the start back when stopped during the look that took it", async () => {
@@ -500,6 +599,21 @@ describe("spacing council starts on one machine", () => {
 				asked + SPACING - TIMER_EARLY_MS,
 			);
 		}
+	});
+
+	// A machine out of descriptors may read the line whole a moment later;
+	// writing over it then would lose its waiters and its last start.
+	it("looks again after a read that failed for the moment, keeping the line", async () => {
+		startedAt("A2VLJN", new Date(Date.now() - SPACING / 2));
+		readFault.code = "EMFILE";
+
+		await awaitCouncilStart(path, claim("ISXEG8"));
+
+		expect(readFault.code, "the fault was met").toBeUndefined();
+		expect(line().started.by).toBe("ISXEG8");
+		expect(line().started.follows.by, "spaced from the start kept").toBe(
+			"A2VLJN",
+		);
 	});
 
 	// An unreadable line used to fail every round on the machine.

@@ -49,6 +49,23 @@ export const COUNCIL_START_SPACING_MS = 3 * 60_000;
 const LOOK_AGAIN_MS = 15_000;
 
 /**
+ * The shortest spacing a machine may set. A look that took a start and
+ * failed finds it again by its ticket at the next look, at most
+ * {@link LOOK_AGAIN_MS} later, which only works while no other round
+ * may yet start after it; twice that leaves room for a slow look. It
+ * also keeps a round waiting behind tickets that never start from
+ * reading the line in a tight loop.
+ */
+export const FEWEST_SPACING_MS = 2 * LOOK_AGAIN_MS;
+
+/**
+ * The longest spacing a machine may set. A round reads the spacing once,
+ * when it asks, so a mistyped hour would hold it for that hour even
+ * after the config was put right.
+ */
+export const MOST_SPACING_MS = 30 * 60_000;
+
+/**
  * How long a ticket may go unlooked-at before it is taken for one its
  * round left behind. A waiting round looks every {@link LOOK_AGAIN_MS}
  * at most, so this is many looks missed. It is what drops a round a
@@ -167,8 +184,14 @@ export async function awaitCouncilStart(
 	}
 	const at = linePath(path);
 	await mkdir(dirname(at), { recursive: true });
-	const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
+	// Never under two looks, whoever asks: the line's own guard against a
+	// failed look losing its start, and against a tight loop, holds here
+	// rather than only in whichever reader of a config remembered it.
+	const spacing = Math.max(
+		claim.spacingMs ?? COUNCIL_START_SPACING_MS,
+		2 * lookAgain,
+	);
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
 		// Random rather than counted, since a reload loads this module
@@ -455,7 +478,12 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 	try {
 		text = await readFile(at, "utf8");
 	} catch (error) {
-		return isMissing(error) ? { waiting: [] } : garbled;
+		if (isMissing(error)) return { waiting: [] };
+		// A machine short of descriptors or a disk that hiccupped may read
+		// the line whole at the next look; writing over it now would lose
+		// its waiters and its start, so the look fails and is retried.
+		if (isPassing(error)) throw error;
+		return garbled;
 	}
 	try {
 		const parsed: unknown = JSON.parse(text);
@@ -480,6 +508,31 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 		// Cut short or overwritten by hand: spaced from now.
 		return garbled;
 	}
+}
+
+/**
+ * Read errors that say nothing about the line, only about this moment:
+ * a process or machine short of descriptors, or a call interrupted. EIO
+ * and EBUSY are left out, since a disk or mount that answers so often
+ * goes on answering so, and a line that can never be read must heal
+ * rather than fail every round on the machine.
+ */
+const PASSING_READ_ERRORS: ReadonlySet<string> = new Set([
+	"EMFILE",
+	"ENFILE",
+	"EAGAIN",
+	"EINTR",
+]);
+
+/** Whether a read failed for a reason the next look may not meet. */
+function isPassing(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		typeof error.code === "string" &&
+		PASSING_READ_ERRORS.has(error.code)
+	);
 }
 
 /** Whether a read failed only because nothing is kept there yet. */
@@ -596,11 +649,21 @@ function bounded(name: string): string {
 }
 
 function waitSaid(turn: Turn, spacing: number, waitedMs: number): string {
-	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since one roster round starts on this machine each ${spacing / 60_000} minutes. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
+	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since one roster round starts on this machine each ${spacingSaid(spacing)}. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
 }
 
 /** The line's file name, said so a person can find a wedged line. */
 const LINE_FILE = "line.json";
+
+/** A spacing as a person would say it: whole minutes, else seconds. */
+function spacingSaid(ms: number): string {
+	const minutes = ms / 60_000;
+	if (Number.isInteger(minutes)) {
+		return minutes === 1 ? "minute" : `${minutes} minutes`;
+	}
+	const seconds = Math.round(ms / 1000);
+	return seconds === 1 ? "second" : `${seconds} seconds`;
+}
 
 function minutesSaid(ms: number): string {
 	const minutes = Math.round(ms / 60_000);
@@ -610,7 +673,7 @@ function minutesSaid(ms: number): string {
 
 function stoppedSaid(turn: Turn | undefined, spacing: number): string {
 	const where = turn === undefined ? "" : `, ${placeSaid(turn)},`;
-	return `It was stopped while it waited for its start${where}, so nothing was started. One roster round starts on this machine each ${spacing / 60_000} minutes.`;
+	return `It was stopped while it waited for its start${where}, so nothing was started. One roster round starts on this machine each ${spacingSaid(spacing)}.`;
 }
 
 function placeSaid(turn: Turn): string {

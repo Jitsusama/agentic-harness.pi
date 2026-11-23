@@ -172,12 +172,28 @@ describe("how far apart rounds start on this machine", () => {
 		expect(startSpacingMs(undefined)).toBeUndefined();
 		expect(startSpacingMs({})).toBeUndefined();
 		expect(startSpacingMs({ startSpacingMinutes: 1 })).toBe(60_000);
-		expect(startSpacingMs({ startSpacingMinutes: 0.5 })).toBe(30_000);
-		expect(startSpacingMs({ startSpacingMinutes: 0 }), "no gap at all").toBe(0);
+		expect(startSpacingMs({ startSpacingMinutes: 0.75 })).toBe(45_000);
 	});
 
-	it("ignores a spacing no clock can keep", () => {
-		for (const said of [-1, Number.NaN, Number.POSITIVE_INFINITY, "2"]) {
+	// Under half a minute a look that took a start and failed could lose
+	// it to the next round before it looks again, and a round behind
+	// tickets that never start would read the line in a tight loop.
+	it("holds a spacing between half a minute and half an hour", () => {
+		expect(startSpacingMs({ startSpacingMinutes: 0 })).toBe(30_000);
+		expect(startSpacingMs({ startSpacingMinutes: -1 })).toBe(30_000);
+		expect(startSpacingMs({ startSpacingMinutes: 0.1 })).toBe(30_000);
+		expect(startSpacingMs({ startSpacingMinutes: 600 })).toBe(30 * 60_000);
+		expect(
+			startSpacingMs({ startSpacingMinutes: Number.MAX_VALUE }),
+			"a value past what a number holds once in milliseconds",
+		).toBe(30 * 60_000);
+		expect(
+			startSpacingMs({ startSpacingMinutes: Number.POSITIVE_INFINITY }),
+		).toBe(30 * 60_000);
+	});
+
+	it("ignores a spacing that is not a number of minutes", () => {
+		for (const said of [Number.NaN, "2", null]) {
 			expect(startSpacingMs({ startSpacingMinutes: said })).toBeUndefined();
 		}
 	});

@@ -237,6 +237,13 @@ export function answerSteered(
 export const LOOK_GONE =
 	"An answer from outside this window came for something on the person's look list that no longer waits, so nothing was answered.";
 
+/**
+ * What the window says of words that came for a look still waiting that
+ * takes only its choices: it still waits, so he can pick one.
+ */
+export const LOOK_TAKES_CHOICES =
+	"An answer from outside this window came in words for something on the person's look list that takes only its choices, so nothing was answered and it still waits for a pick.";
+
 /** The session a look's answer reaches, and its quest. */
 export interface Answering {
 	readonly session: string;
@@ -264,11 +271,14 @@ export function answerLookSteered(
 		(look.session === answering.session ||
 			(look.quest !== undefined && look.quest === answering.quest));
 	const answered =
-		ours && given !== undefined && "value" in given
-			? answerLook(looks, look.id, given.value)
-			: undefined;
+		ours && given !== undefined ? answerLook(looks, look.id, given) : undefined;
 	if (!answered) {
-		tell(LOOK_GONE);
+		const waits = look?.state === "waiting" || look?.state === "opened";
+		tell(
+			ours && waits && given !== undefined && "other" in given
+				? LOOK_TAKES_CHOICES
+				: LOOK_GONE,
+		);
 		return;
 	}
 	say(lookAnswerText(answered, steer.from));
@@ -276,11 +286,21 @@ export function answerLookSteered(
 
 /** What the agent reads of the person's answer to a look. */
 export function lookAnswerText(look: Look, from?: string): string {
-	const label =
-		look.choices?.find((one) => one.value === look.answer)?.label ??
-		look.answer;
+	const picked =
+		look.answeredInWords === true
+			? undefined
+			: look.choices?.find((one) => one.value === look.answer);
 	const asked = look.ask ? ` It asked: ${look.ask}` : "";
-	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
+	// Quoted, so his words end where the note's own go on.
+	const said = picked
+		? `They picked: ${picked.label}.`
+		: `They answered in their own words: ${JSON.stringify(look.answer ?? "")}.`;
+	// His list doesn't show follows until its readers read the second
+	// form, so what this session wrote would follow is no yes to it.
+	const promised = picked?.follows
+		? ` The look said this would follow, though his list may not have shown it, so it is no yes to it: ${picked.follows}`
+		: "";
+	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} ${said}${promised} Act on it, and take nothing back: the look is already off their list.]`;
 }
 
 /** Nothing, for a look that failed: what still waits, the next one takes. */
