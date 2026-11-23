@@ -109,9 +109,12 @@ export async function whyGitKeeps(
 			return "it holds submodules";
 		}
 	}
+	// No optional locks, so git reads the index rather than refreshing
+	// and writing back one that is about to be removed.
 	const status = await exec("git", [
 		"-C",
 		aside,
+		"--no-optional-locks",
 		"status",
 		"--porcelain",
 		"--ignore-submodules=none",

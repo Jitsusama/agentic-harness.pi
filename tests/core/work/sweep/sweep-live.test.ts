@@ -1060,6 +1060,41 @@ describe("taking a tree in a repository of thousands", () => {
 		);
 	});
 
+	it("reads a tree aside without rewriting the index it is about to remove", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const tree = await cut("stale", ["--detach", "@", "main"]);
+		// A tracked file whose stat the index no longer matches, so a status
+		// that may lock would refresh the index and write it back.
+		const later = new Date(Date.now() + 60_000);
+		lutimesSync(join(tree, ".gitignore"), later, later);
+		const written: boolean[] = [];
+		const watched: Exec = async (command, args) => {
+			if (command !== "git" || !args.includes("--ignore-submodules=none")) {
+				return await exec(command, args);
+			}
+			const aside = args[args.indexOf("-C") + 1] ?? "";
+			const index = join(
+				await git(aside, "rev-parse", "--absolute-git-dir"),
+				"index",
+			);
+			const before = statSync(index, { bigint: true }).mtimeNs;
+			const result = await exec(command, args);
+			written.push(statSync(index, { bigint: true }).mtimeNs !== before);
+			return result;
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: watched,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		expect(written, "the take's status left the index alone").toEqual([false]);
+	});
+
 	it("leaves a tree cut at the same place mid-take its own git folder", async () => {
 		const { main, memory, lockPath, cut } = await setUp();
 		const tree = await cut("again", ["--detach", "@", "main"]);
