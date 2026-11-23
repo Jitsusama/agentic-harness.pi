@@ -264,12 +264,17 @@ is a build, never a VM check.
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
   under 10%, and fewer than six VMs run. Past 10%, only work light here
-  starts, beside one heavy job while the machine still moves: every
-  task stalled on memory under 40% of the last minute (`full avg60`),
-  the person's programs not stalling on it past 1%, and no other heavy
-  job running here. Pressure counts any task waiting, and on 22
-  November builds waited 178.5 hours on memory to run 28.8. Where the
-  minute's stall isn't read, as on the Mac, every heavy job waits. No VM starts here at all while
+  starts, beside one heavy job other than a VM while the machine still
+  moves: every task stalled on memory under 40% of the last minute
+  (`full avg60`), the person's programs read and not stalling on it
+  past 1%, and no other heavy job, daemon build or VM running here.
+  Pressure counts any task waiting, and on 22 November builds waited
+  178.5 hours on memory to run 28.8. Where the minute's stall or the
+  person's floors aren't read, as on the Mac, every heavy job waits.
+  A VM waits whatever the stall: a guest keeps every page it has
+  touched until it stops. The floors read 0 while the person is away,
+  but their `memory.min` keeps app.slice's pages from reclaim. No VM
+  starts here at all while
   the person's programs stall on memory more than 1% of the time, or CPU
   pressure is at 70% or more: on 29 October VMs kept getting slots while
   Joel's desktop stalled, so nothing waited and no cloud builder was lent.
@@ -429,9 +434,11 @@ is a build, never a VM check.
   nobody keeps the queue, so no harness session runs there. `room` says
   whether heavy work would start now, not whether the machine can take
   another session; that is `machine.availableGib` and its `pressure`.
+  Past 10% memory pressure it is the one heavy lane: one build while
+  the lane is open and nothing holds it, else none.
   `machine.over` names the queue's own pressure limits the machine is
-  at or past now, `memory` (only light work and one heavy job start)
-  and `cpu` (no build starts
+  at or past now, `memory` (only light work and one heavy job start,
+  as `room` says) and `cpu` (no build starts
   beside a VM check), so a reader never applies the limits itself, and
   `room` at 0 with `over` empty reads as a full queue, not a pressed
   machine.

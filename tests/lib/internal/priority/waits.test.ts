@@ -17,6 +17,7 @@ import {
 	RULES,
 	roomLeft,
 	roomSaid,
+	SPREAD_MS,
 	VM_SPREAD_MS,
 	waitReasons,
 	waitsWithRoom,
@@ -27,6 +28,13 @@ describe("why each job waits", () => {
 	const long = startedAgo(RAMP_MS + 60_000);
 	const older = (id: string, ms: number, over: Partial<Job> = {}) =>
 		job(id, { since: startedAgo(ms), ...over });
+	// Pressed past the one heavy lane's line too, so it holds what it says.
+	const pressed = {
+		...ROOMY,
+		memoryPressure: MOST_MEMORY_PRESSURE,
+		memoryFullMinute: MOST_MEMORY_STALL_FOR_ONE,
+		floorsPressure: 0,
+	};
 
 	it("says memory when the memory a job needs isn't free, and order behind it", () => {
 		const jobs = [older("big", 9_000), older("next", 8_000)];
@@ -40,7 +48,6 @@ describe("why each job waits", () => {
 
 	it("says memory for everyone while the machine is short of it", () => {
 		const jobs = [older("a", 9_000)];
-		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
 		expect(waitReasons(jobs, pressed, NOW).get("a")).toBe("memory");
 	});
 
@@ -60,14 +67,10 @@ describe("why each job waits", () => {
 				quick: true,
 			}),
 		];
-		const pressed = {
-			...ROOMY,
-			availableGib: 8,
-			memoryPressure: MOST_MEMORY_PRESSURE,
-		};
+		const short = { ...pressed, availableGib: 8 };
 
-		expect(nextTurn(jobs, pressed, NOW)?.id).toBe("push");
-		expect(Object.fromEntries(waitReasons(jobs, pressed, NOW))).toEqual({
+		expect(nextTurn(jobs, short, NOW)?.id).toBe("push");
+		expect(Object.fromEntries(waitReasons(jobs, short, NOW))).toEqual({
 			check: "memory",
 			push: "order",
 		});
@@ -77,7 +80,6 @@ describe("why each job waits", () => {
 	// to hold, so a quick build booked small may hold far more.
 	it("holds a quick build while memory is pressed, however small it was booked", () => {
 		const jobs = [older("quick", 9_000, { quick: true, needsGib: PUSH_GIB })];
-		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
 
 		expect(nextTurn(jobs, pressed, NOW)).toBeUndefined();
 		expect(waitReasons(jobs, pressed, NOW).get("quick")).toBe("memory");
@@ -91,7 +93,6 @@ describe("why each job waits", () => {
 			needsGib: 6,
 			sent: true,
 		});
-		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
 
 		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
 		expect(waitReasons([sent], pressed, NOW).get("sent")).toBe("order");
@@ -108,16 +109,16 @@ describe("why each job waits", () => {
 			needsGib: 4,
 			sent: true,
 		});
-		const pressed = { ...BUSY, memoryPressure: MOST_MEMORY_PRESSURE };
+		const busy = { ...pressed, cpuPressure: BUSY.cpuPressure };
 
-		expect(nextTurn([sent], pressed, NOW)?.id).toBe("sent");
-		expect(waitReasons([sent], pressed, NOW).get("sent")).toBe("order");
-		const tight = { ...pressed, availableGib: 2 };
+		expect(nextTurn([sent], busy, NOW)?.id).toBe("sent");
+		expect(waitReasons([sent], busy, NOW).get("sent")).toBe("order");
+		const tight = { ...busy, availableGib: 2 };
 		expect(nextTurn([sent], tight, NOW)).toBeUndefined();
 		expect(waitReasons([sent], tight, NOW).get("sent")).toBe("memory");
 		const { sent: _sent, ...unsent } = sent;
-		expect(nextTurn([unsent], pressed, NOW)).toBeUndefined();
-		expect(waitReasons([unsent], pressed, NOW).get("sent")).toBe("memory");
+		expect(nextTurn([unsent], busy, NOW)).toBeUndefined();
+		expect(waitReasons([unsent], busy, NOW).get("sent")).toBe("memory");
 	});
 
 	it("holds a sent nix-offload there that may build here while idle, while memory is pressed", () => {
@@ -126,7 +127,6 @@ describe("why each job waits", () => {
 			needsGib: 6,
 			sent: true,
 		});
-		const pressed = { ...ROOMY, memoryPressure: MOST_MEMORY_PRESSURE };
 
 		expect(nextTurn([idle], pressed, NOW)).toBeUndefined();
 		expect(waitReasons([idle], pressed, NOW).get("idle")).toBe("memory");
@@ -138,6 +138,7 @@ describe("why each job waits", () => {
 		const stalled = (fullMinute: number | undefined) => ({
 			...ROOMY,
 			memoryPressure: MOST_MEMORY_PRESSURE,
+			floorsPressure: 0,
 			...(fullMinute === undefined ? {} : { memoryFullMinute: fullMinute }),
 		});
 		const moving = stalled(MOST_MEMORY_STALL_FOR_ONE - 1);
@@ -148,7 +149,18 @@ describe("why each job waits", () => {
 			const jobs = [older("build", 9_000), older("next", 8_000)];
 
 			expect(nextTurn(jobs, moving, NOW)?.id).toBe("build");
-			expect(waitReasons(jobs, moving, NOW).get("build")).toBe("order");
+			expect(Object.fromEntries(waitReasons(jobs, moving, NOW))).toEqual({
+				build: "order",
+				next: "order",
+			});
+			// Given its turn, it shuts the lane on the next, though it has only
+			// just begun to grow.
+			const [build, next] = jobs as [Job, Job];
+			const turned = [{ ...build, started: startedAgo(SPREAD_MS) }, next];
+			expect(nextTurn(turned, moving, NOW)).toBeUndefined();
+			expect(Object.fromEntries(waitReasons(turned, moving, NOW))).toEqual({
+				next: "memory",
+			});
 		});
 
 		it("holds every heavy job from the line, and where the stall isn't read", () => {
@@ -163,19 +175,75 @@ describe("why each job waits", () => {
 			}
 		});
 
-		it("holds it while the person's programs stall on memory", () => {
+		it("holds it while the person's programs stall on memory, or their floors aren't read", () => {
 			const jobs = [older("build", 9_000)];
-			const theirs = { ...moving, floorsPressure: MOST_FLOORS_PRESSURE + 1 };
+			const atTheirLine = { ...moving, floorsPressure: MOST_FLOORS_PRESSURE };
+			expect(nextTurn(jobs, atTheirLine, NOW)?.id).toBe("build");
 
-			expect(nextTurn(jobs, theirs, NOW)).toBeUndefined();
-			expect(waitReasons(jobs, theirs, NOW).get("build")).toBe("memory");
+			const { floorsPressure: _read, ...unread } = moving;
+			for (const room of [
+				{ ...moving, floorsPressure: MOST_FLOORS_PRESSURE + 1 },
+				unread,
+			]) {
+				expect(nextTurn(jobs, room, NOW)).toBeUndefined();
+				expect(waitReasons(jobs, room, NOW).get("build")).toBe("memory");
+			}
 		});
 
 		it("holds a second while one heavy job already runs here", () => {
-			const jobs = [running("heavy"), older("build", 9_000)];
+			const holders = [
+				running("heavy"),
+				running("quick", { quick: true, needsGib: PUSH_GIB }),
+				running("idle", {
+					what: "nix-offload there --here-when-idle . checks.x86_64-linux.x",
+					sent: true,
+				}),
+				running("fetch", { kind: "world-walk", walk: "main-fetch" }),
+				running("vm", { kind: "vm-test" }),
+			];
+			for (const holder of holders) {
+				const jobs = [holder, older("build", 9_000)];
+				expect(nextTurn(jobs, moving, NOW), holder.id).toBeUndefined();
+				expect(waitReasons(jobs, moving, NOW).get("build"), holder.id).toBe(
+					"memory",
+				);
+			}
+		});
 
-			expect(nextTurn(jobs, moving, NOW)).toBeUndefined();
-			expect(waitReasons(jobs, moving, NOW).get("build")).toBe("memory");
+		// The queue isn't all the heavy work here: a daemon build or a qemu
+		// outlives the shell that asked for it, or never had one.
+		it("holds it while a build or a VM runs here outside the queue", () => {
+			const jobs = [older("build", 9_000)];
+			const daemons = {
+				...moving,
+				builds: [{ timed: false, memoryPeak: 2 ** 30 }],
+			};
+
+			for (const room of [{ ...moving, vms: 1 }, daemons]) {
+				expect(nextTurn(jobs, room, NOW)).toBeUndefined();
+				expect(waitReasons(jobs, room, NOW).get("build")).toBe("memory");
+			}
+			expect(
+				nextTurn(jobs, { ...moving, builds: [] }, NOW)?.id,
+				"no daemon build runs",
+			).toBe("build");
+		});
+
+		// A guest keeps every page it touches until it stops, so a VM is the
+		// last thing to let in while memory is short.
+		it("holds VMs, and gives the lane to the build behind them", () => {
+			const jobs = [
+				older("test", 9_000, { kind: "vm-test" }),
+				older("check", 8_500, { kind: "vm-check" }),
+				older("build", 8_000),
+			];
+
+			expect(nextTurn(jobs, moving, NOW)?.id).toBe("build");
+			expect(Object.fromEntries(waitReasons(jobs, moving, NOW))).toEqual({
+				test: "memory",
+				check: "memory",
+				build: "order",
+			});
 		});
 
 		it("keeps it open beside light quick work, a sent run and an answered fetch", () => {
@@ -197,14 +265,32 @@ describe("why each job waits", () => {
 			const jobs = [...beside, older("build", 9_000)];
 
 			expect(nextTurn(jobs, moving, NOW)?.id).toBe("build");
+			expect(waitReasons(jobs, moving, NOW).get("build")).toBe("order");
 		});
 
 		it("still holds the heavy job its booking doesn't fit", () => {
 			const jobs = [older("build", 9_000, { needsGib: 6 })];
 			const tight = { ...moving, availableGib: 2 };
 
+			expect(nextTurn(jobs, moving, NOW)?.id, "it fits").toBe("build");
 			expect(nextTurn(jobs, tight, NOW)).toBeUndefined();
 			expect(waitReasons(jobs, tight, NOW).get("build")).toBe("memory");
+		});
+
+		it("reports the lane's one build as room, and a wait in it as wasted", () => {
+			expect(roomLeft([], moving, NOW)).toEqual({ vms: 0, builds: 1 });
+			expect(roomLeft([running("heavy")], moving, NOW)).toEqual({
+				vms: 0,
+				builds: 0,
+			});
+			const shut = stalled(MOST_MEMORY_STALL_FOR_ONE);
+			expect(roomLeft([], shut, NOW)).toEqual({ vms: 0, builds: 0 });
+
+			const build = [older("build", 9_000)];
+			expect(waitsWithRoom(build, moving)).toBe(true);
+			expect(waitsWithRoom(build, shut)).toBe(false);
+			const vm = [older("vm", 9_000, { kind: "vm-test" })];
+			expect(waitsWithRoom(vm, moving), "memory still holds a VM").toBe(false);
 		});
 	});
 

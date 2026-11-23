@@ -126,8 +126,8 @@ export function floorsWait(room: Room): boolean {
 
 /**
  * Memory pressure (avg10, percent) past which only work light here
- * starts, beside one heavy job while the machine still moves (see
- * {@link MOST_MEMORY_STALL_FOR_ONE}).
+ * starts, beside one heavy job other than a VM while the machine still
+ * moves (see {@link MOST_MEMORY_STALL_FOR_ONE}).
  */
 export const MOST_MEMORY_PRESSURE = 10;
 
@@ -139,7 +139,10 @@ export const MOST_MEMORY_PRESSURE = 10;
  * November builds waited 178.5 hours on memory to run 28.8, and at 00:40
  * on 23 November, with every heavy job held, the full stall read 13 to
  * 19% (1OGSE7, 0IM95G). Past this, the machine itself is what stalls,
- * and every heavy job waits.
+ * and every heavy job waits. Walks of World's objects are held to one
+ * from needs.ts's far lower `ONE_WALK_FROM_PRESSURE`, since they evict
+ * one another's page cache. Undoing the lane takes a newer rules
+ * version, not a revert: a keeper on older rules yields to a newer one.
  */
 export const MOST_MEMORY_STALL_FOR_ONE = 40;
 
