@@ -213,7 +213,7 @@ describe("the session recall tool", () => {
 			const lines = write.mock.calls.map(([text]) => String(text));
 			expect(lines).toEqual([
 				expect.stringMatching(
-					/^session-recall-workflow: conversation \S+ could not read ".*recall-gone\\nsession-recall-workflow: forged" \(ENOENT\), so recall searched no history older than it\n$/,
+					/^session-recall-workflow: conversation \S+ found no history in ".*recall-gone\\nsession-recall-workflow: forged" \(ENOENT\), so recall searched no history older than it\n$/,
 				),
 			]);
 		} finally {
@@ -278,7 +278,9 @@ describe("the session recall tool", () => {
 				expect.stringMatching(
 					/ read [\d.]+ MiB from 0 log\(s\) on disk, 0 entries, in \d+ ms\n$/,
 				),
-				expect.stringMatching(/ could not read ".*parent\.jsonl" \(it is not/),
+				expect.stringMatching(
+					/ found no history in ".*parent\.jsonl" \(it is not a regular file, or holds no readable entry with its record's leaf id\)/,
+				),
 				expect.stringMatching(
 					/ from 1 log\(s\) on disk, 2 entries, 2 read a second time, in \d+ ms\n$/,
 				),

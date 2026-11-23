@@ -102,6 +102,11 @@ export function markedOnDisk(
 	let unread: OnDisk["unread"];
 	while (record && !visited.has(record.parentSession)) {
 		visited.add(record.parentSession);
+		if (record.parentSession.includes("\0")) {
+			// Node refuses such a path before any system call.
+			unread = { path: record.parentSession, reason: NO_FILE };
+			break;
+		}
 		let log: LogRead;
 		try {
 			log = branchMarked(record, asked, lines, read);
@@ -135,7 +140,10 @@ export function markedOnDisk(
 
 /** Why a parent that gives no branch ends the chain. */
 export const NO_BRANCH =
-	"it is not a regular file holding the branch its record names";
+	"it is not a regular file, or holds no readable entry with its record's leaf id";
+
+/** Why a parent whose path can name no file ends the chain. */
+export const NO_FILE = "its path holds a NUL byte, so it names no file";
 
 /**
  * The code of a failed system call, such as ENOENT, or undefined for

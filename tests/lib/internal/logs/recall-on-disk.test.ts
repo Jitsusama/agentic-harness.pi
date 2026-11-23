@@ -30,6 +30,7 @@ import {
 import {
 	markedOnDisk,
 	NO_BRANCH,
+	NO_FILE,
 } from "../../../../lib/internal/logs/recall-on-disk.ts";
 import {
 	type Entry,
@@ -445,6 +446,19 @@ describe("recall read a line at a time", () => {
 				unread: { path: parent, reason: NO_BRANCH },
 			});
 		}
+	});
+
+	it("names a parent whose path holds a NUL byte, rather than fail", () => {
+		const parent = join(dir, "bad\0name.jsonl");
+		const branch = [record("r", null, parent, "x"), said("a", "r", "now")];
+		expect(markedOnDisk(branch, askedBy({ query: "flake" }))).toEqual({
+			marked: [],
+			logs: 0,
+			bytes: 0,
+			readAgain: 0,
+			entries: 0,
+			unread: { path: parent, reason: NO_FILE },
+		});
 	});
 
 	it("throws Node's own fault, which carries a code but no system call", () => {

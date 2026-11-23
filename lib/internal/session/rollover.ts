@@ -821,7 +821,8 @@ function wantedLine(
  * Only a regular file is read. A pipe or a device named as a parent
  * could block a read for good, so anything else is left unread, and
  * false is returned for it. A line longer than `longest` bytes is
- * skipped rather than handed over.
+ * skipped rather than handed over, its pieces let go once they pass
+ * that, so no more than `longest` bytes of a line are ever held.
  */
 function* linesOf(
 	path: string,
@@ -834,7 +835,10 @@ function* linesOf(
 		const buffer = Buffer.alloc(CHUNK_BYTES);
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
+		let heldBytes = 0;
 		let heldAt = 0;
+		// Whether the line that spans chunks has passed `longest`.
+		let skipping = false;
 		const handOver = (line: Buffer, offset: number) =>
 			line.length <= longest && take(line, offset);
 		let base = 0;
@@ -844,10 +848,16 @@ function* linesOf(
 			const chunk = buffer.subarray(0, read);
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
-			if (end !== -1 && held.length > 0) {
-				if (handOver(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt))
+			if (end !== -1 && (held.length > 0 || skipping)) {
+				if (
+					!skipping &&
+					heldBytes + end <= longest &&
+					take(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt)
+				)
 					return true;
 				held = [];
+				heldBytes = 0;
+				skipping = false;
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
@@ -856,13 +866,20 @@ function* linesOf(
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
-			if (start < read) {
-				if (held.length === 0) heldAt = base + start;
-				held.push(Buffer.from(chunk.subarray(start)));
+			if (start < read && !skipping) {
+				if (heldBytes + read - start > longest) {
+					skipping = true;
+					held = [];
+					heldBytes = 0;
+				} else {
+					if (held.length === 0) heldAt = base + start;
+					held.push(Buffer.from(chunk.subarray(start)));
+					heldBytes += read - start;
+				}
 			}
 			base += read;
 		}
-		if (held.length > 0) handOver(Buffer.concat(held), heldAt);
+		if (held.length > 0) take(Buffer.concat(held), heldAt);
 		return true;
 	} finally {
 		closeSync(fd);
@@ -871,7 +888,8 @@ function* linesOf(
 
 /**
  * A log's lines as text, for a reader that walks a whole log once, so
- * it holds one chunk's lines of it rather than the whole file. Like
+ * it holds one chunk's lines of it, or one line up to `longest`
+ * bytes, rather than the whole file. Like
  * the parents' scan, it reads only a regular file: a pipe or a device
  * gives no lines. Each read's size is added to `tally`, so a reader
  * learns what a log cost without measuring every line again. A line

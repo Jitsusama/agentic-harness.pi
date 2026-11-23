@@ -835,6 +835,38 @@ describe("a log's lines, read a chunk at a time", () => {
 		expect([...logLines(path, tally, 5)]).toEqual(["short", "after"]);
 	});
 
+	it("hold no more of a line than the longest asked for, however long it runs", () => {
+		const path = join(dir, "log.jsonl");
+		const chunk = 1024 * 1024;
+		const longest = chunk + 10;
+		// One line runs eight chunks; one fills a chunk and ends just past
+		// the longest, in the next.
+		const lines = ["x".repeat(8 * chunk), "y".repeat(longest + 1), "end"];
+		writeFileSync(path, `${lines.join("\n")}\n`);
+		const copied: number[] = [];
+		const joined: number[] = [];
+		const from = vi.spyOn(Buffer, "from");
+		const concat = vi.spyOn(Buffer, "concat");
+		try {
+			expect([...logLines(path, { bytes: 0 }, longest)]).toEqual(["end"]);
+			for (const result of from.mock.results) {
+				if (Buffer.isBuffer(result.value)) copied.push(result.value.length);
+			}
+			for (const result of concat.mock.results) {
+				if (Buffer.isBuffer(result.value)) joined.push(result.value.length);
+			}
+		} finally {
+			from.mockRestore();
+			concat.mockRestore();
+		}
+
+		// What waited of each long line, before it passed the longest.
+		expect(copied.reduce((sum, bytes) => sum + bytes, 0)).toBeLessThanOrEqual(
+			2 * longest,
+		);
+		expect(joined).toEqual([]);
+	});
+
 	it("are none from a pipe, rather than a wait on it", () => {
 		const file = join(dir, "log.jsonl");
 		execFileSync("mkfifo", [file]);
