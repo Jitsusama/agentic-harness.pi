@@ -110,8 +110,8 @@ export function leftRunning(options: {
 			const left = read();
 			if (left.length === 0) return carried;
 			return {
+				...carried,
 				marks: new Set([...carried.marks, ...left.map(({ mark }) => mark)]),
-				groups: carried.groups,
 			};
 		},
 		closed(session) {

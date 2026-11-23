@@ -315,6 +315,9 @@ async function reapWhere(
 	spared: CarriedCalls,
 	among?: readonly number[],
 ): Promise<Reaped> {
+	// Whom to spare isn't known: a running call's record may be the one
+	// that failed to read, so this reap ends nothing and the next tries.
+	if (spared.unread) return { groups: [], pids: [] };
 	const own = table.group(table.self);
 	const ownCgroup = table.cgroup(table.self);
 	const jobs = process.env.JOBS_CGROUP;

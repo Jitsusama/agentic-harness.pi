@@ -80,6 +80,8 @@ export const STRAY_FOR_MS = RECORD_SPARED_FOR_MS;
 /** How often the host looks at what an earlier restart kept. */
 export const STRAY_LOOK_MS = 10 * 60 * 1000;
 
+const MS_PER_MINUTE = 60_000;
+
 /** The file, in the host engine's state, that names what a restart kept. */
 export const KEPT_FILE = "carried-shells.json";
 
@@ -379,10 +381,24 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 					return () => clearInterval(timer);
 				});
 			// A tick while a slow disk still holds the last look waits for
-			// the next, so no call is stopped, or said stopped, twice.
+			// the next, so no call is stopped, or said stopped, twice. A look
+			// still out a whole tick later is said once, since until it
+			// comes back nothing kept is looked at.
 			let under: Promise<void> | undefined;
+			let saidStuck = false;
 			const looking = () => {
-				if (under !== undefined) return under;
+				if (under !== undefined) {
+					if (!saidStuck) {
+						saidStuck = true;
+						options.report(
+							new Error(
+								`the last look at what earlier restarts kept has not come back in ${STRAY_LOOK_MS / MS_PER_MINUTE} minutes, so none is looked at until it does`,
+							),
+						);
+					}
+					return under;
+				}
+				saidStuck = false;
 				under = look(holds)
 					.catch(options.report)
 					.finally(() => {

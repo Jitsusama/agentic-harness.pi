@@ -64,6 +64,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { isGone } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
 
@@ -234,6 +235,12 @@ export interface CarriedCalls {
 	readonly marks: ReadonlySet<string>;
 	/** Their shells' process groups: each shell leads its own. */
 	readonly groups: ReadonlySet<number>;
+	/**
+	 * Some call's file failed to read for a reason other than its absence,
+	 * such as EIO or too many open files, so whom to spare isn't known
+	 * and a reap ends nothing until a reading is whole.
+	 */
+	readonly unread?: true;
 }
 
 /**
@@ -267,25 +274,42 @@ export async function carriedCalls(
 		// No folder yet: nothing was ever kept, so nothing is carried.
 		return { marks, groups };
 	}
+	let unread = false;
 	for (const name of names) {
-		if (name.endsWith(JOB_SUFFIX)) {
-			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
-			// Once its status is written nothing of it runs to spare.
-			if ((await endRead(path)) !== undefined) continue;
-			const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
-			if (spared === undefined || !sparedAt(spared, now)) continue;
-			groups.add(spared.pid);
-			if (spared.mark !== "") marks.add(spared.mark);
-			continue;
+		try {
+			await spareFrom(folder, name, now, marks, groups);
+		} catch {
+			// Not its absence, which reads as empty: it may be a running call's.
+			unread = true;
 		}
-		if (!name.endsWith(CARRIED)) continue;
-		const path = join(folder, name.slice(0, -CARRIED.length));
-		const pid = await numberRead(`${path}.pid`);
-		if (pid !== undefined) groups.add(pid);
-		const mark = (await textRead(`${path}${CARRIED}`)).trim();
-		if (mark !== "") marks.add(mark);
 	}
-	return { marks, groups };
+	return unread ? { marks, groups, unread } : { marks, groups };
+}
+
+/** Add to `marks` and `groups` what the kept file `name` says to spare. */
+async function spareFrom(
+	folder: string,
+	name: string,
+	now: number,
+	marks: Set<string>,
+	groups: Set<number>,
+): Promise<void> {
+	if (name.endsWith(JOB_SUFFIX)) {
+		const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
+		// Once its status is written nothing of it runs to spare.
+		if ((await endRead(path)) !== undefined) return;
+		const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
+		if (spared === undefined || !sparedAt(spared, now)) return;
+		groups.add(spared.pid);
+		if (spared.mark !== "") marks.add(spared.mark);
+		return;
+	}
+	if (!name.endsWith(CARRIED)) return;
+	const path = join(folder, name.slice(0, -CARRIED.length));
+	const pid = await numberRead(`${path}.pid`);
+	if (pid !== undefined) groups.add(pid);
+	const mark = (await textRead(`${path}${CARRIED}`)).trim();
+	if (mark !== "") marks.add(mark);
 }
 
 /** What a job's record says of its call, as a reaper spares it. */
@@ -346,13 +370,17 @@ export function processThere(pid: number): boolean {
 	}
 }
 
-/** What a kept file holds, read off the thread, or nothing once it is gone. */
+/**
+ * What a kept file holds, read off the thread, or nothing once it is
+ * gone. Any other failure throws, since a file that is there but won't
+ * read may still say a running call's to spare.
+ */
 async function textRead(file: string): Promise<string> {
 	try {
 		return await readFile(file, "utf8");
-	} catch {
-		// Removed as its call's end was said: nothing left to spare.
-		return "";
+	} catch (error) {
+		if (isGone(error)) return "";
+		throw error;
 	}
 }
 

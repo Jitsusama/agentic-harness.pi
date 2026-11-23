@@ -437,15 +437,18 @@ describe("a recorded job", () => {
 	it.each([
 		["a job's record", ".job"],
 		["a carried call's mark", ".carried"],
-	])("says when %s won't read, rather than spare nothing of it", async (_what, suffix) => {
-		const where = folder();
-		const job = await recorded(where, "s1", "j1", HERE);
-		if (suffix === ".carried") markCarried(job.work.keep, "call-1");
-		rmSync(`${job.work.keep}${suffix}`);
-		mkdirSync(`${job.work.keep}${suffix}`);
-		const found = await carriedCalls(where, SOON);
-		expect(found.unread, "whom to spare is not known").toBe(true);
-	});
+	])(
+		"says when %s won't read, rather than spare nothing of it",
+		async (_what, suffix) => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			if (suffix === ".carried") markCarried(job.work.keep, "call-1");
+			rmSync(`${job.work.keep}${suffix}`);
+			mkdirSync(`${job.work.keep}${suffix}`);
+			const found = await carriedCalls(where, SOON);
+			expect(found.unread, "whom to spare is not known").toBe(true);
+		},
+	);
 
 	it("says nothing went unread when every record read", async () => {
 		const where = folder();
