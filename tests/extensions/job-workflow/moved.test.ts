@@ -38,8 +38,8 @@ import {
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
 /**
- * How long a stopped call's shell may take to end: a TERM to a sleep
- * ends it at once, so this only bounds a stop that regressed.
+ * How long a stopped call's shell may take to end: a KILL to its group
+ * ends a sleep at once, so this only bounds a stop that regressed.
  */
 const STOPS_IN_MS = 5_000;
 
@@ -211,8 +211,14 @@ describe("carrying away", () => {
 			},
 			5000,
 		);
+		// A pi quits straight after, and may exit before the disk gets to
+		// anything left to it.
+		const marks = [".job", ".carried"].filter((mark) =>
+			existsSync(`${work.keep}${mark}`),
+		);
 		try {
 			expect(carried, "nothing carried").toBeUndefined();
+			expect(marks, "its marks, taken back as it returned").toEqual([]);
 			expect(
 				await Promise.race([
 					exited.then(() => "stopped"),

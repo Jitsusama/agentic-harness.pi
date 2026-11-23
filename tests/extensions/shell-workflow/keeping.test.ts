@@ -565,14 +565,16 @@ describe("a kept call", () => {
 		expect(existsSync(`${call.keep()}.job`), "its record, put back").toBe(true);
 	});
 
-	// A reload hands the call on in this same process, and the session that
-	// takes it up writes its record again while the first removal runs.
+	// A reload hands the call on in this same process, closes the giving
+	// session, and the session that takes it up writes its record again
+	// while the first removal runs.
 	it("leaves the record its taker writes while its own went", async () => {
 		const call = endsRecorded();
 		disk.hold();
 		const running = run(call.kept.operations, "true", call.signal);
 		await until("its record set aside", () => call.recordGone());
 		call.kept.carryOf(call.signal)?.handed();
+		forgetKeptJob(call.keep());
 		call.record("taken up");
 		disk.go();
 		await running;
