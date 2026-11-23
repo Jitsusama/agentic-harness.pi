@@ -92,6 +92,40 @@ export function moveHoldsReload(session: string): string | undefined {
 		: `a move to ${to} waits, and a reload would stop it unwritten`;
 }
 
+/** What one window's moves hold, as its session changes under them. */
+export interface MoveHolder {
+	/**
+	 * Hold `session`'s reload for a move to `to`, or renew it, letting go
+	 * of the session it held before when that was another; nothing when
+	 * there is no session yet.
+	 */
+	hold(session: string | undefined, to: string): void;
+	/** Let go of the session it holds, after its peer has gone too. */
+	letGo(): void;
+}
+
+/**
+ * The hold one window's moves keep, by the session they hold: a session
+ * that changes while a move waits (a new conversation or a fork) never
+ * leaves the old one's reload held until its hold lapses, and a stop
+ * lets go of the one it held even once the peer names none.
+ */
+export function moveHolder(timing: MoveHoldTiming = {}): MoveHolder {
+	let held: string | undefined;
+	return {
+		hold(session, to) {
+			if (session === undefined) return;
+			if (held !== undefined && held !== session) letMoveGo(held);
+			held = session;
+			holdForMove(session, to, timing);
+		},
+		letGo() {
+			if (held !== undefined) letMoveGo(held);
+			held = undefined;
+		},
+	};
+}
+
 /** The move waiting for `session` is off, made or stopped: its hold goes. */
 export function letMoveGo(session: string): void {
 	waiting().delete(session);
