@@ -276,7 +276,10 @@ It prints a line a checkpoint and the report as one JSON line after
   of the restart and of the turn it carried on, which plain pi has none
   of, so its messages alone are compared. Under `--real`, each entry is
   compared by its shape alone: its type, who said it, how it stopped,
-  its parts and the tools it called.
+  its parts and the tools it called. Both sides run with
+  `PI_MESH_CLASSIFIER=off`: the reply check writes its records once pi
+  has settled, where the race with the next prompt puts them, so with
+  it on the records would differ by where they land.
 - `real`, under `--real`: the model, every request it refused with its
   status and the start of what it said, and the tokens each side's
   answers took.

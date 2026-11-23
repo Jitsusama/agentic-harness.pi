@@ -25,8 +25,15 @@ folder. All but `advisor`, `convention-context` and
   gate. `attribution-interceptor`, `edit-escape-interceptor`,
   `git-cli-interceptor`, `github-cli-interceptor`,
   `read-after-write-interceptor`, `remote-check-interceptor`,
-  `sandbox-file-interceptor`, `secret-scrub-interceptor`,
-  `session-ending-interceptor`, `shell-habit-interceptor`
+  `reply-cause-interceptor`, `sandbox-file-interceptor`,
+  `secret-scrub-interceptor`, `session-ending-interceptor`,
+  `shell-habit-interceptor`
+
+  `reply-cause-interceptor` reads a reply rather than a tool's
+  call, as `session-ending-interceptor` does, but changes
+  nothing: the reply has already reached the person, so once pi
+  settles it follows one stating an untested cause with a note
+  to the model, under the mesh's `untested-cause` guard.
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers

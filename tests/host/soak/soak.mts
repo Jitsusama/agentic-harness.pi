@@ -92,6 +92,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { PROSE_CLASSIFIER_ENV } from "../../../lib/classifier/jev.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { LOADED_MESSAGE } from "../../../lib/internal/reload/loaded.ts";
 import { askWake } from "../../../lib/internal/session/park.ts";
@@ -418,7 +419,20 @@ say(
  */
 const install = values["reload-wave"] ? installOf() : undefined;
 
-const hostSeal = await seal();
+/**
+ * A seal whose pi judges no prose. The reply check writes its records
+ * once pi has settled, after its next prompt or before it as the race
+ * goes, a plain pi's sent at once and a viewer's typed key by key, so
+ * each conversation's records would differ by where they land. The
+ * soak weighs the host, not the classifier, so both sides switch the
+ * judging off, which writes nothing.
+ */
+const unjudged = async (): Promise<Seal> => {
+	const sealed = await seal();
+	return { ...sealed, env: { ...sealed.env, [PROSE_CLASSIFIER_ENV]: "off" } };
+};
+
+const hostSeal = await unjudged();
 const hosted = await runHosted(hostSeal);
 extensionsThere("hosted", hostSeal, "once its turns were done");
 const hostedLatency = latencyOf(hosted.logs);
@@ -434,7 +448,7 @@ say(`hosted latency ${JSON.stringify(hostedLatency)}`);
 if (hostedTime) say(`hosted time spent ${JSON.stringify(hostedTime)}`);
 say(`slow keys ${JSON.stringify(slow)}`);
 say("hosted side done; plain pi next");
-const plainSeal = await seal();
+const plainSeal = await unjudged();
 const plain = await runPlain(plainSeal);
 extensionsThere("plain", plainSeal, "once its turns were done");
 say("plain side done");
@@ -693,7 +707,7 @@ function jitiCacheOf(sealed: Seal): string {
  * It says the open as `what`: the cold open, or the moved install's.
  */
 async function warmHosted(sealed: Seal, what = "cold open"): Promise<ColdOpen> {
-	const warming = await seal();
+	const warming = await unjudged();
 	try {
 		const agentFile = join(warming.root, "soak-agent.json");
 		writeFileSync(agentFile, JSON.stringify(agent));

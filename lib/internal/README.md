@@ -169,7 +169,8 @@ may import from here, and any of it may change without notice.
   included.
 - **`settled.ts`**: what work settles to within a time a caller can
   afford, kept by a timer of its own: the claim check and the mesh's
-  routing wait on a classifier no longer than that.
+  routing wait on a classifier no longer than that, and the reply
+  check waits on finding its classifier no longer than that.
 - **`unseen.ts`**: which characters draw as nothing, as the node
   counts them, for the mesh's subjects and the words a sprout
   relays from mycelium.
