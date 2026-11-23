@@ -13,6 +13,7 @@ import {
 	ownerOf,
 } from "../../../lib/mesh/lease.ts";
 import { clock, shortId } from "../../../lib/mesh/message.ts";
+import { oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { heavySaid } from "./heavy-calls.ts";
 
@@ -20,7 +21,9 @@ import { heavySaid } from "./heavy-calls.ts";
  * The leases of the peers still there, as mesh_groups lists them. Given
  * the queue's jobs, a peer's heavy work is what the queue says it runs
  * or waits for, and its heavy leases are left out: the lease says only
- * that a command started, the queue whether it has its turn.
+ * that a command started, the queue whether it has its turn. Each peer
+ * writes its own board entry and queue record as it likes, so each line
+ * is said as one, whatever its subjects and reasons carry.
  */
 export function leasesText(
 	board: readonly Holding[],
@@ -49,7 +52,7 @@ export function leasesText(
 			...queued,
 		];
 		return said.length > 0 && one.addresses[0]
-			? [`${one.addresses[0]}: ${said.join("; ")}`]
+			? [oneLine(`${one.addresses[0]}: ${said.join("; ")}`)]
 			: [];
 	});
 	return lines.length > 0 ? `\nLeases:\n${lines.join("\n")}` : "";

@@ -550,8 +550,17 @@ describe("a hub found earlier, read again", () => {
 		return "address" in above && above.address === "ROOT01";
 	};
 
-	it("still stands while nothing the find read has changed", () => {
+	it("still stands while nothing the find read has changed, as the find still comes to it", () => {
+		expect(found(self, [self, root, parent])).toBe(true);
 		expect(stillAbove(self, [self, root, parent], "ROOT01")).toBe(true);
+	});
+
+	// A cell is never its own hub, even read from a presence of its own
+	// session that has moved on from the one it was read as.
+	it("never stands at an address this cell's own session holds", () => {
+		const moved = { ...root, session: self.session };
+
+		expect(stillAbove(self, [moved, parent], "ROOT01")).toBe(false);
 	});
 
 	for (const [who, me, hub] of [
@@ -591,7 +600,8 @@ describe("a hub found earlier, read again", () => {
 		const hub = { ...root, stops: [{ address: "7m6jkg", at }] };
 		const live = [self, hub, parent];
 
-		expect(stillAbove(self, live, "ROOT01")).toBe(found(self, live));
+		expect(found(self, live)).toBe(true);
+		expect(stillAbove(self, live, "ROOT01")).toBe(true);
 	});
 
 	// A send to an ended peer's address still reaches it once restored,

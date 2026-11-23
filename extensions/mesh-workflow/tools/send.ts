@@ -19,7 +19,7 @@ import {
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
-import { onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
+import { lists, onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
 	heading,
@@ -142,7 +142,12 @@ export function answeringIntent(
 
 /**
  * Whether these groups reach the orchestrator above the sender's quest,
- * by any address its presence goes by.
+ * by any address its presence goes by, in any letters: a group named is
+ * always upper case, and a presence may list its address otherwise. A
+ * presence lists what addresses it likes, so every one that lists the
+ * orchestrator's counts, not the first: a check that fails closed counts
+ * a question to an impostor's other address too, where taking the first
+ * would let an impostor that sorts early hide the real one's.
  */
 function toOrchestrator(
 	named: readonly string[],
@@ -150,10 +155,15 @@ function toOrchestrator(
 	present: readonly Presence[],
 ): boolean {
 	if (orchestratedBy === undefined) return false;
-	const addresses = present.find((one) =>
-		one.addresses.includes(orchestratedBy),
-	)?.addresses ?? [orchestratedBy];
-	return addresses.some((address) => named.includes(homeOf(address)));
+	const addresses = [
+		orchestratedBy,
+		...present
+			.filter((one) => lists(one, orchestratedBy))
+			.flatMap((one) => one.addresses),
+	];
+	return addresses.some((address) =>
+		named.includes(homeOf(address.toUpperCase())),
+	);
 }
 
 /**
@@ -167,7 +177,7 @@ function toOrchestrator(
  * send naming no address that a live cell on a quest above this peer's
  * holds can't reach its hub, which is only ever found there, so it
  * waits on no find: a question to a peer's owner by address, the
- * common case, then costs no census and no wait on the node.
+ * common case, then costs no second census and no wait on the node.
  */
 async function toHubByAddress(
 	at: Local,

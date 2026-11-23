@@ -49,10 +49,11 @@ export const HUB_RETRY_MS = 30_000;
 const HUB_LEAST_WAIT_MS = 1;
 
 /**
- * How long a kept hub is trusted with no find coming to it: a node
- * quiet this long is down rather than slow, and the talk the hub was
- * chosen from is going stale, so the hub is read as none until a find
- * comes to one again.
+ * How long a kept hub is trusted with no find coming to it, in waking
+ * time: a node quiet this long is down rather than slow, so the hub is
+ * read as none until a find comes to one again. A sleep doesn't count,
+ * since the talk the hub was chosen from is read afresh by the next
+ * find, due within `HUB_KEEP_MS` of waking.
  */
 export const HUB_TRUST_MS = 30 * 60_000;
 
@@ -279,7 +280,10 @@ export function keepHub(
 	}: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
-	// When a find last came to the kept hub.
+	// When a find last came to the kept hub, on the monotonic clock the
+	// finds' own timers run on: a machine asleep asks no find, so its
+	// sleep is no silence from the node, and a wall clock stepped by NTP
+	// neither ends nor stretches the trust.
 	let confirmed = 0;
 	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
@@ -333,7 +337,7 @@ export function keepHub(
 			if (stopped) return;
 			if ("address" in finding.above) {
 				kept = finding.above.address;
-				confirmed = Date.now();
+				confirmed = performance.now();
 				came = true;
 			} else if (finding.settled) kept = undefined;
 			gone = new Set(finding.gone);
@@ -365,11 +369,13 @@ export function keepHub(
 		current: (newer) => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
-			if (Date.now() - confirmed > trust) return undefined;
+			if (performance.now() - confirmed > trust) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
-			// Read as the find's census was: each presence answering only to
-			// the addresses no other signs with, as `peers` gives them.
+			// Read as the find's census was: each presence, live or ended,
+			// answering only to the addresses no other signs with, as `peers`
+			// gives them, so an ended session's older address that the hub
+			// now signs with is no second holder here either.
 			const all = reading.presences.all();
 			const everyone = all.map((one) => ({
 				...one,
