@@ -161,7 +161,7 @@ export function spawnersScoped(
 	if (!spawnerWanted(setting.env)) return false;
 	const spawner = setting.find(SPAWNER);
 	if (spawner === undefined) return false;
-	return spawnerStart(spawner, setting).unscoped === undefined;
+	return spawnerStart(spawner, setting).scoped;
 }
 
 /** Whether a cgroup path lies in a pi-spawner's scope. */
