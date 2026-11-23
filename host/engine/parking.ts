@@ -106,6 +106,8 @@ export interface Parking {
 	wake(sessionId: string): Promise<void>;
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
+	/** Whether its wake is watched now, as a woken one's is until it moves out. */
+	watches(sessionId: string): boolean;
 	/**
 	 * It resumed, or a child took it on: stop watching for its wake, and
 	 * forget a wake refused it as it started, after `running` cleared the
@@ -439,6 +441,7 @@ export function parking(options: {
 	return {
 		wakeFile,
 		mayCarry,
+		watches: (sessionId) => sleepers.has(sessionId),
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
 			clearRefusedWake(wakeFile(sessionId));

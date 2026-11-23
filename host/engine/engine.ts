@@ -182,7 +182,7 @@ export async function createEngine(
 	/**
 	 * Take on a held conversation resting parked, building nothing: its
 	 * wake watched, its log held and its requests restored, as
-	 * `restsParked` and `restsGivenUp` take one and `movedOut` gives it up.
+	 * `restsParked` and `restGivenUp` take one and `movedOut` gives it up.
 	 */
 	function takeOnResting(entry: RosterEntry): void {
 		parked.rests(entry.sessionId);
@@ -285,8 +285,11 @@ export async function createEngine(
 				},
 			);
 		// A start whose screen is asking the person answers now, so a viewer can attach to answer; the build carries on, and says what fails.
-		if ((await Promise.race([building, asking])) === "asking")
+		// Its time is said to the ask, the phases after it never (F44).
+		if ((await Promise.race([building, asking])) === "asking") {
+			mark?.("asked");
 			building.catch((error: unknown) => failedAfterStart(record, error));
+		}
 	}
 
 	/**
@@ -659,10 +662,11 @@ export async function createEngine(
 
 		// Held, its child given up before it ran there, so it never parked:
 		// rested as a park leaves one, its marker written (given-up.ts).
-		restsGivenUp: (entry) =>
+		restGivenUp: (entry) =>
 			restGivenUp(entry, {
 				runs: (sessionId) => host.holds(sessionId) !== undefined,
 				wakeFile: (sessionId) => parked.wakeFile(sessionId),
+				watches: (sessionId) => parked.watches(sessionId),
 				takeOn: takeOnResting,
 				pid: host.owner.pid,
 			}),

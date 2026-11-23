@@ -385,8 +385,9 @@ export function childSupervisor(options: {
 	 * A resume's child was given up and stopped, as a bounded one is at
 	 * its listen or answer time, before any ending could be heard: its
 	 * conversation is still held and runs nowhere, so whoever kept its
-	 * wake watches it again. Never heard as the host stops watching,
-	 * which leaves the child to the next host.
+	 * wake watches it again. Never heard for a wake's resume, whose wake
+	 * still watches it, nor as the host stops watching, which leaves the
+	 * child to the next host.
 	 */
 	gaveUp?: (sessionId: string) => void;
 	/**
@@ -1180,7 +1181,9 @@ export function childSupervisor(options: {
 	 * cleared, so no conversation runs where nothing watches it, and a
 	 * resume's conversation said given up (`gaveUp`), unless the host
 	 * stopped watching, which leaves every child running for the next
-	 * host to take up.
+	 * host to take up. A woken one is said too: a window's attach may wake
+	 * one nothing watches, and the host keeps the watch of one whose
+	 * sleeper still stands (F23), writing back only its marker.
 	 */
 	async function inSlot<T>(
 		slot: Slot,

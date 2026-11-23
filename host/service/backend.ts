@@ -87,12 +87,12 @@ export interface ConversationEngine {
 	 * A conversation the host still holds, whose child was given up before
 	 * it ran there, rests as parked: its park marker is written naming the
 	 * host's wake file, where none from this boot does, and it is taken on
-	 * as `restsParked` takes one, so a message sent to it wakes it. Answers
-	 * false, doing nothing, while the host runs it or another holder's
-	 * marker stands. Never asked at a start, which still resumes one that
-	 * never parked.
+	 * as `restsParked` takes one, so a message sent to it wakes it, and
+	 * nothing is answered. Answers why, doing nothing, while the host runs
+	 * it or another holder's marker stands. Never asked at a start, which
+	 * still resumes one that never parked.
 	 */
-	restsGivenUp?(entry: RosterEntry): boolean;
+	restGivenUp?(entry: RosterEntry): string | undefined;
 	/**
 	 * Whether a conversation the host holds has lost its session file, so
 	 * nothing could ever resume it: a start drops it rather than keep it.
@@ -349,6 +349,9 @@ export function hostBackend(options: {
 	// Each conversation's wakes and ends, one at a time, so a close never
 	// lands between a wake's look at the roster and its resume.
 	const turns = new Map<string, Promise<unknown>>();
+	// Each conversation's ends asked but not yet in their turn, counted, so
+	// a wake ahead of one starts no child it would wait out (F24).
+	const ending = new Map<string, number>();
 	// Each open or adopt from its roster hold until its start has settled.
 	// The engine lists a conversation as it registers it, seconds before
 	// its screen exists, and a join in place takes a listed conversation as
@@ -401,6 +404,9 @@ export function hostBackend(options: {
 			try {
 				if (another) await options.admitAnother?.("wake");
 				if (children?.moves(sessionId)) {
+					// An end asked since takes it, held and not running, as it
+					// would after a starved child; none is started to be given up.
+					if (ending.has(sessionId)) return;
 					await children.resume(entry, true);
 					// One whose child already ended was rested again as it ended,
 					// so the host keeps watching its wake.
@@ -618,19 +624,25 @@ export function hostBackend(options: {
 			phases.push({ phase, at: Date.now() });
 		};
 		let sessionId: string | undefined;
+		let identity: SessionIdentity;
 		try {
-			const identity = await startedTimed(request, mark, (id) => {
+			identity = await startedTimed(request, mark, (id) => {
 				sessionId = id;
 			});
-			options.say?.(
-				startLine(identity.sessionId, request, began, phases, Date.now()),
-			);
-			return identity;
 		} catch (error) {
 			const line = startLine(sessionId, request, began, phases, Date.now());
-			options.say?.(`${line}, failing: ${firstLine(error)}`);
+			const why = firstLine(error);
+			options.say?.(
+				`${line}, failing${why ? `: ${why}` : ", with no reason given"}`,
+			);
 			throw error;
 		}
+		// Said once it is live, so a say that throws never reads as a failed
+		// open of a conversation that runs (F53).
+		options.say?.(
+			startLine(identity.sessionId, request, began, phases, Date.now()),
+		);
+		return identity;
 	}
 
 	async function startedTimed(
@@ -672,7 +684,7 @@ export function hostBackend(options: {
 				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
-			await engine.discard(prepared);
+			await undoing(prepared, () => engine.discard(prepared));
 			throw error;
 		}
 		mark("roster");
@@ -682,8 +694,10 @@ export function hostBackend(options: {
 			// Registered and failed: the engine parked it, so it stays held for
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
-				await engine.discard(prepared);
-				await roster.drop(prepared.sessionId);
+				await undoing(prepared, async () => {
+					await engine.discard(prepared);
+					await roster.drop(prepared.sessionId);
+				});
 			} else if (typeof error === "object" && error !== null) {
 				// Its repeat is told the same, not given a second.
 				leftHeld.set(error, prepared.sessionId);
@@ -691,6 +705,18 @@ export function hostBackend(options: {
 			throw error;
 		}
 		return live(prepared.sessionId);
+	}
+
+	// Undoing a failed start that fails too is said, and the start's own
+	// failure is still the one its caller and the journal hear (F52).
+	async function undoing(prepared: Prepared, undo: () => Promise<void>) {
+		try {
+			await undo();
+		} catch (error) {
+			options.say?.(
+				`${prepared.sessionId}: undoing its failed start failed too: ${firstLine(error)}`,
+			);
+		}
 	}
 
 	// The reason it closes with names the caller, so the journal line the
@@ -703,7 +729,11 @@ export function hostBackend(options: {
 		// A wake ahead of it in its turn may wait on a starved child for
 		// minutes: that resume is given up, so the end comes at once.
 		children?.giveUp?.(sessionId);
+		ending.set(sessionId, (ending.get(sessionId) ?? 0) + 1);
 		return inTurn(sessionId, async () => {
+			const left = (ending.get(sessionId) ?? 1) - 1;
+			if (left > 0) ending.set(sessionId, left);
+			else ending.delete(sessionId);
 			await owed;
 			// A park under way holds it while no longer running: once settled,
 			// it is closed as a parked one, its viewers told and the end said.
@@ -834,9 +864,12 @@ function namedIn(answer: unknown): string | undefined {
  * extension loaded, durable's store opened and pi's session made, then
  * the rest, its extensions' session start among it), its screen or
  * headless binding, durable's recovery begun and, for an open with first
- * words, those words held.
+ * words, those words held. A start whose screen asks the person answers
+ * at the ask, marked `asked`: what it builds after is not timed, and a
+ * failure after it is the engine's to say.
  */
 export type StartPhase =
+	| "asked"
 	| "ask"
 	| "gate"
 	| "log"

@@ -121,7 +121,7 @@ describe("startLine", () => {
 		expect(
 			startLine(
 				id,
-				{ op: "open" },
+				{ op: "open", cwd: "/work" },
 				1_000,
 				[
 					{ phase: "prepare", at: 1_200 },
@@ -134,9 +134,23 @@ describe("startLine", () => {
 		);
 	});
 
-	it("says one that failed before pi named it as not yet named", () => {
-		expect(startLine(undefined, { op: "adopt" }, 1_000, [], 1_500)).toBe(
-			"A conversation not yet named: its adopt took 0.5 s",
-		);
+	// F55: what it was asked for tells one failed request from another.
+	it("says one that failed before pi named it by where it was asked to open or what to adopt", () => {
+		expect(
+			[
+				startLine(
+					undefined,
+					{ op: "adopt", sessionFile: "/s/one.jsonl" },
+					1_000,
+					[],
+					1_500,
+				),
+				startLine(undefined, { op: "open", cwd: "/work" }, 1_000, [], 1_500),
+			],
+			"each names what it was asked for",
+		).toEqual([
+			"A conversation not yet named, adopted from /s/one.jsonl: its adopt took 0.5 s",
+			"A conversation not yet named, opening in /work: its open took 0.5 s",
+		]);
 	});
 });

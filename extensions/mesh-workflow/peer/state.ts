@@ -339,13 +339,14 @@ export function createState(
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 	});
-	// The session a move holds the reload of, kept so its stop lets go of
-	// the same one after its peer has gone.
-	const moveHeld = moveHolder();
+	// The hold this window's moves keep on a session's reload, which knows
+	// the session it holds, so a stop lets go of that one after its peer
+	// has gone.
+	const reloadHold = moveHolder();
 	// Move into a host or out of one, from outside the window (moving.ts).
 	const moving = createMoving({
-		holdReloads: (to) => moveHeld.hold(m.peer?.session, to),
-		letReloadsGo: () => moveHeld.letGo(),
+		holdReloads: (to) => reloadHold.hold(m.peer?.session, to),
+		letReloadsGo: () => reloadHold.letGo(),
 		holds: () => holdsOf(m.ctx, pi.events, m.prompts),
 		hosted: () => m.hostKey !== undefined,
 		moving: () => m.peer?.moving,

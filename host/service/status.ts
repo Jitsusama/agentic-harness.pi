@@ -3,8 +3,9 @@
  * journal show it: the step its start is in, how long each phase of a
  * resume, open or adopt took, what it holds once ready, and what it
  * parks as it stops.
- * run.ts says these at the moments they belong to; the words change for
- * the people reading them, apart from when the host says them.
+ * run.ts says these at the moments they belong to, and backend.ts each
+ * open's and adopt's time; the words change for the people reading them,
+ * apart from when the host says them.
  */
 
 import { sessionAddress } from "../../lib/mesh/address.ts";
@@ -91,14 +92,14 @@ function conversations(count: number): string {
 	return `${count} conversation${count === 1 ? "" : "s"}`;
 }
 
-/** When one phase of a resume ended. */
+/** When one phase of a resume, open or adopt ended. */
 export interface PhaseEnd {
 	readonly phase: StartPhase;
 	readonly at: number;
 }
 
 /**
- * How long each phase of a resume begun at `began` took, in words, and
+ * How long each phase of a start begun at `began` took, in words, and
  * what followed the last until `ended`; nothing when none was marked.
  */
 export function phaseTimes(
@@ -120,18 +121,25 @@ export function phaseTimes(
 /**
  * How long a conversation's open or adopt took, begun at `began` and
  * settled at `ended`, and each phase within it; one that failed before
- * pi named its conversation is said as a conversation not yet named.
+ * pi named its conversation is said as a conversation not yet named,
+ * with where it was asked to open or the file it was asked to adopt.
  */
 export function startLine(
 	sessionId: string | undefined,
-	request: { readonly op: "open" | "adopt" },
+	request:
+		| { readonly op: "open"; readonly cwd: string }
+		| { readonly op: "adopt"; readonly sessionFile: string },
 	began: number,
 	phases: readonly PhaseEnd[],
 	ended: number,
 ): string {
 	const who =
 		sessionId === undefined
-			? "A conversation not yet named"
+			? `A conversation not yet named, ${
+					request.op === "open"
+						? `opening in ${request.cwd}`
+						: `adopted from ${request.sessionFile}`
+				}`
 			: `${sessionAddress(sessionId)} (${sessionId})`;
 	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
 	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
