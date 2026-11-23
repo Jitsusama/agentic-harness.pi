@@ -412,6 +412,14 @@ export function childSupervisor(options: {
 	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
+	/**
+	 * The longest a start holds its turn at the gate, unless said its
+	 * listen and answer times together, as long as a child that isn't
+	 * starved takes: a starved child nobody bounds is waited on for up to
+	 * `STARVED_WITHIN_MS`, and two holding theirs all that time would hold
+	 * every other start on the host.
+	 */
+	turnHeldWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -435,6 +443,8 @@ export function childSupervisor(options: {
 	const listensWithinCpuMs =
 		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
 	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
+	const turnHeldWithinMs =
+		options.turnHeldWithinMs ?? withinMs + answersWithinMs;
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
@@ -1210,6 +1220,7 @@ export function childSupervisor(options: {
 		// Taken only once free, so a slot another child runs in is left be.
 		let taken = false;
 		let giveBack = (): void => undefined;
+		let lapse: ReturnType<typeof setTimeout> | undefined;
 		try {
 			giveBack = await gate.turn({
 				ahead: turn.ahead,
@@ -1220,6 +1231,8 @@ export function childSupervisor(options: {
 				late: () =>
 					new Error(`${slot.unit} waited past its time for its turn to start`),
 			});
+			// Given back once held its time, whatever its child does by then.
+			lapse = setTimeout(giveBack, turnHeldWithinMs);
 			await claimed(slot.unit, async () => {
 				if (!(await free(slot)))
 					throw new Error(`A child runs in ${slot.unit} already`);
@@ -1237,6 +1250,7 @@ export function childSupervisor(options: {
 			}
 			throw error;
 		} finally {
+			clearTimeout(lapse);
 			giveBack();
 		}
 	}

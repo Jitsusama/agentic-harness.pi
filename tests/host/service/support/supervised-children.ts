@@ -435,6 +435,7 @@ interface Clocks {
 	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
+	turnHeldWithinMs?: number;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {

@@ -945,6 +945,31 @@ describe("children starting at once", () => {
 		);
 	});
 
+	// A starved child nobody bounds is waited on for minutes; holding its
+	// turn all that time would hold every other start on the host.
+	it("gives a turn back once it has been held its whole time, so starts that hang leave the rest to start", async () => {
+		superviseAgain({ clocks: { turnHeldWithinMs: 300 } });
+		const systemd = deferred();
+		const start = units.start;
+		units.start = async (unit) => {
+			await start(unit);
+			if (units.started.length <= 2) await systemd.promise;
+		};
+		const hanging = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const asked = Date.now();
+
+		const after = await supervisor.resume(entry(nth(3)));
+
+		expect(after.sessionId).toBe(nth(3));
+		expect(
+			Date.now() - asked,
+			"once a turn was held its time, not when a hung start settles",
+		).toBeLessThan(2_000);
+		systemd.settle();
+		await Promise.allSettled(hanging);
+	});
+
 	it("starts none of the children waiting at the gate once the host stops watching, letting each go at once", async () => {
 		// The first two hang in systemd's start, so neither gives its turn
 		// back: only the stop itself can let the waiting ones go.
