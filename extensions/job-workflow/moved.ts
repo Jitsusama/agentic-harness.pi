@@ -120,7 +120,9 @@ export function movingOn(
 /**
  * Hand on the jobs that can be carried, writing what goes with them
  * through `append`. A record that can't be written leaves nobody to say
- * their ends, so the work is stopped instead.
+ * their ends, so the work is stopped instead and its files removed: the
+ * calls were handed on, so their session's close leaves their records
+ * for the taker that now never comes.
  */
 export function carryAway(
 	jobs: Jobs,
@@ -139,8 +141,11 @@ export function carryAway(
 		append(CARRIED_ENTRY, carried);
 	} catch {
 		// Nobody will be told how they end: stop them, as a quit did.
-		for (const job of carried.jobs)
-			if (isCarriedShell(job.work)) stopCarried(job.work);
+		for (const job of carried.jobs) {
+			if (!isCarriedShell(job.work)) continue;
+			stopCarried(job.work);
+			void removeKept(job.work.keep);
+		}
 		return undefined;
 	}
 	return carried;

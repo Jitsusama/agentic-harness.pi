@@ -19,8 +19,9 @@
  * takes up is stopped by its host's look at strays once its time limit
  * or a day has passed (host/engine/carried-shells.ts). The record goes
  * with the call's other files, once its end is said or it is stopped,
- * and a session's close for good takes its records back first, so no
- * reaper spares what the close stops.
+ * and a session's close takes back the records it still holds first,
+ * so no reaper spares what the close stops; one it handed on stays its
+ * taker's.
  *
  * Every call takes its record back as it ends, on the loop a host's
  * conversations share, and most calls never wrote one: asking the disk
@@ -239,10 +240,10 @@ function whatFollows(keep: string, removal: JobRecordRemoval): string {
  * taker's write may have been what it moved, and kept there when the
  * disk refuses the link; otherwise, once the aside is gone, what this
  * process wrote last. Nothing is put back once the call's files went, as
- * a taker in this process that ended the call removed them, or once its
- * session's close for good took the record back; a taker in another
- * process that does so while the disk holds the put-back can leave a
- * record a later start says the end of again.
+ * a taker in this process that ended the call removed them, or a move
+ * that couldn't be written did as it stopped the call; a taker in
+ * another process that ends the call while the disk holds the put-back
+ * can leave a record a later start says the end of again.
  */
 async function removeOwn(
 	keep: string,

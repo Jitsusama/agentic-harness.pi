@@ -347,8 +347,8 @@ export interface JobRecordRemoval {
 	latest?: string;
 	/**
 	 * Whether its call's files went while it ran, here, as a taker in this
-	 * process ended the call, or its session was closed for good, so
-	 * nothing is put back for one.
+	 * process ended the call or a move that couldn't be written stopped
+	 * it, so nothing is put back for one.
 	 */
 	gone: boolean;
 	/** Whether the record is off its name, set aside, and not yet put back. */
