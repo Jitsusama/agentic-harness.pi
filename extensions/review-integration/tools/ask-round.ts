@@ -162,16 +162,16 @@ export async function awaitRosterStart(
 	change: string,
 	signal: AbortSignal | undefined,
 ): Promise<CouncilStart> {
-	// A round a session on an older install started never took a slot,
-	// but its reviewers' folder says when it began.
-	const elsewhere = await newestRosterStartIn(join(runArtifactDir(), "runs"));
+	// A round a session on an older install started never joined the
+	// line, but its reviewers' folder says when it began, read again at
+	// each look since such rounds start while this one waits.
+	const runs = join(runArtifactDir(), "runs");
 	return await awaitCouncilStart(
 		councilStartsPath(),
 		{
 			by: sessionKey(),
 			change,
-			now: new Date(),
-			...(elsewhere === undefined ? {} : { startedElsewhereAt: elsewhere }),
+			startedElsewhere: () => newestRosterStartIn(runs),
 		},
 		signal,
 	);

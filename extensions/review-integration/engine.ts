@@ -200,8 +200,8 @@ export function findingDir(): string {
 }
 
 /**
- * Where the machine's last council start is kept, which every session
- * reads and writes under one lock to space starts apart.
+ * Where older installs keep the machine's last council slot; the line
+ * every session waits in under one lock is kept beside it.
  */
 export function councilStartsPath(): string {
 	return join(stateDir("review"), "council-starts", "last.json");
