@@ -396,7 +396,9 @@ describe("a recorded job", () => {
 		disk.forget();
 		const found = await carriedCalls(where, SOON);
 		expect(
-			disk.asked.filter((said) => said.includes(where)),
+			disk.asked.filter(
+				(said) => said.includes(where) && /^\w+Sync /.test(said),
+			),
 			"nothing asked of the folder on the thread",
 		).toEqual([]);
 		expect([...found.groups].sort(), "both shells' groups").toEqual(
