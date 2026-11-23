@@ -156,13 +156,13 @@ describe("a kept call", () => {
 			statSync(`${carried}.carried`).mode & PERMISSIONS,
 			"the mark is the owner's alone",
 		).toBe(PRIVATE);
-		const found = carriedCalls(where);
+		const found = await carriedCalls(where);
 		expect([...found.groups]).toEqual([4242]);
 		expect([...found.marks], "by the call's own mark too").toEqual(["call-1"]);
 	});
 
-	it("names no group before there is a folder", () => {
-		const found = carriedCalls(folder());
+	it("names no group before there is a folder", async () => {
+		const found = await carriedCalls(folder());
 		expect(found.groups.size + found.marks.size).toBe(0);
 	});
 

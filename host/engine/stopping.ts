@@ -114,7 +114,7 @@ export function stopKeeping(options: {
 		await reapToolChildren(
 			sessionId,
 			table,
-			left.spared(carriedCalls()),
+			left.spared(await carriedCalls()),
 			among,
 		);
 	}
@@ -182,7 +182,7 @@ export function stopKeeping(options: {
 			const reaped = await reapLeftBehind(
 				hostKey,
 				undefined,
-				left.spared(carriedCalls()),
+				left.spared(await carriedCalls()),
 			);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(
