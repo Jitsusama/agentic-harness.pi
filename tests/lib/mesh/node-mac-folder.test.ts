@@ -166,6 +166,22 @@ describe("a Mac's runtime folder", () => {
 			2000, 2000,
 		]);
 	});
+
+	it("is asked of getconf again when the clock was set back since it couldn't answer", async () => {
+		// Dated by a clock later set back, a miss would otherwise seem not
+		// yet a while old for as long as the clock was moved.
+		vi.resetModules();
+		const fresh = await import("../../../lib/internal/paths.ts");
+		folders.failing = 1;
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			expect(fresh.runtimeDir(mac())).toBeUndefined();
+			vi.setSystemTime(Date.now() - 3_600_000);
+			expect(fresh.runtimeDir(mac())).toBe(folders.cache);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
 
 describe("a Mac's node socket while the runtime folder moves", () => {

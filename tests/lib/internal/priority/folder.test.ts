@@ -14,6 +14,7 @@ import {
 	PID_MS,
 	QUEUE_FIRST_FILE,
 	queueFolder,
+	UNSTAMPED_BOOT_SLACK_MS,
 } from "../../../../lib/internal/priority/folder.ts";
 import { NEWER_KEEPER_MS } from "../../../../lib/internal/priority/keeper.ts";
 import {
@@ -472,7 +473,8 @@ describe("the machine's queue folder", () => {
 			bootToken: () => boot,
 			bootedAt: () => NOW - 60_000,
 		});
-		queue.ask(job("before", { since: new Date(NOW - 120_000).toISOString() }));
+		// Dated after the boot by its clock, it is still told by its token.
+		queue.ask(job("before", { since: new Date(NOW - 30_000).toISOString() }));
 		shellSays("before", 100);
 		boot = "boot-2";
 		queue.ask(job("after", { since: new Date(NOW - 30_000).toISOString() }));
@@ -495,21 +497,78 @@ describe("the machine's queue folder", () => {
 		expect(record().jobs.map((one) => one.id)).toEqual(["stepped"]);
 	});
 
-	it("judges a job asked with no boot token by its pid alone", () => {
-		// Asked by older code, or where the machine couldn't say its boot.
-		let boot: string | undefined;
-		const queue = queueFolder(dir, {
-			...processes,
-			bootToken: () => boot,
-			bootedAt: () => NOW - 60_000,
+	// A job asked by older code, or where the machine couldn't say its
+	// boot, has no token; judged by its pid alone, a pid the reboot gave
+	// another process held its place for good (PV3TE0's F6).
+	describe("with no boot token to tell a job by", () => {
+		const booted = NOW - 60_000;
+		const beforeBoot = (ms: number) => new Date(booted - ms).toISOString();
+
+		it("gives up a job begun well before the boot, though its pid names a running process", () => {
+			let boot: string | undefined;
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(
+				job("unstamped", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS + 60_000),
+				}),
+			);
+			shellSays("unstamped", 100);
+			boot = "boot-2";
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs).toEqual([]);
 		});
-		queue.ask(
-			job("unstamped", { since: new Date(NOW - 120_000).toISOString() }),
-		);
-		shellSays("unstamped", 100);
-		boot = "boot-2";
-		queue.keep(TIGHT, NOW, () => undefined);
-		expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+
+		it("keeps a job begun within the slack before the boot, for a clock stepped back a little", () => {
+			let boot: string | undefined;
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(
+				job("unstamped", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS - 60_000),
+				}),
+			);
+			shellSays("unstamped", 100);
+			boot = "boot-2";
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+		});
+
+		it("judges a stamped job by the boot's time while the keeper can't read its token", () => {
+			let boot: string | undefined = "boot-1";
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(job("since", { since: new Date(NOW - 30_000).toISOString() }));
+			shellSays("since", 100);
+			queue.ask(
+				job("long-before", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS + 60_000),
+				}),
+			);
+			shellSays("long-before", 100);
+			boot = undefined;
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["since"]);
+		});
+
+		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {
+			const queue = queueFolder(dir, processes);
+			queue.ask(
+				job("unstamped", { since: new Date(NOW - 86_400_000).toISOString() }),
+			);
+			shellSays("unstamped", 100);
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+		});
 	});
 
 	it("clears what a job left behind once its .job is gone", () => {

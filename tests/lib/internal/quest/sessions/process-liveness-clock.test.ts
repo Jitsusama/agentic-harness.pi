@@ -162,9 +162,13 @@ describe("a process probe that never answers", () => {
 	it.skipIf(process.platform !== "darwin")(
 		"gives up on reading the boot at its clock",
 		async () => {
+			// Apple's sysctl is asked by its path, so the hang stands in for it
+			// by name rather than through PATH.
 			const boot = await freshBoot();
 			hang("sysctl");
-			const { answer, took } = timed(() => boot.currentBootToken());
+			const { answer, took } = timed(() =>
+				boot.readBootToken(join(bin, "sysctl")),
+			);
 			expect(took).toBeLessThan(boot.BOOT_TOKEN_TIMEOUT_MS + MARGIN_MS);
 			expect(answer).toBeUndefined();
 		},

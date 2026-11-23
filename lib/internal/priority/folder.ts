@@ -91,6 +91,14 @@ export type { QueueRecord } from "./queue-record.ts";
 /** How long a shell has to say its pid before its job is given up. */
 export const PID_MS = 30_000;
 
+/**
+ * How long before the boot a job with no boot token to tell it by must
+ * have begun to be taken as cut off by it: room for a clock stepped back
+ * a little, as a sleeping Mac's often is, without giving up work running
+ * since the boot.
+ */
+export const UNSTAMPED_BOOT_SLACK_MS = 15 * 60_000;
+
 /** How old a lock is before it is taken as left by a session that died. */
 const STALE_LOCK_MS = 10_000;
 
@@ -203,13 +211,16 @@ export interface Processes {
 	 * in that boot carries, for setting aside a job asked before it. A
 	 * token rather than a time, since a stepped clock moves a boot worked
 	 * out from uptime past jobs still running. A reader that can't say
-	 * leaves it out, and its jobs are judged by their pids alone.
+	 * leaves it out, or answers nothing while it can't; a job then is set
+	 * aside by {@link bootedAt} alone, with {@link UNSTAMPED_BOOT_SLACK_MS}
+	 * of room.
 	 */
 	bootToken?(): string | undefined;
 	/**
 	 * When the machine last started, in epoch milliseconds, as the end a
-	 * job the boot cut off is remembered with. Only a time to record, so a
-	 * clock that stepped can at worst misdate it.
+	 * job the boot cut off is remembered with, and what tells a boot for a
+	 * job with no token to tell it by. A clock that stepped can misdate the
+	 * one, and the other has {@link UNSTAMPED_BOOT_SLACK_MS} of room.
 	 */
 	bootedAt?(): number;
 	cgroupOf(pid: number): string | undefined;
@@ -389,17 +400,24 @@ export function queueFolder(
 		clearWriting(dir, now - LEFTOVER_MS);
 	};
 
-	/** Keeps how the job ended, by its shell's word and when it said it. */
-	const remember = (job: Job, now: number) => {
+	/**
+	 * Keeps how the job ended, by its shell's word and when it said it.
+	 * One a boot `cut` off without its shell's word keeps no run time: it
+	 * ran until some moment before the boot, not for as long as it seems,
+	 * and a short one would teach its work as quick.
+	 */
+	const remember = (job: Job, now: number, cut = false) => {
 		if (!outcomes) return;
 		const end = path(job.id, "end");
 		const said = text(end).trim();
 		const exit = /^\d+$/.test(said) ? Number(said) : undefined;
 		let at = now;
+		let unsaid = false;
 		try {
 			at = Math.min(now, statSync(end).mtimeMs);
 		} catch {
 			// Unsaid: it ended when it was seen to.
+			unsaid = true;
 		}
 		const moved =
 			job.walk === "main-fetch" &&
@@ -407,7 +425,9 @@ export function queueFolder(
 				text(path(job.id, "main-before")),
 				text(path(job.id, "main-after")),
 			);
-		const outcome = outcomeOf(job, at, exit, moved);
+		const measured = outcomeOf(job, at, exit, moved);
+		const { ranS: _unknown, ...unmeasured } = measured;
+		const outcome = cut && unsaid ? unmeasured : measured;
 		const file = outcomes;
 		adding.set(outcome.id, outcome);
 		const written: Promise<void> = lastWrite
@@ -428,15 +448,26 @@ export function queueFolder(
 
 	/**
 	 * When the boot came, if the job was asked in an earlier one, which
-	 * ended it: never before the job began, nor after now.
+	 * ended it: never before the job began, nor after now. Told by the
+	 * boot's token where both the job and this reader have one; else by
+	 * the boot's time, as before tokens, only for a job begun well before
+	 * it, so a clock stepped a little gives up nothing running.
 	 */
 	const cutOffAt = (job: Job, now: number): number | undefined => {
 		const token = processes.bootToken?.();
-		if (job.boot === undefined || token === undefined || job.boot === token)
-			return undefined;
+		const stamped = typeof job.boot === "string" && token !== undefined;
+		if (stamped && job.boot === token) return undefined;
+		const bootedAt = processes.bootedAt?.();
 		const began = Date.parse(job.started ?? job.since);
-		const booted = Math.min(processes.bootedAt?.() ?? now, now);
-		return Number.isNaN(began) ? booted : Math.max(began, booted);
+		if (!stamped) {
+			const before =
+				bootedAt !== undefined && began < bootedAt - UNSTAMPED_BOOT_SLACK_MS;
+			if (!before) return undefined;
+		}
+		const booted = Math.min(bootedAt ?? now, now);
+		return Number.isNaN(began)
+			? booted
+			: Math.min(Math.max(began, booted), now);
 	};
 
 	const ended = (job: Job, now: number) => {
@@ -691,7 +722,8 @@ export function queueFolder(
 						.filter((job) => {
 							if (!ended(job, now)) return true;
 							// A job the boot cut off ended then, not when it was seen.
-							remember(job, cutOffAt(job, now) ?? now);
+							const cutAt = cutOffAt(job, now);
+							remember(job, cutAt ?? now, cutAt !== undefined);
 							drop(job.id);
 							return false;
 						})

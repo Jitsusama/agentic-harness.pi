@@ -337,6 +337,9 @@ async function queueIn(dir: string): Promise<unknown> {
 
 function macMachine(): Machine {
 	const room = darwinRoom();
+	// Read as the session loads, so the first tool call doesn't wait on
+	// sysctl; one that can't answer now is asked again later.
+	currentBootToken();
 	return {
 		// No cgroups to say what a job's processes are or held.
 		// Its queue is in its cache folder, which outlasts a reboot: a job
@@ -473,7 +476,11 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	// answer. Heavy work has the room read for it, so its turn can be
 	// given as it asks.
 	pi.on("tool_call", async (event, ctx) => {
-		if (!isToolCallEventType("bash", event) || !found()) return;
+		if (!isToolCallEventType("bash", event)) return;
+		// A folder found here, between ticks, holds this very call to turns:
+		// found bare, the call was judged by a queue its session never took.
+		takeTurns(ctx.sessionManager.getSessionId());
+		if (!found()) return;
 		const { command } = event.input;
 		if (runsChangedChecks(command)) await takesNow();
 		await placesNow(command, ctx.cwd).catch(() => undefined);

@@ -168,13 +168,17 @@ const darwinMisses = new Map<string, number>();
  * couldn't start, under load, is asked again once
  * {@link GETCONF_AGAIN_MS} has passed, rather than leaving a long-lived
  * session with no runtime folder until it restarts, or holding every
- * caller in the meantime.
+ * caller in the meantime. A miss dated after now, by a clock stepped
+ * back, is taken as old. A getconf that never answers so costs one
+ * {@link GETCONF_MS} hold a name every {@link GETCONF_AGAIN_MS}, a
+ * bound accepted for a folder no session can work without.
  */
 function darwinFolder(name: string): string | undefined {
 	const kept = darwinFolders.get(name);
 	if (kept !== undefined) return kept;
 	const missed = darwinMisses.get(name);
-	if (missed !== undefined && Date.now() - missed < GETCONF_AGAIN_MS) {
+	const since = missed === undefined ? undefined : Date.now() - missed;
+	if (since !== undefined && since >= 0 && since < GETCONF_AGAIN_MS) {
 		return undefined;
 	}
 	try {

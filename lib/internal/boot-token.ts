@@ -9,8 +9,22 @@ import { readFileSync } from "node:fs";
 /** Where Linux publishes a random identifier regenerated on each boot. */
 const LINUX_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
 
+/**
+ * Apple's own sysctl, by its path, so every session reads the same
+ * program whatever its PATH holds: two that read different tokens would
+ * each give up the other's running jobs.
+ */
+export const SYSCTL_PATH = "/usr/sbin/sysctl";
+
 /** How long sysctl may take to name the boot on a Mac. */
 export const BOOT_TOKEN_TIMEOUT_MS = 3000;
+
+/**
+ * How long a boot that couldn't be read is let be before it is read
+ * again: sysctl, like getconf, can fail to start under load, and each
+ * read can hold its caller for {@link BOOT_TOKEN_TIMEOUT_MS}.
+ */
+export const BOOT_TOKEN_AGAIN_MS = 30_000;
 
 /**
  * Read an identifier for the running boot, or undefined when the host
@@ -22,8 +36,11 @@ export const BOOT_TOKEN_TIMEOUT_MS = 3000;
  * not one, because it is derived from the clock and shifts when NTP
  * adjusts it. A token that drifts mid-boot would read everything this
  * boot made as left behind by an earlier one.
+ *
+ * `sysctl` names the program a Mac asks, Apple's own unless a test
+ * stands in for it.
  */
-function readBootToken(): string | undefined {
+export function readBootToken(sysctl = SYSCTL_PATH): string | undefined {
 	if (process.platform === "linux") {
 		try {
 			return nonEmpty(readFileSync(LINUX_BOOT_ID_PATH, "utf8"));
@@ -35,14 +52,14 @@ function readBootToken(): string | undefined {
 	}
 	try {
 		return nonEmpty(
-			execFileSync("sysctl", ["-n", "kern.bootsessionuuid"], {
+			execFileSync(sysctl, ["-n", "kern.bootsessionuuid"], {
 				encoding: "utf8",
 				timeout: BOOT_TOKEN_TIMEOUT_MS,
 			}),
 		);
 	} catch {
-		// No sysctl, or the key is absent on this platform: same again,
-		// no token rather than a guess.
+		// No sysctl, the key absent, or no answer in time: no token rather
+		// than a guess, read again later.
 		return undefined;
 	}
 }
@@ -53,15 +70,32 @@ function nonEmpty(raw: string): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** Memoized boot token; a boot identifier cannot change under us. */
-let bootTokenCache: { token: string | undefined } | undefined;
+/**
+ * A boot token read through `read`, kept for good once read, since a
+ * boot's identifier cannot change under the process reading it. A read
+ * that found none is tried again once {@link BOOT_TOKEN_AGAIN_MS} has
+ * passed on `now`, a clock that never steps, rather than leaving the
+ * process with no token until it restarts.
+ */
+export function bootTokenReader(
+	read: () => string | undefined,
+	now: () => number = () => performance.now(),
+): () => string | undefined {
+	let token: string | undefined;
+	let missedAt: number | undefined;
+	return () => {
+		if (token !== undefined) return token;
+		if (missedAt !== undefined && now() - missedAt < BOOT_TOKEN_AGAIN_MS)
+			return undefined;
+		token = read();
+		missedAt = token === undefined ? now() : undefined;
+		return token;
+	};
+}
 
 /**
- * The identifier of the boot this process is running under, read once
- * and remembered. Undefined on a host that publishes none, in which
- * case nothing is ever judged by boot.
+ * The identifier of the boot this process is running under, or
+ * undefined while none can be read, in which case what judges by boot
+ * falls back to what it judged by before tokens.
  */
-export function currentBootToken(): string | undefined {
-	bootTokenCache ??= { token: readBootToken() };
-	return bootTokenCache.token;
-}
+export const currentBootToken = bootTokenReader(() => readBootToken());

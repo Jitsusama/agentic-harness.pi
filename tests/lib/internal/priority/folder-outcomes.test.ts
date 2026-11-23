@@ -64,7 +64,77 @@ describe("the machine's queue folder", () => {
 		expect(kept).toMatchObject({
 			id: "cut",
 			ended: new Date(booted).toISOString(),
-			ranS: 120,
+		});
+		// It ran until some moment before the boot, not for as long as it
+		// seems, and a short one would teach its work as quick.
+		expect(kept, "no run time is kept for it").not.toHaveProperty("ranS");
+	});
+
+	/** A queue whose boot changes once `cut` is asked, and its outcomes file. */
+	const cutOff = (
+		bootedAt: number,
+		over: { since: number; started: number },
+	) => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		let boot = "boot-1";
+		const queue = queueFolder(
+			dir,
+			{ ...processes, bootToken: () => boot, bootedAt: () => bootedAt },
+			undefined,
+			file,
+		);
+		queue.ask(
+			job("cut", {
+				since: new Date(over.since).toISOString(),
+				started: new Date(over.started).toISOString(),
+			}),
+		);
+		shellSays("cut", 100);
+		const kept = async () => {
+			boot = "boot-2";
+			queue.keep(ROOMY, NOW, () => undefined);
+			await queue.outcomesKept();
+			return readFileSync(file, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line))[0];
+		};
+		return { kept };
+	};
+
+	it("keeps the run time of a job the boot cut off whose shell said it ended", async () => {
+		// Its shell's word dates its end, whichever boot reads it.
+		const booted = NOW - 3_600_000;
+		const started = booted - 120_000;
+		const queue = cutOff(booted, { since: started - 1000, started });
+		const end = join(dir, "cut.end");
+		writeFileSync(end, "0\n");
+		utimesSync(end, (started + 30_000) / 1000, (started + 30_000) / 1000);
+
+		expect(await queue.kept()).toMatchObject({ id: "cut", exit: 0, ranS: 30 });
+	});
+
+	it("never keeps a job the boot cut off as ended after now, though it began later by a clock stepped back", async () => {
+		const queue = cutOff(NOW - 3_600_000, {
+			since: NOW + 59_000,
+			started: NOW + 60_000,
+		});
+
+		expect(await queue.kept()).toMatchObject({
+			id: "cut",
+			ended: new Date(NOW).toISOString(),
+		});
+	});
+
+	it("never keeps a job the boot cut off as ended after now, though the boot is dated later", async () => {
+		const queue = cutOff(NOW + 60_000, {
+			since: NOW - 121_000,
+			started: NOW - 120_000,
+		});
+
+		expect(await queue.kept()).toMatchObject({
+			id: "cut",
+			ended: new Date(NOW).toISOString(),
 		});
 	});
 
@@ -100,8 +170,8 @@ describe("the machine's queue folder", () => {
 		expect(kept).toMatchObject({
 			id: "cut",
 			ended: new Date(started).toISOString(),
-			ranS: 0,
 		});
+		expect(kept, "never taught as quick").not.toHaveProperty("ranS");
 	});
 
 	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", async () => {
