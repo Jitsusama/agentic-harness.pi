@@ -605,8 +605,8 @@ describe("a kept call", () => {
 		]);
 		expect(result, "settled with its status").toMatchObject({ code: 0 });
 		expect(
-			disk.asked.filter((said) => said.includes(`${call.keep()}.job`)),
-			"nothing asked of its record on the thread",
+			disk.asked.filter((said) => said.includes(call.keep())),
+			"nothing asked of its files on the thread from its shell's end to its settle",
 		).toEqual([]);
 		expect(
 			disk.moved.filter((path) => path.startsWith(`${call.keep()}.job`)),
@@ -720,6 +720,8 @@ function endsRecorded({
 					return { exitCode: null };
 				}
 				writeFileSync(`${keep}.end`, "0");
+				// What the shell wrote as it ran is no ask of the settle's.
+				disk.asked.length = 0;
 				return { exitCode: 0 };
 			},
 		},

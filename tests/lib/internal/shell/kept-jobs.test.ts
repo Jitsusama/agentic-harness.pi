@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isRecord } from "../../../../lib/internal/record.ts";
 import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
@@ -300,6 +301,24 @@ function saidAtExit(): string[] {
 	}
 }
 
+/**
+ * How many removals an earlier case left running that an exit would act
+ * on, read off the process's store without running the exit, which
+ * would take their files back itself.
+ */
+function leftRunning(): number {
+	const store: unknown = Reflect.get(
+		globalThis,
+		Symbol.for("agentic-harness.internal/shell/kept-jobs/records.v5"),
+	);
+	if (!isRecord(store)) return 0;
+	const { removing, ending } = store;
+	return (
+		(removing instanceof Map ? removing.size : 0) +
+		(ending instanceof Map ? ending.size : 0)
+	);
+}
+
 /** A call kept in `where`, its shell's pid written, recorded for `session`. */
 async function recorded(
 	where: string,
@@ -489,9 +508,7 @@ describe("a call's own record, taken back as the call ends", () => {
 	// once those an earlier one left running have ended.
 	beforeEach(async () => {
 		await vi.waitFor(() =>
-			expect(saidAtExit(), "a removal an earlier case left running").toEqual(
-				[],
-			),
+			expect(leftRunning(), "removals an earlier case left running").toBe(0),
 		);
 	});
 
@@ -787,6 +804,9 @@ describe("a call's own record, taken back as the call ends", () => {
 		await vi.waitFor(() =>
 			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
 		);
+		// Written again as the files begin to go, as a rollover's recorder
+		// can: the exit still asks after its one name once.
+		recordKeptJob(job);
 		const removing = removeKept(job.work.keep, { neverHanded: true });
 		const said = vi
 			.spyOn(process.stderr, "write")
@@ -960,6 +980,115 @@ describe("a call's own record, taken back as the call ends", () => {
 			listed(where).filter((name) => name.includes(".job")),
 			"no record, nor its aside",
 		).toEqual([]);
+	});
+
+	// The pool's own put-back goes with the process, so the exit links
+	// back what was set aside for the taker itself.
+	it("puts back what it set aside for its taker as the process exits, when handed on mid-removal", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
+		);
+		disownKeptJob(job.work.keep);
+		const said = saidAtExit();
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+		expect(listed(where), "nothing left set aside").not.toContainEqual(
+			expect.stringMatching(/\.gone$/),
+		);
+		expect(said, "a record stands, so nothing said").toEqual([]);
+		// The process would be gone here; its pool's put-back, let go only so
+		// the case ends, finds nothing left to link back and says so.
+		const late = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			disk.go();
+			await going;
+		} finally {
+			late.mockRestore();
+		}
+		expect(labelsIn(where), "its record, still").toEqual(["run j1"]);
+	});
+
+	// Handed on as what it set aside goes: its put-back is yet to be
+	// written as the process exits, so the call has no record for a while.
+	it("says a call handed on as the process exits has no record put back, when what it set aside went", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(false, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(
+				disk.removed.some((path) => path.endsWith(".gone")) &&
+					!listed(where).some((name) => name.endsWith(".gone")),
+				"what it set aside, gone, its callback yet to come",
+			).toBe(true),
+		);
+		disownKeptJob(job.work.keep);
+		expect(saidAtExit(), "the call left without a record").toEqual([
+			"[shell] 1 call handed on as pi exits has no record put back, until its taker writes one\n",
+		]);
+		disk.go();
+		await going;
+		expect(labelsIn(where), "its record, put back as pi lives on").toEqual([
+			"run j1",
+		]);
+	});
+
+	// Handed on in the turn after a pass removed it, before the removal
+	// looks again: as a hand-off during the pass would be, it is put back.
+	it("puts its record back when handed on just after a pass removed it", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		let asked = 0;
+		// The pass's timing reads the clock again once the pass has ended.
+		const now = (): number => {
+			asked += 1;
+			if (asked === 2) disownKeptJob(job.work.keep);
+			return 0;
+		};
+		await forgetOwnKeptJob(job.work.keep, { now });
+		await vi.waitFor(() =>
+			expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]),
+		);
+		expect(
+			listed(where),
+			"nothing left set aside or staged",
+		).not.toContainEqual(expect.stringMatching(/\.(gone|back)$/));
+	});
+
+	// A disk refusing the rename leaves the record at its name, still this
+	// process's: its files' removal takes it, and an exit before that does.
+	it("holds a record the disk wouldn't set aside as this process's, for an exit to take back", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.refused = "rename";
+		const stays = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			await forgetOwnKeptJob(job.work.keep);
+		} finally {
+			stays.mockRestore();
+			disk.refused = undefined;
+		}
+		expect(existsSync(`${job.work.keep}.job`), "still at its name").toBe(true);
+		disk.hold(true, "rm", /\.job$/);
+		const removing = removeKept(job.work.keep, { neverHanded: true });
+		await vi.waitFor(() =>
+			expect(disk.waiting, "the removal, on its record").toEqual([
+				`rm ${job.work.keep}.job`,
+			]),
+		);
+		expect(saidAtExit(), "its record, asked after").toEqual([
+			expect.stringMatching(/taking back up to 1 kept file the disk/),
+		]);
+		expect(existsSync(`${job.work.keep}.job`), "taken back").toBe(false);
+		disk.go();
+		await removing;
 	});
 
 	it("leaves a call handed on mid-removal to its taker as the process exits", async () => {
