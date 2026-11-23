@@ -82,9 +82,18 @@ facts.say(
 			(one) => `closed without a note, so not offered: ${one}`,
 		),
 		...report.unknown.map((one) => `no host holds ${one}`),
+		...(report.unheard
+			? [
+					`the last look didn't hear every host, so what it says of those waiting is unknown; run it again once the host answers: ${report.unheard}`,
+				]
+			: []),
 	].join("\n"),
 );
 process.exitCode =
-	report.waiting.length + report.lost.length + report.unknown.length === 0
+	report.waiting.length +
+		report.lost.length +
+		report.unknown.length +
+		(report.unheard ? 1 : 0) ===
+	0
 		? 0
 		: 1;

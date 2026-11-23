@@ -50,12 +50,17 @@ import type { MoveOff } from "../../lib/mesh/moving.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { giveSteer } from "../../lib/mesh/steer.ts";
 import { type HostKind, hostKey, hostSocketPath } from "../service/address.ts";
-import { controlRequest } from "../service/client.ts";
+import { controlRequest, nothingListens } from "../service/client.ts";
 import { parseListResult } from "../service/protocol.ts";
 import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
-import type { HeldConversation, ReleaseFacts } from "./release.ts";
+import type {
+	HeldConversation,
+	HostsLook,
+	ReleaseFacts,
+	UnheardHost,
+} from "./release.ts";
 import type { TakeUpFacts } from "./take-up.ts";
 import {
 	type MachineWindows,
@@ -128,27 +133,46 @@ function calledOffOf(presence: Presence | undefined): MoveOff | undefined {
 	return presence?.moving === undefined ? presence?.moveOff : undefined;
 }
 
-/** Every conversation the realm's two hosts hold; one not listening holds none. */
+/**
+ * Every conversation the realm's two hosts hold, and each host that
+ * listens but didn't say what it holds: one too loaded to answer in
+ * time, one that closed before its reply, or one whose list this
+ * version can't read, as a host on another runtime may answer mid
+ * cutover. A host not listening holds none. The cutover passes an
+ * unheard host over; the release reads its conversations as unknown.
+ */
 async function listHeld(
 	realm: string,
 	runtimeDir: string | undefined,
-): Promise<HeldConversation[]> {
+): Promise<HostsLook> {
 	const held: HeldConversation[] = [];
+	const unheard: UnheardHost[] = [];
 	for (const kind of ["attended", "background"] as const) {
 		try {
 			const reply = await controlRequest(
 				hostSocketPath(realm, kind, runtimeDir),
 				{ v: 1, id: randomUUID(), op: "list" },
 			);
-			if (!reply.ok) continue;
+			if (!reply.ok) {
+				unheard.push(unheardHost(kind, reply.error.message));
+				continue;
+			}
 			const { sessions, host } = parseListResult(reply.result);
 			for (const one of sessions)
 				held.push({ session: one.sessionId, host: host.key, kind });
-		} catch {
-			// A host not listening holds nothing; adopting into it says so.
+		} catch (error) {
+			if (!nothingListens(error)) unheard.push(unheardHost(kind, error));
 		}
 	}
-	return held;
+	return { held, unheard };
+}
+
+/** A host that listens but didn't say what it holds, and why. */
+function unheardHost(kind: HostKind, why: unknown): UnheardHost {
+	return {
+		kind,
+		why: `the ${kind} host didn't say what it holds: ${messageOf(why)}`,
+	};
 }
 
 /** Pause for `ms`, between looks. */
@@ -372,7 +396,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			if (note.from !== undefined) {
 				const listed = await listHeld(places.realm, places.runtimeDir);
 				if (
-					listed.some(
+					listed.held.some(
 						(one) => one.session === note.session && one.host === note.from,
 					)
 				)
@@ -387,7 +411,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		},
 		held: async () =>
 			new Map(
-				(await listHeld(places.realm, places.runtimeDir)).map((one) => [
+				(await listHeld(places.realm, places.runtimeDir)).held.map((one) => [
 					one.session,
 					one.host,
 				]),

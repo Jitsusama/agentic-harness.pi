@@ -39,10 +39,26 @@ export interface HeldConversation {
 	readonly kind: HostKind;
 }
 
+/** A host that listens but didn't say what it holds, and why. */
+export interface UnheardHost {
+	readonly kind: HostKind;
+	readonly why: string;
+}
+
+/** What one look at the realm's two hosts found. */
+export interface HostsLook {
+	readonly held: readonly HeldConversation[];
+	/**
+	 * Each host that listens but didn't say, as one too loaded to answer
+	 * in time: what it holds is unknown, never none.
+	 */
+	readonly unheard: readonly UnheardHost[];
+}
+
 /** What a release asks of the machine; tests give their own. */
 export interface ReleaseFacts {
-	/** Every conversation the realm's two hosts hold now. */
-	held(): Promise<HeldConversation[]>;
+	/** Every conversation the realm's two hosts hold now, and which didn't say. */
+	held(): Promise<HostsLook>;
 	/** The addresses a conversation answers to, its signature first. */
 	addressesOf(session: string): readonly string[];
 	/** Ask the conversation going by `address` to move to plain pi. */
@@ -106,6 +122,11 @@ export interface ReleaseReport {
 	readonly lost: readonly string[];
 	/** Named, but no host holds it. */
 	readonly unknown: readonly string[];
+	/**
+	 * Why the release's last look didn't hear every host, when it didn't:
+	 * what it says of those still waiting is then unknown.
+	 */
+	readonly unheard?: string;
 }
 
 /** How often the release looks again while conversations close. */
@@ -119,6 +140,9 @@ export const RELEASE_LOOK_MS = 2_000;
  * it, the log would have two writers.
  */
 export const REOPEN_GRACE_MS = 15_000;
+
+/** How often the release says again that a host it can't hear stays unheard. */
+export const UNHEARD_SAY_MS = 60_000;
 
 /** What a release may be told beyond its names and deadline. */
 interface ReleaseOptions {
@@ -184,6 +208,89 @@ export function releaseProse(one: Omit<Released, "journaled">): string {
 	].join(" ");
 }
 
+/**
+ * What the realm's hosts hold now. A look that fails as a whole hears
+ * neither host, so it leaves every conversation unknown, never gone.
+ */
+async function heldNow(facts: ReleaseFacts): Promise<HostsLook> {
+	try {
+		return await facts.held();
+	} catch (error) {
+		const why = error instanceof Error ? error.message : String(error);
+		return {
+			held: [],
+			unheard: [
+				{ kind: "attended", why },
+				{ kind: "background", why },
+			],
+		};
+	}
+}
+
+/** Why a look didn't hear every host, in a line; undefined when it did. */
+function unheardOf(look: HostsLook): string | undefined {
+	const whys = [...new Set(look.unheard.map((one) => one.why))];
+	return whys.length === 0 ? undefined : whys.join("; ");
+}
+
+/**
+ * Say a host went unheard as the reason changes, and again once a
+ * minute while it stays, so a long silence never reads as a hang.
+ */
+function unheardSayer(facts: ReleaseFacts): (look: HostsLook) => void {
+	let said: string | undefined;
+	let saidAt = 0;
+	return (look) => {
+		const why = unheardOf(look);
+		if (why === undefined) {
+			said = undefined;
+			return;
+		}
+		if (why === said && facts.now() - saidAt < UNHEARD_SAY_MS) return;
+		facts.say(
+			why === said ? `still looking again: ${why}` : `looking again: ${why}`,
+		);
+		said = why;
+		saidAt = facts.now();
+	};
+}
+
+/**
+ * The first look, which chooses what to release: taken again until it
+ * hears every host, or every named one is found among the hosts it
+ * heard, so a host too loaded to answer never reads as holding none of
+ * them. Undefined when no such look came before the deadline or a stop.
+ */
+async function firstLook(
+	facts: ReleaseFacts,
+	names: readonly string[] | "all",
+	deadline: number,
+	stop: AbortSignal | undefined,
+	sayUnheard: (look: HostsLook) => void,
+): Promise<
+	| { chosen: HeldConversation[]; unknown: string[] }
+	| { unheard: string; unknown: string[] }
+> {
+	for (;;) {
+		const look = await heldNow(facts);
+		const choice = chooseReleased(
+			look.held,
+			(session) => facts.addressesOf(session),
+			names,
+		);
+		const unheard = unheardOf(look);
+		if (
+			unheard === undefined ||
+			(names !== "all" && choice.unknown.length === 0)
+		)
+			return choice;
+		sayUnheard(look);
+		if (facts.now() >= deadline || stop?.aborted === true)
+			return { unheard, unknown: choice.unknown };
+		await facts.pause(RELEASE_LOOK_MS);
+	}
+}
+
 /** A conversation gone from its host, not yet settled where it went on. */
 interface Departed {
 	readonly one: HeldConversation;
@@ -203,11 +310,24 @@ export async function releaseBack(
 	deadline: number,
 	options: ReleaseOptions = {},
 ): Promise<ReleaseReport> {
-	const { chosen, unknown } = chooseReleased(
-		await facts.held(),
-		(session) => facts.addressesOf(session),
+	const sayUnheard = unheardSayer(facts);
+	const first = await firstLook(
+		facts,
 		names,
+		deadline,
+		options.stop,
+		sayUnheard,
 	);
+	// Nobody is told to move on a look that couldn't find them all.
+	if ("unheard" in first)
+		return {
+			released: [],
+			waiting: [],
+			lost: [],
+			unknown: first.unknown,
+			unheard: first.unheard,
+		};
+	const { chosen, unknown } = first;
 	// Read now: a conversation's presence goes when it closes.
 	const addresses = new Map(
 		chosen.map((one) => [
@@ -270,10 +390,26 @@ export async function releaseBack(
 			`${address} released from the ${base.from} host; ${SAID_OPENED[opened]}`,
 		);
 	};
+	let unheard: string | undefined;
 	for (;;) {
-		const still = new Set((await facts.held()).map((one) => one.session));
+		const look = await heldNow(facts);
+		// A host too loaded to answer says nothing of who left it, so its
+		// conversations are passed over rather than read as gone.
+		sayUnheard(look);
+		unheard = unheardOf(look);
+		const still = new Set(look.held.map((one) => one.session));
+		const unheardKinds = new Set(look.unheard.map((one) => one.kind));
 		let leaving = false;
+		for (const [session, { one }] of departed) {
+			// Held again, as a host's list can miss one for a look while it
+			// swaps its runtime: it never left, so it is waited on again.
+			if (!still.has(session) || takenUpNow(session)) continue;
+			departed.delete(session);
+			notes.delete(session);
+			left.set(session, one);
+		}
 		for (const [session, one] of left) {
+			if (!still.has(session) && unheardKinds.has(one.kind)) continue;
 			if (still.has(session)) {
 				const holds = await facts.holds(session);
 				lastHolds.set(session, holds);
@@ -291,16 +427,43 @@ export async function releaseBack(
 			leaving = true;
 		}
 		if (leaving) facts.refreshRestore();
-		for (const [session, { one, at }] of departed) {
-			// Only one about to be opened waits out a window's grace.
-			const early = facts.now() - at < REOPEN_GRACE_MS;
-			if (reopening && early && !takenUpNow(session)) continue;
-			departed.delete(session);
-			await settle(session, one);
-		}
 		const over = facts.now() >= deadline || options.stop?.aborted === true;
+		for (const [session, gone] of departed) {
+			// Kept as it is found, so a pi settling it later says it took it up.
+			const late = notes.has(session) ? undefined : facts.note(session);
+			if (late) notes.set(session, late);
+			const noted = notes.has(session);
+			const takenUp = takenUpNow(session);
+			// A look that didn't hear its host can't find it held again, so
+			// one with no note waits its grace from the next look that does.
+			if (!(noted || takenUp) && unheardKinds.has(gone.one.kind)) {
+				// Out of time, nothing says it left: it is waited on still, and
+				// called off with the rest, rather than named lost unseen.
+				if (over && !calledOff) {
+					departed.delete(session);
+					left.set(session, gone.one);
+				} else departed.set(session, { ...gone, at: facts.now() });
+				continue;
+			}
+			// One about to be opened waits out a window's grace, and so does
+			// one with no note yet, whose note may follow or which a look may
+			// find held again.
+			const early = facts.now() - gone.at < REOPEN_GRACE_MS;
+			if (early && (reopening || !noted) && !takenUp) continue;
+			departed.delete(session);
+			await settle(session, gone.one);
+		}
 		if (over && !calledOff) {
 			calledOff = true;
+			for (const [session, one] of left) {
+				const note = facts.note(session);
+				if (!unheardKinds.has(one.kind) || note?.to !== "pi") continue;
+				// Its host unheard, its note says it left for pi: settled where
+				// it went on, never called off as though still hosted.
+				left.delete(session);
+				departed.set(session, { one, at: facts.now() });
+				notes.set(session, note);
+			}
 			for (const session of left.keys()) {
 				facts.callOff(addressOf(session));
 				facts.say(`called off ${addressOf(session)}'s move; it stays hosted`);
@@ -318,5 +481,6 @@ export async function releaseBack(
 		}),
 		lost,
 		unknown,
+		...(unheard === undefined ? {} : { unheard }),
 	};
 }
