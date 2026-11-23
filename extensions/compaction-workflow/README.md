@@ -113,7 +113,10 @@ starts the count again.
 
 Only when the summary cannot be written from the cache (see Writing the
 Summary), or has failed ahead twice, does the session compact on the
-spot, and the notice says why. Each compaction's entry records `written` (`ahead` or `on the
+spot, and the notice says why. One on the spot that is cancelled or
+fails leaves the next summary to be written ahead once more, so the
+session isn't held again for one it gave up; the count and the
+shorter summaries go on. Each compaction's entry records `written` (`ahead` or `on the
 spot`), how long the summary took (`summaryMs`) and how long anybody
 waited for it (`waitedMs`). A summary written ahead that went unused is
 logged as a `compaction-summary-ahead-unused` entry with the reason.

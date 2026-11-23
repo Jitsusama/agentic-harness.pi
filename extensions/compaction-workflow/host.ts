@@ -281,22 +281,21 @@ export function registerCompactionHost(
 	// covers leaves another branch to compact, so what was written and
 	// tried ahead was for a compaction that will not come. One that keeps
 	// the point keeps both, since the compaction to come covers it too,
-	// as it does the tries counted once their failure was taken. pi has
-	// moved the leaf by the time it says so.
+	// as it does the tries counted once their failure was taken. Each is
+	// judged by its own point, since a retry may cover more than the try
+	// that failed before it. pi has moved the leaf by the time it says so.
 	pi.on("session_tree", async (_event, ctx) => {
-		const covered = ahead?.request.coveredLeafId ?? failed.coveredLeafId;
-		if (covered === undefined) return;
 		const branch = ctx.sessionManager.getBranch();
-		if (branch.some((entry) => entry.id === covered)) return;
-		// A failure was recorded as it failed.
-		if (
-			ahead !== null &&
-			(ahead.result === undefined || ahead.result.written.ok)
-		) {
-			unused(ctx, MOVED_OFF);
+		const kept = (covered: string | undefined) =>
+			covered === undefined || branch.some((entry) => entry.id === covered);
+		if (ahead !== null && !kept(ahead.request.coveredLeafId)) {
+			// A failure was recorded as it failed.
+			if (ahead.result === undefined || ahead.result.written.ok) {
+				unused(ctx, MOVED_OFF);
+			}
+			drop();
 		}
-		drop();
-		failed = NONE_FAILED;
+		if (!kept(failed.coveredLeafId)) failed = NONE_FAILED;
 	});
 	pi.on("session_shutdown", async () => drop());
 	pi.on("session_compact", async (event, ctx) => {
