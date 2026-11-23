@@ -73,6 +73,8 @@ export interface AuditRequest {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** The base commit a round over a range of commits read from. */
+	from?: string;
 	/** What the auditor was handed, besides the change. */
 	given?: RoundGiven;
 }

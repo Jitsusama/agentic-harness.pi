@@ -507,6 +507,40 @@ describe("what a round records about the tree it read", () => {
 		});
 	});
 
+	it("records the base commit a range round read from, on the run a later session collects", async () => {
+		// merge-net counts a range round's read only where its base is on
+		// main, and a base named by ref, which means another commit on
+		// another machine, counted as none (A2VLJN, 23 November).
+		const base = "a".repeat(40);
+		const asking = {
+			roster: { reviewers: [{ id: "hawk" }] },
+			prompt: "p",
+			seq: 1,
+			...readFrom({ path: "/the/tree" }, "d7205e3c", base),
+		};
+
+		const started = await startCouncil(asking, {
+			start: async () => {},
+			now: () => new Date("2026-08-08T00:00:00.000Z"),
+		});
+		expect(started.run, "the opened run lost its base").toMatchObject({
+			witness: "d7205e3c",
+			from: base,
+		});
+		const { run } = await runCouncil(asking, {
+			ask: async () => ({ text: "nothing to report" }),
+			now: () => new Date("2026-08-08T00:00:00.000Z"),
+			record: async () => [],
+		});
+		expect(run, "the finished run lost its base").toMatchObject({
+			from: base,
+		});
+		expect(
+			readFrom({ path: "/the/tree" }, "d7205e3c"),
+			"a round over a change claimed a base",
+		).not.toHaveProperty("from");
+	});
+
 	it("is passed at every place a round is asked for", () => {
 		// The six call sites are the join this file is named for, and
 		// three cases against the helper could not see them: the start
@@ -529,8 +563,11 @@ describe("what a round records about the tree it read", () => {
 			rounds.flatMap((round) => (source.includes(round) ? [round] : [])),
 		).toEqual(rounds);
 
+		// The base travels beside the head, so a range round records the
+		// commit it read from wherever it is asked.
 		const passes =
-			source.split("readFrom(tree, proposal.headCommit)").length - 1;
+			source.split("readFrom(tree, proposal.headCommit, proposal.baseCommit)")
+				.length - 1;
 		// Six, not five: the retry path asks again and must record what
 		// this attempt read, which was the other half of the same fault.
 		expect(passes).toBeGreaterThanOrEqual(rounds.length + 1);

@@ -250,6 +250,8 @@ export interface CouncilRequest {
 	seq: number;
 	/** Commit under review, which anchors claim when the tree is it. */
 	witness?: string;
+	/** The base commit a round over a range of commits read from. */
+	from?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
 	/** What the reviewers were handed, besides the change. */

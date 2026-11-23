@@ -89,11 +89,15 @@ describe("a local range as a change", () => {
 		await commit("a.ts", "feat: add a\n\nBecause a is needed.");
 		await commit("b.ts", "fix: mend b");
 		const head = await git(repo, "rev-parse", "HEAD");
+		const base = await git(repo, "rev-parse", "main");
 		const bound = boundRange("main", "topic");
 
 		const proposal = await rangeProposal(bound);
 
-		expect(proposal).toMatchObject({
+		expect(
+			proposal,
+			"the proposal isn't the range's commits pinned at both ends",
+		).toMatchObject({
 			ref: rangeChange(bound),
 			title: "2 commits from main to topic",
 			body: "feat: add a\n\nBecause a is needed.\n\nfix: mend b",
@@ -101,7 +105,30 @@ describe("a local range as a change", () => {
 			base: "main",
 			head: "topic",
 			headCommit: head,
+			baseCommit: base,
 		});
+	});
+
+	it("pins its base where the upstream is read, not where the local ref is", async () => {
+		// A round's record names its base as a commit, since a ref such as
+		// main means another commit on another machine (A2VLJN, 23 November).
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("a.ts", "feat: add a");
+		const upstream = await git(repo, "rev-parse", "HEAD");
+		await commit("b.ts", "fix: mend b");
+
+		const proposal = await rangeProposal(
+			boundRange("main", "topic", {
+				ref: "origin/main",
+				commit: upstream,
+				behind: 1,
+			}),
+		);
+
+		expect(
+			proposal?.baseCommit,
+			"the base isn't pinned at the upstream the diff reads from",
+		).toBe(upstream);
 	});
 
 	it("tells only the commits past its upstream when its base is read there, and says so", async () => {

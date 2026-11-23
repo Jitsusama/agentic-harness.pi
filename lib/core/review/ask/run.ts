@@ -174,6 +174,19 @@ export interface AskRun {
 	 */
 	unpinned?: string;
 	/**
+	 * The base commit a round over a range of commits read from, by its
+	 * full id.
+	 *
+	 * A range is named the way a person names it, so its base can be a
+	 * ref (`origin/main..branch`), and a ref means another commit on
+	 * another machine or a day later. merge-net counts a range round's
+	 * read only where its base is on main, and a base it can't place
+	 * counts as none, so a Mac round over a range named by ref never
+	 * cleared a merge here. Absent on rounds over a change, whose base
+	 * the host keeps.
+	 */
+	from?: string;
+	/**
 	 * What a stack round's reviewers read, one commit per change.
 	 *
 	 * A stack round has no single witness, so without these nothing on
@@ -532,6 +545,8 @@ export interface TreeRead {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
+	/** The base commit a round over a range of commits read from. */
+	from?: string;
 }
 
 /**
@@ -548,6 +563,7 @@ export function whatItRead(read: TreeRead): TreeRead {
 	return {
 		...(read.witness === undefined ? {} : { witness: read.witness }),
 		...(read.unpinned === undefined ? {} : { unpinned: read.unpinned }),
+		...(read.from === undefined ? {} : { from: read.from }),
 	};
 }
 
