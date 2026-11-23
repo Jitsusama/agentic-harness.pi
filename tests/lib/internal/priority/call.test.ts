@@ -1,13 +1,75 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CALL_KEPT_MS,
 	CALL_READ_MS,
 	callReader,
+	callWarning,
+	onCallIf,
 	probeCall,
 } from "../../../../lib/internal/priority/call.ts";
+
+/** A stand-in `a-call-is-on` running `body`, in a folder of its own. */
+function standIn(body: string): { program: string; dir: string } {
+	const dir = mkdtempSync(join(tmpdir(), "queue-call-"));
+	const program = join(dir, "a-call-is-on");
+	writeFileSync(program, `#!/bin/sh\n${body}\n`);
+	chmodSync(program, 0o755);
+	return { program, dir };
+}
+
+describe("the queue's call probe", () => {
+	it("asks about this machine alone, with --here", async () => {
+		const { program, dir } = standIn('[ "$1" = --here ] && exit 0; exit 1');
+		try {
+			expect(await probeCall(undefined, program), "asked with --here").toBe(
+				true,
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("passes why it can't ask on to its hearer", async () => {
+		const { program, dir } = standIn("exit 64");
+		const cannotAsk = vi.fn();
+		try {
+			await probeCall(cannotAsk, program);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+
+		expect(cannotAsk.mock.calls[0]?.[0]).toEqual({
+			kind: "refused",
+			why: `${program} doesn't take --here`,
+		});
+	});
+});
+
+describe("a session's warning that calls can't be held for", () => {
+	it("says the first reason once, however many it hears", () => {
+		const warning = callWarning();
+
+		expect(warning.take(), "nothing heard, nothing said").toBeUndefined();
+		warning.heard({ kind: "refused", why: "a-call-is-on doesn't take --here" });
+		warning.heard({ kind: "broken", why: "a-call-is-on can't be started" });
+
+		expect(warning.take(), "the first reason, said").toBe(
+			"a-call-is-on doesn't take --here, so heavy work starts even while you're on a call.",
+		);
+		warning.heard({ kind: "broken", why: "a-call-is-on can't be started" });
+		expect(warning.take(), "said once a session").toBeUndefined();
+	});
+
+	it("says nothing on a machine with no a-call-is-on at all", () => {
+		const warning = callWarning();
+		warning.heard({ kind: "missing", why: "a-call-is-on isn't on the PATH" });
+
+		expect(warning.take(), "nothing set up, nothing broken").toBeUndefined();
+	});
+});
 
 /** Lets a probe started in the background settle. */
 function flush(): Promise<void> {
@@ -15,68 +77,26 @@ function flush(): Promise<void> {
 }
 
 describe("whether the person is on a call", () => {
-	it("reads a call probe's exit: 0 on, 1 off, anything else unknown", async () => {
-		const exits = (code: number) => probeCall("sh", ["-c", `exit ${code}`]);
-
-		expect(await exits(0), "exit 0 says a call is on").toBe(true);
-		expect(await exits(1), "exit 1 says none is").toBe(false);
-		expect(await exits(69), "the sound server unread").toBeUndefined();
-		expect(await exits(64), "asked wrongly").toBeUndefined();
-		expect(
-			await probeCall("a-call-probe-that-is-not-there", []),
-			"no probe",
-		).toBeUndefined();
-		// The probe outlasts its 50 ms and is stopped, never answering.
-		expect(
-			await probeCall("sh", ["-c", "sleep 5"], 50),
-			"a probe past its time",
-		).toBeUndefined();
-	});
-
-	it("stops waiting at its time for a probe that won't stop when asked", async () => {
-		const started = performance.now();
-		// A probe that ignores SIGTERM and would say a call is on at 5 s.
-		const answer = await probeCall(
-			"sh",
-			["-c", "trap '' TERM; sleep 5; exit 0"],
-			200,
-		);
-		const tookMs = performance.now() - started;
-
-		expect(answer, "a probe past its time says nothing").toBeUndefined();
-		expect(
-			tookMs,
-			"answered near its time, not at the probe's end",
-		).toBeLessThan(2_000);
-	});
-
-	it("kills what a probe past its time started, not the probe alone", async () => {
-		const pidFile = join(mkdtempSync(join(tmpdir(), "call-probe-")), "pid");
-		// The probe starts a sleep of its own, then waits on it, ignoring TERM.
-		const answer = await probeCall(
-			"sh",
-			["-c", `sleep 30 & echo $! > ${pidFile}; trap '' TERM; wait`],
-			300,
-		);
-		const started = Number(readFileSync(pidFile, "utf8").trim());
-		const alive = (pid: number) => {
-			try {
-				process.kill(pid, 0);
-				return true;
-			} catch {
-				// ESRCH: no such process, so it was killed and reaped.
-				return false;
-			}
+	it("marks a room reading only while a call is known to be on", async () => {
+		const reading: { availableGib: number; vms: number; onCall?: boolean } = {
+			availableGib: 12,
+			vms: 0,
 		};
-		// The kill lands at once, but the kernel reaps the orphan a moment later.
-		const deadline = performance.now() + 2_000;
-		while (alive(started) && performance.now() < deadline) {
-			// A short poll for the reaping, bounded by the deadline above.
-			await new Promise((wake) => setTimeout(wake, 20));
-		}
+		const saying = (onCall: boolean | undefined) => () =>
+			Promise.resolve(onCall);
 
-		expect(answer, "a probe past its time says nothing").toBeUndefined();
-		expect(alive(started), "the sleep the probe started is gone").toBe(false);
+		expect(
+			await onCallIf(saying(true), reading),
+			"a call on marks the reading",
+		).toEqual({ availableGib: 12, vms: 0, onCall: true });
+		expect(
+			await onCallIf(saying(false), reading),
+			"no call leaves it as it was",
+		).toBe(reading);
+		expect(
+			await onCallIf(saying(undefined), reading),
+			"a call unknown leaves it as it was",
+		).toBe(reading);
 	});
 
 	it("ages its answer by a clock the wall clock's steps don't move", async () => {

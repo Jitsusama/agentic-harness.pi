@@ -7,18 +7,19 @@
  * (1OGSE7). `--here` asks this machine alone, since work here hurts only
  * a call here. Anything else the probe says, or a probe that isn't there
  * or doesn't answer, reads as not knowing, which holds nothing, so a
- * broken probe can't stop all work.
+ * broken probe can't stop all work. One that is there but can never
+ * answer is said to each session once ({@link callWarning}), since the
+ * hold is off wherever it is; a machine without one at all has no call
+ * to hold for, and is left unsaid.
  *
  * Each session asks for itself, at most every {@link CALL_READ_MS}: the
  * queue's keeping passes between sessions, so one keeping it now may not
- * have read the call for a while. The probe runs where pi does rather
- * than among the jobs it would hold back, where it starved behind them,
- * and in the background once a session has an answer, so a slow probe
- * never holds a keep or a heavy command up.
+ * have read the call for a while. The probe runs in the background once
+ * a session has an answer, so a slow probe never holds a keep or a
+ * heavy command up.
  */
 
-import { spawn } from "node:child_process";
-import { withPi } from "./place.ts";
+import { askCall, type CallTrouble } from "../calls/probe.ts";
 
 /** How long an answer stands before a keep asks again. */
 export const CALL_READ_MS = 15_000;
@@ -37,47 +38,57 @@ export const CALL_KEPT_MS = 60_000;
 export type CallProbe = () => Promise<boolean | undefined>;
 
 /**
- * What a call probe says by its exit: true for 0, false for 1, and
- * nothing for any other exit, a program that can't start, or one that
- * outlasts `timeoutMs`. The answer comes by its own timer, not the
- * probe's exit, and the probe is killed outright with all it started,
- * as a group of its own: one that ignored a polite stop would otherwise
- * hold every keep and heavy command waiting on it, and what it left
- * behind would gather, one more each time it was asked.
+ * Asks `a-call-is-on --here` whether the person is on a call here.
+ * `cannotAsk` hears, on each ask that meets it, why it can't be asked
+ * at all; {@link callWarning} keeps it to once a session.
  */
 export function probeCall(
-	program = "a-call-is-on",
-	args: readonly string[] = ["--here"],
-	timeoutMs = CALL_PROBE_MS,
+	cannotAsk?: (trouble: CallTrouble) => void,
+	program?: string,
 ): Promise<boolean | undefined> {
-	return new Promise((resolve) => {
-		const child = withPi(() =>
-			spawn(program, args, { stdio: "ignore", detached: true }),
-		);
-		const late = setTimeout(() => {
-			killGroup(child.pid);
-			resolve(undefined);
-		}, timeoutMs);
-		late.unref();
-		const answer = (onCall: boolean | undefined) => {
-			clearTimeout(late);
-			resolve(onCall);
-		};
-		child.once("error", () => answer(undefined));
-		child.once("exit", (code) =>
-			answer(code === 0 ? true : code === 1 ? false : undefined),
-		);
+	return askCall({
+		program,
+		args: ["--here"],
+		timeoutMs: CALL_PROBE_MS,
+		cannotAsk,
 	});
 }
 
-/** Kills the process group `pid` leads, which it does as one detached. */
-function killGroup(pid: number | undefined): void {
-	if (pid === undefined) return;
-	try {
-		process.kill(-pid, "SIGKILL");
-	} catch {
-		// ESRCH: the group has already gone, which is all the kill was for.
-	}
+/** A session's warning that calls can't be held for, said once. */
+export interface CallWarning {
+	/** Hears why a call can't be asked about. */
+	readonly heard: (trouble: CallTrouble) => void;
+	/** The warning, the first time there is one to say; after it, nothing. */
+	readonly take: () => string | undefined;
+}
+
+/**
+ * Keeps the first reason a probe that is there can't answer, for one
+ * session to say once, when it has a person to say it to. A missing
+ * program is left out: a machine without `a-call-is-on` has nothing set
+ * up to tell a call by, and its every session would warn of it.
+ */
+export function callWarning(): CallWarning {
+	let why: string | undefined;
+	let said = false;
+	return {
+		heard: (trouble) => {
+			if (trouble.kind !== "missing") why ??= trouble.why;
+		},
+		take: () => {
+			if (said || why === undefined) return undefined;
+			said = true;
+			return `${why}, so heavy work starts even while you're on a call.`;
+		},
+	};
+}
+
+/** `reading`, marked while `call` says the person is on a call here. */
+export async function onCallIf<T extends { readonly onCall?: boolean }>(
+	call: CallProbe,
+	reading: T,
+): Promise<T> {
+	return (await call()) === true ? { ...reading, onCall: true } : reading;
 }
 
 /**

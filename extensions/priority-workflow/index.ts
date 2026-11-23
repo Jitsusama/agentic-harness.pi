@@ -47,8 +47,11 @@ import {
 	backgroundTurns,
 } from "../../lib/internal/priority/background.ts";
 import {
-	type CallProbe,
+	type CallWarning,
 	callReader,
+	callWarning,
+	onCallIf,
+	probeCall,
 } from "../../lib/internal/priority/call.ts";
 import {
 	machineQueueDir,
@@ -100,6 +103,7 @@ import {
 	keepYield,
 	systemBuildSlice,
 } from "../../lib/internal/priority/yield.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { onJobFinished } from "../../lib/jobs/host.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
@@ -152,13 +156,13 @@ export default function priorityWorkflow(pi: ExtensionAPI) {
 		// A Mac takes turns too, with its own room reading and no cgroups:
 		// a session there already runs at Utility QoS from its launchd job,
 		// so its work needs no placing (G9, 20KSI7 and 5FWIUS).
-		keepQueue(pi, macMachine());
+		keepQueue(pi, macMachine(sayCallUnasked(pi)));
 		return;
 	}
 	if (process.platform !== "linux") return;
 	const own = ownCgroup();
 	placeWork(pi, own);
-	keepQueue(pi, linuxMachine(own));
+	keepQueue(pi, linuxMachine(own, sayCallUnasked(pi)));
 	sayBackgroundTurns(pi, sayTypedTurns(pi));
 }
 
@@ -287,14 +291,33 @@ export interface Machine {
 	readonly yieldBuilds?: (dir: string) => Promise<void>;
 }
 
-function linuxMachine(own: string | undefined): Machine {
+/**
+ * Hears why a call can't be asked about and says it once in the session,
+ * at the end of its next turn, since no heavy work is held for a call
+ * while it can't be: the first ask comes with the first keep, after the
+ * session has started.
+ */
+function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
+	const warning = callWarning();
+	onTurnEnd(pi, (_turn, ctx) => {
+		if (!ctx.hasUI) return;
+		const said = warning.take();
+		if (said) ctx.ui.notify(said, "warning");
+	});
+	return warning.heard;
+}
+
+function linuxMachine(
+	own: string | undefined,
+	cannotAsk: CallWarning["heard"],
+): Machine {
 	const timedProcs = own ? jobsProcs(own, process.env.TIMED_CGROUP) : undefined;
 	const timed = timedProcs ? dirname(timedProcs) : undefined;
 	const hasTimed = () => timed !== undefined && existsSync(timed);
 	let floors: string[] = [];
 	let floorsAt = Number.NEGATIVE_INFINITY;
 	const uplink = uplinkMeter();
-	const call = callReader();
+	const call = callReader(() => probeCall(cannotAsk));
 	return {
 		// No boot check: a Linux queue is in XDG_RUNTIME_DIR, which the
 		// reboot empties, so no job there outlasts its boot.
@@ -340,17 +363,12 @@ async function queueIn(dir: string): Promise<unknown> {
 	}
 }
 
-/** `reading`, marked while `call` says the person is on a call here. */
-async function onCallIf(call: CallProbe, reading: Reading): Promise<Reading> {
-	return (await call()) === true ? { ...reading, onCall: true } : reading;
-}
-
-function macMachine(): Machine {
+function macMachine(cannotAsk: CallWarning["heard"]): Machine {
 	const room = darwinRoom();
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.
 	currentBootToken();
-	const call = callReader();
+	const call = callReader(() => probeCall(cannotAsk));
 	return {
 		// No cgroups to say what a job's processes are or held.
 		// Its queue is in its cache folder, which outlasts a reboot: a job

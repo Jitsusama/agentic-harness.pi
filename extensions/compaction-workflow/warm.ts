@@ -278,9 +278,9 @@ export function registerIdleWarming(
 			stop("the session is busy");
 			return;
 		}
-		const missing = (reason: string) =>
+		const cannotAsk = (reason: string) =>
 			record(pi, WARM_CALLS_UNSEEN_ENTRY, { reason });
-		if (await callIsOn({ missing })) {
+		if (await callIsOn({ cannotAsk })) {
 			if (run !== current) return;
 			if (Date.now() + CALL_LOOK_MS > deadline) {
 				end(current, "a call was on until the cache entry expired", true);

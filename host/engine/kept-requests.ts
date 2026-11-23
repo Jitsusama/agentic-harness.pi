@@ -160,7 +160,7 @@ export function keptRequests(options: {
 			return warmThrough(runtime, carry, signal);
 		},
 		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
-		callOn: () => callIsOn({ missing: report }),
+		callOn: () => callIsOn({ cannotAsk: report }),
 		held: (sessionId) =>
 			report(
 				`Parked warm of ${sessionId} held for a call until its entry expired`,
