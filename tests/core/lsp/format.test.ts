@@ -6,6 +6,7 @@ import {
 	formatLocations,
 	formatSymbols,
 	formatWorkspaceEdit,
+	LEFT_OUT,
 } from "../../../lib/core/lsp/format.ts";
 import type {
 	CodeAction,
@@ -50,6 +51,13 @@ describe("formatLocations", () => {
 	it("renders path and start position", () => {
 		const locations: LspLocation[] = [{ path: "a.ts", range }];
 		expect(formatLocations(locations)).toBe("a.ts:1:0");
+	});
+});
+
+describe("LEFT_OUT", () => {
+	it("says a fenced answer may leave out files, so an empty one doesn't read as nothing found", () => {
+		expect(LEFT_OUT).toContain("leaves out");
+		expect(LEFT_OUT).toContain("fence");
 	});
 });
 

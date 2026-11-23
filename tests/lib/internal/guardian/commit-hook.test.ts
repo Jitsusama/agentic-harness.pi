@@ -11,6 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { installCommitHook } from "../../../../lib/internal/guardian/commit-hook.ts";
+// Imported only to be named, so `--changed` runs this file when the hook's
+// script changes alone; the hook it installs and runs is that script.
+import "../../../../lib/core/attribution/prepare-commit-msg.sh";
 
 const TRAILER = "Co-Authored-By: AI (Claude Opus 4.6 via Pi) <noreply@pi.dev>";
 

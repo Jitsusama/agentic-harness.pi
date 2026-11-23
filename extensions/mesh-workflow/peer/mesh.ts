@@ -271,6 +271,8 @@ export interface MeshState {
 	readonly unlanded: Landing[];
 	readonly undone: SessionEvent[];
 	readonly seen: Set<string>;
+	// Why the claim check judged nothing, each said once a session.
+	readonly unjudgedSaid: Set<string>;
 	readonly holdTurn: ReturnType<typeof createReloadHold>;
 	readonly talks: ReturnType<typeof createTalks>;
 	readonly pausing: ReturnType<typeof createPausing>;

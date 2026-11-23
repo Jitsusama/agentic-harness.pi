@@ -24,11 +24,23 @@
  * ends what its conversations run. A scope that fails to start is said
  * once too, and every spawner after it runs unscoped, so a host never
  * counts on a scope it hasn't got (`spawnersScoped`).
+ *
+ * A scoped start is left where pi is rather than placed in jobs
+ * (`spawningSpawner`). Placing writes the child's pid into jobs just
+ * after it starts, off pi's thread, and systemd-run has often moved
+ * itself into its new scope by then: the write moved it back out, the
+ * scope emptied, and the spawner and all it ran sat in jobs outside any
+ * scope. On 23 November 8 of 59 spawners under hosted conversations sat
+ * there (5FWIUS). What a scoped spawner runs then reaches jobs only by
+ * its own move: each bash call's shell moves itself there
+ * (`shellMovesItself`), and a command that doesn't, or a move the
+ * cgroup refuses, runs in the scope at the person's priority.
  */
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { withPi } from "../priority/place.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
@@ -57,9 +69,11 @@ export interface ScopeSetting {
 }
 
 /** How to start the spawner: the program and its arguments. */
-interface SpawnerStart {
+export interface SpawnerStart {
 	readonly command: string;
 	readonly args: readonly string[];
+	/** Whether systemd-run makes it a scope, so it is never placed in jobs. */
+	readonly scoped: boolean;
 	/** Why it runs in the host's own cgroup, when a host's spawner does. */
 	readonly unscoped?: string;
 }
@@ -101,7 +115,7 @@ export function spawnerStart(
 	program: string,
 	setting: ScopeSetting,
 ): SpawnerStart {
-	const direct = { command: program, args: [] };
+	const direct = { command: program, args: [], scoped: false };
 	if (!setting.hosted) return direct;
 	if (setting.platform !== "linux")
 		return { ...direct, unscoped: "this machine has no systemd" };
@@ -123,7 +137,17 @@ export function spawnerStart(
 			"--",
 			program,
 		],
+		scoped: true,
 	};
+}
+
+/**
+ * Runs `spawning`, which starts the spawner as `start` says: a scoped
+ * start where pi is, so the scope its systemd-run makes keeps it, and an
+ * unscoped one placed in jobs as any child is.
+ */
+export function spawningSpawner<T>(start: SpawnerStart, spawning: () => T): T {
+	return start.scoped ? withPi(spawning) : spawning();
 }
 
 /**
@@ -137,7 +161,7 @@ export function spawnersScoped(
 	if (!spawnerWanted(setting.env)) return false;
 	const spawner = setting.find(SPAWNER);
 	if (spawner === undefined) return false;
-	return spawnerStart(spawner, setting).unscoped === undefined;
+	return spawnerStart(spawner, setting).scoped;
 }
 
 /** Whether a cgroup path lies in a pi-spawner's scope. */

@@ -26,6 +26,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 type Tool = Parameters<ExtensionAPI["registerTool"]>[0];
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 type Message = Parameters<ExtensionAPI["sendMessage"]>[0];
+type SendOptions = Parameters<ExtensionAPI["sendMessage"]>[1];
 type UserMessage = Parameters<ExtensionAPI["sendUserMessage"]>[0];
 
 /**
@@ -43,6 +44,12 @@ export interface AppendedEntry {
 	data: unknown;
 }
 
+/** A message sent with `sendMessage`, with the options it was sent with. */
+export interface SentMessage {
+	message: Message;
+	options: SendOptions;
+}
+
 /** What the code under test did with a fake pi, in the order it did it. */
 export interface Recorded {
 	/** Each tool registered. */
@@ -53,6 +60,11 @@ export interface Recorded {
 	handlers: Map<string, Handler[]>;
 	/** Each message sent with `sendMessage`. */
 	sent: Message[];
+	/**
+	 * Each message sent with `sendMessage` with its options, such as
+	 * whether it starts a turn, which `sent` leaves out.
+	 */
+	sentWith: SentMessage[];
 	/** Each message sent as the user with `sendUserMessage`. */
 	sentAsUser: UserMessage[];
 	/** Each entry appended to the session. */
@@ -80,6 +92,7 @@ export function fakePi(overrides: Partial<ExtensionAPI> = {}): FakePi {
 		commands: new Map(),
 		handlers: new Map(),
 		sent: [],
+		sentWith: [],
 		sentAsUser: [],
 		entries: [],
 		emitted: [],
@@ -105,8 +118,9 @@ export function fakePi(overrides: Partial<ExtensionAPI> = {}): FakePi {
 				);
 			};
 		},
-		sendMessage: (message: Message) => {
+		sendMessage: (message: Message, options?: SendOptions) => {
 			recorded.sent.push(message);
+			recorded.sentWith.push({ message, options });
 		},
 		sendUserMessage: (message: UserMessage) => {
 			recorded.sentAsUser.push(message);

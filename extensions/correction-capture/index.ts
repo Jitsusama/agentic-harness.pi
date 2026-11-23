@@ -228,6 +228,10 @@ export default function correctionCapture(pi: ExtensionAPI) {
 			}
 
 			// Draft mode: distill the session into candidate rules.
+			// Only what memory holds, held view or not: the transcript keeps
+			// its last 6,000 characters, and a compaction keeps about 20,000
+			// tokens by default, so history on disk would mostly be read only
+			// to be dropped, and a parent log can be hundreds of megabytes.
 			const turns: Turn[] = entriesToTurns(ctx.sessionManager.getEntries());
 			if (turns.length === 0) {
 				return {

@@ -25,6 +25,36 @@ grep-and-hope.
   servers. Relative file paths use the calling session's folder.
 - Limits workspace symbol searches to the calling session's folder,
   so another conversation's project does not appear in the answer.
+- Starts a sandboxed session's language servers in the sandbox its
+  commands run in, since a server runs the project's own code: drawn
+  around the session's folder, from the environment its commands get.
+  Each fence keeps servers of its own, a search asks only the
+  caller's, and a session's servers stop as it ends. A server gets
+  no door, SSH agent, clipboard or display, and no variable whose
+  name, in either case, marks it a token, key, secret, password, credential, cookie,
+  session or socket; one named otherwise still reaches a server in
+  the agent fence, while strict passes only what its commands keep.
+  A fence that refuses the server, or a server
+  that exits inside it, fails the call with the reason. pi reads and
+  writes for a fenced server only where the fence lets its own file
+  tools, judging the file it opened, and a rename with one file
+  refused writes nothing. pi's start lifts the agent fence from all
+  but a subagent and a spawn that declared it, on Linux and on a Mac
+  alike, so its servers start as an unfenced session's do. On a Mac,
+  which has neither fence, a subagent, a first-stage session, a
+  strict one and a spawn that declared its fence where pi
+  runs in a sandbox or can't tell keep theirs: their servers start
+  inside the sandbox pi runs in where there is one, and otherwise
+  don't start. The servers' sandbox is drawn at the first call and
+  the commands' as the shell loads, so where a busy Mac's trial
+  couldn't tell at load but can by that call, its servers may start
+  while its commands stay refused. A fenced
+  call to servers an older pi started is refused, and they last until
+  the host next starts, since a reload never leaves them unheld, or
+  until one dies under a call from an unfenced session that runs this
+  pi, whose retry starts them afresh in fences. A
+  session that runs commands as they are starts its
+  servers as before.
 
 ## Backend Selection
 

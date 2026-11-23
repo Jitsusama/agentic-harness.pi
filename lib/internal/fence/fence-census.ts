@@ -288,9 +288,9 @@ function judged(
 /**
  * The bash calls `presence`'s pi runs: those under it, or under the
  * spawner it starts them through, that carry the keeper's variable, which
- * tells them from pi's own helpers, a language server among them, outside
- * the fence by design. Each is its own when its pi hosts no other session
- * or when it names this one.
+ * tells them from pi's own helpers: a language server among them, which
+ * runs in the session's fence but is no command of it. Each is its own
+ * when its pi hosts no other session or when it names this one.
  */
 function commandsOf(
 	presence: Presence,

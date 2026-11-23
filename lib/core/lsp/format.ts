@@ -30,6 +30,15 @@ export function formatLocations(locations: readonly LspLocation[]): string {
 		.join("\n");
 }
 
+/**
+ * Said after a fenced session's answer, which leaves out every file pi
+ * can't read for its servers, so an empty or short answer doesn't read
+ * as all the server found. It goes in a listing's trailer, which no
+ * cut for size drops.
+ */
+export const LEFT_OUT =
+	"In a fenced session the answer leaves out any file the fence keeps pi from reading.";
+
 export function formatSymbols(symbols: readonly SymbolInfo[]): string {
 	if (symbols.length === 0) return "No symbols.";
 	return symbols

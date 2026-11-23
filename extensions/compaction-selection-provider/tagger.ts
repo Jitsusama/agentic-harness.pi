@@ -19,6 +19,7 @@ import {
 	tagsFrom,
 } from "../../lib/compaction/selection/tagging.ts";
 import {
+	MOVED_OFF,
 	taggedBranchAt,
 	untagged,
 } from "../../lib/compaction/selection/tags.ts";
@@ -26,7 +27,11 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
-import { entriesBefore } from "../../lib/internal/session/branch-walk.ts";
+import {
+	type BranchReader,
+	entriesBefore,
+	type LinkedEntry,
+} from "../../lib/internal/session/branch-walk.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -70,6 +75,8 @@ export function tagger(
 		// Read from what the branch gained since the last pass, not the
 		// whole branch, since a pass follows every turn.
 		const session = ctx.sessionManager;
+		// Every message queued lies behind this leaf.
+		const under = { leaf: session.getLeafId() };
 		const { live } = taggedBranchAt(session);
 		const queue = untagged(live, store.tagsAt(session))
 			.filter((entry) => (attempts.get(entry.id) ?? 0) < ATTEMPTS)
@@ -89,6 +96,26 @@ export function tagger(
 			);
 			const ms = Date.now() - started;
 			if (signal.aborted) return;
+			// A tag lands wherever the branch is now, so a message the person
+			// moved away from while it was asked about is left untagged: its
+			// tag would name, from this branch, a message only the log holds.
+			// What the call cost is still recorded, naming no paragraph, and
+			// the pass ends, for a fresh one to tag the branch as it is now.
+			if (!stillHolds(session, under, entry.id)) {
+				queue.length = 0;
+				again = true;
+				if (result.usage) {
+					store.recordTags({
+						entryId: entry.id,
+						units: [],
+						model: result.ok ? result.model : classifier.label,
+						usage: result.usage,
+						ms,
+						failed: MOVED_OFF,
+					});
+				}
+				return;
+			}
 			if (result.ok) {
 				store.recordTags({
 					entryId: entry.id,
@@ -96,6 +123,7 @@ export function tagger(
 					model: result.model,
 					...(result.usage ? { usage: result.usage } : {}),
 					ms,
+					seenOnBranch: true,
 				});
 				return;
 			}
@@ -171,4 +199,26 @@ export function tagger(
 			while (running) await running;
 		},
 	};
+}
+
+/**
+ * Whether the session's branch now still holds entry `id`, which lay
+ * behind `under.leaf`. The walk back from the leaf stops at `id` or at
+ * `under.leaf`, so a conversation that only went on reads just what it
+ * gained, and `under.leaf` moves up to the leaf now for the next check.
+ * Only a branch elsewhere is walked to its root.
+ */
+function stillHolds(
+	session: BranchReader<LinkedEntry>,
+	under: { leaf: string | null | undefined },
+	id: string,
+): boolean {
+	const leaf = session.getLeafId();
+	for (let at = leaf; at; at = session.getEntry(at)?.parentId) {
+		if (at === id) return true;
+		if (at !== under.leaf) continue;
+		under.leaf = leaf;
+		return true;
+	}
+	return false;
 }

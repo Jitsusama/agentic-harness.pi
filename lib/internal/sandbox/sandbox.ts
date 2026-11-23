@@ -255,6 +255,11 @@ const NEVER = [
 	"*SOCK*",
 ] as const;
 
+/** Whether `name` holds one of `NEVER`'s words, so no fenced command may keep it. */
+export function neverKept(name: string): boolean {
+	return NEVER.some((glob) => name.includes(glob.slice(1, -1)));
+}
+
 /**
  * The shell text that runs `command` under landrun with `rules`.
  *
@@ -343,6 +348,8 @@ export type Sandbox =
 			readonly landrun: string;
 			readonly github?: GitHubTokenSource;
 			readonly gcloud?: CloudGrantSource;
+			/** Drawn for a language server, with no way to gcloud's settings. */
+			readonly served?: boolean;
 	  })
 	| (Logged & {
 			readonly kind: "fence";
@@ -353,6 +360,8 @@ export type Sandbox =
 			readonly githubDoor?: string;
 			/** Said once in the session, when the fence wasn't what it asked. */
 			readonly note?: string;
+			/** Drawn for a language server, with nothing that acts as the person. */
+			readonly served?: boolean;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -661,9 +670,11 @@ export function wrapFor(
 			// dev's setup writes its settings and git's global ones on every
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
+			const served = sandbox.served === true;
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				...(served ? { served } : {}),
 				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
@@ -691,9 +702,13 @@ export function wrapFor(
 				args: bwrapArgsFile(fence.runtimeDir, args) ?? args,
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
-				agent: agentProxy(fence.runtimeDir),
-				shims: fenceShims(home),
-				display: fenceDisplay(fence.runtimeDir),
+				...(served
+					? {}
+					: {
+							agent: agentProxy(fence.runtimeDir),
+							shims: fenceShims(home),
+							display: fenceDisplay(fence.runtimeDir),
+						}),
 				homes: [
 					...OWN_HOMES.map(
 						([name, folder]) => [name, join(own, folder)] as const,
@@ -766,20 +781,24 @@ export function wrapFor(
 			for (const folder of Object.values(sandboxFolders(home))) {
 				mkdirSync(folder, { recursive: true, mode: 0o700 });
 			}
+			const served = sandbox.served === true;
 			const rules = strictRules({
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
+				...(served ? { served } : {}),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
 			const given = token ? [...rules, ...githubRules()] : rules;
 			// gcloud reads its token, project and settings folder from these.
 			const grant = sandbox.gcloud?.();
+			// A server's sandbox has neither, and its own gcloud settings would
+			// be ones the session's next granted command reads.
 			const passed: Record<string, string> = {
 				...(token ? { GH_TOKEN: token } : {}),
-				...cloudVariables(grant, home, place.env),
+				...(served ? {} : cloudVariables(grant, home, place.env)),
 			};
 			return (command) =>
 				sandboxedCommand(

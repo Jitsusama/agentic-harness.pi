@@ -18,6 +18,9 @@ import {
 	pushesLine,
 	pushHook,
 } from "../../../../lib/internal/priority/pushes.ts";
+// Imported only to be named, so `--changed` runs this file when the
+// dispatcher beside it changes alone; it runs it from its path below.
+import "./world-pre-push.sh";
 
 /**
  * A git of its own: no person's config, so nothing signs or hooks, and

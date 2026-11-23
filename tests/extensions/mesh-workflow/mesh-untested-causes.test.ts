@@ -5,8 +5,10 @@
  * message goes as written.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { UNJUDGED } from "../../../extensions/mesh-workflow/delivery.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import {
 	restoreSessionModes,
@@ -24,6 +26,7 @@ import {
 	send,
 	startSession,
 } from "./support/mesh.ts";
+import { closeNodes, node } from "./support/node.ts";
 
 const CAUSE =
 	"The builder failed because its disk filled up with old store paths.";
@@ -82,7 +85,8 @@ function written(): number {
 }
 
 describe("an untested cause on the mesh", () => {
-	afterEach(() => {
+	afterEach(async () => {
+		await closeNodes();
 		forgetRedirects();
 		restoreSessionModes({});
 		setGuardReportSink(undefined);
@@ -272,11 +276,311 @@ describe("an untested cause on the mesh", () => {
 		const unheard = await send(tools, "zz9zz9", "finding", CAUSE);
 		const heard = await send(tools, "p9r1ki", "finding", CAUSE);
 
-		expect(unheard).toContain("Not sent:");
+		expect(unheard).toMatch(
+			/Not sent: no session in this realm goes by zz9zz9/i,
+		);
 		expect(unheard).not.toContain("This states why");
 		expect(heard).toContain("Not sent: This states why");
 		expect(written()).toBe(0);
 	});
+
+	it("goes when sent again unchanged, though routing picks another group the second time", async () => {
+		peer("session-p", ["P9R1KI"], ["#alpha"]);
+		peer("session-q", ["Q4W2E3"], ["#beta"]);
+		let routed = 0;
+		const routesElsewhere = {
+			modelRegistry: {
+				getAvailableOfType: async () => [
+					{ provider: "typesafe", id: "jev-latest" },
+				],
+				classify: async (_model: unknown, context: { questions: object }) => {
+					if ("to" in context.questions) {
+						routed += 1;
+						const choice = routed === 1 ? "g1" : "g2";
+						return {
+							stopReason: "stop",
+							answers: {
+								to: {
+									type: "choice",
+									choice,
+									probabilities: { [choice]: 0.99 },
+								},
+							},
+						};
+					}
+					return {
+						stopReason: "stop",
+						answers:
+							"cause" in context.questions
+								? { cause: { probabilities: { untested_cause: 0.97 } } }
+								: {},
+					};
+				},
+			},
+		};
+		const { tools } = await startSession({}, routesElsewhere);
+		const unaddressed = async () =>
+			(
+				await tools
+					.get("mesh_send")
+					?.execute("call-1", { intent: "finding", text: CAUSE })
+			)?.content[0]?.text ?? "";
+
+		const first = await unaddressed();
+		const again = await unaddressed();
+
+		expect(first).toContain("Not sent: This states why");
+		expect(routed, "routing chose twice").toBe(2);
+		expect(again).toContain("Sent as");
+		expect(again).toContain("#beta");
+	});
+
+	it("routes by rule when routing's classifier never answers", async () => {
+		peer("session-p", ["P9R1KI"], ["#alpha"]);
+		peer("session-q", ["Q4W2E3"], ["#beta"]);
+		let asked = 0;
+		const neverRoutes = {
+			modelRegistry: {
+				getAvailableOfType: async () => [
+					{ provider: "typesafe", id: "jev-latest" },
+				],
+				// Deaf to the signal it is handed, as a classifier may be.
+				classify: (_model: unknown, context: { questions: object }) => {
+					if (!("to" in context.questions))
+						return Promise.resolve({ stopReason: "stop", answers: {} });
+					asked += 1;
+					return new Promise<never>(() => undefined);
+				},
+			},
+		};
+		const { tools } = await startSession({}, neverRoutes);
+
+		const said =
+			(
+				await tools
+					.get("mesh_send")
+					?.execute("call-1", { intent: "finding", text: "Tests pass." })
+			)?.content[0]?.text ?? "";
+
+		expect(asked, "routing asked the classifier").toBe(1);
+		// The rule sends what nobody addressed to #machine, which takes holds alone.
+		expect(said).toContain("#machine takes only holds");
+	}, 60_000);
+
+	it("judges nothing and routes by rule when finding the classifier never ends", async () => {
+		peer("session-p", ["P9R1KI"], ["#alpha"]);
+		peer("session-q", ["Q4W2E3"], ["#beta"]);
+		// Sure of the disk, so a lookup that ended would refuse the cause.
+		const neverFound = {
+			modelRegistry: {
+				...sureOfTheDisk().modelRegistry,
+				getAvailableOfType: () => new Promise<never>(() => undefined),
+			},
+		};
+		const { tools, entries } = await startSession({}, neverFound);
+		const began = Date.now();
+
+		const said =
+			(
+				await tools
+					.get("mesh_send")
+					?.execute("call-1", { intent: "finding", text: CAUSE })
+			)?.content[0]?.text ?? "";
+
+		// What routing sent to #machine is refused before it is judged, so
+		// a send to a peer shows the cause went unjudged.
+		const direct = await send(tools, "p9r1ki", "finding", CAUSE);
+
+		// Held to 2.5 s from the session's start, with room for a loaded machine.
+		expect(Date.now() - began).toBeLessThan(15_000);
+		expect(said).not.toContain("This states why");
+		expect(said).toContain("#machine takes only holds");
+		expect(direct).toContain("Sent as");
+		expect(entries.filter((entry) => entry.type === UNJUDGED)).toEqual([
+			{
+				type: UNJUDGED,
+				data: { why: "finding the classifier took over 2500 ms" },
+			},
+		]);
+	}, 60_000);
+
+	it("asks the classifier nothing about a send nobody would hear", async () => {
+		const judge = sureOfTheDisk();
+		const { tools } = await startSession({}, judge);
+
+		await send(tools, "zz9zz9", "finding", CAUSE);
+
+		expect(judge.judged()).toBe(0);
+	});
+
+	it.each([
+		["unchanged", CAUSE],
+		[
+			"reworded as the refusal asks",
+			"The builder may have failed on its store; on trial.",
+		],
+	])(
+		"keeps a need once when it is refused and sent again %s",
+		async (_, resent) => {
+			peer("session-c", ["5HJZ8Z"], []);
+			const env = await node(
+				[
+					{ key: "cell:7M6JKG", title: "A Web, Not a Funnel" },
+					{ key: "cell:5HJZ8Z", title: "Carry a Session", repo: "mycelium" },
+				],
+				[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+			);
+			const { tools } = await startSession(env, sureOfTheDisk());
+			const toNeed = async (text: string) =>
+				(
+					await tools.get("mesh_send")?.execute("call-1", {
+						to: "need",
+						intent: "finding",
+						text,
+						about: "carry",
+					})
+				)?.content[0]?.text ?? "";
+
+			const needs = join(fixture.paths.mesh, "needs");
+			const kept = () =>
+				readdirSync(needs).flatMap((day) =>
+					readFileSync(join(needs, day), "utf8").trim().split("\n"),
+				);
+
+			const first = await toNeed(CAUSE);
+			// Kept as it was routed, so a send refused and never sent again
+			// still counts as found.
+			expect(kept(), "kept once routed").toHaveLength(1);
+			const again = await toNeed(resent);
+
+			expect(first).toContain("Not sent: This states why");
+			expect(again).toContain("Sent as");
+			expect(kept(), "one need, the ask sent twice").toHaveLength(1);
+			expect(kept().join("\n"), "what was sent is never kept").not.toMatch(
+				/builder|store paths/,
+			);
+		},
+	);
+
+	it("says once in the log why it judged nothing, however many sends", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const { tools, entries } = await startSession({}, sureOfTheDisk(true));
+
+		await send(tools, "p9r1ki", "fyi", CAUSE);
+		await send(tools, "p9r1ki", "fyi", `${CAUSE} Again.`);
+
+		const said = entries.filter((entry) => entry.type === UNJUDGED);
+		expect(said).toEqual([
+			{
+				type: UNJUDGED,
+				data: {
+					why: "a part went unjudged: the classifier failed",
+					detail: "the network has gone",
+				},
+			},
+		]);
+	});
+
+	it("says each reason in the log, and one again once a send was judged in full", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const judge = sureOfTheDisk();
+		let failing = true;
+		const flaky = {
+			modelRegistry: {
+				...judge.modelRegistry,
+				classify: async (
+					model: unknown,
+					context: { state: { message?: unknown }; questions: object },
+				) => {
+					if (failing && "cause" in context.questions)
+						throw new Error("the network has gone");
+					return judge.modelRegistry.classify(model, context);
+				},
+			},
+		};
+		const { tools, entries } = await startSession({}, flaky);
+		const long = `Tests ran. ${"The log goes on. ".repeat(1500)}`;
+
+		await send(tools, "p9r1ki", "fyi", "Tests ran and the deploy is done.");
+		failing = false;
+		// Past 12 parts, so judged only in part: neither clears what was said.
+		await send(tools, "p9r1ki", "fyi", long);
+		await send(tools, "p9r1ki", "fyi", long);
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is done and watched.");
+		failing = false;
+		await send(tools, "p9r1ki", "fyi", "The deploy is done and live.");
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is live and watched.");
+
+		const whys = entries
+			.filter((entry) => entry.type === UNJUDGED)
+			.map((entry) => (entry.data as { why: string }).why);
+		expect(whys).toEqual([
+			"a part went unjudged: the classifier failed",
+			"a text ran past 12 parts",
+			"a part went unjudged: the classifier failed",
+		]);
+	});
+
+	it("says a reason again for no send that judged nothing", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const judge = sureOfTheDisk();
+		let failing = true;
+		const flaky = {
+			modelRegistry: {
+				...judge.modelRegistry,
+				classify: async (
+					model: unknown,
+					context: { state: { message?: unknown }; questions: object },
+				) => {
+					if (failing && "cause" in context.questions)
+						throw new Error("the network has gone");
+					return judge.modelRegistry.classify(model, context);
+				},
+			},
+		};
+		const { tools, entries } = await startSession({}, flaky);
+
+		await send(tools, "p9r1ki", "fyi", "Tests ran and the deploy is done.");
+		failing = false;
+		// Too short to state a cause, so nothing is asked of the classifier.
+		await send(tools, "p9r1ki", "fyi", "Done.");
+		failing = true;
+		await send(tools, "p9r1ki", "fyi", "The deploy is live and watched.");
+
+		expect(judge.judged(), "the short send asked nothing").toBe(0);
+		expect(entries.filter((entry) => entry.type === UNJUDGED)).toHaveLength(1);
+	});
+
+	it("says why again once a lookup that ended late gives its own reason", async () => {
+		peer("session-p", ["P9R1KI"], []);
+		const LATE_MS = 3500;
+		const late = {
+			modelRegistry: {
+				...sureOfTheDisk().modelRegistry,
+				getAvailableOfType: () =>
+					new Promise<never[]>((resolve) => {
+						setTimeout(() => resolve([]), LATE_MS);
+					}),
+			},
+		};
+		const { tools, entries } = await startSession({}, late);
+
+		await send(tools, "p9r1ki", "fyi", CAUSE);
+		// Past when the lookup ends with no classifier, so the next send
+		// reads the late answer rather than the capped one.
+		await new Promise((resolve) => setTimeout(resolve, LATE_MS));
+		await send(tools, "p9r1ki", "fyi", `${CAUSE} Again.`);
+
+		const said = entries
+			.filter((entry) => entry.type === UNJUDGED)
+			.map((entry) => entry.data as { why: string; detail?: string });
+		expect(said).toEqual([
+			{ why: "finding the classifier took over 2500 ms" },
+			{ why: "no classifier", detail: "no Jev classifier has credentials" },
+		]);
+	}, 60_000);
 
 	it("is refused again once reworded but still stated as settled", async () => {
 		peer("session-p", ["P9R1KI"], []);

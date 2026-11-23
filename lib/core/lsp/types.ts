@@ -92,6 +92,47 @@ export interface LspCallOptions {
 	readonly signal?: AbortSignal;
 	/** Limit workspace symbols to this folder, when supplied. */
 	readonly root?: string;
+	/**
+	 * The fence the calling conversation's commands run in, so the
+	 * servers it starts run in it too: a server a project names, as its
+	 * own node_modules/.bin holds, is project code a fenced command could
+	 * have written. None for a conversation that runs commands as they are.
+	 */
+	readonly fence?: LspFence;
+}
+
+/** How a fenced conversation's language servers start: inside its fence. */
+export interface LspFence {
+	/**
+	 * Which fence this is, so a server started in it answers only calls
+	 * made under the same one, never another conversation's.
+	 */
+	readonly key: string;
+	/**
+	 * How `words` start inside the fence, drawn as the conversation's
+	 * commands are, or why nothing may run there.
+	 */
+	launch(
+		words: readonly string[],
+	): Promise<FencedLaunch | { readonly refused: string }>;
+	/**
+	 * Why pi may not read or write `path` for a server in this fence, as
+	 * it would refuse its own file tools there; none where it may. pi
+	 * reads the files a call names, and writes the ones a rename's edit
+	 * names, in its own process, which the fence never reaches.
+	 */
+	refuses(use: "read" | "write", path: string): string | undefined;
+}
+
+/** A server's start inside a fence. */
+export interface FencedLaunch {
+	/**
+	 * The bash text that runs it. It may read descriptor 3, a pipe pi
+	 * holds open for the server's life, to tell once pi has gone.
+	 */
+	readonly text: string;
+	/** The environment it starts with: the one the conversation's commands get. */
+	readonly env: NodeJS.ProcessEnv;
 }
 
 /**

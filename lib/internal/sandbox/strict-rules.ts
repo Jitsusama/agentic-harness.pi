@@ -40,6 +40,12 @@ export interface SandboxPlace {
 	readonly cwd: string;
 	/** The git folder of the repository `cwd` is a worktree of, if it is one. */
 	readonly repository?: string;
+	/**
+	 * Drawn for a language server, which reaches none of gcloud's
+	 * settings: the session's next command with the cloud's grant reads
+	 * them.
+	 */
+	readonly served?: boolean;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -88,7 +94,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		place.cwd,
 		own.temporary,
 		own.cache,
-		own.gcloud,
+		...(place.served ? [] : [own.gcloud]),
 		"/dev/null",
 		"/dev/full",
 		"/dev/zero",

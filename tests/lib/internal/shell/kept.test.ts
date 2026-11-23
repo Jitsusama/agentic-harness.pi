@@ -25,12 +25,12 @@ import {
 	markCarried,
 	outputOf,
 	pidOf,
-	removeKept,
 	rollIfFull,
 	sweepKept,
 	sweepKeptNowAndThen,
 	teePersists,
 } from "../../../../lib/internal/shell/kept.ts";
+import { removeKept } from "../../../../lib/internal/shell/kept-removal.ts";
 
 const PRIVATE = 0o600;
 const PRIVATE_FOLDER = 0o700;

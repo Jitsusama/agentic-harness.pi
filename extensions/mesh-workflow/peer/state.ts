@@ -177,6 +177,7 @@ export function createState(
 	// Every id already looked at, so a watcher that reports one twice,
 	// as inotify does for a rename, is handed over once.
 	const seen = new Set<string>();
+	const unjudgedSaid = new Set<string>();
 	// A turn a note would start waits for a reload that is waiting: the
 	// note is said now, without it, and the landing starts it (hold.ts).
 	const holdTurn = createReloadHold();
@@ -377,6 +378,7 @@ export function createState(
 		unlanded,
 		undone,
 		seen,
+		unjudgedSaid,
 		holdTurn,
 		talks,
 		pausing,

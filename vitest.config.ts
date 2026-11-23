@@ -1,6 +1,7 @@
 import { cpus } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "vitest/config";
+import { scriptsAsText } from "./tests/setup/scripts-as-text.ts";
 
 /**
  * The files whose change reaches every test, so `--changed` runs them all.
@@ -77,18 +78,21 @@ const PROCESS_TESTS = [
 	"tests/extensions/subagent-workflow/fleet-orphan-is-stopped.test.ts",
 	"tests/extensions/subagent-workflow/fleet-transcripts-are-kept.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
+	"tests/setup/scripts-as-text-changed.test.ts",
 	"tests/lib/internal/reload/stale-rejections.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 	"tests/package/hosted-loads-add-no-process-listeners.test.ts",
 	"tests/lib/internal/quest/discovery/thread-flags.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
 	"tests/core/internal/keyring/secret-service-call.test.ts",
+	"tests/lib/internal/session/rollover-pipe.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",
 	"tests/lib/internal/fence/fence-sockets.test.ts",
 	"tests/lib/internal/fence/fence-quest-locks.test.ts",
 	"tests/host/service/own-threads.test.ts",
 	"tests/lib/internal/shell/spawner-register-sockets.test.ts",
 	"tests/lib/internal/shell/spawner-starts.test.ts",
+	"tests/core/lsp/standalone/fenced-start.test.ts",
 	"tests/extensions/session-ending-interceptor/remembered.test.ts",
 	"tests/scripts/host-join.test.ts",
 	"tests/scripts/pi-carry.test.ts",
@@ -177,6 +181,7 @@ export default defineConfig({
 		maxWorkers: MAX_WORKERS,
 		projects: [
 			{
+				plugins: [scriptsAsText()],
 				resolve: { alias: ALIAS },
 				test: {
 					name: "unit",
@@ -197,6 +202,7 @@ export default defineConfig({
 				},
 			},
 			{
+				plugins: [scriptsAsText()],
 				resolve: { alias: ALIAS },
 				test: {
 					name: "process",

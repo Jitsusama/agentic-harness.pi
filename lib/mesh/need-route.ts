@@ -43,7 +43,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { readdirSync, rmSync } from "node:fs";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { listAt, TIE_HALF_LIFE_MS } from "./node.ts";
@@ -790,8 +790,24 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
 }
 
 /**
+ * How long a need asked again, by the same asker in the same words and
+ * routed to the same fit, counts as the one already kept: a send refused
+ * for how it was worded, or for anything else, is most often sent again
+ * within minutes, reworded as the refusal asks, and the ask is still one.
+ * So another text on the same subject from the same asker within it is
+ * counted as that one too: by its words alone it can't be told from a
+ * reworded resend, and keeping the text, or a digest of it, would keep
+ * what a need file is meant to leave out. The words are what `about`
+ * gives, so this holds for a need sent with one; a need without it is
+ * matched on its text's words, and a rewording that changes them counts
+ * as a second ask.
+ */
+export const NEED_AGAIN_MS = 10 * 60 * 1000;
+
+/**
  * Routes a need over what the node serving `socket` keeps, its cells,
- * ties and hubs, and keeps it in `keep`; nothing, and nothing kept, when
+ * ties and hubs, and keeps it in `keep`, found or lost, once an ask
+ * (`keepNeedOnce`). Nothing, and nothing kept, when
  * no node lists its cells and ties there, since a need routed over half
  * of them would read as lost when it was never looked for. Who stopped
  * the asker is always said here, since it alone keeps such a cell from
@@ -817,11 +833,80 @@ export async function needAt(
 		live: how.live,
 		stopped: how.stopped,
 	});
-	await keepNeed(how.keep, record).catch(() => {
+	await keepNeedOnce(how.keep, record).catch(() => {
 		// A full or unwritable folder costs the measure this one line;
 		// the send it routes still goes, as the doc above says.
 	});
 	return record;
+}
+
+/**
+ * Keeps a need as `keepNeed` does, unless its day's file holds one from
+ * the same asker, in the same words and routed to the same fit, asked
+ * within `NEED_AGAIN_MS` before it: that is the same ask sent again, so
+ * neither found nor lost counts it twice. Kept on the file rather than
+ * in memory, so a reload between the two changes nothing; the day before's
+ * file is read too when the window reaches back past UTC midnight. A need
+ * with no words any cell works on is kept each time, since nothing tells
+ * one such ask from another. Two sends of one ask at the same moment may
+ * both be kept, since the read and the append aren't one step: that costs
+ * the measure a line.
+ */
+export async function keepNeedOnce(
+	dir: string,
+	record: NeedRecord,
+): Promise<void> {
+	const files = new Set([
+		needsFile(dir, record.at - NEED_AGAIN_MS),
+		needsFile(dir, record.at),
+	]);
+	for (const file of files) {
+		if (await keptAlready(file, record)) return;
+	}
+	await keepNeed(dir, record);
+}
+
+/** Whether `file` holds `record`'s ask, kept within `NEED_AGAIN_MS`. */
+async function keptAlready(file: string, record: NeedRecord): Promise<boolean> {
+	let lines: string[];
+	try {
+		lines = (await readFile(file, "utf8")).split("\n");
+	} catch {
+		// No file yet for the day: nothing kept to match.
+		return false;
+	}
+	if (record.words.length === 0) return false;
+	const words = record.words.join(" ");
+	return lines.some((line) => {
+		const kept = keptLine(line);
+		return (
+			kept !== undefined &&
+			kept.asker === record.asker &&
+			kept.fit === record.fit &&
+			kept.words.join(" ") === words &&
+			record.at - kept.at >= 0 &&
+			record.at - kept.at < NEED_AGAIN_MS
+		);
+	});
+}
+
+/** A kept line's ask, or nothing for a line this reader can't use. */
+function keptLine(
+	line: string,
+): Pick<NeedRecord, "asker" | "fit" | "words" | "at"> | undefined {
+	if (line.trim() === "") return undefined;
+	try {
+		const kept: unknown = JSON.parse(line);
+		if (!isRecord(kept)) return undefined;
+		const { asker, fit, words, at } = kept;
+		if (typeof asker !== "string" || typeof at !== "number") return undefined;
+		if (fit !== null && typeof fit !== "string") return undefined;
+		if (!Array.isArray(words)) return undefined;
+		return { asker, fit, at, words: words.map(String) };
+	} catch {
+		// A torn or foreign line matches no ask.
+		return undefined;
+	}
 }
 
 /** Whether a node answered a list with its records, if none. */

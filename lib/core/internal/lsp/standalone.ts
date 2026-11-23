@@ -29,7 +29,19 @@ function start(state: SharedBackend): StandaloneBackend {
 	return backend;
 }
 
-function registerFor(state: SharedBackend, ref?: SessionRef): void {
+/**
+ * What a runner hands the other extensions in its conversation in place
+ * of the shared pool, read afresh at each lookup: the pool with the
+ * conversation's fence drawn into every call, say, so a caller that
+ * names no fence can't start a server outside it.
+ */
+export type RegisteredPool = (pool: StandaloneBackend) => LspBackend;
+
+function registerFor(
+	state: SharedBackend,
+	ref?: SessionRef,
+	registered?: RegisteredPool,
+): void {
 	registerLspBackend(
 		{
 			name: "standalone",
@@ -37,21 +49,25 @@ function registerFor(state: SharedBackend, ref?: SessionRef): void {
 			isAvailable: () => state.backend !== null,
 			// Other conversations see a replacement without holding the old object.
 			get backend() {
-				return state.backend ?? start(state);
+				const pool = state.backend ?? start(state);
+				return registered ? registered(pool) : pool;
 			},
 		},
 		ref,
 	);
 }
 
-/** A runner's claim on the shared standalone servers, acquired lazily. */
-export function standaloneLease() {
+/**
+ * A runner's claim on the shared standalone servers, acquired lazily,
+ * registered for its conversation as `registered` wraps them.
+ */
+export function standaloneLease(registered?: RegisteredPool) {
 	const user = Symbol("lsp runner");
 	return {
 		ensure(ref?: SessionRef): StandaloneBackend {
 			const state = shared();
 			// Validate ownership before acquiring any shared resources.
-			registerFor(state, ref);
+			registerFor(state, ref, registered);
 			state.users.add(user);
 			return state.backend ?? start(state);
 		},
@@ -65,7 +81,7 @@ export function standaloneLease() {
 			const state = shared();
 			// Another caller may already have replaced this dead backend.
 			if (state.backend !== dead) return this.ensure(ref);
-			registerFor(state, ref);
+			registerFor(state, ref, registered);
 			const fresh = start(state);
 			await dead.dispose().catch(() => {
 				// A closed connection may reject shutdown; disposal kills its processes.

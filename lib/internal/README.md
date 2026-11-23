@@ -163,6 +163,9 @@ may import from here, and any of it may change without notice.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.
+- **`settled.ts`**: what work settles to within a time a caller can
+  afford, kept by a timer of its own: the claim check and the mesh's
+  routing wait on a classifier no longer than that.
 - **`void-owner.ts`**: who owns a line Joel says into the void, read
   from what he attached (a pi session, a pull request, a page, a
   window) and from the quests that claim it, for

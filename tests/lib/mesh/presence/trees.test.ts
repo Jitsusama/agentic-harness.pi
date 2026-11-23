@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { whenRefreshed } from "../../../../lib/internal/work-records.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { repositoryName } from "../../../../lib/mesh/scope.ts";
@@ -137,7 +138,7 @@ describe("a peer's trees", () => {
 		peer.dispose();
 	});
 
-	it("are read again once a record is replaced in the tick of the last read, and that read is old enough", () => {
+	it("are read again once a record is replaced in the tick of the last read, and that read is old enough", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		const harness = mainCheckout("harness");
 		const tree = worktree(harness, "w-taken", "ref: refs/heads/taken");
@@ -164,6 +165,10 @@ describe("a peer's trees", () => {
 		renameSync(staged, join(cut, "w-taken.json"));
 		utimesSync(cut, tick, tick);
 		vi.setSystemTime(now + 2_001);
+		// Written as another process writes it, so it's read off the thread
+		// and seen at the refresh after that reading lands.
+		peer.refresh();
+		await whenRefreshed(cut);
 		peer.refresh();
 
 		expect(presences.of(session)?.trees, "the tree taken up").toEqual([
