@@ -85,7 +85,9 @@ else's VM, and ran one VM at a time across the machine. One VM test
 waited 35 minutes while 3.7 of 16 cores were busy and 45 of 62 GiB
 stood free.
 
-Now every pi session shares one queue in `$XDG_RUNTIME_DIR/jobs`, with
+Now every pi session shares one queue in `jobs` in the runtime folder
+(AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache
+folder), with
 no daemon and no command to learn. When a bash call runs heavy work,
 the harness reads its kind from one map, puts a job in the queue, and
 the call's shell waits for its turn before it runs anything; pi itself

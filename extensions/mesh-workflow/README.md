@@ -1369,7 +1369,9 @@ come from the calling conversation rather than the host directory.
 mesh_end closes just the addressed conversation when it belongs to the
 installed host. A hosted owner in another process, once its host's list
 still holds the conversation, is closed through that host's control
-socket, `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, named by the host
+socket, `pi-host/<realm>-<kind>.sock` in the runtime folder
+(AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache
+folder), named by the host
 key `<realm>-<kind>`. The request carries the host's whole process
 identity as expectedHost, so a successor on the same socket refuses it,
 and says who asked (`by`, as `mesh_end from <address>`), which the
