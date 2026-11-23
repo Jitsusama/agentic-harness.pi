@@ -22,9 +22,19 @@
 # one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
 # check before it to end, and its holder's line names the pid that stops
 # the whole of a check with a TERM, its turn passing once its work has
-# stopped. A check whose caller goes away runs on, since without a pty
-# sshd signals nothing. Exits with what `pnpm check` exited with, or 75
-# when its turn never came.
+# stopped. A check whose caller goes away, its ssh killed or its
+# connection dropped, stops the same way within a second or so, since
+# without a pty sshd signals nothing as it goes and the check asks after
+# it instead. Each waiter's limit is its own, and waiters take the turn
+# in no order, so a 75 says only that its turn didn't come in time, not
+# that the check before it hung. Exits with what `pnpm check` exited
+# with, or 75 when its turn never came.
+#
+# An agent's check goes to penelope alone: elsewhere it would run a
+# pushed branch's install scripts and tests unfenced, as an account
+# holding Joel's credentials, as the Mac's does (ISXEG8, 22 November).
+# That lifts once a host runs it inside its agent fence or under an
+# account of its own. Joel running it by hand may send it anywhere.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -33,7 +43,7 @@ wait_s="${CHECK_THERE_WAIT_S:-5400}"
 # A wait is at most seven digits, over a hundred days, so no slip of the
 # keys asks for one that never ends.
 case "$wait_s" in
-  '' | *[!0-9]* | ????????*)
+  *[!0-9]* | ????????*)
     echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds under ten million" >&2
     exit 2
     ;;
@@ -56,6 +66,10 @@ case "$host" in
     exit 2
     ;;
 esac
+if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
+  echo "check-there: an agent's check goes only to penelope, since $host would run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope, or ask Joel to run this one" >&2
+  exit 2
+fi
 
 if [ "$#" -lt 1 ]; then
   git fetch -q origin "$branch"
@@ -73,7 +87,9 @@ set -euo pipefail
 # this shell or the one ssh started it from.
 set -m
 # What the stop acts on starts empty, whatever the host's shell exports.
-holder= node_link= ending= tenths_left= stop_wait_s=
+holder= node_link= ending= deadline= killed= stop_wait_s=
+# What started this shell: the sshd that goes once the caller's ssh does.
+caller=$PPID
 branch="$1"
 turn_wait_s="$2"
 # The check runs in a worktree of a bare clone, as the harness's own trees
@@ -102,49 +118,56 @@ trap let_go EXIT
 # `stop_wait_s` seconds. A command that leaves the group, as a detached
 # test does, is not reached; and a KILL to this shell runs no trap, so
 # its turn passes while its work runs on.
-# Whether the groups named have all ended before `tenths_left` runs out,
-# asked every tenth of a second, since nothing says when a group's last
-# member goes. What is left of the wait stays in `tenths_left`.
+# Whether the groups named have all ended before the clock reaches
+# `deadline`, asked every tenth of a second, since nothing says when a
+# group's last member goes. The clock is bash's SECONDS, whole seconds
+# even in bash 3.2, so a busy machine stretches only the asking.
 gone_within() {
   local group
   for group in "$@"; do
     while kill -0 -- "-$group" 2>/dev/null; do
-      [ "$tenths_left" -gt 0 ] || return 1
+      [ "$SECONDS" -lt "$deadline" ] || return 1
       sleep 0.1
-      tenths_left=$(( tenths_left - 1 ))
     done
   done
 }
 # Ends the groups named: a TERM, `stop_wait_s` seconds for them to go,
-# then a KILL to what is left, said so. A stop landing while alone ends
-# what its work left goes on with what is left of alone's wait, rather
-# than waiting the whole of it again. Its return says 0 outright: in a
-# trap, a bare one says what the command the trap landed in ended with.
+# never fewer and at most one more, then a KILL to what is left, said so,
+# and five seconds or so for that. A stop landing while alone ends what
+# its work left goes on to alone's deadline, and once alone has killed
+# goes on with its KILL, rather than starting either again. Its caller
+# may be gone, so a write that fails passes over. Its return says 0
+# outright: in a trap, a bare one says what the command the trap landed
+# in ended with.
 end_groups() {
   local group
-  for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
-  [ -n "${tenths_left:-}" ] || tenths_left=$(( ${stop_wait_s:-10} * 10 ))
-  if gone_within "$@"; then
-    tenths_left=
-    return 0
+  if [ -z "${killed:-}" ]; then
+    for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
+    [ -n "${deadline:-}" ] || deadline=$(( SECONDS + ${stop_wait_s:-10} + 1 ))
+    if gone_within "$@"; then
+      deadline=
+      return 0
+    fi
+    echo "check-there: what it ran outlived ${stop_wait_s:-10} s, so it was killed" >&2 || true
+    killed=1
+    deadline=$(( SECONDS + 6 ))
   fi
-  echo "check-there: what it ran outlived ${stop_wait_s:-10} s, so it was killed" >&2
   for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
-  tenths_left=50
   gone_within "$@" || true
-  tenths_left=
+  deadline= killed=
 }
-# Stops the check as the signal its code `$1` names, said so its caller
-# can tell a stop from a failed check, and a turn given up from one never
-# taken.
+# Stops the check as the signal its code `$1` names, or as `$2` says when
+# no signal stopped it, said so its caller can tell a stop from a failed
+# check, and a turn given up from one never taken. Its caller may be
+# gone, so a write that fails passes over, rather than ending this shell
+# before its work.
 stop_all() {
-  trap '' TERM INT HUP
-  local groups why
-  why=$(kill -l $(( $1 - 128 )))
+  trap '' TERM INT HUP PIPE
+  local groups why="${2:-$(kill -l $(( $1 - 128 )))}"
   if [ -n "${holder:-}" ]; then
-    echo "check-there: stopped by $why; ending what it runs, then passing its turn" >&2
+    echo "check-there: stopped by $why; ending what it runs, then passing its turn" >&2 || true
   else
-    echo "check-there: stopped by $why before it took its turn; ending what it runs" >&2
+    echo "check-there: stopped by $why before it took its turn; ending what it runs" >&2 || true
   fi
   # alone's job may be gone from the table while its group isn't.
   groups="$(jobs -p) ${ending:-}"
@@ -155,6 +178,20 @@ stop_all() {
 trap 'stop_all 143' TERM
 trap 'stop_all 130' INT
 trap 'stop_all 129' HUP
+# Whether the sshd this shell runs under is still there. It goes when
+# the caller's ssh does, killed or cut off, but sends nothing as it
+# goes, so the check's waits ask after it each second.
+caller_here() {
+  kill -0 "$caller" 2>/dev/null
+}
+# Stops the check as a hang-up would, once nobody reads what it says: its
+# sshd gone, or a write of its own finding its reader gone, which would
+# otherwise end this shell with its work still running. A trap that runs
+# a command, not one that ignores the signal, so its jobs start as ever.
+caller_gone() {
+  stop_all 129 "its caller going"
+}
+trap caller_gone PIPE
 # Runs a command as a job in a group of its own and without fd 9, and
 # ends what it left in its group as it ends, so the turn passes with
 # none of it running; what leaves the group, as git's fsmonitor daemon
@@ -179,7 +216,10 @@ alone() {
   "$@" 9>&- </dev/null &
   local job=$! status=0
   ending=$job
-  while kill -0 "$job" 2>/dev/null; do sleep 1; done
+  while kill -0 "$job" 2>/dev/null; do
+    caller_here || caller_gone
+    sleep 1
+  done
   wait "$job" || status=$?
   end_groups "$job"
   ending=
@@ -248,6 +288,7 @@ take_turn() {
     # command it lands in ends, lands within one.
     local tries=0
     while [ "$tried" -eq 1 ] && [ "$tries" -lt "$wait_s" ]; do
+      caller_here || caller_gone
       tried=0
       lock -w 1 || tried=$?
       tries=$(( tries + 1 ))
