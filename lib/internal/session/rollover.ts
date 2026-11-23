@@ -928,26 +928,35 @@ function* linesOf(
  * the parents' scan, it reads only a regular file: a pipe or a device
  * gives no lines. Each read's size is added to `tally`, so a reader
  * learns what a log cost without measuring every line again.
+ *
+ * A chunk's lines wait as views of the buffer the next read fills, and
+ * each is decoded only as it is handed over, all before that read: a
+ * chunk decoded whole at once held its every line as text beside the
+ * entries parsed from them.
  */
 export function* logLines(
 	path: string,
 	tally: { bytes: number } = { bytes: 0 },
 ): Generator<string> {
-	const batch: string[] = [];
+	const batch: Buffer[] = [];
 	const scan = linesOf(path, (line) => {
-		batch.push(line.toString("utf8"));
+		batch.push(line);
 		return false;
 	});
+	function* drain(): Generator<string> {
+		for (const line of batch) yield line.toString("utf8");
+		batch.length = 0;
+	}
 	try {
 		let step = scan.next();
 		while (!step.done) {
-			yield* batch.splice(0);
+			yield* drain();
 			const { fd, buffer, length, position } = step.value;
 			const read = readSync(fd, buffer, 0, length, position);
 			tally.bytes += read;
 			step = scan.next(read);
 		}
-		yield* batch.splice(0);
+		yield* drain();
 	} finally {
 		// Closes the log when its reader stops before the end.
 		scan.return(false);
