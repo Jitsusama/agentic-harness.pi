@@ -189,20 +189,24 @@ describe("a host's children", () => {
 		);
 	});
 
-	it("rests one whose wake gave its child up too as given up, since it is still held", async () => {
+	// F23: the wake that asked still watches, keeping the refusal it
+	// writes and the calls its park carried; resting it again drops both.
+	it("leaves one whose wake gave its child up to the wake still watching it", async () => {
 		units.next = { silent: true };
 
 		await expect(
 			children.backend.resume(entryIn(folder, a), true),
 		).rejects.toThrow("as children.json says");
-
 		await vi.waitFor(() =>
-			expect(
-				givenUp.map(({ sessionId }) => sessionId),
-				"its wake watched again",
-			).toEqual([a]),
+			expect(units.stopped, "its child stopped").toHaveLength(1),
 		);
-		expect(rested, "not asked whether it parked").toEqual([]);
+
+		expect(givenUp, "not rested as given up").toEqual([]);
+		expect(rested, "nor asked whether it parked").toEqual([]);
+		expect(
+			held.map(({ sessionId }) => sessionId),
+			"still held",
+		).toEqual([a]);
 	}, 15_000);
 
 	it("rests nothing as given up for a resume its child takes, nor for one whose child ended", async () => {

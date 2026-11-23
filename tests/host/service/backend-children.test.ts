@@ -288,6 +288,75 @@ describe("a conversation that moves into a child", () => {
 		},
 	);
 
+	// F24: a wake not yet at its child resume, whether still at the rollout
+	// gate or queued behind another wake, has nothing in the supervisor to
+	// give up; the end ahead of its turn keeps it from starting a child.
+	it("starts no child for a wake still at the rollout gate when an end is asked", async () => {
+		const held = entry();
+		await roster.hold(held);
+		await roster.hold(entry());
+		const moved = children([held.sessionId]);
+		let admit: (() => void) | undefined;
+		const gate = () =>
+			new Promise<void>((resolve) => {
+				admit = resolve;
+			});
+		const backend = backendWith(engine(), moved.fake, gate);
+		const waking = backend.wake(held.sessionId);
+		await vi.waitFor(() => expect(admit).not.toBe(undefined));
+		const ending = backend.execute({
+			v: 1,
+			id: "e",
+			op: "close",
+			sessionId: held.sessionId,
+		});
+		admit?.();
+
+		await waking;
+		expect(await ending).toEqual({ sessionId: held.sessionId });
+		expect(moved.fake.resume, "no child started").not.toHaveBeenCalled();
+		expect(
+			roster.entries().map(({ sessionId }) => sessionId),
+			"no longer held",
+		).not.toContain(held.sessionId);
+	});
+
+	it("starts no child for a second wake queued ahead of an end", async () => {
+		const held = entry();
+		await roster.hold(held);
+		const moved = children([held.sessionId]);
+		let fail: (why: Error) => void = () => undefined;
+		moved.fake.resume.mockImplementationOnce(
+			() =>
+				new Promise<SessionIdentity>((_resolve, reject) => {
+					fail = reject;
+				}),
+		);
+		moved.fake.giveUp.mockImplementationOnce(() =>
+			fail(new Error("was given up")),
+		);
+		const backend = backendWith(engine(), moved.fake);
+		const first = backend.wake(held.sessionId);
+		const firstFailed = expect(first).rejects.toThrow("was given up");
+		await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalled());
+		const second = backend.wake(held.sessionId);
+		const ending = backend.execute({
+			v: 1,
+			id: "e",
+			op: "close",
+			sessionId: held.sessionId,
+		});
+
+		await firstFailed;
+		await second;
+		expect(await ending).toEqual({ sessionId: held.sessionId });
+		expect(
+			moved.fake.resume,
+			"the second wake started no child",
+		).toHaveBeenCalledTimes(1);
+		expect(roster.entries(), "no longer held").toEqual([]);
+	});
+
 	it("passes the rollout gate before its child starts beside another", async () => {
 		const held = entry();
 		await roster.hold(held);

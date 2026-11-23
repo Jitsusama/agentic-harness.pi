@@ -349,6 +349,9 @@ export function hostBackend(options: {
 	// Each conversation's wakes and ends, one at a time, so a close never
 	// lands between a wake's look at the roster and its resume.
 	const turns = new Map<string, Promise<unknown>>();
+	// Each conversation's ends asked but not yet in their turn, counted, so
+	// a wake ahead of one starts no child it would wait out (F24).
+	const ending = new Map<string, number>();
 	// Each open or adopt from its roster hold until its start has settled.
 	// The engine lists a conversation as it registers it, seconds before
 	// its screen exists, and a join in place takes a listed conversation as
@@ -401,6 +404,9 @@ export function hostBackend(options: {
 			try {
 				if (another) await options.admitAnother?.("wake");
 				if (children?.moves(sessionId)) {
+					// An end asked since takes it, held and not running, as it
+					// would after a starved child; none is started to be given up.
+					if (ending.has(sessionId)) return;
 					await children.resume(entry, true);
 					// One whose child already ended was rested again as it ended,
 					// so the host keeps watching its wake.
@@ -723,7 +729,11 @@ export function hostBackend(options: {
 		// A wake ahead of it in its turn may wait on a starved child for
 		// minutes: that resume is given up, so the end comes at once.
 		children?.giveUp?.(sessionId);
+		ending.set(sessionId, (ending.get(sessionId) ?? 0) + 1);
 		return inTurn(sessionId, async () => {
+			const left = (ending.get(sessionId) ?? 1) - 1;
+			if (left > 0) ending.set(sessionId, left);
+			else ending.delete(sessionId);
 			await owed;
 			// A park under way holds it while no longer running: once settled,
 			// it is closed as a parked one, its viewers told and the end said.
