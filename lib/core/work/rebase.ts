@@ -40,6 +40,7 @@ import {
 	staleIn,
 } from "./appends.ts";
 import { keptLine, type Landed, landedAs } from "./landed.ts";
+import { remoteTrunk } from "./merged-branch.ts";
 import { ask, conflictedIn } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
@@ -491,6 +492,63 @@ async function keepBaseSide(
 	return done.stderr.trim() || `git checkout exited ${done.code}`;
 }
 
+/** Whether git says `ancestor` is in the history of `of`. */
+async function isAncestor(
+	exec: Exec,
+	treePath: string,
+	ancestor: string,
+	of: string,
+): Promise<boolean> {
+	const said = await exec("git", [
+		"-C",
+		treePath,
+		"merge-base",
+		"--is-ancestor",
+		ancestor,
+		of,
+	]);
+	return said.code === 0;
+}
+
+/**
+ * Where the branch leaves trunk, when a plain replay onto `onto` would
+ * carry trunk's commits along as though they were the branch's own.
+ *
+ * A replay takes every commit the base lacks. A base cut before trunk
+ * merged some work lacks the merged commits, though it may hold copies of
+ * them, and with cherry-picks reapplied (see `REAPPLY_CHERRY_PICKS`)
+ * nothing matches the copies. On 23 November a core.nix branch sitting at
+ * a merge on main, asked onto a branch holding that work's earlier copies,
+ * "replayed 8 commits" and put seven of main's back, reverting main's later
+ * edits to eight files.
+ *
+ * So the replay starts where the branch leaves trunk whenever the base
+ * doesn't hold that point. A base that does (trunk itself, or a branch
+ * built on the trunk the branch was cut from) is replayed onto as before,
+ * and so is every base in a checkout with no remote trunk to judge by.
+ */
+async function trunkFork(
+	exec: Exec,
+	treePath: string,
+	onto: string,
+): Promise<string | undefined> {
+	const trunk = await remoteTrunk(exec, treePath);
+	if (trunk === undefined) return undefined;
+	const fork = await ask(exec, treePath, ["merge-base", "HEAD", trunk]);
+	if (fork === undefined) return undefined;
+	const held = await exec("git", [
+		"-C",
+		treePath,
+		"merge-base",
+		"--is-ancestor",
+		fork,
+		onto,
+	]);
+	// Exit 1 is git saying no; anything else is git failing to say, and a
+	// replay git can't judge is left as it always was.
+	return held.code === 1 ? fork : undefined;
+}
+
 /** Replay with plain git. */
 export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 	const { exec } = deps;
@@ -648,35 +706,34 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				};
 			}
 
-			const before = await ask(exec, treePath, [
+			const above = await ask(exec, treePath, [
 				"rev-list",
 				"--count",
 				`${onto}..HEAD`,
 			]);
+			const ontoHeld = await isAncestor(exec, treePath, onto, "HEAD");
 			// No commit of its own is not the same as being there: a branch cut
 			// from main and asked onto a branch built on main has none, yet the
 			// base holds commits it lacks, and the rebase moves it up to them.
 			// Only a base the branch already holds leaves nothing to do.
-			if (
-				before === "0" &&
-				(
-					await exec("git", [
-						"-C",
-						treePath,
-						"merge-base",
-						"--is-ancestor",
-						onto,
-						"HEAD",
-					])
-				).code === 0
-			) {
+			if (above === "0" && ontoHeld) {
 				return { kind: "already-there", branch, onto };
 			}
 
-			const result = await exec(
-				"git",
-				unattended(["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS, onto]),
-			);
+			const fork = ontoHeld ? undefined : await trunkFork(exec, treePath, onto);
+			const before =
+				fork === undefined
+					? above
+					: await ask(exec, treePath, [
+							"rev-list",
+							"--count",
+							"HEAD",
+							`^${onto}`,
+							`^${fork}`,
+						]);
+			const replay = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
+			replay.push(...(fork === undefined ? [onto] : ["--onto", onto, fork]));
+			const result = await exec("git", unattended(replay));
 			if (result.code === 0) {
 				return {
 					kind: "replayed",

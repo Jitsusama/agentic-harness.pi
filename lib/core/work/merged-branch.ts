@@ -50,7 +50,7 @@ export interface WentBranch {
  * a local branch by hand, falls back to origin/main rather than judging
  * by something that is not the remote's trunk.
  */
-async function remoteTrunk(
+export async function remoteTrunk(
 	exec: Exec,
 	checkout: string,
 ): Promise<string | undefined> {
