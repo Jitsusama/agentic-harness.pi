@@ -8,10 +8,13 @@
  *
  * A tree goes as its origin, its branch and the commit it stood at, with
  * a bundle of the commits no remote has and a patch of what was never
- * committed. One on no branch is carried only when there is nothing to
- * carry, a snapshot of a commit a remote has, which the other machine
- * cuts again if it wants one; any other is refused and named, never a
- * reason to carry nothing, since the rest of the work still goes.
+ * committed. One on no branch is skipped and named, its files left where
+ * they are on this machine: a snapshot is cut again there when it is
+ * wanted. Refusing them closed live sessions and failed whole carries on
+ * 23 November, for 2, 11 and 87 such trees, and judging each one clean
+ * took seconds a tree in World. One gone from this machine, whose record
+ * outlived it, is skipped too. Any other tree that can't go is refused
+ * and named, never a reason to carry nothing, since the rest still goes.
  *
  * A session file larger than the largest a mycelium share carries goes
  * gzipped, named with `.gz`, which arriving unzips; any other goes as
@@ -25,6 +28,7 @@ import {
 	copyFileSync,
 	createReadStream,
 	createWriteStream,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	renameSync,
@@ -163,16 +167,20 @@ async function carryTreeAway(
 		return said.code === 0 ? said.stdout.trim() : undefined;
 	};
 	const no = (why: string): TreeCarried => ({ kind: "refused", path, why });
+	// A record outlives a tree removed by hand: 16 of 18 refused at once.
+	if (!existsSync(path)) {
+		return {
+			kind: "skipped",
+			path,
+			why: "It is gone from this machine, so there is nothing of it to carry.",
+		};
+	}
 	if ((await ask("symbolic-ref", "-q", "HEAD")) === undefined) {
-		return (await isPlainSnapshot(ask))
-			? {
-					kind: "skipped",
-					path,
-					why: "It is on no branch, at a commit a remote has, with nothing changed: there is nothing to carry.",
-				}
-			: no(
-					"It is on no branch, so its commits or changes would have nowhere to go there. Make one with a branch action first.",
-				);
+		return {
+			kind: "skipped",
+			path,
+			why: "It is on no branch, so it isn't carried: a snapshot is cut again there when it is wanted, and anything changed in it stays here.",
+		};
 	}
 	const origin = await ask("config", "--get", "remote.origin.url");
 	if (origin === undefined) {
@@ -205,16 +213,6 @@ async function carryTreeAway(
 		...(patched.kind === "patched" ? { patch: patched.patch } : {}),
 	};
 	return { kind: "carried", path, tree };
-}
-
-/** Whether a tree on no branch is clean, at a commit a remote has. */
-async function isPlainSnapshot(
-	ask: (...args: string[]) => Promise<string | undefined>,
-): Promise<boolean> {
-	const changed = await ask("status", "--porcelain", "--untracked-files=all");
-	if (changed !== "") return false;
-	const held = await ask("branch", "--remotes", "--contains", "HEAD");
-	return held !== undefined && held !== "";
 }
 
 /**

@@ -124,7 +124,7 @@ describe("carrying a session's work away", () => {
 		});
 	});
 
-	it("passes over a snapshot of a commit a remote has, with nothing in it to carry", async () => {
+	it("passes over a snapshot on no branch, to be cut again there", async () => {
 		const { home, tree, into } = await homeWithTree();
 		await git(tree, "checkout", "-q", "--detach");
 
@@ -142,12 +142,33 @@ describe("carrying a session's work away", () => {
 			{
 				kind: "skipped",
 				path: tree,
-				why: expect.stringContaining("nothing to carry"),
+				why: expect.stringContaining("on no branch"),
 			},
 		]);
 	});
 
-	it("refuses a tree on no branch with work in it, and still carries the rest", async () => {
+	// Records of trees removed by hand were refused, 16 of 18 at once.
+	it("passes over a tree gone from this machine", async () => {
+		const { home, into } = await homeWithTree();
+		const gone = join(home, "src", "gone");
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-gone", cwd: home },
+			trees: [gone],
+		});
+
+		expect(carried.trees).toEqual([
+			{ kind: "skipped", path: gone, why: expect.stringContaining("gone") },
+		]);
+	});
+
+	// Refusing these closed live sessions on 23 November: what was
+	// committed or changed in it stays here, where it was.
+	it("passes over a tree on no branch with work in it, and still carries the rest", async () => {
 		const { origin, home, tree, into } = await homeWithTree();
 		await git(tree, "checkout", "-q", "--detach");
 		await commit(tree, "lost.txt", "would be lost\n");
@@ -163,9 +184,13 @@ describe("carrying a session's work away", () => {
 		});
 
 		expect(carried.trees.map((one) => one.kind)).toEqual([
-			"refused",
+			"skipped",
 			"carried",
 		]);
+		expect(
+			await git(tree, "log", "-1", "--format=%s"),
+			"its commit stays here",
+		).toContain("lost.txt");
 		expect(carried.handover.trees.map((one) => one.path)).toEqual([
 			"~/src/other",
 		]);
