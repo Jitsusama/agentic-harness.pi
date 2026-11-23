@@ -1622,6 +1622,28 @@ describe("why a session stays awake", () => {
 				readParked(SESSION, folder)?.afterMs,
 				"a drain's park says so, and its wake isn't the rule's",
 			).toBe(0);
+			drained.stop();
+			writeFileSync(parkSwitch(folder), "\n");
+			clock = 0;
+			const drainedSwitchedOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedSwitchedOff.look(),
+				"a drain parks it with the switch off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION]);
+			drainedSwitchedOff.stop();
+			writeFileSync(parkSwitch(folder), "off\n");
+			clock = 0;
+			const drainedLineOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedLineOff.look(),
+				"a drain parks it under a line off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION, SESSION]);
 		} finally {
 			host.dispose();
 		}

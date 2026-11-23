@@ -85,6 +85,12 @@ It is off until one of these turns it on:
   minute ahead is taken back. The node writes it as the session's
   own user, so the folder is no boundary between accounts.
 
+- **A host's drain,** which drops the idle wait for each
+  conversation it holds, with the switch empty or its line `off`
+  too, since the host itself asked for it. Each still parks only
+  once its turn ends and the rest of the rule holds, and
+  `PI_PARK=off` still keeps a session out of a drain's park.
+
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule
 wakes its sessions can be counted.
@@ -106,9 +112,12 @@ record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
 A conversation in a multi-session host parks by the same rule, five
-minutes at most in a background host, but never ends the host's
-process, which is every conversation the host runs. The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
-sets for each conversation) and a written log are asked of it. It says
+minutes at most in a background host (bar one while a window views
+it, and every one on macOS, which keep the usual limit as above
+outside a drain), but never ends the host's process, which is every
+conversation the host runs. The host holds it, so only its wake
+(`MYCELIUM_WAKE`, which the host sets for each conversation) and a
+written log are asked of it. It says
 `parked` and writes its marker as below, then asks the host to park
 it (`Host.park`), which frees its session and screen while keeping it
 held, its window open, and wakes it in place at the wake file, a key
