@@ -65,7 +65,12 @@ import {
 	resolveQuestsRoot,
 } from "../lib/core/quest/config.ts";
 import { createTreeMemory } from "../lib/core/work/memory.ts";
-import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
+import { recordArrival } from "../lib/internal/carry/arrival-record.ts";
+import {
+	type ArrivalLine,
+	arrive,
+	arrivedIn,
+} from "../lib/internal/carry/arrive.ts";
 import { sandboxAsking } from "../lib/internal/carry/fence.ts";
 import {
 	doneFileOf,
@@ -245,6 +250,11 @@ if (arriving) {
 		}
 		process.exit(0);
 	}
+	const said: ArrivalLine[] = [];
+	const sayKept = (line: ArrivalLine) => {
+		said.push(line);
+		say(line);
+	};
 	const whole = await arrive({
 		exec,
 		from: handover,
@@ -256,7 +266,7 @@ if (arriving) {
 			now: () => Date.now(),
 			sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 		},
-		say,
+		say: sayKept,
 		takeNotes: async (carried, notes) => {
 			const store = await openMemoryStore(await memoryDbPath());
 			try {
@@ -265,7 +275,27 @@ if (arriving) {
 				await store.close();
 			}
 		},
+	}).catch((error: unknown) => {
+		sayKept({
+			kind: "failed",
+			why: `Arriving failed: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		return false;
 	});
+	// A held start's output dies with its hold, so what it said is kept;
+	// a record that can't be written never stops the session starting.
+	try {
+		recordArrival(scratch, session, {
+			at: new Date().toISOString(),
+			from,
+			whole,
+			said,
+		});
+	} catch (error) {
+		process.stderr.write(
+			`pi-carry: couldn't record this arrival: ${error instanceof Error ? error.message : String(error)}\n`,
+		);
+	}
 	if (whole && carrier !== undefined && why !== undefined) {
 		tellCarried(stateDir("steer"), {
 			session,

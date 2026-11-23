@@ -405,8 +405,9 @@ committed, untracked files included, made from a copy of the tree's
 index so the tree's own index and files are never touched, and is
 absent when it was clean. A tree on no branch, or one gone from
 the machine, is passed over, its files left where they are; one
-git can't read is refused; the rest still go. `fence` is how the session's commands were fenced
-(its `PI_SANDBOX`), and `notes` are its quest's remembered facts,
+git can't read as a tree of its own is refused; the rest still go.
+`fence` is how the session's commands were fenced (its
+`PI_SANDBOX`), and `notes` are its quest's remembered facts,
 which live in each machine's own memory store; older harnesses
 leave both out. The quest's own done file holds trees only.
 
@@ -414,10 +415,10 @@ leave both out. The quest's own done file holds trees only.
 `pi --session <id>`. It waits up to ten minutes for the done file
 and every file it names, since the share may land late, saying
 `{"kind": "waiting", ...}` each half minute. Then each tree is
-cloned from its origin where nothing is, or fetched where it
-stands with that origin and nothing changed, given what it needs
-from the remotes named, the bundle's commits, its branch at its
-head and its patch; one line each, `{"kind": "tree", "path",
+cloned where nothing is, or fetched where it stands with that
+origin and nothing changed, given what it needs from the remotes
+named, the bundle's commits, its branch at its head and its patch;
+one line each, `{"kind": "tree", "path",
 "branch", "did": "cloned" | "fetched" | "refused", "why"?}`. A
 folder with another origin or changes of its own, or a branch
 holding commits the carried one lacks, is refused, never written
@@ -430,6 +431,16 @@ and it ends with `{"kind": "sessions", "sessions": [{"id", "cwd"}],
 starts pi under that one, never another. It exits 1 when a tree was
 refused, the notes couldn't be added or nothing came, so nothing
 starts half arrived, and 64 when it was asked wrongly.
+
+A tree is cloned from a twin, a repository near where it goes with
+the same origin that is neither shallow nor partial, with
+`--shared`, so it borrows the twin's objects and writes nothing
+into it; its origin is then set to the carried one, and what it
+needs comes from there one branch at a time. Only with no twin is
+the origin cloned whole. A tree cloned here takes the sparse
+checkout it left in. Each arrival writes every line it said, and
+whether it came whole, to `arrivals/<session>.json` in the quest's
+scratch, since a held start's output ends with its hold.
 
 `pi-carry settle` lets the old place go, on the machine the session
 left. The node runs it once the arrival is confirmed and the carry
