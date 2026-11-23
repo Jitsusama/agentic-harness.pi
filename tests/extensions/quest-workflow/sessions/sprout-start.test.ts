@@ -1190,6 +1190,8 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/blob/main/docs/rfc.md",
 			"https://github.com/o/repo/blob/main/x.ts#L42",
 			"https://github.com/o/repo/commit/abc123",
+			// One in a tab no ref reads, past the depth a place goes to.
+			"https://github.com/o/repo/milestone/3",
 			// GitHub's own pages name no owner, and an advisory is the work.
 			"https://github.com/advisories/GHSA-abcd-efgh-ijkl",
 		].entries()) {
@@ -1208,6 +1210,19 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/issues",
 			"https://github.com/o/repo/actions",
 			"https://github.com/o/repo/commits/main",
+			// Every tab, not only those a list once named.
+			"https://github.com/o/repo/milestones",
+			"https://github.com/o/repo/labels",
+			"https://github.com/o/repo/settings",
+			"https://github.com/o/repo/security",
+			// An organisation's tabs, which parseRef reads as no ref.
+			"https://github.com/orgs/acme/repositories",
+			"https://github.com/orgs/acme/people",
+			// GitHub's own pages, which list work but are none of it.
+			"https://github.com/topics/rust",
+			"https://github.com/sponsors/someone",
+			"https://github.com/search?q=lighthouse",
+			"https://github.com/advisories",
 		].entries()) {
 			const one = await start(
 				{ link, words: `list ${n}`, id: `SL${n}` },

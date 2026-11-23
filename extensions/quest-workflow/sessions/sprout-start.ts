@@ -459,11 +459,13 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * work happens (PLACES), so its first words never call the page the
  * work. A link merely carrying a place's address is no place. GitHub's
  * own ways of linking a place count too, which parseRef reads as no
- * ref: an organisation, a repository with a query such as
- * ?tab=readme-ov-file, a branch or folder in one (/tree) and a branch's
- * history (/commits/main). A file
- * (/blob) is often the work itself, a spec or a line, so it reads as
- * the work.
+ * ref: up to three parts of a path name an owner, a repository or one
+ * of its tabs (?tab=readme-ov-file, /pulls, /milestones, /settings), an
+ * organisation's tabs (/orgs/o/repositories) or one of GitHub's own
+ * pages (/topics/rust, /search); deeper, a branch or folder (/tree) and
+ * a branch's history (/commits/main) are places too. One advisory
+ * (/advisories/GHSA-...) is the work, and so is a file (/blob), often a
+ * spec or a line.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
 	const url = seed.link ? webAddress(seed.link) : undefined;
@@ -471,36 +473,26 @@ function linkIsPlace(seed: SproutSeed): boolean {
 	const path = url ? url.pathname.split("/").filter((part) => part !== "") : [];
 	// Before pageRead: parseRef reads /advisories/GHSA-... as an owner's
 	// repository.
-	if (onGitHub && GITHUB_OWN.has(path[0] ?? "")) return false;
+	if (onGitHub && path[0] === GITHUB_ADVISORIES) return path.length === 1;
 	const read = pageRead(seed);
 	if (read) return PLACES.has(read.ref.type);
 	if (!onGitHub) return false;
 	return (
-		path.length === 1 ||
-		path.length === 2 ||
-		(path.length === 3 && GITHUB_LISTS.has(path[2] ?? "")) ||
-		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
+		path.length <= GITHUB_PLACE_DEPTH ||
+		GITHUB_PLACES.has(path[GITHUB_PLACE_DEPTH - 1] ?? "")
 	);
 }
 
+/** GitHub's advisories, each of which (/advisories/GHSA-...) is the work. */
+const GITHUB_ADVISORIES = "advisories";
+
 /**
- * GitHub's own pages, which no owner can be named: an advisory there
- * (/advisories/GHSA-...) is a piece of work, so none of them reads as a
- * place.
+ * The most parts of a GitHub path naming a place whatever they are: an
+ * owner, a repository and one of its tabs. Deeper, one in a list
+ * (/pull/9, /issues/4) is read as its ref, and a file or a commit is
+ * the work.
  */
-const GITHUB_OWN: ReadonlySet<string> = new Set([
-	"advisories",
-	"apps",
-	"collections",
-	"explore",
-	"features",
-	"marketplace",
-	"notifications",
-	"search",
-	"settings",
-	"sponsors",
-	"topics",
-]);
+const GITHUB_PLACE_DEPTH = 3;
 
 /**
  * Where in a GitHub repository its own code is, a folder or a branch's
@@ -508,23 +500,6 @@ const GITHUB_OWN: ReadonlySet<string> = new Set([
  * is the work.
  */
 const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "commits"]);
-
-/**
- * A GitHub repository's own lists, such as every open pull request: a
- * place, though one in them (/pull/9, /issues/4) is the work.
- */
-const GITHUB_LISTS: ReadonlySet<string> = new Set([
-	"pulls",
-	"issues",
-	"actions",
-	"releases",
-	"branches",
-	"tags",
-	"commits",
-	"discussions",
-	"projects",
-	"wiki",
-]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
