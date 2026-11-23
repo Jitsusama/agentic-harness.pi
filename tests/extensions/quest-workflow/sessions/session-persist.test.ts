@@ -76,7 +76,8 @@ async function triesPastLettingGo(
 	let results = 0;
 	let letGoAt: number | undefined;
 	while (letGoAt === undefined || results - letGoAt < TRIES_PAST_LETTING_GO) {
-		if (results > PENDING_TRIES) throw new Error("the quest was never let go");
+		if (letGoAt === undefined && results > PENDING_TRIES)
+			throw new Error("the quest was never let go");
 		state.pendingRetryAt = 0;
 		results++;
 		await result(
@@ -639,19 +640,29 @@ describe("persist + restore", () => {
 			if (!result) throw new Error("no tool_result handler");
 			const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
 			const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+			// Everything sent from here on, whatever its words, so a second
+			// line or one sent as the user is seen (PV3TE0's round 2, F1).
+			const sent = pi.recorded.sentWith.length;
+			const sentAsUser = pi.recorded.sentAsUser.length;
 			await triesPastLettingGo(next, result, ctx);
 			expect(next.pendingQuest, "let go").toBeUndefined();
-			const said = pi.recorded.sentWith.filter(({ message }) =>
-				String(message.content).includes("never found again"),
-			);
-			expect(said, "said once, in the log").toHaveLength(1);
-			expect(said[0]?.message.customType, "named for what it says").toBe(
-				"quest-let-go",
-			);
-			expect(said[0]?.message.display, "the viewer shows it").toBe(true);
-			expect(said[0]?.options, "it never starts a turn").toEqual({
-				triggerTurn: false,
-			});
+			expect(
+				pi.recorded.sentWith.slice(sent),
+				"said once, in the log, never starting a turn",
+			).toEqual([
+				{
+					message: expect.objectContaining({
+						customType: "quest-let-go",
+						content: expect.stringContaining("never found again"),
+						display: true,
+					}),
+					options: { triggerTurn: false },
+				},
+			]);
+			expect(
+				pi.recorded.sentAsUser.slice(sentAsUser),
+				"nor as the user",
+			).toEqual([]);
 			expect(ui.notify, "no interface to tell").not.toHaveBeenCalled();
 		} finally {
 			uninstall();
