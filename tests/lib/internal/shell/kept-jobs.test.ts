@@ -653,6 +653,24 @@ describe("a call's own record, taken back as the call ends", () => {
 		);
 	});
 
+	// The close runs on the thread while the removal's rename still waits
+	// for the disk; removing the record then would leave the taker none.
+	it("leaves the record for the taker when the giver's session closes before its removal's rename starts", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
+		);
+		expect(existsSync(`${job.work.keep}.job`), "still at its name").toBe(true);
+		disownKeptJob(job.work.keep);
+		forgetKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+	});
+
 	// A rollover's recorder can write the record again once the call's own
 	// removal has ended, where only the session's close takes it back.
 	it("leaves no record once a close took back one written after its removal ended", async () => {
@@ -921,6 +939,73 @@ describe("a call's own record, taken back as the call ends", () => {
 			expect(labelsIn(where), "its record, back for the taker").toEqual([
 				"run j1",
 			]),
+		);
+	});
+
+	// A move that couldn't be written stops what it handed and removes
+	// its files, so no taker comes for the call.
+	it("says its call's files went when a hand-off was undone before its removal outlasted its wait", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep, { waitMs: 200 });
+		await parkedByTheClock();
+		disownKeptJob(job.work.keep);
+		await removeKept(job.work.keep);
+		vi.advanceTimersByTime(200);
+		await going;
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line, that nothing takes the call up",
+		).toEqual([expect.stringMatching(/files went meanwhile/)]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"no record put back",
+			).toEqual([]),
+		);
+	});
+
+	it("stops waiting, saying nothing, once the call is stopped", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const stop = new AbortController();
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep, {
+			signal: stop.signal,
+			waitMs: 60_000,
+		});
+		await parkedByTheClock();
+		stop.abort();
+		expect(
+			await Promise.race([
+				going.then(() => "ended"),
+				new Promise((done) => setTimeout(() => done("held"), SETTLES_IN_MS)),
+			]),
+			"its wait, ended by the stop",
+		).toBe("ended");
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"nothing said of a removal a stopped call leaves to its files'",
+		).toEqual([]);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"its removal, gone on behind",
+			).toEqual([]),
 		);
 	});
 

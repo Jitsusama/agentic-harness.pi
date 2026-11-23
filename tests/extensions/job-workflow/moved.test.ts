@@ -37,6 +37,12 @@ import {
 } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
+/**
+ * How long a stopped call's shell may take to end: a TERM to a sleep
+ * ends it at once, so this only bounds a stop that regressed.
+ */
+const STOPS_IN_MS = 5_000;
+
 const made: string[] = [];
 afterEach(() => {
 	for (const dir of made.splice(0))
@@ -188,8 +194,9 @@ describe("carrying away", () => {
 		});
 		const exited = new Promise((done) => shell.once("exit", done));
 		// Its group is what the stop kills; without a pid it would be ours.
-		if (shell.pid === undefined) throw new Error("its sleep never started");
-		const work = { ...(await shellWork()), pid: shell.pid, mark };
+		const pid = shell.pid;
+		if (pid === undefined) throw new Error("its sleep never started");
+		const work = { ...(await shellWork()), pid, mark };
 		recordKeptJob({ session: "s1", id: "j1", kind: "shell", label: "x", work });
 		jobs.start({
 			kind: "shell",
@@ -204,12 +211,24 @@ describe("carrying away", () => {
 			},
 			5000,
 		);
-		expect(carried, "nothing carried").toBeUndefined();
-		await exited;
-		forgetKeptJob(work.keep);
-		await vi.waitFor(() =>
-			expect(existsSync(`${work.keep}.job`), "its record, gone").toBe(false),
-		);
+		try {
+			expect(carried, "nothing carried").toBeUndefined();
+			expect(
+				await Promise.race([
+					exited.then(() => "stopped"),
+					new Promise((done) => setTimeout(() => done("running"), STOPS_IN_MS)),
+				]),
+				"what it handed, stopped",
+			).toBe("stopped");
+			forgetKeptJob(work.keep);
+			await vi.waitFor(() =>
+				expect(existsSync(`${work.keep}.job`), "its record, gone").toBe(false),
+			);
+		} finally {
+			// A stop that regressed would leave its sleep running past the run.
+			if (shell.exitCode === null && shell.signalCode === null)
+				process.kill(-pid, "SIGKILL");
+		}
 	});
 
 	it("writes nothing when there is nothing to carry", () => {

@@ -442,6 +442,28 @@ describe("a kept call", () => {
 		);
 	});
 
+	// Its shell has ended, so waiting longer would only hold the stop the
+	// person asked for.
+	it("settles at once when stopped while its record goes", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal).then(
+			() => "settled",
+			() => "settled",
+		);
+		await until("its record unlinked", () => call.recordGone());
+		await turns(5);
+		call.stop();
+		expect(
+			await Promise.race([running, settlesWithin()]),
+			"settled while the disk holds its record's removal",
+		).toBe("settled");
+		disk.go();
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+	});
+
 	// A move or a host's stop meeting a job neither carriable nor ended
 	// leaves it behind and stops it, its real status never said.
 	it("can still be carried while its record goes", async () => {
@@ -681,6 +703,8 @@ function endsRecorded({
 		kept,
 		signal: stopping.signal,
 		keep: () => keep,
+		/** Stop the call, as the person pressing stop does. */
+		stop: () => stopping.abort(),
 		/** Record the call's job again, as one taking it up does. */
 		record,
 		recordGone: () => keep !== "" && !existsSync(`${keep}.job`),
