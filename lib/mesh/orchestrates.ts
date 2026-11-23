@@ -23,11 +23,26 @@ export interface OrchestrationClaim {
 	readonly quests: readonly string[];
 }
 
-/** What the node said to a claim, or why it was never asked. */
+/**
+ * What the node said to a claim, or why it never answered. An unasked
+ * claim that `mayLand` was sent and never answered, as when mycelium
+ * timed out or was killed, so the node may have recorded it all the same.
+ */
 export type ClaimTold =
 	| { readonly kind: "recorded" }
 	| { readonly kind: "refused"; readonly why: string }
-	| { readonly kind: "unasked"; readonly why: string };
+	| {
+			readonly kind: "unasked";
+			readonly why: string;
+			readonly mayLand?: true;
+	  };
+
+/** Where a claim is asked from: the session's folder and environment. */
+export interface ClaimPlace {
+	readonly cwd: string;
+	/** The session's environment, this process's unless given. */
+	readonly env?: NodeJS.ProcessEnv;
+}
 
 /** How long `mycelium orchestrates` has to answer. */
 export const CLAIM_PATIENCE_MS = 20_000;
@@ -51,7 +66,7 @@ export function claimArguments(
 
 /**
  * Tell the node in `realm` what `session` orchestrates, or that it
- * orchestrates nothing, run from `cwd` with this process's environment
+ * orchestrates nothing, run from the place's folder with its environment
  * naming the session. Never throws: a node that can't be asked, or
  * refuses, is said in what it answers.
  */
@@ -59,13 +74,13 @@ export async function tellOrchestrates(
 	claim: OrchestrationClaim | "forget",
 	session: string,
 	realm: string,
-	cwd: string,
+	place: ClaimPlace,
 	run: RunProgram = runProgram,
 ): Promise<ClaimTold> {
 	const ran = await run("mycelium", claimArguments(claim, realm), {
-		cwd,
+		cwd: place.cwd,
 		timeoutMs: CLAIM_PATIENCE_MS,
-		env: { ...process.env, PI_SESSION_ID: session },
+		env: { ...(place.env ?? process.env), PI_SESSION_ID: session },
 	});
 	return toldBy(ran);
 }
@@ -76,7 +91,7 @@ function toldBy(ran: Ran): ClaimTold {
 	if (ran.noFolder) return unasked("the session's folder is gone");
 	if (ran.neverRan) return unasked(`mycelium couldn't start (${ran.neverRan})`);
 	if (ran.timedOut)
-		return unasked(
+		return sentUnanswered(
 			`mycelium answered nothing in ${CLAIM_PATIENCE_MS / 1000} s`,
 		);
 	const reply = lastJson(ran.stdout);
@@ -85,12 +100,20 @@ function toldBy(ran: Ran): ClaimTold {
 	if (ran.code === 0 && isRecord(reply) && "Ok" in reply)
 		return { kind: "recorded" };
 	const said = ran.stderr.trim().slice(0, MOST_SAID);
-	return unasked(said || `mycelium ended with ${ran.code ?? "no code"}`);
+	// Killed before it ended, its ask may already be with the node.
+	if (ran.code === null)
+		return sentUnanswered(said || "mycelium was stopped before it answered");
+	return unasked(said || `mycelium ended with ${ran.code}`);
 }
 
-/** A claim the node never answered, and why. */
+/** A claim the node never had, and why. */
 function unasked(why: string): ClaimTold {
 	return { kind: "unasked", why };
+}
+
+/** A claim sent that the node never answered, so it may have landed. */
+function sentUnanswered(why: string): ClaimTold {
+	return { kind: "unasked", why, mayLand: true };
 }
 
 /** The last line of `stdout` read as JSON, or nothing. */

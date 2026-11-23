@@ -83,13 +83,20 @@ shipped and tested.
   open marked quest loaded tells the mycelium node it heads that
   quest and orchestrates each open quest it is nearest above
   (`mycelium orchestrates`, `orchestration-claim.ts`), at session
-  start, after each quest action, and at a turn's start once five
-  minutes have passed or the quest changed. A claim the node
-  already holds is not asked again; loading a quest that
-  orchestrates nothing forgets one this session made. The node
-  refuses a claim another session already holds, and that refusal
-  is logged once as a warning in the system journal, tagged `pi`.
-  Without a node socket nothing is asked.
+  start, after each quest action, and at a turn's start once the
+  quest changed, or every five minutes, when it says the claim
+  again in case the node let it lapse. Between those, a claim the
+  node last recorded for this session is not asked again, and one
+  it refused or never answered waits five minutes. Loading a quest
+  that orchestrates nothing forgets the claim, and a session that
+  starts with nothing to claim forgets once, for a claim made
+  before a reload. A refusal leaves the node holding what it held,
+  so a quest headed before is then forgotten. The node refuses a
+  quest another session heads or lists, and each refusal is logged
+  once as a warning in the system journal, tagged `pi`. Asks run
+  one at a time with the session's own environment, at most one
+  waiting, and none after the session shuts down. Without a node
+  socket nothing is asked.
 - **What a session is doing**: after each quest action, each
   write to the focused plan and each start, it says (through
   `lib/internal/quest/sessions/doing.ts`)

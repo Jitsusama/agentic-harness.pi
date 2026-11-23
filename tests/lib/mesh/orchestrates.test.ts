@@ -58,7 +58,7 @@ describe("telling the node", () => {
 			{ heads: HEADS, quests: BELOW },
 			"sess-42",
 			"work",
-			"/",
+			{ cwd: "/", env: { PATH: "/the/session/s", MYCELIUM_REALM: "work" } },
 			run,
 		);
 
@@ -74,8 +74,14 @@ describe("telling the node", () => {
 		).toBe("sess-42");
 		expect(
 			asked[0]?.env?.PATH,
-			"the rest of the environment is this process's, so mycelium is found",
-		).toBe(process.env.PATH);
+			"the rest of the environment is the session's, so its mycelium is found",
+		).toBe("/the/session/s");
+	});
+
+	it("runs with this process's environment where no session's is given", async () => {
+		const { run, asked } = answering(OK);
+		await tellOrchestrates("forget", "sess-42", "work", { cwd: "/" }, run);
+		expect(asked[0]?.env?.PATH, "this process's PATH").toBe(process.env.PATH);
 	});
 
 	it("says the node's refusal in its own words", async () => {
@@ -87,7 +93,7 @@ describe("telling the node", () => {
 		});
 
 		expect(
-			await tellOrchestrates("forget", "sess-42", "work", "/", run),
+			await tellOrchestrates("forget", "sess-42", "work", { cwd: "/" }, run),
 			"the node's Err is a refusal",
 		).toEqual({
 			kind: "refused",
@@ -96,33 +102,50 @@ describe("telling the node", () => {
 	});
 
 	it("says why it never asked when mycelium is missing, stalls or fails", async () => {
-		const cases: [Ran, string][] = [
+		const cases: [Ran, string, boolean][] = [
 			[
 				{ code: null, stdout: "", stderr: "", missing: true },
 				"isn't installed",
+				false,
 			],
 			[
 				{ code: null, stdout: "", stderr: "", timedOut: true },
 				"answered nothing",
+				true,
+			],
+			[
+				{ code: null, stdout: "", stderr: "" },
+				"stopped before it answered",
+				true,
 			],
 			[
 				{ code: 1, stdout: "", stderr: "connecting to the node: refused\n" },
 				"connecting to the node: refused",
+				false,
+			],
+			[
+				{ code: 0, stdout: "not the node's\n", stderr: "" },
+				"mycelium ended with 0",
+				false,
 			],
 		];
-		for (const [ran, says] of cases) {
+		for (const [ran, says, mayLand] of cases) {
 			const told = await tellOrchestrates(
 				"forget",
 				"s",
 				"work",
-				"/",
+				{ cwd: "/" },
 				answering(ran).run,
 			);
-			expect(told.kind, `${says}: never asked`).toBe("unasked");
+			expect(told.kind, `${says}: never answered`).toBe("unasked");
 			expect(
 				told.kind === "unasked" && told.why,
 				`${says}: said why`,
 			).toContain(says);
+			expect(
+				told.kind === "unasked" && told.mayLand === true,
+				`${says}: whether the ask may have reached the node`,
+			).toBe(mayLand);
 		}
 	});
 });
