@@ -473,16 +473,16 @@ function takeBackAtExit(): void {
  * Take back, on the thread, what the disk had yet to remove as the
  * process exits, since its pool does nothing more once it has, and a
  * record or carried mark left would stand beside the call's end for its
- * next start to say again: the record of each removal still running,
- * but for a call handed on whose files stay, and the marks of each call
- * `removeKept` still removes. Only an exit does it, never a session's
+ * next start to say again: the record of each removal still running
+ * for a call not handed on, and the marks of each call `removeKept`
+ * still removes, which takes in a call handed on whose files then went. Only an exit does it, never a session's
  * close, since in a host the process lives on and the disk gets to them
  * off the thread; a pi killed outright runs nothing, and its next start
  * says the call's end again.
  */
 function takeRecordsBack(): void {
 	for (const [path, removal] of jobRecords.removing)
-		if (!removal.handed || removal.gone) unlinkNow(`${path}${JOB_SUFFIX}`);
+		if (!removal.handed) unlinkNow(`${path}${JOB_SUFFIX}`);
 	for (const path of jobRecords.ending.keys())
 		for (const mark of MARKS) unlinkNow(`${path}${mark}`);
 }
