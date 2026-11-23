@@ -29,7 +29,10 @@
 # defaults waits on TCP and so may take hours. Each waiter's limit is
 # its own, and waiters take the turn in no order, so a 75 says only that
 # its turn didn't come in time, not that the check before it hung. Exits
-# with what `pnpm check` exited with, or 75 when its turn never came.
+# with what `pnpm check`, or tests/package after it, exited with; 75 when
+# its turn never came; 143, 130 or 129 after a TERM, an INT, or a HUP or
+# its caller going; 2 for a branch, host, wait or agent it refuses; and
+# 1 when nix gives the host no node.
 #
 # An agent's check goes to penelope alone: elsewhere it would run a
 # pushed branch's install scripts and tests unfenced, as an account
@@ -73,7 +76,7 @@ case "$host" in
     ;;
 esac
 if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: an agent's check goes only to penelope, since $host would run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope" >&2
+  echo "check-there: an agent's check goes only to the host named penelope, since another, as the Mac does, may run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope" >&2
   exit 2
 fi
 
