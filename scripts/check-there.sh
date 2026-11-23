@@ -114,19 +114,23 @@ gone_within() {
   done
 }
 # Ends the groups named: a TERM, `stop_wait_s` seconds for them to go,
-# then a KILL to what is left. Its return says 0 outright: in a trap, a
-# bare one says what the command the trap landed in ended with.
+# then a KILL to what is left, said so. Its return says 0 outright: in a
+# trap, a bare one says what the command the trap landed in ended with.
 end_groups() {
   local group
   for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
   gone_within "${stop_wait_s:-10}" "$@" && return 0
+  echo "check-there: what it ran outlived ${stop_wait_s:-10} s, so it was killed" >&2
   for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
   gone_within 5 "$@" || true
 }
+# Stops the check as the signal its code `$1` names, said so its caller
+# can tell a stop from a failed check.
 stop_all() {
   trap '' TERM INT HUP
   local groups
-  # The job alone is ending what it left is gone from the table already.
+  echo "check-there: stopped by $(kill -l $(( $1 - 128 ))); ending what it runs, then passing its turn" >&2
+  # alone's job may be gone from the table while its group isn't.
   groups="$(jobs -p) ${ending:-}"
   # shellcheck disable=SC2086 # one word a group
   end_groups $groups
@@ -144,9 +148,9 @@ trap 'stop_all 129' HUP
 # rather than waited on, since a signal landing just as `wait` begins
 # waits for the job's end; a trap runs as soon as the second's sleep
 # ends. Work that would have no group of its own, as with job control
-# off, is refused before it runs, since no stop could reach it; and one
-# that runs without its group anyway is ended. The group is asked after
-# first, since a job ending between the two asks has had a group.
+# off, is refused before it runs, since no stop could reach it. Its
+# group is named for a stop as it starts, so a stop landing at any point
+# after reaches it, whatever bash's job table still holds.
 alone() {
   case "$-" in
     *m*) ;;
@@ -157,14 +161,8 @@ alone() {
   esac
   "$@" 9>&- </dev/null &
   local job=$! status=0
-  if ! kill -0 -- "-$job" 2>/dev/null && kill -0 "$job" 2>/dev/null; then
-    kill -KILL "$job" 2>/dev/null || true
-    wait "$job" 2>/dev/null || true
-    echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
-    return 1
-  fi
-  while kill -0 "$job" 2>/dev/null; do sleep 1; done
   ending=$job
+  while kill -0 "$job" 2>/dev/null; do sleep 1; done
   wait "$job" || status=$?
   end_groups "$job"
   ending=
