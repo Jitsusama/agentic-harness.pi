@@ -25,7 +25,66 @@ describe("condenseTranscript", () => {
 		expect(out).toContain("newest");
 		expect(out).not.toContain("oldest");
 	});
+
+	it("gives what dropping the oldest turns one at a time gives, at every cap", () => {
+		const words = [
+			"a",
+			"  ",
+			"fix the test",
+			"",
+			" keep it short ",
+			"x".repeat(40),
+		];
+		const turns: Turn[] = Array.from({ length: 30 }, (_, at) => ({
+			role: at % 3 === 0 ? "assistant" : "user",
+			text: `${words[at % words.length]}${at % 4 === 0 ? "" : ` ${at}`}`,
+		}));
+		const whole = droppingOldest(turns, Number.POSITIVE_INFINITY).length;
+
+		for (let cap = 0; cap <= whole + 1; cap++) {
+			for (const from of [0, 7, 29]) {
+				const some = turns.slice(from);
+				expect(condenseTranscript(some, cap)).toBe(droppingOldest(some, cap));
+			}
+		}
+		expect(condenseTranscript([], 10)).toBe("");
+	});
+
+	it("reads only the turns it keeps and the one that would not fit", () => {
+		const read: number[] = [];
+		const turns: Turn[] = Array.from({ length: 1_000 }, (_, at) => ({
+			role: "user",
+			get text() {
+				read.push(at);
+				return `turn ${at} of the session`;
+			},
+		}));
+
+		const out = condenseTranscript(turns, 100);
+
+		const kept = out.split("\n\n").length;
+		expect(kept).toBe(3);
+		expect(read).toEqual([999, 998, 997, 996]);
+	});
 });
+
+/** The transcript as it was condensed before, by dropping the oldest turn until it fits. */
+function droppingOldest(turns: readonly Turn[], maxChars: number): string {
+	const lines = turns
+		.filter((t) => t.text.trim().length > 0)
+		.map(
+			(t) => `${t.role === "user" ? "USER" : "ASSISTANT"}: ${t.text.trim()}`,
+		);
+	let transcript = lines.join("\n\n");
+	while (transcript.length > maxChars && lines.length > 1) {
+		lines.shift();
+		transcript = lines.join("\n\n");
+	}
+	if (transcript.length > maxChars) {
+		transcript = transcript.slice(transcript.length - maxChars);
+	}
+	return transcript;
+}
 
 describe("parseRules", () => {
 	it("parses a bare JSON array", () => {
