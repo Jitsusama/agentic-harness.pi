@@ -596,8 +596,10 @@ export async function answerWatching(
 	try {
 		return withBoards(await answer(watch), opened);
 	} finally {
+		// Every mark first: a board that throws taking itself down must
+		// not leave a later round held until pi restarts.
+		for (const made of opened) settledHere(made);
 		for (const made of opened) {
-			settledHere(made);
 			made.progress.finish();
 			made.close();
 		}

@@ -35,7 +35,12 @@ import {
 	sessionKey,
 } from "../engine.ts";
 import { GLYPH } from "../render.ts";
-import { answerLeftBehind, archivedAnswer, whyNotYet } from "../reviewer.ts";
+import {
+	answerLeftBehind,
+	archivedAnswer,
+	whyNotYet,
+	whySettling,
+} from "../reviewer.ts";
 import { collectedRun, recordReviewerRun } from "../run-record.ts";
 import { answerFor, judgeHandOff, keptOnLedger } from "./ask-answer.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -99,7 +104,17 @@ export async function stopRound(
 	// "collect it once they are gone": on 30 October five of the ten
 	// rounds open on the machine were rounds somebody had stopped and
 	// nobody collected, each one nagging every session at its start.
-	if (!(await goneWithin(artifacts, held, STOP_SETTLE_MS))) {
+	const holding = await heldPast(artifacts, held, STOP_SETTLE_MS);
+	if (holding !== undefined) {
+		// Held by a load still settling it, the reviewers may be gone and
+		// no session start would collect it either, so say that instead.
+		const settling = whySettling(held.id);
+		if (settling !== undefined) {
+			return say(
+				[`Asked every reviewer in ${held.id} to stop.`, settling].join("\n"),
+				{ run: held },
+			);
+		}
 		return say(
 			[
 				`Asked every reviewer in ${held.id} to stop.`,
@@ -123,19 +138,45 @@ export async function stopRound(
 		return collectFresh(change, held.id, artifacts);
 	}
 
-	// Marked closed rather than merely un-opened. A round with no
-	// outcomes that reads as finished becomes the latest council on the
-	// change, and the next judge would consolidate its nothing.
-	const closed: AskRun = { ...held, closed: true };
-	delete (closed as { open?: true }).open;
-	const kept = await keptOnLedger(change, closed);
-	return say(
-		[
-			`Nothing was running in ${held.id} and nobody left anything behind, so it is closed unfinished rather than left open forever.`,
-			"If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.",
-			...kept,
-		].join("\n"),
-		{ run: closed },
+	return closeFresh(change, held.id);
+}
+
+/**
+ * Close round `runId` unfinished as the ledger holds it now, under the
+ * lock a collect takes. Read again, as {@link collectFresh} reads, since
+ * a load a reload replaced can settle the round, failures and all,
+ * inside the stop's wait, and closing the copy read before it would
+ * write over what that load filed.
+ */
+async function closeFresh(change: ChangeRef, runId: string): Promise<Answer> {
+	const store = createRunStore(runDir());
+	return withFileLock(
+		join(runArtifactDir(), `${runId}.collecting`),
+		async () => {
+			const held = await store.byId(change, runId);
+			if (held?.open !== true) {
+				return say(
+					`${runId} settled on its own, so there is nothing to close.`,
+					{
+						runs: held === undefined ? [] : [held],
+					},
+				);
+			}
+			// Marked closed rather than merely un-opened. A round with no
+			// outcomes that reads as finished becomes the latest council on
+			// the change, and the next judge would consolidate its nothing.
+			const closed: AskRun = { ...held, closed: true };
+			delete (closed as { open?: true }).open;
+			const kept = await keptOnLedger(change, closed);
+			return say(
+				[
+					`Nothing was running in ${runId} and nobody left anything behind, so it is closed unfinished rather than left open forever.`,
+					"If its transcripts turn up under another state directory, the round is gone from this ledger and would have to be read there.",
+					...kept,
+				].join("\n"),
+				{ run: closed },
+			);
+		},
 	);
 }
 
@@ -333,15 +374,16 @@ const STOP_SETTLE_MS = 15_000;
 const STOP_POLL_MS = 250;
 
 /** Whether every reviewer of `held` is gone within `withinMs`. */
-async function goneWithin(
+async function heldPast(
 	artifacts: ReviewerArtifactsStore,
 	held: AskRun,
 	withinMs: number,
-): Promise<boolean> {
+): Promise<string | undefined> {
 	const deadline = Date.now() + withinMs;
 	for (;;) {
-		if ((await whyNotYet(artifacts, held)) === undefined) return true;
-		if (Date.now() >= deadline) return false;
+		const why = await whyNotYet(artifacts, held);
+		if (why === undefined) return undefined;
+		if (Date.now() >= deadline) return why;
 		await new Promise((done) => setTimeout(done, STOP_POLL_MS));
 	}
 }

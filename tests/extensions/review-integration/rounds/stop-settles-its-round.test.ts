@@ -182,6 +182,38 @@ describe("stopping a round", () => {
 		).toEqual([{ participantId: "hawk", findingIds: [filed?.id] }]);
 	});
 
+	// PV3TE0's third round on #2007: a round whose reviewers all failed
+	// leaves nothing behind, and closing the copy read before the wait
+	// would write over the failures the old load filed.
+	it("keeps what the old load filed when a round that left nothing settled while it waited", async () => {
+		const failed: ChangeRef = { ...change, id: "7", label: "o/stopped#7" };
+		const run = "council-20261030T224406000-000001";
+		const store = createRunStore(runDir());
+		await store.keep(failed, opened(run));
+		gone(run, false);
+		const oldLoad = {};
+		settlingHere(run, oldLoad);
+
+		const stopping = stopRound(failed, { run });
+		// Long enough for the stop to be polling, well inside its 15 s.
+		await new Promise((done) => setTimeout(done, 600));
+		const { open: _open, ...rest } = opened(run);
+		const outcomes: AskRun["outcomes"] = [
+			{ participantId: "hawk", findingIds: [], failure: "no provider" },
+		];
+		await store.keep(failed, { ...rest, outcomes });
+		settledHere(oldLoad);
+		const answer = await stopping;
+
+		expect(
+			answer.content[0]?.type === "text" ? answer.content[0].text : "",
+			"says it settled, not that it closed it",
+		).toContain("settled on its own");
+		const held = await store.byId(failed, run);
+		expect(held?.outcomes, "the old load's failures kept").toEqual(outcomes);
+		expect(held?.closed, "not closed by the stop").toBeUndefined();
+	});
+
 	it("closes one that left nothing, rather than leaving it open", async () => {
 		const other: ChangeRef = { ...change, id: "4", label: "o/stopped#4" };
 		const run = "council-20261030T224404000-000001";

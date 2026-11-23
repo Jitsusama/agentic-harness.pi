@@ -12,15 +12,18 @@
  * one's, and a round held here is still being run.
  */
 
-/** Where the marks are kept, the same for every load in the process. */
-const MARKS = Symbol.for("agentic-harness.review-integration.settling");
-
 /**
- * The shape of what is kept there. A load that changes it bumps this,
- * so an older load's record reads as somebody else's and is replaced
- * rather than misread, as the dock's registry is.
+ * The shape of what is kept. A load that changes it bumps this, and its
+ * record sits under a key of its own, so two loads of different shapes
+ * never replace each other's marks in the very reload that brings the
+ * change; a newer load should also read the older keys it knows.
  */
 const VERSION = 1;
+
+/** Where this version's marks are kept, the same for every load in the process. */
+const MARKS = Symbol.for(
+	`agentic-harness.review-integration.settling.v${VERSION}`,
+);
 
 /** A round marked: what marked it, so that one can clear its own, and when. */
 interface Mark {
