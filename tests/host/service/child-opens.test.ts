@@ -403,6 +403,23 @@ describe("a new conversation", () => {
 		expect(units.cpuAsks, "its refusal not held up by asking systemd").toBe(0);
 	});
 
+	it("refuses a begin that waits for its turn to start past its own time, starting no child for it", async () => {
+		superviseAgain({ clocks: { beginsWithinMs: 400 } });
+		// Two starts that never listen keep the gate full for their listen time.
+		units.traitsOf = () => ({ neverListens: true });
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const asked = Date.now();
+
+		await expect(supervisor.begin(opening("open-18"))).rejects.toThrow(
+			"waited past its time",
+		);
+		expect(Date.now() - asked, "at its time, not later").toBeLessThan(1_000);
+		expect(units.started, "no unit started for it").toHaveLength(2);
+		supervisor.close();
+		for (const one of held) await expect(one).rejects.toThrow();
+	});
+
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
 		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
 		units.next = { silent: true };
