@@ -107,8 +107,9 @@ Kinds:
   fence    the agent fence a pi session lays
   strict   the strict Landlock profile inside its root
 
-On a Mac both run under sandbox-exec, and strict writes
-only the folder.
+On a Mac both run under sandbox-exec, and strict keeps
+the home read-only but for the folder. It still writes
+the Mac's temporary folder and /tmp.
 
 Options:
   --folder DIR   where it runs and may write, the working

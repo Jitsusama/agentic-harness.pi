@@ -113,6 +113,16 @@ describe("reading how pi-fence was asked", () => {
 		);
 	});
 
+	it("says strict on a Mac still writes its temporary folders, so no one reads it as writing only the folder", () => {
+		const said = FENCE_RUN_HELP.replace(/\s+/g, " ");
+		expect(said, "names the writes outside the folder").toContain(
+			"It still writes the Mac's temporary folder and /tmp.",
+		);
+		expect(said, "claims no folder-only write").not.toContain(
+			"writes only the folder",
+		);
+	});
+
 	it("says what is wrong with a missing or unknown kind, a stray option or no command", () => {
 		const wrongs = [
 			["--", "true"],
