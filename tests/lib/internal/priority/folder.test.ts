@@ -569,10 +569,13 @@ describe("the machine's queue folder", () => {
 			shellSays("long-before", 100);
 			boot = undefined;
 			queue.keep(TIGHT, NOW, () => undefined);
-			expect(record().jobs.map((one) => one.id)).toEqual([
-				"since",
-				"long-before",
-			]);
+			// Sorted, since the record lists jobs as the folder does, which
+			// ext4 orders by hash and APFS by name.
+			expect(
+				record()
+					.jobs.map((one) => one.id)
+					.sort(),
+			).toEqual(["long-before", "since"]);
 		});
 
 		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {
