@@ -26,7 +26,7 @@ import { anchorableRanges, describeRanges } from "./anchorable.ts";
  * lookup and teaches it to distrust the rest of the prompt.
  */
 const ANSWER_AS_CONTRACTED =
-	"Answer in the JSON your output contract skill describes, each finding in the fields the review-finding-format skill gives. A pass with nothing to say answers with an empty findings list rather than prose.";
+	"Answer in the JSON your output contract skill describes, each finding in the fields the review-finding-format skill gives, plus any your round's contract adds. A pass with nothing to say answers with an empty findings list rather than prose.";
 
 /**
  * Where a reviewer looks, said in every round's prompt.

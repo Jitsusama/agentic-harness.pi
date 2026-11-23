@@ -2,14 +2,15 @@
 name: review-stack-format
 description: >
   Output contract for a reviewer in a review_ask stack round.
-  The council finding shape plus the refs field that says which
+  The review-finding-format shape plus the refs field that says which
   changes a finding is about, and why a cross-change finding
   stays one finding. Loaded into each subagent via --skill.
 ---
 
 # What a Stack-Wide Reviewer Answers With
 
-The council finding shape with one field added: `refs`, naming the
+The shape [`review-finding-format`](../review-finding-format) gives,
+with one field added: `refs`, naming the
 changes each finding is about. Answer with one JSON object.
 
 ```json

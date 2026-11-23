@@ -24,9 +24,9 @@ const root = join(
 /**
  * The path `ask-reviewer.ts` builds, spelled the same way.
  *
- * Kept as a literal rather than imported, because importing the tool
- * module would drag pi's extension API into a test that only wants to
- * know whether a file is on disk.
+ * Spelled out here rather than taken from the tool module, so a path
+ * the module builds wrongly fails against this one instead of agreeing
+ * with itself.
  */
 const contractPath = (round: string) =>
 	join(root, "skills", `review-${round}-format`, "SKILL.md");

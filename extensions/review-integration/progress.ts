@@ -353,7 +353,10 @@ export function watchRound(
 	// Pi's own signal still cancels, so a round stops when the turn does.
 	// Without this the board would be the only way out of something the
 	// session has already abandoned.
-	outer?.addEventListener("abort", () => whole.abort(), { once: true });
+	// A signal that fired before the round began fires no event, so it
+	// is read at once rather than only listened to.
+	if (outer?.aborted) whole.abort();
+	else outer?.addEventListener("abort", () => whole.abort(), { once: true });
 
 	const signalFor = (id: string): AbortSignal => {
 		const held = each.get(id);
