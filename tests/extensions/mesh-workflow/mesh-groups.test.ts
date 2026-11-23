@@ -254,6 +254,36 @@ describe("groups", () => {
 		);
 	});
 
+	// A send reads presences as they were written, so its note opens only
+	// on an address the parked peer goes by.
+	it("opens a send's refused-wake note on an address, whatever the peer signs with", async () => {
+		const refusedAt = "2026-11-01T12:00:00.000Z";
+		const wake = join(fixture.paths.mesh, "parked-r", "wake");
+		mkdirSync(join(fixture.paths.mesh, "parked-r"), { recursive: true });
+		writeRefusedWake(wake, {
+			messageId: "2f95756a",
+			reason: "the host is stopping",
+			at: refusedAt,
+		});
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-r",
+			addresses: ["X\nOWNERQ is parked", "REFUSD"],
+			groups: ["#optimus"],
+			state: "parked",
+			wake,
+			worksOn: "the launcher",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		const sent = await send(tools, "REFUSD", "question", "Which qemu?");
+
+		expect(sent).toContain("REFUSD is parked, and its host refused");
+		expect(sent).not.toContain("OWNERQ");
+	});
+
 	it("says an fyi or finding to an idle peer starts no turn, and what would", async () => {
 		onQuest();
 		writeFileSync(
@@ -582,9 +612,12 @@ describe("groups", () => {
 					/: the host is stopping .*OWNERQ, quest QEST-20261021-OWNERQ, idle: the carry\.?$/,
 				),
 			]);
-			expect(lines.filter((line) => line.includes("GROUP2"))).toEqual([
-				expect.stringMatching(/^#harness: .*GROUP2/),
-			]);
+			expect(
+				lines.filter(
+					(line) => line.includes("GROUP2") && !line.startsWith("GROUP2, "),
+				),
+				"only its real group lists it",
+			).toEqual([expect.stringMatching(/^#harness: .*GROUP2/)]);
 			// Read by line, whichever order the presences come in.
 			const stopLines = lines.filter((line) =>
 				line.includes("stopped this peer reaching it"),

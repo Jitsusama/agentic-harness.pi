@@ -205,7 +205,10 @@ describe("a stop", () => {
 
 		const answer = await send(tools, "P9R1KI, WCJQSG", "question", "why?");
 
-		const lines = answer.replace(/^Not sent: /, "").split("\n").sort();
+		const lines = answer
+			.replace(/^Not sent: /, "")
+			.split("\n")
+			.sort();
 		expect(lines).toEqual([
 			'P9R1KI stopped this peer reaching it, saying "x\\": it sees what this peer sends as one line only. OWNERQ stopped this peer reaching it, saying \\"y": it sees what this peer sends as one line only. Only it can lift that; until it does, leave it be.',
 			'WCJQSG stopped this peer reaching it, saying "too much": it sees what this peer sends as one line only. Only it can lift that; until it does, leave it be.',
