@@ -849,7 +849,9 @@ describe("children starting at once", () => {
 		superviseAgain({
 			clocks: { listensWithinMs: 300, answersWithinMs: 5_000 },
 		});
-		const [first, second, third] = [1, 2, 3].map(nth);
+		const first = nth(1);
+		const second = nth(2);
+		const third = nth(3);
 		// The first two keep the gate for a second, answering their watches
 		// late, past the 300 ms the third may take to listen.
 		units.traitsOf = (unit) =>
@@ -880,7 +882,8 @@ describe("children starting at once", () => {
 
 	it("starts a wake before the resumes queued ahead of it", async () => {
 		const holding = deferred();
-		const [first, second] = [1, 2].map(nth);
+		const first = nth(1);
+		const second = nth(2);
 		units.traitsOf = (unit) =>
 			unit === unitOf(first) || unit === unitOf(second)
 				? { listensWhen: holding.promise }
@@ -909,9 +912,38 @@ describe("children starting at once", () => {
 		);
 	});
 
-	it("starts none of the children waiting at the gate once the host stops watching, letting each go at once", async () => {
+	it("lets a wake given up while it waits at the gate go at once, starting no child for it", async () => {
 		const holding = deferred();
 		units.traitsOf = () => ({ listensWhen: holding.promise });
+		const starting = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const woken = nth(3);
+		const waking = supervisor.resume(entry(woken), true);
+		const outcome = expect(waking).rejects.toThrow("was given up");
+		// Long enough for it to reach its unit's start were there no gate.
+		await pause(100);
+		const asked = Date.now();
+
+		supervisor.giveUp(woken);
+
+		await outcome;
+		expect(Date.now() - asked, "at once").toBeLessThan(1_000);
+		holding.settle();
+		await Promise.all(starting);
+		expect(units.started, "no unit started for it").not.toContain(
+			unitOf(woken),
+		);
+	});
+
+	it("starts none of the children waiting at the gate once the host stops watching, letting each go at once", async () => {
+		// The first two hang in systemd's start, so neither gives its turn
+		// back: only the stop itself can let the waiting ones go.
+		const systemd = deferred();
+		const start = units.start;
+		units.start = async (unit) => {
+			await start(unit);
+			await systemd.promise;
+		};
 		const starting = [1, 2].map((n) => supervisor.resume(entry(nth(n))));
 		await vi.waitFor(() => expect(units.started).toHaveLength(2));
 		const waiting = [3, 4, 5].map((n) => supervisor.resume(entry(nth(n))));
@@ -921,11 +953,13 @@ describe("children starting at once", () => {
 
 		supervisor.close();
 
-		for (const one of [...starting, ...waiting])
+		for (const one of waiting)
 			await expect(one).rejects.toThrow("stopped watching");
 		expect(Date.now() - stopped, "let go at once").toBeLessThan(1_000);
 		expect(units.started, "none started past the gate").toHaveLength(2);
-		holding.settle();
+		systemd.settle();
+		for (const one of starting)
+			await expect(one).rejects.toThrow("stopped watching");
 		// Each started child listens later, and is left for the next host.
 		await vi.waitFor(() =>
 			expect([...units.children.values()].every(Boolean)).toBe(true),
