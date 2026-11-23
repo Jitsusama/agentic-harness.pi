@@ -221,13 +221,20 @@ describe("carrying away", () => {
 		);
 		// A pi quits straight after, and may exit before the disk gets to
 		// what it was left: its exit takes the marks back.
-		for (const hook of process.listeners("exit"))
-			if (hook.name === "takeRecordsBackAtExit") hook(0);
+		const hooks = process
+			.listeners("exit")
+			.filter((hook) => hook.name === "takeRecordsBackAtExit");
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		for (const hook of hooks) hook(0);
+		said.mockRestore();
 		const marks = [".job", ".carried"].filter((mark) =>
 			existsSync(`${work.keep}${mark}`),
 		);
 		try {
 			expect(carried, "nothing carried").toBeUndefined();
+			expect(hooks, "one hook as the process exits").toHaveLength(1);
 			expect(marks, "its marks, taken back as pi exits").toEqual([]);
 			expect(
 				await Promise.race([

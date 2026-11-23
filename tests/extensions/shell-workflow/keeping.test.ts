@@ -613,6 +613,29 @@ describe("a kept call", () => {
 			"nor set aside off it",
 		).toEqual([]);
 	});
+
+	it("leaves a pi exiting while the disk holds its files nothing of its to ask after, when it recorded no job", async () => {
+		const call = endsRecorded({ records: false });
+		disk.hold();
+		const result = await Promise.race([
+			run(call.kept.operations, "true", call.signal),
+			settlesWithin(),
+		]);
+		expect(result, "settled with its status").toMatchObject({ code: 0 });
+		const hooks = process
+			.listeners("exit")
+			.filter((hook) => hook.name === "takeRecordsBackAtExit");
+		expect(hooks, "one hook as the process exits").toHaveLength(1);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		for (const hook of hooks) hook(0);
+		said.mockRestore();
+		expect(
+			disk.asked.filter((asked) => asked.includes(call.keep())),
+			"no name of its asked after on the thread",
+		).toEqual([]);
+	});
 });
 
 /**

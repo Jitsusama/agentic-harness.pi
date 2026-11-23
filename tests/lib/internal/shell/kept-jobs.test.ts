@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
@@ -285,6 +285,21 @@ function exiting(): void {
 	for (const hook of hooks) hook(0);
 }
 
+/**
+ * What the process would say as it exits now, with the files it would
+ * take back taken: nothing, once no removal runs.
+ */
+function saidAtExit(): string[] {
+	const said = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+	try {
+		for (const hook of process.listeners("exit"))
+			if (hook.name === "takeRecordsBackAtExit") hook(0);
+		return said.mock.calls.map(([text]) => String(text));
+	} finally {
+		said.mockRestore();
+	}
+}
+
 /** A call kept in `where`, its shell's pid written, recorded for `session`. */
 async function recorded(
 	where: string,
@@ -470,6 +485,16 @@ describe("a recorded job", () => {
 // host's conversations share; most never wrote one, and asking the disk
 // for a name that isn't there held that loop up to 12 s under load.
 describe("a call's own record, taken back as the call ends", () => {
+	// The exit reads every removal this worker runs, so each case opens
+	// once those an earlier one left running have ended.
+	beforeEach(async () => {
+		await vi.waitFor(() =>
+			expect(saidAtExit(), "a removal an earlier case left running").toEqual(
+				[],
+			),
+		);
+	});
+
 	it("is gone once taken back", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
@@ -831,6 +856,40 @@ describe("a call's own record, taken back as the call ends", () => {
 			"a mark written since, no removal's",
 		).toBe(true);
 		expect(lines, "nothing to take back, so nothing said").toEqual([]);
+		disk.go();
+		await removing;
+	});
+
+	// Most calls end here, never handed on, and never wrote a record: an
+	// exit on the slow disk that left their files going asks after none.
+	it("asks after no mark as the process exits for a call that ran here and recorded none", async () => {
+		const keep = await makeKept(folder());
+		disk.hold(true, "rm", /\.job$/);
+		const removing = removeKept(keep, { ranHere: true });
+		await vi.waitFor(() =>
+			expect(disk.waiting, "the removal, on its record's name").toEqual([
+				`rm ${keep}.job`,
+			]),
+		);
+		expect(saidAtExit(), "no name to ask after, so nothing said").toEqual([]);
+		disk.go();
+		await removing;
+	});
+
+	it("asks after only its record as the process exits for a call that ran here and recorded one", async () => {
+		const job = await recorded(folder(), "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold(true, "rm", /\.job$/);
+		const removing = removeKept(keep, { ranHere: true });
+		await vi.waitFor(() =>
+			expect(disk.waiting, "the removal, on its record").toEqual([
+				`rm ${keep}.job`,
+			]),
+		);
+		expect(saidAtExit(), "its record alone").toEqual([
+			expect.stringMatching(/taking back up to 1 kept file the disk/),
+		]);
+		expect(existsSync(`${keep}.job`), "its record, taken back").toBe(false);
 		disk.go();
 		await removing;
 	});
@@ -1450,6 +1509,26 @@ describe("a call's own record, taken back as the call ends", () => {
 				"its record, gone once the disk lets it",
 			).toEqual([]),
 		);
+	});
+
+	// The bound a bash call's end is held to, which keeping.ts leaves to
+	// the default: a wedged disk holds the call 5 s, no more and no less.
+	it("lets its call settle 5 s into a wedged disk when told no wait of its own", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		disk.hold(true);
+		let settled = false;
+		const going = forgetOwnKeptJob(job.work.keep).then(() => {
+			settled = true;
+		});
+		await parkedByTheClock();
+		await vi.advanceTimersByTimeAsync(4_999);
+		expect(settled, "still waiting just short of 5 s").toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		await going;
+		expect(settled, "settled at 5 s").toBe(true);
 	});
 
 	it("says a removal that took more than a second", async () => {
