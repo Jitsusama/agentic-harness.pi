@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	onKeyringNotice,
 	resetKeyringNotices,
+	retryKeyringNotices,
 	sayKeyringNotice,
 } from "../../../../lib/core/internal/keyring/notices.ts";
 
@@ -90,15 +91,46 @@ describe("keyring notices", () => {
 		sayKeyringNotice({ level: "warning", message: "early" });
 		sayKeyringNotice({ level: "info", message: "moved" });
 		let stop: (() => void) | undefined;
+		let thrown = 0;
 		expect(() => {
 			stop = onKeyringNotice(() => {
+				thrown++;
 				throw new Error("a screen gone stale");
 			}, {});
 		}).not.toThrow();
 		stop?.();
+		const before = thrown;
 		const heard: string[] = [];
 		onKeyringNotice(hearing(heard, "next"), {});
 		sayKeyringNotice({ level: "info", message: "later" });
 		expect(heard).toEqual(["next: early", "next: moved", "next: later"]);
+		expect(thrown).toBe(before);
+	});
+
+	it("keeps showing on a screen once one of its two listeners stops", () => {
+		const heard: string[] = [];
+		const shared = {};
+		const stop = onKeyringNotice(hearing(heard, "first"), shared);
+		onKeyringNotice(hearing(heard, "second"), shared);
+		stop();
+		sayKeyringNotice({ level: "info", message: "moved" });
+		expect(heard).toEqual(["second: moved"]);
+	});
+
+	it("leaves a notice a listener declined unshown there, waiting for a retry", () => {
+		const heard: string[] = [];
+		let bound = false;
+		onKeyringNotice((notice) => {
+			if (!bound) return false;
+			heard.push(notice.message);
+			return true;
+		}, {});
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		retryKeyringNotices();
+		bound = true;
+		retryKeyringNotices();
+		retryKeyringNotices();
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		expect(heard).toEqual(["locked"]);
 	});
 });

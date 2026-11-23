@@ -1,5 +1,6 @@
 import type {
 	ExtensionAPI,
+	ExtensionRunner,
 	ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -10,12 +11,20 @@ import {
 import { keepCredentialsInKeyring } from "../../../../lib/core/internal/keyring/session.ts";
 import { extensionRunner } from "../../../support/extension-runner.ts";
 
-/** A screen as pi takes one, counting what it was told. */
+/** A screen as pi takes one, keeping each thing it was told beside its level. */
 function screen(): { ui: ExtensionUIContext; told: string[] } {
 	const told: string[] = [];
 	// The hook reads only notify; pi's runner wraps the rest.
-	const ui = { notify: (message: string) => told.push(message) } as never;
+	const ui = {
+		notify: (message: string, level: string) =>
+			told.push(`${level}: ${message}`),
+	} as never;
 	return { ui, told };
+}
+
+/** Start a turn in `runner`'s session, as pi does before each model call. */
+async function turn(runner: ExtensionRunner): Promise<void> {
+	await runner.emit({ type: "turn_start", turnIndex: 0, timestamp: 0 });
 }
 
 /** An extension keeping `label` in the keyring, running `move` as each session starts. */
@@ -43,7 +52,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		one.runner.setUIContext(shown.ui, "tui");
 		await one.start();
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		expect(shown.told).toEqual(["keyring locked"]);
+		expect(shown.told).toEqual(["warning: keyring locked"]);
 		expect(one.errors).toEqual([]);
 	});
 
@@ -55,7 +64,10 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		await one.start();
 		one.runner.setUIContext(second.ui, "tui");
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		expect([first.told, second.told]).toEqual([[], ["keyring locked"]]);
+		expect([first.told, second.told]).toEqual([
+			[],
+			["warning: keyring locked"],
+		]);
 	});
 
 	it("shows a notice in each session, even those started before pi gave them a screen", async () => {
@@ -69,8 +81,26 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		second.runner.setUIContext(secondScreen.ui, "tui");
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect([firstScreen.told, secondScreen.told]).toEqual([
-			["keyring locked"],
-			["keyring locked"],
+			["warning: keyring locked"],
+			["warning: keyring locked"],
+		]);
+	});
+
+	it("keeps a notice said before any session has a screen, and shows it in each at the next turn", async () => {
+		const first = session();
+		const second = session();
+		await first.start();
+		await second.start();
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		const firstScreen = screen();
+		const secondScreen = screen();
+		first.runner.setUIContext(firstScreen.ui, "tui");
+		second.runner.setUIContext(secondScreen.ui, "tui");
+		await turn(first.runner);
+		await turn(second.runner);
+		expect([firstScreen.told, secondScreen.told]).toEqual([
+			["warning: keyring locked"],
+			["warning: keyring locked"],
 		]);
 	});
 
@@ -85,7 +115,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		const nextScreen = screen();
 		next.runner.setUIContext(nextScreen.ui, "tui");
 		await next.start();
-		expect([endedScreen.told, nextScreen.told]).toEqual([[], ["moved"]]);
+		expect([endedScreen.told, nextScreen.told]).toEqual([[], ["info: moved"]]);
 	});
 
 	it("still moves the credentials when a screen fails to show what was waiting", async () => {

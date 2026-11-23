@@ -4,18 +4,19 @@
  *
  * The documents live in library code with no screen of their own, so
  * they say it here, and the extension that has a screen listens. Each
- * listener names the screen it shows notices on, and the same words
- * reach a screen once: a locked keyring would otherwise repeat itself
- * on every read, and two extensions keeping credentials in the keyring
- * both listen in a session, so sharing this module rather than each
- * loading its own copy would otherwise show every notice twice. A
- * screen that opens later still shows words said before it, when they
- * are said again.
+ * listener names what it shows notices on, a session, and the same
+ * words reach a session once, whichever screen it has: a locked keyring
+ * would otherwise repeat itself on every read, and two extensions
+ * keeping credentials in the keyring both listen in a session, so
+ * sharing this module rather than each loading its own copy would
+ * otherwise show every notice twice. A session that starts later still
+ * shows words said before it, when they are said again.
  *
- * A listener that throws leaves the notice to the next listener on its
- * screen. A notice no screen took, said before anyone listens or
- * thrown on by every listener, waits for the next listener to come,
- * and reaches that one only.
+ * A listener with nowhere to show a notice declines it, and one that
+ * throws leaves it to the next listener on its screen; either way the
+ * words aren't marked shown there, so they show when said again. A
+ * notice no screen took waits: the next listener to come takes it, and
+ * each retry offers it to every screen.
  */
 
 /** One thing to tell the person. */
@@ -24,7 +25,11 @@ export interface KeyringNotice {
 	readonly message: string;
 }
 
-type Listener = (notice: KeyringNotice) => void;
+/**
+ * Shows a notice. Answering false declines it, having nowhere to show
+ * it; any other answer means it was shown.
+ */
+type Listener = (notice: KeyringNotice) => unknown;
 
 /** Each listener, beside the screen it shows notices on. */
 const listeners = new Map<Listener, object>();
@@ -48,7 +53,7 @@ function show(listener: Listener, screen: object, notice: KeyringNotice) {
 	const words = wordsOn(screen);
 	if (words.has(notice.message)) return true;
 	try {
-		listener(notice);
+		if (listener(notice) === false) return false;
 	} catch {
 		// A notice that failed to show has nowhere to be reported; it is
 		// left for the screen's next listener, or the next to come.
@@ -64,12 +69,22 @@ function wait(notice: KeyringNotice): void {
 		waiting.push(notice);
 }
 
-/** Tell each screen that hasn't heard it, or the next listener to come. */
-export function sayKeyringNotice(notice: KeyringNotice): void {
+/** Offer `notice` to each screen that hasn't shown it; answers whether one took it. */
+function offer(notice: KeyringNotice): boolean {
 	let taken = false;
 	for (const [listener, screen] of listeners)
 		if (show(listener, screen, notice)) taken = true;
-	if (!taken) wait(notice);
+	return taken;
+}
+
+/** Tell each screen that hasn't heard it, or the next listener to come. */
+export function sayKeyringNotice(notice: KeyringNotice): void {
+	if (!offer(notice)) wait(notice);
+}
+
+/** Offer each waiting notice to every screen again, as one may have come since. */
+export function retryKeyringNotices(): void {
+	for (const notice of waiting.splice(0)) if (!offer(notice)) wait(notice);
 }
 
 /**
