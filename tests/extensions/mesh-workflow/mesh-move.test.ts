@@ -46,9 +46,7 @@ describe("a move asked during a run", () => {
 		// Taken at steering's first look, three seconds after the start.
 		await vi.waitFor(
 			() => {
-				expect(presences.of(session)?.moving?.holds).toBe(
-					"a run is under way",
-				);
+				expect(presences.of(session)?.moving?.holds).toBe("a run is under way");
 			},
 			{ timeout: STEER_TAKEN_MS },
 		);
