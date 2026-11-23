@@ -455,6 +455,10 @@ describe("recall read a line at a time", () => {
 			said("u5", "u4", "the flake after it"),
 		]);
 		const branch = [record("r", null, path, "u5"), said("a", "r", "now")];
+		// Read a second time to pair its calls, it counts twice.
+		expect(markedOnDisk(branch, askedBy({ query: "flake" })).bytes).toBe(
+			2 * statSync(path).size,
+		);
 
 		for (const request of [
 			{ query: "flake" },
@@ -561,6 +565,122 @@ describe("recall read a line at a time", () => {
 		expect(hitIds(streamed(branch, { query: "listing" }))).toEqual(["w2"]);
 	});
 
+	it("reads a call with the last of two results on its branch, as a whole read does", () => {
+		const path = log("answered-twice.jsonl", [
+			header("v"),
+			user("v1", null, "the flake before the call"),
+			called("v2", "v1", "vc", "bash", { command: "ls" }),
+			result("v3", "v2", "vc", "the first listing"),
+			result("v4", "v3", "vc", "the second listing"),
+			said("v5", "v4", "after"),
+		]);
+		const branch = [record("r", null, path, "v5"), said("a", "r", "now")];
+
+		for (const request of [
+			{ query: "first" },
+			{ query: "second" },
+			{ entryId: "v2" },
+		]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(hitIds(streamed(branch, { query: "second" }))).toEqual(["v2"]);
+		expect(streamed(branch, { query: "first" }).kind).toBe("none");
+	});
+
+	it("takes the last result in the branch's order, not the file's", () => {
+		const path = log("out-of-order.jsonl", [
+			header("o"),
+			user("o1", null, "the flake before the call"),
+			called("o2", "o1", "oc", "bash", { command: "ls" }),
+			result("o4", "o3", "oc", "the later listing"),
+			result("o3", "o2", "oc", "the earlier listing"),
+			said("o5", "o4", "after"),
+		]);
+		const branch = [record("r", null, path, "o5"), said("a", "r", "now")];
+
+		for (const request of [{ query: "later" }, { query: "earlier" }]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(hitIds(streamed(branch, { query: "later" }))).toEqual(["o2"]);
+		expect(streamed(branch, { query: "earlier" }).kind).toBe("none");
+	});
+
+	it("reads a call rewritten as recall's own, or from it, as a whole read does", () => {
+		for (const [first, last, shown] of [
+			["bash", "session_recall", false],
+			["session_recall", "bash", true],
+		] as const) {
+			const path = log(`renamed-${first}.jsonl`, [
+				header("q"),
+				user("q1", null, "the flake before the call"),
+				called("q2", "q1", "qc", first, { command: "ls" }),
+				result("q3", "q2", "qc", "a renamed listing"),
+				called("q2", "q1", "qc", last, { command: "ls" }),
+				said("q4", "q3", "after"),
+			]);
+			const branch = [record("r", null, path, "q4"), said("a", "r", "now")];
+
+			for (const request of [{ query: "renamed" }, { entryId: "q2" }]) {
+				expect(streamed(branch, request)).toEqual(whole(branch, request));
+			}
+			expect(hitIds(streamed(branch, { query: "renamed" }))).toEqual(
+				shown ? ["q2"] : [],
+			);
+		}
+	});
+
+	it("reads a paragraph reference to a call read again as a whole read does", () => {
+		const speaking: Line = {
+			type: "message",
+			id: "t2",
+			parentId: "t1",
+			timestamp: at,
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "the paragraph about a call given twice" },
+					{ type: "toolCall", id: "tc", name: "bash", arguments: {} },
+				],
+				timestamp: 2,
+			},
+		};
+		const path = log("named-twice.jsonl", [
+			header("t"),
+			user("t1", null, "the flake before the call"),
+			speaking,
+			result("t3", "t2", "tc", "the first listing"),
+			called("t4", "t3", "tc", "bash", { command: "ls" }),
+			result("t5", "t4", "tc", "the second listing"),
+			said("t6", "t5", "after"),
+		]);
+		const branch = [record("r", null, path, "t6"), said("a", "r", "now")];
+		const ref = paragraphRef(unitsOf(speaking as never)[0]?.hash ?? "");
+
+		const found = streamed(branch, { entryId: ref });
+		expect(found).toEqual(whole(branch, { entryId: ref }));
+		expect(found.kind === "entry" && found.entry.text).toContain(
+			"the second listing",
+		);
+	});
+
+	it("reads a log again only for the calls a rewritten line makes or answers", () => {
+		const path = log("rewritten-plain.jsonl", [
+			header("z"),
+			user("z1", null, "the flake before the call"),
+			called("z2", "z1", "zc", "bash", { command: "ls" }),
+			result("z3", "z2", "zc", "the listing"),
+			said("z4", "z3", "a word said once"),
+			said("z4", "z3", "a word said again"),
+		]);
+		const branch = [record("r", null, path, "z4"), said("a", "r", "now")];
+
+		for (const request of [{ query: "listing" }, { query: "again" }]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		const disk = markedOnDisk(branch, askedBy({ query: "listing" }));
+		expect(disk.bytes).toBe(statSync(path).size);
+	});
+
 	it("walks through lines pi never wrote, which say nothing", () => {
 		const path = log("odd-lines.jsonl", [
 			header("n"),
@@ -584,7 +704,33 @@ describe("recall read a line at a time", () => {
 				parentId: "n5",
 				message: { role: "user", content: [null] },
 			},
-			said("n7", "n6", "the flake after them"),
+			{
+				type: "message",
+				id: "n6a",
+				parentId: "n6",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "nc",
+							name: { toString: 1 },
+							arguments: {},
+						},
+					],
+				},
+			},
+			{
+				type: "message",
+				id: "n6b",
+				parentId: "n6a",
+				message: {
+					role: "bashExecution",
+					command: { toString: 1 },
+					output: { valueOf: 1 },
+				},
+			},
+			said("n7", "n6b", "the flake after them"),
 		]);
 		const branch = [record("r", null, path, "n7"), said("a", "r", "now")];
 

@@ -16,8 +16,10 @@
  * then it keeps a snippet, not its text.
  *
  * A tool call is read with its result, as in memory. The result is
- * sought in the same log only: a log rolls over between turns, so a
- * call and its result are never split across two. Read a line at a
+ * sought in the same log only: a log rolls over between turns, and a
+ * held log's view starts at a compaction's first kept entry, which pi
+ * never puts at a tool result (`findValidCutPoints`), so a call and its
+ * result are never split across two. Read a line at a
  * time, a call takes the first result after it with its id, where a
  * whole read takes the last one on the branch. The two differ only in
  * a log pi would not write: a call id given twice, a result before its
@@ -53,7 +55,10 @@ export interface OnDisk {
 	readonly marked: Marked[];
 	/** How many logs were read. */
 	readonly logs: number;
-	/** How many bytes they held. */
+	/**
+	 * How many bytes were read from them: a log read a second time, to
+	 * pair the calls of a log pi would not write, counts twice.
+	 */
 	readonly bytes: number;
 	/** How many entries the older branches held, said or not. */
 	readonly entries: number;
@@ -120,7 +125,8 @@ export function markedOnDisk(
 }
 
 /** Why a parent that gives no branch ends the chain. */
-export const NO_BRANCH = "it holds none of the branch its record names";
+export const NO_BRANCH =
+	"it is not a regular file holding the branch its record names";
 
 /**
  * The code of a failed system call, such as ENOENT, or undefined for
@@ -155,6 +161,8 @@ interface Slot {
 	calls?: readonly string[];
 	/** The result entry each of its calls was read with, by call id. */
 	paired?: Map<string, string>;
+	/** The call it answers, when it is a tool result. */
+	answers?: string;
 }
 
 /** An entry whose calls wait for their results further down the log. */
@@ -182,7 +190,6 @@ function branchMarked(
 	const claimed = new Set<string>();
 	const answered = new Set<string>();
 	const irregular = new Set<string>();
-	let rewritten = false;
 	const read = { bytes: 0 };
 
 	const finish = (held: Waiting): void => {
@@ -203,8 +210,12 @@ function branchMarked(
 			parentId: typeof entry.parentId === "string" ? entry.parentId : null,
 		};
 		// A later line with the same id is the one a walk reads, as a whole
-		// read keeps the last.
-		if (slots.has(entry.id)) rewritten = true;
+		// read keeps the last: a result written again as something else
+		// answers nothing, though the first pass paired its call with it.
+		// A call, or a result, written again is caught below as an id
+		// claimed or answered twice.
+		const before = slots.get(entry.id)?.answers;
+		if (before !== undefined) irregular.add(before);
 		slots.set(entry.id, slot);
 		if (entry.type === "custom" && entry.customType === ROLLOVER_RECORD) {
 			records.set(entry.id, entry);
@@ -216,6 +227,7 @@ function branchMarked(
 		// A result answers the call before it, recall's own included; one
 		// with no call yet, or a second for the same id, is irregular.
 		if (given) {
+			slot.answers = given.callId;
 			if (!claimed.has(given.callId) || answered.has(given.callId)) {
 				irregular.add(given.callId);
 			}
@@ -273,7 +285,7 @@ function branchMarked(
 		const offBranch = [...(slot.paired?.values() ?? [])].some(
 			(result) => !on.has(result),
 		);
-		if (rewritten || offBranch || slot.calls.some((c) => irregular.has(c))) {
+		if (offBranch || slot.calls.some((c) => irregular.has(c))) {
 			touched.add(mark.id);
 			for (const call of slot.calls) callIds.add(call);
 		}

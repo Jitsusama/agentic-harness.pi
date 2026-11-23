@@ -218,7 +218,7 @@ function messageText(
 				if (part.type === "text" && typeof part.text === "string") {
 					parts.push(part.text);
 				} else if (isToolCall(part) && !recallCalls.has(part.id)) {
-					parts.push(`${part.name} ${JSON.stringify(part.arguments)}`);
+					parts.push(`${plain(part.name)} ${JSON.stringify(part.arguments)}`);
 					const result = results.get(part.id);
 					if (result) parts.push(result);
 				}
@@ -230,10 +230,22 @@ function messageText(
 			// entry; standing alone it would be every hit twice.
 			return "";
 		case "bashExecution":
-			return `${String(m.command ?? "")}\n${String(m.output ?? "")}`;
+			return `${plain(m.command)}\n${plain(m.output)}`;
 		default:
 			return "";
 	}
+}
+
+/**
+ * A field as text when it is a plain value, and nothing otherwise: an
+ * object a log line forged could throw on being made a string.
+ */
+function plain(value: unknown): string {
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	return "";
 }
 
 /** The distinct words of a query, lowercased. */
