@@ -229,6 +229,16 @@ function heard(
 	return out;
 }
 
+/**
+ * What was asked of a path under `path` on the thread: the synchronous
+ * calls, which hold it, and none of the reads off it.
+ */
+function askedOnThread(path: string): string[] {
+	return disk.asked.filter(
+		(said) => said.includes(path) && /^\w+Sync /.test(said),
+	);
+}
+
 const PRIVATE = 0o600;
 const PRIVATE_FOLDER = 0o700;
 const READ_ONLY = 0o500;
@@ -396,9 +406,7 @@ describe("a recorded job", () => {
 		disk.forget();
 		const found = await carriedCalls(where, SOON);
 		expect(
-			disk.asked.filter(
-				(said) => said.includes(where) && /^\w+Sync /.test(said),
-			),
+			askedOnThread(where),
 			"nothing asked of the folder on the thread",
 		).toEqual([]);
 		expect([...found.groups].sort(), "both shells' groups").toEqual(
@@ -2208,7 +2216,7 @@ describe("a stray recorded job", () => {
 			(await strayKeptJobs(where, (pid) => pid === 77)).map((job) => job.id),
 		).toEqual(["stray"]);
 		expect(
-			disk.asked.filter((said) => said.includes(where)),
+			askedOnThread(where),
 			"read off the thread, as a host's sweep reads it",
 		).toEqual([]);
 	});
