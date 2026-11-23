@@ -35,9 +35,10 @@ describe("whether the person is on a call", () => {
 		const tookMs = performance.now() - started;
 
 		expect(answer, "a probe past its time says nothing").toBeUndefined();
-		expect(tookMs, "answered near its time, not at the probe's end").toBeLessThan(
-			2_000,
-		);
+		expect(
+			tookMs,
+			"answered near its time, not at the probe's end",
+		).toBeLessThan(2_000);
 	});
 
 	it("ages its answer by a clock that never steps back", async () => {

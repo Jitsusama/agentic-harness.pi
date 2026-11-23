@@ -304,7 +304,10 @@ describe("why each job waits", () => {
 			expect(nextTurn(jobs, moving, NOW)?.id, "the lane, off the call").toBe(
 				"build",
 			);
-			expect(nextTurn(jobs, calling, NOW), "the lane, on a call").toBeUndefined();
+			expect(
+				nextTurn(jobs, calling, NOW),
+				"the lane, on a call",
+			).toBeUndefined();
 			expect(waitReasons(jobs, calling, NOW).get("build")).toBe("call");
 			expect(roomLeft([], calling, NOW)).toEqual({ vms: 0, builds: 0 });
 			expect(waitsWithRoom(jobs, calling), "a lane wait for the call").toBe(
