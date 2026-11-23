@@ -9,6 +9,7 @@ import {
 	MOST_FLOORS_PRESSURE,
 	MOST_IO_PRESSURE_FOR_BUILDS,
 	MOST_MEMORY_PRESSURE,
+	MOST_MEMORY_STALL_FOR_ONE,
 	MOST_VMS,
 	nextTurn,
 	PUSH_GIB,
@@ -129,6 +130,82 @@ describe("why each job waits", () => {
 
 		expect(nextTurn([idle], pressed, NOW)).toBeUndefined();
 		expect(waitReasons([idle], pressed, NOW).get("idle")).toBe("memory");
+	});
+
+	// 22 November: builds waited 178.5 h on memory to run 28.8 h, while
+	// every task stalled on memory well under half the minute (1OGSE7).
+	describe("one lane while memory is pressed but the machine still moves", () => {
+		const stalled = (fullMinute: number | undefined) => ({
+			...ROOMY,
+			memoryPressure: MOST_MEMORY_PRESSURE,
+			...(fullMinute === undefined ? {} : { memoryFullMinute: fullMinute }),
+		});
+		const moving = stalled(MOST_MEMORY_STALL_FOR_ONE - 1);
+		const running = (id: string, over: Partial<Job> = {}) =>
+			older(id, 99_000, { started: startedAgo(RAMP_MS + 60_000), ...over });
+
+		it("gives one heavy job its turn while the minute's full stall is under the line", () => {
+			const jobs = [older("build", 9_000), older("next", 8_000)];
+
+			expect(nextTurn(jobs, moving, NOW)?.id).toBe("build");
+			expect(waitReasons(jobs, moving, NOW).get("build")).toBe("order");
+		});
+
+		it("holds every heavy job from the line, and where the stall isn't read", () => {
+			const jobs = [older("build", 9_000)];
+
+			for (const room of [
+				stalled(MOST_MEMORY_STALL_FOR_ONE),
+				stalled(undefined),
+			]) {
+				expect(nextTurn(jobs, room, NOW)).toBeUndefined();
+				expect(waitReasons(jobs, room, NOW).get("build")).toBe("memory");
+			}
+		});
+
+		it("holds it while the person's programs stall on memory", () => {
+			const jobs = [older("build", 9_000)];
+			const theirs = { ...moving, floorsPressure: MOST_FLOORS_PRESSURE + 1 };
+
+			expect(nextTurn(jobs, theirs, NOW)).toBeUndefined();
+			expect(waitReasons(jobs, theirs, NOW).get("build")).toBe("memory");
+		});
+
+		it("holds a second while one heavy job already runs here", () => {
+			const jobs = [running("heavy"), older("build", 9_000)];
+
+			expect(nextTurn(jobs, moving, NOW)).toBeUndefined();
+			expect(waitReasons(jobs, moving, NOW).get("build")).toBe("memory");
+		});
+
+		it("keeps it open beside light quick work, a sent run and an answered fetch", () => {
+			const beside = [
+				running("push", {
+					kind: "world-walk",
+					walk: "push",
+					what: "git push origin x",
+					needsGib: PUSH_GIB,
+					quick: true,
+				}),
+				running("sent", { what: "direnv exec . changed-checks", sent: true }),
+				running("fetch", {
+					kind: "world-walk",
+					walk: "main-fetch",
+					answered: true,
+				}),
+			];
+			const jobs = [...beside, older("build", 9_000)];
+
+			expect(nextTurn(jobs, moving, NOW)?.id).toBe("build");
+		});
+
+		it("still holds the heavy job its booking doesn't fit", () => {
+			const jobs = [older("build", 9_000, { needsGib: 6 })];
+			const tight = { ...moving, availableGib: 2 };
+
+			expect(nextTurn(jobs, tight, NOW)).toBeUndefined();
+			expect(waitReasons(jobs, tight, NOW).get("build")).toBe("memory");
+		});
 	});
 
 	it("says vms when the VMs allowed at once are running", () => {

@@ -15,6 +15,7 @@ import {
 	floorsWait,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_MEMORY_PRESSURE,
+	MOST_MEMORY_STALL_FOR_ONE,
 	QUICK_AT_ONCE,
 	QUICK_OUTRUN_MS,
 	vmSettling,
@@ -131,6 +132,40 @@ function startsPressed(job: Job): boolean {
 /** Quick work other than a build, held to no more than {@link LIGHT_GIB}. */
 function lightAndQuick(job: Job): boolean {
 	return isQuick(job) && job.kind !== "build" && needsGibOf(job) <= LIGHT_GIB;
+}
+
+/**
+ * Whether memory holds the jobs that don't start while it is short (see
+ * {@link startsPressed}): pressure is past {@link MOST_MEMORY_PRESSURE}
+ * and the one heavy lane is shut.
+ */
+function memoryHolds(jobs: readonly Job[], room: Room): boolean {
+	return (
+		room.memoryPressure >= MOST_MEMORY_PRESSURE && !oneLaneOpen(jobs, room)
+	);
+}
+
+/**
+ * Whether one heavy job may start while memory pressure is past
+ * {@link MOST_MEMORY_PRESSURE}: every task stalled on memory under
+ * {@link MOST_MEMORY_STALL_FOR_ONE} of the last minute, the person's
+ * own programs don't wait on it ({@link floorsWait}), and no heavy job
+ * runs here already, one that wouldn't have started while memory was
+ * short. An answered fetch holds nothing. Where the minute's stall
+ * isn't read, as on the Mac, the lane is shut. The job let in is held
+ * to every other rule, its booking fitting among them.
+ */
+function oneLaneOpen(jobs: readonly Job[], room: Room): boolean {
+	const stall = room.memoryFullMinute;
+	return (
+		stall !== undefined &&
+		stall < MOST_MEMORY_STALL_FOR_ONE &&
+		!floorsWait(room) &&
+		!jobs.some(
+			(job) =>
+				job.started !== undefined && !job.answered && !startsPressed(job),
+		)
+	);
 }
 
 /**
@@ -298,9 +333,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * `elsewhere run` placed on another machine, from a session on a quest,
  * is sent, so it skips the CPU hold and starts while memory is short.
  * 17: a shell comment reads as nothing, where older code read the work
- * it names.
+ * it names. 18: one heavy job starts while memory is pressed, while the
+ * minute's full stall is under bounds.ts's `MOST_MEMORY_STALL_FOR_ONE`,
+ * the person's programs don't wait on memory, and none runs here.
  */
-export const RULES_VERSION = 17;
+export const RULES_VERSION = 18;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -324,7 +361,7 @@ export function nextTurn(
 			.map((job) => Date.parse(job.started as string)),
 	);
 	if (now - last < SPREAD_MS) return undefined;
-	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	const pressed = memoryHolds(jobs, room);
 	if (pressed && !jobs.some(startsPressed)) return undefined;
 	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
@@ -421,7 +458,7 @@ export function waitReasons(
 		}
 	}
 	const waiting = waitingInOrder(jobs, awaited, first);
-	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	const pressed = memoryHolds(jobs, room);
 	const heldPressed = (job: Job) => pressed && !startsPressed(job);
 	for (const job of waiting) {
 		if (heldPressed(job)) reasons.set(job.id, "memory");

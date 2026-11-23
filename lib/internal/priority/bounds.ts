@@ -124,8 +124,24 @@ export function floorsWait(room: Room): boolean {
 	);
 }
 
-/** Memory pressure (avg10, percent) past which no job starts. */
+/**
+ * Memory pressure (avg10, percent) past which only work light here
+ * starts, beside one heavy job while the machine still moves (see
+ * {@link MOST_MEMORY_STALL_FOR_ONE}).
+ */
 export const MOST_MEMORY_PRESSURE = 10;
+
+/**
+ * The share of the last minute every task stalled on memory (`full
+ * avg60`, percent) under which one heavy job may still run here while
+ * memory pressure is past {@link MOST_MEMORY_PRESSURE}. Pressure counts
+ * any task waiting, and on a machine this full someone always is: on 22
+ * November builds waited 178.5 hours on memory to run 28.8, and at 00:40
+ * on 23 November, with every heavy job held, the full stall read 13 to
+ * 19% (1OGSE7, 0IM95G). Past this, the machine itself is what stalls,
+ * and every heavy job waits.
+ */
+export const MOST_MEMORY_STALL_FOR_ONE = 40;
 
 /**
  * CPU pressure (avg10, percent) the person's own programs, those a
@@ -313,7 +329,8 @@ export const MOST_CPU_PRESSURE_BESIDE_VMS = 70;
 
 /**
  * The queue's pressure limits the machine is at or past now: `memory`
- * at {@link MOST_MEMORY_PRESSURE}, where no job starts, and `cpu` at
+ * at {@link MOST_MEMORY_PRESSURE}, where only light work and one heavy
+ * job start, and `cpu` at
  * {@link MOST_CPU_PRESSURE_BESIDE_VMS}, where no build starts beside a
  * VM check. The queue's verdict rather than its numbers, so a reader
  * outside it, as mycelium's node is, never applies the rules again.

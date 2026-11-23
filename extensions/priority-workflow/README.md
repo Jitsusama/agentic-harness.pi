@@ -263,7 +263,13 @@ is a build, never a VM check.
   keep the person's programs first and agents wait on each other.
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than six VMs run. No VM starts here at all while
+  under 10%, and fewer than six VMs run. Past 10%, only work light here
+  starts, beside one heavy job while the machine still moves: every
+  task stalled on memory under 40% of the last minute (`full avg60`),
+  the person's programs not stalling on it past 1%, and no other heavy
+  job running here. Pressure counts any task waiting, and on 22
+  November builds waited 178.5 hours on memory to run 28.8. Where the
+  minute's stall isn't read, as on the Mac, every heavy job waits. No VM starts here at all while
   the person's programs stall on memory more than 1% of the time, or CPU
   pressure is at 70% or more: on 29 October VMs kept getting slots while
   Joel's desktop stalled, so nothing waited and no cloud builder was lent.
@@ -424,7 +430,8 @@ is a build, never a VM check.
   whether heavy work would start now, not whether the machine can take
   another session; that is `machine.availableGib` and its `pressure`.
   `machine.over` names the queue's own pressure limits the machine is
-  at or past now, `memory` (no job starts) and `cpu` (no build starts
+  at or past now, `memory` (only light work and one heavy job start)
+  and `cpu` (no build starts
   beside a VM check), so a reader never applies the limits itself, and
   `room` at 0 with `over` empty reads as a full queue, not a pressed
   machine.
