@@ -95,11 +95,14 @@ export const HELD_ENTRY = "reload-held";
 /**
  * The entry that says, once for each reason, why a session that heard
  * its install move isn't asking to reload: it runs a tree, another
- * reload is waiting, or its context has gone. On 30 October three idle
- * sessions stayed six hours on the code the 08:26 restore loaded and
- * said nothing of why.
+ * reload is waiting, a move waits, or its context has gone. On 30
+ * October three idle sessions stayed six hours on the code the 08:26
+ * restore loaded and said nothing of why.
  */
 export const WAITING_ENTRY = "reload-waiting";
+
+/** Its reason for a move taken while git was asked what came in. */
+export const MOVE_TAKEN_AS_ASKED = "a move waits, taken as git was asked";
 
 /**
  * The entry a session writes as its holder is about to start it again,
@@ -288,7 +291,11 @@ export async function follow(
 			const reason = await reasonNow().catch(() => "the install moved");
 			// A move asked while git was is waited on as any is, by the next
 			// look: the move restarts the session on current code anyway.
-			if (sessionId !== undefined && moveWaiting(sessionId) !== undefined) {
+			const moving = () =>
+				sessionId === undefined ? undefined : moveWaiting(sessionId);
+			const waiting = moving();
+			if (waiting !== undefined) {
+				sayWhy(MOVE_TAKEN_AS_ASKED, { to: waiting });
 				return;
 			}
 			// The host waits for the run to end and reloads this conversation
@@ -301,8 +308,16 @@ export async function follow(
 				const carried = () =>
 					sessionId !== undefined && carryUnderWay(sessionId) !== undefined;
 				if (carried()) return;
-				const reloaded = await reloadThroughHost(ctx, { reason, by: "self" });
-				if (!(reloaded || carried())) retryAt = Date.now() + HELD_MS;
+				// A move taken during the run holds the host's reload off too, as
+				// the run ends, and is waited on as any is.
+				const moved = () => moving() !== undefined;
+				const reloaded = await reloadThroughHost(
+					ctx,
+					{ reason, by: "self" },
+					undefined,
+					moved,
+				);
+				if (!(reloaded || carried() || moved())) retryAt = Date.now() + HELD_MS;
 				return;
 			}
 			const links = linksMovedSince(extensions, startedAt);

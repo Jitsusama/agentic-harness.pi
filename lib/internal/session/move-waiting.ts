@@ -22,9 +22,12 @@
  * open prompt clears as a run does, with the same race, so an idle
  * session waiting on one runs its old code until the move is made or
  * called off at its bound, and the move restarts it on current code.
- * Only the install's follower honours a hold: a reload the person or
- * the agent asks for goes, and the move carries over it and looks again
- * as the session restarts.
+ * Only the install's follower honours a hold, at its looks, after it
+ * asks git, once its reload's run is still, and in a host once the
+ * conversation is idle, where the host refuses the follower's reload
+ * ({@link moveHoldsReload}): a reload the person or the agent asks for
+ * goes, and the move carries over it and looks again as the session
+ * restarts.
  *
  * Held on `globalThis`, so a host's conversations, each with its own
  * modules, are held apart by their session's id.
@@ -75,6 +78,18 @@ export function holdForMove(
 		to,
 		until: now + (timing.mostMs ?? MOVE_HOLDS_MOST_MS),
 	});
+}
+
+/**
+ * Why a host refuses the follower's reload of `session` once it is
+ * idle: a move waits, which the reload would stop unwritten. Undefined
+ * when no move holds it.
+ */
+export function moveHoldsReload(session: string): string | undefined {
+	const to = moveWaiting(session);
+	return to === undefined
+		? undefined
+		: `a move to ${to} waits, and a reload would stop it unwritten`;
 }
 
 /** The move waiting for `session` is off, made or stopped: its hold goes. */

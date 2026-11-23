@@ -23,6 +23,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
+	type HostReloadRequest,
 	type HostRestarting,
 } from "../../lib/core/session/host.ts";
 import {
@@ -33,6 +34,7 @@ import {
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { moveHoldsReload } from "../../lib/internal/session/move-waiting.ts";
 import {
 	clearParked,
 	readParked,
@@ -317,7 +319,7 @@ export async function createEngine(
 				const stamp: SessionStamp = { session: sessionId, how };
 				record.bus.emit(SESSION_STAMP_EVENT, stamp);
 			},
-			reload: () => reload(record),
+			reload: (request) => reload(record, request),
 			restarting: () => {
 				const restarting: HostRestarting = { session: sessionId };
 				record.bus.emit(HOST_RESTARTING_EVENT, restarting);
@@ -433,13 +435,21 @@ export async function createEngine(
 	 * reloading the session under the screen would leave the old load's
 	 * footer and widgets drawing on a load that throws at every read.
 	 */
-	async function reload(record: Live): Promise<void> {
+	async function reload(
+		record: Live,
+		request?: HostReloadRequest,
+	): Promise<void> {
 		const { sessionId } = record.traits;
 		const session = view(sessionId, record).runtime.session;
 		await session.waitForIdle();
 		// A carry ends its run first, so it is idle while it bundles.
 		const carried = carryHoldsReload(sessionId);
 		if (carried !== undefined) throw new Error(carried);
+		// A move taken during the run goes as it settles, as this would
+		// (5BACCAC3's F98 on #2029); the follower asks again once it lets go.
+		const moving =
+			request?.yieldsToMove === true ? moveHoldsReload(sessionId) : undefined;
+		if (moving !== undefined) throw new Error(moving);
 		const screens = options.screens;
 		if (!screens?.reload) return session.reload();
 		const before = session.extensionRunner;

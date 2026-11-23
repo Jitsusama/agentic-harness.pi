@@ -39,6 +39,13 @@ export interface HostReloadRequest {
 	 * extensions load into a process every conversation shares.
 	 */
 	readonly onto?: string;
+	/**
+	 * Whether a move waiting for the conversation holds this reload off,
+	 * as it does the install follower's own, which asks again once the
+	 * move lets go. A host refuses one once the conversation is idle if a
+	 * move waits then, since the reload would stop the move unwritten.
+	 */
+	readonly yieldsToMove?: boolean;
 }
 
 /** The host supplies one of these before any extension is loaded. */
