@@ -191,10 +191,12 @@ export function keepsOnDisk(
 					// here, so nothing may carry or hand it on while they go, which
 					// takes turns of the loop, and from here to its settle none
 					// passes: its job is said ended at once, and its files go just
-					// after, not waited for.
+					// after, not waited for. It ran here and was never handed on, so
+					// nothing marked it carried, and a pi exiting first asks after
+					// only the record it holds.
 					if (!kept.handed) {
 						if (call.signal) calls.delete(call.signal);
-						void removeKept(path);
+						void removeKept(path, { ranHere: true });
 					}
 				}
 			},

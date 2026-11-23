@@ -338,6 +338,14 @@ function textOf(file: string): string {
 	}
 }
 
+/** The removals of a call's files still short of its marks. */
+interface Ending {
+	/** How many run. */
+	removals: number;
+	/** The marks they may find, which an exit takes back. */
+	readonly marks: Set<string>;
+}
+
 /** A removal of a job record this process wrote, still running. */
 export interface JobRecordRemoval {
 	/** Whether its call was handed on while it ran. */
@@ -370,7 +378,8 @@ export interface JobRecordRemoval {
 // conversations never share one. The key names the shape: a copy loaded
 // under another key would see none of these, and its calls would leave
 // their records to `removeKept` just after. Beside them: how many of
-// `removeKept`'s removals of each call run, and whether the process
+// `removeKept`'s removals of each call run, with the marks they may
+// find, and whether the process
 // takes back, as it exits, what those and the record removals had yet
 // to remove, asked once however many copies there are and done by the
 // copy loaded last, so a reload's fix reaches it. A call begun under a
@@ -379,11 +388,11 @@ export interface JobRecordRemoval {
 // unlinks a missing name on the thread once: only for the calls that
 // span the reload onto it.
 const jobRecords = processGlobal(
-	"agentic-harness.internal/shell/kept-jobs/records.v4",
+	"agentic-harness.internal/shell/kept-jobs/records.v5",
 	() => ({
 		own: new Map<string, string>(),
 		removing: new Map<string, JobRecordRemoval>(),
-		ending: new Map<string, number>(),
+		ending: new Map<string, Ending>(),
 		hooked: false,
 		takeBack: (): void => undefined,
 	}),
@@ -481,7 +490,7 @@ function takeBackAtExit(): void {
  * next start to say again: the record of each removal still running
  * for a call not handed on, or whose files went, as one put back for a
  * taker can land after they did, and the marks of each call
- * `removeKept` has yet to get past. Only an exit does it, never a
+ * `removeKept` may find and has yet to get past. Only an exit does it, never a
  * session's close, since in a host the process lives on and the disk
  * gets to them off the thread; a pi killed outright runs nothing, and
  * its next start says the call's end again. Each waits on the disk that
@@ -493,8 +502,8 @@ function takeRecordsBack(): void {
 	const records = [...jobRecords.removing]
 		.filter(([, removal]) => !removal.handed || removal.gone)
 		.map(([path]) => `${path}${JOB_SUFFIX}`);
-	const marks = [...jobRecords.ending.keys()].flatMap((path) =>
-		[...MARKS].map((mark) => `${path}${mark}`),
+	const marks = [...jobRecords.ending].flatMap(([path, ending]) =>
+		[...ending.marks].map((mark) => `${path}${mark}`),
 	);
 	const files = [...new Set([...records, ...marks])];
 	if (files.length === 0) return;
@@ -535,12 +544,19 @@ export function endJobRecordRemoval(
  * it reads the call as ended; any other file it can't remove it passes.
  * As it begins, its record is no longer this process's, a removal of
  * the record still running is marked gone so nothing puts it back, and
- * a process exiting before it is past its marks takes them back.
+ * a process exiting before it is past its marks takes them back: both,
+ * but for a call that ran here and was never handed on, whose only mark
+ * can be the record this process holds for it, so an exit on a slow
+ * disk asks after no name its call never wrote.
  */
-export async function removeKept(path: string): Promise<void> {
+export async function removeKept(
+	path: string,
+	{ ranHere = false }: { ranHere?: boolean } = {},
+): Promise<void> {
+	const mayHold = marksFound(path, ranHere);
 	letJobRecordGo(path);
 	takeBackAtExit();
-	if (!(await removeMarks(path))) return;
+	if (!(await removeMarks(path, mayHold))) return;
 	for (const suffix of SUFFIXES) {
 		if (MARKS.has(suffix)) continue;
 		try {
@@ -553,11 +569,30 @@ export async function removeKept(path: string): Promise<void> {
 }
 
 /**
- * Remove the marks kept at `path`, counted among those an exit takes
- * back until this is past them, answering whether all went.
+ * The marks a removal of the call kept at `path` may find: its record
+ * alone when it is one this process holds for a call that ran here,
+ * since only a hand-off marks one carried.
  */
-async function removeMarks(path: string): Promise<boolean> {
-	jobRecords.ending.set(path, (jobRecords.ending.get(path) ?? 0) + 1);
+function marksFound(path: string, ranHere: boolean): readonly string[] {
+	if (!ranHere) return [...MARKS];
+	return jobRecords.own.has(path) ? [JOB_SUFFIX] : [];
+}
+
+/**
+ * Remove the marks kept at `path`, those of `mayHold` counted among what
+ * an exit takes back until this is past them, answering whether all went.
+ */
+async function removeMarks(
+	path: string,
+	mayHold: readonly string[],
+): Promise<boolean> {
+	const ending = jobRecords.ending.get(path) ?? {
+		removals: 0,
+		marks: new Set<string>(),
+	};
+	ending.removals += 1;
+	for (const mark of mayHold) ending.marks.add(mark);
+	jobRecords.ending.set(path, ending);
 	try {
 		for (const mark of MARKS) {
 			try {
@@ -572,9 +607,8 @@ async function removeMarks(path: string): Promise<boolean> {
 		}
 		return true;
 	} finally {
-		const left = (jobRecords.ending.get(path) ?? 1) - 1;
-		if (left > 0) jobRecords.ending.set(path, left);
-		else jobRecords.ending.delete(path);
+		ending.removals -= 1;
+		if (ending.removals === 0) jobRecords.ending.delete(path);
 	}
 }
 
