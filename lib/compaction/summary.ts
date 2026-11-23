@@ -238,11 +238,17 @@ function foldFor(length: SummaryLength | undefined): string {
 	return limitBinds(length) ? FOLD_HELD : FOLD_CARRY;
 }
 
-/** Whether a ceiling, or halving after a capped try, holds the summary under what its share of what it replaces would ask. */
+/**
+ * Whether the size is said as a limit: always after a try that stopped
+ * at its cap, even at the floor, since that try ran past what it was
+ * asked; else when a ceiling holds the summary under its share of what
+ * it replaces.
+ */
 function limitBinds(length: SummaryLength): boolean {
 	const { ceilingTokens, halved, ...unheld } = length;
+	if (halved === true) return true;
 	return (
-		(ceilingTokens !== undefined || halved === true) &&
+		ceilingTokens !== undefined &&
 		summaryTarget(length) < summaryTarget(unheld)
 	);
 }

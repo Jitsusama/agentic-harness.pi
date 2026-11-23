@@ -429,8 +429,8 @@ describe("the compaction trigger", () => {
 			return at;
 		}
 		/**
-		 * The conversation back at the edge with a summary ahead to fail once
-		 * more: whether the turn after it compacts on the spot.
+		 * The conversation back at the edge: whether the first the trigger
+		 * does there is compact on the spot, rather than write ahead.
 		 */
 		async function compactsOnTheSpotAgain({
 			fire,
@@ -450,16 +450,13 @@ describe("the compaction trigger", () => {
 			state.leaf = "a1";
 			state.tokens = 300_000;
 
-			completeSimple.mockResolvedValueOnce(refused);
-			for (let turn = 0; turn < 40; turn++) {
+			const acted = () =>
+				completeSimple.mock.calls.length > before ||
+				state.compactions.length > compacted;
+			for (let turn = 0; turn < 40 && !acted(); turn++) {
 				await endTurn(fire, ranTools, ctx);
-				if (completeSimple.mock.calls.length > before) break;
 			}
-			await vi.waitFor(() =>
-				expect(completeSimple).toHaveBeenCalledTimes(before + 1),
-			);
-			await new Promise((r) => setTimeout(r, 0));
-			await endTurn(fire, ranTools, ctx);
+			expect(acted(), "did nothing at the edge").toBe(true);
 			return state.compactions.length > compacted;
 		}
 
