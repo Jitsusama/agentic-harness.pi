@@ -138,8 +138,8 @@ export function runsPi(command: string | undefined): boolean {
  * before it is known whether it reopens or where it lands: one that may
  * reopen, which is given no sandbox, or runs something other than pi
  * claims none, and so does the fence, declared or not, which a start on
- * another machine may run without (an older pi there, or a Mac, lifts
- * it), since under-claiming is safe. Strict, which no pi lifts, stays,
+ * another machine may run without (an older pi there, or a Mac where
+ * nothing sandboxes pi, lifts it), since under-claiming is safe. Strict, which no pi lifts, stays,
  * unless a machine in the realm starts its own agent in pi's place, which
  * may be where it lands (`claimRunning`).
  */
@@ -174,9 +174,11 @@ export interface StartedSpawn extends StagedSpawn {
  * the stage would list it; the token reaches what opens here, in a
  * terminal, the launcher or a host, but never a held start, even on this
  * machine. A declared fence's mark goes wherever its `PI_SANDBOX` does,
- * but is kept only by a pi of this install on Linux: a start on another
- * machine may meet an older pi, which lifts it, and on a Mac this
- * package's fence refuses every command, so pi-fence lays it instead.
+ * but is claimed kept only on Linux, where a pi of this install keeps
+ * it: a start on another machine may meet an older pi, which lifts it.
+ * A Mac's pi keeps it only inside some other sandbox around pi, which
+ * the spawner can't see from here, so a Mac's spawn claims none: claiming
+ * less than runs is safe, claiming more is not.
  */
 export function spawnSettled(
 	spawn: StartedSpawn,

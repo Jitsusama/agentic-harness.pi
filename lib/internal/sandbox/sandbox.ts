@@ -35,7 +35,8 @@
  * so the person's tools run as they do, and unlike bwrap alone it refuses
  * abstract Unix sockets, which a mount namespace leaves open while the
  * network is shared. Asked for where it can't be had (not Linux, or no
- * landrun), it runs no command rather than one unfenced.
+ * landrun), it runs no command rather than one unfenced, save on a Mac
+ * whose pi already runs in a sandbox (`offLinux`).
  *
  * A working folder that is or holds the home folder would hand over the
  * person's startup files, and one holding its repository's git folder the
@@ -117,6 +118,7 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import { insideMacSandbox } from "./mac-sandbox.ts";
 import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
@@ -325,7 +327,17 @@ export function fenceCloud(
  * the agent fence only the reason it has none (`NO_CLOUD_IN_THE_FENCE`).
  */
 export type Sandbox =
-	| { readonly kind: "none" }
+	| {
+			readonly kind: "none";
+			/** Said once in the session, when a fence it asked for can't be had here. */
+			readonly note?: string;
+			/**
+			 * The fence asked for, where commands run as they are inside the
+			 * sandbox pi runs in: what the host's record names, so the node
+			 * judges where the session may go by it, beside its process.
+			 */
+			readonly asked?: "fence" | "strict";
+	  }
 	| (Logged & {
 			readonly kind: "strict";
 			readonly landrun: string;
@@ -461,12 +473,10 @@ export function githubRules(): Rule[] {
 function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
+	inside: () => boolean,
 ): Sandbox {
 	if (platform !== "linux") {
-		return {
-			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${FENCE} asks for bubblewrap and Landlock, which only Linux has, so no command runs unfenced here.`,
-		};
+		return offLinux("fence", "bubblewrap and Landlock", inside);
 	}
 	const bwrap = find("bwrap");
 	const landrun = find("landrun");
@@ -509,14 +519,22 @@ export function sandboxFor(
 	github: GitHubTokenSource = sessionTokens,
 	gcloud: CloudGrantSource = sessionGrants,
 	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
+	inside: () => boolean = insideMacSandbox,
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
 	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
 	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const asked = askedFor(name, platform, find, github, gcloud);
-	const sandbox = note && asked.kind === "fence" ? { ...asked, note } : asked;
+	const asked = askedFor(name, platform, find, github, gcloud, inside);
+	// A refusal carries the stray value's note too, the way back to a
+	// fence that runs.
+	const sandbox =
+		note && (asked.kind === "fence" || asked.kind === "none")
+			? { ...asked, note: asked.note ? `${note} ${asked.note}` : note }
+			: note && asked.kind === "refused"
+				? { ...asked, reason: `${note} ${asked.reason}` }
+				: asked;
 	return logger && sandbox.kind !== "none" ? { ...sandbox, logger } : sandbox;
 }
 
@@ -527,14 +545,10 @@ function askedFor(
 	find: (program: string) => string | undefined,
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
+	inside: () => boolean,
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find);
-	if (platform !== "linux") {
-		return {
-			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a Landlock sandbox, which only Linux has, so no command runs unfenced here.`,
-		};
-	}
+	if (asked === FENCE) return fenceFor(platform, find, inside);
+	if (platform !== "linux") return offLinux("strict", "Landlock", inside);
 	const landrun = find("landrun");
 	if (!landrun) {
 		return {
@@ -543,6 +557,38 @@ function askedFor(
 		};
 	}
 	return { kind: "strict", landrun, github, gcloud };
+}
+
+/**
+ * A fence asked for where its programs can't run, a Mac. Where pi
+ * itself runs inside a sandbox, its commands run inside that one as
+ * they are, rather than not at all, since a session that can run
+ * nothing does no work. pi can't run inside `pi-fence`, whose Mac
+ * profile hides pi's own state, so that sandbox is another's, and
+ * it may reach more than the one asked for (ISXEG8 [038ae722] took
+ * that risk). The host
+ * is still told the fence asked for, so the node, which reads the
+ * sandbox pi runs in, judges where the session may go. Where pi finds
+ * no sandbox around it, no command runs, so a stranger's text never
+ * runs as the person (`mac-sandbox.ts`).
+ */
+function offLinux(
+	kind: "fence" | "strict",
+	needs: string,
+	inside: () => boolean,
+): Sandbox {
+	const asked = kind === "fence" ? "agent fence" : "strict fence";
+	if (!inside()) {
+		return {
+			kind: "refused",
+			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, or sandbox-exec couldn't tell, as a busy Mac may cause (a reload checks again), so no command runs unfenced.`,
+		};
+	}
+	return {
+		kind: "none",
+		asked: kind,
+		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.`,
+	};
 }
 
 /**

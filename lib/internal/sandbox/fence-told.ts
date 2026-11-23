@@ -5,8 +5,13 @@
  * later waits for its next start; pi's file tools judge each call by the
  * environment as it is then. The host keeps the loosest any said, and
  * names it only once the present runner's shell and file guard both have,
- * so the record never
+ * so on Linux the record never
  * reads tighter than the tools run (ISXEG8's condition 2, 19 November).
+ * A Mac is the exception: where commands run as they are inside the
+ * sandbox pi runs in, the record names the fence asked for, which may
+ * read tighter than they run. That is safe only for carrying, since a
+ * carry starts the session there under the fence the record names, so
+ * nothing may let a stranger's work in on the record's word alone.
  */
 
 import {
@@ -21,7 +26,11 @@ import type { Sandbox } from "./sandbox.ts";
 export function fenceOf(sandbox: Sandbox): FenceKind {
 	// A refused sandbox runs no command at all, as tight as any fence.
 	if (sandbox.kind === "refused" || sandbox.kind === "strict") return "strict";
-	return sandbox.kind === "fence" ? "fence" : "none";
+	if (sandbox.kind === "fence") return "fence";
+	// A Mac's commands run as they are inside the sandbox pi runs in: the
+	// record names the fence asked for, so a carry starts the session no
+	// looser than it asked, though here it may run looser.
+	return sandbox.asked ?? "none";
 }
 
 /** Why a tool refuses what it would run when its host couldn't say its fence. */
