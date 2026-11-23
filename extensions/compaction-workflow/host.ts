@@ -124,6 +124,9 @@ const ASSUMED_RESERVE_TOKENS = 64_000;
 /** The reason recorded against a configured id nothing registered. */
 const UNKNOWN_PROVIDER = "no provider is registered with this id";
 
+/** Why a summary written ahead went unused after a move in the tree. */
+const MOVED_OFF = "the session moved in its tree off the point it covers";
+
 /** A write and how long it took. */
 interface Timed {
 	readonly written: CompactionWritten;
@@ -140,6 +143,19 @@ interface Ahead {
 	readonly attempts: CompactionAttempt[];
 	result?: Timed;
 }
+
+/**
+ * The summaries written ahead that failed since the count last reset,
+ * whether one stopped at its cap, and the point the latest covered,
+ * which a move in the tree keeps or leaves.
+ */
+interface Failed {
+	readonly tries: number;
+	readonly capped: boolean;
+	readonly coveredLeafId?: string;
+}
+
+const NONE_FAILED: Failed = { tries: 0, capped: false };
 
 /** Where a summary written ahead of the compaction stands. */
 export type AheadState = "none" | "writing" | "ready" | "failed";
@@ -163,6 +179,13 @@ export interface CompactionHost {
 	chain(): { providers: readonly string[]; unknown: readonly string[] };
 	/** The reason a summary written ahead failed, once, clearing it. */
 	takeFailure(): string | undefined;
+	/**
+	 * How many summaries written ahead have failed since a compaction
+	 * last landed, the session last started, or a move in its tree left
+	 * the point they covered. Every summary after one that stopped at
+	 * its output cap is asked for half the size, until the count resets.
+	 */
+	failedAhead(): number;
 	/** Called when a summary written ahead is ready to apply. */
 	whenReady(listener: (ctx: ExtensionContext) => void): void;
 	/**
@@ -210,8 +233,12 @@ export function registerCompactionHost(
 	) => writeRetrying(provider, request, signal, attempts, retryPauseMs);
 
 	/** Record a summary written ahead that will not be used, and say so. */
-	const unused = (ctx: ExtensionContext, reason: string) => {
-		pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason });
+	const unused = (
+		ctx: ExtensionContext,
+		reason: string,
+		failure: { tries: number; halved: boolean } | undefined = undefined,
+	) => {
+		pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason, ...failure });
 		emitOutcome(pi.events, {
 			kind: "ahead-unused",
 			sessionId: ctx.sessionManager.getSessionId(),
@@ -237,16 +264,43 @@ export function registerCompactionHost(
 	pi.events.emit(COMPACTION_READY, api);
 
 	let ahead: Ahead | null = null;
+	// Counted until a compaction lands, since each try ahead is of the
+	// compaction still to come.
+	let failed: Failed = NONE_FAILED;
 	const readyListeners: Array<(ctx: ExtensionContext) => void> = [];
 
 	const drop = () => {
 		ahead?.controller.abort();
 		ahead = null;
 	};
-	pi.on("session_start", async () => drop());
+	pi.on("session_start", async () => {
+		drop();
+		failed = NONE_FAILED;
+	});
+	// A move in the tree that leaves the point a summary written ahead
+	// covers leaves another branch to compact, so what was written and
+	// tried ahead was for a compaction that will not come. One that keeps
+	// the point keeps both, since the compaction to come covers it too,
+	// as it does the tries counted once their failure was taken. Each is
+	// judged by its own point, since a retry may cover more than the try
+	// that failed before it. pi has moved the leaf by the time it says so.
+	pi.on("session_tree", async (_event, ctx) => {
+		const branch = ctx.sessionManager.getBranch();
+		const kept = (covered: string | undefined) =>
+			covered === undefined || branch.some((entry) => entry.id === covered);
+		if (ahead !== null && !kept(ahead.request.coveredLeafId)) {
+			// A failure was recorded as it failed.
+			if (ahead.result === undefined || ahead.result.written.ok) {
+				unused(ctx, MOVED_OFF);
+			}
+			drop();
+		}
+		if (!kept(failed.coveredLeafId)) failed = NONE_FAILED;
+	});
 	pi.on("session_shutdown", async () => drop());
 	pi.on("session_compact", async (event, ctx) => {
 		drop();
+		failed = NONE_FAILED;
 		// Said once pi has applied it, not when a summary was handed over,
 		// so a compaction pi went on to fail is never reported as done.
 		const entry = event.compactionEntry;
@@ -333,6 +387,9 @@ export function registerCompactionHost(
 			maxSummaryTokens: Math.floor(
 				SUMMARY_SHARE_OF_RESERVE * details.reserveTokens,
 			),
+			// Ahead or on the spot, a summary of the compaction to come is
+			// asked for less once a try at it ran out of room.
+			...(failed.capped ? { afterCap: true } : {}),
 		};
 	};
 
@@ -388,8 +445,15 @@ export function registerCompactionHost(
 				outcome: "failed",
 				reason: used.reason,
 			});
-			// A failure while writing was recorded when it happened.
+			// A write that failed before the compaction came was recorded
+			// then; one it waited on was counted then and is recorded now.
 			if (used.unused) unused(ctx, used.reason);
+			else if (taken.result === undefined) {
+				unused(ctx, used.reason, {
+					tries: failed.tries,
+					halved: taken.request.afterCap === true,
+				});
+			}
 		}
 
 		const { preparation } = event;
@@ -467,6 +531,7 @@ export function registerCompactionHost(
 			ahead = null;
 			return reason;
 		},
+		failedAhead: () => failed.tries,
 		whenReady(listener) {
 			readyListeners.push(listener);
 		},
@@ -515,10 +580,23 @@ export function registerCompactionHost(
 				attempts,
 				done: write(provider, writing, controller.signal, attempts).then(
 					(timed) => {
-						if (ahead !== entry || controller.signal.aborted) return timed;
+						if (controller.signal.aborted) return timed;
+						// Counted while a compaction waits on it too, so the summary
+						// written on the spot after it is asked for less.
+						if (!timed.written.ok) {
+							failed = {
+								tries: failed.tries + 1,
+								capped: failed.capped || timed.written.capped === true,
+								coveredLeafId: writing.coveredLeafId,
+							};
+						}
+						if (ahead !== entry) return timed;
 						entry.result = timed;
 						if (!timed.written.ok) {
-							unused(ctx, timed.written.reason);
+							unused(ctx, timed.written.reason, {
+								tries: failed.tries,
+								halved: writing.afterCap === true,
+							});
 						} else {
 							for (const listener of readyListeners) tell(listener, ctx);
 						}

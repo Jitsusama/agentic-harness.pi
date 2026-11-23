@@ -425,13 +425,21 @@ describe("following the install", () => {
 							"its work is being carried",
 				),
 			);
-			// Long enough for an unguarded dispatch to ask git and send.
-			await quietFor(QUIET_MS, 10);
+			// A dispatch the carry failed to hold back starts its git log in
+			// the same call that says the entry, and sends once git answers.
+			// So the wait is git's own: the same log twice over, begun after
+			// the follower's, then a few spells for its answer to be sent.
+			// It scales with how loaded the machine is, but is no bound.
+			await git(install, "log", "--first-parent", "-n2");
+			await git(install, "log", "--first-parent", "-n2");
+			await quietFor(QUIET_MS, 4);
 			expect(prompted, "while the carry holds it").toEqual([]);
+			expect(reloadSlot().request, "while the carry holds it").toBeUndefined();
 
 			hold.release();
 			follower?.consider();
 			await until("the reload is asked for", () => prompted.length > 0);
+			expect(reloadSlot().request?.by, "once the carry lets go").toBe("self");
 		} finally {
 			hold.release();
 		}

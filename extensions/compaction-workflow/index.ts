@@ -31,9 +31,10 @@
  * Written ahead: when the trigger fires, the summary is started in the
  * background (`CompactionHost.prepare`) and work carries on. At
  * the first turn's end after it is ready, or at once when the session
- * is idle, the compaction applies it, which takes no time. Only when it
- * cannot be written from the cache does the session compact on the
- * spot, and the notice says why.
+ * is idle, the compaction applies it, which takes no time. One that
+ * failed is written ahead once more, at half the size if it stopped at
+ * its cap. Only when it cannot be written from the cache, or failed
+ * twice, does the session compact on the spot, and the notice says why.
  *
  * Idle: an idle session's cache expires after its lifetime, and the
  * first turn back then writes the whole context at the write price.
@@ -187,6 +188,15 @@ const DEFAULT_SUMMARY_OUTPUT_TOKENS = 12_600;
  * compacting later.
  */
 const REFETCH_TURNS = 3;
+
+/**
+ * Summaries written ahead of one compaction before it is written on
+ * the spot, which holds the session while it writes. On 22 November
+ * four that failed ahead, three at the output cap, each sent the next
+ * turn to the spot, holding it 7 to 16 minutes; a second try ahead,
+ * asked for half as much after a cap, costs a summary but no wait.
+ */
+const AHEAD_TRIES = 2;
 
 /**
  * What a turn costs beyond reading its context, before the session has
@@ -862,13 +872,15 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 		const failed = host.takeFailure();
 		if (host.state() === "writing") return;
+		// A summary that failed ahead is written ahead once more before one
+		// is written on the spot, which holds the session while it writes.
 		const prepared =
-			failed === undefined
+			failed === undefined || host.failedAhead() < AHEAD_TRIES
 				? host.prepare(ctx, tokens)
 				: { ok: false as const, reason: failed };
 		if (ctx.hasUI) {
 			const timing = prepared.ok
-				? { ahead: true as const }
+				? { ahead: true as const, againAfter: failed }
 				: { ahead: false as const, reason: prepared.reason };
 			ctx.ui.notify(compactionNotice(tokens, decision, timing), "info");
 		}

@@ -209,6 +209,19 @@ describe("sweeping a key for what no live host holds", () => {
 		});
 	});
 
+	it("says it ended nothing while a kept call's file failed to read for the moment", async () => {
+		const { fake } = table({ 1: { group: 1, env: {} } });
+		const options = sweeping();
+		await sweepUnheld(KEY, new Set(), {
+			...options,
+			carried: async () => ({ ...NONE, unread: true as const }),
+			table: fake,
+		});
+		expect(options.say, "a reap that waited is said").toHaveBeenCalledWith(
+			expect.stringMatching(/ended nothing/),
+		);
+	});
+
 	it("looks only in conversation folders holding a note, and reads its cgroup once", async () => {
 		await mkdir(join(root, "stored-only"));
 		await writeFile(join(root, "stored-only", "store.sqlite"), "");

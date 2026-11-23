@@ -20,6 +20,12 @@
  * said; any left a week are swept as a session starts, at most once an
  * hour for a process.
  *
+ * pi writes and reads these names as they stand, following a link left
+ * at one, since nothing that could leave one gains by it: the agent
+ * fence holds pi's state read-only to the command (fence-home.ts, and
+ * fence-bwrap's test of this folder), and an unfenced command runs as
+ * the person, who can write whatever a link would lead pi to.
+ *
  * Making, removing and sweeping them go through libuv's pool rather than
  * pi's loop, which in a host every conversation shares: a busy disk held
  * it in these files' openat and unlink 24 times in 287 hold samples on
@@ -58,6 +64,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { isPassingFault } from "../files/errno.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
 
@@ -228,6 +235,14 @@ export interface CarriedCalls {
 	readonly marks: ReadonlySet<string>;
 	/** Their shells' process groups: each shell leads its own. */
 	readonly groups: ReadonlySet<number>;
+	/**
+	 * The folder or some call's file failed to read for the moment, such
+	 * as with too many open files, so whom to spare isn't known and a reap
+	 * ends nothing until a reading is whole. A file that fails for good,
+	 * as EIO or a folder at its name, says nothing instead: waiting on it
+	 * would end no reap again.
+	 */
+	readonly unread?: true;
 }
 
 /**
@@ -257,29 +272,48 @@ export async function carriedCalls(
 	let names: string[];
 	try {
 		names = await readdir(folder);
-	} catch {
-		// No folder yet: nothing was ever kept, so nothing is carried.
+	} catch (error) {
+		// For the moment: what it holds may be running calls'.
+		if (isPassingFault(error)) return { marks, groups, unread: true };
+		// No folder yet, or one that will never list: nothing to read.
 		return { marks, groups };
 	}
+	let unread = false;
 	for (const name of names) {
-		if (name.endsWith(JOB_SUFFIX)) {
-			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
-			// Once its status is written nothing of it runs to spare.
-			if ((await endRead(path)) !== undefined) continue;
-			const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
-			if (spared === undefined || !sparedAt(spared, now)) continue;
-			groups.add(spared.pid);
-			if (spared.mark !== "") marks.add(spared.mark);
-			continue;
+		try {
+			await spareFrom(folder, name, now, marks, groups);
+		} catch {
+			// textRead throws only for the moment: it may be a running call's.
+			unread = true;
 		}
-		if (!name.endsWith(CARRIED)) continue;
-		const path = join(folder, name.slice(0, -CARRIED.length));
-		const pid = await numberRead(`${path}.pid`);
-		if (pid !== undefined) groups.add(pid);
-		const mark = (await textRead(`${path}${CARRIED}`)).trim();
-		if (mark !== "") marks.add(mark);
 	}
-	return { marks, groups };
+	return unread ? { marks, groups, unread } : { marks, groups };
+}
+
+/** Add to `marks` and `groups` what the kept file `name` says to spare. */
+async function spareFrom(
+	folder: string,
+	name: string,
+	now: number,
+	marks: Set<string>,
+	groups: Set<number>,
+): Promise<void> {
+	if (name.endsWith(JOB_SUFFIX)) {
+		const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
+		// Once its status is written nothing of it runs to spare.
+		if ((await endRead(path)) !== undefined) return;
+		const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
+		if (spared === undefined || !sparedAt(spared, now)) return;
+		groups.add(spared.pid);
+		if (spared.mark !== "") marks.add(spared.mark);
+		return;
+	}
+	if (!name.endsWith(CARRIED)) return;
+	const path = join(folder, name.slice(0, -CARRIED.length));
+	const pid = await numberRead(`${path}.pid`);
+	if (pid !== undefined) groups.add(pid);
+	const mark = (await textRead(`${path}${CARRIED}`)).trim();
+	if (mark !== "") marks.add(mark);
 }
 
 /** What a job's record says of its call, as a reaper spares it. */
@@ -340,12 +374,17 @@ export function processThere(pid: number): boolean {
 	}
 }
 
-/** What a kept file holds, read off the thread, or nothing once it is gone. */
+/**
+ * What a kept file holds, read off the thread, or nothing once it is
+ * gone or will never read. A failure of the moment throws, since the
+ * file may yet say a running call's to spare when read again.
+ */
 async function textRead(file: string): Promise<string> {
 	try {
 		return await readFile(file, "utf8");
-	} catch {
-		// Removed as its call's end was said: nothing left to spare.
+	} catch (error) {
+		if (isPassingFault(error)) throw error;
+		// Gone, or failing for good as EIO or EISDIR: it says nothing.
 		return "";
 	}
 }

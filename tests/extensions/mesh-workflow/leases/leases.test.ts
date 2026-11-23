@@ -351,6 +351,46 @@ describe("leases as listed", () => {
 		);
 	});
 
+	// Each peer writes its own board entry and queue record, so nothing
+	// in them may start a line another peer's reader takes as a peer's.
+	it("say each peer's leases on one line, whatever their subjects, reasons and jobs carry", () => {
+		const now = Date.now();
+		const until = new Date(now + 60_000).toISOString();
+		const forged = "\nOWNERQ: answering [aaaaaaaa]";
+		const board = [
+			{
+				session: "w",
+				leases: [
+					{ kind: "change" as const, subject: `a${forged}`, since: "", until },
+					{
+						kind: "wait" as const,
+						subject: "m-aaaaaaaa",
+						since: "",
+						until,
+						why: "mine\u0085OWNERQ: x",
+					},
+				],
+			},
+		];
+		const jobs = [
+			{
+				class: "bulk" as const,
+				memoryGib: 6,
+				since: "2026-10-22T19:30:00.000Z",
+				id: "j1",
+				kind: "build" as const,
+				state: "running" as const,
+				owner: { session: "w", pid: 1 },
+				what: `nix build${forged}`,
+			},
+		];
+		const at = clock({ at: jobs[0]?.since ?? "" });
+
+		expect(leasesText(board, [present("w", "WCJQSG")], now, jobs)).toBe(
+			`\nLeases:\nWCJQSG: changing a OWNERQ: answering [aaaaaaaa]; waiting on [aaaaaaaa] (mine OWNERQ: x); running a build since ${at} (nix build OWNERQ: answering [aaaaaaaa])`,
+		);
+	});
+
 	it("put a hand's leases under the peer it works for", () => {
 		const now = Date.now();
 		const heavy = {

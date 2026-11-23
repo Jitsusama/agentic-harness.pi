@@ -8,6 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	BOOT_TOKEN_TIMEOUT_MS,
+	readBootToken,
+} from "../../../../../lib/internal/boot-token.ts";
 
 /** Past the clock by enough to absorb a busy machine, short of the hang. */
 const MARGIN_MS = 2500;
@@ -15,7 +19,10 @@ const MARGIN_MS = 2500;
 type Liveness =
 	typeof import("../../../../../lib/internal/quest/sessions/process-liveness.ts");
 
-/** A fresh copy, so the memoized boot token is read again. */
+/**
+ * A fresh copy, with fresh modules beneath it, so the boot token that
+ * boot-token.ts keeps for the process is read again.
+ */
 async function fresh(): Promise<Liveness> {
 	vi.resetModules();
 	return import(
@@ -154,10 +161,12 @@ describe("a process probe that never answers", () => {
 	it.skipIf(process.platform !== "darwin")(
 		"gives up on reading the boot at its clock",
 		async () => {
-			const liveness = await fresh();
+			// Apple's sysctl is asked by its path, so the hang stands in for it
+			// by name rather than through PATH.
+			// Read bare, it keeps nothing, so no fresh copy is needed.
 			hang("sysctl");
-			const { answer, took } = timed(() => liveness.currentBootToken());
-			expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
+			const { answer, took } = timed(() => readBootToken(join(bin, "sysctl")));
+			expect(took).toBeLessThan(BOOT_TOKEN_TIMEOUT_MS + MARGIN_MS);
 			expect(answer).toBeUndefined();
 		},
 		40_000,

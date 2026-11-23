@@ -2,16 +2,32 @@
  * What parks kept running: a note is spared by every later reap for a
  * day, beside what is carried, and goes after; a second host reading
  * the same folder spares it too; a close ends what its conversation's
- * parks kept; and an unreadable file keeps nothing.
+ * parks kept; an unreadable file keeps nothing; and one that fails to
+ * read for the moment loses no note and spares no less.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STRAY_FOR_MS } from "../../../host/engine/carried-shells.ts";
 import { LEFT_FILE, leftRunning } from "../../../host/engine/left-running.ts";
 
 const NONE = { marks: new Set<string>(), groups: new Set<number>() };
+
+/** A read of the notes to fail with this code, as the machine might. */
+const readFault = vi.hoisted(() => ({ code: undefined as string | undefined }));
+
+vi.mock("node:fs", async (original) => {
+	const fs = await original<typeof import("node:fs")>();
+	const readFileSync = ((...args: Parameters<typeof fs.readFileSync>) => {
+		const code = readFault.code;
+		// LEFT_FILE's value: an import is not yet bound where a mock is made.
+		if (code !== undefined && String(args[0]).endsWith("left-running.json"))
+			throw Object.assign(new Error(`${code}: as the test asked`), { code });
+		return fs.readFileSync(...args);
+	}) as typeof fs.readFileSync;
+	return { ...fs, readFileSync };
+});
 
 let stateDir: string;
 let at: number;
@@ -32,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	readFault.code = undefined;
 	rmSync(stateDir, { recursive: true, force: true });
 });
 
@@ -43,6 +60,15 @@ describe("what parks kept running", () => {
 		expect([...spared.marks].sort()).toEqual(["call-1", "call-2", "carried"]);
 		expect([...spared.groups]).toEqual([7]);
 		expect(reported).toEqual([]);
+	});
+
+	it("keeps saying a carried record wouldn't read, beside what a park noted", () => {
+		kept().note("a", ["call-1"]);
+		const carried = { marks: new Set<string>(), groups: new Set<number>() };
+		expect(
+			kept().spared({ ...carried, unread: true }).unread,
+			"the reap still knows whom to spare is unknown",
+		).toBe(true);
 	});
 
 	it("keeps each note a day after its park, a note made again counting from then", () => {
@@ -93,5 +119,26 @@ describe("what parks kept running", () => {
 		expect(kept().spared(NONE)).toBe(NONE);
 		kept().note("a", []);
 		expect(kept().spared(NONE)).toBe(NONE);
+	});
+
+	it("waits, rather than spare less, while its notes fail to read for the moment", () => {
+		kept().note("a", ["call-1"]);
+		readFault.code = "EMFILE";
+		expect(kept().spared(NONE).unread, "whom to spare is not known").toBe(true);
+	});
+
+	it("loses no earlier note to a read that fails for the moment", () => {
+		kept().note("a", ["call-1"]);
+		readFault.code = "EMFILE";
+		kept().note("b", ["call-2"]);
+		expect(kept().closed("c"), "nothing is said closed").toBe(0);
+		readFault.code = undefined;
+		expect([...kept().spared(NONE).marks], "the earlier note stays").toContain(
+			"call-1",
+		);
+		expect(reported, "the note and the close left undone are said").toEqual([
+			expect.objectContaining({ message: expect.stringMatching(/note b's/) }),
+			expect.objectContaining({ message: expect.stringMatching(/end c's/) }),
+		]);
 	});
 });

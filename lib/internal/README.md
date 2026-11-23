@@ -147,6 +147,10 @@ may import from here, and any of it may change without notice.
 
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
+- **`boot-token.ts`**: the token a machine mints as it boots, which
+  quest liveness and the machine queue judge an earlier boot's
+  leftovers by, since a clock that steps moves a boot worked out
+  from uptime.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.

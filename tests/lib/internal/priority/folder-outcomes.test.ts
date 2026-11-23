@@ -34,38 +34,6 @@ import {
 freshFolderEachTest();
 
 describe("the machine's queue folder", () => {
-	it("keeps a job the boot cut off as ended at the boot, not when it was seen", async () => {
-		// A Mac's queue folder outlasts a reboot, so the first keep after one
-		// can come hours after the job's shell was ended by it.
-		const file = join(dir, "..", "state", "outcomes.jsonl");
-		const booted = NOW - 3_600_000;
-		const queue = queueFolder(
-			dir,
-			{ ...processes, bootedAt: () => booted },
-			undefined,
-			file,
-		);
-		const started = booted - 120_000;
-		queue.ask(
-			job("cut", {
-				since: new Date(started - 1000).toISOString(),
-				started: new Date(started).toISOString(),
-			}),
-		);
-		shellSays("cut", 100);
-		queue.keep(ROOMY, NOW, () => undefined);
-		await queue.outcomesKept();
-		const [kept] = readFileSync(file, "utf8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line));
-		expect(kept).toMatchObject({
-			id: "cut",
-			ended: new Date(booted).toISOString(),
-			ranS: 120,
-		});
-	});
-
 	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", async () => {
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const world = join(dir, "..", "world", "git");

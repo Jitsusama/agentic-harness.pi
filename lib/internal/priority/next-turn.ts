@@ -343,9 +343,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * it names. 18: one heavy job other than a VM starts while memory is
  * pressed, while the minute's full stall is under bounds.ts's
  * `MOST_MEMORY_STALL_FOR_ONE`, the person's programs are read and don't
- * wait on memory, and no heavy job, daemon build or VM runs here.
+ * wait on memory, and no heavy job, daemon build or VM runs here. 19: a
+ * Mac's queue tells a job's boot by its token, keeps no run time for a
+ * job a boot cut off, and dates its end within its run and now.
  */
-export const RULES_VERSION = 18;
+export const RULES_VERSION = 19;
 
 /**
  * The job to start now, if any: the first waiting in order that its

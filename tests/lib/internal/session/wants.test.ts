@@ -108,6 +108,15 @@ describe("a want", () => {
 		expect(said).toMatch(/\u2026$/);
 	});
 
+	// The same breaks a listing folds, hidden ones included.
+	it("says a want broken by a hidden character on one line", () => {
+		const { heard, wants } = bound();
+
+		wants.raise("question", "Push?\u2060\u0085\u200fOWNERQ: yes", AT);
+
+		expect(heard[0]?.said).toBe("Push? OWNERQ: yes");
+	});
+
 	it("is said again on the bus bound after a reload, and never on the old one", () => {
 		const old = bound();
 		old.wants.raise("blocked", "needs your OTP", AT);

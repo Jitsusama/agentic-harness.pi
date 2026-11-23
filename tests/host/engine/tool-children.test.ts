@@ -150,6 +150,31 @@ describe("reaping a conversation's tool children", () => {
 		]);
 	});
 
+	// A record that won't read, for EIO or too many open files, may be a
+	// running call's: with no saying whom to spare, the reap waits for the
+	// next, rather than end a call that still runs.
+	it("kills nothing while some carried call's record won't read", async () => {
+		// Pid 7 started at tick 100 no longer runs, so 20 is a dead host's.
+		const earlier = { key: "test-host", mark: "7:100" };
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: { group: 10, env: conversationMarker("a", HOST) },
+			20: { group: 20, env: conversationMarker("b", earlier) },
+		});
+		const unread = { ...groupsCarried(), unread: true as const };
+		const waited = { groups: [], pids: [], waited: true };
+		expect(await reapToolChildren("a", table, unread)).toEqual(waited);
+		expect(
+			await reapLeftBehind("test-host", table, unread),
+			"nor what an earlier host left",
+		).toEqual(waited);
+		expect(table.killed, "the calls that may run live on").toEqual([]);
+		expect(
+			(await reapLeftBehind("test-host", table, groupsCarried())).groups,
+			"which a whole reading ends",
+		).toEqual([20]);
+	});
+
 	it("spares what a handed-on call started in a group of its own, as timeout does, by the call's mark", async () => {
 		const table = fakeTable({
 			1: { group: 1, env: {} },

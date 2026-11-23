@@ -332,6 +332,7 @@ async function writeFrom(
 						replacedTokens,
 						maxOutputTokens: maxTokens,
 						...(ceilingTokens !== undefined ? { ceilingTokens } : {}),
+						...(request.afterCap === true ? { halved: true } : {}),
 					},
 				}
 			: {}),
@@ -379,6 +380,7 @@ async function writeFrom(
 			ok: false,
 			reason: read.reason,
 			...(isTransientFailure(reply) ? { retryable: true } : {}),
+			...(reply.stopReason === "length" ? { capped: true } : {}),
 		};
 	}
 	const usage: Usage = reply.usage;

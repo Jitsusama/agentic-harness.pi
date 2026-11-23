@@ -20,6 +20,20 @@ describe("telling the user why the session is compacting", () => {
 		);
 	});
 
+	it("says why the summary is being written in the background again", () => {
+		expect(
+			compactionNotice(265_000, FIRED, {
+				ahead: true,
+				againAfter: "it stopped at its output cap",
+			}),
+		).toBe(
+			"Writing a compaction summary in the background at 265k tokens again, " +
+				"since the last one failed: it stopped at its output cap. " +
+				"Compacting costs about $0.63 (summary $0.22, rewrite $0.34, re-fetching $0.07), " +
+				"and what it drops has cost $0.63 in reads since the last compaction",
+		);
+	});
+
 	it("says why a compaction has to be written now, while the session waits", () => {
 		expect(
 			compactionNotice(265_000, FIRED, {

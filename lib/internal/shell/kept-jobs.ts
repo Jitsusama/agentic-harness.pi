@@ -630,7 +630,21 @@ export async function strayKeptJobs(
 ): Promise<KeptJob[]> {
 	const stray: KeptJob[] = [];
 	for (const job of await recordsRead(folder))
-		if (unheld(job, owner) && (await endRead(job.work.keep)) === undefined)
-			stray.push(job);
+		if (unheld(job, owner) && !(await endSaid(job.work.keep))) stray.push(job);
 	return stray;
+}
+
+/**
+ * Whether the call at `keep` wrote how it ended. An end failing to read
+ * for the moment is not said, so one file keeps the watch from no other
+ * stray; the stop still checks the process's own mark before it ends
+ * anything.
+ */
+async function endSaid(keep: string): Promise<boolean> {
+	try {
+		return (await endRead(keep)) !== undefined;
+	} catch {
+		// For the moment: whether it ended is not known, so not said.
+		return false;
+	}
 }

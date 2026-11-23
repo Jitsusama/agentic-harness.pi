@@ -40,6 +40,7 @@
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { currentBootToken } from "../../lib/internal/boot-token.ts";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuestsAfresh,
@@ -53,7 +54,6 @@ import {
 	sessionToReopen,
 } from "../../lib/internal/quest/reopening/reopen.ts";
 import {
-	currentBootToken,
 	type ProcessInspection,
 	probeProcess,
 } from "../../lib/internal/quest/sessions/process-liveness.ts";

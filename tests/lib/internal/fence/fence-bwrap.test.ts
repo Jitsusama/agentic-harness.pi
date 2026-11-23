@@ -15,6 +15,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
@@ -142,6 +143,34 @@ describe.skipIf(bwrap === undefined)(
 					false,
 				);
 			}
+		});
+
+		// pi reads and writes a bash call's kept files outside the fence
+		// (lib/internal/shell/kept.ts), so a link a command left there would
+		// lead pi's writes and reads wherever it named; none can be left.
+		it("leaves nothing in the bash tool's kept folder for pi to follow", () => {
+			const kept = join(
+				home,
+				...[".local", "state", "pi", "agentic-harness.pi"],
+				...["shell-workflow", "kept"],
+			);
+			mkdirSync(kept, { recursive: true });
+			const call = join(kept, "call");
+			writeFileSync(`${call}.out`, "");
+			const planted = {
+				"a file": `: > ${call}.carried`,
+				"a symbolic link": `ln -s ${home}/.bashrc ${call}.old`,
+				"a hard link": `ln ${call}.out ${call}.job`,
+				"its output replaced": `rm -f ${call}.out && ln -s ${home}/.bashrc ${call}.out`,
+				"the folder moved": `mv ${kept} ${kept}.moved`,
+			};
+			for (const [what, script] of Object.entries(planted)) {
+				expect(fenced(script), `${what} was left`).toBe(false);
+			}
+			expect(
+				readdirSync(kept),
+				"the kept folder holds only what pi made",
+			).toEqual(["call.out"]);
 		});
 
 		it("lets a fenced pi read /tmp's code caches, and keeps what it writes there to itself", () => {
