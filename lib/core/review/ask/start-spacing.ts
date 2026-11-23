@@ -32,6 +32,7 @@
  * already come counts as a start.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -61,6 +62,15 @@ const UNSEEN_TICKET_MS = 2 * 60_000;
  * back, which would hold every start for as long as it is ahead.
  */
 const FURTHEST_START_AHEAD_MS = 2 * 60 * 60_000;
+
+/**
+ * How many looks in a row may fail, on a lock held too long or a line
+ * that can't be read or written, before the round gives up its place
+ * and says why. One failed look is retried at the next, since a lock
+ * one session holds a moment too long should not end every round
+ * waiting behind it.
+ */
+const FAILED_LOOKS_AT_MOST = 4;
 
 /** One round's place in the line, as kept on disk. */
 interface Ticket {
@@ -111,8 +121,6 @@ export interface StartClaim {
 	readonly lookAgainMs?: number;
 	/** Whether a process still runs; a real check unless given. */
 	readonly alive?: (pid: number) => boolean;
-	/** This process's id; `process.pid` unless given. */
-	readonly pid?: number;
 }
 
 /** What a wait for a start answers. */
@@ -130,10 +138,8 @@ export interface CouncilStart {
 
 /** Where the line is kept, beside the fixed slot older installs keep at `path`. */
 function linePath(path: string): string {
-	return join(dirname(path), "line.json");
+	return join(dirname(path), LINE_FILE);
 }
-
-let ticketsTaken = 0;
 
 /**
  * Takes a place in the machine's line, kept beside `path`, and waits
@@ -154,13 +160,14 @@ export async function awaitCouncilStart(
 	await mkdir(dirname(at), { recursive: true });
 	const spacing = claim.spacingMs ?? COUNCIL_START_SPACING_MS;
 	const lookAgain = claim.lookAgainMs ?? LOOK_AGAIN_MS;
-	ticketsTaken += 1;
 	const asked = new Date().toISOString();
 	const ticket: Ticket = {
-		id: `${claim.pid ?? process.pid}-${Date.now()}-${ticketsTaken}`,
+		// Random rather than counted, since a reload loads this module
+		// again in the same process, and two copies would count alike.
+		id: randomUUID(),
 		by: claim.by,
 		change: claim.change,
-		pid: claim.pid ?? process.pid,
+		pid: process.pid,
 		askedAt: asked,
 		seenAt: asked,
 	};
@@ -169,18 +176,40 @@ export async function awaitCouncilStart(
 		await keep(at, { ...line, waiting: [...line.waiting, ticket] });
 	});
 	let firstSeen: Turn | undefined;
+	let failed = 0;
 	for (;;) {
-		const turn = await takeTurn(at, path, ticket, claim, spacing);
-		firstSeen ??= turn;
-		if (turn.started !== undefined) {
-			const release = () => giveBack(at, ticket, turn.started, turn.before);
-			return firstSeen.waitMs <= 0
+		let turn: Turn | undefined;
+		try {
+			turn = await takeTurn(at, path, ticket, claim, spacing);
+			failed = 0;
+		} catch (error) {
+			failed += 1;
+			if (failed >= FAILED_LOOKS_AT_MOST) {
+				await leave(at, ticket).catch(() => {
+					// The line can't be written either; the ticket is dropped
+					// by the next reader once this round stops looking.
+				});
+				throw error;
+			}
+		}
+		if (turn !== undefined) firstSeen ??= turn;
+		const started = turn?.started;
+		if (turn !== undefined && started !== undefined) {
+			const release = () => giveBack(at, ticket, started, turn.before);
+			if (stoppedBy(signal)) {
+				// Given up during the look that took the start: nothing is
+				// started in its name, so the start goes back.
+				await release();
+				return { cancelled: stoppedSaid(firstSeen, spacing) };
+			}
+			const waitedMs = Date.now() - Date.parse(asked);
+			return firstSeen === undefined || firstSeen.waitMs <= 0
 				? { release }
-				: { waited: waitSaid(firstSeen, spacing), release };
+				: { waited: waitSaid(firstSeen, spacing, waitedMs), release };
 		}
 		try {
 			await sleep(
-				Math.max(1, Math.min(turn.waitMs, lookAgain)),
+				Math.max(1, Math.min(turn?.waitMs ?? lookAgain, lookAgain)),
 				undefined,
 				signal === undefined ? {} : { signal },
 			);
@@ -191,6 +220,14 @@ export async function awaitCouncilStart(
 			return { cancelled: stoppedSaid(firstSeen, spacing) };
 		}
 	}
+}
+
+/**
+ * Whether `signal` has been given up. A function, since the narrowing
+ * from the check before the wait would otherwise say it never is.
+ */
+function stoppedBy(signal: AbortSignal | undefined): boolean {
+	return signal?.aborted === true;
 }
 
 /** What one look at the line found. */
@@ -224,7 +261,11 @@ async function takeTurn(
 			.filter(
 				(each) =>
 					each.id === ticket.id ||
-					(alive(each.pid) && now - Date.parse(each.seenAt) < UNSEEN_TICKET_MS),
+					(alive(each.pid) &&
+						// Either way: a ticket seen in the future is a clock moved
+						// or a line written by hand, and would otherwise hold
+						// every round for as long as its process lives.
+						Math.abs(now - Date.parse(each.seenAt)) < UNSEEN_TICKET_MS),
 			)
 			.map((each) => (each.id === ticket.id ? seen : each));
 		const place = waiting.findIndex((each) => each.id === ticket.id);
@@ -479,8 +520,17 @@ function bounded(name: string): string {
 		: `${name.slice(0, NAME_SAID_AT_MOST)}...`;
 }
 
-function waitSaid(turn: Turn, spacing: number): string {
-	return `It waited for its start ${placeSaid(turn)}, since one roster round starts on this machine each ${spacing / 60_000} minutes.`;
+function waitSaid(turn: Turn, spacing: number, waitedMs: number): string {
+	return `It waited ${minutesSaid(waitedMs)} for its start, ${placeSaid(turn)}, since one roster round starts on this machine each ${spacing / 60_000} minutes. The line is ${LINE_FILE} beside the council-starts state; a ticket whose round is gone drops out within ${UNSEEN_TICKET_MS / 60_000} minutes.`;
+}
+
+/** The line's file name, said so a person can find a wedged line. */
+const LINE_FILE = "line.json";
+
+function minutesSaid(ms: number): string {
+	const minutes = Math.round(ms / 60_000);
+	if (minutes < 1) return "under a minute";
+	return `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 function stoppedSaid(turn: Turn | undefined, spacing: number): string {

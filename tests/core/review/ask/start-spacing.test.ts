@@ -71,7 +71,7 @@ describe("spacing council starts on one machine", () => {
 		expect(line().waiting, "nobody left waiting").toEqual([]);
 	});
 
-	it("waits a spacing after the last start, saying its place and whom it followed", async () => {
+	it("waits a spacing after the last start, saying it was next in line", async () => {
 		const first = new Date();
 		startedAt("A2VLJN", first);
 
@@ -86,21 +86,38 @@ describe("spacing council starts on one machine", () => {
 
 	// 22 November, 03:44 to 04:00: starts every few minutes, because each
 	// session read the mesh and saw no start before it made its own.
-	it("starts rounds asked at once a spacing apart, in the order they joined", async () => {
-		const asked = Date.now();
-		const order: string[] = [];
-		await Promise.all(
-			["A2VLJN", "ISXEG8", "85PKB2"].map(async (by) => {
-				await awaitCouncilStart(path, claim(by));
-				order.push(by);
-			}),
-		);
+	it("starts rounds a spacing apart, in the order they joined, each saying whom it followed", async () => {
+		const joined = ["A2VLJN", "ISXEG8", "85PKB2"];
+		const starts: { by: string; at: number; waited?: string }[] = [];
+		const rounds: Promise<void>[] = [];
+		for (const [place, by] of joined.entries()) {
+			rounds.push(
+				awaitCouncilStart(path, claim(by)).then((start) => {
+					starts.push({ by, at: Date.now(), waited: start.waited });
+				}),
+			);
+			// Each joins once the one before it holds its place or has started.
+			await expect
+				.poll(() => starts.length + line().waiting.length, {
+					timeout: 4_000,
+					interval: 5,
+				})
+				.toBe(place + 1);
+		}
+		await Promise.all(rounds);
 
-		expect(order).toHaveLength(3);
-		expect(
-			Date.now() - asked,
-			"three starts take two spacings",
-		).toBeGreaterThanOrEqual(2 * SPACING - TIMER_EARLY_MS);
+		expect(starts.map((each) => each.by)).toEqual(joined);
+		for (const [place, each] of starts.entries()) {
+			const before = starts[place - 1];
+			if (before === undefined) continue;
+			expect(
+				each.at - before.at,
+				`${each.by} a spacing after`,
+			).toBeGreaterThanOrEqual(SPACING - TIMER_EARLY_MS);
+		}
+		expect(starts[2]?.waited).toContain(
+			"1 round ahead, behind o/r#ISXEG8 (asked by ISXEG8)",
+		);
 	});
 
 	// 22 November: starts every three minutes until 01:12Z, then every
@@ -172,7 +189,13 @@ describe("spacing council starts on one machine", () => {
 	it("leaves the line when given up while it waits, so the next isn't held behind it", async () => {
 		startedAt("A2VLJN", new Date());
 		const giving = new AbortController();
-		const waiting = awaitCouncilStart(path, claim("ISXEG8"), giving.signal);
+		// A spacing far longer than the poll, so the round is still waiting
+		// when it is given up on a loaded machine.
+		const waiting = awaitCouncilStart(
+			path,
+			claim("ISXEG8", { spacingMs: 60_000 }),
+			giving.signal,
+		);
 		await expect
 			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
 			.toBe(1);
@@ -199,6 +222,78 @@ describe("spacing council starts on one machine", () => {
 			by: "A2VLJN",
 			change: "o/r#A2VLJN",
 		});
+	});
+
+	it("leaves a later start alone when an earlier round gives its start back", async () => {
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+		const later = new Date(Date.now() + 1);
+		startedAt("85PKB2", later);
+
+		await start.release?.();
+
+		expect(line().started.by, "the later start stands").toBe("85PKB2");
+	});
+
+	// A clock stepped back, or a line written by hand, would otherwise
+	// hold every start for as long as the start lay ahead.
+	it("spaces from no start that lies hours ahead", async () => {
+		startedAt("A2VLJN", new Date(Date.now() + 3 * 60 * 60_000));
+
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("waits behind no ticket seen in the future, even while its process lives", async () => {
+		const ahead = new Date(Date.now() + 60 * 60_000).toISOString();
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "future",
+				by: "ISXEG8",
+				change: "o/r#future",
+				pid: process.pid,
+				askedAt: ahead,
+				seenAt: ahead,
+			},
+		]);
+
+		const start = await awaitCouncilStart(path, claim("85PKB2"));
+
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(line().waiting).toEqual([]);
+	});
+
+	it("looks again after a look fails, rather than giving up its place", async () => {
+		let looks = 0;
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				startedElsewhere: async () => {
+					looks += 1;
+					if (looks <= 2) throw new Error("lock held too long");
+					return undefined;
+				},
+			}),
+		);
+
+		expect(line().started.by, "it started on the third look").toBe("ISXEG8");
+		expect(start.cancelled).toBeUndefined();
+	});
+
+	it("leaves the line and says why when every look fails", async () => {
+		await expect(
+			awaitCouncilStart(
+				path,
+				claim("ISXEG8", {
+					startedElsewhere: async () => {
+						throw new Error("lock held too long");
+					},
+				}),
+			),
+		).rejects.toThrow("lock held too long");
+
+		expect(line().waiting, "no ticket left holding the head").toEqual([]);
 	});
 
 	it("takes no place when stopped before it asks", async () => {
