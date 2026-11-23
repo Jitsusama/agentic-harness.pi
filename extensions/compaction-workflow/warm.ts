@@ -92,7 +92,7 @@ import {
 	takeWarmingCarry,
 	type WarmingCarry,
 	warmingCarryDir,
-	writeWarmingCarry,
+	writeWarmingCarryOff,
 } from "../../lib/internal/cache/warming-carry.ts";
 import {
 	getSection,
@@ -435,7 +435,7 @@ export function registerIdleWarming(
 		carried().delete(id);
 		if (!going) return;
 		if (event.reason === "reload") carried().set(id, going);
-		else if (keepingRequests()) keep(onDisk(id, going));
+		else if (keepingRequests()) await keep(onDisk(id, going));
 	});
 
 	return {
@@ -535,10 +535,14 @@ function restarted(
 	};
 }
 
-/** Write a restart's carry; a failure costs only a dearer wake, so it is swallowed. */
-function keep(carry: WarmingCarry): void {
+/**
+ * Write a restart's carry off the thread, since a host parks many
+ * conversations at once; a failure costs only a dearer wake, so it is
+ * swallowed.
+ */
+async function keep(carry: WarmingCarry): Promise<void> {
 	try {
-		writeWarmingCarry(warmingCarryDir(), carry);
+		await writeWarmingCarryOff(warmingCarryDir(), carry);
 	} catch {
 		// Deliberately dropped: shutting down must not fail over a cache
 		// the next start can do without.

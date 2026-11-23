@@ -22,11 +22,15 @@ import {
 	rmSync,
 	statSync,
 } from "node:fs";
+import { mkdir as mkdirOff } from "node:fs/promises";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gunzipSync, gzip, gzipSync } from "node:zlib";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
-import { writeWhole } from "../write-whole.ts";
+import { writeWhole, writeWholeOff } from "../write-whole.ts";
+
+const gzipOff = promisify(gzip);
 
 /** What a session's warming carries while no pi runs it. */
 export interface WarmingCarry {
@@ -79,6 +83,23 @@ export function writeWarmingCarry(dir: string, carry: WarmingCarry): void {
 	writeWhole(carryFile(dir, carry.sessionId), gzipSync(JSON.stringify(carry)), {
 		mode: OWNER_ONLY,
 	});
+}
+
+/**
+ * Write a session's carry as `writeWarmingCarry` does, off the thread:
+ * a host shuts down every conversation it parks, many at once as it
+ * restarts, and their compressing and writing held its loop.
+ */
+export async function writeWarmingCarryOff(
+	dir: string,
+	carry: WarmingCarry,
+): Promise<void> {
+	await mkdirOff(dir, { recursive: true, mode: OWNER_ONLY_DIR });
+	await writeWholeOff(
+		carryFile(dir, carry.sessionId),
+		await gzipOff(JSON.stringify(carry)),
+		{ mode: OWNER_ONLY },
+	);
 }
 
 /** A session's carry, left where it is, or nothing when none reads as one. */
