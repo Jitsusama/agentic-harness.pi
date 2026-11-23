@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { runtimeCompileFolderOf } from "../../../../lib/internal/fence/compile-cache-place.ts";
 import {
 	SANDBOX_VARIABLE,
 	STRICT,
@@ -122,6 +123,41 @@ describe("a working folder the sandbox won't let commands write", () => {
 		} finally {
 			vi.unstubAllEnvs();
 			rmSync(runtime, { recursive: true, force: true });
+		}
+	});
+
+	it("lets pi-fence grant a compile folder reached through a linked root, which the fence lays no tmpfs over and no host compiles into", () => {
+		// A runtime folder of its own, whose compile root is a link, as one
+		// planted there would be: bubblewrap can't mount over the link, so
+		// the fence keeps the runtime folder read-only instead of a tmpfs.
+		const runtime = mkdtempSync(join(tmpdir(), "unfenced-run-"));
+		const planted = mkdtempSync(join(tmpdir(), "unfenced-planted-"));
+		mkdirSync(join(planted, "host"));
+		symlinkSync(planted, join(runtime, "pi-compile"));
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		try {
+			const at = join(runtime, "pi-compile", "host");
+			const place = { treesRoot: join(home, "trees"), mac: false };
+			expect(unfencedFolder(at, home, ASKED, place), "strict").toContain(
+				"compiled",
+			);
+			expect(
+				unfencedFolder(at, home, ASKED, { ...place, cachesClosed: true }),
+				"pi-fence, which takes it for a tmpfs of its own",
+			).toBeUndefined();
+			expect(
+				runtimeCompileFolderOf(
+					"host",
+					{ XDG_RUNTIME_DIR: runtime, HOME: home },
+					"linux",
+					runtime,
+				),
+				"what a command writes there is never a host's compiled code",
+			).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(runtime, { recursive: true, force: true });
+			rmSync(planted, { recursive: true, force: true });
 		}
 	});
 
