@@ -606,6 +606,12 @@ async function makeQuest(
 	return make({ ...base, title, note });
 }
 
+/** What ends a line in what mycelium writes, Unicode's own separators too. */
+const LINE_ENDS = /\r?\n|\r|\u2028|\u2029/u;
+
+/** The marks that reorder the text after them: bidi embeddings and isolates. */
+const REORDERING = /[\u202A-\u202E\u2066-\u2069]/gu;
+
 /** Tie quest `id` to the cell it came from, saying how it went. */
 async function tie(
 	id: string,
@@ -656,15 +662,21 @@ async function tie(
  * The last line mycelium wrote, a progress bar's last redraw included, cut
  * to MOST_QUOTED whole characters and ended with "..." where it was cut,
  * so a cut reason never reads as the whole of it, or "" where it wrote
- * none.
+ * none. What it relays may come from a node or a peer, so its backticks
+ * become plain quotes, never reading as a command beside the one the
+ * words ask to run, and the marks that reorder text or start a line
+ * (U+202A to U+202E, U+2066 to U+2069) are dropped, so the line shows
+ * in the order it was written.
  */
 function lastLine(stderr: string): string {
 	const line =
 		stderr
 			.trim()
-			.split(/\r?\n|\r/u)
+			.split(LINE_ENDS)
 			.pop()
-			?.trim() ?? "";
+			?.replace(REORDERING, "")
+			.replaceAll("`", "'")
+			.trim() ?? "";
 	const characters = Array.from(line);
 	return characters.length > MOST_QUOTED
 		? `${characters.slice(0, MOST_QUOTED).join("")}...`
