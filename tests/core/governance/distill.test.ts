@@ -37,8 +37,12 @@ describe("condenseTranscript", () => {
 		];
 		const turns: Turn[] = Array.from({ length: 30 }, (_, at) => ({
 			role: at % 3 === 0 ? "assistant" : "user",
-			text: `${words[at % words.length]}${at % 4 === 0 ? "" : ` ${at}`}`,
+			text: `${words[at % words.length]}${at % 4 === 1 ? "" : ` ${at}`}`,
 		}));
+		const blank = turns.flatMap((t, at) => (t.text.trim() ? [] : [at]));
+		expect(blank, "the turns a condense leaves out").toEqual([
+			1, 9, 13, 21, 25,
+		]);
 		const whole = droppingOldest(turns, Number.POSITIVE_INFINITY).length;
 
 		for (let cap = 0; cap <= whole + 1; cap++) {
