@@ -34,7 +34,9 @@
  * session's close taking back those it holds, stay on the thread: the
  * close must take them back before it stops their jobs, and only calls
  * handed to a job have records, so a hold naming a `.job` file can still
- * come from either.
+ * come from either. A removal still running is left to the disk at a
+ * close, and taken back on the thread only as the process exits
+ * (kept.ts).
  */
 
 import {
@@ -59,7 +61,6 @@ import {
 	ownsJobRecord,
 	processThere,
 	removeKept,
-	removingUnhanded,
 	takeJobRecord,
 } from "./kept.ts";
 
@@ -169,12 +170,12 @@ function clearStaged(staged: string): void {
  * Take back the record of the call kept at `keep`, leaving it unspared,
  * when this process holds one: a session's close takes back every call
  * it recorded, nearly all gone with their files since, and one handed
- * on is its taker's. A move hands its calls on and closes the session
- * in one turn, so a removal still running for a call it handed is left
- * to put the record back for the taker. One running for a call not
- * handed on, its rename still waiting on the disk, is beaten to it here:
- * the close stops the call's job next and its pi may exit, leaving the
- * record beside the call's end for the next start to say again.
+ * on is its taker's. A removal still running is left to end off the
+ * thread: one for a call handed on puts the record back for the taker,
+ * as a move hands its calls on and closes the session in one turn, and
+ * one for a call not handed on removes it, on a disk slow enough that
+ * an unlink here would hold every conversation a host runs. A pi that
+ * exits first takes that record back as it goes (kept.ts).
  *
  * Whether this process holds the record is asked by path, not by which
  * session wrote it: a taker in this process that wrote it again before
@@ -182,8 +183,7 @@ function clearStaged(staged: string): void {
  * up only at a later session's start, after the giver's close.
  */
 export function forgetKeptJob(keep: string): void {
-	const held = takeJobRecord(keep) !== undefined;
-	if (!(held || removingUnhanded(keep))) return;
+	if (takeJobRecord(keep) === undefined) return;
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
@@ -262,7 +262,7 @@ function whatFollows(keep: string, removal: JobRecordRemoval): string {
 		return "the call was handed on meanwhile, so a pi gone before its taker records it leaves the call to strays";
 	if (removal.setAside && !ownsJobRecord(keep))
 		return "it is set aside already, where no start reads it";
-	return "a pi gone before it goes may say the call's end again";
+	return "a pi killed before it goes may say the call's end again";
 }
 
 /**

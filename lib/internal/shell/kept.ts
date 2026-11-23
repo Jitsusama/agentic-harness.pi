@@ -47,6 +47,7 @@ import {
 	existsSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
@@ -346,9 +347,9 @@ export interface JobRecordRemoval {
 	 */
 	latest?: string;
 	/**
-	 * Whether its call's files went while it ran, here, as a taker in this
-	 * process ended the call or a move that couldn't be written stopped
-	 * it, so nothing is put back for one.
+	 * Whether its call's files went while it ran, by whoever removed them
+	 * (its own end, a taker in this process, or a move that couldn't be
+	 * written), so nothing is put back for one.
 	 */
 	gone: boolean;
 	/** Whether the record is off its name, set aside, and not yet put back. */
@@ -367,12 +368,15 @@ export interface JobRecordRemoval {
 // files go passes through it. Each path is a call's own, so
 // conversations never share one. The key names the shape: a copy loaded
 // under another key would see none of these, and its calls would leave
-// their records to `removeKept` just after.
+// their records to `removeKept` just after. Whether the process takes
+// back, as it exits, the records of removals still running is kept
+// beside them, so it is asked to once however many copies there are.
 const jobRecords = processGlobal(
-	"agentic-harness.internal/shell/kept-jobs/records.v2",
+	"agentic-harness.internal/shell/kept-jobs/records.v3",
 	() => ({
 		own: new Map<string, string>(),
 		removing: new Map<string, JobRecordRemoval>(),
+		takenBackAtExit: false,
 	}),
 );
 
@@ -437,16 +441,33 @@ export function beginJobRecordRemoval(
 		setAside: false,
 	};
 	jobRecords.removing.set(path, removal);
+	if (!jobRecords.takenBackAtExit) {
+		jobRecords.takenBackAtExit = true;
+		process.on("exit", takeRunningRecordsBack);
+	}
 	return removal;
 }
 
 /**
- * Whether a removal of the job record kept at `path` runs for a call
- * not handed on, so the record, if still at its name, is no taker's.
+ * Take back, on the thread, the record at its name of each removal still
+ * running for a call neither handed on nor gone, as the process exits:
+ * the disk's pool does nothing more once it has, so a record left would
+ * stand beside the call's end for its next start to say again. Only an
+ * exit does it, never a session's close, since in a host the process
+ * lives on and the removal ends off the thread; a pi killed outright
+ * runs nothing, and its next start says the call's end again. Never
+ * throws, as nothing is left to tell.
  */
-export function removingUnhanded(path: string): boolean {
-	const removal = jobRecords.removing.get(path);
-	return removal !== undefined && !removal.handed;
+export function takeRunningRecordsBack(): void {
+	for (const [path, removal] of jobRecords.removing) {
+		if (removal.handed || removal.gone) continue;
+		try {
+			rmSync(`${path}${JOB_SUFFIX}`, { force: true });
+		} catch {
+			// Only something other than a file holds the name, which nothing
+			// here writes; the process is going, so nothing could say it.
+		}
+	}
 }
 
 /** Note that `removal` of the job record kept at `path` has ended. */
@@ -475,6 +496,25 @@ export async function removeKept(path: string): Promise<void> {
 			// the week's sweep, which says nothing of one it can't remove
 			// either, tries it again.
 			if (MARKS.has(suffix)) return;
+		}
+	}
+}
+
+/**
+ * Take back on the thread the marks that say a call at `path` is someone's,
+ * its record and its carried mark, for a pi about to exit before the disk
+ * would get to them: a move that couldn't be written, at a quit. Its other
+ * files are left to `removeKept`, and the week's sweep, since a start
+ * finds a call by its marks alone.
+ */
+export function takeMarksBack(path: string): void {
+	letJobRecordGo(path);
+	for (const mark of MARKS) {
+		try {
+			rmSync(`${path}${mark}`, { force: true });
+		} catch {
+			// A folder in its place, which no call leaves; removeKept, just
+			// after, tries again and leaves it to the week's sweep.
 		}
 	}
 }
