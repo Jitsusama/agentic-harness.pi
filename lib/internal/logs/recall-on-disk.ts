@@ -60,7 +60,7 @@ export interface OnDisk {
 export function markedOnDisk(
 	branch: readonly unknown[],
 	asked: Asked,
-	lines: (path: string) => Iterable<string> = logLines,
+	lines: LinesOf = logLines,
 ): OnDisk {
 	const seen = new Set(
 		branch.map((entry) => (isRecord(entry) ? entry.id : undefined)),
@@ -89,6 +89,9 @@ export function markedOnDisk(
 	return { marked, logs, bytes, entries: marked.length };
 }
 
+/** A log's lines, each read's size added to `tally`. */
+type LinesOf = (path: string, tally: { bytes: number }) => Iterable<string>;
+
 /** One log's branch, marked, and the record it rolled over from. */
 interface LogRead {
 	readonly walked: Marked[];
@@ -115,12 +118,12 @@ interface Waiting {
 function branchMarked(
 	record: RolloverRecord,
 	asked: Asked,
-	lines: (path: string) => Iterable<string>,
+	lines: LinesOf,
 ): LogRead {
 	const slots = new Map<string, Slot>();
 	const records = new Map<string, SessionEntry>();
 	const waiting = new Map<string, Waiting>();
-	let bytes = 0;
+	const read = { bytes: 0 };
 
 	const finish = (held: Waiting): void => {
 		const text = entryText(held.entry, held.results, held.recallCalls);
@@ -132,10 +135,7 @@ function branchMarked(
 		);
 	};
 
-	for (const line of lines(record.parentSession)) {
-		// Each line but a cut last one was ended by a newline; a byte over
-		// for that one is nothing to a journal's size.
-		bytes += Buffer.byteLength(line) + 1;
+	for (const line of lines(record.parentSession, read)) {
 		const entry = entryOf(line);
 		if (!entry) continue;
 		const slot: Slot = {
@@ -190,7 +190,7 @@ function branchMarked(
 		const entry = records.get(mark.id);
 		return entry ? [entry] : [];
 	});
-	return { walked, next: rolledFrom(onBranch), bytes };
+	return { walked, next: rolledFrom(onBranch), bytes: read.bytes };
 }
 
 /** The entry a line holds, or nothing for a header, a blank or a cut line. */
