@@ -48,7 +48,11 @@ const attached: QuestSession = {
 	terminal: { driverId: "kitty", value: "7", hostId: "optimus", scope: "s" },
 };
 
-/** The same session as a read builds it: hosted ahead of the boot. */
+/**
+ * The same session with its process ordered as a read builds it, hosted
+ * ahead of the boot, and its owner and terminal reversed, as no builder
+ * orders them, so any order at all is seen written alike.
+ */
 const reread: QuestSession = {
 	id: "s1",
 	cwd: "/home/joel/src",
@@ -97,20 +101,53 @@ describe("a session written into a shared quest README", () => {
 		).toBe(written);
 	});
 
-	it("keeps a field it doesn't know, after the ones it does", () => {
-		const process = attached.process;
-		if (!process) throw new Error("the fixture has a process");
-		const withMore = { ...process, laterField: "kept" };
-		const later: QuestSession = { ...attached, process: withMore };
+	it("keeps an owner's fields it doesn't know, after the known ones, by name", () => {
+		// Another build may stamp an owner with more than this one knows;
+		// a hosted process is read whole, so those fields come back.
+		const written = serializeQuestFrontMatter(questWith([attached])).replace(
+			"startTicks: 12928447\n    terminal:",
+			"startTicks: 12928447\n          zulu: z\n          alpha: a\n    terminal:",
+		);
+		expect(written, "the fixture's owner took the later fields").toContain(
+			"zulu: z",
+		);
+		const parsed = parseQuestFrontMatter(`${written}\n# A quest\n`);
+		if (!parsed) throw new Error("the README reads back");
 
-		const text = serializeQuestFrontMatter(questWith([later]));
+		const again = serializeQuestFrontMatter(parsed.frontMatter);
 
-		expect(text, "the unknown field is still written").toContain(
-			"laterField: kept",
+		const at = (word: string): number => again.indexOf(word);
+		expect(at("alpha: a"), "an unknown owner field is kept").toBeGreaterThan(
+			at("bootId:"),
 		);
 		expect(
-			text.indexOf("laterField"),
-			"the unknown field follows the known ones",
-		).toBeGreaterThan(text.indexOf("hosted:"));
+			at("zulu: z"),
+			"unknown fields follow one another by name",
+		).toBeGreaterThan(at("alpha: a"));
+	});
+
+	it("writes a __proto__ key read from a README as a key", () => {
+		// A README is shared, so what it holds is another machine's words;
+		// one naming __proto__ must not reach the prototype of what's written.
+		const written = serializeQuestFrontMatter(questWith([attached])).replace(
+			"startTicks: 12928447\n    terminal:",
+			"startTicks: 12928447\n          __proto__:\n            polluted: yes\n    terminal:",
+		);
+		expect(written, "the fixture's owner took the key").toContain(
+			"polluted: yes",
+		);
+		const parsed = parseQuestFrontMatter(`${written}\n# A quest\n`);
+		if (!parsed) throw new Error("the README reads back");
+
+		const again = serializeQuestFrontMatter(parsed.frontMatter);
+
+		expect(
+			Object.hasOwn(Object.prototype, "polluted"),
+			"nothing reached Object's prototype",
+		).toBe(false);
+		expect(
+			again,
+			"the key is written back as a key, not lost to a prototype",
+		).toContain("polluted: yes");
 	});
 });

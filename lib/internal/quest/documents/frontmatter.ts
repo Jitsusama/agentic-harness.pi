@@ -621,23 +621,25 @@ const TERMINAL_KEYS = ["driverId", "value", "scope", "hostId"] as const;
  * whichever code built it. A quest README is shared between machines,
  * and a rewrite that only moves keys reads there as a change of its own,
  * which the share can't tell from one made apart (315D0071 [884962e9]).
+ * Only a hosted process and its owner are read whole, so only they
+ * carry keys this build doesn't know; a process's and a terminal's
+ * other fields are dropped on read, as before. The result is built from
+ * its entries, so a `__proto__` key read from a README stays a key
+ * rather than setting the written object's prototype.
  */
 function inOrder(
 	record: object,
 	known: readonly string[],
 ): Record<string, unknown> {
-	const fields = new Map<string, unknown>(Object.entries(record));
-	const out: Record<string, unknown> = {};
-	for (const key of known) {
-		if (fields.get(key) !== undefined) out[key] = fields.get(key);
-	}
-	const others = [...fields.keys()]
-		.filter((key) => !known.includes(key))
-		.sort();
-	for (const key of others) {
-		if (fields.get(key) !== undefined) out[key] = fields.get(key);
-	}
-	return out;
+	const fields = Object.entries(record).filter(
+		([, value]) => value !== undefined,
+	);
+	const rank = (key: string): number => {
+		const at = known.indexOf(key);
+		return at === -1 ? known.length : at;
+	};
+	fields.sort(([a], [b]) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+	return Object.fromEntries(fields);
 }
 
 function processToPlain(
@@ -651,6 +653,19 @@ function processToPlain(
 		};
 	}
 	return out;
+}
+
+/**
+ * Whether `a` and `b` are written alike, so a caller that would only
+ * rewrite one with the other can skip the write. Comparing them as built
+ * would see keys in another order as a change: a process read back from
+ * a README puts `hosted` before `bootToken`, and one just captured puts
+ * it last, so every attach of a hosted session rewrote its README.
+ */
+export function writtenAlike(a: QuestSession, b: QuestSession): boolean {
+	return (
+		JSON.stringify(sessionToPlain(a)) === JSON.stringify(sessionToPlain(b))
+	);
 }
 
 function sessionToPlain(session: QuestSession): Record<string, unknown> {

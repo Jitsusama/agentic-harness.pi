@@ -66,6 +66,48 @@ describe("attachSessionInQuestDir", () => {
 		});
 		expect(questOnDisk(dir).updated).toBe(before);
 	});
+
+	it("leaves the README alone when an attach only orders a process's keys apart", () => {
+		// A process read back puts `hosted` before the boot, and one just
+		// captured puts it last, so comparing them as built saw a change
+		// at every attach of a hosted session.
+		const owner = { pid: 7, startedAt: 1, bootId: "b", startTicks: 9 };
+		const dir = seedQuest(state(), "A", {
+			sessions: [
+				{
+					id: "s1",
+					started: FIRST,
+					status: "active",
+					process: {
+						hostId: "h",
+						pid: 7,
+						startToken: "t",
+						bootToken: "b",
+						startTicks: 9,
+						hosted: { host: "bg", session: "s1", owner },
+					},
+				},
+			],
+		});
+		const before = questOnDisk(dir).updated;
+
+		attachSessionInQuestDir(dir, {
+			id: "s1",
+			process: {
+				hostId: "h",
+				pid: 7,
+				startToken: "t",
+				bootToken: "b",
+				startTicks: 9,
+				hosted: { owner, session: "s1", host: "bg" },
+			},
+		});
+
+		expect(
+			questOnDisk(dir).updated,
+			"an attach that only moves keys writes nothing, so stamps no date",
+		).toBe(before);
+	});
 });
 
 describe("attachCurrentSession", () => {
