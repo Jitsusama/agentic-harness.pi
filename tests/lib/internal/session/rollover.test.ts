@@ -807,6 +807,34 @@ describe("a log's lines, read a chunk at a time", () => {
 		expect(tally.bytes).toBe(readFileSync(path).length);
 	});
 
+	it("leave out a line longer than the longest asked for, counting its bytes", () => {
+		const path = join(dir, "log.jsonl");
+		const chunk = 1024 * 1024;
+		const longest = chunk + 10;
+		// Too long in one chunk, then across chunks; one just fits, and an
+		// unended last line is too long.
+		const fits = "c".repeat(longest);
+		const lines = [
+			"a".repeat(longest + 1),
+			"short",
+			"b".repeat(3 * chunk),
+			fits,
+			"after",
+			"d".repeat(longest + 1),
+		];
+		writeFileSync(path, lines.join("\n"));
+		const tally = { bytes: 0 };
+
+		expect([...logLines(path, tally, longest)]).toEqual([
+			"short",
+			fits,
+			"after",
+		]);
+		expect(tally.bytes).toBe(readFileSync(path).length);
+		expect([...logLines(path, tally, 4)]).toEqual([]);
+		expect([...logLines(path, tally, 5)]).toEqual(["short", "after"]);
+	});
+
 	it("are none from a pipe, rather than a wait on it", () => {
 		const file = join(dir, "log.jsonl");
 		execFileSync("mkfifo", [file]);

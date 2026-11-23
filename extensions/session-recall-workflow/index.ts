@@ -87,10 +87,12 @@ function recallWhole(
 	const asked = askedBy(params);
 	const started = performance.now();
 	const disk = markedOnDisk(branch, asked);
-	if (disk.logs > 0) {
+	if (disk.bytes > 0) {
 		const ms = Math.round(performance.now() - started);
+		const again =
+			disk.readAgain > 0 ? `, ${disk.readAgain} read a second time` : "";
 		process.stderr.write(
-			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${disk.logs} log(s) on disk, ${disk.entries} entries, in ${ms} ms\n`,
+			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${disk.logs} log(s) on disk, ${disk.entries} entries${again}, in ${ms} ms\n`,
 		);
 	}
 	// The path comes from the log, so it is quoted: a newline in it

@@ -40,6 +40,7 @@
  * once.
  */
 
+import { constants as bufferLimits } from "node:buffer";
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
@@ -482,6 +483,13 @@ export function rollOver(
 /** How much of a parent log is read at once. */
 const CHUNK_BYTES = 1024 * 1024;
 
+/**
+ * The longest line read, in bytes: a line no longer always decodes to
+ * a string, and a longer one might not, so it is dropped as cut short.
+ * The longest of 1,528 real logs was under a tenth of it.
+ */
+const LONGEST_LINE_BYTES = bufferLimits.MAX_STRING_LENGTH;
+
 /** The byte that ends each line of a log. */
 const NEWLINE = 0x0a;
 
@@ -812,11 +820,13 @@ function wantedLine(
  *
  * Only a regular file is read. A pipe or a device named as a parent
  * could block a read for good, so anything else is left unread, and
- * false is returned for it.
+ * false is returned for it. A line longer than `longest` bytes is
+ * skipped rather than handed over.
  */
 function* linesOf(
 	path: string,
 	take: (line: Buffer, offset: number) => boolean,
+	longest = LONGEST_LINE_BYTES,
 ): Scan<boolean> {
 	const fd = openSync(path, READ_FLAGS);
 	try {
@@ -825,6 +835,8 @@ function* linesOf(
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
 		let heldAt = 0;
+		const handOver = (line: Buffer, offset: number) =>
+			line.length <= longest && take(line, offset);
 		let base = 0;
 		for (;;) {
 			const read = yield* readOf(fd, buffer, CHUNK_BYTES, base);
@@ -833,14 +845,14 @@ function* linesOf(
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
 			if (end !== -1 && held.length > 0) {
-				if (take(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt))
+				if (handOver(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt))
 					return true;
 				held = [];
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
 			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
-				if (take(chunk.subarray(start, end), base + start)) return true;
+				if (handOver(chunk.subarray(start, end), base + start)) return true;
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
@@ -850,7 +862,7 @@ function* linesOf(
 			}
 			base += read;
 		}
-		if (held.length > 0) take(Buffer.concat(held), heldAt);
+		if (held.length > 0) handOver(Buffer.concat(held), heldAt);
 		return true;
 	} finally {
 		closeSync(fd);
@@ -862,7 +874,8 @@ function* linesOf(
  * it holds one chunk's lines of it rather than the whole file. Like
  * the parents' scan, it reads only a regular file: a pipe or a device
  * gives no lines. Each read's size is added to `tally`, so a reader
- * learns what a log cost without measuring every line again.
+ * learns what a log cost without measuring every line again. A line
+ * longer than `longest` bytes is not given, though its bytes count.
  *
  * A chunk's lines wait as views of the buffer the next read fills, and
  * each is decoded only as it is handed over, all before that read: a
@@ -872,12 +885,17 @@ function* linesOf(
 export function* logLines(
 	path: string,
 	tally: { bytes: number } = { bytes: 0 },
+	longest = LONGEST_LINE_BYTES,
 ): Generator<string> {
 	const batch: Buffer[] = [];
-	const scan = linesOf(path, (line) => {
-		batch.push(line);
-		return false;
-	});
+	const scan = linesOf(
+		path,
+		(line) => {
+			batch.push(line);
+			return false;
+		},
+		longest,
+	);
 	function* drain(): Generator<string> {
 		for (const line of batch) yield line.toString("utf8");
 		batch.length = 0;

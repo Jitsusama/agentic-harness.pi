@@ -321,7 +321,14 @@ function spokenShape(entry: SessionEntry): boolean {
 	const { role, content } = message;
 	if (role !== "user" && role !== "assistant") return true;
 	if (role === "user" && typeof content === "string") return true;
-	return Array.isArray(content) && content.every(isRecord);
+	return Array.isArray(content) && content.every(spokenPart);
+}
+
+/** Whether a content part is one `unitsOf` can read: a text part's text is a string. */
+function spokenPart(part: unknown): boolean {
+	return (
+		isRecord(part) && (part.type !== "text" || typeof part.text === "string")
+	);
 }
 
 /** Mark one entry, given its text, against `asked`. */

@@ -21,12 +21,15 @@
  * never puts at a tool result (`findValidCutPoints`), so a call and its
  * result are never split across two. Read a line at a
  * time, a call takes the first result after it with its id, where a
- * whole read takes the last one on the branch. The two differ only in
- * a log pi would not write: a call id given twice, a result before its
- * call or off the branch, or an id written on two lines. Such a log is
- * noticed as it is read, and the calls it touches are read again in a
- * second pass that holds only them and their results, so the answer is
- * the whole read's. Where two logs share a call id, each log's calls
+ * whole read takes the last one on the branch. The two differ only
+ * where a call's first result is off the branch, or in a log pi would
+ * not write: a call id given twice, a result before its call, or an id
+ * written on two lines. A result lands off the branch when pi's tree
+ * moves the leaf back to the call that asked for it, which a scan of
+ * 1,528 real logs found once. Either is noticed as it is read, and the
+ * calls it touches are read again in a second pass that holds only them
+ * and their results, so the answer is the whole read's, at the cost of
+ * reading that log twice. Where two logs share a call id, each log's calls
  * read with its own results, where a whole read of every log took the
  * last of them all.
  */
@@ -56,10 +59,13 @@ export interface OnDisk {
 	/** How many logs were read. */
 	readonly logs: number;
 	/**
-	 * How many bytes were read from them: a log read a second time, to
-	 * pair the calls of a log pi would not write, counts twice.
+	 * How many bytes were read, the parent that ended the chain's
+	 * included: a log read a second time, to pair the calls of a log pi
+	 * would not write, counts twice.
 	 */
 	readonly bytes: number;
+	/** How many entries that second time marked again. */
+	readonly readAgain: number;
 	/** How many entries the older branches held, said or not. */
 	readonly entries: number;
 	/**
@@ -88,7 +94,9 @@ export function markedOnDisk(
 	);
 	const older: Marked[][] = [];
 	let logs = 0;
-	let bytes = 0;
+	let readAgain = 0;
+	// Shared by every log, so one that fails or is refused still counts.
+	const read = { bytes: 0 };
 	let record = rolledFrom(branch);
 	const visited = new Set<string>();
 	let unread: OnDisk["unread"];
@@ -96,7 +104,7 @@ export function markedOnDisk(
 		visited.add(record.parentSession);
 		let log: LogRead;
 		try {
-			log = branchMarked(record, asked, lines);
+			log = branchMarked(record, asked, lines, read);
 		} catch (error) {
 			const code = fileErrorCode(error);
 			if (code === undefined) throw error;
@@ -109,7 +117,7 @@ export function markedOnDisk(
 			break;
 		}
 		logs++;
-		bytes += log.bytes;
+		readAgain += log.readAgain;
 		older.unshift(log.walked.filter((mark) => !seen.has(mark.id)));
 		for (const mark of log.walked) seen.add(mark.id);
 		record = log.next;
@@ -118,7 +126,8 @@ export function markedOnDisk(
 	return {
 		marked,
 		logs,
-		bytes,
+		bytes: read.bytes,
+		readAgain,
 		entries: marked.length,
 		...(unread ? { unread } : {}),
 	};
@@ -150,7 +159,8 @@ type LinesOf = (path: string, tally: { bytes: number }) => Iterable<string>;
 interface LogRead {
 	readonly walked: Marked[];
 	readonly next: RolloverRecord | undefined;
-	readonly bytes: number;
+	/** How many entries a second pass marked again. */
+	readonly readAgain: number;
 }
 
 /** Where an entry of a log sits, its mark, and how its calls were read. */
@@ -174,11 +184,15 @@ interface Waiting {
 	readonly recallCalls: ReadonlySet<string>;
 }
 
-/** Mark `record`'s parent log, and walk its branch from the record's leaf. */
+/**
+ * Mark `record`'s parent log, and walk its branch from the record's
+ * leaf, adding what it reads to `read`.
+ */
 function branchMarked(
 	record: RolloverRecord,
 	asked: Asked,
 	lines: LinesOf,
+	read: { bytes: number },
 ): LogRead {
 	const slots = new Map<string, Slot>();
 	const records = new Map<string, SessionEntry>();
@@ -190,7 +204,6 @@ function branchMarked(
 	const claimed = new Set<string>();
 	const answered = new Set<string>();
 	const irregular = new Set<string>();
-	const read = { bytes: 0 };
 
 	const finish = (held: Waiting): void => {
 		unfinished.delete(held);
@@ -290,20 +303,20 @@ function branchMarked(
 			for (const call of slot.calls) callIds.add(call);
 		}
 	}
-	if (touched.size > 0) {
-		const again = markedAgain(record, walked, touched, callIds, asked, lines);
-		read.bytes += again.bytes;
-		walked.forEach((mark, at) => {
-			const remarked = again.marks.get(mark.id);
-			if (remarked) walked[at] = remarked;
-		});
-	}
+	const again =
+		touched.size > 0
+			? markedAgain(record, walked, touched, callIds, asked, lines, read)
+			: new Map<string, Marked>();
+	walked.forEach((mark, at) => {
+		const remarked = again.get(mark.id);
+		if (remarked) walked[at] = remarked;
+	});
 
 	const onBranch = walked.flatMap((mark) => {
 		const entry = records.get(mark.id);
 		return entry ? [entry] : [];
 	});
-	return { walked, next: rolledFrom(onBranch), bytes: read.bytes };
+	return { walked, next: rolledFrom(onBranch), readAgain: again.size };
 }
 
 /**
@@ -311,6 +324,7 @@ function branchMarked(
  * log pi would not write: each of their calls read with the last
  * result for its id on the branch. Only they and the results of
  * `callIds` are held, and `walked` gives the branch and its order.
+ * What it reads is added to `read`.
  */
 function markedAgain(
 	record: RolloverRecord,
@@ -319,12 +333,12 @@ function markedAgain(
 	callIds: ReadonlySet<string>,
 	asked: Asked,
 	lines: LinesOf,
-): { marks: Map<string, Marked>; bytes: number } {
+	read: { bytes: number },
+): Map<string, Marked> {
 	const on = new Set(walked.map((mark) => mark.id));
 	const entries = new Map<string, SessionEntry>();
 	const results = new Map<string, { callId: string; text: string }>();
 	const recalling = new Map<string, string[]>();
-	const read = { bytes: 0 };
 	for (const line of lines(record.parentSession, read)) {
 		const entry = entryOf(line);
 		if (!entry || !on.has(entry.id)) continue;
@@ -352,7 +366,7 @@ function markedAgain(
 		const text = entryText(entry, byCall, recallCalls);
 		marks.set(id, markOf(id, text, asked, namedBy(entry, asked)));
 	}
-	return { marks, bytes: read.bytes };
+	return marks;
 }
 
 /** The entry a line holds, or nothing for a header, a blank or a cut line. */

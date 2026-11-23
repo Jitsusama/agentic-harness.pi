@@ -379,6 +379,29 @@ describe("recall read a line at a time", () => {
 			logs.reduce((sum, path) => sum + statSync(path).size, 0),
 		);
 		expect(disk.entries).toBe(ancestry(branch).length);
+		expect(disk.readAgain).toBe(0);
+	});
+
+	it("counts what it read of a parent that failed partway", () => {
+		const branch = [record("r", null, join(dir, "any.jsonl"), "x")];
+		function* failing(
+			_path: string,
+			tally: { bytes: number },
+		): Iterable<string> {
+			tally.bytes += 7;
+			yield JSON.stringify(said("x", null, "a flake"));
+			throw Object.assign(new Error("a failed read"), {
+				code: "EIO",
+				syscall: "read",
+			});
+		}
+
+		const disk = markedOnDisk(branch, askedBy({ query: "flake" }), failing);
+		expect(disk.bytes).toBe(7);
+		expect(disk.unread).toEqual({
+			path: join(dir, "any.jsonl"),
+			reason: "EIO",
+		});
 	});
 
 	it("ends the chain at a parent gone from disk", () => {
@@ -391,6 +414,7 @@ describe("recall read a line at a time", () => {
 			marked: [],
 			logs: 0,
 			bytes: 0,
+			readAgain: 0,
 			entries: 0,
 			unread: { path: join(dir, "gone.jsonl"), reason: "ENOENT" },
 		});
@@ -411,10 +435,12 @@ describe("recall read a line at a time", () => {
 				record("r", null, parent, "missing"),
 				said("a", "r", "now"),
 			];
+			// What was read to learn it holds no branch still counts.
 			expect(markedOnDisk(branch, askedBy({ query: "flake" }))).toEqual({
 				marked: [],
 				logs: 0,
-				bytes: 0,
+				bytes: parent === path ? statSync(path).size : 0,
+				readAgain: 0,
 				entries: 0,
 				unread: { path: parent, reason: NO_BRANCH },
 			});
@@ -443,6 +469,26 @@ describe("recall read a line at a time", () => {
 		expect(() =>
 			markedOnDisk(branch, askedBy({ query: "flake" }), failing),
 		).toThrow("a fault in the reader");
+	});
+
+	it("marks a second time only the entries whose calls pair oddly", () => {
+		const path = log("reused-beside-plain.jsonl", [
+			header("k"),
+			user("k1", null, "the flake before the calls"),
+			called("k2", "k1", "same", "bash", { command: "ls" }),
+			called("k3", "k2", "same", "bash", { command: "ls -a" }),
+			result("k4", "k3", "same", "the listing"),
+			called("k5", "k4", "own", "bash", { command: "pwd" }),
+			result("k6", "k5", "own", "the folder"),
+			said("k7", "k6", "after"),
+		]);
+		const branch = [record("r", null, path, "k7"), said("a", "r", "now")];
+
+		for (const request of [{ query: "listing" }, { query: "folder" }]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		// The two calls sharing an id, and not the one beside them.
+		expect(markedOnDisk(branch, askedBy({ query: "flake" })).readAgain).toBe(2);
 	});
 
 	it("reads two calls given one id, and what follows them, as a whole read does", () => {
@@ -730,7 +776,16 @@ describe("recall read a line at a time", () => {
 					output: { valueOf: 1 },
 				},
 			},
-			said("n7", "n6b", "the flake after them"),
+			{
+				type: "message",
+				id: "n6c",
+				parentId: "n6b",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: { toString: 1 } }],
+				},
+			},
+			said("n7", "n6c", "the flake after them"),
 		]);
 		const branch = [record("r", null, path, "n7"), said("a", "r", "now")];
 
