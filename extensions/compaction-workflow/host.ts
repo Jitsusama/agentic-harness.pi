@@ -216,8 +216,12 @@ export function registerCompactionHost(
 	) => writeRetrying(provider, request, signal, attempts, retryPauseMs);
 
 	/** Record a summary written ahead that will not be used, and say so. */
-	const unused = (ctx: ExtensionContext, reason: string) => {
-		pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason });
+	const unused = (
+		ctx: ExtensionContext,
+		reason: string,
+		failure: { tries: number; halved: boolean } | undefined = undefined,
+	) => {
+		pi.appendEntry(AHEAD_UNUSED_ENTRY, { reason, ...failure });
 		emitOutcome(pi.events, {
 			kind: "ahead-unused",
 			sessionId: ctx.sessionManager.getSessionId(),
@@ -253,6 +257,12 @@ export function registerCompactionHost(
 		ahead = null;
 	};
 	pi.on("session_start", async () => {
+		drop();
+		failed = { tries: 0, capped: false };
+	});
+	// A move in the tree leaves another branch to compact, so what was
+	// written and tried ahead was for a compaction that will not come.
+	pi.on("session_tree", async () => {
 		drop();
 		failed = { tries: 0, capped: false };
 	});
@@ -404,8 +414,15 @@ export function registerCompactionHost(
 				outcome: "failed",
 				reason: used.reason,
 			});
-			// A failure while writing was recorded when it happened.
+			// A write that failed before the compaction came was recorded
+			// then; one it waited on was counted then and is recorded now.
 			if (used.unused) unused(ctx, used.reason);
+			else if (taken.result === undefined) {
+				unused(ctx, used.reason, {
+					tries: failed.tries,
+					halved: taken.request.afterCap === true,
+				});
+			}
 		}
 
 		const { preparation } = event;
@@ -532,14 +549,22 @@ export function registerCompactionHost(
 				attempts,
 				done: write(provider, writing, controller.signal, attempts).then(
 					(timed) => {
-						if (ahead !== entry || controller.signal.aborted) return timed;
-						entry.result = timed;
+						if (controller.signal.aborted) return timed;
+						// Counted while a compaction waits on it too, so the summary
+						// written on the spot after it is asked for less.
 						if (!timed.written.ok) {
 							failed = {
 								tries: failed.tries + 1,
 								capped: failed.capped || timed.written.capped === true,
 							};
-							unused(ctx, timed.written.reason);
+						}
+						if (ahead !== entry) return timed;
+						entry.result = timed;
+						if (!timed.written.ok) {
+							unused(ctx, timed.written.reason, {
+								tries: failed.tries,
+								halved: writing.afterCap === true,
+							});
 						} else {
 							for (const listener of readyListeners) tell(listener, ctx);
 						}

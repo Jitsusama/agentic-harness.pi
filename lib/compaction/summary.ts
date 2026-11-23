@@ -250,7 +250,12 @@ function limitBinds(length: SummaryLength): boolean {
 /** The size a summary is asked for: a share of what it replaces, within the floor, the output limit and any ceiling, halved after a try that stopped at its cap. */
 function summaryTarget(length: SummaryLength): number {
 	const whole = wholeTarget(length);
-	return length.halved === true ? roundToHundred(whole / 2) : whole;
+	if (length.halved !== true) return whole;
+	// Held to the floor every other limit is, and never above the whole.
+	return Math.max(
+		Math.min(whole, MIN_SUMMARY_TARGET_TOKENS),
+		roundToHundred(whole / 2),
+	);
 }
 
 function wholeTarget(length: SummaryLength): number {
