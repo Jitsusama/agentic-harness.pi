@@ -10,6 +10,7 @@
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import {
+	clearParked,
 	parkFolder,
 	readParked,
 	writeParked,
@@ -30,18 +31,25 @@ export interface GivenUpPlace {
 }
 
 /**
- * Rest `entry` as parked: refused, answering false, while this host runs
- * it or a marker from this boot names another holder's wake; else its
- * marker is written naming this host's wake file, unless it names that
- * already, and it is taken on. Answers whether it rests.
+ * Rest `entry` as parked, answering nothing once it rests: refused,
+ * answering why, while this host runs it or a marker from this boot
+ * names another holder's wake. Else its marker is written naming this
+ * host's wake file, unless it names that already (a marker from an
+ * earlier boot is overwritten, as no holder of that boot still runs),
+ * and it is taken on. A take-on that throws removes the marker it
+ * wrote, so no sender is sent to a wake nothing watches.
  */
-export function restGivenUp(entry: RosterEntry, place: GivenUpPlace): boolean {
+export function restGivenUp(
+	entry: RosterEntry,
+	place: GivenUpPlace,
+): string | undefined {
 	const { sessionId } = entry;
-	if (place.runs(sessionId)) return false;
+	if (place.runs(sessionId)) return "this host runs it now";
 	const folder = place.folder ?? parkFolder();
 	const wake = place.wakeFile(sessionId);
 	const marker = readParked(sessionId, folder);
-	if (marker !== undefined && marker.wake !== wake) return false;
+	if (marker !== undefined && marker.wake !== wake)
+		return `its marker names another holder's wake, ${marker.wake}`;
 	if (marker === undefined)
 		writeParked(
 			{
@@ -57,6 +65,11 @@ export function restGivenUp(entry: RosterEntry, place: GivenUpPlace): boolean {
 			},
 			folder,
 		);
-	place.takeOn(entry);
-	return true;
+	try {
+		place.takeOn(entry);
+	} catch (error) {
+		if (marker === undefined) clearParked(sessionId, folder);
+		throw error;
+	}
+	return undefined;
 }

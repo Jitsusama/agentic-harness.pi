@@ -182,7 +182,7 @@ export async function createEngine(
 	/**
 	 * Take on a held conversation resting parked, building nothing: its
 	 * wake watched, its log held and its requests restored, as
-	 * `restsParked` and `restsGivenUp` take one and `movedOut` gives it up.
+	 * `restsParked` and `restGivenUp` take one and `movedOut` gives it up.
 	 */
 	function takeOnResting(entry: RosterEntry): void {
 		parked.rests(entry.sessionId);
@@ -662,7 +662,7 @@ export async function createEngine(
 
 		// Held, its child given up before it ran there, so it never parked:
 		// rested as a park leaves one, its marker written (given-up.ts).
-		restsGivenUp: (entry) =>
+		restGivenUp: (entry) =>
 			restGivenUp(entry, {
 				runs: (sessionId) => host.holds(sessionId) !== undefined,
 				wakeFile: (sessionId) => parked.wakeFile(sessionId),

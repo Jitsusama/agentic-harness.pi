@@ -4,7 +4,7 @@
  * wake file, as a park writes it, so a sender's wake reaches the watch
  * the host then keeps (F167).
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import { parking } from "../../../host/engine/parking.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
 	askWake,
+	parkedPath,
 	readParked,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
@@ -68,7 +69,7 @@ describe("a given-up child's conversation", () => {
 	it("rests with a park marker naming this host's wake file, and wakes at a sender's wake", async () => {
 		const host = hostParking();
 
-		expect(restGivenUp(entry(), host.place), "rested").toBe(true);
+		expect(restGivenUp(entry(), host.place), "rested").toBeUndefined();
 
 		const marker = readParked(A, host.parks);
 		expect(marker, "its marker, as a park writes it").toMatchObject({
@@ -100,7 +101,7 @@ describe("a given-up child's conversation", () => {
 		};
 		writeParked(before, host.parks);
 
-		expect(restGivenUp(entry(), host.place)).toBe(true);
+		expect(restGivenUp(entry(), host.place)).toBeUndefined();
 
 		expect(readParked(A, host.parks), "its own park's marker kept").toEqual(
 			before,
@@ -112,7 +113,7 @@ describe("a given-up child's conversation", () => {
 	it("is refused, writing and watching nothing, while this host runs it", () => {
 		const host = hostParking(true);
 
-		expect(restGivenUp(entry(), host.place)).toBe(false);
+		expect(restGivenUp(entry(), host.place)).toBe("this host runs it now");
 
 		expect(readParked(A, host.parks), "no marker written").toBeUndefined();
 		expect(host.takenOn).toEqual([]);
@@ -131,11 +132,79 @@ describe("a given-up child's conversation", () => {
 		};
 		writeParked(elsewhere, host.parks);
 
-		expect(restGivenUp(entry(), host.place)).toBe(false);
+		expect(restGivenUp(entry(), host.place)).toBe(
+			`its marker names another holder's wake, ${elsewhere.wake}`,
+		);
 
 		expect(readParked(A, host.parks), "the other host's marker").toEqual(
 			elsewhere,
 		);
 		expect(host.takenOn).toEqual([]);
+	});
+
+	// F30: a holder of an earlier boot runs nothing now.
+	it("writes over a marker from an earlier boot, naming this host's wake", async () => {
+		const host = hostParking();
+		writeParked(
+			{
+				session: A,
+				sessionFile: entry().file,
+				cwd: dir,
+				addresses: [],
+				parkedAt: "2026-11-20T01:00:00.000Z",
+				pid: 4242,
+				wake: join(dir, "other-host", A, "wake"),
+			},
+			host.parks,
+		);
+		const longAgo = new Date(0);
+		await utimes(parkedPath(A, host.parks), longAgo, longAgo);
+
+		expect(restGivenUp(entry(), host.place)).toBeUndefined();
+
+		expect(readParked(A, host.parks)?.wake, "this host's wake").toBe(
+			host.parked.wakeFile(A),
+		);
+		expect(host.takenOn).toEqual([A]);
+		host.parked.unwatch(A);
+	});
+
+	// F25: a sender is never sent to a wake nothing watches.
+	it("takes back the marker it wrote when taking it on fails", () => {
+		const host = hostParking();
+		const place = {
+			...host.place,
+			takeOn: () => {
+				throw new Error("no watch");
+			},
+		};
+
+		expect(() => restGivenUp(entry(), place)).toThrow("no watch");
+
+		expect(readParked(A, host.parks), "no marker left").toBeUndefined();
+	});
+
+	it("keeps a marker it didn't write when taking it on fails", () => {
+		const host = hostParking();
+		const before = {
+			session: A,
+			sessionFile: entry().file,
+			cwd: dir,
+			addresses: ["A1B2C3"],
+			parkedAt: "2026-11-23T01:00:00.000Z",
+			pid: 4242,
+			wake: host.parked.wakeFile(A),
+		};
+		writeParked(before, host.parks);
+		const place = {
+			...host.place,
+			takeOn: () => {
+				throw new Error("no watch");
+			},
+		};
+
+		expect(() => restGivenUp(entry(), place)).toThrow("no watch");
+
+		expect(readParked(A, host.parks), "its own park's marker").toEqual(before);
 	});
 });

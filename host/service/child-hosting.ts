@@ -45,8 +45,11 @@ export function hostChildren(options: {
 	roster: KeptRoster;
 	/** Rest a conversation parked, watching its wake: the engine's. */
 	restsParked?: (entry: RosterEntry) => boolean;
-	/** Rest one whose child was given up, writing its marker: the engine's. */
-	restsGivenUp?: (entry: RosterEntry) => boolean;
+	/**
+	 * Rest one whose child was given up, writing its marker, answering
+	 * nothing, or why it can't: the engine's.
+	 */
+	restGivenUp?: (entry: RosterEntry) => string | undefined;
 	report: (error: unknown) => void;
 	say?: (line: string) => void;
 	/** A child's conversation became another, as its supervisor heard. */
@@ -96,9 +99,12 @@ export function hostChildren(options: {
 		const entry = roster.entries().find((held) => held.sessionId === sessionId);
 		if (!entry) return;
 		try {
-			if (!options.restsGivenUp?.(entry))
+			const refused = options.restGivenUp
+				? options.restGivenUp(entry)
+				: "this engine rests none given up";
+			if (refused !== undefined)
 				options.say?.(
-					`${sessionId}: its child was given up, and nothing watches its wake until it is asked for`,
+					`${sessionId}: its child was given up, and nothing watches its wake until it is asked for, as ${refused}`,
 				);
 		} catch (error) {
 			report(error);

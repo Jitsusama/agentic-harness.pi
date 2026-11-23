@@ -31,6 +31,8 @@ let told: [string, string][];
 let rested: RosterEntry[];
 let givenUp: RosterEntry[];
 let resting: boolean;
+// Why the engine can't rest one given up, or nothing once it rests.
+let givingUp: string | undefined;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
 let children: HostedChildren;
 
@@ -61,6 +63,7 @@ beforeEach(async () => {
 	rested = [];
 	givenUp = [];
 	resting = true;
+	givingUp = undefined;
 	const moving = new Set<string>();
 	policy = {
 		moving,
@@ -79,9 +82,9 @@ beforeEach(async () => {
 			rested.push(entry);
 			return resting;
 		},
-		restsGivenUp(entry) {
+		restGivenUp(entry) {
 			givenUp.push(entry);
-			return true;
+			return givingUp;
 		},
 		report: (error) => reported.push(error),
 		say: (line) => said.push(line),
@@ -164,6 +167,26 @@ describe("a host's children", () => {
 			).toEqual([a]),
 		);
 		expect(rested, "not asked whether it parked").toEqual([]);
+		expect(
+			said.filter((line) => line.includes("nothing watches its wake")),
+			"rested, so nothing is said",
+		).toEqual([]);
+	});
+
+	// F28, F31: one the engine can't rest is said, with the engine's why.
+	it("says one given up that the engine can't rest, and why", async () => {
+		units.next = { silent: true };
+		givingUp = "this host runs it now";
+
+		await expect(
+			children.backend.resume(entryIn(folder, a), false, true),
+		).rejects.toThrow("as children.json says");
+
+		await vi.waitFor(() =>
+			expect(said).toContain(
+				`${a}: its child was given up, and nothing watches its wake until it is asked for, as this host runs it now`,
+			),
+		);
 	});
 
 	it("rests one whose wake gave its child up too as given up, since it is still held", async () => {
