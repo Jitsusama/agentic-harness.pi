@@ -2,6 +2,10 @@
  * The last reply of a run the person began, stating an untested cause,
  * is followed by one note to the model once pi settles, never held;
  * anything else, or a reply the person has moved past, is left alone.
+ *
+ * Long because its four groups of cases share the fake pi, the stubbed
+ * classifier and the helpers that play its events, set up once above
+ * them, and a split would copy those 165 lines into each file.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -199,7 +203,10 @@ describe("a reply to the person", () => {
 
 		expect(notes()).toHaveLength(1);
 		expect(String(notes()[0])).toContain(`> ${CAUSE}`);
-		expect(isAutomatedText(String(notes()[0]))).toBe(true);
+		expect(
+			isAutomatedText(String(notes()[0])),
+			"the note is marked as automated",
+		).toBe(true);
 		expect(pi.recorded.entries).toEqual([
 			{ customType: NOTED, data: { parts: 1 } },
 		]);
