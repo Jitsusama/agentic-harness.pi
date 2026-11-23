@@ -86,6 +86,22 @@ describe("the machine's queue folder", () => {
 		expect(queue.hasJobs(), "a queue holding two jobs has jobs").toBe(true);
 	});
 
+	it("says it keeps quiet while the person is on a call, at once", () => {
+		const queue = folder();
+		queue.ask(job("waiting"));
+		shellSays("waiting", 501);
+		queue.keep({ ...ROOMY, onCall: true }, NOW, () => undefined);
+		expect(record().quiet).toEqual({ call: true });
+		expect(record().room).toEqual({ vms: 0, builds: 0 });
+		expect(record().jobs[0]?.waitingOn).toBe("call");
+		queue.keep(ROOMY, NOW + 1_000, () => undefined);
+		expect(
+			record().quiet,
+			"the call over, it says so before the heartbeat",
+		).toBeNull();
+		expect(record().jobs[0]?.state).toBe("running");
+	});
+
 	it("says how fast the uplink sends, leaving it to the heartbeat", () => {
 		// The shell paces sessions told to carry on by it, so it's said;
 		// it changes in every reading, as pressure does, so it waits.

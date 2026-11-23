@@ -47,6 +47,10 @@ import {
 	backgroundTurns,
 } from "../../lib/internal/priority/background.ts";
 import {
+	type CallProbe,
+	callReader,
+} from "../../lib/internal/priority/call.ts";
+import {
 	machineQueueDir,
 	type QueueFolder,
 	questsFirstIn,
@@ -290,6 +294,7 @@ function linuxMachine(own: string | undefined): Machine {
 	let floors: string[] = [];
 	let floorsAt = Number.NEGATIVE_INFINITY;
 	const uplink = uplinkMeter();
+	const call = callReader();
 	return {
 		// No boot check: a Linux queue is in XDG_RUNTIME_DIR, which the
 		// reboot empties, so no job there outlasts its boot.
@@ -305,7 +310,7 @@ function linuxMachine(own: string | undefined): Machine {
 				floors = await floorsIn(KERNEL.cgroups);
 				floorsAt = now;
 			}
-			const reading = await readRoom(floors);
+			const reading = await onCallIf(call, await readRoom(floors));
 			const sentMbit = uplink(await uplinkSentIn(), now);
 			return sentMbit === undefined
 				? reading
@@ -335,11 +340,17 @@ async function queueIn(dir: string): Promise<unknown> {
 	}
 }
 
+/** `reading`, marked while `call` says the person is on a call here. */
+async function onCallIf(call: CallProbe, reading: Reading): Promise<Reading> {
+	return (await call()) === true ? { ...reading, onCall: true } : reading;
+}
+
 function macMachine(): Machine {
 	const room = darwinRoom();
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.
 	currentBootToken();
+	const call = callReader();
 	return {
 		// No cgroups to say what a job's processes are or held.
 		// Its queue is in its cache folder, which outlasts a reboot: a job
@@ -352,7 +363,7 @@ function macMachine(): Machine {
 		},
 		// Read on the main thread still: its facts come from a program run
 		// synchronously (room-darwin.ts).
-		room: async () => room(),
+		room: () => onCallIf(call, room()),
 		cgroupFor: () => undefined,
 		rules: () => ({ buildsWaitForVmChecks: true }),
 	};
