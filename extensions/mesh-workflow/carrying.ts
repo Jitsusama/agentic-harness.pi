@@ -9,6 +9,15 @@
  * whole session. A tree that can't be carried is named on screen and the
  * rest still go; a session with no quest loaded has no handover to carry
  * into, so it refuses, and stays open.
+ *
+ * A carry under way holds the doors that would end the process it runs
+ * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
+ * restart for its heap and a person's Close or /exit, which go anyway:
+ * one ordered through the node
+ * holds them from the order, and passes its hold in; one the person
+ * asked for takes its own. A second carry of a session already being
+ * carried refuses, since the first one's success closes it; one that
+ * carried keeps its hold until its close lands, or its time is up.
  */
 
 import { existsSync } from "node:fs";
@@ -19,6 +28,12 @@ import { carryAway } from "../../lib/internal/carry/carry-away.ts";
 import { fenceKindOf } from "../../lib/internal/carry/fence.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
+import {
+	type CarryHold,
+	carryUnderWay,
+	type HoldTiming,
+	holdForCarry,
+} from "../../lib/internal/carry/under-way.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
@@ -45,6 +60,13 @@ export interface CarryingPlaces {
 	readonly env?: NodeJS.ProcessEnv;
 	/** The quest's remembered facts; this machine's memory store's by default. */
 	readonly notes?: (quest: string) => Promise<readonly CarriedNote[]>;
+	/**
+	 * The hold already taken for this carry, as an ordered one takes it
+	 * at its order and lets it go itself; else the carry takes its own,
+	 * timed by `timing`.
+	 */
+	readonly hold?: CarryHold;
+	readonly timing?: HoldTiming;
 }
 
 /**
@@ -55,6 +77,27 @@ export async function carryThisSession(
 	ctx: CarriedContext,
 	to: string,
 	places: CarryingPlaces = {},
+): Promise<string> {
+	const id = ctx.sessionManager.getSessionId();
+	const other = carryUnderWay(id, { except: places.hold });
+	if (other !== undefined) {
+		throw new Error(`a carry to ${other} is already under way.`);
+	}
+	if (places.hold !== undefined) return await carryOut(ctx, to, places);
+	const hold = holdForCarry(id, to, places.timing);
+	try {
+		const done = await carryOut(ctx, to, places);
+		hold.carried();
+		return done;
+	} finally {
+		hold.release();
+	}
+}
+
+async function carryOut(
+	ctx: CarriedContext,
+	to: string,
+	places: CarryingPlaces,
 ): Promise<string> {
 	await windDown(ctx, places.windDownMs ?? WIND_DOWN_MS);
 	const sessions = ctx.sessionManager;
@@ -85,11 +128,18 @@ export async function carryThisSession(
 	const stayed = carried.trees.flatMap((one) =>
 		one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
 	);
-	if (stayed.length > 0 && ctx.hasUI) {
-		ctx.ui.notify(
-			`Carried to ${to}, but these trees stay here:\n${stayed.join("\n")}`,
-			"warning",
-		);
+	// Its done file is written, so it has carried: a stale screen that
+	// throws here would report a carry that went as refused, and let a
+	// second carry write its work again.
+	try {
+		if (stayed.length > 0 && ctx.hasUI) {
+			ctx.ui.notify(
+				`Carried to ${to}, but these trees stay here:\n${stayed.join("\n")}`,
+				"warning",
+			);
+		}
+	} catch {
+		// The screen is gone with its context; the carry went either way.
 	}
 	return carried.file;
 }
