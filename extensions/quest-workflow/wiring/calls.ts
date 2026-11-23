@@ -122,13 +122,7 @@ export function watchToolCalls(
 			settleOnLoadedQuest(state, pi, ctx);
 			updateScoreboard(state, ctx);
 		}
-		// A quest is held pending mostly on a host, whose sessions have a
-		// viewer though their hasUI is false.
-		if (tried === "gone" && (ctx.hasUI || hosted()))
-			ctx.ui.notify(
-				"The quest this session last held was never found again, so it has none loaded now.",
-				"warning",
-			);
+		if (tried === "gone") sayLetGo(pi, ctx);
 		persist(state, pi, ctx);
 		// A quest action can change what a quest's work is weighted by, and
 		// which quests orchestrate, and what the desktop lists.
@@ -144,4 +138,29 @@ export function watchToolCalls(
 		}
 		return undefined;
 	});
+}
+
+const LET_GO =
+	"The quest this session last held was never found again, so it has none loaded now.";
+
+/**
+ * Say that the quest the log named was let go: on a screen as a warning,
+ * and on a host, whose conversations are bound with no interface, as a
+ * line in the log, which its viewer shows and the model reads with its
+ * next turn. Mid-turn, pi appends it once the turn ends, so it never
+ * starts one. A quest is held pending mostly on a host.
+ */
+function sayLetGo(
+	pi: ExtensionAPI,
+	ctx: {
+		readonly hasUI: boolean;
+		readonly ui: { notify(m: string, t: "warning"): void };
+	},
+): void {
+	if (ctx.hasUI) ctx.ui.notify(LET_GO, "warning");
+	else if (hosted())
+		pi.sendMessage(
+			{ customType: "quest-let-go", content: LET_GO, display: true },
+			{ triggerTurn: false },
+		);
 }
