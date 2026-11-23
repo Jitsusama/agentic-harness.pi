@@ -66,6 +66,7 @@ import {
 } from "../ordered-carry.ts";
 import { createPausing, RESUMED_TEXT } from "../pausing.ts";
 import { createTalks } from "../talks.ts";
+import type { HubTiming } from "../tools/above.ts";
 import { type Waiting, watchSettling } from "../wait.ts";
 import type { Left, MeshPaths, MeshState } from "./mesh.ts";
 import { createWaits } from "./waits.ts";
@@ -78,6 +79,7 @@ export function createState(
 	settling: Settling,
 	waitCheckMs: number,
 	lookAgainMs: number,
+	hubTiming: HubTiming = {},
 ): MeshState {
 	// Everything here reads a receptor's name as nothing, but delivery and
 	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
@@ -405,6 +407,7 @@ export function createState(
 		settling,
 		waitCheckMs,
 		lookAgainMs,
+		hubTiming,
 		transport,
 		asWritten,
 		asWrittenOff,
@@ -457,6 +460,7 @@ export function createState(
 		settleClock: undefined,
 		onNoModelUntold: undefined,
 		toldOnNoModel: false,
+		endingsUntold: [],
 		classifier: undefined,
 		stopWatching: undefined,
 		caughtUpFrom: undefined,

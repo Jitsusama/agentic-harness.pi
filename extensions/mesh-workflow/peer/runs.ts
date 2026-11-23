@@ -199,6 +199,10 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		m.lookClock = undefined;
 		m.hub?.stop();
 		m.hub = undefined;
+		// Endings still untold were this session's: a session started next in
+		// the same process would sign them as its own, so they end with it,
+		// as a reload ends them.
+		m.endingsUntold = [];
 		clearInterval(m.looksClock);
 		m.looksClock = undefined;
 		// A session parking is still there to wake, so only one ending for

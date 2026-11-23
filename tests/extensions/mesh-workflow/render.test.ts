@@ -66,14 +66,18 @@ describe("the mesh on screen", () => {
 
 	it("tells every delivery that a question about work goes to its owner or to need, and asks above only who owns it", () => {
 		const messages = [message()];
-		for (const above of [
-			{ address: "WCJQSG", by: "mark" } as const,
-			{ address: "5GV2AH", by: "use" } as const,
-		]) {
+		for (const [above, asked] of [
+			[{ address: "WCJQSG", by: "mark" } as const, "WCJQSG"],
+			// The hub by role, as the send finds it afresh.
+			[
+				{ address: "5GV2AH", by: "use" } as const,
+				"your hub from use (mesh_send to: orchestrator)",
+			],
+		] as const) {
 			const content = noted(messages, [], above);
 			// "That path" means the person's, so it must follow that sentence.
 			expect(content).toContain(
-				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
+				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${asked} who owns it.`,
 			);
 		}
 	});
@@ -110,9 +114,9 @@ describe("the mesh on screen", () => {
 			],
 			[
 				{ address: "5GV2AH", by: "use" } as const,
-				// By address: a send to `orchestrator` finds the hub afresh, and
-				// finds none while the node is quiet and the kept hub holds.
-				"to your hub from use, 5GV2AH, as a question (mesh_send to: 5GV2AH)",
+				// By role: a kept hub can be minutes old, and the send finds it
+				// afresh, or reaches the one kept while the node is quiet.
+				"to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)",
 			],
 			[
 				undefined,
@@ -123,6 +127,14 @@ describe("the mesh on screen", () => {
 				`otherwise ${path}, saying who it came from, what happened, why it matters to them and the one thing to do.`,
 			);
 		}
+	});
+
+	// A kept hub can be minutes old, so the note names no cell the send
+	// may no longer reach.
+	it("names a hub from use by role, never by its address", () => {
+		expect(
+			noted([message()], [], { address: "5GV2AH", by: "use" }),
+		).not.toContain("5GV2AH");
 	});
 
 	it("sends what a pivoted session is stuck on to its owner or to need, and what waits on the person to its orchestrator", () => {

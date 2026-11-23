@@ -18,6 +18,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../../extensions/mesh-workflow/index.ts";
+import type { HubTiming } from "../../../../extensions/mesh-workflow/tools/above.ts";
 import type { ExecResult } from "../../../../lib/core/exec/exec.ts";
 import { ALL } from "../../../../lib/mesh/group.ts";
 import { createBoard, type Lease } from "../../../../lib/mesh/lease.ts";
@@ -115,6 +116,8 @@ export async function startSession(
 	// Said on the bus once the extension loads, before the session starts.
 	early: (emit: (channel: string, data: unknown) => void) => void = () => {},
 	lookAgainMs = 60_000,
+	// How often the hub from use is found again, left to the extension.
+	hubTiming: HubTiming = {},
 ) {
 	// No machine's owners file: a test reads only the one it writes.
 	env.PI_OWNERS_FILE ??= join(fixture.root, "no-owners.txt");
@@ -163,33 +166,36 @@ export async function startSession(
 		settling,
 		waitCheckMs,
 		lookAgainMs,
+		hubTiming,
 	)(pi as never);
 	early(pi.events.emit);
-	await lifecycle.get("session_start")?.(
-		{ reason: "startup" },
-		{
-			hasUI: false,
-			cwd: fixture.root,
-			sessionManager: {
-				getSessionId: () => session,
-				getSessionFile: () => join(fixture.root, `${session}.jsonl`),
-				getBranch: () => branch,
-				getSessionName: () => undefined,
-				getCwd: () => fixture.root,
-			},
-			...ctx,
+	const started = {
+		hasUI: false,
+		cwd: fixture.root,
+		sessionManager: {
+			getSessionId: () => session,
+			getSessionFile: () => join(fixture.root, `${session}.jsonl`),
+			getBranch: () => branch,
+			getSessionName: () => undefined,
+			getCwd: () => fixture.root,
 		},
-	);
+		...ctx,
+	};
+	await lifecycle.get("session_start")?.({ reason: "startup" }, started);
 	stops.push(async () => {
 		await lifecycle.get("session_shutdown")?.({}, {});
 	});
 	const fire = (event: string, payload: unknown = {}, at: unknown = {}) =>
 		lifecycle.get(event)?.(payload, at);
+	// The same session starting again in this runtime, as after it ends.
+	const restart = () =>
+		lifecycle.get("session_start")?.({ reason: "startup" }, started);
 	return {
 		sent,
 		tools,
 		entries,
 		fire,
+		restart,
 		emit: pi.events.emit,
 		emitted,
 		commands,

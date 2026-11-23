@@ -143,6 +143,142 @@ describe("a hub from use", () => {
 		});
 	});
 
+	// A tie halves every two hours, so one message sent 20 hours ago
+	// reads about 0.001: a cell this one barely knows, not one it talks
+	// with most.
+	it("is nobody when the only tie above has faded below one message six hours old", () => {
+		const faded = tie("ROOT01", 2 ** -10);
+
+		const above = hubFromUse(self, [self, root], [faded]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	// A quiet afternoon mustn't lose the hub: one message six hours old
+	// is the floor, and is enough.
+	it("is the cell tied above by one message six hours old", () => {
+		const quietAfternoon = tie("ROOT01", 2 ** -3);
+
+		const above = hubFromUse(self, [self, root], [quietAfternoon]);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
+	it("is nobody when the only tie above is just short of one message six hours old", () => {
+		const justShort = tie("ROOT01", 2 ** -3 * 0.99);
+
+		const above = hubFromUse(self, [self, root], [justShort]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	// Its one message half an hour ago, and the hub's twenty messages
+	// eight hours ago: its share of today's messages is a twentieth, but the tie is
+	// in use, and the node keeps no faded figure for each side.
+	it("keeps a hub whose own talk outweighs this cell's recent message", () => {
+		const busyHub = {
+			...tie("ROOT01", 2 ** -0.25 + 20 * 2 ** -4),
+			today: [1, 20] as const,
+		};
+
+		const above = hubFromUse(self, [self, root], [busyHub]);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
+	it("is nobody when every message on the only tie above is twenty hours old", () => {
+		const yesterday = {
+			...tie("ROOT01", 4 * 2 ** -10),
+			today: [1, 3] as const,
+		};
+
+		const above = hubFromUse(self, [self, root], [yesterday]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	it("is nobody when the only tie above has a strength that is no number", () => {
+		const above = hubFromUse(self, [self, root], [tie("ROOT01", Number.NaN)]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	it("weighs the floor against a cell's ties to all its addresses added up", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent],
+			[tie("MID002", 2 ** -4), tie("AAAAAA", 2 ** -4)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	// Twenty messages from the hub on its other address, none of them
+	// answered today, count nothing toward the floor, as they count
+	// nothing toward the share: talking at a cell makes no hub of it.
+	it("counts no tie this cell sent nothing on today toward the floor", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent],
+			[
+				{ ...tie("AAAAAA", 20), today: [0, 20] as const },
+				tie("MID002", 2 ** -3.25),
+			],
+		);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	// A cell written to once six and a half hours ago has the larger
+	// share, all of it this cell's own, but the busy hub beside it was
+	// written to half an hour ago: the faint one is no hub, and mustn't
+	// hide one that is.
+	it("passes over a faint cell with the larger share for one above the floor", () => {
+		const faintButAllMine = tie("ROOT01", 2 ** -3.25);
+		const busyHub = {
+			...tie("MID002", 2 ** -0.25 + 20 * 2 ** -4),
+			today: [1, 20] as const,
+		};
+
+		const above = hubFromUse(
+			self,
+			[self, root, parent],
+			[busyHub, faintButAllMine],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is nobody, as too faint, when every cell above falls short of the floor", () => {
+		const above = hubFromUse(
+			self,
+			[self, root, parent],
+			[tie("ROOT01", 2 ** -4), tie("MID002", 2 ** -5)],
+		);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
+	it("is nobody when one of those ties is all it has", () => {
+		const above = hubFromUse(self, [self, parent], [tie("MID002", 2 ** -4)]);
+
+		expect(above).toEqual({
+			none: expect.stringContaining("too faint"),
+		});
+	});
+
 	// The node keeps no tie without a message in the last day, so one
 	// that reads none can't say whose talk it was.
 	it("is nobody when the only tie above reads no messages today", () => {

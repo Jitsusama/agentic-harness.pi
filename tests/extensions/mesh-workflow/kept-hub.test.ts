@@ -78,6 +78,10 @@ function onMesh(
 	const peer = {
 		session: "session-s",
 		addresses: ["7M6JKG"],
+		groups: ["#quest/root01/7m6jkg"],
+		joined: [],
+		stops: [],
+		quest: "QEST-20261021-7M6JKG",
 		orchestratedBy: roles.orchestratedBy,
 		orchestrates: roles.orchestrates,
 		questHeads: roles.questHeads,
@@ -87,7 +91,10 @@ function onMesh(
 }
 
 /** Finds again every few milliseconds, so a test sees several. */
-const QUICK: HubKeeping = { every: 5, retry: 5 };
+const QUICK: HubKeeping = { every: 5, retry: 5, spread: () => 0 };
+
+/** No spread, so a test can count the milliseconds between finds. */
+const EXACT = () => 0;
 
 /** Long enough for a few quick finds to have come and gone. */
 const A_FEW_FINDS_MS = 60;
@@ -229,7 +236,9 @@ describe("a kept hub", () => {
 	});
 
 	// While the node is quiet the kept hub meets no find, so reading it
-	// holds to the stops the find would have refused it on.
+	// holds to the stops the find would have refused it on. This peer's
+	// own stops are read from the peer, as it holds them, and the hub's
+	// from its presence.
 	for (const [who, stopper, stopped] of [
 		["this peer stops the hub", "session-s", "ROOT01"],
 		["the hub stops this peer", "session-r", "7M6JKG"],
@@ -247,12 +256,13 @@ describe("a kept hub", () => {
 				expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
 			);
 
-			const one = at.presences.of(stopper);
-			if (one === undefined) throw new Error(`${stopper} is not on the mesh`);
-			at.presences.publish({
-				...one,
-				stops: [{ address: stopped, at: new Date().toISOString() }],
-			});
+			const stops = [{ address: stopped, at: new Date().toISOString() }];
+			if (stopper === at.peer.session) Object.assign(at.peer, { stops });
+			else {
+				const one = at.presences.of(stopper);
+				if (one === undefined) throw new Error(`${stopper} is not on the mesh`);
+				at.presences.publish({ ...one, stops });
+			}
 
 			expect(hub.current()).toBeUndefined();
 		});
@@ -440,6 +450,327 @@ describe("a kept hub", () => {
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 	});
 
+	// Every session asks the same node, so one that is down is asked less
+	// and less often rather than by all of them every retry.
+	it("waits longer after each find in a row the node gave no answer to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+
+			// Asked at once, then 50, 100 and 200 ms after each miss.
+			const askedBy = async (ms: number) => {
+				await vi.advanceTimersByTimeAsync(ms);
+				return asked.mock.calls.length;
+			};
+			expect(await askedBy(0)).toBe(1);
+			expect(await askedBy(50)).toBe(2);
+			expect(await askedBy(99)).toBe(2);
+			expect(await askedBy(1)).toBe(3);
+			expect(await askedBy(199)).toBe(3);
+			expect(await askedBy(1)).toBe(4);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits no longer than a keeping's wait, however many finds missed", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: 120, retry: 50, spread: EXACT });
+
+			// At once, then 50 and 100 after, then 120 rather than 200.
+			await vi.advanceTimersByTimeAsync(150);
+			expect(asked).toHaveBeenCalledTimes(3);
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).toHaveBeenCalledTimes(4);
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).toHaveBeenCalledTimes(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits a retry again after a find that settled, not the longest it had come to", async () => {
+		vi.useFakeTimers();
+		try {
+			let answering = false;
+			const { at, asked } = onMesh(async () =>
+				answering ? [tie("ROOT01", 3)] : undefined,
+			);
+
+			const hub = keep(at, { every: 100, retry: 10, spread: EXACT });
+
+			// Misses at 0, 10 and 30; the find at 70 settles, and its hub is
+			// kept for the keeping's 100 ms.
+			await vi.advanceTimersByTimeAsync(69);
+			expect(asked).toHaveBeenCalledTimes(3);
+			answering = true;
+			await vi.advanceTimersByTimeAsync(1);
+			expect(asked).toHaveBeenCalledTimes(4);
+			expect(hub.current()).toBe("ROOT01");
+			// The node goes quiet: the find at 170 misses, and the next comes
+			// a retry later at 180, not 80 later.
+			answering = false;
+			await vi.advanceTimersByTimeAsync(100);
+			expect(asked).toHaveBeenCalledTimes(5);
+			await vi.advanceTimersByTimeAsync(10);
+			expect(asked).toHaveBeenCalledTimes(6);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// Asking the node never throws, so a find that does met presences it
+	// couldn't read, which says nothing of the node.
+	it("waits a plain retry after each find that threw, not longer each time", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at } = onMesh(async () => []);
+			const read = vi.fn(() => {
+				throw new Error("a presence half written");
+			});
+
+			keep(
+				{ ...at, presences: { ...at.presences, all: read } },
+				{ every: NEVER_AGAIN_MS, retry: 50, spread: EXACT },
+			);
+
+			// Read at once, then 50 ms after each failure.
+			await vi.advanceTimersByTimeAsync(0);
+			const first = read.mock.calls.length;
+			expect(first).toBeGreaterThan(0);
+			for (const finds of [2, 3, 4]) {
+				await vi.advanceTimersByTimeAsync(50);
+				expect(read).toHaveBeenCalledTimes(first * finds);
+			}
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A node back up is heard first by whichever send asks it, and the
+	// keeping would otherwise keep no hub until its longest wait was out.
+	it("finds its hub at once once told the node answered, while it was backing off", async () => {
+		vi.useFakeTimers();
+		try {
+			let answering = false;
+			const { at, asked } = onMesh(async () =>
+				answering ? [tie("ROOT01", 3)] : undefined,
+			);
+			const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+
+			// Misses at 0, 50 and 150, so the next would come at 350.
+			await vi.advanceTimersByTimeAsync(200);
+			expect(asked).toHaveBeenCalledTimes(3);
+			answering = true;
+
+			hub.nodeAnswered();
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(asked).toHaveBeenCalledTimes(4);
+			expect(hub.current()).toBe("ROOT01");
+			// Settled, it keeps its keeping's wait, not the 350 it had.
+			await vi.advanceTimersByTimeAsync(400);
+			expect(asked).toHaveBeenCalledTimes(4);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("finds nothing more when told the node answered, while its last find settled", async () => {
+		const { at, asked } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at, { every: NEVER_AGAIN_MS });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		hub.nodeAnswered();
+		// Long enough for a find it started to have asked the node.
+		await pause(A_FEW_FINDS_MS);
+
+		expect(asked).toHaveBeenCalledOnce();
+	});
+
+	it("finds again at once when told the node answered while a find that then missed was asking", async () => {
+		vi.useFakeTimers();
+		try {
+			let answer: ((ties: readonly Tie[] | undefined) => void) | undefined;
+			let calls = 0;
+			const { at, asked } = onMesh(() => {
+				calls += 1;
+				if (calls === 2) {
+					return new Promise((done) => {
+						answer = done;
+					});
+				}
+				return Promise.resolve(calls === 1 ? undefined : [tie("ROOT01", 3)]);
+			});
+			const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+			// Missed at 0; the second find, at 50, still waits on the node.
+			await vi.advanceTimersByTimeAsync(60);
+			expect(asked).toHaveBeenCalledTimes(2);
+
+			hub.nodeAnswered();
+			answer?.(undefined);
+			await vi.advanceTimersByTimeAsync(5);
+
+			// Not the 100 its second miss would have waited.
+			expect(asked).toHaveBeenCalledTimes(3);
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("starts no second find when told the node answered while one is asking", async () => {
+		vi.useFakeTimers();
+		try {
+			let answer: ((ties: readonly Tie[] | undefined) => void) | undefined;
+			let calls = 0;
+			const { at, asked } = onMesh(() => {
+				calls += 1;
+				if (calls === 2) {
+					return new Promise((done) => {
+						answer = done;
+					});
+				}
+				return Promise.resolve(calls === 1 ? undefined : [tie("ROOT01", 3)]);
+			});
+			const hub = keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: EXACT });
+			await vi.advanceTimersByTimeAsync(60);
+			expect(asked).toHaveBeenCalledTimes(2);
+
+			hub.nodeAnswered();
+			await vi.advanceTimersByTimeAsync(5);
+			expect(asked, "while the find asks").toHaveBeenCalledTimes(2);
+			answer?.([tie("ROOT01", 3)]);
+			// Settled, one keeping waits its whole wait; two would ask again.
+			await vi.advanceTimersByTimeAsync(10_000);
+
+			expect(asked).toHaveBeenCalledTimes(2);
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits at least a millisecond between finds, however little it is told to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 0, spread: EXACT });
+
+			// Asked at once, then 1, 2 and 4 ms after each miss: at 0, 1, 3
+			// and 7, and next at 15.
+			await vi.advanceTimersByTimeAsync(10);
+			expect(asked).toHaveBeenCalledTimes(4);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("waits a retry again after a spell under a role, not the longest it had come to", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: 1000, retry: 50, spread: EXACT });
+
+			// Misses at 0, 50 and 150; the find at 350 sees the role and asks
+			// nothing, and the next, a keeping's wait on at 1350, misses
+			// again and waits a plain retry, not the 400 the misses came to.
+			await vi.advanceTimersByTimeAsync(200);
+			expect(asked).toHaveBeenCalledTimes(3);
+			Object.assign(at.peer, { orchestrates: "7M6JKG" });
+			await vi.advanceTimersByTimeAsync(200);
+			Object.assign(at.peer, { orchestrates: undefined });
+			await vi.advanceTimersByTimeAsync(950);
+			expect(asked).toHaveBeenCalledTimes(4);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// Before the peer is built there is nothing to find, which says
+	// nothing of the node.
+	it("counts no find toward the doubling while there is no peer to read", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+			let built = false;
+			const hub = keepHub(() => (built ? at : undefined), {
+				every: NEVER_AGAIN_MS,
+				retry: 50,
+				spread: EXACT,
+			});
+			kept.push(hub);
+
+			// Nothing to read at 0, 50 and 100; the peer is there by 150, whose
+			// find misses, and the next comes a plain retry later.
+			await vi.advanceTimersByTimeAsync(120);
+			built = true;
+			await vi.advanceTimersByTimeAsync(30);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A peer whose presence isn't out yet is found nothing for without
+	// asking the node, which says no more of it than having no peer does.
+	it("counts no find toward the doubling while the peer has no presence", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+			const unpublished = {
+				...at,
+				peer: { ...at.peer, session: "session-unpublished" },
+			};
+			let published = false;
+			const hub = keepHub(() => (published ? at : unpublished), {
+				every: NEVER_AGAIN_MS,
+				retry: 50,
+				spread: EXACT,
+			});
+			kept.push(hub);
+
+			// No presence at 0, 50 and 100; it is out by 150, whose find
+			// misses, and the next comes a plain retry later.
+			await vi.advanceTimersByTimeAsync(120);
+			expect(asked).not.toHaveBeenCalled();
+			published = true;
+			await vi.advanceTimersByTimeAsync(30);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(50);
+			expect(asked).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("lengthens each wait by up to a fifth, as the spread says", async () => {
+		vi.useFakeTimers();
+		try {
+			const { at, asked } = onMesh(async () => undefined);
+
+			keep(at, { every: NEVER_AGAIN_MS, retry: 50, spread: () => 1 });
+
+			await vi.advanceTimersByTimeAsync(59);
+			expect(asked).toHaveBeenCalledTimes(1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(asked).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("is none at once when the peer takes a role after it was found", async () => {
 		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
 		const hub = keep(at);
@@ -455,11 +786,69 @@ describe("a kept hub", () => {
 		const hub = keep(at);
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 
-		const self = at.presences.of("session-s");
-		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
-		at.presences.publish({ ...self, groups: ["#quest/other1/7m6jkg"] });
+		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
 
 		expect(hub.current()).toBeUndefined();
+	});
+
+	// Another process can overwrite a presence file mid-session, and a
+	// publish that failed leaves it stale, so the chain is read from the
+	// peer itself.
+	it("is found for the quest the peer is on, not the one a stale presence names", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		Object.assign(at.peer, { groups: ["#quest/other1/7m6jkg"] });
+
+		const above = await aboveFor(at);
+
+		expect(above).toMatchObject({
+			none: expect.stringContaining("no live cell on a quest above it"),
+		});
+	});
+
+	it("is found for the quest the peer is on, though a stale presence names another", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const own = at.presences.of("session-s");
+		if (own === undefined) throw new Error("7M6JKG is not on the mesh");
+		at.presences.publish({ ...own, groups: ["#quest/other1/7m6jkg"] });
+
+		const hub = keep(at);
+
+		expect(await aboveFor(at)).toEqual({ address: "ROOT01", by: "use" });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	// A quest this peer once worked keeps its address on the peer, and a
+	// newer session on that quest signs with it: a stop aimed at that
+	// session is no stop of this peer's.
+	it("is found past a stop aimed at an older address another session now signs with", async () => {
+		const { at, live } = onMesh(async () => [tie("ROOT01", 3)]);
+		Object.assign(at.peer, { addresses: ["7M6JKG", "OLD001"] });
+		live("session-n", "OLD001", "old001");
+		const root = at.presences.of("session-r");
+		if (root === undefined) throw new Error("ROOT01 is not on the mesh");
+		at.presences.publish({
+			...root,
+			stops: [{ address: "OLD001", at: new Date().toISOString() }],
+		});
+
+		const hub = keep(at);
+
+		expect(await aboveFor(at)).toEqual({ address: "ROOT01", by: "use" });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	it("reads its stops from the peer, not from a presence that lists another", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const own = at.presences.of("session-s");
+		if (own === undefined) throw new Error("7M6JKG is not on the mesh");
+		at.presences.publish({
+			...own,
+			stops: [{ address: "ROOT01", at: new Date().toISOString() }],
+		});
+
+		const above = await aboveFor(at);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
 	});
 
 	it("is none at once when the hub's presence says it ended", async () => {
@@ -486,6 +875,58 @@ describe("a kept hub", () => {
 		expect(hub.current()).toBeUndefined();
 	});
 
+	// A kept hub is where a send goes when the node is slow, so reading it
+	// refuses whatever the find would have.
+	it("is none at once when the peer stops the hub after it was found", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		Object.assign(at.peer, {
+			stops: [{ address: "ROOT01", at: new Date().toISOString() }],
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	it("is none at once when the hub stops the peer after it was found", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		const root = at.presences.of("session-r");
+		if (root === undefined) throw new Error("ROOT01 is not on the mesh");
+		at.presences.publish({
+			...root,
+			stops: [{ address: "7M6JKG", at: new Date().toISOString() }],
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	// A send to an ended peer's address reaches it once it is restored,
+	// and this one is on no quest above.
+	it("is none at once when an ended presence on another quest lists the hub's address", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		at.presences.publish({
+			session: "session-e",
+			addresses: ["ROOT01"],
+			groups: ["#quest/harn01"],
+			joined: [],
+			quest: "QEST-20261021-HARN01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+			ended: new Date().toISOString(),
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
 	// A crashed session never says it ended, and its quest's next session
 	// signs with the same address: the find's census judges the dead one
 	// gone, and reading the kept hub holds to that judgment.
@@ -508,6 +949,42 @@ describe("a kept hub", () => {
 		const hub = keep(at);
 
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	// A send's own find takes a census newer than the last find's, and a
+	// hub that crashed since is gone by it though its presence never said.
+	it("is none when a newer census, given to the read, judged the hub gone", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+
+		const hub = keep(at);
+
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		expect(hub.current(["session-r"])).toBeUndefined();
+		expect(hub.current(["session-x"])).toBe("ROOT01");
+	});
+
+	// A session the last find judged gone can be back by the send's own
+	// census, as a host restoring its conversations brings them, and one
+	// that lists the hub's address is then a second holder of it.
+	it("is none when a newer census reads live a session the find judged gone that lists its address", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		at.presences.publish({
+			session: "session-d",
+			addresses: ["ROOT01"],
+			groups: ["#quest/root01"],
+			joined: [],
+			quest: "QEST-20261021-ROOT01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			// This process under another start, so the find's census reads it gone.
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		});
+		const hub = keep(at);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		expect(hub.current([])).toBeUndefined();
 	});
 
 	it("finds nothing more once stopped, and keeps nothing a find still asking comes to", async () => {
@@ -562,9 +1039,7 @@ describe("a kept hub", () => {
 	// Nothing above could be its hub, so ties could change nothing.
 	it("asks the node nothing for a peer with no quest above it", async () => {
 		const { at, asked } = onMesh(async () => [tie("ROOT01", 3)]);
-		const self = at.presences.of("session-s");
-		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
-		at.presences.publish({ ...self, groups: ["#quest/7m6jkg"] });
+		Object.assign(at.peer, { groups: ["#quest/7m6jkg"] });
 
 		const above = await aboveFor(at);
 

@@ -3,6 +3,7 @@
  * without, and what waited once the mesh settles or a hold ends.
  */
 
+import type { ConcludedEvent } from "../../../lib/internal/quest/fields/concluded.ts";
 import {
 	HOLD_FOR_RELOAD_MS,
 	oweTurnToReload,
@@ -23,7 +24,7 @@ import {
 } from "../delivery.ts";
 import type { HoldEnd } from "../leases.ts";
 import { folds, QUIET_STATUS, quietStatus } from "../quiet.ts";
-import { tellOnNoModel } from "../tells.ts";
+import { tellOnNoModel, tellOrchestrator } from "../tells.ts";
 import { keptAbove } from "../tools/above.ts";
 import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
 
@@ -33,6 +34,13 @@ import { delivered, type Heeded, type MeshState, STOPPED } from "./mesh.ts";
  */
 const TURN_PUT_OFF =
 	"The mesh messages above reached you while a reload of your harness waited. Act on them now.";
+
+/**
+ * How many endings a session keeps, the newest, while it has nobody to
+ * tell them to: enough for a spell with no hub, and bounded for a session
+ * that never finds one.
+ */
+const ENDINGS_KEPT = 10;
 
 /** What starts the turn of a session woken from parking with messages waiting. */
 const WOKEN_TO_READ =
@@ -98,6 +106,49 @@ export function createHanding(m: MeshState) {
 		m.toldOnNoModel = true;
 		m.onNoModelUntold = undefined;
 		if (message) m.seen.add(message.id);
+	};
+
+	/**
+	 * Tell this peer's orchestrator that a quest or document ended, with
+	 * what waited before it. On a quest with no mark and no hub kept yet,
+	 * as after the node was down, it waits until a find keeps one
+	 * (start.ts) rather than going nowhere; with no event, what waited is
+	 * told. Each is kept with the quest it ended under, and told only while
+	 * the session is still on it, since the hub of a quest it moved to
+	 * would hear of work that is not under it. It never throws: its caller
+	 * on the bus still has the talk and the person's looks to close.
+	 */
+	const tellConcluded = (event?: ConcludedEvent) => {
+		const quest = m.peer?.quest;
+		const waiting = [
+			...m.endingsUntold,
+			...(event === undefined ? [] : [{ event, quest }]),
+		].slice(-ENDINGS_KEPT);
+		const above = keptAbove(m.peer?.orchestratedBy, m.hub)?.address;
+		if (m.peer === undefined || above === undefined) {
+			m.endingsUntold = waiting;
+			return;
+		}
+		m.endingsUntold = waiting.filter((one) => one.quest === quest);
+		try {
+			for (const one of [...m.endingsUntold]) {
+				const message = tellOrchestrator(
+					m.peer,
+					above,
+					m.transport,
+					one.event,
+					m.presences.all(),
+				);
+				// Taken off only once told, so a tell that throws leaves it and
+				// the rest kept.
+				m.endingsUntold = m.endingsUntold.slice(1);
+				if (message) m.seen.add(message.id);
+			}
+		} catch {
+			// A mesh that can't be written to now, as a full or read-only
+			// messages folder: what is left stays kept and is told with the
+			// next ending or the next find that keeps a hub.
+		}
 	};
 
 	/**
@@ -375,6 +426,7 @@ export function createHanding(m: MeshState) {
 	return {
 		showQuiet,
 		tellNoModel,
+		tellConcluded,
 		putOffTurn,
 		handedOver,
 		say,

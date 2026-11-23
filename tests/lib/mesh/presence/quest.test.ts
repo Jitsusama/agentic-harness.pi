@@ -337,6 +337,39 @@ describe("this session's peer", () => {
 		});
 	});
 
+	// Finding its hub reads the quest from the peer, not from its presence
+	// file, which another process can write over.
+	it("holds the quest it is on as it moves, whatever its presence file says", () => {
+		const questAt = (id: string) => {
+			mkdirSync(join(root, "quests", id), { recursive: true });
+			writeFileSync(
+				join(root, "quests", id, "README.md"),
+				`---\nid: ${id}\nkind: quest\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\n---\n# ${id}\n`,
+			);
+		};
+		const onto = (id: string) =>
+			writeFileSync(
+				join(root, "sessions", `${session}.json`),
+				JSON.stringify({ quest: id }),
+			);
+		mkdirSync(join(root, "sessions"), { recursive: true });
+		questAt("QEST-20261021-LUQ49E");
+		questAt("QEST-20261021-HARN01");
+		onto("QEST-20261021-LUQ49E");
+		const at = surroundings();
+		const peer = localPeer(at);
+		expect(peer.quest).toBe("QEST-20261021-LUQ49E");
+
+		onto("QEST-20261021-HARN01");
+		peer.refresh();
+		expect(peer.quest, "read again as it moves").toBe("QEST-20261021-HARN01");
+
+		const own = at.presences.of(session);
+		if (own === undefined) throw new Error("the peer published nothing");
+		at.presences.publish({ ...own, quest: "QEST-20261021-LUQ49E" });
+		expect(peer.quest, "not from the file").toBe("QEST-20261021-HARN01");
+	});
+
 	it("says its folder and the repository it is a checkout of, on no quest", () => {
 		const main = join(root, "core.nix");
 		mkdirSync(join(main, ".git"), { recursive: true });
