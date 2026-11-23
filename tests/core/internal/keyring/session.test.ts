@@ -114,7 +114,11 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
-	it("shows the same words once in a session across a reload, which builds new extensions around its manager", async () => {
+	it("shows the same words once in a session across a reload, where its copy of the notices outlives the reload", async () => {
+		// pi's reload builds new extensions around the session's manager
+		// (AgentSession's _buildRuntime), so both runners here share one;
+		// pi also evaluates each extension's own copy of the notices again,
+		// which a copy loaded once for every extension would outlive.
 		const manager = SessionManager.inMemory(process.cwd());
 		const before = session(manager);
 		const shown = screen();
@@ -128,6 +132,32 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect(shown.told).toEqual(["warning: keyring locked"]);
 		expect([before.errors, after.errors]).toEqual([[], []]);
+	});
+
+	it("keeps a notice a session was owed through a reload, for the extensions it starts again", async () => {
+		const manager = SessionManager.inMemory(process.cwd());
+		const before = session(manager);
+		const elsewhere = session();
+		const seen = screen();
+		elsewhere.runner.setUIContext(seen.ui, "tui");
+		await Promise.all([before.start(), elsewhere.start()]);
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		await before.runner.emit({ type: "session_shutdown", reason: "reload" });
+		await elsewhere.runner.emit({
+			type: "turn_start",
+			turnIndex: 0,
+			timestamp: 0,
+		});
+		const after = session(manager);
+		const shown = screen();
+		after.runner.setUIContext(shown.ui, "tui");
+		await after.runner.emit({ type: "session_start", reason: "reload" });
+		expect(shown.told).toEqual(["warning: keyring locked"]);
+		expect([before.errors, elsewhere.errors, after.errors]).toEqual([
+			[],
+			[],
+			[],
+		]);
 	});
 
 	it("stops showing notices in a session that ended, keeping them for the next", async () => {

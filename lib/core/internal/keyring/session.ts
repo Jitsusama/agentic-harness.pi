@@ -12,6 +12,8 @@
  * nowhere, so it waits, and each turn's start offers it again: pi says
  * nothing as it gives a session a screen, so a turn is the first moment
  * this can see one, and an idle session shows the notice at its next.
+ * A reload keeps what the session is owed, for the extensions it starts
+ * again; any other end forgets it.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -28,10 +30,14 @@ export function keepCredentialsInKeyring(
 	label: string,
 	move: () => Promise<void>,
 ): void {
-	let stopListening: (() => void) | undefined;
+	let stopListening: ReturnType<typeof onKeyringNotice> | undefined;
+	let listeningOn: object | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
-		stopListening?.();
+		stopListening?.(
+			listeningOn === ctx.sessionManager ? "back soon" : "for good",
+		);
+		listeningOn = ctx.sessionManager;
 		// The session names its one screen for every extension here, by
 		// its manager, which pi hands each of them and keeps across a
 		// reload; not by ctx.ui, which is pi's one shared stand-in for
@@ -54,8 +60,9 @@ export function keepCredentialsInKeyring(
 		retryKeyringNotices();
 	});
 
-	pi.on("session_shutdown", async () => {
-		stopListening?.();
+	pi.on("session_shutdown", async (event) => {
+		stopListening?.(event.reason === "reload" ? "back soon" : "for good");
 		stopListening = undefined;
+		listeningOn = undefined;
 	});
 }

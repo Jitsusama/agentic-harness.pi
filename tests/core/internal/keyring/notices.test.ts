@@ -147,6 +147,57 @@ describe("keyring notices", () => {
 		expect(heard).toEqual(["bound: locked", "late: locked"]);
 	});
 
+	it("keeps what a screen is owed while it is between listeners, as across a reload", () => {
+		const heard: string[] = [];
+		const reloading = {};
+		onKeyringNotice(hearing(heard, "taker"), {});
+		const stop = onKeyringNotice(() => false, reloading);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		stop("back soon");
+		onKeyringNotice(hearing(heard, "other"), {});
+		retryKeyringNotices();
+		onKeyringNotice(hearing(heard, "reloaded"), reloading);
+		expect(heard).toEqual(["taker: locked", "reloaded: locked"]);
+	});
+
+	it("owes a notice said again to the screens owed it before as well as those lacking it now", () => {
+		const heard: string[] = [];
+		const reloading = {};
+		onKeyringNotice(hearing(heard, "taker"), {});
+		const stop = onKeyringNotice(() => false, reloading);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		stop("back soon");
+		onKeyringNotice(() => false, {});
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		onKeyringNotice(hearing(heard, "reloaded"), reloading);
+		expect(heard).toEqual(["taker: locked", "reloaded: locked"]);
+	});
+
+	it("forgets what a screen was owed once its last listener stops for good", () => {
+		const heard: string[] = [];
+		const ended = {};
+		onKeyringNotice(hearing(heard, "taker"), {});
+		const first = onKeyringNotice(() => false, ended);
+		const second = onKeyringNotice(() => false, ended);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		first();
+		second();
+		onKeyringNotice(hearing(heard, "same screen"), ended);
+		expect(heard).toEqual(["taker: locked"]);
+	});
+
+	it("keeps what a screen is owed while another of its listeners remains", () => {
+		const heard: string[] = [];
+		const session = {};
+		onKeyringNotice(hearing(heard, "taker"), {});
+		const first = onKeyringNotice(() => false, session);
+		onKeyringNotice(() => false, session);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		first();
+		onKeyringNotice(hearing(heard, "bound"), session);
+		expect(heard).toEqual(["taker: locked", "bound: locked"]);
+	});
+
 	it("never replays to a later screen a notice another took, though one screen keeps declining it", () => {
 		const heard: string[] = [];
 		const never = { bound: false };

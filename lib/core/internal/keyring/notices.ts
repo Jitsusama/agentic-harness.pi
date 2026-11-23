@@ -16,10 +16,17 @@
  * throws leaves it to the next listener on its screen; either way the
  * words aren't marked shown there, so they show when said again. A
  * notice waits for the screens that lacked it when it was said, and each
- * retry offers it to those still listening until they show it; one no
- * screen took waits for whoever listens next. So a session that starts
- * later never replays old words another screen took, though one screen
- * keeps declining them. A notice waits once however often it is said.
+ * retry offers it to those listening until they show it; one no screen
+ * took waits for whoever listens next. So a session that starts later
+ * never replays old words another screen took, though one screen keeps
+ * declining them. A notice waits once however often it is said.
+ *
+ * A screen between listeners, as a session is between a reload's end
+ * and its start, keeps what it is owed; a listener that stops for good
+ * and leaves its screen with none forgets it, so an ended session holds
+ * nothing here. pi evaluates each extension's copy of this module again
+ * as it reloads, so all of this outlives a reload only in a copy loaded
+ * once for every extension.
  */
 
 /** One thing to tell the person. */
@@ -72,11 +79,12 @@ function show(listener: Listener, screen: object, notice: KeyringNotice) {
 
 /**
  * Offer `notice` to each listening screen it is owed to that hasn't
- * shown it. Answers who it is owed to after: the screens offered it
- * that still lack it, or anyone when none of them took it.
+ * shown it. Answers who it is owed to after: the screens owed it, or
+ * offered it, that still lack it, those between listeners among them;
+ * or anyone when it was owed to anyone and no screen took it.
  */
 function offer(notice: KeyringNotice, to: Owed): Owed {
-	const lacking = new Set<object>();
+	const lacking = new Set<object>(to === "anyone" ? [] : to);
 	const having = new Set<object>();
 	for (const [listener, screen] of listeners) {
 		if (to !== "anyone" && !to.has(screen)) continue;
@@ -89,8 +97,9 @@ function offer(notice: KeyringNotice, to: Owed): Owed {
 }
 
 /**
- * Keep `notice` owed `to` whom, beside what its words were owed before:
- * anyone outranks screens, as it reaches them too.
+ * Keep `notice` owed `to` whom, beside what its words were owed before.
+ * Screens join screens; anyone replaces screens, as it reaches them too;
+ * and screens replace an earlier anyone, as one took the words since.
  */
 function keep(notice: KeyringNotice, to: Owed): void {
 	const before = waiting.get(notice.message)?.to;
@@ -117,17 +126,32 @@ export function retryKeyringNotices(): void {
 /**
  * Hear every notice from now on on `screen`, and those still owed to
  * it or to anyone; the screen shows the same words once whichever of
- * its listeners hears them. Answers the function that stops listening.
+ * its listeners hears them. Answers the function that stops listening:
+ * for good unless told the screen will be back, and then, when no
+ * listener on the screen is left, it forgets what the screen was owed.
  */
 export function onKeyringNotice(
 	listener: Listener,
 	screen: object = listener,
-): () => void {
+): (until?: "for good" | "back soon") => void {
 	listeners.set(listener, screen);
 	retryKeyringNotices();
-	return () => {
+	return (until = "for good") => {
 		listeners.delete(listener);
+		if (until === "for good" && ![...listeners.values()].includes(screen))
+			forget(screen);
 	};
+}
+
+/** Owe `screen` nothing more, as its session has ended. */
+function forget(screen: object): void {
+	for (const [message, { notice, to }] of waiting) {
+		if (to === "anyone" || !to.has(screen)) continue;
+		const rest = new Set(to);
+		rest.delete(screen);
+		if (rest.size === 0) waiting.delete(message);
+		else waiting.set(message, { notice, to: rest });
+	}
 }
 
 /** Forget what was said and who listens. Tests only. */
