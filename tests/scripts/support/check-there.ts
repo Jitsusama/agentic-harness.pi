@@ -677,8 +677,10 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				const stopping = check(
 					host,
 					[
-						"( trap '' TERM; sleep 30 ) >/dev/null 2>&1 <&- &",
+						`( trap '' TERM; : > "$HOME/deaf"; sleep 30 ) >/dev/null 2>&1 <&- &`,
 						"group=$!",
+						// A TERM before its trap is set would end it, as a KILL would.
+						'until [ -e "$HOME/deaf" ]; do sleep 0.05; done',
 						'echo "$group"',
 						"stop_wait_s=10 killed=1 deadline=$(( SECONDS + 6 ))",
 						'end_groups "$group"',
