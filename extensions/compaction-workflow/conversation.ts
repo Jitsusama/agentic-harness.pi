@@ -169,7 +169,7 @@ export function conversationProvider(
 		if (event.reason === "reload") {
 			reloadHandoff(ctx).set({ held: { sessionId, sent } });
 		} else if (keep) {
-			saveKeptRequest(keptDir, sessionId, sent);
+			await saveKeptRequest(keptDir, sessionId, sent);
 		}
 	});
 	pi.on("session_compact", async () => {

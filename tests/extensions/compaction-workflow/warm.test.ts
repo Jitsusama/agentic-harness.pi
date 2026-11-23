@@ -623,21 +623,19 @@ describe("warming across a restart", () => {
 	});
 
 	// A host shuts down every conversation it parks, many at once as it
-	// restarts; compressing and writing each carry on its thread made 193
-	// of 701 loop-hold samples from 21 to 23 November.
-	it("writes the carry off the thread, and has it written once its shutdown ends", async () => {
+	// restarts; compressing and writing each one's carry and last request
+	// on its thread made 193 of 701 loop-hold samples from 21 to 23
+	// November.
+	it("writes what a restart keeps off the thread, and has it written once its shutdown ends", async () => {
 		const { fire, ctx } = await idleSession();
-		// Carries the cases before this one kept are still on disk.
-		const before = onDisk(state).length;
 
 		const shutdown = fire("session_shutdown", { reason: "quit" }, ctx);
 		for (let i = 0; i < 50; i++) await Promise.resolve();
-		const duringTheThreadsOwnWork = onDisk(state).length - before;
+		const duringTheThreadsOwnWork = onDisk(state).length;
 		await shutdown;
 
-		expect([duringTheThreadsOwnWork, onDisk(state).length - before]).toEqual([
-			0, 1,
-		]);
+		// The warming carry and the kept request, each a file of its own.
+		expect([duringTheThreadsOwnWork, onDisk(state).length]).toEqual([0, 2]);
 	});
 
 	it("takes nothing back once the cache it warmed has expired", async () => {

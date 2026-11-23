@@ -21,16 +21,11 @@
  * sweeps it with `sweepKeptRequests`.
  */
 
-import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gunzipSync, gzip } from "node:zlib";
 import { stateDir } from "../../lib/internal/paths.ts";
 
 /** What the provider holds about the last request the session sent. */
@@ -64,27 +59,39 @@ function fileFor(dir: string, sessionId: string): string {
 }
 
 /**
- * Write a session's last request to disk. A failure costs only the
+ * Write a session's last request to disk, off the thread: a host shuts
+ * down every conversation it parks, many at once as it restarts, and
+ * compressing and writing each held its loop. A failure costs only the
  * cheaper first compaction after a restart, so it is swallowed.
  */
-export function saveKeptRequest(
+export async function saveKeptRequest(
 	dir: string,
 	sessionId: string,
 	sent: SentRequest,
-): void {
-	saveKept(dir, sessionId, { sessionId, sent });
+): Promise<void> {
+	await saveKept(dir, sessionId, { sessionId, sent });
 }
+
+const gzipOff = promisify(gzip);
 
 /**
  * Write `value` for a session to `dir`, compressed and readable only by
- * its owner. A failure costs only a cheaper start, so it is swallowed.
+ * its owner. One cut short reads back as nothing and is removed
+ * (`takeKeptRequest`). A failure costs only a cheaper start, so it is
+ * swallowed.
  */
-function saveKept(dir: string, sessionId: string, value: unknown): void {
+async function saveKept(
+	dir: string,
+	sessionId: string,
+	value: unknown,
+): Promise<void> {
 	try {
-		mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
-		writeFileSync(fileFor(dir, sessionId), gzipSync(JSON.stringify(value)), {
-			mode: OWNER_ONLY,
-		});
+		await mkdir(dir, { recursive: true, mode: OWNER_ONLY_DIR });
+		await writeFile(
+			fileFor(dir, sessionId),
+			await gzipOff(JSON.stringify(value)),
+			{ mode: OWNER_ONLY },
+		);
 	} catch {
 		// Deliberately dropped: shutting down must not fail over a cache
 		// the next start can do without.
