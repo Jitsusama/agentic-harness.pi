@@ -55,6 +55,7 @@ import type {
 	HostEngine,
 } from "./contract.ts";
 import { conversationBuilds, type Live } from "./conversation-build.ts";
+import { restGivenUp } from "./given-up.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessRequest,
@@ -178,6 +179,16 @@ export async function createEngine(
 		// the drain lifts or the next host reads its wake.
 		holding: () => host.drains(),
 	});
+	/**
+	 * Take on a held conversation resting parked, building nothing: its
+	 * wake watched, its log held and its requests restored, as
+	 * `restsParked` and `restsGivenUp` take one and `movedOut` gives it up.
+	 */
+	function takeOnResting(entry: RosterEntry): void {
+		parked.rests(entry.sessionId);
+		logs.hold(entry.sessionId, resolve(entry.file));
+		requests.restore(entry);
+	}
 	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
 	const quiet: QuietCollection =
@@ -642,11 +653,19 @@ export async function createEngine(
 			if (host.holds(sessionId) !== undefined) return false;
 			if (readParked(sessionId)?.wake !== parked.wakeFile(sessionId))
 				return false;
-			parked.rests(sessionId);
-			logs.hold(sessionId, resolve(entry.file));
-			requests.restore(entry);
+			takeOnResting(entry);
 			return true;
 		},
+
+		// Held, its child given up before it ran there, so it never parked:
+		// rested as a park leaves one, its marker written (given-up.ts).
+		restsGivenUp: (entry) =>
+			restGivenUp(entry, {
+				runs: (sessionId) => host.holds(sessionId) !== undefined,
+				wakeFile: (sessionId) => parked.wakeFile(sessionId),
+				takeOn: takeOnResting,
+				pid: host.owner.pid,
+			}),
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
