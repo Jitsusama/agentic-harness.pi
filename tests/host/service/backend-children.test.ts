@@ -11,6 +11,11 @@ import {
 	hostBackend,
 } from "../../../host/service/backend.ts";
 import {
+	BEGIN_TOO_LATE,
+	beganTooLate,
+	CHILD_SAID_UNSETTLED,
+} from "../../../host/service/child-requests.ts";
+import {
 	type ControlReply,
 	dispatchControl,
 } from "../../../host/service/dispatch.ts";
@@ -571,11 +576,12 @@ describe("a conversation opened while children open", () => {
 	// Only the host may say a child runs a conversation all the same, since
 	// its caller attaches to the one named; a child saying so of itself was
 	// stopped, so its refusal is a plain failure, and its repeat begins anew.
-	it("takes a child's own open_unsettled as a failure to open", async () => {
+	it("takes a child's own open_unsettled as a failure to open, in the host's words", async () => {
 		const moved = children([], true);
+		const named = randomUUID();
 		const said = {
 			code: OPEN_UNSETTLED,
-			message: unsettledMessage(randomUUID()),
+			message: unsettledMessage(named),
 		};
 		moved.fake.begin.mockImplementation(async (request) => ({
 			v: 1,
@@ -590,11 +596,35 @@ describe("a conversation opened while children open", () => {
 
 		expect(reply).toMatchObject({
 			ok: false,
-			error: { code: "operation_failed", message: said.message },
+			error: { code: "operation_failed", message: CHILD_SAID_UNSETTLED },
 		});
+		const message = reply.ok ? "" : reply.error.message;
+		expect(message, "names nothing to attach to").not.toContain(named);
 		expect(
 			moved.fake.begin,
 			"no conversation stands for it",
 		).toHaveBeenCalledTimes(2);
+	});
+
+	// A begin the host refused before any child started leaves nothing
+	// standing, so its repeat is begun again, not told the refusal.
+	it("passes a begin refused as too late on as it is, and begins its repeat anew", async () => {
+		const moved = children([], true);
+		moved.fake.begin.mockImplementation(async (request) =>
+			beganTooLate(request.id, 95_000, 100_000),
+		);
+		const backend = backendWith(engine(), moved.fake);
+
+		const reply = await dispatchControl(open, backend);
+		await dispatchControl({ ...open }, backend);
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: BEGIN_TOO_LATE },
+		});
+		const message = reply.ok ? "" : reply.error.message;
+		expect(message).toContain("spent 95 s of its 100 s");
+		expect(message).toContain("once the machine is quieter");
+		expect(moved.fake.begin, "its repeat begun anew").toHaveBeenCalledTimes(2);
 	});
 });

@@ -316,14 +316,17 @@ input pipeline or screen. No unit or running host is installed yet.
 - child-requests.ts: reaching a child's socket and reading the one
   answer a request gets; a child answering as another process, or not
   at all, is said as `child_unreachable`. A begin the host's census
-  left too little time for a child to start and answer is refused as
-  `begin_too_late` before any child starts.
+  left too little time for a child to start and answer (20 s for its
+  first ask, `LEAST_FIRST_ASK_MS`, past the watch kept back after it)
+  is refused as `begin_too_late` before any child starts, with words
+  asking for a wait rather than an ask at once.
 - unsettled-open.ts: the `open_unsettled` refusal's words, naming the
   conversation a child runs though it gave no answer in time, written
   by the host and read by the spawn that asked, which attaches to it.
   The error's shape is strict, so the id travels in its words, and only
   a UUID is read from them. Only the host's own stands: a child that
-  says it of itself has its open failed as `operation_failed`.
+  says it of itself is stopped, and its open failed as
+  `operation_failed` in the host's words, which name no conversation.
 - child-units.ts: where each child runs: an instance of the template
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it

@@ -242,12 +242,16 @@ describe("a new conversation", () => {
 
 		const reply = await supervisor.begin(opening("open-17"), took);
 
-		expect(reply).toMatchObject({ ok: false });
+		expect(reply, "its silent child unreachable").toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
 		expect(units.started, "begun, with time left for its child").toHaveLength(
 			1,
 		);
 		const spent = Date.now() - took;
-		// Its child's ask ends a second before the begin's own time does.
+		// The whole begin: its child's ask ends at 5 s from when it was
+		// taken, and the watch kept back after it at 6 s.
 		expect(spent, "its child given the time left").toBeGreaterThanOrEqual(
 			4_500,
 		);
@@ -256,9 +260,9 @@ describe("a new conversation", () => {
 
 	it("refuses a begin taken too long ago for its child to answer, starting none", async () => {
 		superviseAgain({
-			clocks: { beginsWithinMs: 5_000, unsettledWithinMs: 1_000 },
+			clocks: { beginsWithinMs: 10_000, unsettledWithinMs: 5_000 },
 		});
-		const took = Date.now() - 4_200;
+		const took = Date.now() - 6_000;
 
 		const reply = await supervisor.begin(opening("open-18"), took);
 
@@ -268,11 +272,69 @@ describe("a new conversation", () => {
 			error: { code: BEGIN_TOO_LATE },
 		});
 		const message = reply.ok ? "" : reply.error.message;
-		expect(message).toContain("spent 4 s of its 5 s");
+		expect(message).toMatch(/spent \d+ s of its 10 s/);
 		expect(message).toContain("nothing was opened");
+		expect(message, "asks for a wait").toContain("in a minute");
 		expect(units.started, "no child started").toEqual([]);
 		expect(routes.listed()).toEqual([]);
-		expect(reported.map(String), "said where its time went").toEqual([message]);
+		expect(reported.map(String), "said where its time went").toEqual([
+			`Request open-18: ${message}`,
+		]);
+	});
+
+	// A begin left more than its watch but less than its child needs to
+	// start and answer would start a unit only to stop it again.
+	it("refuses a begin left too little for its child to start and answer", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 10_000,
+				unsettledWithinMs: 2_000,
+				leastFirstAskMs: 4_000,
+			},
+		});
+		const took = Date.now() - 5_000;
+
+		const reply = await supervisor.begin(opening("open-19"), took);
+
+		expect(reply).toMatchObject({ ok: false, error: { code: BEGIN_TOO_LATE } });
+		expect(units.started, "no child started").toEqual([]);
+	});
+
+	it("refuses a begin left exactly its least, and begins one left a millisecond more", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 10_000,
+				unsettledWithinMs: 2_000,
+				leastFirstAskMs: 4_000,
+			},
+		});
+		// The clock held still while each begin weighs its time, which it
+		// does before it first waits.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const refused = supervisor.begin(opening("open-20"), Date.now() - 4_000);
+		const begun = supervisor.begin(opening("open-21"), Date.now() - 3_999);
+		vi.useRealTimers();
+
+		expect(await refused).toMatchObject({
+			id: "open-20",
+			error: { code: BEGIN_TOO_LATE },
+		});
+		expect(await begun).toMatchObject({ id: "open-21", ok: true });
+		expect(units.started, "only the second started").toHaveLength(1);
+	});
+
+	it("refuses a begin with no time left, when its whole time is less than its watch", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 1_000, unsettledWithinMs: 5_000 },
+		});
+
+		const reply = await supervisor.begin(
+			opening("open-22"),
+			Date.now() - 1_000,
+		);
+
+		expect(reply).toMatchObject({ ok: false, error: { code: BEGIN_TOO_LATE } });
+		expect(units.started, "no child started").toEqual([]);
 	});
 
 	it("gives up on a starved child at its listen time, since its caller waits on it", async () => {

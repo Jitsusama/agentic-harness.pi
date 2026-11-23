@@ -63,6 +63,7 @@ import {
 	beganTooLate,
 	madeByHost,
 	reach,
+	tooLateWords,
 	unsettledReply,
 } from "./child-requests.ts";
 import { type Doing, type Starvation, starvation } from "./child-starvation.ts";
@@ -144,6 +145,13 @@ export const BEGINS_WITHIN_MS = 100_000;
  * request no answer, which may have built the conversation all the same.
  */
 export const UNSETTLED_WITHIN_MS = 10_000;
+/**
+ * The least a begin's first ask may be left, for its unit to start, its
+ * child to listen and its open to be answered: across 22 November's 461
+ * starts the host's first line came 17 s after the start at the median,
+ * so a child given less is most often started only to be stopped.
+ */
+export const LEAST_FIRST_ASK_MS = 20_000;
 /**
  * How many times a leaving child's unit is stopped and waited on before
  * its slot is left in use and the stop is left to whoever reads why.
@@ -373,6 +381,7 @@ export function childSupervisor(options: {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
 }): ChildSupervisor {
@@ -384,11 +393,17 @@ export function childSupervisor(options: {
 	const exitsWithinMs = options.exitsWithinMs ?? EXITS_WITHIN_MS;
 	const beginsWithinMs = options.beginsWithinMs ?? BEGINS_WITHIN_MS;
 	const unsettledWithinMs = options.unsettledWithinMs ?? UNSETTLED_WITHIN_MS;
-	// The least a begin's time may have left as its child starts: what the
-	// child's first answer is kept clear of, when the begin's whole time
-	// leaves it any, and otherwise only that some time is left at all.
+	// The least a begin's time may have left as its child starts: its
+	// first ask's least and the watch its answer is kept clear of, when
+	// the begin's whole time leaves room for both; else the watch alone,
+	// when it leaves room for that; else only that some time is left.
+	const leastFirstAskMs = options.leastFirstAskMs ?? LEAST_FIRST_ASK_MS;
 	const leastToBegin =
-		beginsWithinMs > unsettledWithinMs ? unsettledWithinMs : 0;
+		beginsWithinMs > unsettledWithinMs + leastFirstAskMs
+			? unsettledWithinMs + leastFirstAskMs
+			: beginsWithinMs > unsettledWithinMs
+				? unsettledWithinMs
+				: 0;
 	const listensWithinCpuMs =
 		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
 	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
@@ -1048,7 +1063,6 @@ export function childSupervisor(options: {
 								current = next;
 								runsIn(next, slot);
 								if (was) routes.hold(conversation, was);
-								options.became?.(left, next);
 								keep(async () => {
 									try {
 										// It keeps what the host held of what it was.
@@ -1060,6 +1074,10 @@ export function childSupervisor(options: {
 										await writeSlot(slot, holds, false, left);
 										if (before) await roster.replace(before.sessionId, holds);
 										else await roster.hold(holds);
+										// Told once the roster holds it, as a host's own
+										// conversation is (serve.ts): a hold that fails leaves
+										// a repeat naming what the roster still holds.
+										options.became?.(left, next);
 									} catch (error) {
 										// Unheld, so stopped: nothing runs a conversation no
 										// later host would resume.
@@ -1378,17 +1396,6 @@ export function childSupervisor(options: {
 		},
 		begin(request, taken = Date.now()) {
 			const by = taken + beginsWithinMs;
-			// What the host spent before this begin, its census under load, can
-			// leave the child's first answer no time of its own: refused then,
-			// before a unit starts only to be stopped on a machine already
-			// loaded, and said in the journal with where the time went.
-			const spent = Date.now() - taken;
-			if (beginsWithinMs - spent <= leastToBegin) {
-				const refused = beganTooLate(request.id, spent, beginsWithinMs);
-				if (!refused.ok) options.report(refused.error.message);
-				return Promise.resolve(refused);
-			}
-			const slot = slotOf(options.folder, options.key, randomUUID());
 			// An adopt's file, too, must be one no host holds: one the roster
 			// holds is resumed in the slot its own id names, never begun beside,
 			// so it is refused before any child opens it.
@@ -1397,6 +1404,21 @@ export function childSupervisor(options: {
 				request.op === "adopt" ? resolve(request.sessionFile) : undefined;
 			if (file !== undefined && fileHeld(file))
 				return Promise.reject(new Error(`Conversation already held: ${file}`));
+			// What the host spent before this begin, its census under load, can
+			// leave the child too little time to start and answer: refused then,
+			// before a unit starts only to be stopped on a machine already
+			// loaded, and reported to the journal with the request and where
+			// the time went.
+			const spent = Date.now() - taken;
+			if (beginsWithinMs - spent <= leastToBegin) {
+				const quest =
+					request.quest !== undefined ? ` for quest ${request.quest}` : "";
+				options.report(
+					`Request ${request.id}${quest}: ${tooLateWords(spent, beginsWithinMs)}`,
+				);
+				return Promise.resolve(beganTooLate(request.id, spent, beginsWithinMs));
+			}
+			const slot = slotOf(options.folder, options.key, randomUUID());
 			if (file !== undefined) adoptingFiles.add(file);
 			const asked: Vouched = {
 				attended: request.attended,

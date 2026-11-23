@@ -10,7 +10,7 @@ import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
-import { leftRunning } from "./child-requests.ts";
+import { CHILD_SAID_UNSETTLED, leftRunning } from "./child-requests.ts";
 import { endedLine } from "./conversation-events.ts";
 import {
 	type ControlBackend,
@@ -569,12 +569,14 @@ export function hostBackend(options: {
 		const running = leftRunning(reply);
 		// Only the host says a child runs a conversation all the same, since
 		// its caller attaches to what that names; one a child said of itself,
-		// which the host stopped, is a plain failure to open.
-		const code =
-			running === undefined && reply.error.code === OPEN_UNSETTLED
-				? "operation_failed"
-				: reply.error.code;
-		const refusal = hostRefusal(code, reply.error.message);
+		// which the host stopped, is a plain failure to open, in the host's
+		// words: the child's would send its caller to attach to a
+		// conversation that was stopped, or to one of the child's choosing.
+		const saidOfItself =
+			running === undefined && reply.error.code === OPEN_UNSETTLED;
+		const refusal = saidOfItself
+			? hostRefusal("operation_failed", CHILD_SAID_UNSETTLED)
+			: hostRefusal(reply.error.code, reply.error.message);
 		// The child runs a conversation all the same, so its repeat is told
 		// the same, not given a second beside it (F24).
 		if (running !== undefined) leftHeld.set(refusal, running);

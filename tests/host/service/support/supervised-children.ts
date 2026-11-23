@@ -430,6 +430,7 @@ interface Clocks {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	leastFirstAskMs?: number;
 	listensWithinCpuMs?: number;
 	starvedWithinMs?: number;
 }

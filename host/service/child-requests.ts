@@ -84,6 +84,26 @@ export function childUnreachable(id: string, message?: string): ControlReply {
 export const BEGIN_TOO_LATE = "begin_too_late";
 
 /**
+ * What the caller is told when a child said of itself that it gave no
+ * answer in time, which only the host may say: the child was stopped, so
+ * the words name no conversation to attach to, and none of the child's.
+ */
+export const CHILD_SAID_UNSETTLED =
+	"The conversation's process said of itself that it gave no answer in time, which only the host may say, so the host stopped it: nothing was opened, so ask again";
+
+/**
+ * Where a begin's time went when the host spent `spentMs` of its
+ * `withinMs` before it could begin. It asks for a wait, since what took
+ * the time was the host weighing a loaded machine, which an ask at once
+ * would only weigh again.
+ */
+export function tooLateWords(spentMs: number, withinMs: number): string {
+	const spent = Math.round(spentMs / 1000);
+	const within = Math.round(withinMs / 1000);
+	return `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
+}
+
+/**
  * The answer to `id` when the host spent `spentMs` of its `withinMs`
  * before it could begin, leaving too little for a child to start and
  * answer: refused before any child starts, naming where the time went,
@@ -94,15 +114,13 @@ export function beganTooLate(
 	spentMs: number,
 	withinMs: number,
 ): ControlReply {
-	const spent = Math.round(spentMs / 1000);
-	const within = Math.round(withinMs / 1000);
 	const reply: ControlReply = {
 		v: 1,
 		id,
 		ok: false,
 		error: {
 			code: BEGIN_TOO_LATE,
-			message: `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again`,
+			message: tooLateWords(spentMs, withinMs),
 		},
 	};
 	madeHere.add(reply);

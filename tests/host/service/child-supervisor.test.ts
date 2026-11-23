@@ -731,7 +731,9 @@ describe("what a child says", () => {
 		await vi.waitFor(() =>
 			expect(roster.held, "held in the old one's place").toEqual([entry(b)]),
 		);
-		expect(becameTold, "told on, for a repeat to name it").toEqual([[a, b]]);
+		await vi.waitFor(() =>
+			expect(becameTold, "told on, for a repeat to name it").toEqual([[a, b]]),
+		);
 	});
 
 	it("says a conversation has left once its child became another, which runs on in its slot", async () => {
@@ -1023,6 +1025,10 @@ describe("what a child says", () => {
 		expect(routes.listed(), "routed to nothing").toEqual([]);
 		expect(String(reported[0])).toContain("can't be written");
 		expect(said).toEqual([expect.stringContaining("couldn't be held")]);
+		expect(
+			becameTold,
+			"nothing told on, so a repeat names what the roster holds",
+		).toEqual([]);
 	});
 
 	it("says a conversation has left once the roster has refused what it became, not before", async () => {
