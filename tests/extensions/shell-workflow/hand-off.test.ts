@@ -758,8 +758,16 @@ describe("how a command and a span are named", () => {
 	it("folds only spaces and tabs, keeping any other space as typed", () => {
 		expect(labelOf("sleep \t  5")).toBe("sleep 5");
 		for (const odd of ["\u00a0", "\v", "\f", "\r", "\u2003"]) {
-			expect(labelOf(`x=1${odd}sleep touch y`)).toBe(`x=1${odd}sleep touch y`);
+			expect(labelOf(`x=1${odd}sleep touch y`), JSON.stringify(odd)).toBe(
+				`x=1${odd}sleep touch y`,
+			);
+			expect(labelOf(`${odd}sleep 5;${odd}`), JSON.stringify(odd)).toBe(
+				`${odd}sleep 5;${odd}`,
+			);
 		}
+		expect(labelOf(" \t\nsleep 5 \n"), "spaces, tabs and lines trim").toBe(
+			"sleep 5",
+		);
 	});
 
 	it("says a span the way a person would", () => {
