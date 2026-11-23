@@ -16,12 +16,15 @@ import {
 	persist,
 	prunePhantomSessionsOnLoaded,
 	releaseSessionOnShutdown,
+	resolveStartup,
 	restore,
 	retryPendingQuest,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { watchToolCalls } from "../../../../extensions/quest-workflow/wiring/calls.ts";
+import { installHost } from "../../../../lib/core/session/index.ts";
+import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
@@ -540,6 +543,87 @@ describe("persist + restore", () => {
 			"a minute on",
 		).toBe("loaded");
 		expect(next.questId).toBe(a.id);
+	});
+
+	// A pi restarted in place keeps what its last conversation wrote to
+	// its own log; a key that matches this log's next write mustn't pass
+	// for this log having said it.
+	it("says a quest let go in this log, though the pi's earlier conversation said none in its own", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+
+		const next = buildState();
+		persist(next, fakePi(), fakeCtx(tmpRoot));
+		expect(
+			next.lastPersistedKey,
+			"the earlier conversation said",
+		).toBeDefined();
+		resolveStartup(next, pi, fakeCtx(tmpRoot), {});
+		expect(next.pendingQuest?.questId).toBe(a.id);
+		await handle(next, pi, fakeCtx(tmpRoot), { action: "unload" });
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as
+			| { questId?: string | null }
+			| undefined;
+		expect(last?.questId ?? null, "this log says it holds none").toBeNull();
+	});
+
+	// A quest is held pending mostly on a host, whose sessions read false
+	// for hasUI though a viewer shows what they say.
+	it("warns a hosted session when the quest its log names is let go", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+
+		const owner = await tickedOwnerNow();
+		if (!owner) throw new Error("test process has no identity");
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "persist-test-host",
+			owner,
+			holds: () => "busy",
+			env: () => {
+				throw new Error("no environment needed");
+			},
+			hints: () => ({}),
+			close: () => undefined,
+			stamp: vi.fn(),
+		});
+		try {
+			const budgets: BudgetKeeper = {
+				keep: async () => undefined,
+				forget: () => undefined,
+			};
+			watchToolCalls(pi, next, next.questsRoot, budgets);
+			const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+			if (!result) throw new Error("no tool_result handler");
+			const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+			const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+			for (let tries = 1; tries < PENDING_TRIES; tries++) {
+				next.pendingRetryAt = 0;
+				await result(
+					{
+						toolName: "read",
+						input: { path: "x" },
+						toolCallId: `c${tries}`,
+						content: [],
+					},
+					ctx,
+				);
+			}
+			expect(next.pendingQuest, "let go").toBeUndefined();
+			expect(ui.notify).toHaveBeenCalledWith(
+				expect.stringContaining("never found again"),
+				"warning",
+			);
+		} finally {
+			uninstall();
+		}
 	});
 
 	it("lets go of a quest still waiting to load when the session unloads", async () => {

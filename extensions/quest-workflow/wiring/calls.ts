@@ -9,6 +9,7 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../../lib/core/session/host.ts";
 import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
@@ -121,7 +122,9 @@ export function watchToolCalls(
 			settleOnLoadedQuest(state, pi, ctx);
 			updateScoreboard(state, ctx);
 		}
-		if (tried === "gone" && ctx.hasUI)
+		// A quest is held pending mostly on a host, whose sessions have a
+		// viewer though their hasUI is false.
+		if (tried === "gone" && (ctx.hasUI || hosted()))
 			ctx.ui.notify(
 				"The quest this session last held was never found again, so it has none loaded now.",
 				"warning",

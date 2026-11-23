@@ -355,9 +355,10 @@ function snapshotsEqual(a: PersistedState, b: PersistedState): boolean {
 /**
  * Restore the persisted slice on session_start. Returns
  * true when something was hydrated, false when no entry
- * was recorded or the quest no longer exists on disk so
- * the caller can fall through to its other restore paths
- * (the spawn autoload-env hint, then the cwd walk).
+ * was recorded or the quest can't be loaded. On false the
+ * caller falls through to its other restore paths (the
+ * record, then the cwd walk) only when nothing was left
+ * pending, which it checks on `state.pendingQuest`.
  * `behind` says the start's walk may be behind the disk, as one
  * whose signing gave up is: a quest it can't find is then held
  * pending rather than taken as gone. A caller that can't tell
@@ -401,8 +402,10 @@ export const PENDING_RETRY_MS = 60_000;
 
 /**
  * How many tries, the start's among them, a quest waiting to load gets
- * before it is taken as gone: ten minutes, longer than a signing holds
- * its root before its disk is taken to hang.
+ * before it is taken as gone. Tries come at a tool's result, at least
+ * PENDING_RETRY_MS apart, so the last is nine minutes after the start
+ * at the earliest, longer than a signing holds its root before its disk
+ * is taken to hang, and later for a session making fewer calls.
  */
 export const PENDING_TRIES = 10;
 
@@ -504,7 +507,8 @@ export interface StartupResolution {
  * read the quests they name first, passes them as `hints`. `behind`
  * is restore's: whether the walk may be behind the disk. A spawn's
  * quest is never held pending: the start read it by name first, so
- * one it can't load is refused, as an explicit load is.
+ * one it can't load is passed over for the log's, the record's or
+ * the cwd's.
  */
 export function resolveStartup(
 	state: QuestState,
@@ -513,8 +517,11 @@ export function resolveStartup(
 	hints: LaunchHints = launchHints(ctx),
 	behind = true,
 ): StartupResolution {
-	// What an earlier conversation in this pi waited for is not this one's.
+	// What an earlier conversation in this pi waited for, or last wrote to
+	// its own log, is not this one's: a key it left would let a write this
+	// log needs, as a quest let go, pass as already said.
 	letPendingGo(state);
+	state.lastPersistedKey = undefined;
 	pendingWords(ctx).hints = hints;
 	const autoloadId = hints.questId;
 	const orchestrating = hints.orchestrate;
