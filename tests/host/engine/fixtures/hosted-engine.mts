@@ -1807,6 +1807,19 @@ interface HeldLog {
 	): string;
 }
 
+/** The parts of a conversation's session /session and /fork read. */
+interface CountedSession {
+	getSessionStats(): { readonly userMessages: number };
+	getUserMessagesForForking(): readonly { readonly text: string }[];
+}
+
+/** A conversation's session, as /session and /fork read it. */
+function sessionOf(engine: HostEngine, id: string): CountedSession | undefined {
+	return engine.view(id)?.runtime.session as unknown as
+		| CountedSession
+		| undefined;
+}
+
 /** The session manager a held conversation reads its log through. */
 function logOf(engine: HostEngine, id: string): HeldLog | undefined {
 	const session = engine.view(id)?.runtime.session as unknown as
@@ -1850,7 +1863,8 @@ async function compacted(
  * What a conversation holds of its compacted log: the rollover record
  * kept history writes in place of what it leaves out, whether the first
  * entry after that record is the one the compaction keeps, and whether
- * the turn before it is still held.
+ * the turn before it is still held; and the user messages its session
+ * counts for /session and lists for /fork, which take in those left out.
  */
 function heldOf(
 	engine: HostEngine,
@@ -1868,6 +1882,10 @@ function heldOf(
 			(entry) =>
 				entry.message !== undefined && text(entry.message) === "user: early",
 		),
+		userMessages: sessionOf(engine, id)?.getSessionStats().userMessages,
+		forks: sessionOf(engine, id)
+			?.getUserMessagesForForking()
+			.map((point) => point.text),
 	};
 }
 

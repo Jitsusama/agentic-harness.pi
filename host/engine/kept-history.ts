@@ -19,8 +19,9 @@
  * and it carries the spend of the turns left out, so spend-workflow's
  * total reads as before. Usage entries, also never written, carry the
  * tokens and cost of every entry left out, so pi's footer and /session
- * totals read as before. The messages left out are counted too, for
- * /session's counts and /fork's list (kept-history-session.ts). Every
+ * totals read as before. The messages left out are counted too, and the
+ * text of every user message kept, for /session's counts and /fork's
+ * list (kept-history-session.ts), so neither reads the log again. Every
  * id in the file stays taken, so pi never gives a new entry an id an
  * older one has.
  *
@@ -35,6 +36,7 @@
 
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { contentText } from "@earendil-works/pi-ai";
 import {
 	compactionHistory,
 	FIRST_PROMPT_CARRY,
@@ -107,6 +109,12 @@ export function holdsLikePi(manager: unknown): manager is HeldManager {
 	);
 }
 
+/** A user message pi offers to fork from. */
+export interface ForkPoint {
+	readonly entryId: string;
+	readonly text: string;
+}
+
 /** The messages a held manager left on disk, as pi's /session counts them. */
 export interface LeftOut {
 	readonly userMessages: number;
@@ -114,8 +122,12 @@ export interface LeftOut {
 	readonly toolCalls: number;
 	readonly toolResults: number;
 	readonly totalMessages: number;
-	/** The log they are left in. */
-	readonly file: string;
+	/**
+	 * Every user message with text its log held when it took the view, in
+	 * the log's order, as pi's /fork lists them from a whole open: only the
+	 * text, never the images or anything else those messages hold.
+	 */
+	readonly forks: readonly ForkPoint[];
 }
 
 /** What each manager holding a view left out, gone once it lets go. */
@@ -283,7 +295,6 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const onDisk = messagesLeftOut(
 		manager.fileEntries,
 		keptIds,
-		file,
 		leftOutOf(manager),
 	);
 	return { entries: [header, ...chained], dated, left: onDisk };
@@ -292,25 +303,31 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 /**
  * The messages of `entries` not in `kept`, on any branch, counted as pi's
  * `getSessionStats` counts them, added to what an earlier view of the
- * same manager left out, since those are no longer among its entries.
+ * same manager left out, since those are no longer among its entries;
+ * and every user message with text of the log, the earlier view's first,
+ * as pi's `getUserMessagesForForking` lists them from a whole open.
  */
 function messagesLeftOut(
 	entries: readonly unknown[],
 	kept: ReadonlySet<string>,
-	file: string,
 	earlier: LeftOut | undefined,
 ): LeftOut {
+	const forks = [...(earlier?.forks ?? [])];
+	const listed = new Set(forks.map((point) => point.entryId));
 	const left = {
 		userMessages: earlier?.userMessages ?? 0,
 		assistantMessages: earlier?.assistantMessages ?? 0,
 		toolCalls: earlier?.toolCalls ?? 0,
 		toolResults: earlier?.toolResults ?? 0,
 		totalMessages: earlier?.totalMessages ?? 0,
-		file,
+		forks,
 	};
 	for (const entry of entries) {
 		if (!isRecord(entry) || entry.type !== "message") continue;
-		if (typeof entry.id !== "string" || kept.has(entry.id)) continue;
+		if (typeof entry.id !== "string") continue;
+		const point = forkPointOf(entry.id, entry.message);
+		if (point && !listed.has(point.entryId)) forks.push(point);
+		if (kept.has(entry.id)) continue;
 		left.totalMessages++;
 		const message = isRecord(entry.message) ? entry.message : {};
 		if (message.role === "user") left.userMessages++;
@@ -324,6 +341,25 @@ function messagesLeftOut(
 		}
 	}
 	return left;
+}
+
+/** The fork point entry `id` is, when its message is a user's with text. */
+function forkPointOf(id: string, message: unknown): ForkPoint | undefined {
+	if (!isRecord(message) || message.role !== "user") return;
+	if (!isContent(message.content)) return;
+	const text = contentText(message.content, "");
+	return text ? { entryId: id, text } : undefined;
+}
+
+/** Whether `content` is a message's content as pi-ai reads its text. */
+function isContent(
+	content: unknown,
+): content is Parameters<typeof contentText>[0] {
+	return (
+		typeof content === "string" ||
+		(Array.isArray(content) &&
+			content.every((part) => isRecord(part) && typeof part.type === "string"))
+	);
 }
 
 /** Have `manager` hold `held`, every id its file holds still taken. */

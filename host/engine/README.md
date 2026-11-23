@@ -360,11 +360,11 @@ log, and leaves pi's full open alone when anything fails or pi's
 privates aren't what it reads.
 kept-history-session.ts has each session pi builds count and list the
 messages a held log left on disk: /session's message counts add the
-ones the view counted as it held, and /fork's list reads the log's
-user messages a line at a time when asked, in the order pi lists them
-from a whole open. It wraps the session instance only, answers as pi
-does once the view lets go, and offers pi's own list, said once, when
-the log can't be read.
+ones the view counted as it held, and /fork's list is the text of every
+user message the log held then, kept in the order pi lists them from a
+whole open, with those sent since after it. Neither reads the log
+again, so /fork never holds up the host. It wraps the session instance
+only, and answers as pi does once the view lets go.
 quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
 one, once something has stirred (a turn started or ended, or a

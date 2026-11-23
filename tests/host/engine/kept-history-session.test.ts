@@ -3,7 +3,7 @@
  * message of the log, as pi's own session does from a whole open.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
@@ -68,6 +68,32 @@ function result(call: string) {
 	};
 }
 
+/** A user turn of text parts around an image, as a pasted screenshot is. */
+function pasted(before: string, after: string) {
+	return {
+		role: "user" as const,
+		content: [
+			{ type: "text" as const, text: before },
+			{ type: "image" as const, data: "aGk=", mimeType: "image/png" },
+			{ type: "text" as const, text: after },
+		],
+		timestamp: Date.now(),
+	};
+}
+
+/** A shell command the person ran, a message of neither side's turn. */
+function shell() {
+	return {
+		role: "bashExecution" as const,
+		command: "ls",
+		output: "a",
+		exitCode: 0,
+		cancelled: false,
+		truncated: false,
+		timestamp: Date.now(),
+	};
+}
+
 /** The id of the entry pi last appended to `sessions`. */
 function last(sessions: SessionManager): string {
 	const id = sessions.getLeafId();
@@ -77,10 +103,13 @@ function last(sessions: SessionManager): string {
 
 /**
  * A log written by pi: early turns with a tool call, a user message of
- * parts and one with no text, an abandoned branch, a compaction keeping
- * the last two turns, and a turn after it; answers with its file.
+ * parts, one of text around an image and one with no text, a shell
+ * command, an abandoned branch, a compaction keeping the last two turns,
+ * and a turn after it; answers with its file. With `aside`, a branch is
+ * abandoned among the kept turns too, left out though the log holds it
+ * after the first of them.
  */
-function compactedLog(): string {
+function compactedLog(aside = false): string {
 	const sessions = SessionManager.create(dir, dir);
 	sessions.appendModelChange("faux", "faux-1");
 	sessions.appendMessage(user("early one"));
@@ -95,11 +124,20 @@ function compactedLog(): string {
 	sessions.appendMessage(answer("answer to early two"));
 	sessions.appendMessage(user(""));
 	sessions.appendMessage(answer("answer to nothing"));
+	sessions.appendMessage(pasted("early ", "three"));
+	sessions.appendMessage(answer("answer to early three"));
+	sessions.appendMessage(shell());
 	sessions.appendMessage(user("kept one"));
 	const kept = last(sessions);
 	sessions.appendMessage(answer("answer to kept one", "call-2"));
 	sessions.appendMessage(result("call-2"));
 	sessions.appendMessage(answer("done with kept one"));
+	if (aside) {
+		const back = last(sessions);
+		sessions.appendMessage(user("aside"));
+		sessions.appendMessage(answer("answer to aside"));
+		sessions.branch(back);
+	}
 	sessions.appendMessage(user("kept two"));
 	sessions.appendMessage(answer("answer to kept two"));
 	sessions.appendCompaction("what happened early", kept, 1000);
@@ -157,7 +195,7 @@ describe("a held session's /session counts", () => {
 	it("count every message of the log, as the whole log does", () => {
 		const file = compactedLog();
 		const whole = counts(wholeSession(file));
-		expect(whole.userMessages).toBe(7);
+		expect(whole.userMessages).toBe(8);
 		expect(counts(heldSession(file))).toEqual(whole);
 	});
 
@@ -166,6 +204,26 @@ describe("a held session's /session counts", () => {
 		const session = heldSession(file);
 		holdKeptHistory(session.sessionManager);
 		expect(counts(session)).toEqual(counts(wholeSession(file)));
+	});
+
+	it("count each message once when a new compaction comes between holds", () => {
+		const file = compactedLog();
+		const session = heldSession(file);
+		compactAgain(session.sessionManager);
+		holdKeptHistory(session.sessionManager);
+		expect(saysUser(session.sessionManager, "after")).toBe(false);
+		expect(counts(session)).toEqual(counts(wholeSession(file)));
+	});
+
+	it("keep counting what the log left after a read-back is refused", () => {
+		const file = compactedLog();
+		const whole = counts(wholeSession(file));
+		const session = heldSession(file);
+		copyFileSync(compactedLog(), file);
+		expect(() => session.sessionManager.getTree()).toThrow(
+			/now holds conversation/,
+		);
+		expect(counts(session)).toEqual(whole);
 	});
 
 	it("are pi's own once the whole log is read back", () => {
@@ -204,11 +262,26 @@ describe("a held session's /fork list", () => {
 			"early one",
 			"abandoned",
 			"early two in parts",
+			"early three",
 			"kept one",
 			"kept two",
 			"after",
 		]);
 		expect(heldSession(file).getUserMessagesForForking()).toEqual(whole);
+	});
+
+	it("lists a branch abandoned among the kept turns where the log holds it", () => {
+		const file = compactedLog(true);
+		const whole = wholeSession(file).getUserMessagesForForking();
+		expect(whole.map((point) => point.text).slice(-4)).toEqual([
+			"kept one",
+			"aside",
+			"kept two",
+			"after",
+		]);
+		const session = heldSession(file);
+		expect(saysUser(session.sessionManager, "aside")).toBe(false);
+		expect(session.getUserMessagesForForking()).toEqual(whole);
 	});
 
 	it("lists a message sent after the view was held", () => {
@@ -220,6 +293,17 @@ describe("a held session's /fork list", () => {
 			.map((point) => point.text);
 		expect(texts.slice(-2)).toEqual(["after", "newest"]);
 		expect(texts).toContain("early one");
+	});
+
+	it("lists every user message once when a new compaction comes between holds", () => {
+		const file = compactedLog();
+		const session = heldSession(file);
+		compactAgain(session.sessionManager);
+		holdKeptHistory(session.sessionManager);
+		expect(saysUser(session.sessionManager, "after")).toBe(false);
+		expect(session.getUserMessagesForForking()).toEqual(
+			wholeSession(file).getUserMessagesForForking(),
+		);
 	});
 
 	it("forks from a message only the log holds, as pi's fork does", () => {
@@ -244,19 +328,40 @@ describe("a held session's /fork list", () => {
 		expect(said).toEqual(["early one"]);
 	});
 
-	it("offers pi's own list when the log can't be read, and says so once", () => {
+	it("lists every user message without reading the log again", () => {
 		const file = compactedLog();
+		const whole = wholeSession(file).getUserMessagesForForking();
 		const report = vi.fn();
 		const session = heldSession(file, report);
 		rmSync(file);
-		const listed = session.getUserMessagesForForking();
-		session.getUserMessagesForForking();
-		expect(listed.map((point) => point.text)).toEqual([
-			"kept one",
-			"kept two",
-			"after",
-		]);
-		expect(report).toHaveBeenCalledTimes(1);
-		expect(String(report.mock.calls[0]?.[0])).toContain("/fork offers only");
+		expect(session.getUserMessagesForForking()).toEqual(whole);
+		expect(report).not.toHaveBeenCalled();
 	});
 });
+
+/**
+ * Talk on in a held session past a second compaction, which keeps from
+ * the second of two new turns, and a turn after it.
+ */
+function compactAgain(manager: SessionManager): void {
+	manager.appendMessage(user("later one"));
+	manager.appendMessage(answer("answer to later one"));
+	manager.appendMessage(user("later two"));
+	const kept = last(manager);
+	manager.appendMessage(answer("answer to later two"));
+	manager.appendCompaction("what happened since", kept, 1000);
+	manager.appendMessage(user("latest"));
+	manager.appendMessage(answer("answer to latest"));
+}
+
+/** Whether `manager` holds a user message saying `text`. */
+function saysUser(manager: SessionManager, text: string): boolean {
+	return manager
+		.getEntries()
+		.some(
+			(entry) =>
+				entry.type === "message" &&
+				entry.message.role === "user" &&
+				entry.message.content === text,
+		);
+}
