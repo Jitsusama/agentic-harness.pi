@@ -20,7 +20,10 @@ import {
 	keepCarriedCalls,
 	watchCarriedCalls,
 } from "../../../host/engine/parked-calls.ts";
-import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
+import {
+	alive,
+	type CarriedShell,
+} from "../../../lib/internal/shell/carried.ts";
 import { KEPT_BYTES } from "../../../lib/internal/shell/kept.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { quietFor, until } from "../../support/until.ts";
@@ -66,8 +69,14 @@ describe("whether a carried call still runs", () => {
 	// read from /proc, so only where there is one.
 	const linux = process.platform === "linux";
 	let live: ReturnType<typeof liveCall>;
-	beforeEach(() => {
-		if (linux) live = liveCall("live");
+	// A spawned child reads as its parent until it execs, so each case
+	// waits until /proc shows the shell's own mark; on a loaded builder a
+	// case that asked at once read none.
+	beforeEach(async () => {
+		if (!linux) return;
+		live = liveCall("live");
+		const { pid, mark } = live.work;
+		await until("the shell to carry its mark", () => alive(pid, mark));
 	});
 	afterEach(() => {
 		if (linux) live.child.kill("SIGKILL");
