@@ -35,6 +35,18 @@ describe("rebase", () => {
 		);
 		expect(answer.details).toEqual({ ok: true, branch: "topic", replayed: 0 });
 	});
+
+	it("says a replay with no remote trunk to judge by took every commit", async () => {
+		const { path } = await cut();
+		await git(path, "commit", "-q", "--allow-empty", "-m", "mine");
+		await git(path, "checkout", "-q", "main");
+		await git(path, "commit", "-q", "--allow-empty", "-m", "moved on");
+		await git(path, "checkout", "-q", "topic");
+		const answer = await work({ action: "rebase", onto: "main" });
+		expect(answer.text).toContain(
+			"No remote trunk here to judge by, so every commit main lacks was replayed, any of trunk's among them included.",
+		);
+	});
 });
 
 describe("resume and abandon", () => {

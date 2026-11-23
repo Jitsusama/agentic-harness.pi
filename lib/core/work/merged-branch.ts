@@ -13,9 +13,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { fullRefRefusal, safeBranchName } from "./author.ts";
-
-/** Where origin's own branches are tracked; trunk must be one of them. */
-const ORIGIN_REFS = "refs/remotes/origin/";
+import { remoteTrunk } from "./tree-git.ts";
 
 /** Where a checkout's own branches live. */
 const BRANCH_REFS = "refs/heads/";
@@ -38,36 +36,6 @@ const MOST_A_SWEEP = 500;
 export interface WentBranch {
 	branch: string;
 	commit: string;
-}
-
-/**
- * The remote's trunk as a ref, or nothing when the checkout has no
- * remote trunk to judge by. A local trunk is not asked, since a commit
- * on it may never have been pushed.
- *
- * origin/HEAD is taken only when it names one of origin's own branches
- * and that branch is there: one left dangling by a rename, or pointed at
- * a local branch by hand, falls back to origin/main rather than judging
- * by something that is not the remote's trunk.
- */
-async function remoteTrunk(
-	exec: Exec,
-	checkout: string,
-): Promise<string | undefined> {
-	const git = (...args: string[]) => exec("git", ["-C", checkout, ...args]);
-	const there = async (ref: string) =>
-		(await git("rev-parse", "--verify", "--quiet", `${ref}^{commit}`)).code ===
-		0;
-	const head = await git("symbolic-ref", "--quiet", `${ORIGIN_REFS}HEAD`);
-	const named = head.code === 0 ? head.stdout.trim() : "";
-	if (
-		named.startsWith(ORIGIN_REFS) &&
-		named !== `${ORIGIN_REFS}HEAD` &&
-		(await there(named))
-	)
-		return named;
-	const main = `${ORIGIN_REFS}main`;
-	return (await there(main)) ? main : undefined;
 }
 
 /**

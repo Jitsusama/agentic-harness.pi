@@ -106,6 +106,345 @@ describe("a branch with no commits of its own", () => {
 	});
 });
 
+/**
+ * Work that merged into trunk, with the base holding a copy of its first
+ * commit from before it merged, and trunk moving on after the merge. The
+ * branch is left checked out at the merge, as core.nix's forage-floor-gaps
+ * was on 23 November when a replay put seven of main's commits back.
+ */
+async function atTrunkMergeOverCopies() {
+	await git(repo, "checkout", "-q", "-b", "work", "main");
+	await commit("work.txt", "first\n", "work one");
+	await commit("more.txt", "second\n", "work two");
+	await git(repo, "checkout", "-q", "base");
+	await git(repo, "cherry-pick", "work~1");
+	await git(repo, "checkout", "-q", "main");
+	await git(repo, "merge", "-q", "--no-ff", "-m", "merge work", "work");
+	await git(repo, "checkout", "-q", "-b", "topic");
+	await git(repo, "checkout", "-q", "main");
+	await commit("later.txt", "main moved on\n", "later on main");
+	await git(repo, "update-ref", "refs/remotes/origin/main", "main");
+	await git(repo, "checkout", "-q", "topic");
+}
+
+/**
+ * A branch that meets its base at two commits: trunk merged x and y and
+ * moved on, the base merged x and either y, so both meetings are trunk's,
+ * or w, side work trunk never took, which the branch merged too. The
+ * branch has one commit of its own.
+ */
+async function crissCross(shape: "both on trunk" | "one off trunk") {
+	for (const name of ["x", "y", "w"]) {
+		const path = `${name}.txt`;
+		await git(repo, "checkout", "-q", "-b", `${name}`, "main");
+		await commit(`${path}`, `${name}\n`, `${name} one`);
+	}
+	await git(repo, "checkout", "-q", "main");
+	await git(repo, "merge", "-q", "--no-ff", "-m", "merge x", "x");
+	await git(repo, "merge", "-q", "--no-ff", "-m", "merge y", "y");
+	await commit("later.txt", "main moved on\n", "later on main");
+	await git(repo, "update-ref", "refs/remotes/origin/main", "main");
+	const second = shape === "both on trunk" ? "y" : "w";
+	await git(repo, "checkout", "-q", "base");
+	await git(repo, "merge", "-q", "--no-edit", "x");
+	await git(repo, "merge", "-q", "--no-edit", second);
+	await git(repo, "checkout", "-q", "-b", "topic", "main");
+	if (shape === "one off trunk") {
+		await git(repo, "merge", "-q", "--no-edit", "w");
+	}
+	await commit("mine.txt", "only on topic\n", "mine");
+	const meetings = await git(repo, "merge-base", "--all", "topic", "base");
+	if (meetings.split("\n").length !== 2) {
+		throw new Error(`topic meets base at ${meetings}, not at two commits`);
+	}
+}
+
+describe("a branch that leaves trunk at a merge", () => {
+	it("is refused onto a base lacking trunk's commits when it has none of its own", async () => {
+		await atTrunkMergeOverCopies();
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(
+			outcome,
+			"a branch wholly on trunk neither carries trunk nor becomes the base",
+		).toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("already on origin/main"),
+		});
+		expect(await head(), "the branch stays where it was").toBe(before);
+	});
+
+	it("replays only its own commits above trunk, and says what it left", async () => {
+		await atTrunkMergeOverCopies();
+		await commit("mine.txt", "only on topic\n", "mine");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(
+			outcome,
+			"one commit of its own, and work one and two left on trunk",
+		).toMatchObject({
+			kind: "replayed",
+			commits: 1,
+			trunk: { name: "origin/main", left: 2 },
+		});
+		expect(await above(), "trunk's commits stay off the branch").toEqual([
+			"mine",
+		]);
+	});
+
+	it("halts on a conflict, and resumes with only its own commits", async () => {
+		await atTrunkMergeOverCopies();
+		await commit("mine.txt", "only on topic\n", "mine");
+		await git(repo, "checkout", "-q", "base");
+		await commit("mine.txt", "on base too\n", "base's mine");
+		await git(repo, "checkout", "-q", "topic");
+		const rebaser = createGitRebaser({ exec: spawnExec() });
+
+		const halted = await rebaser.rebase(repo, "base");
+
+		expect(halted, "the replay stops on mine.txt").toMatchObject({
+			kind: "halted",
+			onto: "base",
+			conflicted: ["mine.txt"],
+			trunk: { name: "origin/main", left: 2 },
+		});
+		writeFileSync(join(repo, "mine.txt"), "settled\n");
+		const resumed = await rebaser.resume(repo);
+		expect(resumed, "the settled replay ends").toMatchObject({
+			kind: "replayed",
+			branch: "topic",
+		});
+		expect(await above(), "only its own commit is on the base").toEqual([
+			"mine",
+		]);
+	});
+
+	it("abandons a halted replay back to the merge it sat on", async () => {
+		await atTrunkMergeOverCopies();
+		await commit("mine.txt", "only on topic\n", "mine");
+		const before = await head();
+		await git(repo, "checkout", "-q", "base");
+		await commit("mine.txt", "on base too\n", "base's mine");
+		await git(repo, "checkout", "-q", "topic");
+		const rebaser = createGitRebaser({ exec: spawnExec() });
+		expect(
+			await rebaser.rebase(repo, "base"),
+			"the replay stops on mine.txt",
+		).toMatchObject({ kind: "halted" });
+
+		const abandoned = await rebaser.abandon(repo);
+
+		expect(abandoned, "the replay is backed out").toMatchObject({
+			kind: "abandoned",
+		});
+		expect(await head(), "the branch is back where it was").toBe(before);
+	});
+
+	it("is refused when stacked on a base it shares commits with off trunk", async () => {
+		await atTrunkMergeOverCopies();
+		await git(repo, "checkout", "-q", "-b", "stacked", "base");
+		await commit("stacked.txt", "one\n", "stacked one");
+		await git(repo, "merge", "-q", "--no-edit", "origin/main");
+		await commit("stacked.txt", "two\n", "stacked two");
+		await git(repo, "checkout", "-q", "base");
+		await commit("base.txt", "moved\n", "base moved on");
+		await git(repo, "checkout", "-q", "stacked");
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(
+			outcome,
+			"a replay from trunk would pick the base's own commits again",
+		).toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("Replay base onto origin/main first"),
+		});
+		expect(await head(), "the branch stays where it was").toBe(before);
+	});
+
+	it("leaves a branch on a base it holds, though it merged trunk above it", async () => {
+		// git flattens a range holding a merge, so a replay here would carry
+		// trunk's merged commits onto the branch as its own.
+		await atTrunkMergeOverCopies();
+		await git(repo, "checkout", "-q", "-b", "stacked", "base");
+		await commit("stacked.txt", "one\n", "stacked one");
+		await git(repo, "merge", "-q", "--no-edit", "origin/main");
+		await commit("stacked.txt", "two\n", "stacked two");
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "a base it holds was replayed onto").toMatchObject({
+			kind: "already-there",
+		});
+		expect(await head(), "the branch was rewritten").toBe(before);
+	});
+
+	it("names a base git doesn't know, though trunk is there to judge by", async () => {
+		await atTrunkMergeOverCopies();
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"nope",
+		);
+
+		expect(outcome, "the missing base read as trunk trouble").toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("nope isn't a commit git knows"),
+		});
+		expect(await head(), "the branch moved").toBe(before);
+	});
+
+	it("keeps its own commits on both sides of a merge of trunk", async () => {
+		await git(repo, "checkout", "-q", "-b", "work", "main");
+		await commit("work.txt", "first\n", "work one");
+		await commit("more.txt", "second\n", "work two");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "work~1");
+		await git(repo, "checkout", "-q", "-b", "topic", "main");
+		await commit("own.txt", "one\n", "own one");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "merge", "-q", "--no-ff", "-m", "merge work", "work");
+		await commit("later.txt", "main moved on\n", "later on main");
+		await git(repo, "update-ref", "refs/remotes/origin/main", "main");
+		await git(repo, "checkout", "-q", "topic");
+		await git(repo, "merge", "-q", "--no-edit", "origin/main");
+		await commit("own.txt", "two\n", "own two");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "its two commits, and trunk's three left").toMatchObject({
+			kind: "replayed",
+			commits: 2,
+			trunk: { name: "origin/main", left: 3 },
+		});
+		expect(await above(), "a commit of its own was lost").toEqual([
+			"own one",
+			"own two",
+		]);
+	});
+
+	it("cuts at trunk when the branch meets its base at two of trunk's commits", async () => {
+		await crissCross("both on trunk");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "trunk's later commit wasn't left").toMatchObject({
+			kind: "replayed",
+			commits: 1,
+			trunk: { name: "origin/main", left: 1 },
+		});
+		expect(await above(), "trunk's commits came along").toEqual(["mine"]);
+	});
+
+	it("is refused when one of two meetings with its base is off trunk", async () => {
+		await crissCross("one off trunk");
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "a meeting off trunk went unchecked").toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("Replay base onto origin/main first"),
+		});
+		expect(await head(), "the branch moved").toBe(before);
+	});
+
+	it("replays as git does in a checkout with no remote trunk", async () => {
+		await atTrunkMergeOverCopies();
+		await commit("mine.txt", "only on topic\n", "mine");
+		await git(repo, "update-ref", "-d", "refs/remotes/origin/main");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		// The known gap, not the aim: with no trunk to judge by, trunk's work
+		// two is carried as the branch's own, and the answer says it couldn't
+		// judge. A change that refused here instead would be safer.
+		expect(outcome, "the replay doesn't say trunk went unjudged").toMatchObject(
+			{
+				kind: "replayed",
+				unjudged: true,
+			},
+		);
+		expect(
+			outcome,
+			"the copy of work one git dropped was counted as replayed",
+		).toMatchObject({ commits: 2 });
+		expect(outcome, "a cut was claimed with no trunk").not.toHaveProperty(
+			"trunk",
+		);
+		expect(
+			await above(),
+			"every commit the base lacks is replayed, its copy of work one dropped",
+		).toEqual(["work two", "mine"]);
+	});
+
+	it("refuses a base that git would read as an option", async () => {
+		await atTrunkMergeOverCopies();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"--exec=true",
+		);
+
+		expect(outcome, "a dash opens an option, not a commit").toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("opens with a dash"),
+		});
+	});
+
+	it("still takes trunk's commits when replayed onto trunk", async () => {
+		await atTrunkMergeOverCopies();
+		await commit("mine.txt", "only on topic\n", "mine");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"origin/main",
+		);
+
+		expect(outcome, "one commit of its own").toMatchObject({
+			kind: "replayed",
+			commits: 1,
+		});
+		expect(
+			outcome,
+			"trunk holds all it has, so none is cut",
+		).not.toHaveProperty("trunk");
+		expect(await head("HEAD~1"), "it sits on trunk's tip").toBe(
+			await head("main"),
+		);
+	});
+});
+
 describe("a commit its base already carries", () => {
 	it("drops as empty when the base left it as it landed", async () => {
 		await topicWithOneLanded("both.txt", "the same change\n");

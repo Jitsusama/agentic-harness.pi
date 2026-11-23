@@ -6,12 +6,18 @@
 
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
-import { FETCH_MS, refreshStart } from "../../../lib/core/work/fresh-start.ts";
+import {
+	FETCH_MS,
+	FETCHED_LATELY_MS,
+	refreshStart,
+} from "../../../lib/core/work/fresh-start.ts";
 import {
 	createGitRebaser,
 	type Settling,
+	type TrunkLeft,
 } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
+import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 import { settlingLines } from "./settling.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -80,15 +86,34 @@ export async function replay(
 	// A remote's branch is replayed onto as the remote holds it: replayed
 	// onto the last fetch's origin/main, a branch went up a merge behind and
 	// its checks ran against a main that was no longer there.
-	const fresh = await refreshStart(
-		spawnExec({ ...(signal ? { signal } : {}), timeoutMs: FETCH_MS }),
-		found.path,
-		onto,
-		signal,
-	);
-	const stale = fresh.stale ? [fresh.stale] : [];
+	const fetching = spawnExec({
+		...(signal ? { signal } : {}),
+		timeoutMs: FETCH_MS,
+	});
+	const fresh = await refreshStart(fetching, found.path, onto, signal);
+	const stale = fresh.stale === undefined ? [] : [fresh.stale];
+	// Which commits are trunk's is judged by the remote's trunk, so it is
+	// fetched too, once the replay needs to judge: one fetched long ago
+	// would take trunk's later commits on the branch for its own. One
+	// fetched in the last minutes errs only towards a plain replay.
+	const freshenTrunk = async (trunk: string) => {
+		if (trunk === fresh.start) return;
+		const got = await refreshStart(fetching, found.path, trunk, signal, {
+			fetchedWithin: FETCHED_LATELY_MS,
+		});
+		// The fetch's own sentence says where new work starts, which is not
+		// what trunk is for here: it only judges which commits are trunk's.
+		if (got.stale !== undefined) {
+			const name = trunk.replace(/^refs\/remotes\//, "");
+			stale.push(
+				`Couldn't fetch ${name} just now, so which commits are ${name}'s was judged by its last fetch.`,
+			);
+		}
+	};
 	const named = (ref: string) => (ref === fresh.start ? onto : ref);
-	const outcome = await rebaser.rebase(found.path, fresh.start);
+	const outcome = await rebaser.rebase(found.path, fresh.start, {
+		freshenTrunk,
+	});
 	if (outcome.kind === "refused") {
 		return refuse([`${GLYPH.refused} ${outcome.reason}`, ...stale].join("\n"));
 	}
@@ -103,11 +128,14 @@ export async function replay(
 	}
 	if (outcome.kind === "halted") {
 		return refuse(
-			haltLines(
-				outcome.conflicted,
-				`${outcome.branch} onto ${named(outcome.onto)}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
-				outcome,
-			),
+			[
+				haltLines(
+					outcome.conflicted,
+					`${outcome.branch} onto ${named(outcome.onto)}${outcome.at === undefined ? "" : `, at ${outcome.at}`}`,
+					outcome,
+					[...cutLines(outcome, named(outcome.onto)), ...stale],
+				),
+			].join("\n"),
 		);
 	}
 	// A branch with no commits of its own isn't replayed but moved up to a
@@ -117,7 +145,12 @@ export async function replay(
 			? `${outcome.branch} moved up to ${named(outcome.onto)}, with no commits of its own to replay.`
 			: `${outcome.branch} replayed onto ${named(outcome.onto)}, ${outcome.commits} ${outcome.commits === 1 ? "commit" : "commits"}.`;
 	return say(
-		[`${GLYPH.tree} ${done}`, ...settlingLines(outcome), ...stale].join("\n"),
+		[
+			`${GLYPH.tree} ${done}`,
+			...cutLines(outcome, named(outcome.onto)),
+			...settlingLines(outcome),
+			...stale,
+		].join("\n"),
 		{
 			ok: true,
 			branch: outcome.branch,
@@ -144,16 +177,40 @@ function subjectOfHalt(halt: {
 }
 
 /**
+ * What a replay says of trunk: started from trunk, it left trunk's commits
+ * off the branch where a plain one would have carried them; with no
+ * remote trunk to judge by, it replayed every commit the base lacks.
+ */
+function cutLines(
+	replay: { trunk?: TrunkLeft; unjudged?: true },
+	onto: string,
+): string[] {
+	const { trunk } = replay;
+	if (trunk !== undefined) {
+		return [
+			`   Replayed from ${trunk.name}, leaving off ${count(trunk.left, `commit of ${trunk.name}'s`, `commits of ${trunk.name}'s`)} that ${onto} lacks: they stay on ${trunk.name}, not carried as the branch's own.`,
+		];
+	}
+	return replay.unjudged
+		? [
+				`   No remote trunk here to judge by, so every commit ${onto} lacks was replayed, any of trunk's among them included.`,
+			]
+		: [];
+}
+
+/**
  * A halt, said so the next move is obvious.
  *
  * The paths are the work, and the two verbs are the only ways out, so both are
  * named. A halt is reported through the refusal path because the tree is not
  * where it was asked to be, but it is a state to act on rather than an error.
+ * What it says of the replay itself, `about`, comes before the way out.
  */
 function haltLines(
 	conflicted: readonly string[],
 	what?: string,
 	settling?: Settling,
+	about: readonly string[] = [],
 ): string {
 	const head =
 		what === undefined ? "Replay halted." : `Replay halted: ${what}.`;
@@ -165,6 +222,7 @@ function haltLines(
 	return [
 		`${GLYPH.refused} ${head}`,
 		...paths,
+		...about,
 		...(before.length > 0 ? ["", "Settled on the way:", ...before] : []),
 		"",
 		"Settle these, then resume: a text file edited clean of its markers is staged by the resume itself. Or abandon, and the tree goes back to where it started.",

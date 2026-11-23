@@ -51,6 +51,23 @@ reach the fresh one, since git refused a branch that already existed.
 A branch with commits of its own is left where it is, and the answer
 says to rebase.
 
+A `rebase` replays only the branch's own commits. When it can, it
+judges them by the remote's trunk, fetched first unless it was
+fetched lately. A commit that is already on trunk stays there, and
+the answer counts the commits it left off rather than carrying them
+as the branch's own. Early on 23 November a core.nix branch with no
+commits of its own, sitting on a merge trunk held, was rebased onto
+a base that held only copies of that merge's commits. It came back
+with 8 commits replayed on top, undoing trunk's later edits to 8
+files. A base
+the branch already holds answers that there is nothing to replay.
+A base git doesn't know is named before anything else is asked.
+When git can't say which commits are trunk's, the rebase is
+refused and nothing is replayed. With no remote trunk to judge
+by, every commit the base lacks is replayed, and the answer says
+so. `restack` still replays each branch as git does; it isn't
+judged by trunk.
+
 The tool is marked sequential, so pi runs any batch holding a
 `work` call one call at a time, in the order written. Side by side,
 a resume once read the tree before the `git add` written ahead of

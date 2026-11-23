@@ -40,7 +40,7 @@ import {
 	staleIn,
 } from "./appends.ts";
 import { keptLine, type Landed, landedAs } from "./landed.ts";
-import { ask, conflictedIn } from "./tree-git.ts";
+import { ask, conflictedIn, remoteTrunk } from "./tree-git.ts";
 import { unattended } from "./unattended.ts";
 
 /**
@@ -95,6 +95,9 @@ export type RebaseOutcome =
 			branch: string;
 			onto: string;
 			commits: number;
+			trunk?: TrunkLeft;
+			/** There was no remote trunk to judge by, so every commit was replayed. */
+			unjudged?: true;
 	  } & Settling)
 	| { kind: "already-there"; branch: string; onto: string }
 	| {
@@ -103,6 +106,8 @@ export type RebaseOutcome =
 			onto: string;
 			/** The commit being replayed when it stopped, when git says. */
 			at?: string;
+			trunk?: TrunkLeft;
+			unjudged?: true;
 			/** Paths that disagree, which is what has to be settled. */
 			conflicted: readonly string[];
 			settled?: readonly SettledFile[];
@@ -110,6 +115,16 @@ export type RebaseOutcome =
 			landed?: readonly Landed[];
 	  }
 	| { kind: "refused"; reason: string };
+
+/**
+ * A replay started from trunk rather than where git would, since the base
+ * lacks trunk commits the branch held: trunk's name, and how many of its
+ * commits were left off the branch.
+ */
+export interface TrunkLeft {
+	name: string;
+	left: number;
+}
 
 /** How a halted replay ends. */
 export type ResumeOutcome =
@@ -136,9 +151,23 @@ export type ResumeOutcome =
 	| { kind: "abandoned"; branch: string }
 	| { kind: "refused"; reason: string };
 
+/**
+ * What a replay may ask of its caller: `freshenTrunk` fetches the remote
+ * trunk named, and is asked only once the replay must judge which of the
+ * branch's commits are trunk's, since a fetch of a monorepo's main costs
+ * minutes and most replays never need one.
+ */
+export interface RebaseOptions {
+	freshenTrunk?: (trunk: string) => Promise<void>;
+}
+
 /** Replaying work in a tree. */
 export interface WorkRebaser {
-	rebase(treePath: string, onto: string): Promise<RebaseOutcome>;
+	rebase(
+		treePath: string,
+		onto: string,
+		options?: RebaseOptions,
+	): Promise<RebaseOutcome>;
 	/** Carry on a halted replay, once the conflicts are settled. */
 	resume(treePath: string): Promise<ResumeOutcome>;
 	/** Put the tree back the way it was before the replay started. */
@@ -491,6 +520,151 @@ async function keepBaseSide(
 	return done.stderr.trim() || `git checkout exited ${done.code}`;
 }
 
+/** Whether git says `ancestor` is in the history of `of`. */
+async function isAncestor(
+	exec: Exec,
+	treePath: string,
+	ancestor: string,
+	of: string,
+): Promise<boolean> {
+	const said = await exec("git", [
+		"-C",
+		treePath,
+		"merge-base",
+		"--is-ancestor",
+		ancestor,
+		of,
+	]);
+	return said.code === 0;
+}
+
+/** How many commits, merges left out since a replay drops them, git counts. */
+async function counted(
+	exec: Exec,
+	treePath: string,
+	revisions: readonly string[],
+): Promise<number | undefined> {
+	const said = await ask(exec, treePath, [
+		"rev-list",
+		"--count",
+		"--no-merges",
+		...revisions,
+	]);
+	const count = said === undefined ? Number.NaN : Number(said);
+	return Number.isInteger(count) ? count : undefined;
+}
+
+/**
+ * How a replay onto `onto` keeps trunk's commits off the branch.
+ *
+ * - `plain`: replay every commit the base lacks, as git does, since none
+ *   of them is trunk's or there is no remote trunk to judge by;
+ * - `cut`: replay only the commits trunk lacks too, from trunk itself,
+ *   leaving off the `left` commits of trunk's the base lacks;
+ * - `refused`: neither is right, and `reason` says why and what to do.
+ */
+type TrunkCut =
+	| { kind: "plain"; unjudged?: true }
+	| { kind: "cut"; trunk: string; name: string; own: number; left: number }
+	| { kind: "refused"; reason: string };
+
+/**
+ * Whether a plain replay onto `onto` would carry trunk's commits along as
+ * though they were the branch's own, and what to do instead.
+ *
+ * A replay takes every commit the base lacks. A base cut before trunk
+ * merged some work lacks the merged commits, though it may hold copies of
+ * them, and with cherry-picks reapplied (see `REAPPLY_CHERRY_PICKS`)
+ * nothing matches the copies. On 23 November a core.nix branch sitting at
+ * a merge on main, asked onto a branch holding that work's earlier copies,
+ * "replayed 8 commits" and put seven of main's back, reverting main's later
+ * edits to eight files.
+ *
+ * So when the base lacks trunk commits the branch holds, the replay starts
+ * from trunk itself, which git reads as every commit trunk holds, however
+ * many merge bases the two share. That is right only when everything the
+ * branch shares with the base is trunk's too: a branch stacked on the base
+ * that merged trunk shares the base's own commits, which a replay from
+ * trunk would pick again, so it is refused with the order that works. So
+ * is a branch with nothing of its own above trunk, which would become the
+ * base. A trunk git can't judge by refuses rather than replaying whole.
+ *
+ * Trunk is fetched first, when the caller can, and then judged and
+ * replayed from by its commit rather than its name, so a fetch another
+ * session makes between the two can't change what is replayed. `ontoAt`
+ * is the base's commit, for the same reason; `onto` is how it was named.
+ */
+async function trunkCut(
+	exec: Exec,
+	treePath: string,
+	branch: string,
+	onto: string,
+	ontoAt: string,
+	freshenTrunk?: (trunk: string) => Promise<void>,
+): Promise<TrunkCut> {
+	const trunkRef = await remoteTrunk(exec, treePath);
+	if (trunkRef === undefined) return { kind: "plain", unjudged: true };
+	await freshenTrunk?.(trunkRef);
+	const trunkName = trunkRef.replace(/^refs\/remotes\//, "");
+	const cannot = (what: string): TrunkCut => ({
+		kind: "refused",
+		reason: `git couldn't say ${what}, so ${branch} isn't replayed: a replay of everything ${onto} lacks could carry ${trunkName}'s commits as though they were its own.`,
+	});
+	const trunk = await ask(exec, treePath, [
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`${trunkRef}^{commit}`,
+	]);
+	if (trunk === undefined) return cannot(`which commit ${trunkName} is`);
+	const all = await counted(exec, treePath, ["HEAD", `^${ontoAt}`]);
+	const own = await counted(exec, treePath, [
+		"HEAD",
+		`^${ontoAt}`,
+		`^${trunk}`,
+	]);
+	if (all === undefined || own === undefined) {
+		return cannot(`which of ${branch}'s commits are ${trunkName}'s`);
+	}
+	const left = all - own;
+	if (left === 0) return { kind: "plain" };
+	if (own === 0) {
+		return {
+			kind: "refused",
+			reason: `Every commit on ${branch} is already on ${trunkName}, and ${onto} lacks ${left} of them, so replaying would either carry ${trunkName}'s commits onto ${onto} or leave ${branch} as ${onto} itself. Cut a fresh branch from ${onto}, or replay onto ${trunkName}.`,
+		};
+	}
+	const bases = await ask(exec, treePath, [
+		"merge-base",
+		"--all",
+		"HEAD",
+		ontoAt,
+	]);
+	if (bases === undefined) {
+		return cannot(`where ${branch} and ${onto} meet`);
+	}
+	for (const base of bases.split("\n").filter((one) => one !== "")) {
+		const held = await exec("git", [
+			"-C",
+			treePath,
+			"merge-base",
+			"--is-ancestor",
+			base,
+			trunk,
+		]);
+		if (held.code === 1) {
+			return {
+				kind: "refused",
+				reason: `${branch} holds ${left} of ${trunkName}'s commits that ${onto} lacks, and shares commits with ${onto} that aren't on ${trunkName}, so no one replay carries only its own. Replay ${onto} onto ${trunkName} first, then ${branch} onto ${onto}.`,
+			};
+		}
+		if (held.code !== 0) {
+			return cannot(`whether ${onto}'s history is ${trunkName}'s`);
+		}
+	}
+	return { kind: "cut", trunk, name: trunkName, own, left };
+}
+
 /** Replay with plain git. */
 export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 	const { exec } = deps;
@@ -614,12 +788,21 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 	return {
 		halted: isHalted,
 
-		async rebase(treePath, onto) {
+		async rebase(treePath, onto, options = {}) {
 			if (await isHalted(treePath)) {
 				return {
 					kind: "refused",
 					reason:
 						"A replay is already part-way through in this tree. Settle it first: resume it once the conflicts are resolved, or abandon it to put the tree back.",
+				};
+			}
+
+			// git reads a word opening with a dash as an option, and rebase's
+			// --exec runs a shell command after each commit it replays.
+			if (onto.startsWith("-")) {
+				return {
+					kind: "refused",
+					reason: `${onto} opens with a dash, which git would read as an option rather than a commit to replay onto.`,
 				};
 			}
 
@@ -648,42 +831,73 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 				};
 			}
 
-			const before = await ask(exec, treePath, [
-				"rev-list",
-				"--count",
-				`${onto}..HEAD`,
+			// Named by its commit from here on, so a base that isn't one is said
+			// so, rather than read as trunk trouble further down, and a fetch
+			// that moves the name mid-replay changes nothing.
+			const ontoAt = await ask(exec, treePath, [
+				"rev-parse",
+				"--verify",
+				"--quiet",
+				`${onto}^{commit}`,
 			]);
-			// No commit of its own is not the same as being there: a branch cut
-			// from main and asked onto a branch built on main has none, yet the
-			// base holds commits it lacks, and the rebase moves it up to them.
-			// Only a base the branch already holds leaves nothing to do.
-			if (
-				before === "0" &&
-				(
-					await exec("git", [
-						"-C",
-						treePath,
-						"merge-base",
-						"--is-ancestor",
-						onto,
-						"HEAD",
-					])
-				).code === 0
-			) {
-				return { kind: "already-there", branch, onto };
+			if (ontoAt === undefined) {
+				return {
+					kind: "refused",
+					reason: `${onto} isn't a commit git knows in this tree. Check how it's spelt, or fetch it first.`,
+				};
 			}
 
-			const result = await exec(
-				"git",
-				unattended(["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS, onto]),
+			// A base the branch already holds leaves nothing to replay, whatever
+			// sits above it. git would leave a straight history as it is, and
+			// flatten one holding a merge of trunk, which replays trunk's
+			// commits onto the branch as its own. No commit of its own is not
+			// the same as being there: a branch cut from main and asked onto a
+			// branch built on main has none, yet the base holds commits it
+			// lacks, and the rebase moves it up to them.
+			if (await isAncestor(exec, treePath, ontoAt, "HEAD")) {
+				return { kind: "already-there", branch, onto };
+			}
+			const above = await ask(exec, treePath, [
+				"rev-list",
+				"--count",
+				`${ontoAt}..HEAD`,
+			]);
+
+			const cut = await trunkCut(
+				exec,
+				treePath,
+				branch,
+				onto,
+				ontoAt,
+				options.freshenTrunk,
 			);
+			if (cut.kind === "refused") return cut;
+			// Merges aren't replayed, so they aren't counted; a count git can't
+			// give falls back to every commit above the base, never to none.
+			const before =
+				cut.kind === "cut"
+					? cut.own
+					: ((await counted(exec, treePath, ["HEAD", `^${ontoAt}`])) ??
+						(Number.parseInt(above ?? "0", 10) || 0));
+			// What the answer says of trunk's commits left off, so a replay cut at
+			// trunk never reads as the plain one.
+			const trunk =
+				cut.kind === "cut"
+					? { trunk: { name: cut.name, left: cut.left } }
+					: cut.unjudged
+						? { unjudged: true as const }
+						: {};
+			const replay = ["-C", treePath, "rebase", REAPPLY_CHERRY_PICKS];
+			replay.push(
+				...(cut.kind === "cut" ? ["--onto", ontoAt, cut.trunk] : [ontoAt]),
+			);
+			const result = await exec("git", unattended(replay));
 			if (result.code === 0) {
-				return {
-					kind: "replayed",
-					branch,
-					onto,
-					commits: Number.parseInt(before ?? "0", 10) || 0,
-				};
+				// git drops a commit that is already upstream or left empty, so what
+				// landed is counted afresh; the count before stands if git can't say.
+				const landed =
+					(await counted(exec, treePath, [`${ontoAt}..HEAD`])) ?? before;
+				return { kind: "replayed", branch, onto, commits: landed, ...trunk };
 			}
 
 			const conflicted = await conflictedIn(exec, treePath);
@@ -696,7 +910,8 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 						kind: "replayed",
 						branch,
 						onto,
-						commits: Number.parseInt(before ?? "0", 10) || 0,
+						commits: before,
+						...trunk,
 						...settling,
 					};
 				}
@@ -711,6 +926,7 @@ export function createGitRebaser(deps: { exec: Exec }): WorkRebaser {
 					branch,
 					onto,
 					...(at === undefined ? {} : { at }),
+					...trunk,
 					...(carried.kind === "halted"
 						? { conflicted: carried.conflicted, ...settlingOf(carried) }
 						: { conflicted }),
