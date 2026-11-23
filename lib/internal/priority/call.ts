@@ -12,7 +12,9 @@
  * Each session asks for itself, at most every {@link CALL_READ_MS}: the
  * queue's keeping passes between sessions, so one keeping it now may not
  * have read the call for a while. The probe runs where pi does rather
- * than among the jobs it would hold back, where it starved behind them.
+ * than among the jobs it would hold back, where it starved behind them,
+ * and in the background once a session has an answer, so a slow probe
+ * never holds a keep or a heavy command up.
  */
 
 import { spawn } from "node:child_process";
@@ -24,6 +26,13 @@ export const CALL_READ_MS = 15_000;
 /** How long the probe may take, which it does in a tenth of a second. */
 export const CALL_PROBE_MS = 5_000;
 
+/**
+ * How long a call stays on through probes that can't say, since a probe
+ * is slowest when the machine is busiest: a timeout then mustn't let
+ * heavy work start in the middle of the call.
+ */
+export const CALL_KEPT_MS = 60_000;
+
 /** Whether a call is on, or nothing where that can't be said. */
 export type CallProbe = () => Promise<boolean | undefined>;
 
@@ -31,9 +40,10 @@ export type CallProbe = () => Promise<boolean | undefined>;
  * What a call probe says by its exit: true for 0, false for 1, and
  * nothing for any other exit, a program that can't start, or one that
  * outlasts `timeoutMs`. The answer comes by its own timer, not the
- * probe's exit, and the probe is killed outright: one that ignored a
- * polite stop would otherwise hold every keep and heavy command
- * waiting on it.
+ * probe's exit, and the probe is killed outright with all it started,
+ * as a group of its own: one that ignored a polite stop would otherwise
+ * hold every keep and heavy command waiting on it, and what it left
+ * behind would gather, one more each time it was asked.
  */
 export function probeCall(
 	program = "a-call-is-on",
@@ -41,9 +51,11 @@ export function probeCall(
 	timeoutMs = CALL_PROBE_MS,
 ): Promise<boolean | undefined> {
 	return new Promise((resolve) => {
-		const child = withPi(() => spawn(program, args, { stdio: "ignore" }));
+		const child = withPi(() =>
+			spawn(program, args, { stdio: "ignore", detached: true }),
+		);
 		const late = setTimeout(() => {
-			child.kill("SIGKILL");
+			killGroup(child.pid);
 			resolve(undefined);
 		}, timeoutMs);
 		late.unref();
@@ -58,30 +70,56 @@ export function probeCall(
 	});
 }
 
+/** Kills the process group `pid` leads, which it does as one detached. */
+function killGroup(pid: number | undefined): void {
+	if (pid === undefined) return;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		// ESRCH: the group has already gone, which is all the kill was for.
+	}
+}
+
 /**
- * Reads the call through `probe`, answering from the last answer while
- * it is younger than {@link CALL_READ_MS} and sharing one probe in
- * flight among the keeps asking meanwhile. A probe that refuses reads as
- * not knowing. Its clock is monotonic, so a wall clock stepped back
- * can't keep an old answer standing.
+ * Reads the call through `probe`, asking again once the last answer is
+ * {@link CALL_READ_MS} old and sharing one probe in flight among the
+ * keeps asking meanwhile. Only a session's first read waits on the
+ * probe; after it, a read answers at once from what is known, while a
+ * fresh probe runs behind it. A call stays on through probes that can't
+ * say until it is {@link CALL_KEPT_MS} past its last confirmation. A
+ * probe that refuses reads as not knowing. Its clock is monotonic, so a
+ * wall clock stepped back can't keep an old answer standing.
  */
 export function callReader(
 	probe: CallProbe = () => probeCall(),
 	clock: () => number = () => performance.now(),
 ): CallProbe {
-	let last: { readonly at: number; readonly onCall?: boolean } | undefined;
+	let askedAt: number | undefined;
+	let said: boolean | undefined;
+	let onAt: number | undefined;
 	let reading: Promise<boolean | undefined> | undefined;
-	return () => {
-		if (last !== undefined && clock() - last.at < CALL_READ_MS) {
-			return Promise.resolve(last.onCall);
-		}
+	const known = (): boolean | undefined => {
+		if (said !== undefined) return said;
+		return onAt !== undefined && clock() - onAt < CALL_KEPT_MS
+			? true
+			: undefined;
+	};
+	const ask = (): Promise<boolean | undefined> => {
 		reading ??= probe()
 			.catch(() => undefined)
 			.then((onCall) => {
-				last = { at: clock(), ...(onCall === undefined ? {} : { onCall }) };
+				askedAt = clock();
+				said = onCall;
+				if (onCall === true) onAt = askedAt;
+				if (onCall === false) onAt = undefined;
 				reading = undefined;
-				return onCall;
+				return known();
 			});
 		return reading;
+	};
+	return () => {
+		if (askedAt === undefined) return ask();
+		if (clock() - askedAt >= CALL_READ_MS) ask();
+		return Promise.resolve(known());
 	};
 }
