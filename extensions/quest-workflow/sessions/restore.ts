@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { currentBootToken } from "../../../lib/internal/boot-token.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionsDir, stateDir } from "../../../lib/internal/paths.ts";
@@ -31,7 +32,6 @@ import {
 	windowsNotePath,
 	windowsToReopen,
 } from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
-import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import { indexSessionFiles } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	carriedOnElsewhere,

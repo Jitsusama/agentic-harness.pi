@@ -22,9 +22,10 @@
  * the process table at all.
  */
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
+import { currentBootToken } from "../../internal/boot-token.ts";
 import { askedHostOnce, hostedStanding } from "../session/registry.ts";
 
 /**
@@ -255,10 +256,11 @@ export const systemFacts: ProcessFacts = {
 	// Linux reads each start from /proc in microseconds; elsewhere each
 	// is a `ps` of its own, so a census lists them all at once instead.
 	...(process.platform === "linux" ? {} : { startTimes: startTimesFromPs }),
-	bootId: () => {
-		bootOnce ??= { id: readBootId() };
-		return bootOnce.id;
-	},
+	// The reader every judge of a boot shares, Linux's procfs or Apple's
+	// own sysctl, a miss read again. A host's owner keeps the reading it
+	// took as it started, and its sessions' records name the boot by that
+	// owner's, since an extension may load another instance of this.
+	bootId: currentBootToken,
 	alive(pid) {
 		try {
 			process.kill(pid, 0);
@@ -275,40 +277,6 @@ export const systemFacts: ProcessFacts = {
 		}
 	},
 };
-
-/** The boot, asked once per process, since it cannot change under us. */
-let bootOnce: { id: string | undefined } | undefined;
-
-/**
- * The machine's name for this boot.
- *
- * Linux keeps a fresh random one per boot under /proc, and macOS a
- * session UUID behind sysctl. Anywhere else, and wherever either will
- * not answer, there is none, and every judgement falls back to the
- * pid and start time alone, as it always did.
- */
-function readBootId(): string | undefined {
-	try {
-		if (process.platform === "linux") {
-			return (
-				readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() ||
-				undefined
-			);
-		}
-		if (process.platform === "darwin") {
-			return (
-				execFileSync("sysctl", ["-n", "kern.bootsessionuuid"], {
-					encoding: "utf8",
-					timeout: PS_TIMEOUT_MS,
-				}).trim() || undefined
-			);
-		}
-	} catch {
-		// Nothing to name the boot by, which is a machine judged on pid
-		// and start time alone rather than a reason to fail.
-	}
-	return undefined;
-}
 
 /**
  * Clock ticks per second, which /proc counts a start time in.

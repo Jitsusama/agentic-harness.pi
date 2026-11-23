@@ -11,7 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { isOwner } from "../../../core/process/index.ts";
 import { hosted } from "../../../core/session/host.ts";
@@ -21,6 +21,7 @@ import {
 } from "../../../core/session/identity.ts";
 import { hostedStanding } from "../../../core/session/registry.ts";
 import { sessionSlot } from "../../../core/session/slot.ts";
+import { currentBootToken } from "../../boot-token.ts";
 import {
 	startSecondsFromProcSync,
 	startTicksFromProcSync,
@@ -278,8 +279,16 @@ export function currentProcessIdentity(
 	processIdentityCache ??= readProcessIdentity();
 	const host = hosted();
 	if (!host || !processIdentityCache) return processIdentityCache;
+	// A hosted record names its boot as its host's owner does, the one
+	// reading the host took as it started: this module may be another
+	// instance of the boot's reader, which a miss in one and not the other
+	// would leave naming the boot apart from its owner (PV3TE0's round 4,
+	// F2 and F4).
+	const { bootToken: _ownReading, ...identity } = processIdentityCache;
+	const { bootId } = host.owner;
 	return {
-		...processIdentityCache,
+		...identity,
+		...(bootId ? { bootToken: bootId } : {}),
 		hosted: { host: host.key, session: requireSession(ref), owner: host.owner },
 	};
 }
@@ -316,66 +325,6 @@ function fromAnotherBoot(id: ProcessIdentity, deps: ProbeProcessDeps): boolean {
 		deps.localBootToken !== undefined &&
 		id.bootToken !== deps.localBootToken
 	);
-}
-
-/**
- * Where Linux publishes a random identifier regenerated on each boot.
- */
-const LINUX_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
-
-/**
- * Read an identifier for the running boot, or undefined when the host
- * offers none.
- *
- * Both platforms expose a uuid minted at boot rather than a
- * timestamp: Linux in procfs, macOS as `kern.bootsessionuuid`. The
- * neighbouring `kern.boottime` looks like the obvious source and is
- * not one, because it is derived from the clock and shifts when NTP
- * adjusts it. A token that drifts mid-boot would read every live
- * session as dead, which is the one answer this module must never
- * invent.
- */
-function readBootToken(): string | undefined {
-	if (process.platform === "linux") {
-		try {
-			return nonEmpty(readFileSync(LINUX_BOOT_ID_PATH, "utf8"));
-		} catch {
-			// No procfs (a container, an unusual mount): no token, so the
-			// probe falls through to inspecting the pid.
-			return undefined;
-		}
-	}
-	try {
-		return nonEmpty(
-			execFileSync("sysctl", ["-n", "kern.bootsessionuuid"], {
-				encoding: "utf8",
-				timeout: PROBE_TIMEOUT_MS,
-			}),
-		);
-	} catch {
-		// No sysctl, or the key is absent on this platform: same again,
-		// no token rather than a guess.
-		return undefined;
-	}
-}
-
-/** Trim a reading, treating blank output as no reading at all. */
-function nonEmpty(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/** Memoized boot token; a boot identifier cannot change under us. */
-let bootTokenCache: { token: string | undefined } | undefined;
-
-/**
- * The identifier of the boot this process is running under, read once
- * and remembered. Undefined on a host that publishes none, in which
- * case no session is ever judged by boot.
- */
-export function currentBootToken(): string | undefined {
-	bootTokenCache ??= { token: readBootToken() };
-	return bootTokenCache.token;
 }
 
 /** A pi extension load owns its own lease, including across reloads. */

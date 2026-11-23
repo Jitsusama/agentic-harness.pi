@@ -7,6 +7,7 @@
  * subdir.
  */
 
+import { currentBootToken } from "../../../lib/internal/boot-token.ts";
 import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import {
@@ -27,7 +28,6 @@ import {
 	windowsNotePath,
 	windowsToReopen,
 } from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
-import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	restoreRecipe,
 	type SessionRecord,

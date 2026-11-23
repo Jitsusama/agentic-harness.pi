@@ -21,6 +21,7 @@ import {
 	systemFacts,
 } from "../../../lib/core/process/index.ts";
 import { startTimesIn } from "../../../lib/core/process/process.ts";
+import { currentBootToken } from "../../../lib/internal/boot-token.ts";
 import { until } from "../../support/until.ts";
 
 /**
@@ -315,6 +316,13 @@ describe("what the machine itself says", () => {
 			expect(systemFacts.bootId?.()).toBe(boot);
 		},
 	);
+
+	// PV3TE0's round 3 on #2024 (F5): a hosted session's owner named its
+	// boot through PATH's sysctl, kept a miss for good, and its record
+	// through the token reader, so the two could disagree for a live one.
+	it("names the boot through the reader every judge of a boot shares", () => {
+		expect(systemFacts.bootId).toBe(currentBootToken);
+	});
 
 	it.runIf(process.platform === "linux")(
 		"agrees with ps, so records written through ps still match",

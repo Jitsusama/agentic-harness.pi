@@ -31,6 +31,11 @@ export interface Job {
 	readonly owner: { readonly session: string; readonly pid: number };
 	/** When it asked for its turn. */
 	readonly since: string;
+	/**
+	 * The token of the boot it was asked in, where the machine mints one,
+	 * so a queue folder that outlasts a reboot sets it aside after one.
+	 */
+	readonly boot?: string;
 	/** When it was given its turn, once it has one. */
 	readonly started?: string;
 	/** What a walk of World's objects does, read from its whole command. */

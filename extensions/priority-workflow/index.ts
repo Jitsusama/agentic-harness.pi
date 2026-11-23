@@ -39,6 +39,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { isAutomatedText } from "../../lib/internal/automated.ts";
+import { currentBootToken } from "../../lib/internal/boot-token.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
@@ -47,6 +48,7 @@ import {
 } from "../../lib/internal/priority/background.ts";
 import {
 	machineQueueDir,
+	type QueueFolder,
 	questsFirstIn,
 	queueFolder,
 } from "../../lib/internal/priority/folder.ts";
@@ -120,7 +122,7 @@ export function refuseSkippedPushHooks(pi: Pick<ExtensionAPI, "on">): void {
 }
 
 /** How often a session keeps the queue. */
-const KEEP_MS = 2_000;
+export const KEEP_MS = 2_000;
 
 /** How often the memory floors are looked for again. */
 const FLOORS_MS = 5 * 60_000;
@@ -268,7 +270,7 @@ export function sayBackgroundTurns(
 }
 
 /** What the queue reads of the machine it keeps, on each kind of machine. */
-interface Machine {
+export interface Machine {
 	readonly processes: Parameters<typeof queueFolder>[1];
 	/** The machine's room now, read off pi's main thread. */
 	readonly room: () => Promise<Reading>;
@@ -290,8 +292,7 @@ function linuxMachine(own: string | undefined): Machine {
 	const uplink = uplinkMeter();
 	return {
 		// No boot check: a Linux queue is in XDG_RUNTIME_DIR, which the
-		// reboot empties, and a wall clock stepped forward would move a boot
-		// worked out from uptime past jobs still running.
+		// reboot empties, so no job there outlasts its boot.
 		processes: {
 			isRunning,
 			cgroupOf,
@@ -336,9 +337,19 @@ async function queueIn(dir: string): Promise<unknown> {
 
 function macMachine(): Machine {
 	const room = darwinRoom();
+	// Read as the session loads, so the first tool call doesn't wait on
+	// sysctl; one that can't answer now is asked again later.
+	currentBootToken();
 	return {
 		// No cgroups to say what a job's processes are or held.
-		processes: { isRunning, bootedAt, cgroupOf: () => undefined },
+		// Its queue is in its cache folder, which outlasts a reboot: a job
+		// carries the boot's token, and the boot dates the end of one cut off.
+		processes: {
+			isRunning,
+			bootToken: currentBootToken,
+			bootedAt,
+			cgroupOf: () => undefined,
+		},
 		// Read on the main thread still: its facts come from a program run
 		// synchronously (room-darwin.ts).
 		room: async () => room(),
@@ -365,16 +376,28 @@ function placeWork(pi: ExtensionAPI, own: string | undefined) {
 	});
 }
 
-function keepQueue(pi: ExtensionAPI, machine: Machine) {
-	const dir = machineQueueDir();
-	if (!dir) return;
+/**
+ * Keeps the machine's queue from this session, and holds the session's
+ * heavy work to its turns, once a queue folder can be named.
+ */
+export function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	const { cgroupFor } = machine;
-	const folder = queueFolder(
-		dir,
-		machine.processes,
-		machine.rules,
-		join(stateDir("priority-workflow"), "outcomes.jsonl"),
-	);
+	// A Mac names its folder through getconf, which can fail under load,
+	// so a session that found none looks again on each tick, rather than
+	// running its heavy work without turns for the rest of its life.
+	let folder: QueueFolder | undefined;
+	const found = (): QueueFolder | undefined => {
+		if (folder) return folder;
+		const dir = machineQueueDir();
+		if (!dir) return undefined;
+		folder = queueFolder(
+			dir,
+			machine.processes,
+			machine.rules,
+			join(stateDir("priority-workflow"), "outcomes.jsonl"),
+		);
+		return folder;
+	};
 
 	// The room as last read, for a turn asked for between keeps.
 	let latest: { readonly reading: Reading; readonly at: number } | undefined;
@@ -389,18 +412,18 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 			: undefined;
 	// One keep at a time: a reading that outlasts the tick isn't read twice.
 	let keeping = false;
-	const keepNow = async () => {
+	const keepNow = async (folder: QueueFolder) => {
 		try {
 			const now = Date.now();
 			const wanted = folder.hasJobs() || folder.isDue(now);
 			if (!wanted || folder.keptFresh(now)) return;
 			// Another session reading the machine keeps it with what it reads.
-			const handBack = claimReading(dir, now);
+			const handBack = claimReading(folder.dir, now);
 			if (!handBack) return;
 			try {
 				const reading = await readNow();
 				folder.keep(reading, Date.now(), cgroupFor);
-				await machine.yieldBuilds?.(dir);
+				await machine.yieldBuilds?.(folder.dir);
 			} finally {
 				handBack();
 			}
@@ -418,11 +441,13 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 		undo = undefined;
 	};
 
-	pi.on("session_start", async (_event, ctx) => {
-		stop();
+	/** Holds this session's heavy work to turns, once it has a folder. */
+	const takeTurns = (session: string) => {
+		const folder = found();
+		if (!folder || undo) return;
 		undo = queueHeavyWork({
 			folder,
-			session: ctx.sessionManager.getSessionId(),
+			session,
 			room: recent,
 			cgroupFor,
 			sendsWholeRun: (command, cwd, quest) =>
@@ -430,10 +455,17 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 					...(quest === undefined ? {} : { quest }),
 				}),
 		});
+	};
+
+	pi.on("session_start", async (_event, ctx) => {
+		stop();
+		const session = ctx.sessionManager.getSessionId();
+		takeTurns(session);
 		timer = setInterval(() => {
-			if (keeping) return;
+			takeTurns(session);
+			if (keeping || !folder) return;
 			keeping = true;
-			void keepNow().finally(() => {
+			void keepNow(folder).finally(() => {
 				keeping = false;
 			});
 		}, KEEP_MS);
@@ -449,6 +481,10 @@ function keepQueue(pi: ExtensionAPI, machine: Machine) {
 	// given as it asks.
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
+		// A folder found here, between ticks, holds this very call to turns:
+		// found bare, the call was judged by a queue its session never took.
+		takeTurns(ctx.sessionManager.getSessionId());
+		if (!found()) return;
 		const { command } = event.input;
 		if (runsChangedChecks(command)) await takesNow();
 		await placesNow(command, ctx.cwd).catch(() => undefined);

@@ -9,6 +9,7 @@ import {
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tellAwaited } from "../../../../lib/internal/priority/awaited.ts";
+import { UNSTAMPED_BOOT_SLACK_MS } from "../../../../lib/internal/priority/boot-cut.ts";
 import {
 	KEPT_FOR_MS,
 	PID_MS,
@@ -464,18 +465,158 @@ describe("the machine's queue folder", () => {
 		).toBe(false);
 	});
 
-	it("gives up a job asked before the boot, though its pid names a running process", () => {
+	it("gives up a job asked in an earlier boot, though its pid names a running process", () => {
 		// A Mac's queue folder outlasts a reboot, and its pids come back.
+		let boot = "boot-1";
 		const queue = queueFolder(dir, {
 			...processes,
+			bootToken: () => boot,
 			bootedAt: () => NOW - 60_000,
 		});
-		queue.ask(job("before", { since: new Date(NOW - 120_000).toISOString() }));
+		// Dated after the boot by its clock, it is still told by its token.
+		queue.ask(job("before", { since: new Date(NOW - 30_000).toISOString() }));
 		shellSays("before", 100);
+		boot = "boot-2";
 		queue.ask(job("after", { since: new Date(NOW - 30_000).toISOString() }));
 		shellSays("after", 100);
 		queue.keep(TIGHT, NOW, () => undefined);
 		expect(record().jobs.map((one) => one.id)).toEqual(["after"]);
+	});
+
+	it("keeps a job asked in this boot, though its clock dates it before the boot", () => {
+		// A clock stepped forward moves a boot worked out from uptime past
+		// jobs still running, so the boot is told by its token, not a time:
+		// dated an hour past the slack before it, which the time's rule
+		// would give up.
+		const booted = NOW - 60_000;
+		const queue = queueFolder(dir, {
+			...processes,
+			bootToken: () => "boot-1",
+			bootedAt: () => booted,
+		});
+		queue.ask(
+			job("stepped", {
+				since: new Date(
+					booted - UNSTAMPED_BOOT_SLACK_MS - 3_600_000,
+				).toISOString(),
+			}),
+		);
+		shellSays("stepped", 100);
+		queue.keep(TIGHT, NOW, () => undefined);
+		expect(record().jobs.map((one) => one.id)).toEqual(["stepped"]);
+	});
+
+	// A job asked by older code, or where the machine couldn't say its
+	// boot, has no token; judged by its pid alone, a pid the reboot gave
+	// another process held its place for good (PV3TE0's F6).
+	describe("with no boot token to tell a job by", () => {
+		const booted = NOW - 60_000;
+		const beforeBoot = (ms: number) => new Date(booted - ms).toISOString();
+
+		it("gives up a job begun well before the boot, though its pid names a running process", () => {
+			let boot: string | undefined;
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(
+				job("unstamped", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS + 60_000),
+				}),
+			);
+			shellSays("unstamped", 100);
+			boot = "boot-2";
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs).toEqual([]);
+		});
+
+		it("keeps a job begun within the slack before the boot, for a clock stepped forward a little", () => {
+			let boot: string | undefined;
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(
+				job("unstamped", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS - 60_000),
+				}),
+			);
+			shellSays("unstamped", 100);
+			boot = "boot-2";
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+		});
+
+		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {
+			const queue = queueFolder(dir, processes);
+			queue.ask(
+				job("unstamped", { since: new Date(NOW - 86_400_000).toISOString() }),
+			);
+			shellSays("unstamped", 100);
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+		});
+	});
+
+	// A job stamped with its boot's token, kept by a session whose own
+	// read missed, as sysctl can under load; it is read again within half
+	// a minute.
+	describe("while the keeper can't read its own boot token", () => {
+		const booted = NOW - 60_000;
+		const beforeBoot = (ms: number) => new Date(booted - ms).toISOString();
+
+		// PV3TE0's round 2 (F12, F16): judged by the clock meanwhile, a job
+		// running since the boot was given up, which can't be taken back.
+		it("keeps a stamped job, however long before the boot it is dated", () => {
+			let boot: string | undefined = "boot-1";
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(job("since", { since: new Date(NOW - 30_000).toISOString() }));
+			shellSays("since", 100);
+			queue.ask(
+				job("long-before", {
+					since: beforeBoot(UNSTAMPED_BOOT_SLACK_MS + 60_000),
+				}),
+			);
+			shellSays("long-before", 100);
+			boot = undefined;
+			queue.keep(TIGHT, NOW, () => undefined);
+			// Sorted, since the record lists jobs as the folder does, which
+			// ext4 orders by hash and APFS by name.
+			expect(
+				record()
+					.jobs.map((one) => one.id)
+					.sort(),
+			).toEqual(["long-before", "since"]);
+		});
+
+		// PV3TE0's round 3 (F3): a keeper that kept its first miss would
+		// hold every earlier boot's job for the life of its session.
+		it("gives up an earlier boot's job once its token reads again", () => {
+			let boot: string | undefined = "boot-0";
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(job("earlier", { since: beforeBoot(60_000) }));
+			shellSays("earlier", 100);
+			boot = undefined;
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(
+				record().jobs.map((one) => one.id),
+				"kept while it can't tell",
+			).toEqual(["earlier"]);
+
+			boot = "boot-1";
+			queue.keep(TIGHT, NOW + 1_000, () => undefined);
+			expect(record().jobs, "given up once it can").toEqual([]);
+		});
 	});
 
 	it("clears what a job left behind once its .job is gone", () => {
