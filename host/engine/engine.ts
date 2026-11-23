@@ -177,8 +177,10 @@ export async function createEngine(
 			addressesOf: (sessionId) => readParked(sessionId)?.addresses ?? [],
 		},
 		// A conversation parked to let the host restart stays parked until
-		// the drain lifts or the next host reads its wake.
-		holding: () => host.drains(),
+		// the drain lifts or the next host reads its wake; so does one a
+		// stale child parked, so a run that stepped off mid-way goes on in
+		// a child on current code.
+		holding: () => host.holdsWakes(),
 	});
 	/**
 	 * Take on a held conversation resting parked, building nothing: its

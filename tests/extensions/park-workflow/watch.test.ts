@@ -21,12 +21,14 @@ import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	replaceInPlace,
+	restartEnvironment,
+} from "../../../extensions/park-workflow/restart.ts";
+import {
 	HOST_PARKS,
 	mayPark,
 	noteNeverParks,
 	type Parkable,
-	replaceInPlace,
-	restartEnvironment,
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
@@ -1328,6 +1330,84 @@ describe("why a session stays awake", () => {
 			rolling = true;
 			expect(usual.look(), "stale, it parks at once").toBeUndefined();
 			expect(asked).toEqual([SESSION]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	// 23 November: about 40 children ran host code 1b79c5ee from 22 November,
+	// each always running, so a drain or a roll found no idle moment and
+	// none ever moved onto current code (OSPHT4, plan PLAN-20261121-TXEUTV).
+	it("steps a run off at a turn's end while its host drains or rolls, its wake written as it parks", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		const asks: unknown[] = [];
+		let draining = false;
+		let rolling = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => draining;
+		host.host.rolling = () => rolling;
+		events.on(PARK_ASK, (data) => asks.push(data));
+		const wake = join(folder, "conversation.wake");
+		const run = session({ isIdle: () => false });
+		try {
+			const current = watching(run, { MYCELIUM_WAKE: wake });
+			expect(current.turnEnded(), "a host neither draining nor rolling").toBe(
+				"its host neither drains nor rolls",
+			);
+			current.stop();
+
+			for (const name of ["draining", "rolling"] as const) {
+				draining = name === "draining";
+				rolling = name === "rolling";
+				asked.length = 0;
+				rmSync(wake, { force: true });
+				const watched = watching(run, { MYCELIUM_WAKE: wake });
+				expect(watched.look(), `${name}, a look still waits on the run`).toBe(
+					RUN_UNDER_WAY,
+				);
+				expect(watched.turnEnded(), `${name}, it steps off`).toBeUndefined();
+				expect(asked, name).toEqual([SESSION]);
+				expect(JSON.parse(readFileSync(wake, "utf8")).session, name).toBe(
+					SESSION,
+				);
+				expect(readParked(SESSION, folder)?.goesOn, name).toBe(true);
+				expect(asks.at(-1), "asked as one that goes on").toMatchObject({
+					goesOn: true,
+				});
+				watched.stop();
+			}
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("keeps a run going at a turn's end while a window views it or something else holds it", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let viewed = true;
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => true;
+		host.host.viewed = () => viewed;
+		const wake = join(folder, "conversation.wake");
+		try {
+			const seen = watching(session({ isIdle: () => false }), {
+				MYCELIUM_WAKE: wake,
+			});
+			expect(seen.turnEnded()).toBe("a window views its run");
+			seen.stop();
+
+			viewed = false;
+			const waited = watching(
+				session({ isIdle: () => false, hasPendingMessages: () => true }),
+				{ MYCELIUM_WAKE: wake },
+			);
+			expect(waited.turnEnded(), "messages wait for it").not.toBe(undefined);
+			waited.stop();
+
+			expect(asked).toEqual([]);
+			expect(existsSync(wake), "no wake written").toBe(false);
+			expect(readParked(SESSION, folder)).toBeUndefined();
 		} finally {
 			host.dispose();
 		}

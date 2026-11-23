@@ -468,9 +468,22 @@ it("rolls each conversation no window views once its host code is stale", () => 
 	expect(host.rolling("b"), "its window closed").toBe(true);
 	expect(
 		{ drains: host.drains(), a: host.draining("a") },
-		"a roll holds no wake, as a drain does",
+		"a roll is no drain",
 	).toEqual({ drains: false, a: false });
 	expect(hosted()?.rolling?.("a"), "as the park watch asks").toBe(true);
+});
+
+// 23 November: a run that steps off as its child rolls writes its wake as
+// it parks; woken in the stale child, it would run the old code again.
+it("holds the wakes of those it parked while it drains and once its code is stale", () => {
+	const host = start();
+	expect(host.holdsWakes(), "current and undrained").toBe(false);
+	host.drain(true);
+	expect(host.holdsWakes(), "draining").toBe(true);
+	host.drain(false);
+	expect(host.holdsWakes(), "the drain lifted").toBe(false);
+	host.roll();
+	expect(host.holdsWakes(), "stale").toBe(true);
 });
 
 it("uninstalls a failed initial publication so another host can start", () => {

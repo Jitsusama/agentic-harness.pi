@@ -2,8 +2,7 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
@@ -26,10 +25,8 @@ import {
 	noteWake,
 	OLD_PARK_AFTER_MS,
 	OLD_PI_MS,
-	opensOnlyItself,
 	PARK_ASK,
 	PARK_ENV,
-	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -38,7 +35,6 @@ import {
 	parkAfterMs,
 	RESTART_ASK,
 	readParked,
-	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
 	sayParked,
@@ -67,6 +63,14 @@ import {
 } from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
+import {
+	exitWith,
+	logWritten,
+	niriFocused,
+	restartNamed,
+	restartWith,
+	shownIn,
+} from "./restart.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -219,6 +223,14 @@ export interface Watch {
 	/** Look now whether it may park, and park it if so; answers why not. */
 	look(): string | undefined;
 	/**
+	 * A turn ended, between its answer and the next ask of the model. While
+	 * its host drains or its code is stale and no window views it, a run
+	 * under way holds it no longer: it parks here, its wake written at once,
+	 * and durable carries the run on in the next start, on current code.
+	 * Answers why not.
+	 */
+	turnEnded(): string | undefined;
+	/**
 	 * End now for its holder to start it again at once on `sessionFile`,
 	 * if nothing holds it; answers why not. A rollover asks it on the bus
 	 * ({@link RESTART_ASK}), and the watch answers there too. `asked`, its
@@ -284,190 +296,6 @@ export interface WatchOptions {
  */
 export const UNWATCHED_MS = 10 * 60_000;
 
-/** What a window shows as its session starts again on a fresh log. */
-export const RESTART_LINE =
-	"Starting again on its fresh log, to give back what the old one held.";
-
-/** The variables a spawn handed this pi for its first start alone. */
-const FIRST_START_ONLY = [
-	"PI_SESSION_FILE",
-	"PI_SESSION_ID",
-	"QUEST_WORKFLOW_AUTOLOAD_ID",
-	"QUEST_WORKFLOW_FIRST_WORDS",
-];
-
-/**
- * Once pi exits, replace this process with a fresh pi on `sessionFile`,
- * in place: the same pid, terminal and holder, so the holder never sees
- * an exit and says nothing of a park. One that can't be replaced runs
- * `fallback`, which has its holder start it again instead.
- */
-function restartWith(sessionFile: string, fallback: () => void): void {
-	process.once("exit", () => {
-		process.stdout.write(`\r\n${RESTART_LINE}\r\n`);
-		const env = restartEnvironment(process.env, process.pid);
-		const [script = ""] = process.argv.slice(1);
-		// Node calls execve experimental and would print so in the window.
-		process.removeAllListeners("warning");
-		replaceInPlace(
-			process.execve?.bind(process),
-			[
-				process.execPath,
-				...process.execArgv,
-				script,
-				...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
-			],
-			env,
-		);
-		// Not replaced: its holder starts it again instead.
-		fallback();
-	});
-}
-
-/**
- * The variables the pi a restart in place of process `pid` becomes
- * runs with: `env` without those a spawn gave its first start alone,
- * and naming `pid` as the process that said its park, for that pi to
- * take back as it loads.
- */
-export function restartEnvironment(
-	env: NodeJS.ProcessEnv,
-	pid: number,
-): NodeJS.ProcessEnv {
-	const next: NodeJS.ProcessEnv = { ...env, [PARK_SAID_ENV]: String(pid) };
-	for (const name of FIRST_START_ONLY) delete next[name];
-	return next;
-}
-
-/**
- * Replaces this process with `argv` by `execve`. It returns only when it
- * couldn't, as on a Node without execve, where `argv[0]` can't be run,
- * or when execve throws, for the caller to start it another way.
- *
- * Node ends the process by abort, never returning, when the execve call
- * itself fails (PV3TE0 saw ENOENT do so on node 24, 21 November), so
- * the program is checked first: Node upgraded or collected under a
- * long-running pi is the likeliest way it fails, and that way the
- * caller's fallback still runs.
- */
-export function replaceInPlace(
-	execve: NodeJS.Process["execve"],
-	argv: readonly [string, ...string[]],
-	env: NodeJS.ProcessEnv,
-	canRun: (file: string) => boolean = runnable,
-): void {
-	if (execve === undefined || !canRun(argv[0])) return;
-	try {
-		execve(argv[0], argv, env);
-	} catch {
-		// Not replaced: the process runs on as it was, and the caller knows.
-	}
-}
-
-/** Whether this account may run `file`. */
-function runnable(file: string): boolean {
-	try {
-		accessSync(file, constants.X_OK);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * The app id of the window niri has focused, or null when niri can't be
- * asked, as off Linux or outside niri.
- */
-function niriFocused(): string | null {
-	try {
-		const out = execFileSync("niri", ["msg", "--json", "focused-window"], {
-			encoding: "utf8",
-			timeout: 2_000,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-		const window: unknown = JSON.parse(out);
-		if (window === null) return "";
-		if (typeof window !== "object" || !("app_id" in window)) return null;
-		return typeof window.app_id === "string" ? window.app_id : "";
-	} catch {
-		// No niri to ask, or one that didn't answer: focus can't be told.
-		return null;
-	}
-}
-
-/** The app ids of the windows a holder's record says show this session. */
-function shownIn(wake: string): string[] | undefined {
-	const record = holderRecord(wake);
-	// A record missing or half written can't say where it shows.
-	if (!record) return undefined;
-	const windows = "windows" in record ? record.windows : [];
-	if (!Array.isArray(windows)) return undefined;
-	return windows.map((window: unknown) =>
-		typeof window === "object" &&
-		window !== null &&
-		"app_id" in window &&
-		typeof window.app_id === "string"
-			? window.app_id
-			: "",
-	);
-}
-
-/**
- * Say to the process that, whatever pi exits with, it exits with this,
- * leaving `line` in its window.
- */
-function exitWith(code: number): void {
-	// pi ends a quit with process.exit(0); an exit listener's code wins.
-	// The window stays with its holder, which says it parked, so this
-	// writes nothing: a line of its own said it twice (KP0L6A, 11 November).
-	process.once("exit", () => {
-		process.exitCode = code;
-	});
-}
-
-/**
- * Leave out pi's "To resume this session" hint as a pi its holder will
- * start again exits: the holder brings the session back itself, and says
- * so in the window, so the hint only pushed his last screen up. pi prints
- * it only while stdout is a terminal, and asks once its screen has stopped
- * and every session_shutdown handler has run, so nothing after reads it.
- */
-export function hideResumeHint(): void {
-	Object.defineProperty(process.stdout, "isTTY", {
-		value: false,
-		configurable: true,
-	});
-}
-
-/**
- * Make sure its holder wakes this session into itself: by naming the
- * command that opens its log, or, for a holder that takes none, by the
- * command it runs already opening it. Answers why not otherwise.
- */
-function restartNamed(
-	again: string,
-	args: readonly string[],
-	session: string,
-	sessionFile: string,
-	env: NodeJS.ProcessEnv,
-): string | undefined {
-	const unwritten = logWritten(sessionFile);
-	if (unwritten !== undefined) return unwritten;
-	if (again === "") {
-		return opensOnlyItself(args, session, sessionFile)
-			? undefined
-			: "its holder would start it as a new session";
-	}
-	const lost = flagsLost(args);
-	if (lost.length > 0) return `starting again would drop ${lost.join(", ")}`;
-	try {
-		writeFileSync(again, JSON.stringify(holderCommand(sessionFile, args, env)));
-		return undefined;
-	} catch {
-		return "its holder couldn't be told how to start it again";
-	}
-}
-
 /**
  * Tell a holder that watches steers (`file`, from {@link STEERS_ENV})
  * where this session's land and which wake it, as the mesh said while
@@ -482,17 +310,6 @@ function tellSteers(file: string, parking: Parking): void {
 	} catch {
 		// Untold, its holder wakes it as a running peer asks: a minute on.
 	}
-}
-
-/**
- * Why a session can't start again from its log, if it can't: pi writes a
- * log at its first answer, so one never asked anything would wake as a
- * new session, under another address.
- */
-function logWritten(sessionFile: string): string | undefined {
-	if (sessionFile === "") return "it has no log to start again from";
-	if (!existsSync(sessionFile)) return "its log isn't written yet";
-	return undefined;
 }
 
 /**
@@ -648,11 +465,27 @@ export function watch(
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
-	const decide = (): string | undefined => {
+	// Whether a run under way may step off at a turn's end: its host drains
+	// or its code is stale, so the start that wakes it runs current code,
+	// and no window views it, where the person would see the run stop.
+	// Answers why not.
+	const keepsRunning = (): string | undefined => {
+		const host = hosted();
+		if (!(host && parkingHost())) return "no host parks it mid-run";
+		if (host.viewed?.(session) === true) return "a window views its run";
+		const moving =
+			host.draining?.(session) === true || host.rolling?.(session) === true;
+		return moving ? undefined : "its host neither drains nor rolls";
+	};
+	const decide = (goesOn = false): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
-		const ask: ParkAsk = { session, refusals: [] };
+		const ask: ParkAsk = {
+			session,
+			refusals: [],
+			...(goesOn ? { goesOn: true } : {}),
+		};
 		const afterMs = dueAfterMs();
 		// Others are asked only once it is due, since asking reads the board.
 		if (afterMs !== undefined && now() - last >= afterMs) {
@@ -660,6 +493,8 @@ export function watch(
 		}
 		const why = whyNotPark({
 			...holding(),
+			// Between turns, the run holds nothing the next start loses.
+			...(goesOn ? { agentIdle: true } : {}),
 			idleMs: now() - last,
 			afterMs,
 			refusals: ask.refusals,
@@ -679,6 +514,21 @@ export function watch(
 		const windows = closable();
 		const seen = inSight(windows, desk());
 		if (seen !== undefined) return seen;
+		// Woken as it parks: a drain or a stale host holds the wake until it
+		// ends, and the next start carries the run on. Written before the
+		// park, since the host reads a wake written ahead of its watch.
+		if (goesOn) {
+			try {
+				writeWhole(
+					wake,
+					JSON.stringify({ session, at: new Date(now()).toISOString() }),
+				);
+			} catch (error) {
+				// Unwoken, it would rest mid-run until a message came, so it
+				// stays awake and its run goes on here.
+				return `its wake couldn't be written: ${whyWriting(wake, error)}`;
+			}
+		}
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		// A host watches its conversations' inboxes itself (host/engine).
@@ -694,6 +544,7 @@ export function watch(
 			...(afterMs === undefined ? {} : { afterMs }),
 			pid: process.pid,
 			wake,
+			...(goesOn ? { goesOn: true } : {}),
 		};
 		writeParked(marker, folder);
 		// Its holder outlives the window; whatever stays open stays parked,
@@ -820,6 +671,15 @@ export function watch(
 		note(why);
 		return why;
 	};
+	const turnEnded = (): string | undefined => {
+		if (ctx.isIdle()) return look();
+		// Not noted: a look between turns says why it waits, as before.
+		const running = keepsRunning();
+		if (running !== undefined) return running;
+		const why = decide(true);
+		note(why);
+		return why;
+	};
 	const clock =
 		options.clock === false
 			? undefined
@@ -844,6 +704,7 @@ export function watch(
 			presentAt = now();
 		},
 		look,
+		turnEnded,
 		restartInto,
 		endedItsProcess: () => endedProcess,
 		stop() {

@@ -512,6 +512,12 @@ export interface ParkAsk {
 	 * sessions' findings, a hold it sent) doesn't refuse it.
 	 */
 	readonly restart?: boolean;
+	/**
+	 * Asked for a park its wake follows at once, mid-run as its host drains
+	 * or rolls: it goes on in the next start within the minute, so what
+	 * only a long rest would lose doesn't refuse it, as for a restart.
+	 */
+	readonly goesOn?: boolean;
 }
 
 /** What {@link PARKING} carries. */
@@ -726,6 +732,8 @@ export interface Parked {
 	readonly wake: string;
 	/** What became of its windows, once it tried to close them. */
 	readonly windows?: WindowsLeft;
+	/** It parked between turns of a run, woken as it parked, to go on in the next start. */
+	readonly goesOn?: boolean;
 }
 
 /** Whether a value reads as a marker. */

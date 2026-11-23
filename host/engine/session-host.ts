@@ -446,6 +446,16 @@ export class SessionHost implements Host {
 		return this.stale;
 	}
 
+	/**
+	 * Whether the wakes of those it parked are held now: while it drains,
+	 * until the next host reads them, and once its code is stale, since a
+	 * stale child ends when nothing of it is awake and the wake then starts
+	 * a fresh one, where waking here would run the stale code again.
+	 */
+	holdsWakes(): boolean {
+		return this.drains() || this.rolls();
+	}
+
 	/** Whether a park of this conversation carries its bash calls; none until the engine says. */
 	carries(id: string): boolean {
 		return this.carriedBy?.(id) ?? false;
