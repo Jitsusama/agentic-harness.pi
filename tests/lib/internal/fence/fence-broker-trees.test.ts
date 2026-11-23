@@ -23,6 +23,7 @@ import {
 import type { BrokerTrees } from "../../../../lib/internal/fence/fence-broker-trees.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import { brokerTrees } from "../../../../lib/internal/sandbox/sandbox-trees.ts";
+import { whenRefreshed } from "../../../../lib/internal/work-records.ts";
 
 const HOME = "/home/someone";
 const ROOT = `${HOME}/.local/state/pi/work/trees`;
@@ -151,7 +152,9 @@ describe("the trees a session holds, from the broker's records", () => {
 		);
 	}
 
-	it("names only the session's trees, and reads the records again once they change", () => {
+	// The fence answers from the records as last read, so another
+	// process's write is seen once the reading it starts lands.
+	it("names only the session's trees, and reads the records again once they change", async () => {
 		// As it really is, as the trees come back, since TMPDIR may be a link.
 		scratch = realpathSync(mkdtempSync(join(tmpdir(), "broker-trees-")));
 		const root = join(scratch, "trees");
@@ -164,13 +167,15 @@ describe("the trees a session holds, from the broker's records", () => {
 		record(records, "c", join(root, "c"), ["s1", "s2"]);
 		// A later time than the first read, as a rename into the folder sets.
 		utimesSync(records, new Date(), new Date(Date.now() + 5000));
+		brokerTrees("s1", root, records);
+		await whenRefreshed(records);
 		expect(
 			[...brokerTrees("s1", root, records).held].sort(),
 			"a tree taken up after the first read is missing",
 		).toEqual([join(root, "a"), join(root, "c")]);
 	});
 
-	it("reads a record replaced in the tick of the last read, once that read is old enough", () => {
+	it("reads a record replaced in the tick of the last read, once that read is old enough", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		scratch = realpathSync(mkdtempSync(join(tmpdir(), "broker-trees-")));
 		const root = join(scratch, "trees");
@@ -187,6 +192,8 @@ describe("the trees a session holds, from the broker's records", () => {
 		renameSync(join(scratch, "a.json"), join(records, "a.json"));
 		utimesSync(records, tick, tick);
 		vi.setSystemTime(now + 2_001);
+		brokerTrees("s1", root, records);
+		await whenRefreshed(records);
 
 		expect(
 			brokerTrees("s1", root, records).held,
