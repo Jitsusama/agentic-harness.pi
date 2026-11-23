@@ -47,6 +47,8 @@ const disk = vi.hoisted(() => {
 		listingsOf(dir: string): number {
 			return this.listed.filter((one) => one === dir).length;
 		},
+		/** What a listing off the thread does to the disk just before it lists. */
+		onList: undefined as ((dir: string) => void) | undefined,
 		/** Whether the next listings off the thread fail. */
 		failing: false,
 		/** A record a reading off the thread can't read, while one is named. */
@@ -89,6 +91,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
 	const readdir = (async (...args: Parameters<typeof real.readdir>) => {
 		disk.listed.push(String(args[0]));
+		disk.onList?.(String(args[0]));
 		if (disk.failing) throw new Error("EMFILE: too many open files");
 		return real.readdir(...args);
 	}) as typeof real.readdir;
@@ -130,7 +133,9 @@ vi.mock("node:fs", async (importOriginal) => {
 // presence, before the disk above stood in, so the copies it holds read
 // the real one.
 vi.resetModules();
-const { createTreeMemory } = await import("../../../lib/core/work/memory.ts");
+const { createTreeMemory, recallOff } = await import(
+	"../../../lib/core/work/memory.ts"
+);
 const {
 	isAgentCut,
 	recordedTrees,
@@ -262,6 +267,7 @@ describe("the work broker's records", () => {
 		disk.failing = false;
 		disk.unreadable = undefined;
 		disk.unreadableOnThread = undefined;
+		disk.onList = undefined;
 	});
 
 	it("say which trees a session holds, and who holds each", () => {
@@ -1054,6 +1060,54 @@ describe("the work broker's records", () => {
 		await expect(treesHeldByNow("s-1", dir, 50)).rejects.toThrow(/in 50 ms/);
 		disk.go();
 		await whenRefreshed(dir);
+	});
+
+	it("wait past a minute by default for a reading a loaded machine is slow to land", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		const two = join(root, "trees", "two");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		disk.stop(root);
+		recordedElsewhere(dir, two, ["s-1"]);
+		treesHeldBy("s-1", dir);
+		await disk.stopped();
+		const asked = treesHeldByNow("s-1", dir);
+		const outcome = asked.then(
+			(trees) => ({ trees }),
+			(error: unknown) => ({ error: String(error) }),
+		);
+		await vi.advanceTimersByTimeAsync(61_000);
+		disk.go();
+
+		expect(await outcome).toEqual({ trees: expect.arrayContaining([one, two]) });
+	});
+
+	it("read a folder that never holds still only for a while, keeping every record any reading found", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const written: string[] = [];
+		// Each listing finds the folder written since its stamp was taken, as
+		// a busy machine's sessions write it, and each takes six seconds.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			const more = join(root, "trees", `more-${written.length}`);
+			written.push(more);
+			recordedElsewhere(dir, more, ["s-2"]);
+			vi.setSystemTime(Date.now() + 6_000);
+		};
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+
+		expect(disk.listingsOf(dir)).toBe(2);
+		expect(trees.sort()).toEqual([one, ...written].sort());
 	});
 
 	it("let go of a reading hung five minutes, start another, and keep the newer whichever lands last", async () => {
