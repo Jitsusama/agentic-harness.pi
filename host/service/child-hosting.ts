@@ -45,6 +45,8 @@ export function hostChildren(options: {
 	roster: KeptRoster;
 	/** Rest a conversation parked, watching its wake: the engine's. */
 	restsParked?: (entry: RosterEntry) => boolean;
+	/** Rest one whose child was given up, writing its marker: the engine's. */
+	restsGivenUp?: (entry: RosterEntry) => boolean;
 	report: (error: unknown) => void;
 	say?: (line: string) => void;
 	/** A child's conversation became another, as its supervisor heard. */
@@ -66,8 +68,8 @@ export function hostChildren(options: {
 		report,
 		...(options.say ? { say: options.say } : {}),
 		ended: (sessionId, why) => rest(sessionId, why),
-		// Given up before it ended, as a failed child is: still held.
-		gaveUp: (sessionId) => rest(sessionId, "failed"),
+		// Given up before it ran there, so it never parked: still held.
+		gaveUp: (sessionId) => restGivenUp(sessionId),
 		...(options.became ? { became: options.became } : {}),
 		...options.timings,
 	});
@@ -82,6 +84,21 @@ export function hostChildren(options: {
 			if (!options.restsParked?.(entry))
 				options.say?.(
 					`${sessionId}: its child ended ${why}, and nothing watches its wake until it is asked for`,
+				);
+		} catch (error) {
+			report(error);
+		}
+	}
+
+	// One whose child was given up never parked, so restsParked would
+	// decline it: it rests as given up, its marker written as a park's.
+	function restGivenUp(sessionId: string): void {
+		const entry = roster.entries().find((held) => held.sessionId === sessionId);
+		if (!entry) return;
+		try {
+			if (!options.restsGivenUp?.(entry))
+				options.say?.(
+					`${sessionId}: its child was given up, and nothing watches its wake until it is asked for`,
 				);
 		} catch (error) {
 			report(error);

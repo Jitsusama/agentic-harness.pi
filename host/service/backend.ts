@@ -78,6 +78,16 @@ export interface ConversationEngine {
 	 */
 	restsParked?(entry: RosterEntry): boolean;
 	/**
+	 * A conversation the host still holds, whose child was given up before
+	 * it ran there, rests as parked: its park marker is written naming the
+	 * host's wake file, where none from this boot does, and it is taken on
+	 * as `restsParked` takes one, so a message sent to it wakes it. Answers
+	 * false, doing nothing, while the host runs it or another holder's
+	 * marker stands. Never asked at a start, which still resumes one that
+	 * never parked.
+	 */
+	restsGivenUp?(entry: RosterEntry): boolean;
+	/**
 	 * Whether a conversation the host holds has lost its session file, so
 	 * nothing could ever resume it: a start drops it rather than keep it.
 	 */

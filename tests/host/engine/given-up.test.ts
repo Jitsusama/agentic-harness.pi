@@ -59,6 +59,7 @@ function hostParking(runs = false) {
 			parked.rests(held.sessionId);
 		},
 		folder: parks,
+		pid: 31337,
 	};
 	return { asking, parked, takenOn, parks, place };
 }
@@ -75,7 +76,7 @@ describe("a given-up child's conversation", () => {
 			sessionFile: entry().file,
 			cwd: dir,
 			quest: "QEST-1",
-			pid: process.pid,
+			pid: 31337,
 			wake: host.parked.wakeFile(A),
 		});
 		expect(host.takenOn, "taken on as a resting one").toEqual([A]);
