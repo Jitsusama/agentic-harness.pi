@@ -447,7 +447,7 @@ export function createTreeBroker(
 			// the directory while somebody else is standing in it is the
 			// failure this whole change is about, arriving through the one
 			// door that always could remove a tree.
-			let others: Owner[] | undefined;
+			let others: readonly Owner[] | undefined;
 			try {
 				others = await memory?.otherHolders(held.path);
 			} catch (error) {
