@@ -581,6 +581,58 @@ describe("the compaction trigger", () => {
 				await endTurn(fire, ranTools, ctx);
 			}
 			expect(completeSimple).toHaveBeenCalledTimes(3);
+			// A compaction on the spot given up leaves the next written
+			// ahead once more, the session not held for it (F94).
+			expect(state.compactions, "tried ahead, not on the spot").toHaveLength(1);
+			expect(closingOf(2), "still asked for less").toContain(
+				"Keep it to at most",
+			);
+		});
+
+		// The count alone remembers the point it covered, and a move off
+		// it starts the count again (5BACCAC3's F93 on #2033).
+		it("tries ahead afresh once such a move leaves the point, nothing held ahead", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			state.compactions[0]?.onError?.(new Error("Compaction cancelled"));
+			await movesBackOff(at);
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(2), "asked full size again").toContain("Make it about");
+		});
+
+		// A retry covers more than the try that failed before it, so a
+		// move between the two leaves the retry's point but keeps the
+		// count's (5BACCAC3's F92 on #2033).
+		it("keeps counting across a move off a retry's point that keeps the failed try's", async () => {
+			completeSimple.mockResolvedValue(capped);
+			const at = await toTheEdge(true);
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			// The retry is written once the branch has grown past the point
+			// the first try covered.
+			const firstPoint = state.leaf;
+			await movesOnPast(at);
+			completeSimple.mockReturnValue(new Promise(() => undefined));
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			const oldLeafId = state.leaf;
+			state.branch = state.branch.filter((entry) => entry.id !== "a9");
+			state.leaf = firstPoint;
+			await fire("session_tree", { newLeafId: firstPoint, oldLeafId }, ctx);
+
+			completeSimple.mockResolvedValue(capped);
+			for (let turn = 0; turn < 40; turn++) {
+				if (completeSimple.mock.calls.length > 2) break;
+				await endTurn(fire, ranTools, ctx);
+			}
+			expect(completeSimple).toHaveBeenCalledTimes(3);
 			expect(closingOf(2), "still asked for less").toContain(
 				"Keep it to at most",
 			);
