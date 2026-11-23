@@ -308,17 +308,37 @@ describe("host-gate.sh", () => {
 		const answered = await gate(on, sha);
 
 		expect(answered.code).toBe(1);
-		expect(answered.said).toContain("extensions/park-workflow/watch.ts");
+		expect(answered.said).toContain(
+			"changes 1 path(s) pi hosts run, such as extensions/park-workflow/watch.ts",
+		);
 	});
 
-	it("still refuses other markdown under the host, which a host could read", async () => {
+	it.each(["host/engine/prompt.md", "host/engine/NOT-README.md"])(
+		"still refuses %s, other markdown under the host, which a host could read",
+		async (file) => {
+			const on = await harness();
+			const sha = await change(on, file);
+
+			const answered = await gate(on, sha);
+
+			expect(answered.code).toBe(1);
+			expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+		},
+	);
+
+	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();
-		const sha = await change(on, "host/engine/prompt.md");
+		const code = "host/engine/engine.ts";
+		await change(on, code);
+		await git(on.checkout, "push", "-q", "origin", "HEAD:main");
+		await git(on.checkout, "mv", code, "host/engine/README.md");
+		await git(on.checkout, "commit", "-q", "-m", "rename the engine");
+		const sha = await git(on.checkout, "rev-parse", "HEAD");
 
 		const answered = await gate(on, sha);
 
 		expect(answered.code).toBe(1);
-		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+		expect(answered.said).toContain(`such as ${code}`);
 	});
 
 	it("lets a change to the host merge once the keeper kept test:host passing at it", async () => {

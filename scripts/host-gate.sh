@@ -72,9 +72,13 @@ git fetch -q origin main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
 base=$(git merge-base origin/main "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
-# than passing as a change that touches nothing.
-changed=$(git diff --name-only "$base" "$sha")
-touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose" || true)
+# than passing as a change that touches nothing. A rename is listed as
+# the path it left and the path it took, so hosted code moved to a README
+# still counts by the path it left.
+changed=$(git diff --name-only --no-renames "$base" "$sha")
+# A grep finding nothing exits 1, which means nothing a host runs; any
+# other failure stops the gate rather than passing the change.
+touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose") || [[ $? == 1 ]]
 if [[ -z $touched ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0
