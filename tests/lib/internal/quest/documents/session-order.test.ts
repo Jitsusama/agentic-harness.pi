@@ -51,7 +51,7 @@ const attached: QuestSession = {
 /**
  * The same session with its process ordered as a read builds it, hosted
  * ahead of the boot, and its owner and terminal reversed, as no builder
- * orders them, so any order at all is seen written alike.
+ * orders them, so an order no code makes is written alike too.
  */
 const reread: QuestSession = {
 	id: "s1",
@@ -101,29 +101,70 @@ describe("a session written into a shared quest README", () => {
 		).toBe(written);
 	});
 
-	it("keeps an owner's fields it doesn't know, after the known ones, by name", () => {
-		// Another build may stamp an owner with more than this one knows;
-		// a hosted process is read whole, so those fields come back.
-		const written = serializeQuestFrontMatter(questWith([attached])).replace(
-			"startTicks: 12928447\n    terminal:",
-			"startTicks: 12928447\n          zulu: z\n          alpha: a\n    terminal:",
+	it("is written in the order every build writes", () => {
+		// Builds on different machines share the README, so this order is
+		// what they agree on: changing it brings the churn back while
+		// machines run builds either side of the change.
+		const text = serializeQuestFrontMatter(questWith([attached]));
+
+		expect(
+			text.slice(text.indexOf("sessions:")),
+			"a session is written in the order every machine writes it",
+		).toBe(
+			[
+				"sessions:",
+				"  - id: s1",
+				"    cwd: /home/joel/src",
+				"    status: active",
+				"    instanceId: i1",
+				"    process:",
+				"      hostId: optimus",
+				"      pid: 953146",
+				"      startToken: Sun Nov 22 22:02:03 2026",
+				"      bootToken: 34c96fb4",
+				"      startTicks: 12928447",
+				"      hosted:",
+				"        host: work-background",
+				"        session: s1",
+				"        owner:",
+				"          pid: 953146",
+				"          startedAt: 1795402923470",
+				"          bootId: 34c96fb4",
+				"          startTicks: 12928447",
+				"    terminal:",
+				"      driverId: kitty",
+				'      value: "7"',
+				"      scope: s",
+				"      hostId: optimus",
+				"---",
+			].join("\n"),
 		);
-		expect(written, "the fixture's owner took the later fields").toContain(
-			"zulu: z",
-		);
+	});
+
+	it("keeps fields it doesn't know, after the known ones, by name", () => {
+		// Another build may stamp a hosted process or its owner with more
+		// than this one knows; both are read whole, so those fields come back.
+		const written = serializeQuestFrontMatter(questWith([attached]))
+			.replace("        owner:\n", "        zeta: z\n        owner:\n")
+			.replace(
+				"startTicks: 12928447\n    terminal:",
+				"startTicks: 12928447\n          zulu: z\n          alpha: a\n    terminal:",
+			);
+		expect(written, "the fixture took the later fields").toContain("zeta: z");
+		expect(written, "the fixture's owner took them too").toContain("zulu: z");
 		const parsed = parseQuestFrontMatter(`${written}\n# A quest\n`);
 		if (!parsed) throw new Error("the README reads back");
 
 		const again = serializeQuestFrontMatter(parsed.frontMatter);
 
-		const at = (word: string): number => again.indexOf(word);
-		expect(at("alpha: a"), "an unknown owner field is kept").toBeGreaterThan(
-			at("bootId:"),
-		);
 		expect(
-			at("zulu: z"),
-			"unknown fields follow one another by name",
-		).toBeGreaterThan(at("alpha: a"));
+			keysAt(again, "      hosted:", 8),
+			"a hosted process's unknown field follows its known ones",
+		).toEqual(["host", "session", "owner", "zeta"]);
+		expect(
+			keysAt(again, "        owner:", 10),
+			"an owner's unknown fields follow its known ones, by name",
+		).toEqual(["pid", "startedAt", "bootId", "startTicks", "alpha", "zulu"]);
 	});
 
 	it("writes a __proto__ key read from a README as a key", () => {
@@ -142,12 +183,34 @@ describe("a session written into a shared quest README", () => {
 		const again = serializeQuestFrontMatter(parsed.frontMatter);
 
 		expect(
-			Object.hasOwn(Object.prototype, "polluted"),
-			"nothing reached Object's prototype",
-		).toBe(false);
-		expect(
 			again,
 			"the key is written back as a key, not lost to a prototype",
 		).toContain("polluted: yes");
+		const owner = parseQuestFrontMatter(`${again}\n# A quest\n`)?.frontMatter
+			.sessions[0]?.process?.hosted?.owner;
+		if (!owner) throw new Error("the rewritten README reads back");
+		expect(
+			Object.hasOwn(owner, "__proto__"),
+			"the owner read back holds __proto__ as its own key",
+		).toBe(true);
+		expect(
+			Object.getPrototypeOf(owner),
+			"the owner read back keeps an ordinary prototype",
+		).toBe(Object.prototype);
 	});
 });
+
+/**
+ * The keys of the map under the line `heading` in `text`, written at
+ * `indent` spaces, in the order they are written.
+ */
+function keysAt(text: string, heading: string, indent: number): string[] {
+	const lines = text.slice(text.indexOf(heading) + heading.length).split("\n");
+	const keys: string[] = [];
+	for (const line of lines.slice(1)) {
+		const depth = line.length - line.trimStart().length;
+		if (depth < indent) break;
+		if (depth === indent) keys.push(line.trim().split(":")[0] ?? "");
+	}
+	return keys;
+}

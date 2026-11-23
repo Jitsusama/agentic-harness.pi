@@ -625,7 +625,11 @@ const TERMINAL_KEYS = ["driverId", "value", "scope", "hostId"] as const;
  * carry keys this build doesn't know; a process's and a terminal's
  * other fields are dropped on read, as before. The result is built from
  * its entries, so a `__proto__` key read from a README stays a key
- * rather than setting the written object's prototype.
+ * rather than setting the written object's prototype. Two limits, both
+ * still the same on every machine: a key that reads as a whole number
+ * comes before every other, as JavaScript lists such keys first, and
+ * only the top level is ordered, so an unknown field's own value keeps
+ * the order it was read in.
  */
 function inOrder(
 	record: object,
