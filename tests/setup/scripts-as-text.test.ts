@@ -41,7 +41,10 @@ function script(
 
 /** What the loader's module says by default, run as the module it is. */
 async function moduleDefault(code: string): Promise<unknown> {
-	const url = `data:text/javascript,${encodeURIComponent(code)}`;
+	// A data: URL resolves no relative import, so the scripts it follows
+	// are left out: only its text is asked of it.
+	const text = code.replace(/^import "[^"]*";\n/gm, "");
+	const url = `data:text/javascript,${encodeURIComponent(text)}`;
 	const loaded: unknown = await import(url);
 	return typeof loaded === "object" && loaded !== null && "default" in loaded
 		? loaded.default
