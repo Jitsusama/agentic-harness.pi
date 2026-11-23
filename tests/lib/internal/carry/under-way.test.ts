@@ -8,6 +8,7 @@ import {
 	closeLanded,
 	type HoldTiming,
 	holdForCarry,
+	sessionOpened,
 } from "../../../../lib/internal/carry/under-way.ts";
 
 const session = "01a1ecbb-0000-7000-8000-00000000c4ee";
@@ -160,6 +161,22 @@ describe("a carry under way", () => {
 
 		expect(during).toBe("penelope");
 		expect(carryUnderWay(closing(5))).toBeUndefined();
+	});
+
+	// PV3TE0's round 10 (F1): a host may open a closed conversation again
+	// while the carry its close left running still runs; let go as that
+	// carry carried, the reopened one ran on with no door held.
+	it("holds a carry that carries after its session was closed and opened again, until that opening closes", () => {
+		const carry = hold("penelope", {}, closing(6));
+
+		closeLanded(closing(6));
+		sessionOpened(closing(6));
+		carry.carried();
+		const reopened = carryUnderWay(closing(6));
+		closeLanded(closing(6));
+
+		expect(reopened, "held while it runs again").toBe("penelope");
+		expect(carryUnderWay(closing(6)), "let go as it closes").toBeUndefined();
 	});
 
 	// PV3TE0's round 8 (F7): one called carried past its time stayed in

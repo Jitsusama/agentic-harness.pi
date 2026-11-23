@@ -89,6 +89,11 @@ interface Entry {
 	 * way goes as it carries, since no later close will say so.
 	 */
 	readonly landed: () => void;
+	/**
+	 * Its session started again since that close: what it closed is open
+	 * once more, so a carry that carries later waits for its next close.
+	 */
+	readonly opened: () => void;
 }
 
 /** The version changes with the shape. */
@@ -145,6 +150,9 @@ export function holdForCarry(
 			closed = true;
 			if (closing) letGo();
 		},
+		opened: () => {
+			closed = false;
+		},
 	};
 	const held = all.get(session) ?? new Set<Entry>();
 	held.add(entry);
@@ -176,6 +184,16 @@ export function holdForCarry(
  */
 export function closeLanded(session: string): void {
 	for (const entry of [...(underWay().get(session) ?? [])]) entry.landed();
+}
+
+/**
+ * `session` has started, as a host that outlives a conversation may
+ * open it again while a carry its close left running still runs: that
+ * carry, once it carries, holds the session until this opening closes,
+ * rather than letting go of a conversation that now runs again.
+ */
+export function sessionOpened(session: string): void {
+	for (const entry of underWay().get(session) ?? []) entry.opened();
 }
 
 /**

@@ -16,6 +16,7 @@ import {
 	handoverOf,
 	readHandover,
 } from "../../../lib/internal/carry/handover.ts";
+import { closeLanded } from "../../../lib/internal/carry/under-way.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
@@ -28,7 +29,13 @@ import {
 } from "../../lib/internal/carry/support/machines.ts";
 
 const made: string[] = [];
-afterEach(() => removeAll(made));
+afterEach(() => {
+	// A carried hold stays until its session's close lands, so each test's
+	// lets go here rather than lingering in this process for its quarter
+	// hour (PV3TE0's round 10, F2).
+	for (const id of ["s-carry", "s-closing", "s-stale"]) closeLanded(id);
+	removeAll(made);
+});
 
 const QUEST = "QEST-20261107-CARRY2";
 

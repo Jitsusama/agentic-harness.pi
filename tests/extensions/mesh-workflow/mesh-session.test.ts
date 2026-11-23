@@ -362,8 +362,11 @@ describe("parking", () => {
 			);
 			// Whatever the test did, its run ends and its carry lets go, so
 			// no later park test reads a hold it never took.
-			// A hold that never goes fails the test that leaked it, saying
-			// what still holds, rather than a later park test.
+			// A carry still under way that never goes fails the test that
+			// leaked it, saying what still holds, rather than a later park
+			// test, while the session's peer still answers its park. One that
+			// carried is let go by the close landed first, so each test that
+			// carries reads its own hold (PV3TE0's round 10, F3).
 			left.push(async () => {
 				run.idle = true;
 				await until(
@@ -496,6 +499,23 @@ describe("parking", () => {
 			]);
 			expect(closing, "held while it closes").toBe("penelope");
 			expect(carryUnderWay(session), "let go once it closed").toBeUndefined();
+		});
+
+		// PV3TE0's round 10 (F1): a host outlives a conversation and may open
+		// it again while the carry its close left running still runs; only
+		// the session's start says it is open once more.
+		it("holds a carry that carries after its session closed and opened again, until that opening closes", async () => {
+			const carry = ordered();
+			const closed = await startSession();
+			await closed.fire("session_shutdown");
+			const reopened = await startSession();
+
+			carry.carried();
+			const held = carryUnderWay(session);
+			await reopened.fire("session_shutdown");
+
+			expect(held, "held while it runs again").toBe("penelope");
+			expect(carryUnderWay(session), "let go as it closes").toBeUndefined();
 		});
 
 		// PV3TE0's round 9 (F4): a reload's shutdown is no close, since the
