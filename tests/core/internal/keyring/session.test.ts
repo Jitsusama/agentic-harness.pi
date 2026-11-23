@@ -101,10 +101,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		const secondScreen = screen();
 		first.runner.setUIContext(firstScreen.ui, "tui");
 		await turn(first.runner);
-		expect([firstScreen.told, secondScreen.told]).toEqual([
-			["warning: keyring locked"],
-			[],
-		]);
+		expect(firstScreen.told).toEqual(["warning: keyring locked"]);
 		second.runner.setUIContext(secondScreen.ui, "tui");
 		await turn(second.runner);
 		await turn(first.runner);
@@ -169,10 +166,18 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		after.runner.setUIContext(shown.ui, "tui");
 		await after.runner.emit({ type: "session_start", reason: "resume" });
 		expect(shown.told).toEqual([]);
+		sayKeyringNotice({ level: "info", message: "moved" });
+		expect(shown.told).toEqual(["info: moved"]);
+		expect([ending.errors, elsewhere.errors, after.errors]).toEqual([
+			[],
+			[],
+			[],
+		]);
 	});
 
-	it("keeps what a session is owed when it starts again with no shutdown between", async () => {
-		// One extension, so no other listener keeps the screen owed for it.
+	it("keeps what a session is owed when it is bound again, which starts it with no shutdown between", async () => {
+		// One extension, so no other listener keeps the screen owed for it;
+		// pi's bindExtensions sends the session's start again on each bind.
 		const one = extensionRunner(keeping("Slack"), process.cwd());
 		const elsewhere = session();
 		elsewhere.runner.setUIContext(screen().ui, "tui");
@@ -180,9 +185,22 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		const shown = screen();
 		one.runner.setUIContext(shown.ui, "tui");
-		await one.runner.emit({ type: "session_start", reason: "reload" });
+		await one.runner.emit({ type: "session_start", reason: "startup" });
 		expect(shown.told).toEqual(["warning: keyring locked"]);
 		expect([one.errors, elsewhere.errors]).toEqual([[], []]);
+	});
+
+	it("stops the listener a session had when it is bound again, so once it ends it shows nothing more", async () => {
+		const one = extensionRunner(keeping("Slack"), process.cwd());
+		const shown = screen();
+		one.runner.setUIContext(shown.ui, "tui");
+		await one.start();
+		await one.runner.emit({ type: "session_start", reason: "startup" });
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		await one.runner.emit({ type: "session_shutdown", reason: "quit" });
+		sayKeyringNotice({ level: "info", message: "moved" });
+		expect(shown.told).toEqual(["warning: keyring locked"]);
+		expect(one.errors).toEqual([]);
 	});
 
 	it("stops showing notices in a session that ended, keeping them for the next", async () => {
@@ -200,7 +218,9 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 	});
 
 	it("says each failed move into the keyring once a session, by its label", async () => {
+		let tries = 0;
 		const locked = async () => {
+			tries++;
 			throw new Error("keyring locked");
 		};
 		const one = extensionRunner(
@@ -211,9 +231,12 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		one.runner.setUIContext(shown.ui, "tui");
 		await one.start();
 		await new Promise((settled) => setImmediate(settled));
-		// Starting again runs each move again, and each fails the same way.
-		await one.runner.emit({ type: "session_start", reason: "reload" });
+		// Binding again starts again, running each move again, and each
+		// fails the same way.
+		await one.runner.emit({ type: "session_start", reason: "startup" });
 		await new Promise((settled) => setImmediate(settled));
+		expect(tries).toBe(4);
+		expect(one.errors).toEqual([]);
 		const failed = (label: string) =>
 			expect.stringMatching(
 				new RegExp(

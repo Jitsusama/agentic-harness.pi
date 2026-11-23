@@ -18,7 +18,7 @@
  * a new manager for each new, resumed or saved forked session, so the
  * key is one conversation; only forking an unsaved one reuses it, and
  * that fork, ending the session other than by a reload, forgets what it
- * was owed.
+ * was owed and what it showed.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -38,8 +38,10 @@ export function keepCredentialsInKeyring(
 	let stopListening: ReturnType<typeof onKeyringNotice> | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
-		// pi sets a runner's manager only as it makes the runner, so a start
-		// with no shutdown before it is the same session starting again.
+		// pi sends the start again each time it binds this runner, as when
+		// a session already bound is given a screen, with no shutdown
+		// between; a runner's manager is set only as it is made, so this is
+		// the same session starting again.
 		stopListening?.("back soon");
 		// The session names its one screen for every extension here, by
 		// its manager, which pi hands each of them and keeps across a

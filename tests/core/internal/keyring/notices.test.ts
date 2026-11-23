@@ -195,6 +195,17 @@ describe("keyring notices", () => {
 		expect(heard).toEqual(["taker: locked"]);
 	});
 
+	it("forgets what a screen showed once its last listener stops for good, so the same words show there again", () => {
+		const heard: string[] = [];
+		const reused = {};
+		const stop = onKeyringNotice(hearing(heard, "before"), reused);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		stop("for good");
+		onKeyringNotice(hearing(heard, "after"), reused);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		expect(heard).toEqual(["before: locked", "after: locked"]);
+	});
+
 	it("keeps what a screen is owed while another of its listeners remains", () => {
 		const heard: string[] = [];
 		const session = {};

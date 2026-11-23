@@ -24,7 +24,8 @@
  * A screen between listeners, as a session is between a reload's end
  * and its start, keeps what it is owed and is owed what is said
  * meanwhile; a listener that stops for good and leaves its screen with
- * none forgets it, so an ended session holds nothing here. A screen
+ * none forgets it, and what it showed, so an ended session holds
+ * nothing here and its screen starts anew if it comes back. A screen
  * whose listeners never come back after a reload stays owed, and held
  * here with whatever it keeps, until the process ends. pi evaluates
  * each extension's copy of this module again as it reloads, so all of
@@ -136,7 +137,8 @@ export function retryKeyringNotices(): void {
  * it or to anyone; the screen shows the same words once whichever of
  * its listeners hears them. Answers the function that stops listening:
  * for good unless told the screen will be back, and then, when no
- * listener on the screen is left, it forgets what the screen was owed.
+ * listener on the screen is left, it forgets what the screen was owed
+ * and what it showed.
  */
 export function onKeyringNotice(
 	listener: Listener,
@@ -153,9 +155,10 @@ export function onKeyringNotice(
 	};
 }
 
-/** Owe `screen` nothing more, as its session has ended. */
+/** Owe `screen` nothing more and forget what it showed, as its session has ended. */
 function forget(screen: object): void {
 	away.delete(screen);
+	shownOn.delete(screen);
 	for (const [message, { notice, to }] of waiting) {
 		if (!to.screens.has(screen)) continue;
 		const rest = new Set(to.screens);
