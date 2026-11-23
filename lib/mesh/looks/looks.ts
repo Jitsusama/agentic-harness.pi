@@ -46,6 +46,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { GivenAnswer } from "../../internal/session/wants.ts";
 import { writeWhole } from "../../internal/write-whole.ts";
 import { sessionAddress } from "../address.ts";
 
@@ -81,7 +82,8 @@ const ONLY_TO_SEE =
  * like. Read off the act alone, never a first form's ask, where "Just
  * look at it and say" still asks.
  */
-const ONLY_TO_SEE_ACT = /^(?:just|only) (?:see|read|look)(?: at)?(?: it)?$/i;
+const ONLY_TO_SEE_ACT =
+	/^(?:just|only) (?:see|read|look)(?: at)?(?: it)?[.!]?$/i;
 
 /**
  * How a look was resolved without the person: its change merged or
@@ -219,6 +221,8 @@ export interface Look {
 	/** The choice's value the person answered with, and when. */
 	readonly answer?: string;
 	readonly answeredAt?: string;
+	/** Whether the answer is his own words rather than a choice. */
+	readonly answeredInWords?: boolean;
 }
 
 /** What a session says to point the person at something. */
@@ -368,6 +372,10 @@ export function refusalOf(said: Pointing): string | undefined {
 	const second = said.happened !== undefined;
 	if (second && (said.why.trim() !== "" || said.ask.trim() !== ""))
 		return "A look said in its second form makes its why and ask from what happened, why it matters and its act; give one form, not both.";
+	// Only the second form keeps what it wants back, so the first would
+	// stand asking for words it could never take.
+	if (!second && said.words === true)
+		return "A look takes his own words only when said in its second form: what happened, why it matters and its act.";
 	if (second) {
 		const refused = secondFormRefusal(said);
 		if (refused) return refused;
@@ -440,6 +448,8 @@ function secondFormRefusal(pointing: Pointing): string | undefined {
 		return "A look needs its act: the words on what he presses, such as Review It.";
 	if (happened.length > HAPPENED_CHARACTERS)
 		return `A look's happened is at most ${HAPPENED_CHARACTERS} characters; it is ${happened.length}.`;
+	if (moreThanASentence(happened))
+		return "A look's happened is one plain sentence, since its why reads it beside what matters.";
 	if (matters.length > MATTERS_CHARACTERS)
 		return `A look's matters is at most ${MATTERS_CHARACTERS} characters; it is ${matters.length}.`;
 	if (wordsIn(act) > ACT_WORDS || !titleCased(act))
@@ -742,34 +752,43 @@ export function resolveLooksOfQuests(
 	return marked;
 }
 
+/** The most of his own words a look keeps as his answer. */
+export const ANSWER_CHARACTERS = 1000;
+
 /**
- * Answer the standing look `id` with the choice whose value is `value`,
- * as the person picked it from the launcher, or with `value` as his own
- * words when the look wants them: it resolves, saying what he answered.
- * Answers the look as answered, or nothing when it is gone, no longer
- * standing, or offers no such choice and wants no words.
+ * Answer the standing look `id` as the person did from the launcher:
+ * with the choice whose value `given` names, or with `given`'s own words
+ * when the look wants them, kept to {@link ANSWER_CHARACTERS}. It
+ * resolves, saying what he answered. Answers the look as answered, or
+ * nothing when it is gone, no longer standing, offers no such choice, or
+ * wants no words. Words and a pick come apart, as a want's do, so words
+ * that read like a choice are never taken for its pick, nor a stale pick
+ * for words.
  */
 export function answerLook(
 	dir: string,
 	id: string,
-	value: string,
+	given: GivenAnswer,
 	now: Date = new Date(),
 ): Look | undefined {
 	const look = looksIn(dir).find((one) => one.id === id);
 	if (!look || !stands(look)) return undefined;
-	const choice = look.choices?.find((one) => one.value === value);
-	// A look that wants his own words takes any he gives; one that
-	// doesn't takes only a choice it offers.
-	const words = value.trim();
-	if (!choice && (look.wants?.words !== true || words === "")) return undefined;
-	const answer = choice?.value ?? words;
-	return markResolvedLook(
-		dir,
-		look,
-		`answered: ${choice?.label ?? words}`,
-		now,
-		{ answer, answeredAt: now.toISOString() },
-	);
+	const answeredAt = now.toISOString();
+	if ("value" in given) {
+		const choice = look.choices?.find((one) => one.value === given.value);
+		if (!choice) return undefined;
+		return markResolvedLook(dir, look, `answered: ${choice.label}`, now, {
+			answer: choice.value,
+			answeredAt,
+		});
+	}
+	const words = given.other.trim().slice(0, ANSWER_CHARACTERS);
+	if (look.wants?.words !== true || words === "") return undefined;
+	return markResolvedLook(dir, look, `answered: ${words}`, now, {
+		answer: words,
+		answeredAt,
+		answeredInWords: true,
+	});
 }
 
 /** Write `look` back resolved, `how`, with what else it now says. */
@@ -778,7 +797,7 @@ function markResolvedLook(
 	look: Look,
 	how: LookResolution,
 	now: Date,
-	also: Partial<Pick<Look, "answer" | "answeredAt">> = {},
+	also: Partial<Pick<Look, "answer" | "answeredAt" | "answeredInWords">> = {},
 ): Look {
 	const resolved: Look = {
 		...look,

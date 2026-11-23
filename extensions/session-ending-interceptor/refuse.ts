@@ -150,11 +150,11 @@ export function saidByAsk(input: unknown): Said {
 }
 
 /**
- * What a `show_person` look says: its title, why, ask, happened, matters
- * and what follows each choice as prose, read for the form of an ask,
- * since a title can name a reboot it only explains, and its act and
- * choices as the ask itself, since each is a button he presses. Taking
- * a look back asks nothing, whatever it named.
+ * What a `show_person` look says: its title, why, ask, happened and
+ * matters as prose, read for the form of an ask, since a title can name
+ * a reboot it only explains, and its act, choices and what follows each
+ * choice as the ask itself, since pressing a choice is the yes to what
+ * follows it. Taking a look back asks nothing, whatever it named.
  */
 export function saidByLook(input: unknown): Said {
 	if (!isRecord(input) || input.withdraw === true) return NOTHING;
@@ -167,9 +167,8 @@ export function saidByLook(input: unknown): Said {
 			input.ask,
 			input.happened,
 			input.matters,
-			...follows,
 		]),
-		labels: texts([input.act, ...choices]),
+		labels: texts([input.act, ...choices, ...follows]),
 	};
 }
 

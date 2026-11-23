@@ -264,9 +264,7 @@ export function answerLookSteered(
 		(look.session === answering.session ||
 			(look.quest !== undefined && look.quest === answering.quest));
 	const answered =
-		ours && given !== undefined && "value" in given
-			? answerLook(looks, look.id, given.value)
-			: undefined;
+		ours && given !== undefined ? answerLook(looks, look.id, given) : undefined;
 	if (!answered) {
 		tell(LOOK_GONE);
 		return;
@@ -276,12 +274,15 @@ export function answerLookSteered(
 
 /** What the agent reads of the person's answer to a look. */
 export function lookAnswerText(look: Look, from?: string): string {
-	const picked = look.choices?.find((one) => one.value === look.answer);
-	const label = picked?.label ?? look.answer;
+	const picked =
+		look.answeredInWords === true
+			? undefined
+			: look.choices?.find((one) => one.value === look.answer);
 	const asked = look.ask ? ` It asked: ${look.ask}` : "";
+	// Quoted, so his words end where the note's own go on.
 	const said = picked
-		? `They picked: ${label}.`
-		: `They answered in their own words: ${label}`;
+		? `They picked: ${picked.label}.`
+		: `They answered in their own words: ${JSON.stringify(look.answer ?? "")}.`;
 	const promised = picked?.follows
 		? ` The look told them what follows: ${picked.follows}`
 		: "";

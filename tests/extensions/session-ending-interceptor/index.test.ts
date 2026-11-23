@@ -440,6 +440,21 @@ describe("a show_person call", () => {
 
 		expect(verdict).toBeUndefined();
 	});
+
+	// What happened and why it matters are prose, read as the why is,
+	// so a reboot they only mention asks nothing of him.
+	it("goes ahead when its second form only mentions a reboot that happened", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The mic",
+			happened: "The mic stopped after the last reboot.",
+			matters: "Calls lose your voice until a restart of the sound service.",
+			act: "Read the Notes",
+		});
+
+		expect(verdict, "prose that only mentions a reboot").toBeUndefined();
+	});
 });
 
 describe("another tool's call", () => {

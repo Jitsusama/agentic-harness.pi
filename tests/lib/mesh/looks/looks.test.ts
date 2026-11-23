@@ -12,6 +12,7 @@ import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	ANSWER_CHARACTERS,
 	answerLook,
 	expireLooks,
 	type LookState,
@@ -134,7 +135,7 @@ describe("the person's look list", () => {
 			new Date("2026-11-01T09:00:00Z"),
 		);
 
-		answerLook(dir, answered.id, "Yes");
+		answerLook(dir, answered.id, { value: "Yes" });
 		resolveLooks(dir, "https://github.com/Jitsusama/core.nix/pull/1", "merged");
 		expect(expireLooks(dir, () => true).map((look) => look.id)).toEqual([
 			lapsed.id,
@@ -307,6 +308,9 @@ describe("a look written for the person", () => {
 	it.each([
 		["a mesh message's id", { why: "As settled in [4a4ae257], it restarts." }],
 		["a quest's id", { title: "QEST-20261025-85PKB2's restart" }],
+		// All digits at its end, so no session address hides in it and
+		// only the quest-id pattern reads it.
+		["a quest's id alone", { title: "QEST-20261025-123456's restart" }],
 		["a session's address", { why: "WCJQSG wants it read." }],
 		["code", { ask: "Run `/harness restart` once." }],
 		["a path", { why: "The design is in ~/src/core.nix/design.md." }],
@@ -315,6 +319,13 @@ describe("a look written for the person", () => {
 		expect(refusalOf({ ...pr, ...part }), JSON.stringify(part)).toMatch(
 			/can't place|name no path/,
 		);
+	});
+
+	it("names a quest's id as one", () => {
+		expect(
+			refusalOf({ ...pr, title: "QEST-20261025-123456's restart" }),
+			"read as a quest's id, not an address",
+		).toMatch(/a quest's or document's id/);
 	});
 
 	it("refuses a why past a sentence and an ask past a line", () => {
@@ -427,10 +438,6 @@ describe("a look written for the person", () => {
 	});
 });
 
-// The looks clock asks this each minute, so a look outlives no quest
-// that ended in another session.
-// 2RCBOJ, 12 November: most looks ask for a word back, and the only way
-// to give it was to find the session, which may have moved on.
 // Joel, 22 November: the look list is inscrutable. QGB4ON's For You
 // lays a look out by what happened, why it matters, and what he presses.
 describe("a look in its second form", () => {
@@ -508,14 +515,30 @@ describe("a look in its second form", () => {
 	// A parked question's prompt can open "Just look" and still ask, so
 	// only a second form's act is read for seeing alone.
 	it("reads a first form's ask that opens 'Just look' as asking", () => {
+		// Words only the act's pattern would read as seeing alone.
 		expect(
-			pointAt(
-				dir,
-				{ ...pr, ask: "Just look at the bar and say whether it reads right" },
-				who,
-			).asks,
-			"a first form's ask",
+			pointAt(dir, { ...pr, ask: "Just look" }, who).asks,
+			"a first form's ask, never read as an act",
 		).toBe(true);
+	});
+
+	it("reads an act of Just See with its stop as seeing alone", () => {
+		for (const act of ["Just See.", "Just See!"]) {
+			expect(
+				pointAt(
+					dir,
+					{
+						...bar,
+						target: `${bar.target}/${act === "Just See." ? "files" : "checks"}`,
+						act,
+						choices: [],
+						follows: [],
+					},
+					who,
+				).asks,
+				act,
+			).toBe(false);
+		}
 	});
 
 	it("takes a happened and matters at their limits, past the first form's", () => {
@@ -561,6 +584,11 @@ describe("a look in its second form", () => {
 		["no matters", { matters: "" }, /why what happened matters/],
 		["no act", { act: "" }, /its act/],
 		["a happened past 100", { happened: "a".repeat(101) }, /at most 100/],
+		[
+			"a happened past a sentence",
+			{ happened: "Done. It works." },
+			/one plain sentence/,
+		],
 		["a matters past 200", { matters: "a".repeat(201) }, /at most 200/],
 		["an act past 4 words", { act: "Try the Bar Right Now" }, /a button/],
 		["an act not in Title Case", { act: "try it" }, /a button/],
@@ -611,6 +639,10 @@ describe("a look in its second form", () => {
 	});
 });
 
+// The looks clock asks this each minute, so a look outlives no quest
+// that ended in another session.
+// 2RCBOJ, 12 November: most looks ask for a word back, and the only way
+// to give it was to find the session, which may have moved on.
 describe("a look answered where the person is", () => {
 	const asking = {
 		...pr,
@@ -628,7 +660,7 @@ describe("a look answered where the person is", () => {
 		const answered = answerLook(
 			dir,
 			look.id,
-			"Not yet",
+			{ value: "Not yet" },
 			new Date("2026-11-12T07:00:00Z"),
 		);
 
@@ -643,10 +675,23 @@ describe("a look answered where the person is", () => {
 
 	it("answers nothing it doesn't offer, nor a look no longer waiting", () => {
 		const look = pointAt(dir, asking, who);
-		expect(answerLook(dir, look.id, "Maybe"), "no such choice").toBeUndefined();
-		expect(answerLook(dir, "0000", "Posted"), "no such look").toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { value: "Maybe" }),
+			"no such choice",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { other: "Posted" }),
+			"a choice's words given as his own, to a look wanting none",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, "0000", { value: "Posted" }),
+			"no such look",
+		).toBeUndefined();
 		withdrawLook(dir, who, look.kind, look.target);
-		expect(answerLook(dir, look.id, "Posted"), "taken back").toBeUndefined();
+		expect(
+			answerLook(dir, look.id, { value: "Posted" }),
+			"taken back",
+		).toBeUndefined();
 		expect(looksIn(dir)[0]?.how, "left as taken back").toBe("taken back");
 	});
 
@@ -666,19 +711,56 @@ describe("a look answered where the person is", () => {
 		);
 		const picky = pointAt(dir, { ...asking, target: `${pr.target}9` }, who);
 
-		expect(answerLook(dir, wordy.id, "  "), "no words").toBeUndefined();
 		expect(
-			answerLook(dir, picky.id, "the darker one"),
+			answerLook(dir, wordy.id, { other: "  " }),
+			"no words",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, wordy.id, { value: "the darker one" }),
+			"words sent as a pick, which the look doesn't offer",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, picky.id, { other: "the darker one" }),
 			"words to a look that offers only choices",
 		).toBeUndefined();
 		expect(
-			answerLook(dir, wordy.id, " the darker one "),
+			answerLook(dir, wordy.id, { other: " the darker one " }),
 			"his words",
 		).toMatchObject({
 			state: "resolved",
 			how: "answered: the darker one",
 			answer: "the darker one",
+			answeredInWords: true,
 		});
+	});
+
+	it("keeps no more of his words than a look holds", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const answered = answerLook(dir, wordy.id, {
+			other: "g".repeat(ANSWER_CHARACTERS + 50),
+		});
+		expect(answered?.answer?.length, "cut to what a look holds").toBe(
+			ANSWER_CHARACTERS,
+		);
+	});
+
+	it("refuses words asked in a look's first form, which can't keep them", () => {
+		expect(
+			refusalOf({ ...asking, words: true }),
+			"words with only why and ask",
+		).toMatch(/second form/u);
 	});
 
 	it("refuses choices past a row's room, repeated, or not his words", () => {
