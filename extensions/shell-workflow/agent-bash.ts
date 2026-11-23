@@ -12,8 +12,9 @@ import {
 import { hosted } from "../../lib/core/session/host.ts";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
+import { commandWrapFor } from "../../lib/internal/fence/fence-mac-command.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
-import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
+import type { Sandbox } from "../../lib/internal/sandbox/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
 import {
 	type SpawnerOptions,
@@ -124,9 +125,15 @@ export function agentBash(
 			const plain = withoutInteraction(fromConversation(context, session));
 			const offered = {
 				...plain,
-				env: guardedEnvironment(plain.env, sshGuard(), sandbox.kind),
+				// A Mac's strict, laid per command, reads no stand-in in the
+				// home either, so it goes without them as strict does.
+				env: guardedEnvironment(
+					plain.env,
+					sshGuard(),
+					sandbox.kind === "seatbelt" ? sandbox.asked : sandbox.kind,
+				),
 			};
-			const wrap = wrapFor(sandbox, offered, homedir());
+			const wrap = commandWrapFor(sandbox, offered, homedir());
 			return offCommandLine({
 				...offered,
 				command: placedCommand(offered.command, offered.cwd, wrap),

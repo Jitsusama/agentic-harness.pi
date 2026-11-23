@@ -49,6 +49,15 @@ import {
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 
+/**
+ * Prints, on one line, the arguments the command's shell was started
+ * with: from /proc, or with ps on a Mac, which has none. ps cuts its last
+ * column to a terminal's width unless told twice not to, which would hide
+ * a token past it.
+ */
+const SHELL_ARGUMENTS =
+	'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -ww -o args= -p $$; fi';
+
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
 	const repository = join(base, "repo/.git");
@@ -117,16 +126,23 @@ describe("what a session asks for", () => {
 		).toBe("refused");
 	});
 
-	const strictOnMac = (inside: boolean) =>
+	const onMac = (
+		asked: "strict" | "fence",
+		inside: boolean,
+		sandboxExec: string | undefined,
+		platform: NodeJS.Platform = "darwin",
+	) =>
 		sandboxFor(
-			{ PI_SANDBOX: "strict" },
-			"darwin",
+			{ PI_SANDBOX: asked },
+			platform,
 			found,
 			undefined,
 			undefined,
 			undefined,
 			() => inside,
+			() => sandboxExec,
 		);
+	const strictOnMac = (inside: boolean) => onMac("strict", inside, undefined);
 
 	it("runs a strict session's commands on a Mac as they are inside the sandbox pi runs in, saying so, since Landlock is Linux's", () => {
 		const mac = strictOnMac(true);
@@ -268,8 +284,42 @@ describe("what a session asks for", () => {
 		).toBe("ran kept");
 	});
 
-	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {
+	it("runs none of a strict session's commands on a Mac where nothing fences pi and sandbox-exec is missing, since a stranger's text would run as the person", () => {
 		expect(strictOnMac(false).kind).toBe("refused");
+	});
+
+	it("lays the fence asked for around each command on a Mac where nothing fences pi, so a bare pi runs its commands fenced rather than none at all", () => {
+		for (const asked of ["strict", "fence"] as const) {
+			const mac = onMac(asked, false, "/usr/bin/sandbox-exec");
+			expect(mac, `a bare Mac pi's ${asked} session laid no fence`).toEqual({
+				kind: "seatbelt",
+				asked,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				logger: "/bin/landrun",
+			});
+		}
+		expect(
+			onMac("strict", true, "/usr/bin/sandbox-exec").kind,
+			"a pi inside a sandbox laid a second profile, which macOS refuses",
+		).toBe("none");
+		expect(
+			onMac("strict", false, "/usr/bin/sandbox-exec", "freebsd").kind,
+			"a system with no seatbelt was handed one",
+		).toBe("refused");
+	});
+
+	it("runs nothing when the one wrap asked of a Mac's own fence isn't the one that lays it", () => {
+		const wrap = wrapFor(
+			onMac("strict", false, "/usr/bin/sandbox-exec"),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const ran = spawnSync("bash", ["-c", wrap?.("echo ran") ?? "echo ran"], {
+			encoding: "utf8",
+			env: { PATH: process.env.PATH },
+		});
+		expect(ran.stdout, "the command ran unfenced").not.toContain("ran");
+		expect(ran.status, "the refusal's status wasn't the fence's").toBe(126);
 	});
 
 	it("reads a name it doesn't know as the fence, saying so once", () => {
@@ -644,7 +694,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, github: () => token },
 			[
 				'echo "gh:$GH_TOKEN"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				SHELL_ARGUMENTS,
 				"printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill",
 				"printf 'protocol=https\\nhost=example.com\\n\\n' | git credential fill",
 			].join("; "),
@@ -654,6 +704,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`gh:${token}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(answer).toContain(
 			`protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}`,
@@ -679,7 +730,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
 			[
 				'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				SHELL_ARGUMENTS,
 				'ls -A "$CLOUDSDK_CONFIG"; echo listed',
 			].join("; "),
 			work,
@@ -690,6 +741,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`${token} a-lab-project ${settings}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(lines[2]).toBe("listed");
 		expect(statSync(settings).mode & 0o777).toBe(0o700);

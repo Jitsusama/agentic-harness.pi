@@ -118,7 +118,7 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
-import { insideMacSandbox } from "./mac-sandbox.ts";
+import { insideMacSandbox, macSandboxExec } from "./mac-sandbox.ts";
 import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
@@ -408,6 +408,18 @@ export type Sandbox =
 			/** Drawn for a language server, with nothing that acts as the person. */
 			readonly served?: boolean;
 	  })
+	| (Logged & {
+			readonly kind: "seatbelt";
+			/**
+			 * The fence asked for, which a Mac with no sandbox around pi lays
+			 * around each command as `pi-fence` would (`fence-mac-command.ts`).
+			 */
+			readonly asked: "fence" | "strict";
+			/** The sandbox-exec that lays it. */
+			readonly sandboxExec: string;
+			/** Said once in the session, when the fence wasn't what it asked. */
+			readonly note?: string;
+	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
 /**
@@ -528,9 +540,16 @@ function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
 	inside: () => boolean,
+	seatbelt: () => string | undefined,
 ): Sandbox {
 	if (platform !== "linux") {
-		return offLinux("fence", "bubblewrap and Landlock", inside);
+		return offLinux(
+			"fence",
+			"bubblewrap and Landlock",
+			platform,
+			inside,
+			seatbelt,
+		);
 	}
 	const bwrap = find("bwrap");
 	const landrun = find("landrun");
@@ -574,17 +593,24 @@ export function sandboxFor(
 	gcloud: CloudGrantSource = sessionGrants,
 	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
 	inside: () => boolean = insideMacSandbox,
+	seatbelt: () => string | undefined = macSandboxExec,
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
 	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
 	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const asked = askedFor(name, platform, find, github, gcloud, inside);
+	const asked = askedFor(name, platform, find, github, gcloud, {
+		inside,
+		seatbelt,
+	});
 	// A refusal carries the stray value's note too, the way back to a
 	// fence that runs.
 	const sandbox =
-		note && (asked.kind === "fence" || asked.kind === "none")
+		note &&
+		(asked.kind === "fence" ||
+			asked.kind === "none" ||
+			asked.kind === "seatbelt")
 			? { ...asked, note: asked.note ? `${note} ${asked.note}` : note }
 			: note && asked.kind === "refused"
 				? { ...asked, reason: `${note} ${asked.reason}` }
@@ -599,10 +625,17 @@ function askedFor(
 	find: (program: string) => string | undefined,
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
-	inside: () => boolean,
+	mac: {
+		readonly inside: () => boolean;
+		readonly seatbelt: () => string | undefined;
+	},
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find, inside);
-	if (platform !== "linux") return offLinux("strict", "Landlock", inside);
+	if (asked === FENCE) {
+		return fenceFor(platform, find, mac.inside, mac.seatbelt);
+	}
+	if (platform !== "linux") {
+		return offLinux("strict", "Landlock", platform, mac.inside, mac.seatbelt);
+	}
 	const landrun = find("landrun");
 	if (!landrun) {
 		return {
@@ -626,19 +659,29 @@ function askedFor(
  * own environment, as a Mac lets one of the same user do. The host
  * is still told the fence asked for, so the node, which reads the
  * sandbox pi runs in, judges where the session may go. Where pi finds
- * no sandbox around it, no command runs, so a stranger's text never
- * runs as the person (`mac-sandbox.ts`).
+ * no sandbox around it, each command runs in the fence's own profile,
+ * laid by sandbox-exec as `pi-fence` lays it (`fence-mac-command.ts`), and
+ * where sandbox-exec is missing too, no command runs, so a stranger's
+ * text never runs as the person (`mac-sandbox.ts`).
  */
 function offLinux(
 	kind: "fence" | "strict",
 	needs: string,
+	platform: NodeJS.Platform,
 	inside: () => boolean,
+	seatbelt: () => string | undefined,
 ): Sandbox {
 	const asked = kind === "fence" ? "agent fence" : "strict fence";
 	if (!inside()) {
+		// macOS lays no profile inside another, so only a pi no sandbox
+		// holds lays its own around each command; one that couldn't tell
+		// lays it too, and a command whose profile doesn't apply is
+		// refused (`seatbeltText`).
+		const sandboxExec = platform === "darwin" ? seatbelt() : undefined;
+		if (sandboxExec) return { kind: "seatbelt", asked: kind, sandboxExec };
 		return {
 			kind: "refused",
-			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, or sandbox-exec couldn't tell, as a busy Mac may cause (a reload checks again), so no command runs unfenced.`,
+			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, nor sandbox-exec to lay the fence's own profile around each command, so no command runs unfenced.`,
 		};
 	}
 	return {
@@ -697,6 +740,13 @@ export function wrapFor(
 			return sandbox.asked === "strict" ? heldBackCommand : undefined;
 		case "refused":
 			return () => refused(sandbox.reason);
+		// Laid per command by `commandWrapFor` (fence-mac-command.ts), which this
+		// module can't import; asked here, nothing runs rather than unfenced.
+		case "seatbelt":
+			return () =>
+				refused(
+					"this session's fence is laid around each command by its own profile, which this caller didn't lay, so nothing runs",
+				);
 		case "fence": {
 			const session = place.env.PI_SESSION_ID;
 			const stopped = plantStopped(session);
