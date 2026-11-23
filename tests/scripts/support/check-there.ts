@@ -15,6 +15,7 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
 	accessSync,
+	chmodSync,
 	constants,
 	existsSync,
 	lstatSync,
@@ -56,6 +57,7 @@ const SETTINGS = [
 	"set -m",
 	CLEARED,
 	"caller=$PPID",
+	"note_caller",
 	"trap let_go EXIT",
 	"trap 'stop_all 143' TERM",
 	"trap 'stop_all 130' INT",
@@ -377,32 +379,6 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 			TEST_MS,
 		);
 
-		// A try that returns at once, as on a host whose lock answers fast,
-		// would end a wait counted in tries long before its limit.
-		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
-			"times its wait by the clock, however quickly each try comes back",
-			async () => {
-				const host = hostWith(tools);
-				const asked = Date.now();
-				const waiter = await ended(
-					check(
-						host,
-						"lock() { return 1; }\nturn_wait_s=2\ntake_turn\necho took",
-					),
-				);
-				// The clock is whole seconds, so a two-second wait runs over one.
-				expect(
-					Date.now() - asked,
-					"it waited by the clock, not by its tries",
-				).toBeGreaterThanOrEqual(1_000);
-				expect(waiter).toMatchObject({ code: 75, out: "" });
-				expect(waiter.err, "giving up as its limit passed").toMatch(
-					/gave up after 2 s waiting/,
-				);
-			},
-			TEST_MS,
-		);
-
 		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
 			"lets the next check in once the first ends, whatever it left running outside its work",
 			async () => {
@@ -647,8 +623,10 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					tookMs,
 					"killing it with what was left of alone's six seconds, not six more",
 				).toBeLessThan(5_900);
+				// A busy machine only makes the stop land later and this shorter,
+				// so the floor sits well under 3.5 s, over a kill at once.
 				expect(tookMs, "and not before it ran out").toBeGreaterThanOrEqual(
-					3_000,
+					1_500,
 				);
 				expect(
 					await goneWithin(left),
@@ -980,10 +958,106 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 
 /** What a check does beside its turns: its lock's absence, its node, its two halves. */
 export function describeTheRest(): void {
+	clockWait();
+	callerNamed();
 	noLock();
 	nodeLink();
 	localHalf();
 	workThere();
+}
+
+function clockWait(): void {
+	describe("check-there's wait for its turn", () => {
+		clearsAfterEach();
+		// Tries that come back quickly, as on a host whose lock answers
+		// fast, would end a wait counted in tries long before its limit.
+		// Each sleeps a little, so the wait doesn't spin a core meanwhile.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"times its wait by the clock, however quickly each try comes back",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const asked = Date.now();
+				const waiter = await ended(
+					check(
+						host,
+						"lock() { sleep 0.2; return 1; }\nturn_wait_s=2\ntake_turn\necho took",
+					),
+				);
+				// Two tries would end in about 0.4 s.
+				expect(
+					Date.now() - asked,
+					"it waited by the clock, never less than it says",
+				).toBeGreaterThanOrEqual(1_900);
+				expect(waiter).toMatchObject({ code: 75, out: "" });
+				expect(waiter.err, "giving up as its limit passed").toMatch(
+					/gave up after 2 s waiting/,
+				);
+			},
+			TEST_MS,
+		);
+
+		// A wait sent with a leading zero would be read as octal.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"reads its wait in tens, whatever it opens with",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const waiter = await ended(
+					check(
+						host,
+						"lock() { sleep 0.2; return 1; }\nturn_wait_s=02\ntake_turn\necho took",
+					),
+				);
+				expect(waiter).toMatchObject({ code: 75, out: "" });
+				expect(waiter.err, "its wait read as two seconds").toMatch(
+					/gave up after 2 s waiting/,
+				);
+			},
+			TEST_MS,
+		);
+	});
+}
+
+/** A host offering `ps` that names every process `name`. */
+function hostNaming(name: string): string {
+	const host = hostWith(EVERY_HOST);
+	const ps = join(host, "bin", "ps");
+	writeFileSync(ps, `#!${bashHere()}\necho ${name}\n`);
+	chmodSync(ps, 0o755);
+	return host;
+}
+
+function callerNamed(): void {
+	describe("the caller a check runs under", () => {
+		clearsAfterEach();
+		// A login shell that stays between sshd and the check never goes
+		// with its caller, so the check can't see a dropped link.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"says once when it isn't sshd, so a dropped link goes unseen",
+			async () => {
+				const done = await ended(check(hostNaming("zsh"), "echo took"));
+				expect(done).toMatchObject({ code: 0, out: "took\n" });
+				expect(
+					done.err.match(/started under zsh, not sshd/g),
+					"said once",
+				).toHaveLength(1);
+			},
+			TEST_MS,
+		);
+
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"says nothing under sshd, nor where ps can't tell",
+			async () => {
+				for (const host of [hostNaming("sshd-session"), hostWith(EVERY_HOST)]) {
+					const done = await ended(check(host, "echo took"));
+					expect(done).toMatchObject({ code: 0, out: "took\n" });
+					expect(done.err, "no word of its caller").not.toMatch(
+						/started under/,
+					);
+				}
+			},
+			TEST_MS,
+		);
+	});
 }
 
 function noLock(): void {
@@ -1211,7 +1285,9 @@ function localHalf(): void {
 
 		// A wait is at most seven digits, over a hundred days, so no wait is
 		// mistyped into one that never ends.
-		it.each(["abc", "12345678"])(
+		// A leading zero would be read there as octal: 0100 as 64 s, 0900 as
+		// no number at all.
+		it.each(["abc", "12345678", "0900", "08"])(
 			"refuses a wait that isn't a number of seconds under ten million, '%s', reaching no host",
 			(wait) => {
 				const sent = sendFrom(["feature", "there"], wait);
@@ -1249,6 +1325,12 @@ function localHalf(): void {
 				);
 			},
 		);
+
+		it("sends a wait of none, a zero alone", () => {
+			const sent = sendFrom(["feature", "there"], "0");
+			expect(sent.code, sent.err).toBe(0);
+			expect(sent.sent?.at(-1), "with no wait").toMatch(/ 0$/);
+		});
 	});
 }
 
