@@ -242,49 +242,88 @@ describe("arriving with a carried session", () => {
 		).toBe("");
 	});
 
-	it("holds the twin's stale view of origin to origin's own branches", async () => {
+	it("holds the twin's stale view of origin to origin's own branches, keeping a behind one's commit aside", async () => {
 		const home = folder(made, "arriving");
 		const twinAt = join(home, "src", "twin");
 		const elsewhere = join(folder(made, "elsewhere"), "src");
-		const { from, head } = await carried(undefined, {}, async (tree) => {
-			const url = await git(tree, "remote", "get-url", "origin");
-			await git(tree, "push", "-q", "origin", "main:gone", "main:moved");
-			await cloneAt(url, twinAt);
-			await git(url, "branch", "-q", "-D", "gone");
-			const other = await cloneAt(url, elsewhere);
-			await git(other, "checkout", "-q", "moved");
-			await commit(other, "moved.txt", "moved on, never here\n");
-			await git(other, "push", "-q", "origin", "moved");
-		});
+		const was: Record<string, string> = {};
+		const { origin, from, head } = await carried(
+			undefined,
+			{},
+			async (tree) => {
+				const url = await git(tree, "remote", "get-url", "origin");
+				await git(tree, "push", "-q", "origin", "main:gone", "main:moved");
+				await git(tree, "push", "-q", "origin", "main:same", "main:caught");
+				const twin = await cloneAt(url, twinAt);
+				await git(url, "branch", "-q", "-D", "gone");
+				const other = await cloneAt(url, elsewhere);
+				for (const branch of ["main", "moved"]) {
+					await git(other, "checkout", "-q", branch);
+					was[branch] = await git(other, "rev-parse", "HEAD");
+					await commit(other, `${branch}.txt`, "moved on, never here\n");
+					await git(other, "push", "-q", "origin", branch);
+				}
+				// Pushed from the twin by its URL, so its view still has caught
+				// where it was though the commit origin moved to is here.
+				await git(twin, "checkout", "-q", "-b", "local");
+				was.caught = await commit(twin, "caught.txt", "here already\n");
+				await git(twin, "push", "-q", url, "local:caught");
+			},
+		);
 		const tree = join(home, "src", "app");
 
 		const { whole } = await arriveAt(home, from);
 
 		expect(whole, "it arrived whole").toBe(true);
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
-		const origin = await git(tree, "remote", "get-url", "origin");
-		const theirs = await git(
-			origin,
-			"for-each-ref",
-			"--format=%(refname:lstrip=2) %(objectname)",
-			"refs/heads/",
-		);
-		const ours = await git(
-			tree,
-			"for-each-ref",
-			"--format=%(refname:lstrip=3) %(objectname)",
-			"refs/remotes/origin/",
-		);
+		const at = (ref: string) => git(origin, "rev-parse", ref);
 		expect(
-			ours,
-			"a branch origin deleted doesn't stay as origin's",
-		).not.toMatch(/^gone /m);
-		for (const line of ours.split("\n").filter(Boolean)) {
-			expect(
-				theirs.split("\n"),
-				"each origin branch here is where origin has it",
-			).toContain(line);
-		}
+			await git(
+				tree,
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				"refs/remotes/",
+				"refs/carry/",
+			),
+			"gone goes; same stays; caught follows origin; main and moved, past what's here, step aside at the twin's commit",
+		).toBe(
+			[
+				`refs/carry/twin/main ${was.main}`,
+				`refs/carry/twin/moved ${was.moved}`,
+				`refs/remotes/origin/caught ${await at("caught")}`,
+				`refs/remotes/origin/same ${await at("same")}`,
+			].join("\n"),
+		);
+		expect(await at("caught")).toBe(was.caught);
+	});
+
+	it("claims nothing of an origin it can't list, keeping every branch's commit aside", async () => {
+		const home = folder(made, "arriving");
+		const twinAt = join(home, "src", "twin");
+		const { origin, from, head } = await carried(
+			undefined,
+			{},
+			async (tree) => {
+				await cloneAt(await git(tree, "remote", "get-url", "origin"), twinAt);
+			},
+		);
+		const main = await git(origin, "rev-parse", "main");
+		renameSync(origin, `${origin}.away`);
+		const tree = join(home, "src", "app");
+
+		const { whole } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole, needing nothing of origin").toBe(true);
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
+		expect(
+			await git(
+				tree,
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				"refs/remotes/",
+				"refs/carry/",
+			),
+		).toBe(`refs/carry/twin/main ${main}`);
 	});
 
 	it("lends a bare twin's own branches as origin's only where origin agrees", async () => {
@@ -294,6 +333,17 @@ describe("arriving with a carried session", () => {
 			const url = await git(tree, "remote", "get-url", "origin");
 			await git(home, "clone", "-q", "--bare", url, twinAt);
 			await git(twinAt, "branch", "mine", "main");
+			// Its own main runs a commit past origin's.
+			const past = await git(
+				twinAt,
+				"commit-tree",
+				"main^{tree}",
+				"-p",
+				"main",
+				"-m",
+				"the twin's alone",
+			);
+			await git(twinAt, "update-ref", "refs/heads/main", past);
 		});
 		const tree = join(home, "src", "app");
 		expect(
@@ -306,9 +356,17 @@ describe("arriving with a carried session", () => {
 		expect(whole, "it arrived whole").toBe(true);
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
 		expect(
-			await git(tree, "for-each-ref", "--format=%(refname)", "refs/remotes/"),
-			"origin's main comes, for fetches to say they have it; the twin's own doesn't",
-		).toBe("refs/remotes/origin/main");
+			await git(
+				tree,
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				"refs/remotes/",
+				"refs/carry/",
+			),
+			"origin's main comes at origin's commit, for fetches to say they have it; the twin's own doesn't",
+		).toBe(
+			`refs/remotes/origin/main ${await git(await git(tree, "remote", "get-url", "origin"), "rev-parse", "main")}`,
+		);
 	});
 
 	it("stands a tree it clones in the sparse checkout it left in", async () => {

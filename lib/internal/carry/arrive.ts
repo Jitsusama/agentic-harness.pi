@@ -537,18 +537,19 @@ function treeGit(exec: Exec, path: string): TreeGit {
 			const result = await run(...args);
 			return result.code === 0 ? result.stdout.trim() : undefined;
 		},
-		updateRefs: async (lines) => {
+		fed: async (lines, ...args) => {
 			// Exec gives no stdin, so the lines go through a file sh reads in.
-			const folder = mkdtempSync(join(tmpdir(), "carry-refs-"));
-			const file = join(folder, "refs");
+			const folder = mkdtempSync(join(tmpdir(), "carry-git-"));
+			const file = join(folder, "in");
 			try {
 				writeFileSync(file, `${lines.join("\n")}\n`);
 				return await exec("sh", [
 					"-c",
-					'exec git -C "$1" update-ref --stdin < "$2"',
+					'f=$1 p=$2; shift 2; exec git -C "$p" "$@" < "$f"',
 					"sh",
-					path,
 					file,
+					path,
+					...args,
 				]);
 			} finally {
 				rmSync(folder, { recursive: true, force: true });
