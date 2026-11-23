@@ -402,9 +402,14 @@ describe("a held conversation and its whole log", () => {
 
 	it("keeps the spend when the kept entry is itself a costed answer", () => {
 		const file = compactedLog({ keepFrom: "assistant" });
-		const whole = spentOnBranch(SessionManager.open(file).getBranch());
+		const opened = SessionManager.open(file);
+		const whole = spentOnBranch(opened.getBranch());
 		const held = hold(file);
-		expect(texts(held.getEntries())).not.toContain("kept one");
+		// Its user message is held too, so a fork from it forks as pi's does;
+		// the context still starts at the answer.
+		expect(texts(held.getEntries())).toContain("kept one");
+		expect(texts(held.getEntries())).not.toContain("early one");
+		expect(held.buildSessionContext()).toEqual(opened.buildSessionContext());
 		expect(spentOnBranch(held.getBranch())).toBeCloseTo(whole);
 		expect(whole).toBeCloseTo(4.5);
 	});

@@ -341,7 +341,8 @@ its log go as it ends. A park keeps it; a close, a stop for a restart,
 a failed replacement and a drop while parked let it go.
 kept-history.ts has a conversation pi opens from a compacted log hold
 only what a rollover would keep of it: the entries from the last
-compaction's first kept entry on, and the state from before it. A log
+compaction's first kept entry on, the state from before it, and any
+user messages right before it, since pi forks from one at its parent. A log
 of 98.6 MB held 142 MB of heap whole, against 30 MB for that view
 (126 MB against 14 over a bare session's). The file and session id
 stay as they are, so the roster, socket, store and mesh address do
@@ -351,10 +352,13 @@ on disk, so session_recall, the spend total and the compaction
 trigger read as before, and compaction quotes read back what they need
 from the file; usage entries,
 never written either, carry their tokens and cost for pi's footer and
-/session; and every id in the file stays taken. The tree, a fork, a
-lookup of an entry left on disk, a branch to one from before the last
-compaction and a rewrite of the file read the whole log back first,
-each said in the journal; a switch to another log lets the view go. It
+/session; and every id in the file stays taken. The tree, a lookup of
+an entry left on disk, a branch to one from before the last compaction,
+a branch into a new file and a rewrite of the file read the whole log
+back first, each said in the journal; a switch to another log lets the
+view go. A /fork from a message left on disk therefore reads the log
+twice, here and in pi's own open of it, where a whole open reads it
+once. It
 holds on a resume, a wake, an adoption and a replacement by an older
 log, and leaves pi's full open alone when anything fails or pi's
 privates aren't what it reads.
@@ -363,7 +367,8 @@ messages a held log left on disk: /session's message counts add the
 ones the view counted as it held, and /fork's list is the text of every
 user message the log held then, kept in the order pi lists them from a
 whole open, with those sent since after it. Neither reads the log
-again, so /fork never holds up the host. It wraps the session instance
+again, so listing what /fork offers never holds up the host; the fork
+itself opens the log afresh, as pi's does. It wraps the session instance
 only, and answers as pi does once the view lets go.
 quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
