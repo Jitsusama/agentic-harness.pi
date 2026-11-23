@@ -176,7 +176,8 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 	});
 
 	it("keeps what a session is owed when it starts again on the same manager", async () => {
-		const one = session();
+		// One extension, so no other listener keeps the screen owed for it.
+		const one = extensionRunner(keeping("Slack"), process.cwd());
 		const elsewhere = session();
 		elsewhere.runner.setUIContext(screen().ui, "tui");
 		await Promise.all([one.start(), elsewhere.start()]);
