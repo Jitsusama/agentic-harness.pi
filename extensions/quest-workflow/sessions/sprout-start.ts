@@ -496,10 +496,13 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * ref: up to three parts of a path name an owner, a repository or one
  * of its tabs (?tab=readme-ov-file, /pulls, /milestones, /settings), an
  * organisation's tabs (/orgs/o/repositories) or one of GitHub's own
- * pages (/topics/rust, /search); deeper, a branch or folder (/tree) and
- * a branch's history (/commits/main) are places too. One advisory
- * (/advisories/GHSA-...) is the work, and so is a file (/blob), often a
- * spec or a line.
+ * pages (/topics/rust, /search), but for what GitHub keeps of one
+ * person's (GITHUB_ITEMS). Deeper, a page is the work only where its
+ * tab names a piece of it (gitHubWork), and else a place: a folder
+ * (/tree), a label's list (/labels/bug), a setting or a team. One
+ * advisory (/advisories/GHSA-...) is the work. A page read wrongly as a
+ * place asks the person for the work, which costs less than one read
+ * wrongly as the work, filling a quest from a list.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
 	const url = seed.link ? webAddress(seed.link) : undefined;
@@ -511,29 +514,73 @@ function linkIsPlace(seed: SproutSeed): boolean {
 	const read = pageRead(seed);
 	if (read) return PLACES.has(read.ref.type);
 	if (!onGitHub) return false;
-	return (
-		path.length <= GITHUB_PLACE_DEPTH ||
-		GITHUB_PLACES.has(path[GITHUB_PLACE_DEPTH - 1] ?? "")
-	);
+	if (GITHUB_ITEMS.has(path[0] ?? "")) return path.length === 1;
+	return path.length <= GITHUB_PLACE_DEPTH || !gitHubWork(path);
+}
+
+/**
+ * Whether a GitHub path past GITHUB_PLACE_DEPTH names a piece of work by
+ * its tab: a file, a commit, a comparison, a release or a wiki page
+ * whatever follows; a pull request, an issue, a discussion, a milestone
+ * or a project by its number; one advisory under /security, one run
+ * under /actions, never their lists.
+ */
+function gitHubWork(path: readonly string[]): boolean {
+	const tab = path[GITHUB_TAB] ?? "";
+	const item = path[GITHUB_TAB + 1] ?? "";
+	if (GITHUB_WORK_TABS.has(tab)) return true;
+	if (GITHUB_NUMBERED_TABS.has(tab)) return /^\d+$/u.test(item);
+	return GITHUB_WORK_UNDER.get(tab) === item && path.length > GITHUB_TAB + 2;
 }
 
 /** GitHub's advisories, each of which (/advisories/GHSA-...) is the work. */
 const GITHUB_ADVISORIES = "advisories";
 
 /**
+ * What GitHub keeps of one person's under its own first part, each the
+ * work: an upload (/user-attachments/assets/...), often the report
+ * itself, and a Copilot conversation (/copilot/c/...).
+ */
+const GITHUB_ITEMS: ReadonlySet<string> = new Set([
+	"user-attachments",
+	"copilot",
+]);
+
+/**
  * The most parts of a GitHub path naming a place whatever they are: an
- * owner, a repository and one of its tabs. Deeper, one in a list
- * (/pull/9, /issues/4) is read as its ref, and a file or a commit is
- * the work.
+ * owner, a repository and one of its tabs.
  */
 const GITHUB_PLACE_DEPTH = 3;
 
 /**
- * Where in a GitHub repository its own code is, a folder or a branch's
- * history (/commits/main), never a piece of work; one commit (/commit/)
- * is the work.
+ * Where a GitHub path names its tab: after an owner and a repository, or
+ * after /orgs or /users and their name.
  */
-const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "commits"]);
+const GITHUB_TAB = 2;
+
+/** GitHub's tabs whose every page is a piece of work. */
+const GITHUB_WORK_TABS: ReadonlySet<string> = new Set([
+	"blob",
+	"commit",
+	"compare",
+	"releases",
+	"wiki",
+]);
+
+/** GitHub's tabs whose numbered pages are each a piece of work. */
+const GITHUB_NUMBERED_TABS: ReadonlySet<string> = new Set([
+	"pull",
+	"issues",
+	"discussions",
+	"milestone",
+	"projects",
+]);
+
+/** GitHub's tabs holding a piece of work one part below them. */
+const GITHUB_WORK_UNDER: ReadonlyMap<string, string> = new Map([
+	["security", "advisories"],
+	["actions", "runs"],
+]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread

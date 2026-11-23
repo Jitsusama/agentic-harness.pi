@@ -1270,6 +1270,50 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("reads a deeper GitHub page as the work only where its tab names a piece of it", async () => {
+		for (const [n, link] of [
+			"https://github.com/o/repo/compare/main...topic",
+			"https://github.com/o/repo/releases/tag/v1.2.0",
+			"https://github.com/o/repo/wiki/Design",
+			"https://github.com/o/repo/security/advisories/GHSA-abcd-efgh-ijkl",
+			"https://github.com/o/repo/actions/runs/123",
+			"https://github.com/orgs/acme/discussions/5",
+			"https://github.com/users/someone/projects/1",
+			// What GitHub keeps of one person's: an upload, a conversation.
+			"https://github.com/user-attachments/assets/0f0e-77aa",
+			"https://github.com/copilot/c/1234-abcd",
+		].entries()) {
+			const deep = await start(
+				{ link, id: `SW${n}` },
+				{ sessionId: `sess-work-tab-${n}` },
+			);
+			expect(deep.words, link).not.toMatch(/is where the work happens/u);
+			expect(deep.words, link).toMatch(/fill the quest's Summary/u);
+		}
+	});
+
+	it("reads a deeper GitHub page whose tab names no piece of work as a place", async () => {
+		for (const [n, link] of [
+			// A filter, a setting, a team, a workflow, a list of advisories.
+			"https://github.com/o/repo/labels/bug",
+			"https://github.com/o/repo/settings/branches",
+			"https://github.com/orgs/acme/teams/core",
+			"https://github.com/o/repo/actions/workflows/ci.yml",
+			"https://github.com/o/repo/security/advisories",
+			"https://github.com/o/repo/discussions/categories/ideas",
+			"https://github.com/o/repo/issues/created_by/me",
+			"https://github.com/o/repo/tree/main/docs",
+		].entries()) {
+			const one = await start(
+				{ link, words: `deep list ${n}`, id: `SP${n}` },
+				{ sessionId: `sess-deep-list-${n}` },
+			);
+			expect(one.words, link).toMatch(
+				/is where the work happens, not the work/u,
+			);
+		}
+	});
+
 	it("reads a GitHub repository's own lists as a place, never the work", async () => {
 		for (const [n, link] of [
 			"https://github.com/o/repo/pulls",
@@ -1284,7 +1328,8 @@ describe("a sprouted session's start", () => {
 			// An organisation's tabs, which parseRef reads as no ref.
 			"https://github.com/orgs/acme/repositories",
 			"https://github.com/orgs/acme/people",
-			// GitHub's own pages, which list work but are none of it.
+			// GitHub's own pages, which list work but are none of it. Those of
+			// two parts parseRef reads as a repository, so a place by PLACES.
 			"https://github.com/topics/rust",
 			"https://github.com/sponsors/someone",
 			"https://github.com/search?q=lighthouse",
