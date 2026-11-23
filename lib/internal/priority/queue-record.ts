@@ -57,7 +57,11 @@ export interface QueueRecord {
 	};
 	/** How many more VMs and builds would get their turns now. */
 	readonly room: RoomLeft;
-	readonly quiet: null;
+	/**
+	 * What the queue keeps quiet for: `call` while the person is on a call
+	 * here, when only light work starts; null otherwise.
+	 */
+	readonly quiet: { readonly call: true } | null;
 	readonly jobs: readonly {
 		readonly id: string;
 		readonly class: Class;
@@ -160,7 +164,7 @@ export function queueRecord(
 			...(reading.uplink ? { uplink: reading.uplink } : {}),
 		},
 		room: roomLeft(jobs, reading, now, rules),
-		quiet: null,
+		quiet: reading.onCall === true ? { call: true } : null,
 		jobs: [
 			...jobs.filter((job) => job.started !== undefined),
 			...waiting,

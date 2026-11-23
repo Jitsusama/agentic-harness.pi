@@ -261,6 +261,15 @@ is a build, never a VM check.
   machine's figure alone says little of the person: at 21:27 on 7
   November it read 63% while app.slice read 0.3%, since CPU weights
   keep the person's programs first and agents wait on each other.
+- **While the person is on a call**: while `a-call-is-on --here` says
+  a call is on this machine, only the work that starts while memory is
+  short starts (light quick work and the sent runs above), and every
+  other job waits on `call`, whatever the machine's room. What runs
+  carries on, since a frozen job keeps its memory and its locks. Joel's
+  call at 09:39 on 23 November went choppy at a load of 119 to 127,
+  where a test call at 70 was clean. Each session asks at most every
+  15 s, running the probe where pi runs rather than among the jobs.
+  A probe that is missing, fails or takes over 5 s holds nothing.
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
   under 10%, and fewer than six VMs run. Past 10%, only work light here
@@ -435,7 +444,8 @@ is a build, never a VM check.
   whether heavy work would start now, not whether the machine can take
   another session; that is `machine.availableGib` and its `pressure`.
   Past 10% memory pressure it is the one heavy lane: one build while
-  the lane is open and nothing holds it, else none.
+  the lane is open and nothing holds it, else none; during a call,
+  none. `quiet` is `{ "call": true }` during a call, and else null.
   `machine.over` names the queue's own pressure limits the machine is
   at or past now, `memory` (only light work and one heavy job start,
   as `room` says) and `cpu` (no build starts

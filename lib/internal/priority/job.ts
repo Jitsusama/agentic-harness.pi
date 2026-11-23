@@ -185,6 +185,13 @@ export interface Room {
 	 * being lent, while none stands yet.
 	 */
 	readonly lendingSince?: number;
+	/**
+	 * Set while `a-call-is-on --here` says the person is on a call on this
+	 * machine, when no job but light work starts. Left out where no call
+	 * is on, and where the probe isn't there or can't say, so a broken
+	 * probe holds nothing.
+	 */
+	readonly onCall?: boolean;
 }
 
 /**
@@ -270,9 +277,11 @@ export const RULES: Rules = { buildsWaitForVmChecks: true };
  * beside one are at their limit; `order`, jobs ahead of it come first;
  * `planning`, its shell is asking Nix what it will build; `lending`, a
  * builder elsewhere is being lent and will take it; `busy`, the person's
- * programs wait on CPU, or a build waits for the machine's to fall.
+ * programs wait on CPU, or a build waits for the machine's to fall;
+ * `call`, the person is on a call here and it isn't light work.
  */
 export type WaitReason =
+	| "call"
 	| "busy"
 	| "memory"
 	| "vms"
