@@ -22,7 +22,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
 	EngineKey,
@@ -938,9 +938,16 @@ const scenarios: Record<string, Scenario> = {
 			}
 			const id = readEntry().sessionId;
 			const state = host.holds(id) ?? "gone";
+			// A park before it carried calls, whose record a close for good of
+			// one held but not running stops and forgets (#1981 F27).
+			const wake = host.env(id).snapshot()[WAKE_ENV];
+			if (wake === undefined) throw new Error(`${id} was given no wake file`);
+			const record = join(dirname(wake), "carried-calls.json");
+			mkdirSync(dirname(wake), { recursive: true });
+			writeFileSync(record, "[]\n");
 			// The host disposes only once it holds nothing.
 			await host.close(id);
-			return { refused, state };
+			return { refused, state, recordLeft: existsSync(record) };
 		},
 	},
 	/** A conversation's launch names a gateway key of its own, and the host has another. */

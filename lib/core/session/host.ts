@@ -84,6 +84,13 @@ export interface Host {
 	 */
 	viewed?(sessionId: string): boolean;
 	/**
+	 * Whether a park of this conversation carries its bash calls: the host
+	 * keeps a carried call alive through the stop, and wakes the
+	 * conversation once the last ends, so a call out need not keep it
+	 * awake. Asked at each look. A host that keeps none leaves it out.
+	 */
+	carries?(sessionId: string): boolean;
+	/**
 	 * Told the fence one of this conversation's tools holds it to, `by`
 	 * its shell, as its runner starts and before each command, or by the
 	 * guard on pi's file tools, as its runner starts and at each call. The

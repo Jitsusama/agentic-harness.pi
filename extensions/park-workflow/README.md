@@ -22,7 +22,16 @@ waking, so a key that woke it keeps it up.
 What must not be out:
 
 - no run, retry or queued continuation, and no messages waiting for it;
-- no background job running or waiting to say its result;
+- no background job running or waiting to say its result, except a
+  bash call in a background host on Linux that keeps carried calls
+  (`Host.carries`), for a conversation no window views: its park
+  carries the call as a host restart does, and the host wakes it once
+  the last one ends, passes its time limit or a day, waking it on any
+  doubt and asking again until it runs, after five minutes and then
+  twice as long each time up to an hour (22
+  November, 26 of 78 such conversations, 8.8 GB, were awake only for a
+  bash call); `PI_PARK_CARRY=off` on the host keeps such a call
+  holding its conversation awake, as before;
 - no prompt open for its person, and nothing typed and unsent;
 - no peer waiting on a hold it sent;
 - for an orchestrator, no session it leads at work (listening, busy

@@ -13,6 +13,13 @@
  * close, a carry, a move or a fill. The mesh's once-a-minute pass stays
  * as the backstop.
  *
+ * Where the host keeps a carried bash call alive (`carries`), a park
+ * carries the conversation's calls as a restart does, and the calls it
+ * carried wake it once the last one ends (parked-calls.ts). Their record
+ * outlives a wake that fails, going only once the conversation runs
+ * (`ran`); one that can't be written wakes it as soon as it parks, and
+ * a close for good stops the calls, which nobody would take up.
+ *
  * While the host drains for a restart (`holding`), a wake through the
  * file or a steer is held: the file stays on disk and the steer in its
  * inbox, so a conversation parked to let the host restart stays parked.
@@ -43,7 +50,16 @@ import {
 	wakeAskedBy,
 	writeRefusedWake,
 } from "../../lib/internal/session/refused-wake.ts";
+import type { CarriedShell } from "../../lib/internal/shell/carried.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
+import {
+	carriedCalls,
+	forgetCarriedCalls,
+	hearParkCarry,
+	keepCarriedCalls,
+	stopCarriedCalls,
+	watchCarriedCalls,
+} from "./parked-calls.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
@@ -60,6 +76,14 @@ function readWritten(file: string): string {
 
 /** Why a parked conversation's session ended, as its stop says. */
 export const PARKED = "parked while idle";
+
+/**
+ * How long a conversation whose carried calls couldn't be recorded
+ * carries none: a write fault (a full disk, a folder it can't write)
+ * rarely clears in minutes, and each park it can't record ends in a
+ * wake, a whole pi start, so it holds its calls awake for an hour.
+ */
+export const UNRECORDED_HOLDS_MS = 60 * 60 * 1000;
 
 /** What parks and wakes the engine's conversations. */
 export interface Parking {
@@ -83,12 +107,36 @@ export interface Parking {
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
 	/**
-	 * It resumed: stop watching for its wake, and forget a wake refused it
-	 * as it started, after `running` cleared the last.
+	 * It resumed, or a child took it on: stop watching for its wake, and
+	 * forget a wake refused it as it started, after `running` cleared the
+	 * last.
 	 */
 	unwatch(sessionId: string): void;
-	/** It was closed: stop watching, and forget a wake refused it. */
-	closed(sessionId: string): void;
+	/** It runs again, having taken up from its log the calls its park carried: forget them. */
+	ran(sessionId: string): void;
+	/**
+	 * Whether a park of it may carry its bash calls: not for
+	 * `UNRECORDED_HOLDS_MS` after its calls couldn't be recorded, so it
+	 * stays awake holding them rather than parking and waking in a loop.
+	 */
+	mayCarry(sessionId: string): boolean;
+	/**
+	 * It was closed: stop watching, and forget a wake refused it. Closed
+	 * `forGood`, the calls its park carried are stopped, since nobody
+	 * takes them up; released to another holder, they are only forgotten,
+	 * for that holder takes them up from its log.
+	 */
+	closed(sessionId: string, forGood: boolean): void;
+	/**
+	 * Hear the bash calls its bus says a park of it carried, to wake it once
+	 * they end. Answers the disposer.
+	 */
+	hears(
+		sessionId: string,
+		bus: {
+			on(channel: string, listener: (data: unknown) => void): () => void;
+		},
+	): () => void;
 	/** The drain lifted: wake each one asked for through its file or a steer while it held. */
 	release(): void;
 	/**
@@ -113,6 +161,8 @@ interface Sleeper {
 	steered?: (steer: string) => void;
 	/** A steer that landed while the host held its wakes. */
 	heldSteer?: string;
+	/** Stops looking at the bash calls its park carried. */
+	calls?: () => void;
 }
 
 /** Where the person's steers wait, and whose they are for each conversation. */
@@ -136,7 +186,14 @@ interface Settling {
  */
 export function parking(options: {
 	readonly stateDir: string;
-	readonly stop: (sessionId: string, why: string) => Promise<void>;
+	/** The clock; Date.now by default. */
+	readonly now?: () => number;
+	/** Ends its session as a host stop does, `carrying` its bash calls where the host keeps them. */
+	readonly stop: (
+		sessionId: string,
+		why: string,
+		carrying: boolean,
+	) => Promise<void>;
 	readonly asking: () => ((sessionId: string) => Promise<void>) | undefined;
 	readonly report: (error: unknown) => void;
 	/** It parked: said before its wake is watched, so any wake comes after. */
@@ -145,6 +202,19 @@ export function parking(options: {
 	readonly steers?: SteerInboxes;
 	/** Whether wakes through the file and steers are held now, as the host drains. */
 	readonly holding?: () => boolean;
+	/**
+	 * Whether the host keeps a carried bash call alive through a stop, so a
+	 * park carries them (carried-shells.ts); none, it carries none.
+	 */
+	readonly carries?: () => boolean;
+	/** Whether a carried call still runs; its shell, read from the machine, by default. */
+	readonly callRuns?: (work: CarriedShell) => boolean;
+	/** How often a parked conversation's carried calls are looked at; CALLS_LOOK_MS by default. */
+	readonly lookEveryMs?: number;
+	/** How long before a wake for ended calls is asked again; CALLS_WAKE_AGAIN_MS by default. */
+	readonly wakeAgainMs?: number;
+	/** A line for the journal: a park that carried calls, and their end. */
+	readonly said?: (line: string) => void;
 }): Parking {
 	// Whether this drain's restart passed its ceiling, until the drain lifts.
 	let through = false;
@@ -154,6 +224,20 @@ export function parking(options: {
 	const sleepers = new Map<string, Sleeper>();
 	// Conversations parking now.
 	const settling = new Map<string, Settling>();
+	// Conversations whose stop for a park is under way, whose carried calls are theirs to watch.
+	const stopping = new Set<string>();
+	// Conversations whose park carried calls it couldn't record, woken once parked.
+	const unrecorded = new Map<string, CarriedShell[]>();
+	// Conversations whose calls couldn't be recorded, and until when they carry none.
+	const uncarried = new Map<string, number>();
+	const now = options.now ?? Date.now;
+	const mayCarry = (sessionId: string): boolean => {
+		const until = uncarried.get(sessionId);
+		if (until === undefined) return true;
+		if (now() < until) return false;
+		uncarried.delete(sessionId);
+		return true;
+	};
 	const folderOf = (sessionId: string) => join(stateDir, sessionId);
 	const wakeFile = (sessionId: string) => join(folderOf(sessionId), WAKE_FILE);
 
@@ -161,6 +245,7 @@ export function parking(options: {
 		const sleeper = sleepers.get(sessionId);
 		sleeper?.wake.close();
 		sleeper?.steers?.close();
+		sleeper?.calls?.();
 		sleepers.delete(sessionId);
 	}
 
@@ -170,7 +255,7 @@ export function parking(options: {
 		clearRefusedWake(wakeFile(sessionId));
 	}
 
-	function watchWake(sessionId: string): void {
+	function watchWake(sessionId: string, held?: readonly CarriedShell[]): void {
 		stopWatching(sessionId);
 		const file = wakeFile(sessionId);
 		mkdirSync(folderOf(sessionId), { recursive: true });
@@ -233,6 +318,34 @@ export function parking(options: {
 				waking: steered,
 				report,
 			});
+		// The calls its park carried wake it through its file once they end.
+		if (sleepers.get(sessionId) === sleeper)
+			sleeper.calls = watchCarriedCalls({
+				folder: folderOf(sessionId),
+				wakeFile: file,
+				...(held ? { unrecorded: held } : {}),
+				...(options.now ? { now: options.now } : {}),
+				// No wake file, no wake through it: ask straight, as doubt wakes.
+				unwritten: () => {
+					wake(sessionId).catch(() => {
+						// Reported as it failed; the next failed write asks again.
+					});
+				},
+				...(options.callRuns ? { runs: options.callRuns } : {}),
+				...(options.lookEveryMs === undefined
+					? {}
+					: { lookEveryMs: options.lookEveryMs }),
+				...(options.wakeAgainMs === undefined
+					? {}
+					: { wakeAgainMs: options.wakeAgainMs }),
+				report,
+				ended: (calls) =>
+					options.said?.(
+						calls === 0
+							? `${sessionId}: the record of the bash calls its park carried can't be read; waking it`
+							: `${sessionId}: the ${calls} bash call(s) its park carried ended; waking it`,
+					),
+			});
 	}
 
 	function wake(sessionId: string): Promise<void> {
@@ -256,19 +369,51 @@ export function parking(options: {
 	}
 
 	async function park(sessionId: string, asked: Settling["asked"]) {
+		let wakeAtOnce = false;
+		let watched = false;
 		try {
-			await options.stop(sessionId, PARKED);
+			// Only what this park carries is watched, never a record an
+			// earlier one left.
+			try {
+				forgetCarriedCalls(folderOf(sessionId));
+			} catch (error) {
+				// The park goes on: a record left is read as ended calls, which
+				// wakes it at once, at each park until the record can go, where
+				// stopping here would leave it awake with its watch believing it
+				// parked. Holding parks while it stays is a follow-up (#1981 F64).
+				report(error);
+			}
+			unrecorded.delete(sessionId);
+			stopping.add(sessionId);
+			try {
+				await options.stop(
+					sessionId,
+					PARKED,
+					(options.carries?.() ?? false) && mayCarry(sessionId),
+				);
+			} finally {
+				stopping.delete(sessionId);
+			}
+			const held = unrecorded.get(sessionId);
+			unrecorded.delete(sessionId);
 			options.parked?.(sessionId);
-			watchWake(sessionId);
+			// Calls with no record wake it through its file, held as any wake
+			// is while the host drains, and asked again until it runs.
+			watchWake(sessionId, held);
+			watched = true;
 		} catch (error) {
 			// Stopped but unwatched, only a viewer or an attach wakes it; not
-			// stopped, it stays held as a failed close leaves it.
+			// stopped, it stays held as a failed close leaves it. Either way,
+			// calls it carried would end with nobody to wake it: it wakes.
 			report(error);
+			wakeAtOnce = !watched && carriedSome(sessionId);
+			unrecorded.delete(sessionId);
 		} finally {
 			settling.delete(sessionId);
 		}
-		// A key or a message while it parked asked for it before it could wake.
-		if (asked.length > 0)
+		// A key or a message while it parked asked for it before it could
+		// wake; calls carried with nobody watching would wake it never.
+		if (asked.length > 0 || wakeAtOnce)
 			wake(sessionId).then(
 				() => {
 					for (const one of asked) one.resolve();
@@ -279,11 +424,59 @@ export function parking(options: {
 			);
 	}
 
+	// Whether its park carried calls, in a record or none it could write;
+	// a record that can't be read counts, since it may name some.
+	function carriedSome(sessionId: string): boolean {
+		if (unrecorded.has(sessionId)) return true;
+		try {
+			return carriedCalls(folderOf(sessionId)).length > 0;
+		} catch {
+			// Unreadable: it may name calls, and only waking settles that.
+			return true;
+		}
+	}
+
 	return {
 		wakeFile,
+		mayCarry,
 		running(sessionId) {
 			rmSync(wakeFile(sessionId), { force: true });
 			clearRefusedWake(wakeFile(sessionId));
+			// What its park carried stays watched until it really runs (`ran`):
+			// a start that fails leaves it parked, with nobody else to wake it.
+		},
+		ran(sessionId) {
+			try {
+				forgetCarriedCalls(folderOf(sessionId));
+			} catch (error) {
+				// It runs all the same; a record left is read as ended calls.
+				report(error);
+			}
+		},
+		hears(sessionId, bus) {
+			return hearParkCarry(
+				bus,
+				() => stopping.has(sessionId),
+				(calls) => {
+					try {
+						mkdirSync(folderOf(sessionId), { recursive: true });
+						keepCarriedCalls(folderOf(sessionId), calls);
+						options.said?.(
+							`${sessionId}: its park carries ${calls.length} bash call(s)`,
+						);
+					} catch (error) {
+						// Unwritten, nothing would wake it as they end: it wakes as
+						// soon as it parks, and carries none for a while, so it holds
+						// them awake as before parks carried rather than park again.
+						unrecorded.set(sessionId, [
+							...(unrecorded.get(sessionId) ?? []),
+							...calls,
+						]);
+						uncarried.set(sessionId, now() + UNRECORDED_HOLDS_MS);
+						report(error);
+					}
+				},
+			);
 		},
 		park(sessionId) {
 			const asked: Settling["asked"] = [];
@@ -295,7 +488,17 @@ export function parking(options: {
 		wake,
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch: forget,
-		closed: forget,
+		closed(sessionId, forGood) {
+			forget(sessionId);
+			uncarried.delete(sessionId);
+			try {
+				if (forGood) stopCarriedCalls(folderOf(sessionId));
+				else forgetCarriedCalls(folderOf(sessionId));
+			} catch (error) {
+				// The close goes on; what follows it in the engine still runs.
+				report(error);
+			}
+		},
 		release() {
 			through = false;
 			wakeHeld();
