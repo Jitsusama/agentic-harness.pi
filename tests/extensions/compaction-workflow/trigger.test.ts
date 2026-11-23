@@ -624,10 +624,16 @@ describe("the compaction trigger", () => {
 				.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
 				.map((entry) => entry.data);
 		/**
-		 * The next turns, until the trigger acts: whether it compacted,
-		 * rather than writing a summary ahead afresh.
+		 * The next turns on the branch moved to, until the trigger acts:
+		 * whether it compacted, rather than writing a summary ahead afresh.
+		 * The branch grows a reply of its own first, since one holding only
+		 * the first message has nothing to summarise and compacts on the
+		 * spot whatever was held.
 		 */
 		async function compactsNext({ fire, state, ctx }: AtTheEdge) {
+			const reply = { ...replyEntry, id: "b1" };
+			state.branch = [userEntry, reply];
+			state.leaf = reply.id;
 			const calls = completeSimple.mock.calls.length;
 			const acted = () =>
 				completeSimple.mock.calls.length > calls ||
