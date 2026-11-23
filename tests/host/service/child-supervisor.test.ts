@@ -285,6 +285,54 @@ describe("a resumed conversation", () => {
 		);
 	});
 
+	it("waits past its listen time on a child starved of CPU, and routes to it once it listens", async () => {
+		superviseAgain({ clocks: { listensWithinMs: 300 } });
+		units.next = { listensWhen: pause(1_500) };
+		units.spent = 200;
+
+		const running = await supervisor.resume(entry(a), true);
+
+		expect(running.sessionId).toBe(a);
+		expect(routes.routeOf(a)?.socket).toBe(slotOf(folder, key, a).socket);
+		expect(units.stopped, "its child left running").toEqual([]);
+		expect(
+			said.filter((line) => line.includes("starved")),
+			"said once, as it waits on",
+		).toEqual([
+			`${slotOf(folder, key, a).unit} hasn't listened in 300 ms, but has had only 200 ms of CPU: it is starved rather than stuck, so it is waited on`,
+		]);
+	});
+
+	it("is given up at its listen time when its child spent its CPU without listening", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, listensWithinCpuMs: 1_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = 1_000;
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`${slotOf(folder, key, a).unit} did not listen within 300 ms, with 1000 ms of CPU`,
+		);
+		expect(Date.now() - asked).toBeLessThan(3_000);
+	});
+
+	it("is given up once a starved child has had all the time it may wait", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 1_200 },
+		});
+		units.next = { neverListens: true };
+		units.spent = 0;
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`${slotOf(folder, key, a).unit} did not listen within 1200 ms, with 0 ms of CPU`,
+		);
+		expect(Date.now() - asked, "past its listen time").toBeGreaterThanOrEqual(
+			1_200,
+		);
+	});
+
 	it("is refused, and its child stopped, when the child runs another conversation", async () => {
 		units.next = {
 			answers: (result) => ({ ...result, conversation: conversation(b) }),

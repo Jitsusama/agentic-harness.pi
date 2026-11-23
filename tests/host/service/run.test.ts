@@ -187,12 +187,9 @@ describe("slotResumed", () => {
 				unresumed: [{ sessionId: ID, reason: "its build threw" }],
 			},
 		],
-	] as const)(
-		"reads %s from what the start held, dropped and could not resume",
-		(end, serving) => {
-			expect(slotResumed(serving, slot)).toBe(end);
-		},
-	);
+	] as const)("reads %s from what the start held, dropped and could not resume", (end, serving) => {
+		expect(slotResumed(serving, slot)).toBe(end);
+	});
 });
 
 describe("a child host", () => {
@@ -1912,16 +1909,16 @@ describe("runHost", () => {
 			expect(report, "nothing failed").not.toHaveBeenCalled();
 		});
 
-		it.each(["reloading", "refreshing"])(
-			"counts a unit %s as having taken it",
-			async (state) => {
-				const systemd = await fakeSystemd([state]);
-				const said: string[] = [];
-				await start(systemd.PATH, said);
-				expect(await systemd.readies(), "readies told").toEqual([READY]);
-				expect(ofReady(said), "nothing said of it").toEqual([]);
-			},
-		);
+		it.each([
+			"reloading",
+			"refreshing",
+		])("counts a unit %s as having taken it", async (state) => {
+			const systemd = await fakeSystemd([state]);
+			const said: string[] = [];
+			await start(systemd.PATH, said);
+			expect(await systemd.readies(), "readies told").toEqual([READY]);
+			expect(ofReady(said), "nothing said of it").toEqual([]);
+		});
 
 		it("stops telling when the unit reads nothing", async () => {
 			const systemd = await fakeSystemd([""]);
@@ -1956,23 +1953,21 @@ describe("runHost", () => {
 			]);
 		});
 
-		it.each(["failed", "inactive", "deactivating"])(
-			"stops telling, without saying it took, when the unit reads %s",
-			async (state) => {
-				const systemd = await fakeSystemd(missedThen(1, state));
-				const said: string[] = [];
-				const report = await start(systemd.PATH, said);
-				expect(await systemd.readies(), "readies told").toEqual([
-					READY,
-					RETOLD,
-				]);
-				expect(ofReady(said), "why it stopped").toEqual([
-					`systemd didn't take the host's ready: ${UNIT} still reads activating, so telling it again (2 of 10)`,
-					`systemd didn't take the host's ready: ${UNIT} reads ${state}, so the host stops telling it`,
-				]);
-				expect(report, "nothing failed").not.toHaveBeenCalled();
-			},
-		);
+		it.each([
+			"failed",
+			"inactive",
+			"deactivating",
+		])("stops telling, without saying it took, when the unit reads %s", async (state) => {
+			const systemd = await fakeSystemd(missedThen(1, state));
+			const said: string[] = [];
+			const report = await start(systemd.PATH, said);
+			expect(await systemd.readies(), "readies told").toEqual([READY, RETOLD]);
+			expect(ofReady(said), "why it stopped").toEqual([
+				`systemd didn't take the host's ready: ${UNIT} still reads activating, so telling it again (2 of 10)`,
+				`systemd didn't take the host's ready: ${UNIT} reads ${state}, so the host stops telling it`,
+			]);
+			expect(report, "nothing failed").not.toHaveBeenCalled();
+		});
 
 		it("gives up and reports when systemd never takes it", async () => {
 			const systemd = await fakeSystemd(["activating"]);

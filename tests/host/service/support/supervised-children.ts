@@ -167,6 +167,11 @@ export interface FakeUnits extends Units {
 	refusesStart?: boolean;
 	/** How many of the next asks whether a unit has gone fail. */
 	goneFails?: number;
+	/**
+	 * The CPU time, in ms, each unit is said to have spent, when a test
+	 * says; otherwise systemd is taken to say none it can tell.
+	 */
+	spent?: number;
 	/** The next ask whether a unit has gone answers only once this settles. */
 	goneAnswers?: Promise<void>;
 	/** How many of the next stops fail once their unit has gone. */
@@ -390,6 +395,9 @@ function fakeUnits(): FakeUnits {
 		async forget(unit) {
 			fake.forgotten.push(unit);
 		},
+		async cpuSpentMs(unit) {
+			return fake.children.has(unit) ? fake.spent : undefined;
+		},
 	};
 	return fake;
 }
@@ -408,6 +416,8 @@ interface Clocks {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	listensWithinCpuMs?: number;
+	starvedWithinMs?: number;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {

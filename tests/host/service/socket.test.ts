@@ -587,64 +587,64 @@ describe("viewer connection lifecycle", () => {
 	it.each([
 		{ bound: 0, slowly: "journals", lines: 1 },
 		{ bound: 60_000, slowly: "says nothing of", lines: 0 },
-	])(
-		"$slowly a window whose attach was answered, inside a bound of $bound ms or past it, after it had left",
-		async ({ bound, lines }) => {
-			const said: string[] = [];
-			let answer = (): void => undefined;
-			let reached = false;
-			const held: ControlBackend = {
-				identity: backend.identity,
-				execute: async () => {
-					reached = true;
-					await new Promise<void>((done) => {
-						answer = done;
-					});
-					return { sessionId: a };
-				},
-			};
-			const attach = vi.fn(() => ({
-				input: vi.fn(),
-				resize: vi.fn(),
-				detach: vi.fn(),
-			}));
-			listener = await listenControl({
-				path,
-				backend: held,
-				report,
-				say: (line) => said.push(line),
-				attachSlowMs: bound,
-				viewer: { attach },
-			});
-			const socket = createConnection(path);
-			const closed = new Promise((done) => socket.on("close", done));
-			socket.write(
-				`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
-			);
-			await vi.waitFor(() =>
-				expect(reached, "the attach reached the host").toBe(true),
-			);
-			socket.destroy();
-			await closed;
-			// The client's close has shut its end, so the host reads the end of
-			// its own on the loop's next poll; an immediate runs only after one.
-			await new Promise((done) => setImmediate(done));
-			await new Promise((done) => setImmediate(done));
-			answer();
-			// The answer goes out over promises alone, all settled by an immediate.
-			await new Promise((done) => setImmediate(done));
-			expect(said).toEqual(
-				Array.from({ length: lines }, () =>
-					expect.stringMatching(
-						new RegExp(
-							`\\(${a}\\): a window's attach was answered [0-9.]+ s after it was asked, once the window had left$`,
-						),
+	])("$slowly a window whose attach was answered, inside a bound of $bound ms or past it, after it had left", async ({
+		bound,
+		lines,
+	}) => {
+		const said: string[] = [];
+		let answer = (): void => undefined;
+		let reached = false;
+		const held: ControlBackend = {
+			identity: backend.identity,
+			execute: async () => {
+				reached = true;
+				await new Promise<void>((done) => {
+					answer = done;
+				});
+				return { sessionId: a };
+			},
+		};
+		const attach = vi.fn(() => ({
+			input: vi.fn(),
+			resize: vi.fn(),
+			detach: vi.fn(),
+		}));
+		listener = await listenControl({
+			path,
+			backend: held,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: bound,
+			viewer: { attach },
+		});
+		const socket = createConnection(path);
+		const closed = new Promise((done) => socket.on("close", done));
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await vi.waitFor(() =>
+			expect(reached, "the attach reached the host").toBe(true),
+		);
+		socket.destroy();
+		await closed;
+		// The client's close has shut its end, so the host reads the end of
+		// its own on the loop's next poll; an immediate runs only after one.
+		await new Promise((done) => setImmediate(done));
+		await new Promise((done) => setImmediate(done));
+		answer();
+		// The answer goes out over promises alone, all settled by an immediate.
+		await new Promise((done) => setImmediate(done));
+		expect(said).toEqual(
+			Array.from({ length: lines }, () =>
+				expect.stringMatching(
+					new RegExp(
+						`\\(${a}\\): a window's attach was answered [0-9.]+ s after it was asked, once the window had left$`,
 					),
 				),
-			);
-			expect(attach, "and no viewer is attached for it").not.toHaveBeenCalled();
-		},
-	);
+			),
+		);
+		expect(attach, "and no viewer is attached for it").not.toHaveBeenCalled();
+	});
 	it("journals a window that left with nothing drawn, and how long it waited", async () => {
 		const said: string[] = [];
 		listener = await listenControl({

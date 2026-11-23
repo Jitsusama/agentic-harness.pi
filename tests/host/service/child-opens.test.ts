@@ -226,6 +226,21 @@ describe("a new conversation", () => {
 		).toBeLessThan(3_000);
 	});
 
+	it("gives up on a starved child at its listen time, since its caller waits on it", async () => {
+		superviseAgain({ clocks: { listensWithinMs: 300 } });
+		units.next = { neverListens: true };
+		units.spent = 0;
+		const asked = Date.now();
+
+		const reply = await supervisor.begin(opening("open-11"));
+
+		expect(reply).toMatchObject({ ok: false });
+		expect(
+			Date.now() - asked,
+			"within its listen time, not a starved child's",
+		).toBeLessThan(3_000);
+	});
+
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
 		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
 		units.next = { silent: true };

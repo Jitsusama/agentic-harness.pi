@@ -145,28 +145,28 @@ describe("a throw nothing caught", () => {
 	// The background host at 18:26:46 on 13 November: a language server's
 	// writer threw on its closed pipe, the host stopped mid-turn for it,
 	// and exited 1, so systemd ran OnFailure.
-	it.each(["ERR_STREAM_DESTROYED", "EPIPE"])(
-		"outside every conversation, as a write to a closed pipe (%s), is reported once and the host serves on",
-		async (code) => {
-			const host = await hosting(() => true);
-			const closed = Object.assign(
-				new Error("Cannot call write after a stream was destroyed"),
-				{ code },
-			);
+	it.each([
+		"ERR_STREAM_DESTROYED",
+		"EPIPE",
+	])("outside every conversation, as a write to a closed pipe (%s), is reported once and the host serves on", async (code) => {
+		const host = await hosting(() => true);
+		const closed = Object.assign(
+			new Error("Cannot call write after a stream was destroyed"),
+			{ code },
+		);
 
-			host.faults.emit("uncaughtException", closed);
+		host.faults.emit("uncaughtException", closed);
 
-			expect(host.report).toHaveBeenCalledExactlyOnceWith(closed);
-			expect(
-				await listening(host.run.serving.path),
-				"the host still listens",
-			).toBe(true);
-			expect(host.settled.done, "the host has not stopped").toBe(false);
-			expect(host.run.serving.stopping(), "nor begun to").toBe(false);
-			host.signals.emit("SIGTERM");
-			await host.run.stopped;
-		},
-	);
+		expect(host.report).toHaveBeenCalledExactlyOnceWith(closed);
+		expect(
+			await listening(host.run.serving.path),
+			"the host still listens",
+		).toBe(true);
+		expect(host.settled.done, "the host has not stopped").toBe(false);
+		expect(host.run.serving.stopping(), "nor begun to").toBe(false);
+		host.signals.emit("SIGTERM");
+		await host.run.stopped;
+	});
 
 	it("as a write to a closed pipe in a child, leaves its watch to end as its conversation does, never failed", async () => {
 		const run_ = join(dir, "run");
