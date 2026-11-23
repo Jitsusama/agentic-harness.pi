@@ -116,10 +116,11 @@ Summary), or has failed ahead twice, does the session compact on the
 spot, and the notice says why. One on the spot that is cancelled or
 fails leaves the next summary to be written ahead once more, so the
 session isn't held again for one it gave up; the count and the
-shorter summaries go on. Each compaction's entry records `written` (`ahead` or `on the
-spot`), how long the summary took (`summaryMs`) and how long anybody
-waited for it (`waitedMs`). A summary written ahead that went unused is
-logged as a `compaction-summary-ahead-unused` entry with the reason.
+shorter summaries go on. Each compaction's entry records `written`
+(`ahead` or `on the spot`), how long the summary took (`summaryMs`)
+and how long anybody waited for it (`waitedMs`). A summary written
+ahead that went unused is logged as a
+`compaction-summary-ahead-unused` entry with the reason.
 
 ## Compacting While Idle
 
@@ -359,12 +360,12 @@ ahead, then to the walk on the spot; one that pi's own compaction was
 waiting on goes to the walk on the spot at once, since that
 compaction can't wait for another. The host keeps everything around
 the summary: the clock on each write, the verbatim tail, the file
-lists, what other extensions contribute, and the record. The compaction entry's details name the
-provider that wrote it (`summariser`), anything it wanted kept
-(`provider`), and every provider that declined or failed before it
-(`attempts`). When none writes, pi's own summariser runs as it would
-with no extension, and a `compaction-summary-fallback` entry records
-the attempts.
+lists, what other extensions contribute, and the record. The
+compaction entry's details name the provider that wrote it
+(`summariser`), anything it wanted kept (`provider`), and every
+provider that declined or failed before it (`attempts`). When none
+writes, pi's own summariser runs as it would with no extension, and a
+`compaction-summary-fallback` entry records the attempts.
 
 A failure the provider marks `retryable` (a dropped stream, an
 overloaded or rate-limited provider, a server error) is asked once
