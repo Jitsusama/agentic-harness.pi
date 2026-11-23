@@ -26,7 +26,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -65,14 +65,42 @@ const SETTINGS = [
 	"trap caller_gone PIPE",
 ] as const;
 
-/** The functions a stop runs, every name each reads with a default cleared first. */
-const STOPPING = ["let_go", "gone_within", "end_groups", "stop_all"] as const;
-
 /** The script's function `name`, as it defines it, or nothing when it doesn't. */
 function defined(text: string, name: string): string | undefined {
 	return new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}$`, "m").exec(
 		text,
 	)?.[0];
+}
+
+/** The functions `text` defines, by name. */
+function functionsIn(text: string): string[] {
+	return [...text.matchAll(/^(\w+)\(\) \{$/gm)].flatMap(
+		(found) => found[1] ?? [],
+	);
+}
+
+/** The functions `name`'s code in `text` calls, and those they call in turn. */
+function reachedFrom(text: string, name: string): Set<string> {
+	const functions = functionsIn(text);
+	const seen = new Set([name]);
+	for (const each of seen) {
+		const body = (defined(text, each) ?? "")
+			.split("\n")
+			.filter((line) => !line.trimStart().startsWith("#"))
+			.join("\n");
+		for (const called of functions)
+			if (new RegExp(`(^|[^\\w-])${called}($|[^\\w-])`, "m").test(body))
+				seen.add(called);
+	}
+	return seen;
+}
+
+/** The functions a stop runs: every one a trap's handler reaches. */
+function stoppingIn(text: string): string[] {
+	const handlers = SETTINGS.flatMap(
+		(line) => /^trap '?(\w+)/.exec(line)?.[1] ?? [],
+	);
+	return [...new Set(handlers.flatMap((name) => [...reachedFrom(text, name)]))];
 }
 
 /**
@@ -338,6 +366,42 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					existsSync(join(host, "lock.holder")),
 					"each check takes its holder's line with it",
 				).toBe(false);
+			},
+			TEST_MS,
+		);
+
+		// The holder's line is that check's to write, its branch's code
+		// among what can, and every waiter says it.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+			"says its holder's line only as printable text, at most 120 characters of it",
+			async () => {
+				const host = hostWith(tools);
+				const holder = check(host, "take_turn\necho held\nread -r _ || true");
+				await says(holder, "held");
+				const long = "x".repeat(200);
+				writeFileSync(
+					join(host, "lock.holder"),
+					`\x1b[2J\x1b]0;titled\x07said\ncheck-there: run this ${long}\n`,
+				);
+				const waiter = await ended(
+					check(host, "turn_wait_s=1\ntake_turn\necho took"),
+				);
+				holder.stdin?.end();
+				await ended(holder);
+				expect(waiter.code, waiter.err).toBe(75);
+				expect(
+					["\x1b", "\x07"].filter((sent) => waiter.err.includes(sent)),
+					"no escape reaches its reader",
+				).toEqual([]);
+				expect(
+					waiter.err.split("\n").filter((line) => line.includes("run this")),
+					"its holder's words, each within a line of the script's own",
+				).toEqual([
+					`check-there: another check runs on ${hostname()} (${`[2J]0;titledsaidcheck-there: run this ${long}`.slice(0, 120)}); waiting its turn`,
+					expect.stringMatching(
+						/^check-there: gave up after 1 s .*, held by \(\[2J/,
+					),
+				]);
 			},
 			TEST_MS,
 		);
@@ -979,52 +1043,36 @@ function clockWait(): void {
 			"times its wait by the clock, however quickly each try comes back",
 			async () => {
 				const host = hostWith(EVERY_HOST);
-				// The shell's clock ticks with the wall's whole seconds, so the
-				// second its deadline was set in lies between its first try and
-				// its first timed one, which say theirs by `date`, as a bash 3.2
-				// has no EPOCHSECONDS. When both say one second, a wait two
-				// seconds long, and one more, ends no sooner than 3 s past its
-				// start, and one without that one by about 2.25 s. A run whose
-				// two tries straddle a second, a few ms apart, is tried again.
-				const stub =
-					'said=\nlock() { if [ "$1" = -n ]; then echo "first try $(date +%s)" >&2; return 1; fi; if [ -z "$said" ]; then said=1; echo "first timed try $(date +%s)" >&2; fi; sleep 0.2; return 1; }';
-				let counted:
-					| { set: number; waiter: Ended; endedAt: number }
-					| undefined;
-				const tries: string[] = [];
-				for (let attempt = 0; attempt < 3 && counted === undefined; attempt++) {
-					const waiter = await ended(
-						check(host, `${stub}\nturn_wait_s=2\ntake_turn\necho took`),
-					);
-					const endedAt = Date.now();
-					const first = /first try (\d+)/.exec(waiter.err)?.[1];
-					const timed = /first timed try (\d+)/.exec(waiter.err)?.[1];
-					tries.push(`${first ?? "unsaid"} then ${timed ?? "unsaid"}`);
-					if (first !== undefined && first === timed)
-						counted = { set: Number(first) * 1_000, waiter, endedAt };
-				}
+				// The first try says when it came to the millisecond, by node,
+				// since neither bash 3.2 nor a Mac's date can, and the deadline
+				// is set just after it. Bash's clock moves a second at a time,
+				// but 5.3's not on the wall's seconds, so the wait is held to
+				// what it promises on any of them: two seconds, never fewer,
+				// which it keeps only by its second more, as a wait without it
+				// ends short of two seconds in nearly every run.
+				const node = JSON.stringify(process.execPath);
+				const stub = `lock() { if [ "$1" = -n ]; then echo "first try $(${node} -p 'Date.now()')" >&2; return 1; fi; sleep 0.02; return 1; }`;
+				const waiter = await ended(
+					check(host, `${stub}\nturn_wait_s=2\ntake_turn\necho took`),
+				);
+				const endedAt = Date.now();
+				const first = Number(
+					/first try (\d+)/.exec(waiter.err)?.[1] ?? Number.NaN,
+				);
+				expect(first, `when its first try came: ${waiter.err}`).not.toBeNaN();
+				// A wait counted in tries would end in a twentieth of a second.
 				expect(
-					counted,
-					`a run whose deadline's second its tries say: ${tries.join("; ")}`,
-				).toBeDefined();
-				const { set, waiter, endedAt } = counted ?? {
-					set: 0,
-					waiter: undefined,
-					endedAt: 0,
-				};
-				// Two tries would end in about 0.4 s.
-				expect(
-					endedAt - set,
+					endedAt - first,
 					"it waited by the clock, never less than it says",
-				).toBeGreaterThanOrEqual(3_000);
-				// Its last try starts before the limit and takes a fifth of a
-				// second; seconds more would be a wait that overruns it.
+				).toBeGreaterThanOrEqual(2_000);
+				// Its second more ends at most 3 s past its deadline, and its
+				// last try takes a fiftieth of one; more would overrun it.
 				expect(
-					endedAt - set,
+					endedAt - first,
 					"it gave up once its limit passed, not seconds after",
-				).toBeLessThan(6_000);
+				).toBeLessThan(4_500);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
-				expect(waiter?.err, "giving up as its limit passed").toMatch(
+				expect(waiter.err, "giving up as its limit passed").toMatch(
 					/gave up after 2 s waiting/,
 				);
 			},
@@ -1116,7 +1164,9 @@ function noLock(): void {
 				expect(tried.code, "no lock to take, said as its own").toBe(3);
 				expect(tried.out).toBe("");
 				expect(tried.err).not.toMatch(/waiting its turn/);
-				expect(tried.err).toMatch(/can't take/);
+				expect(tried.err, "what the host lacks, then what follows").toMatch(
+					/has neither flock nor perl to lock with\n.*can't take .*'s check lock/,
+				);
 			},
 			TEST_MS,
 		);
@@ -1262,6 +1312,14 @@ function localHalf(): void {
 						"ControlMaster=no",
 						"-o",
 						"ControlPath=none",
+						// A host asleep, or a link dropped mid-check, ends it in a
+						// minute or so rather than when TCP gives up.
+						"-o",
+						"ConnectTimeout=30",
+						"-o",
+						"ServerAliveInterval=15",
+						"-o",
+						"ServerAliveCountMax=4",
 						"there",
 					]);
 					const line = sent.sent?.at(-1) ?? "";
@@ -1445,23 +1503,8 @@ function workThere(): void {
 			const at = (line: string): number => top.indexOf(line);
 			const traps = SETTINGS.filter((line) => line.startsWith("trap "));
 			const text = there();
-			const functions = lines.flatMap(
-				(line) => /^(\w+)\(\) \{$/.exec(line)?.[1] ?? [],
-			);
-			/** The functions `name`'s code calls, and those they call in turn. */
-			const reached = (name: string): Set<string> => {
-				const seen = new Set([name]);
-				for (const each of seen) {
-					const body = (defined(text, each) ?? "")
-						.split("\n")
-						.filter((line) => !line.trimStart().startsWith("#"))
-						.join("\n");
-					for (const called of functions)
-						if (new RegExp(`(^|[^\\w-])${called}($|[^\\w-])`, "m").test(body))
-							seen.add(called);
-				}
-				return seen;
-			};
+			const functions = functionsIn(text);
+			const reached = (name: string): Set<string> => reachedFrom(text, name);
 			expect(reached("stop_all"), "what a stop calls, followed").toContain(
 				"end_groups",
 			);
@@ -1504,7 +1547,17 @@ function workThere(): void {
 			const cleared = CLEARED.split(" ").map((word) =>
 				word.replace(/[=]$/, ""),
 			);
-			const read = STOPPING.flatMap((name) => {
+			const stopping = stoppingIn(text);
+			expect(stopping, "what its traps run, followed").toEqual(
+				expect.arrayContaining([
+					"let_go",
+					"caller_gone",
+					"stop_all",
+					"end_groups",
+					"gone_within",
+				]),
+			);
+			const read = stopping.flatMap((name) => {
 				const body = defined(text, name);
 				expect(body, `check-there.sh defines ${name}`).toBeDefined();
 				const locals = [...(body ?? "").matchAll(/^\s*local ([^\n]*)$/gm)]
@@ -1519,6 +1572,22 @@ function workThere(): void {
 				[...new Set(read)].filter((name) => !cleared.includes(name ?? "")),
 				"read by a stop, never cleared",
 			).toEqual([]);
+		});
+
+		// A Mac sleeps on no one's touch, however hard it works, and its
+		// sshd holds it awake for none of it.
+		it("holds a Mac awake from before its turn for as long as it lives", () => {
+			const top = topLevel(lines);
+			const awake = top.findIndex((line) =>
+				/^ {2}caffeinate -i -w "\$\$" .*&$/.test(line ?? ""),
+			);
+			expect(awake, "held awake while this shell lives").toBeGreaterThan(-1);
+			expect(top[awake - 1], "where a host has it to hold").toBe(
+				"if command -v caffeinate >/dev/null 2>&1; then",
+			);
+			expect(awake, "before its turn, waited for or not").toBeLessThan(
+				top.indexOf("take_turn"),
+			);
 		});
 
 		it("runs alone, from its turn to its end", () => {
