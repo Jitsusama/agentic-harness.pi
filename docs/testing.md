@@ -103,15 +103,18 @@ A test that runs a shell script reaches it by path, which the graph
 doesn't follow, so it also imports each script it runs
 (`import "../../scripts/merge-gate.sh"`); the loader in
 `tests/setup/scripts-as-text.ts` makes that import the script's text,
-for a `.sh`, a `.bash` or a file with no ending that opens with `#!`,
-and imports in turn each script it sources or runs from beside it. A
-package rule, `tests-import-the-scripts-they-run`, fails a test that
-names a script on its own in a string without importing it, a script
-shipped beside the package's code that no test imports, a source line
-the loader can't follow, and any shipped file that imports a script,
-since pi would read it as JavaScript. A name built from parts is past
-the rule, so such a test imports its scripts by hand, as
-`ssh-guard.test.ts` does the guard's wrappers.
+for a `.sh`, a `.bash` or a file with no ending whose shebang names a
+shell, and imports in turn each script it sources or runs from beside
+it, named from its own folder or by a path from the root. A package
+rule, `tests-import-the-scripts-they-run`, fails a test that names a
+script on its own in a string without importing it; a script beside
+the package's code, among the ssh guard's or under `tests/` that no
+test's imports reach; a script beside another named in a way the
+loader can't follow; and a file pi or node loads with no loader that
+imports a script, since they would read it as JavaScript. A name
+built from parts is past the first, so such a test imports its scripts
+by hand, as `ssh-guard.test.ts` does the guard's wrappers, and the
+second holds it to them.
 Vite's `?raw` won't do: vitest drops a dependency whose id, query
 included, names no file. A `.ts` script a test runs as its own process
 is still reached only by what it imports.
