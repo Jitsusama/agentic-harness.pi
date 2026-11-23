@@ -62,4 +62,21 @@ describe("a carried tree's twin", () => {
 			await twinOf(exec, join(home, "src", "app"), `file://${origin}`),
 		).toBe(undefined);
 	});
+
+	it("is never a repository borrowing its objects from another", async () => {
+		const origin = await bareOrigin(made);
+		const home = folder(made, "home");
+		mkdirSync(join(home, "src"));
+		await run("git", [
+			"clone",
+			"-q",
+			"--shared",
+			origin,
+			join(home, "src", "borrowing"),
+		]);
+
+		expect(await twinOf(exec, join(home, "src", "app"), origin)).toBe(
+			undefined,
+		);
+	});
 });

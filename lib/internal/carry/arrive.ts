@@ -411,14 +411,21 @@ async function readyTree(
 }
 
 /**
- * The tree cloned from its twin here, borrowing the twin's objects and
- * never writing to it, then pointed at its own origin, so the commits
- * it needs come from there one branch at a time.
+ * The tree cloned from its twin here, never writing to it, then pointed
+ * at its own origin, so the commits it needs come from there one branch
+ * at a time.
  *
  * Not a clone of the origin with the twin as a reference: that still
  * asks the origin for every branch, and Delta refused one for World on
  * 23 November, as asking for 519,886 objects at once past its bound of
  * 200,000. A clone from the twin asks the network for nothing.
+ *
+ * A plain local clone, which hardlinks the twin's objects on one volume,
+ * not `--shared`: a shared clone keeps needing the twin's objects, and
+ * a gc in the twin after it deletes a branch leaves it broken. And its
+ * branches are the twin's view of origin, not the twin's own branches,
+ * which a clone would name as origin's: carrying it on would then leave
+ * out commits only the twin holds, as though a remote had them.
  */
 async function cloneTwin(
 	exec: Exec,
@@ -430,7 +437,6 @@ async function cloneTwin(
 		"clone",
 		"-q",
 		"--no-checkout",
-		"--shared",
 		"--",
 		twin,
 		path,
@@ -441,20 +447,53 @@ async function cloneTwin(
 			why: `git couldn't clone ${twin}: ${cloned.stderr.trim()}`,
 		};
 	}
-	const pointed = await exec("git", [
-		"-C",
-		path,
-		"remote",
-		"set-url",
-		"origin",
-		tree.origin,
-	]);
-	if (pointed.code === 0) return { kind: "cloned" };
+	const why = await asOrigin(treeGit(exec, path), twin, tree.origin);
+	if (why === undefined) return { kind: "cloned" };
 	rmSync(path, { recursive: true, force: true });
-	return {
-		kind: "refused",
-		why: `git couldn't point it at ${tree.origin}: ${pointed.stderr.trim()}`,
-	};
+	return { kind: "refused", why };
+}
+
+/**
+ * A tree cloned from `twin` made to hold only what `origin` holds: its
+ * origin branches the twin's view of origin, no branch of its own, and
+ * `origin` its remote. Answers why not, or nothing.
+ */
+async function asOrigin(
+	git: TreeGit,
+	twin: string,
+	origin: string,
+): Promise<string | undefined> {
+	// The one branch a clone makes, the twin's own, goes; checking out
+	// the carried branch later makes it again from the carried head.
+	const own = await git.said("symbolic-ref", "-q", "HEAD");
+	if (
+		own !== undefined &&
+		(await git.said("rev-parse", "-q", "--verify", own))
+	) {
+		const dropped = await git.run("update-ref", "-d", own);
+		if (dropped.code !== 0) {
+			return `git couldn't drop the twin's branch: ${dropped.stderr.trim()}`;
+		}
+	}
+	// The clone's pointer to the twin's own branch, which the prune drops.
+	await git.run("symbolic-ref", "-q", "-d", "refs/remotes/origin/HEAD");
+	// Pruned to the twin's view of origin; its objects are here already.
+	const viewed = await git.run(
+		"fetch",
+		"-q",
+		"--prune",
+		"--no-tags",
+		twin,
+		"+refs/remotes/origin/*:refs/remotes/origin/*",
+		"^refs/remotes/origin/HEAD",
+	);
+	if (viewed.code !== 0) {
+		return `git couldn't take the twin's view of its origin: ${viewed.stderr.trim()}`;
+	}
+	const pointed = await git.run("remote", "set-url", "origin", origin);
+	return pointed.code === 0
+		? undefined
+		: `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`;
 }
 
 /**

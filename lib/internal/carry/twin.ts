@@ -1,6 +1,6 @@
 /**
  * A repository already on this machine with a carried tree's origin,
- * for arriving to clone from, borrowing its objects, rather than taking
+ * for arriving to clone from, hardlinking its objects, rather than taking
  * every object from the origin again.
  *
  * World's trees on a Mac stand as `~/world/trees/<name>/src`, worktrees
@@ -9,8 +9,9 @@
  * trees already held nearly every object. So the twin is looked for beside where the
  * tree goes: among the folders in its parent, its grandparent and the
  * folder above that, and in each one's own folder of the tree's name.
- * Only a repository that is neither shallow nor partial is taken, since
- * a clone borrowing from one would still lack what it left out.
+ * Only a repository that is neither shallow nor partial, and borrows no
+ * objects from another, is taken, since a clone of one would still lack
+ * what it left out.
  */
 
 import { existsSync, readdirSync } from "node:fs";
@@ -93,6 +94,11 @@ async function commonOf(
 		"--git-common-dir",
 	);
 	if (common === undefined || !existsSync(join(common, "objects"))) {
+		return undefined;
+	}
+	// One that borrows its objects holds only part of them; a clone of it
+	// would borrow the same, and break when the lender prunes.
+	if (existsSync(join(common, "objects", "info", "alternates"))) {
 		return undefined;
 	}
 	return common;

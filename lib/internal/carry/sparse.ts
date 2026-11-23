@@ -19,17 +19,38 @@ export interface Sparse {
 /** git in one tree, answering what it said or nothing when it failed. */
 type Ask = (...args: string[]) => Promise<string | undefined>;
 
-/** The sparse checkout the tree `ask` reads stands in; or nothing. */
-export async function sparseOf(ask: Ask): Promise<Sparse | undefined> {
+/** Why a sparse tree's checkout can't be carried. */
+export interface Unsparse {
+	readonly why: string;
+}
+
+/**
+ * The sparse checkout the tree `ask` reads stands in; nothing when it
+ * stands whole; or why its sparse checkout can't be carried. A sparse
+ * tree carried as whole would check out all of World there, so one
+ * whose patterns can't be read is refused rather than carried whole.
+ */
+export async function sparseOf(
+	ask: Ask,
+): Promise<Sparse | Unsparse | undefined> {
 	if ((await ask("config", "--get", "core.sparseCheckout")) !== "true") {
 		return undefined;
 	}
 	const listed = await ask("sparse-checkout", "list");
-	const patterns = (listed ?? "")
+	if (listed === undefined) {
+		return {
+			why: "Its sparse checkout can't be read, and whole it would check out everything there.",
+		};
+	}
+	const patterns = listed
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line !== "");
-	if (patterns.length === 0 || !patterns.every(isPattern)) return undefined;
+	if (patterns.length === 0 || !patterns.every(isPattern)) {
+		return {
+			why: "Its sparse checkout has patterns that can't be carried, and whole it would check out everything there.",
+		};
+	}
 	const cone =
 		(await ask("config", "--get", "core.sparseCheckoutCone")) === "true";
 	return { cone, patterns };

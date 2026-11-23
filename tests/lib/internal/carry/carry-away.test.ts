@@ -228,6 +228,32 @@ describe("carrying a session's work away", () => {
 		expect(carried.handover.trees).toEqual([]);
 	});
 
+	// Carried as whole, a sparse World tree would check out all of World.
+	it("refuses a sparse tree whose patterns can't be carried, rather than carrying it whole", async () => {
+		const { home, tree, into } = await homeWithTree();
+		await git(tree, "config", "core.sparseCheckout", "true");
+		await git(tree, "config", "core.sparseCheckoutCone", "false");
+		writeFileSync(join(tree, ".git", "info", "sparse-checkout"), "-odd\n");
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-sparse", cwd: home },
+			trees: [tree],
+		});
+
+		expect(carried.trees).toEqual([
+			{
+				kind: "refused",
+				path: tree,
+				why: expect.stringContaining("can't be carried"),
+			},
+		]);
+		expect(carried.handover.trees).toEqual([]);
+	});
+
 	// Only a path that isn't there is gone; one that can't be told is kept.
 	it("refuses a tree whose folder can't be looked into, rather than calling it gone", async () => {
 		const { origin, home, into } = await homeWithTree();

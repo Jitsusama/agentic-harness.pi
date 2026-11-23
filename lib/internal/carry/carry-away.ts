@@ -239,6 +239,9 @@ async function carryTreeAway(
 			"It has no origin, so the other machine has nowhere to clone it from.",
 		);
 	}
+	// Before anything is written, so a refused tree leaves nothing behind.
+	const sparse = await sparseOf(ask);
+	if (sparse !== undefined && "why" in sparse) return no(sparse.why);
 	const name = nameFor(path);
 	const bundled = await bundleTree(exec, path, into, name);
 	if (bundled.kind === "refused") return no(bundled.reason);
@@ -249,7 +252,6 @@ async function carryTreeAway(
 	if (head === undefined) return no("git couldn't say what HEAD is.");
 	const patched = await patchChanges(exec, path, into, name);
 	if (patched.kind === "refused") return no(patched.reason);
-	const sparse = await sparseOf(ask);
 	const tree: HandedTree = {
 		path: withinHome(path, home),
 		origin,

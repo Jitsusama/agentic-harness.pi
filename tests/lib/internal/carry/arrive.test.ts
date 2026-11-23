@@ -171,10 +171,13 @@ describe("arriving with a carried session", () => {
 		).toBe(tree);
 	});
 
-	it("clones borrowing the objects of a repository beside it with the same origin", async () => {
+	it("clones from a repository beside it with the same origin, owing it nothing after", async () => {
 		const { origin, from, head } = await carried();
 		const home = folder(made, "arriving");
 		const twin = await cloneAt(origin, join(home, "src", "twin"));
+		await git(twin, "checkout", "-q", "-b", "mine");
+		const only = await commit(twin, "mine.txt", "the twin's alone\n");
+		const twinHead = await git(twin, "rev-parse", "HEAD");
 		const tree = join(home, "src", "app");
 
 		const { whole } = await arriveAt(home, from);
@@ -182,13 +185,32 @@ describe("arriving with a carried session", () => {
 		expect(whole, "it arrived whole").toBe(true);
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
 		expect(
-			readFileSync(join(tree, ".git", "objects", "info", "alternates"), "utf8"),
-			"its objects are borrowed from the twin, not taken again",
-		).toBe(`${join(twin, ".git", "objects")}\n`);
+			await git(tree, "cat-file", "-t", only),
+			"its objects came from the twin, not the origin",
+		).toBe("commit");
+		expect(
+			existsSync(join(tree, ".git", "objects", "info", "alternates")),
+			"it keeps its own objects rather than borrowing the twin's",
+		).toBe(false);
+		expect(
+			await git(tree, "branch", "-a", "--format=%(refname)"),
+			"the twin's own branch doesn't come as the origin's",
+		).toBe("refs/heads/topic\nrefs/remotes/origin/main");
 		expect(
 			await git(twin, "status", "--porcelain"),
 			"and the twin is left as it was",
 		).toBe("");
+		expect(await git(twin, "rev-parse", "HEAD")).toBe(twinHead);
+
+		await git(twin, "checkout", "-q", "main");
+		await git(twin, "branch", "-q", "-D", "mine");
+		await git(twin, "reflog", "expire", "--expire=now", "--all");
+		await git(twin, "gc", "-q", "--prune=now");
+		expect(
+			await git(tree, "fsck", "--no-progress", "--no-dangling"),
+			"a gc in the twin leaves it whole",
+		).toBe("");
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
 		expect(
 			await git(tree, "remote", "get-url", "origin"),
 			"its origin is the carried one, not the twin",
@@ -211,9 +233,13 @@ describe("arriving with a carried session", () => {
 		expect(whole, "it arrived whole").toBe(true);
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
 		expect(
-			readFileSync(join(tree, ".git", "objects", "info", "alternates"), "utf8"),
+			await git(tree, "cat-file", "-t", await git(twinAt, "rev-parse", "HEAD")),
 			"cut from the twin",
-		).toBe(`${join(twinAt, ".git", "objects")}\n`);
+		).toBe("commit");
+		expect(
+			await git(tree, "fsck", "--no-progress", "--no-dangling"),
+			"and whole",
+		).toBe("");
 	});
 
 	it("stands a tree it clones in the sparse checkout it left in", async () => {
