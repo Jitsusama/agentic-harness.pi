@@ -47,6 +47,7 @@ import {
 	RESTART_ASK,
 	type RestartAsk,
 } from "../../lib/internal/session/park.ts";
+import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import { getParentPiInstall } from "../../lib/subagent/install.ts";
 import { hostReloads, reloadThroughHost } from "./hosted.ts";
 import { canonical, PACKAGE_NAME } from "./lifecycle.ts";
@@ -399,6 +400,21 @@ async function reloadOnce(
 				`${said} Nothing was reloaded; ask again if this session is still here once the carry has ended.`,
 			);
 		}
+		return;
+	}
+	// The follower's own reload waits out a move taken during the wait,
+	// as it waits out one it saw (follow.ts): going now would stop the
+	// move unwritten. Taken back quietly, the follower asks again once the
+	// move lets go; a person's or the agent's goes, and the move carries
+	// over it.
+	if (
+		session !== undefined &&
+		slot.request.by === "self" &&
+		moveWaiting(session) !== undefined
+	) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
 		return;
 	}
 	// Read after the wait: the session's own request says what came in,
