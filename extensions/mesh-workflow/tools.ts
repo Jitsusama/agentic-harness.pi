@@ -383,7 +383,7 @@ export function registerTools(
 			withdraw: Type.Optional(
 				Type.Boolean({
 					description:
-						"true to take back the look at kind and target that this session, or an earlier one on its quest, put up, opened or not, since it no longer applies; title, why and ask are then left out",
+						"true to take back the look at kind and target that this session, or an earlier one on its quest, put up, opened or not, since it no longer applies; title, happened, matters, act and follows are then left out",
 				}),
 			),
 		}),

@@ -489,20 +489,71 @@ describe("a look in its second form", () => {
 
 		expect(shows.asks, "a look to see").toBe(false);
 		expect(shows.wants, "nothing wanted back").toBeUndefined();
+		// Only words set it asking: the act alone would ask nothing.
 		expect(
-			pointAt(dir, { ...bar, choices: [], follows: [], words: true }, who).asks,
+			pointAt(
+				dir,
+				{ ...bar, act: "Just See", choices: [], follows: [], words: true },
+				who,
+			).asks,
 			"a look he may answer in words",
+		).toBe(true);
+		expect(
+			pointAt(dir, { ...bar, act: "Read It", choices: [], follows: [] }, who)
+				.asks,
+			"an act beyond seeing",
 		).toBe(true);
 	});
 
-	it("takes a long happened and matters, past the first form's word limit", () => {
+	// A parked question's prompt can open "Just look" and still ask, so
+	// only a second form's act is read for seeing alone.
+	it("reads a first form's ask that opens 'Just look' as asking", () => {
+		expect(
+			pointAt(
+				dir,
+				{ ...pr, ask: "Just look at the bar and say whether it reads right" },
+				who,
+			).asks,
+			"a first form's ask",
+		).toBe(true);
+	});
+
+	it("takes a happened and matters at their limits, past the first form's", () => {
 		const long = {
 			...bar,
-			happened: `${"a".repeat(95)} ok.`,
-			matters: Array.from({ length: 40 }, () => "word").join(" "),
+			happened: `${"a".repeat(96)} ok.`,
+			matters: `${"word ".repeat(39)}words`,
 		};
 
+		expect(long.happened, "happened").toHaveLength(100);
+		expect(long.matters, "matters").toHaveLength(200);
 		expect(refusalOf(long), "at the limits").toBeUndefined();
+	});
+
+	it("refuses a pointing in both forms, whose why and ask nothing reads", () => {
+		expect(
+			refusalOf({ ...bar, why: "See WCJQSG's note." }),
+			"a why beside the second form",
+		).toMatch(/one form, not both/);
+		expect(
+			refusalOf({ ...bar, ask: "Read ~/notes/plan.md" }),
+			"an ask beside the second form",
+		).toMatch(/one form, not both/);
+	});
+
+	it.each([
+		["a name with a capital inside", { act: "Open on macOS" }],
+		[
+			"an abbreviation in a follows",
+			{
+				follows: ["It stays, e.g. at this width.", "I put it back tonight."],
+			},
+		],
+	])("takes %s", (_what, part) => {
+		expect(
+			refusalOf({ ...bar, ...part }),
+			JSON.stringify(part),
+		).toBeUndefined();
 	});
 
 	it.each([
@@ -513,6 +564,14 @@ describe("a look in its second form", () => {
 		["a matters past 200", { matters: "a".repeat(201) }, /at most 200/],
 		["an act past 4 words", { act: "Try the Bar Right Now" }, /a button/],
 		["an act not in Title Case", { act: "try it" }, /a button/],
+		["an act that opens on a symbol", { act: "🎉 Ship It" }, /a button/],
+		["a session's address in the act", { act: "Ask WCJQSG" }, /can't place/],
+		[
+			"a quest's id",
+			{ happened: "QEST-20261025-85PKB2 finished the bar." },
+			/can't place/,
+		],
+		["code", { matters: "Run `pnpm check` to see it." }, /can't place/],
 		[
 			"a choice not in Title Case",
 			{ choices: ["Keep it", "Roll It Back"] },
@@ -589,6 +648,37 @@ describe("a look answered where the person is", () => {
 		withdrawLook(dir, who, look.kind, look.target);
 		expect(answerLook(dir, look.id, "Posted"), "taken back").toBeUndefined();
 		expect(looksIn(dir)[0]?.how, "left as taken back").toBe("taken back");
+	});
+
+	it("takes his own words when the look wants them, and only then", () => {
+		const wordy = pointAt(
+			dir,
+			{
+				...pr,
+				why: "",
+				ask: "",
+				happened: "The theme has two greens to pick from.",
+				matters: "Every window takes the one you pick.",
+				act: "Say Which",
+				words: true,
+			},
+			who,
+		);
+		const picky = pointAt(dir, { ...asking, target: `${pr.target}9` }, who);
+
+		expect(answerLook(dir, wordy.id, "  "), "no words").toBeUndefined();
+		expect(
+			answerLook(dir, picky.id, "the darker one"),
+			"words to a look that offers only choices",
+		).toBeUndefined();
+		expect(
+			answerLook(dir, wordy.id, " the darker one "),
+			"his words",
+		).toMatchObject({
+			state: "resolved",
+			how: "answered: the darker one",
+			answer: "the darker one",
+		});
 	});
 
 	it("refuses choices past a row's room, repeated, or not his words", () => {

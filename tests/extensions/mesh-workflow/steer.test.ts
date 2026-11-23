@@ -149,6 +149,43 @@ describe("a look answered from the launcher", () => {
 		expect(told, "nothing said on screen").toEqual([]);
 	});
 
+	// The look promised what follows each choice; the agent that must
+	// keep the promise hears it with the pick.
+	it("tells the agent what the look said would follow the pick", () => {
+		looks = mkdtempSync(join(tmpdir(), "looks-"));
+		const { id } = pointAt(
+			looks,
+			{
+				kind: "page",
+				target: "https://example.com/bar",
+				title: "The status bar",
+				why: "",
+				ask: "",
+				happened: "The bar keeps the cost at narrow widths.",
+				matters: "You couldn't see what a session cost.",
+				act: "Try the Bar",
+				choices: ["Keep It", "Roll It Back"],
+				follows: ["It stays.", "I put the old bar back tonight."],
+			},
+			{ session: "s1", quest: "Q1" },
+		);
+		const said: string[] = [];
+
+		answerLookSteered(
+			answer(id, "Roll It Back"),
+			looks,
+			{ session: "s1" },
+			(text) => said.push(text),
+			() => undefined,
+		);
+
+		expect(said, "the pick and its promise").toEqual([
+			expect.stringMatching(
+				/They picked: Roll It Back\. The look told them what follows: I put the old bar back tonight\./,
+			),
+		]);
+	});
+
 	it("answers nothing for another quest's look, or one no longer waiting", () => {
 		const id = asking();
 		const said: string[] = [];

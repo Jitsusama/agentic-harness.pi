@@ -74,7 +74,14 @@ export const SHOWING_LASTS_MS = 24 * 60 * 60 * 1000;
 
 /** An ask that wants nothing back: "Nothing, just to see". */
 const ONLY_TO_SEE =
-	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b|^\s*(?:just|only) (?:see|read|look)\b/i;
+	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b/i;
+
+/**
+ * An act that wants nothing back: the whole button is Just See, or the
+ * like. Read off the act alone, never a first form's ask, where "Just
+ * look at it and say" still asks.
+ */
+const ONLY_TO_SEE_ACT = /^(?:just|only) (?:see|read|look)(?: at)?(?: it)?$/i;
 
 /**
  * How a look was resolved without the person: its change merged or
@@ -253,10 +260,8 @@ export function inBothForms(pointing: Pointing): Pointing {
 	const act = (pointing.act ?? "").trim();
 	return {
 		...pointing,
-		why: pointing.why.trim() || [happened, matters].join(" ").trim(),
-		ask:
-			pointing.ask.trim() ||
-			(labels.length > 0 ? `${act}: ${labels.join(", or ")}.` : act),
+		why: [happened, matters].join(" ").trim(),
+		ask: labels.length > 0 ? `${act}: ${labels.join(", or ")}.` : act,
 	};
 }
 
@@ -315,13 +320,17 @@ function stands(look: Look): boolean {
 	return STANDING.includes(look.state);
 }
 
-/** Whether a pointing wants something back: choices, or an ask beyond seeing. */
+/**
+ * Whether a pointing wants something back: choices, his own words, or
+ * an ask beyond seeing, read off the act when it is said in the second
+ * form.
+ */
 function asksBack(pointing: Pointing): boolean {
-	return (
-		(pointing.choices?.length ?? 0) > 0 ||
-		pointing.words === true ||
-		!ONLY_TO_SEE.test(pointing.ask)
-	);
+	if ((pointing.choices?.length ?? 0) > 0 || pointing.words === true)
+		return true;
+	return pointing.happened === undefined
+		? !ONLY_TO_SEE.test(pointing.ask)
+		: !ONLY_TO_SEE_ACT.test((pointing.act ?? "").trim());
 }
 
 /** The second form's fields of a look, for one said in it; none else. */
@@ -357,6 +366,8 @@ function secondForm(pointing: Pointing): Partial<Look> {
 export function refusalOf(said: Pointing): string | undefined {
 	if (said.target.trim() === "") return "A look needs what it opens.";
 	const second = said.happened !== undefined;
+	if (second && (said.why.trim() !== "" || said.ask.trim() !== ""))
+		return "A look said in its second form makes its why and ask from what happened, why it matters and its act; give one form, not both.";
 	if (second) {
 		const refused = secondFormRefusal(said);
 		if (refused) return refused;
@@ -432,7 +443,7 @@ function secondFormRefusal(pointing: Pointing): string | undefined {
 	if (matters.length > MATTERS_CHARACTERS)
 		return `A look's matters is at most ${MATTERS_CHARACTERS} characters; it is ${matters.length}.`;
 	if (wordsIn(act) > ACT_WORDS || !titleCased(act))
-		return `A look's act is a button: at most ${ACT_WORDS} words in Title Case, a verb first, such as Review It.`;
+		return `A look's act is a button: at most ${ACT_WORDS} words in Title Case, such as Review It.`;
 	const labels = pointing.choices ?? [];
 	if (labels.some((one) => !titleCased(one.trim())))
 		return "A look's choices are labels in Title Case, such as Keep It or Roll It Back.";
@@ -477,18 +488,26 @@ const SMALL_WORDS = new Set([
 
 /**
  * Whether `label` reads in Title Case: its first word and every word
- * past the short ones begin in a capital or a digit.
+ * past the short ones begin in a capital or a digit, or are a name
+ * spelled with a capital inside, such as macOS or iPhone. A symbol or
+ * an emoji is not a word in Title Case.
  */
 function titleCased(label: string): boolean {
 	const words = label.split(/\s+/).filter((word) => word !== "");
 	return words.every(
-		(word, at) => /^[^\p{Ll}]/u.test(word) || (at > 0 && SMALL_WORDS.has(word)),
+		(word, at) =>
+			/^[\p{Lu}\p{N}]/u.test(word) ||
+			/^\p{Ll}+\p{Lu}/u.test(word) ||
+			(at > 0 && SMALL_WORDS.has(word)),
 	);
 }
 
+/** Abbreviations whose full stop ends no sentence. */
+const ABBREVIATIONS = /\b(?:e\.g|i\.e|etc|vs|approx|incl)\./gi;
+
 /** Whether `text` runs past one sentence. */
 function moreThanASentence(text: string): boolean {
-	return /[.!?]\s+\S/.test(text.trim());
+	return /[.!?]\s+\S/.test(text.trim().replace(ABBREVIATIONS, ""));
 }
 
 /** Why a look's choices can't be offered, or nothing when they can. */
@@ -725,9 +744,10 @@ export function resolveLooksOfQuests(
 
 /**
  * Answer the standing look `id` with the choice whose value is `value`,
- * as the person picked it from the launcher: it resolves, saying what he
- * answered. Answers the look as answered, or nothing when it is gone,
- * no longer standing, or offers no such choice.
+ * as the person picked it from the launcher, or with `value` as his own
+ * words when the look wants them: it resolves, saying what he answered.
+ * Answers the look as answered, or nothing when it is gone, no longer
+ * standing, or offers no such choice and wants no words.
  */
 export function answerLook(
 	dir: string,
@@ -738,11 +758,18 @@ export function answerLook(
 	const look = looksIn(dir).find((one) => one.id === id);
 	if (!look || !stands(look)) return undefined;
 	const choice = look.choices?.find((one) => one.value === value);
-	if (!choice) return undefined;
-	return markResolvedLook(dir, look, `answered: ${choice.label}`, now, {
-		answer: choice.value,
-		answeredAt: now.toISOString(),
-	});
+	// A look that wants his own words takes any he gives; one that
+	// doesn't takes only a choice it offers.
+	const words = value.trim();
+	if (!choice && (look.wants?.words !== true || words === "")) return undefined;
+	const answer = choice?.value ?? words;
+	return markResolvedLook(
+		dir,
+		look,
+		`answered: ${choice?.label ?? words}`,
+		now,
+		{ answer, answeredAt: now.toISOString() },
+	);
 }
 
 /** Write `look` back resolved, `how`, with what else it now says. */

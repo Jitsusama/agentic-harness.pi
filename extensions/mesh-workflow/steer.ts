@@ -276,11 +276,16 @@ export function answerLookSteered(
 
 /** What the agent reads of the person's answer to a look. */
 export function lookAnswerText(look: Look, from?: string): string {
-	const label =
-		look.choices?.find((one) => one.value === look.answer)?.label ??
-		look.answer;
+	const picked = look.choices?.find((one) => one.value === look.answer);
+	const label = picked?.label ?? look.answer;
 	const asked = look.ask ? ` It asked: ${look.ask}` : "";
-	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
+	const said = picked
+		? `They picked: ${label}.`
+		: `They answered in their own words: ${label}`;
+	const promised = picked?.follows
+		? ` The look told them what follows: ${picked.follows}`
+		: "";
+	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} ${said}${promised} Act on it, and take nothing back: the look is already off their list.]`;
 }
 
 /** Nothing, for a look that failed: what still waits, the next one takes. */
