@@ -31,6 +31,10 @@ import {
 	type RunSummary,
 	runtimeOf,
 } from "../../../host/service/proof.ts";
+// Imported only to be named, so `--changed` runs this file when a script
+// it runs or reads changes alone; it reads them from their paths below.
+import "../../../scripts/host-run.sh";
+import "../../../scripts/host-test-there.sh";
 
 let dir = "";
 beforeEach(() => {

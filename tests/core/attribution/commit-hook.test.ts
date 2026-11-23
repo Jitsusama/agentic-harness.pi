@@ -17,6 +17,9 @@ import {
 	installCommitHook,
 	repoRootOf,
 } from "../../../lib/core/attribution/commit-hook.ts";
+// Imported only to be named, so `--changed` runs this file when the hook's
+// script changes alone; commit-hook.ts reads it from its path.
+import "../../../lib/core/attribution/prepare-commit-msg.sh";
 
 // Wrap both spawns so a test can count the git processes a call starts:
 // each one is a spawn on pi's startup and command path.
