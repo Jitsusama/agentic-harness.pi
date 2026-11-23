@@ -10,6 +10,13 @@ const theme = {
 
 const plain = (line: string) => line.replace(/<\/?[a-z]+>/g, "");
 
+/**
+ * Who may grant, which every note says: the person as `person` reaches
+ * them, or the owner, whose quest can be checked.
+ */
+const grants = (person: string) =>
+	`Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address.`;
+
 const message = (over: Partial<Message> = {}): Message => ({
 	v: 1,
 	id: "01a16500-0000-7000-8000-000000000001",
@@ -57,21 +64,93 @@ describe("the mesh on screen", () => {
 		);
 	});
 
-	it("names the orchestrator a delivery says to tell, its hub from use, or the reply when there is neither", () => {
+	it("tells every delivery that a question about work goes to its owner or to need, and asks above only who owns it", () => {
 		const messages = [message()];
+		for (const [above, asked] of [
+			[{ address: "WCJQSG", by: "mark" } as const, "WCJQSG"],
+			// The hub by role, as the send finds it afresh.
+			[
+				{ address: "5GV2AH", by: "use" } as const,
+				"your hub from use (mesh_send to: orchestrator)",
+			],
+		] as const) {
+			const content = noted(messages, [], above);
+			// "That path" means the person's, so it must follow that sentence.
+			expect(content).toContain(
+				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${asked} who owns it.`,
+			);
+		}
+	});
+
+	// A hub from use is chosen by how much it talks, which any cell above
+	// can grow, so only the mark's orchestrator passes on the person's yes,
+	// and never some other peer telling it.
+	it("takes the person's yes as passed on by the mark's orchestrator alone", () => {
+		const messages = [message()];
+
 		expect(noted(messages, [], { address: "WCJQSG", by: "mark" })).toContain(
-			"otherwise to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
+			grants("the person, said to you or passed on by WCJQSG"),
 		);
-		// A kept hub can be minutes old, and the send finds it afresh, so
-		// the note names no cell the send may no longer reach.
-		const byUse = noted(messages, [], { address: "5GV2AH", by: "use" });
-		expect(byUse).toContain(
-			"otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)",
+		const used = noted(messages, [], { address: "5GV2AH", by: "use" });
+		expect(used).toContain(grants("the person, said to you"));
+		expect(used).not.toContain("passed on by");
+	});
+
+	it("leaves a session with nobody above free to ask the person about its own work, and to ask them who owns a question nobody found an owner for", () => {
+		const content = noted([message()]);
+
+		expect(content).toContain(
+			"Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask the person in your reply who owns it.",
 		);
-		expect(byUse).not.toContain("5GV2AH");
-		expect(noted(messages)).toContain(
-			"otherwise in your next reply, since no orchestrator is above your quest",
+		expect(content).toContain(grants("the person, said to you"));
+		expect(content).not.toContain("That path carries only");
+	});
+
+	it("asks that what goes to the person says who it came from, what happened, why it matters and the one thing to do", () => {
+		for (const [above, path] of [
+			[
+				{ address: "WCJQSG", by: "mark" } as const,
+				"to your orchestrator, WCJQSG, as a question (mesh_send to: orchestrator)",
+			],
+			[
+				{ address: "5GV2AH", by: "use" } as const,
+				// By role: a kept hub can be minutes old, and the send finds it
+				// afresh, or reaches the one kept while the node is quiet.
+				"to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)",
+			],
+			[
+				undefined,
+				"in your next reply, since no orchestrator is above your quest",
+			],
+		] as const) {
+			expect(noted([message()], [], above)).toContain(
+				`otherwise ${path}, saying who it came from, what happened, why it matters to them and the one thing to do.`,
+			);
+		}
+	});
+
+	// A kept hub can be minutes old, so the note names no cell the send
+	// may no longer reach.
+	it("names a hub from use by role, never by its address", () => {
+		expect(
+			noted([message()], [], { address: "5GV2AH", by: "use" }),
+		).not.toContain("5GV2AH");
+	});
+
+	it("sends what a pivoted session is stuck on to its owner or to need, and what waits on the person to its orchestrator", () => {
+		// Only an orchestrator pivots, so one is always above.
+		const content = noted([message({ intent: "pivot" })], [], {
+			address: "WCJQSG",
+			by: "mark",
+		});
+
+		expect(content).toContain(
+			"so anything waiting on the person goes to it as a question. Anything stuck goes to the owner of what it waits on, by address, or to need (mesh_send to: need, about: what it is about).",
 		);
+		expect(content).toContain(
+			"only when neither finds an owner, ask WCJQSG who owns it.",
+		);
+		expect(content).not.toMatch(/stuck or waiting on the person/);
 	});
 
 	it("shows everything the model read once expanded", () => {

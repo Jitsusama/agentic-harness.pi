@@ -62,14 +62,16 @@ function worktreeLayout(base: string, tree: string, back: string): string {
 
 /**
  * Run a command as a session with `sandbox` would; its text and exit. It
- * runs in the temporary folder unless told otherwise, not the folder the
- * tests started in: the strict sandbox refuses a plain clone's, which holds
- * its git folder, so the tests would fail wherever they're checked out so.
+ * runs in a folder of its own in the temporary folder unless told
+ * otherwise, not the folder the tests started in: the strict sandbox
+ * refuses a plain clone's, which holds its git folder, so the tests would
+ * fail wherever they're checked out so; nor the temporary folder itself,
+ * which holds the tests' runtime folder, one the fence hides.
  */
 async function run(
 	sandbox: Sandbox,
 	command: string,
-	cwd = tmpdir(),
+	cwd = mkdtempSync(join(tmpdir(), "sandbox-run-")),
 ): Promise<string> {
 	const bash = agentBash(cwd, {}, sandbox);
 	try {

@@ -77,27 +77,41 @@ and can answer a question or a gate left open on screen.
   cell on a quest above its own that it talks with most, each
   tie counted for its own share of today's messages on it
   (`lib/mesh/hub-from-use.ts`). That is an address only, and
-  grants nothing the mark does. The ties it talks on adding
-  up to less than one message six hours old, from either
-  side, make no hub, however the share falls. With no such
-  cell the send is refused, but for a node too slow to
-  answer it in time, when it reaches the hub last found if
-  that hub still checks out. A session on a quest heading
-  an orchestration is refused too, and told the head's
-  address. The tree is walked on the quest side; the mesh
-  reads only presence. Within a mission, an unaddressed
-  message now usually goes to the orchestration's group,
-  since another peer is nearly always in it: the same reach
-  `#quest/<root>` had. When a quest or document is concluded
-  or retired, the mesh tells the session's orchestrator
-  itself, one fyi line quoting what the quest tool answered,
-  heard over pi's bus
+  grants nothing the mark does: it passes on no yes of the
+  person's, since any cell above can grow its ties. The ties
+  it talks on adding up to less than one message six hours
+  old, from either side, make no hub, however the share
+  falls. With no such cell the send is refused, but for a
+  node too slow to answer it in time, when it reaches the hub
+  last found if that hub still checks out. A session on a
+  quest heading an orchestration is refused too, and told the
+  head's address. What the mesh says by itself, and the
+  delivery note, read the hub each session keeps, and the
+  note names it by role, since a send finds it afresh. The
+  kept hub rides out a node that does not answer rather than
+  reading as no hub, since the node going quiet says nothing
+  about who is above and every unmarked session would
+  otherwise send its questions to the person at once; it
+  still goes once either it or the session stops the other,
+  it ends, its address is listed by a second live cell or by
+  an ended one on another quest, or it leaves the quests
+  above, and after 30 minutes with no find coming to it,
+  since a node quiet that long is down rather than slow. A
+  question by address to a peer no cell above holds waits on
+  no find, as no hub is found anywhere else. The tree is
+  walked on the quest side; the mesh reads only presence.
+  Within a mission, an unaddressed message now usually goes
+  to the orchestration's group, since another peer is nearly
+  always in it: the same reach `#quest/<root>` had. When a
+  quest or document is concluded or retired, the mesh tells
+  the session's orchestrator itself, one fyi line quoting
+  what the quest tool answered, heard over pi's bus
   (`lib/internal/quest/fields/concluded.ts`). With nobody
   above to tell yet, as while no hub is found, the newest
-  ten wait to be told once one is. A session left
-  on no model, which answers nothing it is sent, has the mesh
-  tell its orchestrator once, as a finding naming the model
-  and why it can't be set back (`lib/internal/session/no-model.ts`).
+  ten wait to be told once one is. A session left on no
+  model, which answers nothing it is sent, has the mesh tell
+  its orchestrator once, as a finding naming the model and
+  why it can't be set back (`lib/internal/session/no-model.ts`).
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,
@@ -247,8 +261,9 @@ and can answer a question or a gate left open on screen.
   oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. `mesh_groups` also lists
-  each other peer still there, one line each, saying whether
-  it is busy or idle and what it works on, and the leases of
+  each other peer still there, one line each, saying its own
+  quest (apart from the groups it joined, which any peer may),
+  whether it is busy or idle and what it works on, and the leases of
   the peers still there. Last, it lists the peers this one is
   tied to, as the machine's mycelium node keeps ties from who
   talked with whom in the last day (its `tie` kind): at most
@@ -368,10 +383,27 @@ on at start never starts a turn.
 Every delivery ends by saying what to do with it: act now on a
 question or a hold put to this peer, tell the person at once
 anything they must act on (in the reply when talking with them,
-to the quest's orchestrator as a question otherwise), and take
-the rest as context, with no acknowledgement. It once said only
-that messages were context, not a task, and models took that as
-leave to sit on questions and on what the person had to do.
+to the quest's orchestrator as a question otherwise, saying
+who it came from, what happened, why it matters and the one
+thing to do), keep that path for what needs the person alone,
+take a question about work to its owner or to `need`, asking
+the orchestrator only who owns one neither finds an owner for,
+settle work shared with a peer between the two (a yes, ruling
+or grant still comes only from the person or from the work's
+owner, the peer whose own quest holds it, as `mesh_groups`
+names it, by address; only the mark's orchestrator passes on
+the person's yes), and
+take the rest as context, with no acknowledgement. A session
+with nobody above asks the person in its reply about work that
+is theirs, and asks them who owns a question neither the owner
+nor `need` found. A refused need says it was passed to nobody
+in its place rather than that it never went to an
+orchestrator, since asking above who owns it is the next step.
+It once said only that messages were context, not a task, and
+models took that as leave to sit on questions and on what the
+person had to do. Later it named one address, the
+orchestrator's, and nowhere else to ask, and models took every
+question there, so work fell into a hub and its spokes.
 
 ## Attention, Never None
 

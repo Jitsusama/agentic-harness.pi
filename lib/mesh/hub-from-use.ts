@@ -265,11 +265,13 @@ export function questsAbove(
 
 /**
  * Whether a hub found earlier still stands as `self` reads it now, by
- * the rules finding it used: its address one only the hub's live
- * presence lists, with no `ended` one on another quest listing it too,
- * that presence on a quest above `self`'s, and neither of the two having
- * stopped the other since. Its ties aren't weighed again, since only
- * the node keeps them.
+ * the rules the find chose it by (`hubRules`), bar its ties: its
+ * address listed by exactly one of the `live` presences and by no
+ * `ended` one on another quest, that one on a quest above `self`'s, and
+ * neither having stopped the other, each stop matched as the find
+ * matches it. Its ties aren't weighed again, since only the node keeps
+ * them. A hub is kept while the node is quiet, so this is the only
+ * check it meets until a find settles.
  */
 export function stillAbove(
 	self: Pick<
@@ -284,6 +286,19 @@ export function stillAbove(
 	if (!writable(address)) return false;
 	const holder = live.find((one) => lists(one, address));
 	return holder !== undefined && eligible(holder);
+}
+
+/**
+ * Whether `one` works on a quest above `self`'s own, the only place a
+ * hub from use is ever found, so an address held by no such cell can't
+ * be `self`'s hub.
+ */
+export function onQuestAbove(
+	self: Pick<Presence, "groups" | "joined" | "quest">,
+	one: Pick<Presence, "groups" | "joined" | "quest">,
+): boolean {
+	const own = ownQuestOf(one);
+	return own !== undefined && questsAbove(self).includes(own);
 }
 
 /** The quest `one` works on, the last of its chain, if it has one. */

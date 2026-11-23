@@ -37,6 +37,11 @@ it, and scored 0.26 higher on those.
 
 The branch is what it searches: the path from the root to where the
 session is now, which is the history the summary was written over.
+A session rolled over to a fresh log, or a hosted conversation holding
+only its kept history, has the rest of its branch on disk, and each
+call reads and parses it from there. The parsed copy lives only as long
+as the call, and each read says in the journal how many MiB it parsed
+and how long it took.
 
 ## The Summary Note
 

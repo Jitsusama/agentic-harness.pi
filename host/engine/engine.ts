@@ -59,6 +59,7 @@ import {
 } from "./harness-settings.ts";
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
+import { holdKeptHistory } from "./kept-history.ts";
 import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
@@ -83,7 +84,7 @@ import {
 	pinSubagentInstall,
 	pinSubagentKey,
 } from "./subagent-install.ts";
-import { conversationMarker, ownerMark } from "./tool-children.ts";
+import { conversationMarker, markAsOwner } from "./tool-children.ts";
 
 /** A conversation prepare named, waiting for its start, with the launch derived for it. */
 interface Preparing {
@@ -107,7 +108,7 @@ export async function createEngine(
 	const { host } = options;
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
-	const owner = ownerMark();
+	const owner = markAsOwner(report);
 	const kept = options.oneConversation;
 	const stopping = stopKeeping({
 		stateDir: options.stateDir,
@@ -474,7 +475,10 @@ export async function createEngine(
 			const manager =
 				request.op === "open"
 					? sessions.SessionManager.create(folder(request.cwd))
-					: sessions.SessionManager.open(adoptable(request.sessionFile));
+					: holdKeptHistory(
+							sessions.SessionManager.open(adoptable(request.sessionFile)),
+							report,
+						);
 			const sessionId = manager.getSessionId();
 			const file = manager.getSessionFile();
 			if (!file) throw new Error("pi named no file for the conversation");
@@ -530,7 +534,10 @@ export async function createEngine(
 				throw new Error(
 					`Conversation ${entry.sessionId} has lost its session file: ${entry.file}`,
 				);
-			const manager = sessions.SessionManager.open(entry.file);
+			const manager = holdKeptHistory(
+				sessions.SessionManager.open(entry.file),
+				report,
+			);
 			if (manager.getSessionId() !== entry.sessionId)
 				throw new Error(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,

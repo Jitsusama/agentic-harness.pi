@@ -19,6 +19,7 @@ import {
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
+import { onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
 	heading,
@@ -162,7 +163,11 @@ function toOrchestrator(
  * it was sent by, kept hub or none. A find that can't be finished, with
  * no answer from the node, can't say the address isn't the hub's, so it
  * counts as reaching it and the check is made rather than skipped,
- * whether the send's own `orchestrator` asked for it or this did.
+ * whether the send's own `orchestrator` asked for it or this did. A
+ * send naming no address that a live cell on a quest above this peer's
+ * holds can't reach its hub, which is only ever found there, so it
+ * waits on no find: a question to a peer's owner by address, the
+ * common case, then costs no census and no wait on the node.
  */
 async function toHubByAddress(
 	at: Local,
@@ -173,6 +178,19 @@ async function toHubByAddress(
 	const byAddress = named.some((group) => group.startsWith(homeOf("")));
 	if (!byAddress || at.peer.orchestratedBy !== undefined) return false;
 	if (asked !== undefined) return !asked.settled;
+	const self = present.find((one) => one.session === at.peer.session);
+	if (
+		self !== undefined &&
+		!present.some(
+			(one) =>
+				onQuestAbove(self, one) &&
+				one.addresses.some((address) =>
+					named.includes(homeOf(address.toUpperCase())),
+				),
+		)
+	) {
+		return false;
+	}
 	const found = await findAbove(at);
 	if (!found.settled) return true;
 	return (
@@ -191,12 +209,12 @@ async function toHubByAddress(
  * ended before it asked the node, finding this peer absent from the
  * census, says nothing of the node, so it falls back to nothing; the kept
  * hub's read would refuse it for want of this peer among the live too,
- * so this spares only the read. The keeping's own next find meets the
- * same slow node and keeps none, so past that this refuses as before.
- * A send to it gets the checks a send to the hub gets, since
+ * so this spares only the read. The keeping keeps that hub through a
+ * node that stays quiet, for up to its trust (tools/above.ts), so past
+ * that this refuses as before. A send to it gets the checks a send to the hub gets, since
  * `orchestrator` then names its address; it stays unsettled only so it
- * is never taken for a find the node answered. The kept hub is read only when it is needed, since
- * reading it reads every presence.
+ * is never taken for a find the node answered. The kept hub is read
+ * only when it is needed, since reading it reads every presence.
  */
 function orKept(
 	found: Found,

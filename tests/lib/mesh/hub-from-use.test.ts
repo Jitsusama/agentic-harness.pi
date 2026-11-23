@@ -535,38 +535,90 @@ describe("a hub from use", () => {
 	});
 });
 
-// A kept hub decides where a send goes when the node is slow, so reading
-// it again must refuse what finding it would have.
+// A kept hub meets no find while the node is quiet, so reading it again
+// must hold to every rule the find chose it by, bar its ties.
 describe("a hub found earlier, read again", () => {
 	const at = new Date(0).toISOString();
+	const ties = [tie("ROOT01", 9)];
+	/** Whether the find, given these, still comes to ROOT01. */
+	const found = (
+		me: Presence,
+		live: Presence[],
+		ended: Presence[] = [],
+	): boolean => {
+		const above = hubFromUse(me, live, ties, ended);
+		return "address" in above && above.address === "ROOT01";
+	};
 
-	it("still stands while its one holder is live on a quest above", () => {
-		expect(stillAbove(self, [self, root], "ROOT01")).toBe(true);
+	it("still stands while nothing the find read has changed", () => {
+		expect(stillAbove(self, [self, root, parent], "ROOT01")).toBe(true);
 	});
 
-	it("no longer stands once this cell has stopped it, by address or by session", () => {
-		const byAddress = { ...self, stops: [{ address: "ROOT01", at }] };
-		const bySession = {
-			...self,
-			stops: [{ address: "OLD999", session: "r", at }],
-		};
+	for (const [who, me, hub] of [
+		[
+			"this cell stopped it by address",
+			{ ...self, stops: [{ address: "ROOT01", at }] },
+			root,
+		],
+		[
+			"this cell stopped it by session",
+			{ ...self, stops: [{ address: "OLD999", session: "r", at }] },
+			root,
+		],
+		[
+			"it stopped this cell by address",
+			self,
+			{ ...root, stops: [{ address: "7M6JKG", at }] },
+		],
+		[
+			"it stopped this cell by session",
+			self,
+			{ ...root, stops: [{ address: "OLD999", session: "s", at }] },
+		],
+	] as const) {
+		it(`no longer stands once ${who}, as the find refuses it`, () => {
+			const live = [me, hub, parent];
 
-		expect(stillAbove(byAddress, [byAddress, root], "ROOT01")).toBe(false);
-		expect(stillAbove(bySession, [bySession, root], "ROOT01")).toBe(false);
-	});
-
-	it("no longer stands once it has stopped this cell", () => {
-		const stopper = cell("r", ["ROOT01"], ["root01"], {
-			stops: [{ address: "7M6JKG", at }],
+			expect(stillAbove(me, live, "ROOT01")).toBe(false);
+			expect(found(me, live)).toBe(false);
 		});
+	}
 
-		expect(stillAbove(self, [self, stopper], "ROOT01")).toBe(false);
+	// The find matches a stop the hub holds against this cell's address
+	// as written, so the read does too, rather than refusing a hub the
+	// find keeps choosing.
+	it("agrees with the find on a stop whose address differs only in case", () => {
+		const hub = { ...root, stops: [{ address: "7m6jkg", at }] };
+		const live = [self, hub, parent];
+
+		expect(stillAbove(self, live, "ROOT01")).toBe(found(self, live));
 	});
 
-	it("no longer stands once an ended presence on another quest lists it", () => {
-		const forged = cell("f", ["HARN01"], ["root01"]);
-		const ended = cell("h", ["HARN01"], ["harn01"]);
+	// A send to an ended peer's address still reaches it once restored,
+	// so a cell on another quest taking it would point the send elsewhere.
+	it("no longer stands once an ended presence on another quest lists its address", () => {
+		const forged = cell("f", ["ROOT01"], ["root01", "mid002"]);
+		const ended = cell("r", ["ROOT01"], ["root01"]);
 
-		expect(stillAbove(self, [self, forged], "HARN01", [ended])).toBe(false);
+		expect(stillAbove(self, [self, forged], "ROOT01", [ended])).toBe(false);
+		expect(found(self, [self, forged], [ended])).toBe(false);
+	});
+
+	it("still stands at its quest's address after an earlier session on that quest ended", () => {
+		const earlier = cell("r0", ["ROOT01"], ["root01"]);
+
+		expect(stillAbove(self, [self, root], "ROOT01", [earlier])).toBe(true);
+	});
+
+	it("no longer stands once a second live presence lists its address", () => {
+		const second = cell("x", ["ROOT01"], ["root01"]);
+
+		expect(stillAbove(self, [self, root, second], "ROOT01")).toBe(false);
+	});
+
+	it("no longer stands once its cell is on no quest above this one's", () => {
+		const moved = cell("r", ["ROOT01"], ["other1"]);
+
+		expect(stillAbove(self, [self, moved], "ROOT01")).toBe(false);
 	});
 });

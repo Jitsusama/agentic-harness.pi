@@ -34,9 +34,19 @@ What it adds:
   editor nobody will close. `GIT_ASKPASS` and `SSH_ASKPASS` are empty
   and `SSH_ASKPASS_REQUIRE=never`, so a missing credential fails at
   once instead of opening a prompt window on your screen; credential
-  helpers still run first. Only the agent's commands get these: pi's
-  own editor and your shell are untouched, and a command that sets one
-  itself still wins.
+  helpers still run first. The editor and pager reach only the agent's
+  commands: pi's own editor and your shell are untouched, and a
+  command that sets one itself still wins. The three askpass settings
+  are set in pi's own process too, as it loads, since pi runs git and
+  ssh of its own (the work tool, a council's checkout) and a host takes
+  `SSH_ASKPASS` and `DISPLAY` from the user manager. So what pi starts
+  for you inherits them as well: a `!` command or a terminal pi opens
+  asks on its own terminal where it has one, and fails where it has
+  none, rather than opening a window; terminals you open yourself are
+  untouched. In a host, this blanks the loading conversation's
+  environment, not the host's own.
+  The transient service an agent is told to start for a long run sets
+  the same three, for the same reason.
 - **Behind what you use.** Where `priority-workflow` is putting what
   pi starts into the machine's cgroup for work, the shell moves itself
   there before it runs the command, so nothing the command forks is
@@ -242,7 +252,18 @@ sandbox rather than a fault.
 
 It runs no command in a working folder that is your home folder or
 holds it, whose startup files run outside, nor in one holding its
-repository's git folder, whose hooks and settings git runs outside. A
+repository's git folder (or a `.git` file naming one inside it, as a
+bare repository beside its worktrees) or lying in any git folder, a bare
+repository's included, wherever it lies, whose hooks and settings
+git runs outside (a folder further above a git folder outside the
+repository homes is not refused, nor a worktree kept inside its bare
+repository's folder, whose own git lies elsewhere), nor in one in `~/src` or `~/world` outside a repository's work, at any
+depth. Nor does it in one that lies in or holds the records the
+machine's node trusts, the code pi's host compiled, or a path the
+agent fence hides or keeps read-only, such as `~/.config` or `~/.ssh`,
+or, outside the home folder, the runtime folder, the system bus or X's
+sockets where they are there, so what strict grants reopens nothing
+the fence closes. A
 tree the work tool cuts (`work tree`), or a snapshot, keeps its git
 folder elsewhere, so a strict session works in one; a plain clone
 won't do. Its repository's git folder is readable, so git reads the
@@ -364,12 +385,16 @@ caller's slice puts it in the jobs slice, where it dies. So the agent
 is told to start a run meant to outlive its command and its host as a
 transient service instead (`systemd-run --user --unit=NAME --collect
 --same-dir --expand-environment=no`, passing each variable it needs
-with `--setenv`). A service starts from the user manager, so it
-carries none of the command's marks and no reap finds it, whatever
-its slice; and the journal records how it ended, which for a scope
+with `--setenv`, its `TMPDIR` among them, so its temp files stay in
+the quest's scratch, where a quest is loaded, rather than the `/tmp`
+every run shares; with none set it falls back to `/tmp`, and a
+quest's conclusion removes its scratch, as it does the run's log
+there). A service starts from the user manager, with the manager's
+environment but for what it is passed, so it carries none of the
+command's marks and no reap finds it, whatever its slice; and the journal records how it ended, which for a scope
 nothing does. In the fence and the strict sandbox no command reaches
-systemd, and the agent is told so instead. The hand-off answer tells the agent
-to use the tool and never to kill the shell by hand, which would leave
+systemd, and the agent is told so instead. The hand-off answer tells
+the agent to use the tool and never to kill the shell by hand, which would leave
 what the command started running. A reload does not: the
 command keeps running, and its result arrives in the reloaded session
 (see [job-workflow](../job-workflow/#through-a-reload)). A timeout the

@@ -82,7 +82,7 @@ export function stopKeeping(options: {
 	/**
 	 * The process table a conversation's reaps read; Linux's /proc by
 	 * default. What an earlier host left and what ended calls left are
-	 * read from /proc as before.
+	 * read from /proc as before; a Mac has none, so none is reaped there.
 	 */
 	readonly table?: ProcessTable;
 }): StopKeeping {

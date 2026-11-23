@@ -38,7 +38,7 @@ function foldsCase(): boolean {
 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	FENCE_RUN_HELP,
 	type FenceRunAsk,
@@ -46,6 +46,7 @@ import {
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
+import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
 
 describe("reading how pi-fence was asked", () => {
 	it("takes the working directory when no folder is named", () => {
@@ -173,6 +174,55 @@ describe("refusing to run where the fence can't hold", () => {
 			sandbox: LAID,
 		});
 		expect(JSON.stringify(made), "names the hooks").toContain("hooks");
+	});
+
+	it("grants a temporary code cache, which the fence lays as its own", () => {
+		const made = fenceRunText(asking("/tmp/jiti"), {
+			env: {},
+			home,
+			sandbox: LAID,
+		});
+		expect(made, JSON.stringify(made)).toHaveProperty("text");
+	});
+
+	it("grants a folder holding the runtime folder, which the fence lays as its own, though strict refuses it", () => {
+		const holder = join(base, "runtime-holder");
+		mkdirSync(join(holder, "runtime"), { recursive: true });
+		vi.stubEnv("XDG_RUNTIME_DIR", join(holder, "runtime"));
+		try {
+			const made = fenceRunText(asking(holder), {
+				env: {},
+				home,
+				sandbox: LAID,
+				platform: "linux",
+			});
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+			expect(unfencedFolder(holder, home, "strict", { mac: false })).toContain(
+				`holds ${join(holder, "runtime")}`,
+			);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("grants a folder in ~/src outside a repository on Linux, whose fence keeps it read-only, though strict and a Mac refuse it", () => {
+		const org = join(home, "src/github.com/org");
+		mkdirSync(org, { recursive: true });
+		const on = (platform: "linux" | "darwin") =>
+			fenceRunText(asking(org), {
+				env: {},
+				home,
+				sandbox: LAID,
+				platform,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				treesRoot: join(base, "trees"),
+			});
+		const linux = on("linux");
+		expect(linux, JSON.stringify(linux)).toHaveProperty("text");
+		expect(JSON.stringify(on("darwin"))).toContain("outside any repository");
+		expect(unfencedFolder(org, home, "strict", { mac: false })).toContain(
+			"outside any repository",
+		);
 	});
 
 	it("refuses, saying why, where the machine can't lay the fence", () => {
@@ -314,9 +364,10 @@ describe("refusing to run where the fence can't hold", () => {
 		symlinkSync(join(base, "dotfiles", "config"), join(home, ".config"));
 		try {
 			const made = onEither(join(base, "dotfiles", "config", "git"), "linux");
-			expect(JSON.stringify(made), "names where the link leads").toContain(
-				`lies in ${join(base, "dotfiles", "config")}`,
-			);
+			expect(
+				JSON.stringify(made),
+				"names the path the link leads from",
+			).toContain(`lies in ${join(home, ".config")}`);
 		} finally {
 			rmSync(join(home, ".config"));
 		}

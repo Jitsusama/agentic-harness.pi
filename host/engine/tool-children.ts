@@ -13,7 +13,8 @@
  * whatever conversation it was for, held or not. A host holds its key alone,
  * so another live host's children are never touched. A reused pid carries no marker, so it is never mistaken for a
  * child, and an owner is its pid and the tick it started at, which no later
- * process with that pid shares. Linux's /proc is the process table.
+ * process with that pid shares. Linux's /proc is the process table. A Mac
+ * has none, so there nothing is reaped, and its host says so as it starts.
  *
  * A command a move or a release handed to another process runs on under
  * the marks of the conversation that started it, so it is spared until
@@ -36,7 +37,7 @@
  * read it 81 times, about 14 MB each, and its reaps grew from half a
  * second each to six.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
 	type CarriedCalls,
@@ -92,6 +93,11 @@ export interface ProcessTable {
 	started(pid: number): number | undefined;
 	/** Kill a whole group, or one process when the group is this one's own. */
 	kill(target: { group: number } | { pid: number }): void;
+	/**
+	 * Whether the machine keeps no such table at all, as a Mac keeps no
+	 * /proc; a table that says nothing keeps one.
+	 */
+	absent?(): boolean;
 }
 
 /** What was killed: whole groups, and lone processes in the host's own group. */
@@ -118,12 +124,47 @@ export function conversationMarker(
 	};
 }
 
-/** This process's mark as an owner: its pid and the tick it started at. */
+/**
+ * This process's mark as an owner: its pid and the tick it started at.
+ * Where the machine keeps no table, as a Mac keeps no /proc, no reap
+ * reads the mark back, so it takes the moment this process began, in
+ * milliseconds. A table that is there but can't say, as an empty /proc
+ * on Linux, refuses it.
+ */
 export function ownerMark(table: ProcessTable = linuxProcessTable()): string {
 	const started = table.started(table.self);
-	if (started === undefined)
-		throw new Error("The host cannot read when its own process started");
-	return `${table.self}:${started}`;
+	if (started !== undefined) return `${table.self}:${started}`;
+	if (!readsProcesses(table))
+		return `${table.self}:${Math.round(performance.timeOrigin)}`;
+	throw new Error("The host cannot read when its own process started");
+}
+
+/**
+ * Whether the machine keeps a process table at all: Linux keeps /proc,
+ * and a Mac none, so nothing is ever reaped there. An empty /proc still
+ * counts as one, so its host refuses to start rather than reap nothing.
+ */
+export function readsProcesses(
+	table: ProcessTable = linuxProcessTable(),
+): boolean {
+	return !(table.absent?.() ?? false);
+}
+
+/**
+ * This process's owner mark as its host starts, saying once, where the
+ * machine keeps no process table, that nothing its conversations' tools
+ * leave running is ever ended.
+ */
+export function markAsOwner(
+	report: (said: string) => void,
+	table: ProcessTable = linuxProcessTable(),
+): string {
+	const mark = ownerMark(table);
+	if (!readsProcesses(table))
+		report(
+			"This machine has no /proc, so no conversation's tool processes are ever ended: what a stop, a close or a restart leaves running runs on until someone ends it",
+		);
+	return mark;
 }
 
 /** What reaping looks for: the text a marked environment holds, and the exact test it must pass. */
@@ -341,7 +382,11 @@ async function markedWhere(
 	return found;
 }
 
-/** The process table Linux keeps under /proc. */
+/**
+ * The process table Linux keeps under /proc. Where there is none, as on a
+ * Mac, it says it is absent and lists no process, so a sweep reaps
+ * nothing rather than failing the host's start.
+ */
 export function linuxProcessTable(root = "/proc"): ProcessTable {
 	const stat = (pid: number): string | undefined => {
 		try {
@@ -353,10 +398,37 @@ export function linuxProcessTable(root = "/proc"): ProcessTable {
 	};
 	return {
 		self: process.pid,
-		pids: () =>
-			readdirSync(root)
-				.filter((name) => /^\d+$/.test(name))
-				.map(Number),
+		absent: () => {
+			try {
+				statSync(root);
+				return false;
+			} catch (error) {
+				// Only no /proc at all is a machine without one; anything else throws.
+				if (
+					error instanceof Error &&
+					"code" in error &&
+					error.code === "ENOENT"
+				)
+					return true;
+				throw error;
+			}
+		},
+		pids: () => {
+			let names: string[];
+			try {
+				names = readdirSync(root);
+			} catch (error) {
+				// No /proc, as off Linux: no process this table can read.
+				if (
+					error instanceof Error &&
+					"code" in error &&
+					error.code === "ENOENT"
+				)
+					return [];
+				throw error;
+			}
+			return names.filter((name) => /^\d+$/.test(name)).map(Number);
+		},
 		environ: async (pid, mentioning) => {
 			let bytes: Buffer;
 			try {

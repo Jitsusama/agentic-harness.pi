@@ -35,9 +35,10 @@ export const HUB_KEEP_MS = 5 * 60_000;
  * find in a row the node gave no answer to waits twice as long, up to a
  * keeping's wait, since every session asks the same node and one that is
  * down is better asked less and less often. The cost is a slow return:
- * a peer whose node comes back keeps no hub until its next find, up to
- * a keeping's wait away, unless a send of its own hears the node answer
- * first (`KeptHub.nodeAnswered`).
+ * a peer whose node comes back reads the hub it kept, or none once that
+ * hub's trust has run out, until its next find, up to a keeping's wait
+ * away, unless a send of its own hears the node answer first
+ * (`KeptHub.nodeAnswered`).
  */
 export const HUB_RETRY_MS = 30_000;
 
@@ -46,6 +47,14 @@ export const HUB_RETRY_MS = 30_000;
  * never asks the node in a loop.
  */
 const HUB_LEAST_WAIT_MS = 1;
+
+/**
+ * How long a kept hub is trusted with no find coming to it: a node
+ * quiet this long is down rather than slow, and the talk the hub was
+ * chosen from is going stale, so the hub is read as none until a find
+ * comes to one again.
+ */
+export const HUB_TRUST_MS = 30 * 60_000;
 
 /** What a find came to, and whether it could be finished. */
 export interface Found {
@@ -208,10 +217,13 @@ export interface HubKeeping {
 	 */
 	readonly spread?: () => number;
 	/**
-	 * Called each time a find keeps a hub, so what waited for one is told
-	 * whether the hub is new, back, or the one kept before.
+	 * Called each time a find comes to a hub, so what waited for one is
+	 * told whether the hub is new, back, or the one kept before. A hub
+	 * kept through a find that came to none is not said again.
 	 */
 	readonly found?: (address: string) => void;
+	/** Milliseconds a kept hub is read with no find coming to it. */
+	readonly trust?: number;
 }
 
 /** How often a kept hub is found, as a session's mesh is told to. */
@@ -234,21 +246,27 @@ const HUB_SPREAD = 0.2;
  * that throws, which only reading the presences can do, comes a plain
  * `retry` later and counts nothing toward the doubling, as does one
  * with no peer to read yet or no presence of this peer's, since none of
- * them says the node is down. A peer under the
- * mark, or on a quest heading an orchestration, keeps none and never
- * asks the node, since the mark is its orchestrator; a find that fails
- * keeps none rather than one that may be gone.
+ * them says the node is down. A peer under the mark, or on a quest
+ * heading an orchestration, keeps none and never asks the node, since
+ * the mark is its orchestrator. A find that fails, or can't be
+ * finished, keeps the hub found before: the node going quiet says
+ * nothing about who is above, and dropping the hub then sent every
+ * unmarked session's questions to the person at once, told nothing was
+ * above it, just as need stopped finding owners too. A find that
+ * finishes and finds none keeps none, and a hub no find has come to for
+ * `trust` milliseconds reads as none until one does.
  *
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
  * one whose hub no longer passes the rules the find chose it by
- * (`stillAbove`): its address listed by its live presence alone, that
- * one on a quest above, and neither having stopped the other. Live
- * is as the last find's census judged it, or a newer census given to
- * the read, less any presence that has said since that it ended, since
- * a census can wait and a read can't: so a session that crashed is no
- * second holder, and a hub that stopped without saying so is kept until
- * the next find or census.
+ * (`stillAbove`): its address listed by its live presence alone and by
+ * no ended one on another quest, that one on a quest above, and neither
+ * having stopped the other. Live is as the last find's census judged
+ * it, or a newer census given to the read, less any presence that has
+ * said since that it ended, since a census can wait and a read can't:
+ * so a session that crashed is no second holder, and a hub that stopped
+ * without saying so is kept until a find or census settles, or its
+ * trust runs out.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
@@ -257,9 +275,12 @@ export function keepHub(
 		retry = HUB_RETRY_MS,
 		spread = Math.random,
 		found,
+		trust = HUB_TRUST_MS,
 	}: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
+	// When a find last came to the kept hub.
+	let confirmed = 0;
 	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
 	let clock: ReturnType<typeof setTimeout> | undefined;
@@ -302,21 +323,28 @@ export function keepHub(
 		let wait = longest;
 		asking = true;
 		answered = false;
+		// Only a find that came to a hub says one; a kept one rides out a
+		// failure unsaid.
+		let came = false;
 		try {
 			const finding = await findAbove(reading);
 			// Stopped while it asked: what it found is no longer this
 			// peer's to keep.
 			if (stopped) return;
-			kept = "address" in finding.above ? finding.above.address : undefined;
+			if ("address" in finding.above) {
+				kept = finding.above.address;
+				confirmed = Date.now();
+				came = true;
+			} else if (finding.settled) kept = undefined;
 			gone = new Set(finding.gone);
 			if (finding.settled) misses = 0;
 			else wait = finding.unasked ? soonest : backingOff();
 		} catch {
 			// The presences unreadable now, since asking the node never
-			// throws: no hub is better than a stale one, and the find is
-			// tried again soon.
+			// throws: the hub found before is kept, since reading it still
+			// checks it against the presences, and the find is tried again
+			// soon.
 			if (stopped) return;
-			kept = undefined;
 			wait = soonest;
 		} finally {
 			asking = false;
@@ -324,7 +352,7 @@ export function keepHub(
 		if (answered && misses > 0) wait = HUB_LEAST_WAIT_MS;
 		answered = false;
 		after(wait);
-		if (kept === undefined) return;
+		if (!came || kept === undefined) return;
 		try {
 			found?.(kept);
 		} catch {
@@ -337,6 +365,7 @@ export function keepHub(
 		current: (newer) => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
+			if (Date.now() - confirmed > trust) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
 			// Read as the find's census was: each presence answering only to
