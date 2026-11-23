@@ -39,7 +39,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
  * a name or a variable's `$`: `x.sh`, `lib/x.sh`, `../guard.bash`,
  * `.common.sh`, or `scripts/x.sh` from the root.
  */
-const NAMED = /(?<![\w.$-])((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b/g;
+const NAMED = /(?<![\w.$-])((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))(?![\w.-])/g;
 
 /** The script's own path: `$0` or `$BASH_SOURCE`, braced, quoted or not. */
 const ITSELF = String.raw`"?(?:\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE(?:\[0\])?\})"?`;
@@ -68,10 +68,14 @@ const CUT = String.raw`\$\{(?:0|BASH_SOURCE(?:\[0\])?)%\/\*\}`;
  * `$(dirname "$0")/`, `"$(dirname -- "$(realpath "$0")")"/`,
  * `$(cd "$(dirname "$0")" && pwd)/`, `$(CDPATH= cd -- "$(dirname
  * "$0")"; pwd)/`, `${0%/*}/` or `${BASH_SOURCE%/*}/`. The folder of any
- * other path, as `$(dirname "$config")`, is another folder.
+ * other path, as `$(dirname "$config")`, is another folder. `$0` is the
+ * script's own path only in a script that is run: one sourced, or
+ * installed elsewhere as a git hook is, names its own folder through
+ * `${BASH_SOURCE[0]}`, as every sourced script here does, since `$0`
+ * there is its caller's or its install's.
  */
 const BESIDE = new RegExp(
-	String.raw`(?:${ITS_FOLDER}|${CD_THERE}|${CUT})"?\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b`,
+	String.raw`(?:${ITS_FOLDER}|${CD_THERE}|${CUT})"?\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))(?![\w.-])`,
 	"g",
 );
 
@@ -87,12 +91,37 @@ const SCRIPT = new Set([".sh", ".bash"]);
  */
 const SHELL = /^#!\s*\S*\/(?:env\s+(?:-\S+\s+)*)?(?:ba|da|k|z)?sh\b/;
 
+/** Where a reading of a script's lines stands as one ends. */
+interface Reading {
+	/** The quote still open, `'` or `"`, or none. */
+	quote: string;
+	/** How many unquoted `${` are open. */
+	braces: number;
+}
+
+/** A reading at a script's start. */
+const FRESH: Reading = { quote: "", braces: 0 };
+
+/** What a word opens after: a line's start, a space, or `;&|()`. */
+const OPENS_WORD = /[\s;&|()]/;
+
 /**
- * `line` up to its comment: a `#` outside quotes that opens a word, as
- * the shell reads one, so `$#` and `${#name}` stay code.
+ * A heredoc's start, `<<` or `<<-`, its delimiter a word opening with a
+ * letter, quoted or not, so arithmetic's `$((1<<2))` opens none.
  */
-function withoutComment(line: string): string {
-	let quote = "";
+const HEREDOC = /(?<!<)<<-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/;
+
+/**
+ * `line` up to its comment, read on from `from`: a `#` opening a word
+ * outside quotes and outside `${…}`, as the shell reads one, so `$#`,
+ * `${#name}` and `${line%% #*}` stay code. An ANSI-C `$'…'` string's
+ * escapes are past it.
+ */
+function withoutComment(
+	line: string,
+	from: Reading,
+): { code: string; reading: Reading } {
+	let { quote, braces } = from;
 	for (let at = 0; at < line.length; at++) {
 		const char = line[at];
 		if (quote === "'") {
@@ -103,16 +132,45 @@ function withoutComment(line: string): string {
 			if (char === '"') quote = "";
 		} else if (char === "'" || char === '"') {
 			quote = char;
-		} else if (char === "#" && (at === 0 || /\s/.test(line[at - 1] ?? ""))) {
-			return line.slice(0, at);
+		} else if (char === "$" && line[at + 1] === "{") {
+			braces++;
+			at++;
+		} else if (char === "}" && braces > 0) {
+			braces--;
+		} else if (
+			char === "#" &&
+			braces === 0 &&
+			(at === 0 || OPENS_WORD.test(line[at - 1] ?? ""))
+		) {
+			return { code: line.slice(0, at), reading: { quote, braces } };
 		}
 	}
-	return line;
+	return { code: line, reading: { quote, braces } };
 }
 
-/** `text` with its comments left out, whole lines and the ends of lines. */
+/**
+ * `text` with its comments left out, whole lines and the ends of lines,
+ * each line kept in its place. A quote runs on across lines, as the
+ * shell's does. A heredoc's body is read a line at a time, each alone,
+ * as a script fed to a shell is, so a quote it holds opens nothing
+ * past its line.
+ */
 function codeOf(text: string): string {
-	return text.split("\n").map(withoutComment).join("\n");
+	let reading = FRESH;
+	let ends: string | undefined;
+	return text
+		.split("\n")
+		.map((line) => {
+			if (ends !== undefined) {
+				if (line.replace(/^\t*/, "") === ends) ends = undefined;
+				return withoutComment(line, FRESH).code;
+			}
+			const read = withoutComment(line, reading);
+			reading = read.reading;
+			if (reading.quote === "") ends = HEREDOC.exec(read.code)?.[2];
+			return read.code;
+		})
+		.join("\n");
 }
 
 /**
@@ -169,8 +227,8 @@ export function followedBy(
 	const code = codeOf(text);
 	const byPath = [...code.matchAll(NAMED)].flatMap((found) => {
 		const name = found[1] ?? "";
-		const there = [resolve(folder, name), resolve(root, name)].find((file) =>
-			existsSync(file),
+		const there = [resolve(folder, name), resolve(root, name)].find(
+			(file) => isWithin(root, file) && existsSync(file),
 		);
 		return there === undefined ? [] : [there];
 	});
@@ -179,6 +237,17 @@ export function followedBy(
 		.map((name) => join(folder, name));
 	return [...new Set([...byPath, ...programs])].filter(
 		(file) => file !== path && isShellScript(file),
+	);
+}
+
+/**
+ * Whether `file` is inside `root`, the only place `--changed` compares
+ * a file from.
+ */
+function isWithin(root: string, file: string): boolean {
+	const path = relative(root, file);
+	return (
+		path !== "" && path !== ".." && !path.startsWith("../") && !isAbsolute(path)
 	);
 }
 
