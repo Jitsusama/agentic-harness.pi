@@ -116,10 +116,7 @@ describe("moving a session", () => {
 		const one = session("a run is under way");
 		one.move.move("background");
 		one.tick?.();
-		expect(one.reloads).toEqual([
-			"hold for background",
-			"hold for background",
-		]);
+		expect(one.reloads).toEqual(["hold for background", "hold for background"]);
 		one.move.cancel();
 		expect(one.reloads.at(-1)).toBe("let go");
 	});

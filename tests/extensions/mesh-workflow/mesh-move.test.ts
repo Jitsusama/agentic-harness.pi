@@ -81,8 +81,6 @@ describe("a move asked during a run", () => {
 		);
 
 		await fire("session_shutdown");
-		expect(moveWaiting(session), "let go as the session ends").toBe(
-			undefined,
-		);
+		expect(moveWaiting(session), "let go as the session ends").toBe(undefined);
 	}, 15_000);
 });
