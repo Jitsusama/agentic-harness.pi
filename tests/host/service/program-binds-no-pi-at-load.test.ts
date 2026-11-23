@@ -22,8 +22,8 @@
  * and a change anywhere those reach picks both; the walk fails when
  * pi-host imports a module either file doesn't. A change to
  * scripts/pi-host.ts itself, which no test can import without starting
- * a host, picks every test, since the entry is among vitest.config.ts's
- * RERUN_EVERYTHING.
+ * a host, picks every test outside the browser lane, since
+ * vitest.config.ts names the entry among its rerun triggers.
  *
  * It walks what loads from pi-host's entry as it loads. Each file is
  * read as node runs it, its types stripped by node's own
@@ -47,7 +47,9 @@
  * An `import()` inside a function runs when the function does, and is
  * not followed. So the walk can't see one that a function called
  * elsewhere at load runs ahead of the configuration check, such as a
- * callback a call at load runs. pi-host.test.ts is the check for that:
+ * callback a call at load runs, or one called through `.bind(...)()` or
+ * `Reflect.apply`; nor code a string carries, as `eval` or `new
+ * Function` runs it. pi-host.test.ts is the check for those:
  * it runs pi-host against a missing pi install with each optional peer
  * and dev dependency refused, as a production install lacks them. The
  * walk fails closed on what it does read: a load that doesn't name its
@@ -488,7 +490,7 @@ function importedBy(file: string): ReadonlySet<string> {
 
 describe("loading the host program", () => {
 	it(
-		"binds nothing from pi, so a missing install is refused with exit 78",
+		"binds nothing from pi as it loads, so the configuration check comes first",
 		() => {
 			expect(EXIT_MISCONFIGURED).toBe(78);
 			const { peerBound, unfollowed, reached } = walkFrom(ROOT, ENTRY);

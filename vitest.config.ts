@@ -13,14 +13,6 @@ import { defineConfig } from "vitest/config";
  * too, since no test imports a setup file, so the import graph never
  * reaches one. The browser lane's config reads it too, so the gate's
  * browser run follows the same files.
- *
- * The host's entry, scripts/pi-host.ts, is here for a narrower reason:
- * no test can import it without starting a host, so the tests that
- * guard how it loads (tests/scripts/pi-host.test.ts and
- * tests/host/service/program-binds-no-pi-at-load.test.ts) are
- * otherwise never picked for a change to it alone. A pi import slipped
- * in there leaves a host systemd restarts every few seconds, which is
- * worth a whole run on a file this seldom changed.
  */
 export const RERUN_EVERYTHING = [
 	"package.json",
@@ -28,8 +20,19 @@ export const RERUN_EVERYTHING = [
 	"vitest.config.ts",
 	"vitest.browser.config.ts",
 	"tests/setup/**",
-	"scripts/pi-host.ts",
 ].map((file) => join(import.meta.dirname, file));
+
+/**
+ * The host's entry, whose change reruns this config's lanes in full,
+ * though not the browser lane's, which no host code reaches. No test
+ * can import it without starting a host, so the tests that guard how it
+ * loads (tests/scripts/pi-host.test.ts and
+ * tests/host/service/program-binds-no-pi-at-load.test.ts) are
+ * otherwise never picked for a change to it alone. A pi import slipped
+ * in there leaves a host systemd restarts every few seconds, which is
+ * worth a whole run on a file this seldom changed.
+ */
+const HOST_ENTRY = join(import.meta.dirname, "scripts", "pi-host.ts");
 
 // Several suites spawn real OS processes: the reviewer supervisor
 // launches node two levels deep, and the LSP suite starts its own
@@ -165,7 +168,7 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		clearMocks: true,
-		forceRerunTriggers: RERUN_EVERYTHING,
+		forceRerunTriggers: [...RERUN_EVERYTHING, HOST_ENTRY],
 		globalSetup: ["./tests/setup/temp-root.ts"],
 		// Only the ceiling is ours to set: vitest 4 dropped the floor
 		// option and sizes the pool itself underneath the cap. The

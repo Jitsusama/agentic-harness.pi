@@ -297,6 +297,11 @@ function projectExtension(dir: string, file: string, loaded: string): void {
 	);
 }
 
+/** Whether a probe line says pi refused its `/probe-switch`. */
+function switchCancelled(line: unknown): boolean {
+	return field(line, "event") === "switch-cancelled";
+}
+
 /** Whether a probe line is something other than its input handler's answer. */
 function notAsked(line: unknown): boolean {
 	return field(line, "event") !== "input-asked";
@@ -572,14 +577,19 @@ const scenarios: Record<string, Scenario> = {
 			const switched = second.entry.sessionId;
 			await until(
 				"the conversation switched to to be held",
-				() => engine.view(switched) !== undefined,
+				() => {
+					if (lines(probe).some(switchCancelled))
+						throw new Error(`pi refused the switch to ${second.entry.file}`);
+					return engine.view(switched) !== undefined;
+				},
 				UNTIL_MS,
 			);
 			const replaced = heldOf(engine, switched, second.kept);
-			const switchedTo =
-				closedBefore && summary(engine, switched).file === second.entry.file;
+			const switchedTo = summary(engine, switched).file === second.entry.file;
 			await host.close(switched);
-			return { keptHistory: { resumed, adopted, replaced, switchedTo } };
+			return {
+				keptHistory: { resumed, adopted, replaced, closedBefore, switchedTo },
+			};
 		},
 	},
 	/** Start again on a conversation parked before, which rests parked, its log held. */

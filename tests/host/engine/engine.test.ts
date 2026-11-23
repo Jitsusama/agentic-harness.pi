@@ -130,7 +130,11 @@ interface Seen {
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
 	readonly logs?: Readonly<Record<string, unknown>>;
-	/** What a resumed and a switched-to conversation held of their compacted logs. */
+	/**
+	 * What a resumed, an adopted and a switched-to conversation held of
+	 * their compacted logs; whether the switched-to one was closed before
+	 * the switch; and whether the switch opened its log.
+	 */
 	readonly keptHistory?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
@@ -811,6 +815,7 @@ describe("the host's engine", () => {
 				resumed: held,
 				adopted: held,
 				replaced: held,
+				closedBefore: true,
 				switchedTo: true,
 			});
 		},

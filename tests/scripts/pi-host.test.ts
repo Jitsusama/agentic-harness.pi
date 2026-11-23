@@ -176,21 +176,34 @@ describe("pi-host", () => {
 		THREE_RUNS,
 	);
 
-	it("runs where each optional peer and dev dependency is refused, as a production install lacks them", async () => {
-		const lacking = productionLacks();
-		expect(lacking).toEqual(
-			expect.arrayContaining(["typebox", "@earendil-works/pi-coding-agent"]),
-		);
-		const root = mkdtempSync(join(tmpdir(), "h2-pi-host-refused-"));
-		made.push(root);
-		const probe = join(root, "probe.mjs");
-		writeFileSync(probe, 'await import("typebox");\n');
-		const ran = await run(process.execPath, [refusing(lacking, root), probe], {
-			timeout: ONE_RUN,
-		}).then(
-			() => "",
-			(failed: { stderr?: string }) => failed.stderr ?? "",
-		);
-		expect(ran).toContain(`typebox is ${REFUSED}`);
-	});
+	it(
+		"refuses the tree's own code each optional peer and dev dependency, as a production install lacks them, and no dependency",
+		async () => {
+			const lacking = productionLacks();
+			expect(lacking).toEqual(
+				expect.arrayContaining(["typebox", "@earendil-works/pi-coding-agent"]),
+			);
+			// Run in the tree's root, under the hook pi-host runs under: node
+			// names an eval's parent by the folder it runs in, so the hook
+			// judges it as it judges pi-host's own files, where typebox does
+			// resolve, as it wouldn't in a production install.
+			const load = (name: string) =>
+				run(
+					process.execPath,
+					[
+						refusing(lacking, ROOT),
+						"--input-type=module",
+						"--eval",
+						`await import(${JSON.stringify(name)});`,
+					],
+					{ cwd: ROOT, timeout: ONE_RUN },
+				).then(
+					() => "",
+					(failed: { stderr?: string }) => failed.stderr ?? "failed",
+				);
+			expect(await load("typebox")).toContain(`typebox is ${REFUSED}`);
+			expect(await load("jsonpath-plus"), "a dependency loads").toBe("");
+		},
+		2 * ONE_RUN,
+	);
 });
