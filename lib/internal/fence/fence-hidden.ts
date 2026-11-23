@@ -18,7 +18,22 @@
  * leaves for an offline guess either (IDEGAT, 13 November); and the
  * Aquifer cells' state, where each basin's provider login lies, which
  * only the mycelium node's provider reads, outside every fence (ISXEG8
- * and S99IA2, 17 November). A path ending in `/` is a folder, emptied
+ * and S99IA2, 17 November); and the default history files of the
+ * person's shells (zsh's, the Mac Terminal's per-window sessions,
+ * bash's and fish's) and of six consoles (Python, node, psql, mysql,
+ * sqlite and irb), where a pasted token lingers and which no agent's
+ * work reads (ISXEG8, 22 November). A history kept under another name
+ * (a moved `HISTFILE`, `ZDOTDIR`, other consoles) is not hidden.
+ * On both systems a history file missing as the command starts is not
+ * hidden, though a Mac's rule could name it. A shell saving by copy
+ * writes the whole history to a sibling file first (zsh's `.new`),
+ * which no entry names. On Linux the hide binds `/dev/null` over the
+ * file, which holds only while that file stays: once the person's
+ * shell renames a new file over the old, as zsh, bash and fish can, a
+ * fenced command still running reads the new one, and the census
+ * calls it unfenced. Each is recorded with ISXEG8 (22 November), to
+ * close by hiding history folders whole and naming missing paths.
+ * A path ending in `/` is a folder, emptied
  * whole, and no fenced run may start inside it. In `~/.ssh` only what
  * names hosts and keys is kept: public keys, settings and known hosts.
  */
