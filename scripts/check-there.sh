@@ -267,11 +267,13 @@ alone() {
   case "$-:$BASH_SUBSHELL" in
     *m*:0) ;;
     *)
-      echo "check-there: ${!#} got no process group of its own, so no stop could reach it" >&2
+      echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
       return 1
       ;;
   esac
-  "$@" 9>&- </dev/null &
+  # The job turns errexit on again, since its code is read with it off,
+  # and else the work would run on past a failed step.
+  { set -e; "$@"; } 9>&- </dev/null &
   local job=$! status=0
   ending=$job
   while kill -0 "$job" 2>/dev/null; do
@@ -437,12 +439,6 @@ biome_in() {
     fi
   done
 }
-# The check's code is read with errexit off, which its shell would
-# otherwise keep, running on past a failed step; so it turns it on again.
-with_errexit() {
-  set -e
-  "$@"
-}
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
 take_turn
@@ -492,7 +488,7 @@ pnpm exec vitest run tests/package --testTimeout=60000
 # script's, so either comes back as 1, said; errexit is off only while
 # the check is waited on, so its code reaches the line that reads it.
 set +e
-alone with_errexit run_check
+alone run_check
 checked=$?
 set -e
 case "$checked" in
