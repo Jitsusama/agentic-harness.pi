@@ -330,6 +330,18 @@ describe("host-gate.sh", () => {
 		},
 	);
 
+	// The host tests load under the setup files, the scripts' loader among
+	// them, so a change there alone shapes how test:host runs.
+	it("refuses a change to the tests' setup alone until test:host ran at it", async () => {
+		const on = await harness();
+		const sha = await change(on, "tests/setup/scripts-as-text.ts");
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();
 		const code = "host/engine/engine.ts";

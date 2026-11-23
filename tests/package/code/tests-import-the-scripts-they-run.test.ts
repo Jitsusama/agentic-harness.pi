@@ -13,19 +13,24 @@
  * can hold without running the script. A name built from parts, as the
  * host runtime's stand-ins are, or held in a library's constant, as the
  * ssh guard's folder is, is past it, so those tests import their
- * scripts by hand. A script the package ships beside its code, which
- * that code reads, is held to being imported by some test.
+ * scripts by hand. So a script the package ships beside its code, which
+ * that code reads, and one under tests/, which only a test runs, is
+ * held to being reached by some test's imports.
  *
- * Only tests have the loader: pi reads a shipped file's script import
- * as JavaScript, so a typecheck that passes one would break only under
- * pi.
+ * Only vitest has the loader: pi or node reads a script import as
+ * JavaScript, so a typecheck that passes one in a file they load would
+ * break only under them.
  */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { unfollowedSources } from "../../setup/scripts-as-text.ts";
+import {
+	besideOf,
+	isShellScript,
+	unfollowedNames,
+} from "../../setup/scripts-as-text.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
@@ -35,14 +40,43 @@ const SELF = relative(ROOT, import.meta.filename);
 /** What the code is written in: the files a scan reads. */
 const CODE = /\.(?:ts|mts|mjs)$/;
 
-/** What a shell script's name ends in. */
-const SCRIPT = /\.(?:sh|bash)$/;
-
 /** Folders holding no code of this package's own. */
 const NOT_CODE = new Set(["docs", "data", "skills"]);
 
-/** Where the package ships scripts its own code reads. */
-const SHIPPED_SCRIPTS = ["lib/", "extensions/", "host/", "packs/"];
+/**
+ * Where a script lives that only the package's code or its tests run:
+ * beside the code, the ssh guard's wrappers that code puts on an
+ * agent's PATH, and the stand-ins and fixtures under tests/.
+ */
+const HELD_SCRIPTS = [
+	"lib/",
+	"extensions/",
+	"host/",
+	"packs/",
+	"scripts/ssh-guard/",
+	"tests/",
+];
+
+/**
+ * Files under tests/ that node or pi loads with no loader, as knip.jsonc's
+ * entries name them: programs a test runs in a node of its own, the soak
+ * runs, and the engines and providers a host loads by path.
+ */
+const RUN_OUTSIDE_VITEST = [
+	/^tests\/.*\/fixtures\/[^/]+\.mts$/,
+	/^tests\/host\/soak\/(?:soak|day)\.mts$/,
+	/^tests\/host\/end-to-end\/support\/(?:fake-engine|pi-engine|scripted-provider|keyed-provider)\.ts$/,
+];
+
+/** Whether `file` is one node or pi loads with no loader. */
+function runOutsideVitest(file: string): boolean {
+	return RUN_OUTSIDE_VITEST.some((pattern) => pattern.test(file));
+}
+
+/** Whether the file at `file`, from the root, is a shell script. */
+function isScriptFile(file: string): boolean {
+	return isShellScript(join(ROOT, file));
+}
 
 /**
  * Scripts a test names without running or reading them, by the test's
@@ -74,15 +108,33 @@ function codeOf(files: readonly string[]): string[] {
 		.filter((file) => !NOT_CODE.has(file.split("/")[0] ?? ""));
 }
 
-/** The scripts `text`, at `file`, imports, as paths from the root. */
+/**
+ * The scripts `text`, at `file`, imports, as paths from the root: any
+ * relative import naming a script by its ending, or a file on disk the
+ * loader would read as one, as the ssh guard's wrappers.
+ */
 function scriptImports(file: string, text: string): string[] {
 	return [
-		...text.matchAll(
-			/(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+\.(?:sh|bash))["']/g,
-		),
-	].map((found) =>
-		relative(ROOT, resolve(ROOT, dirname(file), found[1] ?? "")),
-	);
+		...text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"']*)["']/g),
+	]
+		.map((found) =>
+			relative(ROOT, resolve(ROOT, dirname(file), found[1] ?? "")),
+		)
+		.filter((path) => /\.(?:sh|bash)$/.test(path) || isScriptFile(path));
+}
+
+/** The scripts `imported` reaches, with every one each sources or runs from beside it. */
+function reached(imported: Iterable<string>): Set<string> {
+	const found = new Set<string>();
+	const next = [...imported];
+	for (let path = next.pop(); path !== undefined; path = next.pop()) {
+		if (found.has(path) || !existsSync(join(ROOT, path))) continue;
+		found.add(path);
+		const text = readFileSync(join(ROOT, path), "utf8");
+		for (const name of besideOf(join(ROOT, path), text))
+			next.push(relative(ROOT, resolve(ROOT, dirname(path), name)));
+	}
+	return found;
 }
 
 /**
@@ -119,9 +171,10 @@ function scriptsNamed(
 
 describe("shell scripts", () => {
 	const files = tracked();
-	const scripts = files.filter((file) => SCRIPT.test(file));
+	const scripts = files.filter(isScriptFile);
 	const tests = codeOf(files).filter(
-		(file) => file.startsWith("tests/") && file !== SELF,
+		(file) =>
+			file.startsWith("tests/") && file !== SELF && !runOutsideVitest(file),
 	);
 	const importsOf = new Map(
 		tests.map((file) => [
@@ -148,39 +201,55 @@ describe("shell scripts", () => {
 		expect(unimported, "named but not imported").toEqual([]);
 	});
 
-	it("that the package ships beside its code are each imported by a test", () => {
-		const imported = new Set([...importsOf.values()].flat());
-		const shipped = scripts.filter((path) =>
-			SHIPPED_SCRIPTS.some((folder) => path.startsWith(folder)),
+	it("that only the package's code or tests run are each reached by a test's imports", () => {
+		const imported = reached([...importsOf.values()].flat());
+		const held = scripts.filter((path) =>
+			HELD_SCRIPTS.some((folder) => path.startsWith(folder)),
 		);
-		expect(shipped.length, "scripts it ships").toBeGreaterThan(0);
 		expect(
-			shipped.filter((path) => !imported.has(path)),
-			"shipped, imported by no test",
+			held.filter((path) => path.startsWith("scripts/ssh-guard/bin/")),
+			"the ssh guard's wrappers, read by their shebang",
+		).toHaveLength(4);
+		expect(
+			held.filter((path) => !imported.has(path)),
+			"held, reached by no test",
 		).toEqual([]);
 	});
 
-	it("are imported by nothing but tests", () => {
+	it("are imported by nothing vitest doesn't load", () => {
 		const importing = codeOf(files)
-			.filter((file) => !file.startsWith("tests/"))
-			.filter((file) => file !== "vitest.config.ts")
+			.filter((file) => !file.startsWith("tests/") || runOutsideVitest(file))
 			.filter(
 				(file) =>
 					scriptImports(file, readFileSync(join(ROOT, file), "utf8")).length >
 					0,
 			);
-		expect(importing, "a shipped file importing a script").toEqual([]);
+		expect(importing, "a file pi or node loads, importing a script").toEqual(
+			[],
+		);
 	});
 
-	// A script sourced some other way would reach no test from an edit.
-	it("are sourced only in a way the loader follows", () => {
+	it("leave to node or pi only files there are", () => {
+		expect(
+			RUN_OUTSIDE_VITEST.filter(
+				(pattern) => !files.some((file) => pattern.test(file)),
+			).map(String),
+			"a pattern naming no file",
+		).toEqual([]);
+	});
+
+	// A script sourced or run some other way would reach no test from an edit.
+	it("source and run scripts beside them only in a way the loader follows", () => {
 		const unfollowed = scripts.flatMap((path) =>
-			unfollowedSources(
+			unfollowedNames(
 				join(ROOT, path),
 				readFileSync(join(ROOT, path), "utf8"),
-			).map((line) => `${path}: ${line.trim()}`),
+			).map((line) => `${path}: ${line}`),
 		);
-		expect(unfollowed, "a source line the loader can't follow").toEqual([]);
+		expect(
+			unfollowed,
+			"a script named in a way the loader can't follow",
+		).toEqual([]);
 	});
 
 	it("leave out only scripts that exist and that their test names but doesn't import", () => {
@@ -247,12 +316,16 @@ describe("the rule's reading", () => {
 					'import {\n\tdefault as d,\n} from "../../scripts/d.bash";',
 					'export { default } from "../../scripts/e.sh";',
 					'await import("../../scripts/f.sh");',
+					'import "../../scripts/ssh-guard/bin/ssh";',
+					'import { it } from "../../tests/setup/temp-root.ts";',
+					'import "../../scripts/ssh-guard/README.md";',
 				].join("\n"),
 			),
-		).toEqual(
-			["a.sh", "b.sh", "c.sh", "d.bash", "e.sh", "f.sh"].map(
+		).toEqual([
+			...["a.sh", "b.sh", "c.sh", "d.bash", "e.sh", "f.sh"].map(
 				(name) => `scripts/${name}`,
 			),
-		);
+			"scripts/ssh-guard/bin/ssh",
+		]);
 	});
 });

@@ -6,11 +6,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { scriptsAsText, unfollowedSources } from "./scripts-as-text.ts";
+import { scriptsAsText, unfollowedNames } from "./scripts-as-text.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it reads changes alone; it reads them from their paths below.
 import "../../scripts/host-gate.sh";
 import "../../scripts/host-test-there.sh";
+import "../../scripts/host-test-words.sh";
+import "../../scripts/merge-gate.sh";
 
 const folders: string[] = [];
 
@@ -70,7 +72,18 @@ describe("scriptsAsText", () => {
 		const loader = scriptsAsText();
 
 		expect(loader.load(join(import.meta.dirname, "temp-root.ts"))).toBeNull();
-		expect(loader.load("/x/it.sh?raw"), "a query is vite's own").toBeNull();
+		expect(
+			loader.load("/x/it.sh?v=it.sh"),
+			"a query is vite's own, though what it ends in reads as a script",
+		).toBeNull();
+		expect(
+			loader.load("\0virtual:thing"),
+			"a plugin's own module, which names no file",
+		).toBeNull();
+		expect(
+			loader.load(script("#!/usr/bin/env node\nexport {};\n", [], "tool")),
+			"a program with no ending that isn't a shell's",
+		).toBeNull();
 	});
 
 	// host-gate.sh and host-test-there.sh each source host-test-words.sh,
@@ -87,9 +100,21 @@ describe("scriptsAsText", () => {
 					'exec bash "$here/../guard.bash" "$here"',
 					'source "$(dirname "$0")/missing.sh"',
 					'source "$HOME/elsewhere.sh"',
+					'source "$(git rev-parse --show-toplevel)/root.sh"',
+					'"$bash/bin/bash" in/from-root.sh "$@"',
+					'echo "usage: in/it.sh"',
+					"# called by in/commented.sh, said only in a comment",
 					"",
 				].join("\n"),
-				["words.sh", "more-words.sh", "runner.sh", "../guard.bash"],
+				[
+					"words.sh",
+					"more-words.sh",
+					"runner.sh",
+					"../guard.bash",
+					"root.sh",
+					"from-root.sh",
+					"commented.sh",
+				],
 			),
 		);
 
@@ -97,12 +122,13 @@ describe("scriptsAsText", () => {
 			[...(code ?? "").matchAll(/^import "([^"]+)";$/gm)].map(
 				(found) => found[1],
 			),
-			"the scripts beside it it names, and none that isn't there",
+			"the scripts beside it it names, from its folder or the root, and none that isn't there, nor itself",
 		).toEqual([
 			"./words.sh",
 			"./more-words.sh",
 			"./runner.sh",
 			"../guard.bash",
+			"./from-root.sh",
 		]);
 	});
 
@@ -117,21 +143,31 @@ describe("scriptsAsText", () => {
 		).toBeNull();
 	});
 
-	// A script sourcing another named some other way would leave that one
-	// out of every test's reach with no word.
-	it("names each source line it can't follow", () => {
-		const path = script("", ["words.sh"]);
+	// A script sourcing or running another named some other way would
+	// leave that one out of every test's reach with no word.
+	it("names each script beside it, and each source, that it can't follow", () => {
+		const path = script("", ["words.sh", "runner.sh"]);
 		expect(
-			unfollowedSources(
+			unfollowedNames(
 				path,
 				[
 					`source "$(dirname "\${BASH_SOURCE[0]}")/words.sh"`,
 					'source "$HOME/elsewhere.sh"',
 					". ./words.sh",
+					`"\${here}/runner.sh" go`,
+					'source "$(dirname "$0")/words.sh"; source "$HOME/b.sh"',
+					'source "$(dirname "$0")/gone.sh"',
+					"# runs $dir/runner.sh, said in a comment",
 					"echo source",
 				].join("\n"),
 			),
-		).toEqual(['source "$HOME/elsewhere.sh"', ". ./words.sh"]);
+		).toEqual([
+			'source "$HOME/elsewhere.sh": a source named in a way the loader can\'t follow',
+			". ./words.sh: names words.sh, beside it, in a way the loader can't follow",
+			`"\${here}/runner.sh" go: names runner.sh, beside it, in a way the loader can't follow`,
+			'source "$(dirname "$0")/words.sh"; source "$HOME/b.sh": a source named in a way the loader can\'t follow',
+			'source "$(dirname "$0")/gone.sh": sources gone.sh, which isn\'t there',
+		]);
 	});
 
 	it("follows what the host gate's scripts source and run", () => {
@@ -142,13 +178,16 @@ describe("scriptsAsText", () => {
 				`${name}'s module`,
 			).toContain('import "./host-test-words.sh";');
 		}
-		expect(
-			scriptsAsText().load(join(scripts, "host-gate.sh")),
-			"the runner it starts",
-		).toContain('import "./host-test-there.sh";');
-	});
-
-	it("asks vite to run it before its own loading, which would read a script as JavaScript", () => {
-		expect(scriptsAsText().enforce).toBe("pre");
+		for (const [name, runs] of [
+			["host-gate.sh", "host-test-there.sh"],
+			["host-test-there.sh", "host-send-runtime.sh"],
+			["host-test-words.sh", "host-run.sh"],
+			["merge-gate.sh", "host-gate.sh"],
+		] as const) {
+			expect(
+				scriptsAsText().load(join(scripts, name)),
+				`${name}, running ${runs}`,
+			).toContain(`import "./${runs}";`);
+		}
 	});
 });
