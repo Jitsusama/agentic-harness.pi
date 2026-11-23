@@ -20,7 +20,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { lstatSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { withPi } from "../priority/place.ts";
 import { isRecord } from "../record.ts";
@@ -37,7 +37,8 @@ const BROKEN_EXITS: ReadonlySet<number | null> = new Set([126, 127]);
 /**
  * The spawn errors that say the program itself can't be run, as against
  * a machine short of processes or files for now (EAGAIN, EMFILE, ENFILE,
- * ENOMEM), which says nothing about the program and passes.
+ * ENOMEM), which says nothing about the program and passes. Node emits
+ * EACCES as an error but throws the others from spawn itself.
  */
 const UNRUNNABLE: ReadonlySet<string> = new Set([
 	"EACCES",
@@ -75,17 +76,24 @@ export interface CallAsking {
 export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 	const program = asking.program ?? CALL_PROGRAM;
 	const args = asking.args ?? [];
-	const trouble = (kind: CallTrouble["kind"], why: string) =>
-		asking.cannotAsk?.({ kind, why });
+	const tell = (trouble: CallTrouble | undefined) => {
+		if (trouble === undefined) return;
+		try {
+			asking.cannotAsk?.(trouble);
+		} catch {
+			// A hearer that fails can't unsay the answer, already given, or
+			// throw from an emitter's listener into the process holding it.
+		}
+	};
 	return new Promise((resolve) => {
 		let child: ChildProcess;
 		try {
 			child = withPi(() =>
 				spawn(program, args, { stdio: "ignore", detached: true }),
 			);
-		} catch {
-			// Node throws for a spawn it refuses outright; it can't say either way.
+		} catch (error) {
 			resolve(undefined);
+			tell(startTrouble(program, error));
 			return;
 		}
 		const late = setTimeout(() => {
@@ -98,52 +106,79 @@ export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 			resolve(onCall);
 		};
 		child.once("error", (error) => {
-			const code = isRecord(error) ? error.code : undefined;
-			if (code === "ENOENT" && whereIs(program) === undefined) {
-				trouble("missing", `${program} isn't on the PATH`);
-			} else if (code === "ENOENT") {
-				trouble("broken", `${program} names an interpreter that isn't there`);
-			} else if (typeof code === "string" && UNRUNNABLE.has(code)) {
-				trouble("broken", `${program} can't be started (${code})`);
-			}
 			answer(undefined);
+			tell(startTrouble(program, error));
 		});
 		child.once("exit", (code) => {
-			if (code === REFUSED_EXIT) {
-				trouble(
-					"refused",
-					args.length > 0
-						? `${program} doesn't take ${args.join(" ")}`
-						: `${program} refuses to answer with no arguments`,
-				);
-			} else if (BROKEN_EXITS.has(code)) {
-				trouble(
-					"broken",
-					`${program} couldn't run what it needs (exit ${code})`,
-				);
-			}
 			answer(code === 0 ? true : code === 1 ? false : undefined);
+			tell(exitTrouble(program, args, code));
 		});
 	});
 }
 
+/** Why `program` couldn't be started, from the error its spawn gave. */
+function startTrouble(
+	program: string,
+	error: unknown,
+): CallTrouble | undefined {
+	const code = isRecord(error) ? error.code : undefined;
+	if (code === "ENOENT" && !isThere(program)) {
+		return { kind: "missing", why: `${program} isn't on the PATH` };
+	}
+	if (code === "ENOENT") {
+		return {
+			kind: "broken",
+			why: `${program} is there, but what it runs isn't`,
+		};
+	}
+	if (typeof code === "string" && UNRUNNABLE.has(code)) {
+		return { kind: "broken", why: `${program} can't be started (${code})` };
+	}
+	return undefined;
+}
+
+/** Why `program` couldn't answer, from its exit. */
+function exitTrouble(
+	program: string,
+	args: readonly string[],
+	code: number | null,
+): CallTrouble | undefined {
+	if (code === REFUSED_EXIT) {
+		return {
+			kind: "refused",
+			why:
+				args.length > 0
+					? `${program} doesn't take ${args.join(" ")}`
+					: `${program} refuses to answer with no arguments`,
+		};
+	}
+	if (BROKEN_EXITS.has(code)) {
+		return {
+			kind: "broken",
+			why: `${program} couldn't run what it needs (exit ${code})`,
+		};
+	}
+	return undefined;
+}
+
 /**
- * Where `program` is, as a spawn would find it: itself when it names a
- * path, else the first executable of that name on the PATH.
+ * Whether `program` is there, where a spawn would look: itself when it
+ * names a path, else in each folder on the PATH. A link to nothing
+ * counts, since something was put there to be run.
  */
-function whereIs(program: string): string | undefined {
+function isThere(program: string): boolean {
 	const candidates = program.includes("/")
 		? [program]
 		: (process.env.PATH ?? "")
 				.split(delimiter)
 				.filter(Boolean)
 				.map((dir) => join(dir, program));
-	return candidates.find((candidate) => {
+	return candidates.some((candidate) => {
 		try {
-			accessSync(candidate, constants.X_OK);
+			lstatSync(candidate);
 			return true;
 		} catch {
-			// Not there, or not executable: the spawn would pass it by too.
+			// Nothing of that name in this folder; the next may hold it.
 			return false;
 		}
 	});

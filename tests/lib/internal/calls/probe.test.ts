@@ -9,6 +9,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +23,7 @@ beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "call-probe-"));
 });
 afterEach(() => {
+	vi.unstubAllEnvs();
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -138,8 +140,68 @@ describe("asking whether a call is on", () => {
 			"one not executable, one whose shell can't find a command, one whose interpreter is gone",
 		).toEqual(["broken", "broken", "broken"]);
 		expect(cannotAsk.mock.calls[2]?.[0].why).toBe(
-			`${orphan} names an interpreter that isn't there`,
+			`${orphan} is there, but what it runs isn't`,
 		);
+	});
+
+	it("says a program Node won't start at all is broken, and answers", async () => {
+		const cannotAsk = vi.fn();
+		const looped = join(dir, "looped");
+		symlinkSync(join(dir, "looped-back"), looped);
+		symlinkSync(looped, join(dir, "looped-back"));
+		const file = standIn("exit 0");
+
+		const answers = [
+			await askCall({ program: looped, timeoutMs: 5_000, cannotAsk }),
+			await askCall({
+				program: join(file, "a-call-is-on"),
+				timeoutMs: 5_000,
+				cannotAsk,
+			}),
+		];
+
+		expect(answers, "neither can say").toEqual([undefined, undefined]);
+		expect(
+			cannotAsk.mock.calls.map(([trouble]) => trouble.why),
+			"the errors spawn throws rather than emits",
+		).toEqual([
+			`${looped} can't be started (ELOOP)`,
+			`${join(file, "a-call-is-on")} can't be started (ENOTDIR)`,
+		]);
+	});
+
+	it("looks on the PATH for a bare name, counting a link to nothing as there", async () => {
+		const cannotAsk = vi.fn();
+		symlinkSync(join(dir, "nothing"), join(dir, "a-call-is-on-dangling"));
+		vi.stubEnv("PATH", `${join(dir, "empty")}:${dir}`);
+
+		await askCall({
+			program: "a-call-is-on-dangling",
+			timeoutMs: 5_000,
+			cannotAsk,
+		});
+		await askCall({
+			program: "a-call-is-on-nowhere",
+			timeoutMs: 5_000,
+			cannotAsk,
+		});
+
+		expect(
+			cannotAsk.mock.calls.map(([trouble]) => trouble.kind),
+			"a link found in the PATH's second folder, then a name in none",
+		).toEqual(["broken", "missing"]);
+	});
+
+	it("answers even when what hears the trouble throws", async () => {
+		const answer = await askCall({
+			program: standIn("exit 64"),
+			timeoutMs: 5_000,
+			cannotAsk: () => {
+				throw new Error("a hearer that fails");
+			},
+		});
+
+		expect(answer, "the answer stands").toBeUndefined();
 	});
 
 	it("stops waiting at its time for a probe that won't stop when asked", async () => {
@@ -164,7 +226,7 @@ describe("asking whether a call is on", () => {
 		// its time is long enough for a loaded machine to write the pid first.
 		const answer = await askCall({
 			program: standIn(
-				`trap '' TERM; sleep 30 & echo $! > ${pidFile}.part; mv ${pidFile}.part ${pidFile}; wait`,
+				`trap '' TERM; sleep 30 & echo $! > '${pidFile}.part'; mv '${pidFile}.part' '${pidFile}'; wait`,
 			),
 			timeoutMs: 2_000,
 		});
