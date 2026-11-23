@@ -112,11 +112,13 @@ export const LISTENS_WITHIN_CPU_MS = 20_000;
 export const STARVED_WITHIN_MS = 600_000;
 /**
  * The share of a listen time a starved child gains in CPU over one, at
- * the least: 600 ms a minute. One that gains less waits on a lock, the
- * disk or the network, as a few ms a second of timers and polling shows,
- * so it is stuck rather than starved.
+ * the least: 150 ms a minute. The child above that took 142 s to resume
+ * gained about 0.9% of a core over it, so this leaves it near four times
+ * the room; one that gains less waits on a lock, the disk or the
+ * network, with only its timers ticking, so it is stuck rather than
+ * starved.
  */
-const STALLED_SHARE = 0.01;
+const STALLED_SHARE = 0.0025;
 /**
  * How long a listening child may take to answer its first request: an
  * open builds its conversation before it answers, so as long as a
@@ -278,6 +280,11 @@ interface Holding {
 	asked?: Vouched;
 	/** When the watch must have its answer by, as a time. */
 	by?: number;
+	/**
+	 * Whether its child is given up at its listen time, starved or not,
+	 * as a host's start does, though its answer still has its own time.
+	 */
+	bounded?: boolean;
 }
 
 /**
@@ -512,9 +519,9 @@ export function childSupervisor(options: {
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
 	 * asked once a second, or the host stops watching. A `by` is a caller
-	 * that gives up then, a begin or a host starting, so its child is given
-	 * up then too. With none, a wake or a later resume, whoever waits says
-	 * its own wait
+	 * that gives up then, a begin, so its child is given up then too, and
+	 * so is a `bounded` one, a host starting's, at its listen time. With
+	 * neither, a wake or a later resume, whoever waits says its own wait
 	 * (a window's attach journals each one) rather than giving up, so a
 	 * child past its time that has had little CPU is starved by a busy
 	 * machine rather than stuck: it is waited on until it has spent its
@@ -522,16 +529,17 @@ export function childSupervisor(options: {
 	 * STARVED_WITHIN_MS has passed. Stopping it then would throw its start
 	 * away, and starting again on the same machine would starve the same
 	 * way. A systemd too loaded to say its CPU at first is asked again
-	 * each second, for one more listen time.
+	 * each second, for one more listen time, so one that never says it,
+	 * with no CPU account, is given up after two.
 	 */
 	async function once<T>(
 		slot: Slot,
 		attempt: () => Promise<T>,
 		by = Number.POSITIVE_INFINITY,
+		bounded = by !== Number.POSITIVE_INFINITY,
 	): Promise<T> {
 		const began = Date.now();
 		const ms = Math.max(0, Math.min(withinMs, by - began));
-		const bounded = by !== Number.POSITIVE_INFINITY;
 		const starvedMs = Math.max(ms, starvedWithinMs);
 		const ceiling = began + starvedMs;
 		let until = began + ms;
@@ -829,6 +837,7 @@ export function childSupervisor(options: {
 			fresh,
 			asked,
 			by = Number.POSITIVE_INFINITY,
+			bounded = false,
 		} = holding;
 		let current: string | undefined;
 		let over = false;
@@ -1032,6 +1041,7 @@ export function childSupervisor(options: {
 					stopping.signal,
 				),
 			by,
+			bounded,
 		);
 		try {
 			if (refused) throw refused;
@@ -1127,7 +1137,7 @@ export function childSupervisor(options: {
 					await watch(slot, {
 						expected: sessionId,
 						named: sessionId,
-						...(bounded ? { by: Date.now() + withinMs } : {}),
+						bounded,
 					})
 				).conversation,
 		);
@@ -1164,7 +1174,7 @@ export function childSupervisor(options: {
 			try {
 				// Bounded, since the host's start awaits every take-up before it
 				// resumes anything.
-				await watch(slot, { named, was, by: Date.now() + withinMs });
+				await watch(slot, { named, was, bounded: true });
 				return true;
 			} catch (error) {
 				if (closing) throw error;

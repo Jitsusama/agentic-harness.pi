@@ -195,6 +195,8 @@ export interface ChildTraits {
 	connected?: () => void;
 	/** How many of its first watches it takes and answers none of. */
 	unansweredWatches?: number;
+	/** How long it takes to answer a watch, as a loaded child may. */
+	answersWatchAfterMs?: number;
 	/** The id it opens its conversation under, rather than a new one. */
 	opensAs?: string;
 	/** Build what it is asked to open, but never answer the open. */
@@ -234,7 +236,7 @@ async function runChild(
 	own: FakeUnits,
 ): Promise<FakeChild> {
 	const { refuses, refusesWith, silent, opensUnanswered, opensAs } = traits;
-	const { endsAsItAnswers, answers, connected } = traits;
+	const { endsAsItAnswers, answers, connected, answersWatchAfterMs } = traits;
 	let unansweredWatches = traits.unansweredWatches ?? 0;
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
 	await mkdir(slot.folder, { recursive: true });
@@ -316,7 +318,11 @@ async function runChild(
 						result: answers ? answers(result) : result,
 					});
 					const ending = line({ type: "ending", why: "parked" });
-					socket.write(endsAsItAnswers ? `${answer}${ending}` : answer);
+					const write = (): void => {
+						socket.write(endsAsItAnswers ? `${answer}${ending}` : answer);
+					};
+					if (answersWatchAfterMs === undefined) write();
+					else setTimeout(write, answersWatchAfterMs);
 				}
 			}
 		});

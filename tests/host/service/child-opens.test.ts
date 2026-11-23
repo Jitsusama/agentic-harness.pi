@@ -426,6 +426,21 @@ describe("a host starting again", () => {
 		expect(Date.now() - asked, "at its listen time").toBeLessThan(3_000);
 	});
 
+	it("gives a child it takes up its own time to answer, past its listen time", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, answersWithinMs: 5_000 },
+		});
+		const slot = slotOf(folder, key, a);
+		await writeSlot(slot, entry(a));
+		units.next = { answersWatchAfterMs: 1_000 };
+		await units.start(slot.unit);
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(routes.routeOf(a)).toBeDefined();
+		expect(units.stopped).toEqual([]);
+	});
+
 	it("starts no child for a conversation still leaving a slot named by another id", async () => {
 		const slot = slotOf(folder, key, "c0000000-0000-4000-8000-000000000003");
 		await writeSlot(slot, entry(b));

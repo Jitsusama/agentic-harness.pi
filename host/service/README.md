@@ -328,12 +328,14 @@ input pipeline or screen. No unit or running host is installed yet.
   or a message asks for, past its 60 s waits on a child that has had
   under 20 s of CPU, as systemd accounts it, for up to 10 minutes,
   since a busy machine starves a start rather than wedging it; one
-  that gains under 1% of a core over a whole 60 s waits on something
-  else, and is given up then. Its journal says as it starts waiting
-  and as it listens. Three keep a 60 s bound and are refused at it
-  without asking systemd: a caller's open or adopt, and a host
-  starting's take-ups and resumes, which go one at a time, so a
-  starved child there would hold the rest. A host starting takes up the
+  that gains under 0.25% of a core over a whole 60 s waits on
+  something else, and is given up then; one whose CPU systemd never
+  says is given up at 120 s. Its journal says as it starts waiting
+  and as it listens. Three keep a 60 s bound to listen and are refused
+  at it without asking systemd: a caller's open or adopt, and a host
+  starting's take-ups and resumes, which go a few at a time, so a
+  starved child there would hold those behind it. A start's resume
+  that a wake pulled forward waits as a wake does. A host starting takes up the
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:

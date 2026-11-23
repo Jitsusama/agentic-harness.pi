@@ -285,14 +285,15 @@ describe("a resumed conversation", () => {
 		expect(units.stopped).toEqual([]);
 	});
 
-	it("is given up, naming its unit, when its child never listens", async () => {
+	it("is given up at its listen time, naming its unit, when its child spent a starved child's CPU without listening", async () => {
 		superviseAgain({ clocks: { listensWithinMs: 300 } });
 		units.next = { neverListens: true };
-		// Past what a starved child may spend, so it is given up at once.
 		units.spent = 20_000;
 
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			`${slotOf(folder, key, a).unit} did not listen within 300 ms`,
+			new Error(
+				`${slotOf(folder, key, a).unit} did not listen within 300 ms, with 20000 ms of CPU`,
+			),
 		);
 	});
 
@@ -339,20 +340,37 @@ describe("a resumed conversation", () => {
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	});
 
-	it("is given up as stuck when its child gains only a sliver of CPU for a whole listen time", async () => {
+	it("is given up as stuck when its child gains only a sliver of CPU over a whole listen time", async () => {
+		// A listen time of two asks, so the sliver is summed across them.
 		superviseAgain({
-			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+			clocks: { listensWithinMs: 2_000, starvedWithinMs: 10_000 },
 		});
 		units.next = { neverListens: true };
-		// 1 ms a second, under the 1% of its listen time a starved child gains.
+		// 1 ms a second, 0.1% of a core, under the 0.25% a starved child gains.
 		units.spent = growing(50, 1);
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			/did not listen within \d+ ms, with 5\d ms of CPU, only 1 ms of it in the last \d+ ms: it is stuck rather than starved/,
+			/did not listen within \d+ ms, with 5\d ms of CPU, only 2 ms of it in the last \d+ ms: it is stuck rather than starved/,
 		);
-		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(8_000);
 	});
+
+	it("waits on a child whose CPU grows under its share at each ask but not over a whole listen time", async () => {
+		// 4 ms a second, 0.4% of a core: under the 5 ms of a 2 s listen time
+		// at each ask, over it across two.
+		superviseAgain({
+			clocks: { listensWithinMs: 2_000, starvedWithinMs: 10_000 },
+		});
+		// Past two listen times, so it is judged over a whole one twice.
+		units.next = { listensWhen: pause(5_000) };
+		units.spent = growing(50, 4);
+
+		const running = await supervisor.resume(entry(a), true);
+
+		expect(running.sessionId).toBe(a);
+		expect(units.stopped, "its child left running").toEqual([]);
+	}, 15_000);
 
 	it("waits on a child whose first CPU ask systemd doesn't answer, asking again", async () => {
 		superviseAgain({
@@ -423,17 +441,27 @@ describe("a resumed conversation", () => {
 		superviseAgain({
 			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
 		});
-		units.next = { listensWhen: pause(3_500) };
+		// It listens once its CPU has been asked through the failures, so a
+		// slow machine can't have it listen first.
+		let heard = (): void => undefined;
+		units.next = {
+			listensWhen: new Promise<void>((resolve) => {
+				heard = resolve;
+			}),
+		};
 		const answers = [100, undefined, undefined, undefined];
 		let asks = 0;
-		units.spent = () =>
-			asks < answers.length ? answers[asks++] : 100 + asks++;
+		units.spent = () => {
+			if (asks >= answers.length) heard();
+			return asks < answers.length ? answers[asks++] : 100 + asks++;
+		};
 
 		const running = await supervisor.resume(entry(a), true);
 
 		expect(running.sessionId).toBe(a);
 		expect(asks, "its CPU asked through the failures").toBeGreaterThan(3);
-	});
+		// Asked once a second, five times before it listens.
+	}, 15_000);
 
 	it("stops waiting on a starved child whose unit ends", async () => {
 		superviseAgain({
