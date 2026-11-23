@@ -31,10 +31,11 @@
 # its own, and waiters take the turn in no order, so a 75 says only that
 # its turn didn't come in time, not that the check before it hung.
 #
-# Of its exit codes a caller can act on two alone, since nothing under
-# it exits with them as a rule: 75 when its turn never came, and 3 when
-# the host's lock can't be taken at all. Any other is the check's own,
-# tests/package's after it, or what failed under it, such as ssh's 255
+# Of its exit codes a caller can act on two alone, since the check's
+# own 3 or 75 comes back as 1, saying so: 75 when its turn never came,
+# and 3 when the host's lock can't be taken at all. Any other is the
+# check's own, tests/package's after it, or what failed under it, such
+# as ssh's 255
 # when the host can't be reached or its link is silent for five
 # minutes, or git's own when a fetch fails. Whatever it refuses, a
 # branch, host, wait or agent, a host with no node or no pnpm for the
@@ -402,6 +403,46 @@ take_turn() {
   rm -f "$holder"
   printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%Y-%m-%d %H:%M')" > "$holder" || true
 }
+# What the check finds on its host, each said on stdout, or nothing when
+# it isn't there: globs, not ls in a pipe, since under errexit and
+# pipefail a match of none would end the check before it said why.
+# The pnpm a store holds for the version `$1`, from store `$2`.
+pnpm_in() {
+  local found
+  for found in "$2"/*-pnpm-"$1"/bin; do
+    if [ -d "$found" ]; then
+      echo "$found"
+      return
+    fi
+  done
+}
+# glibc's own loader in store `$1`, never its -bin output's stub.
+loader_in() {
+  local found ld=
+  for found in "$1"/*-glibc-2.*/lib/ld-linux-x86-64.so.2; do
+    case "$found" in
+      "$1"/*-bin/*) ;;
+      *) if [ -e "$found" ]; then ld=$found; fi ;;
+    esac
+  done
+  if [ -n "$ld" ]; then echo "$ld"; fi
+}
+# npm's prebuilt biome in tree `$1`'s install.
+biome_in() {
+  local found
+  for found in "$1"/node_modules/.pnpm/@biomejs+cli-linux-x64@*/node_modules/@biomejs/cli-linux-x64/biome; do
+    if [ -e "$found" ]; then
+      echo "$found"
+      return
+    fi
+  done
+}
+# The check's code is read with errexit off, which its shell would
+# otherwise keep, running on past a failed step; so it turns it on again.
+with_errexit() {
+  set -e
+  "$@"
+}
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
 take_turn
@@ -423,12 +464,7 @@ cd "$dir"
 git checkout -q --force --detach "origin/$branch"
 git log --oneline -1
 want=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
-# Globs, not ls in a pipe: under errexit and pipefail a match of none
-# would end the check before it said why.
-bin=
-for found in /nix/store/*-pnpm-"$want"/bin; do
-  if [ -d "$found" ]; then bin=$found; break; fi
-done
+bin=$(pnpm_in "$want" /nix/store)
 if [ -z "$bin" ]; then
   echo "check-there: no pnpm $want in $(hostname)'s store" >&2
   exit 1
@@ -438,27 +474,32 @@ pnpm install --frozen-lockfile --silent
 # On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
 # nothing without nix-ld set up, so biome is run through glibc's by hand.
 if [ -e /etc/NIXOS ]; then
-  ld= real=
-  for found in /nix/store/*-glibc-2.*/lib/ld-linux-x86-64.so.2; do
-    case "$found" in
-      /nix/store/*-bin/*) ;;
-      *) if [ -e "$found" ]; then ld=$found; fi ;;
-    esac
-  done
-  for found in node_modules/.pnpm/@biomejs+cli-linux-x64@*/node_modules/@biomejs/cli-linux-x64/biome; do
-    if [ -e "$found" ]; then real=$found; break; fi
-  done
+  ld=$(loader_in /nix/store)
+  real=$(biome_in "$PWD")
   if [ -z "$ld" ] || [ -z "$real" ]; then
     echo "check-there: no glibc loader or no biome on $(hostname) to run biome by" >&2
     exit 1
   fi
   mkdir -p ~/.cache/harness-check-bin
-  printf '#!/bin/sh\nexec %s %s "$@"\n' "$ld" "$PWD/$real" > ~/.cache/harness-check-bin/biome
+  printf '#!/bin/sh\nexec %s %s "$@"\n' "$ld" "$real" > ~/.cache/harness-check-bin/biome
   chmod +x ~/.cache/harness-check-bin/biome
   export BIOME_BINARY=~/.cache/harness-check-bin/biome
 fi
 pnpm check
 pnpm exec vitest run tests/package --testTimeout=60000
 }
-alone run_check
+# The branch's own code can exit 3 or 75, which a caller reads as this
+# script's, so either comes back as 1, said; errexit is off only while
+# the check is waited on, so its code reaches the line that reads it.
+set +e
+alone with_errexit run_check
+checked=$?
+set -e
+case "$checked" in
+  3 | 75)
+    echo "check-there: the check on $(hostname) exited $checked, a code this script keeps for its own, so it ends 1" >&2
+    exit 1
+    ;;
+esac
+exit "$checked"
 THERE
