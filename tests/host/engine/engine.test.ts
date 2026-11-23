@@ -88,6 +88,21 @@ interface Seen {
 		readonly own: number;
 		readonly unheld: number;
 	};
+	/** A carry's hold on a conversation: the background counted and what a restart waits on, and its reload, while held and after. */
+	readonly carryHeld?: {
+		readonly before: number;
+		readonly during: number;
+		readonly after: number;
+		readonly holding: readonly string[];
+		readonly reloadDuring: string;
+		readonly reloadAfter: string;
+	};
+	/** A waiting move's hold on a conversation: how its reloads went, the follower's and another's, while held and after. */
+	readonly moveHeld?: {
+		readonly yieldingDuring: string;
+		readonly otherDuring: string;
+		readonly yieldingAfter: string;
+	};
 	/** What a restart would wait on of a heavy run, before and while the host drains, and what the drain said goes. */
 	readonly heavyHeld?: {
 		readonly holding: readonly string[];
@@ -673,6 +688,42 @@ describe("the host's engine", () => {
 				seen.recordLeft,
 				"its close for good stops what a park carried",
 			).toBe(false);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"counts a carry under way as what a restart waits on, and refuses a reload until it lets go",
+		async () => {
+			const seen = await step(hostFolder(), "carry-held");
+			expect(seen.carryHeld).toEqual({
+				before: 0,
+				during: 1,
+				after: 0,
+				holding: [`${seen.firstId}: a carry to penelope`],
+				reloadDuring:
+					"its work is being carried to penelope, and a reload would end the carry part-way",
+				reloadAfter: "reloaded",
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	// 5BACCAC3's F98 on #2029: the host's reload waits for the run to
+	// end, as the follower's still-wait does, so a move taken as it
+	// settles was stopped unwritten there too. The reload is asked and
+	// the move taken while a run is under way (5BACCAC3's F127), so only
+	// a look after the wait for idle refuses it.
+	it(
+		"refuses the follower's reload once idle while a move waits, and lets another go",
+		async () => {
+			const seen = await step(hostFolder(), "move-held");
+			expect(seen.moveHeld).toEqual({
+				yieldingDuring:
+					"a move to background waits, and a reload would stop it unwritten",
+				otherDuring: "reloaded",
+				yieldingAfter: "reloaded",
+			});
 		},
 		HOST_LIFE_MS,
 	);

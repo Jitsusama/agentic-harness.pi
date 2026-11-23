@@ -101,7 +101,10 @@ import {
 	STALLED_ENTRY,
 	wasCancelled,
 } from "../../lib/compaction/failure.ts";
-import { compactionHistory } from "../../lib/compaction/history.ts";
+import {
+	compactionHistory,
+	FIRST_PROMPT_CARRY,
+} from "../../lib/compaction/history.ts";
 import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
 	ASKED_ENTRY,
@@ -131,7 +134,9 @@ import {
 	isStaleContext,
 	whileCurrent,
 } from "../../lib/internal/errors/stale.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
+import { ROLLOVER_CARRY } from "../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerFirstHead } from "./head.ts";
@@ -382,6 +387,16 @@ function cacheWriteOf(message: unknown): number | null {
 	return typeof written === "number" ? written : null;
 }
 
+/**
+ * Carry the session's first prompt into a fresh log, so the trigger
+ * there still knows the fixed overhead its first turn paid.
+ */
+function carryFirstPrompt(carry: unknown, firstPromptTokens: number | null) {
+	if (firstPromptTokens === null) return;
+	if (!isRecord(carry) || !isRecord(carry.carried)) return;
+	carry.carried[FIRST_PROMPT_CARRY] = { firstPromptTokens };
+}
+
 export default function compactionWorkflow(pi: ExtensionAPI) {
 	let firstTurnTokens: number | null = null;
 	let observedRetained: number | null = null;
@@ -410,6 +425,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		expectedOutputTokens: () => summaryOutput ?? DEFAULT_SUMMARY_OUTPUT_TOKENS,
 	});
 	registerFirstHead(pi);
+	// The turn that paid the first prompt stays in the parent log.
+	pi.events.on(ROLLOVER_CARRY, (data) =>
+		carryFirstPrompt(data, firstTurnTokens),
+	);
 
 	// Declared before warming, whose end hands the idle session to it.
 	const idle = idleTimer(

@@ -21,6 +21,7 @@ import {
 } from "../../../extensions/job-workflow/moved.ts";
 import type { JobResult } from "../../../extensions/job-workflow/outbox.ts";
 import {
+	alive,
 	type CarriedShell,
 	watchCarried,
 } from "../../../lib/internal/shell/carried.ts";
@@ -135,7 +136,14 @@ describe("a carried call taken up and never said", () => {
 			env: { ...process.env, [CALL_VARIABLE]: "mark-running" },
 		});
 		running.push(shell);
-		const live = await shellWork(shell.pid, "mark-running");
+		const pid = shell.pid;
+		if (pid === undefined) throw new Error("its sleep never started");
+		// On a loaded machine its environment can read as its parent's for
+		// a moment as it starts, so the live call is read once it is one.
+		await vi.waitFor(() =>
+			expect(alive(pid, "mark-running"), "its sleep, marked").toBe(true),
+		);
+		const live = await shellWork(pid, "mark-running");
 		// A pid now another process's, as after a reboot, isn't the call.
 		const reused = await shellWork(process.pid, "mark-reused");
 		const found = strandedIn([

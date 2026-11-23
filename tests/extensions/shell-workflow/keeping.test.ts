@@ -32,11 +32,97 @@ import {
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
 import { endOf, outputOf } from "../../../lib/internal/shell/kept.ts";
+import {
+	forgetKeptJob,
+	recordKeptJob,
+} from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
+// Each move and removal off the thread, which can be held after the disk
+// acts, as a busy disk's callback comes late; and each synchronous call
+// that could stall the thread, by the path asked.
+const disk = vi.hoisted(() => {
+	let held: Promise<void> | undefined;
+	let release: () => void = () => undefined;
+	return {
+		moved: [] as string[],
+		removed: [] as string[],
+		asked: [] as string[],
+		hold(): void {
+			held = new Promise((done) => {
+				release = done;
+			});
+		},
+		go(): void {
+			held = undefined;
+			release();
+		},
+		async pass(): Promise<void> {
+			if (held !== undefined) await held;
+		},
+	};
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs/promises")>();
+	const rename = (async (...args: Parameters<typeof real.rename>) => {
+		disk.moved.push(String(args[0]));
+		await real.rename(...args);
+		await disk.pass();
+	}) as typeof real.rename;
+	const rm = (async (...args: Parameters<typeof real.rm>) => {
+		disk.removed.push(String(args[0]));
+		await real.rm(...args);
+		await disk.pass();
+	}) as typeof real.rm;
+	const mocked = { ...real, rename, rm };
+	return { ...mocked, default: mocked };
+});
+
+// Every synchronous call, and the callback forms a stall could hide in
+// as easily, so a new one on the thread is heard whatever it is.
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	const callbacks = ["stat", "lstat", "access", "unlink", "open", "readFile"];
+	const mocked = {
+		...real,
+		...heard(
+			real,
+			Object.keys(real).filter(
+				(name) => name.endsWith("Sync") || callbacks.includes(name),
+			),
+		),
+	};
+	return { ...mocked, default: mocked };
+});
+
+/**
+ * `module`'s functions `names`, each writing down in `disk.asked` that
+ * it was asked, and of which path, before it does as it would.
+ */
+function heard(
+	module: object,
+	names: readonly string[],
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const name of names) {
+		const real: unknown = Reflect.get(module, name);
+		if (typeof real !== "function") continue;
+		out[name] = Object.assign((...args: unknown[]) => {
+			disk.asked.push(`${name} ${String(args[0])}`);
+			return Reflect.apply(real, module, args);
+		}, real);
+	}
+	return out;
+}
+
 const made: string[] = [];
 afterEach(() => {
+	disk.go();
+	disk.moved.length = 0;
+	disk.removed.length = 0;
+	disk.asked.length = 0;
 	for (const dir of made.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -335,26 +421,321 @@ describe("a kept call", () => {
 
 	// A pi gone between the settle and the record's removal would leave a
 	// job its next start takes up and says the end of a second time.
-	it("takes back its job's record before it settles", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
-		made.push(dir);
-		const folder = join(dir, "kept");
-		let keep: string | undefined;
-		const kept = keepsOnDisk(
-			{
-				async exec(_command, _cwd, call) {
-					keep = call.env?.[KEEP_VARIABLE];
-					writeFileSync(`${keep}.job`, "{}");
-					writeFileSync(`${keep}.end`, "0");
-					return { exitCode: 0 };
-				},
+	it("takes back its job's record before it settles, waiting for the disk", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		let settled = false;
+		const running = run(call.kept.operations, "true", call.signal).then(
+			(result) => {
+				settled = true;
+				return result;
 			},
-			{ can: () => true, folder: () => folder },
 		);
-		await run(kept.operations, "true", new AbortController().signal);
-		expect(existsSync(`${keep}.job`), "its record, as it settles").toBe(false);
+		await until("its record unlinked", () => call.recordGone());
+		await turns(5);
+		expect(settled, "unsettled while the disk holds the removal").toBe(false);
+		disk.go();
+		await running;
+		expect(call.recordGone(), "its record, as it settles").toBe(true);
 		await vi.waitFor(() =>
-			expect(readdirSync(folder), "its files go just after").toEqual([]),
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
 		);
 	});
+
+	// Its shell has ended, so waiting longer would only hold the stop the
+	// person asked for.
+	it("settles at once when stopped while its record goes", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal).then(
+			() => "settled",
+			() => "settled",
+		);
+		await until("its record unlinked", () => call.recordGone());
+		await turns(5);
+		call.stop();
+		expect(
+			await Promise.race([running, settlesWithin()]),
+			"settled while the disk holds its record's removal",
+		).toBe("settled");
+		disk.go();
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+	});
+
+	// A move or a host's stop meeting a job neither carriable nor ended
+	// leaves it behind and stops it, its real status never said.
+	it("can still be carried while its record goes", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record unlinked", () => call.recordGone());
+		const work = call.kept.carryOf(call.signal)?.what();
+		expect(isCarriedShell(work), "carriable while it goes").toBe(true);
+		disk.go();
+		await running;
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry once settled here",
+		).toBeUndefined();
+	});
+
+	// Carried then, its taker would find a shell gone with no end, and
+	// say it was lost rather than stopped.
+	it("can't be carried while its record goes once this pi stopped it", async () => {
+		const call = endsRecorded({ stops: true });
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal).then(
+			() => "settled",
+			() => "settled",
+		);
+		await until("its record unlinked", () => call.recordGone());
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry: its stop is said here",
+		).toBeUndefined();
+		// Stopped, it waits on no disk: its record, left, reads as a call
+		// gone with no end, which nothing takes up.
+		expect(
+			await Promise.race([running, settlesWithin()]),
+			"settled while the disk holds its record's removal",
+		).toBe("settled");
+		disk.go();
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+		// Its files' removal takes the record; a second, setting it aside,
+		// would only wait on the same disk and say it waited.
+		expect(
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"its record removed, never set aside",
+		).toEqual([]);
+	});
+
+	// Its limit stops it with the caller's own signal still live, so only
+	// the stop of this pi's own tells it from a call that ended.
+	it("can't be carried while its record goes once its time limit stopped it", async () => {
+		const call = endsRecorded({ hangs: true });
+		disk.hold();
+		const said = run(call.kept.operations, "true", call.signal, {}, 0.3).then(
+			() => "settled",
+			(error: unknown) => String(error),
+		);
+		await until("its record unlinked", () => call.recordGone());
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry: its time limit is said here",
+		).toBeUndefined();
+		expect(
+			await Promise.race([said, settlesWithin()]),
+			"it times out as pi says, while the disk holds its record's removal",
+		).toContain("timeout:0.3");
+		disk.go();
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+		expect(
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"its record removed, never set aside",
+		).toEqual([]);
+	});
+
+	it("leaves its files to whoever it was handed to while its record went", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record set aside", () => call.recordGone());
+		call.kept.carryOf(call.signal)?.handed();
+		// The move that hands it on closes the giving session in that turn.
+		forgetKeptJob(call.keep());
+		disk.go();
+		await running;
+		expect(
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"only its record set aside, none of its other files",
+		).toEqual([`${call.keep()}.job`]);
+		expect(
+			removedOf(call.keep()),
+			"none of its files asked to go: they are the taker's",
+		).toEqual([]);
+		expect(existsSync(`${call.keep()}.end`), "its end, for the taker").toBe(
+			true,
+		);
+		expect(existsSync(`${call.keep()}.job`), "its record, put back").toBe(true);
+	});
+
+	// A reload hands the call on in this same process, closes the giving
+	// session, and the session that takes it up writes its record again
+	// while the first removal runs.
+	it("leaves the record its taker writes while its own went", async () => {
+		const call = endsRecorded();
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal);
+		await until("its record set aside", () => call.recordGone());
+		call.kept.carryOf(call.signal)?.handed();
+		forgetKeptJob(call.keep());
+		call.record("taken up");
+		disk.go();
+		await running;
+		expect(
+			removedOf(call.keep()),
+			"none of its files asked to go, the taker's record among them",
+		).toEqual([]);
+		expect(
+			JSON.parse(readFileSync(`${call.keep()}.job`, "utf8")).label,
+			"the taker's record",
+		).toBe("taken up");
+	});
+
+	// Most calls record no job: their end waits on no disk at all, and asks
+	// it nothing on the thread, which under load held every conversation's
+	// loop for seconds.
+	it("settles though the disk holds every removal, when it recorded no job", async () => {
+		const call = endsRecorded({ records: false });
+		disk.hold();
+		// A bound on the settle, so one that waits on the disk fails here,
+		// saying so, rather than at the test's timeout.
+		const bound = new Promise<"held">((done) =>
+			setTimeout(() => done("held"), SETTLES_IN_MS),
+		);
+		const result = await Promise.race([
+			run(call.kept.operations, "true", call.signal),
+			bound,
+		]);
+		expect(result, "settled with its status").toMatchObject({ code: 0 });
+		expect(
+			disk.asked.filter((said) => said.includes(call.keep())),
+			"nothing asked of its files on the thread from its shell's end to its settle",
+		).toEqual([]);
+		expect(
+			disk.moved.filter((path) => path.startsWith(`${call.keep()}.job`)),
+			"nor set aside off it",
+		).toEqual([]);
+	});
+
+	it("leaves a pi exiting while the disk holds its files nothing of its to ask after, when it recorded no job", async () => {
+		const call = endsRecorded({ records: false });
+		disk.hold();
+		const result = await Promise.race([
+			run(call.kept.operations, "true", call.signal),
+			settlesWithin(),
+		]);
+		expect(result, "settled with its status").toMatchObject({ code: 0 });
+		const hooks = process
+			.listeners("exit")
+			.filter((hook) => hook.name === "takeRecordsBackAtExit");
+		expect(hooks, "one hook as the process exits").toHaveLength(1);
+		// Only what the exit asks: the call wrote its own files as it ran.
+		disk.asked.length = 0;
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		for (const hook of hooks) hook(0);
+		said.mockRestore();
+		expect(
+			disk.asked.filter((asked) => asked.includes(call.keep())),
+			"no name of its asked after on the thread as pi exits",
+		).toEqual([]);
+	});
 });
+
+/**
+ * How long a call whose disk is held is given to settle: under the 5 s a
+ * call waits for its record's removal, so one that waits on the disk at
+ * all fails, and within a test's own timeout, so it fails as itself.
+ */
+const SETTLES_IN_MS = 2_000;
+
+/** Answers "held" once `SETTLES_IN_MS` passes, the bound on a settle. */
+function settlesWithin(): Promise<"held"> {
+	return new Promise((done) => setTimeout(() => done("held"), SETTLES_IN_MS));
+}
+
+/**
+ * The call's files kept at `keep` that a removal was asked for, by their
+ * own names, not an aside's. The first is asked as its removal starts,
+ * before the call settles, so none is missed by a check just after.
+ */
+function removedOf(keep: string): string[] {
+	const own = [".job", ".end", ".pid"].map((suffix) => `${keep}${suffix}`);
+	return disk.removed.filter((path) => own.includes(path));
+}
+
+/** Let `count` turns of the loop pass, for what would run in them. */
+async function turns(count: number): Promise<void> {
+	for (let turn = 0; turn < count; turn += 1) {
+		await new Promise((done) => setImmediate(done));
+	}
+}
+
+/**
+ * A kept call whose shell ends at once with status 0, its job recorded
+ * as a job's recorder records one in this process, unless `records` is
+ * false. With `stops`, pi stops it as it runs, and its shell writes no
+ * end. With `hangs`, its shell runs until it is stopped, writing no end.
+ */
+function endsRecorded({
+	records = true,
+	stops = false,
+	hangs = false,
+}: {
+	records?: boolean;
+	stops?: boolean;
+	hangs?: boolean;
+} = {}) {
+	const stopping = new AbortController();
+	const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+	made.push(dir);
+	const folder = join(dir, "kept");
+	let keep = "";
+	const record = (label: string) =>
+		recordKeptJob({
+			session: "s1",
+			id: "j1",
+			kind: "shell",
+			label,
+			work: {
+				kind: "shell",
+				keep,
+				pid: process.pid,
+				mark: "mark-1",
+				startedAt: Date.now(),
+			},
+		});
+	const kept = keepsOnDisk(
+		{
+			async exec(_command, _cwd, call) {
+				keep = call.env?.[KEEP_VARIABLE] ?? "";
+				writeFileSync(`${keep}.pid`, String(process.pid));
+				if (records) record("true");
+				if (stops) {
+					stopping.abort();
+					return { exitCode: null };
+				}
+				if (hangs) {
+					await new Promise((done) =>
+						call.signal?.addEventListener("abort", done, { once: true }),
+					);
+					return { exitCode: null };
+				}
+				writeFileSync(`${keep}.end`, "0");
+				// What the shell wrote as it ran is no ask of the settle's.
+				disk.asked.length = 0;
+				return { exitCode: 0 };
+			},
+		},
+		{ can: () => true, folder: () => folder },
+	);
+	return {
+		folder,
+		kept,
+		signal: stopping.signal,
+		keep: () => keep,
+		/** Stop the call, as the person pressing stop does. */
+		stop: () => stopping.abort(),
+		/** Record the call's job again, as one taking it up does. */
+		record,
+		recordGone: () => keep !== "" && !existsSync(`${keep}.job`),
+	};
+}

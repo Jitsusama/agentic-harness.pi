@@ -34,7 +34,15 @@ export interface ServerPolicy {
 		tool: McpTool,
 		args: Record<string, unknown>,
 	): Record<string, unknown>;
-	/** Whether calling the tool changes state and should pass through a write gate. */
+	/**
+	 * Whether calling the tool changes state and should pass through a write
+	 * gate. The surface manager doesn't read it: it takes effect only where
+	 * the server's frontend gates by it, in a wrap of its own, as the tool
+	 * gateway's does, or handed to `makeDefaultWrap` or `defaultResolved`.
+	 * Handed over, it takes the place of `defaultWriteSignal`, so compose
+	 * the two (`(tool) => defaultWriteSignal(tool) || named(tool)`) to keep
+	 * a server's other writes gated.
+	 */
 	writeSignal?(tool: McpTool): boolean;
 	/** Per-tool display truncation limits, or null to leave the output untouched. */
 	truncationLimits?(

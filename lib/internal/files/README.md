@@ -6,6 +6,9 @@ points.
 
 ## Files
 
+- **`errno.ts`**: what a failed read says of its path, nothing
+  there, a fault of the moment, or something wrong with that path, so
+  the readers of one folder keep or move on by one rule.
 - **`file-reads.ts`**: what each file in a folder said when the
   process last read it, asked again only once the file changes, so a
   ledger asked at every conversation's start reads only what moved.

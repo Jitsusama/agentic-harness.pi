@@ -8,7 +8,10 @@
  * unsent (lib/internal/session/free.ts). It doesn't hold runs off, as a
  * pause does, since a run held off would leave a job's result or a
  * peer's message unanswered in the file the host takes up. It only ends
- * the session between them, the first moment nothing is out: it writes
+ * the session between them, the first moment nothing is out, and never
+ * while a carry of its work is under way (lib/internal/carry/under-way.ts),
+ * whose run has ended but whose process must last until its done file
+ * is written: it writes
  * the note the move is taken up by and ends as Close does. Its presence
  * says where it is moving and what holds it meanwhile. Away mode, whose
  * send-backs would otherwise start a run as each settles for as long as
@@ -51,12 +54,25 @@
  * The person can ask from inside the window too, with /host
  * (host-command.ts): the same move, said as asked there, and saying at
  * once what it waits for first.
+ *
+ * While a move waits it holds off the reload an install's move would
+ * start (lib/internal/session/move-waiting.ts): that reload, going as
+ * the same run settles, stops the move unwritten, and the move restarts
+ * the session on current code anyway. It renews the hold at every look
+ * and lets it go when it is called off, dropped or stopped. Once made it
+ * looks no more, so its hold lasts the minute the last look gave it, or
+ * until the session it closes stops, whichever is first: a close takes
+ * well under that.
  */
 
 import type {
 	EventBus,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	type CarryHold,
+	carryUnderWay,
+} from "../../lib/internal/carry/under-way.ts";
 import type { CarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { RUN_UNDER_WAY, whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
@@ -132,6 +148,10 @@ export interface MovingHost {
 	 * plain pi to carry on from. A hosted conversation only.
 	 */
 	readonly cutRun?: (by: string) => void;
+	/** Hold an install's reload of the session off for a move to `to`, or renew the hold. */
+	readonly holdReloads?: (to: MoveTarget) => void;
+	/** Let an install's reload of the session go again. */
+	readonly letReloadsGo?: () => void;
 	readonly now?: () => Date;
 	/** Look again every so often; answers how to stop. */
 	readonly every?: (ms: number, look: () => void) => () => void;
@@ -239,6 +259,7 @@ export function createMoving(host: MovingHost): MovingSession {
 	/** Call the move waiting off, saying `told` on screen and `why` in presence. */
 	const callOff = (moving: Moving, why: string, told: string) => {
 		unlook();
+		host.letReloadsGo?.();
 		cutting = false;
 		const off = {
 			to: moving.to,
@@ -282,8 +303,12 @@ export function createMoving(host: MovingHost): MovingSession {
 		const moving = host.moving();
 		if (moving === undefined || ended) {
 			unlook();
+			// A move made keeps its hold, lapsing a minute after its last look,
+			// while its session ends; one dropped elsewhere lets go now.
+			if (moving === undefined) host.letReloadsGo?.();
 			return;
 		}
+		host.holdReloads?.(moving.to);
 		const holds = host.holds();
 		if (holds !== undefined) {
 			wait(moving, holds);
@@ -367,7 +392,10 @@ export function createMoving(host: MovingHost): MovingSession {
 		look,
 		turnEnded: cut,
 		started: cut,
-		stop: unlook,
+		stop() {
+			unlook();
+			host.letReloadsGo?.();
+		},
 	};
 }
 
@@ -376,16 +404,25 @@ export function createMoving(host: MovingHost): MovingSession {
  * the jobs that can't be carried with it, named, the prompts open for
  * its person (`prompts`, counted from pi's prompt events) and its
  * editor's text. A job host from before carrying holds on every job.
- * With `runAside`, a run under way isn't counted, for an ordered carry
- * that ends the run itself once nothing else holds.
+ * A carry of its work under way holds it before all of these, but for
+ * `ownCarry`, the hold of the ordered carry asking. With `runAside`, a
+ * run under way isn't counted, for an ordered carry that ends the run
+ * itself once nothing else holds.
  */
 export function holdsOf(
 	ctx: ExtensionContext | undefined,
 	events: EventBus | undefined,
 	prompts: number,
-	options: { readonly runAside?: boolean } = {},
+	options: {
+		readonly runAside?: boolean;
+		readonly ownCarry?: CarryHold;
+	} = {},
 ): string | undefined {
 	if (!ctx) return "the session isn't there yet";
+	const carrying = carryUnderWay(ctx.sessionManager.getSessionId(), {
+		except: options.ownCarry,
+	});
+	if (carrying !== undefined) return `its work is being carried to ${carrying}`;
 	let typed = false;
 	try {
 		typed = ctx.hasUI && ctx.ui.getEditorText().trim() !== "";

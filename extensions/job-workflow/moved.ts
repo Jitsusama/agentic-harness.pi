@@ -53,7 +53,9 @@ import {
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
-import { isMarkedCarried, removeKept } from "../../lib/internal/shell/kept.ts";
+import { isMarkedCarried } from "../../lib/internal/shell/kept.ts";
+import { disownKeptJob } from "../../lib/internal/shell/kept-jobs.ts";
+import { removeKept } from "../../lib/internal/shell/kept-removal.ts";
 import {
 	finishedSummary,
 	keepInTemp,
@@ -119,7 +121,9 @@ export function movingOn(
 /**
  * Hand on the jobs that can be carried, writing what goes with them
  * through `append`. A record that can't be written leaves nobody to say
- * their ends, so the work is stopped instead.
+ * their ends, so the work is stopped instead and its files removed: the
+ * calls were handed on, so their session's close leaves their records
+ * for the taker that now never comes.
  */
 export function carryAway(
 	jobs: Jobs,
@@ -137,9 +141,15 @@ export function carryAway(
 	try {
 		append(CARRIED_ENTRY, carried);
 	} catch {
-		// Nobody will be told how they end: stop them, as a quit did.
-		for (const job of carried.jobs)
-			if (isCarriedShell(job.work)) stopCarried(job.work);
+		// Nobody will be told how they end: stop them, as a quit did. A
+		// plain pi quits next, and one exiting before the disk gets to their
+		// files takes their marks back as it goes (kept-removal.ts); a host's process
+		// lives on, and their removal ends off the thread.
+		for (const job of carried.jobs) {
+			if (!isCarriedShell(job.work)) continue;
+			stopCarried(job.work);
+			void removeKept(job.work.keep);
+		}
 		return undefined;
 	}
 	return carried;
@@ -356,10 +366,14 @@ function takeUpShell(
 		kind: job.kind,
 		label: job.label,
 		...(job.toolCallId !== undefined ? { toolCallId: job.toolCallId } : {}),
-		// It can move again, from what it kept, while it runs.
+		// It can move again, from what it kept, while it runs, letting go of
+		// the record this host wrote of it, which its next taker writes again.
 		carry: {
 			what: () => (ended ? undefined : work),
-			handed: () => watching?.handed(),
+			handed: () => {
+				disownKeptJob(work.keep);
+				watching?.handed();
+			},
 		},
 	});
 	// Its files go once its end is said, or once it is stopped and so said.

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { scriptsAsText } from "./tests/setup/scripts-as-text.ts";
 import { RERUN_EVERYTHING } from "./vitest.config.ts";
 
 // The browser lane's own config, apart from vitest.config.ts, whose
@@ -10,6 +11,8 @@ import { RERUN_EVERYTHING } from "./vitest.config.ts";
 // a change reaches, `pnpm test:browser:changed`, and none for a change
 // that reaches none, so a machine with no Chrome fails only then.
 export default defineConfig({
+	// So a browser test can import a script it runs, as the others do.
+	plugins: [scriptsAsText()],
 	test: {
 		forceRerunTriggers: RERUN_EVERYTHING,
 		globalSetup: ["./tests/setup/chrome-present.ts"],

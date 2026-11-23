@@ -26,12 +26,21 @@ import {
 	PACKAGE_ROOT,
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
-import { STILL_MS } from "../../../extensions/reload-workflow/transitions.ts";
+import {
+	RELOAD_CALLED_OFF,
+	STILL_MS,
+} from "../../../extensions/reload-workflow/transitions.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	leaveSession,
 	stayInSession,
 } from "../../../lib/internal/session/left.ts";
+import {
+	holdForMove,
+	letMoveGo,
+	moveWaiting,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
 import { quietFor, until } from "../../support/until.ts";
@@ -72,6 +81,9 @@ interface Command {
 
 const GIT_SOURCE = "git:github.com/Jitsusama/agentic-harness.pi";
 
+/** The session every runtime here runs in, as its session manager names it. */
+const SESSION_ID = "wiring-session";
+
 /**
  * How long a landing may take to be said. Each asks git twice what this
  * checkout is, each ask allowed 2 s, and a test lands several times, so
@@ -111,6 +123,11 @@ function packagesOnDisk(): unknown {
 function runtime() {
 	const handlers = new Map<string, Handler[]>();
 	const hidden: string[] = [];
+	// Every message sent, as pi was given it, with its options.
+	const sent: {
+		message: { content: string; customType?: string };
+		options: unknown;
+	}[] = [];
 	const sentToPrompt: { text: string; options: unknown }[] = [];
 	const statuses = new Map<string, string | undefined>();
 	const notices: string[] = [];
@@ -137,8 +154,12 @@ function runtime() {
 		registerTool: (definition: Tool) => {
 			tool = definition;
 		},
-		sendMessage: (message: { content: string; display: boolean }) => {
+		sendMessage: (
+			message: { content: string; display: boolean; customType?: string },
+			options?: unknown,
+		) => {
 			live();
+			sent.push({ message, options });
 			if (!message.display) hidden.push(message.content);
 		},
 		sendUserMessage: (text: string, options: unknown) =>
@@ -170,6 +191,7 @@ function runtime() {
 			replaced = true;
 		},
 		hidden,
+		sent,
 		entries,
 		sentToPrompt,
 		statuses,
@@ -179,15 +201,29 @@ function runtime() {
 		ask: (params: object) =>
 			tool?.execute("t1", params, undefined, undefined, { cwd: dir, ui }) ??
 			Promise.reject(new Error("no tool")),
-		/** Run `/harness <args>`; `reload()` brings up `next`. */
+		/**
+		 * Run `/harness <args>`; `reload()` brings up `next`. `idThrows`
+		 * reads the session's id as a stale context does; `waiting` is
+		 * called as the command waits for the session to be idle.
+		 */
 		command: (
 			args: string,
 			next?: { start: (reason: string) => Promise<void> },
+			idThrows = false,
+			waiting?: () => void,
 		) =>
 			command?.handler(args, {
 				ui,
 				cwd: dir,
-				waitForIdle: async () => {},
+				sessionManager: {
+					getSessionId: () => {
+						if (idThrows) throw new Error("This extension ctx is stale.");
+						return SESSION_ID;
+					},
+				},
+				waitForIdle: async () => {
+					waiting?.();
+				},
 				isIdle: () => true,
 				hasPendingMessages: () => false,
 				reload: async () => {
@@ -329,6 +365,179 @@ describe("the agent asking for a reload", LANDS, () => {
 			{ type: "reload-waited-for-run", data: { times: expect.any(Number) } },
 		]);
 	}, 10_000);
+
+	it("is called off while a carry of the session's work is under way, and goes once it lets go", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const hold = holdForCarry(SESSION_ID, "penelope");
+		try {
+			await now.command("reload", next);
+		} finally {
+			hold.release();
+		}
+
+		expect(reloads, "nothing reloads under the carry").toBe(0);
+		expect(now.notices).toContain(
+			"Did not reload: its work is being carried to penelope, and a reload would end the carry part-way.",
+		);
+		expect(
+			reloadSlot().request,
+			"no request is left for the next settle to run",
+		).toBeUndefined();
+
+		expect(
+			now.hidden.filter((text) => text.startsWith("Did not reload")),
+			"a person's is said on screen alone",
+		).toEqual([]);
+
+		await now.command("reload", next);
+		expect(reloads, "the reload goes once the carry lets go").toBe(1);
+	});
+
+	// A move taken while the follower's reload waited for the run to be
+	// still is one it never saw (5BACCAC3's F76 and F101 on #2029): going
+	// would stop the move unwritten, as E30 failed.
+	describe("a move taken while a reload waits for the run to be still", () => {
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const moveTaken = () => holdForMove(SESSION_ID, "background");
+		beforeEach(() => {
+			reloads = 0;
+		});
+		afterEach(() => letMoveGo(SESSION_ID));
+
+		it("takes the follower's back quietly, clearing the slot for its next ask", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			const slot = reloadSlot();
+			slot.request = { reason: "the install moved", by: "self" };
+			slot.dispatched = true;
+			const said = now.notices.length;
+			await now.command("reload", next, false, moveTaken);
+
+			expect(reloads, "nothing reloads under the move").toBe(0);
+			expect(
+				reloadSlot().request,
+				"taken back for the follower to ask again",
+			).toBeUndefined();
+			expect(reloadSlot().dispatched).toBe(false);
+			expect(now.notices.slice(said), "nothing is said").toEqual([]);
+			expect(now.hidden, "nor told the agent").toEqual([]);
+		});
+
+		it("lets a person's go, and the move carries over it", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			await now.command("reload", next, false, moveTaken);
+			expect(reloads).toBe(1);
+			expect(moveWaiting(SESSION_ID), "the move still waits").toBe(
+				"background",
+			);
+		});
+
+		it("lets the agent's go", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			await now.ask({ reason: "try it" });
+			await now.fire("agent_settled");
+			expect(reloadSlot().request?.by).toBe("agent");
+			await now.command("reload", next, false, moveTaken);
+			expect(reloads).toBe(1);
+		});
+
+		// 5BACCAC3's F103 on #2029: a person's typed while the follower's
+		// waits was turned away as already under way, and the follower's
+		// then taken back, so nothing reloaded and nobody was told.
+		it("lets a person's typed meanwhile go in the follower's place", async () => {
+			runningTheInstall();
+			const now = runtime();
+			await now.start("startup");
+			const slot = reloadSlot();
+			slot.request = { reason: "the install moved", by: "self" };
+			slot.dispatched = true;
+			let typed: Promise<unknown> | undefined;
+			await now.command("reload", next, false, () => {
+				moveTaken();
+				typed ??= Promise.resolve(now.command("reload", next));
+			});
+			await typed;
+
+			expect(reloads, "the person's goes").toBe(1);
+			expect(now.notices).toContain(
+				"A reload is already waiting for the session to be still; yours goes with it.",
+			);
+		});
+	});
+
+	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
+	// a landing, heard nothing when a carry called its reload off.
+	it("tells the agent its reload was called off by a carry, since no landing will come", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		await now.ask({ reason: "try it" });
+		await now.fire("agent_settled");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const hold = holdForCarry(SESSION_ID, "penelope");
+		try {
+			await now.command("reload", next);
+		} finally {
+			hold.release();
+		}
+
+		expect(reloads).toBe(0);
+		expect(
+			now.hidden.filter((text) => text.startsWith("Did not reload")),
+		).toEqual([
+			"Did not reload: its work is being carried to penelope, and a reload would end the carry part-way. Nothing was reloaded; ask again if this session is still here once the carry has ended.",
+		]);
+		const told = now.sent.find((one) =>
+			one.message.content.startsWith("Did not reload"),
+		);
+		expect(told?.message.customType, "typed as the harness's").toBe(
+			RELOAD_CALLED_OFF,
+		);
+		expect(
+			(told?.options as { triggerTurn?: boolean } | undefined)?.triggerTurn,
+			"it starts no turn",
+		).toBeUndefined();
+		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("reloads though the session's id throws as it is read, holding no carry for it", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+
+		await now.command("reload", next, true);
+
+		expect(reloads).toBe(1);
+	});
 
 	it("is called off when the person stops the run", async () => {
 		runningTheInstall();

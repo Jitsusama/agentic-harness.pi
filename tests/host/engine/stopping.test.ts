@@ -9,11 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LEFT_FILE } from "../../../host/engine/left-running.ts";
-import { stopKeeping } from "../../../host/engine/stopping.ts";
+import { carryEnds, stopKeeping } from "../../../host/engine/stopping.ts";
 import {
 	conversationMarker,
 	type ProcessTable,
 } from "../../../host/engine/tool-children.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
 /** The host the table's processes ran under: pid 1, started at tick 0. */
@@ -210,5 +211,22 @@ describe("a start's reaps", () => {
 		stopping.resumed();
 		await stopping.reap("c");
 		expect(table.listed, "once it is over").toBe(3);
+	});
+});
+
+// A carry ends its run, so its conversation reads as idle while it
+// bundles; a host restart then would lose it (PV3TE0's F34, 23 November).
+describe("what a host restart would end of a carry", () => {
+	const carried = "01a1ecbb-0000-7000-8000-0000000ca44e";
+
+	it("names a carry under way, and nothing once it lets go", () => {
+		const hold = holdForCarry(carried, "penelope");
+		try {
+			expect(carryEnds(carried)).toEqual(["a carry to penelope"]);
+			expect(carryEnds("another")).toEqual([]);
+		} finally {
+			hold.release();
+		}
+		expect(carryEnds(carried)).toEqual([]);
 	});
 });

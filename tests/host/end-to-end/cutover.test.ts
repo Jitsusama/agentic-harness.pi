@@ -47,6 +47,9 @@ import {
 import { harnessUnder, sealQuest } from "./support/quests.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { startTerminalPi, type TerminalPi } from "./support/terminal-pi.ts";
+// Imported only to be named, so `--changed` runs this file when the
+// fixture changes alone; MACHINE reads it from its path.
+import "./fixtures/e9-mycelium.sh";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
 const ROOT = resolve(import.meta.dirname, "../../..");

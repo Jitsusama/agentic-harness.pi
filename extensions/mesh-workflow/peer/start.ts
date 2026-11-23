@@ -15,6 +15,7 @@ import {
 	sessionOwner,
 } from "../../../lib/core/session/index.ts";
 import { fenceKindOf } from "../../../lib/internal/carry/fence.ts";
+import { sessionOpened } from "../../../lib/internal/carry/under-way.ts";
 import { tellAwaited } from "../../../lib/internal/priority/awaited.ts";
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { isPersonWords } from "../../../lib/internal/session/driven.ts";
@@ -22,6 +23,7 @@ import { sessionLeft } from "../../../lib/internal/session/left.ts";
 import { carriedBy } from "../../../lib/internal/session/rollover.ts";
 import { showWants } from "../../../lib/internal/session/wants.ts";
 import { writerHold } from "../../../lib/internal/session/writer-hold.ts";
+import { settledWithin } from "../../../lib/internal/settled.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import { landingKeeper } from "../../../lib/mesh/landing-history.ts";
@@ -34,6 +36,7 @@ import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
 import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
 import { ownerLinesAt, ownersFile } from "../../../lib/mesh/subjects.ts";
 import { usageFromLog } from "../../../lib/mesh/usage.ts";
+import { JUDGE_MS, SLOW_LOOKUP } from "../../../lib/prose/claims.ts";
 import { identifyCurrentTerminal } from "../../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
 import { createActs } from "../acts.ts";
@@ -114,6 +117,9 @@ export function onSessionStart(
 		if (!hosted() && (await writerHold(started.sessionManager.getSessionId())))
 			return;
 		m.ctx = started;
+		// Opened again in a host since its close, a carry still running from
+		// before holds it until this opening closes (PV3TE0's round 10, F1).
+		sessionOpened(sessionKeyOf(started));
 		m.unhearKeys?.();
 		m.unhearKeys = started.hasUI
 			? started.ui.onTerminalInput(() => {
@@ -237,7 +243,7 @@ export function onSessionStart(
 		f.watchWaits();
 		// Looked for once a session, not once a message, and not waited
 		// on: a message judged before it is found waits for it, briefly.
-		m.classifier = findClassifier(
+		const finding = findClassifier(
 			started,
 			m.env[MESH_CLASSIFIER_ENV],
 			MESH_CLASSIFIER_ENV,
@@ -247,10 +253,24 @@ export function onSessionStart(
 				reason: error instanceof Error ? error.message : String(error),
 			}),
 		);
+		// Waited on no longer than JUDGE_MS from the session's start, so a
+		// lookup that hangs costs the first sends that, not every send.
+		const capped = settledWithin(finding, JUDGE_MS).then(
+			(found): FoundClassifier => found ?? { ok: false, reason: SLOW_LOOKUP },
+		);
+		m.classifier = capped;
+		// A lookup that ends late is read from then on, unless another
+		// session has looked since; a reason it gives is its own, so it is
+		// said once in its turn.
+		void finding.then((found) => {
+			if (m.classifier !== capped) return;
+			m.classifier = Promise.resolve(found);
+		});
 		// A peer reads afresh: what another session took is not this one's,
 		// and what this one handed over before a reload its entries say.
 		m.seen.clear();
 		m.left.clear();
+		m.unjudgedSaid.clear();
 		for (const id of handedIn(branch)) m.seen.add(id);
 		m.front = createReadFront();
 		// Watching before looking, so what lands between the two is heard

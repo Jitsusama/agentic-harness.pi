@@ -80,10 +80,12 @@ import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
 import { registerSpawner, type Spawned, startOf } from "./spawner-register.ts";
 import {
+	type ScopeSetting,
 	sayUnscoped,
 	scopeFailed,
 	settingHere,
 	spawnerStart,
+	spawningSpawner,
 } from "./spawner-scope.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
@@ -828,21 +830,25 @@ function killGroup(pid: number): void {
  * runs in a systemd scope of its own where it can, so what it starts
  * outlives the host's stop (spawner-scope.ts). A scoped one's error
  * output is read, the first of it kept, so a scope that couldn't be made
- * is said and the spawners after it run unscoped.
+ * is said and the spawners after it run unscoped. `setting` stands in
+ * for this process's under test.
  */
-function startProgram(
+export function startProgram(
 	program: string,
 	quest: string | undefined,
 	drain: number,
+	setting: ScopeSetting = settingHere(hosted() !== undefined),
 ): Started {
-	const start = spawnerStart(program, settingHere(hosted() !== undefined));
+	const start = spawnerStart(program, setting);
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
-	const scoped = start.args.length > 0;
-	const child = spawn(start.command, [...start.args], {
-		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
-		detached: true,
-		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
-	});
+	const { scoped } = start;
+	const child = spawningSpawner(start, () =>
+		spawn(start.command, [...start.args], {
+			stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
+			detached: true,
+			env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
+		}),
+	);
 	child.unref();
 	if (scoped) {
 		let said = "";

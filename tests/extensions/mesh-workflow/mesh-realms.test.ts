@@ -219,6 +219,36 @@ describe("a send into another realm", () => {
 		expect(node.sends).toHaveLength(2);
 	});
 
+	it("refuses a cause told as fact again when sent unchanged into another realm", async () => {
+		const node = await realmNode(flowing("work", "lab"));
+		const sure = {
+			modelRegistry: {
+				getAvailableOfType: async () => [
+					{ provider: "typesafe", id: "jev-latest" },
+				],
+				classify: async (_model: unknown, context: { questions: object }) => ({
+					stopReason: "stop",
+					answers:
+						"cause" in context.questions
+							? { cause: { probabilities: { untested_cause: 0.97 } } }
+							: {},
+				}),
+			},
+		};
+		const { tools } = await startSession(node.env, sure);
+		const cause = {
+			to: "4uhc5q",
+			intent: "finding",
+			text: "The builder failed because its disk filled up.",
+		} as const;
+
+		await sendWith(tools, { ...cause, realm: "work" });
+		const elsewhere = await sendWith(tools, { ...cause, realm: "lab" });
+
+		expect(elsewhere.text).toContain("Not sent: This states why");
+		expect(node.sends).toEqual([]);
+	});
+
 	it("hands the node's refusal back to the sender with its why", async () => {
 		const node = await realmNode(flowing("work"), () => ({
 			Refused: { code: "unheard", why: "no session in work goes by 4UHC5Q" },

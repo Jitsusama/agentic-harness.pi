@@ -259,6 +259,29 @@ it(
 	LANDS,
 );
 
+it(
+	"tells the agent a reload it asked for that the host refused, since no landing will come",
+	async () => {
+		// The host refuses a reload under a carry, and the agent, told to
+		// wait for word of a landing, heard nothing.
+		host();
+		const a = runtime("a");
+		await a.start("startup");
+		runner = async () => {
+			throw new Error("its work is being carried to penelope");
+		};
+
+		await a.ask({ reason: "try it" });
+		await a.settle();
+		await until("the agent is told", () => a.hidden.length > 0);
+
+		expect(a.hidden).toEqual([
+			"Nothing was reloaded: the host could not reload this conversation: its work is being carried to penelope.",
+		]);
+	},
+	LANDS,
+);
+
 it("leaves the stale-rejection net to the host, adding no process listener", () => {
 	// The net goes on once per process; clear that, so each load could add it.
 	const net = Symbol.for("pi:harness:stale-rejections:v1");

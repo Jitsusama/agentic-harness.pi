@@ -589,6 +589,89 @@ export function parseDocumentFrontMatter(
 	return { frontMatter: fm, body: split.body };
 }
 
+/** The order a session's process is written in, whatever built it. */
+const PROCESS_KEYS = [
+	"hostId",
+	"pid",
+	"startToken",
+	"bootToken",
+	"startTicks",
+	"hosted",
+] as const;
+
+/** The order a hosted process is written in. */
+const HOSTED_KEYS = ["host", "session", "owner"] as const;
+
+/** The order a process's owner is written in. */
+const OWNER_KEYS = [
+	"pid",
+	"startedAt",
+	"bootId",
+	"startTicks",
+	"session",
+	"host",
+] as const;
+
+/** The order a session's terminal is written in. */
+const TERMINAL_KEYS = ["driverId", "value", "scope", "hostId"] as const;
+
+/**
+ * `record`'s fields with `known` first, in that order, and any others
+ * after them by name, so the same record is written the same way
+ * whichever code built it. A quest README is shared between machines,
+ * and a rewrite that only moves keys reads there as a change of its own,
+ * which the share can't tell from one made apart (315D0071 [884962e9]).
+ * Only a hosted process and its owner are read whole, so only they
+ * carry keys this build doesn't know; a process's and a terminal's
+ * other fields are dropped on read, as before. The result is built from
+ * its entries, so a `__proto__` key read from a README stays a key
+ * rather than setting the written object's prototype. Two limits, both
+ * still the same on every machine: a key that reads as a whole number
+ * comes before every other, as JavaScript lists such keys first, and
+ * only the top level is ordered, so an unknown field's own value keeps
+ * the order it was read in.
+ */
+function inOrder(
+	record: object,
+	known: readonly string[],
+): Record<string, unknown> {
+	const fields = Object.entries(record).filter(
+		([, value]) => value !== undefined,
+	);
+	const rank = (key: string): number => {
+		const at = known.indexOf(key);
+		return at === -1 ? known.length : at;
+	};
+	fields.sort(([a], [b]) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+	return Object.fromEntries(fields);
+}
+
+function processToPlain(
+	process: NonNullable<QuestSession["process"]>,
+): Record<string, unknown> {
+	const out = inOrder(process, PROCESS_KEYS);
+	if (process.hosted !== undefined) {
+		out.hosted = {
+			...inOrder(process.hosted, HOSTED_KEYS),
+			owner: inOrder(process.hosted.owner, OWNER_KEYS),
+		};
+	}
+	return out;
+}
+
+/**
+ * Whether `a` and `b` are written alike, so a caller that would only
+ * rewrite one with the other can skip the write. Comparing them as built
+ * would see keys in another order as a change: a process read back from
+ * a README puts `hosted` before `bootToken`, and one just captured puts
+ * it last, so every attach of a hosted session rewrote its README.
+ */
+export function writtenAlike(a: QuestSession, b: QuestSession): boolean {
+	return (
+		JSON.stringify(sessionToPlain(a)) === JSON.stringify(sessionToPlain(b))
+	);
+}
+
 function sessionToPlain(session: QuestSession): Record<string, unknown> {
 	const out: Record<string, unknown> = { id: session.id };
 	if (session.name !== undefined) out.name = session.name;
@@ -596,8 +679,12 @@ function sessionToPlain(session: QuestSession): Record<string, unknown> {
 	if (session.started !== undefined) out.started = session.started;
 	if (session.status !== undefined) out.status = session.status;
 	if (session.instanceId !== undefined) out.instanceId = session.instanceId;
-	if (session.process !== undefined) out.process = { ...session.process };
-	if (session.terminal !== undefined) out.terminal = { ...session.terminal };
+	if (session.process !== undefined) {
+		out.process = processToPlain(session.process);
+	}
+	if (session.terminal !== undefined) {
+		out.terminal = inOrder(session.terminal, TERMINAL_KEYS);
+	}
 	return out;
 }
 

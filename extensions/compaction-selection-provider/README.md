@@ -23,7 +23,9 @@ summary and never writes one.
   custom entry. It runs in the background, four messages at a time and
   newest first, and never holds a turn up, so a backlog (a resumed
   session, or one whose host lost its tags) is tagged from the end the
-  next compaction quotes most.
+  next compaction quotes most. When the person moves off a message
+  while it is asked about, the pass stops, records what the answers
+  cost with no tag, and a fresh pass tags the branch as it now stands.
 - **Checking.** When the compaction workflow starts writing a summary
   ahead, the tagger is first let catch up, so a backlog is tagged in
   time to be quoted. Then the paragraphs the compaction would quote
@@ -50,7 +52,15 @@ and a paragraph said more than once is tagged once and quoted once,
 from its latest saying. Tool results, thinking and the harness's resume
 messages are never tagged, and nor is anything from before the last
 compaction when an old session is opened, so opening one does not tag
-its whole history.
+its whole history. A message the host's held log, or a rollover, left
+on disk is still quoted: the tags name the messages they found
+something in, and only those lines are read back from the parent log,
+never the whole of it. A parent log holds every branch, so only tags
+the tagger recorded while it saw their message on the branch are read
+back; older tags quote only what the branch holds. The check reads the
+log without blocking the conversation. A parent gone from disk ends
+the search for good, while one unreadable for a while is looked
+through again later.
 
 When the `session_recall` tool is active, each quote names its
 paragraph, as `User (p:3f9a0c41de):`, and the note under the heading
@@ -66,6 +76,11 @@ Every compaction records what the selection did under
 - `label`, or `unavailable` with the reason, for the classifier, or
   `unresolved` when none was asked for yet this session;
 - `store`, `budget` and `refs`;
+- `logsScanned`, how many parent logs the compaction read through for
+  messages a held or rolled-over log left on disk. The check ahead of
+  it reads them while the conversation goes on and says where each
+  message sits, so after a check this is 0. Only the session store's
+  tags are read back from disk;
 - `candidates` before the tail, how many were `chosen`, and their
   `excerptTokens`;
 - `notHolding`, judged no longer to hold, and `unchecked`, chosen

@@ -7,6 +7,7 @@ import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
+import { settledWithin } from "../../../lib/internal/settled.ts";
 import {
 	attend,
 	type Concern,
@@ -53,6 +54,9 @@ import {
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
 import { dayOf } from "../../../lib/mesh/transport.ts";
+// How long a message heard may take to judge, as a send may: the same
+// classifier over the same network, so one bound serves both.
+import { JUDGE_MS } from "../../../lib/prose/claims.ts";
 import { NOTED, UNVOUCHED } from "../delivery.ts";
 import { takenAtNextLook } from "../steer.ts";
 import type { Handing } from "./handing.ts";
@@ -65,13 +69,6 @@ import {
 	type MeshState,
 	STOPPED,
 } from "./mesh.ts";
-
-/**
- * How long a classifier may take over one message before it is noted
- * unjudged. Jev answers in well under half a second; this is for the
- * network having gone, which must not leave a message undelivered.
- */
-const JUDGE_MS = 2500;
 
 /** Whether an id was stamped on a day before another's, both in time. */
 function dayBefore(id: string, other: string): boolean {
@@ -157,6 +154,10 @@ export function createHearing(m: MeshState, f: Handing) {
 		m.signed = m.peer.signature;
 	};
 
+	/** The session's classifier, if it is found in time to judge with. */
+	const classifierWithin = () =>
+		m.classifier ? settledWithin(m.classifier, JUDGE_MS) : undefined;
+
 	/** Whose business a message is, by the classifier, or nothing. */
 	const judge = async (
 		message: Message,
@@ -169,16 +170,19 @@ export function createHearing(m: MeshState, f: Handing) {
 		// or what it owns is about its work.
 		if (mentions(message, receiver)) return "receiver";
 		try {
-			const found = await m.classifier;
+			const found = await classifierWithin();
 			if (!found?.ok) return undefined;
-			const result = await found.classify(
-				{
-					state: concernState(message, receiver),
-					questions: concernQuestionFor(receiver),
-				},
-				AbortSignal.timeout(JUDGE_MS),
+			const result = await settledWithin(
+				found.classify(
+					{
+						state: concernState(message, receiver),
+						questions: concernQuestionFor(receiver),
+					},
+					AbortSignal.timeout(JUDGE_MS),
+				),
+				JUDGE_MS,
 			);
-			return result.stopReason === "stop"
+			return result?.stopReason === "stop"
 				? concernFrom(result.answers.about)
 				: undefined;
 		} catch {
@@ -192,10 +196,13 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * none for, or nothing, in which case it is routed by rule.
 	 */
 	const routing: Judge = async (context) => {
-		const found = await m.classifier;
+		const found = await classifierWithin();
 		if (!found?.ok) return undefined;
-		const result = await found.classify(context, AbortSignal.timeout(JUDGE_MS));
-		return result.stopReason === "stop" ? result.answers.to : undefined;
+		const result = await settledWithin(
+			found.classify(context, AbortSignal.timeout(JUDGE_MS)),
+			JUDGE_MS,
+		);
+		return result?.stopReason === "stop" ? result.answers.to : undefined;
 	};
 
 	/**

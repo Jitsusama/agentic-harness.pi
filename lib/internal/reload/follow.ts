@@ -63,12 +63,24 @@ export interface Standing {
 	readonly idle: boolean;
 	/** Every moved install has the dependencies its lockfile names. */
 	readonly ready: boolean;
+	/**
+	 * A carry of its work is under way (lib/internal/carry/under-way.ts),
+	 * which reads the session's context and closes it once carried: a
+	 * reload replacing that context part-way would lose the carry.
+	 */
+	readonly carrying?: boolean;
+	/**
+	 * A move of the session waits (lib/internal/session/move-waiting.ts),
+	 * which a reload going first would stop unwritten, and which restarts
+	 * the session on current code anyway.
+	 */
+	readonly moving?: boolean;
 }
 
 /** When to reload a session standing like this. */
 export function whenToReload(at: Standing): Moment {
 	if (at.swapped) return "never";
-	if (!at.ready) return "wait";
+	if (at.carrying === true || at.moving === true || !at.ready) return "wait";
 	return at.idle ? "now" : "after-run";
 }
 

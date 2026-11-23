@@ -37,6 +37,7 @@ import {
 	sessionKeyOf,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
@@ -60,6 +61,7 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	RESTART_ASK,
 	type RestartAsk,
@@ -93,11 +95,17 @@ export const HELD_ENTRY = "reload-held";
 /**
  * The entry that says, once for each reason, why a session that heard
  * its install move isn't asking to reload: it runs a tree, another
- * reload is waiting, or its context has gone. On 30 October three idle
- * sessions stayed six hours on the code the 08:26 restore loaded and
- * said nothing of why.
+ * reload is waiting, a move waits, or its context has gone. On 30
+ * October three idle sessions stayed six hours on the code the 08:26
+ * restore loaded and said nothing of why.
  */
 export const WAITING_ENTRY = "reload-waiting";
+
+/** Its reason for a move taken while git was asked what came in. */
+export const MOVE_TAKEN_AS_ASKED = "a move waits, taken as git was asked";
+
+/** Why the follower left a host's reload, which a move taken as the run ended held off. */
+export const MOVE_TOOK_HOSTS = "a move waits, taken as the run ended";
 
 /**
  * The entry a session writes as its holder is about to start it again,
@@ -220,16 +228,17 @@ export async function follow(
 	const hear = () => {
 		heardAt ??= Date.now();
 	};
-	/** This session's place in the spread, fixed by its id. */
-	const place = (() => {
-		let id: string = String(process.pid);
+	/** This session's id, which a carry under way or a move waiting holds. */
+	const sessionId = (() => {
 		try {
-			id = ctx.sessionManager?.getSessionId?.() ?? id;
+			return ctx.sessionManager?.getSessionId?.();
 		} catch {
-			// A context with no session yet is placed by its process.
+			// A context with no session yet has no carry or move to wait on.
+			return undefined;
 		}
-		return spreadOf(id, spreadMs);
 	})();
+	/** This session's place in the spread, fixed by its id. */
+	const place = spreadOf(sessionId ?? String(process.pid), spreadMs);
 
 	// Read once, as the runtime starts: links made after the process
 	// started mean a reload brought it up on them. In a host no holder
@@ -283,13 +292,43 @@ export async function follow(
 		dispatching = true;
 		try {
 			const reason = await reasonNow().catch(() => "the install moved");
+			// A move asked while git was is waited on as any is, by the next
+			// look: the move restarts the session on current code anyway.
+			const moveNow = () =>
+				sessionId === undefined ? undefined : moveWaiting(sessionId);
+			const waiting = moveNow();
+			if (waiting !== undefined) {
+				sayWhy(MOVE_TAKEN_AS_ASKED, { to: waiting });
+				return;
+			}
 			// The host waits for the run to end and reloads this conversation
 			// alone; its new runtime says it landed, as plain pi's does.
 			if (inHost) {
 				if (hostedReloadAsker(ctx) !== undefined) return;
-				if (!(await reloadThroughHost(ctx, { reason, by: "self" }))) {
+				// A carry begun while git was asked is waited on as any is, by
+				// the next look, not taken for a host that failed: the host
+				// refuses a reload under one.
+				const carried = () =>
+					sessionId !== undefined && carryUnderWay(sessionId) !== undefined;
+				if (carried()) return;
+				// A move taken during the run holds the host's reload off too, as
+				// the run ends, and is waited on as any is. What the host said is
+				// kept in the log: the follower asks again once the move lets go,
+				// and the move restarts the session on current code anyway.
+				const underMove = (why: string) => {
+					const to = moveNow();
+					if (to === undefined) return false;
+					sayWhy(MOVE_TOOK_HOSTS, { to, why });
+					return true;
+				};
+				const reloaded = await reloadThroughHost(
+					ctx,
+					{ reason, by: "self" },
+					undefined,
+					underMove,
+				);
+				if (!(reloaded || carried() || moveNow() !== undefined))
 					retryAt = Date.now() + HELD_MS;
-				}
 				return;
 			}
 			const links = linksMovedSince(extensions, startedAt);
@@ -479,8 +518,12 @@ export async function follow(
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
+		let carrying: string | undefined;
+		let moving: string | undefined;
 		try {
 			idle = settled || ctx.isIdle();
+			carrying = sessionId === undefined ? undefined : carryUnderWay(sessionId);
+			moving = sessionId === undefined ? undefined : moveWaiting(sessionId);
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");
@@ -494,9 +537,15 @@ export async function follow(
 		if (swapped) {
 			sayWhy("it runs a tree", { root: now.root, install: now.install });
 		}
+		if (carrying !== undefined) {
+			sayWhy("its work is being carried", { to: carrying });
+		}
+		if (moving !== undefined) sayWhy("a move waits", { to: moving });
 		const moment = whenToReload({
 			swapped,
 			idle,
+			carrying: carrying !== undefined,
+			moving: moving !== undefined,
 			ready: [...moved.values()].every((one) =>
 				dependenciesReady(one.root, one.at),
 			),

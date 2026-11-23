@@ -133,6 +133,12 @@ interface FilePlace {
 	skills?: readonly string[];
 	/** Whether the fence's first stage takes it unasked; by default, as it started. */
 	staged?: (env: NodeJS.ProcessEnv) => boolean;
+	/**
+	 * Judged for a language server, whose strict fence reaches none of
+	 * gcloud's settings, so pi reads and writes for it only where the
+	 * server itself could.
+	 */
+	served?: boolean;
 }
 
 /**
@@ -280,6 +286,7 @@ function strictRefusal(
 			runtimeDir: place.env.XDG_RUNTIME_DIR,
 			cwd,
 			repository: worktreeRepository(cwd, home),
+			...(place.served ? { served: true } : {}),
 		},
 		use,
 	)

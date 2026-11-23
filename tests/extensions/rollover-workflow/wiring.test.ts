@@ -39,6 +39,7 @@ import rolloverWorkflow, {
 import spendWorkflow, {
 	COST_READING,
 } from "../../../extensions/spend-workflow/index.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	isRestartAsk,
@@ -453,6 +454,26 @@ describe("the command", () => {
 		expect(switched).toEqual([]);
 		expect(notices).toEqual([
 			expect.stringMatching(/^Not rolled over: a reload/),
+		]);
+	});
+
+	// PV3TE0's round 9 on #2021 (F7): a switch of logs mid-carry left the
+	// carry a stale context to read and close through.
+	it("waits for a carry of the session's work under way", async () => {
+		const manager = compacted();
+		const { ctx, switched, notices } = commandContext(manager);
+		const carry = holdForCarry(manager.getSessionId(), "penelope");
+		try {
+			await command?.handler("", ctx);
+		} finally {
+			carry.release();
+		}
+
+		expect(switched).toEqual([]);
+		expect(notices).toEqual([
+			expect.stringMatching(
+				/^Not rolled over: this session's work is being carried to penelope/,
+			),
 		]);
 	});
 

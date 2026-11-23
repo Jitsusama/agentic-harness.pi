@@ -11,6 +11,11 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
+import {
+	type CarryHold,
+	carryUnderWay,
+	holdForCarry,
+} from "../../../lib/internal/carry/under-way.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { everyRealmsDir } from "../../../lib/internal/paths.ts";
 import { withQuestLock } from "../../../lib/internal/quest/io.ts";
@@ -28,6 +33,10 @@ import {
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
@@ -173,6 +182,7 @@ export function createState(
 	// Every id already looked at, so a watcher that reports one twice,
 	// as inotify does for a rename, is handed over once.
 	const seen = new Set<string>();
+	const unjudgedSaid = new Set<string>();
 	// A turn a note would start waits for a reload that is waiting: the
 	// note is said now, without it, and the landing starts it (hold.ts).
 	const holdTurn = createReloadHold();
@@ -186,6 +196,50 @@ export function createState(
 						inboxOf(m.steerRoot ?? "", address),
 					),
 	});
+	// The session's id, or its peer's while its context has gone stale,
+	// whose every read throws: a carry, its refusal and what is said of
+	// them go on without the context.
+	const sessionOf = (): string | undefined => {
+		try {
+			return m.ctx?.sessionManager.getSessionId() ?? m.peer?.session;
+		} catch {
+			// Stale: the peer was named for the same session.
+			return m.peer?.session;
+		}
+	};
+	// Said on screen where there is one; a stale screen says nothing, and
+	// never stops what saying it went with.
+	const notify = (text: string, type: "info" | "warning") => {
+		try {
+			if (m.ctx?.hasUI) m.ctx.ui.notify(text, type);
+		} catch {
+			// A stale context's screen is gone; the journal keeps what matters.
+		}
+	};
+	// A host's standard error is its journal; plain pi's window said it.
+	const journal = (text: string) => {
+		if (!hosted()) return;
+		process.stderr.write(`pausing ${sessionOf() ?? "unknown"}: ${text}\n`);
+	};
+	// A carry that outlives its hold is said, so the park that may end it
+	// next isn't taken for an ordinary one. Called from a bare timer, it
+	// never throws: a host would end every conversation for a warning.
+	// One that carried says its close never landed, as a failed host close
+	// leaves it, since a second carry would now write its work again.
+	const lapsed = (hold: CarryHold, carried: boolean) => {
+		const text = carried
+			? `a carry to ${hold.to} carried, but this session's close never landed in its whole time, so it lets the session go; a park, a restart or a second carry may now go, and a second carry would write its work again.`
+			: `a carry to ${hold.to} has held this session its whole time and lets it go; a park, a restart or a second carry may now go beside it.`;
+		try {
+			journal(text);
+		} catch {
+			// A journal that can't be written leaves the screen to say it.
+		}
+		notify(text, "warning");
+	};
+	// The hold an ordered carry took at its order, which its own looks at
+	// what holds the session set aside.
+	let orderedHold: CarryHold | undefined;
 	// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 	const pausing = createPausing({
 		now: Date.now,
@@ -201,15 +255,8 @@ export function createState(
 		paused: () => m.peer?.paused ?? false,
 		setPaused: (paused) => m.peer?.setPaused(paused),
 		carryOn: () => pi.sendUserMessage(RESUMED_TEXT),
-		tell: (text) => {
-			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
-		},
-		// A host's standard error is its journal; plain pi's window said it.
-		journal: (text) => {
-			if (!hosted()) return;
-			const session = m.ctx?.sessionManager.getSessionId() ?? "unknown";
-			process.stderr.write(`pausing ${session}: ${text}\n`);
-		},
+		tell: (text) => notify(text, "info"),
+		journal,
 		// Plain pi waits until it is idle, so the run just ended winds down
 		// first; a host closes it as a Close over its socket does.
 		close: (by) => {
@@ -217,7 +264,11 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to);
+			await carryThisSession(m.ctx, to, { timing: { lapsed } });
+		},
+		carryUnderWay: () => {
+			const session = sessionOf();
+			return session === undefined ? undefined : carryUnderWay(session);
 		},
 	});
 	// A host's conversation has no window of its own to hand over.
@@ -249,27 +300,62 @@ export function createState(
 					prompts: m.prompts,
 					board,
 					session: m.peer?.session ?? "",
+					ownCarry: orderedHold,
 				},
 				runEnded,
 			),
+		hold: (to) => {
+			const hold = holdForCarry(sessionOf() ?? "", to, { lapsed });
+			orderedHold = hold;
+			return {
+				release: () => {
+					hold.release();
+					if (orderedHold === hold) orderedHold = undefined;
+				},
+				carried: () => hold.carried(),
+			};
+		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to);
+			await carryThisSession(m.ctx, to, {
+				...(orderedHold ? { hold: orderedHold } : { timing: { lapsed } }),
+			});
 		},
 		refuse: async (why, at) => {
 			if (!m.peer) throw new Error("the session isn't on the mesh yet");
 			await refuseInHandover(m.peer.session, why, at);
 		},
-		tell: (text) => {
-			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
+		tell: (text) => notify(text, "info"),
+		// Another carry than this ordering's own, as a person's Carry is.
+		carrying: () => {
+			const session = sessionOf();
+			return (
+				session !== undefined &&
+				carryUnderWay(session, orderedHold ? { except: orderedHold } : {}) !==
+					undefined
+			);
 		},
 		close: (by) => {
 			if (m.ctx) endConversation(m.ctx, by);
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 	});
+	// The session a move holds the reload of, kept so its stop lets go of
+	// the same one after its peer has gone.
+	let moveHeld: string | undefined;
 	// Move into a host or out of one, from outside the window (moving.ts).
 	const moving = createMoving({
+		holdReloads: (to) => {
+			const session = m.peer?.session;
+			if (session === undefined) return;
+			if (moveHeld !== undefined && moveHeld !== session) letMoveGo(moveHeld);
+			moveHeld = session;
+			holdForMove(session, to);
+		},
+		letReloadsGo: () => {
+			if (moveHeld !== undefined) letMoveGo(moveHeld);
+			moveHeld = undefined;
+		},
 		holds: () => holdsOf(m.ctx, pi.events, m.prompts),
 		hosted: () => m.hostKey !== undefined,
 		moving: () => m.peer?.moving,
@@ -359,6 +445,7 @@ export function createState(
 		unlanded,
 		undone,
 		seen,
+		unjudgedSaid,
 		holdTurn,
 		talks,
 		pausing,

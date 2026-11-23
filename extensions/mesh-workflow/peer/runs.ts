@@ -4,6 +4,7 @@
  */
 
 import { hosted } from "../../../lib/core/session/index.ts";
+import { closeLanded } from "../../../lib/internal/carry/under-way.ts";
 import { contextUsageOf } from "../../../lib/internal/session/context-usage.ts";
 import { isPersonText } from "../../../lib/internal/session/driven.ts";
 import { runStarted } from "../../../lib/internal/session/first-prompt.ts";
@@ -163,10 +164,6 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 	});
 	m.pi.on("agent_settled", async (event) => {
 		m.talks.settled(event.aborted);
-		// A move waiting finds the session free the moment its run settles,
-		// which is also when a reload follower's turn comes; left to its
-		// next look, a reload started meanwhile stops it unwritten.
-		m.moving.look();
 	});
 	m.pi.on("agent_end", async () => {
 		f.lookAgain();
@@ -189,6 +186,10 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 	});
 
 	m.pi.on("session_shutdown", async (event) => {
+		// Its close has landed, so a carry that carried lets the session go:
+		// a host's process outlives the conversation and may open it again.
+		// A reload keeps the conversation, so its close is still to come.
+		if (m.peer && !reloading(event)) closeLanded(m.peer.session);
 		m.moving.stop();
 		m.unhearKeys?.();
 		m.unhearKeys = undefined;

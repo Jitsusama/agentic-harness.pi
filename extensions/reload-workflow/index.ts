@@ -74,7 +74,9 @@ import {
 	INSTALLED,
 	performReload,
 	RELOAD_ARG,
+	RELOAD_CALLED_OFF,
 	RESTART_ARG,
+	type ReloadRun,
 	requestReload,
 	restartByHand,
 	takeForDispatch,
@@ -121,10 +123,18 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	pi.on("agent_start", started);
 	pi.on("turn_start", started);
 	pi.on("tool_execution_start", started);
-	const run = {
+	// It never starts a turn: the agent reads it with its next.
+	const toAgent = (text: string) =>
+		pi.sendMessage({
+			customType: RELOAD_CALLED_OFF,
+			content: text,
+			display: false,
+		});
+	const run: ReloadRun = {
 		underWay: () => underWay,
 		overruled: (times: number) =>
 			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
+		toAgent,
 	};
 
 	// A closed conversation's slots go with it, so its follower stops
@@ -159,7 +169,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 		// A hosted conversation's request waits in its own slot, for its host;
 		// with none, the install may have moved during the run.
 		if (hosted()) {
-			if (!settleHostedReload(ctx, settledAborted(event))) {
+			if (!settleHostedReload(ctx, settledAborted(event), toAgent)) {
 				follower?.consider(true);
 			}
 			return;

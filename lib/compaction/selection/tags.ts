@@ -48,6 +48,13 @@ export interface SelectionTags {
 	readonly ms?: number;
 	/** Why tagging failed, when it did; its paragraphs then have no kinds. */
 	readonly failed?: string;
+	/**
+	 * The tagger saw the message still on the branch as it recorded this.
+	 * A record without it may have landed on a branch the person moved
+	 * to while the message was asked about, naming a message that branch
+	 * never held.
+	 */
+	readonly seenOnBranch?: boolean;
 }
 
 /** What is known of a branch's paragraphs. */
@@ -56,23 +63,50 @@ export interface TagIndex {
 	readonly kinds: ReadonlyMap<string, readonly SelectionKind[]>;
 	/** The entries some record names, tagged or failed. */
 	readonly entries: ReadonlySet<string>;
+	/**
+	 * The entries whose latest record found some paragraph of a kind and
+	 * saw the message on the branch, so the messages worth reading back
+	 * when a held log left them on disk. A parent log holds every branch,
+	 * so a record that did not see its message on this one is left out.
+	 */
+	readonly quotable: ReadonlySet<string>;
 }
 
 /** An index with nothing in it yet, to be filled by {@link indexTags}. */
 export function emptyTagIndex(): {
 	kinds: Map<string, readonly SelectionKind[]>;
 	entries: Set<string>;
+	quotable: Set<string>;
 } {
-	return { kinds: new Map(), entries: new Set() };
+	return { kinds: new Map(), entries: new Set(), quotable: new Set() };
 }
 
-/** Add one record to an index. */
+/**
+ * Why a paid answer was recorded with no paragraph: the person moved off
+ * its message while it was asked about. Such a record keeps the spend.
+ */
+export const MOVED_OFF = "moved off the branch";
+
+/**
+ * Add one record to an index. What an answer cost once the person moved
+ * off its message tags nothing, so the message is still asked about
+ * should the person come back to it.
+ */
 export function indexTags(
 	index: ReturnType<typeof emptyTagIndex>,
 	tags: SelectionTags,
 ): void {
+	if (tags.failed === MOVED_OFF) return;
 	index.entries.add(tags.entryId);
 	for (const unit of tags.units) index.kinds.set(unit.hash, unit.kinds);
+	if (
+		tags.seenOnBranch === true &&
+		tags.units.some((unit) => unit.kinds.length > 0)
+	) {
+		index.quotable.add(tags.entryId);
+	} else {
+		index.quotable.delete(tags.entryId);
+	}
 }
 
 /** Every tag recorded on a branch. */
@@ -166,5 +200,6 @@ export function asTags(data: unknown): SelectionTags | undefined {
 		units,
 		...(typeof record.model === "string" ? { model: record.model } : {}),
 		...(typeof record.failed === "string" ? { failed: record.failed } : {}),
+		...(record.seenOnBranch === true ? { seenOnBranch: true } : {}),
 	};
 }

@@ -16,6 +16,7 @@ import {
 } from "../../../lib/orchestration/done-acts.ts";
 import { slackOfThePerson } from "../../../lib/orchestration/done-acts-slack.ts";
 import { untestedCausesFound } from "../../../lib/prose/claims.ts";
+import { UNJUDGED } from "../delivery.ts";
 import { confirmEnd } from "../end-hold.ts";
 import { queueJobs } from "../leases.ts";
 import { type Local, registerTools } from "../tools.ts";
@@ -25,6 +26,24 @@ import type { Waits } from "./waits.ts";
 
 /** Register the mesh tools over this peer. */
 export function registerLocal(m: MeshState, f: Waits & Hearing) {
+	/**
+	 * Why the claim check judged nothing, each kind said once a session in
+	 * the log, with the first line of what went wrong. Counted only once
+	 * written, so a log that refused one line says it at the next send.
+	 */
+	const unjudged = (why: string, detail?: string) => {
+		if (m.unjudgedSaid.has(why)) return;
+		try {
+			m.pi.appendEntry(
+				UNJUDGED,
+				detail === undefined ? { why } : { why, detail },
+			);
+			m.unjudgedSaid.add(why);
+		} catch {
+			// A log that won't take the line costs it here; the send is judged
+			// as far as it was, and the next one tries the line again.
+		}
+	};
 	/** Who waits on a hold, by the address each signs with. */
 	const waitingOn = (id: string): string[] => {
 		const now = Date.now();
@@ -97,7 +116,16 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					),
 					untested: async (text) => {
 						try {
-							return await untestedCausesFound(text, m.classifier);
+							return await untestedCausesFound(
+								text,
+								m.classifier,
+								unjudged,
+								// Judged in full by a classifier that answered: a reason
+								// that comes back is news again. A send nothing judged, as
+								// with the classifier off or no part long enough, clears
+								// nothing, nor does one judged only in part.
+								() => m.unjudgedSaid.clear(),
+							);
 						} catch {
 							// With no classifier to be had, nothing is judged and the
 							// message goes as written.
