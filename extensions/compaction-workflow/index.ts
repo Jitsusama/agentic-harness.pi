@@ -861,7 +861,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				: { ok: false as const, reason: failed };
 		if (ctx.hasUI) {
 			const timing = prepared.ok
-				? { ahead: true as const }
+				? { ahead: true as const, againAfter: failed }
 				: { ahead: false as const, reason: prepared.reason };
 			ctx.ui.notify(compactionNotice(tokens, decision, timing), "info");
 		}

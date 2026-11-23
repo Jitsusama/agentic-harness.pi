@@ -124,6 +124,9 @@ const ASSUMED_RESERVE_TOKENS = 64_000;
 /** The reason recorded against a configured id nothing registered. */
 const UNKNOWN_PROVIDER = "no provider is registered with this id";
 
+/** Why a summary written ahead went unused after a move in the tree. */
+const MOVED_OFF = "the session moved in its tree off the point it summarised";
+
 /** A write and how long it took. */
 interface Timed {
 	readonly written: CompactionWritten;
@@ -165,8 +168,9 @@ export interface CompactionHost {
 	takeFailure(): string | undefined;
 	/**
 	 * How many summaries written ahead have failed since a compaction
-	 * last landed. Every summary after one that stopped at its output
-	 * cap is asked for half the size, until a compaction lands.
+	 * last landed, the session last started, or a move in its tree left
+	 * the point they summarised. Every summary after one that stopped at
+	 * its output cap is asked for half the size, until the count resets.
 	 */
 	failedAhead(): number;
 	/** Called when a summary written ahead is ready to apply. */
@@ -260,9 +264,20 @@ export function registerCompactionHost(
 		drop();
 		failed = { tries: 0, capped: false };
 	});
-	// A move in the tree leaves another branch to compact, so what was
-	// written and tried ahead was for a compaction that will not come.
-	pi.on("session_tree", async () => {
+	// A move in the tree that leaves the point a summary written ahead
+	// covers leaves another branch to compact, so what was written and
+	// tried ahead was for a compaction that will not come. One that keeps
+	// the point keeps both, since the compaction to come summarises it.
+	pi.on("session_tree", async (_event, ctx) => {
+		if (ahead !== null) {
+			const covered = ahead.request.coveredLeafId;
+			const branch = ctx.sessionManager.getBranch();
+			if (branch.some((entry) => entry.id === covered)) return;
+			// A failure was recorded as it failed.
+			if (ahead.result === undefined || ahead.result.written.ok) {
+				unused(ctx, MOVED_OFF);
+			}
+		}
 		drop();
 		failed = { tries: 0, capped: false };
 	});

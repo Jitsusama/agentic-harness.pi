@@ -346,9 +346,11 @@ but it does not write summaries itself. It asks a chain of providers
 On the spot, the first provider whose assessment passes writes, and a
 failure passes the compaction to the next. Ahead, the first that
 passes writes, and a failure leaves the compaction to a second try
-ahead, then to the walk on the spot. The host keeps everything around the summary: the clock on each
-write, the verbatim tail, the file lists, what other extensions
-contribute, and the record. The compaction entry's details name the
+ahead, then to the walk on the spot; one that pi's own compaction was
+waiting on goes to the walk on the spot at once, since that
+compaction can't wait for another. The host keeps everything around
+the summary: the clock on each write, the verbatim tail, the file
+lists, what other extensions contribute, and the record. The compaction entry's details name the
 provider that wrote it (`summariser`), anything it wanted kept
 (`provider`), and every provider that declined or failed before it
 (`attempts`). When none writes, pi's own summariser runs as it would
