@@ -71,6 +71,7 @@ describe("whether the person is on a call", () => {
 		// The kill lands at once, but the kernel reaps the orphan a moment later.
 		const deadline = performance.now() + 2_000;
 		while (alive(started) && performance.now() < deadline) {
+			// A short poll for the reaping, bounded by the deadline above.
 			await new Promise((wake) => setTimeout(wake, 20));
 		}
 
