@@ -54,12 +54,29 @@ export interface CarryingPlaces {
 	readonly notes?: (quest: string) => Promise<readonly CarriedNote[]>;
 }
 
-/** The machine each session's carry under way goes to, by session id. */
-const underWay = new Map<string, string>();
+/**
+ * How long a carry holds its session's park and restart at most, so one
+ * that hangs never holds them for good (ISXEG8, 23 November). A carry
+ * takes a minute or two; its node has given up on one long before this.
+ */
+export const CARRY_HOLDS_MOST_MS = 15 * 60_000;
 
-/** The machine `session`'s work is being carried to, while a carry is under way. */
-export function carryUnderWay(session: string): string | undefined {
-	return underWay.get(session);
+/** Each session's carry under way: the machine it goes to, and since when. */
+const underWay = new Map<string, { to: string; since: number }>();
+
+/**
+ * The machine `session`'s work is being carried to, while a carry is
+ * under way and has held it less than {@link CARRY_HOLDS_MOST_MS}.
+ */
+export function carryUnderWay(
+	session: string,
+	now = Date.now(),
+): string | undefined {
+	const carry = underWay.get(session);
+	if (carry === undefined || now - carry.since >= CARRY_HOLDS_MOST_MS) {
+		return undefined;
+	}
+	return carry.to;
 }
 
 /**
@@ -72,7 +89,7 @@ export async function carryThisSession(
 	places: CarryingPlaces = {},
 ): Promise<string> {
 	const id = ctx.sessionManager.getSessionId();
-	underWay.set(id, to);
+	underWay.set(id, { to, since: Date.now() });
 	try {
 		return await carryOut(ctx, to, places);
 	} finally {

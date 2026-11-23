@@ -6,8 +6,9 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+	CARRY_HOLDS_MOST_MS,
 	type CarriedContext,
 	carryThisSession,
 } from "../../../extensions/mesh-workflow/carrying.ts";
@@ -227,6 +228,28 @@ describe("parking", () => {
 			await carry.ended();
 
 			expect(ask.refusals).toEqual(["its work is being carried to penelope"]);
+		});
+
+		it("lets the park go once a carry has held it fifteen minutes", async () => {
+			const { emit } = await startSession();
+			vi.useFakeTimers({ toFake: ["Date"] });
+			try {
+				const carry = carrying();
+				const early = { session, refusals: [] as string[] };
+				vi.setSystemTime(Date.now() + CARRY_HOLDS_MOST_MS - 1);
+				emit(PARK_ASK, early);
+				const late = { session, refusals: [] as string[] };
+				vi.setSystemTime(Date.now() + 1);
+				emit(PARK_ASK, late);
+				await carry.ended();
+
+				expect(early.refusals).toEqual([
+					"its work is being carried to penelope",
+				]);
+				expect(late.refusals).toEqual([]);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("leaves another session's park to that session", async () => {

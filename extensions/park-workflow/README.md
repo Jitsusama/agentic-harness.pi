@@ -37,7 +37,9 @@ What must not be out:
 - no carry of its work to another machine under way, which a park
   or a restart in place would end before its done file is written
   (`its work is being carried to <machine>`; 23 November, a
-  conversation idle five minutes parked part-way through one);
+  conversation idle five minutes parked part-way through one),
+  for fifteen minutes at most, so a carry that hangs never holds it
+  for good;
 - for an orchestrator, no session it leads at work (listening, busy
   or waiting rather than parked or paused), since their findings and
   landings are its to pass on;
