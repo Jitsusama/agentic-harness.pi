@@ -22,7 +22,16 @@ waking, so a key that woke it keeps it up.
 What must not be out:
 
 - no run, retry or queued continuation, and no messages waiting for it;
-- no background job running or waiting to say its result;
+- no background job running or waiting to say its result, except a
+  bash call in a background host on Linux that keeps carried calls
+  (`Host.carries`), for a conversation no window views: its park
+  carries the call as a host restart does, and the host wakes it once
+  the last one ends, passes its time limit or a day, waking it on any
+  doubt and asking again until it runs, after five minutes and then
+  twice as long each time up to an hour (22
+  November, 26 of 78 such conversations, 8.8 GB, were awake only for a
+  bash call); `PI_PARK_CARRY=off` on the host keeps such a call
+  holding its conversation awake, as before;
 - no prompt open for its person, and nothing typed and unsent;
 - no peer waiting on a hold it sent;
 - for an orchestrator, no session it leads at work (listening, busy
@@ -85,6 +94,12 @@ It is off until one of these turns it on:
   minute ahead is taken back. The node writes it as the session's
   own user, so the folder is no boundary between accounts.
 
+- **A host's drain,** which drops the idle wait for each
+  conversation it holds, with the switch empty or its line `off`
+  too, since the host itself asked for it. Each still parks only
+  once its turn ends and the rest of the rule holds, and
+  `PI_PARK=off` still keeps a session out of a drain's park.
+
 Each wake is kept for a day in `wakes/<session>.json` beside the
 switch, with how long the session rested parked, so how often a rule
 wakes its sessions can be counted.
@@ -106,9 +121,12 @@ record has to name this very process, since a pi run through a shell
 would exit to the shell's prompt rather than to its holder.
 
 A conversation in a multi-session host parks by the same rule, five
-minutes at most in a background host, but never ends the host's
-process, which is every conversation the host runs. The host holds it, so only its wake (`MYCELIUM_WAKE`, which the host
-sets for each conversation) and a written log are asked of it. It says
+minutes at most in a background host (bar one while a window views
+it, and every one on macOS, which keep the usual limit as above
+outside a drain), but never ends the host's process, which is every
+conversation the host runs. The host holds it, so only its wake
+(`MYCELIUM_WAKE`, which the host sets for each conversation) and a
+written log are asked of it. It says
 `parked` and writes its marker as below, then asks the host to park
 it (`Host.park`), which frees its session and screen while keeping it
 held, its window open, and wakes it in place at the wake file, a key
@@ -164,9 +182,14 @@ keeps it awake.
    nothing remembered, no window closes.
 5. pi shuts down as `/quit` would and exits with code 75
    (EX_TEMPFAIL), which tells its holder this is a park, not an end.
-   It writes nothing of its own and leaves out pi's "To resume this
-   session" hint: the holder says in the window that it parked and
-   that a key or a message wakes it, and once was enough.
+   Where its holder names a file for it (`MYCELIUM_PARKED`), it first
+   writes that file, empty, so a park whose exit then hangs, as on a
+   name lookup, and ends by a signal still counts as a park. A
+   restart writes it as it commits, before pi ends, and takes it
+   back if it is replaced in place. In the window it says nothing
+   and leaves out pi's "To resume this session" hint: the holder
+   says in the window that it parked and that a key or a message
+   wakes it, and once was enough.
 
 Sessions that parked before this closed their windows keep them
 open. `scripts/park-windows.ts` lists, by the same checks, which of

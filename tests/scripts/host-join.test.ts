@@ -141,10 +141,12 @@ describe("host-join under no holder", () => {
 		const files = holderIn(at);
 		// The holder of the pi whose shell opened the window: it runs that pi.
 		writeFileSync(files.record, JSON.stringify({ id: "7df34a34", pid: 1 }));
+		const parked = files.wake.replace(/\.wake$/, ".parked");
 		const joined = await hostJoin(
 			["--view", "--session", "01a1", "--", ...PLAIN_PI],
 			at,
 			{ files, recordsSelf: false },
+			{ MYCELIUM_PARKED: parked },
 		);
 		expect(joined.stdout, "the view ran plain pi itself").toBe(
 			"carried on as plain pi\n",
@@ -158,6 +160,9 @@ describe("host-join under no holder", () => {
 			existsSync(files.again),
 			"no next command was named to the other program's holder",
 		).toBe(false);
+		expect(existsSync(parked), "nor told it parked, which it never did").toBe(
+			false,
+		);
 	});
 
 	it("after a failed attach, says so and waits by the failures its words count", async () => {
@@ -201,10 +206,12 @@ describe("host-join under its own holder", () => {
 	it("names its next words to the holder and exits as a park does", async () => {
 		const at = home();
 		const files = holderIn(at);
+		const parked = files.wake.replace(/\.wake$/, ".parked");
 		const joined = await hostJoin(
 			["--view", "--session", "01a1", "--", ...PLAIN_PI],
 			at,
 			{ files, recordsSelf: true },
+			{ MYCELIUM_PARKED: parked },
 		);
 		expect(joined.stdout, "it ran nothing itself").toBe("");
 		expect(joined.code, "it exited as a park does").toBe(PARKED_EXIT);
@@ -216,6 +223,10 @@ describe("host-join under its own holder", () => {
 			existsSync(files.wake),
 			"its wake tells the holder to start it at once",
 		).toBe(true);
+		expect(
+			readFileSync(parked, "utf8"),
+			"its holder is told the 75 is a park, should its exit hang",
+		).toBe("");
 	});
 
 	it("names the join again, started with no module-type warning, should the host's attach end", async () => {

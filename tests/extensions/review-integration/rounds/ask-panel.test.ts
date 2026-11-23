@@ -14,7 +14,7 @@
  * offer.
  */
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
 	roundBoard,
@@ -332,6 +332,47 @@ describe("a reviewer somebody stopped", () => {
 				state: "cancelled",
 			}),
 		);
+	});
+});
+
+describe("a round whose session reloaded", () => {
+	// 22 November: rounds that waited through an install move died at
+	// their start, before any reviewer spawned, on pi's stale error.
+	it("starts and finishes with no board when the session's context went stale", () => {
+		const stale = {
+			get hasUI(): boolean {
+				throw new Error(
+					"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx.",
+				);
+			},
+		} as unknown as ExtensionContext;
+		const watch = watchRound("council", stale);
+
+		expect(() => {
+			watch.progress.start(PARTICIPANTS);
+			watch.progress.started("test-skeptic");
+			watch.progress.answered("test-skeptic");
+			watch.progress.finish();
+			watch.close();
+		}).not.toThrow();
+		expect(watch.entries()).toContainEqual(
+			expect.objectContaining({
+				participantId: "test-skeptic",
+				state: "answered",
+			}),
+		);
+	});
+
+	it("still throws what isn't a stale context", () => {
+		const broken = {
+			get hasUI(): boolean {
+				throw new Error("something else");
+			},
+		} as unknown as ExtensionContext;
+
+		expect(() =>
+			watchRound("council", broken).progress.start(PARTICIPANTS),
+		).toThrow("something else");
 	});
 });
 

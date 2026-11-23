@@ -198,7 +198,8 @@ refusal naming the knob that would fix it.
 
 ### What a Repo Says Before a Merge
 
-`merge.gates` names, by repo key, a command `review_offer merge`
+`merge.gates`, in the package config's `sections.review` as every
+snippet here is, names, by repo key, a command `review_offer merge`
 runs before it asks to merge, with the head's full sha as its last
 word, in the change's local checkout (or the `repo` the call names):
 
@@ -208,9 +209,34 @@ word, in the change's local checkout (or the `repo` the call names):
 
 Exit 0 lets the merge go on. Any other exit refuses it, with what
 the gate said; so does a gate that isn't on the machine or runs past
-five minutes, since a gate skipped whenever it breaks guards
-nothing. It came of four checks going red on core.nix's main on 8
-November, each from a branch that built before rebasing.
+its time, since a gate skipped whenever it breaks guards nothing. It
+came of four checks going red on core.nix's main on 8 November, each
+from a branch that built before rebasing.
+
+A gate has five minutes unless it names its own, from 1 to 180:
+
+```json
+{ "merge": { "gates": { "github:Jitsusama/core.nix":
+  { "command": "merge-net ready", "minutes": 30 } } } }
+```
+
+core.nix's gate builds the merge's net, about 13 minutes on 21
+November, so the five minutes refused every merge there as late.
+A key the gate doesn't read, such as a misspelt `minutes`, refuses
+the merge rather than leaving the gate five, and a package config
+that can't be parsed refuses every merge rather than reading as no
+gate. A gate past its time, or a call stopped while it runs, ends
+with everything it started; a gate exiting 124 or 130 itself is a
+refusal like any other. Once the gate passes, the head and where
+the base is on origin (`git ls-remote` in the checkout) are read
+again, and a merge whose head or base moved while the gate ran is
+refused: two gated merges overlapping would otherwise land a pair
+nothing built. A backend that doesn't report the head can't be
+gated, and says so before the gate runs. A push during the
+confirmation after the gate is left to the backend's own guard:
+the merge is held to the head the gate was handed. No backend
+guards the base, so it is read once more after the merge is
+approved, and one that moved meanwhile is refused too.
 
 ### Councils Mirrored From Another Machine
 
@@ -286,6 +312,15 @@ out at dispatch, so a reviewer never silently falls back to pi's
 `defaultModel`. One with no `thinkingLevel` thinks at `high`. A
 round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
+
+Rounds on one machine start in line, three minutes apart, so a
+burst of councils doesn't land on a busy machine at once.
+`startSpacingMinutes` under `ask` sets that gap for the machine
+whose config it is: a machine with room to spare can take `1`. A
+value is held between half a minute and thirty minutes. Below half
+a minute a round could lose a start it took to the next one before
+it looked again, and a round reads its spacing once, so a mistyped
+hour would hold it that long even after the config was put right.
 
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,

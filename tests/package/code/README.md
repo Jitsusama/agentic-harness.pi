@@ -3,7 +3,8 @@
 How the code is laid out: a domain owns its seams, a helper lives once, a
 relative import names its `.ts` file, a program lives in its own file,
 a long file says why it is long, and googleapis' types come from each
-API's own module, so a typecheck reads six APIs rather than 328.
+API's own module, so a typecheck reads six APIs rather than 328, and
+the model providers' SDKs stay out of it.
 
 Two lists wait here and only shrink: `long-files-waiting.txt`, the long
 files not yet split, and `embedded-programs.txt`, the programs still

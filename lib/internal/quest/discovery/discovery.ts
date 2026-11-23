@@ -58,7 +58,12 @@ import {
 	type SeedOptions,
 	takeSeed,
 } from "../discovery-seed.ts";
-import { questsWrittenSince, questWritesMade } from "../io.ts";
+import { questJournal, questsWrittenSince, questWritesMade } from "../io.ts";
+import {
+	type JournalMark,
+	journalNow,
+	journalSince,
+} from "../write-journal.ts";
 import {
 	type CacheSlot,
 	discoverySignature,
@@ -252,8 +257,12 @@ export function refreshQuests(
  * signed afresh off the thread and waited for when that can't be
  * enough: for an action `across` other quests than it names (a rank
  * among siblings, a parent's cycle check), a document id the last walk
- * holds in no quest, a tree never signed, and a last signing older than
- * `STALE_AFTER_MS`, so an action after an idle spell never reads one.
+ * holds in no quest, a tree never signed, a journal of writes that
+ * started afresh since the last signing, so other processes' writes
+ * between can't be known, and a last signing older than `staleAfter`:
+ * `STALE_AFTER_MS`, or `SIGN_AGAIN_JOURNALED_AFTER_MS` where the
+ * journal reads on since it, so an action after an idle spell never
+ * acts on one.
  * Throws as `discoverQuestsAfresh` does when the disk gives no answer,
  * and once `signal` fires, leaving the signing to finish unheard.
  * Plain pi signs every ask already, so this does nothing there.
@@ -268,12 +277,20 @@ export async function readyQuests(
 	held?.delete(questsRoot);
 	const slot = memo().cache.get(questsRoot);
 	const age = slot ? Date.now() - slot.signedAt : -1;
-	const recent = age >= 0 && age <= STALE_AFTER_MS;
+	const recent = age >= 0 && age <= staleAfter(slot);
 	const named =
 		slot && recent && !across
 			? questsNamed(questsRoot, slot.result, ids)
 			: undefined;
-	if (slot && named && caughtUp(questsRoot, slot, named)) return;
+	// Read before the catching up, which reads on past what it missed. A
+	// journal that started afresh within `STALE_AFTER_MS` of the last
+	// signing is caught up on the thread instead, as with no journal, so
+	// one that keeps starting afresh can't have every action sign whole.
+	const missed =
+		slot?.journal !== undefined &&
+		journaledSince(questsRoot, slot) === "started afresh" &&
+		signedLongAgo(slot, STALE_AFTER_MS);
+	if (slot && named && !missed && caughtUp(questsRoot, slot, named)) return;
 	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
 }
 
@@ -413,6 +430,92 @@ const SIGN_AGAIN_AFTER_MS = 5_000;
 const STALE_AFTER_MS = 60_000;
 
 /**
+ * How long a host answers a known tree from its last signing, read on
+ * since through the account's journal of quest writes, before an ask
+ * signs it whole again, for an action and a plain ask alike. The
+ * journal names every quest the workflow's writes and a session's
+ * write and edit tools touch, in any process, so the signing is left
+ * only for what it misses: a file changed by hand or through bash, or
+ * by code from before the journal, which a restart ends.
+ *
+ * On 21 November about eighty processes each signed the same 1,543
+ * quests every `SIGN_AGAIN_AFTER_MS` to see each other's writes, and
+ * thirteen signings in half an hour outlasted their 30 s give-up.
+ */
+const SIGN_AGAIN_JOURNALED_AFTER_MS = 5 * 60_000;
+
+/** How old `slot` may be before an ask signs its tree again. */
+function signAgainAfter(slot: CacheSlot): number {
+	return slot.journal ? SIGN_AGAIN_JOURNALED_AFTER_MS : SIGN_AGAIN_AFTER_MS;
+}
+
+/**
+ * Whether `slot` was signed more than `limitMs` ago, or at a time a
+ * clock stepped back since, which no limit bounds.
+ */
+function signedLongAgo(
+	slot: CacheSlot,
+	limitMs = SIGN_AGAIN_AFTER_MS,
+): boolean {
+	const age = Date.now() - slot.signedAt;
+	return age < 0 || age > limitMs;
+}
+
+/** How old `slot` may be for an action to act on it, read on since. */
+function staleAfter(slot: CacheSlot | undefined): number {
+	return slot?.journal ? SIGN_AGAIN_JOURNALED_AFTER_MS : STALE_AFTER_MS;
+}
+
+/**
+ * Where the account's journal of quest writes stands as a signing
+ * begins, for a host; undefined for plain pi, which signs every ask,
+ * and where there is no journal.
+ */
+function journalMark(): JournalMark | undefined {
+	if (!hosted()) return undefined;
+	const file = questJournal();
+	return file === undefined ? undefined : journalNow(file);
+}
+
+/**
+ * The most quests a read of the journal brings up to date on the thread.
+ * More than this since the last read, as after a host sat busy while
+ * a sweep wrote hundreds, is read by a whole signing off the thread.
+ * Each quest it names is read whole on the thread every conversation
+ * shares, so this bounds that stretch; past it, the cost moves to one
+ * signing off the thread, which a busy stretch can afford.
+ */
+const JOURNALED_MOST_QUESTS = 64;
+
+/**
+ * The root entries of `questsRoot` the journal names since `slot`'s
+ * mark, with the mark to read on from; "started afresh" when what came
+ * between can't be known or names more than `JOURNALED_MOST_QUESTS`,
+ * and undefined where `slot` reads no journal.
+ */
+function journaledSince(
+	questsRoot: string,
+	slot: CacheSlot,
+):
+	| { readonly names: ReadonlySet<string>; readonly mark: JournalMark }
+	| "started afresh"
+	| undefined {
+	if (!slot.journal) return undefined;
+	const file = questJournal();
+	// A journal gone since the mark can't say what it missed.
+	if (file === undefined) return "started afresh";
+	const read = journalSince(file, slot.journal);
+	if (read === "started afresh") return read;
+	const names = new Set<string>();
+	for (const dir of read.dirs) {
+		const name = entryUnder(questsRoot, dir);
+		if (name) names.add(name);
+	}
+	if (names.size > JOURNALED_MOST_QUESTS) return "started afresh";
+	return { names, mark: read.mark };
+}
+
+/**
  * How long an ask waits on a signing off the thread before it stops
  * waiting. The walk runs on, holding its root, and what it finds is
  * kept; a later ask waits on that same walk afresh.
@@ -452,7 +555,7 @@ function discoverQuestsHosted(
 	const result = caughtUp(questsRoot, slot, new Set());
 	// A clock stepped back gives a negative age, which no limit bounds.
 	const age = Date.now() - slot.signedAt;
-	const old = age < 0 || age > SIGN_AGAIN_AFTER_MS;
+	const old = age < 0 || age > signAgainAfter(slot);
 	if (!result || old) void startSigning(questsRoot);
 	return result ?? slot.result;
 }
@@ -483,6 +586,17 @@ function caughtUp(
 		void startSigning(questsRoot);
 	}
 	const names = new Set([...named, ...(written ?? [])]);
+	// Other processes' writes, by the journal; one that started afresh
+	// is read by a signing whose mark starts it again, begun no sooner
+	// than `SIGN_AGAIN_AFTER_MS` after the last, so a journal that keeps
+	// starting afresh costs what no journal costs and no more.
+	const journaled = journaledSince(questsRoot, slot);
+	if (journaled === "started afresh" && signedLongAgo(slot)) {
+		void startSigning(questsRoot);
+	}
+	const readOn = journaled !== undefined && journaled !== "started afresh";
+	if (readOn) for (const name of journaled.names) names.add(name);
+	const journal = readOn ? journaled.mark : slot.journal;
 	const pass = newPass();
 	const rootStamp = folderStampOf(questsRoot);
 	let { rootNames } = slot;
@@ -505,7 +619,12 @@ function caughtUp(
 		}
 	}
 	const unmoved = rootStamp === slot.rootStamp && rootNames === slot.rootNames;
-	if (names.size === 0 && writes === slot.writes && unmoved) return slot.result;
+	if (names.size === 0 && writes === slot.writes && unmoved) {
+		if (journal !== slot.journal) {
+			memo().cache.set(questsRoot, { ...slot, journal });
+		}
+		return slot.result;
+	}
 	const found = names.size > 0 ? walkNamed(questsRoot, names, pass) : undefined;
 	const result = found
 		? merged(questsRoot, slot.result, names, found)
@@ -528,6 +647,7 @@ function caughtUp(
 		rootNames,
 		pending,
 		read,
+		journal,
 	});
 	return result;
 }
@@ -618,6 +738,7 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	if (under) return under;
 	const signedAt = Date.now();
 	const writes = questWritesMade();
+	const journal = journalMark();
 	// A fresh memo's first walk parses from the last process's seed, as a
 	// walk on the thread does, rather than every quest anew.
 	const seeds = seedsOf({});
@@ -637,7 +758,7 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 		const slot = slotOf(
 			signature,
 			result,
-			{ signedAt, writes, rootStamp },
+			{ signedAt, writes, rootStamp, journal },
 			pass,
 			questsRoot,
 		);
@@ -709,13 +830,14 @@ function discoverQuestsSigned(
 	const pass = newPass();
 	const signedAt = Date.now();
 	const writes = questWritesMade();
+	const journal = journalMark();
 	const rootStamp = folderStampOf(questsRoot);
 	const seeds = seedsOf(seed);
 	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
-	const stamps = { signedAt, writes, rootStamp };
+	const stamps = { signedAt, writes, rootStamp, journal };
 	if (cached && cached.signature === signature) {
 		const slot = slotOf(signature, cached.result, stamps, pass, questsRoot);
 		cache.set(questsRoot, slot);
@@ -737,11 +859,15 @@ function seedsOf(
 	return dir ? { dir, code: seed.code ?? codeKey() } : undefined;
 }
 
-/** What a signing knew as it began: when, the writes by then, the root's stat. */
+/**
+ * What a signing knew as it began: when, the writes by then, the root's
+ * stat, and where the journal of quest writes stood.
+ */
 interface SignedUnder {
 	readonly signedAt: number;
 	readonly writes: number;
 	readonly rootStamp: string | undefined;
+	readonly journal: JournalMark | undefined;
 }
 
 /**

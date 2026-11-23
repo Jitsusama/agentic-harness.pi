@@ -36,6 +36,7 @@ import {
 	queueHeavyWork,
 	waitsForTurn,
 } from "../../../../lib/internal/priority/turn.ts";
+import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
 
 /** A job as the queue writes it down. */
 type Job = Parameters<typeof outcomeOf>[0];
@@ -475,6 +476,24 @@ describe("heavy work waiting for its turn", () => {
 			]),
 		);
 		expect(asked[0]).toEqual([cc, "/tree"]);
+	});
+
+	it("asks whether a run is sent with the quest its session has loaded", () => {
+		const asked: (string | undefined)[] = [];
+		queueingAfterRuns({
+			sendsWholeRun: (_command, _cwd, quest) => {
+				asked.push(quest);
+				return false;
+			},
+		});
+		queuedCommand("elsewhere run harness-check -- pnpm test", "/tree");
+		offerShellEnvironment("quest-under-test", () => ({ PI_QUEST: "QEST-T" }));
+		try {
+			queuedCommand("elsewhere run harness-check -- pnpm typecheck", "/tree");
+		} finally {
+			offerShellEnvironment("quest-under-test", undefined);
+		}
+		expect(asked).toEqual([undefined, "QEST-T"]);
 	});
 
 	it("asks for what a sent changed-checks run was seen to hold, when that is less", async () => {

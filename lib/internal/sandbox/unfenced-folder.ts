@@ -24,7 +24,11 @@ import { lenderFolders } from "../fence/fence-builders.ts";
 import { DISK } from "../fence/fence-disk.ts";
 import { DOCKER_CONFIG } from "../fence/fence-docker.ts";
 import { FENCE_HIDDEN } from "../fence/fence-hidden.ts";
-import { keptHomeAbove, readOnlyPaths } from "../fence/fence-home.ts";
+import {
+	fenceFolders,
+	keptHomeAbove,
+	readOnlyPaths,
+} from "../fence/fence-home.ts";
 import { NPMRC } from "../fence/fence-npmrc.ts";
 import {
 	MAC_HIDDEN,
@@ -372,6 +376,13 @@ export function unfencedFolder(
 	if (code.some(meets)) {
 		return refusing(
 			"or lies in the code pi and its host compiled, which the next one runs outside the sandbox",
+		);
+	}
+	// The fence's cargo and gradle run what their homes hold, and its
+	// gcloud reads its settings folder (fence-home.ts).
+	if (Object.values(fenceFolders(home)).some(meets)) {
+		return refusing(
+			"or lies in the agent fence's own state, which its commands run later",
 		);
 	}
 	const closed = closedHere(cwd, home, place);

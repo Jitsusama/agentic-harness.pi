@@ -24,7 +24,9 @@ import {
 	buildAliasIndex,
 	lookupAliasDetail,
 } from "../../../lib/internal/quest/creation/alias-index.ts";
+import { isId } from "../../../lib/internal/quest/creation/id.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { appendHarnessLog } from "../../../lib/internal/quest/documents/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import {
 	needAsker,
@@ -48,6 +50,14 @@ import { create, load } from "../verbs/lifecycle.ts";
 
 /** How long a tie to the map may take before the start goes on without it. */
 const TIE_PATIENCE_MS = 15_000;
+
+/**
+ * The most of mycelium's last line a tie that didn't land quotes in the
+ * session's first words: enough for a line of a reason, never a page. It
+ * is only what mycelium last wrote, which a kill (SIGKILL) leaves unsaid,
+ * so it is quoted as that, never as why.
+ */
+const MOST_QUOTED = 200;
 
 /** Makes a quest as `quest create` does, for a test to stand in for. */
 export type Create = (
@@ -89,7 +99,13 @@ export async function startSprouted(
 		return;
 	}
 	const alias = sproutAlias(seed);
-	const replayed = alias ? questsWith(state, alias)[0] : undefined;
+	const joinMark = alias ? joinedMark(alias) : undefined;
+	// Its own quest, else the live one it joined, each found by the mark
+	// it left there; only the first is one it made.
+	const made = alias ? questsWith(state, alias)[0] : undefined;
+	const rejoined =
+		made || !joinMark ? undefined : questsWith(state, joinMark)[0];
+	const replayed = made ?? rejoined;
 	if (replayed?.sealed) {
 		// Its quest was made and has since ended: the work is done, and
 		// the prose would only ask for another.
@@ -100,8 +116,13 @@ export async function startSprouted(
 	// the sprout makes its own, holding the link in its note and marked
 	// as the link's sprout, so the next sprout of it joins this one.
 	const linked = linkedQuest(state, seed);
+	// A link a quest of forged id holds can't mark another, and create's
+	// refusal would quote that id: the sprout's own quest holds it in its
+	// note and the sprout's mark instead, so the next sprout joins it.
+	const forged = linked === undefined && forgedHolds(state, seed);
 	const held = replayed?.id ?? (linked?.sealed ? undefined : linked?.id);
-	const id = held ?? (await madeId(seed, deps.create, linked === undefined));
+	const id =
+		held ?? (await madeId(seed, deps.create, linked === undefined && !forged));
 	if (!id) return;
 	let peers: string | undefined;
 	if (held) {
@@ -110,35 +131,68 @@ export async function startSprouted(
 		const said = loaded.details?.peers;
 		peers = typeof said === "string" ? said : undefined;
 	}
-	const joined = held !== undefined ? { peers } : undefined;
+	// Every other live quest holding the work, told on a replay too, whose
+	// session is new and never heard the first one's words.
+	const also = linked
+		? [
+				...new Set([...(linked.sealed ? [] : [linked.id]), ...linked.also]),
+			].filter((one) => one !== id)
+		: [];
+	// A quest found already there is never tied by this start to the cell
+	// that asked, which its words name instead: one it joined predates the
+	// ask, and one whose mark didn't hold, or whose seed had no id, can't
+	// be told from one.
+	const askedBy = !made && seed.from ? { askedBy: seed.from } : {};
+	const joined = held !== undefined ? { peers, also, ...askedBy } : undefined;
 	// Said now, so a throw past here still tells the model its quest is
 	// there, never the prose that asks it to make one.
 	const linkIs = linkIsPlace(seed) ? "place" : "work";
 	hints.firstWords = sproutedWords(id, seed, { kind: "none" }, joined, linkIs);
+	// A write whose quest's lock didn't come spins the thread for seconds,
+	// and every write left would ask for it again, so once one throws this
+	// start writes that quest no more: its tie and first words still go.
+	let locked = false;
 	if (held === undefined) {
-		const link = linked ? sproutLink(seed) : undefined;
+		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
 		// alias goes on one quest only, and the next sprout must find this.
 		if (link) unmarkEnded(state, link);
-		const marks = [alias, link].filter((one) => one !== undefined);
-		for (const mark of marks) {
-			aliasAdd(state, {
-				action: "alias-add",
-				id,
-				ref: `${mark.type}:${mark.value}`,
-			});
+		const marks = [
+			...(alias ? [{ mark: alias, so: UNFOUND }] : []),
+			...(link ? [{ mark: link, so: LINK_UNFOUND }] : []),
+		];
+		for (const { mark, so } of marks) {
+			// A mark refused leaves the quest made, so it is still tied below
+			// rather than left untied, and its log says what may not find it.
+			// A refusal takes no lock, so its log is the first write to ask
+			// for one, and a log whose lock didn't come stops the writes too.
+			const got = marking(state, id, mark);
+			locked =
+				got === "locked" ||
+				(got === "refused" && markUnwritten(state, id, seed, mark, so));
+			if (locked) break;
 		}
-	} else if (!replayed && alias) {
-		// A live quest it joined takes its mark too, so a replay after that
-		// quest ends is told its work is done, never starts it again.
-		aliasAdd(state, {
-			action: "alias-add",
-			id,
-			ref: `${alias.type}:${alias.value}`,
-		});
+	} else if (!replayed && joinMark) {
+		// A live quest it joined takes a mark of its own, so a replay after
+		// that quest ends is told its work is done, never starts it again,
+		// and a replay while it lives joins it again, never ties it. A mark
+		// refused leaves the session working the quest it joined, its need
+		// still recorded below, and its log says a replay after the quest
+		// ends may start the work again.
+		const got = marking(state, id, joinMark);
+		locked =
+			got === "locked" ||
+			(got === "refused" &&
+				markUnwritten(state, id, seed, joinMark, RESTARTED));
 	}
-	servesNeed(state, id, seed);
-	const tied = await tie(id, seed.from, ctx.cwd, deps.run);
+	if (!locked) servesNeed(state, id, seed);
+	// Only a quest it made, or its own replayed, is sprouted from the cell
+	// that asked: a live one it joined predates it, and may be that very
+	// cell's own, so the map is left saying where it really came from.
+	const tied =
+		held !== undefined && !made
+			? ({ kind: "none" } as const)
+			: await tie(id, seed.from, ctx.cwd, deps.run);
 	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
 }
 
@@ -210,14 +264,129 @@ interface Found {
 	readonly sealed: boolean;
 }
 
-/** Take `mark` off every ended quest carrying it. */
+/**
+ * Take `mark` off every ended quest carrying it. One whose lock doesn't
+ * come keeps it, so the made quest's link mark is refused and logged,
+ * and the start still marks and ties the quest it made.
+ */
 function unmarkEnded(
 	state: QuestState,
 	mark: { type: string; value: string },
 ): void {
 	for (const one of questsWith(state, mark)) {
-		if (one.sealed && one.dir) removeAliasesFromQuest(one.dir, [mark]);
+		if (!one.sealed || !one.dir) continue;
+		try {
+			removeAliasesFromQuest(one.dir, [mark]);
+		} catch {
+			// A lock that didn't come or a write that failed: the ended quest
+			// keeps the mark, and the made quest's own is refused and logged.
+		}
 	}
+}
+
+/**
+ * The mark a live quest a sprout joined takes, apart from the one its
+ * own quest takes, so a replay can tell the quest it made, which is
+ * tied to its asker, from one it joined, which never is.
+ */
+function joinedMark(alias: { type: string; value: string }): {
+	type: string;
+	value: string;
+} {
+	return { type: "sprout-joined", value: alias.value };
+}
+
+/** What a made quest's missing mark costs a replay of its sprout. */
+const UNFOUND = "a replay of it may not find this quest and make another";
+
+/** What a made quest's missing link mark costs the next sprout of its link. */
+const LINK_UNFOUND =
+	"the next sprout of its link may not find this quest and make another";
+
+/** What a joined quest's missing mark costs a replay of its sprout. */
+const RESTARTED =
+	"a replay of it after this quest ends may start its work again";
+
+/**
+ * What became of a mark: written; refused, by the alias verb's answer
+ * (held by another quest, or a README it couldn't read); or locked,
+ * when it threw, as a lock that never came does, whether or not the mark
+ * landed first.
+ */
+type Marking = "written" | "refused" | "locked";
+
+/** Add `mark` to quest `id`, saying what became of it. */
+function marking(
+	state: QuestState,
+	id: string,
+	mark: { type: string; value: string },
+): Marking {
+	const ref = `${mark.type}:${mark.value}`;
+	try {
+		return aliasAdd(state, { action: "alias-add", id, ref }).ok
+			? "written"
+			: "refused";
+	} catch {
+		// A lock that didn't come, or a write that failed; the verb also
+		// throws when the lock for its own log line doesn't come, after the
+		// mark has landed. Either way the quest's lock is held elsewhere.
+		return "locked";
+	}
+}
+
+/**
+ * Say in quest `id`'s harness log that its sprout's `mark` wasn't
+ * written, and `so`, what that costs a replay of `seed`; a log that
+ * can't be written leaves the quest as the start left it. Answers
+ * whether the log's lock didn't come, so the start asks it no more.
+ */
+function markUnwritten(
+	state: QuestState,
+	id: string,
+	seed: SproutSeed,
+	mark: { type: string; value: string },
+	so: string,
+): boolean {
+	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
+	if (!dir) return false;
+	try {
+		appendHarnessLog(
+			dir,
+			`sprout ${seed.id ?? "with no id"}: its mark ${mark.type}:${mark.value} wasn't written, so ${so}`,
+		);
+		return false;
+	} catch {
+		// A log whose lock didn't come: the quest stands as the start left
+		// it, and only this note of its missing mark is lost.
+		return true;
+	}
+}
+
+/** The ids of every quest carrying `alias`, as their READMEs spell them. */
+function idsWith(
+	state: QuestState,
+	alias: { type: string; value: string },
+): string[] {
+	const { index } = discoverQuests(state.questsRoot);
+	const found = lookupAliasDetail(buildAliasIndex(index), alias);
+	return found.kind === "hit"
+		? [found.questId]
+		: found.kind === "collision"
+			? [...found.questIds]
+			: [];
+}
+
+/**
+ * Whether a quest whose README's id isn't spelled as one holds the
+ * seed's link, under any ref naming the same work, which questsWith
+ * never finds.
+ */
+function forgedHolds(state: QuestState, seed: SproutSeed): boolean {
+	const ref = linkRef(seed);
+	return (
+		ref !== undefined &&
+		sameWork(ref).some((one) => idsWith(state, one).some((id) => !isId(id)))
+	);
 }
 
 /** Every quest carrying `alias`, live ones first. */
@@ -226,14 +395,12 @@ function questsWith(
 	alias: { type: string; value: string },
 ): Found[] {
 	const { index } = discoverQuests(state.questsRoot);
-	const found = lookupAliasDetail(buildAliasIndex(index), alias);
-	const ids =
-		found.kind === "hit"
-			? [found.questId]
-			: found.kind === "collision"
-				? found.questIds
-				: [];
+	const ids = idsWith(state, alias);
+	// A README's id is its own front matter's, which can say anything, and
+	// a sprout's first words name the quest it found: one not spelled as an
+	// id is never joined, replayed or named.
 	return ids
+		.filter(isId)
 		.map((id) => ({
 			id,
 			dir: index.quests.get(id)?.dir,
@@ -290,12 +457,74 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
 /**
  * Whether the seed's link, read as pageRead reads it, names a place
  * work happens (PLACES), so its first words never call the page the
- * work. A link merely carrying a place's address is no place.
+ * work. A link merely carrying a place's address is no place. GitHub's
+ * own ways of linking a place count too, which parseRef reads as no
+ * ref: an organisation, a repository with a query such as
+ * ?tab=readme-ov-file, a branch or folder in one (/tree) and a branch's
+ * history (/commits/main). A file
+ * (/blob) is often the work itself, a spec or a line, so it reads as
+ * the work.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
+	const url = seed.link ? webAddress(seed.link) : undefined;
+	const onGitHub = url !== undefined && siteOf(url) === "github.com";
+	const path = url ? url.pathname.split("/").filter((part) => part !== "") : [];
+	// Before pageRead: parseRef reads /advisories/GHSA-... as an owner's
+	// repository.
+	if (onGitHub && GITHUB_OWN.has(path[0] ?? "")) return false;
 	const read = pageRead(seed);
-	return read ? PLACES.has(read.ref.type) : false;
+	if (read) return PLACES.has(read.ref.type);
+	if (!onGitHub) return false;
+	return (
+		path.length === 1 ||
+		path.length === 2 ||
+		(path.length === 3 && GITHUB_LISTS.has(path[2] ?? "")) ||
+		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
+	);
 }
+
+/**
+ * GitHub's own pages, which no owner can be named: an advisory there
+ * (/advisories/GHSA-...) is a piece of work, so none of them reads as a
+ * place.
+ */
+const GITHUB_OWN: ReadonlySet<string> = new Set([
+	"advisories",
+	"apps",
+	"collections",
+	"explore",
+	"features",
+	"marketplace",
+	"notifications",
+	"search",
+	"settings",
+	"sponsors",
+	"topics",
+]);
+
+/**
+ * Where in a GitHub repository its own code is, a folder or a branch's
+ * history (/commits/main), never a piece of work; one commit (/commit/)
+ * is the work.
+ */
+const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "commits"]);
+
+/**
+ * A GitHub repository's own lists, such as every open pull request: a
+ * place, though one in them (/pull/9, /issues/4) is the work.
+ */
+const GITHUB_LISTS: ReadonlySet<string> = new Set([
+	"pulls",
+	"issues",
+	"actions",
+	"releases",
+	"branches",
+	"tags",
+	"commits",
+	"discussions",
+	"projects",
+	"wiki",
+]);
 
 /**
  * The refs naming the same work as `ref`: itself, and for a Slack thread
@@ -350,14 +579,28 @@ function markOf(ref: Ref): { type: string; value: string } {
  * it took when the quest holding it had ended, each under any ref naming
  * the same work (sameWork).
  */
-function linkedQuest(state: QuestState, seed: SproutSeed): Found | undefined {
+function linkedQuest(
+	state: QuestState,
+	seed: SproutSeed,
+): (Found & { also: string[] }) | undefined {
 	const ref = linkRef(seed);
 	if (!ref) return undefined;
 	const all = sameWork(ref).flatMap((one) => [
 		...questsWith(state, one),
 		...questsWith(state, markOf(one)),
 	]);
-	return all.find((one) => !one.sealed) ?? all[0];
+	const found = all.find((one) => !one.sealed) ?? all[0];
+	if (!found) return undefined;
+	// Two live quests holding one work is a collision the alias index
+	// would refuse; joined, the others are named rather than passed over.
+	const also = [
+		...new Set(
+			all
+				.filter((one) => !one.sealed && one.id !== found.id)
+				.map((one) => one.id),
+		),
+	];
+	return { ...found, also };
 }
 
 /**
@@ -401,7 +644,19 @@ async function tie(
 		timeoutMs: TIE_PATIENCE_MS,
 	});
 	if (ran.code === 0) return { kind: "tied", from };
-	if (ran.timedOut) return { kind: "unsure", from };
+	// Ended by our patience, or by a signal nobody here sent (the OOM
+	// killer's), its ask may already be with the node, as a sprout's is.
+	if (
+		ran.timedOut ||
+		(ran.code === null &&
+			!ran.neverRan &&
+			!ran.missing &&
+			!ran.noFolder &&
+			!ran.stopped)
+	) {
+		const said = lastLine(ran.stderr);
+		return said ? { kind: "unsure", from, said } : { kind: "unsure", from };
+	}
 	if (ran.neverRan) {
 		return {
 			kind: "failed",
@@ -415,8 +670,28 @@ async function tie(
 			: "this session's folder is gone";
 		return { kind: "failed", from, why, retry: false };
 	}
-	const why =
-		ran.stderr.trim().split("\n").pop() ||
-		`it ended with ${ran.code ?? "no code"}`;
+	const said = lastLine(ran.stderr);
+	const why = said
+		? `it last wrote ${JSON.stringify(said)}`
+		: `it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
+}
+
+/**
+ * The last line mycelium wrote, a progress bar's last redraw included, cut
+ * to MOST_QUOTED whole characters and ended with "..." where it was cut,
+ * so a cut reason never reads as the whole of it, or "" where it wrote
+ * none.
+ */
+function lastLine(stderr: string): string {
+	const line =
+		stderr
+			.trim()
+			.split(/\r?\n|\r/u)
+			.pop()
+			?.trim() ?? "";
+	const characters = Array.from(line);
+	return characters.length > MOST_QUOTED
+		? `${characters.slice(0, MOST_QUOTED).join("")}...`
+		: line;
 }

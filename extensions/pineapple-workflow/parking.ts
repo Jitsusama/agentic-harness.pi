@@ -1,7 +1,8 @@
 /**
  * Parking a session a stop reaches: the turn it is on finishes, nothing
- * new starts, and once Joel resumes the stop it carries on, told to look
- * at what changed before it writes.
+ * new starts, and once Joel resumes the stop a session whose run the stop
+ * ended carries on, told to look at what changed before it writes. One
+ * the stop found idle stays idle, as it was.
  *
  * This is the session parking itself rather than a steer's pause, since
  * a pause ends when the person talks to the session and a stop must not:
@@ -55,7 +56,10 @@ export interface Parking {
 	started(): Promise<void>;
 	/** A turn ended: end the run when a stop landed while it went. */
 	turnEnded(): Promise<void>;
-	/** The clock: carry on once the stops parking the session are gone. */
+	/**
+	 * The clock: park an idle session a stop reaches, and once the stops
+	 * parking it are gone, carry on a run the stop ended.
+	 */
 	tick(): Promise<void>;
 	/** Whether the session is parked now. */
 	readonly parked: boolean;
@@ -67,18 +71,59 @@ export const RESUMED_TEXT = automatedText(
 	"Carry on where you left off, but before any push, pull-request write or merge where the stop stood, check what changed there while it did: others may have moved on.",
 );
 
+/**
+ * How many times where an idle session is may be answered from what was
+ * last found: at the clock's ten seconds, a minute.
+ */
+const KNOWN_FOR = 6;
+
 /** Make the parking for one session. */
 export function createParking(deps: ParkingDeps): Parking {
 	let personNext = false;
 	let personRun = false;
 	let parked = false;
+	/** Whether the stop ended a run, which the resume then carries on. */
+	let cut = false;
 	const shadowTold = new Set<string>();
 	const liveTold = new Set<string>();
+	/**
+	 * Where the session was found, for the stops that asked, kept between
+	 * runs: nothing moves an idle session, and the clock asks every ten
+	 * seconds, which would rerun its git lookups each time. It is asked
+	 * again after KNOWN_FOR answers all the same, since a lookup a busy
+	 * host timed out drops a repository, and a stop counted late beats
+	 * one missed. What is asked again only adds to what was found, never
+	 * takes from it, until an unparked session runs: nothing moved it, so
+	 * a repository it drops is a lookup that failed, and taking it away
+	 * would let a parked session go under a stop that still stands. A
+	 * parked session keeps widening through its runs too, its own cut
+	 * turn's end among them, so it stays parked until the stops change.
+	 */
+	let known:
+		| { readonly stops: string; readonly session: Session; used: number }
+		| undefined;
+
+	async function whereabouts(stops: readonly Stop[]): Promise<Session> {
+		const key = stops.map((stop) => stop.id).join(" ");
+		if (known?.stops === key && known.used < KNOWN_FOR) {
+			known.used += 1;
+			return known.session;
+		}
+		const found = await deps.session(stops);
+		const session = known === undefined ? found : widened(known.session, found);
+		known = { stops: key, session, used: 1 };
+		return session;
+	}
+
+	/** Forget where the session is, unless it is parked. */
+	function forget(): void {
+		if (!parked) known = undefined;
+	}
 
 	async function parkers(): Promise<Parked[]> {
 		const stops = deps.stops();
 		if (stops.length === 0) return [];
-		const found = parking(stops, await deps.session(stops));
+		const found = parking(stops, await whereabouts(stops));
 		for (const one of found.filter((each) => each.stop.shadow)) {
 			// Once a session: the log says which sessions, not how often.
 			if (shadowTold.has(one.stop.id)) continue;
@@ -88,19 +133,31 @@ export function createParking(deps: ParkingDeps): Parking {
 		return found.filter((one) => !one.stop.shadow);
 	}
 
-	async function park(): Promise<void> {
+	/** Park the session, ending the run under way when `running`. */
+	async function park(running = true): Promise<void> {
 		const live = await parkers();
 		if (live.length === 0) return;
 		const first = !parked;
 		parked = true;
-		deps.abort();
+		if (running) {
+			cut = true;
+			deps.abort();
+		}
+		note(live);
+		if (first) deps.notify(parkedText(live));
+	}
+
+	/**
+	 * Note each stop parking the session, once a session, as in shadow:
+	 * the launcher and `stop all` count the sessions each stop parked, so
+	 * one already parked by an earlier stop is noted for a later one too.
+	 */
+	function note(live: readonly Parked[]): void {
 		for (const one of live) {
-			// Once a session, as in shadow: the launcher counts sessions.
 			if (liveTold.has(one.stop.id)) continue;
 			liveTold.add(one.stop.id);
 			deps.parked(one);
 		}
-		if (first) deps.notify(parkedText(live));
 	}
 
 	return {
@@ -108,24 +165,49 @@ export function createParking(deps: ParkingDeps): Parking {
 			if (byPerson) personNext = true;
 		},
 		async started() {
+			// A run may move the session, so where it is is asked afresh.
+			forget();
 			personRun = personNext;
 			personNext = false;
 			if (personRun) return;
 			await park();
 		},
 		async turnEnded() {
+			forget();
 			if (personRun) return;
 			await park();
 		},
 		async tick() {
-			if (!parked || !deps.idle()) return;
-			if ((await parkers()).length > 0) return;
+			if (!deps.idle()) return;
+			// An idle session a stop reaches is parked as it stands, so the
+			// stop's count of parked sessions holds it without a run; one the
+			// stop never cut is left idle by the resume, as it was found.
+			if (!parked) return park(false);
+			const live = await parkers();
+			if (live.length > 0) return note(live);
+			// The stops changed, so where it was kept is let go with them.
 			parked = false;
+			known = undefined;
+			if (!cut) return;
+			cut = false;
 			deps.carryOn(RESUMED_TEXT);
 		},
 		get parked() {
 			return parked;
 		},
+	};
+}
+
+/** Where an idle session is, from two lookups: all either found. */
+function widened(was: Session, now: Session): Session {
+	const both = (a: readonly string[], b: readonly string[]) => [
+		...new Set([...a, ...b]),
+	];
+	return {
+		realm: was.realm ?? now.realm,
+		quests: both(was.quests, now.quests),
+		repos: both(was.repos, now.repos),
+		dirs: both(was.dirs, now.dirs),
 	};
 }
 

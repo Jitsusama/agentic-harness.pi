@@ -137,8 +137,10 @@ through landrun:
   `~/.docker` and `~/.cargo`, whose settings run a credential command
   or a build, and `~/.rustup`, `~/.mozilla` and `~/.bundle`, whose
   toolchains, messaging hosts and plugins run as you. Their caches
-  (kube's, aws's and bundler's) are bound back writable,
-  and cargo and gradle get homes of their own in the sandbox's cache,
+  (kube's and bundler's) are bound back writable, aws's login caches
+  are hidden, and cargo and gradle get homes of their own in
+  `~/.cache/pi-fence/homes` (those under `~/.cache/pi-sandbox/cache`
+  from before are left for you to delete),
   since cargo builds the sources it extracted without checking them
   again. A deeper read-only folder is made first where its top entry
   is there, so a command can't make one that wasn't. The home folder
@@ -159,6 +161,14 @@ through landrun:
   walk's shared slice outside the fence, before it starts.
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
+- **No cloud account.** Your own gcloud login is hidden, and gcloud
+  gets an empty settings folder of the session's own as
+  `CLOUDSDK_CONFIG`, but no token: the agents' account can change
+  machines, and a fenced session reads text a stranger may have
+  written. A command naming gcloud is told why. Run cloud work from an
+  unfenced session until an account that only reads is named for the
+  fence. The strict profile below does hand a token, so the account a
+  machine names for its agents (`gcloud-broker`) must only read too.
 
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a

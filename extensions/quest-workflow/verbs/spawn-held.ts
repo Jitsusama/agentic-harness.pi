@@ -44,6 +44,7 @@ import {
 	FIRST_TEXT_VARIABLE,
 	FIRST_WORDS_VARIABLE,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
+import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	agentsAt,
 	type NodeStart,
@@ -234,9 +235,74 @@ const shareByMycelium: ShareQuest = shareThrough(
 	spawnExec({ timeoutMs: SHARE_PATIENCE_MS }),
 );
 
+/** What a spawn may reopen, and what it tells the node because of it. */
+export interface Reopening<R> {
+	/** It resumes here, so the node is not asked. */
+	readonly holds: boolean;
+	/** The fence told the node, which covers whatever then starts. */
+	readonly claim: FenceDeclaration;
+	/** What reopens once it is known whether the spawn lands here. */
+	readonly reopens: (here: boolean) => R | undefined;
+	/** The idle session left behind because the spawn starts elsewhere. */
+	readonly leaves: (here: boolean) => LeftIdle | undefined;
+}
+
+/** An idle session a spawn left behind, and where its log is found. */
+export interface LeftIdle {
+	readonly id: string;
+	readonly cwd?: string;
+}
+
+/**
+ * What a spawn reopens, and the fence it claims for it.
+ *
+ * Only a live session holds a spawn on this machine. An idle one is
+ * yesterday's work, so the node is asked as for any fresh start, and a
+ * spawn placed on another machine starts fresh there rather than
+ * reopening here. On 22 November nearly every quest had an idle session,
+ * so every spawn stayed on an optimus the node had already called over
+ * and named the Mac for (9T2BBY [1f965feb]).
+ *
+ * A reopen runs with no sandbox, so the claim covers it wherever one
+ * may happen. An idle session whose reopen would claim another fence
+ * than a fresh start, as under a strict fence, holds the spawn here
+ * just as a live one does: the node is told the reopen's claim, and the
+ * session reopens as it did before, rather than a fresh start losing
+ * its history to place a rare strict quest.
+ */
+export function whatReopens<R extends object>(
+	resumable: R | undefined,
+	sessions: readonly Pick<SessionView, "id" | "liveness" | "cwd">[],
+	claimFor: (resumes: boolean) => FenceDeclaration,
+): Reopening<R> {
+	const id =
+		resumable !== undefined &&
+		"id" in resumable &&
+		typeof resumable.id === "string"
+			? resumable.id
+			: undefined;
+	const session = sessions.find((each) => each.id === id);
+	const live = session?.liveness === "live";
+	const reopenClaimsOther =
+		id !== undefined && claimFor(true).kind !== claimFor(false).kind;
+	const holds = id !== undefined && (live || reopenClaimsOther);
+	const claim = claimFor(holds);
+	const reopens = (here: boolean): R | undefined =>
+		here ? resumable : undefined;
+	return {
+		holds,
+		claim,
+		reopens,
+		leaves: (here) =>
+			id === undefined || here || live
+				? undefined
+				: { id, ...(session?.cwd ? { cwd: session.cwd } : {}) },
+	};
+}
+
 /** What a spawn already asked for, which keeps it on this machine. */
 export interface StaysAsked {
-	/** A session of the quest's resumes here, with its history. */
+	/** A live session of the quest's resumes here, with its history. */
 	readonly resumes: boolean;
 	/** A host the call named, which is this machine's. */
 	readonly host?: string;

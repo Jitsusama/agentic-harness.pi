@@ -134,7 +134,7 @@ export const FENCE = "fence";
  * proxy's old place, now a link into the folder, kept for a machine
  * whose proxy hasn't moved yet.
  */
-const LET_THROUGH = [
+export const LET_THROUGH = [
 	"nix-untrusted.sock",
 	"pi-agent.sock",
 	"pi-agent",
@@ -172,9 +172,13 @@ const SOCKETS_ELSEWHERE = ["/run/nscd/socket"] as const;
 
 /**
  * What must never be reachable inside, as paths from the runtime folder
- * (a trailing `*` for any name it begins) or absolute. Each is checked
- * live; the fence lets through only `LET_THROUGH`, so these are the
- * names a change to it must keep out.
+ * (a trailing `*` for any name it begins) or absolute. The fence lets
+ * through only `LET_THROUGH`, so this list keeps nothing out itself: it
+ * names what a change to `LET_THROUGH` must keep out. fence-args' test
+ * checks it against each Landlock rule and each bind into the runtime
+ * folder, a folder above a name included, and the preflight checks each
+ * runtime name served outside live. An absolute one is seen inside
+ * through the whole disk's bind, so only Landlock keeps it shut.
  */
 export const NEVER_THROUGH = [
 	"wayland-*",
@@ -213,6 +217,11 @@ export const NEVER_THROUGH = [
 	// sealed with `systemd-creds --user`: the login keyring's password and
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
+	// The eero daemon's socket, where core's daemon listens
+	// (modules/eero/src/daemon.rs), which reserves addresses and changes
+	// the home network's settings as the person: an unfenced session asks
+	// it, after the person's yes (ISXEG8, 21 November).
+	"eero/socket",
 	// The secret-asks daemon takes a yes from anything reaching its socket,
 	// and core's passwords daemon answers whatever ask lands in the asks
 	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).
@@ -502,22 +511,35 @@ function devArgs(place: FencePlace, disk: Disk): string[] {
 	return ["--bind", dev, settings, "--bind", git, git];
 }
 
+/** A hidden entry there to empty: where it lies, and whether a folder. */
+interface Emptied {
+	readonly over: string;
+	readonly folder: boolean;
+}
+
 /**
  * bubblewrap's arguments emptying each hidden file and folder that is
  * there: a file bound over with `/dev/null`, a folder with an empty one
  * made read-only. A link's target is emptied instead, since bubblewrap
- * won't mount on a link and the link would still lead to it.
+ * won't mount on a link and the link would still lead to it. A file
+ * lying in a hidden folder is left to the folder: bubblewrap would make
+ * its mount point in the emptied, read-only folder, fail, and refuse
+ * every command, as a history file linked into a hidden zsh folder would.
  */
 function hiddenArgs(home: string, disk: Disk): string[] {
-	return hiddenIn(home).flatMap(({ path, folder }) => {
+	const emptied = hiddenIn(home).flatMap(({ path, folder }): Emptied[] => {
 		const link = disk.kind(path) === "link";
 		const over = link ? disk.real?.(path) : path;
 		if (over === undefined) return [];
 		const kind = disk.kind(over);
-		if (folder) {
-			return kind === "folder" ? ["--tmpfs", over, "--remount-ro", over] : [];
-		}
-		return kind === "file" ? ["--ro-bind", "/dev/null", over] : [];
+		if (folder) return kind === "folder" ? [{ over, folder }] : [];
+		return kind === "file" ? [{ over, folder }] : [];
+	});
+	const folders = emptied.filter((one) => one.folder).map((one) => one.over);
+	return emptied.flatMap(({ over, folder }) => {
+		if (folder) return ["--tmpfs", over, "--remount-ro", over];
+		const inEmptied = folders.some((one) => over.startsWith(`${one}/`));
+		return inEmptied ? [] : ["--ro-bind", "/dev/null", over];
 	});
 }
 

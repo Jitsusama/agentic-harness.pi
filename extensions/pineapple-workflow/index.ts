@@ -5,8 +5,9 @@
  * When someone tags Joel with "pineapple override", core's pineapple
  * reader writes a stop saying what it reaches. While one stands, this
  * refuses the writes it reaches: pushes, pull-request writes (opening,
- * editing, commenting, reviewing, merging) and, for a realm or
- * everything, switches and deploys. Reads, builds, commits and edits go
+ * editing, commenting, reviewing, merging) and, for a quest, a realm
+ * or everything, switches, deploys and starts of more agents. Reads,
+ * builds, commits and edits go
  * on, so a stop on one pull request leaves the session its other work.
  * Only Joel resumes a stop, outside pi.
  *
@@ -21,7 +22,7 @@
  * it would have done is written beside its stops, to would-refuse.jsonl,
  * would-park.jsonl and would-hold.jsonl, for Joel to read before any
  * stop is enforced. With no stop standing, a call costs one look at an
- * empty folder, and the clock one more each minute.
+ * empty folder, and the clock one more each tick.
  */
 
 import { execFile } from "node:child_process";
@@ -64,8 +65,12 @@ const run = promisify(execFile);
 /** How long a lookup may take before the guard goes on without it. */
 const LOOKUP_MS = 10_000;
 
-/** How often parked sessions look for a resume, and holds are tended. */
-const CLOCK_MS = 60_000;
+/**
+ * How often a session looks for a stop or a resume, and holds are
+ * tended: often enough that Joel's stop all, which waits a minute for
+ * every session to park, sees an idle one park well inside it.
+ */
+const CLOCK_MS = 10_000;
 
 export default function pineappleWorkflow(pi: ExtensionAPI) {
 	declareGuards(GUARDS.pineapple);

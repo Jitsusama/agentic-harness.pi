@@ -124,6 +124,8 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** Whether a close for good left the calls a park carried recorded. */
+	readonly recordLeft?: boolean;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
@@ -659,6 +661,10 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "start-fails");
 			expect(seen.refused, "the open fails, saying why").not.toBe("");
 			expect(seen.state, "the host still holds it, parked").toBe("parked");
+			expect(
+				seen.recordLeft,
+				"its close for good stops what a park carried",
+			).toBe(false);
 		},
 		HOST_LIFE_MS,
 	);

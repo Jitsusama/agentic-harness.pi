@@ -36,12 +36,11 @@ import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
 import { askedSandbox } from "../../lib/internal/fence/fence-stage.ts";
 import {
-	type Held,
-	heldNote,
+	faultsInto,
 	holdRunningInstall,
+	sayHeldOnce,
 } from "../../lib/internal/install/held.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import {
 	describeLoaded,
 	type Loaded,
@@ -98,26 +97,6 @@ function settledAborted(event: unknown): boolean {
 	);
 }
 
-/**
- * Say once in this process, where the person sees it, that the pi it
- * runs isn't kept from a switch's collection.
- */
-async function sayHeld(
-	held: Promise<Held>,
-	ctx: ExtensionContext,
-): Promise<void> {
-	const note = heldNote(await held);
-	const once = processGlobal("pi.install.held.said", () => ({ said: false }));
-	if (note === undefined || once.said || !ctx.hasUI) return;
-	once.said = true;
-	try {
-		ctx.ui.notify(note, "warning");
-	} catch {
-		// The session was replaced while the hold ran: the next one says it.
-		once.said = false;
-	}
-}
-
 export default function reloadWorkflow(pi: ExtensionAPI) {
 	if (!hosted())
 		spareStaleRejections(
@@ -156,7 +135,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
-		void sayHeld(held, ctx);
+		void sayHeldOnce(held, ctx, {
+			fault: faultsInto(
+				join(stateDir("reload-workflow"), "held-note-faults.jsonl"),
+			),
+		});
 		// A session this process rolled away from, started again, follows
 		// nothing: on 3 November one ran code older than the install, so it
 		// saw a move every 30 seconds and reloaded the live session each

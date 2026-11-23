@@ -71,6 +71,7 @@ import { join, sep } from "node:path";
 import { WRITING, writeWhole } from "../write-whole.ts";
 import { isId, prefixOf } from "./creation/id.ts";
 import { questLockFolder } from "./lock-folder.ts";
+import { journalIn, noteQuestWrite } from "./write-journal.ts";
 
 /** Lock-acquire retry budget per call. */
 const LOCK_TIMEOUT_MS = 5000;
@@ -202,6 +203,45 @@ function wrote(path: string): void {
 	logs[WRITTEN] = log;
 	log.push({ count, quest: questOf(path) });
 	if (log.length > WRITES_LOGGED) log.splice(0, log.length - WRITES_LOGGED);
+	const dir = questDirOf(path);
+	const journal = dir === undefined ? undefined : questJournal();
+	if (dir !== undefined && journal !== undefined) noteQuestWrite(journal, dir);
+}
+
+/**
+ * Count a write this process made to a quest without io.ts, as pi's
+ * write and edit tools make, at `path`: noted in the journal, so every
+ * host's discovery, this one's too, reads it at its next ask rather
+ * than at its next whole signing.
+ */
+export function noteWriteMadeElsewhere(path: string): void {
+	wrote(path);
+}
+
+/**
+ * The journal of quest writes every process on this machine appends to
+ * and every host's discovery reads (`write-journal.ts`), beside the
+ * quest locks; undefined where the locks have no runtime folder, as on
+ * the Mac, or where the fence refused it, so discovery walks as before.
+ */
+export function questJournal(): string | undefined {
+	try {
+		const folder = runtimeLocks();
+		return folder === undefined ? undefined : journalIn(folder);
+	} catch {
+		// A refused lock folder refuses the write itself; no journal here.
+		return undefined;
+	}
+}
+
+/**
+ * The quest folder `questOf` names for `path`, as the whole path to
+ * it: undefined for a path in no quest.
+ */
+function questDirOf(path: string): string | undefined {
+	const parts = path.split(sep);
+	const at = parts.findIndex((part) => isId(part) && prefixOf(part) === "QEST");
+	return at < 0 ? undefined : parts.slice(0, at + 1).join(sep);
 }
 
 /**

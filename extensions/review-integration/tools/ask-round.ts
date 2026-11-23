@@ -9,6 +9,12 @@
  * not with how any one kind of round runs.
  */
 
+import { join } from "node:path";
+import {
+	awaitCouncilStart,
+	type CouncilStart,
+	newestRosterStartIn,
+} from "../../../lib/core/review/ask/start-spacing.ts";
 import {
 	type AskRun,
 	type ChangeRef,
@@ -23,9 +29,18 @@ import {
 	type RunStore,
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
-import { findingDir, personaDir } from "../engine.ts";
+import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
+import { REVIEW_SLUG } from "../config.ts";
+import {
+	councilStartsPath,
+	findingDir,
+	personaDir,
+	runArtifactDir,
+	sessionKey,
+} from "../engine.ts";
 import { rangeProposal } from "../range.ts";
-import { builtInPersonaDir } from "../roster.ts";
+import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import type { RoundAsks } from "./ask-roster.ts";
@@ -134,6 +149,50 @@ let roundsStarted = 0;
 export function nextSeq(): number {
 	roundsStarted += 1;
 	return roundsStarted;
+}
+
+/**
+ * Takes the machine's next start for a round that asks the whole
+ * roster at once (a council, a stack or a critique) and waits for it,
+ * answering what the round should say about the wait, or why it was
+ * stopped while it waited.
+ *
+ * Called last, once nothing else refuses the round, so only a round
+ * about to start its reviewers holds the slot. A judge, an audit and a
+ * retry each ask one participant, so they start whenever they are asked.
+ */
+export async function awaitRosterStart(
+	change: string,
+	signal: AbortSignal | undefined,
+): Promise<CouncilStart> {
+	// A round a session on an older install started never joined the
+	// line, but its reviewers' folder says when it began, read again at
+	// each look since such rounds start while this one waits.
+	const runs = join(runArtifactDir(), "runs");
+	const spacingMs = await configuredSpacing();
+	return await awaitCouncilStart(
+		councilStartsPath(),
+		{
+			by: sessionKey(),
+			change,
+			startedElsewhere: () => newestRosterStartIn(runs),
+			...(spacingMs === undefined ? {} : { spacingMs }),
+		},
+		signal,
+	);
+}
+
+/**
+ * The spacing this machine's config sets between round starts, or
+ * undefined for the line's default. A config that can't be read keeps
+ * the default rather than stopping a round over a setting it may not
+ * even hold.
+ */
+async function configuredSpacing(): Promise<number | undefined> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return undefined;
+	const review = loaded.config.sections[REVIEW_SLUG];
+	return startSpacingMs(isRecord(review) ? review.ask : undefined);
 }
 
 /**

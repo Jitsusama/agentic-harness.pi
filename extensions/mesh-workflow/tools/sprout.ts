@@ -47,7 +47,7 @@ export async function sproutFrom(
 	}
 	const { machine, folder, attach } = answered.started;
 	const tied = address
-		? ` It asks to tie its quest to this cell, ${address}, on the map as it starts; until the map shows the tie, it isn't there.`
+		? ` A quest it makes, it asks to tie to this cell, ${address}, on the map as it starts; one it joins, this start doesn't tie. Until the map shows the tie, it isn't there.`
 		: "";
 	return answer(
 		`Sprouted on ${machine} in ${folder}: a session of its own makes its quest, or joins a live one already holding the work, and starts on it.${tied} It runs in no window; Go To on it in the launcher's Agents opens it, or join it from a terminal with: ${attach.join(" ")}`,

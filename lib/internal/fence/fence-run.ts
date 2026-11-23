@@ -46,7 +46,11 @@ import {
 } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
-import { sandboxFolders, strictRules } from "../sandbox/strict-rules.ts";
+import {
+	sandboxFolders,
+	strictHomeReads,
+	strictRules,
+} from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
@@ -103,8 +107,15 @@ Kinds:
   fence    the agent fence a pi session lays
   strict   the strict Landlock profile inside its root
 
-On a Mac both run under sandbox-exec, and strict writes
-only the folder.
+On a Mac both run under sandbox-exec. In the home,
+strict reads what it reads on Linux, and also the git
+folder of the tree it runs in, a held work tree whole,
+and npm's settings without tokens; it writes there only
+its folder. Outside the home it reads and writes what the
+account can, /tmp and the Mac's temporary folder among
+them, but for what the fence hides and the code caches
+it keeps read-only there, and writes no program folder
+outside its own.
 
 Options:
   --folder DIR   where it runs and may write, the working
@@ -269,6 +280,8 @@ export function fenceRunText(
 	});
 	if ("refused" in away) return away;
 	if (mac) return macFenceText(ask, folder, place, treesRoot, away.tree);
+	// fence-child.ts runs the text as bash's argument, which the fence's
+	// text can be, since it holds no cloud token (`fenceCloud`).
 	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
@@ -463,12 +476,34 @@ function macFenceText(
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
+	// And reads in the home what landrun lets it read there on Linux: its
+	// folder, git's and Nix's settings and the profiles, so no other
+	// session's scratch or cache reads (VRZKID, 21 November). Beyond
+	// Linux's, the git folder of the tree it runs in, from any folder in
+	// it, and the whole held tree, granted again below, since git needs
+	// them; and npm's copy without tokens, which macSettings points npm
+	// at. The home as its volume spells it, as the folder is, so a home
+	// named in other case neither drops the folder nor names no path.
+	const homeOnDisk = onDisk(real(home));
+	const homeReads =
+		ask.kind === STRICT
+			? [
+					...strictHomeReads({
+						home: homeOnDisk,
+						runtimeDir: undefined,
+						cwd: folder,
+						repository: worktreeRepository(tree ?? folder, homeOnDisk),
+					}),
+					...(copy ? [onDisk(real(dirname(copy)))] : []),
+				].filter((path) => within(path, homeOnDisk))
+			: undefined;
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
-		home,
+		home: homeOnDisk,
 		heldFromRoot: caches,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
+		...(homeReads ? { homeReads } : {}),
 		// A tree the work broker cut lies in pi's state, which the profile
 		// hides last of all, so the asker's is granted again after: read
 		// whole, and written where the kind writes.

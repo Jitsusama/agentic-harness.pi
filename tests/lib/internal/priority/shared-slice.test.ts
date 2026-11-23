@@ -69,6 +69,7 @@ beforeEach(() => {
 		[
 			"#!/usr/bin/env bash",
 			`printf '%s\\n' "$@" | head -7 > '${join(root, "asked")}'`,
+			`printf '%s\\n' "$@" > '${join(root, "argv")}'`,
 			"expand=yes",
 			'while [ "$1" != -- ]; do [ "$1" = --expand-environment=no ] && expand=no; shift; done; shift',
 			`if [ $expand = yes ] && printf '%s' "$*" | grep -q '\\\${[^}]*\\['; then echo 'Invalid environment variable name evaluates to an empty string' >&2; exit 1; fi`,
@@ -100,6 +101,20 @@ describe("a command run in the shared slice", () => {
 			"--expand-environment=no",
 			"--",
 		]);
+	});
+
+	// ISXEG8, 21 November: a sandboxed walk's text holds the agents' hour
+	// token, and a program's arguments are readable in /proc.
+	it("hands the command to the scope's shell in no argument, and leaves it no variable", () => {
+		const secret = "ya29.not-an-argument";
+		const command = `TOKEN=${secret}; echo "\${__pi_sliced-gone} $TOKEN" >> "$OUT"`;
+		const ran = run(inSharedSlice(command), { SHARED_SLICE: "shared.slice" });
+		expect({ status: ran.status, stderr: ran.stderr }).toEqual({
+			status: 0,
+			stderr: "",
+		});
+		expect(said("out")).toEqual([`gone ${secret}`]);
+		expect(said("argv").join(" ")).not.toContain(secret);
 	});
 
 	// ISXEG8 [e38b55c4], 15 November: a fenced fetch of World's main lost

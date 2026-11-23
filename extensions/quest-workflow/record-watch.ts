@@ -21,6 +21,7 @@ import {
 	type RecordAudit,
 	recordStamp,
 } from "../../lib/core/internal/quest/record-audit.ts";
+import { noteWriteMadeElsewhere } from "../../lib/internal/quest/io.ts";
 import { recordWritesOf } from "./enforce.ts";
 import type { QuestState } from "./state.ts";
 import { workspaceDirOf } from "./workspace.ts";
@@ -168,6 +169,27 @@ function describe(byQuest: Map<string, Breakage[]>): string {
 				`${quest}:\n${list.map((b) => `- ${b.line}`).join("\n")}`,
 		)
 		.join("\n");
+}
+
+/**
+ * Note in the quest write journal each quest file a write or edit call
+ * changed, since pi's tools write without io.ts, so every host shows the
+ * change at its next ask. A bash call's writes are never wholly known,
+ * so they wait for the next signing, as hand edits do.
+ */
+export function noteToolWrites(
+	state: QuestState,
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+	home: string,
+): void {
+	if (toolName !== "write" && toolName !== "edit") return;
+	for (const write of recordWritesOf(toolName, input, cwd, home)) {
+		if (questRecordPath(state.questsRoot, write.path)) {
+			noteWriteMadeElsewhere(write.path);
+		}
+	}
 }
 
 /**

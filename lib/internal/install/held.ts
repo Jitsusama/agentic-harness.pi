@@ -17,9 +17,16 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+	appendFileSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { getParentPiInstall } from "../../subagent/install.ts";
+import { isStaleContext } from "../errors/stale.ts";
 import { processGlobal } from "../process/process-global.ts";
 import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
 
@@ -194,6 +201,100 @@ export async function holdInstall(
 export function heldNote(held: Held): string | undefined {
 	if (held.missed.length === 0) return undefined;
 	return `A system switch may collect the pi this session runs, so its subagents and councils would fail until it restarts: ${held.missed.join("; ")}`;
+}
+
+/** Where a session shows the person a note: pi's context, as far as a note needs it. */
+export interface NoteScreen {
+	readonly hasUI: boolean;
+	readonly ui: {
+		notify(message: string, level: "warning"): void;
+	};
+}
+
+/** Whether this process has said its hold's note yet. */
+export interface SaidOnce {
+	said: boolean;
+}
+
+/**
+ * A fault for {@link sayHeldOnce} that keeps each as a JSON line in
+ * `log`, so a note that never showed is found rather than hidden.
+ */
+export function faultsInto(log: string): (error: unknown) => void {
+	return (error) => {
+		try {
+			const why =
+				error instanceof Error ? (error.stack ?? error.message) : String(error);
+			mkdirSync(dirname(log), { recursive: true, mode: 0o700 });
+			appendFileSync(
+				log,
+				`${JSON.stringify({ at: new Date().toISOString(), why })}\n`,
+			);
+		} catch {
+			// Nowhere to keep it, or nothing to say of it: the fault is lost,
+			// and the note is as the failing session left it.
+		}
+	};
+}
+
+/** The key of the process-wide flag saying the note was said. */
+export const HELD_SAID = "pi.install.held.said";
+
+/** How a note is said: what to tell of a fault, and the said-once flag. */
+export interface SayingHeld {
+	/** Told of any failure other than a replaced session's. */
+	readonly fault?: (error: unknown) => void;
+	/** Whether the note was said; the process's own unless given. */
+	readonly once?: SaidOnce;
+}
+
+/**
+ * Say once in this process, where the person sees it, what the hold
+ * missed. The hold resolves after the session that asked may have been
+ * replaced, and a replaced session's context throws on every read, its
+ * `hasUI` included; such a session says nothing, and the next one with
+ * a screen says the note instead. A session with no screen leaves it
+ * for the next too. Any other failure leaves the note unsaid and goes
+ * to `fault`, so the call never rejects: its caller lets it go
+ * unwatched, and in a host nothing would catch it.
+ */
+export async function sayHeldOnce(
+	held: Promise<Held>,
+	screen: NoteScreen,
+	saying: SayingHeld = {},
+): Promise<void> {
+	const once =
+		saying.once ?? processGlobal<SaidOnce>(HELD_SAID, () => ({ said: false }));
+	// Only this call's own claim is given back on a failure, so a
+	// session failing after another said the note never has it said again.
+	let claimed = false;
+	try {
+		const note = heldNote(await held);
+		if (note === undefined || once.said || !screen.hasUI) return;
+		once.said = true;
+		claimed = true;
+		screen.ui.notify(note, "warning");
+	} catch (error) {
+		if (claimed) once.said = false;
+		tellFault(saying.fault, error);
+	}
+}
+
+/**
+ * Tell `fault` of an error other than a replaced session's, which is
+ * expected and leaves the note to the next session, never letting
+ * either the telling or the reading of the error throw out of a note.
+ */
+function tellFault(
+	fault: ((error: unknown) => void) | undefined,
+	error: unknown,
+): void {
+	try {
+		if (!isStaleContext(error)) fault?.(error);
+	} catch {
+		// A fault that can't be told is lost; whoever claimed the note has
+		// given its claim back already, so the next session may say it.
+	}
 }
 
 /**

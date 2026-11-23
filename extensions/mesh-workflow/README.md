@@ -309,14 +309,16 @@ and can answer a question or a gate left open on screen.
   request, a page, a file, a diff, a terminal) rather than open it.
   Each look is a file of its own in
   `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks/looks.ts`),
-  naming its session, what it is, why and what the person is asked
-  (`ask`, with the choices, or that it is only to see), which the
-  launcher shows and marks opened or cleared. A look is refused that
-  names a message's or quest's id, a session's address, a path or
-  code, or runs past a sentence, since he reads it hours later
-  without the agents' context. Nothing here removes one. A look says
-  whether it `asks` for something back: it does when it has choices
-  or an ask other than only to see, and a look kept without the
+  naming its session, what it is, what happened, why it matters to
+  him, the act on his button, and what follows each choice, which
+  the launcher shows and marks opened or cleared. The record keeps
+  version 1's why and ask too, made from those, for readers that
+  read only them. A look is refused that names a message's or
+  quest's id, a session's address, a path or code, or runs past its
+  limits, since he reads it hours later without the agents' context.
+  Nothing here removes one. A look says whether it `asks` for
+  something back: it does when it has choices, wants his own words,
+  or has an act other than Just See, and a look kept without the
   field counts as asking. Each names its `cell`, its session's own
   address, which no other session on its quest shares, for the
   launcher to read the cell it leads to rather than search every

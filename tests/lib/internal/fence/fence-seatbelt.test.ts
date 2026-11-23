@@ -121,6 +121,29 @@ describe("the fence's mounts as a profile", () => {
 		expect(tree, "the tree comes after").toBeGreaterThan(state);
 	});
 
+	it("lets a strict run stat its held tree's files after the hides' metadata denies", () => {
+		const tree = "/Users/j/.local/state/pi/trees/t";
+		const { profile } = seatbeltProfile(["--bind", tree, tree], {
+			sockets: [],
+			real: same,
+			home: "/Users/j",
+			homeReads: [tree],
+			regranted: [{ tree, writes: tree }],
+		});
+		const lines = profile.split("\n");
+		const denied = lines.lastIndexOf(
+			'(deny file-read-metadata (subpath "/Users/j/.local/state/pi"))',
+		);
+		const statable = lines.lastIndexOf(
+			`(allow file-read-metadata (subpath "${tree}"))`,
+		);
+
+		expect(denied, "pi's state has its metadata refused").toBeGreaterThan(-1);
+		expect(statable, "the tree's metadata comes back after").toBeGreaterThan(
+			denied,
+		);
+	});
+
 	it("finds a way down to a held tree whose real path left the home", () => {
 		const { profile } = seatbeltProfile([], {
 			sockets: [],
@@ -301,6 +324,16 @@ describe("the fence's mounts as a profile", () => {
 		);
 
 		expect(profile).toContain('(subpath "/Users/j/a\\") (allow default")');
+	});
+
+	it("refuses strict's reads in a home it isn't told, rather than reading all of it", () => {
+		expect(() =>
+			seatbeltProfile([], {
+				sockets: [],
+				real: same,
+				homeReads: ["/Users/j/work"],
+			}),
+		).toThrow(/need the home/);
 	});
 
 	it("refuses a mount it can't say, rather than leaving it open", () => {

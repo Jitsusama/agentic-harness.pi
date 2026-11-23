@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { RESUME_TEXT } from "../../../lib/compaction/index.ts";
+import {
+	FAILED_WAITING_TEXT,
+	WAITING_TEXT,
+} from "../../../lib/compaction/resume.ts";
 import { LOADED_MESSAGE } from "../../../lib/internal/reload/loaded.ts";
 import { SERVED_ENTRY } from "../../../lib/internal/session/served.ts";
 import { readTurns } from "../../../lib/ledger/index.ts";
@@ -377,6 +381,27 @@ describe("what surrounded a compaction", () => {
 			resumed: false,
 		});
 	});
+
+	it.each([WAITING_TEXT, FAILED_WAITING_TEXT])(
+		"says a run was not resumed when only waiting messages were sent for: %s",
+		(text) => {
+			const log = new Log()
+				.typed("u1")
+				.turn("a1")
+				.add("c1", { type: "compaction", tokensBefore: 240_000, summary: "s" })
+				.typed("u2", text)
+				.turn("a2");
+
+			const turns = facts(log);
+			expect(turns.get("c1")?.compaction).toMatchObject({ resumed: false });
+			expect(
+				turns.get("a2")?.facts,
+				"inside the run typed before",
+			).toMatchObject({
+				runId: turns.get("a1")?.facts?.runId,
+			});
+		},
+	);
 
 	it("leaves resumed unknown while the log has not said", () => {
 		const log = new Log()

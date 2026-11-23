@@ -47,6 +47,9 @@ function argsReadIn(text: string): string {
 	);
 }
 
+/** A broker that never answers, so a test never asks the real one for a token. */
+const noCloud = () => ({ reason: "no broker in this test" });
+
 /** A finder that knows `programs`, as PATH would. */
 function finder(programs: Record<string, string>) {
 	return (program: string) => programs[program];
@@ -133,7 +136,13 @@ describe("what a session asking for the fence is given", () => {
 			landrun: "/bin/landrun",
 			"pi-github-door": "/bin/pi-github-door",
 		});
-		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", withDoor);
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			withDoor,
+			undefined,
+			noCloud,
+		);
 		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
 		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
 		// Its own runtime folder, so the arguments file is always written,
@@ -169,7 +178,13 @@ describe("what a session asking for the fence is given", () => {
 	});
 
 	it("binds the session's copy of dev's settings over the person's, and names its git file to git", () => {
-		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", all);
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			all,
+			undefined,
+			noCloud,
+		);
 		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-dev-")));
 		const home = join(base, "home");
 		const runtimeDir = join(base, "run");
@@ -229,13 +244,17 @@ describe("a command in the fence, through stand-ins", () => {
 	let sandbox: Extract<Sandbox, { kind: "fence" }>;
 
 	/** Runs `command` as a fenced session would, with `env` given it. */
-	function run(command: string, env: Record<string, string> = {}) {
+	function run(
+		command: string,
+		env: Record<string, string> = {},
+		fence: Extract<Sandbox, { kind: "fence" }> = sandbox,
+	) {
 		const environment = {
 			PATH: process.env.PATH ?? "",
 			XDG_RUNTIME_DIR: runtimeDir,
 			...env,
 		};
-		const wrap = wrapFor(sandbox, { cwd: folder, env: environment }, home);
+		const wrap = wrapFor(fence, { cwd: folder, env: environment }, home);
 		const text = wrap ? wrap(command) : command;
 		// No stdin, as pi's bash tool starts a command: bash takes a socket
 		// on stdin for sshd and reads /etc/bashrc, which on NixOS sets PATH
@@ -335,6 +354,30 @@ describe("a command in the fence, through stand-ins", () => {
 		);
 	});
 
+	it("is handed no cloud token, only settings in the fence's own place, and a command naming gcloud is told why", () => {
+		const result = run(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			'command -v gcloud >/dev/null; echo "${CLOUDSDK_AUTH_ACCESS_TOKEN:-none} ${CLOUDSDK_CORE_PROJECT:-none} $CLOUDSDK_CONFIG"',
+			{
+				PI_SESSION_ID: "s-cloud",
+				CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.the-person's",
+				CLOUDSDK_CORE_PROJECT: "the-person-s-project",
+			},
+		);
+		const [given, project, settings] = result.stdout.trim().split(" ");
+		expect(given, "a token was handed in").toBe("none");
+		expect(project, "a project was handed in").toBe("none");
+		expect(settings, "gcloud's settings aren't the fence's").toMatch(
+			new RegExp(`^${join(home, ".cache/pi-fence/gcloud")}/`),
+		);
+		expect(result.stderr, "gcloud wasn't told why").toContain(
+			"pi: gcloud has no token in the sandbox: the agent fence hands no command",
+		);
+		expect(run("echo plain").stderr, "a plain command was noted").not.toContain(
+			"pi: gcloud",
+		);
+	});
+
 	it("is handed every variable but those naming the desktop, and reaches Nix by its door", () => {
 		const result = run("env", {
 			WAYLAND_DISPLAY: "wayland-1",
@@ -358,7 +401,7 @@ describe("a command in the fence, through stand-ins", () => {
 		]) {
 			expect(env, `${name} is the fence's own`).toMatch(
 				new RegExp(
-					`^${name}=${join(home, ".cache/pi-sandbox/cache", tool ?? "")}$`,
+					`^${name}=${join(home, ".cache/pi-fence/homes", tool ?? "")}$`,
 					"m",
 				),
 			);
@@ -588,7 +631,7 @@ describe("pi's file tools in a fenced session", () => {
 	});
 
 	it("makes the folders it keeps within an entry first, since a command could make none", () => {
-		for (const entry of [".aws", ".local"]) {
+		for (const entry of [".bundle", ".local"]) {
 			mkdirSync(join(home, entry), { recursive: true });
 		}
 		wrapFor(
@@ -596,7 +639,7 @@ describe("pi's file tools in a fenced session", () => {
 			{ cwd: work, env: { XDG_RUNTIME_DIR: runtimeDir } },
 			home,
 		);
-		expect(existsSync(join(home, ".aws/cli/cache")), "aws's own cache").toBe(
+		expect(existsSync(join(home, ".bundle/cache")), "bundler's own cache").toBe(
 			true,
 		);
 		for (const folder of [".local/share/dbus-1", ".local/bin"]) {

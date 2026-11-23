@@ -156,6 +156,10 @@ may import from here, and any of it may change without notice.
   since boot, which no suspend or clock change moves, and the one
   judgement of whether a recorded process (a mesh presence, a
   fleet's owner) still runs.
+- **`provider-sdks.d.ts`**: what the typecheck reads in place of
+  the model providers' SDKs, which only pi-ai's declarations name:
+  nothing, through tsconfig's `paths`, so `tsc` skips their 199,000
+  lines.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.

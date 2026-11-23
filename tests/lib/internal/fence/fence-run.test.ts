@@ -384,6 +384,31 @@ describe("refusing to run where the fence can't hold", () => {
 		}
 	});
 
+	// fence-child.ts hands bash the text as its argument, readable in /proc.
+	it("holds no cloud token, only gcloud's own settings and why it has no token", () => {
+		const made = fenceRunText(
+			{
+				kind: "fence",
+				folder: join(base, "plain"),
+				words: ["gcloud", "version"],
+			},
+			{
+				env: { CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.the-persons" },
+				home,
+				platform: "linux",
+				sandbox: LAID,
+			},
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		expect(made.text, "a token went in").not.toContain("ya29.");
+		expect(made.text, "gcloud's settings aren't the fence's").toContain(
+			join(home, ".cache/pi-fence/gcloud"),
+		);
+		expect(made.text, "gcloud isn't told why").toContain(
+			"pi: gcloud has no token in the sandbox",
+		);
+	});
+
 	it("refuses a folder that climbs out of the trees by name", () => {
 		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
 		const made = fenceRunText(
