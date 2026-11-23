@@ -111,6 +111,13 @@ export const LISTENS_WITHIN_CPU_MS = 20_000;
  */
 export const STARVED_WITHIN_MS = 600_000;
 /**
+ * The share of a listen time a starved child gains in CPU over one, at
+ * the least: 600 ms a minute. One that gains less waits on a lock, the
+ * disk or the network, as a few ms a second of timers and polling shows,
+ * so it is stuck rather than starved.
+ */
+const STALLED_SHARE = 0.01;
+/**
  * How long a listening child may take to answer its first request: an
  * open builds its conversation before it answers, so as long as a
  * child may take to listen.
@@ -170,9 +177,16 @@ export interface ChildSupervisor {
 	 * wake of its park asked for it. A host adopts what its last left
 	 * before it resumes anything, since a resume before the first adopt
 	 * waits on no slot of the last host's, and could start a second child
-	 * beside one running the conversation.
+	 * beside one running the conversation. `bounded` gives a child that
+	 * hasn't listened within the listen time up, starved or not, for a
+	 * caller that can't wait on it, as the host's start, which resumes one
+	 * at a time.
 	 */
-	resume(entry: RosterEntry, woken?: boolean): Promise<SessionIdentity>;
+	resume(
+		entry: RosterEntry,
+		woken?: boolean,
+		bounded?: boolean,
+	): Promise<SessionIdentity>;
 	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it, or with
@@ -498,14 +512,17 @@ export function childSupervisor(options: {
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
 	 * asked once a second, or the host stops watching. A `by` is a caller
-	 * that gives up then, a begin, so its child is given up then too. With
-	 * none, a resume, an adopt or a wake, whoever waits says its own wait
+	 * that gives up then, a begin or a host starting, so its child is given
+	 * up then too. With none, a wake or a later resume, whoever waits says
+	 * its own wait
 	 * (a window's attach journals each one) rather than giving up, so a
 	 * child past its time that has had little CPU is starved by a busy
 	 * machine rather than stuck: it is waited on until it has spent its
-	 * CPU, gains none for a whole listen time, or STARVED_WITHIN_MS has
-	 * passed. Stopping it then would throw its start away, and starting
-	 * again on the same machine would starve the same way.
+	 * CPU, gains less than STALLED_SHARE of a whole listen time in one, or
+	 * STARVED_WITHIN_MS has passed. Stopping it then would throw its start
+	 * away, and starting again on the same machine would starve the same
+	 * way. A systemd too loaded to say its CPU at first is asked again
+	 * each second, for one more listen time.
 	 */
 	async function once<T>(
 		slot: Slot,
@@ -520,9 +537,15 @@ export function childSupervisor(options: {
 		let until = began + ms;
 		let starved = false;
 		let asked = Date.now();
-		/** The CPU it last said it had spent, and when that last grew. */
+		/** When an unsaid first CPU stops being asked again. */
+		const unsaidUntil = began + 2 * ms;
+		let askedAgain = false;
+		/** The CPU it last said it had spent. */
 		let spentLast: number | undefined;
+		/** The CPU it had when it last grew by enough, and when that was. */
+		let grewFrom: number | undefined;
 		let grewAt = began;
+		const enough = ms * STALLED_SHARE;
 		for (;;) {
 			stillWatching();
 			try {
@@ -541,19 +564,28 @@ export function childSupervisor(options: {
 						throw new Error(`${slot.unit} did not listen within ${ms} ms`);
 					const spent = await units.cpuSpentMs(slot.unit);
 					const now = Date.now();
-					if (spent !== undefined && spent !== spentLast) {
+					if (spent !== undefined) {
 						spentLast = spent;
-						grewAt = now;
+						if (grewFrom === undefined || spent - grewFrom >= enough) {
+							grewFrom = spent;
+							grewAt = now;
+						}
 					}
 					// Once it is waited on, a systemd too loaded to say leaves it
 					// waiting: a loaded machine is what starves it.
 					const known = spent ?? (starved ? spentLast : undefined);
 					const stillStarved =
 						known !== undefined && known < listensWithinCpuMs;
-					// One that gains no CPU for a whole listen time waits on a lock,
-					// the disk or the network, not on the machine.
+					// One that gains next to no CPU for a whole listen time waits on
+					// a lock, the disk or the network, not on the machine.
 					const stalled = starved && spent !== undefined && now - grewAt >= ms;
-					if (stillStarved && !stalled && now < ceiling) {
+					const gained = spent === undefined ? 0 : spent - (grewFrom ?? spent);
+					if (spent === undefined && !starved && now < unsaidUntil) {
+						// A systemd too loaded to say at first is asked again, as
+						// whether it has gone is.
+						until = Math.min(unsaidUntil, now + ASKED_EVERY_MS);
+						askedAgain = true;
+					} else if (stillStarved && !stalled && now < ceiling) {
 						if (!starved)
 							options.say?.(
 								`${slot.unit} hasn't listened in ${ms} ms, but has had only ${known} ms of CPU: it is starved rather than stuck, so it is waited on`,
@@ -563,16 +595,18 @@ export function childSupervisor(options: {
 						until = Math.min(ceiling, now + ASKED_EVERY_MS);
 					} else {
 						const cpu = known === undefined ? "" : `, with ${known} ms of CPU`;
+						const share = gained === 0 ? "none" : `only ${gained} ms`;
 						const why = stalled
-							? `, none of it in the last ${now - grewAt} ms: it is stuck rather than starved`
+							? `, ${share} of it in the last ${now - grewAt} ms: it is stuck rather than starved`
 							: "";
 						// One given up at the ceiling is said at it; one given up
-						// sooner while starved, at the time it took.
-						const within = !starved
-							? ms
-							: stillStarved && !stalled
+						// sooner, starved or asked again, at the time it took.
+						const within =
+							starved && stillStarved && !stalled
 								? starvedMs
-								: now - began;
+								: starved || askedAgain
+									? now - began
+									: ms;
 						throw new Error(
 							`${slot.unit} did not listen within ${within} ms${cpu}${why}`,
 						);
@@ -1061,6 +1095,7 @@ export function childSupervisor(options: {
 	async function started(
 		entry: RosterEntry,
 		woken: boolean,
+		bounded: boolean,
 	): Promise<SessionIdentity> {
 		await listing;
 		const { sessionId } = entry;
@@ -1088,8 +1123,13 @@ export function childSupervisor(options: {
 			entry,
 			woken,
 			async () =>
-				(await watch(slot, { expected: sessionId, named: sessionId }))
-					.conversation,
+				(
+					await watch(slot, {
+						expected: sessionId,
+						named: sessionId,
+						...(bounded ? { by: Date.now() + withinMs } : {}),
+					})
+				).conversation,
 		);
 	}
 
@@ -1122,7 +1162,9 @@ export function childSupervisor(options: {
 		}
 		for (let tries = 1; ; tries += 1) {
 			try {
-				await watch(slot, { named, was });
+				// Bounded, since the host's start awaits every take-up before it
+				// resumes anything.
+				await watch(slot, { named, was, by: Date.now() + withinMs });
 				return true;
 			} catch (error) {
 				if (closing) throw error;
@@ -1264,11 +1306,11 @@ export function childSupervisor(options: {
 	}
 
 	return {
-		resume(entry, woken = false) {
+		resume(entry, woken = false, bounded = false) {
 			const { sessionId } = entry;
 			const already = starting.get(keyed(sessionId));
 			if (already) return already;
-			const start = started(entry, woken).finally(() =>
+			const start = started(entry, woken, bounded).finally(() =>
 				starting.delete(keyed(sessionId)),
 			);
 			starting.set(keyed(sessionId), start);

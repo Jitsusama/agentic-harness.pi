@@ -349,7 +349,10 @@ describe("a start's resume of what the host held", () => {
 			children: moved.fake,
 		});
 
-		expect(moved.fake.resume).toHaveBeenCalledExactlyOnceWith(moving, false);
+		expect(
+			moved.fake.resume,
+			"bounded, as every resume of a start is",
+		).toHaveBeenCalledExactlyOnceWith(moving, false, true);
 		expect(inHost.resume).toHaveBeenCalledOnce();
 		expect(inHost.resume).toHaveBeenCalledWith(
 			staying,

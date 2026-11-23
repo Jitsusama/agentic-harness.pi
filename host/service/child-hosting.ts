@@ -85,9 +85,9 @@ export function hostChildren(options: {
 
 	// The policy moved it, so a child that can't start says so: on a
 	// machine with no child unit, systemd's own refusal names no policy.
-	async function resumed(entry: RosterEntry, woken: boolean) {
+	async function resumed(entry: RosterEntry, woken: boolean, bounded = false) {
 		try {
-			return await supervisor.resume(entry, woken);
+			return await supervisor.resume(entry, woken, bounded);
 		} catch (error) {
 			throw new Error(
 				`${entry.sessionId} moves to a process of its own, as children.json says, which didn't start: ${String(error)}`,

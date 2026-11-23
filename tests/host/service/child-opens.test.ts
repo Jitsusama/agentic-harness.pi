@@ -405,6 +405,27 @@ describe("a host starting again", () => {
 		]);
 	});
 
+	it("gives up a starved child it takes up at its listen time, so its start goes on", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		const slot = slotOf(folder, key, a);
+		await writeSlot(slot, entry(a));
+		units.next = { neverListens: true };
+		// Growing, as a starved child's CPU does, so only a bound gives it up.
+		let spent = 180;
+		units.spent = () => {
+			spent += 20;
+			return spent;
+		};
+		await units.start(slot.unit);
+		const asked = Date.now();
+
+		expect(await supervisor.adopt(), "none taken up").toBe(0);
+
+		expect(Date.now() - asked, "at its listen time").toBeLessThan(3_000);
+	});
+
 	it("starts no child for a conversation still leaving a slot named by another id", async () => {
 		const slot = slotOf(folder, key, "c0000000-0000-4000-8000-000000000003");
 		await writeSlot(slot, entry(b));
