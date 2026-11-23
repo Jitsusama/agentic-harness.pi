@@ -1512,7 +1512,9 @@ const scenarios: Record<string, Scenario> = {
 			const seen = {
 				...summary(engine, entry.sessionId),
 				env: envOf(host, entry.sessionId),
-				cwd: view?.runtime.cwd,
+				// pi's runtime has the folder it runs in; the engine's narrow type leaves it out.
+				cwd: (view?.runtime as unknown as { readonly cwd?: string } | undefined)
+					?.cwd,
 				heldIn: host
 					.list()
 					.find((conversation) => conversation.id === entry.sessionId)?.cwd,
