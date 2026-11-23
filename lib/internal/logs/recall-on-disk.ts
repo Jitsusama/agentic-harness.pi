@@ -23,7 +23,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../record.ts";
 import {
-	type Entry,
 	logLines,
 	ROLLOVER_RECORD,
 	type RolloverRecord,
@@ -119,7 +118,7 @@ function branchMarked(
 	lines: (path: string) => Iterable<string>,
 ): LogRead {
 	const slots = new Map<string, Slot>();
-	const records = new Map<string, Entry>();
+	const records = new Map<string, SessionEntry>();
 	const waiting = new Map<string, Waiting>();
 	let bytes = 0;
 
@@ -150,10 +149,7 @@ function branchMarked(
 		} else {
 			records.delete(entry.id);
 		}
-		// The parse is pi's own entry, read back as it wrote it.
-		const session = entry as unknown as SessionEntry;
-
-		const given = resultOf(session);
+		const given = resultOf(entry);
 		const owner = given && waiting.get(given.callId);
 		if (given && owner) {
 			waiting.delete(given.callId);
@@ -162,10 +158,10 @@ function branchMarked(
 			if (owner.wants.size === 0) finish(owner);
 		}
 
-		const calls = callsIn(session);
+		const calls = callsIn(entry);
 		const asking = calls.filter((call) => !call.recalls);
 		const held: Waiting = {
-			entry: session,
+			entry,
 			slot,
 			wants: new Set(asking.map((call) => call.id)),
 			results: new Map(),
@@ -198,7 +194,7 @@ function branchMarked(
 }
 
 /** The entry a line holds, or nothing for a header, a blank or a cut line. */
-function entryOf(line: string): Entry | undefined {
+function entryOf(line: string): SessionEntry | undefined {
 	if (line.trim() === "") return undefined;
 	let parsed: unknown;
 	try {
@@ -207,14 +203,20 @@ function entryOf(line: string): Entry | undefined {
 		// A line cut short by a crash is the end of what can be read.
 		return undefined;
 	}
-	return isEntry(parsed) && parsed.type !== "session" ? parsed : undefined;
+	return isEntry(parsed) ? parsed : undefined;
 }
 
-/** Whether a parsed line is an entry with an id, as a walk needs. */
-function isEntry(value: unknown): value is Entry {
+/**
+ * Whether a parsed line is one of pi's entries, read back as pi wrote
+ * it: a typed record with an id, as a walk needs, and not the log's
+ * header. Every field a mark reads beyond those is checked where it is
+ * read.
+ */
+function isEntry(value: unknown): value is SessionEntry {
 	return (
 		isRecord(value) &&
 		typeof value.type === "string" &&
+		value.type !== "session" &&
 		typeof value.id === "string"
 	);
 }
