@@ -336,6 +336,9 @@ describe("following the install", () => {
 							"its work is being carried",
 				),
 			);
+			// A dispatch asks git before it sends, so a reload the carry failed
+			// to hold back would land only some quiet spells after the entry.
+			await quietFor(QUIET_MS, 10);
 			expect(prompted, "while the carry holds it").toEqual([]);
 
 			hold.release();
