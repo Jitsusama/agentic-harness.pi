@@ -41,8 +41,10 @@ import {
 	tieArguments,
 	titleFromWords,
 	unrecordedSaid,
+	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+import { drawsAsNothing } from "../../../lib/internal/unseen.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -693,15 +695,20 @@ async function makeQuest(
  */
 const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
 
+/** The code point that opens a terminal's escape sequence. */
+const ESCAPE_POINT = 0x1b;
+
 /**
- * What a line shows nobody but a model may still read: every format
- * character (bidi marks, embeddings and isolates, zero-width ones, the
- * tag characters that spell text unseen).
+ * A terminal's escape sequence (a colour, a cursor move): an ESC, its
+ * bracket, and what ends it, dropped whole so none of it reads as text.
  */
-const UNSEEN = /\p{Cf}/gu;
+const ESCAPES = new RegExp(
+	`${String.fromCodePoint(ESCAPE_POINT)}\\[[0-?]*[ -/]*[@-~]`,
+	"gu",
+);
 
 /** The control characters, a tab among them, each read as a space. */
-const CONTROLS = /\p{Cc}/gu;
+const CONTROLS = /\p{Cc}/u;
 
 /** Tie quest `id` to the cell it came from, saying how it went. */
 async function tie(
@@ -743,39 +750,43 @@ async function tie(
 		return { kind: "failed", from, why, retry: false };
 	}
 	const said = lastLine(ran.stderr);
-	const why = said
-		? `it last wrote ${JSON.stringify(said)}`
-		: `it ended with ${ran.code ?? "no code"}`;
+	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
 }
 
 /**
- * The last line mycelium wrote, a progress bar's last redraw included, cut
- * to MOST_QUOTED whole characters and ended with "..." where it was cut,
- * so a cut reason never reads as the whole of it, or "" where it wrote
- * none. What it relays may come from a node or a peer, so its backticks
- * become plain quotes, never reading as a command beside the one the
- * words ask to run, what no one sees (UNSEEN) is dropped and a control
- * read as a space in each line before the last with anything left is
- * taken, so the line reads
- * as it shows, in the order it was written, and a line of only those
- * never hides the reason above it.
+ * The last line mycelium wrote with anything left once cleaned (shown),
+ * a progress bar's last redraw included, so a line of only marks never
+ * hides the reason above it. It's cut to MOST_QUOTED whole characters
+ * and ended with "..." where it was cut, so a cut reason never reads as
+ * the whole of it, or "" where it wrote none. Lines are read from the
+ * end, so only the last few are cleaned however much came before.
  */
 function lastLine(stderr: string): string {
-	const line =
-		stderr
-			.split(LINE_ENDS)
-			.map((one) =>
-				one
-					.replace(UNSEEN, "")
-					.replace(CONTROLS, " ")
-					.replaceAll("`", "'")
-					.trim(),
-			)
-			.filter((one) => one !== "")
-			.pop() ?? "";
+	const lines = stderr.split(LINE_ENDS);
+	let line = "";
+	for (let at = lines.length - 1; at >= 0 && line === ""; at -= 1) {
+		line = shown(lines[at] ?? "");
+	}
 	const characters = Array.from(line);
 	return characters.length > MOST_QUOTED
 		? `${characters.slice(0, MOST_QUOTED).join("")}...`
 		: line;
+}
+
+/**
+ * A line mycelium wrote as it shows, since what it relays may come from a
+ * node or a peer. Its escape sequences (ESCAPES) and every character that
+ * draws as nothing, a format one or another the node counts as unseen,
+ * are dropped. Each control left reads as a space. Its backticks become
+ * plain quotes, so none reads as a command beside the one the words ask
+ * to run.
+ */
+function shown(line: string): string {
+	return Array.from(line.replace(ESCAPES, ""))
+		.filter((each) => !drawsAsNothing(each))
+		.map((each) => (CONTROLS.test(each) ? " " : each))
+		.join("")
+		.replaceAll("`", "'")
+		.trim();
 }
