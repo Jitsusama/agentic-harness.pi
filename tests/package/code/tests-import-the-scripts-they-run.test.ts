@@ -241,7 +241,7 @@ function scriptsNamed(
 
 describe("shell scripts", () => {
 	const files = tracked();
-	const scripts = files.filter(isScriptFile);
+	const scripts = files.filter((file) => isScriptFile(file));
 	const tests = codeOf(files).filter(
 		(file) =>
 			file.startsWith("tests/") && file !== SELF && !runOutsideVitest(file),
