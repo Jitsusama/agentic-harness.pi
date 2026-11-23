@@ -287,8 +287,12 @@ describe("why each job waits", () => {
 			expect(roomLeft([], shut, NOW)).toEqual({ vms: 0, builds: 0 });
 
 			const build = [older("build", 9_000)];
-			expect(waitsWithRoom(build, moving)).toBe(true);
-			expect(waitsWithRoom(build, shut)).toBe(false);
+			expect(waitsWithRoom(build, moving), "a wait in the open lane").toBe(
+				true,
+			);
+			expect(waitsWithRoom(build, shut), "a wait with the lane shut").toBe(
+				false,
+			);
 			const vm = [older("vm", 9_000, { kind: "vm-test" })];
 			expect(waitsWithRoom(vm, moving), "memory still holds a VM").toBe(false);
 		});
@@ -354,7 +358,10 @@ describe("why each job waits", () => {
 			expect(roomLeft([], ROOMY, NOW).builds, "off the call").toBeGreaterThan(
 				0,
 			);
-			expect(waitsWithRoom([older("build", 9_000)], onCall)).toBe(false);
+			expect(
+				waitsWithRoom([older("build", 9_000)], onCall),
+				"a build waiting for the call",
+			).toBe(false);
 			expect(
 				waitsWithRoom([older("push", 8_000, light)], onCall),
 				"light work the call doesn't hold still wastes its wait",

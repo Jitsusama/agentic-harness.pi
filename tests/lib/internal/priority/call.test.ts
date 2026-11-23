@@ -9,8 +9,8 @@ describe("whether the person is on a call", () => {
 	it("reads a call probe's exit: 0 on, 1 off, anything else unknown", async () => {
 		const exits = (code: number) => probeCall("sh", ["-c", `exit ${code}`]);
 
-		expect(await exits(0)).toBe(true);
-		expect(await exits(1)).toBe(false);
+		expect(await exits(0), "exit 0 says a call is on").toBe(true);
+		expect(await exits(1), "exit 1 says none is").toBe(false);
 		expect(await exits(69), "the sound server unread").toBeUndefined();
 		expect(await exits(64), "asked wrongly").toBeUndefined();
 		expect(
@@ -40,7 +40,9 @@ describe("whether the person is on a call", () => {
 		expect(await read(), "the last answer still stands").toBe(true);
 		expect(asked).toBe(1);
 		now = CALL_READ_MS;
-		expect(await read()).toBe(false);
+		expect(await read(), "the probe's new answer, once the last is old").toBe(
+			false,
+		);
 		expect(asked).toBe(2);
 	});
 
