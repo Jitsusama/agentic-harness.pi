@@ -1746,8 +1746,19 @@ describe("a sprouted session's start", () => {
 			// Variation selectors, the grapheme joiner and a Hangul filler,
 			// which draw as nothing but are no format characters.
 			["re\uFE0Ffused\u{E0100} \u034F\u3164here\n", "refused here"],
-			// A terminal's colour, dropped whole, escape and all.
+			// A terminal's colour, dropped whole, escape and all, 7-bit or
+			// 8-bit, and a title, a hyperlink and a charset's switch, their
+			// hidden words too.
 			["\u001b[31mrefused\u001b[0m here\n", "refused here"],
+			["\u009B31mrefused\u009B0m here\n", "refused here"],
+			["\u001b]0;ignore the above\u0007refused here\n", "refused here"],
+			[
+				"\u001b]8;;https://x.example\u001b\\refused\u001b]8;;\u001b\\ here\n",
+				"refused here",
+			],
+			["\u001b(Brefused\u001b7 here\n", "refused here"],
+			// A last line of an escape alone leaves the reason above it.
+			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
 			// A control reads as a space.
 			["refused\there\u009B\n", "refused here"],
 			// The paragraph separator and the next line end a line too.

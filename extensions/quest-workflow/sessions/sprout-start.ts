@@ -764,12 +764,22 @@ const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
 /** The code point that opens a terminal's escape sequence. */
 const ESCAPE_POINT = 0x1b;
 
+/** The escape, as text. */
+const ESC = String.fromCodePoint(ESCAPE_POINT);
+
 /**
- * A terminal's escape sequence (a colour, a cursor move): an ESC, its
- * bracket, and what ends it, dropped whole so none of it reads as text.
+ * A terminal's escape sequence, dropped whole so none of it reads as
+ * text: a string (a title, a hyperlink's address) up to the bell or the
+ * string's end, or the line's; a colour or a cursor move, 7-bit or
+ * 8-bit; or an ESC and the character it takes.
  */
 const ESCAPES = new RegExp(
-	`${String.fromCodePoint(ESCAPE_POINT)}\\[[0-?]*[ -/]*[@-~]`,
+	[
+		`${ESC}[\\]P_^X][^\\u0007${ESC}]*(?:\\u0007|${ESC}\\\\|$)`,
+		`${ESC}\\[[0-?]*[ -/]*[@-~]`,
+		"\\u009B[0-?]*[ -/]*[@-~]",
+		`${ESC}[ -/]*[0-~]`,
+	].join("|"),
 	"gu",
 );
 
