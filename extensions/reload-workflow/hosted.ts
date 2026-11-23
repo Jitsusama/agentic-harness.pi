@@ -97,23 +97,31 @@ export function settleHostedReload(
  * running. A request the agent left waiting goes with it, so the next
  * settle doesn't reload a second time. Answers whether the host
  * reloaded it, for a caller that keeps trying. One the agent asked for
- * that fails is told to it through `toAgent` as well.
+ * that fails is told to it through `toAgent` as well. The follower's
+ * own yields to a move waiting once the run ends; a failure it waits
+ * out (`waitedOut`, given why) is said only in its log, by the follower.
  */
 export function reloadThroughHost(
 	ctx: ExtensionContext,
 	request: ReloadRequest,
 	toAgent?: (text: string) => void,
+	waitedOut?: (why: string) => boolean,
 ): Promise<boolean> {
 	const host = hosted();
 	if (!host?.reload) return Promise.resolve(false);
 	const slot = state(ctx);
 	slot.request = undefined;
 	slot.landing = request;
-	return host.reload(sessionKeyOf(ctx), { reason: request.reason }).then(
+	const asked = {
+		reason: request.reason,
+		...(request.by === "self" ? { yieldsToMove: true } : {}),
+	};
+	return host.reload(sessionKeyOf(ctx), asked).then(
 		() => true,
 		(error: unknown) => {
 			slot.landing = undefined;
 			const why = error instanceof Error ? error.message : String(error);
+			if (waitedOut?.(why) === true) return false;
 			const said = `Nothing was reloaded: the host could not reload this conversation: ${why}.`;
 			say(ctx, said);
 			if (request.by === "agent") toAgent?.(said);

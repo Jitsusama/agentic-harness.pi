@@ -96,6 +96,14 @@ describe("whenToReload", () => {
 		expect(whenToReload({ ...still, carrying: true })).toBe("wait");
 		expect(whenToReload({ ...still, carrying: false })).toBe("now");
 	});
+
+	// A reload going first would stop the move unwritten, and the move
+	// restarts the session on current code anyway.
+	it("waits while a move of the session waits, idle or not", () => {
+		expect(whenToReload({ ...still, moving: true })).toBe("wait");
+		expect(whenToReload({ ...still, idle: false, moving: true })).toBe("wait");
+		expect(whenToReload({ ...still, moving: false })).toBe("now");
+	});
 });
 
 describe("dependenciesReady", () => {

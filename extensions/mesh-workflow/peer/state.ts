@@ -33,6 +33,10 @@ import {
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
@@ -338,8 +342,22 @@ export function createState(
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 	});
+	// The session a move holds the reload of, kept so its stop lets go of
+	// the same one after its peer has gone.
+	let moveHeld: string | undefined;
 	// Move into a host or out of one, from outside the window (moving.ts).
 	const moving = createMoving({
+		holdReloads: (to) => {
+			const session = m.peer?.session;
+			if (session === undefined) return;
+			if (moveHeld !== undefined && moveHeld !== session) letMoveGo(moveHeld);
+			moveHeld = session;
+			holdForMove(session, to);
+		},
+		letReloadsGo: () => {
+			if (moveHeld !== undefined) letMoveGo(moveHeld);
+			moveHeld = undefined;
+		},
 		holds: () => holdsOf(m.ctx, pi.events, m.prompts),
 		hosted: () => m.hostKey !== undefined,
 		moving: () => m.peer?.moving,

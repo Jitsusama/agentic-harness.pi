@@ -54,6 +54,15 @@
  * The person can ask from inside the window too, with /host
  * (host-command.ts): the same move, said as asked there, and saying at
  * once what it waits for first.
+ *
+ * While a move waits it holds off the reload an install's move would
+ * start (lib/internal/session/move-waiting.ts): that reload, going as
+ * the same run settles, stops the move unwritten, and the move restarts
+ * the session on current code anyway. It renews the hold at every look
+ * and lets it go when it is called off, dropped or stopped. Once made it
+ * looks no more, so its hold lasts the minute the last look gave it, or
+ * until the session it closes stops, whichever is first: a close takes
+ * well under that.
  */
 
 import type {
@@ -139,6 +148,10 @@ export interface MovingHost {
 	 * plain pi to carry on from. A hosted conversation only.
 	 */
 	readonly cutRun?: (by: string) => void;
+	/** Hold an install's reload of the session off for a move to `to`, or renew the hold. */
+	readonly holdReloads?: (to: MoveTarget) => void;
+	/** Let an install's reload of the session go again. */
+	readonly letReloadsGo?: () => void;
 	readonly now?: () => Date;
 	/** Look again every so often; answers how to stop. */
 	readonly every?: (ms: number, look: () => void) => () => void;
@@ -246,6 +259,7 @@ export function createMoving(host: MovingHost): MovingSession {
 	/** Call the move waiting off, saying `told` on screen and `why` in presence. */
 	const callOff = (moving: Moving, why: string, told: string) => {
 		unlook();
+		host.letReloadsGo?.();
 		cutting = false;
 		const off = {
 			to: moving.to,
@@ -289,8 +303,12 @@ export function createMoving(host: MovingHost): MovingSession {
 		const moving = host.moving();
 		if (moving === undefined || ended) {
 			unlook();
+			// A move made keeps its hold, lapsing a minute after its last look,
+			// while its session ends; one dropped elsewhere lets go now.
+			if (moving === undefined) host.letReloadsGo?.();
 			return;
 		}
+		host.holdReloads?.(moving.to);
 		const holds = host.holds();
 		if (holds !== undefined) {
 			wait(moving, holds);
@@ -374,7 +392,10 @@ export function createMoving(host: MovingHost): MovingSession {
 		look,
 		turnEnded: cut,
 		started: cut,
-		stop: unlook,
+		stop() {
+			unlook();
+			host.letReloadsGo?.();
+		},
 	};
 }
 
