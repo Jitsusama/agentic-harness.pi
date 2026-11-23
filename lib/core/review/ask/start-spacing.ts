@@ -100,6 +100,11 @@ interface Started {
 	readonly change: string;
 	/** The ticket that took it, so a look that failed after taking it knows. */
 	readonly ticket?: string;
+	/**
+	 * The start it replaced, kept so a look that finds its own start
+	 * again can still give it back, rather than leave the line unspaced.
+	 */
+	readonly follows?: Omit<Started, "follows">;
 }
 
 /** The machine's line, as kept on disk. */
@@ -196,14 +201,16 @@ export async function awaitCouncilStart(
 		if (turn !== undefined) firstSeen ??= turn;
 		const started = turn?.started;
 		if (turn !== undefined && started !== undefined) {
-			const release = () => giveBack(at, ticket, started, turn.before);
+			const release = () =>
+				giveBack(at, ticket, started, turn.before).catch(() => {
+					// The start stands as taken; the next round waits a spacing
+					// it needn't, which is better than a refused round's caller
+					// being cut off partway by a throw.
+				});
 			if (stoppedBy(signal)) {
 				// Given up during the look that took the start: nothing is
 				// started in its name, so the start goes back.
-				await release().catch(() => {
-					// The start stands as taken; the next round waits a spacing
-					// it needn't, which is better than answering with a throw.
-				});
+				await release();
 				return { cancelled: stoppedSaid(firstSeen, spacing) };
 			}
 			const waitedMs = Date.now() - Date.parse(asked);
@@ -265,7 +272,13 @@ async function takeTurn(
 		if (line.started?.ticket === ticket.id) {
 			// An earlier look took the start and then failed on its way out:
 			// it is started, not owed another.
-			return { started: line.started, ahead: 0, waitMs: 0 };
+			const { follows } = line.started;
+			return {
+				started: line.started,
+				...(follows === undefined ? {} : { before: follows }),
+				ahead: 0,
+				waitMs: 0,
+			};
 		}
 		const seen = { ...ticket, seenAt: new Date(now).toISOString() };
 		const waiting = line.waiting
@@ -297,11 +310,13 @@ async function takeTurn(
 		);
 		const free = last + spacing;
 		if (ahead === 0 && now >= free) {
+			const replaced = withoutFollows(line.started);
 			const started: Started = {
 				at: new Date(now).toISOString(),
 				by: ticket.by,
 				change: ticket.change,
 				ticket: ticket.id,
+				...(replaced === undefined ? {} : { follows: replaced }),
 			};
 			await keep(at, {
 				started,
@@ -309,7 +324,7 @@ async function takeTurn(
 			});
 			return {
 				started,
-				...(line.started === undefined ? {} : { before: line.started }),
+				...(replaced === undefined ? {} : { before: replaced }),
 				ahead: 0,
 				waitMs: 0,
 			};
@@ -326,14 +341,27 @@ async function takeTurn(
 	});
 }
 
-/** Takes `ticket` out of the line, as a round given up while it waits. */
+/** A start without the one it replaced, so the line never nests deeper. */
+function withoutFollows(
+	started: Started | undefined,
+): Omit<Started, "follows"> | undefined {
+	if (started === undefined) return undefined;
+	const { follows: _replaced, ...rest } = started;
+	return rest;
+}
+
+/**
+ * Takes `ticket` out of the line, as a round given up while it waits,
+ * along with any start a look took in its name and failed to answer:
+ * nothing starts for it, so the start before goes back.
+ */
 async function leave(at: string, ticket: Ticket): Promise<void> {
 	await withFileLock(at, async () => {
 		const line = await readLine(at);
-		await keep(at, {
-			...line,
-			waiting: line.waiting.filter((each) => each.id !== ticket.id),
-		});
+		const waiting = line.waiting.filter((each) => each.id !== ticket.id);
+		const started =
+			line.started?.ticket === ticket.id ? line.started.follows : line.started;
+		await keep(at, started === undefined ? { waiting } : { started, waiting });
 	});
 }
 
@@ -405,19 +433,16 @@ async function keep(at: string, line: Line): Promise<void> {
 	await rename(next, at);
 }
 
-/** The line kept at `at`, or an empty one when none is or it can't be read. */
+/**
+ * The line kept at `at`: empty when none is, and spaced from `now` when
+ * what is there can't be read or isn't a line.
+ */
 async function readLine(at: string, now = Date.now()): Promise<Line> {
-	let text: string;
-	try {
-		text = await readFile(at, "utf8");
-	} catch (error) {
-		if (isMissing(error)) return { waiting: [] };
-		// Unreadable is not empty: the read fails the look, which is retried.
-		throw error;
-	}
-	// A line that can't be parsed lost whatever it held, its last start
-	// among them. Spacing from now, as though one had just started, keeps
-	// a garbled line from letting the next round start unspaced.
+	// A line that can't be read or parsed lost whatever it held, its last
+	// start among them. Spacing from now, as though one had just started,
+	// keeps it from letting the next round start unspaced, and the look
+	// that reads it writes a whole line over it, so it heals rather than
+	// failing every round on the machine.
 	const garbled: Line = {
 		started: {
 			at: new Date(now).toISOString(),
@@ -426,17 +451,30 @@ async function readLine(at: string, now = Date.now()): Promise<Line> {
 		},
 		waiting: [],
 	};
+	let text: string;
+	try {
+		text = await readFile(at, "utf8");
+	} catch (error) {
+		return isMissing(error) ? { waiting: [] } : garbled;
+	}
 	try {
 		const parsed: unknown = JSON.parse(text);
-		if (typeof parsed !== "object" || parsed === null) return garbled;
+		// Every line kept here holds a waiting list; anything else, `{}` or a
+		// start that isn't one among them, is not a line this wrote.
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			!("waiting" in parsed) ||
+			!Array.isArray(parsed.waiting) ||
+			("started" in parsed && !isStarted(parsed.started))
+		) {
+			return garbled;
+		}
 		const started =
 			"started" in parsed && isStarted(parsed.started)
 				? parsed.started
 				: undefined;
-		const waiting =
-			"waiting" in parsed && Array.isArray(parsed.waiting)
-				? parsed.waiting.filter(isTicket)
-				: [];
+		const waiting = parsed.waiting.filter(isTicket);
 		return started === undefined ? { waiting } : { started, waiting };
 	} catch {
 		// Cut short or overwritten by hand: spaced from now.
@@ -464,7 +502,9 @@ function isStarted(value: unknown): value is Started {
 		"by" in value &&
 		typeof value.by === "string" &&
 		"change" in value &&
-		typeof value.change === "string"
+		typeof value.change === "string" &&
+		(!("ticket" in value) || typeof value.ticket === "string") &&
+		(!("follows" in value) || isStarted(value.follows))
 	);
 }
 
