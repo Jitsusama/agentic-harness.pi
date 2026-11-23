@@ -27,9 +27,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../lib/internal/record.ts";
 import { folder, removeAll } from "../lib/internal/carry/support/machines.ts";
 // Imported only to be named, so `--changed` runs this file when a script
-// it runs changes alone; it runs them from their paths below.
+// it runs changes alone, or a stand-in beside it does; it runs them from
+// their paths below.
 import "../../scripts/host-send-runtime.sh";
 import "../../scripts/host-test-there.sh";
+import "./host-send-runtime-lender-nix.sh";
+import "./host-send-runtime-lender-nix-store.sh";
+import "./host-send-runtime-nix.sh";
+import "./host-send-runtime-ssh.sh";
 
 const run = promisify(execFile);
 const SCRIPTS = join(import.meta.dirname, "..", "..", "scripts");

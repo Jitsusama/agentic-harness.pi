@@ -21,6 +21,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SSH_GUARD_BIN } from "../../lib/internal/shell/ssh-guard.ts";
+// Imported only to be named, so `--changed` runs this file when the
+// stand-in changes alone; it runs it from its path below.
+import "./ssh-guard-stand-in.sh";
 
 const MACHINES = "optimus equilibrius";
 const STAND_IN = fileURLToPath(

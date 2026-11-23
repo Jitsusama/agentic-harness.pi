@@ -102,7 +102,11 @@ runs them all.
 A test that runs a shell script reaches it by path, which the graph
 doesn't follow, so it also imports each `.sh` it runs
 (`import "../../scripts/merge-gate.sh"`); the loader in
-`tests/setup/scripts-as-text.ts` makes that import the script's text.
+`tests/setup/scripts-as-text.ts` makes that import the script's text,
+and imports in turn each script it sources from beside it. A package
+rule, `tests-import-the-scripts-they-run`, fails a test that names a
+script on its own in a string without importing it, and any shipped
+file that imports one, since pi would read it as JavaScript.
 Vite's `?raw` won't do: vitest drops a dependency whose id, query
 included, names no file. A `.ts` script a test runs as its own process
 is still reached only by what it imports.

@@ -5,9 +5,25 @@
  * vitest keeps a test's dependency only when the import's id names a
  * file that exists, query included, so vite's own `?raw` names
  * `it.sh?raw` and is dropped. A loader for the plain `.sh` keeps the id
- * the file's own path, which is what `--changed` compares.
+ * the file's own path, which is what `--changed` compares. A script
+ * that sources another from beside it imports that one too, so an edit
+ * to what it sources reaches the same tests.
  */
 import { readFileSync } from "node:fs";
+
+/**
+ * A line sourcing a script from the sourcing one's folder, by `source`
+ * or `.`, as `"$(dirname "${BASH_SOURCE[0]}")/x.sh"` names it.
+ */
+const SOURCED = /^\s*(?:source|\.)\s+"\$\(dirname "[^"]+"\)\/([\w.-]+\.sh)"/gm;
+
+/** The module for a script whose text is `text`. */
+function asModule(text: string): string {
+	const sourced = [...text.matchAll(SOURCED)].map(
+		(found) => `import "./${found[1]}";\n`,
+	);
+	return `${sourced.join("")}export default ${JSON.stringify(text)};\n`;
+}
 
 /** The loader, to be given to each vitest project, since none inherits the root's. */
 export function scriptsAsText(): {
@@ -22,7 +38,7 @@ export function scriptsAsText(): {
 		enforce: "pre",
 		load(id) {
 			if (!id.endsWith(".sh")) return null;
-			return `export default ${JSON.stringify(readFileSync(id, "utf8"))};\n`;
+			return asModule(readFileSync(id, "utf8"));
 		},
 	};
 }
