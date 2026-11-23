@@ -30,8 +30,8 @@ set -euo pipefail
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
 wait_s="${CHECK_THERE_WAIT_S:-5400}"
-# Eight digits or more would pass bash's integers on the host, as a wait
-# that ends at once.
+# A wait is at most seven digits, over a hundred days, so no slip of the
+# keys asks for one that never ends.
 case "$wait_s" in
   '' | *[!0-9]* | ????????*)
     echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds under ten million" >&2
@@ -126,7 +126,8 @@ end_groups() {
 stop_all() {
   trap '' TERM INT HUP
   local groups
-  groups=$(jobs -p)
+  # The job alone is ending what it left is gone from the table already.
+  groups="$(jobs -p) ${ending:-}"
   # shellcheck disable=SC2086 # one word a group
   end_groups $groups
   exit "$1"
@@ -142,20 +143,31 @@ trap 'stop_all 129' HUP
 # nothing in it can swallow the script. It is asked after every second
 # rather than waited on, since a signal landing just as `wait` begins
 # waits for the job's end; a trap runs as soon as the second's sleep
-# ends. Work with no group of its own, as job control that didn't take
-# would leave it, is ended and refused, since no stop could reach it.
+# ends. Work that would have no group of its own, as with job control
+# off, is refused before it runs, since no stop could reach it; and one
+# that runs without its group anyway is ended. The group is asked after
+# first, since a job ending between the two asks has had a group.
 alone() {
+  case "$-" in
+    *m*) ;;
+    *)
+      echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
+      return 1
+      ;;
+  esac
   "$@" 9>&- </dev/null &
   local job=$! status=0
-  if kill -0 "$job" 2>/dev/null && ! kill -0 -- "-$job" 2>/dev/null; then
+  if ! kill -0 -- "-$job" 2>/dev/null && kill -0 "$job" 2>/dev/null; then
     kill -KILL "$job" 2>/dev/null || true
     wait "$job" 2>/dev/null || true
     echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
     return 1
   fi
   while kill -0 "$job" 2>/dev/null; do sleep 1; done
+  ending=$job
   wait "$job" || status=$?
   end_groups "$job"
+  ending=
   return "$status"
 }
 # A check killed outright runs no trap, so its node link stays; each
