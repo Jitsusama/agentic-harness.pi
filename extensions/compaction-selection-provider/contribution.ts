@@ -55,7 +55,11 @@ import {
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
 import { isRecord } from "../../lib/internal/record.ts";
-import { messagesOnDisk } from "../../lib/internal/session/rollover.ts";
+import {
+	type Entry,
+	messagesOnDisk,
+	messagesOnDiskAsync,
+} from "../../lib/internal/session/rollover.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -84,26 +88,51 @@ function withQuotableOnDisk(
 	branch: readonly SessionEntry[],
 	quotable: ReadonlySet<string>,
 ): SessionEntry[] {
-	const onDisk: SessionEntry[] = [];
-	for (const entry of messagesOnDisk(branch, quotable)) {
-		if (isMessageEntry(entry)) onDisk.push(entry);
+	return [...messagesOnly(messagesOnDisk(branch, quotable)), ...branch];
+}
+
+/**
+ * As {@link withQuotableOnDisk}, giving the event loop back as it reads,
+ * for the check, which runs while the conversation goes on.
+ */
+async function withQuotableOnDiskAsync(
+	branch: readonly SessionEntry[],
+	quotable: ReadonlySet<string>,
+	signal: AbortSignal,
+): Promise<SessionEntry[]> {
+	const read = await messagesOnDiskAsync(branch, quotable, signal);
+	return [...messagesOnly(read), ...branch];
+}
+
+/** The lines read back that are messages as pi writes them. */
+function messagesOnly(read: readonly Entry[]): SessionEntry[] {
+	const messages: SessionEntry[] = [];
+	for (const entry of read) {
+		if (isMessageEntry(entry)) messages.push(entry);
 	}
-	return [...onDisk, ...branch];
+	return messages;
 }
 
 /**
  * Whether a line read back from disk is a message entry as pi writes
- * one: an id and a message with a role, so a malformed line is left out
- * rather than quoted.
+ * one: an id and a message with a role, whose content, for a person or
+ * the agent, is text or a list of parts. A malformed line is left out
+ * rather than read for its paragraphs, which would throw and cost the
+ * compaction every quote.
  */
 function isMessageEntry(value: unknown): value is SessionMessageEntry {
-	return (
-		isRecord(value) &&
-		value.type === "message" &&
-		typeof value.id === "string" &&
-		isRecord(value.message) &&
-		typeof value.message.role === "string"
-	);
+	if (
+		!isRecord(value) ||
+		value.type !== "message" ||
+		typeof value.id !== "string"
+	)
+		return false;
+	const { message } = value;
+	if (!isRecord(message) || typeof message.role !== "string") return false;
+	if (message.role !== "user" && message.role !== "assistant") return true;
+	const { content } = message;
+	if (message.role === "user" && typeof content === "string") return true;
+	return Array.isArray(content) && content.every(isRecord);
 }
 
 /** The excerpt budget the environment sets. */
@@ -216,7 +245,8 @@ export function selectionContributor(
 		const branch = ctx.sessionManager.getBranch();
 		const holds = store.holds(branch);
 		const tags = store.tags(branch);
-		const read = withQuotableOnDisk(branch, tags.quotable);
+		const read = await withQuotableOnDiskAsync(branch, tags.quotable, signal);
+		if (signal.aborted) return;
 		const pending = selectExcerpts(
 			candidatesBefore(read, tags, estimatedFirstKept(branch)),
 			budget * CHECK_OVERSAMPLE,

@@ -576,6 +576,47 @@ export function messagesOnDisk(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
 ): Entry[] {
+	const scan = scanParents(branch, wanted);
+	let step = scan.next();
+	while (!step.done) step = scan.next();
+	return step.value;
+}
+
+/**
+ * As {@link messagesOnDisk}, for a reader that can wait: the event loop
+ * is given back after each chunk's worth of lines, so a scan of a large
+ * parent never holds up the conversation for longer than one chunk
+ * takes. Once `signal` is aborted it stops, giving back nothing.
+ */
+export async function messagesOnDiskAsync(
+	branch: readonly unknown[],
+	wanted: ReadonlySet<string>,
+	signal?: AbortSignal,
+): Promise<Entry[]> {
+	const scan = scanParents(branch, wanted);
+	try {
+		let step = scan.next();
+		while (!step.done) {
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			if (signal?.aborted) return [];
+			step = scan.next();
+		}
+		return step.value;
+	} finally {
+		// Closes any log a stopped scan still holds open.
+		scan.return([]);
+	}
+}
+
+/**
+ * The walk both readers share, pausing after each chunk's worth of
+ * lines so a reader can give the event loop back, and returning the
+ * messages found.
+ */
+function* scanParents(
+	branch: readonly unknown[],
+	wanted: ReadonlySet<string>,
+): Generator<void, Entry[]> {
 	const seen = new Set(
 		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
 	);
@@ -587,8 +628,14 @@ export function messagesOnDisk(
 		visited.add(record.parentSession);
 		const found: Entry[] = [];
 		let next: RolloverRecord | undefined;
+		let sincePause = 0;
 		try {
 			for (const line of linesOf(record.parentSession)) {
+				sincePause += line.length + 1;
+				if (sincePause >= CHUNK_BYTES) {
+					sincePause = 0;
+					yield;
+				}
 				const entry = wantedLine(line, missing);
 				if (entry?.type !== "message") {
 					if (entry) next = rolledFrom([entry]) ?? next;

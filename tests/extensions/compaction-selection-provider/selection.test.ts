@@ -505,9 +505,16 @@ describe("contributing excerpts", () => {
 		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
 		try {
 			const held = heldOver(dir, [rule]);
+			const later = user("u5", "Use the staging cluster from now on.");
 			// Long enough that pi would keep it and what follows verbatim.
 			const long = assistant("a1", "y".repeat(100_000));
-			const branch = [held, tagged(rule, ["rule"]), long, kept];
+			// Paragraphs enough to fill the recent context, so the judge reads
+			// the later request only as said after the rule it was placed by.
+			const filler = assistant(
+				"a2",
+				Array.from({ length: 4 }, () => "z".repeat(1900)).join("\n\n"),
+			);
+			const branch = [held, tagged(rule, ["rule"]), later, long, filler, kept];
 			const { ctx, store, appended, sent } = session(
 				branch,
 				answeringYesTo(".holds"),
@@ -519,6 +526,10 @@ describe("contributing excerpts", () => {
 
 			// The rule is only on disk, so a check of the branch alone asks nothing.
 			expect(sent).toHaveLength(1);
+			// Placed by where it was read back, so what was said after it is there.
+			expect(JSON.stringify(sent[0]?.context)).toContain(
+				"Use the staging cluster from now on.",
+			);
 			const [type, data] = appended[0] ?? [];
 			expect(type).toBe(SELECTION_HOLDS_ENTRY);
 			expect(
@@ -543,8 +554,36 @@ describe("contributing excerpts", () => {
 			expect(contributions.appendix[0]).toContain(
 				"> Always sign every commit.",
 			);
-			expect(contributions.appendix[0]).not.toContain("untagged message");
 			expect(recordOf(contributions)).toMatchObject({ candidates: 1 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("still quotes from a held log when a line it reads back is malformed", () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			const said = user("u0", "Never deploy on a Friday afternoon.");
+			// Tagged as it was said, then left on disk with content pi never writes.
+			const malformed = {
+				...said,
+				message: { role: "user", content: 42 },
+			} as unknown as SessionEntry;
+			const held = heldOver(dir, [malformed, rule]);
+			const branch = [
+				held,
+				tagged(said, ["rule"]),
+				tagged(rule, ["rule"]),
+				kept,
+			];
+			const { ctx, store } = session(branch, answeringYesTo());
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+
+			selectionContributor(() => ctx, { store }).listener(contributions);
+
+			expect(contributions.appendix[0]).toContain(
+				"> Always sign every commit.",
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

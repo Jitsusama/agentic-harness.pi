@@ -71,6 +71,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/quest/discovery/thread-flags.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
 	"tests/core/internal/keyring/secret-service-call.test.ts",
+	"tests/lib/internal/session/rollover-pipe.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",
 	"tests/lib/internal/fence/fence-sockets.test.ts",
 	"tests/lib/internal/fence/fence-quest-locks.test.ts",

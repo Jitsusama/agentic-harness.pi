@@ -20,13 +20,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ancestry,
 	carriedBy,
 	type Entry,
 	leaveInParentLog,
 	messagesOnDisk,
+	messagesOnDiskAsync,
 	ROLLOVER_RECORD,
 	recordIndex,
 	rolledFrom,
@@ -341,7 +342,7 @@ describe("the parent logs", () => {
 });
 
 describe("messages asked of the parent logs", () => {
-	it("are read from every parent, oldest first, and only those asked for", () => {
+	it("are read from every parent, oldest first, and only the messages asked for", () => {
 		const { manager, ids } = longSession();
 		const first = rolledInto(manager).fresh;
 		const middle = first.appendMessage(user("in the middle"));
@@ -351,7 +352,8 @@ describe("messages asked of the parent logs", () => {
 
 		const read = messagesOnDisk(
 			second.getBranch(),
-			new Set([middle, ids.early, ids.state]),
+			// The label stays on disk too, but is not a message.
+			new Set([middle, ids.early, ids.earlyLabel]),
 		);
 
 		expect(read.map((entry) => entry.id)).toEqual([ids.early, middle]);
@@ -475,7 +477,75 @@ describe("messages asked of the parent logs", () => {
 			[],
 		);
 	});
+
+	it("are found by their bytes, so no other line of a parent is parsed", () => {
+		const { manager, ids } = longSession();
+		// The answer, so the scan passes the question, a message not asked
+		// for, before it finds what it wants and stops.
+		const answer = manager
+			.getBranch()
+			.find((entry) => entry.parentId === ids.early)?.id;
+		const branch = rolledInto(manager).fresh.getBranch();
+		const parse = vi.spyOn(JSON, "parse");
+		try {
+			const read = messagesOnDisk(branch, new Set([answer ?? ""]));
+
+			expect(answer).toBeDefined();
+			expect(read.map((entry) => entry.id)).toEqual([answer]);
+			expect(parse).toHaveBeenCalledTimes(1);
+		} finally {
+			parse.mockRestore();
+		}
+	});
+
+	it("give the event loop back while they read a large parent", async () => {
+		const { manager, ids } = longSession();
+		const { fresh } = withFillerBefore(manager);
+		const order: string[] = [];
+		setImmediate(() => order.push("loop"));
+
+		const read = await messagesOnDiskAsync(
+			fresh.getBranch(),
+			new Set([ids.early]),
+		);
+		order.push("read");
+
+		expect(order).toEqual(["loop", "read"]);
+		expect(read.map((entry) => entry.id)).toEqual([ids.early]);
+	});
+
+	it("stop giving anything back once their reader is aborted", async () => {
+		const { manager, ids } = longSession();
+		const { fresh } = withFillerBefore(manager);
+		const controller = new AbortController();
+		controller.abort();
+
+		const read = await messagesOnDiskAsync(
+			fresh.getBranch(),
+			new Set([ids.early]),
+			controller.signal,
+		);
+
+		expect(read).toEqual([]);
+	});
 });
+
+/**
+ * The session rolled over, with lines enough to fill a few chunks put
+ * before everything its parent log holds after the header, so a reader
+ * meets them before any message.
+ */
+function withFillerBefore(manager: SessionManager) {
+	const rolled = rolledInto(manager);
+	const file = manager.getSessionFile() ?? "";
+	const [header, ...rest] = readFileSync(file, "utf8").split("\n");
+	const filler = `${JSON.stringify({ type: "custom", customType: "filler", data: "x".repeat(1000) })}\n`;
+	writeFileSync(
+		file,
+		`${header}\n${filler.repeat((3 * CHUNK_BYTES) / 1024)}${rest.join("\n")}`,
+	);
+	return rolled;
+}
 
 /** The text of each message entry, in order. */
 function texts(entries: readonly Entry[]): string[] {
