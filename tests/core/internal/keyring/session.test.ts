@@ -1,8 +1,6 @@
-import {
-	createExtensionRuntime,
-	type Extension,
-	ExtensionRunner,
-	SessionManager,
+import type {
+	ExtensionAPI,
+	ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,79 +8,24 @@ import {
 	sayKeyringNotice,
 } from "../../../../lib/core/internal/keyring/notices.ts";
 import { keepCredentialsInKeyring } from "../../../../lib/core/internal/keyring/session.ts";
-import { type FakePi, fakePi } from "../../../support/fake-pi.ts";
-
-/** A session's screen, counting what it was told. */
-function screen(): {
-	ui: { notify: (message: string) => void };
-	told: string[];
-} {
-	const told: string[] = [];
-	return { ui: { notify: (message) => told.push(message) }, told };
-}
-
-/** Run each handler `pi` holds for `event` with `ctx`. */
-async function fire(pi: FakePi, event: string, ctx: unknown): Promise<void> {
-	for (const handler of pi.recorded.handlers.get(event) ?? [])
-		await handler({ type: event }, ctx);
-}
-
-/** An extension keeping its credentials in the keyring, with nothing to move. */
-function extension(label: string): FakePi {
-	const pi = fakePi();
-	keepCredentialsInKeyring(pi, label, async () => {});
-	return pi;
-}
-
-type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
-
-/** An extension keeping its credentials in the keyring, as pi loads one. */
-function loaded(label: string): Extension {
-	const extension: Extension = {
-		path: label,
-		resolvedPath: label,
-		sourceInfo: {
-			path: label,
-			source: "sdk",
-			scope: "temporary",
-			origin: "top-level",
-		},
-		handlers: new Map(),
-		tools: new Map(),
-		messageRenderers: new Map(),
-		commands: new Map(),
-		flags: new Map(),
-		shortcuts: new Map(),
-	};
-	// The keyring's session hook uses only `on`; pi's runner reads the rest.
-	const api = {
-		on(name: string, handler: Handler) {
-			extension.handlers.set(name, [
-				...(extension.handlers.get(name) ?? []),
-				handler,
-			]);
-		},
-	} as never;
-	keepCredentialsInKeyring(api, label, async () => {});
-	return extension;
-}
-
-/** One session whose pi runs both extensions, through pi's own runner. */
-function bothInOneSession(): ExtensionRunner {
-	return new ExtensionRunner(
-		[loaded("Slack"), loaded("Google")],
-		createExtensionRuntime(),
-		process.cwd(),
-		SessionManager.inMemory(process.cwd()),
-		{} as never,
-	);
-}
+import { extensionRunner } from "../../../support/extension-runner.ts";
 
 /** A screen as pi takes one, counting what it was told. */
-function piScreen(): { ui: never; told: string[] } {
+function screen(): { ui: ExtensionUIContext; told: string[] } {
 	const told: string[] = [];
-	const ui = { notify: (message: string) => told.push(message) };
-	return { ui: ui as never, told };
+	// The hook reads only notify; pi's runner wraps the rest.
+	const ui = { notify: (message: string) => told.push(message) } as never;
+	return { ui, told };
+}
+
+/** An extension keeping `label` in the keyring, running `move` as each session starts. */
+function keeping(label: string, move: () => Promise<void> = async () => {}) {
+	return (pi: ExtensionAPI) => keepCredentialsInKeyring(pi, label, move);
+}
+
+/** One session whose pi runs two extensions keeping credentials, through pi's own runner. */
+function session() {
+	return extensionRunner([keeping("Slack"), keeping("Google")], process.cwd());
 }
 
 describe("keepCredentialsInKeyring, under pi's own runner", () => {
@@ -94,68 +37,76 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		resetKeyringNotices();
 	});
 
-	it("shows a notice once, since pi gives both extensions one screen", async () => {
-		const runner = bothInOneSession();
-		const screen = piScreen();
-		runner.setUIContext(screen.ui, "tui");
-		await runner.emit({ type: "session_start", reason: "startup" });
+	it("shows a notice once, since pi gives both extensions one session", async () => {
+		const one = session();
+		const shown = screen();
+		one.runner.setUIContext(shown.ui, "tui");
+		await one.start();
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		expect(screen.told).toEqual(["keyring locked"]);
+		expect(shown.told).toEqual(["keyring locked"]);
+		expect(one.errors).toEqual([]);
 	});
 
 	it("shows a notice once on the screen the host rebinds the session to", async () => {
-		const runner = bothInOneSession();
-		const first = piScreen();
-		const second = piScreen();
-		runner.setUIContext(first.ui, "tui");
-		await runner.emit({ type: "session_start", reason: "startup" });
-		runner.setUIContext(second.ui, "tui");
+		const one = session();
+		const first = screen();
+		const second = screen();
+		one.runner.setUIContext(first.ui, "tui");
+		await one.start();
+		one.runner.setUIContext(second.ui, "tui");
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect([first.told, second.told]).toEqual([[], ["keyring locked"]]);
 	});
-});
 
-describe("keepCredentialsInKeyring", () => {
-	beforeEach(() => {
-		resetKeyringNotices();
-	});
-
-	afterEach(() => {
-		resetKeyringNotices();
-	});
-
-	it("shows a notice once on a screen two extensions share", async () => {
-		const slack = extension("Slack");
-		const google = extension("Google");
-		const session = screen();
-		await fire(slack, "session_start", session);
-		await fire(google, "session_start", session);
+	it("shows a notice in each session, even those started before pi gave them a screen", async () => {
+		const first = session();
+		const second = session();
+		await first.start();
+		await second.start();
+		const firstScreen = screen();
+		const secondScreen = screen();
+		first.runner.setUIContext(firstScreen.ui, "tui");
+		second.runner.setUIContext(secondScreen.ui, "tui");
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		expect(session.told).toEqual(["keyring locked"]);
-	});
-
-	it("shows a notice on each screen once", async () => {
-		const slack = extension("Slack");
-		const google = extension("Google");
-		const first = screen();
-		const second = screen();
-		await fire(slack, "session_start", first);
-		await fire(google, "session_start", second);
-		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		expect([first.told, second.told]).toEqual([
+		expect([firstScreen.told, secondScreen.told]).toEqual([
 			["keyring locked"],
 			["keyring locked"],
 		]);
 	});
 
-	it("keeps showing notices once one of the extensions stops listening", async () => {
-		const slack = extension("Slack");
-		const google = extension("Google");
-		const session = screen();
-		await fire(slack, "session_start", session);
-		await fire(google, "session_start", session);
-		await fire(slack, "session_shutdown", session);
+	it("stops showing notices in a session that ended, keeping them for the next", async () => {
+		const ended = session();
+		const endedScreen = screen();
+		ended.runner.setUIContext(endedScreen.ui, "tui");
+		await ended.start();
+		await ended.stop();
 		sayKeyringNotice({ level: "info", message: "moved" });
-		expect(session.told).toEqual(["moved"]);
+		const next = session();
+		const nextScreen = screen();
+		next.runner.setUIContext(nextScreen.ui, "tui");
+		await next.start();
+		expect([endedScreen.told, nextScreen.told]).toEqual([[], ["moved"]]);
+	});
+
+	it("still moves the credentials when a screen fails to show what was waiting", async () => {
+		sayKeyringNotice({ level: "warning", message: "early" });
+		let moved = 0;
+		const one = extensionRunner(
+			keeping("Slack", async () => {
+				moved++;
+			}),
+			process.cwd(),
+		);
+		one.runner.setUIContext(
+			{
+				notify: () => {
+					throw new Error("a screen gone stale");
+				},
+			} as never,
+			"tui",
+		);
+		await one.start();
+		expect(moved).toBe(1);
+		expect(one.errors).toEqual([]);
 	});
 });
