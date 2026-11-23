@@ -25,6 +25,7 @@ import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
 import type { KeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
+import { execed } from "../../support/processes.ts";
 
 const OWN = "/user.slice/user@1000.service/agents.slice/pi-host.service";
 const OWN_CGROUP = `0::${OWN}\n`;
@@ -141,6 +142,8 @@ describe("carried shells", () => {
 		onTestFinished(() => {
 			call.kill("SIGKILL");
 		});
+		// Its mark reads empty until its exec has laid it out.
+		await execed(call.pid ?? 0, "sleep");
 		const due: KeptCall = {
 			session: "s1",
 			job: "j1",

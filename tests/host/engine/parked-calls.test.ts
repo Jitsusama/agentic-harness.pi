@@ -23,6 +23,7 @@ import {
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
 import { KEPT_BYTES } from "../../../lib/internal/shell/kept.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
+import { execed } from "../../support/processes.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 /** How often a test's watch looks at the calls. */
@@ -66,8 +67,12 @@ describe("whether a carried call still runs", () => {
 	// read from /proc, so only where there is one.
 	const linux = process.platform === "linux";
 	let live: ReturnType<typeof liveCall>;
-	beforeEach(() => {
-		if (linux) live = liveCall("live");
+	// A fresh child's mark reads empty until its exec has laid it out,
+	// so each case waits for that; on a loaded builder one read none.
+	beforeEach(async () => {
+		if (!linux) return;
+		live = liveCall("live");
+		await execed(live.work.pid, "sleep");
 	});
 	afterEach(() => {
 		if (linux) live.child.kill("SIGKILL");

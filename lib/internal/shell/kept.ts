@@ -20,6 +20,12 @@
  * said; any left a week are swept as a session starts, at most once an
  * hour for a process.
  *
+ * pi writes and reads these names as they stand, following a link left
+ * at one, since nothing that could leave one gains by it: the agent
+ * fence holds pi's state read-only to the command (fence-home.ts, and
+ * fence-bwrap's test of this folder), and an unfenced command runs as
+ * the person, who can write whatever a link would lead pi to.
+ *
  * Making, removing and sweeping them go through libuv's pool rather than
  * pi's loop, which in a host every conversation shares: a busy disk held
  * it in these files' openat and unlink 24 times in 287 hold samples on
