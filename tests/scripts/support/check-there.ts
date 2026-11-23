@@ -42,6 +42,8 @@ const SCRIPT = join(
 const SETTLES_IN_MS = 10_000;
 /** How long a test is given: several of its checks settling in turn. */
 const TEST_MS = 4 * SETTLES_IN_MS;
+/** How far into a second of the clock a timed check may start. */
+const SECOND_STARTS_MS = 50;
 
 /** What the script runs on its host, between its `THERE` lines. */
 function there(): string {
@@ -976,6 +978,12 @@ function clockWait(): void {
 			"times its wait by the clock, however quickly each try comes back",
 			async () => {
 				const host = hostWith(EVERY_HOST);
+				// The shell counts whole seconds from where the clock's second
+				// stood, so it starts just past one: then a wait two seconds
+				// long, and one more, ends near three seconds on, and one
+				// without that one near two, rather than anywhere between.
+				while (Date.now() % 1_000 > SECOND_STARTS_MS)
+					await new Promise((done) => setTimeout(done, 5));
 				const asked = Date.now();
 				const waiter = await ended(
 					check(
@@ -987,7 +995,7 @@ function clockWait(): void {
 				expect(
 					Date.now() - asked,
 					"it waited by the clock, never less than it says",
-				).toBeGreaterThanOrEqual(1_900);
+				).toBeGreaterThanOrEqual(2_600);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
 				expect(waiter.err, "giving up as its limit passed").toMatch(
 					/gave up after 2 s waiting/,
@@ -1002,17 +1010,14 @@ function clockWait(): void {
 			"reads its wait in tens, whatever it opens with",
 			async () => {
 				const host = hostWith(EVERY_HOST);
-				const asked = Date.now();
+				// Each try moves the shell's clock on a second, so the wait's
+				// eight seconds pass at once; the test above times it for real.
 				const waiter = await ended(
 					check(
 						host,
-						"lock() { sleep 0.2; return 1; }\nturn_wait_s=08\ntake_turn\necho took",
+						"lock() { SECONDS=$(( SECONDS + 1 )); return 1; }\nturn_wait_s=08\ntake_turn\necho took",
 					),
 				);
-				expect(
-					Date.now() - asked,
-					"waiting the eight seconds it says",
-				).toBeGreaterThanOrEqual(7_900);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
 				expect(waiter.err, "its wait read as eight seconds").toMatch(
 					/gave up after 8 s waiting/,
@@ -1023,11 +1028,17 @@ function clockWait(): void {
 	});
 }
 
-/** A host offering `ps` that names every process `name`. */
+/**
+ * A host offering `ps` that names `name` the process that starts a
+ * check, this one, as `ps -o comm= -p PID` asks, and no other.
+ */
 function hostNaming(name: string): string {
 	const host = hostWith(EVERY_HOST);
 	const ps = join(host, "bin", "ps");
-	writeFileSync(ps, `#!${bashHere()}\necho ${name}\n`);
+	writeFileSync(
+		ps,
+		`#!${bashHere()}\n[ "$4" = "${process.pid}" ] && echo ${name}\nexit 0\n`,
+	);
 	chmodSync(ps, 0o755);
 	return host;
 }
@@ -1386,6 +1397,33 @@ function workThere(): void {
 				),
 				"alone's one launch",
 			).toEqual(['  "$@" 9>&- </dev/null &']);
+		});
+
+		// The checks here run the settings in their own order, each after
+		// every function, so the script's own order is read: a call before
+		// what it reads is set, or before it is defined, would pass them.
+		// What it was sent, read before its turn, is held the same way.
+		it("runs its settings in order, each after what it calls, and reads what it was sent before its turn", () => {
+			const top = topLevel(lines);
+			const at = SETTINGS.map((line) => top.indexOf(line));
+			expect(at, "in the order the checks here run them").toEqual(
+				[...at].sort((a, b) => a - b),
+			);
+			for (const line of SETTINGS) {
+				const name = line.split(" ")[0] ?? "";
+				const definedAt = lines.indexOf(`${name}() {`);
+				if (definedAt === -1) continue;
+				expect(definedAt, `${name}, defined before it runs`).toBeLessThan(
+					top.indexOf(line),
+				);
+			}
+			const turn = top.indexOf("take_turn");
+			expect(turn, "its turn, taken").toBeGreaterThan(-1);
+			for (const sent of ['branch="$1"', 'turn_wait_s="$2"']) {
+				const read = top.indexOf(sent);
+				expect(read, `${sent}, read`).toBeGreaterThan(-1);
+				expect(read, `${sent}, before its turn`).toBeLessThan(turn);
+			}
 		});
 
 		// A name a stop reads, left out of that line, would be read as
