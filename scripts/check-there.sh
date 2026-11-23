@@ -31,14 +31,17 @@
 # its turn didn't come in time, not that the check before it hung. Exits
 # with what `pnpm check`, or tests/package after it, exited with; 75 when
 # its turn never came; 143, 130 or 129 after a TERM, an INT, or a HUP or
-# its caller going; 2 for a branch, host, wait or agent it refuses; and
-# 1 when nix gives the host no node.
+# its caller going; 2 for a branch, host, wait or agent it refuses; 3
+# when the host's lock can't be taken at all; 1 when nix gives the host
+# no node; and otherwise with what failed under it, such as ssh's 255
+# when the host can't be reached or git's own when a fetch fails.
 #
-# An agent's check goes to penelope alone: elsewhere it would run a
-# pushed branch's install scripts and tests unfenced, as an account
-# holding Joel's credentials, as the Mac's does (ISXEG8, 22 November),
-# on an agent's say alone. That lifts once a host runs it inside its
-# agent fence or under an account of its own. It guards against a slip,
+# A check run under pi, PI_SESSION_ID set, goes to penelope alone, the
+# host agreed for agents' checks (ISXEG8, 22 November): another, as the
+# Mac does, would run a pushed branch's install scripts and tests as an
+# account holding Joel's credentials, outside any agent fence, on an
+# agent's say alone. That lifts once a host runs it inside its agent
+# fence or under an account of its own. It guards against a slip,
 # not an agent set on reaching the Mac: only a fence holds that. Joel
 # running it by hand, from a shell outside pi, may send it anywhere, and
 # runs the branch's code as himself there, whoever wrote it, so the
@@ -76,7 +79,7 @@ case "$host" in
     ;;
 esac
 if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: an agent's check goes only to the host named penelope, since another, as the Mac does, may run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope" >&2
+  echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks, since another, as the Mac does, may run it as an account holding Joel's credentials outside any agent fence; run pnpm check:there $branch penelope" >&2
   exit 2
 fi
 
@@ -326,8 +329,10 @@ take_turn() {
     fi
   fi
   if [ "$tried" -ne 0 ]; then
-    echo "check-there: can't take $(hostname)'s check lock" >&2
-    return "$tried"
+    # Its own code, since the lock tool's own, a 2 among them, would read
+    # as one of the script's.
+    echo "check-there: can't take $(hostname)'s check lock (its tool exited $tried)" >&2
+    return 3
   fi
   holder="$turn.holder"
   printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%a %H:%M')" > "$holder" || true
