@@ -1300,6 +1300,37 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 22 November: 15 children ran host code 34 hours old, holding 10.9 GB,
+	// since a child never restarts (3PXQTB [bc2e766b]); one whose host code
+	// is stale parks at its next quiet moment, so its wake starts it fresh.
+	it("parks a hosted conversation as soon as its rule holds once its host rolls onto new code", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let rolling = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.rolling = () => rolling;
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			const busy = watching(session({ isIdle: () => false }), conversation);
+			rolling = true;
+			expect(busy.look(), "a running one stays, stale or not").not.toBe(
+				undefined,
+			);
+			busy.stop();
+
+			rolling = false;
+			const usual = watching(session(), conversation);
+			expect(usual.look(), "current, it waits its time").toBe(
+				"not idle long enough",
+			);
+			rolling = true;
+			expect(usual.look(), "stale, it parks at once").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	// 21 November: 75 background conversations, each its own process since
 	// the day before, held about 20 GB, and 37 had sent nothing for five
 	// minutes while the half hour kept them (A2VLJN [ebe376a1]).
