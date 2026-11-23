@@ -327,7 +327,7 @@ export type RoundTree =
 export function readFrom(
 	tree: ReadableTree,
 	headCommit: string | undefined,
-	baseCommit?: string,
+	baseCommit: string | undefined,
 ): TreeRead {
 	// A readable tree only. Widening this to the union let a refused
 	// tree be recorded as a round that read the commit faithfully,

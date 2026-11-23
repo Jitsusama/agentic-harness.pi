@@ -475,6 +475,7 @@ describe("what a round records about the tree it read", () => {
 		const read = readFrom(
 			{ path: "/the/callers/checkout", caveat: "read the checkout" },
 			"d7205e3c",
+			undefined,
 		);
 		const asking = {
 			roster: { reviewers: [{ id: "hawk" }] },
@@ -536,7 +537,7 @@ describe("what a round records about the tree it read", () => {
 			from: base,
 		});
 		expect(
-			readFrom({ path: "/the/tree" }, "d7205e3c"),
+			readFrom({ path: "/the/tree" }, "d7205e3c", undefined),
 			"a round over a change claimed a base",
 		).not.toHaveProperty("from");
 	});
@@ -633,7 +634,7 @@ describe("what a round records about the tree it read", () => {
 	it("says nothing about a tree that was the commit", () => {
 		// A pinned tree has no caveat, and the record should not invent
 		// one: absence is what tells a reader the round was faithful.
-		expect(readFrom({ path: "/a/snapshot" }, "d7205e3c")).toEqual({
+		expect(readFrom({ path: "/a/snapshot" }, "d7205e3c", undefined)).toEqual({
 			witness: "d7205e3c",
 		});
 	});
@@ -643,7 +644,7 @@ describe("what a round records about the tree it read", () => {
 		// is unpinned for a different reason then, and the reason is
 		// the half worth keeping.
 		expect(
-			readFrom({ path: "/x", caveat: "read /x instead" }, undefined),
+			readFrom({ path: "/x", caveat: "read /x instead" }, undefined, undefined),
 		).toEqual({ unpinned: "read /x instead" });
 	});
 });

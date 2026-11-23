@@ -174,8 +174,11 @@ export interface AskRun {
 	 */
 	unpinned?: string;
 	/**
-	 * The base commit a round over a range of commits read from, by its
-	 * full id.
+	 * The commit a range round's base named when it ran, by its full id.
+	 *
+	 * The reviewers' diff runs from where this meets the head, as git's
+	 * three-dot diff does, so where the base had moved on past the
+	 * branch's fork the diff starts at their meeting point, not here.
 	 *
 	 * A range is named the way a person names it, so its base can be a
 	 * ref (`origin/main..branch`), and a ref means another commit on
@@ -545,7 +548,7 @@ export interface TreeRead {
 	witness?: string;
 	/** Said when the tree the reviewers read was not that commit. */
 	unpinned?: string;
-	/** The base commit a round over a range of commits read from. */
+	/** The commit a range round's base named when this attempt ran. */
 	from?: string;
 }
 
@@ -701,6 +704,7 @@ export function substituteOutcome(
 	// to be pinned does not clear a caveat earned by the reviewers
 	// already in the round.
 	const fell = read?.unpinned === undefined ? {} : { unpinned: read.unpinned };
+	const based = baseAfterRetry(run, read, fell.unpinned);
 	// A round closed unfinished whose every reviewer has now answered by
 	// retries is a council that reported, so it stops saying closed:
 	// every gate passes over a closed round, merge-net's among them, and a
@@ -715,8 +719,29 @@ export function substituteOutcome(
 	const held = answered ? unclosed(run) : run;
 	const { open: _wasOpen, ...rest } = held;
 	return waiting
-		? { ...held, outcomes, ...fell }
-		: { ...rest, outcomes, ...fell };
+		? { ...held, outcomes, ...fell, ...based }
+		: { ...rest, outcomes, ...fell, ...based };
+}
+
+/**
+ * What a retry's base adds to the round's record.
+ *
+ * A round recorded before ranges kept a base, or one opened before its
+ * base resolved, takes the retry's, since merge-net counts a range
+ * round's read only by its base. A retry that read from another base
+ * than the round did leaves the round less faithful, said the way a
+ * retry that fell back is, and one-way for the same reason.
+ */
+function baseAfterRetry(
+	run: AskRun,
+	read: TreeRead,
+	fell: string | undefined,
+): Pick<AskRun, "from" | "unpinned"> {
+	if (read.from === undefined || read.from === run.from) return {};
+	if (run.from === undefined) return { from: read.from };
+	const moved = `A retry read from base ${read.from}, while the round read from ${run.from}, so its findings were formed against another range.`;
+	const earlier = fell ?? run.unpinned;
+	return { unpinned: earlier === undefined ? moved : `${earlier} ${moved}` };
 }
 
 /** `run` without its mark of being closed unfinished. */
