@@ -17,6 +17,9 @@ vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 const { default: compactionWorkflow } = await import(
 	"../../../extensions/compaction-workflow/index.ts"
 );
+const { AHEAD_UNUSED_ENTRY } = await import(
+	"../../../extensions/compaction-workflow/host.ts"
+);
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type CompactOptions = { onComplete?: () => void; onError?: (e: Error) => void };
@@ -175,6 +178,29 @@ async function toTheEdge(withSentRequest: boolean) {
 	return { fire, resumed, entries, state, ctx };
 }
 
+type AtTheEdge = Awaited<ReturnType<typeof toTheEdge>>;
+
+/**
+ * A move in the tree to a later entry, whose branch still holds the
+ * point the session was at. pi says nothing of a move to where the
+ * session already is, and has moved the leaf by the time it says so.
+ */
+async function movesOnPast({ fire, state, ctx }: AtTheEdge) {
+	const oldLeafId = state.leaf;
+	const later = { ...replyEntry, id: "a9" };
+	state.branch = [...state.branch, later];
+	state.leaf = later.id;
+	await fire("session_tree", { newLeafId: later.id, oldLeafId }, ctx);
+}
+
+/** A move in the tree back to the first message, off every later point. */
+async function movesBackOff({ fire, state, ctx }: AtTheEdge) {
+	const oldLeafId = state.leaf;
+	state.branch = [userEntry];
+	state.leaf = "u1";
+	await fire("session_tree", { newLeafId: "u1", oldLeafId }, ctx);
+}
+
 beforeEach(() => {
 	completeSimple.mockReset();
 	vi.stubEnv("PI_CACHE_RETENTION", "short");
@@ -286,6 +312,437 @@ describe("the compaction trigger", () => {
 		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions).toHaveLength(1);
 		expect(completeSimple).not.toHaveBeenCalled();
+	});
+
+	// On 22 November four summaries written ahead failed, and each next
+	// turn compacted on the spot, holding the session 7 to 16 minutes.
+	describe("after a summary written ahead failed", () => {
+		const written = {
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		};
+		const capped = {
+			stopReason: "length",
+			content: [{ type: "text", text: "## Goal\nand on and" }],
+			usage: {},
+		};
+		// Failed in a way no second call mends, so nothing is retried within
+		// the write.
+		const refused = {
+			stopReason: "toolUse",
+			content: [{ type: "toolCall", name: "read" }],
+			usage: {},
+		};
+		const closingOf = (call: number) =>
+			JSON.stringify(
+				(
+					completeSimple.mock.calls[call]?.[1] as
+						| { messages: unknown[] }
+						| undefined
+				)?.messages.at(-1),
+			);
+
+		/** The session at the edge, its first summary ahead failed. */
+		async function failedOnce(first: unknown) {
+			completedSimply(first);
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			return at;
+		}
+		/** pi asking for the summary of the compaction it has begun. */
+		const compactEvent = () => ({
+			preparation: {
+				firstKeptEntryId: "a1",
+				tokensBefore: 300_000,
+				previousSummary: undefined,
+				fileOps: { read: new Set(), edited: new Set(), written: new Set() },
+				settings: { reserveTokens: 64_000 },
+			},
+			customInstructions: undefined,
+			signal: new AbortController().signal,
+		});
+		const completedSimply = (first: unknown) => {
+			completeSimple.mockResolvedValueOnce(first);
+			completeSimple.mockResolvedValue(written);
+		};
+
+		it("writes it ahead again rather than compacting on the spot", async () => {
+			const { fire, state, ctx } = await failedOnce(refused);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(0);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			await new Promise((r) => setTimeout(r, 0));
+
+			// The second is applied as any written ahead is.
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			// A failure that didn't stop at the cap asks the same size again.
+			expect(closingOf(1)).toContain("Make it about");
+		});
+
+		it("asks less on the spot after a write ahead the compaction waited on stopped at its cap", async () => {
+			let finish: (value: unknown) => void = () => {};
+			completeSimple.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			completeSimple.mockResolvedValue(written);
+			const { fire, entries, ctx } = await toTheEdge(true);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+
+			// pi compacts at its own threshold while the summary is written.
+			const compacting = fire("session_before_compact", compactEvent(), ctx);
+			finish(capped);
+			await compacting;
+
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			expect(closingOf(1)).toContain("Keep it to at most");
+			// Recorded once, saying which try it was and whether it was halved.
+			expect(
+				entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY),
+			).toEqual([
+				{
+					type: AHEAD_UNUSED_ENTRY,
+					data: expect.objectContaining({ tries: 1, halved: false }),
+				},
+			]);
+		});
+
+		it("asks for a shorter summary after one that stopped at its cap", async () => {
+			const { fire, ctx } = await failedOnce(capped);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+
+			expect(closingOf(0)).toContain("Make it about");
+			expect(closingOf(1)).toContain("Keep it to at most");
+			expect(closingOf(1)).toContain("a limit, not a target");
+		});
+
+		it("compacts on the spot once a second try ahead has failed too", async () => {
+			completeSimple.mockResolvedValue(capped);
+			const { fire, entries, state, ctx } = await toTheEdge(true);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			await new Promise((r) => setTimeout(r, 0));
+			expect(state.compactions).toHaveLength(0);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			// Each recorded with which try it was, the second asked for half.
+			expect(
+				entries
+					.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
+					.map((entry) => entry.data),
+			).toEqual([
+				expect.objectContaining({ tries: 1, halved: false }),
+				expect.objectContaining({ tries: 2, halved: true }),
+			]);
+		});
+
+		/** The session at the edge, two summaries ahead failed at their cap. */
+		async function failedTwice() {
+			completeSimple.mockResolvedValue(capped);
+			const at = await toTheEdge(true);
+			for (let tried = 1; tried <= 2; tried++) {
+				await endTurn(at.fire, ranTools, at.ctx);
+				await vi.waitFor(() =>
+					expect(completeSimple).toHaveBeenCalledTimes(tried),
+				);
+				await new Promise((r) => setTimeout(r, 0));
+			}
+			return at;
+		}
+		/**
+		 * The conversation back at the edge: whether the first the trigger
+		 * does there is compact on the spot, rather than write ahead.
+		 */
+		async function compactsOnTheSpotAgain({
+			fire,
+			state,
+			ctx,
+		}: Awaited<ReturnType<typeof failedTwice>>) {
+			const before = completeSimple.mock.calls.length;
+			const compacted = state.compactions.length;
+			// The first turn measures what is kept; the next request is sent and
+			// the conversation grows back to the edge.
+			state.tokens = 60_000;
+			await endTurn(fire, ranTools, ctx);
+			state.branch = [userEntry];
+			state.leaf = "u1";
+			await fire("before_provider_request", { payload }, ctx);
+			state.branch = [userEntry, replyEntry];
+			state.leaf = "a1";
+			state.tokens = 300_000;
+
+			const acted = () =>
+				completeSimple.mock.calls.length > before ||
+				state.compactions.length > compacted;
+			for (let turn = 0; turn < 40 && !acted(); turn++) {
+				await endTurn(fire, ranTools, ctx);
+			}
+			expect(acted(), "did nothing at the edge").toBe(true);
+			return state.compactions.length > compacted;
+		}
+		/**
+		 * The count started again: the try ahead made afresh fails too, and
+		 * the next firing turn still writes ahead rather than on the spot.
+		 */
+		async function triesAheadOnceMore({
+			fire,
+			state,
+			ctx,
+		}: Awaited<ReturnType<typeof failedTwice>>) {
+			const calls = completeSimple.mock.calls.length;
+			const compacted = state.compactions.length;
+			// One tick, for the afresh try's failure to be counted.
+			await new Promise((r) => setTimeout(r, 0));
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(
+				compacted,
+			);
+			await vi.waitFor(() =>
+				expect(completeSimple).toHaveBeenCalledTimes(calls + 1),
+			);
+		}
+
+		it("tries ahead afresh for the next compaction once one has landed", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			// pi asks for the summary, which fails again on the spot, asked for
+			// less; pi's own summariser lands the compaction.
+			await fire("session_before_compact", compactEvent(), ctx);
+			expect(closingOf(2)).toContain("Keep it to at most");
+			await fire("session_compact", { compactionEntry: {} }, ctx);
+			state.compactions[0]?.onComplete?.();
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(3), "asked full size again").toContain("Make it about");
+			await triesAheadOnceMore(at);
+		});
+
+		it.each([
+			["the session starts again", false],
+			["the session moves in its tree off the point summaries covered", true],
+		])("tries ahead afresh once %s", async (_, moves) => {
+			const at = await failedTwice();
+			if (moves) {
+				await movesBackOff(at);
+			} else {
+				await at.fire("session_start", { reason: "resume" }, at.ctx);
+			}
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(2), "asked full size again").toContain("Make it about");
+			await triesAheadOnceMore(at);
+		});
+
+		// The compaction to come still covers that point, so what was
+		// tried for it still counts.
+		it("keeps counting across a move in the tree that keeps the point summaries covered", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await movesOnPast(at);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+
+		// A compaction stopped after its failure was taken leaves nothing
+		// held ahead, only the count, which the point it covered still
+		// holds (5BACCAC3's F74 on #2033).
+		it("keeps counting across such a move once nothing is held ahead", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			state.compactions[0]?.onError?.(new Error("Compaction cancelled"));
+			await movesOnPast(at);
+
+			for (let turn = 0; turn < 40; turn++) {
+				if (completeSimple.mock.calls.length > 2) break;
+				await endTurn(fire, ranTools, ctx);
+			}
+			expect(completeSimple).toHaveBeenCalledTimes(3);
+			// A compaction on the spot given up leaves the next written
+			// ahead once more, the session not held for it (F94).
+			expect(state.compactions, "tried ahead, not on the spot").toHaveLength(1);
+			expect(closingOf(2), "still asked for less").toContain(
+				"Keep it to at most",
+			);
+		});
+
+		// The count alone remembers the point it covered, and a move off
+		// it starts the count again (5BACCAC3's F93 on #2033).
+		it("tries ahead afresh once such a move leaves the point, nothing held ahead", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			state.compactions[0]?.onError?.(new Error("Compaction cancelled"));
+			await movesBackOff(at);
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(2), "asked full size again").toContain("Make it about");
+		});
+
+		// A retry covers more than the try that failed before it, so a
+		// move between the two leaves the retry's point but keeps the
+		// count's (5BACCAC3's F92 on #2033).
+		it("keeps counting across a move off a retry's point that keeps the failed try's", async () => {
+			completeSimple.mockResolvedValue(capped);
+			const at = await toTheEdge(true);
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			// The retry is written once the branch has grown past the point
+			// the first try covered.
+			const firstPoint = state.leaf;
+			await movesOnPast(at);
+			completeSimple.mockReturnValue(new Promise(() => undefined));
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			const oldLeafId = state.leaf;
+			// Back off the reply the move went on past, its last entry.
+			state.branch = state.branch.slice(0, -1);
+			state.leaf = firstPoint;
+			await fire("session_tree", { newLeafId: firstPoint, oldLeafId }, ctx);
+
+			completeSimple.mockResolvedValue(capped);
+			for (let turn = 0; turn < 40; turn++) {
+				if (completeSimple.mock.calls.length > 2) break;
+				await endTurn(fire, ranTools, ctx);
+			}
+			expect(completeSimple).toHaveBeenCalledTimes(3);
+			expect(closingOf(2), "still asked for less").toContain(
+				"Keep it to at most",
+			);
+		});
+	});
+
+	describe("a summary written ahead across a move in the tree", () => {
+		const written = {
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		};
+		/** The session at the edge, a summary written ahead and ready. */
+		async function writtenAhead() {
+			completeSimple.mockResolvedValue(written);
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			return at;
+		}
+
+		it("is applied when the move keeps the point it covers", async () => {
+			const at = await writtenAhead();
+			const { fire, entries, state, ctx } = at;
+			await movesOnPast(at);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(1);
+			expect(
+				entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY),
+			).toEqual([]);
+		});
+
+		const movedOff = {
+			reason: "the session moved in its tree off the point it covers",
+		};
+		const unusedOf = (entries: AtTheEdge["entries"]) =>
+			entries
+				.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
+				.map((entry) => entry.data);
+		/**
+		 * The next turns on the branch moved to, until the trigger acts:
+		 * whether it compacted, rather than writing a summary ahead afresh.
+		 * The branch grows a reply of its own first, since one holding only
+		 * the first message has nothing to summarise and compacts on the
+		 * spot whatever was held.
+		 */
+		async function compactsNext({ fire, state, ctx }: AtTheEdge) {
+			const reply = { ...replyEntry, id: "b1" };
+			state.branch = [userEntry, reply];
+			state.leaf = reply.id;
+			const calls = completeSimple.mock.calls.length;
+			const acted = () =>
+				completeSimple.mock.calls.length > calls ||
+				state.compactions.length > 0;
+			for (let turn = 0; turn < 40 && !acted(); turn++) {
+				await endTurn(fire, ranTools, ctx);
+			}
+			expect(acted(), "did nothing").toBe(true);
+			return state.compactions.length > 0;
+		}
+
+		// 5BACCAC3's F77 on #2033: the record, the drop and each state a
+		// summary can be in when the move comes.
+		it("is recorded as unused when the move leaves that point, and dropped", async () => {
+			const at = await writtenAhead();
+			await movesBackOff(at);
+
+			expect(unusedOf(at.entries)).toEqual([movedOff]);
+			expect(await compactsNext(at), "applied the dropped summary").toBe(false);
+		});
+
+		it("drops one still being written, which lands as nothing", async () => {
+			let finish: (value: unknown) => void = () => {};
+			completeSimple.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await movesBackOff(at);
+			finish(written);
+			await new Promise((r) => setTimeout(r, 0));
+
+			expect(unusedOf(at.entries)).toEqual([movedOff]);
+			expect(await compactsNext(at), "applied the dropped summary").toBe(false);
+		});
+
+		it("records a failed one only as it failed", async () => {
+			completeSimple.mockResolvedValueOnce({
+				stopReason: "length",
+				content: [{ type: "text", text: "## Goal\nand on and" }],
+				usage: {},
+			});
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			const failed = unusedOf(at.entries);
+			expect(failed).toHaveLength(1);
+			await movesBackOff(at);
+
+			expect(unusedOf(at.entries)).toEqual(failed);
+		});
 	});
 
 	it("applies a summary that finishes while the session is idle at once, without resuming", async () => {

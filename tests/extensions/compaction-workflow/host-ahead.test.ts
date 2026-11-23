@@ -136,7 +136,10 @@ describe("the conversation summariser", () => {
 			expect(summary.takeFailure()).toBe("the summariser called a tool");
 			expect(summary.state()).toBe("none");
 			expect(entries).toEqual([
-				[AHEAD_UNUSED_ENTRY, { reason: "the summariser called a tool" }],
+				[
+					AHEAD_UNUSED_ENTRY,
+					{ reason: "the summariser called a tool", tries: 1, halved: false },
+				],
 			]);
 			expect(outcomes).toEqual([
 				{
@@ -269,7 +272,10 @@ describe("the conversation summariser", () => {
 
 			expect(summary.state()).toBe("failed");
 			expect(entries).toEqual([
-				[AHEAD_UNUSED_ENTRY, { reason: "the keychain is locked" }],
+				[
+					AHEAD_UNUSED_ENTRY,
+					{ reason: "the keychain is locked", tries: 1, halved: false },
+				],
 			]);
 		});
 
@@ -329,7 +335,11 @@ describe("the conversation summariser", () => {
 				expect(entries).toEqual([
 					[
 						AHEAD_UNUSED_ENTRY,
-						{ reason: "the summary was not written within 12 minutes" },
+						{
+							reason: "the summary was not written within 12 minutes",
+							tries: 1,
+							halved: false,
+						},
 					],
 				]);
 			} finally {
