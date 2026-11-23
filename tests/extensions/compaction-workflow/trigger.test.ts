@@ -301,6 +301,13 @@ describe("the compaction trigger", () => {
 			content: [{ type: "text", text: "## Goal\nand on and" }],
 			usage: {},
 		};
+		// Failed in a way no second call mends, so nothing is retried within
+		// the write.
+		const refused = {
+			stopReason: "toolUse",
+			content: [{ type: "toolCall", name: "read" }],
+			usage: {},
+		};
 		const closingOf = (call: number) =>
 			JSON.stringify(
 				(
@@ -337,12 +344,7 @@ describe("the compaction trigger", () => {
 		};
 
 		it("writes it ahead again rather than compacting on the spot", async () => {
-			const { fire, state, ctx } = await failedOnce({
-				stopReason: "error",
-				errorMessage: "overloaded",
-				content: [],
-				usage: {},
-			});
+			const { fire, state, ctx } = await failedOnce(refused);
 
 			await endTurn(fire, ranTools, ctx);
 			expect(state.compactions, "compacted on the spot").toHaveLength(0);
@@ -399,12 +401,7 @@ describe("the compaction trigger", () => {
 			state.compactions[0]?.onComplete?.();
 			const before = completeSimple.mock.calls.length;
 
-			completeSimple.mockResolvedValueOnce({
-				stopReason: "error",
-				errorMessage: "overloaded",
-				content: [],
-				usage: {},
-			});
+			completeSimple.mockResolvedValueOnce(refused);
 			for (let turn = 0; turn < 40; turn++) {
 				await endTurn(fire, ranTools, ctx);
 				if (completeSimple.mock.calls.length > before) break;
