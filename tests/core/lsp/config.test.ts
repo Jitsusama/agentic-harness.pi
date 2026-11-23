@@ -125,6 +125,19 @@ describe("typescriptMajorAt", () => {
 	it("returns null when TypeScript is not installed", () => {
 		expect(typescriptMajorAt(tmp())).toBeNull();
 	});
+
+	// A fenced command can write the project's node_modules, so its
+	// version is read as a server's files are: a plain file pi holds
+	// whole, never one past what it holds, nor a pipe it would wait on.
+	it("reads no version from a package larger than pi holds whole", () => {
+		const root = tsProject("5.9.3", []);
+		writeFileSync(
+			join(root, "node_modules", "typescript", "package.json"),
+			`{"version": "5.9.3"${" ".repeat(32 * 1024 * 1024)}}`,
+		);
+
+		expect(typescriptMajorAt(root)).toBeNull();
+	});
 });
 
 describe("typescript server resolution", () => {

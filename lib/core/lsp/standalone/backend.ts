@@ -50,6 +50,7 @@ import type {
 	HoverInfo,
 	LspBackend,
 	LspCallOptions,
+	LspFence,
 	LspLocation,
 	LspRange,
 	LspTarget,
@@ -117,6 +118,19 @@ export interface StandaloneBackend extends LspBackend {
 	serverCount(): number;
 	/** Re-sync a document after the caller edited it. */
 	syncDocument(path: string, text: string): void;
+	/**
+	 * Stop the servers started in the fence `key` names, once its
+	 * conversation has ended: none could answer another's call, and each
+	 * still runs that conversation's project code. One in a call stops
+	 * once the call settles.
+	 */
+	stopFence(key: string): void;
+	/**
+	 * Stop the servers started in the fence `key` names, as `stopFence`
+	 * does, while its conversation goes on: one of them died, and the
+	 * next call starts them afresh, leaving every other fence's alone.
+	 */
+	dropFence(key: string): void;
 }
 
 function inside(root: string, path: string): boolean {
@@ -144,7 +158,19 @@ export function createStandaloneBackend(
 	// Armed only while a server runs, so an empty pool costs nothing.
 	let goneCheck: NodeJS.Timeout | undefined;
 
-	const poolKey = (name: string, root: string): string => `${name}|${root}`;
+	// A fenced conversation's servers run in its fence, so they serve
+	// only calls made under the same one; an unfenced call's serve none.
+	const poolKey = (name: string, root: string, fence?: LspFence): string =>
+		`${name}|${root}|${fence?.key ?? ""}`;
+	const fenceOf = new Map<string, string>();
+	// Keys whose conversation ended during a call, stopped as it settles.
+	const stopping = new Set<string>();
+	// How often each fence's conversation has ended. A call that began
+	// before the latest end stops what it starts as it settles, while a
+	// call begun since (the conversation reloaded) is the fence's own.
+	const ends = new Map<string, number>();
+	const endsOf = (fence: LspFence | undefined): number =>
+		fence ? (ends.get(fence.key) ?? 0) : 0;
 
 	const claim = (key: string): void => {
 		inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
@@ -159,6 +185,10 @@ export function createStandaloneBackend(
 			return;
 		}
 		inFlight.delete(key);
+		if (stopping.delete(key)) {
+			stop(key);
+			return;
+		}
 		const timer = setTimeout(() => stop(key), idleMs);
 		// An idle server must never be what keeps the process alive.
 		timer.unref();
@@ -172,6 +202,8 @@ export function createStandaloneBackend(
 		const started = pool.get(key);
 		pool.delete(key);
 		roots.delete(key);
+		fenceOf.delete(key);
+		stopping.delete(key);
 		void started?.then(
 			(server) => server.dispose(),
 			() => {},
@@ -180,6 +212,15 @@ export function createStandaloneBackend(
 
 	// A call in flight on a gone project keeps its server until it
 	// settles; the next look stops it then.
+	// One in a call stops once the call settles.
+	const dropFence = (key: string): void => {
+		for (const [poolKey, fence] of fenceOf) {
+			if (fence !== key) continue;
+			if (inFlight.has(poolKey)) stopping.add(poolKey);
+			else stop(poolKey);
+		}
+	};
+
 	const stopGone = (): void => {
 		for (const [key, root] of roots) {
 			if (!existsSync(root)) stop(key);
@@ -203,24 +244,29 @@ export function createStandaloneBackend(
 		server: ServerConfig,
 		root: string,
 		binary: string,
+		fence: LspFence | undefined,
 	): { key: string; started: Promise<StandaloneServer> } => {
-		const key = poolKey(server.name, root);
+		const key = poolKey(server.name, root, fence);
 		const existing = pool.get(key);
 		if (existing) return { key, started: existing };
 		const started = serverModule().then(({ StandaloneServer }) =>
-			StandaloneServer.start(server, root, binary),
+			StandaloneServer.start(server, root, binary, fence),
 		);
 		pool.set(key, started);
 		roots.set(key, root);
+		fenceOf.set(key, fence?.key ?? "");
 		watch();
 		// A server that died stays dead, and its connection answers every
 		// later call with "Connection is closed." Drop it from the pool, so
 		// the next call for this root starts one afresh. Only this entry:
-		// a replacement may already be in its place.
+		// a replacement may already be in its place. A stop it was marked
+		// for goes with it, so its calls settling stop no replacement.
 		const evict = () => {
 			if (pool.get(key) === started) {
 				pool.delete(key);
 				roots.delete(key);
+				fenceOf.delete(key);
+				stopping.delete(key);
 			}
 		};
 		// A start that failed goes too, rather than failing every later
@@ -263,11 +309,15 @@ export function createStandaloneBackend(
 	const withInstances = async <T>(
 		filePath: string,
 		typeOnly: boolean,
+		fence: LspFence | undefined,
 		fn: (instances: [StandaloneServer, ...StandaloneServer[]]) => Promise<T>,
 	): Promise<T> => {
 		const claimed: string[] = [];
+		const since = endsOf(fence);
 		try {
-			return await fn(await resolveInstances(filePath, typeOnly, claimed));
+			return await fn(
+				await resolveInstances(filePath, typeOnly, fence, claimed, since),
+			);
 		} finally {
 			for (const key of claimed) release(key);
 		}
@@ -276,7 +326,9 @@ export function createStandaloneBackend(
 	const resolveInstances = async (
 		filePath: string,
 		typeOnly: boolean,
+		fence: LspFence | undefined,
 		claimed: string[],
+		since: number,
 	): Promise<[StandaloneServer, ...StandaloneServer[]]> => {
 		const candidates = serversForFile(filePath, servers).filter(
 			(server) => !typeOnly || !server.isLinter,
@@ -294,9 +346,12 @@ export function createStandaloneBackend(
 				reasons.push(eff.reason);
 				continue;
 			}
-			const { key, started } = instanceFor(eff.config, root, eff.binary);
+			const { key, started } = instanceFor(eff.config, root, eff.binary, fence);
 			claim(key);
 			claimed.push(key);
+			// Its conversation ended since the call began, so what it starts
+			// now runs in that fence no longer than the call.
+			if (endsOf(fence) !== since) stopping.add(key);
 			instances.push(await started);
 			if (typeOnly) break;
 		}
@@ -321,9 +376,11 @@ export function createStandaloneBackend(
 		query: string,
 		signal: AbortSignal,
 		root?: string,
+		fence?: LspFence,
 	): Promise<SymbolInfo[]> => {
 		const keys = [...pool.keys()].filter((key) => {
 			const serverRoot = roots.get(key);
+			if (fenceOf.get(key) !== (fence?.key ?? "")) return false;
 			return (
 				!root ||
 				(serverRoot !== undefined &&
@@ -377,7 +434,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<Diagnostic[]> {
 			return call(`diagnostics for ${path}`, options, (signal) =>
-				withInstances(path, false, async (instances) => {
+				withInstances(path, false, options?.fence, async (instances) => {
 					const results = await Promise.all(
 						instances.map((s) => s.diagnose(path, signal)),
 					);
@@ -391,7 +448,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<LspLocation[]> {
 			return call(`definition in ${target.path}`, options, (signal) =>
-				withInstances(target.path, true, ([server]) =>
+				withInstances(target.path, true, options?.fence, ([server]) =>
 					server.definition(target, signal),
 				),
 			);
@@ -402,7 +459,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<LspLocation[]> {
 			return call(`references in ${target.path}`, options, (signal) =>
-				withInstances(target.path, true, ([server]) =>
+				withInstances(target.path, true, options?.fence, ([server]) =>
 					server.references(target, signal),
 				),
 			);
@@ -413,7 +470,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<HoverInfo | null> {
 			return call(`hover in ${target.path}`, options, (signal) =>
-				withInstances(target.path, true, ([server]) =>
+				withInstances(target.path, true, options?.fence, ([server]) =>
 					server.hover(target, signal),
 				),
 			);
@@ -424,7 +481,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<SymbolInfo[]> {
 			return call(`symbols in ${path}`, options, (signal) =>
-				withInstances(path, true, ([server]) =>
+				withInstances(path, true, options?.fence, ([server]) =>
 					server.documentSymbols(path, signal),
 				),
 			);
@@ -435,7 +492,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<SymbolInfo[]> {
 			return call(`workspace symbols for ${query}`, options, (signal) =>
-				searchWorkspace(query, signal, options?.root),
+				searchWorkspace(query, signal, options?.root, options?.fence),
 			);
 		},
 
@@ -445,7 +502,7 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<WorkspaceEdit> {
 			return call(`rename in ${target.path}`, options, (signal) =>
-				withInstances(target.path, true, ([server]) =>
+				withInstances(target.path, true, options?.fence, ([server]) =>
 					server.rename(target, newName, signal),
 				),
 			);
@@ -457,19 +514,37 @@ export function createStandaloneBackend(
 			options?: LspCallOptions,
 		): Promise<CodeAction[]> {
 			return call(`code actions in ${path}`, options, (signal) =>
-				withInstances(path, true, ([server]) =>
+				withInstances(path, true, options?.fence, ([server]) =>
 					server.codeActions(path, range, signal),
 				),
 			);
 		},
 
 		syncDocument(path: string, text: string): void {
+			// A sync is told after the edit landed and wants no answer, so it
+			// throws nothing: a start that fails is said to the call awaiting
+			// it, and the pool drops it, and a file the server can't be shown
+			// is left for its next open.
 			for (const started of pool.values()) {
-				void started.then((server) => {
-					if (inside(server.root, path)) server.syncDocument(path, text);
-				});
+				void started.then(
+					(server) => {
+						try {
+							if (inside(server.root, path)) server.syncDocument(path, text);
+						} catch {
+							// Not shown to this server; nothing waits on it.
+						}
+					},
+					() => {},
+				);
 			}
 		},
+
+		stopFence(key: string): void {
+			ends.set(key, (ends.get(key) ?? 0) + 1);
+			dropFence(key);
+		},
+
+		dropFence,
 
 		serverCount(): number {
 			return pool.size;
@@ -482,8 +557,17 @@ export function createStandaloneBackend(
 			const started = [...pool.values()];
 			pool.clear();
 			roots.clear();
+			fenceOf.clear();
+			stopping.clear();
+			// A start still pending that fails has nothing to dispose, and its
+			// failure is no reason a quit should.
 			await Promise.all(
-				started.map((s) => s.then((server) => server.dispose())),
+				started.map((s) =>
+					s.then(
+						(server) => server.dispose(),
+						() => {},
+					),
+				),
 			);
 		},
 	};

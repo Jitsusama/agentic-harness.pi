@@ -142,27 +142,55 @@ export function flattenDocumentSymbol(
 	return [self, ...children];
 }
 
-/** A definition or references answer, in any of its shapes, as locations. */
+/**
+ * A definition or references answer, in any of its shapes, as
+ * locations. One in a file pi can't read for the server (gone, or one
+ * its fence refuses) is left out, rather than failing the rest.
+ */
 export function toLocations(
 	result: Location | Location[] | LocationLink[] | null,
 	linesFor: LinesFor,
 ): LspLocation[] {
 	if (!result) return [];
 	const array = Array.isArray(result) ? result : [result];
-	return array.map((item) => {
-		if ("targetUri" in item) {
-			const path = uriToFile(item.targetUri);
+	return array.flatMap((item) =>
+		readable(() => {
+			if ("targetUri" in item) {
+				const path = uriToFile(item.targetUri);
+				return {
+					path,
+					range: fromProtocolRange(linesFor(path), item.targetRange),
+				};
+			}
+			const path = uriToFile(item.uri);
 			return {
 				path,
-				range: fromProtocolRange(linesFor(path), item.targetRange),
+				range: fromProtocolRange(linesFor(path), item.range),
 			};
-		}
-		const path = uriToFile(item.uri);
-		return {
-			path,
-			range: fromProtocolRange(linesFor(path), item.range),
-		};
-	});
+		}),
+	);
+}
+
+/**
+ * Workspace symbols in the tool's terms, leaving out any in a file pi
+ * can't read for the server, as `toLocations` does.
+ */
+export function fromSymbols(
+	items: readonly (SymbolInformation | WorkspaceSymbol)[],
+	linesFor: LinesFor,
+): SymbolInfo[] {
+	return items.flatMap((item) =>
+		readable(() => fromSymbolInformation(item, linesFor)),
+	);
+}
+
+/** What `answer` gives, or nothing when the file it reads can't be read. */
+function readable<T>(answer: () => T): T[] {
+	try {
+		return [answer()];
+	} catch {
+		return [];
+	}
 }
 
 /** A hover's contents as text, in any of the shapes the protocol allows. */
