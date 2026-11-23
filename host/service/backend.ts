@@ -11,6 +11,7 @@ import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
 import { leftRunning } from "./child-requests.ts";
+import { endedLine } from "./conversation-events.ts";
 import {
 	type ControlBackend,
 	type ControlReply,
@@ -21,6 +22,11 @@ import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
+import {
+	OPEN_UNSETTLED,
+	unsettledMessage,
+	unsettledSession,
+} from "./unsettled-open.ts";
 
 /** An open request as the wire validated it. */
 export type OpenRequest = Extract<ControlRequest, { op: "open" }>;
@@ -216,12 +222,6 @@ export interface LiveHost {
 	}[];
 	holds(id: string): SessionIdentity["state"] | undefined;
 	close(id: string, why?: string, handedOn?: boolean): Promise<void>;
-}
-
-// One conversation's end as the journal says it: its mesh address, its
-// id, and why, the caller or viewer that asked among it.
-function endedLine(sessionId: string, why: string): string {
-	return `${sessionAddress(sessionId)} (${sessionId}) ended: ${why}`;
 }
 
 // Who sent a control request, as it named itself; a name is only a
@@ -500,7 +500,27 @@ export function hostBackend(options: {
 	}
 
 	async function begin(request: OpenRequest | AdoptRequest): Promise<unknown> {
-		return asItIsNow(await asked.answer(request, () => beginOnce(request)));
+		try {
+			return asItIsNow(await asked.answer(request, () => beginOnce(request)));
+		} catch (error) {
+			if (error instanceof Error) throw refusedAsItIsNow(error);
+			throw error;
+		}
+	}
+
+	// A repeat's unsettled refusal was taken as its first settled; the
+	// conversation it names may have become another since, so it names the
+	// one running now, which is what the caller attaches to.
+	function refusedAsItIsNow(error: Error): Error {
+		const held = leftHeld.get(error);
+		if (held === undefined) return error;
+		const said = { code: OPEN_UNSETTLED, message: error.message };
+		if (unsettledSession(said) !== held) return error;
+		const current = nowCalled(held);
+		if (current === held) return error;
+		const refusal = hostRefusal(OPEN_UNSETTLED, unsettledMessage(current));
+		leftHeld.set(refusal, current);
+		return refusal;
 	}
 
 	async function beginOnce(
@@ -546,10 +566,17 @@ export function hostBackend(options: {
 	): Promise<unknown> {
 		const reply = await moved.begin(request, taken);
 		if (reply.ok) return reply.result;
-		const refusal = hostRefusal(reply.error.code, reply.error.message);
+		const running = leftRunning(reply);
+		// Only the host says a child runs a conversation all the same, since
+		// its caller attaches to what that names; one a child said of itself,
+		// which the host stopped, is a plain failure to open.
+		const code =
+			running === undefined && reply.error.code === OPEN_UNSETTLED
+				? "operation_failed"
+				: reply.error.code;
+		const refusal = hostRefusal(code, reply.error.message);
 		// The child runs a conversation all the same, so its repeat is told
 		// the same, not given a second beside it (F24).
-		const running = leftRunning(reply);
 		if (running !== undefined) leftHeld.set(refusal, running);
 		throw refusal;
 	}
@@ -725,56 +752,6 @@ export function hostBackend(options: {
 					await attachment(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
-		},
-	};
-}
-
-/**
- * Keep the roster true to what pi did inside a conversation. A conversation
- * that becomes another is held in its place in one write, keeping whether
- * it is attended, its quest and, unless the engine derived a new one, its
- * launch environment; one that ended is dropped. A drop that fails is
- * reported rather than thrown back into pi, whose conversation has already
- * ended; a replacement that fails rejects, so the engine never runs a
- * conversation nothing holds.
- */
-export function conversationEvents(options: {
-	roster: HostRoster;
-	report: (error: unknown) => void;
-	/** How a parked conversation is woken: the backend's wake, once it exists. */
-	wake?: (sessionId: string) => Promise<void>;
-	now?: () => Date;
-	/** Writes a line to the host's journal: one for each conversation that ends, and why. */
-	say?: (line: string) => void;
-}): ConversationEvents {
-	const { roster, report } = options;
-	const now = options.now ?? (() => new Date());
-	const { wake } = options;
-	return {
-		...(wake ? { wake } : {}),
-		async ended(sessionId, why) {
-			options.say?.(endedLine(sessionId, why));
-			try {
-				await roster.drop(sessionId);
-			} catch (error) {
-				report(error);
-			}
-		},
-		async became(previousId, next) {
-			const previous = roster
-				.entries()
-				.find((held) => held.sessionId === previousId);
-			if (!previous) throw new Error(`Conversation is not held: ${previousId}`);
-			const launch = next.launch ?? previous.launch;
-			await roster.replace(previousId, {
-				sessionId: next.sessionId,
-				file: next.file,
-				cwd: next.cwd,
-				attended: previous.attended,
-				...(previous.quest ? { quest: previous.quest } : {}),
-				since: now().toISOString(),
-				...(launch ? { launch } : {}),
-			});
 		},
 	};
 }

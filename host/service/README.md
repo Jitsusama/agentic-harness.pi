@@ -19,13 +19,7 @@ input pipeline or screen. No unit or running host is installed yet.
   as the request does (`by`); a close of one held but not running is
   journalled here, since no end of the engine's says it.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
-  conversationEvents is what the engine, watched once before anything
-  resumes, tells the service of a change made inside pi: a conversation
-  that ended itself is dropped, and one that became another (pi's new,
-  fork or resume) is held in its place in one write, keeping attended,
-  quest and launch. Host stop never counts as an end. Each end is one
-  line in the host's journal: the conversation's mesh address, its id,
-  and why, naming the viewer or caller that asked. A conversation the
+  Host stop never counts as an end. A conversation the
   engine parked while idle is held but not running; `wake` resumes it,
   in turn with any close of it and through the rollout gate as another
   start would, and an attach to it wakes it first. A wake of one whose
@@ -35,6 +29,13 @@ input pipeline or screen. No unit or running host is installed yet.
   busy conversation lets go only between runs (mesh-workflow
   moving.ts), what was queued behind its run waits in its log for
   plain pi (E27), and away mode holds its send-back meanwhile (E28).
+- conversation-events.ts: conversationEvents, what the engine, watched
+  once before anything resumes, tells the service of a change made
+  inside pi: a conversation that ended itself is dropped, and one that
+  became another (pi's new, fork or resume) is held in its place in one
+  write, keeping attended, quest and launch. Each end is one line in the
+  host's journal (endedLine): the conversation's mesh address, its id,
+  and why, naming the viewer or caller that asked.
 - resume-held.ts: what a start does with each hold it begins with.
   resumeHeld resumes them alone until one has resumed, then
   RESUME_AT_ONCE at a time, in the order `heldOrder` keeps, which a
@@ -314,11 +315,15 @@ input pipeline or screen. No unit or running host is installed yet.
   once, whichever thread runs it.
 - child-requests.ts: reaching a child's socket and reading the one
   answer a request gets; a child answering as another process, or not
-  at all, is said as `child_unreachable`.
+  at all, is said as `child_unreachable`. A begin the host's census
+  left too little time for a child to start and answer is refused as
+  `begin_too_late` before any child starts.
 - unsettled-open.ts: the `open_unsettled` refusal's words, naming the
   conversation a child runs though it gave no answer in time, written
   by the host and read by the spawn that asked, which attaches to it.
-  The error's shape is strict, so the id travels in its words.
+  The error's shape is strict, so the id travels in its words, and only
+  a UUID is read from them. Only the host's own stands: a child that
+  says it of itself has its open failed as `operation_failed`.
 - child-units.ts: where each child runs: an instance of the template
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it

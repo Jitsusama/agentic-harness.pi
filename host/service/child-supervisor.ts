@@ -60,6 +60,7 @@ import { carriedEnvironment } from "../../lib/internal/session/carried-environme
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import {
 	askOnce,
+	beganTooLate,
 	madeByHost,
 	reach,
 	unsettledReply,
@@ -362,6 +363,11 @@ export function childSupervisor(options: {
 	say?: (line: string) => void;
 	/** A child's conversation ended, as it said, its route already gone. */
 	ended?: (sessionId: string, why: ChildEnding) => void;
+	/**
+	 * A child's conversation became another, as it said, its route already
+	 * moved, so a repeat of the request that opened it names the one now.
+	 */
+	became?: (previousId: string, nextId: string) => void;
 	listensWithinMs?: number;
 	answersWithinMs?: number;
 	exitsWithinMs?: number;
@@ -378,6 +384,11 @@ export function childSupervisor(options: {
 	const exitsWithinMs = options.exitsWithinMs ?? EXITS_WITHIN_MS;
 	const beginsWithinMs = options.beginsWithinMs ?? BEGINS_WITHIN_MS;
 	const unsettledWithinMs = options.unsettledWithinMs ?? UNSETTLED_WITHIN_MS;
+	// The least a begin's time may have left as its child starts: what the
+	// child's first answer is kept clear of, when the begin's whole time
+	// leaves it any, and otherwise only that some time is left at all.
+	const leastToBegin =
+		beginsWithinMs > unsettledWithinMs ? unsettledWithinMs : 0;
 	const listensWithinCpuMs =
 		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
 	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
@@ -1037,6 +1048,7 @@ export function childSupervisor(options: {
 								current = next;
 								runsIn(next, slot);
 								if (was) routes.hold(conversation, was);
+								options.became?.(left, next);
 								keep(async () => {
 									try {
 										// It keeps what the host held of what it was.
@@ -1366,6 +1378,16 @@ export function childSupervisor(options: {
 		},
 		begin(request, taken = Date.now()) {
 			const by = taken + beginsWithinMs;
+			// What the host spent before this begin, its census under load, can
+			// leave the child's first answer no time of its own: refused then,
+			// before a unit starts only to be stopped on a machine already
+			// loaded, and said in the journal with where the time went.
+			const spent = Date.now() - taken;
+			if (beginsWithinMs - spent <= leastToBegin) {
+				const refused = beganTooLate(request.id, spent, beginsWithinMs);
+				if (!refused.ok) options.report(refused.error.message);
+				return Promise.resolve(refused);
+			}
 			const slot = slotOf(options.folder, options.key, randomUUID());
 			// An adopt's file, too, must be one no host holds: one the roster
 			// holds is resumed in the slot its own id names, never begun beside,

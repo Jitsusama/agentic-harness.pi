@@ -11,8 +11,11 @@
 /** The code of a refusal naming the conversation its child runs. */
 export const OPEN_UNSETTLED = "open_unsettled";
 
+// The id is a UUID, as every session id a host answers with is: words
+// naming anything else, from a broken or stale host, are no conversation
+// to attach to, and the attach words count on it needing no quoting.
 const SAID =
-	/^The conversation's process gave no answer in time, but runs (\S+): attach to it, or close it, rather than open another$/;
+	/^The conversation's process gave no answer in time, but runs ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}): attach to it, or close it, rather than open another$/;
 
 /** The words of a refusal naming `sessionId` as the one its child runs. */
 export function unsettledMessage(sessionId: string): string {

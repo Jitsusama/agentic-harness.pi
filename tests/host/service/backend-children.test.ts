@@ -20,6 +20,10 @@ import type {
 } from "../../../host/service/protocol.ts";
 import { resumeHeld } from "../../../host/service/resume-held.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
+import {
+	OPEN_UNSETTLED,
+	unsettledMessage,
+} from "../../../host/service/unsettled-open.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 
 const KEY = "work-background";
@@ -464,16 +468,16 @@ describe("a conversation opened while children open", () => {
 		const took = Date.parse("2026-11-23T05:00:00.000Z");
 		const censusTakes = 30_000;
 		vi.useFakeTimers({ toFake: ["Date"], now: took });
+		const slowCensus = vi.fn(async () => {
+			vi.setSystemTime(took + censusTakes);
+		});
 		try {
-			const slowCensus = async () => {
-				vi.setSystemTime(took + censusTakes);
-			};
-
 			await backendWith(engine(), moved.fake, slowCensus).execute(open);
 		} finally {
 			vi.useRealTimers();
 		}
 
+		expect(slowCensus, "the census ran first").toHaveBeenCalledOnce();
 		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(open, took);
 	});
 
@@ -562,5 +566,35 @@ describe("a conversation opened while children open", () => {
 			ok: false,
 			error: { code: "untrusted_folder", message: "Trust /work first" },
 		});
+	});
+
+	// Only the host may say a child runs a conversation all the same, since
+	// its caller attaches to the one named; a child saying so of itself was
+	// stopped, so its refusal is a plain failure, and its repeat begins anew.
+	it("takes a child's own open_unsettled as a failure to open", async () => {
+		const moved = children([], true);
+		const said = {
+			code: OPEN_UNSETTLED,
+			message: unsettledMessage(randomUUID()),
+		};
+		moved.fake.begin.mockImplementation(async (request) => ({
+			v: 1,
+			id: request.id,
+			ok: false,
+			error: said,
+		}));
+		const backend = backendWith(engine(), moved.fake);
+
+		const reply = await dispatchControl(open, backend);
+		await dispatchControl({ ...open }, backend);
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "operation_failed", message: said.message },
+		});
+		expect(
+			moved.fake.begin,
+			"no conversation stands for it",
+		).toHaveBeenCalledTimes(2);
 	});
 });

@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
+import { BEGIN_TOO_LATE } from "../../../host/service/child-requests.ts";
 import { slotOf, writeSlot } from "../../../host/service/child-units.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
@@ -230,7 +231,11 @@ describe("a new conversation", () => {
 	// census, so the caller's 120 s ran out before the begin's 100 s did.
 	it("counts a begin's time from when the host took its request", async () => {
 		superviseAgain({
-			clocks: { beginsWithinMs: 5_000, answersWithinMs: 10_000 },
+			clocks: {
+				beginsWithinMs: 6_000,
+				unsettledWithinMs: 1_000,
+				answersWithinMs: 10_000,
+			},
 		});
 		units.next = { silent: true };
 		const took = Date.now() - 4_000;
@@ -238,10 +243,36 @@ describe("a new conversation", () => {
 		const reply = await supervisor.begin(opening("open-17"), took);
 
 		expect(reply).toMatchObject({ ok: false });
-		expect(
-			Date.now() - took,
-			"within its time from when it was taken",
-		).toBeLessThan(7_000);
+		expect(units.started, "begun, with time left for its child").toHaveLength(
+			1,
+		);
+		const spent = Date.now() - took;
+		// Its child's ask ends a second before the begin's own time does.
+		expect(spent, "its child given the time left").toBeGreaterThanOrEqual(
+			4_500,
+		);
+		expect(spent, "within its time from when it was taken").toBeLessThan(7_500);
+	});
+
+	it("refuses a begin taken too long ago for its child to answer, starting none", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 5_000, unsettledWithinMs: 1_000 },
+		});
+		const took = Date.now() - 4_200;
+
+		const reply = await supervisor.begin(opening("open-18"), took);
+
+		expect(reply).toMatchObject({
+			id: "open-18",
+			ok: false,
+			error: { code: BEGIN_TOO_LATE },
+		});
+		const message = reply.ok ? "" : reply.error.message;
+		expect(message).toContain("spent 4 s of its 5 s");
+		expect(message).toContain("nothing was opened");
+		expect(units.started, "no child started").toEqual([]);
+		expect(routes.listed()).toEqual([]);
+		expect(reported.map(String), "said where its time went").toEqual([message]);
 	});
 
 	it("gives up on a starved child at its listen time, since its caller waits on it", async () => {

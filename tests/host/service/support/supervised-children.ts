@@ -40,6 +40,8 @@ export let units: FakeUnits;
 export let reported: unknown[];
 export let said: string[];
 export let ended: [string, string][];
+/** What each child's conversation became, as the supervisor told it on. */
+export let becameTold: [string, string][];
 export let supervisor: ChildSupervisor;
 
 /** A conversation as its child reports it. */
@@ -442,6 +444,7 @@ function supervise(clocks: Clocks = {}): ChildSupervisor {
 		report: (error) => reported.push(error),
 		say: (text) => said.push(text),
 		ended: (sessionId, why) => ended.push([sessionId, why]),
+		became: (previousId, nextId) => becameTold.push([previousId, nextId]),
 		listensWithinMs: 5_000,
 		answersWithinMs: 500,
 		exitsWithinMs: 500,
@@ -516,6 +519,7 @@ export function superviseEachTest(): void {
 		reported = [];
 		said = [];
 		ended = [];
+		becameTold = [];
 		supervisor = supervise();
 	});
 

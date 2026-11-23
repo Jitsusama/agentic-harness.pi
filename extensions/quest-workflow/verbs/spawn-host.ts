@@ -59,6 +59,7 @@ import {
 	refuse,
 } from "./shared.ts";
 import { clearUnanswered, noteUnanswered, pendingId } from "./spawn-pending.ts";
+import { stillOpening } from "./spawn-still-opening.ts";
 
 /** Sends one control request to a host's socket and reads its reply. */
 export type ControlCall = typeof controlRequest;
@@ -457,41 +458,6 @@ export async function spawnInHost(
 		...(request.op === "adopt" ? { resumedSessionId: held.sessionId } : {}),
 	});
 	return shedSaid(opened, shed, spawn.questId);
-}
-
-/**
- * The answer for a session the host's child runs but gave no answer for
- * in time, as it loads under a busy machine: opened or adopted, its
- * request in hand, with what it holds unread, so only its id is named.
- */
-function stillOpening(
-	spawn: HostSpawn,
-	key: string,
-	sessionId: string,
-	adopting: boolean,
-): QuestResult {
-	const attach =
-		spawn.kind === "attended"
-			? attachWords(holdOf(key, true), sessionId)
-			: undefined;
-	const screen = attach
-		? `Its screen waits in the host until a viewer attaches: ${attach.join(" ")}`
-		: "It runs in the background, with no screen.";
-	const late =
-		"its process gave no answer in time, but runs it, so nothing else was";
-	const said = adopting
-		? `The ${key} host is still adopting session ${sessionId}: ${late} adopted. It isn't told anything, so it waits where its log stopped. ${screen}`
-		: `The ${key} host is still opening session ${sessionId} in ${spawn.cwd} (${spawn.chosenBy}), which loads ${spawn.questId}: ${late} opened. It ${spawn.untold ? "waits for its first words" : "is told to carry on"} once it has loaded. ${screen}`;
-	return ok(said, {
-		how: "host",
-		host: key,
-		sessionId,
-		loading: true,
-		attended: spawn.kind === "attended",
-		autoloadQuestId: spawn.questId,
-		...(attach ? { attach } : {}),
-		...(adopting ? { resumedSessionId: sessionId } : {}),
-	});
 }
 
 /** What /quest-resume in a hosted conversation needs to carry a session on. */

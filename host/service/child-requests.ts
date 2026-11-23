@@ -80,6 +80,35 @@ export function childUnreachable(id: string, message?: string): ControlReply {
 	return reply;
 }
 
+/** The code of a begin the host refused, since its time had gone before any child started. */
+export const BEGIN_TOO_LATE = "begin_too_late";
+
+/**
+ * The answer to `id` when the host spent `spentMs` of its `withinMs`
+ * before it could begin, leaving too little for a child to start and
+ * answer: refused before any child starts, naming where the time went,
+ * since a start then would only be stopped again on a loaded machine.
+ */
+export function beganTooLate(
+	id: string,
+	spentMs: number,
+	withinMs: number,
+): ControlReply {
+	const spent = Math.round(spentMs / 1000);
+	const within = Math.round(withinMs / 1000);
+	const reply: ControlReply = {
+		v: 1,
+		id,
+		ok: false,
+		error: {
+			code: BEGIN_TOO_LATE,
+			message: `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again`,
+		},
+	};
+	madeHere.add(reply);
+	return reply;
+}
+
 /**
  * What the caller is told of the line a child answered `id` with: the
  * line itself, unless it can't be read or says the child isn't the

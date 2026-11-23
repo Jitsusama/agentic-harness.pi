@@ -11,11 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ConversationEngine,
-	conversationEvents,
 	hostBackend,
 	type Prepared,
 } from "../../../host/service/backend.ts";
 import { controlRequest, drainHost } from "../../../host/service/client.ts";
+import { conversationEvents } from "../../../host/service/conversation-events.ts";
 import {
 	type ControlRequest,
 	parseDrainResult,

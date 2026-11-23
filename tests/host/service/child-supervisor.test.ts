@@ -15,6 +15,7 @@ import { slotOf } from "../../../host/service/child-units.ts";
 import {
 	a,
 	b,
+	becameTold,
 	childOf,
 	conversation,
 	deferred,
@@ -730,6 +731,7 @@ describe("what a child says", () => {
 		await vi.waitFor(() =>
 			expect(roster.held, "held in the old one's place").toEqual([entry(b)]),
 		);
+		expect(becameTold, "told on, for a repeat to name it").toEqual([[a, b]]);
 	});
 
 	it("says a conversation has left once its child became another, which runs on in its slot", async () => {
@@ -975,6 +977,7 @@ describe("what a child says", () => {
 		expect(routes.routeOf(b), "no route to what it became").toBeUndefined();
 		expect(roster.held).toEqual([entry(a)]);
 		await vi.waitFor(() => expect(units.stopped).toHaveLength(1));
+		expect(becameTold, "nothing told on").toEqual([]);
 	});
 
 	it("stops a child that becomes a conversation the roster holds parked", async () => {
