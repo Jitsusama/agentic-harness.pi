@@ -249,6 +249,7 @@ export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
 		conversations: () => hosted?.list() ?? [],
 		entry: childEntry(slot),
 		resumes: slot.held !== undefined,
+		stale: () => hosted?.rolls() ?? false,
 	});
 	return {
 		slot,
@@ -317,6 +318,12 @@ export interface ChildLifeOptions {
 	readonly resumes?: boolean;
 	/** How long it stays parked with nobody viewing; ALONE_WITHIN_MS by default. */
 	readonly aloneWithin?: number;
+	/**
+	 * Whether its host's own code is stale, so it ends as soon as its
+	 * conversation parks away unviewed, with no grace: a wake within one
+	 * would resume it on the code it rolled to leave. Never, by default.
+	 */
+	readonly stale?: () => boolean;
 }
 
 /** A conversation as the host's registry holds it. */
@@ -449,9 +456,14 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	}
 
 	// A conversation parked away that nobody views ends its child once its
-	// grace passes; a window joining, or a wake, ends the grace. One the
-	// host still lists, parked only while it closes, never arms it.
+	// grace passes, or at once on stale host code; a window joining, or a
+	// wake, ends the grace. One the host still lists, parked only while it
+	// closes, never arms it.
 	function weighAlone(): void {
+		if (away && viewing === 0 && options.stale?.() === true) {
+			end("parked");
+			return;
+		}
 		if (away && viewing === 0) {
 			stopAlone ??= after(options.aloneWithin ?? ALONE_WITHIN_MS, () =>
 				end("parked"),

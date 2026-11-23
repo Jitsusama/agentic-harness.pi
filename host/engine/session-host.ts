@@ -441,6 +441,11 @@ export class SessionHost implements Host {
 		this.stale = true;
 	}
 
+	/** Whether the host's own code is stale, as roll said. */
+	rolls(): boolean {
+		return this.stale;
+	}
+
 	/** Whether a park of this conversation carries its bash calls; none until the engine says. */
 	carries(id: string): boolean {
 		return this.carriedBy?.(id) ?? false;
