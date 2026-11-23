@@ -354,6 +354,39 @@ describe("the compaction trigger", () => {
 			// The second is applied as any written ahead is.
 			await endTurn(fire, ranTools, ctx);
 			expect(state.compactions).toHaveLength(1);
+			// A failure that didn't stop at the cap asks the same size again.
+			expect(closingOf(1)).toContain("Make it about");
+		});
+
+		it("asks less on the spot after a write ahead the compaction waited on stopped at its cap", async () => {
+			let finish: (value: unknown) => void = () => {};
+			completeSimple.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			);
+			completeSimple.mockResolvedValue(written);
+			const { fire, entries, ctx } = await toTheEdge(true);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+
+			// pi compacts at its own threshold while the summary is written.
+			const compacting = fire("session_before_compact", compactEvent(), ctx);
+			finish(capped);
+			await compacting;
+
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+			expect(closingOf(1)).toContain("Keep it to at most");
+			// Recorded once, saying which try it was and whether it was halved.
+			expect(
+				entries.filter((entry) => entry.type === "compaction-ahead-unused"),
+			).toEqual([
+				{
+					type: "compaction-ahead-unused",
+					data: expect.objectContaining({ tries: 1, halved: false }),
+				},
+			]);
 		});
 
 		it("asks for a shorter summary after one that stopped at its cap", async () => {
@@ -382,26 +415,32 @@ describe("the compaction trigger", () => {
 			expect(completeSimple).toHaveBeenCalledTimes(2);
 		});
 
-		it("tries ahead afresh for the next compaction once one has landed", async () => {
+		/** The session at the edge, two summaries ahead failed at their cap. */
+		async function failedTwice() {
 			completeSimple.mockResolvedValue(capped);
-			const { fire, state, ctx } = await toTheEdge(true);
+			const at = await toTheEdge(true);
 			for (let tried = 1; tried <= 2; tried++) {
-				await endTurn(fire, ranTools, ctx);
+				await endTurn(at.fire, ranTools, at.ctx);
 				await vi.waitFor(() =>
 					expect(completeSimple).toHaveBeenCalledTimes(tried),
 				);
 				await new Promise((r) => setTimeout(r, 0));
 			}
-			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions).toHaveLength(1);
-			// pi asks for the summary, which fails again on the spot; pi's own
-			// summariser lands the compaction.
-			await fire("session_before_compact", compactEvent(), ctx);
-			await fire("session_compact", { compactionEntry: {} }, ctx);
-			state.compactions[0]?.onComplete?.();
+			return at;
+		}
+		/**
+		 * The conversation back at the edge with a summary ahead to fail once
+		 * more: whether the turn after it compacts on the spot.
+		 */
+		async function compactsOnTheSpotAgain({
+			fire,
+			state,
+			ctx,
+		}: Awaited<ReturnType<typeof failedTwice>>) {
 			const before = completeSimple.mock.calls.length;
-			// The first turn after measures what the compaction kept; the next
-			// request is sent and the conversation grows back to the edge.
+			const compacted = state.compactions.length;
+			// The first turn measures what is kept; the next request is sent and
+			// the conversation grows back to the edge.
 			state.tokens = 60_000;
 			await endTurn(fire, ranTools, ctx);
 			state.branch = [userEntry];
@@ -421,7 +460,42 @@ describe("the compaction trigger", () => {
 			);
 			await new Promise((r) => setTimeout(r, 0));
 			await endTurn(fire, ranTools, ctx);
-			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			return state.compactions.length > compacted;
+		}
+
+		it("tries ahead afresh for the next compaction once one has landed", async () => {
+			const at = await failedTwice();
+			const { fire, state, ctx } = at;
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			// pi asks for the summary, which fails again on the spot, asked for
+			// less; pi's own summariser lands the compaction.
+			await fire("session_before_compact", compactEvent(), ctx);
+			expect(closingOf(2)).toContain("Keep it to at most");
+			await fire("session_compact", { compactionEntry: {} }, ctx);
+			state.compactions[0]?.onComplete?.();
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(3), "asked full size again").toContain("Make it about");
+		});
+
+		it.each([
+			["the session starts again", "session_start", { reason: "resume" }],
+			[
+				"the session moves in its tree",
+				"session_tree",
+				{ newLeafId: "a1", oldLeafId: "a1" },
+			],
+		])("tries ahead afresh once %s", async (_, name, event) => {
+			const at = await failedTwice();
+			await at.fire(name, event, at.ctx);
+
+			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
+				false,
+			);
+			expect(closingOf(2), "asked full size again").toContain("Make it about");
 		});
 	});
 

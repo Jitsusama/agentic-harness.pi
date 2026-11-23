@@ -103,6 +103,18 @@ describe("summaryInstruction", () => {
 			expect(text).toContain("should grow with what it replaces");
 		});
 
+		/** The instruction after a try that stopped at its cap. */
+		const halved = (ceilingTokens?: number, folding = false) =>
+			summaryInstruction({
+				hasPreviousSummary: folding,
+				length: {
+					replacedTokens: 450_000,
+					maxOutputTokens: 51_200,
+					...(ceilingTokens !== undefined ? { ceilingTokens } : {}),
+					halved: true,
+				},
+			});
+
 		it("never holds a summary under its floor, whatever ceiling is named", () => {
 			const text = summaryInstruction({
 				hasPreviousSummary: false,
@@ -119,21 +131,17 @@ describe("summaryInstruction", () => {
 		// stopped at the 51,200-token cap, and each was replaced by one
 		// written on the spot while the session waited 7 to 16 minutes.
 		it("asks for half as much, as a limit, after a try that stopped at its cap", () => {
-			const halved = (ceilingTokens?: number) =>
-				summaryInstruction({
-					hasPreviousSummary: false,
-					length: {
-						replacedTokens: 450_000,
-						maxOutputTokens: 51_200,
-						...(ceilingTokens !== undefined ? { ceilingTokens } : {}),
-						halved: true,
-					},
-				});
-			expect([
-				halved().includes("Keep it to at most 10,200 tokens"),
-				halved(6_000).includes("Keep it to at most 3,000 tokens"),
-				halved().includes("a limit, not a target"),
-			]).toEqual([true, true, true]);
+			expect(halved()).toContain("Keep it to at most 10,200 tokens");
+			expect(halved()).toContain("a limit, not a target");
+			expect(halved(6_000)).toContain("Keep it to at most 3,000 tokens");
+		});
+
+		it("never halves a summary under its floor", () => {
+			expect(halved(2_000)).toContain("Keep it to at most 2,000 tokens");
+		});
+
+		it("folds the earlier summary in as a ceiling does, once halved", () => {
+			expect(halved(undefined, true)).toContain("within the limit below");
 		});
 
 		it("counts the earlier summary in what a fold replaces", () => {
