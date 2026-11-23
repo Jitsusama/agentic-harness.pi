@@ -400,10 +400,15 @@ describe("the compaction trigger", () => {
 			await fire("session_compact", { compactionEntry: {} }, ctx);
 			state.compactions[0]?.onComplete?.();
 			const before = completeSimple.mock.calls.length;
-			// The first turn after measures what the compaction kept, and the
-			// conversation then grows back to the edge.
+			// The first turn after measures what the compaction kept; the next
+			// request is sent and the conversation grows back to the edge.
 			state.tokens = 60_000;
 			await endTurn(fire, ranTools, ctx);
+			state.branch = [userEntry];
+			state.leaf = "u1";
+			await fire("before_provider_request", { payload }, ctx);
+			state.branch = [userEntry, replyEntry];
+			state.leaf = "a1";
 			state.tokens = 300_000;
 
 			completeSimple.mockResolvedValueOnce(refused);
