@@ -1053,9 +1053,14 @@ const scenarios: Record<string, Scenario> = {
 					);
 			// Asked while the run is under way and held before it ends, so
 			// only a look after the engine's wait for idle can refuse it.
+			// The reload's body starts a microtask after it is asked, so a
+			// hold taken at once would already stand for a look before the
+			// wait: one turn of the loop lets the reload reach that wait,
+			// which the held run keeps it in.
 			const answering = prompt(engine, id, "hold on");
 			await until("the run to be under way", () => heldRun.started, UNTIL_MS);
 			const yielding = reloaded(true);
+			await new Promise((later) => setImmediate(later));
 			holdForMove(id, "background");
 			let yieldingDuring: string;
 			let otherDuring: string;
