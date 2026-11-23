@@ -352,9 +352,13 @@ async function removeOnce(
 	record: string,
 	removal: JobRecordRemoval,
 ): Promise<PassEnd> {
+	// Named before the rename answers, since a busy disk's answer can come
+	// after it moved the record, and an exit meanwhile looks there.
+	removal.aside = aside;
 	try {
 		await rename(file, aside);
 	} catch (error) {
+		removal.aside = undefined;
 		// Gone already, with the call's other files: nothing to remove.
 		if (isMissing(error)) return "settled";
 		// A disk refusing it (read-only after an error, failing, or the
@@ -363,7 +367,6 @@ async function removeOnce(
 		sayStays(file, error);
 		return "stays";
 	}
-	removal.aside = aside;
 	const handedFirst = removal.handed;
 	removal.setAside = !handedFirst;
 	const linkAside = () => link(aside, file);

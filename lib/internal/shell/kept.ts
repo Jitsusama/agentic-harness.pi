@@ -365,8 +365,9 @@ export interface JobRecordRemoval {
 	/** Whether the record is off its name, set aside, and not yet put back. */
 	setAside: boolean;
 	/**
-	 * Where its record sits, renamed off its name, until the removal has
-	 * removed it there: a hand-off before then is put back from it.
+	 * Where its record is renamed to off its name, from when the rename is
+	 * asked until the removal has removed it there: a hand-off before then
+	 * is put back from it.
 	 */
 	aside?: string;
 }
