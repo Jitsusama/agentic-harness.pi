@@ -208,6 +208,33 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		});
 	});
 
+	// A hub is only ever found on a quest above, so an address no cell
+	// there holds is no hub's, and a question to a peer's owner, the
+	// common case, waits on no find while the node is quiet.
+	it("sends a question for his hands by address to a peer on no quest above when no node answers", async () => {
+		onQuest();
+		parentLive();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-o",
+			addresses: ["OTHER1"],
+			groups: ["#quest/other1"],
+			joined: [],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession(noNode());
+
+		await send(tools, "OTHER1", "question", "May Joel touch the key at 02:00?");
+
+		expect(sent().at(-1)).toMatchObject({
+			to: ["@OTHER1"],
+			text: "May Joel touch the key at 02:00?",
+		});
+	});
+
 	it("tells nobody of a session on no model once a model is chosen, though a hub is found after", async () => {
 		onQuest();
 		parentLive();

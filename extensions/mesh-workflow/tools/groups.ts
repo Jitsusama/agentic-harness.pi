@@ -252,6 +252,14 @@ export function groupsText(standing: Census, peer: Peer): string {
 /** How much of what a peer works on mesh_groups says, to name it. */
 const WORK_CHARS = 100;
 
+/**
+ * A quest id as quest-workflow mints one, whole. A peer's presence says
+ * its quest as any string, and a grant is checked against the quest a
+ * peer line names, so one that isn't shaped so (a newline that would
+ * forge a line, or a flood) is left unnamed.
+ */
+const QUEST_ID = /^QEST-\d{8}-[0-9A-Z]{6}$/u;
+
 /** How long a step runs before mesh_groups says what it is. */
 const STEP_SAID_AFTER_MS = 60_000;
 
@@ -275,7 +283,10 @@ export function peersText(
 		const where = one.machine ? ` on ${one.machine}` : "";
 		// Its own quest, apart from the groups it joined, which any peer
 		// may: a grant comes from the peer whose own quest holds the work.
-		const quest = one.quest ? `, quest ${one.quest}` : "";
+		const quest =
+			one.quest !== undefined && QUEST_ID.test(one.quest)
+				? `, quest ${one.quest}`
+				: "";
 		const run = back.has(one.session)
 			? "resuming as its host starts again"
 			: runText(one, now);

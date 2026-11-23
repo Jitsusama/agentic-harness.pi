@@ -34,6 +34,14 @@ export const HUB_KEEP_MS = 5 * 60_000;
  */
 export const HUB_RETRY_MS = 30_000;
 
+/**
+ * How long a kept hub is trusted with no find coming to it: a node
+ * quiet this long is down rather than slow, and the talk the hub was
+ * chosen from is going stale, so the hub is read as none until a find
+ * comes to one again.
+ */
+export const HUB_TRUST_MS = 30 * 60_000;
+
 /** What a find came to, and whether it could be finished. */
 export interface Found {
 	readonly above: Above;
@@ -137,10 +145,13 @@ export interface HubKeeping {
 	/** Milliseconds to the next find after one that could not finish. */
 	readonly retry?: number;
 	/**
-	 * Called each time a find keeps a hub, so what waited for one is told
-	 * whether the hub is new, back, or the one kept before.
+	 * Called each time a find comes to a hub, so what waited for one is
+	 * told whether the hub is new, back, or the one kept before. A hub
+	 * kept through a find that came to none is not said again.
 	 */
 	readonly found?: (address: string) => void;
+	/** Milliseconds a kept hub is read with no find coming to it. */
+	readonly trust?: number;
 }
 
 /**
@@ -153,7 +164,8 @@ export interface HubKeeping {
  * above, and dropping the hub then sent every unmarked session's
  * questions to the person at once, told nothing was above it, just as
  * need stopped finding owners too. A find that finishes and finds none
- * keeps none.
+ * keeps none, and a hub no find has come to for `trust` milliseconds
+ * reads as none until one does.
  *
  * Reading it checks again, without waiting, what may have changed since
  * the last find: a peer that has taken a role since has no hub, nor has
@@ -162,13 +174,22 @@ export interface HubKeeping {
  * is as the last find's census judged it, less any presence that has
  * said since that it ended, since a census can wait and a read can't:
  * so a session that crashed is no second holder, and a hub that stopped
- * without saying so is kept until the next find.
+ * without saying so is kept until a find settles or its trust runs out.
+ * An address an ended presence on another quest lists is refused, as
+ * the find refuses it.
  */
 export function keepHub(
 	at: () => HubReading | undefined,
-	{ every = HUB_KEEP_MS, retry = HUB_RETRY_MS, found }: HubKeeping = {},
+	{
+		every = HUB_KEEP_MS,
+		retry = HUB_RETRY_MS,
+		found,
+		trust = HUB_TRUST_MS,
+	}: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
+	// When a find last came to the kept hub.
+	let confirmed = 0;
 	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
 	let clock: ReturnType<typeof setTimeout> | undefined;
@@ -201,6 +222,7 @@ export function keepHub(
 			if (stopped) return;
 			if ("address" in finding.above) {
 				kept = finding.above.address;
+				confirmed = Date.now();
 				came = true;
 			} else if (finding.settled) kept = undefined;
 			gone = new Set(finding.gone);
@@ -226,17 +248,21 @@ export function keepHub(
 		current: () => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
+			if (Date.now() - confirmed > trust) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
 			// Read as the find's census was: each presence answering only to
 			// the addresses no other signs with, as `peers` gives them.
 			const everyone = reading.presences.all();
+			const isLive = (one: (typeof everyone)[number]) =>
+				one.ended === undefined && !gone.has(one.session);
 			const live = everyone
-				.filter((one) => one.ended === undefined && !gone.has(one.session))
+				.filter(isLive)
 				.map((one) => ({ ...one, addresses: answeringTo(one, everyone) }));
+			const ended = everyone.filter((one) => !isLive(one));
 			const self = live.find((one) => one.session === reading.peer.session);
 			if (self === undefined) return undefined;
-			return stillAbove(self, live, address) ? address : undefined;
+			return stillAbove(self, live, address, ended) ? address : undefined;
 		},
 		stop: () => {
 			stopped = true;

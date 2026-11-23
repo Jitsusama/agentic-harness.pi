@@ -89,7 +89,12 @@ and can answer a question or a gate left open on screen.
   about who is above and every unmarked session would
   otherwise send its questions to the person at once; it
   still goes once either it or the session stops the other,
-  it ends, or it leaves the quests above. The tree is walked on the quest side; the mesh reads
+  it ends, its address is listed by a second live cell or by
+  an ended one on another quest, or it leaves the quests
+  above, and after 30 minutes with no find coming to it, since
+  a node quiet that long is down rather than slow. A question
+  by address to a peer no cell above holds waits on no find,
+  as no hub is found anywhere else. The tree is walked on the quest side; the mesh reads
   only presence. Within a mission, an unaddressed message now
   usually goes to the orchestration's group, since another
   peer is nearly always in it: the same reach `#quest/<root>`

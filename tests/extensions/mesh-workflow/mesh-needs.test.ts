@@ -168,6 +168,8 @@ describe("sending to a need", () => {
 		expect(said).toContain("Not sent: no live cell within three ties");
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids()).toEqual([]);
 		expect(said).toContain("5HJZ8Z works on it but has ended");
 		expect(said, "with no stopper, any peer may be named").toContain(
 			"Name the peers it is for by address.",
@@ -292,5 +294,25 @@ describe("sending to a need", () => {
 		expect(said).toContain("Not sent: no node answered");
 		expect(said).toContain("passed to nobody in its place");
 		expectNoBarAbove(said);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids()).toEqual([]);
+	});
+
+	// Every session reads mesh_send's description in its tool list, long
+	// before any refusal, so it may no more bar asking above than they.
+	it("is described in mesh_send's own words as passed to nobody, never as kept from above", async () => {
+		const { tools } = await startSession();
+
+		const tool: unknown = tools.get("mesh_send");
+		const description =
+			typeof tool === "object" &&
+			tool !== null &&
+			"description" in tool &&
+			typeof tool.description === "string"
+				? tool.description
+				: "";
+
+		expect(description).toContain("passed to nobody in its place");
+		expectNoBarAbove(description);
 	});
 });
