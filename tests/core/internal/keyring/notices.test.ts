@@ -147,6 +147,19 @@ describe("keyring notices", () => {
 		expect(heard).toEqual(["bound: locked", "late: locked"]);
 	});
 
+	it("never replays to a later screen a notice another took, though one screen keeps declining it", () => {
+		const heard: string[] = [];
+		const never = { bound: false };
+		onKeyringNotice(unboundUntil(never, heard, "headless"), {});
+		onKeyringNotice(hearing(heard, "bound"), {});
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		onKeyringNotice(hearing(heard, "later"), {});
+		retryKeyringNotices();
+		expect(heard).toEqual(["bound: locked"]);
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		expect(heard).toEqual(["bound: locked", "later: locked"]);
+	});
+
 	it("holds a notice said many times to a screen that keeps declining once, so each retry offers it once", () => {
 		let offered = 0;
 		onKeyringNotice(() => {

@@ -1,7 +1,8 @@
-import type {
-	ExtensionAPI,
-	ExtensionRunner,
-	ExtensionUIContext,
+import {
+	type ExtensionAPI,
+	type ExtensionRunner,
+	type ExtensionUIContext,
+	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -33,8 +34,12 @@ function keeping(label: string, move: () => Promise<void> = async () => {}) {
 }
 
 /** One session whose pi runs two extensions keeping credentials, through pi's own runner. */
-function session() {
-	return extensionRunner([keeping("Slack"), keeping("Google")], process.cwd());
+function session(manager = SessionManager.inMemory(process.cwd())) {
+	return extensionRunner(
+		[keeping("Slack"), keeping("Google")],
+		process.cwd(),
+		manager,
+	);
 }
 
 describe("keepCredentialsInKeyring, under pi's own runner", () => {
@@ -70,7 +75,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
-	it("shows a notice in each session, even those started before pi gave them a screen", async () => {
+	it("shows a notice in each session on the screen pi gave it after it started", async () => {
 		const first = session();
 		const second = session();
 		await first.start();
@@ -109,16 +114,20 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
-	it("shows the same words once in a session across a reload", async () => {
-		const one = session();
+	it("shows the same words once in a session across a reload, which builds new extensions around its manager", async () => {
+		const manager = SessionManager.inMemory(process.cwd());
+		const before = session(manager);
 		const shown = screen();
-		one.runner.setUIContext(shown.ui, "tui");
-		await one.start();
+		before.runner.setUIContext(shown.ui, "tui");
+		await before.start();
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
-		await one.runner.emit({ type: "session_start", reason: "reload" });
+		await before.runner.emit({ type: "session_shutdown", reason: "reload" });
+		const after = session(manager);
+		after.runner.setUIContext(shown.ui, "tui");
+		await after.runner.emit({ type: "session_start", reason: "reload" });
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect(shown.told).toEqual(["warning: keyring locked"]);
-		expect(one.errors).toEqual([]);
+		expect([before.errors, after.errors]).toEqual([[], []]);
 	});
 
 	it("stops showing notices in a session that ended, keeping them for the next", async () => {

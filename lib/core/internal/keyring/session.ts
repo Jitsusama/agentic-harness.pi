@@ -9,7 +9,9 @@
  * while it asks.
  *
  * A session with no screen yet declines a notice rather than showing it
- * nowhere, so it waits, and each turn's start offers it again.
+ * nowhere, so it waits, and each turn's start offers it again: pi says
+ * nothing as it gives a session a screen, so a turn is the first moment
+ * this can see one, and an idle session shows the notice at its next.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
