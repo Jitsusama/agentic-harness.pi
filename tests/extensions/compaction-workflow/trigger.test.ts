@@ -288,6 +288,136 @@ describe("the compaction trigger", () => {
 		expect(completeSimple).not.toHaveBeenCalled();
 	});
 
+	// On 22 November four summaries written ahead failed, and each next
+	// turn compacted on the spot, holding the session 7 to 16 minutes.
+	describe("after a summary written ahead failed", () => {
+		const written = {
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		};
+		const capped = {
+			stopReason: "length",
+			content: [{ type: "text", text: "## Goal\nand on and" }],
+			usage: {},
+		};
+		const closingOf = (call: number) =>
+			JSON.stringify(
+				(
+					completeSimple.mock.calls[call]?.[1] as
+						| { messages: unknown[] }
+						| undefined
+				)?.messages.at(-1),
+			);
+
+		/** The session at the edge, its first summary ahead failed. */
+		async function failedOnce(first: unknown) {
+			completedSimply(first);
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			return at;
+		}
+		/** pi asking for the summary of the compaction it has begun. */
+		const compactEvent = () => ({
+			preparation: {
+				firstKeptEntryId: "a1",
+				tokensBefore: 300_000,
+				previousSummary: undefined,
+				fileOps: { read: new Set(), edited: new Set(), written: new Set() },
+				settings: { reserveTokens: 64_000 },
+			},
+			customInstructions: undefined,
+			signal: new AbortController().signal,
+		});
+		const completedSimply = (first: unknown) => {
+			completeSimple.mockResolvedValueOnce(first);
+			completeSimple.mockResolvedValue(written);
+		};
+
+		it("writes it ahead again rather than compacting on the spot", async () => {
+			const { fire, state, ctx } = await failedOnce({
+				stopReason: "error",
+				errorMessage: "overloaded",
+				content: [],
+				usage: {},
+			});
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(0);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			await new Promise((r) => setTimeout(r, 0));
+
+			// The second is applied as any written ahead is.
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+		});
+
+		it("asks for a shorter summary after one that stopped at its cap", async () => {
+			const { fire, ctx } = await failedOnce(capped);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+
+			expect(closingOf(0)).toContain("Make it about");
+			expect(closingOf(1)).toContain("Keep it to at most");
+			expect(closingOf(1)).toContain("a limit, not a target");
+		});
+
+		it("compacts on the spot once a second try ahead has failed too", async () => {
+			completeSimple.mockResolvedValue(capped);
+			const { fire, state, ctx } = await toTheEdge(true);
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			await endTurn(fire, ranTools, ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
+			await new Promise((r) => setTimeout(r, 0));
+			expect(state.compactions).toHaveLength(0);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+
+		it("tries ahead afresh for the next compaction once one has landed", async () => {
+			completeSimple.mockResolvedValue(capped);
+			const { fire, state, ctx } = await toTheEdge(true);
+			for (let tried = 1; tried <= 2; tried++) {
+				await endTurn(fire, ranTools, ctx);
+				await vi.waitFor(() =>
+					expect(completeSimple).toHaveBeenCalledTimes(tried),
+				);
+				await new Promise((r) => setTimeout(r, 0));
+			}
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			// pi asks for the summary, which fails again on the spot; pi's own
+			// summariser lands the compaction.
+			await fire("session_before_compact", compactEvent(), ctx);
+			await fire("session_compact", { compactionEntry: {} }, ctx);
+			state.compactions[0]?.onComplete?.();
+			const before = completeSimple.mock.calls.length;
+
+			completeSimple.mockResolvedValueOnce({
+				stopReason: "error",
+				errorMessage: "overloaded",
+				content: [],
+				usage: {},
+			});
+			for (let turn = 0; turn < 40; turn++) {
+				await endTurn(fire, ranTools, ctx);
+				if (completeSimple.mock.calls.length > before) break;
+			}
+			await vi.waitFor(() =>
+				expect(completeSimple).toHaveBeenCalledTimes(before + 1),
+			);
+			await new Promise((r) => setTimeout(r, 0));
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+		});
+	});
+
 	it("applies a summary that finishes while the session is idle at once, without resuming", async () => {
 		let finish: (value: unknown) => void = () => {};
 		completeSimple.mockImplementation(

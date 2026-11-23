@@ -115,6 +115,27 @@ describe("summaryInstruction", () => {
 			expect(text).toContain("Keep it to at most 2,000 tokens");
 		});
 
+		// On 22 November four summaries written ahead failed, three of them
+		// stopped at the 51,200-token cap, and each was replaced by one
+		// written on the spot while the session waited 7 to 16 minutes.
+		it("asks for half as much, as a limit, after a try that stopped at its cap", () => {
+			const halved = (ceilingTokens?: number) =>
+				summaryInstruction({
+					hasPreviousSummary: false,
+					length: {
+						replacedTokens: 450_000,
+						maxOutputTokens: 51_200,
+						...(ceilingTokens !== undefined ? { ceilingTokens } : {}),
+						halved: true,
+					},
+				});
+			expect([
+				halved().includes("Keep it to at most 10,200 tokens"),
+				halved(6_000).includes("Keep it to at most 3,000 tokens"),
+				halved().includes("a limit, not a target"),
+			]).toEqual([true, true, true]);
+		});
+
 		it("counts the earlier summary in what a fold replaces", () => {
 			const text = summaryInstruction({
 				hasPreviousSummary: true,
