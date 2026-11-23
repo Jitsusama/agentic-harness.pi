@@ -627,13 +627,17 @@ describe("warming across a restart", () => {
 	// of 701 loop-hold samples from 21 to 23 November.
 	it("writes the carry off the thread, and has it written once its shutdown ends", async () => {
 		const { fire, ctx } = await idleSession();
+		// Carries the cases before this one kept are still on disk.
+		const before = onDisk(state).length;
 
 		const shutdown = fire("session_shutdown", { reason: "quit" }, ctx);
 		for (let i = 0; i < 50; i++) await Promise.resolve();
-		const duringTheThreadsOwnWork = onDisk(state).length;
+		const duringTheThreadsOwnWork = onDisk(state).length - before;
 		await shutdown;
 
-		expect([duringTheThreadsOwnWork, onDisk(state).length]).toEqual([0, 1]);
+		expect([duringTheThreadsOwnWork, onDisk(state).length - before]).toEqual([
+			0, 1,
+		]);
 	});
 
 	it("takes nothing back once the cache it warmed has expired", async () => {
