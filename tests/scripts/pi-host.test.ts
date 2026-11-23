@@ -2,6 +2,14 @@
  * pi-host as a unit runs it: node running the script as it stands, in a
  * sealed environment of its own, exiting 78 when what it was given is
  * refused, so a unit naming that status stops restarting it.
+ *
+ * It is the check for a load the walk in
+ * tests/host/service/program-binds-no-pi-at-load.test.ts can't see,
+ * such as an `import()` in a function called at load. Running pi-host
+ * as a process imports none of it, so this file imports the program
+ * and what pi-host loads before its hook, for `vitest --changed` to
+ * pick it for a change anywhere they reach; that walk fails when
+ * pi-host imports a module this file doesn't.
  */
 
 import { execFile } from "node:child_process";
@@ -10,6 +18,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import "../../host/service/compile-cache.ts";
+import "../../host/service/pi-resolution.ts";
+import { EXIT_MISCONFIGURED } from "../../host/service/program.ts";
+import "../../host/service/run.ts";
+import "../../lib/internal/fence/compile-cache-place.ts";
 
 const run = promisify(execFile);
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "pi-host.ts");
@@ -50,7 +63,7 @@ describe("pi-host", () => {
 			PI_PACKAGE_DIR: join(home, "no-pi"),
 		};
 		const bare = await piHost(unproven, "attended");
-		expect(bare.code).toBe(78);
+		expect(bare.code).toBe(EXIT_MISCONFIGURED);
 		expect(bare.stderr).toMatch(/^pi-host: PI_HOST_PROOF must name the proof/);
 
 		const proof = join(proofs, "proof.json");
@@ -68,11 +81,11 @@ describe("pi-host", () => {
 		);
 		const env = { ...unproven, PI_HOST_PROOF: proof };
 		const refused = await piHost(env, "attended");
-		expect(refused.code).toBe(78);
+		expect(refused.code).toBe(EXIT_MISCONFIGURED);
 		expect(refused.stderr).toMatch(/^pi-host: The pi at .*no-pi is incomplete/);
 		expect(refused.stderr, "no stack for a refusal").not.toContain("    at ");
 		expect(readdirSync(home), "nothing was made").toEqual([]);
 
-		expect((await piHost(env, "sideways")).code).toBe(78);
+		expect((await piHost(env, "sideways")).code).toBe(EXIT_MISCONFIGURED);
 	});
 });
