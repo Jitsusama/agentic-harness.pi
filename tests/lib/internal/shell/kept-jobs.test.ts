@@ -432,6 +432,27 @@ describe("a recorded job", () => {
 		);
 	});
 
+	// A folder at the name stands in for EIO or too many open files: any
+	// failure but the file's absence leaves whom to spare unknown.
+	it.each([
+		["a job's record", ".job"],
+		["a carried call's mark", ".carried"],
+	])("says when %s won't read, rather than spare nothing of it", async (_what, suffix) => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		if (suffix === ".carried") markCarried(job.work.keep, "call-1");
+		rmSync(`${job.work.keep}${suffix}`);
+		mkdirSync(`${job.work.keep}${suffix}`);
+		const found = await carriedCalls(where, SOON);
+		expect(found.unread, "whom to spare is not known").toBe(true);
+	});
+
+	it("says nothing went unread when every record read", async () => {
+		const where = folder();
+		await recorded(where, "s1", "j1", HERE);
+		expect((await carriedCalls(where, SOON)).unread).toBeUndefined();
+	});
+
 	it("spares nothing a day after its call started", async () => {
 		const where = folder();
 		await recorded(where, "s1", "j1", HERE);

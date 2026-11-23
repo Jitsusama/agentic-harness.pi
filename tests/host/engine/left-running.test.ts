@@ -45,6 +45,12 @@ describe("what parks kept running", () => {
 		expect(reported).toEqual([]);
 	});
 
+	it("keeps saying a carried record wouldn't read, beside what a park noted", () => {
+		kept().note("a", ["call-1"]);
+		const carried = { marks: new Set<string>(), groups: new Set<number>() };
+		expect(kept().spared({ ...carried, unread: true }).unread).toBe(true);
+	});
+
 	it("keeps each note a day after its park, a note made again counting from then", () => {
 		const left = kept();
 		left.note("a", ["old"]);
