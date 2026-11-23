@@ -138,6 +138,8 @@ describe("summaryInstruction", () => {
 
 		it("never halves a summary under its floor", () => {
 			expect(halved(2_000)).toContain("Keep it to at most 2,000 tokens");
+			// Between the floor and twice it, half would fall under the floor.
+			expect(halved(3_000)).toContain("Keep it to at most 2,000 tokens");
 		});
 
 		it("folds the earlier summary in as a ceiling does, once halved", () => {
