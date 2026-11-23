@@ -31,7 +31,9 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
@@ -47,7 +49,7 @@ import {
 	underHome,
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
-import { holdToOrigin } from "./origin-view.ts";
+import { holdToOrigin, takeView, type ViewGit } from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
 import { twinOf } from "./twin.ts";
 
@@ -321,12 +323,8 @@ function namedFiles(handover: Handover, from: string): string[] {
 	].map((name) => join(from, name));
 }
 
-/** git run in one tree, three ways of hearing it. */
-interface TreeGit {
-	run(...args: string[]): Promise<{ code: number; stderr: string }>;
-	ok(...args: string[]): Promise<boolean>;
-	said(...args: string[]): Promise<string | undefined>;
-}
+/** git run in one tree, three ways of hearing it, and its refs set. */
+type TreeGit = ViewGit;
 
 /** How a tree stood before it was given its commits. */
 type Readied =
@@ -479,40 +477,15 @@ async function asOrigin(
 			return `git couldn't drop the twin's branch: ${dropped.stderr.trim()}`;
 		}
 	}
-	// The clone's pointer to the twin's own branch, which the prune drops.
+	// The clone's pointer to the twin's own branch, which goes with it.
 	await git.run("symbolic-ref", "-q", "-d", "refs/remotes/origin/HEAD");
-	// Pruned to the twin's view of origin; its objects are here already.
-	const why = await viewOf(git, twin, "refs/remotes/origin");
+	const why = await takeView(git, twin);
 	if (why !== undefined) return why;
-	if (!(await git.said("for-each-ref", "--count=1", "refs/remotes/origin/"))) {
-		const lent = await viewOf(git, twin, "refs/heads");
-		if (lent !== undefined) return lent;
-	}
 	const pointed = await git.run("remote", "set-url", "origin", origin);
 	if (pointed.code !== 0) {
 		return `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`;
 	}
 	return holdToOrigin(git);
-}
-
-/** The tree's origin branches made the twin's refs under `under`. */
-async function viewOf(
-	git: TreeGit,
-	twin: string,
-	under: string,
-): Promise<string | undefined> {
-	const viewed = await git.run(
-		"fetch",
-		"-q",
-		"--prune",
-		"--no-tags",
-		twin,
-		`+${under}/*:refs/remotes/origin/*`,
-		`^${under}/HEAD`,
-	);
-	return viewed.code === 0
-		? undefined
-		: `git couldn't take the twin's view of its origin: ${viewed.stderr.trim()}`;
 }
 
 /**
@@ -563,6 +536,23 @@ function treeGit(exec: Exec, path: string): TreeGit {
 		said: async (...args) => {
 			const result = await run(...args);
 			return result.code === 0 ? result.stdout.trim() : undefined;
+		},
+		updateRefs: async (lines) => {
+			// Exec gives no stdin, so the lines go through a file sh reads in.
+			const folder = mkdtempSync(join(tmpdir(), "carry-refs-"));
+			const file = join(folder, "refs");
+			try {
+				writeFileSync(file, `${lines.join("\n")}\n`);
+				return await exec("sh", [
+					"-c",
+					'exec git -C "$1" update-ref --stdin < "$2"',
+					"sh",
+					path,
+					file,
+				]);
+			} finally {
+				rmSync(folder, { recursive: true, force: true });
+			}
 		},
 	};
 }
