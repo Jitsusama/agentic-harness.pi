@@ -28,6 +28,7 @@ import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
 	makeKept,
+	ownJobRecord,
 	RECORD_SPARED_FOR_MS,
 	removeKept,
 } from "../../../../lib/internal/shell/kept.ts";
@@ -407,7 +408,32 @@ describe("a recorded job", () => {
 	it("never throws when what holds its name won't go", () => {
 		const keep = join(folder(), "k1");
 		mkdirSync(`${keep}.job`, { recursive: true });
+		ownJobRecord(keep, "{}");
 		expect(() => forgetKeptJob(keep)).not.toThrow();
+	});
+
+	// A session's recorder takes back at its close every call it ever
+	// recorded, nearly all gone with their files long since.
+	it("asks nothing of the disk at a session's close once its files went", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		await removeKept(job.work.keep);
+		disk.forget();
+		forgetKeptJob(job.work.keep);
+		expect(disk.of(job.work.keep).asked, "nothing asked on the thread").toEqual(
+			[],
+		);
+	});
+
+	it("is left at a session's close once its call was handed on", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disownKeptJob(job.work.keep);
+		forgetKeptJob(job.work.keep);
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"left for whoever took the call up",
+		).toBe(true);
 	});
 
 	it("is passed over when it isn't one this code wrote", async () => {
@@ -1064,7 +1090,35 @@ describe("a call's own record, taken back as the call ends", () => {
 		},
 	);
 
-	it("says nothing when its files went before its record was written", async () => {
+	// A folder there is no write's of this code, so nothing would take it
+	// away; its record is said unwritten, and nothing leaves the write.
+	it("says its record couldn't be written, throwing nothing, when a folder holds its staged name", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		mkdirSync(`${job.work.keep}.job.${process.pid}.new`);
+		expect(
+			() => recordKeptJob({ ...job, label: "again" }),
+			"nothing thrown into its recorder",
+		).not.toThrow();
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line saying the record wasn't written",
+		).toEqual([
+			expect.stringMatching(
+				/couldn't record .*\.job: .*; a pi gone before the call ends leaves it unsaid/,
+			),
+		]);
+		expect(labelsIn(where), "the record it had, still at its name").toEqual([
+			"run j1",
+		]);
+	});
+
+	it("says nothing when the kept folder is gone before its record was written", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		const said = vi

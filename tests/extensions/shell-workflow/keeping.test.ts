@@ -77,27 +77,42 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	return { ...mocked, default: mocked };
 });
 
+// Every synchronous call, and the callback forms a stall could hide in
+// as easily, so a new one on the thread is heard whatever it is.
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
-	const logged = <F extends (...args: never[]) => unknown>(
-		name: string,
-		call: F,
-	): F =>
-		((...args: Parameters<F>) => {
-			disk.asked.push(`${name} ${String(args[0])}`);
-			return call(...args);
-		}) as F;
+	const callbacks = ["stat", "lstat", "access", "unlink", "open", "readFile"];
 	const mocked = {
 		...real,
-		rmSync: logged("rmSync", real.rmSync),
-		unlinkSync: logged("unlinkSync", real.unlinkSync),
-		statSync: logged("statSync", real.statSync),
-		lstatSync: logged("lstatSync", real.lstatSync),
-		existsSync: logged("existsSync", real.existsSync),
-		accessSync: logged("accessSync", real.accessSync),
+		...heard(
+			real,
+			Object.keys(real).filter(
+				(name) => name.endsWith("Sync") || callbacks.includes(name),
+			),
+		),
 	};
 	return { ...mocked, default: mocked };
 });
+
+/**
+ * `module`'s functions `names`, each writing down in `disk.asked` that
+ * it was asked, and of which path, before it does as it would.
+ */
+function heard(
+	module: object,
+	names: readonly string[],
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const name of names) {
+		const real: unknown = Reflect.get(module, name);
+		if (typeof real !== "function") continue;
+		out[name] = Object.assign((...args: unknown[]) => {
+			disk.asked.push(`${name} ${String(args[0])}`);
+			return Reflect.apply(real, module, args);
+		}, real);
+	}
+	return out;
+}
 
 const made: string[] = [];
 afterEach(() => {
@@ -461,6 +476,27 @@ describe("a kept call", () => {
 		);
 	});
 
+	// Its limit stops it with the caller's own signal still live, so only
+	// the stop of this pi's own tells it from a call that ended.
+	it("can't be carried while its record goes once its time limit stopped it", async () => {
+		const call = endsRecorded({ hangs: true });
+		disk.hold();
+		const said = run(call.kept.operations, "true", call.signal, {}, 0.3).then(
+			() => "settled",
+			(error: unknown) => String(error),
+		);
+		await until("its record unlinked", () => call.recordGone());
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry: its time limit is said here",
+		).toBeUndefined();
+		disk.go();
+		expect(await said, "it times out as pi says").toContain("timeout:0.3");
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+	});
+
 	it("leaves its files to whoever it was handed to while its record went", async () => {
 		const call = endsRecorded();
 		disk.hold();
@@ -473,6 +509,10 @@ describe("a kept call", () => {
 			disk.moved.filter((path) => path.startsWith(call.keep())),
 			"only its record set aside, none of its other files",
 		).toEqual([`${call.keep()}.job`]);
+		expect(
+			removedOf(call.keep()),
+			"none of its files asked to go: they are the taker's",
+		).toEqual([]);
 		expect(existsSync(`${call.keep()}.end`), "its end, for the taker").toBe(
 			true,
 		);
@@ -490,6 +530,10 @@ describe("a kept call", () => {
 		call.record("taken up");
 		disk.go();
 		await running;
+		expect(
+			removedOf(call.keep()),
+			"none of its files asked to go, the taker's record among them",
+		).toEqual([]);
 		expect(
 			JSON.parse(readFileSync(`${call.keep()}.job`, "utf8")).label,
 			"the taker's record",
@@ -530,6 +574,16 @@ describe("a kept call", () => {
  */
 const SETTLES_IN_MS = 2_000;
 
+/**
+ * The call's files kept at `keep` that a removal was asked for, by their
+ * own names, not an aside's. The first is asked as its removal starts,
+ * before the call settles, so none is missed by a check just after.
+ */
+function removedOf(keep: string): string[] {
+	const own = [".job", ".end", ".pid"].map((suffix) => `${keep}${suffix}`);
+	return disk.removed.filter((path) => own.includes(path));
+}
+
 /** Let `count` turns of the loop pass, for what would run in them. */
 async function turns(count: number): Promise<void> {
 	for (let turn = 0; turn < count; turn += 1) {
@@ -541,14 +595,16 @@ async function turns(count: number): Promise<void> {
  * A kept call whose shell ends at once with status 0, its job recorded
  * as a job's recorder records one in this process, unless `records` is
  * false. With `stops`, pi stops it as it runs, and its shell writes no
- * end.
+ * end. With `hangs`, its shell runs until it is stopped, writing no end.
  */
 function endsRecorded({
 	records = true,
 	stops = false,
+	hangs = false,
 }: {
 	records?: boolean;
 	stops?: boolean;
+	hangs?: boolean;
 } = {}) {
 	const stopping = new AbortController();
 	const dir = mkdtempSync(join(tmpdir(), "keeping-"));
@@ -577,6 +633,12 @@ function endsRecorded({
 				if (records) record("true");
 				if (stops) {
 					stopping.abort();
+					return { exitCode: null };
+				}
+				if (hangs) {
+					await new Promise((done) =>
+						call.signal?.addEventListener("abort", done, { once: true }),
+					);
 					return { exitCode: null };
 				}
 				writeFileSync(`${keep}.end`, "0");

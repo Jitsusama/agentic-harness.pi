@@ -32,6 +32,10 @@ import {
 	ownJobRecord,
 	ownsJobRecord,
 } from "../../../lib/internal/shell/kept.ts";
+import {
+	forgetOwnKeptJob,
+	recordKeptJob,
+} from "../../../lib/internal/shell/kept-jobs.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -344,6 +348,20 @@ describe("taking up", () => {
 		ownJobRecord(work.keep, "{}");
 		jobs.carryOut();
 		expect(ownsJobRecord(work.keep), "its record, let go").toBe(false);
+	});
+
+	// Taken back or let go of as gone rather than handed on, the record
+	// its next taker reads is removed, or never put back once set aside.
+	it("leaves the record of a call it carries on again at its name, a removal of it under way", async () => {
+		const { jobs, work } = await tookUp();
+		recordKeptJob({ session: "s1", id: "j3", kind: "shell", label: "x", work });
+		const going = forgetOwnKeptJob(work.keep);
+		jobs.carryOut();
+		await going;
+		expect(
+			existsSync(`${work.keep}.job`),
+			"its record, put back for its taker",
+		).toBe(true);
 	});
 
 	it("says a kind it can't take up, rather than dropping it", () => {
