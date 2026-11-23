@@ -43,6 +43,8 @@
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
+	constants,
+	fstatSync,
 	openSync,
 	readFileSync,
 	readSync,
@@ -548,98 +550,120 @@ const CHUNK_BYTES = 1024 * 1024;
 const NEWLINE = 0x0a;
 
 /** How pi starts each message line it writes. */
-const MESSAGE_HEAD = '{"type":"message","id":"';
+const MESSAGE_HEAD = Buffer.from('{"type":"message","id":"');
 
 /** What marks a line that could be a message, whatever order it was written in. */
-const MESSAGE_TYPE = '"type":"message"';
+const MESSAGE_TYPE = Buffer.from('"type":"message"');
 
 /** What marks a line that could be a rollover record. */
-const RECORD_TYPE = `"customType":"${ROLLOVER_RECORD}"`;
+const RECORD_TYPE = Buffer.from(`"customType":"${ROLLOVER_RECORD}"`);
+
+/** The byte that ends a message's id. */
+const QUOTE = 0x22;
 
 /**
  * The messages among `wanted` that the logs this one carries on from
  * hold, oldest first and without those on the branch, for a reader
  * that needs a few old messages back rather than the whole history.
- * Each parent is read a chunk at a time and only a wanted message's
- * line is parsed, so reading costs about what it returns, not the
- * size of the log. A parent gone from disk ends the chain there.
+ * Each parent is read a chunk at a time, and a line is decoded and
+ * parsed only when it is a wanted message or a rollover record, so
+ * reading costs little more than scanning the bytes. No log is opened
+ * when every wanted message is on the branch, and the walk ends once
+ * all are found. A parent gone from disk, or not a regular file, ends
+ * the chain there.
  */
 export function messagesOnDisk(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
 ): Entry[] {
-	if (wanted.size === 0) return [];
 	const seen = new Set(
 		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
 	);
+	const missing = new Set([...wanted].filter((id) => !seen.has(id)));
 	const older: Entry[][] = [];
 	let record = rolledFrom(branch);
 	const visited = new Set<string>();
-	while (record && !visited.has(record.parentSession)) {
+	while (missing.size > 0 && record && !visited.has(record.parentSession)) {
 		visited.add(record.parentSession);
 		const found: Entry[] = [];
 		let next: RolloverRecord | undefined;
 		try {
 			for (const line of linesOf(record.parentSession)) {
-				const entry = wantedLine(line, wanted, seen);
-				if (entry?.type === "message") found.push(entry);
-				else if (entry) next = rolledFrom([entry]) ?? next;
+				const entry = wantedLine(line, missing);
+				if (entry?.type !== "message") {
+					if (entry) next = rolledFrom([entry]) ?? next;
+					continue;
+				}
+				found.push(entry);
+				// An older log may hold it again; the newest copy is the one read.
+				missing.delete(entry.id);
+				if (missing.size === 0) break;
 			}
 		} catch {
 			// A parent gone from disk, or unreadable, ends the chain there.
 			break;
 		}
 		older.unshift(found);
-		for (const entry of found) seen.add(entry.id);
 		record = next;
 	}
 	return older.flat();
 }
 
 /**
- * The entry a line holds when it is a wanted message or a rollover
- * record, read without parsing any other line in full.
+ * The entry a line holds when it is a missing message or a rollover
+ * record. A line pi starts as a message is judged by the id in its
+ * bytes, and any other by whether its bytes name a message or a record,
+ * so no other line is decoded or parsed.
  */
 function wantedLine(
-	line: string,
-	wanted: ReadonlySet<string>,
-	seen: ReadonlySet<string | undefined>,
+	line: Buffer,
+	missing: ReadonlySet<string>,
 ): Entry | undefined {
-	if (line.startsWith(MESSAGE_HEAD)) {
-		const id = line.slice(
+	if (line.subarray(0, MESSAGE_HEAD.length).equals(MESSAGE_HEAD)) {
+		const end = line.indexOf(QUOTE, MESSAGE_HEAD.length);
+		const id = line.toString(
+			"utf8",
 			MESSAGE_HEAD.length,
-			line.indexOf('"', MESSAGE_HEAD.length),
+			end === -1 ? line.length : end,
 		);
-		if (!wanted.has(id) || seen.has(id)) return undefined;
-	} else if (!line.includes(MESSAGE_TYPE) && !line.includes(RECORD_TYPE)) {
+		if (!missing.has(id)) return undefined;
+	} else if (
+		line.indexOf(MESSAGE_TYPE) === -1 &&
+		line.indexOf(RECORD_TYPE) === -1
+	) {
 		return undefined;
 	}
 	let entry: Entry;
 	try {
-		entry = JSON.parse(line) as Entry;
+		entry = JSON.parse(line.toString("utf8")) as Entry;
 	} catch {
 		// A line cut short by a crash holds nothing to read.
 		return undefined;
 	}
 	if (entry.type === "message")
-		return wanted.has(entry.id) && !seen.has(entry.id) ? entry : undefined;
+		return missing.has(entry.id) ? entry : undefined;
 	return entry.type === "custom" && entry.customType === ROLLOVER_RECORD
 		? entry
 		: undefined;
 }
 
 /**
- * A file's lines, read a chunk at a time.
+ * A file's lines, read a chunk at a time and handed over as bytes.
  *
- * Lines are cut at their newline bytes and each is decoded alone, which
- * reads exactly what decoding the whole file would: no byte of a
- * multibyte UTF-8 letter is a newline. Decoding each chunk and then
- * splitting its text cost more instructions on a log of hundreds of
- * megabytes than cutting the bytes first.
+ * Lines are cut at their newline bytes, so a reader decodes only the
+ * lines it wants, and a line decoded alone reads exactly as it would in
+ * the whole file: no byte of a multibyte UTF-8 letter is a newline. A
+ * line that fits in one chunk is a view of a buffer read into again, so
+ * a reader must be done with it before asking for the next.
+ *
+ * Only a regular file is read. A pipe or a device named as a parent
+ * could block a read for good, so anything else throws.
  */
-function* linesOf(path: string): Generator<string> {
-	const fd = openSync(path, "r");
+function* linesOf(path: string): Generator<Buffer> {
+	// Opened without blocking, so a pipe is refused rather than waited on.
+	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
 	try {
+		if (!fstatSync(fd).isFile()) throw new Error(`${path} is not a log file`);
 		const buffer = Buffer.alloc(CHUNK_BYTES);
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
@@ -650,19 +674,19 @@ function* linesOf(path: string): Generator<string> {
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
 			if (end !== -1 && held.length > 0) {
-				yield Buffer.concat([...held, chunk.subarray(0, end)]).toString("utf8");
+				yield Buffer.concat([...held, chunk.subarray(0, end)]);
 				held = [];
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
 			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
-				yield chunk.toString("utf8", start, end);
+				yield chunk.subarray(start, end);
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
 			if (start < read) held.push(Buffer.from(chunk.subarray(start)));
 		}
-		if (held.length > 0) yield Buffer.concat(held).toString("utf8");
+		if (held.length > 0) yield Buffer.concat(held);
 	} finally {
 		closeSync(fd);
 	}

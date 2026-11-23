@@ -4,13 +4,18 @@
  * the parent stays readable from the fresh log.
  */
 
+import { execFileSync } from "node:child_process";
 import {
+	closeSync,
+	constants,
 	existsSync,
 	mkdtempSync,
+	openSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
+	writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +36,9 @@ import {
 	writeRolled,
 } from "../../../../lib/internal/session/rollover.ts";
 import { uuidv7 } from "../../../../lib/internal/session/uuidv7.ts";
+
+/** How much of a parent log the reader takes at once, as rollover.ts reads it. */
+const CHUNK_BYTES = 1024 * 1024;
 
 let dir: string;
 
@@ -362,12 +370,41 @@ describe("messages asked of the parent logs", () => {
 		expect(read.map((entry) => entry.id)).toEqual([ids.early]);
 	});
 
-	it("end where a parent is gone from disk", () => {
+	it("end where a parent is gone from disk, keeping what the nearer ones hold", () => {
 		const { manager, ids } = longSession();
-		const { fresh } = rolledInto(manager);
+		const first = rolledInto(manager).fresh;
+		const middle = first.appendMessage(user("in the middle"));
+		const middleAnswer = first.appendMessage(assistant("middle answer"));
+		first.appendCompaction("again", middleAnswer, 10);
+		const second = rolledInto(first).fresh;
 		rmSync(manager.getSessionFile() ?? "");
 
-		expect(messagesOnDisk(fresh.getBranch(), new Set([ids.early]))).toEqual([]);
+		const read = messagesOnDisk(
+			second.getBranch(),
+			new Set([middle, ids.early]),
+		);
+
+		expect(read.map((entry) => entry.id)).toEqual([middle]);
+	});
+
+	it("end where a parent is not a regular file, rather than wait on it", () => {
+		const { manager, ids } = longSession();
+		const { fresh } = rolledInto(manager);
+		const file = manager.getSessionFile() ?? "";
+		const log = readFileSync(file);
+		rmSync(file);
+		execFileSync("mkfifo", [file]);
+		// The pipe already holds the whole log and stays open for writing, so a
+		// reader that took it would find the message, and none can block.
+		const pipe = openSync(file, constants.O_RDWR | constants.O_NONBLOCK);
+		try {
+			expect(writeSync(pipe, log)).toBe(log.length);
+			expect(messagesOnDisk(fresh.getBranch(), new Set([ids.early]))).toEqual(
+				[],
+			);
+		} finally {
+			closeSync(pipe);
+		}
 	});
 
 	it("are read from a line pi wrote in another order", () => {
@@ -391,7 +428,7 @@ describe("messages asked of the parent logs", () => {
 
 	it("are read whole from lines longer than a chunk, letters of every width", () => {
 		const { manager, ids } = longSession();
-		// Seven bytes a round, so a chunk's end falls inside a letter.
+		// Past two chunks, of letters two, four and one bytes wide.
 		const long = "é🌲a".repeat(300_000);
 		const first = manager.appendMessage(user(long));
 		const second = manager.appendMessage(user(`${long}ü`));
@@ -406,6 +443,29 @@ describe("messages asked of the parent logs", () => {
 
 		expect(read.map((entry) => entry.id)).toEqual([ids.early, first, second]);
 		expect(texts(read)).toEqual(["early question", long, `${long}ü`]);
+	});
+
+	it("are read whole where a chunk ends inside a letter", () => {
+		const { manager } = longSession();
+		const { fresh } = rolledInto(manager);
+		const file = manager.getSessionFile() ?? "";
+		const text = "🌲".repeat(600_000);
+		const head =
+			'{"type":"message","id":"split","parentId":null,"timestamp":"","message":{"role":"user","content":"';
+		const filler = (n: number) =>
+			`{"type":"custom","customType":"filler","data":"${"x".repeat(n)}"}\n`;
+		// Filler enough that each chunk's end falls one byte into a letter.
+		const before = Buffer.byteLength(filler(0) + head);
+		writeFileSync(
+			file,
+			`${filler((CHUNK_BYTES - before - 1) % 4)}${head}${text}"}}\n`,
+		);
+
+		const read = messagesOnDisk(fresh.getBranch(), new Set(["split"]));
+
+		// The first byte of the second chunk carries on a letter.
+		expect((readFileSync(file)[CHUNK_BYTES] ?? 0) & 0xc0).toBe(0x80);
+		expect(texts(read)).toEqual([text]);
 	});
 
 	it("are not read for a log that never rolled over", () => {
