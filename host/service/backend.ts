@@ -22,6 +22,7 @@ import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
+import { firstLine, type PhaseEnd, startLine } from "./status.ts";
 import {
 	OPEN_UNSETTLED,
 	unsettledMessage,
@@ -57,7 +58,12 @@ export interface Prepared {
  */
 export interface ConversationEngine {
 	prepare(request: OpenRequest | AdoptRequest): Promise<Prepared>;
-	start(prepared: Prepared, request: OpenRequest | AdoptRequest): Promise<void>;
+	/** `mark` hears each phase of the start as it ends, as a resume's does. */
+	start(
+		prepared: Prepared,
+		request: OpenRequest | AdoptRequest,
+		mark?: (phase: StartPhase) => void,
+	): Promise<void>;
 	discard(prepared: Prepared): Promise<void>;
 	/**
 	 * `woken` when a person or a message asked for it from a park, rather
@@ -67,7 +73,7 @@ export interface ConversationEngine {
 	resume(
 		entry: RosterEntry,
 		woken?: boolean,
-		mark?: (phase: ResumePhase) => void,
+		mark?: (phase: StartPhase) => void,
 	): Promise<void>;
 	/**
 	 * A host starting asks first whether a conversation it holds parked
@@ -590,10 +596,41 @@ export function hostBackend(options: {
 		throw refusal;
 	}
 
+	// Each open and adopt says how long it took and where, as a resume
+	// does: a fresh conversation took 17 s to take its first words on 23
+	// November, and nothing said which part of its start took them.
 	async function started(
 		request: OpenRequest | AdoptRequest,
 	): Promise<SessionIdentity> {
+		const began = Date.now();
+		const phases: PhaseEnd[] = [];
+		const mark = (phase: StartPhase) => {
+			phases.push({ phase, at: Date.now() });
+		};
+		let sessionId: string | undefined;
+		try {
+			const identity = await startedTimed(request, mark, (id) => {
+				sessionId = id;
+			});
+			options.say?.(
+				startLine(identity.sessionId, request, began, phases, Date.now()),
+			);
+			return identity;
+		} catch (error) {
+			const line = startLine(sessionId, request, began, phases, Date.now());
+			options.say?.(`${line}, failing: ${firstLine(error)}`);
+			throw error;
+		}
+	}
+
+	async function startedTimed(
+		request: OpenRequest | AdoptRequest,
+		mark: (phase: StartPhase) => void,
+		named: (sessionId: string) => void,
+	): Promise<SessionIdentity> {
 		const prepared = await engine.prepare(request);
+		named(prepared.sessionId);
+		mark("prepare");
 		let settle = (): void => undefined;
 		starts.set(
 			prepared.sessionId,
@@ -602,7 +639,7 @@ export function hostBackend(options: {
 			}),
 		);
 		try {
-			return await startedAs(request, prepared);
+			return await startedAs(request, prepared, mark);
 		} finally {
 			starts.delete(prepared.sessionId);
 			settle();
@@ -612,6 +649,7 @@ export function hostBackend(options: {
 	async function startedAs(
 		request: OpenRequest | AdoptRequest,
 		prepared: Prepared,
+		mark: (phase: StartPhase) => void,
 	): Promise<SessionIdentity> {
 		try {
 			await roster.hold({
@@ -627,8 +665,9 @@ export function hostBackend(options: {
 			await engine.discard(prepared);
 			throw error;
 		}
+		mark("roster");
 		try {
-			await engine.start(prepared, request);
+			await engine.start(prepared, request, mark);
 		} catch (error) {
 			// Registered and failed: the engine parked it, so it stays held for
 			// a person to close. Never registered: nothing owns it, so undo.
@@ -777,16 +816,28 @@ function namedIn(answer: unknown): string | undefined {
 }
 
 /**
- * The phases of a conversation's resume, each marked as it ends: the
- * start's own ask for more time, the gate on another one running, the
- * session file read, an earlier host's tools reaped, pi's runtime built,
- * its screen or headless binding, and durable's recovery begun.
+ * The phases of a conversation's start, each marked as it ends. A resume
+ * has the start's own ask for more time, the gate on another one running
+ * and the session file read; an open has its conversation prepared and
+ * held in the roster. Then both have an earlier host's tools reaped,
+ * pi's runtime built (its model runtime, its services with every
+ * extension loaded, durable's store opened and pi's session made, then
+ * the rest, its extensions' session start among it), its screen or
+ * headless binding, durable's recovery begun and, for an open with first
+ * words, those words held.
  */
-export type ResumePhase =
+export type StartPhase =
 	| "ask"
 	| "gate"
 	| "log"
+	| "prepare"
+	| "roster"
 	| "reap"
+	| "models"
+	| "services"
+	| "store"
+	| "session"
 	| "runtime"
 	| "screen"
-	| "recovery";
+	| "recovery"
+	| "first";

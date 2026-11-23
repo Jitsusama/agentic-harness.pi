@@ -19,7 +19,7 @@ import type {
 	AdoptRequest,
 	ConversationEvents,
 	OpenRequest,
-	ResumePhase,
+	StartPhase,
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
 import { holdMessagesThroughCarriedTurns } from "./carried-turn-messages.ts";
@@ -143,7 +143,7 @@ export interface ConversationBuilds {
 		record: Live,
 		manager: SessionManager,
 		request: OpenRequest | AdoptRequest | undefined,
-		mark?: (phase: ResumePhase) => void,
+		mark?: (phase: StartPhase) => void,
 		turn?: TakeTurn,
 	): Promise<void>;
 	/** What a screen or test is handed of a built conversation. */
@@ -184,6 +184,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 	function factory(
 		seat: Seat,
 		request: OpenRequest | AdoptRequest | undefined,
+		mark?: (phase: StartPhase) => void,
 	): (target: RuntimeTarget) => Promise<RuntimeResult> {
 		return async (target) => {
 			const { current } = seat;
@@ -191,6 +192,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 				return await session(current, target, target.sessionManager, {
 					starting: true,
 					...(request ? { request } : {}),
+					...(mark ? { mark } : {}),
 				});
 			const next = await becoming(current, target);
 			seat.next = next;
@@ -262,10 +264,12 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			/** The conversation's own start, rather than one it became. */
 			readonly starting: boolean;
 			readonly request?: OpenRequest | AdoptRequest;
+			/** Hears each phase of the conversation's own start as it ends. */
+			readonly mark?: (phase: StartPhase) => void;
 		},
 	): Promise<RuntimeResult> {
 		const { sessionId } = record.traits;
-		const { request } = building;
+		const { request, mark } = building;
 		// Written by now: keptFile writes the log of one held before its first message.
 		logs.hold(sessionId, record.traits.file);
 		const env = () => requests.requestEnv(sessionId);
@@ -275,6 +279,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			modelsPath: join(target.agentDir, "models.json"),
 			authContext: conversationAuthContext(env),
 		});
+		mark?.("models");
 		const trustSaid: StartupDiagnostic[] = [];
 		// Said with the start's diagnostics until they are reported; a later load's straight to the journal.
 		let started = false;
@@ -305,6 +310,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 				options.resources,
 			),
 		});
+		mark?.("services");
 		// What the CLI says as it starts: the screen shows it all, and the
 		// journal, read when no screen is, keeps the errors and warnings.
 		// Closed while its screen asked the person: nothing more is built for it.
@@ -324,6 +330,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			report,
 			...(context.checkpoints ? { checkpoints: context.checkpoints } : {}),
 		});
+		mark?.("store");
 		record.conversation = conversation;
 		const opening = request?.op === "open" ? request : undefined;
 		const model = opening?.model
@@ -345,6 +352,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 				: {}),
 			createAgent: conversation.createAgent,
 		});
+		mark?.("session");
 		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), (error) =>
@@ -442,7 +450,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		record: Live,
 		manager: SessionManager,
 		request: OpenRequest | AdoptRequest | undefined,
-		mark?: (phase: ResumePhase) => void,
+		mark?: (phase: StartPhase) => void,
 		turn?: TakeTurn,
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
@@ -455,7 +463,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			request?.op === "open" ? keptFile(sessions, manager) : manager;
 		const seat: Seat = { current: record };
 		const runtime = await sessions.createAgentSessionRuntime(
-			factory(seat, request),
+			factory(seat, request, mark),
 			{ cwd, agentDir: sessions.getAgentDir(), sessionManager },
 		);
 		mark?.("runtime");
@@ -490,6 +498,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		}
 		await recovery.settled;
 		await promptFirst(record, agent, first);
+		mark?.("first");
 	}
 
 	/** Send the first words; resolve once durable holds them, or pi took them as a command. */

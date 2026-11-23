@@ -7,6 +7,7 @@ import {
 	phaseTimes,
 	readyCount,
 	readyStatus,
+	startLine,
 	stoppingStatus,
 } from "../../../host/service/status.ts";
 
@@ -110,5 +111,32 @@ describe("phaseTimes", () => {
 			),
 		).toBe(" (ask 0.0 s, gate 0.1 s, recovery 2.5 s, rest 61.4 s)");
 		expect(phaseTimes(1_000, [], 2_000), "none marked").toBe("");
+	});
+});
+
+describe("startLine", () => {
+	const id = "01a209c3-fefb-760c-8962-a4ae65735570";
+
+	it("says how long an open took, and each phase, under its address and id", () => {
+		expect(
+			startLine(
+				id,
+				{ op: "open" },
+				1_000,
+				[
+					{ phase: "prepare", at: 1_200 },
+					{ phase: "services", at: 6_200 },
+				],
+				9_000,
+			),
+		).toBe(
+			`65735570 (${id}): its open took 8.0 s (prepare 0.2 s, services 5.0 s, rest 2.8 s)`,
+		);
+	});
+
+	it("says one that failed before pi named it as not yet named", () => {
+		expect(startLine(undefined, { op: "adopt" }, 1_000, [], 1_500)).toBe(
+			"A conversation not yet named: its adopt took 0.5 s",
+		);
 	});
 });

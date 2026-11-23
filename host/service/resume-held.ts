@@ -8,7 +8,7 @@ import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import type {
 	BackendChildren,
 	ConversationEngine,
-	ResumePhase,
+	StartPhase,
 	Unresumed,
 } from "./backend.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -144,7 +144,7 @@ export async function resumeHeld(options: {
 	woken?: (entry: RosterEntry) => boolean;
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
-	mark?: (step: Resuming, phase: ResumePhase) => void;
+	mark?: (step: Resuming, phase: StartPhase) => void;
 	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
 	order?: HeldOrder;
 }): Promise<HeldResumed> {
@@ -164,7 +164,7 @@ export async function resumeHeld(options: {
 			of: order.total,
 			sessionId,
 		};
-		const mark = (phase: ResumePhase) => options.mark?.(step, phase);
+		const mark = (phase: StartPhase) => options.mark?.(step, phase);
 		let began = false;
 		let end: ResumeEnd = "unresumed";
 		let failure: unknown;

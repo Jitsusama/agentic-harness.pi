@@ -126,6 +126,16 @@ function refusing() {
  * An open as a requester sends it, under an id of its own: the backend
  * answers an id asked again with its first answer (repeats.ts).
  */
+/**
+ * What the backend journals, apart from each open's time, which its own
+ * case checks, so a case reads only the lines it is about.
+ */
+function besideStarts(said: string[]): (line: string) => void {
+	return (line) => {
+		if (!/: its (open|adopt) took /.test(line)) said.push(line);
+	};
+}
+
 function anOpen() {
 	return {
 		v: 1,
@@ -315,7 +325,7 @@ describe("hostBackend", () => {
 			host,
 			roster,
 			engine: fake,
-			say: (line) => said.push(line),
+			say: besideStarts(said),
 		});
 		const running = parseOpenResult(await backend.execute(anOpen())).sessionId;
 		const stranded = parseOpenResult(await backend.execute(anOpen())).sessionId;
@@ -951,7 +961,7 @@ describe("hostBackend", () => {
 			host,
 			roster,
 			engine: fake,
-			say: (line) => said.push(line),
+			say: besideStarts(said),
 			attachSlowMs: 20,
 		});
 		const adopting = backend.execute({
@@ -993,6 +1003,44 @@ describe("hostBackend", () => {
 		expect(said, "nothing more, then or after").toHaveLength(2);
 	});
 
+	it("journals how long an open took and where, and why one failed", async () => {
+		// A fresh conversation took 17 s to take its first words on 23
+		// November, and nothing the host journaled said where they went.
+		const { fake } = engine({
+			start: vi.fn(async (prepared: Prepared, _request, mark) => {
+				mark?.("services");
+				if (prepared.cwd === "/broken") throw new Error("pi would not open it");
+				register(prepared);
+				mark?.("screen");
+			}),
+		});
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+		});
+		const { sessionId } = parseOpenResult(await backend.execute(anOpen()));
+		const seconds = "[0-9]+\\.[0-9] s";
+		expect(said, "the open says each phase, in order").toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`\\(${sessionId}\\): its open took ${seconds} \\(prepare ${seconds}, roster ${seconds}, services ${seconds}, screen ${seconds}, rest ${seconds}\\)$`,
+				),
+			),
+		]);
+		await expect(
+			backend.execute({ ...anOpen(), cwd: "/broken" }),
+		).rejects.toThrow("pi would not open it");
+		expect(said[1], "a failed one says how far it got, and why").toMatch(
+			new RegExp(
+				`: its open took ${seconds} \\(prepare ${seconds}, roster ${seconds}, services ${seconds}, rest ${seconds}\\), failing: pi would not open it$`,
+			),
+		);
+	});
+
 	it("journals a slow attach that is refused as refused, and why", async () => {
 		const sessionId = randomUUID();
 		let fail = (): void => undefined;
@@ -1011,7 +1059,7 @@ describe("hostBackend", () => {
 			host,
 			roster,
 			engine: fake,
-			say: (line) => said.push(line),
+			say: besideStarts(said),
 			attachSlowMs: 20,
 		});
 		const opening = backend.execute(anOpen());
@@ -1046,7 +1094,7 @@ describe("hostBackend", () => {
 			host,
 			roster,
 			engine: fake,
-			say: (line) => said.push(line),
+			say: besideStarts(said),
 			attachSlowMs: 1_000,
 		});
 		const { sessionId } = parseOpenResult(await backend.execute(anOpen()));
@@ -1124,7 +1172,7 @@ describe("hostBackend", () => {
 			host,
 			roster,
 			engine: fake,
-			say: (line) => said.push(line),
+			say: besideStarts(said),
 		});
 		const busy = parseOpenResult(await backend.execute(anOpen()));
 		await backend.execute({ ...anOpen(), id: "o2" });
