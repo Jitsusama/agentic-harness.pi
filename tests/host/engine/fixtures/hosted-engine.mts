@@ -533,12 +533,14 @@ const scenarios: Record<string, Scenario> = {
 	 * parts a replacement is built from.
 	 */
 	"kept-history": {
+		// Each conversation is compacted in full before the next starts, so
+		// its three turns are answered in a row.
 		responses: () =>
-			["early", "kept", "after"].flatMap((word) => [
-				say(`first ${word}`),
-				say(`second ${word}`),
-				say(`third ${word}`),
-			]),
+			["first", "second", "third"].flatMap((conversation) =>
+				["early", "kept", "after"].map((word) =>
+					say(`${conversation} ${word}`),
+				),
+			),
 		run: async (engine, host) => {
 			const first = await compacted(engine, host);
 			const second = await compacted(engine, host);

@@ -17,25 +17,37 @@
  * never picks it for a change there.
  *
  * This file imports the program, so a change anywhere in its graph
- * picks it, and walks what loads from pi-host's entry: its static
- * imports and re-exports, and an `await import()` at a module's top
- * level, which runs as the module loads (pi-host loads the program so,
- * once its hook is in place). Each file is read as node runs it, with
- * its types stripped by node's own stripTypeScriptTypes, so a
- * type-only import is let through exactly when node erases it: `import
- * type` is, but `import { type A }` is left as `import {}`, which still
- * loads its module. An `import()` inside a function runs later, when
- * the function does, after the check, and is not followed. The walk
- * fails closed: a statement that loads a module in a way it can't read,
- * or a relative import of a file that isn't there, fails the test
- * rather than being passed over.
+ * picks it. A change to scripts/pi-host.ts itself, which no test can
+ * import without starting a host, picks every test, since the entry is
+ * among vitest.config.ts's RERUN_EVERYTHING.
+ *
+ * It walks what loads from pi-host's entry as it loads. Each file is
+ * read as node runs it, its types stripped by node's own
+ * stripTypeScriptTypes, so a type-only import is let through exactly
+ * when node erases it: `import type` is, but `import { type A }` is
+ * left as `import {}`, which still loads its module. The stripped code
+ * is parsed, and the walk follows each static import and re-export,
+ * and each `import()` or `require()` outside any function, in a block
+ * or not, since those run as the module loads; pi-host loads the
+ * program so, from its own top level, once its hook is in place.
+ *
+ * An `import()` inside a function runs when the function does, and is
+ * not followed. So the walk can't see one that a function called at
+ * load runs ahead of the configuration check; pi-host.test.ts, which
+ * runs pi-host against a missing install, is the check for that. The
+ * walk fails closed on what it does read: a load that doesn't name its
+ * module by a plain string, a relative import of a file that isn't
+ * there, or a file that won't parse fails the test rather than being
+ * passed over.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, relative } from "node:path";
+import { parse } from "@babel/parser";
 import { describe, expect, it } from "vitest";
 import { EXIT_MISCONFIGURED } from "../../../host/service/program.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
@@ -48,55 +60,101 @@ const ENTRY = "scripts/pi-host.ts";
 /** What pi-host loads once its hook is registered, which the walk must reach. */
 const LOADED_BY_ENTRY = ["host/service/program.ts", "host/service/run.ts"];
 
-/**
- * A static import or re-export in type-stripped code, the specifier
- * group 2: `import "x"`, `import a, { b } from "x"`, `import * as a
- * from "x"`, `export { a } from "x"` and `export * from "x"`. Only
- * names, braces, commas and `*` may sit between the keyword and the
- * specifier, so a match never runs on into another statement, and an
- * `import(` call is left out.
- */
-const STATIC = [
-	/^[\t ]*import\s*(?!\()(?:[\w$*{},\s]+?\s*from\s*)?(["'])([^"']+)\1/gm,
-	/^[\t ]*export\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[\w$,\s]*\})\s*from\s*(["'])([^"']+)\1/gm,
-];
+/** The nodes whose body runs when they are called, not as the module loads. */
+const RUNS_LATER = new Set([
+	"FunctionDeclaration",
+	"FunctionExpression",
+	"ArrowFunctionExpression",
+	"ObjectMethod",
+	"ClassMethod",
+	"ClassPrivateMethod",
+]);
 
-/**
- * An `await import("x")` at a module's top level, the specifier group
- * 2. Biome formats a module's top level from the first column, so a
- * line that starts indented sits in a function and loads later.
- */
-const AT_TOP = /^(?![\t ]).*?\bawait\s+import\(\s*(["'])([^"']+)\1\s*\)/gm;
-
-/**
- * Where a statement that loads a module starts: `import`, but not
- * `import(` or `import.meta`, or an `export` that names a module with
- * `from`. Each must be where a STATIC match starts, or the walk can't
- * read it.
- */
-const LOADS = /^[\t ]*(?:import\b(?!\s*[(.])|export\s*[*{][^;]*?\bfrom\b)/gm;
-
-/** What a file loads as it loads, and the lines of statements it can't read. */
+/** What a file loads as it loads, and the lines of loads it can't read. */
 interface Loads {
 	readonly specifiers: readonly string[];
 	readonly unread: readonly number[];
 }
 
+/** The module a load names, when it names one by a plain string. */
+function moduleNamed(node: unknown): string | undefined {
+	if (!isRecord(node)) return undefined;
+	if (node.type === "StringLiteral" && typeof node.value === "string")
+		return node.value;
+	if (
+		node.type !== "TemplateLiteral" ||
+		!Array.isArray(node.expressions) ||
+		node.expressions.length > 0 ||
+		!Array.isArray(node.quasis)
+	)
+		return undefined;
+	const [quasi] = node.quasis;
+	return isRecord(quasi) &&
+		isRecord(quasi.value) &&
+		typeof quasi.value.cooked === "string"
+		? quasi.value.cooked
+		: undefined;
+}
+
+/** The line a node starts on. */
+function lineOf(node: Record<string, unknown>): number {
+	const { loc } = node;
+	return isRecord(loc) &&
+		isRecord(loc.start) &&
+		typeof loc.start.line === "number"
+		? loc.start.line
+		: 0;
+}
+
+/** The module a call loads as it runs, when it is `import()` or `require()`. */
+function calledLoad(
+	node: Record<string, unknown>,
+): { readonly from: unknown } | undefined {
+	if (node.type === "ImportExpression") return { from: node.source };
+	if (node.type !== "CallExpression" || !isRecord(node.callee)) return;
+	const { callee } = node;
+	const loads =
+		callee.type === "Import" ||
+		(callee.type === "Identifier" && callee.name === "require");
+	if (!loads) return;
+	return {
+		from: Array.isArray(node.arguments) ? node.arguments[0] : undefined,
+	};
+}
+
 /** What TypeScript code loads as it loads, once node strips its types. */
 function loadsIn(source: string): Loads {
-	// Stripping blanks types in place, so offsets and lines stay the source's.
-	const code = stripTypeScriptTypes(source);
-	const read = new Set<number>();
+	// Stripping blanks types in place, so lines stay the source's.
+	const { program } = parse(stripTypeScriptTypes(source), {
+		sourceType: "module",
+	});
 	const specifiers: string[] = [];
-	for (const pattern of STATIC)
-		for (const match of code.matchAll(pattern)) {
-			read.add(match.index);
-			specifiers.push(match[2] ?? "");
+	const unread: number[] = [];
+	const load = (node: Record<string, unknown>, from: unknown): void => {
+		const specifier = moduleNamed(from);
+		if (specifier === undefined) unread.push(lineOf(node));
+		else specifiers.push(specifier);
+	};
+	const visit = (node: unknown, later: boolean): void => {
+		if (Array.isArray(node)) {
+			for (const each of node) visit(each, later);
+			return;
 		}
-	for (const match of code.matchAll(AT_TOP)) specifiers.push(match[2] ?? "");
-	const unread = [...code.matchAll(LOADS)]
-		.filter((match) => !read.has(match.index))
-		.map((match) => code.slice(0, match.index).split("\n").length);
+		if (!isRecord(node) || typeof node.type !== "string") return;
+		if (
+			node.type === "ImportDeclaration" ||
+			((node.type === "ExportNamedDeclaration" ||
+				node.type === "ExportAllDeclaration") &&
+				node.source)
+		)
+			load(node, node.source);
+		const called = later ? undefined : calledLoad(node);
+		if (called) load(node, called.from);
+		const inner = later || RUNS_LATER.has(node.type);
+		for (const [key, value] of Object.entries(node))
+			if (key !== "loc" && !key.endsWith("Comments")) visit(value, inner);
+	};
+	visit(program.body, false);
 	return { specifiers, unread };
 }
 
@@ -104,7 +162,7 @@ function loadsIn(source: string): Loads {
 interface Walk {
 	/** Each value from pi's scope bound at load, with the chain of files that reaches it. */
 	readonly piBound: readonly string[];
-	/** Each statement or relative import the walk couldn't follow, by file and line. */
+	/** Each load or relative import the walk couldn't follow, by file and line. */
 	readonly unfollowed: readonly string[];
 	/** Every file the walk reached. */
 	readonly reached: ReadonlySet<string>;
@@ -142,7 +200,7 @@ describe("loading the host program", () => {
 		const { piBound, unfollowed, reached } = walkFromEntry();
 		expect(
 			unfollowed,
-			"write these as a plain import the walk reads, or name a file that is there",
+			"name each module by a plain string, and name a file that is there",
 		).toEqual([]);
 		expect(LOADED_BY_ENTRY.filter((file) => !reached.has(file))).toEqual([]);
 		expect(
@@ -151,7 +209,7 @@ describe("loading the host program", () => {
 		).toEqual([]);
 	});
 
-	it("reads every spelling that loads a module, and none that doesn't", () => {
+	it("reads every spelling that loads a module as it loads, and none that loads later", () => {
 		const source = [
 			'import type { A } from "type-only";',
 			'import { type B } from "empty-named";',
@@ -160,6 +218,7 @@ describe("loading the host program", () => {
 			'import * as g from "namespace";',
 			'import "bare";',
 			'import {\n\th,\n\ti,\n} from "wrapped";',
+			'import { /* why */ q } from "commented-braces";',
 			'export { j } from "re-export";',
 			'export * from "star";',
 			'export * as k from "star-as";',
@@ -167,7 +226,14 @@ describe("loading the host program", () => {
 			'export { type M } from "empty-re-export";',
 			'const n = await import("at-top");',
 			'const {\n\tp,\n} = await import("at-top-destructured");',
+			'try {\n\tawait import("in-try");\n} catch {}',
+			'if (n) {\n\tawait import("in-if");\n}',
+			'void import("unawaited");',
+			"await import(`template`);",
+			'const r = require("required");',
+			'class S {\n\tstatic {\n\t\tvoid import("static-block");\n\t}\n\tlater() {\n\t\treturn import("method");\n\t}\n}',
 			'async function later() {\n\tawait import("later");\n}',
+			'const arrow = () => import("arrow");',
 			"const here = import.meta.dirname;",
 			'/** import { o } from "commented" */',
 		].join("\n");
@@ -181,25 +247,34 @@ describe("loading the host program", () => {
 				"namespace",
 				"bare",
 				"wrapped",
+				"commented-braces",
 				"re-export",
 				"star",
 				"star-as",
 				"empty-re-export",
 				"at-top",
 				"at-top-destructured",
+				"in-try",
+				"in-if",
+				"unawaited",
+				"template",
+				"required",
+				"static-block",
 			].sort(),
 		);
 	});
 
-	it("fails on a statement that loads a module it can't read, by its line", () => {
+	it("fails on a load at load time that doesn't name its module plainly, by its line", () => {
 		const source = [
 			'import { a } from "read";',
-			'import { /* why */ b } from "commented-braces";',
-			'export { c, /* why */ d } from "commented-re-export";',
-			"export { a };",
+			"const name = a;",
+			"await import(name);",
+			// A template the reader sees, its `$` spelled so the code here has none.
+			`if (a) {\n\tvoid import(\`${"$"}{name}-built\`);\n}`,
+			"const later = () => import(name);",
 		].join("\n");
 		const { specifiers, unread } = loadsIn(source);
 		expect(specifiers).toEqual(["read"]);
-		expect(unread).toEqual([2, 3]);
+		expect(unread).toEqual([3, 5]);
 	});
 });
