@@ -254,6 +254,8 @@ of the repository's own, since a tree's `.git` file is anybody's to
 write who ran in it.
 Git's move and remove read every worktree the repository has, which
 with 2,061 cost 29 s and 19 s a take, so a run took 20 of 1,800.
+Dropping a merged branch with `git branch -D` still reads them all,
+but detached snapshots, most of what a sweep takes, have none.
 A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
 the broker never cut are left alone. A taken tree's branch stays,

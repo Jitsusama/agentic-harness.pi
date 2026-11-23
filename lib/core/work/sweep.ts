@@ -779,7 +779,8 @@ async function takeIdle(
 
 /**
  * Move a tree aside under its record's lock, then remove it, with no git
- * command that reads every worktree (see `sweep-take.ts`). A removal git
+ * command that reads every worktree but a merged branch's drop (see
+ * `sweep-take.ts`). A removal git
  * would refuse puts the tree and its record back as they were. `guard`
  * runs the move only while the tree may go: by default, while every
  * session its record names has ended.

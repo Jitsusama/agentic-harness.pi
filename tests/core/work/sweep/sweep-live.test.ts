@@ -1093,7 +1093,7 @@ describe("taking a tree in a repository of thousands", () => {
 	it.skipIf(process.getuid?.() === 0)(
 		"says a git folder that won't go stays, and goes on to the next tree",
 		async () => {
-			const { memory, lockPath, cut } = await setUp();
+			const { memory, lockPath, cut, state } = await setUp();
 			const stuck = await cut("stuck", ["--detach", "@", "main"]);
 			const next = await cut("next", ["--detach", "@", "main"]);
 			const gitDir = await git(stuck, "rev-parse", "--absolute-git-dir");
@@ -1118,6 +1118,7 @@ describe("taking a tree in a repository of thousands", () => {
 					},
 				]);
 				expect(existsSync(stuck), `${stuck}'s files are gone`).toBe(false);
+				expect(asidesOf(state, stuck), `${stuck}'s aside is gone`).toEqual([]);
 			} finally {
 				chmodSync(readOnly, 0o700);
 			}

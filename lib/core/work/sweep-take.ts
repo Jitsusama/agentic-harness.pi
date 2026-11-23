@@ -12,18 +12,25 @@
  * that its git folder and its `.git` file name each other, that it holds
  * no submodule, and that `git status` finds nothing in it.
  *
+ * One per-tree command still reads every worktree: `git branch -D`, which
+ * drops a taken tree's branch once trunk holds it. Idle snapshots are
+ * detached and never reach it; an ended tree on a merged branch does.
+ *
  * A tree's `.git` file, and every file it names, is anybody's to write
  * who ran in the tree, so each is read with {@link readPlain}, and the
  * folder removed must be one of the repository's own, in its `worktrees`.
  */
 
+import { randomBytes } from "node:crypto";
 import {
+	closeSync,
 	lstatSync,
+	openSync,
 	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
-	writeFileSync,
+	writeSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -158,12 +165,20 @@ export function putBack(moved: MovedAside, path: string): PutBack {
 /**
  * Write `back` as the way from git's folder `gitDir` to its tree, whole
  * or not at all: a write cut short on a full disk would leave git a
- * folder naming nothing, which its prune takes at once.
+ * folder naming nothing, which its prune takes at once. The folder is
+ * writable from inside the tree's fence, so the new file is made under a
+ * name nobody can guess and only if nothing stands there, never through
+ * a link a session left, as git's own lockfile is.
  */
 function nameIn(gitDir: string, back: string): void {
-	const next = join(gitDir, `gitdir.${process.pid}.new`);
-	writeFileSync(next, back);
+	const next = join(gitDir, `gitdir.${randomBytes(8).toString("hex")}.new`);
+	const fd = openSync(next, "wx");
 	try {
+		try {
+			writeSync(fd, back);
+		} finally {
+			closeSync(fd);
+		}
 		renameSync(next, join(gitDir, "gitdir"));
 	} catch (error) {
 		rmSync(next, { force: true });
