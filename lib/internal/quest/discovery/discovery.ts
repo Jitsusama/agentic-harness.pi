@@ -433,10 +433,10 @@ const STALE_AFTER_MS = 60_000;
  * How long a host answers a known tree from its last signing, read on
  * since through the account's journal of quest writes, before an ask
  * signs it whole again, for an action and a plain ask alike. The
- * journal names every quest the workflow's writes touch, in any
- * process, so the signing is left only for what it misses: a file
- * changed by hand, by pi's write and edit tools, or by code from
- * before the journal, which a restart ends.
+ * journal names every quest the workflow's writes and a session's
+ * write and edit tools touch, in any process, so the signing is left
+ * only for what it misses: a file changed by hand or through bash, or
+ * by code from before the journal, which a restart ends.
  *
  * On 21 November about eighty processes each signed the same 1,543
  * quests every `SIGN_AGAIN_AFTER_MS` to see each other's writes, and

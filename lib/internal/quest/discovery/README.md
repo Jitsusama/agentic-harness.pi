@@ -24,15 +24,15 @@ waits on a whole signing off the thread. An edit made through pi's write
 and edit tools, or by another process, shows by the next signing.
 
 Where the login has a runtime folder, as on optimus, each quest write
-the workflow makes is noted in a journal beside the quest locks
+the workflow makes, and each quest file a session's write or edit tool
+changes, is noted in a journal beside the quest locks
 (`../write-journal.ts`), and each ask reads the journal's new lines and
 re-reads just the quests they name. Another process's writes then show
 at the next ask, so a host signs its tree whole only every five minutes,
 and an action acts on the journal for those five minutes rather than
 waiting on a signing after one. A process still running code from
 before the journal notes nothing until it restarts, so its writes show
-by that five-minute signing, as hand edits through pi's write and edit
-tools do. A quest mycelium newly shares shows at once, since the root's
+by that five-minute signing, as edits by hand or through bash do. A quest mycelium newly shares shows at once, since the root's
 stamp moves, but its changes to a quest already there show by the
 five-minute signing too.
 

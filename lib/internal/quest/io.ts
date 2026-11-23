@@ -209,6 +209,16 @@ function wrote(path: string): void {
 }
 
 /**
+ * Count a write this process made to a quest without io.ts, as pi's
+ * write and edit tools make, at `path`: noted in the journal, so every
+ * host's discovery, this one's too, reads it at its next ask rather
+ * than at its next whole signing.
+ */
+export function noteWriteMadeElsewhere(path: string): void {
+	wrote(path);
+}
+
+/**
  * The journal of quest writes every process on this machine appends to
  * and every host's discovery reads (`write-journal.ts`), beside the
  * quest locks; undefined where the locks have no runtime folder, as on

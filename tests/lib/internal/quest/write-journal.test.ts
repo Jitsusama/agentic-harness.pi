@@ -307,7 +307,10 @@ describe("the journal of quest writes", () => {
 	it("never throws when it can't write, so the quest write stands", () => {
 		const nowhere = journalIn(join(folder, "missing", "deeper"));
 		expect(() => noteQuestWrite(nowhere, "/q/QEST-A")).not.toThrow();
-		expect(existsSync(nowhere)).toBe(false);
+		expect(
+			existsSync(nowhere),
+			"a journal made where its folder is missing",
+		).toBe(false);
 	});
 
 	it("keeps the journal to its owner", () => {
