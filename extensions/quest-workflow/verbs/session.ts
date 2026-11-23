@@ -77,10 +77,10 @@ import {
 import {
 	agentCommand,
 	askAgents,
-	holdsHere,
 	isThisMachine,
 	machineByDefault,
 	machineFor,
+	reopening,
 	spawnHeld,
 	startsPi,
 	swapsAgent,
@@ -106,6 +106,8 @@ interface SpawnSaid {
 	budget?: FolderBudget;
 	fence?: FenceDeclaration;
 	handed?: DeclaredFence;
+	/** An idle session left unreopened, since the spawn starts fresh. */
+	leftIdle?: string;
 }
 
 /**
@@ -119,10 +121,13 @@ export async function spawn(
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const said: SpawnSaid = {};
-	const result = withFence(
-		await spawnNaming(state, ctx, params, said),
-		said.fence,
-		said.handed,
+	const result = withLeftIdle(
+		withFence(
+			await spawnNaming(state, ctx, params, said),
+			said.fence,
+			said.handed,
+		),
+		said.leftIdle,
 	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
@@ -167,6 +172,22 @@ function withFence(
 		...result,
 		message: `${result.message} ${declarationSaid(fence, handed)}`,
 		details: { ...result.details, fence },
+	};
+}
+
+/**
+ * A spawn's answer saying the idle session it left as it was, so the
+ * history it holds is not lost from sight when the start went fresh.
+ */
+function withLeftIdle(
+	result: QuestResult,
+	leftIdle: string | undefined,
+): QuestResult {
+	if (!result.ok || leftIdle === undefined) return result;
+	return {
+		...result,
+		message: `${result.message} It started fresh, leaving the quest's idle session ${leftIdle} unreopened on ${hostname().split(".")[0]}; \`pi --session ${leftIdle}\` there reopens it.`,
+		details: { ...result.details, leftIdle },
 	};
 }
 
@@ -247,17 +268,19 @@ async function spawnNaming(
 	const resumable = pickResumeSession(
 		sessions.filter((s) => s.id !== currentId),
 	);
-	const resumesLive = holdsHere(resumable, sessions);
 	// The realm's agents, asked once before it is placed, since one that
 	// runs no pi may be where it lands: the claim told the node, and the
 	// command it starts, both follow the one answer.
 	const realmAgents = params.command?.trim() ? undefined : await askAgents();
 	const agentsHere = async () => realmAgents;
-	const placementClaim = placementFence(fence, {
-		command: params.command,
-		resumes: resumesLive,
-		swapped: swapsAgent(realmAgents),
-	});
+	const reopen = reopening(resumable, sessions, (resumes) =>
+		placementFence(fence, {
+			command: params.command,
+			resumes,
+			swapped: swapsAgent(realmAgents),
+		}),
+	);
+	const placementClaim = reopen.claim;
 	const chosen = await machineFor(
 		named,
 		named !== undefined || params.needs !== undefined
@@ -271,14 +294,16 @@ async function spawnNaming(
 	// Naming neither, it goes where the node places work, unless it
 	// resumes a live session.
 	const machine = await machineByDefault(chosen.machine, needs, {
-		resumes: resumesLive,
+		resumes: reopen.holds,
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),
 		fence: placementClaim,
 	});
-	const resume =
-		machine === undefined || isThisMachine(machine) ? resumable : undefined;
+	const landsHere = machine === undefined || isThisMachine(machine);
+	const resume = reopen.reopens(landsHere);
+	const leftIdle = reopen.leaves(landsHere);
+	if (leftIdle !== undefined) said.leftIdle = leftIdle;
 	// A session a host holds is reached through that host, never opened
 	// again here or adopted by another, which would give its log a second
 	// writer. A command of the caller's own resumes nothing.

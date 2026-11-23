@@ -235,23 +235,66 @@ const shareByMycelium: ShareQuest = shareThrough(
 	spawnExec({ timeoutMs: SHARE_PATIENCE_MS }),
 );
 
+/** What a spawn may reopen, and what it tells the node because of it. */
+export interface Reopening<R> {
+	/** A live session resumes here, so the node is not asked. */
+	readonly holds: boolean;
+	/** The fence told the node, which covers whatever then starts. */
+	readonly claim: FenceDeclaration;
+	/** What reopens once it is known whether the spawn lands here. */
+	readonly reopens: (here: boolean) => R | undefined;
+	/** The idle session left as it is because the spawn starts fresh. */
+	readonly leaves: (here: boolean) => string | undefined;
+}
+
 /**
- * Whether the session a spawn would resume holds it on this machine:
- * only a live one does. An idle one is yesterday's work, so the node is
- * asked as for any fresh start, and one placed on another machine starts
- * fresh there rather than reopening here. On 22 November nearly every
- * quest had an idle session, so every spawn stayed on an optimus the
- * node had already called over and named the Mac for (9T2BBY
- * [1f965feb]).
+ * What a spawn reopens, and the fence it claims for it.
+ *
+ * Only a live session holds a spawn on this machine. An idle one is
+ * yesterday's work, so the node is asked as for any fresh start, and a
+ * spawn placed on another machine starts fresh there rather than
+ * reopening here. On 22 November nearly every quest had an idle session,
+ * so every spawn stayed on an optimus the node had already called over
+ * and named the Mac for (9T2BBY [1f965feb]).
+ *
+ * The claim is the fresh start's (`claimFor(false)`), since the node is
+ * asked about one. A reopen runs with no sandbox, so an idle session
+ * reopens here only where a reopen claims no more than that: under a
+ * strict fence it would run looser than the node was told, so the spawn
+ * starts fresh under it instead and the idle session is left as it is.
  */
-export function holdsHere(
-	resumable: { id: string } | { ambiguous: unknown } | undefined,
+export function reopening<R extends object>(
+	resumable: R | undefined,
 	sessions: readonly Pick<SessionView, "id" | "liveness">[],
-): boolean {
-	if (resumable === undefined || !("id" in resumable)) return false;
-	return sessions.some(
-		(session) => session.id === resumable.id && session.liveness === "live",
-	);
+	claimFor: (resumes: boolean) => FenceDeclaration,
+): Reopening<R> {
+	const id =
+		resumable !== undefined &&
+		"id" in resumable &&
+		typeof resumable.id === "string"
+			? resumable.id
+			: undefined;
+	const holds =
+		id !== undefined &&
+		sessions.some(
+			(session) => session.id === id && session.liveness === "live",
+		);
+	const claim = claimFor(holds);
+	const idleMayReopen = claimFor(true).kind === claim.kind;
+	const reopens = (here: boolean): R | undefined => {
+		if (!here) return undefined;
+		if (holds || id === undefined || idleMayReopen) return resumable;
+		return undefined;
+	};
+	return {
+		holds,
+		claim,
+		reopens,
+		leaves: (here) =>
+			id !== undefined && !holds && reopens(here) === undefined
+				? id
+				: undefined,
+	};
 }
 
 /** What a spawn already asked for, which keeps it on this machine. */
