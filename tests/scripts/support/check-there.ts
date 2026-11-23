@@ -42,6 +42,8 @@ const SCRIPT = join(
 const SETTLES_IN_MS = 10_000;
 /** How long a test is given: several of its checks settling in turn. */
 const TEST_MS = 4 * SETTLES_IN_MS;
+/** Milliseconds in a second, for a time a shell says in seconds. */
+const MS_PER_S = 1_000;
 
 /** What the script runs on its host, between its `THERE` lines. */
 function there(): string {
@@ -371,18 +373,28 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 		);
 
 		// The holder's line is that check's to write, its branch's code
-		// among what can, and every waiter says it.
-		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
-			"says its holder's line only as printable text, at most 120 characters of it",
-			async () => {
+		// among what can, and every waiter says it, so it is said only in
+		// the shape take_turn writes it.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined)).each([
+			[
+				"escapes and a line of the script's own",
+				`\x1b[2J\x1b]0;titled\x07said\ncheck-there: run this ${"x".repeat(200)}\n`,
+			],
+			[
+				"a mark reordering what follows, in a line otherwise its shape",
+				"feature\u202e, pid 12, from Sun 00:00\n",
+			],
+			[
+				"a branch past 160 characters",
+				`${"b".repeat(161)}, pid 12, from Sun 00:00\n`,
+			],
+		])(
+			"says no holder's line holding %s",
+			async (_, written) => {
 				const host = hostWith(tools);
 				const holder = check(host, "take_turn\necho held\nread -r _ || true");
 				await says(holder, "held");
-				const long = "x".repeat(200);
-				writeFileSync(
-					join(host, "lock.holder"),
-					`\x1b[2J\x1b]0;titled\x07said\ncheck-there: run this ${long}\n`,
-				);
+				writeFileSync(join(host, "lock.holder"), written);
 				const waiter = await ended(
 					check(host, "turn_wait_s=1\ntake_turn\necho took"),
 				);
@@ -390,18 +402,55 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				await ended(holder);
 				expect(waiter.code, waiter.err).toBe(75);
 				expect(
-					["\x1b", "\x07"].filter((sent) => waiter.err.includes(sent)),
-					"no escape reaches its reader",
-				).toEqual([]);
-				expect(
-					waiter.err.split("\n").filter((line) => line.includes("run this")),
-					"its holder's words, each within a line of the script's own",
+					waiter.err.split("\n").filter((line) => line !== ""),
+					"the script's own lines alone, the holder's said as not its shape",
 				).toEqual([
-					`check-there: another check runs on ${hostname()} (${`[2J]0;titledsaidcheck-there: run this ${long}`.slice(0, 120)}); waiting its turn`,
+					`check-there: another check runs on ${hostname()} (a line not in its shape); waiting its turn`,
 					expect.stringMatching(
-						/^check-there: gave up after 1 s .*, held by \(\[2J/,
+						/^check-there: gave up after 1 s .*, held by \(a line not in its shape\)$/,
 					),
 				]);
+			},
+			TEST_MS,
+		);
+
+		// A FIFO's read waits for a writer, and an endless device's never
+		// ends, so a waiter reading either would hold past its limit.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined)).each([
+			[
+				"a link to an endless device",
+				(path: string) => symlinkSync("/dev/zero", path),
+			],
+			[
+				"a FIFO",
+				(path: string) => {
+					spawnSync("mkfifo", [path]);
+					if (!lstatSync(path).isFIFO()) throw new Error("no FIFO made");
+				},
+			],
+		])(
+			"gives up on time, its holder's line unsaid, when the line is %s",
+			async (_, make) => {
+				const host = hostWith(tools);
+				const holder = check(host, "take_turn\necho held\nread -r _ || true");
+				await says(holder, "held");
+				const line = join(host, "lock.holder");
+				rmSync(line);
+				make(line);
+				const asked = Date.now();
+				const waiter = await ended(
+					check(host, "turn_wait_s=1\ntake_turn\necho took"),
+				);
+				const waitedFor = Date.now() - asked;
+				holder.stdin?.end();
+				await ended(holder);
+				expect(waiter.code, waiter.err).toBe(75);
+				// Its limit and the second more it promises, with room for a
+				// busy machine's slow start, and far short of a held read.
+				expect(waitedFor, "gave up on time").toBeLessThan(6_000);
+				expect(waiter.err, "the line, unsaid").toMatch(
+					/\(unsaid\); waiting its turn[\s\S]*held by \(unsaid\)/,
+				);
 			},
 			TEST_MS,
 		);
@@ -1043,22 +1092,26 @@ function clockWait(): void {
 			"times its wait by the clock, however quickly each try comes back",
 			async () => {
 				const host = hostWith(EVERY_HOST);
-				// The first try says when it came to the millisecond, by node,
-				// since neither bash 3.2 nor a Mac's date can, and the deadline
+				// The first try says when it came to the microsecond, by bash's
+				// own clock where it has one, 5.0's EPOCHREALTIME, and by node
+				// under bash 3.2, whose start costs a moment before the deadline
 				// is set just after it. Bash's clock moves a second at a time,
 				// but 5.3's not on the wall's seconds, so the wait is held to
 				// what it promises on any of them: two seconds, never fewer,
 				// which it keeps only by its second more, as a wait without it
 				// ends short of two seconds in nearly every run.
 				const node = JSON.stringify(process.execPath);
-				const stub = `lock() { if [ "$1" = -n ]; then echo "first try $(${node} -p 'Date.now()')" >&2; return 1; fi; sleep 0.02; return 1; }`;
+				const stub = `lock() { if [ "$1" = -n ]; then echo "first try \${EPOCHREALTIME:-$(${node} -p 'Date.now() / 1000')}" >&2; return 1; fi; sleep 0.02; return 1; }`;
 				const waiter = await ended(
 					check(host, `${stub}\nturn_wait_s=2\ntake_turn\necho took`),
 				);
 				const endedAt = Date.now();
-				const first = Number(
-					/first try (\d+)/.exec(waiter.err)?.[1] ?? Number.NaN,
-				);
+				// In seconds, its point a comma in some locales.
+				const said = /first try ([\d.,]+)/.exec(waiter.err)?.[1];
+				const first =
+					said === undefined
+						? Number.NaN
+						: Number(said.replace(",", ".")) * MS_PER_S;
 				expect(first, `when its first try came: ${waiter.err}`).not.toBeNaN();
 				// A wait counted in tries would end in a twentieth of a second.
 				expect(
@@ -1312,14 +1365,14 @@ function localHalf(): void {
 						"ControlMaster=no",
 						"-o",
 						"ControlPath=none",
-						// A host asleep, or a link dropped mid-check, ends it in a
-						// minute or so rather than when TCP gives up.
+						// A host asleep, or a link silent mid-check, ends it after
+						// five minutes rather than when TCP gives up.
 						"-o",
 						"ConnectTimeout=30",
 						"-o",
 						"ServerAliveInterval=15",
 						"-o",
-						"ServerAliveCountMax=4",
+						"ServerAliveCountMax=20",
 						"there",
 					]);
 					const line = sent.sent?.at(-1) ?? "";
@@ -1588,6 +1641,12 @@ function workThere(): void {
 			expect(awake, "before its turn, waited for or not").toBeLessThan(
 				top.indexOf("take_turn"),
 			);
+			const build = top.findIndex((line) => line?.includes("nix build"));
+			expect(build, "the node build it holds awake").toBeGreaterThan(-1);
+			expect(
+				awake,
+				"before node is built, which can take minutes",
+			).toBeLessThan(build);
 		});
 
 		it("runs alone, from its turn to its end", () => {
