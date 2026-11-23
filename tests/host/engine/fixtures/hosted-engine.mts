@@ -74,12 +74,14 @@ const hostPi = piFromHost(packageDir);
 let rolloverPi: string | undefined;
 registerHooks({
 	resolve: (specifier, context, next) => {
-		const resolved = hostPi(specifier, context, next);
-		if (
+		// Read before resolving: once the hook has handed the install's root on
+		// as the parent, this context's parentURL names that root, not rollover.
+		const fromRollover =
 			specifier === "@earendil-works/pi-ai" &&
-			context.parentURL?.endsWith("/lib/internal/session/rollover.ts")
-		)
-			rolloverPi = resolved.url;
+			(context.parentURL?.endsWith("/lib/internal/session/rollover.ts") ??
+				false);
+		const resolved = hostPi(specifier, context, next);
+		if (fromRollover) rolloverPi = resolved.url;
 		return resolved;
 	},
 });
