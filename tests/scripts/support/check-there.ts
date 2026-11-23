@@ -996,20 +996,26 @@ function clockWait(): void {
 			TEST_MS,
 		);
 
-		// A wait sent with a leading zero would be read as octal.
+		// A wait sent with a leading zero would be read as octal, where 8
+		// is no digit at all.
 		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
 			"reads its wait in tens, whatever it opens with",
 			async () => {
 				const host = hostWith(EVERY_HOST);
+				const asked = Date.now();
 				const waiter = await ended(
 					check(
 						host,
-						"lock() { sleep 0.2; return 1; }\nturn_wait_s=02\ntake_turn\necho took",
+						"lock() { sleep 0.2; return 1; }\nturn_wait_s=08\ntake_turn\necho took",
 					),
 				);
+				expect(
+					Date.now() - asked,
+					"waiting the eight seconds it says",
+				).toBeGreaterThanOrEqual(7_900);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
-				expect(waiter.err, "its wait read as two seconds").toMatch(
-					/gave up after 2 s waiting/,
+				expect(waiter.err, "its wait read as eight seconds").toMatch(
+					/gave up after 8 s waiting/,
 				);
 			},
 			TEST_MS,
