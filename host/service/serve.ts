@@ -226,17 +226,18 @@ export async function serveHost(options: {
 				wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 		});
 		const { becoming } = options;
-		engine.watch?.(
-			becoming
-				? {
-						...events,
-						became(previousId, next) {
-							becoming(previousId, next.sessionId);
-							return events.became(previousId, next);
-						},
-					}
-				: events,
-		);
+		// The backend, once it exists, hears each conversation that became
+		// another, so a repeat of the open that made it answers with that one;
+		// one that became another sooner was opened by no request it holds.
+		let succeeded: HostBackend["became"] | undefined;
+		engine.watch?.({
+			...events,
+			async became(previousId, next) {
+				becoming?.(previousId, next.sessionId);
+				await events.became(previousId, next);
+				succeeded?.(previousId, next.sessionId);
+			},
+		});
 		if (options.children) {
 			const policy = await options.children.policy(key);
 			try {
@@ -279,6 +280,7 @@ export async function serveHost(options: {
 			...(options.changes ? { changes: options.changes } : {}),
 			...slowAfter,
 		});
+		succeeded = backend.became;
 		const control = await listenControl({
 			path,
 			backend,
