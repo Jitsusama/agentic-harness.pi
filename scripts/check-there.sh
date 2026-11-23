@@ -44,10 +44,11 @@ branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 host="${2:-penelope}"
 wait_s="${CHECK_THERE_WAIT_S:-5400}"
 # A wait is at most seven digits, over a hundred days, so no slip of the
-# keys asks for one that never ends.
+# keys asks for one that never ends, and opens with no zero, which the
+# host's arithmetic would read as octal.
 case "$wait_s" in
-  *[!0-9]* | ????????*)
-    echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds under ten million" >&2
+  *[!0-9]* | ????????* | 0?*)
+    echo "check-there: CHECK_THERE_WAIT_S is '$wait_s', not a number of seconds under ten million, with no leading zero" >&2
     exit 2
     ;;
 esac
@@ -97,6 +98,17 @@ holder= node_link= ending= deadline= killed= stop_wait_s=
 # since bash and zsh, the hosts' login shells, run a lone command they
 # are given in place of themselves.
 caller=$PPID
+# A login shell whose startup set a trap runs the command under itself,
+# and stays when its caller goes, so the check says so where ps can tell.
+note_caller() {
+  local named
+  named="$(ps -o comm= -p "$caller" 2>/dev/null || true)"
+  case "$named" in
+    "" | *sshd*) ;;
+    *) echo "check-there: started under $named, not sshd, so it won't see its caller go" >&2 ;;
+  esac
+}
+note_caller
 branch="$1"
 turn_wait_s="$2"
 # The check runs in a worktree of a bare clone, as the harness's own trees
@@ -156,8 +168,9 @@ end_groups() {
       return 0
     fi
     echo "check-there: what it ran outlived ${stop_wait_s:-10} s, so it was killed" >&2 || true
-    killed=1
-    deadline=$(( SECONDS + 6 ))
+    # One command, so a stop landing between them never finds the KILL
+    # under way with the TERM's spent deadline.
+    deadline=$(( SECONDS + 6 )) killed=1
   fi
   for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
   gone_within "$@" || true
@@ -286,15 +299,16 @@ lock() {
 # it reads apart from a failed check. A lock that can't be tried fails
 # the check, which would otherwise share the worktree.
 take_turn() {
-  local tried=0 held wait_s="${turn_wait_s:-5400}"
+  local tried=0 held wait_s=$(( 10#${turn_wait_s:-5400} ))
   lock -n || tried=$?
   if [ "$tried" -eq 1 ]; then
     held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
     echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
     # A second's try at a time, so a stop meanwhile, held until the
     # command it lands in ends, lands within one; the wait is timed by
-    # the clock, so slow tries on a busy host don't stretch it.
-    local ends_at=$(( SECONDS + wait_s ))
+    # the clock, so slow tries on a busy host don't stretch it. The clock
+    # is whole seconds, so it waits one more, never fewer than it says.
+    local ends_at=$(( SECONDS + wait_s + 1 ))
     while [ "$tried" -eq 1 ] && [ "$SECONDS" -lt "$ends_at" ]; do
       caller_here || caller_gone
       tried=0
