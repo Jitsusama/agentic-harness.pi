@@ -125,7 +125,7 @@ const ASSUMED_RESERVE_TOKENS = 64_000;
 const UNKNOWN_PROVIDER = "no provider is registered with this id";
 
 /** Why a summary written ahead went unused after a move in the tree. */
-const MOVED_OFF = "the session moved in its tree off the point it summarised";
+const MOVED_OFF = "the session moved in its tree off the point it covers";
 
 /** A write and how long it took. */
 interface Timed {
@@ -169,7 +169,7 @@ export interface CompactionHost {
 	/**
 	 * How many summaries written ahead have failed since a compaction
 	 * last landed, the session last started, or a move in its tree left
-	 * the point they summarised. Every summary after one that stopped at
+	 * the point they covered. Every summary after one that stopped at
 	 * its output cap is asked for half the size, until the count resets.
 	 */
 	failedAhead(): number;
@@ -267,7 +267,7 @@ export function registerCompactionHost(
 	// A move in the tree that leaves the point a summary written ahead
 	// covers leaves another branch to compact, so what was written and
 	// tried ahead was for a compaction that will not come. One that keeps
-	// the point keeps both, since the compaction to come summarises it.
+	// the point keeps both, since the compaction to come covers it too.
 	pi.on("session_tree", async (_event, ctx) => {
 		if (ahead !== null) {
 			const covered = ahead.request.coveredLeafId;

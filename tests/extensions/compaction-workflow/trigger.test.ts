@@ -514,7 +514,7 @@ describe("the compaction trigger", () => {
 
 		it.each([
 			["the session starts again", false],
-			["the session moves in its tree off the summarised point", true],
+			["the session moves in its tree off the point summaries covered", true],
 		])("tries ahead afresh once %s", async (_, moves) => {
 			const at = await failedTwice();
 			if (moves) {
@@ -533,9 +533,9 @@ describe("the compaction trigger", () => {
 			await triesAheadOnceMore(at);
 		});
 
-		// The compaction to come still summarises that point, so what was
+		// The compaction to come still covers that point, so what was
 		// tried for it still counts.
-		it("keeps counting across a move in the tree that keeps the summarised point", async () => {
+		it("keeps counting across a move in the tree that keeps the point summaries covered", async () => {
 			const { fire, state, ctx } = await failedTwice();
 			const leaf = state.leaf;
 			await fire("session_tree", { newLeafId: leaf, oldLeafId: leaf }, ctx);
@@ -562,7 +562,7 @@ describe("the compaction trigger", () => {
 			return at;
 		}
 
-		it("is applied when the move keeps the point it summarised", async () => {
+		it("is applied when the move keeps the point it covers", async () => {
 			const { fire, entries, state, ctx } = await writtenAhead();
 			const leaf = state.leaf;
 			await fire("session_tree", { newLeafId: leaf, oldLeafId: leaf }, ctx);
@@ -587,7 +587,7 @@ describe("the compaction trigger", () => {
 					.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
 					.map((entry) => entry.data),
 			).toEqual([
-				{ reason: "the session moved in its tree off the point it summarised" },
+				{ reason: "the session moved in its tree off the point it covers" },
 			]);
 		});
 	});
