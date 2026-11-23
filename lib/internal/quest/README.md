@@ -22,9 +22,11 @@ what changes together:
 - `reopening/`: putting sessions and their windows back after a restart,
   a boot's end or another machine's.
 
-Five files stay at the top. `io.ts` (atomic writes and the quest lock),
+Six files stay at the top. `io.ts` (atomic writes and the quest lock),
 `dates.ts` and `status.ts` serve most of the folders. `lock-folder.ts`
 names the quest lock folder in the login's runtime folder and judges
-it, for the lock and for the fence, which binds it through. `discovery-seed.ts`
+it, for the lock and for the fence, which binds it through.
+`write-journal.ts` is the journal of quest writes `io.ts` keeps beside
+the locks, which every host's discovery reads on from. `discovery-seed.ts`
 stays because it keys its seed on a hash of every module under its own
 folder, so a change to the parser anywhere here drops the seed.

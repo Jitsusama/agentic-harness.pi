@@ -21,6 +21,7 @@ import { join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { isId, prefixOf } from "../creation/id.ts";
 import { splitFrontMatter } from "../documents/frontmatter.ts";
+import type { JournalMark } from "../write-journal.ts";
 import type { DiscoveryResult } from "./discovery.ts";
 
 /**
@@ -192,6 +193,12 @@ export interface CacheSlot {
 	rootNames: ReadonlyMap<string, string> | undefined;
 	/** Each quest folder read on its own since the signing, and when. */
 	read: ReadonlyMap<string, number>;
+	/**
+	 * How far the account's journal of quest writes is read into the
+	 * walk (`write-journal.ts`): where it stood as the signing began, then
+	 * on from each read since. Undefined where there is no journal.
+	 */
+	journal: JournalMark | undefined;
 }
 
 /** A root entry's kind, as a slot keeps it: link, folder or file. */

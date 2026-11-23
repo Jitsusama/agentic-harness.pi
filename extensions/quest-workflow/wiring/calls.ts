@@ -15,7 +15,11 @@ import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
 import { adoptTree, applyQuestGuards } from "../guard.ts";
 import { persist, refreshProgress } from "../lifecycle.ts";
 import { keepDesktopListsCurrent } from "../quest-index.ts";
-import { questsTouchedBy, RecordWatch } from "../record-watch.ts";
+import {
+	noteToolWrites,
+	questsTouchedBy,
+	RecordWatch,
+} from "../record-watch.ts";
 import type { QuestState } from "../state.ts";
 import { currentSessionId } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";
@@ -114,6 +118,13 @@ export function watchToolCalls(
 			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 		}
 		persist(state, pi, ctx);
+		noteToolWrites(
+			state,
+			event.toolName,
+			event.input as Record<string, unknown>,
+			ctx.cwd,
+			homedir(),
+		);
 		// A quest action can change what a quest's work is weighted by, and
 		// which quests orchestrate, and what the desktop lists.
 		if (event.toolName === "quest") {
