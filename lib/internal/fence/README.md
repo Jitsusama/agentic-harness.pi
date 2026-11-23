@@ -40,6 +40,10 @@ would miss what another binds over it.
   runtime folder that the fence's root empties, or else a folder of
   pi's state the fence holds read-only, so no fenced command can plant
   code that node runs outside the fence.
+- **`compile-cache-sweep.ts`**: removes what node's cache in the
+  runtime folder holds that nothing read or wrote for a day, at most
+  once an hour, since each install adds a set of entries and that
+  folder is memory.
 - **`fence-dev.ts`**: the session's own writable copies of dev's
   settings and git's global settings, one set for each pi process,
   made outside and bound over the person's, so a fenced `dev up` can

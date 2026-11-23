@@ -122,6 +122,22 @@ export function compileFolderOf(
 	platform: NodeJS.Platform = process.platform,
 	login: string | null = loginRuntimeFolder(platform) ?? null,
 ): string {
+	return (
+		runtimeCompileFolderOf(by, env, platform, login) ?? stateDir(IN_STATE[by])
+	);
+}
+
+/**
+ * `by`'s folder in the runtime folder, made private, where
+ * `compileFolderOf` would choose it; none where it would choose pi's
+ * state.
+ */
+export function runtimeCompileFolderOf(
+	by: CompiledBy,
+	env: NodeJS.ProcessEnv,
+	platform: NodeJS.Platform,
+	login: string | null,
+): string | undefined {
 	const named = env.XDG_RUNTIME_DIR;
 	// However it is spelled, as `/run/user/1000/` is the login's too.
 	const root = named && isAbsolute(named) ? resolve(named) : undefined;
@@ -136,7 +152,7 @@ export function compileFolderOf(
 		const own = join(shared, by);
 		if (isPrivate(root) && madePrivate(shared) && madePrivate(own)) return own;
 	}
-	return stateDir(IN_STATE[by]);
+	return undefined;
 }
 
 /** The folder every pi process compiles into. */

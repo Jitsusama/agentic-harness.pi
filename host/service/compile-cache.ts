@@ -7,6 +7,9 @@
  * starting, a host removes its own earlier installs' folders and keeps
  * every other host's. The folders lie in the login's runtime folder
  * where it can be had, and in pi's state else (compile-cache-place.ts).
+ * There a start also sweeps what node's cache for every pi holds that
+ * nothing used for a day, since that folder is memory
+ * (compile-cache-sweep.ts).
  * A cache that can't be had is said, and the host starts without it.
  */
 
@@ -23,7 +26,9 @@ import { isAbsolute, join } from "node:path";
 import {
 	compileFolderOf,
 	loginRuntimeFolder,
+	runtimeCompileFolderOf,
 } from "../../lib/internal/fence/compile-cache-place.ts";
+import { sweepIdleCompiled } from "../../lib/internal/fence/compile-cache-sweep.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
@@ -121,16 +126,13 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 	try {
 		const key = keyOf(options);
 		if (!key) return { state: "unkeyed" };
+		const login =
+			options.login === undefined
+				? (loginRuntimeFolder() ?? null)
+				: options.login;
 		const root =
 			options.root ??
-			compileFolderOf(
-				"host",
-				options.env,
-				process.platform,
-				options.login === undefined
-					? (loginRuntimeFolder() ?? null)
-					: options.login,
-			);
+			compileFolderOf("host", options.env, process.platform, login);
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
 		sweepEarlier(root, key.host, name);
@@ -138,7 +140,21 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 		// from a start that found none, which no later start would reach.
 		const inState = stateDir("host-compile");
 		if (!options.root && inState !== root && existsSync(inState))
-			sweepEarlier(inState, key.host, undefined);
+			try {
+				sweepEarlier(inState, key.host, undefined);
+			} catch {
+				// Only room on the disk is lost: the cache this start uses lies
+				// elsewhere, so it stays on, and the next start sweeps again.
+			}
+		if (!options.root) {
+			const node = runtimeCompileFolderOf(
+				"node",
+				options.env,
+				process.platform,
+				login,
+			);
+			if (node) sweepIdleCompiled(node);
+		}
 		const folder = join(root, name);
 		mkdirSync(folder, { recursive: true });
 		const enabled = (options.enable ?? enableCompileCache)(folder);

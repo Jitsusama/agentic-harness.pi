@@ -5,11 +5,13 @@
  * be had is said, never thrown, since a host starts without one.
  */
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { constants } from "node:module";
@@ -83,6 +85,16 @@ describe("a host's compile cache", () => {
 				recursive: true,
 			});
 			mkdirSync(join(inState, "work-background-0123456789abcdef"));
+			const nodeCache = join(runtime, "pi-compile", "node", "v24-x64-1");
+			mkdirSync(nodeCache, { recursive: true, mode: 0o700 });
+			chmodSync(join(runtime, "pi-compile"), 0o700);
+			chmodSync(join(runtime, "pi-compile", "node"), 0o700);
+			const idle = join(nodeCache, "unused");
+			writeFileSync(idle, "compiled");
+			const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+			utimesSync(idle, long, long);
+			const used = join(nodeCache, "used");
+			writeFileSync(used, "compiled");
 			try {
 				const folder = folderOf(
 					startCompileCache({
@@ -106,6 +118,40 @@ describe("a host's compile cache", () => {
 					readdirSync(inState),
 					"its own folders left in pi's state are swept, and no other host's",
 				).toEqual(["work-background-0123456789abcdef"]);
+				expect(
+					readdirSync(nodeCache),
+					"what node's cache holds that nothing used for a day is swept, as memory",
+				).toEqual(["used"]);
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		},
+	);
+
+	it.runIf(process.platform === "linux")(
+		"stays on in the runtime folder when what it left in pi's state can't be swept",
+		() => {
+			const runtime = join(dir, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+			const state = join(dir, "state", "pi", "agentic-harness.pi");
+			mkdirSync(state, { recursive: true });
+			// A file where its folder was, which no sweep can read.
+			writeFileSync(join(state, "host-compile"), "");
+			try {
+				const cache = startCompileCache({
+					argv: ["attended"],
+					env: {
+						MYCELIUM_REALM: "work",
+						PI_PACKAGE_DIR: pi,
+						XDG_RUNTIME_DIR: runtime,
+						HOME: join(dir, "home"),
+					},
+					harnessRoot: harness,
+					login: runtime,
+					enable,
+				});
+				expect(cache.state, JSON.stringify(cache)).toBe("on");
 			} finally {
 				vi.unstubAllEnvs();
 			}
