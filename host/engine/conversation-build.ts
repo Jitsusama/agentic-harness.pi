@@ -40,6 +40,7 @@ import {
 	openHostedConversation,
 } from "./hosted-conversation.ts";
 import type { holdKeptHistory } from "./kept-history.ts";
+import type { countLeftOut } from "./kept-history-session.ts";
 import type { KeptRequests } from "./kept-requests.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import {
@@ -108,6 +109,8 @@ export interface PiParts {
 	readonly library: PiLibrary;
 	/** Holds only a log's kept history; loaded once pi has, as it binds pi. */
 	readonly keptHistory: typeof holdKeptHistory;
+	/** Has a session count and list what its held log left; loaded as keptHistory is. */
+	readonly keptCounts: typeof countLeftOut;
 }
 
 /** What a build asks of the engine it builds for. */
@@ -156,7 +159,8 @@ export interface ConversationBuilds {
 /** Build each conversation on the host's pi, for the engine this context names. */
 export function conversationBuilds(context: BuildContext): ConversationBuilds {
 	const { parts, options, report, logs, requests } = context;
-	const { pi, sessions, builtIns, trust, library, keptHistory } = parts;
+	const { pi, sessions, builtIns, trust, library, keptHistory, keptCounts } =
+		parts;
 	const { host } = options;
 
 	function view(sessionId: string, record: Live): HostedView {
@@ -357,6 +361,10 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), (error) =>
+			report(`Conversation ${sessionId}: ${String(error)}`),
+		);
+		// /session's counts and /fork's list take in the messages a held log left on disk.
+		keptCounts(created.session, (error) =>
 			report(`Conversation ${sessionId}: ${String(error)}`),
 		);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.

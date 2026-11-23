@@ -113,6 +113,7 @@ export async function createEngine(
 	// the program loads, a missing install would fail the import before
 	// the program's configuration check refuses it with exit 78.
 	const { holdKeptHistory } = await import("./kept-history.ts");
+	const { countLeftOut } = await import("./kept-history-session.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	if (options.key) pinSubagentKey(options.key, KEY_VARIABLES);
@@ -214,6 +215,7 @@ export async function createEngine(
 			trust,
 			library,
 			keptHistory: holdKeptHistory,
+			keptCounts: countLeftOut,
 		},
 		options,
 		report,

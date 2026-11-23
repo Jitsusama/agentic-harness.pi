@@ -19,8 +19,10 @@
  * and it carries the spend of the turns left out, so spend-workflow's
  * total reads as before. Usage entries, also never written, carry the
  * tokens and cost of every entry left out, so pi's footer and /session
- * totals read as before. Every id in the file stays taken, so pi never
- * gives a new entry an id an older one has.
+ * totals read as before. The messages left out are counted too, for
+ * /session's counts and /fork's list (kept-history-session.ts). Every
+ * id in the file stays taken, so pi never gives a new entry an id an
+ * older one has.
  *
  * Whatever needs the whole tree has the whole log read back first:
  * /tree, a lookup or branch to an entry from before the last compaction,
@@ -37,6 +39,7 @@ import {
 	compactionHistory,
 	FIRST_PROMPT_CARRY,
 } from "../../lib/compaction/history.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import {
 	type Entry,
 	keptView,
@@ -104,6 +107,30 @@ export function holdsLikePi(manager: unknown): manager is HeldManager {
 	);
 }
 
+/** The messages a held manager left on disk, as pi's /session counts them. */
+export interface LeftOut {
+	readonly userMessages: number;
+	readonly assistantMessages: number;
+	readonly toolCalls: number;
+	readonly toolResults: number;
+	readonly totalMessages: number;
+	/** The log they are left in. */
+	readonly file: string;
+}
+
+/** What each manager holding a view left out, gone once it lets go. */
+const leftOutBy = new WeakMap<object, LeftOut>();
+
+/**
+ * The messages `manager` left on disk while it holds the kept view, or
+ * undefined when it holds its whole log.
+ */
+export function leftOutOf(manager: unknown): LeftOut | undefined {
+	return typeof manager === "object" && manager !== null
+		? leftOutBy.get(manager)
+		: undefined;
+}
+
 /** Whether this process has said that pi's session manager changed shape. */
 let toldUnlikePi = false;
 
@@ -164,6 +191,8 @@ interface Held {
 	readonly entries: unknown[];
 	/** The ids held that need the whole log to branch to or from. */
 	readonly dated: ReadonlySet<string>;
+	/** The messages left on disk, with any an earlier view left. */
+	readonly left: LeftOut;
 }
 
 /**
@@ -251,7 +280,50 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const dated = new Set(
 		chained.map((entry) => entry.id).filter((id) => !live.has(id)),
 	);
-	return { entries: [header, ...chained], dated };
+	const onDisk = messagesLeftOut(
+		manager.fileEntries,
+		keptIds,
+		file,
+		leftOutOf(manager),
+	);
+	return { entries: [header, ...chained], dated, left: onDisk };
+}
+
+/**
+ * The messages of `entries` not in `kept`, on any branch, counted as pi's
+ * `getSessionStats` counts them, added to what an earlier view of the
+ * same manager left out, since those are no longer among its entries.
+ */
+function messagesLeftOut(
+	entries: readonly unknown[],
+	kept: ReadonlySet<string>,
+	file: string,
+	earlier: LeftOut | undefined,
+): LeftOut {
+	const left = {
+		userMessages: earlier?.userMessages ?? 0,
+		assistantMessages: earlier?.assistantMessages ?? 0,
+		toolCalls: earlier?.toolCalls ?? 0,
+		toolResults: earlier?.toolResults ?? 0,
+		totalMessages: earlier?.totalMessages ?? 0,
+		file,
+	};
+	for (const entry of entries) {
+		if (!isRecord(entry) || entry.type !== "message") continue;
+		if (typeof entry.id !== "string" || kept.has(entry.id)) continue;
+		left.totalMessages++;
+		const message = isRecord(entry.message) ? entry.message : {};
+		if (message.role === "user") left.userMessages++;
+		else if (message.role === "toolResult") left.toolResults++;
+		else if (message.role === "assistant") {
+			left.assistantMessages++;
+			if (Array.isArray(message.content))
+				left.toolCalls += message.content.filter(
+					(part) => isRecord(part) && part.type === "toolCall",
+				).length;
+		}
+	}
+	return left;
 }
 
 /** Have `manager` hold `held`, every id its file holds still taken. */
@@ -269,7 +341,7 @@ function install(
 	manager.fileEntries = held.entries;
 	manager._buildIndex();
 	manager.byId = new TakenIds(manager.byId, taken);
-	guard(manager, file, held.dated, taken, report);
+	guard(manager, file, held, taken, report);
 }
 
 /** Put back pi's own full open after the view failed to install. */
@@ -316,10 +388,12 @@ class TakenIds<V> extends Map<string, V> {
 function guard(
 	manager: HeldManager,
 	file: string,
-	dated: ReadonlySet<string>,
+	held: Held,
 	taken: Set<string>,
 	report: Report,
 ): void {
+	const { dated } = held;
+	leftOutBy.set(manager, held.left);
 	const own = manager as unknown as Record<string, unknown>;
 	// pi's own, taken before the view answers in their place, so no guard
 	// ever reaches itself, whatever has become of the view by then.
@@ -343,7 +417,7 @@ function guard(
 	const whole = (why: string): void => {
 		if (!holding) return;
 		const leaf = manager.leafId;
-		const held = manager.fileEntries;
+		const entries = manager.fileEntries;
 		const { sessionId, sessionFile, flushed } = manager;
 		holding = false;
 		release(manager);
@@ -357,11 +431,11 @@ function guard(
 				);
 		} catch (error) {
 			Object.assign(manager, { sessionId, sessionFile, flushed });
-			manager.fileEntries = held;
+			manager.fileEntries = entries;
 			manager._buildIndex();
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
-			guard(manager, file, dated, taken, report);
+			guard(manager, file, held, taken, report);
 			throw error;
 		}
 		// pi's open leaves its leaf on the file's last entry; a reset leaf
@@ -413,6 +487,7 @@ function guard(
 
 /** Let go of the view's methods and taken ids, back to pi's own. */
 function release(manager: HeldManager): void {
+	leftOutBy.delete(manager);
 	const own = manager as unknown as Record<string, unknown>;
 	for (const name of GUARDED) delete own[name];
 	if (manager.byId instanceof TakenIds) manager.byId = new Map(manager.byId);
