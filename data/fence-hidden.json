@@ -22,7 +22,11 @@
 		".local/share/keyrings/",
 		".local/state/gnome-keyring/login.cred",
 		".local/state/eero/session.cred",
-		".local/state/aquifer-cell/"
+		".local/state/aquifer-cell/",
+		".zsh_history",
+		".zsh_sessions/",
+		".bash_history",
+		".local/share/zsh/"
 	],
 	"sshKept": [
 		"^(config|known_hosts(\\.old)?|google_compute_known_hosts(\\.old)?|.*\\.pub)$"

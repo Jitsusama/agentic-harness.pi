@@ -174,7 +174,18 @@ describe("the key files the fence hides beside the rest", () => {
 			".docker/key.pem",
 			".docker/contexts/tls/",
 		]) {
-			expect(HIDDEN).toContain(key);
+			expect(HIDDEN, key).toContain(key);
+		}
+	});
+
+	it("names the shell's history, where a pasted token lingers", () => {
+		for (const history of [
+			".zsh_history",
+			".zsh_sessions/",
+			".bash_history",
+			".local/share/zsh/",
+		]) {
+			expect(HIDDEN, history).toContain(history);
 		}
 	});
 });

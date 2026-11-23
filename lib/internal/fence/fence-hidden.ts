@@ -18,7 +18,10 @@
  * leaves for an offline guess either (IDEGAT, 13 November); and the
  * Aquifer cells' state, where each basin's provider login lies, which
  * only the mycelium node's provider reads, outside every fence (ISXEG8
- * and S99IA2, 17 November). A path ending in `/` is a folder, emptied
+ * and S99IA2, 17 November); and the person's shell history (zsh's,
+ * the Mac Terminal's per-window sessions, and bash's), where a pasted
+ * token lingers and which no agent's work reads (ISXEG8, 22 November).
+ * A path ending in `/` is a folder, emptied
  * whole, and no fenced run may start inside it. In `~/.ssh` only what
  * names hosts and keys is kept: public keys, settings and known hosts.
  */

@@ -3,7 +3,7 @@
  * sandbox-exec profile a fenced command runs under, read as sandbox-exec
  * reads it, the last matching rule deciding. It tries itself first, hides
  * ssh's keys and pi's and mycelium's state whatever is granted, writes
- * only the folder when strict, grants a held broker tree again after
+ * nothing in the home but the folder when strict, grants a held broker tree again after
  * every hide, and reads npm's settings only as the copy without tokens.
  */
 
@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	FENCE_RUN_HELP,
 	type FenceRunAsk,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
@@ -350,7 +351,7 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
-	it("writes only its folder when strict, so nothing it plants runs later", () => {
+	it("writes nothing in the home but its folder when strict, so nothing it plants runs later", () => {
 		const text = onMac("strict");
 		for (const planted of [
 			".lldbinit",
@@ -449,6 +450,33 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
+	it("writes outside the home where the account can when strict, as its help says", () => {
+		const text = onMac("strict");
+		for (const outside of [
+			"/private/tmp/x",
+			"/private/var/folders/xb/T/x",
+			"/Users/Shared/x",
+		]) {
+			const rule = deciding(text, outside, "file-write*");
+			expect(rule ?? "(allow default)", outside).toMatch(/^\(allow /);
+		}
+		for (const program of ["/opt/homebrew/bin/x", "/Applications/x"]) {
+			expect(deciding(text, program, "file-write*"), program).toMatch(
+				/^\(deny /,
+			);
+		}
+		const said = FENCE_RUN_HELP.replace(/\s+/g, " ");
+		expect(said, "the help says strict writes outside the home").toContain(
+			"elsewhere it writes what the account can, /tmp and the Mac's temporary folder among them.",
+		);
+		expect(said, "the help keeps the program folders read-only").toContain(
+			"it writes no program folder",
+		);
+		expect(said, "the help says strict reads the home as on Linux").toContain(
+			"Strict reads in the home only what it reads on Linux, and writes there only the folder",
+		);
+	});
+
 	it("reads nothing of pi's or mycelium's state, so no realm's messages reach the asker", () => {
 		for (const kind of ["fence", "strict"] as const) {
 			for (const state of [
@@ -508,7 +536,7 @@ describe("the fence on a Mac", () => {
 				deciding(made.text, join(tree, "README.md"), "file-write*"),
 				kind === "fence"
 					? "fence writes the whole tree, as on Linux"
-					: "strict writes only its folder, not the tree's root",
+					: "strict writes its folder, not the tree's root",
 			).toMatch(kind === "fence" ? /^\(allow / : /^\(deny /);
 			// Strict keeps the whole home from writes, so only fence's
 			// writable home needs the rule, and shows it.
