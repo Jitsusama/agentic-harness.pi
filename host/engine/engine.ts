@@ -285,8 +285,11 @@ export async function createEngine(
 				},
 			);
 		// A start whose screen is asking the person answers now, so a viewer can attach to answer; the build carries on, and says what fails.
-		if ((await Promise.race([building, asking])) === "asking")
+		// Its time is said to the ask, the phases after it never (F44).
+		if ((await Promise.race([building, asking])) === "asking") {
+			mark?.("asked");
 			building.catch((error: unknown) => failedAfterStart(record, error));
+		}
 	}
 
 	/**

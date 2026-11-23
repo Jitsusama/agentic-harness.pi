@@ -618,19 +618,25 @@ export function hostBackend(options: {
 			phases.push({ phase, at: Date.now() });
 		};
 		let sessionId: string | undefined;
+		let identity: SessionIdentity;
 		try {
-			const identity = await startedTimed(request, mark, (id) => {
+			identity = await startedTimed(request, mark, (id) => {
 				sessionId = id;
 			});
-			options.say?.(
-				startLine(identity.sessionId, request, began, phases, Date.now()),
-			);
-			return identity;
 		} catch (error) {
 			const line = startLine(sessionId, request, began, phases, Date.now());
-			options.say?.(`${line}, failing: ${firstLine(error)}`);
+			const why = firstLine(error);
+			options.say?.(
+				`${line}, failing${why ? `: ${why}` : ", with no reason given"}`,
+			);
 			throw error;
 		}
+		// Said once it is live, so a say that throws never reads as a failed
+		// open of a conversation that runs (F53).
+		options.say?.(
+			startLine(identity.sessionId, request, began, phases, Date.now()),
+		);
+		return identity;
 	}
 
 	async function startedTimed(
@@ -672,7 +678,7 @@ export function hostBackend(options: {
 				...(prepared.launch ? { launch: prepared.launch } : {}),
 			});
 		} catch (error) {
-			await engine.discard(prepared);
+			await undoing(prepared, () => engine.discard(prepared));
 			throw error;
 		}
 		mark("roster");
@@ -682,8 +688,10 @@ export function hostBackend(options: {
 			// Registered and failed: the engine parked it, so it stays held for
 			// a person to close. Never registered: nothing owns it, so undo.
 			if (host.holds(prepared.sessionId) === undefined) {
-				await engine.discard(prepared);
-				await roster.drop(prepared.sessionId);
+				await undoing(prepared, async () => {
+					await engine.discard(prepared);
+					await roster.drop(prepared.sessionId);
+				});
 			} else if (typeof error === "object" && error !== null) {
 				// Its repeat is told the same, not given a second.
 				leftHeld.set(error, prepared.sessionId);
@@ -691,6 +699,18 @@ export function hostBackend(options: {
 			throw error;
 		}
 		return live(prepared.sessionId);
+	}
+
+	// Undoing a failed start that fails too is said, and the start's own
+	// failure is still the one its caller and the journal hear (F52).
+	async function undoing(prepared: Prepared, undo: () => Promise<void>) {
+		try {
+			await undo();
+		} catch (error) {
+			options.say?.(
+				`${prepared.sessionId}: undoing its failed start failed too: ${firstLine(error)}`,
+			);
+		}
 	}
 
 	// The reason it closes with names the caller, so the journal line the
@@ -834,9 +854,12 @@ function namedIn(answer: unknown): string | undefined {
  * extension loaded, durable's store opened and pi's session made, then
  * the rest, its extensions' session start among it), its screen or
  * headless binding, durable's recovery begun and, for an open with first
- * words, those words held.
+ * words, those words held. A start whose screen asks the person answers
+ * at the ask, marked `asked`: what it builds after is not timed, and a
+ * failure after it is the engine's to say.
  */
 export type StartPhase =
+	| "asked"
 	| "ask"
 	| "gate"
 	| "log"

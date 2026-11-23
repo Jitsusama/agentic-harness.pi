@@ -123,19 +123,21 @@ function refusing() {
 }
 
 /**
- * An open as a requester sends it, under an id of its own: the backend
- * answers an id asked again with its first answer (repeats.ts).
- */
-/**
- * What the backend journals, apart from each open's time, which its own
- * case checks, so a case reads only the lines it is about.
+ * What the backend journals, apart from each open's time when it
+ * succeeds, which its own case checks, so a case reads only the lines it
+ * is about; a start that fails is still said (F50).
  */
 function besideStarts(said: string[]): (line: string) => void {
 	return (line) => {
-		if (!/: its (open|adopt) took /.test(line)) said.push(line);
+		const timed = /: its (open|adopt) took /.test(line);
+		if (!timed || line.includes(", failing")) said.push(line);
 	};
 }
 
+/**
+ * An open as a requester sends it, under an id of its own: the backend
+ * answers an id asked again with its first answer (repeats.ts).
+ */
 function anOpen() {
 	return {
 		v: 1,
@@ -1078,12 +1080,20 @@ describe("hostBackend", () => {
 		fail();
 		await expect(opening).rejects.toThrow("extension load failed");
 		await expect(attaching).rejects.toThrow("not hosted");
-		expect(said[1], "a refusal is not said to be an answer").toMatch(
-			new RegExp(
-				`\\(${sessionId}\\): a window's attach was refused after [0-9.]+ s: .*not hosted`,
-			),
+		// The failed open says its own line too (F46), so the two follow the wait.
+		expect(said.slice(1), "a refusal is not said to be an answer").toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(
+					new RegExp(
+						`\\(${sessionId}\\): a window's attach was refused after [0-9.]+ s: .*not hosted`,
+					),
+				),
+				expect.stringMatching(
+					/its open took .*, failing: extension load failed$/,
+				),
+			]),
 		);
-		expect(said, "nothing more").toHaveLength(2);
+		expect(said, "nothing more").toHaveLength(3);
 	});
 
 	it("journals nothing for an attach answered at once", async () => {
