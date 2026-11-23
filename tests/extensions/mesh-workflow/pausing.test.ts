@@ -371,11 +371,12 @@ describe("carrying a session to another machine", () => {
 		);
 
 		const first = one.pausing.carry("penelope");
-		await one.pausing.carry("equilibrius");
+		await one.pausing.carry("equilibrius", "launcher");
+		const left =
+			"A Carry to equilibrius from outside its window, steered by launcher, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.";
 		expect(one.did, "carries once").toEqual(["carry to penelope"]);
-		expect(one.told.at(-1)).toBe(
-			"A carry to penelope is already under way and closes this session once it has carried, so this Carry to equilibrius is left to it.",
-		);
+		expect(one.told.at(-1)).toBe(left);
+		expect(one.journal, "kept for a window nobody watches").toEqual([left]);
 		one.pausing.started();
 		expect(one.did.at(-1), "a run started mid-carry still ends").toBe("abort");
 

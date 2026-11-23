@@ -361,8 +361,43 @@ describe("the agent asking for a reload", LANDS, () => {
 			"no request is left for the next settle to run",
 		).toBeUndefined();
 
+		expect(
+			now.hidden.filter((text) => text.startsWith("Did not reload")),
+			"a person's is said on screen alone",
+		).toEqual([]);
+
 		await now.command("reload", next);
 		expect(reloads, "the reload goes once the carry lets go").toBe(1);
+	});
+
+	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
+	// a landing, heard nothing when a carry called its reload off.
+	it("tells the agent its reload was called off by a carry, since no landing will come", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		await now.ask({ reason: "try it" });
+		await now.fire("agent_settled");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const hold = holdForCarry(SESSION_ID, "penelope");
+		try {
+			await now.command("reload", next);
+		} finally {
+			hold.release();
+		}
+
+		expect(reloads).toBe(0);
+		expect(
+			now.hidden.filter((text) => text.startsWith("Did not reload")),
+		).toEqual([
+			"Did not reload: its work is being carried to penelope, and a reload would end the carry part-way. Nothing was reloaded; ask again if this session is still here once the carry has ended.",
+		]);
+		expect(reloadSlot().request).toBeUndefined();
 	});
 
 	it("is called off when the person stops the run", async () => {

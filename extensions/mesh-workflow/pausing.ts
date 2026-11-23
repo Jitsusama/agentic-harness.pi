@@ -189,11 +189,14 @@ export function createPausing(host: PausingHost): Pausing {
 			host.setPaused(false);
 		},
 		async carry(to, from) {
+			// One under way may yet be refused, an ordered one by what it
+			// finds, so this one is said as left, not promised a close, and
+			// kept in the journal for a window nobody watches.
 			const other = host.carryUnderWay();
 			if (other !== undefined) {
-				host.tell(
-					`A carry to ${other} is already under way and closes this session once it has carried, so this Carry to ${to} is left to it.`,
-				);
+				const line = `A Carry to ${to} ${steeredBy(from)} was left to the carry to ${other} already under way, which closes this session if it carries; if that one is refused, Carry again.`;
+				host.tell(line);
+				host.journal(line);
 				return;
 			}
 			carrying = true;

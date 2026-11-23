@@ -290,10 +290,14 @@ describe("parking", () => {
 		// PV3TE0's round 3 (F2, F5, F10): state.ts sets the ordered carry's
 		// own hold aside in its looks and hands it to the carry; drop
 		// either and every ordered carry refuses itself.
-		it("carries an ordered carry steered in, its own hold set aside, and holds the park meanwhile", async () => {
+		/**
+		 * A session steered through its inbox, its run under way until
+		 * `idle` is set, saying on a screen what it tells.
+		 */
+		const steeredSession = async () => {
 			const steer = join(fixture.root, "steer");
 			fixture.paths = { ...fixture.paths, steer };
-			let idle = false;
+			const run = { idle: false };
 			const told: string[] = [];
 			// Every other call a screen takes is answered with nothing.
 			const ui = new Proxy(
@@ -307,41 +311,59 @@ describe("parking", () => {
 			);
 			const { emit } = await startSession(
 				{},
-				{ hasUI: true, ui, isIdle: () => idle, abort: () => {} },
+				{
+					hasUI: true,
+					ui,
+					isIdle: () => run.idle,
+					hasPendingMessages: () => false,
+					abort: () => {},
+				},
 			);
-			const inbox = inboxOf(steer, "7M6JKG");
-			mkdirSync(inbox, { recursive: true });
-			const name = join(inbox, `${Date.now()}-0a1b.json`);
-			writeFileSync(
-				`${name}.tmp`,
-				JSON.stringify({
-					act: "ordered-carry",
-					to: "penelope",
-					why: "its camera work needs the Mac",
-					by: "WCJQSG",
-					from: "WCJQSG",
-				}),
-			);
-			renameSync(`${name}.tmp`, name);
+			// Whatever the test did, its run ends and its carry lets go, so
+			// no later park test reads a hold it never took.
 			left.push(async () => {
-				idle = true;
+				run.idle = true;
+				await until(
+					"the steered carry lets go",
+					() => parkAsked(emit).length === 0,
+					10_000,
+				).catch(() => undefined);
+			});
+			const steered = (body: Record<string, string>) => {
+				const inbox = inboxOf(steer, "7M6JKG");
+				mkdirSync(inbox, { recursive: true });
+				const name = join(inbox, `${Date.now()}-0a1b.json`);
+				writeFileSync(`${name}.tmp`, JSON.stringify(body));
+				renameSync(`${name}.tmp`, name);
+			};
+			const toldOf = (what: string, said: (text: string) => boolean) =>
+				until(what, () => told.some(said), 10_000).catch((error: unknown) => {
+					throw new Error(
+						`${error instanceof Error ? error.message : String(error)} Told: ${JSON.stringify(told)}`,
+					);
+				});
+			return { emit, run, told, steered, toldOf };
+		};
+
+		it("carries an ordered carry steered in, its own hold set aside, and holds the park meanwhile", async () => {
+			const { emit, run, told, steered, toldOf } = await steeredSession();
+			steered({
+				act: "ordered-carry",
+				to: "penelope",
+				why: "its camera work needs the Mac",
+				by: "WCJQSG",
+				from: "WCJQSG",
 			});
 
-			await until(
-				"the ordered carry waits out the run under way",
-				() =>
-					told.some((text) =>
-						text.includes("letting the turn under way end first"),
-					),
-				10_000,
+			await toldOf("the ordered carry waits out the run under way", (text) =>
+				text.includes("letting the turn under way end first"),
 			);
 			const waiting = parkAsked(emit);
-			idle = true;
-			await until(
-				"the ordered carry ends",
-				() => told.some((text) => text.startsWith("This session refused")),
-				10_000,
+			run.idle = true;
+			await toldOf("the ordered carry ends", (text) =>
+				text.startsWith("This session refused"),
 			);
+			// Refused, it let go before it said so.
 			const after = parkAsked(emit);
 
 			expect(waiting, "the park is held from the order").toEqual([
@@ -356,6 +378,24 @@ describe("parking", () => {
 				),
 			]);
 			expect(after, "the park goes once the order lets go").toEqual([]);
+		});
+
+		// PV3TE0's round 4 (F4, F5, F14): pausing asks the registry the
+		// ordered carry holds through state.ts, and promises no close the
+		// carry under way may not keep.
+		it("leaves a person's Carry to the ordered carry under way, saying to Carry again if that one is refused", async () => {
+			// Taken first, so it is let go before the session's end waits on it.
+			ordered();
+			const { told, steered, toldOf } = await steeredSession();
+			steered({ act: "carry", to: "equilibrius", from: "launcher" });
+
+			await toldOf("the Carry is left to the one under way", (text) =>
+				text.startsWith("A Carry to equilibrius"),
+			);
+
+			expect(told.filter((text) => text.startsWith("A Carry"))).toEqual([
+				"A Carry to equilibrius from outside its window, steered by launcher, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.",
+			]);
 		});
 
 		it("holds the park from an ordered carry's order until it lets go", async () => {

@@ -99,8 +99,11 @@ function session(
 			holds: async (runEnded) => at.holding(runEnded),
 			hold: () => {
 				holdsTaken += 1;
+				let held = true;
+				// Let go once, as the registry's hold is.
 				return () => {
-					holdsTaken -= 1;
+					if (held) holdsTaken -= 1;
+					held = false;
 				};
 			},
 			carry: async (to) => {
@@ -453,6 +456,23 @@ describe("an ordered carry", () => {
 		expect(one.did, "and nothing holds its runs off after").toEqual([]);
 	});
 
+	// A context gone stale throws as it is read; a look that threw once
+	// left its node waiting out its time, refused by nothing.
+	it("refuses, saying why, when a look at what holds it throws, and lets go", async () => {
+		const one = session({
+			holding: () => {
+				throw new Error("the context is stale");
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(one.refused).toEqual([
+			"it couldn't be looked at: the context is stale",
+		]);
+		expect(one.holdsTaken()).toBe(0);
+	});
+
 	it("lets the turn under way end, holding off new runs, then carries", async () => {
 		const one = session({ idle: false });
 		const ordering = one.ordering.order(ORDER);
@@ -592,7 +612,7 @@ describe("an ordered carry", () => {
 		expect(one.holdsTaken()).toBe(0);
 	});
 
-	it("holds them while its refusal is written, and lets go after", async () => {
+	it("lets go of them as it refuses, before its refusal is written, since it carries nothing", async () => {
 		const seen: number[] = [];
 		const one = session({
 			holding: once("a fleet is out"),
@@ -604,7 +624,7 @@ describe("an ordered carry", () => {
 		await one.ordering.order(ORDER);
 
 		expect(one.refused).toEqual(["a fleet is out"]);
-		expect(seen).toEqual([1]);
+		expect(seen).toEqual([0]);
 		expect(one.holdsTaken()).toBe(0);
 	});
 

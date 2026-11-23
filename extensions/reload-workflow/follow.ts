@@ -289,9 +289,14 @@ export async function follow(
 			// alone; its new runtime says it landed, as plain pi's does.
 			if (inHost) {
 				if (hostedReloadAsker(ctx) !== undefined) return;
-				if (!(await reloadThroughHost(ctx, { reason, by: "self" }))) {
-					retryAt = Date.now() + HELD_MS;
-				}
+				// A carry begun while git was asked is waited on as any is, by
+				// the next look, not taken for a host that failed: the host
+				// refuses a reload under one.
+				const carried = () =>
+					sessionId !== undefined && carryUnderWay(sessionId) !== undefined;
+				if (carried()) return;
+				const reloaded = await reloadThroughHost(ctx, { reason, by: "self" });
+				if (!(reloaded || carried())) retryAt = Date.now() + HELD_MS;
 				return;
 			}
 			const links = linksMovedSince(extensions, startedAt);

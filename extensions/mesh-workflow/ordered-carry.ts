@@ -129,7 +129,8 @@ export interface OrderedCarryHost {
 	readonly holds: (runEnded: boolean) => Promise<string | undefined>;
 	/**
 	 * Hold the doors that would end the session's process unasked for a
-	 * carry to `to`, until the answer is called (lib/internal/carry/under-way.ts).
+	 * carry to `to`, until the answer is called (lib/internal/carry/under-way.ts);
+	 * calling it again does nothing more.
 	 */
 	readonly hold: (to: string) => () => void;
 	/** Carry its work for the machine `to`, settling once it is carried. */
@@ -184,6 +185,8 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	let refusing = false;
 	// Whether this carry ended a run, which a refusal then takes up again.
 	let ended = false;
+	// Lets go of the session's doors the carry under way holds.
+	let letGo: (() => void) | undefined;
 
 	const end = () => {
 		ended = true;
@@ -206,6 +209,10 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		const tookUp = ended;
 		underWay = false;
 		ended = false;
+		// Refused, it carries nothing, so it holds nothing while its refusal
+		// is written: a later order, or a person's Carry, would otherwise be
+		// turned away by a carry that isn't happening.
+		letGo?.();
 		host.tell(
 			`This session refused ${carryOf(ordered).a}: ${why}. It stays here, working.`,
 		);
@@ -312,9 +319,21 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			}
 			underWay = true;
 			const release = host.hold(ordered.to);
+			letGo = release;
 			try {
 				await carryOrdered(ordered);
+			} catch (error) {
+				// A look that threw, as a stale context's does, is refused like
+				// any hold, so its node isn't left waiting out its time; one past
+				// its refusal or its carry has said already how it went.
+				if (underWay) {
+					await refuse(
+						ordered,
+						`it couldn't be looked at: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
 			} finally {
+				if (letGo === release) letGo = undefined;
 				release();
 			}
 		},
