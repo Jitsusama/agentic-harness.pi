@@ -1,6 +1,9 @@
 /** A child host rolls its conversation onto new code once its install moves on. */
 import { describe, expect, it, vi } from "vitest";
-import { rollWhenStale } from "../../../host/service/stale-child.ts";
+import {
+	rollChildWhenStale,
+	rollWhenStale,
+} from "../../../host/service/stale-child.ts";
 
 // Timers the test fires by hand, each run once.
 function manualTimers() {
@@ -98,4 +101,79 @@ describe("rollWhenStale", () => {
 		expect(roll, "the child stopped, as it exits").not.toHaveBeenCalled();
 		expect(timers.due, "nor does it look again").toEqual([]);
 	});
+
+	it("says nothing of looking again when a look throws after the child stopped", async () => {
+		const timers = manualTimers();
+		let fail = (_error: Error): void => undefined;
+		const reported: unknown[] = [];
+		const stop = rollWhenStale(
+			() =>
+				new Promise<string | undefined>((_resolve, reject) => {
+					fail = reject;
+				}),
+			vi.fn(),
+			{
+				lookMs: 1,
+				after: timers.after,
+				report: (message) => reported.push(message),
+			},
+		);
+		await timers.fire();
+		stop();
+		fail(new Error("unreadable install"));
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(reported).toEqual([]);
+	});
+});
+
+describe("rollChildWhenStale", () => {
+	/** A child's wiring, its host stopping when `stop` is called. */
+	function wired(moved: () => Promise<string | undefined>) {
+		const timers = manualTimers();
+		const reported: unknown[] = [];
+		const rolled: string[] = [];
+		let host: { roll(): void } | undefined;
+		let end = (_how: "resolve" | "reject"): void => undefined;
+		const stopped = new Promise<void>((resolve, reject) => {
+			end = (how) => (how === "resolve" ? resolve() : reject(new Error("x")));
+		});
+		// The rejection is the child's host failing, which its program handles.
+		stopped.catch(() => undefined);
+		rollChildWhenStale({
+			moved,
+			host: () => host,
+			stopped,
+			report: (message) => reported.push(message),
+			lookMs: 1,
+			after: timers.after,
+		});
+		return {
+			timers,
+			reported,
+			rolled,
+			holds: (name: string) => {
+				host = { roll: () => rolled.push(name) };
+			},
+			end,
+		};
+	}
+
+	it("rolls the host holding the conversation when the install moves, saying why", async () => {
+		const child = wired(async () => "the host's code differs");
+		child.holds("made after the wiring");
+		await child.timers.fire();
+		expect(child.rolled).toEqual(["made after the wiring"]);
+		expect(child.reported).toEqual([
+			"Rolling onto new code, as the host's code differs: the conversation parks at its next quiet moment unless a window views it",
+		]);
+	});
+
+	for (const how of ["resolve", "reject"] as const)
+		it(`stops looking once the child's host stops, as it does when it ${how}s`, async () => {
+			const child = wired(async () => undefined);
+			expect(child.timers.due).toHaveLength(1);
+			child.end(how);
+			await new Promise((resolve) => setImmediate(resolve));
+			expect(child.timers.due).toEqual([]);
+		});
 });

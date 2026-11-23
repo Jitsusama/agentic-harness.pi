@@ -1315,8 +1315,8 @@ describe("why a session stays awake", () => {
 		try {
 			const busy = watching(session({ isIdle: () => false }), conversation);
 			rolling = true;
-			expect(busy.look(), "a running one stays, stale or not").not.toBe(
-				undefined,
+			expect(busy.look(), "a running one stays, stale or not").toBe(
+				RUN_UNDER_WAY,
 			);
 			busy.stop();
 

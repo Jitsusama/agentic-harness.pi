@@ -34,7 +34,7 @@ import { followWhatStarts } from "./restart.ts";
 import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 import { hostSettings } from "./settings.ts";
-import { rollWhenStale } from "./stale-child.ts";
+import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
 import { installMovesFrom } from "./what-starts.ts";
 
@@ -259,17 +259,12 @@ export async function startHostProgram(
 	// install's host code moves on, its conversation parks at its next
 	// quiet moment, so its next wake starts a fresh child on current code.
 	if (child) {
-		const unroll = rollWhenStale(
-			installMovesFrom(hostRoot()),
-			(why) => {
-				report(
-					`Rolling onto new code, as ${why}: the conversation parks at its next quiet moment unless a window views it`,
-				);
-				rollable?.roll();
-			},
-			{ report },
-		);
-		run.stopped.then(unroll, unroll);
+		rollChildWhenStale({
+			moved: installMovesFrom(hostRoot()),
+			host: () => rollable,
+			stopped: run.stopped,
+			report,
+		});
 		return { ...run, ending: child.life.ending, restarts: () => false };
 	}
 	// The host's own code and pi move only as it restarts, so it restarts

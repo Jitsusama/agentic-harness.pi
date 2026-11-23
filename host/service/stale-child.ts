@@ -48,6 +48,7 @@ export function rollWhenStale(
 		try {
 			why = await moved();
 		} catch (error) {
+			if (stopped) return;
 			const said = error instanceof Error ? error.message : String(error);
 			options.report?.(
 				`Couldn't tell whether the install's host code moved on, so it looks again: ${said}`,
@@ -66,4 +67,40 @@ export function rollWhenStale(
 		stopped = true;
 		cancel();
 	};
+}
+
+/** What a child's roll is wired to: its install, its host and its life. */
+export interface ChildRoll {
+	/** Why the install's host code differs from the child's, or nothing. */
+	readonly moved: () => Promise<string | undefined>;
+	/** The host holding the conversation, once its engine is being made. */
+	readonly host: () => { roll(): void } | undefined;
+	/** Settles, either way, as the child's host stops. */
+	readonly stopped: Promise<unknown>;
+	readonly report: (message: unknown) => void;
+	readonly lookMs?: number;
+	readonly after?: After;
+}
+
+/**
+ * Roll a child's conversation once its install's host code moves on:
+ * say why, and roll the host holding it then. It looks until the
+ * child's host stops, however that ends.
+ */
+export function rollChildWhenStale(wiring: ChildRoll): void {
+	const stop = rollWhenStale(
+		wiring.moved,
+		(why) => {
+			wiring.report(
+				`Rolling onto new code, as ${why}: the conversation parks at its next quiet moment unless a window views it`,
+			);
+			wiring.host()?.roll();
+		},
+		{
+			report: wiring.report,
+			...(wiring.lookMs === undefined ? {} : { lookMs: wiring.lookMs }),
+			...(wiring.after ? { after: wiring.after } : {}),
+		},
+	);
+	wiring.stopped.then(stop, stop);
 }
