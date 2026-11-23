@@ -56,6 +56,19 @@ describe("asking whether a call is on", () => {
 		expect(await exits(64), "asked wrongly").toBeUndefined();
 	});
 
+	it("reports no trouble for a program that can't tell, or doesn't answer in time", async () => {
+		const cannotAsk = vi.fn();
+
+		await askCall({ program: standIn("exit 2"), timeoutMs: 5_000, cannotAsk });
+		await askCall({ program: standIn("exit 69"), timeoutMs: 5_000, cannotAsk });
+		await askCall({ program: standIn("sleep 5"), timeoutMs: 200, cannotAsk });
+
+		expect(
+			cannotAsk,
+			"a call it can't read now is not a broken program",
+		).not.toHaveBeenCalled();
+	});
+
 	it("says on each ask that the program isn't there", async () => {
 		const program = join(dir, "gone");
 		const cannotAsk = vi.fn();
@@ -115,10 +128,18 @@ describe("asking whether a call is on", () => {
 			cannotAsk,
 		});
 
+		const orphan = join(dir, "orphan");
+		writeFileSync(orphan, "#!/an/interpreter/that/is/not/there\nexit 0\n");
+		chmodSync(orphan, 0o755);
+		await askCall({ program: orphan, timeoutMs: 5_000, cannotAsk });
+
 		expect(
 			cannotAsk.mock.calls.map(([trouble]) => trouble.kind),
-			"one that can't be executed, then one whose shell can't find a command",
-		).toEqual(["broken", "broken"]);
+			"one not executable, one whose shell can't find a command, one whose interpreter is gone",
+		).toEqual(["broken", "broken", "broken"]);
+		expect(cannotAsk.mock.calls[2]?.[0].why).toBe(
+			`${orphan} names an interpreter that isn't there`,
+		);
 	});
 
 	it("stops waiting at its time for a probe that won't stop when asked", async () => {

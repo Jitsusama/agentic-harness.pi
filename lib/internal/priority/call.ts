@@ -39,7 +39,8 @@ export type CallProbe = () => Promise<boolean | undefined>;
 
 /**
  * Asks `a-call-is-on --here` whether the person is on a call here.
- * `cannotAsk` hears, once, why it can't be asked at all.
+ * `cannotAsk` hears, on each ask that meets it, why it can't be asked
+ * at all; {@link callWarning} keeps it to once a session.
  */
 export function probeCall(
 	cannotAsk?: (trouble: CallTrouble) => void,

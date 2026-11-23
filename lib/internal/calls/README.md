@@ -9,5 +9,6 @@ which starts no heavy work during a call, and a prompt cache's warm
 
 - **`probe.ts`**: asking `a-call-is-on` by its exit, answering by its
   own timer and killing a program past its time with all it started,
-  and saying once, to the first caller that listens, when the program
-  isn't there or won't take its arguments.
+  and telling its caller, on each ask, when the program can't be asked:
+  missing, refusing its arguments, or there but unable to run. Each
+  caller decides how often to say it, and to whom.

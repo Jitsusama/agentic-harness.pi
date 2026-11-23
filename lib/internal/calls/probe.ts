@@ -19,7 +19,9 @@
  * conversations, and each has its own person to tell.
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 import { withPi } from "../priority/place.ts";
 import { isRecord } from "../record.ts";
 
@@ -31,6 +33,20 @@ const REFUSED_EXIT = 64;
 
 /** The exits a shell gives for a command it couldn't run or find. */
 const BROKEN_EXITS: ReadonlySet<number | null> = new Set([126, 127]);
+
+/**
+ * The spawn errors that say the program itself can't be run, as against
+ * a machine short of processes or files for now (EAGAIN, EMFILE, ENFILE,
+ * ENOMEM), which says nothing about the program and passes.
+ */
+const UNRUNNABLE: ReadonlySet<string> = new Set([
+	"EACCES",
+	"ENOEXEC",
+	"EISDIR",
+	"ENOTDIR",
+	"ELOOP",
+	"EPERM",
+]);
 
 /**
  * Why a call can't be asked about: the program isn't there, it refuses
@@ -62,9 +78,16 @@ export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 	const trouble = (kind: CallTrouble["kind"], why: string) =>
 		asking.cannotAsk?.({ kind, why });
 	return new Promise((resolve) => {
-		const child = withPi(() =>
-			spawn(program, args, { stdio: "ignore", detached: true }),
-		);
+		let child: ChildProcess;
+		try {
+			child = withPi(() =>
+				spawn(program, args, { stdio: "ignore", detached: true }),
+			);
+		} catch {
+			// Node throws for a spawn it refuses outright; it can't say either way.
+			resolve(undefined);
+			return;
+		}
 		const late = setTimeout(() => {
 			killGroup(child.pid);
 			resolve(undefined);
@@ -76,13 +99,12 @@ export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 		};
 		child.once("error", (error) => {
 			const code = isRecord(error) ? error.code : undefined;
-			if (code === "ENOENT") {
-				trouble(
-					"missing",
-					`${program} isn't on the PATH, or the interpreter it names isn't there`,
-				);
-			} else {
-				trouble("broken", `${program} can't be started (${String(code)})`);
+			if (code === "ENOENT" && whereIs(program) === undefined) {
+				trouble("missing", `${program} isn't on the PATH`);
+			} else if (code === "ENOENT") {
+				trouble("broken", `${program} names an interpreter that isn't there`);
+			} else if (typeof code === "string" && UNRUNNABLE.has(code)) {
+				trouble("broken", `${program} can't be started (${code})`);
 			}
 			answer(undefined);
 		});
@@ -102,6 +124,28 @@ export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 			}
 			answer(code === 0 ? true : code === 1 ? false : undefined);
 		});
+	});
+}
+
+/**
+ * Where `program` is, as a spawn would find it: itself when it names a
+ * path, else the first executable of that name on the PATH.
+ */
+function whereIs(program: string): string | undefined {
+	const candidates = program.includes("/")
+		? [program]
+		: (process.env.PATH ?? "")
+				.split(delimiter)
+				.filter(Boolean)
+				.map((dir) => join(dir, program));
+	return candidates.find((candidate) => {
+		try {
+			accessSync(candidate, constants.X_OK);
+			return true;
+		} catch {
+			// Not there, or not executable: the spawn would pass it by too.
+			return false;
+		}
 	});
 }
 
