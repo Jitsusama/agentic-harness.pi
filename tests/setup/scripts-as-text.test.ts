@@ -206,7 +206,10 @@ describe("scriptsAsText", () => {
 		"#!/nix/store/0abc-bash-5.2/bin/bash",
 		"#! /usr/bin/env zsh",
 	])("reads a file with no ending and the shebang %s as a shell's", (line) => {
-		expect(isShellScript(script(`${line}\necho\n`, [], "tool"))).toBe(true);
+		expect(
+			isShellScript(script(`${line}\necho\n`, [], "tool")),
+			"read as a shell's",
+		).toBe(true);
 	});
 
 	it.each([
@@ -215,7 +218,10 @@ describe("scriptsAsText", () => {
 		"#!/usr/bin/python3",
 		"#!/usr/bin/env shellcheck",
 	])("reads a file with no ending and the shebang %s as no shell's", (line) => {
-		expect(isShellScript(script(`${line}\necho\n`, [], "tool"))).toBe(false);
+		expect(
+			isShellScript(script(`${line}\necho\n`, [], "tool")),
+			"read as another program's",
+		).toBe(false);
 	});
 
 	// A slip of a name only beside the script can mean leaves the script
