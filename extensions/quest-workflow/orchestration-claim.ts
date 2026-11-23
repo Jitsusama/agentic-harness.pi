@@ -7,17 +7,22 @@
  * A session with an orchestrating quest loaded now claims it, with every
  * open quest whose nearest orchestrator it is, as it starts, after each
  * quest action, and at a turn's start whenever the loaded quest changed
- * and otherwise every few minutes, which also says the claim again in
- * case the node let it lapse. Between those it asks only when the claim
- * differs from the one the node last recorded, and it forgets its claim
- * once it has no orchestrating quest loaded.
+ * and otherwise every few minutes, on a timer as well as at a turn, so an
+ * idle orchestrator says the claim again in case the node let it lapse.
+ * Between those it asks only when the claim differs from the one the node
+ * last recorded, and it forgets its claim once it has no orchestrating
+ * quest loaded, or once its conversation ends other than by a reload or
+ * a park: a swap's successor has another id, so it can't forget for it.
  *
  * The node may hold a claim this keeper never saw: one made before a
  * reload, by the session this one continues, or sent by an ask that
  * timed out. So it starts unsure, and a session with nothing to claim
  * forgets once, which costs the node nothing when it held nothing. A
  * refusal changes nothing at the node, so a session refused one quest
- * still heads the one it claimed before, which it then forgets.
+ * still heads the one it claimed before, or the one an earlier session
+ * claimed, which it then forgets. An ask that may have landed adds to
+ * what the node may hold rather than replacing it, so a refusal after
+ * one still lets go of every quest headed before.
  *
  * At most one ask runs at a time and at most one waits behind it, which
  * reads the quests as they are when it runs, so a burst of quest actions,
@@ -45,6 +50,7 @@ import {
 	journalCommand,
 	sayInJournal,
 } from "../../lib/internal/session/journal.ts";
+import { isParking, PARKING } from "../../lib/internal/session/park.ts";
 import { nodeSocket, realmOf } from "../../lib/mesh/node.ts";
 import {
 	type ClaimPlace,
@@ -53,6 +59,7 @@ import {
 	tellOrchestrates,
 } from "../../lib/mesh/orchestrates.ts";
 import { isOpen } from "./desktop/orchestrators.ts";
+import { endReasonForShutdown } from "./session-registry.ts";
 import type { QuestState } from "./state.ts";
 import { currentSessionId } from "./verbs/shared.ts";
 
@@ -74,6 +81,11 @@ export interface ClaimKeeperDeps {
 	readonly now?: () => number;
 	/** Where a refusal or a node that can't be asked is said. */
 	readonly journal?: (line: string) => void;
+	/**
+	 * Run `look` every `ms` until the returned stop is called, never
+	 * keeping the process alive; an unref'd interval by default.
+	 */
+	readonly every?: (look: () => void, ms: number) => () => void;
 }
 
 /** Wire the claim to the session's start, its quest actions, its turns and its end. */
@@ -83,17 +95,54 @@ export function keepOrchestrationClaimed(
 	deps: ClaimKeeperDeps = {},
 ): void {
 	const keeper = claimKeeper(state, deps);
+	const every = deps.every ?? unrefInterval;
+	// What the last hook read, so the timer asks as the session would; a
+	// plain value, never the context, which a reload leaves stale.
+	let last: { session: string | undefined; place: ClaimPlace } | undefined;
+	let parking: string | undefined;
+	const seen = (ctx: ExtensionContext) => {
+		last = { session: currentSessionId(ctx, undefined), place: placeOf(ctx) };
+		return last;
+	};
 	pi.on("session_start", (_event, ctx) => {
-		keeper.look(currentSessionId(ctx, undefined), placeOf(ctx));
+		const { session, place } = seen(ctx);
+		keeper.look(session, place);
 	});
 	pi.on("tool_result", (event, ctx) => {
-		if (event.toolName === "quest")
-			keeper.look(currentSessionId(ctx, undefined), placeOf(ctx));
+		if (event.toolName !== "quest") return;
+		const { session, place } = seen(ctx);
+		keeper.look(session, place);
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
-		keeper.lookIfDue(currentSessionId(ctx, undefined), placeOf(ctx));
+		const { session, place } = seen(ctx);
+		keeper.lookIfDue(session, place);
 	});
-	pi.on("session_shutdown", () => keeper.stop());
+	const stopTimer = every(() => {
+		if (last) keeper.lookIfDue(last.session, last.place);
+	}, CLAIM_LOOKED_AGAIN_MS);
+	pi.events?.on(PARKING, (data: unknown) => {
+		if (isParking(data)) parking = data.session;
+	});
+	pi.on("session_shutdown", (event, ctx) => {
+		stopTimer();
+		const session = currentSessionId(ctx, undefined);
+		const ended = endReasonForShutdown(
+			event.reason,
+			session !== undefined && parking === session,
+		);
+		// A reload goes on as the same session, and a parked one is woken
+		// by what is sent to it, so only an ended conversation lets go.
+		if (ended === "quit" || ended === "swapped")
+			keeper.end(session, placeOf(ctx));
+		else keeper.stop();
+	});
+}
+
+/** Run `look` every `ms` on an interval that never holds the process open. */
+function unrefInterval(look: () => void, ms: number): () => void {
+	const timer = setInterval(look, ms);
+	timer.unref();
+	return () => clearInterval(timer);
 }
 
 /**
@@ -110,8 +159,14 @@ export interface ClaimKeeper {
 	look(session: string | undefined, place: ClaimPlace): void;
 	/** The same once due, then saying the claim again even if unchanged. */
 	lookIfDue(session: string | undefined, place: ClaimPlace): void;
-	/** Ask nothing more, as the session ends. */
+	/** Ask nothing more, as the session reloads or parks. */
 	stop(): void;
+	/**
+	 * Ask nothing more but a last forget once any ask in flight is done,
+	 * under whichever session the node may hold a claim for, as the
+	 * conversation ends for good.
+	 */
+	end(session: string | undefined, place: ClaimPlace): void;
 	/** Every ask running or waiting has ended, for a test to wait on. */
 	settled(): Promise<void>;
 }
@@ -129,7 +184,13 @@ type Holding =
 			readonly heads: string;
 	  }
 	| { readonly kind: "nothing" }
-	| { readonly kind: "unsure"; readonly heads?: string };
+	| { readonly kind: "unsure"; readonly heads: readonly string[] };
+
+/** Every quest the node may hold `holding` as heading. */
+function headedIn(holding: Holding): readonly string[] {
+	if (holding.kind === "claim") return [holding.heads];
+	return holding.kind === "unsure" ? holding.heads : [];
+}
 
 /** One look's ask: who, from where, and whether it says the claim again. */
 interface Asked {
@@ -147,7 +208,7 @@ export function claimKeeper(
 	const realm = deps.realm ?? servedRealm;
 	const now = deps.now ?? (() => performance.now());
 	const journal = deps.journal ?? warnInJournal;
-	let holding: Holding = { kind: "unsure" };
+	let holding: Holding = { kind: "unsure", heads: [] };
 	/** The last ask that failed, so it waits until due to be asked again. */
 	let failed: { readonly key: string; readonly at: number } | undefined;
 	/** The last trouble said, so one that recurs is said once. */
@@ -158,6 +219,7 @@ export function claimKeeper(
 	let stopped = false;
 	let running: Promise<void> | undefined;
 	let waiting: Asked | undefined;
+	let ending: Promise<void> | undefined;
 
 	const say = (line: string): void => {
 		if (line === saidTrouble) return;
@@ -173,30 +235,43 @@ export function claimKeeper(
 	const waitsOut = (key: string, again: boolean): boolean =>
 		!again && failed?.key === key && now() - failed.at < CLAIM_LOOKED_AGAIN_MS;
 
-	/** Ask the node, keeping what it answered; whether it recorded the ask. */
+	/**
+	 * Ask the node, keeping what it answered; how it answered.
+	 * A follow-up, the forget a refusal sends, leaves the refusal's wait
+	 * and its said-once mark standing, so it is neither asked nor said
+	 * again before it is due.
+	 */
 	const put = async (
 		claim: OrchestrationClaim | "forget",
 		session: string,
 		named: string,
 		asked: Asked,
 		key: string,
-	): Promise<boolean> => {
+		followUp = false,
+	): Promise<ClaimTold["kind"]> => {
 		const told = await tell(claim, session, named, asked.place);
 		if (told.kind === "recorded") {
 			holding =
 				claim === "forget"
 					? { kind: "nothing" }
 					: { kind: "claim", key, session, heads: claim.heads };
-			failed = undefined;
-			saidTrouble = undefined;
-			return true;
+			if (!followUp) {
+				failed = undefined;
+				saidTrouble = undefined;
+			}
+			return told.kind;
 		}
 		failed = { key, at: now() };
-		if (told.kind === "unasked" && told.mayLand)
-			holding = {
-				kind: "unsure",
-				...(claim === "forget" ? {} : { heads: claim.heads }),
-			};
+		// What may have landed joins what the node may already hold, since
+		// it may as well not have.
+		if (told.kind === "unasked" && told.mayLand) {
+			const before = headedIn(holding);
+			const heads =
+				claim === "forget" || before.includes(claim.heads)
+					? before
+					: [...before, claim.heads];
+			holding = { kind: "unsure", heads };
+		}
 		const what =
 			claim === "forget"
 				? "forget its orchestration"
@@ -205,15 +280,19 @@ export function claimKeeper(
 		say(
 			`quest-workflow: session ${session} couldn't ${what}: the node ${how}, ${told.why}`,
 		);
-		return false;
+		return told.kind;
 	};
 
 	/** Forget what the node may hold, under the session that claimed it. */
-	const forget = async (asked: Asked, named: string): Promise<void> => {
+	const forget = async (
+		asked: Asked,
+		named: string,
+		followUp = false,
+	): Promise<void> => {
 		const under = holding.kind === "claim" ? holding.session : asked.session;
 		const key = JSON.stringify([under, named, "forget"]);
 		if (waitsOut(key, asked.again)) return;
-		await put("forget", under, named, asked, key);
+		await put("forget", under, named, asked, key, followUp);
 	};
 
 	const ask = async (asked: Asked): Promise<void> => {
@@ -228,12 +307,19 @@ export function claimKeeper(
 		if (!asked.again && holding.kind === "claim" && holding.key === key) return;
 		if (waitsOut(key, asked.again)) return;
 		const before = holding;
-		const recorded = await put(claim, asked.session, named, asked, key);
+		const told = await put(claim, asked.session, named, asked, key);
+		// An ask that may have landed is let be, or a forget could undo it;
+		// it is held unsure, and the next look says it again.
+		if (told !== "refused") return;
 		// A refusal leaves the node holding what it held, so a quest headed
-		// before, and no longer loaded, is let go.
-		const headedBefore = before.kind === "nothing" ? undefined : before.heads;
-		if (!recorded && headedBefore !== undefined && headedBefore !== claim.heads)
-			await forget(asked, named);
+		// before, and no longer loaded, is let go, and so is the same quest
+		// held under an earlier session, which the node refuses this one for.
+		const otherQuest = headedIn(before).some((heads) => heads !== claim.heads);
+		const otherSession =
+			before.kind === "claim" && before.session !== asked.session;
+		// Once an earlier session's claim is let go this one's may stand, so
+		// its refusal isn't waited out; one of another quest's is.
+		if (otherQuest || otherSession) await forget(asked, named, !otherSession);
 	};
 
 	const drain = async (first: Asked): Promise<void> => {
@@ -284,8 +370,28 @@ export function claimKeeper(
 			stopped = true;
 			waiting = undefined;
 		},
+		end(session, place) {
+			if (stopped || !session) {
+				stopped = true;
+				return;
+			}
+			stopped = true;
+			waiting = undefined;
+			const inFlight = running;
+			const last = async (): Promise<void> => {
+				await inFlight;
+				if (holding.kind === "nothing") return;
+				const named = realm(place.env ?? process.env);
+				if (named === undefined) return;
+				await forget({ session, place, again: true }, named);
+			};
+			ending = last().catch((error: unknown) => {
+				say(`quest-workflow: an orchestration claim failed: ${String(error)}`);
+			});
+		},
 		async settled() {
 			while (running) await running;
+			await ending;
 		},
 	};
 }

@@ -18,7 +18,9 @@ import {
 	keepOrchestrationClaimed,
 } from "../../../../extensions/quest-workflow/orchestration-claim.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { installHost } from "../../../../lib/core/session/host.ts";
 import { clearDiscoveryCache } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { PARKING } from "../../../../lib/internal/session/park.ts";
 import type {
 	ClaimPlace,
 	ClaimTold,
@@ -351,6 +353,112 @@ describe("an orchestrator's claim", () => {
 		).toEqual([MISSION_CLAIM, { heads: OTHER, quests: [] }, "forget"]);
 	});
 
+	it("waits out a refusal and says it once, though the forget after it was recorded", async () => {
+		const { state, claims, said, keeper } = keeping((ask) =>
+			ask.claim !== "forget" && ask.claim.heads === OTHER ? REFUSED : RECORDED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = OTHER;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"the refused claim isn't asked again at once",
+		).toHaveLength(3);
+		expect(said, "and its refusal is said once").toHaveLength(1);
+	});
+
+	it("forgets an earlier session's claim of the quest the node refuses it", async () => {
+		let refusing = true;
+		const { state, asked, keeper } = keeping((ask) =>
+			ask.claim !== "forget" && ask.session === "sess-2" && refusing
+				? REFUSED
+				: RECORDED,
+		);
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+		refusing = false;
+		keeper.look("sess-2", AT);
+		await keeper.settled();
+
+		expect(
+			asked.map(({ claim, session }) => [claim, session]),
+			"the old session's claim is let go, and this one claims at the next look",
+		).toEqual([
+			[MISSION_CLAIM, "sess-1"],
+			[MISSION_CLAIM, "sess-2"],
+			["forget", "sess-1"],
+			[MISSION_CLAIM, "sess-2"],
+		]);
+	});
+
+	it("still lets go of the quest it headed when the forget after a refusal timed out", async () => {
+		let forgets = 0;
+		const { state, claims, keeper, pass } = keeping((ask) => {
+			if (ask.claim === "forget") {
+				forgets += 1;
+				return forgets === 1 ? TIMED_OUT : RECORDED;
+			}
+			return ask.claim.heads === OTHER ? REFUSED : RECORDED;
+		});
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = OTHER;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		pass(CLAIM_LOOKED_AGAIN_MS);
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"the node may still hold the first quest, so it is forgotten again",
+		).toEqual([
+			MISSION_CLAIM,
+			{ heads: OTHER, quests: [] },
+			"forget",
+			{ heads: OTHER, quests: [] },
+			"forget",
+		]);
+	});
+
+	it("still lets go of the quest it headed when a claim that timed out is refused", async () => {
+		let otherAsks = 0;
+		const { state, claims, keeper, pass } = keeping((ask) => {
+			if (ask.claim === "forget" || ask.claim.heads !== OTHER) return RECORDED;
+			otherAsks += 1;
+			return otherAsks === 1 ? TIMED_OUT : REFUSED;
+		});
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		state.questId = OTHER;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		pass(CLAIM_LOOKED_AGAIN_MS);
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			claims(),
+			"the first quest is still held, so the refusal lets it go",
+		).toEqual([
+			MISSION_CLAIM,
+			{ heads: OTHER, quests: [] },
+			{ heads: OTHER, quests: [] },
+			"forget",
+		]);
+	});
+
 	it("keeps the quest it heads when a claim of that quest is refused", async () => {
 		const MADE = "QEST-20260102-MADEQQ";
 		const { state, claims, keeper } = keeping((ask) =>
@@ -367,9 +475,12 @@ describe("an orchestrator's claim", () => {
 		await keeper.settled();
 
 		expect(
-			claims().at(-1),
-			"a quest below refused leaves its head claimed",
-		).not.toBe("forget");
+			claims(),
+			"a quest below refused leaves its head claimed, forgetting nothing",
+		).toEqual([
+			MISSION_CLAIM,
+			{ heads: MISSION, quests: [LOOP, NESTED, MADE] },
+		]);
 	});
 
 	it("forgets under the session that claimed, if the session changed", async () => {
@@ -504,6 +615,44 @@ describe("an orchestrator's claim", () => {
 		expect(asked, "only the ask already sent").toHaveLength(1);
 	});
 
+	it("forgets as the conversation ends, once the ask in flight is done", async () => {
+		const slow = held<ClaimTold>();
+		let first = true;
+		const { state, asked, keeper } = keeping(() => {
+			if (!first) return RECORDED;
+			first = false;
+			return slow.promise;
+		});
+		state.questId = MISSION;
+		keeper.look("sess-1", AT);
+		keeper.end("sess-2", AT);
+		slow.release(RECORDED);
+		await keeper.settled();
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+
+		expect(
+			asked.map(({ claim, session }) => [claim, session]),
+			"one last forget, under the session the node holds, then nothing",
+		).toEqual([
+			[MISSION_CLAIM, "sess-1"],
+			["forget", "sess-1"],
+		]);
+	});
+
+	it("forgets nothing as it ends holding nothing", async () => {
+		const { state, asked, keeper } = keeping();
+		state.questId = PLAIN;
+		keeper.look("sess-1", AT);
+		await keeper.settled();
+		keeper.end("sess-1", AT);
+		await keeper.settled();
+
+		expect(asked, "only the start's forget").toEqual([
+			expect.objectContaining({ claim: "forget" }),
+		]);
+	});
+
 	it("asks the node of the session's own environment, from where it looked", async () => {
 		const realms: NodeJS.ProcessEnv[] = [];
 		const { state, asked, keeper } = keeping(RECORDED, {
@@ -543,36 +692,66 @@ describe("an orchestrator's claim", () => {
 });
 
 describe("the claim's wiring", () => {
-	type Handler = (event: { toolName?: string }, ctx: unknown) => void;
+	type Event = { toolName?: string; reason?: string };
+	type Handler = (event: Event, ctx: unknown) => void;
 
-	function wired() {
+	function wired(overrides: Partial<ClaimKeeperDeps> = {}) {
 		const handlers = new Map<string, Handler>();
+		const bus = new Map<string, (data: unknown) => void>();
 		const pi = {
 			on: (name: string, handler: Handler) => handlers.set(name, handler),
+			events: {
+				on: (name: string, listener: (data: unknown) => void) =>
+					bus.set(name, listener),
+			},
 		};
 		const state = createQuestState({ questsRoot: root });
 		state.questId = MISSION;
 		const asked: string[] = [];
+		const asks: Ask[] = [];
+		let clock = 0;
+		let tick: (() => void) | undefined;
+		let ticking = false;
 		const deps: ClaimKeeperDeps = {
-			tell: async (_claim, session) => {
+			tell: async (claim, session, realm, place) => {
 				asked.push(session);
+				asks.push({ claim, session, realm, place });
 				return RECORDED;
 			},
 			realm: () => "work",
-			now: () => 0,
+			now: () => clock,
 			journal: () => undefined,
+			every: (look) => {
+				tick = look;
+				ticking = true;
+				return () => {
+					ticking = false;
+				};
+			},
+			...overrides,
 		};
 		keepOrchestrationClaimed(pi as unknown as ExtensionAPI, state, deps);
 		const ctx = (session: string) => ({
 			cwd: "/",
 			sessionManager: { getSessionId: () => session },
 		});
-		const fire = (
-			name: string,
-			event: { toolName?: string },
-			session: string,
-		) => handlers.get(name)?.(event, ctx(session));
-		return { handlers, asked, fire, state };
+		const fire = (name: string, event: Event, session: string) =>
+			handlers.get(name)?.(event, ctx(session));
+		const settle = () => new Promise((resolve) => setImmediate(resolve));
+		return {
+			handlers,
+			asked,
+			asks,
+			fire,
+			state,
+			settle,
+			say: (name: string, data: unknown) => bus.get(name)?.(data),
+			pass: (ms: number) => {
+				clock += ms;
+			},
+			tick: () => tick?.(),
+			ticking: () => ticking,
+		};
 	}
 
 	it("looks as the session starts, after a quest action and as a turn starts", () => {
@@ -604,5 +783,79 @@ describe("the claim's wiring", () => {
 		fire("tool_result", { toolName: "quest" }, "sess-1");
 		await new Promise((resolve) => setImmediate(resolve));
 		expect(asked, "a quest action looks again").toEqual(["sess-1", "sess-1"]);
+	});
+
+	it("says the claim again on a timer once due, with no turn to say it", async () => {
+		const { asked, fire, settle, pass, tick, ticking } = wired();
+		fire("session_start", {}, "sess-1");
+		await settle();
+		tick();
+		await settle();
+		expect(asked, "not before it is due").toEqual(["sess-1"]);
+
+		pass(CLAIM_LOOKED_AGAIN_MS);
+		tick();
+		await settle();
+		expect(asked, "said again by the timer alone").toEqual([
+			"sess-1",
+			"sess-1",
+		]);
+
+		fire("session_shutdown", { reason: "reload" }, "sess-1");
+		expect(ticking(), "the timer stops as the session does").toBe(false);
+	});
+
+	it("forgets as a conversation is swapped or quit, never on a reload or a park", async () => {
+		const ends = async (reason: string, parked = false) => {
+			const { asks, fire, settle, say } = wired();
+			fire("session_start", {}, "sess-1");
+			await settle();
+			if (parked) say(PARKING, { session: "sess-1", addresses: [] });
+			fire("session_shutdown", { reason }, "sess-1");
+			await settle();
+			return asks.map(({ claim }) => claim).at(-1) === "forget";
+		};
+
+		expect(await ends("new"), "a swap lets the claim go").toBe(true);
+		expect(await ends("quit"), "so does a quit").toBe(true);
+		expect(await ends("reload"), "a reload goes on as the same session").toBe(
+			false,
+		);
+		expect(await ends("quit", true), "a parked session stays reachable").toBe(
+			false,
+		);
+	});
+
+	it("asks from a hosted session's own environment, not the host's", async () => {
+		const own: NodeJS.ProcessEnv = { MYCELIUM_REALM: "second", PATH: "/own" };
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "test-claim",
+			owner: { pid: process.pid, startedAt: 1 },
+			holds: () => "idle",
+			env: () => ({
+				get: (key) => own[key],
+				set: () => undefined,
+				delete: () => undefined,
+				snapshot: () => ({ ...own }),
+			}),
+			hints: () => ({}),
+			close: () => undefined,
+			stamp: () => undefined,
+		});
+		try {
+			const { asks, fire, settle } = wired({
+				realm: (env) => env.MYCELIUM_REALM,
+			});
+			fire("session_start", {}, "sess-1");
+			await settle();
+
+			expect(
+				asks[0],
+				"the session's realm, with its environment",
+			).toMatchObject({ realm: "second", place: { env: own } });
+		} finally {
+			uninstall();
+		}
 	});
 });
