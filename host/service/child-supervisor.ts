@@ -64,6 +64,7 @@ import {
 	reach,
 	unsettledReply,
 } from "./child-requests.ts";
+import { type Doing, type Starvation, starvation } from "./child-starvation.ts";
 import {
 	clearSlot,
 	forsakeSlot,
@@ -101,7 +102,8 @@ export type KeptRoster = Pick<
 export const LISTENS_WITHIN_MS = 60_000;
 /**
  * How much CPU a child may spend before it listens and still be waited
- * on past its listen time, when nobody waits on it. One that took 142 s
+ * on past its listen time, when nobody waits on it, and again from then
+ * until it answers its watch. One that took 142 s
  * to resume on 22 November, at a load near 130, had spent about 1.3 s
  * when it listened; across that day's 461 starts the wall clock to the
  * host's first line was 17 s at the median and 57 s at p99, and two
@@ -110,25 +112,19 @@ export const LISTENS_WITHIN_MS = 60_000;
  */
 export const LISTENS_WITHIN_CPU_MS = 20_000;
 /**
- * How long a starved child is waited on in all, when nobody waits on
- * it: a wake that lands late keeps its conversation, where one given up
- * on leaves it parked with nothing watching its wake.
+ * How long a starved child is waited on in all, listening and then
+ * answering its watch, when nobody waits on it: a wake that lands late
+ * keeps its conversation, where one given up on leaves it parked with
+ * nothing watching its wake.
  */
 export const STARVED_WITHIN_MS = 600_000;
 /**
- * The share of a listen time a starved child gains in CPU over one, at
- * the least: 150 ms a minute. The child above that took 142 s to resume
- * gained about 0.9% of a core over its whole wait, an average of one
- * child, which a single listen time of it may have fallen below; 1%
- * would have given it up. One that gains less waits on a lock, the disk
- * or the network, with only its timers ticking, so it is taken as stuck
- * rather than starved, and the next wake starts it again.
- */
-const STALLED_SHARE = 0.0025;
-/**
  * How long a listening child may take to answer its first request: an
  * open builds its conversation before it answers, so as long as a
- * child may take to listen.
+ * child may take to listen. A starved one nobody waits on is judged
+ * past it, as it was past its listen time (child-starvation.ts): from
+ * 21 to 23 November, 33 resumes failed for a watch given no answer
+ * within it, against 11 for a child that didn't listen within its own.
  */
 export const ANSWERS_WITHIN_MS = 60_000;
 /**
@@ -241,6 +237,32 @@ function notListening(error: unknown): boolean {
 	const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
 	return code === "ENOENT" || code === "ECONNREFUSED";
 }
+
+/** A child judged on listening, as `once` judges one past its listen time. */
+function listening(slot: Slot): Doing {
+	return {
+		hasnt: "hasn't listened",
+		did: "listened",
+		since: "",
+		failed: (within, why) =>
+			new Error(`${slot.unit} did not listen within ${within} ms${why}`),
+	};
+}
+
+/**
+ * A child judged on answering its watch once it listens, its CPU
+ * counted from a second into the watch; given up, it took its watch
+ * and gave no answer in time, as a busy one may.
+ */
+const ANSWERING: Doing = {
+	hasnt: "hasn't answered its watch",
+	did: "answered its watch",
+	since: " since it was watched",
+	failed: (within, why) =>
+		new Unanswered(
+			`The child gave its watch no answer within ${within} ms${why}`,
+		),
+};
 
 function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -521,6 +543,75 @@ export function childSupervisor(options: {
 			);
 	}
 
+	/** The CPU `unit` has spent, in ms, or undefined when systemd won't say. */
+	async function cpuSaid(unit: string): Promise<number | undefined> {
+		try {
+			return await units.cpuSpentMs(unit);
+		} catch {
+			// A systemd that fails to say has said nothing, as a loaded one may.
+			return undefined;
+		}
+	}
+
+	/**
+	 * Wait on `answer`, a listening child's answer to its watch, for the
+	 * child's answer time, or until `by` when that comes sooner. A bounded
+	 * one is given up then; one nobody waits on, a wake or a later resume,
+	 * builds its conversation before it answers, as slowly as a starved
+	 * child listens, so it is judged as `once` judges one that hasn't
+	 * listened, by the CPU it gains while watched, until `ceiling`.
+	 */
+	async function answered<T>(
+		slot: Slot,
+		{ by, bounded, ceiling }: { by: number; bounded: boolean; ceiling: number },
+		answer: (answerMs: number, signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
+		const began = Date.now();
+		const ms = Math.max(1, Math.min(answersWithinMs, by - began));
+		if (bounded) return answer(ms, stopping.signal);
+		const until = Math.max(ceiling, began + ms);
+		const givenUp = new AbortController();
+		let settled = false;
+		let judge: Starvation | undefined;
+		// Judged only once its watch has waited a second, so the tries of a
+		// child not yet listening, ten a second, never ask systemd.
+		const judging = (async () => {
+			await pause(ASKED_EVERY_MS);
+			if (settled) return;
+			const from = await cpuSaid(slot.unit);
+			judge = starvation({
+				unit: slot.unit,
+				doing: ANSWERING,
+				began,
+				ms,
+				ceiling: until,
+				cpuMs: listensWithinCpuMs,
+				everyMs: ASKED_EVERY_MS,
+				spent: () => units.cpuSpentMs(slot.unit),
+				// Counted from none when systemd won't say where it began.
+				...(from !== undefined ? { from } : {}),
+				...(options.say ? { say: options.say } : {}),
+			});
+			while (!settled) {
+				const left = judge.until - Date.now();
+				if (left > 0) await pause(Math.min(ASKED_EVERY_MS, left));
+				else await judge.overdue();
+			}
+		})().catch((error: unknown) => givenUp.abort(error));
+		try {
+			// Its own time is a backstop past the judge's, which gives up first.
+			const result = await answer(
+				until - began + ASKED_EVERY_MS,
+				AbortSignal.any([stopping.signal, givenUp.signal]),
+			);
+			judge?.done();
+			return result;
+		} finally {
+			settled = true;
+			void judging;
+		}
+	}
+
 	/**
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
@@ -530,101 +621,45 @@ export function childSupervisor(options: {
 	 * neither, a wake or a later resume, whoever waits says its own wait
 	 * (a window's attach journals each one) rather than giving up, so a
 	 * child past its time that has had little CPU is starved by a busy
-	 * machine rather than stuck: it is waited on until it has spent its
-	 * CPU, gains less than STALLED_SHARE of a whole listen time in one, or
-	 * STARVED_WITHIN_MS has passed. Stopping it then would throw its start
-	 * away, and starting again on the same machine would starve the same
-	 * way. A systemd too loaded to say its CPU at first is asked again
-	 * each second, for one more listen time, so one that never says it,
-	 * with no CPU account, is given up after two.
+	 * machine rather than stuck, and waited on as `starvation` judges,
+	 * until STARVED_WITHIN_MS has passed, which `attempt` is given so its
+	 * answer shares it.
 	 */
 	async function once<T>(
 		slot: Slot,
-		attempt: () => Promise<T>,
+		attempt: (ceiling: number) => Promise<T>,
 		by = Number.POSITIVE_INFINITY,
 		bounded = by !== Number.POSITIVE_INFINITY,
 	): Promise<T> {
 		const began = Date.now();
 		const ms = Math.max(0, Math.min(withinMs, by - began));
-		const starvedMs = Math.max(ms, starvedWithinMs);
-		const ceiling = began + starvedMs;
-		let until = began + ms;
-		let starved = false;
+		const ceiling = began + Math.max(ms, starvedWithinMs);
+		const judge = starvation({
+			unit: slot.unit,
+			doing: listening(slot),
+			began,
+			ms,
+			ceiling,
+			cpuMs: listensWithinCpuMs,
+			everyMs: ASKED_EVERY_MS,
+			spent: () => units.cpuSpentMs(slot.unit),
+			...(options.say ? { say: options.say } : {}),
+		});
 		let asked = Date.now();
-		/** When an unsaid first CPU stops being asked again. */
-		const unsaidUntil = began + 2 * ms;
-		let askedAgain = false;
-		/** The CPU it last said it had spent. */
-		let spentLast: number | undefined;
-		/** The CPU it had when it last grew by enough, and when that was. */
-		let grewFrom: number | undefined;
-		let grewAt = began;
-		const enough = ms * STALLED_SHARE;
 		for (;;) {
 			stillWatching();
 			try {
-				const result = await attempt();
-				if (starved)
-					options.say?.(
-						`${slot.unit} listened after ${Date.now() - began} ms, starved, having had ${spentLast ?? "an unknown"} ms of CPU`,
-					);
+				const result = await attempt(ceiling);
+				judge.done();
 				return result;
 			} catch (error) {
 				if (!notListening(error)) throw error;
-				if (Date.now() >= until) {
+				if (Date.now() >= judge.until) {
 					// A begin's caller gives up at its bound, so asking systemd
 					// first would only make its refusal late.
 					if (bounded)
 						throw new Error(`${slot.unit} did not listen within ${ms} ms`);
-					const spent = await units.cpuSpentMs(slot.unit);
-					const now = Date.now();
-					if (spent !== undefined) {
-						spentLast = spent;
-						if (grewFrom === undefined || spent - grewFrom >= enough) {
-							grewFrom = spent;
-							grewAt = now;
-						}
-					}
-					// Once it is waited on, a systemd too loaded to say leaves it
-					// waiting: a loaded machine is what starves it.
-					const known = spent ?? (starved ? spentLast : undefined);
-					const stillStarved =
-						known !== undefined && known < listensWithinCpuMs;
-					// One that gains next to no CPU for a whole listen time waits on
-					// a lock, the disk or the network, not on the machine.
-					const stalled = starved && spent !== undefined && now - grewAt >= ms;
-					const gained = spent === undefined ? 0 : spent - (grewFrom ?? spent);
-					if (spent === undefined && !starved && now < unsaidUntil) {
-						// A systemd too loaded to say at first is asked again, as
-						// whether it has gone is.
-						until = Math.min(unsaidUntil, now + ASKED_EVERY_MS);
-						askedAgain = true;
-					} else if (stillStarved && !stalled && now < ceiling) {
-						if (!starved)
-							options.say?.(
-								`${slot.unit} hasn't listened in ${ms} ms, but has had only ${known} ms of CPU: it is starved rather than stuck, so it is waited on`,
-							);
-						starved = true;
-						// Asked again each second, as whether it has gone is.
-						until = Math.min(ceiling, now + ASKED_EVERY_MS);
-					} else {
-						const cpu = known === undefined ? "" : `, with ${known} ms of CPU`;
-						const share = gained === 0 ? "none" : `only ${gained} ms`;
-						const why = stalled
-							? `, ${share} of it in the last ${now - grewAt} ms: it is stuck rather than starved`
-							: "";
-						// One given up at the ceiling is said at it; one given up
-						// sooner, starved or asked again, at the time it took.
-						const within =
-							starved && stillStarved && !stalled
-								? starvedMs
-								: starved || askedAgain
-									? now - began
-									: ms;
-						throw new Error(
-							`${slot.unit} did not listen within ${within} ms${cpu}${why}`,
-						);
-					}
+					await judge.overdue();
 				}
 			}
 			if (Date.now() - asked >= ASKED_EVERY_MS) {
@@ -915,137 +950,139 @@ export function childSupervisor(options: {
 		}
 		const watching = await once(
 			slot,
-			() =>
-				watchChild(
-					slot.socket,
-					Math.max(1, Math.min(answersWithinMs, by - Date.now())),
-					{
-						watched(answer) {
-							const { host, conversation, entry } = answer;
-							const why = refusing(answer);
-							if (why) {
-								refused = new Error(`${slot.unit} ${why}`);
-								// It runs what it answered until it is stopped, so a
-								// resume of that waits, and a later host stops it.
-								markRunning(conversation.sessionId);
-								return;
-							}
-							const { sessionId } = conversation;
-							current = sessionId;
-							const moved =
-								named === undefined || keyed(named) !== keyed(sessionId);
-							// What its file named runs here no longer.
-							if (moved && named !== undefined) runsNoLongerIn(named, slot);
-							runsIn(sessionId, slot);
-							routes.hold(conversation, {
-								socket: slot.socket,
-								identity: host,
-							});
-							first = kept.then(async () => {
-								// What the roster holds of where it came from: what its
-								// slot names, or what that became from, as a host ending
-								// between naming a became and replacing it leaves it.
-								const from = heldAs(named) ?? heldAs(becameFrom);
-								const holds = vouched(
-									entry,
-									from !== undefined ? heldEntry(from) : asked,
+			(ceiling) =>
+				answered(slot, { by, bounded, ceiling }, (answerMs, signal) =>
+					watchChild(
+						slot.socket,
+						answerMs,
+						{
+							watched(answer) {
+								const { host, conversation, entry } = answer;
+								const why = refusing(answer);
+								if (why) {
+									refused = new Error(`${slot.unit} ${why}`);
+									// It runs what it answered until it is stopped, so a
+									// resume of that waits, and a later host stops it.
+									markRunning(conversation.sessionId);
+									return;
+								}
+								const { sessionId } = conversation;
+								current = sessionId;
+								const moved =
+									named === undefined || keyed(named) !== keyed(sessionId);
+								// What its file named runs here no longer.
+								if (moved && named !== undefined) runsNoLongerIn(named, slot);
+								runsIn(sessionId, slot);
+								routes.hold(conversation, {
+									socket: slot.socket,
+									identity: host,
+								});
+								first = kept.then(async () => {
+									// What the roster holds of where it came from: what its
+									// slot names, or what that became from, as a host ending
+									// between naming a became and replacing it leaves it.
+									const from = heldAs(named) ?? heldAs(becameFrom);
+									const holds = vouched(
+										entry,
+										from !== undefined ? heldEntry(from) : asked,
+									);
+									// Named first, with what it was, so a host ending
+									// before the roster changes leaves the next one's adopt
+									// holding a start of it back and replacing what it was,
+									// rather than holding both.
+									if (moved) await writeSlot(slot, holds, false, named);
+									if (!held(sessionId)) {
+										if (from !== undefined) await roster.replace(from, holds);
+										else await roster.hold(holds);
+									}
+								});
+								// Its failure is the watch's, thrown below.
+								kept = first.catch(() => undefined);
+							},
+							state: (conversation) => {
+								if (conversation.sessionId === current)
+									routes.update(conversation);
+							},
+							became(previousId, conversation, entry) {
+								const next = conversation.sessionId;
+								// A child speaks for its own conversation alone, and
+								// can't become one the roster or another child has.
+								const its =
+									current !== undefined && keyed(previousId) === keyed(current);
+								const why = !its
+									? `said ${previousId} became another, but runs ${current}`
+									: keyed(entry.sessionId) !== keyed(next)
+										? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
+										: elsewhere(slot, next)
+											? `said ${previousId} became ${next}, which another child runs`
+											: keyed(next) !== keyed(previousId) && held(next)
+												? `said ${previousId} became ${next}, which the roster holds already`
+												: undefined;
+								if (forsaken) return;
+								if (why) {
+									options.report(new Error(`${slot.unit} ${why}`));
+									// Word on another conversation is passed over; one that
+									// left its own runs `next` all the same, wherever else.
+									if (its) forsake(next, why);
+									return;
+								}
+								// Its route and hold are under the spelling first answered.
+								const left = current ?? previousId;
+								const was = routes.routeOf(left);
+								dropOwn(left);
+								runsNoLongerIn(left, slot);
+								current = next;
+								runsIn(next, slot);
+								if (was) routes.hold(conversation, was);
+								keep(async () => {
+									try {
+										// It keeps what the host held of what it was.
+										const before = heldEntry(left);
+										const holds = vouched(entry, before);
+										// Named first, as a first answer's is, with what it
+										// was, so a host ending before the roster changes
+										// leaves the next one to replace it, not hold both.
+										await writeSlot(slot, holds, false, left);
+										if (before) await roster.replace(before.sessionId, holds);
+										else await roster.hold(holds);
+									} catch (error) {
+										// Unheld, so stopped: nothing runs a conversation no
+										// later host would resume.
+										if (current === next)
+											forsake(next, `became ${next}, which couldn't be held`);
+										throw error;
+									}
+								});
+							},
+							ended(why) {
+								over = true;
+								// A forsaken child is left already, and said nothing true.
+								if (forsaken) return;
+								if (current) dropOwn(current);
+								// One refused as it ended may run on: it is stopped.
+								const left = leave(
+									slot,
+									why === "failed" || refused !== undefined,
 								);
-								// Named first, with what it was, so a host ending
-								// before the roster changes leaves the next one's adopt
-								// holding a start of it back and replacing what it was,
-								// rather than holding both.
-								if (moved) await writeSlot(slot, holds, false, named);
-								if (!held(sessionId)) {
-									if (from !== undefined) await roster.replace(from, holds);
-									else await roster.hold(holds);
-								}
-							});
-							// Its failure is the watch's, thrown below.
-							kept = first.catch(() => undefined);
+								if (!current) return;
+								const gone = current;
+								leftBy.set(keyed(gone), left);
+								void left.then(() => {
+									if (leftBy.get(keyed(gone)) === left)
+										leftBy.delete(keyed(gone));
+								});
+								if (why === "closed" || why === "released")
+									keep(() => roster.drop(heldAs(gone) ?? gone));
+								options.say?.(
+									`${sessionAddress(current)} (${current}): its process ended, ${why}`,
+								);
+								options.ended?.(current, why);
+							},
+							misread: (error) =>
+								options.report(new Error(`${slot.unit} ${error.message}`)),
 						},
-						state: (conversation) => {
-							if (conversation.sessionId === current)
-								routes.update(conversation);
-						},
-						became(previousId, conversation, entry) {
-							const next = conversation.sessionId;
-							// A child speaks for its own conversation alone, and
-							// can't become one the roster or another child has.
-							const its =
-								current !== undefined && keyed(previousId) === keyed(current);
-							const why = !its
-								? `said ${previousId} became another, but runs ${current}`
-								: keyed(entry.sessionId) !== keyed(next)
-									? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
-									: elsewhere(slot, next)
-										? `said ${previousId} became ${next}, which another child runs`
-										: keyed(next) !== keyed(previousId) && held(next)
-											? `said ${previousId} became ${next}, which the roster holds already`
-											: undefined;
-							if (forsaken) return;
-							if (why) {
-								options.report(new Error(`${slot.unit} ${why}`));
-								// Word on another conversation is passed over; one that
-								// left its own runs `next` all the same, wherever else.
-								if (its) forsake(next, why);
-								return;
-							}
-							// Its route and hold are under the spelling first answered.
-							const left = current ?? previousId;
-							const was = routes.routeOf(left);
-							dropOwn(left);
-							runsNoLongerIn(left, slot);
-							current = next;
-							runsIn(next, slot);
-							if (was) routes.hold(conversation, was);
-							keep(async () => {
-								try {
-									// It keeps what the host held of what it was.
-									const before = heldEntry(left);
-									const holds = vouched(entry, before);
-									// Named first, as a first answer's is, with what it
-									// was, so a host ending before the roster changes
-									// leaves the next one to replace it, not hold both.
-									await writeSlot(slot, holds, false, left);
-									if (before) await roster.replace(before.sessionId, holds);
-									else await roster.hold(holds);
-								} catch (error) {
-									// Unheld, so stopped: nothing runs a conversation no
-									// later host would resume.
-									if (current === next)
-										forsake(next, `became ${next}, which couldn't be held`);
-									throw error;
-								}
-							});
-						},
-						ended(why) {
-							over = true;
-							// A forsaken child is left already, and said nothing true.
-							if (forsaken) return;
-							if (current) dropOwn(current);
-							// One refused as it ended may run on: it is stopped.
-							const left = leave(
-								slot,
-								why === "failed" || refused !== undefined,
-							);
-							if (!current) return;
-							const gone = current;
-							leftBy.set(keyed(gone), left);
-							void left.then(() => {
-								if (leftBy.get(keyed(gone)) === left)
-									leftBy.delete(keyed(gone));
-							});
-							if (why === "closed" || why === "released")
-								keep(() => roster.drop(heldAs(gone) ?? gone));
-							options.say?.(
-								`${sessionAddress(current)} (${current}): its process ended, ${why}`,
-							);
-							options.ended?.(current, why);
-						},
-						misread: (error) =>
-							options.report(new Error(`${slot.unit} ${error.message}`)),
-					},
-					stopping.signal,
+						signal,
+					),
 				),
 			by,
 			bounded,

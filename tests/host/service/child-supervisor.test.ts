@@ -417,6 +417,7 @@ describe("a resumed conversation", () => {
 			`${slotOf(folder, key, a).unit} did not listen within 300 ms`,
 		);
 		expect(Date.now() - asked, "at its listen time").toBeLessThan(3_000);
+		expect(units.cpuAsks, "its CPU never asked").toBe(0);
 	});
 
 	it("is given up once a starved child spends its CPU while waited on", async () => {
@@ -514,6 +515,92 @@ describe("a resumed conversation", () => {
 			1_200,
 		);
 	});
+
+	it("waits past its answer time on a child starved of CPU as it builds its conversation, and routes to it once it answers", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { answersWatchAfterMs: 2_500 };
+		units.spent = growing(200, 20);
+
+		const running = await supervisor.resume(entry(a), true);
+
+		expect(running.sessionId).toBe(a);
+		expect(routes.routeOf(a)?.socket).toBe(slotOf(folder, key, a).socket);
+		expect(units.stopped, "its child left running").toEqual([]);
+		const unit = slotOf(folder, key, a).unit;
+		expect(
+			said.filter((line) => line.includes("hasn't answered")),
+			"said once, as it waits on",
+		).toEqual([
+			`${unit} hasn't answered its watch in 500 ms, but has had only 20 ms of CPU since it was watched: it is starved rather than stuck, so it is waited on`,
+		]);
+		expect(
+			said.filter((line) => line.includes("answered its watch after")),
+			"its wait said once it answers",
+		).toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`^${unit} answered its watch after \\d+ ms, starved, having had \\d+ ms of CPU since it was watched$`,
+				),
+			),
+		]);
+	}, 15_000);
+
+	it("gives a starved child no more than its answer time when resumed bounded, asking nothing of its CPU", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { answersWatchAfterMs: 2_500 };
+		units.spent = growing(200, 20);
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a), false, true)).rejects.toThrow(
+			"The child gave its watch no answer within 500 ms",
+		);
+		expect(Date.now() - asked, "at its answer time").toBeLessThan(2_000);
+		expect(units.cpuAsks, "its CPU never asked").toBe(0);
+	});
+
+	it("is given up as stuck, and its child stopped, when it gains no CPU while it doesn't answer its watch", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { silent: true };
+		units.spent = 50;
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a), true)).rejects.toThrow(
+			/^The child gave its watch no answer within \d+ ms, with 0 ms of CPU since it was watched, none of it in the last \d+ ms: it is stuck rather than starved$/,
+		);
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
+		expect(units.stopped).toEqual(units.started);
+	}, 15_000);
+
+	it("is given up once a child that doesn't answer its watch spends a starved child's CPU", async () => {
+		superviseAgain({
+			clocks: { listensWithinCpuMs: 1_000, starvedWithinMs: 10_000 },
+		});
+		units.next = { silent: true };
+		units.spent = growing(100, 400);
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a), true)).rejects.toThrow(
+			/^The child gave its watch no answer within \d+ ms, with 1200 ms of CPU since it was watched$/,
+		);
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
+	}, 15_000);
+
+	it("is given up once a starved child that doesn't answer its watch has had all the time it may wait, listening and answering", async () => {
+		// A listen time under the ceiling, which is never less than one.
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 2_000 },
+		});
+		units.next = { silent: true };
+		units.spent = growing(0, 50);
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a), true)).rejects.toThrow(
+			/^The child gave its watch no answer within \d+ ms, with \d+ ms of CPU since it was watched$/,
+		);
+		const took = Date.now() - asked;
+		expect(took, "past its answer time").toBeGreaterThanOrEqual(1_900);
+		expect(took, "by the ceiling its listening began").toBeLessThan(3_500);
+	}, 15_000);
 
 	it("is refused, and its child stopped, when the child runs another conversation", async () => {
 		units.next = {

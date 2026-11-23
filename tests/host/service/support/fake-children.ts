@@ -240,7 +240,8 @@ export function fakeUnits(
 		async forget(unit) {
 			fake.forgotten.push(unit);
 		},
-		// A systemd that keeps no CPU account, so a slow child is given its listen time alone.
+		// A systemd that keeps no CPU account, so a slow child nobody waits on is
+		// asked of for two listen times, or two answer times, and given up then.
 		async cpuSpentMs() {
 			return undefined;
 		},
