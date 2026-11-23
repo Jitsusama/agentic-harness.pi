@@ -164,9 +164,12 @@ export async function startSprouted(
 		for (const { mark, so } of marks) {
 			// A mark refused leaves the quest made, so it is still tied below
 			// rather than left untied, and its log says what may not find it.
+			// A refusal takes no lock, so its log is the first write to ask
+			// for one, and a log whose lock didn't come stops the writes too.
 			const got = marking(state, id, mark);
-			if (got === "refused") markUnwritten(state, id, seed, mark, so);
-			locked = got === "locked";
+			locked =
+				got === "locked" ||
+				(got === "refused" && markUnwritten(state, id, seed, mark, so));
 			if (locked) break;
 		}
 	} else if (!replayed && joinMark) {
@@ -177,8 +180,10 @@ export async function startSprouted(
 		// still recorded below, and its log says a replay after the quest
 		// ends may start the work again.
 		const got = marking(state, id, joinMark);
-		if (got === "refused") markUnwritten(state, id, seed, joinMark, RESTARTED);
-		locked = got === "locked";
+		locked =
+			got === "locked" ||
+			(got === "refused" &&
+				markUnwritten(state, id, seed, joinMark, RESTARTED));
 	}
 	if (!locked) servesNeed(state, id, seed);
 	// Only a quest it made, or its own replayed, is sprouted from the cell
@@ -332,7 +337,8 @@ function marking(
 /**
  * Say in quest `id`'s harness log that its sprout's `mark` wasn't
  * written, and `so`, what that costs a replay of `seed`; a log that
- * can't be written leaves the quest as the start left it.
+ * can't be written leaves the quest as the start left it. Answers
+ * whether the log's lock didn't come, so the start asks it no more.
  */
 function markUnwritten(
 	state: QuestState,
@@ -340,17 +346,19 @@ function markUnwritten(
 	seed: SproutSeed,
 	mark: { type: string; value: string },
 	so: string,
-): void {
+): boolean {
 	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!dir) return;
+	if (!dir) return false;
 	try {
 		appendHarnessLog(
 			dir,
 			`sprout ${seed.id ?? "with no id"}: its mark ${mark.type}:${mark.value} wasn't written, so ${so}`,
 		);
+		return false;
 	} catch {
 		// A log whose lock didn't come: the quest stands as the start left
 		// it, and only this note of its missing mark is lost.
+		return true;
 	}
 }
 

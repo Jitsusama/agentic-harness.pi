@@ -57,6 +57,7 @@ const failing = vi.hoisted(() => ({
 	aliases: false,
 	removals: false,
 	linkedLog: false,
+	unwrittenLog: false,
 	tried: [] as string[],
 }));
 /** The alias verb's own log of a mark it added fails, as its lock not coming does. */
@@ -73,6 +74,8 @@ vi.mock(
 				...[dir, text, opts]: Parameters<typeof real.appendHarnessLog>
 			) => {
 				if (failing.linkedLog && text.startsWith("Linked "))
+					throw new Error("the quest's lock didn't come");
+				if (failing.unwrittenLog && text.includes("wasn't written"))
 					throw new Error("the quest's lock didn't come");
 				return real.appendHarnessLog(dir, text, opts);
 			},
@@ -226,6 +229,42 @@ function sproutedQuest(value: string): string | undefined {
 		value,
 	});
 	return found.kind === "hit" ? found.questId : undefined;
+}
+
+/**
+ * Ready a sprout `id` of pull `pr` whose own mark the alias verb refuses:
+ * an ended quest holds the link, so the sprout makes a quest and marks
+ * it with both, and a live quest of forged id holds sprout:`id`.
+ */
+async function forgedOwnMark(id: string, pr: number) {
+	const link = `https://github.com/o/r/pull/${pr}`;
+	const ref = parseRef(link);
+	if (!ref) throw new Error(`no ref type reads ${link}`);
+	const ended = await start(
+		{ words: "the PR's work", id: `S${pr}` },
+		{ sessionId: `sess-ended-${pr}` },
+	);
+	const endedId = ended.state.questId;
+	if (!endedId) throw new Error("no quest to end");
+	markWith(endedId, link);
+	seal(endedId);
+	const first = await start(
+		{ words: "tea", id },
+		{ sessionId: `sess-forged-${pr}` },
+	);
+	const forged = first.state.questId;
+	if (!forged) throw new Error("no quest to forge");
+	const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+		forged,
+	);
+	if (!entry) throw new Error(`no quest ${forged} to forge`);
+	const readme = join(entry.dir, "README.md");
+	writeFileSync(
+		readme,
+		readFileSync(readme, "utf8").replace(/^id: .*$/mu, "id: QEST-1 forged"),
+	);
+	clearDiscoveryCache();
+	return { link, ref, need: "TERN02/mi1x.0123456789ab" };
 }
 
 beforeEach(() => {
@@ -405,6 +444,66 @@ describe("a sprouted session's start", () => {
 		).toContain(
 			"sprout S50: its mark sprout:S50 wasn't written, so a replay of it may not find this quest and make another",
 		);
+	});
+
+	it("still marks a made quest with its link and need after its own mark is refused", async () => {
+		const { link, ref, need } = await forgedOwnMark("S90", 91);
+		const again = await start(
+			{ link, id: "S90", need },
+			{ sessionId: "sess-own-refused-link-due" },
+		);
+		const made = again.state.questId ?? "";
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			made,
+		);
+		expect(
+			entry?.doc.frontMatter.aliases?.map((one) => `${one.type}:${one.value}`),
+			"its link's mark still lands",
+		).toContain(`sprout-link:${ref.type}:${ref.value}`);
+		expect(
+			entry?.doc.frontMatter._extra?.serves,
+			"its need is still recorded",
+		).toEqual([expect.objectContaining({ cell: "TERN02", id: need })]);
+		const log = readFileSync(harnessLogPath(entry?.dir ?? ""), "utf8");
+		expect(log, "its own mark is logged refused").toContain(
+			"sprout S90: its mark sprout:S90 wasn't written",
+		);
+		expect(log, "and only that one").not.toContain("its mark sprout-link:");
+	});
+
+	it("asks a quest no more once a refused mark's log lock doesn't come", async () => {
+		const { link, ref, need } = await forgedOwnMark("S92", 93);
+		const ran: string[][] = [];
+		failing.unwrittenLog = true;
+		failing.tried.length = 0;
+		try {
+			const again = await start(
+				{ link, id: "S92", need, from: "TERN02" },
+				{
+					sessionId: "sess-own-refused-log-busy",
+					run: async (_program, args) => {
+						ran.push([...args]);
+						return { code: 0, stdout: "", stderr: "" };
+					},
+				},
+			);
+			const made = again.state.questId ?? "";
+			expect(
+				failing.tried,
+				"its link's mark never asked for the busy lock",
+			).not.toContain(`sprout-link:${ref.type}:${ref.value}`);
+			expect(
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(made)?.doc
+					.frontMatter._extra?.serves,
+				"nor did its need",
+			).toBeUndefined();
+			expect(
+				ran.map((args) => args[2]),
+				"the tie to the map is still made",
+			).toEqual(["tie"]);
+		} finally {
+			failing.unwrittenLog = false;
+		}
 	});
 
 	it("logs a made quest's link mark refused with what the link's next sprout may do", async () => {
