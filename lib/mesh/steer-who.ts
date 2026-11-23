@@ -15,6 +15,7 @@ import {
 	thisMachineOff,
 	thisMachineRead,
 } from "../internal/machine/machine.ts";
+import { isAddressShaped } from "./address.ts";
 
 /**
  * The `from` a machine's mycelium node writes, for what the machine itself
@@ -29,9 +30,6 @@ export const FROM_MACHINE = "machine";
  */
 export const ORDERED_CARRY = "ordered-carry";
 
-/** A peer's address, a quest's six or a session's eight, as `by` names one. */
-const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
-
 /**
  * Whether `by` can be a peer's address, in any letters: the one rule
  * for an orchestrator's name, here and where a carried session arrives.
@@ -40,7 +38,7 @@ const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
  */
 export function isAddress(by: string): boolean {
 	const lower = by.toLowerCase();
-	return ADDRESS.test(by) && lower !== FROM_PERSON && lower !== FROM_MACHINE;
+	return isAddressShaped(by) && lower !== FROM_PERSON && lower !== FROM_MACHINE;
 }
 
 /** A node's own name as `by`, its machine's after the `@`. */

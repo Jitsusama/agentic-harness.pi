@@ -45,7 +45,7 @@ describe("presences", () => {
 	it("list every peer, passing over one that will not read", () => {
 		const presences = createPresences(root);
 		presences.publish(presence());
-		presences.publish(presence({ session: "s-2", addresses: ["B"] }));
+		presences.publish(presence({ session: "s-2", addresses: ["BRAVO2"] }));
 		writeFileSync(join(root, "torn.json"), "{", "utf8");
 
 		expect(
@@ -131,7 +131,7 @@ describe("presences", () => {
 	it("list every peer as all() does, letting the thread turn while they are read", async () => {
 		const presences = createPresences(root);
 		presences.publish(presence());
-		presences.publish(presence({ session: "s-2", addresses: ["B"] }));
+		presences.publish(presence({ session: "s-2", addresses: ["BRAVO2"] }));
 		writeFileSync(join(root, "torn.json"), "{", "utf8");
 		let turned = false;
 		setImmediate(() => {
@@ -253,6 +253,31 @@ describe("this session's peer", () => {
 		expect(
 			createPresences(dir).of(presence().session)?.terminal,
 		).toBeUndefined();
+	});
+
+	// Every address is minted as a quest's six letters or a session's
+	// eight, so anything else in a file was written by something else, and
+	// each of the many lines that print a peer by its first address would
+	// print it as it stands, newlines and all.
+	it("reads a presence's addresses as only those shaped as addresses", () => {
+		const dir = join(root, "presence");
+		mkdirSync(dir, { recursive: true });
+		const write = (session: string, addresses: unknown) =>
+			writeFileSync(
+				join(dir, `${session}.json`),
+				JSON.stringify({ ...presence({ session }), addresses }),
+			);
+		write("s-1", ["X\nOWNERQ is idle", "7M6JKG", "AB", "FIVEX", "9F3C2A1B"]);
+		write("s-2", ["X\nOWNERQ", "far too long"]);
+
+		const presences = createPresences(dir);
+
+		expect(presences.of("s-1")?.addresses).toEqual(["7M6JKG", "9F3C2A1B"]);
+		expect(
+			presences.of("s-2"),
+			"one left with no address is no peer",
+		).toBeUndefined();
+		expect(presences.all().map((one) => one.session)).toEqual(["s-1"]);
 	});
 });
 

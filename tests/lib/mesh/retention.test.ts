@@ -327,7 +327,7 @@ describe("the sweep", () => {
 			utimesSync(join(dir, "replies"), at, at);
 			utimesSync(dir, at, at);
 		};
-		inbox("QUIET", 3 * DAY); // a present peer's, however old
+		inbox("QUIETX", 3 * DAY); // a present peer's, however old
 		inbox("QSTADR", 3 * DAY); // its quest's
 		inbox("ENDED", 2 * 60 * 60 * 1000); // an ended session's, empty
 		inbox("JUSTMADE", 60 * 1000); // made ahead of its presence
@@ -336,7 +336,7 @@ describe("the sweep", () => {
 		const at = { ...kept(), inboxes };
 		at.presences.publish({
 			...presence("quiet", now),
-			addresses: ["QUIET", "QSTADR"],
+			addresses: ["QUIETX", "QSTADR"],
 		});
 
 		await sweep(at, now, async (everyone) => ({
@@ -348,7 +348,7 @@ describe("the sweep", () => {
 		expect(readdirSync(inboxes).sort()).toEqual([
 			"JUSTMADE",
 			"QSTADR",
-			"QUIET",
+			"QUIETX",
 			"WAITING",
 		]);
 	});
