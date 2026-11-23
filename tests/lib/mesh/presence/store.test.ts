@@ -695,9 +695,7 @@ describe("presences on a host", () => {
 			join(dir, "s-1.json"),
 			expect.any(Error),
 		);
-		expect(presences.of("s-1")?.addresses, "still its own").toEqual([
-			"BRAVO2",
-		]);
+		expect(presences.of("s-1")?.addresses, "still its own").toEqual(["BRAVO2"]);
 
 		// Once it can land, the latest does, and nothing is left trying.
 		rmSync(dir);
