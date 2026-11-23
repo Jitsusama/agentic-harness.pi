@@ -98,7 +98,23 @@ export function tagger(
 			// A tag lands wherever the branch is now, so a message the person
 			// moved away from while it was asked about is left untagged: its
 			// tag would name, from this branch, a message only the log holds.
-			if (!stillUnder(session, under)) return;
+			// What the call cost is still recorded, naming no paragraph, and
+			// the pass ends, for a fresh one to tag the branch as it is now.
+			if (!stillHolds(session, under, entry.id)) {
+				queue.length = 0;
+				again = true;
+				if (result.usage) {
+					store.recordTags({
+						entryId: entry.id,
+						units: [],
+						model: result.ok ? result.model : classifier.label,
+						usage: result.usage,
+						ms,
+						failed: MOVED_OFF,
+					});
+				}
+				return;
+			}
 			if (result.ok) {
 				store.recordTags({
 					entryId: entry.id,
@@ -106,6 +122,7 @@ export function tagger(
 					model: result.model,
 					...(result.usage ? { usage: result.usage } : {}),
 					ms,
+					seenOnBranch: true,
 				});
 				return;
 			}
@@ -183,21 +200,27 @@ export function tagger(
 	};
 }
 
+/** Why a paid answer was recorded with no paragraph: its message left the branch. */
+const MOVED_OFF = "moved off the branch";
+
 /**
- * Whether the session's leaf now still lies on or after `under.leaf`,
- * so the branch holds everything that was behind it. The walk back
- * stops there, so a conversation that only went on reads just what it
+ * Whether the session's branch now still holds entry `id`, which lay
+ * behind `under.leaf`. The walk back from the leaf stops at `id` or at
+ * `under.leaf`, so a conversation that only went on reads just what it
  * gained, and `under.leaf` moves up to the leaf now for the next check.
+ * Only a branch elsewhere is walked to its root.
  */
-function stillUnder(
+function stillHolds(
 	session: BranchReader<LinkedEntry>,
 	under: { leaf: string | null | undefined },
+	id: string,
 ): boolean {
 	const leaf = session.getLeafId();
-	for (let id = leaf; id; id = session.getEntry(id)?.parentId) {
-		if (id !== under.leaf) continue;
+	for (let at = leaf; at; at = session.getEntry(at)?.parentId) {
+		if (at === id) return true;
+		if (at !== under.leaf) continue;
 		under.leaf = leaf;
 		return true;
 	}
-	return !under.leaf;
+	return false;
 }

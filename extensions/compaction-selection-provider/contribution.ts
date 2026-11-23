@@ -260,16 +260,19 @@ export function selectionContributor(
 	) => {
 		await options.caughtUp?.(ctx);
 		if (signal.aborted) return;
-		const classifier = await status.resolve(ctx);
-		if (!classifier.ok || signal.aborted) return;
 		const branch = ctx.sessionManager.getBranch();
-		const holds = store.holds(branch);
 		const tags = store.tags(branch);
+		// Read ahead whether or not a classifier answers, since the
+		// compaction quotes unjudged candidates too and should find each
+		// message where this read left it.
 		const read = await withQuotableOnDiskAsync(branch, tags.quotable, store, {
 			signal,
 			finds,
 		});
 		if (signal.aborted) return;
+		const classifier = await status.resolve(ctx);
+		if (!classifier.ok || signal.aborted) return;
+		const holds = store.holds(branch);
 		const pending = selectExcerpts(
 			candidatesBefore(read, tags, estimatedFirstKept(branch)),
 			budget * CHECK_OVERSAMPLE,

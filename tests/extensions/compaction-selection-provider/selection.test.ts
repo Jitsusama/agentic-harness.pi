@@ -24,7 +24,10 @@ import {
 	selectionStoreKind,
 	sessionStore,
 } from "../../../extensions/compaction-selection-provider/store.ts";
-import { tagger } from "../../../extensions/compaction-selection-provider/tagger.ts";
+import {
+	TAGGING_CONCURRENCY,
+	tagger,
+} from "../../../extensions/compaction-selection-provider/tagger.ts";
 import { newContributions } from "../../../lib/compaction/index.ts";
 import { SELECTION_HOLDS_ENTRY } from "../../../lib/compaction/selection/holds.ts";
 import { EXCERPTS_HEADING } from "../../../lib/compaction/selection/render.ts";
@@ -34,6 +37,7 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../../lib/compaction/selection/units.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
 import {
 	assistant,
@@ -253,12 +257,12 @@ describe("tagging", () => {
 		);
 	});
 
-	it("leaves a message untagged when the person moved off it while it was asked about", async () => {
+	it("tags a message the conversation went on from while it was asked about", async () => {
 		const branch: SessionEntry[] = [user("u1", "Always sign every commit.")];
 		const yes = answeringYesTo(".rule");
-		const { ctx, store, sent, appended } = session(branch, (context) => {
-			// Moved to another branch while the classifier answered.
-			branch.splice(0, branch.length, user("u9", "Try another way instead."));
+		const { ctx, store, appended } = session(branch, (context) => {
+			// The next turn began while the classifier answered.
+			if (branch.length === 1) branch.push(user("u2", "Carrying on."));
 			return yes(context);
 		});
 		const tags = tagger(store);
@@ -266,8 +270,78 @@ describe("tagging", () => {
 		tags.schedule(ctx);
 		await tags.idle();
 
-		expect(sent).toHaveLength(1);
-		expect(appended).toEqual([]);
+		expect(appended.map(([, data]) => data)).toContainEqual(
+			expect.objectContaining({
+				entryId: "u1",
+				units: [expect.objectContaining({ kinds: ["rule"] })],
+				seenOnBranch: true,
+			}),
+		);
+	});
+
+	it("tags a message the branch the person moved to still holds", async () => {
+		const first = user("u0", "Always sign every commit.");
+		const branch: SessionEntry[] = [first, user("u1", "Try it this way.")];
+		const yes = answeringYesTo(".rule");
+		let moved = false;
+		const { ctx, store, appended } = session(branch, (context) => {
+			// Moved to another reply to u0 while both were asked about.
+			if (!moved) {
+				moved = true;
+				branch.splice(1, 1, user("u5", "Try another way."));
+			}
+			return yes(context);
+		});
+		const tags = tagger(store);
+
+		tags.schedule(ctx);
+		await tags.idle();
+
+		expect(appended.map(([, data]) => data)).toContainEqual(
+			expect.objectContaining({
+				entryId: "u0",
+				units: [expect.objectContaining({ kinds: ["rule"] })],
+				seenOnBranch: true,
+			}),
+		);
+	});
+
+	it("stops asking once the person moves off, billing what was asked and tagging the new branch", async () => {
+		const branch: SessionEntry[] = Array.from({ length: 6 }, (_, at) =>
+			user(`u${at}`, `Message number ${at} of the session.`),
+		);
+		const yes = answeringYesTo(".rule");
+		let moved = false;
+		const { ctx, store, sent, appended } = session(branch, (context) => {
+			// Moved to another branch while the first answers were coming.
+			if (!moved) {
+				moved = true;
+				branch.splice(0, branch.length, user("u9", "Try another way."));
+			}
+			return yes(context);
+		});
+		const tags = tagger(store);
+
+		tags.schedule(ctx);
+		await tags.idle();
+
+		// The first few asked at once, then u9 by a fresh pass; never the rest.
+		expect(sent).toHaveLength(TAGGING_CONCURRENCY + 1);
+		const recorded = appended.map(([, data]) => data);
+		const billed = recorded.filter(
+			(data) => (data as { failed?: string }).failed !== undefined,
+		);
+		expect(billed).toHaveLength(TAGGING_CONCURRENCY);
+		for (const data of billed) {
+			expect(data).toMatchObject({ units: [], usage: USAGE });
+		}
+		expect(recorded.at(-1)).toMatchObject({
+			entryId: "u9",
+			seenOnBranch: true,
+		});
+		expect(store.spend(branch)).toBeCloseTo(
+			(TAGGING_CONCURRENCY + 1) * USAGE.cost.total,
+		);
 	});
 
 	it("tags the newest messages first", async () => {
@@ -599,6 +673,52 @@ describe("contributing excerpts", () => {
 			expect(contributions.appendix[0]).toContain(
 				"> Always sign every commit.",
 			);
+			expect(recordOf(contributions)).toMatchObject({ logsScanned: 0 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads ahead at the check even with no classifier to judge requests", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			const held = heldOver(dir, [rule]);
+			const branch = [held, tagged(rule, ["rule"]), kept];
+			const { ctx, store } = session(branch, answeringYesTo(), []);
+			const contributor = selectionContributor(() => ctx, { store });
+			contributor.listener(newContributions({}));
+			await contributor.idle();
+
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+			contributor.listener(contributions);
+
+			expect(contributions.appendix[0]).toContain(
+				"> Always sign every commit.",
+			);
+			expect(recordOf(contributions)).toMatchObject({ logsScanned: 0 });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads nothing back from disk for a tag recorded without seeing its message", () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			// An older tagger's record, which may have landed on this branch
+			// after the person moved here from the message's.
+			const held = heldOver(dir, [rule]);
+			const legacy = tagged(rule, ["rule"]);
+			if (legacy.type !== "custom" || !isRecord(legacy.data)) {
+				throw new Error("no tags entry");
+			}
+			const { seenOnBranch: _seen, ...data } = legacy.data;
+			const branch = [held, { ...legacy, data }, kept];
+			const { ctx, store } = session(branch, answeringYesTo());
+			const contributions = newContributions({ firstKeptEntryId: "u2" });
+
+			selectionContributor(() => ctx, { store }).listener(contributions);
+
+			expect(contributions.appendix.join("")).not.toContain("Always sign");
 			expect(recordOf(contributions)).toMatchObject({ logsScanned: 0 });
 		} finally {
 			rmSync(dir, { recursive: true, force: true });

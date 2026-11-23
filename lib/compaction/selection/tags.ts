@@ -48,6 +48,13 @@ export interface SelectionTags {
 	readonly ms?: number;
 	/** Why tagging failed, when it did; its paragraphs then have no kinds. */
 	readonly failed?: string;
+	/**
+	 * The tagger saw the message still on the branch as it recorded this.
+	 * A record without it may have landed on a branch the person moved
+	 * to while the message was asked about, naming a message that branch
+	 * never held.
+	 */
+	readonly seenOnBranch?: boolean;
 }
 
 /** What is known of a branch's paragraphs. */
@@ -57,8 +64,10 @@ export interface TagIndex {
 	/** The entries some record names, tagged or failed. */
 	readonly entries: ReadonlySet<string>;
 	/**
-	 * The entries whose latest record found some paragraph of a kind, so
-	 * the messages worth reading back when a held log left them on disk.
+	 * The entries whose latest record found some paragraph of a kind and
+	 * saw the message on the branch, so the messages worth reading back
+	 * when a held log left them on disk. A parent log holds every branch,
+	 * so a record that did not see its message on this one is left out.
 	 */
 	readonly quotable: ReadonlySet<string>;
 }
@@ -79,7 +88,10 @@ export function indexTags(
 ): void {
 	index.entries.add(tags.entryId);
 	for (const unit of tags.units) index.kinds.set(unit.hash, unit.kinds);
-	if (tags.units.some((unit) => unit.kinds.length > 0)) {
+	if (
+		tags.seenOnBranch === true &&
+		tags.units.some((unit) => unit.kinds.length > 0)
+	) {
 		index.quotable.add(tags.entryId);
 	} else {
 		index.quotable.delete(tags.entryId);
@@ -177,5 +189,6 @@ export function asTags(data: unknown): SelectionTags | undefined {
 		units,
 		...(typeof record.model === "string" ? { model: record.model } : {}),
 		...(typeof record.failed === "string" ? { failed: record.failed } : {}),
+		...(record.seenOnBranch === true ? { seenOnBranch: true } : {}),
 	};
 }

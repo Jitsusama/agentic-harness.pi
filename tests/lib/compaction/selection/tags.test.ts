@@ -49,6 +49,7 @@ function tag(manager: SessionManager, id: string): void {
 	manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
 		entryId: id,
 		units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: ["rule"] })),
+		seenOnBranch: true,
 	});
 }
 
@@ -123,6 +124,27 @@ describe("a session's branch as tagging reads it", () => {
 		const { quotable, entries } = readTags(manager.getBranch());
 
 		expect([...entries]).toEqual([rule]);
+		expect([...quotable]).toEqual([]);
+	});
+
+	it("leaves out a message whose record did not see it on the branch", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		const entry = manager.getEntry(rule);
+		if (entry === undefined) throw new Error("no rule");
+		// As a tagger that did not look recorded it, perhaps on another branch.
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: unitsOf(entry).map((unit) => ({
+				hash: unit.hash,
+				kinds: ["rule"],
+			})),
+		});
+
+		const { quotable, entries, kinds } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule]);
+		expect(kinds.size).toBe(1);
 		expect([...quotable]).toEqual([]);
 	});
 
