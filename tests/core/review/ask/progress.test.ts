@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type AskAnswer,
+	type AskProgress,
 	type Finding,
 	noAskProgress,
 	type Participant,
@@ -162,6 +163,45 @@ describe("tracking an ask round", () => {
 });
 
 describe("a round reporting as it goes", () => {
+	it("asks everyone when its reporter throws", async () => {
+		// On 22 November two councils opened, asked nobody and never
+		// settled: their session had reloaded while they waited for a
+		// start, and the board's first draw threw on the stale context.
+		// A board is a view of the round; it must never cost the round.
+		const stale = (): never => {
+			throw new Error("This extension ctx is stale");
+		};
+		const throwing: AskProgress = {
+			start: stale,
+			started: stale,
+			activity: stale,
+			answered: stale,
+			failed: stale,
+			cancelled: stale,
+			recorded: stale,
+			finish: stale,
+		};
+		const asked: string[] = [];
+
+		const { run } = await round(
+			[alice, bob],
+			async (participant): Promise<AskAnswer> => {
+				asked.push(participant.id);
+				return { text: `${participant.id} says fine` };
+			},
+			throwing,
+		);
+
+		expect(asked, "every reviewer is asked despite the board").toEqual([
+			"alice",
+			"bob",
+		]);
+		expect(
+			run.outcomes.map((one) => one.failure),
+			"each answer is kept, none failed by the board",
+		).toEqual([undefined, undefined]);
+	});
+
 	it("reports every participant running before any has settled", async () => {
 		// The claim that matters. Both are asked concurrently, so a
 		// reporter must be able to see two in flight at once; a

@@ -28,7 +28,12 @@ import type { Finding } from "../finding.ts";
 import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
 import { outcomeOf } from "./outcome.ts";
-import { type AskProgress, noAskProgress, settleReplies } from "./progress.ts";
+import {
+	type AskProgress,
+	heedless,
+	noAskProgress,
+	settleReplies,
+} from "./progress.ts";
 import type { Roster } from "./roster.ts";
 import {
 	type AskRound,
@@ -287,7 +292,7 @@ export async function askRoster(
 	runId: string,
 	deps: Pick<CouncilDeps, "ask" | "progress" | "warmed">,
 ): Promise<Reply[]> {
-	const progress = deps.progress ?? noAskProgress;
+	const progress = heedless(deps.progress ?? noAskProgress);
 	progress.start(roster.reviewers);
 	const ask = async (participant: Participant): Promise<Reply> => {
 		progress.started(participant.id);
