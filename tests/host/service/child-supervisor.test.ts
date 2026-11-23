@@ -364,6 +364,23 @@ describe("a resumed conversation", () => {
 		expect(units.stopped, "its child left running").toEqual([]);
 	}, 15_000);
 
+	it("stops as stuck, naming its CPU, a child whose CPU grows at every ask but under its share over a whole listen time", async () => {
+		// 1.5 ms a second, 0.15% of a core: never the 5 ms of a 2 s listen
+		// time, even judged over a window a loaded machine stretches to 3 s.
+		superviseAgain({
+			clocks: { listensWithinMs: 2_000, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(50, 1.5);
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			/did not listen within \d+ ms, with 5[34] ms of CPU, only [34] ms of it in the last \d+ ms: it is stuck rather than starved$/,
+		);
+		await vi.waitFor(() =>
+			expect(units.stopped, "its child stopped").toEqual(units.started),
+		);
+	}, 15_000);
+
 	it("waits on a child whose first CPU ask systemd doesn't answer, asking again", async () => {
 		superviseAgain({
 			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
