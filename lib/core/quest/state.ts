@@ -119,6 +119,28 @@ export interface QuestState {
 	 * dedup path falls back to `getLastEntry`.
 	 */
 	lastPersistedKey?: string;
+
+	/**
+	 * The quest this session's log last said it held, while it can't be
+	 * loaded: a start on a host whose tree walk was stale or timed out
+	 * found no such quest yet. Until it loads, the session loads or
+	 * unloads a quest itself, or ten tries find no such quest
+	 * (PENDING_TRIES), nothing is written over the log's word, so
+	 * a slow disk can't make a session forget its quest. On 20 November a
+	 * host restart's signings timed out and a session wrote `questId:
+	 * null` over a quest it had held for two days.
+	 */
+	pendingQuest?: {
+		readonly questId: string;
+		readonly documentPath?: string;
+		readonly unfocused?: boolean;
+	};
+
+	/** When the pending quest may next be tried, in ms since the epoch. */
+	pendingRetryAt?: number;
+
+	/** How many tries the pending quest has had, the start's among them. */
+	pendingTries?: number;
 }
 
 /**

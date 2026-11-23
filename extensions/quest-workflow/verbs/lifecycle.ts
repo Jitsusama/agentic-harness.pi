@@ -539,7 +539,12 @@ export async function load(
 }
 
 export function unload(state: QuestState): QuestResult {
-	if (!state.questId) return refuse("No quest loaded.");
+	if (!state.questId) {
+		const pending = state.pendingQuest?.questId;
+		if (!pending) return refuse("No quest loaded.");
+		unloadQuest(state);
+		return ok(`Let go of ${pending}, which hadn't loaded yet.`);
+	}
 	const prior = state.questId;
 	unloadQuest(state);
 	return ok(`Unloaded ${prior}.`);
