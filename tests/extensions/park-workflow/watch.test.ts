@@ -1812,6 +1812,64 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// A rolling child's host code is stale, but a background host still
+	// parks it only over what its park can carry: a bash call it keeps
+	// goes on in the next child, a fleet would be lost.
+	it("rolls a background host's conversation over a bash call its host carries, and not over a fleet", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => true;
+		host.host.rolling = () => true;
+		const out: {
+			id: string;
+			kind: string;
+			label: string;
+			carry?: { kind: string; [field: string]: unknown };
+		}[] = [
+			{ id: "j2", kind: "subagent", label: "k7-read" },
+			{
+				id: "j1",
+				kind: "shell",
+				label: "until grep -q rc= run.log",
+				carry: {
+					kind: "shell",
+					keep: join(folder, "kept"),
+					pid: 2 ** 22 + 1,
+					mark: "a-mark",
+					startedAt: 0,
+				},
+			},
+		];
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => out.length,
+			running: () => out,
+			holds: (carriable = () => true) =>
+				out.filter((job) => job.carry === undefined || !carriable(job.carry)),
+		});
+		const env = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			clock = 0;
+			const watched = watching(session(), env, [], "linux");
+			expect(watched.look(), "a fleet holds it, stale or not").toBe(
+				"a fleet is out (j2: k7-read)",
+			);
+			expect(asked).toEqual([]);
+			out.shift();
+			expect(
+				watched.look(),
+				"stale, it parks at once over the carried call",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			stopJobs();
+			host.dispose();
+		}
+	});
+
 	it("stays for every job a job host from before its holds says is out", () => {
 		const host = installTestHost("one-background");
 		const asked: string[] = [];

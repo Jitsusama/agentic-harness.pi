@@ -6,6 +6,7 @@
  */
 import {
 	chmodSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -55,6 +56,24 @@ function start(kind: string, packageDir = pi, harnessRoot = harness) {
 		root,
 		enable,
 	});
+}
+
+/**
+ * Whether this login's runtime folder, as systemd makes it, is there as
+ * a folder of its own closed to others: the only one a default start
+ * keeps its cache in. A machine without one, or a container whose
+ * `/run/user` another account owns, has none to keep it in.
+ */
+function ownLoginFolder(): boolean {
+	const uid = process.getuid?.();
+	if (process.platform !== "linux" || uid === undefined) return false;
+	try {
+		const seen = lstatSync(`/run/user/${uid}`);
+		return seen.isDirectory() && seen.uid === uid && (seen.mode & 0o077) === 0;
+	} catch {
+		// Not there: no login runtime folder on this machine.
+		return false;
+	}
 }
 
 /** The folder a cache is on in, failing the test when it is not on. */
@@ -124,6 +143,75 @@ describe("a host's compile cache", () => {
 				).toEqual(["used"]);
 			} finally {
 				vi.unstubAllEnvs();
+			}
+		},
+	);
+
+	it.runIf(process.platform === "linux")(
+		"lies by default only in the login's own runtime folder, not another one the environment names",
+		() => {
+			// Private and this login's, so only its not being the login's own
+			// passes it over.
+			const runtime = join(dir, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			const state = join(dir, "state");
+			vi.stubEnv("XDG_STATE_HOME", state);
+			try {
+				const folder = folderOf(
+					startCompileCache({
+						argv: ["attended"],
+						env: {
+							MYCELIUM_REALM: "work",
+							PI_PACKAGE_DIR: pi,
+							XDG_RUNTIME_DIR: runtime,
+							HOME: join(dir, "home"),
+						},
+						harnessRoot: harness,
+						enable,
+					}),
+				);
+				expect(
+					folder.startsWith(`${join(state, "pi", "agentic-harness.pi")}/`),
+					`the cache folder ${folder} sits in pi's state`,
+				).toBe(true);
+				expect(readdirSync(runtime), "nothing made in that one").toEqual([]);
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		},
+	);
+
+	it.runIf(ownLoginFolder())(
+		"lies by default in the login's runtime folder when the environment names it",
+		() => {
+			const login = `/run/user/${process.getuid?.()}`;
+			vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+			// A realm of the test's own, so the start sweeps no folder of a
+			// host this login runs, and its own is removed after. What node's
+			// cache there holds unused for a day is swept, as any host start
+			// sweeps it.
+			let folder = "";
+			try {
+				folder = folderOf(
+					startCompileCache({
+						argv: ["attended"],
+						env: {
+							MYCELIUM_REALM: `cachetest${process.pid}`,
+							PI_PACKAGE_DIR: pi,
+							XDG_RUNTIME_DIR: login,
+							HOME: join(dir, "home"),
+						},
+						harnessRoot: harness,
+						enable,
+					}),
+				);
+				expect(
+					folder.startsWith(`${join(login, "pi-compile", "host")}/`),
+					`the cache folder ${folder} sits in the login's pi-compile/host`,
+				).toBe(true);
+			} finally {
+				vi.unstubAllEnvs();
+				if (folder) rmSync(folder, { recursive: true, force: true });
 			}
 		},
 	);

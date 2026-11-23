@@ -66,6 +66,8 @@ export function hostChildren(options: {
 		report,
 		...(options.say ? { say: options.say } : {}),
 		ended: (sessionId, why) => rest(sessionId, why),
+		// Given up before it ended, as a failed child is: still held.
+		gaveUp: (sessionId) => rest(sessionId, "failed"),
 		...(options.became ? { became: options.became } : {}),
 		...options.timings,
 	});
@@ -120,6 +122,7 @@ export function hostChildren(options: {
 			running: (sessionId) =>
 				routes.listed().find((held) => held.sessionId === sessionId),
 			resume: resumed,
+			giveUp: (sessionId) => supervisor.giveUp(sessionId),
 			begin: (request, taken) => supervisor.begin(request, taken),
 			ask,
 			left: (sessionId) => supervisor.left(sessionId),

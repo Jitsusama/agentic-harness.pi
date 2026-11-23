@@ -23,7 +23,11 @@ import type {
 	ControlRequest,
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
-import { resumeHeld } from "../../../host/service/resume-held.ts";
+import {
+	type HeldOrder,
+	heldOrder,
+	resumeHeld,
+} from "../../../host/service/resume-held.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import {
 	OPEN_UNSETTLED,
@@ -116,6 +120,7 @@ function children(moving: readonly string[], opening = false) {
 			asked: "the child",
 		})),
 		left: vi.fn(async (_sessionId: string) => {}),
+		giveUp: vi.fn((_sessionId: string) => {}),
 	} satisfies BackendChildren;
 	return { fake, runs, opened };
 }
@@ -124,6 +129,7 @@ function backendWith(
 	fake: ConversationEngine,
 	moved: BackendChildren,
 	admitAnother?: () => Promise<void>,
+	held?: HeldOrder,
 ) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
@@ -132,6 +138,7 @@ function backendWith(
 		engine: fake,
 		children: moved,
 		...(admitAnother ? { admitAnother } : {}),
+		...(held ? { held } : {}),
 	});
 }
 
@@ -239,6 +246,47 @@ describe("a conversation that moves into a child", () => {
 		expect(moved.fake.resume).not.toHaveBeenCalled();
 		expect(inHost.resume).not.toHaveBeenCalled();
 	});
+
+	// F174: a close or release waits in the conversation's turn behind the
+	// wake, and the wake's child resume waits on a starved child as long
+	// as the supervisor does, up to STARVED_WITHIN_MS, 10 minutes, so the
+	// end gives that resume up rather than wait it out.
+	it.each(["close", "release"] as const)(
+		"answers a %s asked while a wake waits on a starved child at once, giving that wake's resume up",
+		async (op) => {
+			const held = entry();
+			await roster.hold(held);
+			const moved = children([held.sessionId]);
+			let stop: (why: Error) => void = () => undefined;
+			moved.fake.resume.mockImplementationOnce(
+				() =>
+					new Promise<SessionIdentity>((_resolve, reject) => {
+						stop = reject;
+					}),
+			);
+			moved.fake.giveUp.mockImplementationOnce((sessionId) =>
+				stop(new Error(`${sessionId} was given up`)),
+			);
+			const backend = backendWith(engine(), moved.fake);
+			const waking = backend.wake(held.sessionId);
+			const woke = expect(waking).rejects.toThrow("was given up");
+			await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalled());
+			let answered = false;
+			const ending = backend
+				.execute({ v: 1, id: "e", op, sessionId: held.sessionId })
+				.finally(() => {
+					answered = true;
+				});
+
+			await vi.waitFor(() =>
+				expect(answered, "answered without waiting out the wake").toBe(true),
+			);
+			expect(await ending).toEqual({ sessionId: held.sessionId });
+			expect(moved.fake.giveUp).toHaveBeenCalledExactlyOnceWith(held.sessionId);
+			await woke;
+			expect(roster.entries(), "no longer held").toEqual([]);
+		},
+	);
 
 	it("passes the rollout gate before its child starts beside another", async () => {
 		const held = entry();
@@ -422,6 +470,50 @@ describe("a start's resume of what the host held", () => {
 		expect(unresumed).toEqual([]);
 		expect(resumed, "nothing resumed it").toEqual([]);
 		expect(ends).toEqual(["gone"]);
+	});
+
+	it("resumes one a wake pulled forward in the wake itself, unbounded, once the start's bounded resume gave it up", async () => {
+		const first = entry();
+		const woken = entry();
+		for (const held of [first, woken]) await roster.hold(held);
+		const inHost = engine();
+		const moved = children([woken.sessionId]);
+		const starved = new Error("its unit did not listen within 60000 ms");
+		moved.fake.resume.mockRejectedValueOnce(starved);
+		const order = heldOrder(roster);
+		const backend = backendWith(inHost, moved.fake, undefined, order);
+
+		const waking = backend.wake(woken.sessionId);
+		const { unresumed } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+			order,
+		});
+		await waking;
+
+		expect(unresumed).toEqual([
+			{ sessionId: woken.sessionId, reason: starved },
+		]);
+		expect(
+			moved.fake.resume.mock.calls,
+			"the start's own first, bounded, then the wake's",
+		).toEqual([
+			[woken, false, true],
+			[woken, true],
+		]);
+		expect(moved.fake.running(woken.sessionId), "its child runs it").toEqual(
+			shown(woken),
+		);
+		expect(
+			moved.fake.resume.mock.invocationCallOrder[0] ?? 0,
+			"pulled ahead of the one held before it",
+		).toBeLessThan(vi.mocked(inHost.resume).mock.invocationCallOrder[0] ?? 0);
+		expect(inHost.resume, "the start went on to the next").toHaveBeenCalledWith(
+			first,
+			false,
+			expect.anything(),
+		);
 	});
 
 	it("leaves a moved one resting parked, for its wake to start its child", async () => {

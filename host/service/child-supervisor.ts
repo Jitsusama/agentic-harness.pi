@@ -228,6 +228,14 @@ export interface ChildSupervisor {
 	 */
 	left(sessionId: string): Promise<void>;
 	/**
+	 * Give up the resume of `sessionId` under way, if one is, before its
+	 * child has it: the resume fails at once, its child is stopped and its
+	 * slot cleared, as at its listen or answer time, so whoever asked an
+	 * end of the conversation behind it, a close or release, needn't wait
+	 * on a starved child for STARVED_WITHIN_MS.
+	 */
+	giveUp(sessionId: string): void;
+	/**
 	 * Stop watching every child, leaving each running, one still being
 	 * set up among them, whose start then fails at once as the host's stop.
 	 */
@@ -325,6 +333,8 @@ interface Holding {
 	 * as a host's start does, though its answer still has its own time.
 	 */
 	bounded?: boolean;
+	/** Aborted when the resume it serves is given up, ending the watch unanswered. */
+	cut?: AbortSignal;
 }
 
 /**
@@ -372,6 +382,14 @@ export function childSupervisor(options: {
 	/** A child's conversation ended, as it said, its route already gone. */
 	ended?: (sessionId: string, why: ChildEnding) => void;
 	/**
+	 * A resume's child was given up and stopped, as a bounded one is at
+	 * its listen or answer time, before any ending could be heard: its
+	 * conversation is still held and runs nowhere, so whoever kept its
+	 * wake watches it again. Never heard as the host stops watching,
+	 * which leaves the child to the next host.
+	 */
+	gaveUp?: (sessionId: string) => void;
+	/**
 	 * A child's conversation became another, as it said, its route already
 	 * moved, so a repeat of the request that opened it names the one now.
 	 */
@@ -416,6 +434,8 @@ export function childSupervisor(options: {
 	setMaxListeners(0, stopping.signal);
 	// Each begin's first request in flight, so a stop can end it.
 	const asking = new Set<Socket>();
+	// What gives up each conversation's start under way, by its keyed id.
+	const cutting = new Map<string, AbortController>();
 	// Each conversation a child is starting for, so two asks start one.
 	const starting = new Map<string, Promise<SessionIdentity>>();
 	// Each slot a child is set up in, runs in or leaves, by its unit.
@@ -592,12 +612,18 @@ export function childSupervisor(options: {
 	 */
 	async function answered<T>(
 		slot: Slot,
-		{ by, bounded, ceiling }: { by: number; bounded: boolean; ceiling: number },
+		{
+			by,
+			bounded,
+			ceiling,
+			cut,
+		}: { by: number; bounded: boolean; ceiling: number; cut?: AbortSignal },
 		answer: (answerMs: number, signal: AbortSignal) => Promise<T>,
 	): Promise<T> {
 		const began = Date.now();
 		const ms = Math.max(1, Math.min(answersWithinMs, by - began));
-		if (bounded) return answer(ms, stopping.signal);
+		const ended = cut ? [stopping.signal, cut] : [stopping.signal];
+		if (bounded) return answer(ms, AbortSignal.any(ended));
 		const until = Math.max(ceiling, began + ms);
 		const givenUp = new AbortController();
 		let settled = false;
@@ -631,7 +657,7 @@ export function childSupervisor(options: {
 			// Its own time is a backstop past the judge's, which gives up first.
 			const result = await answer(
 				until - began + ASKED_EVERY_MS,
-				AbortSignal.any([stopping.signal, givenUp.signal]),
+				AbortSignal.any([...ended, givenUp.signal]),
 			);
 			judge?.done();
 			return result;
@@ -909,6 +935,7 @@ export function childSupervisor(options: {
 			by = Number.POSITIVE_INFINITY,
 			// A caller's `by` bounds its child too, as `once` takes it.
 			bounded = by !== Number.POSITIVE_INFINITY,
+			cut,
 		} = holding;
 		let current: string | undefined;
 		let over = false;
@@ -980,7 +1007,7 @@ export function childSupervisor(options: {
 		const watching = await once(
 			slot,
 			(ceiling) =>
-				answered(slot, { by, bounded, ceiling }, (answerMs, signal) =>
+				answered(slot, { by, bounded, ceiling, cut }, (answerMs, signal) =>
 					watchChild(
 						slot.socket,
 						answerMs,
@@ -1150,9 +1177,10 @@ export function childSupervisor(options: {
 	 * Start the child in `slot` and settle with what `work` makes of it,
 	 * once the last child to run there has left it; a child that never
 	 * gets that far is stopped, without waiting on its stop, and its slot
-	 * cleared, so no conversation runs where nothing watches it, unless
-	 * the host stopped watching, which leaves every child running for the
-	 * next host to take up.
+	 * cleared, so no conversation runs where nothing watches it, and a
+	 * resume's conversation said given up (`gaveUp`), unless the host
+	 * stopped watching, which leaves every child running for the next
+	 * host to take up.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
@@ -1174,15 +1202,41 @@ export function childSupervisor(options: {
 			});
 			return await work();
 		} catch (error) {
-			if (taken && !closing) void leave(slot, true);
+			if (taken && !closing) {
+				void leave(slot, true);
+				if (session) options.gaveUp?.(session.sessionId);
+			}
 			throw error;
 		}
 	}
 
+	/**
+	 * Resume `entry` in a child, as `resume` asks, until `giveUp` ends
+	 * it: each start is kept by its conversation while it runs.
+	 */
 	async function started(
 		entry: RosterEntry,
 		woken: boolean,
 		bounded: boolean,
+	): Promise<SessionIdentity> {
+		const { sessionId } = entry;
+		// Set first, so a give-up asked while it waits on an adopt counts.
+		const cut = new AbortController();
+		cutting.set(keyed(sessionId), cut);
+		try {
+			return await startedIn(entry, woken, bounded, cut.signal);
+		} finally {
+			if (cutting.get(keyed(sessionId)) === cut)
+				cutting.delete(keyed(sessionId));
+		}
+	}
+
+	/** Resume `entry` in a child of its own slot, until `cut` gives it up. */
+	async function startedIn(
+		entry: RosterEntry,
+		woken: boolean,
+		bounded: boolean,
+		cut: AbortSignal,
 	): Promise<SessionIdentity> {
 		await listing;
 		const { sessionId } = entry;
@@ -1205,6 +1259,8 @@ export function childSupervisor(options: {
 				))
 			)
 				throw new Error(`${sessionId} still runs in ${last.unit}`);
+		// Given up before its child starts, it starts none.
+		cut.throwIfAborted();
 		return inSlot(
 			slot,
 			entry,
@@ -1215,6 +1271,7 @@ export function childSupervisor(options: {
 						expected: sessionId,
 						named: sessionId,
 						bounded,
+						cut,
 					})
 				).conversation,
 		);
@@ -1481,6 +1538,15 @@ export function childSupervisor(options: {
 			// too: what it moved off stays named until its write has landed.
 			await movesLanded(sessionId);
 			stillWatching();
+		},
+		giveUp(sessionId) {
+			cutting
+				.get(keyed(sessionId))
+				?.abort(
+					new Error(
+						`The resume of ${sessionId} was given up before its child had it`,
+					),
+				);
 		},
 		close() {
 			closing = true;

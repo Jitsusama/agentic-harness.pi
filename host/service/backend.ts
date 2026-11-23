@@ -192,6 +192,13 @@ export interface BackendChildren {
 	 * while one still runs it, or once the host stops watching, so the host never runs it beside one.
 	 */
 	left(sessionId: string): Promise<void>;
+	/**
+	 * Give up a resume of this conversation under way in a child that
+	 * doesn't have it yet, stopping that child, so an end asked behind a
+	 * wake waiting on a starved one answers at once rather than when the
+	 * child does or its supervisor stops waiting. Nothing when none is.
+	 */
+	giveUp?(sessionId: string): void;
 }
 
 /**
@@ -644,6 +651,9 @@ export function hostBackend(options: {
 		const { sessionId, by } = request;
 		const why = request.op === "close" ? "closed" : "released";
 		const owed = startOwes(sessionId);
+		// A wake ahead of it in its turn may wait on a starved child for
+		// minutes: that resume is given up, so the end comes at once.
+		children?.giveUp?.(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
 			// A park under way holds it while no longer running: once settled,

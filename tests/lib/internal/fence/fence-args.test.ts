@@ -6,7 +6,7 @@
  */
 
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	fenceArgs,
 	fenceRefusesRead,
@@ -178,6 +178,28 @@ describe("the fence's arguments", () => {
 		).toEqual([]);
 	});
 
+	it("lays the same arguments for a place naming its own compile roots and caches, whatever runtime folder and account the machine runs it under", () => {
+		const named = {
+			...place,
+			compileRoots: ["/run/user/1000/pi-compile"],
+			tempCaches: ["/tmp/jiti"],
+		};
+		const everything: Disk = { kind: () => "folder", entries: () => [] };
+		const under = (runtime: string, uid: number) => {
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			const account = vi.spyOn(process, "getuid").mockReturnValue(uid);
+			try {
+				return fenceArgs(named, everything);
+			} finally {
+				account.mockRestore();
+				vi.unstubAllEnvs();
+			}
+		};
+		expect(under("/run/user/1000", 1000)).toEqual(
+			under("/run/user/4242", 4242),
+		);
+	});
+
 	it("hides where the login's runtime folder would be made, when it has none yet, so one made later is out of reach", () => {
 		const roots = ["/run/user/1000/pi-compile"];
 		const beforeLogin: Disk = {
@@ -189,6 +211,23 @@ describe("the fence's arguments", () => {
 			beforeLogin,
 		);
 		expect(args.join(" ")).toContain("--tmpfs /run/user ");
+	});
+
+	it("hides the folder two missing runtime folders would be made in once, not once a root", () => {
+		const roots = ["/run/user/1000/pi-compile", "/run/user/1001/pi-compile"];
+		const beforeLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user/") ? undefined : "folder"),
+			entries: () => [],
+		};
+		const args = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			beforeLogin,
+		);
+		expect(
+			args.filter(
+				(arg, at) => arg === "/run/user" && args[at - 1] === "--tmpfs",
+			),
+		).toHaveLength(1);
 	});
 
 	it("hides nothing above a missing runtime folder that holds the fence's own, or that is no plain folder", () => {

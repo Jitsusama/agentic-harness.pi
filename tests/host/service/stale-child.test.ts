@@ -76,9 +76,32 @@ describe("rollWhenStale", () => {
 		]);
 
 		fail = false;
+		const [again] = timers.due;
 		stop();
-		expect(timers.due).toEqual([]);
+		expect(timers.due, "its next look let go").toEqual([]);
+		// As a timer that fires as it is let go: stopped, it rolls nothing.
+		again?.run();
+		await new Promise((resolve) => setImmediate(resolve));
 		expect(roll).not.toHaveBeenCalled();
+	});
+
+	it("rolls at the look after one that threw, once the install answers", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let fail = true;
+		rollWhenStale(
+			async () => {
+				if (fail) throw new Error("unreadable install");
+				return "moved";
+			},
+			roll,
+			{ lookMs: 1, after: timers.after, report: () => undefined },
+		);
+		await timers.fire();
+		fail = false;
+		await timers.fire();
+		expect(roll).toHaveBeenCalledExactlyOnceWith("moved");
+		expect(timers.due, "rolled, it looks no more").toEqual([]);
 	});
 
 	it("rolls not once stopped while a look is under way, though that look finds the code stale", async () => {

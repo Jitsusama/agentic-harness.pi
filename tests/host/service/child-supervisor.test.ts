@@ -7,7 +7,7 @@
  * claims and leavings already have files of their own.
  */
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { childSupervisor } from "../../../host/service/child-supervisor.ts";
@@ -22,6 +22,7 @@ import {
 	ended,
 	entry,
 	folder,
+	growing,
 	key,
 	LISTENS_AFTER_MS,
 	pause,
@@ -36,15 +37,6 @@ import {
 } from "./support/supervised-children.ts";
 
 superviseEachTest();
-
-/** CPU said from `from` and growing by `step` at each ask, as a starved child's does. */
-function growing(from: number, step: number): () => number {
-	let spent = from - step;
-	return () => {
-		spent += step;
-		return spent;
-	};
-}
 
 describe("a resumed conversation", () => {
 	it("tells a child woken from a park that it was, so it doesn't rest parked again", async () => {
@@ -373,6 +365,23 @@ describe("a resumed conversation", () => {
 		expect(units.stopped, "its child left running").toEqual([]);
 	}, 15_000);
 
+	it("stops as stuck, naming its CPU, a child whose CPU grows at every ask but under its share over a whole listen time", async () => {
+		// 1.5 ms a second, 0.15% of a core: never the 5 ms of a 2 s listen
+		// time, even judged over a window a loaded machine stretches to 3 s.
+		superviseAgain({
+			clocks: { listensWithinMs: 2_000, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(50, 1.5);
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			/did not listen within \d+ ms, with 5[34] ms of CPU, only [34] ms of it in the last \d+ ms: it is stuck rather than starved$/,
+		);
+		await vi.waitFor(() =>
+			expect(units.stopped, "its child stopped").toEqual(units.started),
+		);
+	}, 15_000);
+
 	it("waits on a child whose first CPU ask systemd doesn't answer, asking again", async () => {
 		superviseAgain({
 			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
@@ -434,7 +443,7 @@ describe("a resumed conversation", () => {
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			/did not listen within \d+ ms, with 1300 ms of CPU$/,
+			/did not listen within \d+ ms, with 1\d{3} ms of CPU$/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	}, 15_000);
@@ -464,6 +473,79 @@ describe("a resumed conversation", () => {
 		expect(asks, "its CPU asked through the failures").toBeGreaterThan(3);
 		// Asked once a second, five times before it listens.
 	}, 15_000);
+
+	it("gives up a wake's resume waiting on a starved child as soon as asked, stopping that child", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(200, 20);
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow(
+			`The resume of ${a} was given up before its child had it`,
+		);
+		await vi.waitFor(() =>
+			expect(said.join("\n")).toContain("starved rather than stuck"),
+		);
+		const asked = Date.now();
+
+		supervisor.giveUp(a);
+
+		await outcome;
+		expect(Date.now() - asked, "at once, not at the ceiling").toBeLessThan(
+			1_000,
+		);
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
+		expect(routes.listed()).toEqual([]);
+	}, 15_000);
+
+	it("gives up a wake's resume whose starved child hasn't answered its watch, stopping that child", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { silent: true };
+		units.spent = growing(200, 20);
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow("was given up");
+		// Its answer is judged a second into its watch, past its 500 ms.
+		await vi.waitFor(
+			() => expect(said.join("\n")).toContain("hasn't answered its watch"),
+			{ timeout: 5_000 },
+		);
+
+		supervisor.giveUp(a);
+
+		await outcome;
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
+	}, 15_000);
+
+	it("starts no child for a resume given up while it waits on an adopt", async () => {
+		// A slot an earlier host left naming it, whose take-up waits on systemd.
+		await writeFile(
+			slotOf(folder, key, a).file,
+			JSON.stringify({ session: entry(a) }),
+		);
+		const answering = deferred();
+		units.goneAnswers = answering.promise;
+		const adopting = supervisor.adopt();
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow("was given up");
+
+		supervisor.giveUp(a);
+		answering.settle();
+
+		await outcome;
+		await adopting;
+		expect(units.started, "no child started").toEqual([]);
+	});
+
+	it("gives up nothing of a conversation whose child has it, nor of one not starting", async () => {
+		supervisor.giveUp(a);
+		await supervisor.resume(entry(a));
+
+		supervisor.giveUp(a);
+
+		expect(routes.routeOf(a), "still routed to its child").toBeDefined();
+		expect(units.stopped).toEqual([]);
+	});
 
 	it("stops waiting on a starved child whose unit ends", async () => {
 		superviseAgain({
@@ -528,11 +610,13 @@ describe("a resumed conversation", () => {
 		expect(routes.routeOf(a)?.socket).toBe(slotOf(folder, key, a).socket);
 		expect(units.stopped, "its child left running").toEqual([]);
 		const unit = slotOf(folder, key, a).unit;
+		// Its CPU counts from a second into the watch, and it is first judged
+		// at once then, past its 500 ms, so no time has passed to gain any.
 		expect(
 			said.filter((line) => line.includes("hasn't answered")),
 			"said once, as it waits on",
 		).toEqual([
-			`${unit} hasn't answered its watch in 500 ms, but has had only 20 ms of CPU since it was watched: it is starved rather than stuck, so it is waited on`,
+			`${unit} hasn't answered its watch in 500 ms, but has had only 0 ms of CPU since it was watched: it is starved rather than stuck, so it is waited on`,
 		]);
 		expect(
 			said.filter((line) => line.includes("answered its watch after")),
@@ -581,7 +665,7 @@ describe("a resumed conversation", () => {
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a), true)).rejects.toThrow(
-			/^The child gave its watch no answer within \d+ ms, with 1200 ms of CPU since it was watched$/,
+			/^The child gave its watch no answer within \d+ ms, with 1\d{3} ms of CPU since it was watched$/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	}, 15_000);

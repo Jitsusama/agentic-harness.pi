@@ -131,6 +131,50 @@ describe("installMovesFrom", () => {
 		expect(await moved()).toBe("the install's two changes the host's own code");
 	});
 
+	it("says nothing of a version its packages are still installing into, until they are", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		await version("two", "export const a = 2;\n");
+		await put(
+			"install/versions/two/pnpm-lock.yaml",
+			"lockfileVersion: '9.0'\n",
+		);
+		await symlink(one, join(root, "install", "current"));
+		const moved = installMovesFrom(one);
+		await moveTo("two");
+
+		expect(await moved(), "still installing").toBeUndefined();
+		await put("install/versions/two/node_modules/.modules.yaml", "{}\n");
+		expect(await moved(), "installed").toBe(
+			"the install's two changes the host's own code",
+		);
+	});
+
+	it("reads its own host code only at the first ask, not as it is made", async () => {
+		const one = join(root, "install", "versions", "one");
+		// Made before its version is written, as nothing is read until asked.
+		const moved = installMovesFrom(one);
+		await version("one", "export const a = 1;\n");
+		await version("same", "export const a = 1;\n");
+		await symlink(one, join(root, "install", "current"));
+		await moveTo("same");
+
+		expect(await moved(), "the same host code as its own").toBeUndefined();
+	});
+
+	it("reads each version's host code once, since none changes under its name", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		await version("same", "export const a = 1;\n");
+		await symlink(one, join(root, "install", "current"));
+		const moved = installMovesFrom(one);
+		await moveTo("same");
+		expect(await moved()).toBeUndefined();
+
+		await put("install/versions/one/host/a.ts", "export const a = 2;\n");
+		expect(await moved(), "its own as first read").toBeUndefined();
+		await put("install/versions/same/host/a.ts", "export const a = 3;\n");
+		expect(await moved(), "the install's as first read").toBeUndefined();
+	});
+
 	it("never moves for a version outside an install, such as a tree", async () => {
 		await put("tree/scripts/pi-host.ts", "export {};\n");
 		const moved = installMovesFrom(join(root, "tree"));
