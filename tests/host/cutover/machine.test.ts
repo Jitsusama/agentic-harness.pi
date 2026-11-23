@@ -327,7 +327,8 @@ describe("releaseFacts", () => {
 				held: [],
 				unheard: [],
 			});
-			// A socket left by a host that died: nothing listens on it.
+			// A file where a host's socket goes, as one that died can leave:
+			// nothing listens on it.
 			const stale = createServer();
 			await new Promise<void>((listening) =>
 				stale.listen(hostSocketPath("work", "attended", runtimeDir), listening),
@@ -336,7 +337,7 @@ describe("releaseFacts", () => {
 				stale.close(closed);
 			});
 			writeFileSync(hostSocketPath("work", "attended", runtimeDir), "");
-			expect(await facts.held(), "a stale socket").toEqual({
+			expect(await facts.held(), "a file where its socket goes").toEqual({
 				held: [],
 				unheard: [],
 			});

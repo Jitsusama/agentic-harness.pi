@@ -386,6 +386,19 @@ describe("releaseBack", () => {
 		);
 	});
 
+	it("tells none of all a heard host holds while the other stays unheard", async () => {
+		const realm = fakeRealm(
+			{ s1: { after: 0 }, s2: { after: 0 } },
+			{ conversations: [held("s1"), held("s2", "background")] },
+		);
+		realm.facts.held = unheardFor(realm, () => true);
+		const report = await releaseBack("all", realm.facts, 6_000);
+
+		expect(realm.told, "half a list never chooses who goes").toEqual([]);
+		expect(report.released).toEqual([]);
+		expect(report.unheard).toBe(UNHEARD);
+	});
+
 	it("says again once a minute that a host stays unheard", async () => {
 		const realm = leavesAfter(70);
 		realm.facts.held = unheardFor(realm, (look) => look >= 1 && look <= 65);
