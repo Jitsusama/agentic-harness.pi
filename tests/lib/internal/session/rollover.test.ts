@@ -28,6 +28,7 @@ import {
 	diskFinds,
 	type Entry,
 	leaveInParentLog,
+	logLines,
 	messagesOnDisk,
 	messagesOnDiskAsync,
 	ROLLOVER_RECORD,
@@ -732,6 +733,43 @@ function texts(entries: readonly Entry[]): string[] {
 			: "";
 	});
 }
+
+describe("a log's lines, read a chunk at a time", () => {
+	it("are every line of the log, whole past a chunk, letters of every width", () => {
+		const path = join(dir, "log.jsonl");
+		// Past two chunks, of letters two, four and one bytes wide.
+		const long = "é🌲a".repeat(300_000);
+		const lines = ["first", long, "", `${long}ü`, "last, cut short"];
+		writeFileSync(path, lines.join("\n"));
+
+		expect([...logLines(path)]).toEqual(lines);
+	});
+
+	it("add what each read brought in to the tally, the whole file in all", () => {
+		const path = join(dir, "log.jsonl");
+		writeFileSync(path, `one\n${"é🌲".repeat(400_000)}\nthree\n`);
+		const tally = { bytes: 0 };
+
+		const count = [...logLines(path, tally)].length;
+
+		expect(count).toBe(3);
+		expect(tally.bytes).toBe(readFileSync(path).length);
+	});
+
+	it("are none from a pipe, rather than a wait on it", () => {
+		const file = join(dir, "log.jsonl");
+		execFileSync("mkfifo", [file]);
+		// The pipe already holds a log and stays open for writing, so a
+		// reader that took it would find the line, and none can block.
+		const pipe = openSync(file, constants.O_RDWR | constants.O_NONBLOCK);
+		try {
+			expect(writeSync(pipe, "a line in a pipe\n")).toBe(17);
+			expect([...logLines(file)]).toEqual([]);
+		} finally {
+			closeSync(pipe);
+		}
+	});
+});
 
 describe("the fresh log on disk", () => {
 	it("is written whole, with no partial file left", () => {
