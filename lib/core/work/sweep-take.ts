@@ -110,7 +110,9 @@ export async function whyGitKeeps(
 		}
 	}
 	// No optional locks, so git reads the index rather than refreshing
-	// and writing back one that is about to be removed.
+	// and writing it back: a tree that may go needs no write, and one
+	// kept and put back is left as its session had it. Git still reads
+	// any file whose stat the index doesn't match, so a change shows.
 	const status = await exec("git", [
 		"-C",
 		aside,

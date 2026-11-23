@@ -1077,9 +1077,15 @@ describe("taking a tree in a repository of thousands", () => {
 				await git(aside, "rev-parse", "--absolute-git-dir"),
 				"index",
 			);
-			const before = statSync(index, { bigint: true }).mtimeNs;
+			// Git writes an index through a lock file it renames into place, so
+			// a new inode shows a rewrite where timestamps are too coarse to.
+			const stamp = () => {
+				const { ino, mtimeNs } = statSync(index, { bigint: true });
+				return `${ino}:${mtimeNs}`;
+			};
+			const before = stamp();
 			const result = await exec(command, args);
-			written.push(statSync(index, { bigint: true }).mtimeNs !== before);
+			written.push(stamp() !== before);
 			return result;
 		};
 
@@ -1093,6 +1099,35 @@ describe("taking a tree in a repository of thousands", () => {
 
 		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
 		expect(written, "the take's status left the index alone").toEqual([false]);
+	});
+
+	it("keeps a tree aside whose tracked file changed under a stale stat", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const tree = await cut("edited", ["--detach", "@", "main"]);
+		// The same size as what the index holds, and newer, so only reading
+		// the file, not its stat, shows git the change.
+		const edit: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				writeFileSync(join(where, ".gitignore"), "output/\n");
+				const later = new Date(Date.now() + 60_000);
+				lutimesSync(join(where, ".gitignore"), later, later);
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: edit,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it contains modified or untracked files" },
+		]);
+		expect(readFileSync(join(tree, ".gitignore"), "utf8")).toBe("output/\n");
 	});
 
 	it("leaves a tree cut at the same place mid-take its own git folder", async () => {
