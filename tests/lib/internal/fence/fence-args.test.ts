@@ -6,7 +6,7 @@
  */
 
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	fenceArgs,
 	fenceRefusesRead,
@@ -176,6 +176,28 @@ describe("the fence's arguments", () => {
 			).filter((path) => path?.startsWith("/run") && path !== "/run/dbus"),
 			"none, nor over a folder above, where no runtime folder can be made",
 		).toEqual([]);
+	});
+
+	it("lays the same arguments for a place naming its own compile roots and caches, whatever runtime folder and account the machine runs it under", () => {
+		const named = {
+			...place,
+			compileRoots: ["/run/user/1000/pi-compile"],
+			tempCaches: ["/tmp/jiti"],
+		};
+		const everything: Disk = { kind: () => "folder", entries: () => [] };
+		const under = (runtime: string, uid: number) => {
+			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+			const account = vi.spyOn(process, "getuid").mockReturnValue(uid);
+			try {
+				return fenceArgs(named, everything);
+			} finally {
+				account.mockRestore();
+				vi.unstubAllEnvs();
+			}
+		};
+		expect(under("/run/user/1000", 1000)).toEqual(
+			under("/run/user/4242", 4242),
+		);
 	});
 
 	it("hides where the login's runtime folder would be made, when it has none yet, so one made later is out of reach", () => {
