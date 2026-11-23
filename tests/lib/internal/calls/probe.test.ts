@@ -3,17 +3,33 @@
  * `a-call-is-on` does: 0 while a call is on, 1 while none is, anything
  * else when it can't tell, and 64 for arguments it doesn't take.
  */
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askCall } from "../../../../lib/internal/calls/probe.ts";
 
+let dir: string;
+
+beforeEach(() => {
+	dir = mkdtempSync(join(tmpdir(), "call-probe-"));
+});
+afterEach(() => {
+	rmSync(dir, { recursive: true, force: true });
+});
+
 /** A stand-in `a-call-is-on` of its own, running `body`. */
-function standIn(body: string): string {
-	const program = join(mkdtempSync(join(tmpdir(), "call-probe-")), "probe");
+function standIn(body: string, mode = 0o755): string {
+	const program = join(dir, `probe-${Math.random().toString(36).slice(2)}`);
 	writeFileSync(program, `#!/bin/sh\n${body}\n`);
-	chmodSync(program, 0o755);
+	chmodSync(program, mode);
 	return program;
 }
 
@@ -40,8 +56,8 @@ describe("asking whether a call is on", () => {
 		expect(await exits(64), "asked wrongly").toBeUndefined();
 	});
 
-	it("says once that the program isn't there, and answers unknown", async () => {
-		const program = join(mkdtempSync(join(tmpdir(), "call-probe-")), "gone");
+	it("says on each ask that the program isn't there", async () => {
+		const program = join(dir, "gone");
 		const cannotAsk = vi.fn();
 
 		const answers = [
@@ -53,34 +69,56 @@ describe("asking whether a call is on", () => {
 			undefined,
 			undefined,
 		]);
-		expect(cannotAsk, "said once, not on every ask").toHaveBeenCalledTimes(1);
-		expect(cannotAsk.mock.calls[0]?.[0]).toMatch(/not on the PATH/);
+		expect(
+			cannotAsk.mock.calls.map(([trouble]) => trouble.kind),
+			"each ask says it, for its caller to keep or drop",
+		).toEqual(["missing", "missing"]);
+		expect(cannotAsk.mock.calls[0]?.[0].why).toMatch(/isn't on the PATH/);
 	});
 
-	it("says once that the program doesn't take its arguments", async () => {
+	it("says which arguments the program refuses", async () => {
 		const program = standIn('[ "$1" = --here ] && exit 64; exit 1');
 		const cannotAsk = vi.fn();
 
 		await askCall({ program, args: ["--here"], timeoutMs: 5_000, cannotAsk });
-		await askCall({ program, args: ["--here"], timeoutMs: 5_000, cannotAsk });
 		const plain = await askCall({ program, timeoutMs: 5_000, cannotAsk });
 
-		expect(cannotAsk, "said once for --here").toHaveBeenCalledTimes(1);
-		expect(cannotAsk.mock.calls[0]?.[0]).toMatch(/--here/);
+		expect(cannotAsk, "only the refused ask says so").toHaveBeenCalledTimes(1);
+		expect(cannotAsk.mock.calls[0]?.[0]).toEqual({
+			kind: "refused",
+			why: `${program} doesn't take --here`,
+		});
 		expect(plain, "asked plainly, it answers").toBe(false);
 	});
 
-	it("keeps its one saying for a caller that listens", async () => {
-		const program = join(mkdtempSync(join(tmpdir(), "call-probe-")), "gone");
+	it("says a program refusing no arguments refuses to answer", async () => {
 		const cannotAsk = vi.fn();
 
-		await askCall({ program, timeoutMs: 5_000 });
-		await askCall({ program, timeoutMs: 5_000, cannotAsk });
+		await askCall({ program: standIn("exit 64"), timeoutMs: 5_000, cannotAsk });
+
+		expect(cannotAsk.mock.calls[0]?.[0].why).toMatch(
+			/refuses to answer with no arguments/,
+		);
+	});
+
+	it("says a program that is there but can't run is broken", async () => {
+		const cannotAsk = vi.fn();
+
+		await askCall({
+			program: standIn("exit 0", 0o644),
+			timeoutMs: 5_000,
+			cannotAsk,
+		});
+		await askCall({
+			program: standIn("a-command-that-is-not-there"),
+			timeoutMs: 5_000,
+			cannotAsk,
+		});
 
 		expect(
-			cannotAsk,
-			"a caller with nowhere to say it doesn't use up the saying",
-		).toHaveBeenCalledTimes(1);
+			cannotAsk.mock.calls.map(([trouble]) => trouble.kind),
+			"one that can't be executed, then one whose shell can't find a command",
+		).toEqual(["broken", "broken"]);
 	});
 
 	it("stops waiting at its time for a probe that won't stop when asked", async () => {
@@ -100,13 +138,18 @@ describe("asking whether a call is on", () => {
 	});
 
 	it("kills what a probe past its time started, not the probe alone", async () => {
-		const pidFile = join(mkdtempSync(join(tmpdir(), "call-probe-")), "pid");
-		// The probe starts a sleep of its own, then waits on it, ignoring TERM.
+		const pidFile = join(dir, "pid");
+		// The probe starts a sleep of its own, then waits on it, ignoring TERM;
+		// its time is long enough for a loaded machine to write the pid first.
 		const answer = await askCall({
-			program: standIn(`sleep 30 & echo $! > ${pidFile}; trap '' TERM; wait`),
-			timeoutMs: 300,
+			program: standIn(
+				`trap '' TERM; sleep 30 & echo $! > ${pidFile}.part; mv ${pidFile}.part ${pidFile}; wait`,
+			),
+			timeoutMs: 2_000,
 		});
+		expect(existsSync(pidFile), "the probe started its sleep").toBe(true);
 		const started = Number(readFileSync(pidFile, "utf8").trim());
+		expect(started, "the sleep's pid was written whole").toBeGreaterThan(0);
 		// The kill lands at once, but the kernel reaps the orphan a moment later.
 		const deadline = performance.now() + 2_000;
 		while (alive(started) && performance.now() < deadline) {
@@ -116,5 +159,5 @@ describe("asking whether a call is on", () => {
 
 		expect(answer, "a probe past its time says nothing").toBeUndefined();
 		expect(alive(started), "the sleep the probe started is gone").toBe(false);
-	});
+	}, 10_000);
 });

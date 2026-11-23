@@ -1,10 +1,75 @@
-import { describe, expect, it } from "vitest";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import {
 	CALL_KEPT_MS,
 	CALL_READ_MS,
 	callReader,
+	callWarning,
 	onCallIf,
+	probeCall,
 } from "../../../../lib/internal/priority/call.ts";
+
+/** A stand-in `a-call-is-on` running `body`, in a folder of its own. */
+function standIn(body: string): { program: string; dir: string } {
+	const dir = mkdtempSync(join(tmpdir(), "queue-call-"));
+	const program = join(dir, "a-call-is-on");
+	writeFileSync(program, `#!/bin/sh\n${body}\n`);
+	chmodSync(program, 0o755);
+	return { program, dir };
+}
+
+describe("the queue's call probe", () => {
+	it("asks about this machine alone, with --here", async () => {
+		const { program, dir } = standIn('[ "$1" = --here ] && exit 0; exit 1');
+		try {
+			expect(await probeCall(undefined, program), "asked with --here").toBe(
+				true,
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("passes why it can't ask on to its hearer", async () => {
+		const { program, dir } = standIn("exit 64");
+		const cannotAsk = vi.fn();
+		try {
+			await probeCall(cannotAsk, program);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+
+		expect(cannotAsk.mock.calls[0]?.[0]).toEqual({
+			kind: "refused",
+			why: `${program} doesn't take --here`,
+		});
+	});
+});
+
+describe("a session's warning that calls can't be held for", () => {
+	it("says the first reason once, however many it hears", () => {
+		const warning = callWarning();
+
+		expect(warning.take(), "nothing heard, nothing said").toBeUndefined();
+		warning.heard({ kind: "refused", why: "a-call-is-on doesn't take --here" });
+		warning.heard({ kind: "broken", why: "a-call-is-on can't be started" });
+
+		expect(warning.take(), "the first reason, said").toBe(
+			"a-call-is-on doesn't take --here, so heavy work starts even while you're on a call.",
+		);
+		warning.heard({ kind: "broken", why: "a-call-is-on can't be started" });
+		expect(warning.take(), "said once a session").toBeUndefined();
+	});
+
+	it("says nothing on a machine with no a-call-is-on at all", () => {
+		const warning = callWarning();
+		warning.heard({ kind: "missing", why: "a-call-is-on isn't on the PATH" });
+
+		expect(warning.take(), "nothing set up, nothing broken").toBeUndefined();
+	});
+});
 
 /** Lets a probe started in the background settle. */
 function flush(): Promise<void> {

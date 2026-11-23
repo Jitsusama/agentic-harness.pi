@@ -47,7 +47,9 @@ import {
 	backgroundTurns,
 } from "../../lib/internal/priority/background.ts";
 import {
+	type CallWarning,
 	callReader,
+	callWarning,
 	onCallIf,
 	probeCall,
 } from "../../lib/internal/priority/call.ts";
@@ -295,25 +297,19 @@ export interface Machine {
  * while it can't be: the first ask comes with the first keep, after the
  * session has started.
  */
-function sayCallUnasked(pi: ExtensionAPI): (why: string) => void {
-	let why: string | undefined;
-	let said = false;
+function sayCallUnasked(pi: ExtensionAPI): CallWarning["heard"] {
+	const warning = callWarning();
 	onTurnEnd(pi, (_turn, ctx) => {
-		if (said || why === undefined || !ctx.hasUI) return;
-		said = true;
-		ctx.ui.notify(
-			`${why}, so heavy work starts even while you're on a call.`,
-			"warning",
-		);
+		if (!ctx.hasUI) return;
+		const said = warning.take();
+		if (said) ctx.ui.notify(said, "warning");
 	});
-	return (reason) => {
-		why ??= reason;
-	};
+	return warning.heard;
 }
 
 function linuxMachine(
 	own: string | undefined,
-	cannotAsk: (why: string) => void,
+	cannotAsk: CallWarning["heard"],
 ): Machine {
 	const timedProcs = own ? jobsProcs(own, process.env.TIMED_CGROUP) : undefined;
 	const timed = timedProcs ? dirname(timedProcs) : undefined;
@@ -367,7 +363,7 @@ async function queueIn(dir: string): Promise<unknown> {
 	}
 }
 
-function macMachine(cannotAsk: (why: string) => void): Machine {
+function macMachine(cannotAsk: CallWarning["heard"]): Machine {
 	const room = darwinRoom();
 	// Read as the session loads, so the first tool call doesn't wait on
 	// sysctl; one that can't answer now is asked again later.

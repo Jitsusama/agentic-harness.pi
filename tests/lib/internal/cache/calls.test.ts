@@ -60,5 +60,5 @@ it("counts no call on a machine without the program, saying so once", async () =
 	];
 
 	expect([said, missing.mock.calls.length]).toEqual([[false, false], 1]);
-	expect(missing.mock.calls[0]?.[0]).toMatch(/not on the PATH/);
+	expect(missing.mock.calls[0]?.[0]).toMatch(/isn't on the PATH/);
 });

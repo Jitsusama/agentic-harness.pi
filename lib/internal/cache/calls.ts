@@ -3,9 +3,9 @@
  * cache warm that sends a whole conversation up the line. It asks
  * `a-call-is-on` the shared way (calls/probe.ts). A machine without the
  * program has nothing to say a call is on, so it counts as none, as does
- * an answer that can't tell or doesn't come in time; the missing program
- * is said once, so such a machine shows rather than warming through
- * calls unseen.
+ * an answer that can't tell or doesn't come in time; a program that
+ * can't be asked is said once a process, so such a machine shows rather
+ * than warming through calls unseen.
  */
 
 import { askCall } from "../calls/probe.ts";
@@ -15,6 +15,9 @@ const ASK_TIMEOUT_MS = 3_000;
 
 /** How often work held for a call looks again. */
 export const CALL_LOOK_MS = 15_000;
+
+/** Whether this process has said the program can't be asked. */
+let saidUnasked = false;
 
 /**
  * Whether a call is on now, as `program` says. `missing` hears, once,
@@ -32,7 +35,11 @@ export async function callIsOn(
 		timeoutMs: ASK_TIMEOUT_MS,
 		cannotAsk:
 			missing &&
-			((why) => missing(`${why}, so warms go whether or not a call is on`)),
+			((trouble) => {
+				if (saidUnasked) return;
+				saidUnasked = true;
+				missing(`${trouble.why}, so warms go whether or not a call is on`);
+			}),
 	});
 	return onCall === true;
 }

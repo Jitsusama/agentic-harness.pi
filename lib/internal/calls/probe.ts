@@ -3,7 +3,8 @@
  * everything that holds work back for one: the machine queue and a
  * prompt cache's warm. It exits 0 while a call is on, 1 while none is,
  * and anything else when it can't tell; 64 says it doesn't take the
- * arguments it was given, as sysexits names a usage error.
+ * arguments it was given, as sysexits names a usage error, and 126 or
+ * 127 that a shell it runs couldn't run something.
  *
  * The answer comes by its own timer, not the program's exit, and a
  * program past its time is killed outright with all it started, as a
@@ -12,9 +13,10 @@
  * each time it was asked. It runs where pi does, not among the jobs a
  * call holds back, where it would starve behind them.
  *
- * A program that isn't there, or won't take its arguments, can never
- * say a call is on, so whatever it guards is silently off. That is said
- * once per program and arguments, to the first caller that listens.
+ * A program that can't be asked can never say a call is on, so whatever
+ * it guards is off. Each ask says why to its caller, which decides how
+ * often to tell someone and whom: a process may hold several
+ * conversations, and each has its own person to tell.
  */
 
 import { spawn } from "node:child_process";
@@ -27,18 +29,27 @@ const CALL_PROGRAM = "a-call-is-on";
 /** The exit a program gives for arguments it doesn't take. */
 const REFUSED_EXIT = 64;
 
-/** The programs and arguments whose trouble has been said. */
-const said = new Set<string>();
+/** The exits a shell gives for a command it couldn't run or find. */
+const BROKEN_EXITS: ReadonlySet<number | null> = new Set([126, 127]);
+
+/**
+ * Why a call can't be asked about: the program isn't there, it refuses
+ * its arguments, or it is there but can't run.
+ */
+export interface CallTrouble {
+	readonly kind: "missing" | "refused" | "broken";
+	readonly why: string;
+}
 
 /** How a call is asked about. */
 export interface CallAsking {
 	/** The program to ask, `a-call-is-on` unless a test names another. */
-	readonly program?: string;
+	readonly program?: string | undefined;
 	readonly args?: readonly string[];
 	/** How long it may take before it counts as unknown. */
 	readonly timeoutMs: number;
-	/** Hears, once, why the program can't be asked at all. */
-	readonly cannotAsk?: (why: string) => void;
+	/** Hears, on each ask that meets it, why the program can't be asked. */
+	readonly cannotAsk?: ((trouble: CallTrouble) => void) | undefined;
 }
 
 /**
@@ -48,12 +59,8 @@ export interface CallAsking {
 export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 	const program = asking.program ?? CALL_PROGRAM;
 	const args = asking.args ?? [];
-	const sayOnce = (why: string) => {
-		const key = [program, ...args].join(" ");
-		if (asking.cannotAsk === undefined || said.has(key)) return;
-		said.add(key);
-		asking.cannotAsk(why);
-	};
+	const trouble = (kind: CallTrouble["kind"], why: string) =>
+		asking.cannotAsk?.({ kind, why });
 	return new Promise((resolve) => {
 		const child = withPi(() =>
 			spawn(program, args, { stdio: "ignore", detached: true }),
@@ -68,14 +75,30 @@ export function askCall(asking: CallAsking): Promise<boolean | undefined> {
 			resolve(onCall);
 		};
 		child.once("error", (error) => {
-			if (isRecord(error) && error.code === "ENOENT") {
-				sayOnce(`${program} is not on the PATH`);
+			const code = isRecord(error) ? error.code : undefined;
+			if (code === "ENOENT") {
+				trouble(
+					"missing",
+					`${program} isn't on the PATH, or the interpreter it names isn't there`,
+				);
+			} else {
+				trouble("broken", `${program} can't be started (${String(code)})`);
 			}
 			answer(undefined);
 		});
 		child.once("exit", (code) => {
 			if (code === REFUSED_EXIT) {
-				sayOnce(`${program} doesn't take ${args.join(" ") || "being asked"}`);
+				trouble(
+					"refused",
+					args.length > 0
+						? `${program} doesn't take ${args.join(" ")}`
+						: `${program} refuses to answer with no arguments`,
+				);
+			} else if (BROKEN_EXITS.has(code)) {
+				trouble(
+					"broken",
+					`${program} couldn't run what it needs (exit ${code})`,
+				);
 			}
 			answer(code === 0 ? true : code === 1 ? false : undefined);
 		});
