@@ -549,10 +549,27 @@ describe("the machine's queue folder", () => {
 			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
 		});
 
+		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {
+			const queue = queueFolder(dir, processes);
+			queue.ask(
+				job("unstamped", { since: new Date(NOW - 86_400_000).toISOString() }),
+			);
+			shellSays("unstamped", 100);
+			queue.keep(TIGHT, NOW, () => undefined);
+			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+		});
+	});
+
+	// A job stamped with its boot's token, kept by a session whose own
+	// read missed, as sysctl can under load; it is read again within half
+	// a minute.
+	describe("while the keeper can't read its own boot token", () => {
+		const booted = NOW - 60_000;
+		const beforeBoot = (ms: number) => new Date(booted - ms).toISOString();
+
 		// PV3TE0's round 2 (F12, F16): judged by the clock meanwhile, a job
-		// running since the boot was given up for a token read that missed,
-		// and is read again within half a minute.
-		it("keeps a stamped job, however long before the boot it is dated, while the keeper can't read its token", () => {
+		// running since the boot was given up, which can't be taken back.
+		it("keeps a stamped job, however long before the boot it is dated", () => {
 			let boot: string | undefined = "boot-1";
 			const queue = queueFolder(dir, {
 				...processes,
@@ -578,14 +595,27 @@ describe("the machine's queue folder", () => {
 			).toEqual(["long-before", "since"]);
 		});
 
-		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {
-			const queue = queueFolder(dir, processes);
-			queue.ask(
-				job("unstamped", { since: new Date(NOW - 86_400_000).toISOString() }),
-			);
-			shellSays("unstamped", 100);
+		// PV3TE0's round 3 (F3): a keeper that kept its first miss would
+		// hold every earlier boot's job for the life of its session.
+		it("gives up an earlier boot's job once its token reads again", () => {
+			let boot: string | undefined = "boot-0";
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(job("earlier", { since: beforeBoot(60_000) }));
+			shellSays("earlier", 100);
+			boot = undefined;
 			queue.keep(TIGHT, NOW, () => undefined);
-			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
+			expect(
+				record().jobs.map((one) => one.id),
+				"kept while it can't tell",
+			).toEqual(["earlier"]);
+
+			boot = "boot-1";
+			queue.keep(TIGHT, NOW + 1_000, () => undefined);
+			expect(record().jobs, "given up once it can").toEqual([]);
 		});
 	});
 

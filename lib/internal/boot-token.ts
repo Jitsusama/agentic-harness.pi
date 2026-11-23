@@ -45,8 +45,8 @@ export function readBootToken(sysctl = SYSCTL_PATH): string | undefined {
 		try {
 			return nonEmpty(readFileSync(LINUX_BOOT_ID_PATH, "utf8"));
 		} catch {
-			// No procfs (a container, an unusual mount): no token, so a
-			// reader falls back to what it judged by before tokens.
+			// No procfs (a container, an unusual mount): no token, and each
+			// reader judges as it does while it has none.
 			return undefined;
 		}
 	}
@@ -99,7 +99,9 @@ export function bootTokenReader(
 
 /**
  * The identifier of the boot this process is running under, or
- * undefined while none can be read, in which case what judges by boot
- * falls back to what it judged by before tokens.
+ * undefined while none can be read. Each reader says what it does
+ * meanwhile: the queue's keeper leaves a stamped job to its pid until a
+ * token reads (priority/folder.ts), and a liveness probe judges by the
+ * pid and its start time alone.
  */
 export const currentBootToken = bootTokenReader(() => readBootToken());

@@ -96,11 +96,12 @@ export const PID_MS = 30_000;
  * have begun to be taken as cut off by it. The boot's time is the clock
  * less the uptime, so it moves with the clock: one stepped forward after
  * the job was asked, as a Mac waking from sleep often is, puts the boot
- * after work running since it, and this is that step's room. The cost:
- * an unstamped job a reboot cut off within this of its start is judged
- * by its shell's pid alone, which a reboot may give another process.
- * Only jobs asked by a session before tokens, or while its token read
- * missed, go unstamped.
+ * after work running since it, and this is that step's room. It costs
+ * both ways: an unstamped job a reboot cut off within this of its start
+ * is judged by its shell's pid alone, which a reboot may give another
+ * process, and a step forward past this gives up an unstamped job still
+ * running, which can't be taken back. Only jobs asked by a session
+ * before tokens, or while its token read missed, go unstamped.
  */
 export const UNSTAMPED_BOOT_SLACK_MS = 15 * 60_000;
 
@@ -216,9 +217,10 @@ export interface Processes {
 	 * in that boot carries, for setting aside a job asked before it. A
 	 * token rather than a time, since a stepped clock moves a boot worked
 	 * out from uptime past jobs still running. A reader that can't say
-	 * leaves it out, or answers nothing while it can't; a job then is set
-	 * aside by {@link bootedAt} alone, with {@link UNSTAMPED_BOOT_SLACK_MS}
-	 * of room.
+	 * leaves it out, or answers nothing while it can't; a stamped job then
+	 * waits for a token, judged meanwhile by its shell's pid, and only an
+	 * unstamped one is set aside by {@link bootedAt}, with
+	 * {@link UNSTAMPED_BOOT_SLACK_MS} of room.
 	 */
 	bootToken?(): string | undefined;
 	/**
@@ -480,6 +482,28 @@ export function queueFolder(
 			: Math.min(Math.max(began, booted), now);
 	};
 
+	/**
+	 * When a job seen to have ended is remembered as ending, and whether a
+	 * boot cut it off, for one that said nothing of its end. Beside what
+	 * {@link cutOffAt} gives up, a job no token places in this boot whose
+	 * clock says it began before the boot, its shell gone, ended with the
+	 * boot: remembered as ending now, its run would span the time the
+	 * machine was down. Only its record is dated so, never whether it
+	 * ended, so a stepped clock costs one run's time, nothing running.
+	 */
+	const endOf = (job: Job, now: number): { at: number; cut: boolean } => {
+		const cutAt = cutOffAt(job, now);
+		if (cutAt !== undefined) return { at: cutAt, cut: true };
+		const thisBoot =
+			typeof job.boot === "string" && job.boot === processes.bootToken?.();
+		const bootedAt = processes.bootedAt?.();
+		const began = Date.parse(job.started ?? job.since);
+		if (!thisBoot && bootedAt !== undefined && began < bootedAt) {
+			return { at: Math.min(bootedAt, now), cut: true };
+		}
+		return { at: now, cut: false };
+	};
+
 	const ended = (job: Job, now: number) => {
 		// Asked in an earlier boot, it has ended, whatever its pid names now:
 		// a Mac's queue folder is its cache folder, which outlasts a reboot,
@@ -732,8 +756,8 @@ export function queueFolder(
 						.filter((job) => {
 							if (!ended(job, now)) return true;
 							// A job the boot cut off ended then, not when it was seen.
-							const cutAt = cutOffAt(job, now);
-							remember(job, cutAt ?? now, cutAt !== undefined);
+							const { at, cut } = endOf(job, now);
+							remember(job, at, cut);
 							drop(job.id);
 							return false;
 						})

@@ -116,6 +116,85 @@ describe("the machine's queue folder", () => {
 		});
 	});
 
+	// PV3TE0's round 3 (F4): its shell gone after a reboot, a job no token
+	// placed in this boot was dropped by its pid and remembered as ending
+	// when seen, its run spanning the hours the machine was down.
+	describe("for a job whose shell is gone and no token places in this boot", () => {
+		const booted = NOW - 3_600_000;
+		const started = booted - 120_000;
+
+		/** Asks `ended` under `asked`, ends its shell, keeps under `kept`. */
+		const endedUnder = async (
+			asked: string | undefined,
+			kept: string | undefined,
+			began = started,
+		) => {
+			const file = join(dir, "..", "state", "outcomes.jsonl");
+			let boot = asked;
+			const queue = queueFolder(
+				dir,
+				{ ...processes, bootToken: () => boot, bootedAt: () => booted },
+				undefined,
+				file,
+			);
+			queue.ask(
+				job("ended", {
+					since: new Date(began - 1000).toISOString(),
+					started: new Date(began).toISOString(),
+				}),
+			);
+			shellSays("ended", 100);
+			running.delete(100);
+			boot = kept;
+			queue.keep(ROOMY, NOW, () => undefined);
+			await queue.outcomesKept();
+			const [outcome] = readFileSync(file, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			return outcome;
+		};
+
+		it("keeps a stamped one the keeper can't place as ended at the boot, with no run time", async () => {
+			const outcome = await endedUnder("boot-1", undefined);
+
+			expect(outcome).toMatchObject({
+				id: "ended",
+				ended: new Date(booted).toISOString(),
+			});
+			expect(outcome).not.toHaveProperty("ranS");
+		});
+
+		it("keeps an unstamped one begun within the slack before the boot as ended at the boot", async () => {
+			const outcome = await endedUnder(undefined, "boot-2");
+
+			expect(outcome).toMatchObject({
+				id: "ended",
+				ended: new Date(booted).toISOString(),
+			});
+			expect(outcome).not.toHaveProperty("ranS");
+		});
+
+		it("keeps the run time of one its token places in this boot, though its clock dates it before", async () => {
+			const outcome = await endedUnder("boot-1", "boot-1");
+
+			expect(outcome).toMatchObject({
+				id: "ended",
+				ended: new Date(NOW).toISOString(),
+				ranS: (NOW - started) / 1000,
+			});
+		});
+
+		it("keeps the run time of one begun after the boot", async () => {
+			const outcome = await endedUnder("boot-1", undefined, booted + 60_000);
+
+			expect(outcome).toMatchObject({
+				id: "ended",
+				ranS: (NOW - booted - 60_000) / 1000,
+			});
+		});
+	});
+
 	/** A queue whose boot changes once `cut` is asked, and its outcomes file. */
 	const cutOff = (
 		bootedAt: number,
