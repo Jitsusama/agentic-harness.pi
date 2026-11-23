@@ -206,6 +206,37 @@ describe("refusing to run where the fence can't hold", () => {
 		}
 	});
 
+	it("grants a folder holding the runtime folder whose compiled code lies elsewhere, which strict refuses for the runtime folder alone", () => {
+		// Its compile root a link out of the holder, with both caches there,
+		// so the holder holds no compiled code and only the runtime folder
+		// itself is left for strict to refuse it by.
+		const holder = join(base, "runtime-only-holder");
+		const runtime = join(holder, "runtime");
+		const compiled = join(base, "compiled-elsewhere");
+		mkdirSync(runtime, { recursive: true });
+		mkdirSync(join(compiled, "host"), { recursive: true });
+		mkdirSync(join(compiled, "node"));
+		symlinkSync(compiled, join(runtime, "pi-compile"));
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		try {
+			const made = fenceRunText(asking(holder), {
+				env: {},
+				home,
+				sandbox: LAID,
+				platform: "linux",
+			});
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+			const strict =
+				unfencedFolder(holder, home, "strict", { mac: false }) ?? "granted";
+			expect(strict).toContain(
+				`which holds ${runtime}, a path the fence hides or keeps read-only`,
+			);
+			expect(strict).not.toContain("compiled");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("grants a folder in ~/src outside a repository on Linux, whose fence keeps it read-only, though strict and a Mac refuse it", () => {
 		const org = join(home, "src/github.com/org");
 		mkdirSync(org, { recursive: true });
