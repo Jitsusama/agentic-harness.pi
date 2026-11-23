@@ -90,6 +90,7 @@ import type { HeldChildren } from "./children.ts";
 import type { ControlReply } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { HostRoster } from "./roster.ts";
+import { startGate } from "./start-gate.ts";
 
 /** The shared roster, as far as the supervisor keeps it. */
 export type KeptRoster = Pick<
@@ -152,6 +153,14 @@ export const UNSETTLED_WITHIN_MS = 10_000;
  * so a child given less is most often started only to be stopped.
  */
 export const LEAST_FIRST_ASK_MS = 20_000;
+/**
+ * How many children may be between their unit's start and their first
+ * answer at once, whatever asked for each: a start's resumes, wakes and
+ * opens all built their conversations together on a loaded machine,
+ * each judged from when it was asked, so one still waiting was given up
+ * as slow and started again. The rest wait their turn (start-gate.ts).
+ */
+export const STARTS_AT_ONCE = 2;
 /**
  * How many times a leaving child's unit is stopped and waited on before
  * its slot is left in use and the stop is left to whoever reads why.
@@ -437,6 +446,8 @@ export function childSupervisor(options: {
 	const asking = new Set<Socket>();
 	// What gives up each conversation's start under way, by its keyed id.
 	const cutting = new Map<string, AbortController>();
+	// Every child start waits its turn here, its windows timed from it.
+	const gate = startGate(STARTS_AT_ONCE);
 	// Each conversation a child is starting for, so two asks start one.
 	const starting = new Map<string, Promise<SessionIdentity>>();
 	// Each slot a child is set up in, runs in or leaves, by its unit.
@@ -1183,17 +1194,32 @@ export function childSupervisor(options: {
 	 * stopped watching, which leaves every child running for the next
 	 * host to take up. A woken one is said too: a window's attach may wake
 	 * one nothing watches, and the host keeps the watch of one whose
-	 * sleeper still stands (F23), writing back only its marker.
+	 * sleeper still stands (F23), writing back only its marker. It starts
+	 * only once the gate gives it a turn, as `turn` asks, which its work
+	 * holds until it settles, so the work's own windows count from the
+	 * unit's start; a wait the host's stop, a give-up or its caller's `by`
+	 * ends starts nothing.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
 		session: RosterEntry | undefined,
 		woken: boolean,
+		turn: { ahead: boolean; by: number; cut?: AbortSignal },
 		work: () => Promise<T>,
 	): Promise<T> {
 		// Taken only once free, so a slot another child runs in is left be.
 		let taken = false;
+		let giveBack = (): void => undefined;
 		try {
+			giveBack = await gate.turn({
+				ahead: turn.ahead,
+				by: turn.by,
+				signal: turn.cut
+					? AbortSignal.any([stopping.signal, turn.cut])
+					: stopping.signal,
+				late: () =>
+					new Error(`${slot.unit} waited past its time for its turn to start`),
+			});
 			await claimed(slot.unit, async () => {
 				if (!(await free(slot)))
 					throw new Error(`A child runs in ${slot.unit} already`);
@@ -1210,6 +1236,8 @@ export function childSupervisor(options: {
 				if (session) options.gaveUp?.(session.sessionId);
 			}
 			throw error;
+		} finally {
+			giveBack();
 		}
 	}
 
@@ -1264,10 +1292,12 @@ export function childSupervisor(options: {
 				throw new Error(`${sessionId} still runs in ${last.unit}`);
 		// Given up before its child starts, it starts none.
 		cut.throwIfAborted();
+		// A wake goes ahead: someone wrote to it.
 		return inSlot(
 			slot,
 			entry,
 			woken,
+			{ ahead: woken, by: Number.POSITIVE_INFINITY, cut },
 			async () =>
 				(
 					await watch(slot, {
@@ -1481,7 +1511,8 @@ export function childSupervisor(options: {
 				...(request.quest !== undefined ? { quest: request.quest } : {}),
 				...(request.env !== undefined ? { launch: request.env } : {}),
 			};
-			return inSlot(slot, undefined, false, async () => {
+			// Ahead, as a wake: its caller waits on it.
+			return inSlot(slot, undefined, false, { ahead: true, by }, async () => {
 				const reply = await firstAsked(slot, request, by);
 				// A stop during the ask ends it, and the begin with it.
 				stillWatching();
