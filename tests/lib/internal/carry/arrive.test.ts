@@ -297,6 +297,45 @@ describe("arriving with a carried session", () => {
 		expect(await at("caught")).toBe(was.caught);
 	});
 
+	it("takes a view of origin's x/y from a twin with a branch x of its own", async () => {
+		const home = folder(made, "arriving");
+		const twinAt = join(home, "src", "twin");
+		const { origin, from, head } = await carried(
+			undefined,
+			{},
+			async (tree) => {
+				await git(tree, "push", "-q", "origin", "main:x/y");
+				const twin = await cloneAt(
+					await git(tree, "remote", "get-url", "origin"),
+					twinAt,
+				);
+				await git(twin, "branch", "x", "main");
+			},
+		);
+		const tree = join(home, "src", "app");
+
+		const { whole } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
+		const main = await git(origin, "rev-parse", "main");
+		expect(
+			await git(
+				tree,
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				"refs/remotes/",
+				"refs/carry/",
+			),
+			"the twin's own x, cloned as origin's, makes way for origin's x/y",
+		).toBe(
+			[
+				`refs/remotes/origin/main ${main}`,
+				`refs/remotes/origin/x/y ${main}`,
+			].join("\n"),
+		);
+	});
+
 	it("claims nothing of an origin it can't list, keeping every branch's commit aside", async () => {
 		const home = folder(made, "arriving");
 		const twinAt = join(home, "src", "twin");
@@ -336,6 +375,10 @@ describe("arriving with a carried session", () => {
 			// Its own main runs a commit past origin's.
 			const past = await git(
 				twinAt,
+				"-c",
+				"user.name=Twin",
+				"-c",
+				"user.email=twin@example.com",
 				"commit-tree",
 				"main^{tree}",
 				"-p",

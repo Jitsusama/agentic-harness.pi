@@ -57,20 +57,30 @@ export async function takeView(
 	const inTwin = (under: string) => refsOf(git, under, `--git-dir=${twin}`);
 	const viewed = await inTwin(REMOTE);
 	const view =
-		viewed !== undefined && viewed.size > 0
-			? viewed
-			: await inTwin("refs/heads/");
-	const held = await refsOf(git, REMOTE);
-	if (view === undefined || held === undefined) {
-		return "git couldn't read the twin's view of its origin.";
+		typeof viewed !== "string" && viewed.size === 0
+			? await inTwin("refs/heads/")
+			: viewed;
+	if (typeof view === "string") {
+		return `git couldn't read the twin's view of its origin: ${view}`;
 	}
-	const lines = [
-		...[...held.keys()]
-			.filter((name) => !view.has(name))
-			.map((name) => `delete ${REMOTE}${name}`),
-		...[...view].map(([name, commit]) => `update ${REMOTE}${name} ${commit}`),
-	];
-	return setRefs(git, lines, "take the twin's view of its origin");
+	const held = await refsOf(git, REMOTE);
+	if (typeof held === "string") {
+		return `git couldn't read its origin branches: ${held}`;
+	}
+	// A twin ref moved since the clone names a commit not here; it is
+	// left out rather than failing the rest.
+	const here = await present(git, [...view.values()]);
+	if (typeof here === "string") return here;
+	const kept = [...view].filter(([, commit]) => here.has(commit));
+	const names = new Set(kept.map(([name]) => name));
+	return setRefs(
+		git,
+		[...held.keys()]
+			.filter((name) => !names.has(name))
+			.map((name) => `${REMOTE}${name}`),
+		kept.map(([name, commit]) => [`${REMOTE}${name}`, commit]),
+		"take the twin's view of its origin",
+	);
 }
 
 /**
@@ -82,7 +92,9 @@ export async function takeView(
  */
 export async function holdToOrigin(git: ViewGit): Promise<string | undefined> {
 	const ours = await refsOf(git, REMOTE);
-	if (ours === undefined) return "git couldn't read its origin branches.";
+	if (typeof ours === "string") {
+		return `git couldn't read its origin branches: ${ours}`;
+	}
 	const listed = await git.run(...BOUNDED, "ls-remote", "--heads", "origin");
 	const theirs =
 		listed.code === 0 ? named(listed.stdout, "refs/heads/") : undefined;
@@ -93,30 +105,40 @@ export async function holdToOrigin(git: ViewGit): Promise<string | undefined> {
 		git,
 		moved.flatMap(([name]) => theirs?.get(name) ?? []),
 	);
-	const lines = moved.flatMap(([name, commit]) => {
+	if (typeof here === "string") return here;
+	const gone: string[] = [];
+	const set: [string, string][] = [];
+	for (const [name, commit] of moved) {
 		const there = theirs?.get(name);
-		if (theirs !== undefined && there === undefined) {
-			return [`delete ${REMOTE}${name}`];
-		}
 		if (there !== undefined && here.has(there)) {
-			return [`update ${REMOTE}${name} ${there}`];
+			set.push([`${REMOTE}${name}`, there]);
+			continue;
 		}
-		return [`delete ${REMOTE}${name}`, `update ${ASIDE}${name} ${commit}`];
-	});
-	return setRefs(git, lines, "hold its origin branches to origin");
+		gone.push(`${REMOTE}${name}`);
+		if (theirs === undefined || there !== undefined) {
+			set.push([`${ASIDE}${name}`, commit]);
+		}
+	}
+	return setRefs(git, gone, set, "hold its origin branches to origin");
 }
 
-/** The commits of `commits` this tree holds, asked of git at once. */
+/**
+ * The commits of `commits` this tree holds, asked of git at once; or why
+ * git couldn't say.
+ */
 async function present(
 	git: ViewGit,
 	commits: readonly string[],
-): Promise<Set<string>> {
+): Promise<Set<string> | string> {
 	if (commits.length === 0) return new Set();
 	const checked = await git.fed(
 		commits.map((commit) => `${commit}^{commit}`),
 		"cat-file",
 		"--batch-check=%(objectname) %(objecttype)",
 	);
+	if (checked.code !== 0) {
+		return `git couldn't say which commits are here: ${checked.stderr.trim()}`;
+	}
 	const found = new Set<string>();
 	for (const line of checked.stdout.split("\n")) {
 		const [commit, type] = line.trim().split(" ");
@@ -125,32 +147,44 @@ async function present(
 	return found;
 }
 
-/** The lines applied as one update-ref transaction; why not, or nothing. */
+/**
+ * The refs `gone` deleted, then the refs `set` written, each as one
+ * update-ref transaction: deleting first frees a name such as `x` that a
+ * ref `x/y` written after needs. Answers why not, or nothing.
+ */
 async function setRefs(
 	git: ViewGit,
-	lines: readonly string[],
+	gone: readonly string[],
+	set: readonly (readonly [string, string])[],
 	doing: string,
 ): Promise<string | undefined> {
-	if (lines.length === 0) return undefined;
-	const set = await git.fed(lines, "update-ref", "--stdin");
-	return set.code === 0
-		? undefined
-		: `git couldn't ${doing}: ${set.stderr.trim()}`;
+	for (const lines of [
+		gone.map((ref) => `delete ${ref}`),
+		set.map(([ref, commit]) => `update ${ref} ${commit}`),
+	]) {
+		if (lines.length === 0) continue;
+		const done = await git.fed(lines, "update-ref", "--stdin");
+		if (done.code !== 0) return `git couldn't ${doing}: ${done.stderr.trim()}`;
+	}
+	return undefined;
 }
 
-/** The refs under `under`, by name below it, but its HEAD; or nothing. */
+/**
+ * The refs under `under`, by name below it, but its HEAD; or git's word
+ * on why it couldn't read them.
+ */
 async function refsOf(
 	git: ViewGit,
 	under: string,
 	...before: string[]
-): Promise<Map<string, string> | undefined> {
+): Promise<Map<string, string> | string> {
 	const read = await git.run(
 		...before,
 		"for-each-ref",
 		"--format=%(objectname) %(refname)",
 		under,
 	);
-	if (read.code !== 0) return undefined;
+	if (read.code !== 0) return read.stderr.trim() || `git exited ${read.code}`;
 	const refs = named(read.stdout, under);
 	refs.delete("HEAD");
 	return refs;

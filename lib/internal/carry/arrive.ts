@@ -33,7 +33,6 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
@@ -538,10 +537,12 @@ function treeGit(exec: Exec, path: string): TreeGit {
 			return result.code === 0 ? result.stdout.trim() : undefined;
 		},
 		fed: async (lines, ...args) => {
-			// Exec gives no stdin, so the lines go through a file sh reads in.
-			const folder = mkdtempSync(join(tmpdir(), "carry-git-"));
-			const file = join(folder, "in");
+			// Exec gives no stdin, so the lines go through a file sh reads in,
+			// kept in the tree's own .git, which goes with it if it's refused.
+			let folder: string | undefined;
 			try {
+				folder = mkdtempSync(join(path, ".git", "carry-in-"));
+				const file = join(folder, "in");
 				writeFileSync(file, `${lines.join("\n")}\n`);
 				return await exec("sh", [
 					"-c",
@@ -551,8 +552,13 @@ function treeGit(exec: Exec, path: string): TreeGit {
 					path,
 					...args,
 				]);
+			} catch (error) {
+				// Exec answers rather than throws, and so does this.
+				return { code: 1, stdout: "", stderr: String(error) };
 			} finally {
-				rmSync(folder, { recursive: true, force: true });
+				if (folder !== undefined) {
+					rmSync(folder, { recursive: true, force: true });
+				}
 			}
 		},
 	};
