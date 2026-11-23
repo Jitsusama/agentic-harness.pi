@@ -243,6 +243,22 @@ describe("a new conversation", () => {
 		expect(units.cpuAsks, "its refusal not held up by asking systemd").toBe(0);
 	});
 
+	it("gives a starved child no more than its answer time to answer its watch, since its caller waits on it", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { answersWatchAfterMs: 2_500 };
+		units.spent = growing(200, 20);
+		const asked = Date.now();
+
+		await expect(supervisor.begin(opening("open-17"))).rejects.toThrow(
+			"The child gave its watch no answer within 500 ms",
+		);
+		expect(
+			Date.now() - asked,
+			"within its answer time, not a starved child's",
+		).toBeLessThan(2_000);
+		expect(units.cpuAsks, "its refusal not held up by asking systemd").toBe(0);
+	});
+
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
 		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
 		units.next = { silent: true };
