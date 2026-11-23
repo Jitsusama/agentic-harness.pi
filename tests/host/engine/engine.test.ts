@@ -133,7 +133,9 @@ interface Seen {
 	/**
 	 * What a resumed, an adopted and a switched-to conversation held of
 	 * their compacted logs; whether the switched-to one was closed before
-	 * the switch; and whether the switch opened its log.
+	 * the switch; whether the switch opened its log; and whether kept
+	 * history ran on the host's pi-ai, which pins the fixture's hook order,
+	 * not the engine's late import.
 	 */
 	readonly keptHistory?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */

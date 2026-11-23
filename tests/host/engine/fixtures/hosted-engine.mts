@@ -107,7 +107,13 @@ const { ROLLOVER_RECORD } = await import(
 	"../../../../lib/internal/session/rollover.ts"
 );
 
-/** Whether kept history's pi-ai is the one the host's pi installs. */
+/**
+ * Whether kept history's pi-ai is the one the host's pi installs. It
+ * checks this fixture's load order, its hook before its own rollover
+ * import, not that the engine loads kept history late: the engine itself
+ * loads after the hook here, so that order is held by
+ * program-binds-no-pi-at-load.test.ts and pi-host.test.ts instead.
+ */
 function keptHistoryOnHostPi(): boolean {
 	const installed = realpathSync(
 		join(packageDir, "node_modules/@earendil-works/pi-ai"),
