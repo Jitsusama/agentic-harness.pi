@@ -23,12 +23,18 @@
  * so no reaper spares what the close stops; one it handed on stays its
  * taker's.
  *
- * Every call takes its record back as it ends, on the loop a host's
- * conversations share, and most calls never wrote one: asking the disk
- * for a name that isn't there held that loop up to 12 s under load. So
- * the process keeps which records it wrote (kept.ts), and a call it
- * wrote none for asks nothing; one it wrote is removed off the thread,
- * set aside first, so a hand-off while it goes can put it back.
+ * A call that ends on its own takes its record back as it settles, and
+ * most calls never wrote one: asking the disk, on the loop a host's
+ * conversations share, for a name that isn't there held that loop up to
+ * 12 s under load. So the process keeps which records it wrote
+ * (kept.ts), and a call it wrote none for asks nothing; one it wrote is
+ * removed off the thread, set aside first, so a hand-off while it goes
+ * can put it back. A call this pi stopped or timed out leaves its record
+ * to its files' removal, waiting on nothing. Writing a record, and a
+ * session's close taking back those it holds, stay on the thread: the
+ * close must take them back before it stops their jobs, and only calls
+ * handed to a job have records, so a hold naming a `.job` file can still
+ * come from either.
  */
 
 import {
@@ -94,6 +100,11 @@ export interface ForgetOwnOptions {
 	readonly waitMs?: number;
 	/** The clock a removal's time is read from. */
 	readonly now?: () => number;
+	/**
+	 * The call's stop: once it lands the wait ends, saying nothing, as the
+	 * call's files then go with its record, and the person asked for it.
+	 */
+	readonly signal?: AbortSignal;
 }
 
 /**
@@ -204,11 +215,20 @@ export async function forgetOwnKeptJob(
 		timer = setTimeout(() => done("waited"), waitMs);
 		timer.unref();
 	});
+	const { signal } = options;
+	let hear: (() => void) | undefined;
+	const stopped = new Promise<"stopped">((done) => {
+		hear = () => done("stopped");
+		if (signal?.aborted) hear();
+		else signal?.addEventListener("abort", hear, { once: true });
+	});
 	const ended = await Promise.race([
 		going.then(() => "removed" as const),
 		waited,
+		stopped,
 	]);
 	clearTimeout(timer);
+	if (hear) signal?.removeEventListener("abort", hear);
 	if (ended === "waited") {
 		process.stderr.write(
 			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, and ${whatFollows(keep, removal)}\n`,
@@ -219,10 +239,14 @@ export async function forgetOwnKeptJob(
 /**
  * What follows from a removal of the record kept at `keep` still going
  * as its call settles, from where the record stands now: a call handed
- * on is its taker's to record, a record at its name again is one a pi
- * gone meanwhile would take up, and one set aside no start reads.
+ * on is its taker's to record, unless its files went since, as a move
+ * that couldn't be written removes them; a record at its name again is
+ * one a pi gone meanwhile would take up, and one set aside no start
+ * reads.
  */
 function whatFollows(keep: string, removal: JobRecordRemoval): string {
+	if (removal.gone)
+		return "the call's files went meanwhile, so nothing takes it up";
 	if (removal.handed)
 		return "the call was handed on meanwhile, so a pi gone before its taker records it leaves the call to strays";
 	if (removal.setAside && !ownsJobRecord(keep))
