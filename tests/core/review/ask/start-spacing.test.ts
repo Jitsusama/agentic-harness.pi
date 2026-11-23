@@ -23,6 +23,8 @@ const SPACING = 600;
 const LOOK = 10;
 /** How early a Node timer may fire against `Date.now()`. */
 const TIMER_EARLY_MS = 2;
+/** How late a promise may settle after the start it answers. */
+const SETTLED_LATE_MS = 50;
 /** A process id nothing holds, for a ticket its process left behind. */
 const GONE = 999_999_001;
 
@@ -110,10 +112,17 @@ describe("spacing council starts on one machine", () => {
 		for (const [place, each] of starts.entries()) {
 			const before = starts[place - 1];
 			if (before === undefined) continue;
-			expect(
-				each.at - before.at,
-				`${each.by} a spacing after`,
-			).toBeGreaterThanOrEqual(SPACING - TIMER_EARLY_MS);
+			const gap = each.at - before.at;
+			// Each start is read when its promise settles, which may come a
+			// few milliseconds after the start itself on a loaded machine.
+			expect(gap, `${each.by} a spacing after`).toBeGreaterThanOrEqual(
+				SPACING - SETTLED_LATE_MS,
+			);
+			// The regression this guards: rounds waiting behind gaps, so
+			// starts came several spacings apart. Loose, for a loaded machine.
+			expect(gap, `${each.by} not held past its turn`).toBeLessThan(
+				2 * SPACING,
+			);
 		}
 		expect(starts[2]?.waited).toContain(
 			"1 round ahead, behind o/r#ISXEG8 (asked by ISXEG8)",
@@ -349,13 +358,17 @@ describe("spacing council starts on one machine", () => {
 		).toBeGreaterThanOrEqual(come.getTime() + SPACING - TIMER_EARLY_MS);
 	});
 
-	it("reads a line cut short as nobody waiting", async () => {
+	// A garbled line lost its last start, so reading it as empty would let
+	// the next round start with no spacing at all.
+	it("spaces from now when the line is cut short, and writes it whole again", async () => {
 		mkdirSync(join(folder, "starts"), { recursive: true });
 		writeFileSync(linePath(), "{ cut short");
+		const asked = Date.now();
 
-		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+		await awaitCouncilStart(path, claim("ISXEG8"));
 
-		expect(start.waited).toBeUndefined();
+		expect(Date.now()).toBeGreaterThanOrEqual(asked + SPACING - TIMER_EARLY_MS);
+		expect(line().started.by).toBe("ISXEG8");
 	});
 });
 
