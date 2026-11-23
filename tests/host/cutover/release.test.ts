@@ -52,7 +52,10 @@ function fakeRealm(
 		told.includes(ADDRESSES[session]?.[0] ?? session) &&
 		looks > (closes[session]?.after ?? Number.POSITIVE_INFINITY);
 	const facts: ReleaseFacts = {
-		held: async () => conversations.filter((one) => !gone(one.session)),
+		held: async () => ({
+			held: conversations.filter((one) => !gone(one.session)),
+			unheard: [],
+		}),
 		addressesOf: (session) =>
 			// Its presence goes once it has closed.
 			gone(session) ? [] : (ADDRESSES[session] ?? []),
@@ -300,25 +303,133 @@ describe("releaseBack", () => {
 	// conversation "closed without a note" while its run went on, since a
 	// host too loaded to answer its list read as holding nothing
 	// (2QZBX9 [c498fc60]).
-	it("passes over a look no host answered, rather than read every one as gone", async () => {
-		const realm = leavesAfter(12);
-		const held = realm.facts.held;
-		let looks = 0;
-		realm.facts.held = async () => {
-			looks += 1;
-			if (looks === 2)
-				throw new Error("the background host didn't say what it holds");
-			return held();
-		};
+	it("passes over looks its host didn't answer for longer than the grace, rather than read it as gone", async () => {
+		const realm = leavesAfter(20);
+		// Looks 2 to 11, the first ten after it is told, go unheard: 20 s
+		// of looks, past the grace.
+		const unheard = (look: number) => look >= 2 && look <= 11;
+		realm.facts.held = unheardFor(realm, unheard);
 		const report = await releaseBack("all", realm.facts, 120_000);
 
 		expect(report.lost, realm.said.join("\n")).toEqual([]);
 		expect(report.released).toMatchObject([
 			{ address: "AAAAAA", opened: "launcher" },
 		]);
-		expect(realm.said).toContain(
-			"looking again: the background host didn't say what it holds",
+		expect(
+			realm.refreshedAt,
+			"restore.json is written only as it really leaves, and at the end",
+		).toEqual([21, 29]);
+		expect(
+			realm.said.filter((line) => line.includes("looking again")),
+			"said once while the reason holds, under a minute",
+		).toEqual([`looking again: ${UNHEARD}`]);
+		expect(report.unheard).toBeUndefined();
+	});
+
+	it("reads only the unheard host's conversations as unknown, seeing the other host's leave", async () => {
+		const realm = fakeRealm(
+			{ s1: { after: 1000, note: false }, s2: { after: 0 } },
+			{ conversations: [held("s1"), held("s2", "background")] },
 		);
+		// The attended host goes unheard from the third look after the tell.
+		realm.facts.held = unheardFor(realm, (look) => look >= 4);
+		const report = await releaseBack("all", realm.facts, 40_000);
+
+		expect(report.released.map((one) => one.address)).toEqual(["BBBBBB"]);
+		expect(report.lost, "never read as gone").toEqual([]);
+		expect(
+			realm.refreshedAt,
+			"written as the background one left, and at the end",
+		).toEqual([1, 20]);
+		expect(realm.calledOff, "it never left, so it stays hosted").toEqual([
+			"AAAAAA",
+		]);
+	});
+
+	it("settles as left for pi, not called off, one whose host stays unheard to the deadline and whose note says it left", async () => {
+		const realm = fakeRealm({ s1: { after: 3 } });
+		// Heard as it is told, then unheard to the end.
+		realm.facts.held = unheardFor(realm, (look) => look >= 2);
+		const report = await releaseBack("all", realm.facts, 10_000);
+
+		expect(realm.calledOff, realm.said.join("\n")).toEqual([]);
+		expect(report.waiting).toEqual([]);
+		expect(report.released).toMatchObject([
+			{ address: "AAAAAA", opened: "launcher" },
+		]);
+		expect(report.unheard).toBe(UNHEARD);
+	});
+
+	it("looks again until the first look hears every host, then tells only what it found", async () => {
+		const realm = fakeRealm({ s1: { after: 0 } });
+		realm.facts.held = unheardFor(realm, (look) => look <= 2);
+		const report = await releaseBack("all", realm.facts, 60_000);
+
+		expect(realm.told).toEqual(["AAAAAA"]);
+		expect(report.released.map((one) => one.address)).toEqual(["AAAAAA"]);
+		expect(realm.said[0]).toBe(`looking again: ${UNHEARD}`);
+	});
+
+	it("tells nobody when no first look hears every host before the deadline", async () => {
+		const realm = fakeRealm({ s1: { after: 0 } });
+		const held = realm.facts.held;
+		realm.facts.held = async () => {
+			await held();
+			throw new Error("Host control request timed out; outcome unknown");
+		};
+		const report = await releaseBack(["AAAAAA"], realm.facts, 6_000);
+
+		expect(realm.told).toEqual([]);
+		expect(report.unknown).toEqual(["AAAAAA"]);
+		expect(report.unheard).toBe(
+			"Host control request timed out; outcome unknown",
+		);
+	});
+
+	it("says again once a minute that a host stays unheard", async () => {
+		const realm = leavesAfter(70);
+		realm.facts.held = unheardFor(realm, (look) => look >= 1 && look <= 65);
+		await releaseBack("all", realm.facts, 300_000);
+
+		expect(realm.said.filter((line) => line.includes("looking again"))).toEqual(
+			[
+				`looking again: ${UNHEARD}`,
+				`still looking again: ${UNHEARD}`,
+				`still looking again: ${UNHEARD}`,
+			],
+		);
+	});
+
+	// A look that misses one, then a look that times out, as a loaded
+	// host gives: the grace must not run out across the unheard look.
+	it("waits its grace from the next heard look for one a look missed before an unheard one", async () => {
+		const realm = leavesAfter(20);
+		const held = realm.facts.held;
+		let looks = 0;
+		realm.facts.held = async () => {
+			looks += 1;
+			if (looks === 2) return { held: [], unheard: [] };
+			if (looks === 3) {
+				// A request that timed out took 30 s.
+				await realm.facts.pause(30_000);
+				return { held: [], unheard: [{ kind: "attended", why: UNHEARD }] };
+			}
+			return held();
+		};
+		const report = await releaseBack("all", realm.facts, 300_000);
+
+		expect(report.lost, realm.said.join("\n")).toEqual([]);
+		expect(realm.reopened, "opened once, after it left").toEqual(["s1"]);
+	});
+
+	it("names one that never leaves a note as lost once the grace is out, even offering only", async () => {
+		const realm = fakeRealm({ s1: { after: 0, note: false } });
+		const report = await releaseBack("all", realm.facts, 60_000, {
+			reopen: false,
+		});
+
+		expect(report.lost).toEqual(["AAAAAA"]);
+		expect(realm.clock()).toBeGreaterThanOrEqual(REOPEN_GRACE_MS);
 	});
 
 	it("waits again on one a look missed and the next found held", async () => {
@@ -327,7 +438,7 @@ describe("releaseBack", () => {
 		let looks = 0;
 		realm.facts.held = async () => {
 			looks += 1;
-			return looks === 2 ? [] : held();
+			return looks === 2 ? { held: [], unheard: [] } : held();
 		};
 		const report = await releaseBack("all", realm.facts, 120_000);
 
@@ -352,6 +463,31 @@ describe("releaseBack", () => {
 		expect(report.released).toMatchObject([{ opened: "offered" }]);
 	});
 });
+
+/** Why the attended host went unheard, in the tests. */
+const UNHEARD =
+	"the attended host didn't say what it holds: Host control request timed out; outcome unknown";
+
+/**
+ * The realm's looks, the attended host unheard on each look `unheard`
+ * picks, counting from 1; the background host still answers.
+ */
+function unheardFor(
+	realm: ReturnType<typeof fakeRealm>,
+	unheard: (look: number) => boolean,
+): ReleaseFacts["held"] {
+	const held = realm.facts.held;
+	let looks = 0;
+	return async () => {
+		looks += 1;
+		const look = await held();
+		if (!unheard(looks)) return look;
+		return {
+			held: look.held.filter((one) => one.kind !== "attended"),
+			unheard: [{ kind: "attended", why: UNHEARD }],
+		};
+	};
+}
 
 /**
  * A realm whose one conversation runs on past `looks` looks and then

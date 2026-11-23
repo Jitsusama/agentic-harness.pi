@@ -55,7 +55,12 @@ import { parseListResult } from "../service/protocol.ts";
 import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
-import type { HeldConversation, ReleaseFacts } from "./release.ts";
+import type {
+	HeldConversation,
+	HostsLook,
+	ReleaseFacts,
+	UnheardHost,
+} from "./release.ts";
 import type { TakeUpFacts } from "./take-up.ts";
 import {
 	type MachineWindows,
@@ -129,47 +134,45 @@ function calledOffOf(presence: Presence | undefined): MoveOff | undefined {
 }
 
 /**
- * Every conversation the realm's two hosts hold. A host not listening
- * holds none; one listening that won't say, as a host too loaded to
- * answer in time, rejects the look when `unheard` is "refuse", rather
- * than reading as holding nothing, and is passed over when it is "skip".
+ * Every conversation the realm's two hosts hold, and each host that
+ * listens but didn't say what it holds: one too loaded to answer in
+ * time, one that closed before its reply, or one whose list this
+ * version can't read, as a host on another runtime may answer mid
+ * cutover. A host not listening holds none. The cutover passes an
+ * unheard host over; the release reads its conversations as unknown.
  */
 async function listHeld(
 	realm: string,
 	runtimeDir: string | undefined,
-	unheard: "refuse" | "skip",
-): Promise<HeldConversation[]> {
+): Promise<HostsLook> {
 	const held: HeldConversation[] = [];
+	const unheard: UnheardHost[] = [];
 	for (const kind of ["attended", "background"] as const) {
-		let reply: Awaited<ReturnType<typeof controlRequest>>;
 		try {
-			reply = await controlRequest(hostSocketPath(realm, kind, runtimeDir), {
-				v: 1,
-				id: randomUUID(),
-				op: "list",
-			});
+			const reply = await controlRequest(
+				hostSocketPath(realm, kind, runtimeDir),
+				{ v: 1, id: randomUUID(), op: "list" },
+			);
+			if (!reply.ok) {
+				unheard.push(unheardHost(kind, reply.error.message));
+				continue;
+			}
+			const { sessions, host } = parseListResult(reply.result);
+			for (const one of sessions)
+				held.push({ session: one.sessionId, host: host.key, kind });
 		} catch (error) {
-			if (nothingListens(error) || unheard === "skip") continue;
-			throw new UnheardHost(kind, error);
+			if (!nothingListens(error)) unheard.push(unheardHost(kind, error));
 		}
-		if (!reply.ok) {
-			if (unheard === "skip") continue;
-			throw new UnheardHost(kind, reply.error.message);
-		}
-		const { sessions, host } = parseListResult(reply.result);
-		for (const one of sessions)
-			held.push({ session: one.sessionId, host: host.key, kind });
 	}
-	return held;
+	return { held, unheard };
 }
 
-/** A host that listens but didn't say what it holds. */
-class UnheardHost extends Error {
-	constructor(kind: HostKind, why: unknown) {
-		super(
-			`the ${kind} host didn't say what it holds: ${why instanceof Error ? why.message : String(why)}`,
-		);
-	}
+/** A host that listens but didn't say what it holds, and why. */
+function unheardHost(kind: HostKind, why: unknown): UnheardHost {
+	return {
+		kind,
+		why: `the ${kind} host didn't say what it holds: ${messageOf(why)}`,
+	};
 }
 
 /** Pause for `ms`, between looks. */
@@ -235,7 +238,7 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 	const moves = places.moves ?? moveFolder();
 	const quests = places.quests ?? join(dataDir("quest-workflow"), "quests");
 	return {
-		held: () => listHeld(places.realm, places.runtimeDir, "refuse"),
+		held: () => listHeld(places.realm, places.runtimeDir),
 		addressesOf: (session) => presences.of(session)?.addresses ?? [],
 		tell: (address) => {
 			giveSteer(steer, address, {
@@ -391,9 +394,9 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 			// conversation: it has gone once the host neither lists it nor
 			// keeps it on its roster, which a host down still resumes.
 			if (note.from !== undefined) {
-				const listed = await listHeld(places.realm, places.runtimeDir, "skip");
+				const listed = await listHeld(places.realm, places.runtimeDir);
 				if (
-					listed.some(
+					listed.held.some(
 						(one) => one.session === note.session && one.host === note.from,
 					)
 				)
@@ -408,7 +411,7 @@ export function machineFacts(places: CutoverPlaces): CutoverFacts & MoveFacts {
 		},
 		held: async () =>
 			new Map(
-				(await listHeld(places.realm, places.runtimeDir, "skip")).map((one) => [
+				(await listHeld(places.realm, places.runtimeDir)).held.map((one) => [
 					one.session,
 					one.host,
 				]),
