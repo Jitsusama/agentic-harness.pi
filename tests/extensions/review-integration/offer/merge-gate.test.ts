@@ -122,6 +122,34 @@ describe("a repo's merge gate", () => {
 		}
 	});
 
+	it("reads a queued base only on a forge whose queue lands the change", () => {
+		// 23 November: World's main moved 40 times in 140 seconds, so a
+		// gate that compared it before and after refused nearly every merge.
+		const WORLD = "delta:shop/world";
+		const queued = (repo: string, base: unknown) =>
+			gateFor({ merge: { gates: { [repo]: { command: "x", base } } } }, repo);
+		expect(queued(WORLD, "queued"), "Delta's queue lands it").toEqual({
+			kind: "gate",
+			command: "x",
+			minutes: DEFAULT_GATE_MINUTES,
+			queued: true,
+		});
+		expect(
+			queued(CORE, "queued"),
+			"GitHub merges onto the base its gate read, so it must be read",
+		).toMatchObject({
+			kind: "malformed",
+			problem: expect.stringContaining("github merges a change when asked"),
+		});
+		expect(
+			queued(WORLD, "unread"),
+			"a base that isn't queued is refused, naming it",
+		).toMatchObject({
+			kind: "malformed",
+			problem: expect.stringContaining('may only be "queued", not "unread"'),
+		});
+	});
+
 	it("refuses a key a gate doesn't read, so a misspelt time isn't the default", () => {
 		expect(
 			gateFor(

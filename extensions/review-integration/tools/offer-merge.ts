@@ -17,6 +17,7 @@ import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
 import {
 	baseTip,
+	type Gate,
 	gateFor,
 	gateRefusal,
 	missingCheckout,
@@ -200,6 +201,7 @@ async function gated(
 	}
 	const missing = await missingCheckout(gate, gating.cwd);
 	if (missing !== undefined) return { refused: missing };
+	if (gate.queued) return await queuedGate(gate, head, bound, change, gating);
 	const before = await baseTip(base, gating.cwd, gating.run);
 	if ("unread" in before) {
 		return {
@@ -208,25 +210,9 @@ async function gated(
 	}
 	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
 	if (refused !== undefined) return { refused };
+	const moved = await headMovedWhileGated(head, bound, change);
+	if (moved !== undefined) return { refused: moved };
 	const passed = `The merge gate passed ${head.slice(0, 12)}`;
-	let now: string | undefined;
-	try {
-		now = (await bound.proposal())?.headCommit;
-	} catch (error) {
-		return {
-			refused: `${passed}, but reading the head of ${change.label} again failed: ${error instanceof Error ? error.message : String(error)}. Not merged; merge again once it can be read.`,
-		};
-	}
-	if (!now) {
-		return {
-			refused: `${passed}, but the head of ${change.label} couldn't be read again afterwards to show nothing landed while it ran. Not merged.`,
-		};
-	}
-	if (now !== head) {
-		return {
-			refused: `${change.label} moved to ${now.slice(0, 12)} while its merge gate read ${head.slice(0, 12)}, so what would merge is not what the gate passed. Not merged; merge again to gate the new head.`,
-		};
-	}
 	const after = await baseTip(base, gating.cwd, gating.run);
 	if ("unread" in after) {
 		return {
@@ -239,6 +225,50 @@ async function gated(
 		};
 	}
 	return { passed: head, base: { name: base, at: after.at } };
+}
+
+/**
+ * A gate on a forge whose queue lands the change on main's newest tip:
+ * the head is held to what the gate read, as every gate's is, but the
+ * base is neither read nor handed on to be read after approval, since
+ * the queue, not this merge, chooses what the change lands on.
+ */
+async function queuedGate(
+	gate: Gate,
+	head: string,
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	gating: MergeGating,
+): Promise<{ refused: string } | { passed: string }> {
+	const refused = await gateRefusal(gate, head, gating.cwd, gating.run);
+	if (refused !== undefined) return { refused };
+	const moved = await headMovedWhileGated(head, bound, change);
+	return moved === undefined ? { passed: head } : { refused: moved };
+}
+
+/**
+ * Why the change's head, read again once its gate passed, is not the
+ * one the gate read, or nothing when it still is.
+ */
+async function headMovedWhileGated(
+	head: string,
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+): Promise<string | undefined> {
+	const passed = `The merge gate passed ${head.slice(0, 12)}`;
+	let now: string | undefined;
+	try {
+		now = (await bound.proposal())?.headCommit;
+	} catch (error) {
+		return `${passed}, but reading the head of ${change.label} again failed: ${error instanceof Error ? error.message : String(error)}. Not merged; merge again once it can be read.`;
+	}
+	if (!now) {
+		return `${passed}, but the head of ${change.label} couldn't be read again afterwards to show nothing landed while it ran. Not merged.`;
+	}
+	if (now !== head) {
+		return `${change.label} moved to ${now.slice(0, 12)} while its merge gate read ${head.slice(0, 12)}, so what would merge is not what the gate passed. Not merged; merge again to gate the new head.`;
+	}
+	return undefined;
 }
 
 /**

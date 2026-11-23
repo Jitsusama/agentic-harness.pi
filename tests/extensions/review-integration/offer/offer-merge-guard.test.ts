@@ -98,24 +98,35 @@ const PUSHED = "0f3c9a1d7e2b4c6a8d0e1f2a3b4c5d6e7f8a9b0c";
 
 /**
  * A backend that merges, and records whether it was ever asked to. Its
- * change reads as `read` says, at AT unless a test moves it.
+ * change reads as `read` says, at AT unless a test moves it, on the
+ * forge `forge` names.
  */
-function mergingProvider(read: () => Change = () => proposal) {
+function mergingProvider(
+	read: () => Change = () => proposal,
+	forge = "meteorite",
+) {
 	const merges: unknown[] = [];
+	const key = `${forge}:shop/world`;
 	const provider = stubProvider({
-		id: "meteorite",
+		id: forge,
 		priority: 50,
-		claimRepo: () => ({ key: "meteorite:shop/world" }),
+		claimRepo: () => ({ key }),
 		claimReference: (input) => ({
-			provider: "meteorite",
-			repo: { key: "meteorite:shop/world" },
+			provider: forge,
+			repo: { key },
 			id: input,
 			label: `shop/world#${input}`,
 		}),
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
 			changes: {
-				fetch: async () => read(),
+				fetch: async () => {
+					const change = read();
+					return {
+						...change,
+						ref: { ...change.ref, provider: forge, repo: { key } },
+					};
+				},
 				diff: unused("diff a change"),
 			},
 			authoring: {
@@ -132,9 +143,13 @@ function mergingProvider(read: () => Change = () => proposal) {
 	return { provider, merges };
 }
 
-/** Name `command` as the stub repo's merge gate in the package config. */
-function gateIs(command: string): void {
+/**
+ * Name `command` as the stub repo's merge gate in the package config,
+ * on the forge `forge` names, its base queued when `queued` says.
+ */
+function gateIs(command: string, forge = "meteorite", queued = false): void {
 	mkdirSync(dirname(packageConfigPath()), { recursive: true });
+	const gate = { command, minutes: 1, ...(queued ? { base: "queued" } : {}) };
 	writeFileSync(
 		packageConfigPath(),
 		JSON.stringify({
@@ -142,7 +157,7 @@ function gateIs(command: string): void {
 			sections: {
 				review: {
 					merge: {
-						gates: { "meteorite:shop/world": { command, minutes: 1 } },
+						gates: { [`${forge}:shop/world`]: gate },
 					},
 				},
 			},
@@ -398,6 +413,78 @@ describe("merging behind a head guard", () => {
 			"while the merge was being approved",
 		);
 		expect(merges, "a pair nothing built isn't merged").toEqual([]);
+	});
+
+	it("merges past a base that moved, under a queue that lands it on the newest tip", async () => {
+		// 23 November: World's main moved 40 times in 140 seconds, so a
+		// gate comparing it refused nearly every merge Merge Garden would
+		// have put onto the newest tip anyway.
+		const { checkout, root, moveMain } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider(() => proposal, "delta");
+		registerReviewProvider(provider);
+		gateIs(`${moveMain} && test ${AT} =`, "delta", true);
+
+		let answer: unknown;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"no refusal names the base moving",
+		).not.toContain("moved on origin from");
+		expect(merges, "the gated head goes to the queue").toEqual([
+			{ expectedHead: AT },
+		]);
+	});
+
+	it("still refuses a head that moved while a queued gate ran", async () => {
+		const { checkout, root } = checkoutWithOrigin();
+		const pushed = join(root, "pushed");
+		const { provider, merges } = mergingProvider(
+			() =>
+				existsSync(pushed) ? { ...proposal, headCommit: PUSHED } : proposal,
+			"delta",
+		);
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(pushed)} && test ${AT} =`, "delta", true);
+
+		let answer: unknown;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"the refusal names the head it moved to",
+		).toContain(`moved to ${PUSHED.slice(0, 12)} while its merge gate read`);
+		expect(merges, "nothing the gate didn't read is merged").toEqual([]);
+	});
+
+	it("refuses a queued base on a forge that merges when asked", async () => {
+		// Not `github`, whose real provider activate() registers over a stub
+		// of that id; any forge but a queue's is refused alike.
+		const { checkout, root } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider(() => proposal, "gitea");
+		registerReviewProvider(provider);
+		gateIs(`test ${AT} =`, "gitea", true);
+
+		let answer: unknown;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(
+			JSON.stringify(answer),
+			"the refusal says why its base must be read",
+		).toContain("gitea merges a change when asked");
+		expect(merges, "nothing merges").toEqual([]);
 	});
 
 	it("merges once approved when the base stayed put", async () => {
