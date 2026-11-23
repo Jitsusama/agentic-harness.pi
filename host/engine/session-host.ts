@@ -143,6 +143,8 @@ export class SessionHost implements Host {
 	private wokenInDrain?: Set<string>;
 	// Whether a window views a conversation, as the host's screens say.
 	private readonly viewedBy?: (sessionId: string) => boolean;
+	// Whether the host's own code is stale, so its conversations roll.
+	private stale = false;
 
 	constructor(options: {
 		key: string;
@@ -425,6 +427,16 @@ export class SessionHost implements Host {
 	/** Whether a window views this conversation now; none without screens. */
 	viewed(id: string): boolean {
 		return this.viewedBy?.(id) ?? false;
+	}
+
+	/** Whether this conversation parks at its next quiet moment, as its host's code is stale and no window views it. */
+	rolling(id: string): boolean {
+		return this.stale && !this.viewed(id);
+	}
+
+	/** Say the host's own code is stale for good; each conversation reads it at its next look. */
+	roll(): void {
+		this.stale = true;
 	}
 
 	/** Start or lift a drain; each conversation reads it at its next look. */

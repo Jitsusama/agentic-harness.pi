@@ -34,7 +34,9 @@ import { followWhatStarts } from "./restart.ts";
 import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 import { hostSettings } from "./settings.ts";
+import { rollWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
+import { installMovesFrom } from "./what-starts.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -203,6 +205,7 @@ export async function startHostProgram(
 		report,
 	});
 	let engine: HostEngine | undefined;
+	let rollable: { roll(): void } | undefined;
 	const run = await runHost({
 		argv,
 		env,
@@ -211,6 +214,7 @@ export async function startHostProgram(
 		engine: async (host) => {
 			const engineDir = join(stateDir("host-engine"), host.key);
 			child?.hosts(host);
+			rollable = host;
 			engine = await createEngine({
 				packageDir: configured.packageDir,
 				stateDir: engineDir,
@@ -246,9 +250,23 @@ export async function startHostProgram(
 		contain: (sessionId, error) => screens.faulted(sessionId, error),
 	});
 	// A child is started fresh for each conversation, on whatever its
-	// supervisor runs then: it never restarts itself.
-	if (child)
+	// supervisor runs then: it never restarts itself, but once its
+	// install's host code moves on, its conversation parks at its next
+	// quiet moment, so its next wake starts a fresh child on current code.
+	if (child) {
+		const unroll = rollWhenStale(
+			installMovesFrom(hostRoot()),
+			(why) => {
+				report(
+					`Rolling onto new code, as ${why}: the conversation parks at its next quiet moment unless a window views it`,
+				);
+				rollable?.roll();
+			},
+			{ report },
+		);
+		run.stopped.then(unroll, unroll);
 		return { ...run, ending: child.life.ending, restarts: () => false };
+	}
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
 	const { exitToRestart, restarts } = restartingByExit(run, report);

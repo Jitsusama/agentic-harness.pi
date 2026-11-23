@@ -78,6 +78,14 @@ export interface Host {
 	 */
 	draining?(sessionId: string): boolean;
 	/**
+	 * Whether this conversation rolls onto new host code: its host's own
+	 * code is stale and no window views it, so it parks as soon as its park
+	 * rule holds, idle time aside, and its next wake starts on current
+	 * code. Unlike a drain, a roll holds no wake. Asked at each look. A
+	 * host that never rolls leaves it out.
+	 */
+	rolling?(sessionId: string): boolean;
+	/**
 	 * Whether a window views this conversation now, so the person may be
 	 * reading it and would pay its wake at their next key. Asked at each
 	 * look. A host without screens leaves it out.

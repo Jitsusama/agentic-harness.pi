@@ -556,12 +556,15 @@ export function watch(
 	// How long it waits idle before it parks: not at all while its host
 	// drains for a restart, since on 16 November the background host's 17
 	// conversations took turns that overlapped for over an hour, and no
-	// moment came with none running. PI_PARK=off keeps it awake still.
+	// moment came with none running. Nor while its host's code is stale,
+	// since on 22 November 15 children ran host code 34 hours old, and its
+	// next wake starts it on current code. PI_PARK=off keeps it awake still.
 	const dueAfterMs = (): number | undefined => {
 		const usual = parkAfterMs(session, options.env, options.switchPath);
 		if (env[PARK_ENV] === "off") return usual;
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
+			if (hosted()?.rolling?.(session) === true) return 0;
 			if (!inBackgroundHost(options.platform)) return usual;
 			// One a window views may be read by the person, whose next key
 			// would wait out its wake, so it waits as an attended one does,

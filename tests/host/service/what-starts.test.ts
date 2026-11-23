@@ -122,7 +122,7 @@ describe("installMovesFrom", () => {
 		await version("same", "export const a = 1;\n");
 		await version("two", "export const a = 2;\n");
 		await symlink(one, join(root, "install", "current"));
-		const moved = await installMovesFrom(one);
+		const moved = installMovesFrom(one);
 
 		expect(await moved(), "unmoved").toBeUndefined();
 		await moveTo("same");
@@ -133,7 +133,7 @@ describe("installMovesFrom", () => {
 
 	it("never moves for a version outside an install, such as a tree", async () => {
 		await put("tree/scripts/pi-host.ts", "export {};\n");
-		const moved = await installMovesFrom(join(root, "tree"));
+		const moved = installMovesFrom(join(root, "tree"));
 		expect(await moved()).toBeUndefined();
 	});
 });
