@@ -1236,7 +1236,7 @@ describe("the work broker's records", () => {
 		expect(trees).not.toContain(a);
 	});
 
-	it("see a holder a moving reading went past, before a release takes the tree", async () => {
+	it("name a holder a moving reading went past", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
 		const one = join(root, "trees", "one");
@@ -1266,6 +1266,30 @@ describe("the work broker's records", () => {
 
 		expect(listings).toBe(3);
 		expect(others).toEqual([other]);
+	});
+
+	it("refuse to judge a tree's holders when its own record can't be read again", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one);
+		const record = recordOf(dir, one);
+		let listings = 0;
+		// Read once while the folder moves, then out of descriptors by the
+		// time its own record is read again.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			if (listings === 1)
+				recordedElsewhere(dir, join(root, "trees", "more"), ["s-2"]);
+			if (listings === 2) disk.unreadableOnThread = record;
+		};
+		const facts = { alive: () => true, startedAt: async () => 1 };
+
+		await expect(
+			createTreeMemory(dir).otherHolders(one, facts),
+			"a release must not judge from the first read",
+		).rejects.toThrow(/EMFILE/);
 	});
 
 	it("read again on the thread a name that held no record when first read", () => {
