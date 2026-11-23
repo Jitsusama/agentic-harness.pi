@@ -457,30 +457,58 @@ async function eachAtOnce<T, R>(
 	return out;
 }
 
-/** One reading of `dir` off the thread, as it stood while it was read. */
-async function listingOff(dir: string): Promise<Found[]> {
-	let names: string[];
+/**
+ * The records a reading has read, by file name: a listing the directory
+ * moved under is listed again, and only the names it holds no record
+ * for are read. A file that held no record when read, gone or half
+ * written, stays out, so a later listing that names it reads it again:
+ * a record removed and written again at its key during one reading is
+ * still found.
+ */
+type ReadSoFar = Map<string, Found>;
+
+/** The names of the records in `dir`, listed off the thread. */
+async function namesOff(dir: string): Promise<string[]> {
 	try {
-		names = await readdir(dir);
+		return (await readdir(dir)).filter((name) => name.endsWith(".json"));
 	} catch (error) {
 		// No directory yet is no records; anything else fails the reading,
 		// so a reader keeps what it had rather than swapping in none.
 		if (isGone(error)) return [];
 		throw error;
 	}
-	const read = await eachAtOnce(
-		names.filter((name) => name.endsWith(".json")),
-		READS_AT_ONCE,
-		async (name) => {
-			const at = join(dir, name);
-			try {
-				return parsedRecord(at, await readFile(at, "utf8"));
-			} catch (error) {
-				return unreadRecord(error);
-			}
-		},
-	);
-	return read.filter((one): one is Found => one !== undefined);
+}
+
+/** Each of `names` that `read` lacks, read off the thread into it. */
+async function readNewOff(
+	dir: string,
+	names: readonly string[],
+	read: ReadSoFar,
+): Promise<void> {
+	const fresh = names.filter((name) => !read.has(name));
+	const found = await eachAtOnce(fresh, READS_AT_ONCE, async (name) => {
+		const at = join(dir, name);
+		try {
+			return parsedRecord(at, await readFile(at, "utf8"));
+		} catch (error) {
+			return unreadRecord(error);
+		}
+	});
+	for (const [at, name] of fresh.entries()) {
+		const one = found[at];
+		if (one) read.set(name, one);
+	}
+}
+
+/**
+ * The records `names` name, from what was read: the last listing's
+ * names when it held still, else every name any listing found.
+ */
+function recordsNamed(names: Iterable<string>, read: ReadSoFar): Found[] {
+	return [...names].flatMap((name) => {
+		const one = read.get(name);
+		return one ? [one] : [];
+	});
 }
 
 /**
@@ -516,21 +544,31 @@ async function standsOff(path: string): Promise<boolean> {
  * is passed over but left on disk: removed here, holding no lock, after a
  * wait as long as a reading of thousands, it could be a record cut again
  * at the same key since, so removing is left to `recall` and the sweep.
- * A listing that fails rejects rather than answering none.
+ * A listing that fails rejects rather than answering none. A listing the
+ * directory moved under lists its names again, as `all` says why, but
+ * reads only the records no listing found before. One reading of 3,870
+ * records took 26 s on a machine at load 85, timed by hand; how many
+ * listings it made went uncounted. Reading each record once bounds a
+ * reading to one pass of reads plus its listings. A record
+ * rewritten while one reading runs is seen as it was when first read,
+ * and as rewritten by the next, since the kept listing is stamped from
+ * before this one began.
  */
 export async function recallOff(dir: string): Promise<HeldTree[]> {
-	const found = new Map<string, Found>();
-	let listed: Found[] | undefined;
+	const read: ReadSoFar = new Map();
+	const seen = new Set<string>();
+	let settled: string[] | undefined;
 	for (let tries = 0; tries < LISTING_TRIES; tries += 1) {
 		const before = await stampOff(dir);
-		const reading = await listingOff(dir);
+		const names = await namesOff(dir);
+		await readNewOff(dir, names, read);
 		if (before !== undefined && before === (await stampOff(dir))) {
-			listed = reading;
+			settled = names;
 			break;
 		}
-		for (const one of reading) found.set(one.at, one);
+		for (const name of names) seen.add(name);
 	}
-	const trees = (listed ?? [...found.values()]).map(({ held }) => held);
+	const trees = recordsNamed(settled ?? seen, read).map(({ held }) => held);
 	const stands = await standingOff(trees.map((held) => held.path));
 	return trees.filter((_, at) => stands[at]);
 }
@@ -592,6 +630,23 @@ export function createTreeMemory(
 			: undefined;
 	}
 
+	/**
+	 * The record filed under `key`, as `recordAt` reads it, but a passing
+	 * fault such as running out of descriptors throws rather than reading
+	 * as no record.
+	 */
+	function recordAgainAt(key: string, path: string): HeldTree | undefined {
+		let written: Written;
+		try {
+			written = JSON.parse(readFileSync(fileFor(key), "utf8"));
+		} catch (error) {
+			return unreadRecord(error);
+		}
+		return usable(written) && written.path === path && existsSync(path)
+			? (written as unknown as HeldTree)
+			: undefined;
+	}
+
 	/** Run a rewrite of one record with every other session held off it. */
 	async function underLock(
 		key: string,
@@ -602,7 +657,14 @@ export function createTreeMemory(
 	}
 
 	/**
-	 * Every record, read while the directory held still.
+	 * Every record the directory named once it held still, or every one any
+	 * listing named when it never did. A record is read once a reading, so
+	 * one rewritten meanwhile is handed back as first read. The broker's
+	 * own read-modify-writes read again under the record's lock, and
+	 * `otherHolders` reads its one record again, so neither judges from a
+	 * holder list a reading went past. That narrows a race without closing
+	 * it: nothing holds a record still between `otherHolders` and what its
+	 * caller then does.
 	 *
 	 * A listing taken while another session renamed a record over itself
 	 * left that record out on btrfs, though the file was there throughout:
@@ -615,37 +677,47 @@ export function createTreeMemory(
 	 * since a record seen once is a tree somebody may be standing in. For
 	 * the same reason a record the disk fails to hand over for now, out
 	 * of descriptors, fails the whole reading rather than reading as none
-	 * (`unreadRecord`).
+	 * (`unreadRecord`). A listing read again lists only names, reading
+	 * just the records it hadn't read, as `recallOff` says why.
 	 */
 	function all(): readonly { at: string; held: HeldTree }[] {
 		if (!existsSync(dir)) return [];
-		const found = new Map<string, { at: string; held: HeldTree }>();
+		const read: ReadSoFar = new Map();
+		const seen = new Set<string>();
 		for (let tries = 0; tries < LISTING_TRIES; tries += 1) {
 			const before = stamp(dir);
-			const listed = listing();
-			if (before !== undefined && before === stamp(dir)) return listed;
-			for (const one of listed) found.set(one.at, one);
+			const names = namesNow();
+			readNew(names, read);
+			if (before !== undefined && before === stamp(dir)) {
+				return recordsNamed(names, read);
+			}
+			for (const name of names) seen.add(name);
 		}
-		return [...found.values()];
+		return recordsNamed(seen, read);
 	}
 
-	/** One reading of the directory, as it stood while it was read. */
-	function listing(): Found[] {
+	/** The names of the records in the directory, listed on the thread. */
+	function namesNow(): string[] {
 		if (!existsSync(dir)) return [];
-		return readdirSync(dir)
-			.filter((name) => name.endsWith(".json"))
-			.flatMap((name) => {
-				const at = join(dir, name);
-				let text: string;
-				try {
-					text = readFileSync(at, "utf8");
-				} catch (error) {
-					unreadRecord(error);
-					return [];
-				}
-				const found = parsedRecord(at, text);
-				return found ? [found] : [];
-			});
+		return readdirSync(dir).filter((name) => name.endsWith(".json"));
+	}
+
+	/** Each of `names` that `read` lacks, read on the thread into it. */
+	function readNew(names: readonly string[], read: ReadSoFar): void {
+		for (const name of names) {
+			if (read.has(name)) continue;
+			const at = join(dir, name);
+			let text: string;
+			try {
+				text = readFileSync(at, "utf8");
+			} catch (error) {
+				// A passing fault fails the reading; anything else is no record.
+				unreadRecord(error);
+				continue;
+			}
+			const one = parsedRecord(at, text);
+			if (one) read.set(name, one);
+		}
 	}
 
 	return {
@@ -738,8 +810,13 @@ export function createTreeMemory(
 		},
 
 		async otherHolders(path, facts = systemFacts) {
-			const tree = this.recall().find((one) => one.path === path);
-			if (tree === undefined) return [];
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) return [];
+			// Its own record read again now: a reading hands each record back
+			// as first read, and a release judging from that would miss a
+			// session that took the tree up since. A passing fault throws
+			// rather than falling back to the first read.
+			const tree = recordAgainAt(found.identity.key, path) ?? found;
 			const once = askedOnceWithTicks(
 				facts === systemFacts ? tickFacts : facts,
 			);

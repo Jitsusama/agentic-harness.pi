@@ -23,7 +23,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -47,6 +47,14 @@ const disk = vi.hoisted(() => {
 		listingsOf(dir: string): number {
 			return this.listed.filter((one) => one === dir).length;
 		},
+		/** Each folder of records listed on the thread, once a listing. */
+		listedOnThread: [] as string[],
+		/** What a listing, on the thread or off it, does to the disk just before it lists. */
+		onList: undefined as ((dir: string) => void) | undefined,
+		/** The record names a listing leaves out, as btrfs did beside a rename. */
+		hidden: new Set<string>(),
+		/** Every file read on the thread, in order. */
+		readsOnThread: [] as string[],
 		/** Whether the next listings off the thread fail. */
 		failing: false,
 		/** A record a reading off the thread can't read, while one is named. */
@@ -89,8 +97,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs/promises")>();
 	const readdir = (async (...args: Parameters<typeof real.readdir>) => {
 		disk.listed.push(String(args[0]));
+		disk.onList?.(String(args[0]));
 		if (disk.failing) throw new Error("EMFILE: too many open files");
-		return real.readdir(...args);
+		const names = await real.readdir(...args);
+		return names.filter(
+			(name) => typeof name !== "string" || !disk.hidden.has(name),
+		);
 	}) as typeof real.readdir;
 	const access = async (...args: Parameters<typeof real.access>) => {
 		await disk.pass(String(args[0]));
@@ -111,7 +123,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
+	const readdirSync = ((...args: Parameters<typeof real.readdirSync>) => {
+		disk.listedOnThread.push(String(args[0]));
+		disk.onList?.(String(args[0]));
+		return real
+			.readdirSync(...args)
+			.filter((name) => typeof name !== "string" || !disk.hidden.has(name));
+	}) as typeof real.readdirSync;
 	const readFileSync = ((...args: Parameters<typeof real.readFileSync>) => {
+		disk.readsOnThread.push(String(args[0]));
 		if (
 			disk.unreadableOnThread !== undefined &&
 			args[0] === disk.unreadableOnThread
@@ -122,7 +142,7 @@ vi.mock("node:fs", async (importOriginal) => {
 		}
 		return real.readFileSync(...args);
 	}) as typeof real.readFileSync;
-	const mocked = { ...real, readFileSync };
+	const mocked = { ...real, readdirSync, readFileSync };
 	return { ...mocked, default: mocked };
 });
 
@@ -130,7 +150,9 @@ vi.mock("node:fs", async (importOriginal) => {
 // presence, before the disk above stood in, so the copies it holds read
 // the real one.
 vi.resetModules();
-const { createTreeMemory } = await import("../../../lib/core/work/memory.ts");
+const { createTreeMemory, recallOff } = await import(
+	"../../../lib/core/work/memory.ts"
+);
 const {
 	isAgentCut,
 	recordedTrees,
@@ -248,6 +270,60 @@ function recordedElsewhere(
 	return tick;
 }
 
+/**
+ * A folder whose record of tree x is half written when the first listing
+ * reads it, and written whole by the second listing, which moves the
+ * folder once more; the third listing holds still.
+ */
+function halfWritten(): {
+	dir: string;
+	x: string;
+	half: { listings: number };
+} {
+	const root = mkdtempSync(join(tmpdir(), "records-"));
+	const dir = join(root, "cut");
+	const x = join(root, "trees", "x");
+	recorded(dir, join(root, "trees", "one"), ["s-1"]);
+	writeFileSync(join(dir, `${x.replaceAll("/", "-")}.json`), "{");
+	const half = { listings: 0 };
+	disk.onList = (listed) => {
+		if (listed !== dir) return;
+		half.listings += 1;
+		if (half.listings === 1)
+			recordedElsewhere(dir, join(root, "trees", "more"), ["s-2"]);
+		if (half.listings === 2) recordedElsewhere(dir, x, ["s-3"]);
+	};
+	return { dir, x, half };
+}
+
+/**
+ * A folder whose record of tree a is removed by the second listing, its
+ * tree left standing, while the folder moves once more; the third
+ * listing holds still.
+ */
+function removedMidway(): { dir: string; a: string; one: string } {
+	const root = mkdtempSync(join(tmpdir(), "records-"));
+	const dir = join(root, "cut");
+	const one = join(root, "trees", "one");
+	const a = join(root, "trees", "a");
+	recorded(dir, one, ["s-1"]);
+	recorded(dir, a, ["s-2"]);
+	const record = recordOf(dir, a);
+	let listings = 0;
+	disk.onList = (listed) => {
+		if (listed !== dir) return;
+		listings += 1;
+		if (listings === 1)
+			recordedElsewhere(dir, join(root, "trees", "more"), ["s-3"]);
+		if (listings === 2) {
+			rmSync(record);
+			const tick = new Date(Date.now() + 1000);
+			utimesSync(dir, tick, tick);
+		}
+	};
+	return { dir, a, one };
+}
+
 /** `dir` as last written a while ago, so a listing of it is settled. */
 function settled(dir: string): void {
 	const while_ago = new Date(Date.now() - 10_000);
@@ -262,6 +338,8 @@ describe("the work broker's records", () => {
 		disk.failing = false;
 		disk.unreadable = undefined;
 		disk.unreadableOnThread = undefined;
+		disk.onList = undefined;
+		disk.hidden.clear();
 	});
 
 	it("say which trees a session holds, and who holds each", () => {
@@ -1054,6 +1132,202 @@ describe("the work broker's records", () => {
 		await expect(treesHeldByNow("s-1", dir, 50)).rejects.toThrow(/in 50 ms/);
 		disk.go();
 		await whenRefreshed(dir);
+	});
+
+	it("list a folder that never holds still again by name, reading each record once and keeping all", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const written: string[] = [];
+		// Each listing finds the folder written since its stamp was taken,
+		// as a busy machine's sessions write it every few seconds.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			const more = join(root, "trees", `more-${written.length}`);
+			written.push(more);
+			recordedElsewhere(dir, more, ["s-2"]);
+		};
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+		const readHere = disk.reads.filter((at) => at.startsWith(`${dir}/`));
+
+		// Listed as many times as LISTING_TRIES allows, eight.
+		expect(disk.listingsOf(dir)).toBe(8);
+		expect(readHere.length).toBe(new Set(readHere).size);
+		expect(trees.sort()).toEqual([one, ...written].sort());
+	});
+
+	it("keep a record a later listing left out while the folder moved, as btrfs did beside a rename", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const name = basename(recordOf(dir, one));
+		let listings = 0;
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			recordedElsewhere(dir, join(root, "trees", `more-${listings}`), ["s-2"]);
+			if (listings === 2) disk.hidden.add(name);
+		};
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+		const more = Array.from({ length: 8 }, (_, at) =>
+			join(root, "trees", `more-${at + 1}`),
+		);
+
+		expect(listings).toBe(8);
+		expect(trees.sort()).toEqual([one, ...more].sort());
+	});
+
+	it("keep a record a later listing left out on the thread too", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const name = basename(recordOf(dir, one));
+		let listings = 0;
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			recordedElsewhere(dir, join(root, "trees", `more-${listings}`), ["s-2"]);
+			if (listings === 2) disk.hidden.add(name);
+		};
+
+		// The hidden record's tree stays on disk, so recall keeps its record.
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+		const more = Array.from({ length: 8 }, (_, at) =>
+			join(root, "trees", `more-${at + 1}`),
+		);
+
+		expect(listings).toBe(8);
+		expect(trees.sort()).toEqual([one, ...more].sort());
+	});
+
+	it("read again a name that held no record when first read, once a later listing names it", async () => {
+		const { dir, x, half } = halfWritten();
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+
+		expect(half.listings).toBe(3);
+		expect(trees).toContain(x);
+	});
+
+	it("answer a settled reading from its last listing, leaving out a record removed before it", async () => {
+		const { dir, a, one } = removedMidway();
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+
+		expect(trees).toContain(one);
+		expect(trees).not.toContain(a);
+	});
+
+	it("answer a settled reading on the thread from its last listing too", () => {
+		const { dir, a, one } = removedMidway();
+
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+
+		expect(trees).toContain(one);
+		expect(trees).not.toContain(a);
+	});
+
+	it("name a holder a moving reading went past", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one);
+		const record = recordOf(dir, one);
+		const startedAt = 1_760_000_000_000;
+		const other = { pid: 4242, startedAt };
+		let listings = 0;
+		// The first listing's read finds nobody; the second listing finds
+		// the record renamed over with a session that took the tree up.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			if (listings === 1)
+				recordedElsewhere(dir, join(root, "trees", "more-1"), ["s-2"]);
+			if (listings === 2) {
+				const held = JSON.parse(readFileSync(record, "utf8"));
+				const staged = `${record}.staged`;
+				writeFileSync(staged, JSON.stringify({ ...held, owners: [other] }));
+				renameSync(staged, record);
+				recordedElsewhere(dir, join(root, "trees", "more-2"), ["s-2"]);
+			}
+		};
+		const facts = { alive: () => true, startedAt: async () => startedAt };
+
+		const others = await createTreeMemory(dir).otherHolders(one, facts);
+
+		expect(listings).toBe(3);
+		expect(others).toEqual([other]);
+	});
+
+	it("refuse to judge a tree's holders when its own record can't be read again", async () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one);
+		const record = recordOf(dir, one);
+		let listings = 0;
+		// Read once while the folder moves, then out of descriptors by the
+		// time its own record is read again.
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			if (listings === 1)
+				recordedElsewhere(dir, join(root, "trees", "more"), ["s-2"]);
+			if (listings === 2) disk.unreadableOnThread = record;
+		};
+		const facts = { alive: () => true, startedAt: async () => 1 };
+
+		await expect(
+			createTreeMemory(dir).otherHolders(one, facts),
+			"a release must not judge from the first read",
+		).rejects.toThrow(/EMFILE/);
+	});
+
+	it("read again on the thread a name that held no record when first read", () => {
+		const { dir, x, half } = halfWritten();
+
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+
+		expect(half.listings).toBe(3);
+		expect(trees).toContain(x);
+	});
+
+	it("list a moving folder again by name on the thread too, reading each record once", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const written: string[] = [];
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			const more = join(root, "trees", `more-${written.length}`);
+			written.push(more);
+			recordedElsewhere(dir, more, ["s-2"]);
+		};
+		const before = disk.readsOnThread.length;
+
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+		const readHere = disk.readsOnThread
+			.slice(before)
+			.filter((at) => at.startsWith(`${dir}/`));
+
+		// Listed as many times as LISTING_TRIES allows, eight.
+		expect(disk.listedOnThread.filter((one) => one === dir).length).toBe(8);
+		expect(readHere.length).toBe(new Set(readHere).size);
+		expect(trees.sort()).toEqual([one, ...written].sort());
 	});
 
 	it("let go of a reading hung five minutes, start another, and keep the newer whichever lands last", async () => {

@@ -447,7 +447,14 @@ export function createTreeBroker(
 			// the directory while somebody else is standing in it is the
 			// failure this whole change is about, arriving through the one
 			// door that always could remove a tree.
-			const others = await memory?.otherHolders(held.path);
+			let others: readonly Owner[] | undefined;
+			try {
+				others = await memory?.otherHolders(held.path);
+			} catch (error) {
+				// Holders unread leave the tree held, as a refused release does.
+				trees.push(...ours);
+				throw error;
+			}
 			if (others !== undefined && others.length > 0) {
 				await memory?.forgetUsAsHolder(held.path);
 				return { kind: "released", kept: others.length };
