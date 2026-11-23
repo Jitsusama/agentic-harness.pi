@@ -539,23 +539,29 @@ describe("an ordered carry", () => {
 		expect(one.told.at(-1)).toContain("the context is stale");
 	});
 
-	it("leaves a later order once carried, ending no run for it", async () => {
+	// A close that hasn't landed leaves the session taking runs, whose
+	// work would be missing from the session carried (PV3TE0's F3).
+	it("leaves a later order once carried, and ends a run that starts before it has closed", async () => {
 		const one = session({ closing: stale });
 		await one.ordering.order(ORDER);
 
 		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		const saidOfIt = one.told.at(-1);
 		one.ordering.started();
 
 		expect(one.did.filter((done) => done.startsWith("carry"))).toEqual([
 			"carry to penelope",
 		]);
-		expect(one.did, "no run is ended").not.toContain("abort");
-		expect(one.told.at(-1)).toContain("came once this session was carried");
+		expect(saidOfIt).toContain("came once this session was carried");
+		expect(
+			one.did.filter((done) => done === "abort"),
+			"the run started as it closes is ended",
+		).toHaveLength(1);
 	});
 
-	it("leaves the order taken while its refusal was written alone, though taking up its run throws", async () => {
+	it("leaves the order taken while its refusal was written alone, handing it the run to take up", async () => {
 		// Stamped from its steer, a refusal lets a second order in as it is
-		// written; its late throw once refused it again, letting go of the
+		// written; a late throw once refused it again, letting go of the
 		// second order's hold.
 		let written: () => void = () => undefined;
 		const one = session({
@@ -565,7 +571,8 @@ describe("an ordered carry", () => {
 				new Promise<void>((done) => {
 					written = done;
 				}),
-			takingUp: stale,
+			// As the registry reads, counting the second order's hold.
+			carrying: () => one.holdsTaken() > 0,
 		});
 		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
 		await Promise.resolve();
@@ -583,6 +590,7 @@ describe("an ordered carry", () => {
 
 		expect(one.refused, "refused once").toEqual([HELD]);
 		expect(one.holdsTaken(), "the second order's hold stays").toBe(1);
+		expect(one.said, "left to the second order").toEqual([]);
 		one.ordering.started();
 		expect(
 			one.did.filter((done) => done === "abort"),
@@ -592,7 +600,92 @@ describe("an ordered carry", () => {
 		one.idle = true;
 		await second;
 		expect(one.did).toContain("carry to penelope");
+		expect(one.said, "carried, nothing is taken up").toEqual([]);
 		expect(one.holdsTaken()).toBe(0);
+	});
+
+	// The second order ends no run on a session the first left idle, so
+	// refused too, it took up nothing, and the agent sat mid-task
+	// (PV3TE0's F1 and F12).
+	it("takes up the run the first order ended once the order taken as it wrote refuses too", async () => {
+		let writes = 0;
+		let written: () => void = () => undefined;
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			writing: () => {
+				writes += 1;
+				return writes > 1
+					? Promise.resolve()
+					: new Promise<void>((done) => {
+							written = done;
+						});
+			},
+			carrying: () => one.holdsTaken() > 0,
+		});
+		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await until("its refusal is being written", () => writes === 1);
+		one.idle = false;
+		const second = one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		await Promise.resolve();
+		written();
+		await first;
+		one.idle = true;
+		await second;
+
+		expect(one.refused).toEqual([HELD, HELD]);
+		expect(one.said, "taken up once").toHaveLength(1);
+		expect(one.said[0]).toContain("carry on where you left off");
+	});
+
+	// A later order of its own carried and let go as it wrote, and the
+	// session is closing (PV3TE0's F2).
+	it("takes up no run once an order taken as it wrote has carried", async () => {
+		let written: () => void = () => undefined;
+		let writes = 0;
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded && writes === 0 ? HELD : undefined),
+			writing: () => {
+				writes += 1;
+				return new Promise<void>((done) => {
+					written = done;
+				});
+			},
+			carrying: () => one.holdsTaken() > 0,
+		});
+		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await until("its refusal is being written", () => writes === 1);
+		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		written();
+		await first;
+
+		expect(one.did).toContain("carry to penelope");
+		expect(one.said, "closing, nothing is taken up").toEqual([]);
+	});
+
+	it("says a run it couldn't take up, as that and not as a late throw", async () => {
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			takingUp: stale,
+		});
+		const going = one.ordering.order(ORDER);
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await going;
+
+		expect(one.refused).toEqual([HELD]);
+		expect(one.told.at(-1)).toBe(
+			"The run it ended couldn't be taken up: the context is stale",
+		);
 	});
 
 	it("takes up no run it ended once a carry begun since is taking the session", async () => {
@@ -732,9 +825,10 @@ describe("an ordered carry", () => {
 		expect(one.did).toEqual(["carry to penelope"]);
 	});
 
-	// A park in the gap between ending its run and carrying, or while its
-	// refusal is written, would end it with nothing written for its node
-	// (PV3TE0's F39, 23 November).
+	// A park in the gap between ending its run and carrying would end it
+	// with nothing written for its node (PV3TE0's F39, 23 November). One
+	// while a refusal is written can lose it, which is taken over turning
+	// away a person's Carry meanwhile.
 	it("holds the session's doors from its order until it is carried", async () => {
 		const seen: number[] = [];
 		const one = session({

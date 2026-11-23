@@ -80,6 +80,32 @@ describe("a carry under way", () => {
 		expect(late).toBeUndefined();
 	});
 
+	// Two carries of one session would write one handover, so only the
+	// doors lapse (PV3TE0's F13).
+	it("still turns a second carry away once its hold has lapsed, until it lets go", () => {
+		let now = 1_000;
+		const carry = hold("penelope", { now: () => now });
+
+		now += CARRY_HOLDS_MOST_MS;
+		const lapsed = carryUnderWay(session, { now, evenLapsed: true });
+		carry.release();
+
+		expect(lapsed).toBe("penelope");
+		expect(carryUnderWay(session, { now, evenLapsed: true })).toBeUndefined();
+	});
+
+	it("lets a lapse that throws go by, so its bare timer never ends the process", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		hold("penelope", {
+			mostMs: 0,
+			lapsed: () => {
+				throw new Error("the context is stale");
+			},
+		});
+
+		expect(() => vi.advanceTimersByTime(1)).not.toThrow();
+	});
+
 	it("says once that a carry outlived its hold", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const told: string[] = [];

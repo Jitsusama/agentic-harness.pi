@@ -257,9 +257,13 @@ export function createState(
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
 			await carryThisSession(m.ctx, to, { timing: { lapsed } });
 		},
+		// A carry past its time still turns a second away: two would write
+		// one handover.
 		carryUnderWay: () => {
 			const session = sessionOf();
-			return session === undefined ? undefined : carryUnderWay(session);
+			return session === undefined
+				? undefined
+				: carryUnderWay(session, { evenLapsed: true });
 		},
 	});
 	// A host's conversation has no window of its own to hand over.
@@ -314,9 +318,16 @@ export function createState(
 			await refuseInHandover(m.peer.session, why, at);
 		},
 		tell: (text) => notify(text, "info"),
+		// Another carry than this ordering's own, as a person's Carry is.
 		carrying: () => {
 			const session = sessionOf();
-			return session !== undefined && carryUnderWay(session) !== undefined;
+			return (
+				session !== undefined &&
+				carryUnderWay(session, {
+					...(orderedHold ? { except: orderedHold } : {}),
+					evenLapsed: true,
+				}) !== undefined
+			);
 		},
 		close: (by) => {
 			if (m.ctx) endConversation(m.ctx, by);

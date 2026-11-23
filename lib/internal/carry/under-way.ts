@@ -31,7 +31,9 @@ import { processGlobal } from "../process/process-global.ts";
  * How long a carry holds its session's doors at most, so one that hangs
  * never keeps a dead conversation's memory for good (ISXEG8, 23
  * November). A carry takes a minute or two; a node gives an ordered one
- * a quarter hour in all, counted from about when its hold begins.
+ * a quarter hour in all, counted from about when its hold begins. Only
+ * the doors lapse: a second carry of the session is turned away while
+ * the first still holds, past its time or not.
  */
 export const CARRY_HOLDS_MOST_MS = 15 * 60_000;
 
@@ -128,15 +130,23 @@ export function carryHoldsReload(session: string): string | undefined {
 /**
  * The machine `session`'s work is being carried to, while a carry other
  * than `except` holds it within its time; the newest, when several do.
+ * `evenLapsed` counts a carry past its time that hasn't let go, for
+ * what must never run beside one, as a second carry of the session
+ * into the same handover: only the doors lapse.
  */
 export function carryUnderWay(
 	session: string,
-	options: { readonly except?: CarryHold; readonly now?: number } = {},
+	options: {
+		readonly except?: CarryHold;
+		readonly now?: number;
+		readonly evenLapsed?: boolean;
+	} = {},
 ): string | undefined {
 	const now = options.now ?? monotonic();
 	let newest: Entry | undefined;
 	for (const entry of underWay().get(session) ?? []) {
-		if (entry.hold === options.except || now >= entry.until) continue;
+		if (entry.hold === options.except) continue;
+		if (options.evenLapsed !== true && now >= entry.until) continue;
 		if (newest === undefined || entry.since >= newest.since) newest = entry;
 	}
 	return newest?.hold.to;

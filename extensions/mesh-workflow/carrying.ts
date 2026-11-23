@@ -78,7 +78,8 @@ export async function carryThisSession(
 	places: CarryingPlaces = {},
 ): Promise<string> {
 	const id = ctx.sessionManager.getSessionId();
-	const other = carryUnderWay(id, { except: places.hold });
+	// One past its time still writes the handover this one would.
+	const other = carryUnderWay(id, { except: places.hold, evenLapsed: true });
 	if (other !== undefined) {
 		throw new Error(`a carry to ${other} is already under way.`);
 	}

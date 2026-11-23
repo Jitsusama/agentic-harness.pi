@@ -24,19 +24,26 @@
  * doesn't end within {@link ORDERED_WAIT_MS} refuses, as does a carry
  * that fails. Every refusal says why, writes it where mycelium reads it
  * (lib/internal/carry/ordered.ts), and leaves the session working: a run
- * it ended is taken up again. A second carry while one is under way, or
+ * it ended is taken up again, by an order taken since if one is, and
+ * not while another carry takes the session. A person's Carry that
+ * then fails leaves that run for the person, who pressed it, to start
+ * again. A second carry while one is under way, or
  * while a refusal stamped as it was asked is being written, is said on
  * screen alone, leaving the refusal file to the carry before it.
  *
  * Carried, it closes as the person's Carry does, saying in its journal
- * who ordered or chose it and why, a node's choice never as an order.
+ * who ordered or chose it and why, a node's choice never as an order,
+ * and ends any run that starts before it has closed, leaving any
+ * later order.
  *
  * From the moment it is taken until it is carried or refused, it holds
  * the doors that would end the session's process unasked (`hold`,
  * lib/internal/carry/under-way.ts): the run it waits out and the holds
  * it looks at again leave the session idle, and a park in that gap would
  * end it with nothing written for its node. A refusal lets go as it
- * begins, since it carries nothing.
+ * begins, since it carries nothing: a park or restart while it is
+ * written can lose it, which is taken over turning away a person's
+ * Carry meanwhile.
  *
  * A stale context throws on every read. Whatever throws before an order
  * has said how it went, the hold taken included, refuses it; what
@@ -151,8 +158,9 @@ export interface OrderedCarryHost {
 	/** Say on screen what happened. */
 	readonly tell: (text: string) => void;
 	/**
-	 * Whether a carry of this session is under way besides this one's,
-	 * as a person's Carry is once a refusal has let go.
+	 * Whether a carry of this session is under way besides this
+	 * ordering's, as a person's Carry is once a refusal has let go, its
+	 * time lapsed or not.
 	 */
 	readonly carrying?: () => boolean;
 	/** End the session, as /exit does, saying `by` asked. */
@@ -203,7 +211,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	// The order under way, whose runs are ended while it is.
 	let underWay: Taken | undefined;
 	// Whether this session was carried, so it is closing: a later order
-	// is left, and nothing more is ended for it.
+	// is left, and a run that starts is ended.
 	let carried = false;
 	// Whether a refusal stamped as it was asked is being written, while
 	// which a carry is said on screen alone, since its node may read that
@@ -273,10 +281,16 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			if (!stamped) refusing = false;
 		}
 		// Whether its refusal was written, late or not at all, the run it
-		// ended is taken up again, unless a carry begun since, a person's
-		// Carry, is taking the session: told to carry on, it would write into
-		// the conversation being carried that nothing was.
-		if (!tookUp) return;
+		// ended is taken up again, unless the session is carried since and
+		// closing, or another carry is taking it: told to carry on, it would
+		// write into the conversation being carried that nothing was. An
+		// order taken since takes it up in its turn, if it refuses too, since
+		// it ends no run of its own on a session already idle.
+		if (!tookUp || carried) return;
+		if (underWay !== undefined) {
+			underWay.ended = true;
+			return;
+		}
 		if (host.carrying?.() === true) {
 			say(
 				"The run it ended isn't taken up: a carry begun since is taking this session.",
@@ -411,11 +425,14 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				taken.release();
 			}
 		},
+		// Carried, it ends a run that starts before it has closed, as the
+		// person's Carry does: what the run did would be missing from the
+		// session carried.
 		started() {
-			if (underWay) end();
+			if (underWay || carried) end();
 		},
 		turnEnded() {
-			if (underWay && !host.idle()) end();
+			if ((underWay || carried) && !host.idle()) end();
 		},
 	};
 }

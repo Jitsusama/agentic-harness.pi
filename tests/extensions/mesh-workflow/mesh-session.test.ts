@@ -187,8 +187,14 @@ describe("parking", () => {
 		// What each test left holding, let go after it whether it passed or
 		// not, so no later park test reads a carry it never started.
 		const left: (() => Promise<unknown>)[] = [];
+		// Each is let go though one before it throws, which then fails the
+		// test that left it.
 		afterEach(async () => {
-			for (const end of left.splice(0)) await end();
+			const ended = await Promise.allSettled(
+				left.splice(0).map((end) => end()),
+			);
+			const failed = ended.find((one) => one.status === "rejected");
+			if (failed?.status === "rejected") throw failed.reason;
 		});
 
 		/** A hold an ordered carry would take, let go after the test. */
@@ -288,6 +294,19 @@ describe("parking", () => {
 			expect(refusals).toEqual(["its work is being carried to penelope"]);
 		});
 
+		// PV3TE0's round 6 (F13): two carries would write one handover.
+		it("refuses a second carry beside one whose hold has had its time, though the park goes", async () => {
+			const { emit } = await startSession();
+			const hung = holdForCarry(session, "penelope", { mostMs: 0 });
+			left.push(async () => hung.release());
+			const second = carrying();
+
+			await expect(second.carried).rejects.toThrow(
+				"a carry to penelope is already under way.",
+			);
+			expect(parkAsked(emit)).toEqual([]);
+		});
+
 		// PV3TE0's round 3 (F2, F5, F10): state.ts sets the ordered carry's
 		// own hold aside in its looks and hands it to the carry; drop
 		// either and every ordered carry refuses itself.
@@ -298,7 +317,7 @@ describe("parking", () => {
 		const steeredSession = async () => {
 			const steer = join(fixture.root, "steer");
 			fixture.paths = { ...fixture.paths, steer };
-			const run = { idle: false };
+			const run = { idle: false, stale: false };
 			const told: string[] = [];
 			// Every other call a screen takes is answered with nothing.
 			const ui = new Proxy(
@@ -315,6 +334,17 @@ describe("parking", () => {
 				{
 					hasUI: true,
 					ui,
+					// Its id read throws once `stale` is set, as a stale context's does.
+					sessionManager: {
+						getSessionId: () => {
+							if (run.stale) throw new Error("the context is stale");
+							return session;
+						},
+						getSessionFile: () => join(fixture.root, `${session}.jsonl`),
+						getBranch: () => [],
+						getSessionName: () => undefined,
+						getCwd: () => fixture.root,
+					},
 					isIdle: () => run.idle,
 					hasPendingMessages: () => false,
 					abort: () => {},
@@ -404,6 +434,22 @@ describe("parking", () => {
 
 			expect(told.filter((text) => text.startsWith("A Carry"))).toEqual([
 				`A Carry to equilibrius from outside its window, steered by ${FROM_PERSON}, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.`,
+			]);
+		});
+
+		// PV3TE0's round 5 (F13, F18) and 6 (F6): read bare, the id threw
+		// before anything was said, and the Carry vanished without a word.
+		it("says a person's Carry it couldn't take, though the session's id can no longer be read", async () => {
+			const { run, told, steered, toldOf } = await steeredSession();
+			run.stale = true;
+			steered({ act: "carry", to: "equilibrius", from: FROM_PERSON });
+
+			await toldOf("the Carry says it stays open", (text) =>
+				text.includes("stays open"),
+			);
+
+			expect(told.filter((text) => text.includes("stays open"))).toEqual([
+				expect.stringContaining("the context is stale"),
 			]);
 		});
 
