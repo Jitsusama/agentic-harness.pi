@@ -29,9 +29,6 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-// Imported rather than read, so `--changed` finds these tests when the
-// script alone changes: the import graph is all it follows.
-import checkThere from "../../../scripts/check-there.sh?raw";
 
 const SCRIPT = join(
 	import.meta.dirname,
@@ -48,7 +45,8 @@ const TEST_MS = 4 * SETTLES_IN_MS;
 
 /** What the script runs on its host, between its `THERE` lines. */
 function there(): string {
-	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(checkThere)?.[1] ?? "";
+	const text = readFileSync(SCRIPT, "utf8");
+	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(text)?.[1] ?? "";
 }
 
 /** The lines the script runs as they stand, which the checks here run too. */
