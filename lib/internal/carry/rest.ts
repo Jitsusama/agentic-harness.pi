@@ -6,12 +6,21 @@
  * file names, under a done file named for the quest.
  *
  * A tree goes once: one a session's done file already names, as a
- * steered session's does, isn't carried again under another.
+ * steered session's does, isn't carried again under another. A done
+ * file whose session file the share refuses as too large, as an earlier
+ * harness left one, counts as not written, so that session goes again.
  */
 
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
-import { carryAway, carryTrees, type TreeCarried } from "./carry-away.ts";
+import {
+	carryAway,
+	carryTrees,
+	SHARE_LARGEST_FILE,
+	type TreeCarried,
+	ZIPPED,
+} from "./carry-away.ts";
 import {
 	doneFileOf,
 	doneNames,
@@ -46,6 +55,8 @@ export interface CarryingRest {
 	readonly home: string;
 	readonly here: QuestHere;
 	readonly say: (line: RestLine) => void;
+	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
+	readonly largestFile?: number;
 }
 
 /**
@@ -54,7 +65,10 @@ export interface CarryingRest {
  */
 export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 	const { exec, into, home, here, say } = carrying;
-	const already = doneNames(listing(into));
+	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
+	const already = doneNames(listing(into)).filter(
+		(name) => !tooLargeToShare(into, name, largest),
+	);
 	const handled = new Set(
 		already
 			.filter((name) => name !== here.quest)
@@ -84,14 +98,26 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 			.filter((tree) => tree.sessions.includes(session.id))
 			.map((tree) => tree.path)
 			.filter(unhandled);
-		const away = await carryAway({
-			exec,
-			into,
-			home,
-			quest: here.quest,
-			session,
-			trees,
-		});
+		let away: Awaited<ReturnType<typeof carryAway>>;
+		try {
+			away = await carryAway({
+				exec,
+				into,
+				home,
+				quest: here.quest,
+				session,
+				trees,
+				largestFile: largest,
+			});
+		} catch (error) {
+			// Its trees wait for it here, unhandled, so they aren't carried
+			// under the quest without it.
+			for (const tree of trees) handled.add(withinHome(tree, home));
+			refused.push(
+				`session ${session.id}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			continue;
+		}
 		files.push(away.file);
 		tell(session.id, away.trees);
 	}
@@ -123,9 +149,24 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 	if (refused.length === 0) return true;
 	say({
 		kind: "failed",
-		why: `${refused.length === 1 ? "a tree was" : `${refused.length} trees were`} refused, so the carry isn't whole: ${refused.join("; ")}`,
+		why: `${refused.length === 1 ? "one thing was" : `${refused.length} things were`} refused, so the carry isn't whole: ${refused.join("; ")}`,
 	});
 	return false;
+}
+
+/**
+ * Whether the done file `name` names a session file left as it is that
+ * is larger than the share carries, so it never reached the other side.
+ */
+function tooLargeToShare(into: string, name: string, largest: number): boolean {
+	const file = readHandover(doneFileOf(into, name))?.sessionFile;
+	if (file === undefined || file.endsWith(ZIPPED)) return false;
+	try {
+		return statSync(join(into, file)).size > largest;
+	} catch {
+		// Gone: nothing too large is left to share.
+		return false;
+	}
 }
 
 function listing(dir: string): string[] {

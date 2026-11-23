@@ -40,10 +40,13 @@ async function homeWith(...names: string[]) {
 	return { home, trees, into };
 }
 
-/** A session file for `id`, as pi keeps one. */
-function sessionFile(id: string): string {
+/** A session file for `id`, as pi keeps one, with `messages` after its header. */
+function sessionFile(id: string, messages = 0): string {
 	const file = join(folder(made, "sessions"), `2026-11-07_${id}.jsonl`);
-	writeFileSync(file, `${JSON.stringify({ type: "session", id })}\n`);
+	writeFileSync(
+		file,
+		`${JSON.stringify({ type: "session", id })}\n${'{"type":"message"}\n'.repeat(messages)}`,
+	);
 	return file;
 }
 
@@ -58,7 +61,12 @@ function questHere(over: Partial<QuestHere>): QuestHere {
 	};
 }
 
-async function carry(home: string, into: string, here: QuestHere) {
+async function carry(
+	home: string,
+	into: string,
+	here: QuestHere,
+	largestFile?: number,
+) {
 	const said: RestLine[] = [];
 	const whole = await carryRest({
 		exec,
@@ -66,6 +74,7 @@ async function carry(home: string, into: string, here: QuestHere) {
 		home,
 		here,
 		say: (line) => said.push(line),
+		...(largestFile === undefined ? {} : { largestFile }),
 	});
 	return { whole, said };
 }
@@ -195,6 +204,67 @@ describe("carrying what a quest's steered sessions left", () => {
 			failed?.kind === "failed" ? failed.why : "",
 			"it names the tree and why",
 		).toContain(`${trees.stuck}: `);
+	});
+
+	it("carries again a session whose earlier done file names a file too large to share, gzipped", async () => {
+		const { home, trees, into } = await homeWith("app");
+		const file = sessionFile("s-big", 500);
+		const session = { id: "s-big", cwd: trees.app ?? "", file };
+		// As a harness that never gzipped left it: the whole log, as it is.
+		await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session,
+			trees: [trees.app ?? ""],
+			largestFile: Number.MAX_SAFE_INTEGER,
+		});
+
+		const { whole } = await carry(
+			home,
+			into,
+			questHere({
+				resting: [session],
+				held: [{ path: trees.app ?? "", sessions: ["s-big"] }],
+			}),
+			1000,
+		);
+
+		expect(whole, "it went whole").toBe(true);
+		expect(readHandover(join(into, "s-big.done.json"))).toMatchObject({
+			sessionFile: "2026-11-07_s-big.jsonl.gz",
+			trees: [{ path: "~/src/app" }],
+		});
+		expect(
+			existsSync(join(into, "2026-11-07_s-big.jsonl")),
+			"the copy the share refused is gone",
+		).toBe(false);
+	});
+
+	it("refuses a session whose file is too large even gzipped, saying why, and carries its trees under nobody else", async () => {
+		const { home, trees, into } = await homeWith("app");
+		const file = sessionFile("s-huge", 500);
+
+		const { whole, said } = await carry(
+			home,
+			into,
+			questHere({
+				resting: [{ id: "s-huge", cwd: trees.app ?? "", file }],
+				held: [{ path: trees.app ?? "", sessions: ["s-huge"] }],
+				trees: [trees.app ?? ""],
+			}),
+			50,
+		);
+
+		expect(whole, "a refused session is not whole").toBe(false);
+		expect(said).toContainEqual({ kind: "done", files: [] });
+		const failed = said.at(-1);
+		expect(failed?.kind === "failed" ? failed.why : "").toMatch(
+			/session s-huge: .*still over the 0\.0 MiB the share carries/,
+		);
+		expect(existsSync(join(into, "s-huge.done.json"))).toBe(false);
+		expect(existsSync(join(into, `${QUEST}.done.json`))).toBe(false);
 	});
 
 	it("says no failed line when every tree went", async () => {

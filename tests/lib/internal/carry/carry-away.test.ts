@@ -3,7 +3,7 @@
  * git: its trees as bundles and patches, its file, and the done file.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
@@ -173,7 +173,7 @@ describe("carrying a session's work away", () => {
 
 	it("gzips a session file larger than the share takes, and carries one at the limit as it is", async () => {
 		const { home, into } = await homeWithTree();
-		const log = '{"type":"session","id":"s-5"}\n{"type":"message"}\n';
+		const log = `{"type":"session","id":"s-5"}\n${'{"type":"message"}\n'.repeat(500)}`;
 		const big = join(folder(made, "sessions"), "2026-11-07_s-5.jsonl");
 		writeFileSync(big, log);
 		const small = join(folder(made, "sessions"), "2026-11-07_s-6.jsonl");
@@ -186,7 +186,7 @@ describe("carrying a session's work away", () => {
 			quest: QUEST,
 			session: { id: "s-5", cwd: home, file: big },
 			trees: [],
-			largestFile: log.length - 1,
+			largestFile: 1000,
 		});
 		const plain = await carryAway({
 			exec,
@@ -209,7 +209,37 @@ describe("carrying a session's work away", () => {
 			readHandover(join(into, "s-5.done.json"))?.sessionFile,
 			"the done file names the zipped file and reads back",
 		).toBe("2026-11-07_s-5.jsonl.gz");
+		expect(
+			existsSync(join(into, "2026-11-07_s-5.jsonl")),
+			"no plain copy beside it",
+		).toBe(false);
 		expect(plain.handover.sessionFile).toBe("2026-11-07_s-6.jsonl");
 		expect(readFileSync(join(into, "2026-11-07_s-6.jsonl"), "utf8")).toBe(log);
+		expect(
+			readdirSync(join(into, "..", "..", "tmp")),
+			"nothing is left where it was gzipped",
+		).toEqual([]);
+	});
+
+	it("refuses a session file still too large once gzipped, leaving nothing for the share", async () => {
+		const { home, tree, into } = await homeWithTree();
+		await git(tree, "checkout", "-q", "-b", "topic");
+		await commit(tree, "work.txt", "unpushed\n");
+		const file = join(folder(made, "sessions"), "2026-11-07_s-7.jsonl");
+		writeFileSync(file, '{"type":"message"}\n'.repeat(500));
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-7", cwd: tree, file },
+				trees: [tree],
+				largestFile: 50,
+			}),
+		).rejects.toThrow(/gzipped, still over the 0\.0 MiB the share carries/);
+		expect(readdirSync(into), "no bundle, file or done file").toEqual([]);
+		expect(readdirSync(join(into, "..", "..", "tmp"))).toEqual([]);
 	});
 });
