@@ -31,7 +31,10 @@
  */
 
 import { existsSync } from "node:fs";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { sessionCwd, sessionEnv } from "../../lib/core/session/index.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -97,7 +100,7 @@ export function keepOrchestrationClaimed(
  * Where the session asks from, read while its hook runs: its folder, and
  * its own environment, which in a pi host isn't the host's.
  */
-function placeOf(ctx: { readonly cwd: string }): Required<ClaimPlace> {
+function placeOf(ctx: ExtensionContext): Required<ClaimPlace> {
 	return { cwd: sessionCwd(ctx), env: sessionEnv(ctx).snapshot() };
 }
 
