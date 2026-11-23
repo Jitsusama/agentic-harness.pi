@@ -15,7 +15,9 @@
  * took seconds a tree in World. One gone from this machine, whose record
  * outlived it, is skipped too; one that can't be read, or that git can't
  * read as a tree, is refused. Any other tree that can't go is refused
- * and named, never a reason to carry nothing, since the rest still goes.
+ * and named, and the rest still goes, unless the carry is asked to go
+ * whole: a session carrying itself is, since the node closes it once its
+ * done file is written, and a tree left behind would lose its session.
  *
  * A session file larger than the largest a mycelium share carries goes
  * gzipped, named with `.gz`, which arriving unzips; any other goes as
@@ -76,6 +78,29 @@ export interface Carrying {
 	readonly notes?: readonly CarriedNote[];
 	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
 	readonly largestFile?: number;
+	/**
+	 * Carry all or nothing: when any tree is refused, write no done file,
+	 * take back what this carry put in the handover, and throw naming
+	 * each, so the session stays where it is with all its work. A session
+	 * carrying itself asks this; `pi-carry` carries what it can.
+	 */
+	readonly whole?: boolean;
+}
+
+/** A carry asked to go whole that a refused tree kept here. */
+export class CarryNotWhole extends Error {
+	readonly trees: readonly TreeCarried[];
+
+	constructor(trees: readonly TreeCarried[]) {
+		const refused = trees.flatMap((one) =>
+			one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
+		);
+		super(
+			`${refused.length === 1 ? "a tree" : `${refused.length} trees`} can't go, so nothing was carried and the session stays here:\n${refused.join("\n")}`,
+		);
+		this.name = "CarryNotWhole";
+		this.trees = trees;
+	}
 }
 
 /**
@@ -122,7 +147,14 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 					into,
 					carrying.largestFile ?? SHARE_LARGEST_FILE,
 				);
-	const trees = await carryTrees(exec, carrying.trees, into, home);
+	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
+	const trees = (await carryTrees(exec, carrying.trees, into, home)).map(
+		(one) => withinShare(one, into, largest),
+	);
+	if (carrying.whole && trees.some((one) => one.kind === "refused")) {
+		takeBack(into, sessionFile, carrying.trees);
+		throw new CarryNotWhole(trees);
+	}
 	const handover: Handover = {
 		session: session.id,
 		quest: carrying.quest,
@@ -136,6 +168,54 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 			: { notes: carrying.notes }),
 	};
 	return { file: writeHandover(into, handover), handover, trees };
+}
+
+/**
+ * A carried tree whose bundle or patch the share would refuse, refused
+ * here instead, with both taken out of `into`, so nothing closes for a
+ * carry the share then fails.
+ */
+function withinShare(
+	one: TreeCarried,
+	into: string,
+	largest: number,
+): TreeCarried {
+	if (one.kind !== "carried") return one;
+	for (const name of [one.tree.bundle, one.tree.patch]) {
+		if (name === undefined) continue;
+		const size = statSync(join(into, name)).size;
+		if (size > largest) {
+			for (const left of [one.tree.bundle, one.tree.patch]) {
+				if (left !== undefined) rmSync(join(into, left), { force: true });
+			}
+			return {
+				kind: "refused",
+				path: one.path,
+				why: `Its ${name} is ${sized(size)}, over the ${sized(largest)} the share carries.`,
+			};
+		}
+	}
+	return one;
+}
+
+/**
+ * Removes what a carry that won't go put in `into`: the session's file
+ * and each tree's bundle and patch, so the share never sends them.
+ */
+function takeBack(
+	into: string,
+	sessionFile: string | undefined,
+	paths: readonly string[],
+): void {
+	const names = paths.flatMap((path) => {
+		const name = nameFor(path);
+		return [`${name}.bundle`, `${name}.patch`];
+	});
+	for (const name of sessionFile === undefined
+		? names
+		: [sessionFile, ...names]) {
+		rmSync(join(into, name), { force: true });
+	}
 }
 
 /**
@@ -331,4 +411,9 @@ async function copyBeside(
 /** `bytes` in MiB, to one place. */
 function mib(bytes: number): string {
 	return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+/** `bytes` in MiB, or in bytes when under one. */
+function sized(bytes: number): string {
+	return bytes < 1024 * 1024 ? `${bytes} bytes` : `${mib(bytes)} MiB`;
 }

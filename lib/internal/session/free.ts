@@ -36,15 +36,36 @@ export interface Holding {
  */
 export const RUN_UNDER_WAY = "a run is under way";
 
-/** What holds this session, or nothing when it could end now. */
+/**
+ * Everything that holds this session, a run under way first, or nothing
+ * when it could end now. Each is named at once, since a carry refused
+ * for one hold at a time on 23 November took three asks to clear.
+ */
 export function whatHolds(at: Holding): string | undefined {
-	if (!at.agentIdle) return RUN_UNDER_WAY;
-	if (at.pendingMessages) return "messages wait for it";
-	if (at.jobs > 0)
-		return at.heldBy?.length ? jobsOut(at.heldBy) : "background jobs are out";
-	if (at.prompting) return "a prompt is open";
-	if (at.typed) return "text is typed and unsent";
-	return undefined;
+	return allOf([
+		at.agentIdle ? undefined : RUN_UNDER_WAY,
+		at.pendingMessages ? "messages wait for it" : undefined,
+		at.jobs > 0
+			? at.heldBy?.length
+				? jobsOut(at.heldBy)
+				: "background jobs are out"
+			: undefined,
+		at.prompting ? "a prompt is open" : undefined,
+		at.typed ? "text is typed and unsent" : undefined,
+	]);
+}
+
+/** Each hold said, in order, as one; nothing when none holds. */
+export function allOf(
+	holds: readonly (string | undefined)[],
+): string | undefined {
+	const said = holds.filter((hold): hold is string => hold !== undefined);
+	return said.length === 0 ? undefined : said.join("; ");
+}
+
+/** Whether a run under way is among what `holds` names. */
+export function heldByRun(holds: string): boolean {
+	return holds === RUN_UNDER_WAY || holds.startsWith(`${RUN_UNDER_WAY}; `);
 }
 
 /** What each kind of job is called where a hold names it, one and several. */

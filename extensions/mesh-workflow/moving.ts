@@ -74,7 +74,11 @@ import {
 	carryUnderWay,
 } from "../../lib/internal/carry/under-way.ts";
 import type { CarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
-import { RUN_UNDER_WAY, whatHolds } from "../../lib/internal/session/free.ts";
+import {
+	heldByRun,
+	RUN_UNDER_WAY,
+	whatHolds,
+} from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { MoveOff, Moving } from "../../lib/mesh/moving.ts";
@@ -250,7 +254,7 @@ export function createMoving(host: MovingHost): MovingSession {
 	const cutsRun = (moving: Moving, holds: string, waited: number) =>
 		moving.to === "pi" &&
 		host.cutRun !== undefined &&
-		holds === RUN_UNDER_WAY &&
+		heldByRun(holds) &&
 		waited >= RELEASE_WAIT_MS;
 	const unlook = () => {
 		unwatch?.();
@@ -280,8 +284,8 @@ export function createMoving(host: MovingHost): MovingSession {
 		}
 		if (cutsRun(moving, holds, waited)) cutting = true;
 		const said =
-			cutting && holds === RUN_UNDER_WAY
-				? `${holds}, ending at its turn's end after ${RELEASE_WAIT_MS / 60_000} minutes`
+			cutting && heldByRun(holds)
+				? `${RUN_UNDER_WAY}, ending at its turn's end after ${RELEASE_WAIT_MS / 60_000} minutes${holds.slice(RUN_UNDER_WAY.length)}`
 				: holds;
 		if (said !== moving.holds) host.setMoving({ ...moving, holds: said });
 		unwatch ??= every(MOVE_LOOK_MS, look);

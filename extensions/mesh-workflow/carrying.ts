@@ -124,9 +124,13 @@ async function carryOut(
 		trees: await treesHeldByNow(id),
 		fence: fenceKindOf(places.env ?? process.env),
 		notes: await (places.notes ?? questNotes)(quest),
+		// The node closes this session once its done file is written, so a
+		// refused tree throws first and the carry is refused, saying why.
+		whole: true,
 	});
+	// Only skipped trees can stay now: on no branch, or gone from here.
 	const stayed = carried.trees.flatMap((one) =>
-		one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
+		one.kind === "skipped" ? [`${one.path}: ${one.why}`] : [],
 	);
 	// Its done file is written, so it has carried: a stale screen that
 	// throws here would report a carry that went as refused, and let a

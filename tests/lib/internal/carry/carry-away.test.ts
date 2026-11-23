@@ -179,6 +179,39 @@ describe("carrying a session's work away", () => {
 		]);
 	});
 
+	// The share refuses a file over its limit only after the session closed.
+	it("refuses a tree whose bundle the share would refuse, leaving none of it to send", async () => {
+		const { home, tree, into } = await homeWithTree();
+		await git(tree, "checkout", "-q", "-b", "topic");
+		await commit(tree, "work.txt", "unpushed\n".repeat(400));
+		writeFileSync(join(tree, "README.md"), "changed\n");
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-big", cwd: home },
+			trees: [tree],
+			largestFile: 200,
+		});
+
+		expect(carried.trees).toEqual([
+			{
+				kind: "refused",
+				path: tree,
+				why: expect.stringMatching(
+					/^Its .*\.bundle is \d+ bytes, over the 200 bytes the share carries\.$/,
+				),
+			},
+		]);
+		expect(carried.handover.trees).toEqual([]);
+		expect(
+			readdirSync(into).filter((name) => /\.(bundle|patch)$/.test(name)),
+			"neither its bundle nor its patch is left for the share",
+		).toEqual([]);
+	});
+
 	// A folder git can't read as a tree is refused, not passed over as
 	// one on no branch.
 	it("refuses a folder git can't read as a tree, rather than passing it over", async () => {

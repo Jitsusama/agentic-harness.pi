@@ -4,7 +4,7 @@
  * quest's handover, through real git.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -16,7 +16,10 @@ import {
 	handoverOf,
 	readHandover,
 } from "../../../lib/internal/carry/handover.ts";
-import { closeLanded } from "../../../lib/internal/carry/under-way.ts";
+import {
+	carryUnderWay,
+	closeLanded,
+} from "../../../lib/internal/carry/under-way.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
@@ -24,6 +27,7 @@ import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 import {
 	bareOrigin,
 	cloneAt,
+	exec,
 	folder,
 	removeAll,
 } from "../../lib/internal/carry/support/machines.ts";
@@ -33,7 +37,8 @@ afterEach(() => {
 	// A carried hold stays until its session's close lands, so each test's
 	// lets go here rather than lingering in this process for its quarter
 	// hour (PV3TE0's round 10, F2).
-	for (const id of ["s-carry", "s-closing", "s-stale"]) closeLanded(id);
+	for (const id of ["s-carry", "s-closing", "s-stale", "s-whole"])
+		closeLanded(id);
 	removeAll(made);
 });
 
@@ -142,13 +147,17 @@ describe("carrying a steered session's work", () => {
 	// trees that stayed reported a carry that went as refused.
 	it("answers a carry that went, though its screen throws once its done file is written", async () => {
 		const home = folder(made, "home");
-		// A folder git can't read as a tree is refused, so it stays and is
-		// named on screen, which throws.
-		const plain = folder(made, "plain");
+		// A tree on no branch is skipped, so it stays and is named on
+		// screen, which throws.
+		const detached = await cloneAt(
+			await bareOrigin(made),
+			join(home, "src", "detached"),
+		);
+		await exec("git", ["-C", detached, "checkout", "-q", "--detach"]);
 		let asked = 0;
 		createTreeMemory(treeRecordDir()).remember({
-			identity: { key: "plain-carry", shareable: false },
-			path: plain,
+			identity: { key: "detached-carry", shareable: false },
+			path: detached,
 			providerId: "git",
 			sessions: ["s-stale"],
 		});
@@ -166,6 +175,45 @@ describe("carrying a steered session's work", () => {
 		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
 		expect(done).toBe(join(into, "s-stale.done.json"));
 		expect(asked, "it reached the stale screen").toBeGreaterThan(0);
+	});
+
+	// 1OGSE7's round 000052: a refused tree still wrote the done file,
+	// so the node closed the session and the tree's work lost it.
+	it("refuses the whole carry when a tree can't go, writing no done file and keeping nothing in the handover", async () => {
+		const home = folder(made, "home");
+		const tree = await cloneAt(
+			await bareOrigin(made),
+			join(home, "src", "app"),
+		);
+		writeFileSync(join(tree, "draft.txt"), "unsaved\n");
+		const plain = folder(made, "plain");
+		const records = createTreeMemory(treeRecordDir());
+		for (const [key, path] of [
+			["app-whole", tree],
+			["plain-whole", plain],
+		] as const) {
+			records.remember({
+				identity: { key, shareable: false },
+				path,
+				providerId: "git",
+				sessions: ["s-whole"],
+			});
+		}
+		loaded("s-whole", QUEST);
+		const file = join(folder(made, "sessions"), "2026-11-23_s-whole.jsonl");
+		writeFileSync(file, '{"type":"session","id":"s-whole"}\n');
+		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
+		const before = existsSync(into) ? readdirSync(into) : [];
+
+		await expect(
+			carryThisSession(session("s-whole", tree, file), "penelope", { home }),
+		).rejects.toThrow(
+			`a tree can't go, so nothing was carried and the session stays here:\n${plain}: git couldn't`,
+		);
+
+		expect(readdirSync(into).sort()).toEqual([...before].sort());
+		expect(existsSync(join(into, "s-whole.done.json"))).toBe(false);
+		expect(carryUnderWay("s-whole")).toBeUndefined();
 	});
 
 	it("refuses with no quest loaded, having no handover to carry into", async () => {

@@ -68,6 +68,7 @@ import type { CarryHold } from "../../lib/internal/carry/under-way.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
+import { allOf } from "../../lib/internal/session/free.ts";
 import { treesHeldByNow } from "../../lib/internal/work-records.ts";
 import {
 	type Board,
@@ -573,12 +574,13 @@ export async function orderedHolds(
 	at: HoldsAt,
 	runEnded: boolean,
 ): Promise<string | undefined> {
-	return (
+	// Every hold at once, so one ask of the session can clear them all.
+	return allOf([
 		holdsOf(at.ctx, at.events, at.prompts, {
 			runAside: true,
 			ownCarry: at.ownCarry,
-		}) ??
-		leasesHolding(at.board, at.session, runEnded) ??
-		(await rebaseHalted(at.session))
-	);
+		}),
+		leasesHolding(at.board, at.session, runEnded),
+		await rebaseHalted(at.session),
+	]);
 }
