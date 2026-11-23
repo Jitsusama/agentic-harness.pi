@@ -8,14 +8,20 @@ import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { isRecord } from "../../lib/internal/record.ts";
 import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
 
 const run = promisify(execFile);
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const VITEST = join(ROOT, "node_modules", ".bin", "vitest");
 const LOADER = join(ROOT, "tests", "setup", "scripts-as-text.ts");
-/** Two vitest starts on a busy machine, each a few seconds alone. */
-const LISTS_IN_MS = 90_000;
+/**
+ * How long one vitest start may take to list, a few seconds alone, before
+ * it is killed, so a starved run says so and leaves nothing running.
+ */
+const LIST_MS = 30_000;
+/** A case's two starts, and its repo's making. */
+const LISTS_IN_MS = 2 * LIST_MS + 10_000;
 
 const repos: string[] = [];
 afterEach(() => {
@@ -69,32 +75,43 @@ async function listed(repo: string, changed = true): Promise<string[]> {
 			([name]) => !(name.startsWith("VITEST") || name.startsWith("VITE_")),
 		),
 	);
-	const listed = await run(
-		VITEST,
-		[
-			"list",
-			...(changed ? ["--changed", "HEAD"] : []),
-			"--filesOnly",
-			"--root",
-			repo,
-		],
-		{ cwd: repo, env },
-	).catch((error: unknown) => {
-		// Listing no file at all is a failure to vitest; what it printed
-		// still says which it found.
-		if (
-			error instanceof Error &&
-			"stdout" in error &&
-			typeof error.stdout === "string"
-		)
-			return { stdout: error.stdout };
-		throw error;
+	// An empty list passes, so any failure is vitest's own, and the list
+	// comes as JSON, so output that isn't one can't read as no files.
+	const words = [
+		"list",
+		...(changed ? ["--changed", "HEAD"] : []),
+		"--filesOnly",
+		"--passWithNoTests",
+		"--json",
+		"--root",
+		repo,
+	];
+	const { stdout } = await run(VITEST, words, {
+		cwd: repo,
+		env,
+		timeout: LIST_MS,
+		killSignal: "SIGKILL",
+	}).catch((error: unknown) => {
+		const killed = isRecord(error) && error.killed === true;
+		throw new Error(
+			killed
+				? `vitest ${words.join(" ")} listed nothing in ${LIST_MS / 1000} s, so it was killed`
+				: `vitest ${words.join(" ")} failed`,
+			{ cause: error },
+		);
 	});
-	return listed.stdout
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.endsWith(".test.ts"))
-		.map((line) => basename(line))
+	return filesIn(JSON.parse(stdout));
+}
+
+/** The test files' names a JSON list from `vitest list` holds. */
+function filesIn(list: unknown): string[] {
+	if (!Array.isArray(list)) throw new Error("vitest listed no array");
+	return list
+		.map((entry: unknown) => {
+			if (!(isRecord(entry) && typeof entry.file === "string"))
+				throw new Error(`vitest listed ${JSON.stringify(entry)}, no file`);
+			return basename(entry.file);
+		})
 		.sort();
 }
 

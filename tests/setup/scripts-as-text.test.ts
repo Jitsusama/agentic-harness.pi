@@ -237,13 +237,33 @@ describe("scriptsAsText", () => {
 					'"$(cd "$(dirname "$0")" && pwd)/lost.sh"',
 					`. "\${BASH_SOURCE%/*}/strayed.sh"`,
 					'# runs "$(dirname "$0")/said.sh", in a comment',
+					'source "$(dirname $0)/bare.sh"',
+					'. "$(dirname "$BASH_SOURCE")/plain.sh"',
+					'source "$(dirname "$config")/defaults.sh"',
+					'"$(cd "$repo" && pwd)/tool.sh"',
+					'"$(cd "$(dirname "$config")" && pwd)/its.sh"',
 				].join("\n"),
 			),
+			"the folder of the script itself, never of another file",
 		).toEqual([
 			'source "$(dirname "$0")/gone.sh": names gone.sh beside it, which isn\'t there to follow',
 			'"$(cd "$(dirname "$0")" && pwd)/lost.sh": names lost.sh beside it, which isn\'t there to follow',
 			`. "\${BASH_SOURCE%/*}/strayed.sh": names strayed.sh beside it, which isn't there to follow`,
+			'source "$(dirname $0)/bare.sh": names bare.sh beside it, which isn\'t there to follow',
+			'. "$(dirname "$BASH_SOURCE")/plain.sh": names plain.sh beside it, which isn\'t there to follow',
 		]);
+	});
+
+	// A folder can carry a script's ending; importing one would fail every
+	// test that imports the script naming it.
+	it("follows no folder whose name ends as a script's does", () => {
+		const path = script('source "$(dirname "$0")/lib.sh/x"\nls lib.sh\n', [
+			["lib.sh/x", ""],
+		]);
+		expect(importsOf(path)).toEqual([]);
+		expect(isShellScript(join(dirname(path), "lib.sh")), "the folder").toBe(
+			false,
+		);
 	});
 
 	it("follows what the host gate's scripts source and run", () => {

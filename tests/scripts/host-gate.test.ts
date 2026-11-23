@@ -11,16 +11,19 @@
 import { execFile } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
+	readFileSync,
 	realpathSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../lib/internal/record.ts";
+import config from "../../vitest.config.ts";
 import {
 	bareOrigin,
 	cloneAt,
@@ -34,7 +37,8 @@ import "../../scripts/host-gate.sh";
 import "../../scripts/host-test-there.sh";
 
 const run = promisify(execFile);
-const SCRIPTS = join(import.meta.dirname, "..", "..", "scripts");
+const ROOT = join(import.meta.dirname, "..", "..");
+const SCRIPTS = join(ROOT, "scripts");
 const GATE = join(SCRIPTS, "host-gate.sh");
 const RUNNER = join(SCRIPTS, "host-test-there.sh");
 /** The tools test:host's words name, each a program in a store folder. */
@@ -233,6 +237,51 @@ function gate(on: Harness, sha: string) {
 	return answer(on, GATE, [sha]);
 }
 
+/** A relative import in a file of code, its path the first group. */
+const IMPORT = /(?:\bfrom\s*|\bimport\s*)["'](\.{1,2}\/[^"']+)["']/g;
+
+/**
+ * What test:host loads before its first case, as paths from the root:
+ * the config, the process lane's setup files and the global setup, with
+ * every file each of those imports in turn, the scripts' loader among
+ * them.
+ */
+function hostTestSetup(): string[] {
+	const lane = config.test?.projects?.find(
+		(project) =>
+			typeof project === "object" &&
+			"test" in project &&
+			project.test?.name === "process",
+	);
+	const setupFiles =
+		typeof lane === "object" && "test" in lane ? lane.test?.setupFiles : [];
+	const found = new Set<string>();
+	const next = [
+		"vitest.config.ts",
+		...[setupFiles ?? []].flat(),
+		...[config.test?.globalSetup ?? []].flat(),
+	].map((file) => relative(ROOT, resolve(ROOT, file)));
+	for (let file = next.pop(); file !== undefined; file = next.pop()) {
+		if (found.has(file) || !existsSync(join(ROOT, file))) continue;
+		found.add(file);
+		for (const imported of readFileSync(join(ROOT, file), "utf8").matchAll(
+			IMPORT,
+		))
+			next.push(
+				relative(ROOT, resolve(ROOT, dirname(file), imported[1] ?? "")),
+			);
+	}
+	return [...found].sort();
+}
+
+/** The paths the gate counts as hosted, as its own pattern says. */
+function hostedPattern(): RegExp {
+	const said = /^hosted='([^']*)'$/m.exec(readFileSync(GATE, "utf8"))?.[1];
+	if (said === undefined)
+		throw new Error("host-gate.sh sets no hosted pattern");
+	return new RegExp(said);
+}
+
 describe("host-gate.sh", () => {
 	it("lets a change that touches nothing hosts run merge without a run", async () => {
 		const on = await harness();
@@ -332,13 +381,35 @@ describe("host-gate.sh", () => {
 
 	// The host tests load under the process lane's setup, the scripts'
 	// loader among it, so a change there alone shapes how test:host runs.
+	// The list is read from the config, so a setup file added there, or
+	// one a setup file comes to import, can't slip past the gate.
+	it("counts everything test:host loads before its cases as hosted", () => {
+		const setup = hostTestSetup();
+		expect(setup, "what the config names, and what that imports").toEqual(
+			expect.arrayContaining([
+				"tests/setup/scripts-as-text.ts",
+				"tests/setup/xdg-sandbox.ts",
+				"tests/setup/temp-root.ts",
+				"tests/support/memory-secret-store.ts",
+			]),
+		);
+		const hosted = hostedPattern();
+		expect(
+			setup.filter((file) => !hosted.test(file)),
+			"loaded by test:host, not counted",
+		).toEqual([]);
+	});
+
 	it.each([
 		"tests/setup/scripts-as-text.ts",
 		"tests/setup/pi-install.ts",
 		"tests/setup/xdg-sandbox.ts",
 		"tests/setup/temp-root.ts",
+		"tests/support/memory-secret-store.ts",
+		"lib/core/internal/keyring/store.ts",
+		"scripts/spawn-decide.ts",
 	])(
-		"refuses a change to %s, setup the host tests load, until test:host ran at it",
+		"refuses a change to %s, which the host or its tests load, until test:host ran at it",
 		async (file) => {
 			const on = await harness();
 			const sha = await change(on, file);
@@ -354,8 +425,10 @@ describe("host-gate.sh", () => {
 		"tests/setup/chrome-present.ts",
 		"tests/setup/scripts-as-text.test.ts",
 		"tests/setup/signal-stamp.ts",
+		// A helper every lane's tests share, left to pnpm check's.
+		"tests/support/until.ts",
 	])(
-		"lets a change to %s, setup no host test loads, merge without a run",
+		"lets a change to %s, which test:host loads only as any test does, merge without a run",
 		async (file) => {
 			const on = await harness();
 			const sha = await change(on, file);

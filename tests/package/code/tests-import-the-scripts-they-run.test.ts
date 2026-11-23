@@ -25,9 +25,14 @@
  * tests/package whole; `pnpm check` runs it only when a change reaches
  * it, so a test naming a new script without importing it fails there.
  *
+ * A script naming another beside it by its own folder, as
+ * `$(dirname "$0")/`, `$(cd "$(dirname "$0")" && pwd)/` or
+ * `${BASH_SOURCE%/*}/` spell it, is held to that one being there; a
+ * name through a variable, as `$here/`, is past it.
+ *
  * Only vitest has the loader: pi or node reads a script import as
- * JavaScript, so a typecheck that passes one in a file they load would
- * break only under them.
+ * JavaScript, so a typecheck that passes one in a file they load, or in
+ * anything that file imports in turn, would break only under them.
  */
 
 import { execFileSync } from "node:child_process";
@@ -89,9 +94,9 @@ function runOutsideVitest(file: string): boolean {
 	return RUN_OUTSIDE_VITEST.some((pattern) => pattern.test(file));
 }
 
-/** Whether the file at `file`, from the root, is a shell script. */
-function isScriptFile(file: string): boolean {
-	return isShellScript(join(ROOT, file));
+/** Whether the file at `file`, from `root`, is a shell script. */
+function isScriptFile(file: string, root: string = ROOT): boolean {
+	return isShellScript(join(root, file));
 }
 
 /**
@@ -125,20 +130,64 @@ function codeOf(files: readonly string[]): string[] {
 }
 
 /**
- * The scripts `text`, at `file`, imports, as paths from the root: any
- * relative import naming a script by its ending, or a file on disk the
- * loader would read as one, as the ssh guard's wrappers. An import
- * written inside a string reads as one too, and names no script there
- * is, so it only ever adds a path no rule asks after.
+ * What `text`, at `file`, imports by a relative name, as paths from
+ * `root`. An import written inside a string reads as one too, and names
+ * no file there is, so it only ever adds a path no rule asks after.
  */
-function scriptImports(file: string, text: string): string[] {
+function relativeImports(
+	file: string,
+	text: string,
+	root: string = ROOT,
+): string[] {
 	return [
 		...text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"']*)["']/g),
-	]
-		.map((found) =>
-			relative(ROOT, resolve(ROOT, dirname(file), found[1] ?? "")),
+	].map((found) =>
+		relative(root, resolve(root, dirname(file), found[1] ?? "")),
+	);
+}
+
+/**
+ * The scripts `text`, at `file`, imports, as paths from `root`: any
+ * relative import naming a script by its ending, or a file on disk the
+ * loader would read as one, as the ssh guard's wrappers.
+ */
+function scriptImports(
+	file: string,
+	text: string,
+	root: string = ROOT,
+): string[] {
+	return relativeImports(file, text, root).filter(
+		(path) => /\.(?:sh|bash)$/.test(path) || isScriptFile(path, root),
+	);
+}
+
+/**
+ * The code files of those `starts` loads, paths from `root`, that import
+ * a script: `starts` themselves and each code file they reach through
+ * relative imports, in turn, since node or pi loads those with them and
+ * has no loader for a script either.
+ */
+function importingAScript(
+	starts: Iterable<string>,
+	root: string = ROOT,
+): string[] {
+	const loaded = new Set<string>();
+	const next = [...starts];
+	for (let file = next.pop(); file !== undefined; file = next.pop()) {
+		if (loaded.has(file) || !CODE.test(file) || !existsSync(join(root, file)))
+			continue;
+		loaded.add(file);
+		next.push(
+			...relativeImports(file, readFileSync(join(root, file), "utf8"), root),
+		);
+	}
+	return [...loaded]
+		.filter(
+			(file) =>
+				scriptImports(file, readFileSync(join(root, file), "utf8"), root)
+					.length > 0,
 		)
-		.filter((path) => /\.(?:sh|bash)$/.test(path) || isScriptFile(path));
+		.sort();
 }
 
 /**
@@ -243,13 +292,11 @@ describe("shell scripts", () => {
 	});
 
 	it("are imported by nothing vitest doesn't load", () => {
-		const importing = codeOf(files)
-			.filter((file) => !file.startsWith("tests/") || runOutsideVitest(file))
-			.filter(
-				(file) =>
-					scriptImports(file, readFileSync(join(ROOT, file), "utf8")).length >
-					0,
-			);
+		const importing = importingAScript(
+			codeOf(files).filter(
+				(file) => !file.startsWith("tests/") || runOutsideVitest(file),
+			),
+		);
 		expect(importing, "a file pi or node loads, importing a script").toEqual(
 			[],
 		);
@@ -309,6 +356,37 @@ describe("the rule's reading", () => {
 				"scripts/c.sh",
 				"scripts/d.sh",
 				"scripts/lib/b.sh",
+			]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	// A program a test runs in a node of its own loads its helpers with
+	// it, and node has no loader for a script those import.
+	it("finds a script imported by what a file node loads imports, through each in turn", () => {
+		const root = mkdtempSync(join(tmpdir(), "scripts-importing-"));
+		try {
+			for (const folder of ["scripts", "tests/x/fixtures", "tests/x/support"])
+				mkdirSync(join(root, folder), { recursive: true });
+			const write = (path: string, text: string) =>
+				writeFileSync(join(root, path), text);
+			write("scripts/x.sh", "echo x\n");
+			write(
+				"tests/x/fixtures/run.mts",
+				'import { help } from "../support/help.ts";\nhelp();\n',
+			);
+			write(
+				"tests/x/support/help.ts",
+				'import { more } from "./more.ts";\nexport const help = more;\n',
+			);
+			write(
+				"tests/x/support/more.ts",
+				'import text from "../../../scripts/x.sh";\nexport const more = () => text;\n',
+			);
+			write("tests/x/support/alone.ts", 'import "../../../scripts/x.sh";\n');
+			expect(importingAScript(["tests/x/fixtures/run.mts"], root)).toEqual([
+				"tests/x/support/more.ts",
 			]);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
