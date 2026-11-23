@@ -109,9 +109,14 @@ export async function whyGitKeeps(
 			return "it holds submodules";
 		}
 	}
+	// No optional locks, so git reads the index rather than refreshing
+	// and writing it back: a tree that may go needs no write, and one
+	// kept and put back is left as its session had it. Git still reads
+	// any file whose stat the index doesn't match, so a change shows.
 	const status = await exec("git", [
 		"-C",
 		aside,
+		"--no-optional-locks",
 		"status",
 		"--porcelain",
 		"--ignore-submodules=none",

@@ -1060,6 +1060,93 @@ describe("taking a tree in a repository of thousands", () => {
 		);
 	});
 
+	it("reads a tree's status without rewriting its index, in the survey or the take", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const tree = await cut("stale", ["--detach", "@", "main"]);
+		// A tracked file whose stat the index no longer matches, an hour
+		// back, so a status that may lock would refresh the index and write
+		// it back.
+		const earlier = new Date(Date.now() - 60 * 60_000);
+		lutimesSync(join(tree, ".gitignore"), earlier, earlier);
+		const written: { take: boolean; wrote: boolean }[] = [];
+		const watched: Exec = async (command, args) => {
+			// The tree itself, or set aside as it is taken, never the checkout
+			// the survey reads beside it.
+			const where = args[args.indexOf("-C") + 1] ?? "";
+			if (
+				command !== "git" ||
+				!args.includes("status") ||
+				!where.startsWith(tree)
+			) {
+				return await exec(command, args);
+			}
+			const index = join(
+				await git(where, "rev-parse", "--absolute-git-dir"),
+				"index",
+			);
+			// Git writes an index through a lock file it renames into place, so
+			// a new inode shows a rewrite where timestamps are too coarse to.
+			const stamp = () => {
+				const { ino, mtimeNs } = statSync(index, { bigint: true });
+				return `${ino}:${mtimeNs}`;
+			};
+			const before = stamp();
+			const result = await exec(command, args);
+			written.push({
+				take: args.includes("--ignore-submodules=none"),
+				wrote: stamp() !== before,
+			});
+			return result;
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: watched,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		expect(
+			written.map((one) => one.take),
+			"the survey asked, then the take",
+		).toEqual([false, true]);
+		expect(
+			written.map((one) => one.wrote),
+			"no status rewrote the index",
+		).toEqual([false, false]);
+	});
+
+	it("keeps a tree aside whose tracked file changed under a stale stat", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const tree = await cut("edited", ["--detach", "@", "main"]);
+		// The same size as what the index holds, under a stat it doesn't
+		// match, so only reading the file shows git the change.
+		const edit: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				writeFileSync(join(where, ".gitignore"), "output/\n");
+				const later = new Date(Date.now() + 60_000);
+				lutimesSync(join(where, ".gitignore"), later, later);
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: edit,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it contains modified or untracked files" },
+		]);
+		expect(readFileSync(join(tree, ".gitignore"), "utf8")).toBe("output/\n");
+	});
+
 	it("leaves a tree cut at the same place mid-take its own git folder", async () => {
 		const { main, memory, lockPath, cut } = await setUp();
 		const tree = await cut("again", ["--detach", "@", "main"]);
