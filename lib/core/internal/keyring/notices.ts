@@ -26,9 +26,10 @@
  * meanwhile; a listener that stops for good and leaves its screen with
  * none forgets it, so an ended session holds nothing here. A screen
  * whose listeners never come back after a reload stays owed, and held
- * here with whatever it keeps, until the process ends. pi evaluates each extension's copy of this module again
- * as it reloads, so all of this outlives a reload only in a copy loaded
- * once for every extension.
+ * here with whatever it keeps, until the process ends. pi evaluates
+ * each extension's copy of this module again as it reloads, so all of
+ * this outlives a reload only in a copy loaded once for every
+ * extension.
  */
 
 /** One thing to tell the person. */
@@ -58,7 +59,7 @@ interface Owed {
 }
 
 /** A notice just said, owed to anyone and to every screen away. */
-const EVERYONE = (): Owed => ({ screens: new Set(away), anyone: true });
+const justSaid = (): Owed => ({ screens: new Set(away), anyone: true });
 
 /** Each notice still owed, by its words. */
 const waiting = new Map<string, { notice: KeyringNotice; to: Owed }>();
@@ -120,7 +121,7 @@ function keep(notice: KeyringNotice, to: Owed): void {
 
 /** Tell each screen that hasn't heard it, or the next listener to come. */
 export function sayKeyringNotice(notice: KeyringNotice): void {
-	keep(notice, offer(notice, EVERYONE()));
+	keep(notice, offer(notice, justSaid()));
 }
 
 /** Offer each waiting notice again to whom it is owed, as a screen may have come since. */

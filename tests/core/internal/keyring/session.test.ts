@@ -114,7 +114,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
-	it("shows the same words once in a session across a reload, where its copy of the notices outlives the reload", async () => {
+	it("remembers the words a session showed by its manager, so they show once across a reload", async () => {
 		// pi's reload builds new extensions around the session's manager
 		// (AgentSession's _buildRuntime), so both runners here share one;
 		// pi also evaluates each extension's own copy of the notices again,
@@ -143,11 +143,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		await Promise.all([before.start(), elsewhere.start()]);
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		await before.runner.emit({ type: "session_shutdown", reason: "reload" });
-		await elsewhere.runner.emit({
-			type: "turn_start",
-			turnIndex: 0,
-			timestamp: 0,
-		});
+		await turn(elsewhere.runner);
 		const after = session(manager);
 		const shown = screen();
 		after.runner.setUIContext(shown.ui, "tui");
@@ -175,7 +171,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		expect(shown.told).toEqual([]);
 	});
 
-	it("keeps what a session is owed when it starts again on the same manager", async () => {
+	it("keeps what a session is owed when it starts again with no shutdown between", async () => {
 		// One extension, so no other listener keeps the screen owed for it.
 		const one = extensionRunner(keeping("Slack"), process.cwd());
 		const elsewhere = session();
@@ -203,27 +199,28 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		expect([endedScreen.told, nextScreen.told]).toEqual([[], ["info: moved"]]);
 	});
 
-	it("says so, once, when the move into the keyring fails, keeping the plain file", async () => {
+	it("says each failed move into the keyring once a session, by its label", async () => {
+		const locked = async () => {
+			throw new Error("keyring locked");
+		};
 		const one = extensionRunner(
-			[
-				keeping("Slack", async () => {
-					throw new Error("keyring locked");
-				}),
-				keeping("Slack", async () => {
-					throw new Error("keyring locked");
-				}),
-			],
+			[keeping("Slack", locked), keeping("Google", locked)],
 			process.cwd(),
 		);
 		const shown = screen();
 		one.runner.setUIContext(shown.ui, "tui");
 		await one.start();
 		await new Promise((settled) => setImmediate(settled));
-		expect(shown.told).toEqual([
+		// Starting again runs each move again, and each fails the same way.
+		await one.runner.emit({ type: "session_start", reason: "reload" });
+		await new Promise((settled) => setImmediate(settled));
+		const failed = (label: string) =>
 			expect.stringMatching(
-				/^warning: Slack could not be moved into the keyring: .*keyring locked.*\. The plain file is kept\.$/,
-			),
-		]);
+				new RegExp(
+					`^warning: ${label} could not be moved into the keyring: .*keyring locked.*\\. The plain file is kept\\.$`,
+				),
+			);
+		expect(shown.told).toEqual([failed("Slack"), failed("Google")]);
 	});
 
 	it("still moves the credentials when a screen fails to show what was waiting", async () => {

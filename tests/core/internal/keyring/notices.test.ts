@@ -105,6 +105,7 @@ describe("keyring notices", () => {
 		onKeyringNotice(hearing(heard, "next"), {});
 		sayKeyringNotice({ level: "info", message: "later" });
 		expect(heard).toEqual(["next: early", "next: moved", "next: later"]);
+		expect(before, "the first listener was offered what was waiting").toBe(2);
 		expect(thrown).toBe(before);
 	});
 
@@ -167,10 +168,18 @@ describe("keyring notices", () => {
 		const stop = onKeyringNotice(() => false, reloading);
 		sayKeyringNotice({ level: "warning", message: "locked" });
 		stop("back soon");
-		onKeyringNotice(() => false, {});
+		const unbound = { bound: false };
+		onKeyringNotice(unboundUntil(unbound, heard, "lacking"), {});
 		sayKeyringNotice({ level: "warning", message: "locked" });
 		onKeyringNotice(hearing(heard, "reloaded"), reloading);
-		expect(heard).toEqual(["taker: locked", "reloaded: locked"]);
+		unbound.bound = true;
+		retryKeyringNotices();
+		retryKeyringNotices();
+		expect(heard).toEqual([
+			"taker: locked",
+			"reloaded: locked",
+			"lacking: locked",
+		]);
 	});
 
 	it("forgets what a screen was owed once its last listener stops for good", () => {

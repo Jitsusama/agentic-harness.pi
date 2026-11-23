@@ -36,13 +36,11 @@ export function keepCredentialsInKeyring(
 	move: () => Promise<void>,
 ): void {
 	let stopListening: ReturnType<typeof onKeyringNotice> | undefined;
-	let listeningOn: object | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
-		stopListening?.(
-			listeningOn === ctx.sessionManager ? "back soon" : "for good",
-		);
-		listeningOn = ctx.sessionManager;
+		// pi sets a runner's manager only as it makes the runner, so a start
+		// with no shutdown before it is the same session starting again.
+		stopListening?.("back soon");
 		// The session names its one screen for every extension here, by
 		// its manager, which pi hands each of them and keeps across a
 		// reload; not by ctx.ui, which is pi's one shared stand-in for
@@ -68,6 +66,5 @@ export function keepCredentialsInKeyring(
 	pi.on("session_shutdown", async (event) => {
 		stopListening?.(event.reason === "reload" ? "back soon" : "for good");
 		stopListening = undefined;
-		listeningOn = undefined;
 	});
 }
