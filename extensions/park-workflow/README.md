@@ -134,8 +134,12 @@ or a window opening on it. Under a host that can't park one
 conversation alone, it never parks, and its awake note says
 `its host parks it`. While its host drains for a restart
 (`Host.draining`), it parks as soon as the rest of the rule holds,
-idle time aside, so within a look of going idle; `PI_PARK=off` still
-keeps it awake.
+idle time aside, so within a look of going idle. So too once its
+host's own code is stale and no window views it (`Host.rolling`), as
+a child that never restarts rolls onto new code at its next wake.
+A drain and a roll each park it even where the park switch or the
+default leaves parking off, since each ends a process that must not
+outlive its code; only `PI_PARK=off` keeps it awake.
 
 ## What Happens
 

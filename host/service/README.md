@@ -319,6 +319,16 @@ input pipeline or screen. No unit or running host is installed yet.
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it
   resumes, SLOT.sock where it listens and SLOT.d/ for its own use.
+- stale-child.ts: a child rolling onto new code. A child never
+  restarts itself, so it keeps the host code it started with; on 22
+  November 15 children ran host code 34 hours old. Every five
+  minutes it asks its install (what-starts.ts `installMovesFrom`, as
+  restart.ts does) whether the host code there differs, and once it
+  does, says so in the journal and marks its host stale for good
+  (`SessionHost.roll`). Its conversation then parks at its next quiet
+  moment, idle time aside, unless a window views it
+  (`Host.rolling`), and the next wake starts a fresh child on current
+  code. Unlike a drain, a roll holds no wake.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A

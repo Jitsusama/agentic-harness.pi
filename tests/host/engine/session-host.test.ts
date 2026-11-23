@@ -436,6 +436,43 @@ it("drains every conversation but one woken from a park since, until the drain l
 	expect(host.draining("a"), "lifted").toBe(false);
 });
 
+// 22 November: 15 children ran host code 34 hours old, since a child
+// never restarts. Once its install's host code moves on, its conversation
+// parks at its next quiet moment, so its next wake starts a fresh child;
+// one a window views stays, as its person may be reading it.
+it("rolls each conversation no window views once its host code is stale", () => {
+	const dir = mkdtempSync(join(tmpdir(), "session-engine-"));
+	directories.push(dir);
+	const viewed = new Set(["b"]);
+	const host = new SessionHost({
+		key: "test-host",
+		owner,
+		registryDir: dir,
+		viewed: (id) => viewed.has(id),
+	});
+	hosts.push(host);
+	host.register(registration("a"));
+	host.register(registration("b"));
+	expect({ a: host.rolling("a"), b: host.rolling("b") }, "current").toEqual({
+		a: false,
+		b: false,
+	});
+
+	host.roll();
+
+	expect({ a: host.rolling("a"), b: host.rolling("b") }).toEqual({
+		a: true,
+		b: false,
+	});
+	viewed.clear();
+	expect(host.rolling("b"), "its window closed").toBe(true);
+	expect(
+		{ drains: host.drains(), a: host.draining("a") },
+		"a roll holds no wake, as a drain does",
+	).toEqual({ drains: false, a: false });
+	expect(hosted()?.rolling?.("a"), "as the park watch asks").toBe(true);
+});
+
 it("uninstalls a failed initial publication so another host can start", () => {
 	const dir = mkdtempSync(join(tmpdir(), "engine-failed-"));
 	directories.push(dir);
