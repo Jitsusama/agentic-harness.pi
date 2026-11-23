@@ -135,9 +135,20 @@ export default function probeExtension(pi: ProbeApi): void {
 	pi.registerCommand("probe-switch", {
 		description: "Become the conversation another log on disk holds",
 		handler: async (args, context) => {
-			const { cancelled } = await context.switchSession(args.trim());
-			// pi answers a refused switch rather than throwing, so it is noted
-			// for the step waiting on the switch to stop at once.
+			// pi answers a refused switch, and says a handler's error only to the
+			// binding, so either is noted for the step waiting on the switch to
+			// stop at once, naming why.
+			let cancelled: boolean;
+			try {
+				({ cancelled } = await context.switchSession(args.trim()));
+			} catch (error) {
+				note({
+					event: "switch-refused",
+					to: args.trim(),
+					error: error instanceof Error ? error.message : String(error),
+				});
+				throw error;
+			}
 			if (cancelled) note({ event: "switch-cancelled", to: args.trim() });
 		},
 	});

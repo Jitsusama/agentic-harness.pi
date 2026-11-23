@@ -817,6 +817,7 @@ describe("the host's engine", () => {
 				replaced: held,
 				closedBefore: true,
 				switchedTo: true,
+				onHostPi: true,
 			});
 		},
 		HOST_LIFE_MS,

@@ -22,6 +22,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { registerHooks } from "node:module";
 import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
@@ -30,26 +31,9 @@ import type {
 	HostEngine,
 	HostedView,
 } from "../../../../host/engine/contract.ts";
-import { createEngine } from "../../../../host/engine/engine.ts";
-import { bindHeadless } from "../../../../host/engine/headless.ts";
-import { SessionHost } from "../../../../host/engine/session-host.ts";
-import { emptyOverlay, layBudget } from "../../../../lib/budget/environment.ts";
+import type { SessionHost } from "../../../../host/engine/session-host.ts";
+import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
-import {
-	LONG_CACHE_LIFETIME_MS,
-	warmingDelayMs,
-} from "../../../../lib/internal/cache/cache-warming.ts";
-import {
-	pendingWarmsDir,
-	takePendingWarms,
-	warmingCarryDir,
-	writeWarmingCarry,
-} from "../../../../lib/internal/cache/warming-carry.ts";
-import {
-	WAKE_ENV,
-	writeParked,
-} from "../../../../lib/internal/session/park.ts";
-import { ROLLOVER_RECORD } from "../../../../lib/internal/session/rollover.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 import { until } from "../../../support/until.ts";
 
@@ -81,6 +65,53 @@ function argument(position: number): string {
 const packageDir = argument(0);
 const folder = argument(1);
 const scenarioName = argument(2);
+
+// The harness's code binds the host's pi, as pi-host binds it in a host, so
+// what loads after pi (kept history) runs on the pi the host was built with,
+// not the tree's dev copy. The hook goes in before any harness code loads.
+const hostPi = piFromHost(packageDir);
+/** Where kept history's rollover module found pi-ai, once it has loaded. */
+let rolloverPi: string | undefined;
+registerHooks({
+	resolve: (specifier, context, next) => {
+		const resolved = hostPi(specifier, context, next);
+		if (
+			specifier === "@earendil-works/pi-ai" &&
+			context.parentURL?.endsWith("/lib/internal/session/rollover.ts")
+		)
+			rolloverPi = resolved.url;
+		return resolved;
+	},
+});
+const { createEngine } = await import("../../../../host/engine/engine.ts");
+const { bindHeadless } = await import("../../../../host/engine/headless.ts");
+const sessionHosts = await import("../../../../host/engine/session-host.ts");
+const { emptyOverlay, layBudget } = await import(
+	"../../../../lib/budget/environment.ts"
+);
+const { LONG_CACHE_LIFETIME_MS, warmingDelayMs } = await import(
+	"../../../../lib/internal/cache/cache-warming.ts"
+);
+const {
+	pendingWarmsDir,
+	takePendingWarms,
+	warmingCarryDir,
+	writeWarmingCarry,
+} = await import("../../../../lib/internal/cache/warming-carry.ts");
+const { WAKE_ENV, writeParked } = await import(
+	"../../../../lib/internal/session/park.ts"
+);
+const { ROLLOVER_RECORD } = await import(
+	"../../../../lib/internal/session/rollover.ts"
+);
+
+/** Whether kept history's pi-ai is the one the host's pi installs. */
+function keptHistoryOnHostPi(): boolean {
+	const installed = realpathSync(
+		join(packageDir, "node_modules/@earendil-works/pi-ai"),
+	);
+	return rolloverPi?.startsWith(pathToFileURL(`${installed}/`).href) ?? false;
+}
 
 const compat = piModule<Compat>(
 	await import(
@@ -299,7 +330,8 @@ function projectExtension(dir: string, file: string, loaded: string): void {
 
 /** Whether a probe line says pi refused its `/probe-switch`. */
 function switchCancelled(line: unknown): boolean {
-	return field(line, "event") === "switch-cancelled";
+	const event = field(line, "event");
+	return event === "switch-cancelled" || event === "switch-refused";
 }
 
 /** Whether a probe line is something other than its input handler's answer. */
@@ -578,8 +610,11 @@ const scenarios: Record<string, Scenario> = {
 			await until(
 				"the conversation switched to to be held",
 				() => {
-					if (lines(probe).some(switchCancelled))
-						throw new Error(`pi refused the switch to ${second.entry.file}`);
+					const refused = lines(probe).find(switchCancelled);
+					if (refused)
+						throw new Error(
+							`pi refused the switch to ${second.entry.file}: ${JSON.stringify(refused)}`,
+						);
 					return engine.view(switched) !== undefined;
 				},
 				UNTIL_MS,
@@ -588,7 +623,14 @@ const scenarios: Record<string, Scenario> = {
 			const switchedTo = summary(engine, switched).file === second.entry.file;
 			await host.close(switched);
 			return {
-				keptHistory: { resumed, adopted, replaced, closedBefore, switchedTo },
+				keptHistory: {
+					resumed,
+					adopted,
+					replaced,
+					closedBefore,
+					switchedTo,
+					onHostPi: keptHistoryOnHostPi(),
+				},
 			};
 		},
 	},
@@ -1478,7 +1520,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		JSON.stringify({ [realpathSync(work)]: true }),
 	);
 
-	const host = new SessionHost({
+	const host = new sessionHosts.SessionHost({
 		// A key of the folder's own, as each real host has: a start reaps what a dead host under its key left.
 		key: `test-host-${basename(folder)}`,
 		owner: { pid: process.pid, startedAt: Date.now() },
