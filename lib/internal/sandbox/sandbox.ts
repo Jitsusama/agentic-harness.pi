@@ -54,7 +54,8 @@
  *
  * `PI_SANDBOX=fence` asks for the agent fence instead (`fence/fence.ts`):
  * every session's commands kept off the person's desktop, with the
- * work, the network and the environment as they were.
+ * work, the network and the environment as they were, and Delta's token
+ * from mint, which answers only outside (`delta-token.ts`).
  */
 
 import { mkdirSync, rmSync, statSync } from "node:fs";
@@ -111,6 +112,11 @@ import {
 } from "../fence/offload-exemption.ts";
 import { withSecretNote } from "../secrets/secret-ask.ts";
 import { cutTreeDir } from "../work-records.ts";
+import {
+	type DeltaTokenSource,
+	deltaTokens,
+	deltaVariables,
+} from "./delta-token.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
@@ -352,6 +358,9 @@ const CLOUD_COUNTED: Readonly<Record<string, string>> = {
 	CLOUDSDK_CONFIG: "",
 };
 
+/** Delta's names a fenced command may be handed, counted the same way. */
+const DELTA_COUNTED: Readonly<Record<string, string>> = deltaVariables("x");
+
 /**
  * What the agent fence hands a command for gcloud, whatever the session
  * or the machine: no token, only the reason (`NO_CLOUD_IN_THE_FENCE`) and
@@ -403,6 +412,8 @@ export type Sandbox =
 			readonly offload?: Offload;
 			/** The GitHub door's program, where the machine runs the door. */
 			readonly githubDoor?: string;
+			/** Delta's token, minted outside, for dt and `devx ci`. */
+			readonly delta?: DeltaTokenSource;
 			/** Said once in the session, when the fence wasn't what it asked. */
 			readonly note?: string;
 			/** Drawn for a language server, with nothing that acts as the person. */
@@ -436,6 +447,9 @@ const sessionTokens = brokerTokens();
 
 /** The cloud broker's tokens, asked for in the background from the first fenced command. */
 const sessionGrants = cloudGrants();
+
+/** Delta's tokens from mint, asked for once a quarter hour for the session. */
+const sessionDelta = deltaTokens();
 
 /** A session's name as a folder may take it, or the process's where there is none. */
 function sessionFolderName(env: NodeJS.ProcessEnv): string {
@@ -541,6 +555,7 @@ function fenceFor(
 	find: (program: string) => string | undefined,
 	inside: () => boolean,
 	seatbelt: () => string | undefined,
+	delta: DeltaTokenSource,
 ): Sandbox {
 	if (platform !== "linux") {
 		return offLinux(
@@ -569,6 +584,7 @@ function fenceFor(
 		landrun,
 		...(githubDoor ? { githubDoor } : {}),
 		...(program && env ? { offload: offloadAt(program, env) } : {}),
+		delta,
 	};
 }
 
@@ -594,16 +610,22 @@ export function sandboxFor(
 	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
 	inside: () => boolean = insideMacSandbox,
 	seatbelt: () => string | undefined = macSandboxExec,
+	delta: DeltaTokenSource = sessionDelta,
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
 	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
 	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const asked = askedFor(name, platform, find, github, gcloud, {
-		inside,
-		seatbelt,
-	});
+	const asked = askedFor(
+		name,
+		platform,
+		find,
+		github,
+		gcloud,
+		{ inside, seatbelt },
+		delta,
+	);
 	// A refusal carries the stray value's note too, the way back to a
 	// fence that runs.
 	const sandbox =
@@ -629,9 +651,12 @@ function askedFor(
 		readonly inside: () => boolean;
 		readonly seatbelt: () => string | undefined;
 	},
+	delta: DeltaTokenSource,
 ): Sandbox {
+	// Strict is never handed Delta's token: it writes as the person, more
+	// than strict's GitHub token, which can't merge.
 	if (asked === FENCE) {
-		return fenceFor(platform, find, mac.inside, mac.seatbelt);
+		return fenceFor(platform, find, mac.inside, mac.seatbelt, delta);
 	}
 	if (platform !== "linux") {
 		return offLinux("strict", "Landlock", platform, mac.inside, mac.seatbelt);
@@ -822,7 +847,10 @@ export function wrapFor(
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
 			// gcloud's settings folder is counted here before it is made.
-			const counted = bwrapWords({ ...made, passed: CLOUD_COUNTED });
+			const counted = bwrapWords({
+				...made,
+				passed: { ...CLOUD_COUNTED, ...DELTA_COUNTED },
+			});
 			const tooMany =
 				counted > BWRAP_MOST_ARGS
 					? `The fence would hand bubblewrap at least ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`
@@ -844,7 +872,10 @@ export function wrapFor(
 				// gcloud gets an empty settings folder of its own and no token
 				// (`NO_CLOUD_IN_THE_FENCE`).
 				const { grant, passed } = fenceCloud(home, place.env);
-				const cloud = { ...made, passed };
+				// dt and `devx ci` read Delta's token from these, in place of
+				// any the person's shell names (`delta-token.ts`).
+				const delta = deltaVariables(sandbox.delta?.());
+				const cloud = { ...made, passed: { ...passed, ...delta } };
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },

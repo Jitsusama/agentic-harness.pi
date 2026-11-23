@@ -50,6 +50,9 @@ function argsReadIn(text: string): string {
 /** A broker that never answers, so a test never asks the real one for a token. */
 const noCloud = () => ({ reason: "no broker in this test" });
 
+/** A mint that gives nothing, so a test never mints Delta's token. */
+const noDelta = () => undefined;
+
 /** A finder that knows `programs`, as PATH would. */
 function finder(programs: Record<string, string>) {
 	return (program: string) => programs[program];
@@ -77,6 +80,8 @@ describe("what a session asking for the fence is given", () => {
 				lentOnly: false,
 				outside: false,
 			},
+			// Delta's token, asked of mint outside as each command starts.
+			delta: expect.any(Function),
 		});
 	});
 
@@ -92,6 +97,7 @@ describe("what a session asking for the fence is given", () => {
 			kind: "fence",
 			bwrap: "/bin/bwrap",
 			landrun: "/bin/landrun",
+			delta: expect.any(Function),
 		});
 	});
 
@@ -206,6 +212,10 @@ describe("what a session asking for the fence is given", () => {
 			withDoor,
 			undefined,
 			noCloud,
+			undefined,
+			undefined,
+			undefined,
+			noDelta,
 		);
 		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
 		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
@@ -248,6 +258,10 @@ describe("what a session asking for the fence is given", () => {
 			all,
 			undefined,
 			noCloud,
+			undefined,
+			undefined,
+			undefined,
+			noDelta,
 		);
 		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-dev-")));
 		const home = join(base, "home");
@@ -440,6 +454,38 @@ describe("a command in the fence, through stand-ins", () => {
 		expect(run("echo plain").stderr, "a plain command was noted").not.toContain(
 			"pi: gcloud",
 		);
+	});
+
+	it("is handed Delta's token and host in place of the person's, on no command line of bubblewrap's or landrun's", () => {
+		const token = "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjF9.c2lnbmF0dXJl";
+		const minted = { ...sandbox, delta: () => token };
+		const result = run(
+			'echo "$WGH_TOKEN $WGH_HOST"',
+			{ WGH_TOKEN: "the-person's", WGH_HOST: "elsewhere.example" },
+			minted,
+		);
+		expect(result.stdout.trim()).toBe(`${token} delta.shopify.io`);
+		const text =
+			wrapFor(
+				minted,
+				{ cwd: folder, env: { XDG_RUNTIME_DIR: runtimeDir } },
+				home,
+			)?.("true") ?? "";
+		// Set for bubblewrap's process alone, and only named to landrun.
+		const line = text.split("\n").find((each) => each.includes(token)) ?? "";
+		const [before, after] = line.split(quoted(sandbox.bwrap));
+		expect(before, "the token isn't set for bubblewrap").toContain(
+			`WGH_TOKEN=${quoted(token)}`,
+		);
+		expect(after, "a command line shows the token").not.toContain(token);
+		expect(after, "landrun isn't told to keep it").toContain("--env WGH_TOKEN");
+		const none = run(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			'echo "${WGH_TOKEN:-none}"',
+			{},
+			{ ...sandbox, delta: noDelta },
+		);
+		expect(none.stdout.trim(), "a token came from nowhere").toBe("none");
 	});
 
 	it("is handed every variable but those naming the desktop, and reaches Nix by its door", () => {
