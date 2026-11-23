@@ -258,7 +258,7 @@ const QUOTING =
  * loaded from changed.
  */
 const REDEFINED =
-	/[\w-]\s*\(\s*\)|(?<![\w${])(?:PATH|BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|RIPGREP_CONFIG_PATH|GREP_OPTIONS)(?!\w)/;
+	/[^\s;&|()<>$]\s*\(\s*\)|(?<![\w${])(?:PATH|BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|RIPGREP_CONFIG_PATH|GREP_OPTIONS)(?!\w)/;
 
 /** A separator a step starts after, or the start of the command. */
 const STARTS = /(?:^|[\s;&|!])/.source;
@@ -301,11 +301,13 @@ const OPERANDS = new RegExp(
  * assignment's target a lowercase name, so none is `RANDOM` or
  * `SECONDS`; and no `-o` or
  * `-a` in a test, nor any option to printf, either of which may turn
- * an operand into a name to evaluate. Giving up a wait only delays a
- * carry, while a wrong one may stop a write.
+ * an operand into a name to evaluate. No `#` either, `$#` included, so
+ * no comment's apostrophe pairs with a later one to hide the lines
+ * between (8855BD77 [8bc84288], 1OGSE7 [0352bfb2]). Giving up a wait
+ * only delays a carry, while a wrong one may stop a write.
  */
 function inAlphabet(command: string): boolean {
-	if (/[^\x20-\x7e\t\n]|[\\`]/.test(command)) return false;
+	if (/[^\x20-\x7e\t\n]|[\\`#]/.test(command)) return false;
 	if (/[[\]]/.test(command.replace(TEST_BRACKETS, "$1$2 "))) return false;
 	const quotes = /"[^"]*"|'[^']*'/g;
 	for (const [quote] of command.matchAll(quotes)) {

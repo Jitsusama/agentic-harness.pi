@@ -765,10 +765,10 @@ doing only when it is the easy thing:
   nowhere but `/dev/null`
   ([`lib/internal/priority/only-waits.ts`](../../lib/internal/priority/only-waits.ts)).
   A wait is read in a narrow alphabet rather than as bash reads
-  it, so any form outside it still claims: a backslash, a `${`, a
-  `[[` test, a function, a blank but space or tab, or a counter
-  loop's `n=$((n+1))`. One known only by a label cut short claims
-  too. Its presence says
+  it, so any form outside it still claims: a backslash, a `#`, a
+  `${`, a `[[` test, a function, a blank but space or tab, or a
+  counter loop's `n=$((n+1))`. One known only by a label cut
+  short claims too. Its presence says
   `leases: { background: true }`, which a node reads to tell this
   harness from an older one. Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with

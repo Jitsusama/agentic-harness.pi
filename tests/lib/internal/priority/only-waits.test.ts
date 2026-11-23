@@ -30,8 +30,8 @@ describe("a command that only waits", () => {
 			"date -u +%s; journalctl -u x --since today",
 		],
 		[
-			"an apostrophe in double quotes and a comment, then a quoted word",
-			"echo \"it's\"; sleep 5 # don't race\ngrep -q 'rc=' log",
+			"an apostrophe in double quotes, then a quoted word",
+			"echo \"it's\"; sleep 5\ngrep -q 'rc=' log",
 		],
 		["a loop on the null command", "while :; do sleep 1; done"],
 		[
@@ -74,7 +74,6 @@ describe("a command that only waits", () => {
 			"a state read in a quoted substitution",
 			'[ "$(systemctl --user is-active x)" = active ] && sleep 1',
 		],
-		["a wait with a comment after it", "sleep 5 # wait for it"],
 		[
 			"a test and a printf of quoted variables",
 			'[ "$x" = y ] && printf "%s" "$x"',
@@ -302,6 +301,39 @@ describe("a command that only waits", () => {
 		["a function in a subshell's body", ": () ( touch y ); :"],
 		["the function keyword", "function : { touch y; }; :"],
 		["a substitution in single quotes", "x='$(touch y)'; sleep 0"],
+		[
+			"a function between two comments' apostrophes",
+			"sleep 0 # it's\n: () { touch y; }\n: # '",
+		],
+		[
+			"a subshell function between two comments' apostrophes",
+			"sleep 0 # '\n: () (touch y); : # '",
+		],
+		["RANDOM set between two comments", "sleep 0 # '\nRANDOM=$x # '"],
+		[
+			"RANDOM set quoted between two comments",
+			"sleep 0 # '\nRANDOM=\"$x\" # '",
+		],
+		["OPTIND set between two comments", "sleep 0 # '\nOPTIND=$x; sleep 0 # '"],
+		[
+			"a loop on RANDOM between two comments",
+			"sleep 0 # '\nfor RANDOM in \"$x\"; do sleep 0; done # '",
+		],
+		[
+			"a loop on SECONDS between two comments",
+			"sleep 0 # '\nfor SECONDS in \"$x\"; do sleep 0; done # '",
+		],
+		[
+			"a read into RANDOM between two comments",
+			"sleep 0 # '\nread RANDOM < f # '",
+		],
+		["a function named :, unspaced", ":() { touch y; }; :"],
+		["a wait with a comment after it", "sleep 5 # wait for it"],
+		[
+			"two comments each holding an apostrophe",
+			"sleep 5 # don't race\ngrep -q 'rc=' log # it's done",
+		],
+		["a count of arguments", 'sleep "$#"'],
 	])("doesn't wait: %s", (_, command) => {
 		expect(onlyWaits(command)).toBe(false);
 	});
