@@ -244,9 +244,14 @@ and forgets its record; the removal comes after. A lock another
 process holds past the wait keeps that tree alone, saying so, rather
 than end the run: on 22 November a live snapshot's lock, held past
 10 s on a loaded machine, failed a whole run 40 minutes in, and it
-logged none of what it took. The move is a rename, and the removal
-takes the tree and git's own folder for it, after the checks git's
-remove makes: not locked, no submodule, nothing `git status` lists.
+logged none of what it took. The move is a rename that points git's
+own folder for the tree at its new place, as git's move does, so pi's
+guarded git still runs there and a tree cut at the old place gets a
+folder of its own. The removal takes the tree and that folder, after
+the checks git's remove makes: not locked, no submodule, nothing
+`git status` lists, untracked files included. The folder must be one
+of the repository's own, since a tree's `.git` file is anybody's to
+write who ran in it.
 Git's move and remove read every worktree the repository has, which
 with 2,061 cost 29 s and 19 s a take, so a run took 20 of 1,800.
 A tree claimed

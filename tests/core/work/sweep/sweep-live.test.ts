@@ -9,11 +9,13 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
 	lutimesSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
@@ -22,7 +24,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../../lib/core/exec/index.ts";
 import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
@@ -245,11 +247,14 @@ describe("sweeping the trees whose sessions have ended", () => {
 	it("leaves a tree and its record as they were when git refuses", async () => {
 		const { main, memory, cut, sweep } = await setUp();
 		const locked = await cut("locked", ["-b", "locked", "@", "main"]);
-		await git(main, "worktree", "lock", locked);
+		await git(main, "worktree", "lock", "--reason", "kept\nfor a test", locked);
 
 		const outcome = await sweep();
 
-		expect(outcome.refused.map((one) => one.path)).toEqual([locked]);
+		// The reason, written by whatever ran there, comes back as one line.
+		expect(outcome.refused).toEqual([
+			{ path: locked, why: "git has it locked: kept for a test" },
+		]);
 		expect(existsSync(locked), `${locked}, which git refused, is kept`).toBe(
 			true,
 		);
@@ -787,32 +792,52 @@ describe("taking a tree in a repository of thousands", () => {
 	// git's worktree move and remove each read every worktree the repository
 	// has: on 22 November, with 2,061 in one, they took 29 s and 19 s a take,
 	// so a run took 20 of 1,800 waiting, and each fell further behind.
-	it("takes it without a git command that reads every worktree", async () => {
-		const { main, memory, lockPath, cut } = await setUp();
+	it("takes it through pi's guarded git without a git command that reads every worktree", async () => {
+		const { main, state, memory, lockPath, cut } = await setUp();
 		const tree = await cut("done", ["--detach", "@", "main"]);
 		const ran: string[][] = [];
 		const watched: Exec = async (command, args) => {
 			if (command === "git") ran.push([...args]);
 			return await exec(command, args);
 		};
+		// The outside sweep's git is always guarded, and the guard runs git
+		// in a tree only while its git folder names it back, so a take that
+		// left that folder naming the old place would be refused every time.
+		// Trees are said to be cut elsewhere, so the guard holds these to its
+		// back-pointer check alone.
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "sweep-home-")));
+		const trees = realpathSync(mkdtempSync(join(tmpdir(), "sweep-trees-")));
+		try {
+			const outcome = await sweepEndedTrees({
+				exec: guardedExec(watched, () => ({ home, fenced: false, trees })),
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+			});
 
-		const outcome = await sweepEndedTrees({
-			exec: watched,
-			memory,
-			claims: [],
-			lockPath,
-			facts: machine,
-		});
-
-		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
-		const perTree = ran.filter((args) => {
-			const at = args.indexOf("worktree");
-			return at >= 0 && ["move", "remove"].includes(args[at + 1] ?? "");
-		});
-		expect(perTree, "a take asked git to read every worktree").toEqual([]);
+			expect(outcome.refused).toEqual([]);
+			expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+			rmSync(trees, { recursive: true, force: true });
+		}
+		// The judging phase lists the repository's worktrees once; nothing
+		// else may ask git about worktrees, since each such command reads
+		// every one.
+		const worktreeCommands = ran
+			.filter((args) => args.includes("worktree"))
+			.map((args) => args[args.indexOf("worktree") + 1]);
+		expect(
+			worktreeCommands.filter((sub) => sub !== "list"),
+			"a take asked git to read every worktree",
+		).toEqual([]);
 		const listed = await git(main, "worktree", "list", "--porcelain");
 		expect(listed, "git still lists the taken tree").not.toContain(tree);
 		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+		expect(asidesOf(state, tree), "the tree moved aside is gone too").toEqual(
+			[],
+		);
 	});
 
 	it("keeps one whose git folder holds submodules, as git would", async () => {
@@ -824,10 +849,81 @@ describe("taking a tree in a repository of thousands", () => {
 		const outcome = await sweep();
 
 		expect(outcome.taken).toEqual([]);
-		expect(outcome.refused.map((one) => one.path)).toEqual([tree]);
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it holds submodules" },
+		]);
 		expect(existsSync(tree), `${tree} is kept`).toBe(true);
 		const listed = await git(main, "worktree", "list", "--porcelain");
-		expect(listed, "git no longer lists the kept tree").toContain(tree);
+		expect(listed, "git still lists the kept tree").toContain(tree);
+	});
+
+	it("keeps one with a submodule checked out at a name git would quote", async () => {
+		const { main, state, memory, lockPath, cut } = await setUp();
+		const tree = await cut("nested", ["--detach", "@", "main"]);
+		const commit = await git(main, "rev-parse", "HEAD");
+		// A clone of its own checked out inside, added to the index as the
+		// take begins, after the sweep judged the tree clean.
+		let added = false;
+		const nested: Exec = async (command, args) => {
+			const take = ["ls-files", "--stage", "-z"].every((arg) =>
+				args.includes(arg),
+			);
+			if (command === "git" && take && !added) {
+				added = true;
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				mkdirSync(join(where, "données"));
+				writeFileSync(join(where, "données", ".git"), "gitdir: elsewhere\n");
+				await git(
+					where,
+					"update-index",
+					"--add",
+					"--cacheinfo",
+					`160000,${commit},données`,
+				);
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: nested,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it holds submodules" },
+		]);
+		expect(existsSync(join(tree, "données", ".git"))).toBe(true);
+		expect(asidesOf(state, tree)).toEqual([]);
+	});
+
+	it("keeps one whose .git is a link to another tree's, and that tree's git", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		const ended = await cut("ended", ["--detach", "@", "main"]);
+		const live = await cut("live", ["--detach", "@", "main"], [RUNNING]);
+		const liveGit = await git(live, "rev-parse", "--absolute-git-dir");
+		// Whatever ran in the ended tree pointed its .git at the live one's,
+		// whose git folder names that link's target back.
+		rmSync(join(ended, ".git"));
+		symlinkSync(join(live, ".git"), join(ended, ".git"));
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).not.toContain(ended);
+		expect(existsSync(liveGit), "the live tree's git folder is kept").toBe(
+			true,
+		);
+		expect(await git(live, "status", "--porcelain")).toBe("");
+		const listed = await git(main, "worktree", "list", "--porcelain");
+		expect(listed).toContain(live);
 	});
 
 	it("keeps one that turned dirty, putting it back as it was", async () => {
@@ -851,14 +947,145 @@ describe("taking a tree in a repository of thousands", () => {
 		});
 
 		expect(outcome.taken).toEqual([]);
-		expect(outcome.refused.map((one) => one.path)).toEqual([tree]);
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it contains modified or untracked files" },
+		]);
 		expect(readFileSync(join(tree, "notes.txt"), "utf8")).toBe("unsaved\n");
 		expect(memory.recall().map((one) => one.path)).toContain(tree);
 		const listed = await git(main, "worktree", "list", "--porcelain");
 		expect(listed).toContain(tree);
 		expect(await git(tree, "status", "--porcelain")).toContain("notes.txt");
 	});
+
+	it("keeps one holding only a new file where the repository hides untracked files", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		await git(main, "config", "status.showUntrackedFiles", "no");
+		const tree = await cut("hidden", ["--detach", "@", "main"]);
+		const late: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				writeFileSync(join(where, "notes.txt"), "unsaved\n");
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: late,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.refused).toEqual([
+			{ path: tree, why: "it contains modified or untracked files" },
+		]);
+		expect(readFileSync(join(tree, "notes.txt"), "utf8")).toBe("unsaved\n");
+	});
+
+	it("leaves a tree that turned dirty aside, where git still reads it, when its place was taken", async () => {
+		const { state, memory, lockPath, cut } = await setUp();
+		const tree = await cut("crowded", ["--detach", "@", "main"]);
+		const crowd: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				const where = args[args.indexOf("-C") + 1] ?? "";
+				writeFileSync(join(where, "notes.txt"), "unsaved\n");
+				mkdirSync(tree);
+				writeFileSync(join(tree, "other"), "something else's\n");
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: crowd,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		const [aside] = asidesOf(state, tree);
+		expect(aside, "the tree is left aside").toBeDefined();
+		expect(outcome.refused).toEqual([
+			{
+				path: tree,
+				why: expect.stringMatching(
+					/^it contains modified or untracked files; it is left at .*\.going-/,
+				),
+			},
+		]);
+		expect(await git(aside ?? "", "status", "--porcelain")).toContain(
+			"notes.txt",
+		);
+	});
+
+	it("leaves a tree cut at the same place mid-take its own git folder", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		const tree = await cut("again", ["--detach", "@", "main"]);
+		// A session asks for the same snapshot while the old one is aside.
+		const recut: Exec = async (command, args) => {
+			if (command === "git" && args.includes("--ignore-submodules=none")) {
+				await git(main, "worktree", "add", "-q", "--detach", tree, "main");
+			}
+			return await exec(command, args);
+		};
+
+		const outcome = await sweepEndedTrees({
+			exec: recut,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
+		const gitDir = await git(tree, "rev-parse", "--absolute-git-dir");
+		expect(existsSync(join(gitDir, "HEAD")), "the new tree's git folder").toBe(
+			true,
+		);
+		expect(await git(tree, "status", "--porcelain")).toBe("");
+		const listed = await git(main, "worktree", "list", "--porcelain");
+		expect(listed).toContain(tree);
+	});
+
+	it("says a git folder that won't go stays, and goes on to the next tree", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const stuck = await cut("stuck", ["--detach", "@", "main"]);
+		const next = await cut("next", ["--detach", "@", "main"]);
+		const gitDir = await git(stuck, "rev-parse", "--absolute-git-dir");
+		const readOnly = join(gitDir, "held");
+		mkdirSync(join(readOnly, "deep"), { recursive: true });
+		writeFileSync(join(readOnly, "deep", "file"), "kept\n");
+		chmodSync(readOnly, 0o500);
+		try {
+			const outcome = await sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+			});
+
+			expect(outcome.taken.map((one) => one.path)).toEqual([next]);
+			expect(outcome.refused).toEqual([
+				{
+					path: stuck,
+					why: expect.stringMatching(/^its git folder .* stays: /),
+				},
+			]);
+			expect(existsSync(stuck), `${stuck}'s files are gone`).toBe(false);
+		} finally {
+			chmodSync(readOnly, 0o700);
+		}
+	});
 });
+
+/** What of `tree` is left moved aside beside it. */
+function asidesOf(state: string, tree: string): string[] {
+	return readdirSync(state)
+		.filter((name) => name.startsWith(`${basename(tree)}.going-`))
+		.map((name) => join(state, name));
+}
 
 describe("a tree whose record another process holds locked past the wait", () => {
 	// On 22 November one record's lock, held past 10 s on a loaded machine,
@@ -910,7 +1137,26 @@ describe("a tree whose record another process holds locked past the wait", () =>
 			path: middle,
 			why: held,
 		});
+		expect(outcome.refused).toEqual([]);
 		expect(existsSync(middle), `${middle} is kept`).toBe(true);
+		expect(memory.recall().map((one) => one.path)).toContain(middle);
+	});
+
+	it("keeps that tree a quest claims until spent", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const claimed = await cut("claimed", ["--detach", "@", "main"]);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory: lockedFor(memory, claimed),
+			claims: { held: [], untilSpent: [claimed] },
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.kept).toContainEqual({ path: claimed, why: held });
+		expect(existsSync(claimed), `${claimed} is kept`).toBe(true);
+		expect(memory.recall().map((one) => one.path)).toContain(claimed);
 	});
 
 	it("keeps that tree of a clone gone with finished work", async () => {

@@ -801,9 +801,9 @@ async function takeBack(
 	let forgotten: HeldTree | undefined;
 	try {
 		forgotten = await guard(async () => {
-			const outcome = moveAside(tree.path, aside);
-			if (typeof outcome === "string") moveRefused = outcome;
-			else moved = outcome;
+			const move = moveAside(tree.path, aside, main);
+			if (typeof move === "string") moveRefused = move;
+			else moved = move;
 			return moved !== undefined;
 		});
 	} catch (error) {
@@ -823,27 +823,28 @@ async function takeBack(
 	}
 	const kept = await whyGitKeeps(deps.exec, moved.aside);
 	if (kept !== undefined) {
+		const left = putBack(moved, tree.path);
+		if (left !== undefined) {
+			outcome.refused.push({ path: tree.path, why: `${kept}; ${left}` });
+			return;
+		}
 		try {
-			putBack(moved, tree.path);
 			deps.memory.remember(forgotten);
 			outcome.refused.push({ path: tree.path, why: kept });
 		} catch (error) {
 			outcome.refused.push({
 				path: tree.path,
-				why: `${kept}; it is left at ${aside}: ${messageOf(error)}`,
+				why: `${kept}; it is back, but its record can't be written again: ${messageOf(error)}`,
 			});
 		}
 		return;
 	}
-	const left = await removeAside(moved);
-	if (left !== undefined) {
-		// Read-only module caches refuse a plain removal, as they refuse
-		// git's, which forgets the tree all the same: what is left stays
-		// aside, as git's remove left it, and the refusal says where.
-		outcome.refused.push({
-			path: tree.path,
-			why: `${left}; what is left is at ${aside}`,
-		});
+	// Read-only module caches refuse a plain removal, as they refuse git's,
+	// which forgets the tree all the same: what is left stays aside, as
+	// git's remove left it, and the refusal says where.
+	const stays = await removeAside(moved);
+	if (stays !== undefined) {
+		outcome.refused.push({ path: tree.path, why: stays });
 		return;
 	}
 	const gone =

@@ -5,41 +5,59 @@
  * `git worktree move` and `git worktree remove` each list every worktree
  * before acting on one: on 22 November, with 2,061 in one repository,
  * they took 29 s and 19 s a take, so a sweep took 20 of the 1,800
- * waiting and each take was slower than the last. So the tree is
- * renamed aside and removed with its own git folder, as git's remove
- * would, after the same checks git's remove makes: that git hasn't
- * locked it, that its git folder and its `.git` file name each other,
- * that it holds no submodule, and that `git status` finds nothing in it.
+ * waiting and each take was slower than the last. So the tree is moved
+ * aside as git's move would, renaming it and pointing its git folder at
+ * the new place, then removed with that folder, as git's remove would,
+ * after the same checks git's remove makes: that git hasn't locked it,
+ * that its git folder and its `.git` file name each other, that it holds
+ * no submodule, and that `git status` finds nothing in it.
+ *
+ * A tree's `.git` file, and every file it names, is anybody's to write
+ * who ran in the tree, so each is read with {@link readPlain}, and the
+ * folder removed must be one of the repository's own, in its `worktrees`.
  */
 
 import {
-	existsSync,
-	readFileSync,
+	lstatSync,
 	realpathSync,
 	renameSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
+import { readPlain } from "./plain-file.ts";
+import { plainWords } from "./stranded.ts";
 
-/** A tree moved aside, and the git folder its repository keeps for it. */
+/**
+ * A tree moved aside, the git folder its repository keeps for it, and
+ * what that folder's way back to it said before the move.
+ */
 export interface MovedAside {
 	aside: string;
 	gitDir: string;
+	back: string;
 }
 
 /**
- * Move the tree at `path` to `aside`, unless git would refuse to remove
- * it there. Says why when it is left where it was.
+ * Move the tree at `path`, a worktree of the repository whose main
+ * checkout is `main`, to `aside`, unless git would refuse to remove it
+ * there. Its git folder then names `aside`, as git's move leaves it, so
+ * git reads the tree there, and a tree cut at `path` meanwhile gets a git
+ * folder of its own. Says why when it is left where it was.
  */
-export function moveAside(path: string, aside: string): MovedAside | string {
-	const linked = linkedGitDir(path);
+export function moveAside(
+	path: string,
+	aside: string,
+	main: string,
+): MovedAside | string {
+	const linked = linkedGitDir(path, main);
 	if ("why" in linked) return linked.why;
-	const { gitDir } = linked;
+	const { gitDir, back } = linked;
 	const locked = join(gitDir, "locked");
-	if (existsSync(locked)) {
-		const reason = readFileSync(locked, "utf8").trim();
+	if (present(locked)) {
+		const reason = plainWords(readPlain(locked) ?? "");
 		return reason === "" ? "git has it locked" : `git has it locked: ${reason}`;
 	}
 	if (isDirectory(join(gitDir, "modules"))) return "it holds submodules";
@@ -48,27 +66,38 @@ export function moveAside(path: string, aside: string): MovedAside | string {
 	} catch (error) {
 		return messageOf(error);
 	}
-	return { aside, gitDir };
+	try {
+		writeFileSync(join(gitDir, "gitdir"), `${join(aside, ".git")}\n`);
+	} catch (error) {
+		const why = `git's folder for it can't name it aside: ${messageOf(error)}`;
+		try {
+			renameSync(aside, path);
+		} catch (again) {
+			return `${why}; it is left at ${aside}: ${messageOf(again)}`;
+		}
+		return why;
+	}
+	return { aside, gitDir, back };
 }
 
 /**
  * Why git would keep the tree moved aside, as its remove does without
  * `--force`, or nothing when it may go: a submodule checked out in it,
- * or anything `git status` says, untracked files included.
+ * or anything `git status` says, untracked files included whatever the
+ * repository's settings would hide.
  */
 export async function whyGitKeeps(
 	exec: Exec,
 	aside: string,
 ): Promise<string | undefined> {
-	const staged = await exec("git", ["-C", aside, "ls-files", "--stage"]);
+	// Split on NUL, since git quotes a path it would print oddly otherwise,
+	// and a quoted name finds no submodule's `.git` beneath it.
+	const staged = await exec("git", ["-C", aside, "ls-files", "--stage", "-z"]);
 	if (staged.code !== 0) return said(staged);
-	for (const line of staged.stdout.split("\n")) {
-		const name = line.split("\t")[1];
-		if (
-			line.startsWith("160000 ") &&
-			name &&
-			existsSync(join(aside, name, ".git"))
-		) {
+	for (const entry of staged.stdout.split("\0")) {
+		const tab = entry.indexOf("\t");
+		if (!entry.startsWith("160000 ") || tab < 0) continue;
+		if (present(join(aside, entry.slice(tab + 1), ".git"))) {
 			return "it holds submodules";
 		}
 	}
@@ -78,6 +107,7 @@ export async function whyGitKeeps(
 		"status",
 		"--porcelain",
 		"--ignore-submodules=none",
+		"--untracked-files=normal",
 	]);
 	if (status.code !== 0) return said(status);
 	return status.stdout.trim() === ""
@@ -85,56 +115,101 @@ export async function whyGitKeeps(
 		: "it contains modified or untracked files";
 }
 
-/** Put a tree moved aside back where it was. */
-export function putBack(moved: MovedAside, path: string): void {
-	renameSync(moved.aside, path);
+/**
+ * Put a tree moved aside back where it was, its git folder naming it
+ * there again; nothing when it is, else where it was left and why.
+ */
+export function putBack(moved: MovedAside, path: string): string | undefined {
+	try {
+		renameSync(moved.aside, path);
+	} catch (error) {
+		return `it is left at ${moved.aside}: ${messageOf(error)}`;
+	}
+	try {
+		writeFileSync(join(moved.gitDir, "gitdir"), moved.back);
+	} catch (error) {
+		return `it is back, but its git folder still names ${moved.aside}: ${messageOf(error)}`;
+	}
+	return undefined;
 }
 
 /**
  * Remove a tree moved aside, then the git folder its repository keeps
- * for it, as git's remove does: what is left of a tree that won't all go
- * stays aside, said, and its git folder goes all the same, so git lists
- * it no more.
+ * for it, as git's remove does; nothing when both went, else what stays
+ * and why. What is left of a tree that won't all go stays aside, and its
+ * git folder goes all the same, so git lists it no more, as git's remove
+ * leaves it. A git folder that no longer names the aside belongs to some
+ * other tree by now, so it stays.
  */
 export async function removeAside(
 	moved: MovedAside,
 ): Promise<string | undefined> {
-	let left: string | undefined;
+	const stays: string[] = [];
 	try {
 		await rm(moved.aside, { recursive: true, force: true });
 	} catch (error) {
-		left = messageOf(error);
+		stays.push(`${messageOf(error)}; what is left is at ${moved.aside}`);
 	}
-	await rm(moved.gitDir, { recursive: true, force: true });
-	return left;
+	const names = readPlain(join(moved.gitDir, "gitdir"))?.trim();
+	if (
+		names === undefined ||
+		resolve(moved.gitDir, names) !== join(moved.aside, ".git")
+	) {
+		stays.push(
+			`its git folder ${moved.gitDir} no longer names it, so it stays`,
+		);
+		return stays.join("; ");
+	}
+	try {
+		await rm(moved.gitDir, { recursive: true, force: true });
+	} catch (error) {
+		stays.push(`its git folder ${moved.gitDir} stays: ${messageOf(error)}`);
+	}
+	return stays.length === 0 ? undefined : stays.join("; ");
 }
 
 /**
- * The git folder a linked worktree at `path` names, when that folder
- * names it back, as git's own check before a remove asks; else why not.
+ * The git folder a linked worktree at `path` names, with what its way
+ * back says, when that folder is one of `main`'s repository's own and
+ * names the tree back, as git's own check before a remove asks; else why
+ * not.
  */
-function linkedGitDir(path: string): { gitDir: string } | { why: string } {
-	let pointer: string;
-	try {
-		pointer = readFileSync(join(path, ".git"), "utf8").trim();
-	} catch (error) {
-		return { why: `its .git file can't be read: ${messageOf(error)}` };
-	}
-	if (!pointer.startsWith("gitdir:"))
+function linkedGitDir(
+	path: string,
+	main: string,
+): { gitDir: string; back: string } | { why: string } {
+	const pointer = readPlain(join(path, ".git"))?.trim();
+	if (pointer === undefined) return { why: "it has no plain .git file" };
+	if (!pointer.startsWith("gitdir:")) {
 		return { why: "it isn't a linked worktree" };
-	const gitDir = resolve(path, pointer.slice("gitdir:".length).trim());
-	let back: string;
-	try {
-		back = readFileSync(join(gitDir, "gitdir"), "utf8").trim();
-	} catch (error) {
-		return { why: `git's folder for it can't be read: ${messageOf(error)}` };
 	}
-	if (real(resolve(gitDir, back)) !== real(join(path, ".git"))) {
+	const gitDir = resolve(path, pointer.slice("gitdir:".length).trim());
+	const common = commonOf(main);
+	const named = readPlain(join(gitDir, "commondir"))?.trim();
+	if (
+		basename(dirname(gitDir)) !== "worktrees" ||
+		real(dirname(dirname(gitDir))) !== real(common) ||
+		named === undefined ||
+		real(resolve(gitDir, named)) !== real(common)
+	) {
 		return {
-			why: `git's folder for it names ${dirname(resolve(gitDir, back))}`,
+			why: `its .git file names ${plainWords(gitDir)}, which isn't a worktree's folder in ${plainWords(common)}`,
 		};
 	}
-	return { gitDir };
+	const back = readPlain(join(gitDir, "gitdir"));
+	if (back === undefined) return { why: "git's folder for it can't be read" };
+	if (real(resolve(gitDir, back.trim())) !== real(join(path, ".git"))) {
+		return {
+			why: `git's folder for it names ${plainWords(dirname(resolve(gitDir, back.trim())))}`,
+		};
+	}
+	return { gitDir, back };
+}
+
+/** The git folder of the repository whose main checkout is `main`. */
+function commonOf(main: string): string {
+	const dotGit = join(main, ".git");
+	return isDirectory(dotGit) ? dotGit : main;
 }
 
 /** `path` with its links resolved, or as given when it can't be. */
@@ -146,6 +221,15 @@ function real(path: string): string {
 	}
 }
 
+function present(path: string): boolean {
+	try {
+		lstatSync(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function isDirectory(path: string): boolean {
 	try {
 		return statSync(path).isDirectory();
@@ -154,11 +238,13 @@ function isDirectory(path: string): boolean {
 	}
 }
 
-/** What git said when it refused, in its own words. */
+/** What git said when it refused, in its own words, as one plain line. */
 function said(result: { stdout: string; stderr: string }): string {
-	return (result.stderr.trim() || result.stdout.trim()).replace(/^fatal: /, "");
+	return plainWords(
+		(result.stderr.trim() || result.stdout.trim()).replace(/^fatal: /, ""),
+	);
 }
 
 function messageOf(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return plainWords(error instanceof Error ? error.message : String(error));
 }
