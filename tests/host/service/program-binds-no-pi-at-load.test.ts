@@ -32,10 +32,11 @@
  * left as `import {}`, which still loads its module. The stripped code
  * is parsed, and the walk follows each static import and re-export,
  * and each `import()` or `require()` outside any function, in a block
- * or not, since those run as the module loads; pi-host loads the
- * program so, from its own top level, once its hook is in place. A
- * `require` made by createRequire is a load under whatever name it is
- * given.
+ * or not, or in a function called where it is written, since those run
+ * as the module loads; pi-host loads the program so, from its own top
+ * level, once its hook is in place. A `require` made by
+ * `const name = createRequire(...)` is a load under that name, wherever
+ * the file makes it.
  *
  * What must not load is each optional peer in package.json, pi's scope
  * and typebox alike: an install may lack any of them, and the hook
@@ -44,15 +45,19 @@
  * optional peer it doesn't declare.
  *
  * An `import()` inside a function runs when the function does, and is
- * not followed. So the walk can't see one that a function called at
- * load runs ahead of the configuration check; pi-host.test.ts, which
- * runs pi-host against a missing install, is the check for that. The
- * walk fails closed on what it does read: a load that doesn't name its
- * module by a plain string, a createRequire it can't follow, a relative
- * import of a file that isn't there, a bare name that is neither node's
+ * not followed. So the walk can't see one that a function called
+ * elsewhere at load runs ahead of the configuration check.
+ * pi-host.test.ts, which runs pi-host against a missing pi install, is
+ * the check for that within pi's scope only: it runs in this tree,
+ * where typebox and the dev dependencies resolve, so such a load of
+ * typebox is seen by neither. The walk fails closed on what it does
+ * read: a load that doesn't name its module by a plain string; a
+ * createRequire other than one called to make a named `const`, renamed
+ * or passed on; a require name used other than in a call; a relative
+ * import of a file that isn't there; a bare name that is neither node's
  * nor a dependency (the package's own name among them, which reaches
- * its own code unwalked), or a file that won't parse fails the test,
- * by file and line, rather than being passed over.
+ * its own code unwalked); or a file that won't parse. Each fails the
+ * test, by file and line, rather than being passed over.
  */
 
 import {
@@ -103,6 +108,12 @@ const RUNS_LATER = new Set([
 	"ObjectMethod",
 	"ClassMethod",
 	"ClassPrivateMethod",
+]);
+
+/** The nodes whose body runs at once when called where they are written. */
+const CALLABLE_HERE = new Set([
+	"FunctionExpression",
+	"ArrowFunctionExpression",
 ]);
 
 /** What a file loads as it loads, and the lines of loads it can't read. */
@@ -173,21 +184,60 @@ function callsCreateRequire(node: unknown): boolean {
 	);
 }
 
+/** Each child node of `node`, past its location and comments. */
+function childrenOf(node: Record<string, unknown>): unknown[] {
+	return Object.entries(node)
+		.filter(([key]) => key !== "loc" && !key.endsWith("Comments"))
+		.map(([, value]) => value);
+}
+
+/** Whether `node` is an identifier spelled `name`. */
+function isNamed(node: unknown, name: string): boolean {
+	return isRecord(node) && node.type === "Identifier" && node.name === name;
+}
+
 /**
- * The names each `const name = createRequire(...)` gives a require, and
- * the lines of every other createRequire, whose require can't be
- * followed.
+ * The identifiers of a program that only name a thing rather than use
+ * it: a property read by name, a key, and the names an import binds.
+ */
+function namingOnly(node: Record<string, unknown>): unknown[] {
+	if (
+		(node.type === "MemberExpression" ||
+			node.type === "OptionalMemberExpression") &&
+		node.computed !== true
+	)
+		return [node.property];
+	if (
+		(node.type === "ObjectProperty" ||
+			node.type === "ObjectMethod" ||
+			node.type === "ClassMethod" ||
+			node.type === "ClassProperty") &&
+		node.computed !== true
+	)
+		return [node.key];
+	return [];
+}
+
+/**
+ * The names each `const name = createRequire(...)` gives a require,
+ * anywhere in the file, and the lines of any other use of createRequire
+ * or of those names, which can't be followed: a createRequire renamed
+ * on import or as it is destructured, read without a call, or called
+ * other than to make a named `const`; a require passed on, copied or
+ * read other than by calling it.
  */
 function requiresMade(program: unknown): {
 	readonly names: ReadonlySet<string>;
 	readonly unread: readonly number[];
 } {
 	const names = new Set(["require"]);
-	const unread: number[] = [];
+	const calls = new Set<unknown>();
+	const made = new Set<unknown>();
 	const named = new Set<unknown>();
-	const visit = (node: unknown): void => {
+	const bindings = new Set<unknown>();
+	const gather = (node: unknown): void => {
 		if (Array.isArray(node)) {
-			for (const each of node) visit(each);
+			for (const each of node) gather(each);
 			return;
 		}
 		if (!isRecord(node)) return;
@@ -199,13 +249,52 @@ function requiresMade(program: unknown): {
 			callsCreateRequire(node.init)
 		) {
 			names.add(node.id.name);
-			named.add(node.init);
+			made.add(node.init);
+			bindings.add(node.id);
 		}
-		if (callsCreateRequire(node) && !named.has(node)) unread.push(lineOf(node));
-		for (const [key, value] of Object.entries(node))
-			if (key !== "loc" && !key.endsWith("Comments")) visit(value);
+		if (node.type === "CallExpression") {
+			calls.add(node.callee);
+			if (isRecord(node.callee) && node.callee.type === "MemberExpression")
+				calls.add(node.callee.property);
+		}
+		if (
+			node.type === "ImportSpecifier" &&
+			isNamed(node.imported, "createRequire") &&
+			isNamed(node.local, "createRequire")
+		)
+			bindings.add(node.imported).add(node.local);
+		if (
+			node.type === "ObjectProperty" &&
+			node.shorthand === true &&
+			isNamed(node.key, "createRequire") &&
+			isNamed(node.value, "createRequire")
+		)
+			bindings.add(node.key).add(node.value);
+		for (const each of namingOnly(node)) named.add(each);
+		for (const child of childrenOf(node)) gather(child);
 	};
-	visit(program);
+	gather(program);
+	const unread: number[] = [];
+	const check = (node: unknown): void => {
+		if (Array.isArray(node)) {
+			for (const each of node) check(each);
+			return;
+		}
+		if (!isRecord(node)) return;
+		if (callsCreateRequire(node) && !made.has(node)) unread.push(lineOf(node));
+		if (
+			node.type === "Identifier" &&
+			typeof node.name === "string" &&
+			!bindings.has(node) &&
+			!calls.has(node)
+		) {
+			const requireName = names.has(node.name) && !named.has(node);
+			if (node.name === "createRequire" || requireName)
+				unread.push(lineOf(node));
+		}
+		for (const child of childrenOf(node)) check(child);
+	};
+	check(program);
 	return { names, unread };
 }
 
@@ -218,6 +307,7 @@ function loadsIn(source: string): Loads {
 	const specifiers: string[] = [];
 	const requires = requiresMade(program.body);
 	const unread: number[] = [...requires.unread];
+	const runsNow = new Set<unknown>();
 	const load = (node: Record<string, unknown>, from: unknown): void => {
 		const specifier = moduleNamed(from);
 		if (specifier === undefined) unread.push(lineOf(node));
@@ -238,12 +328,27 @@ function loadsIn(source: string): Loads {
 			load(node, node.source);
 		const called = later ? undefined : calledLoad(node, requires.names);
 		if (called) load(node, called.from);
-		const inner = later || RUNS_LATER.has(node.type);
-		for (const [key, value] of Object.entries(node))
-			if (key !== "loc" && !key.endsWith("Comments")) visit(value, inner);
+		if (node.type === "CallExpression" || node.type === "NewExpression")
+			for (const callee of calledHere(node.callee)) runsNow.add(callee);
+		const inner = later || (RUNS_LATER.has(node.type) && !runsNow.has(node));
+		for (const child of childrenOf(node)) visit(child, inner);
 	};
 	visit(program.body, false);
 	return { specifiers, unread };
+}
+
+/**
+ * The function a call runs where it is written: the callee itself, or
+ * the function whose `call` or `apply` it is.
+ */
+function calledHere(callee: unknown): unknown[] {
+	if (!isRecord(callee)) return [];
+	if (typeof callee.type === "string" && CALLABLE_HERE.has(callee.type))
+		return [callee];
+	const invoked =
+		callee.type === "MemberExpression" &&
+		(isNamed(callee.property, "call") || isNamed(callee.property, "apply"));
+	return invoked ? calledHere(callee.object) : [];
 }
 
 /** What the walk from an entry found. */
@@ -447,7 +552,12 @@ describe("loading the host program", () => {
 			'class S {\n\tstatic {\n\t\tvoid import("static-block");\n\t}\n\tlater() {\n\t\treturn import("method");\n\t}\n}',
 			'async function later() {\n\tawait import("later");\n}',
 			'const arrow = () => import("arrow");',
+			'(() => {\n\tvoid import("iife-arrow");\n})();',
+			'await (async function () {\n\tawait import("iife-function");\n})();',
+			'(function () {\n\trequire("iife-call");\n}).call(this);',
+			'const later2 = function () {\n\treturn import("named-later");\n};',
 			"const here = import.meta.dirname;",
+			"const ok = module.require;",
 			'/** import { o } from "commented" */',
 		].join("\n");
 		const { specifiers, unread } = loadsIn(source);
@@ -474,6 +584,9 @@ describe("loading the host program", () => {
 				"required",
 				"made-require",
 				"static-block",
+				"iife-arrow",
+				"iife-function",
+				"iife-call",
 			].sort(),
 		);
 	});
@@ -491,5 +604,22 @@ describe("loading the host program", () => {
 		const { specifiers, unread } = loadsIn(source);
 		expect(specifiers).toEqual(["read"]);
 		expect([...unread].sort()).toEqual([3, 5, 8]);
+	});
+
+	it("fails on a createRequire or a require it can't follow by name, by its line", () => {
+		const source = [
+			'import { createRequire as make } from "node:module";',
+			'import { createRequire } from "node:module";',
+			"const { createRequire: made } = module;",
+			"const { createRequire: also } = module;",
+			"const held = module.createRequire;",
+			"const load = createRequire(import.meta.url);",
+			"const copied = load;",
+			"use(require);",
+			'load("followed");',
+		].join("\n");
+		const { specifiers, unread } = loadsIn(source);
+		expect(specifiers).toEqual(["node:module", "node:module", "followed"]);
+		expect([...new Set(unread)].sort()).toEqual([1, 3, 4, 5, 7, 8]);
 	});
 });

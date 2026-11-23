@@ -5,7 +5,9 @@
  *
  * It is the check for a load the walk in
  * tests/host/service/program-binds-no-pi-at-load.test.ts can't see,
- * such as an `import()` in a function called at load. Running pi-host
+ * such as an `import()` in a function called at load, within pi's
+ * scope only: it runs in this tree, where typebox and the dev
+ * dependencies resolve, so such a load of one passes here. Running pi-host
  * as a process imports none of it, so this file imports the program
  * and what pi-host loads before its hook, for `vitest --changed` to
  * pick it for a change anywhere they reach; that walk fails when
