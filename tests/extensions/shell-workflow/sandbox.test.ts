@@ -9,9 +9,10 @@
  * runs landrun itself, where it is on PATH.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -138,6 +139,133 @@ describe("what a session asks for", () => {
 			mac.kind === "none" && mac.asked,
 			"its host would be told none, and the node could carry it back unfenced",
 		).toBe("strict");
+	});
+
+	it("holds a session's credentials back from a strict command on a Mac, keeping what it runs with and how it ended", () => {
+		// Without landrun to pass only the names it keeps, a Mac's strict
+		// command once read every token the session held (ISXEG8, 23 November).
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		expect(
+			wrap,
+			"a Mac's strict command ran with no wrap at all",
+		).toBeDefined();
+		// The third line is what the command's own shell was started with,
+		// which a Mac lets a process of the same user read (`ps -E`), so a
+		// name unset after the start would still be read there. Linux says
+		// it in /proc; a Mac only through ps, which prints the command and
+		// then its environment, so there each name is looked for with its
+		// `=`.
+		const command = `printf '%s\\n' "it's \\"said\\""; /usr/bin/env | cut -d= -f1 | sort | tr '\\n' ' '; echo; if [ -r /proc/$$/environ ]; then tr '\\0' '\\n' < /proc/$$/environ | cut -d= -f1 | tr '\\n' ' '; else ps -wwE -o command= -p $$ | tr '\\n' ' '; fi; echo; printf '%s\\n' "$XDG_RUNTIME_DIR"; exit 3`;
+		const lab = mkdtempSync(join(tmpdir(), "held-back-"));
+		const sourced = join(lab, "sourced");
+		const startup = join(lab, "startup.sh");
+		// The shell around the command reads it, as pi's own does; only the
+		// command's shell, started with the command in a variable, mustn't.
+		writeFileSync(
+			startup,
+			`[ -z "\${PI_SANDBOXED_COMMAND+set}" ] || echo sourced > '${sourced}'\n`,
+		);
+		// An env ahead on PATH that tells on itself: the hold-back must
+		// name the system's, or this one is handed every token.
+		const stray = join(lab, "bin");
+		mkdirSync(stray);
+		writeFileSync(
+			join(stray, "env"),
+			`#!/bin/sh\necho stray > '${join(lab, "stray")}'\nexit 99\n`,
+		);
+		chmodSync(join(stray, "env"), 0o755);
+		// No stdin: bash on a socket takes itself for a remote shell and
+		// reads the system's settings, which put PATH back without the stray.
+		const ran = spawnSync("bash", ["-c", wrap?.(command) ?? ""], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				PATH: `${stray}:${process.env.PATH ?? ""}`,
+				HOME: homedir(),
+				LANG: "C",
+				TMPDIR: tmpdir(),
+				XDG_RUNTIME_DIR: "/run/user/1 with a space",
+				GH_TOKEN: "held",
+				SSH_AUTH_SOCK: "/held.sock",
+				VENDOR_LOGIN: "held",
+				CONFIG_PASSWORD_DIR: "held",
+				BASH_ENV: startup,
+				"BASH_FUNC_leaked%%": "() { :; }",
+			},
+		});
+		const ended = ran.status;
+		const [said, names = "", started = "", spaced = ""] =
+			ran.stdout.split("\n");
+		expect(
+			existsSync(join(lab, "stray")),
+			"an env ahead on PATH was handed the session's environment",
+		).toBe(false);
+		expect(
+			existsSync(sourced),
+			"the session's BASH_ENV ran in the command's shell",
+		).toBe(false);
+		rmSync(lab, { recursive: true, force: true });
+		expect(said, "the command's own quoting didn't survive").toBe(
+			`it's "said"`,
+		);
+		expect(spaced, "a kept value lost its space").toBe(
+			"/run/user/1 with a space",
+		);
+		expect(ended, "the command's exit status was lost").toBe(3);
+		expect(
+			started.trim(),
+			"nothing said what the command's shell started with",
+		).not.toBe("");
+		const startedNames = started.includes("=")
+			? started
+			: started
+					.trim()
+					.split(" ")
+					.map((name) => `${name}=`)
+					.join(" ");
+		const seen = names.trim().split(" ");
+		for (const held of [
+			"GH_TOKEN",
+			"SSH_AUTH_SOCK",
+			"VENDOR_LOGIN",
+			"CONFIG_PASSWORD_DIR",
+			"PI_SANDBOXED_COMMAND",
+			"BASH_ENV",
+			"BASH_FUNC_leaked%%",
+		]) {
+			expect(seen, `${held} reached the command`).not.toContain(held);
+			// The command itself travels in at the start, as through landrun.
+			if (held !== "PI_SANDBOXED_COMMAND") {
+				expect(
+					startedNames,
+					`${held} was in what the command's shell started with`,
+				).not.toContain(`${held}=`);
+			}
+		}
+		for (const kept of ["PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"]) {
+			expect(seen, `${kept} was taken from the command`).toContain(kept);
+		}
+	});
+
+	it("leaves what a queue runs after a Mac's strict command its environment", () => {
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const after = execFileSync(
+			"bash",
+			["-c", `${wrap?.("printf 'ran '") ?? ""}\nprintf %s "$GH_TOKEN"`],
+			{ encoding: "utf8", env: { PATH: process.env.PATH, GH_TOKEN: "kept" } },
+		);
+		expect(
+			after,
+			"the command didn't run, or the shell around it lost its variables",
+		).toBe("ran kept");
 	});
 
 	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {
