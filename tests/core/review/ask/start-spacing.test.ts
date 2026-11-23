@@ -7,21 +7,24 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newRunId } from "../../../../lib/core/review/ask/run.ts";
 import {
 	awaitCouncilStart,
-	COUNCIL_START_SPACING_MS,
-	claimCouncilStart,
 	newestRosterStartIn,
 } from "../../../../lib/core/review/ask/start-spacing.ts";
 
-const AT = new Date("2026-11-22T09:00:00.000Z");
-const later = (ms: number) => new Date(AT.getTime() + ms);
-const SPACING = COUNCIL_START_SPACING_MS;
-
+/**
+ * A real wait's spacing: long enough that claims made together land
+ * inside it on a loaded machine, short enough to keep the suite quick.
+ */
+const SPACING = 600;
+/** How often a waiting round looks again in these tests. */
+const LOOK = 10;
 /** How early a Node timer may fire against `Date.now()`. */
 const TIMER_EARLY_MS = 2;
+/** A process id nothing holds, for a ticket its process left behind. */
+const GONE = 999_999_001;
 
 let folder: string;
 let path: string;
@@ -35,280 +38,229 @@ afterEach(() => {
 	rmSync(folder, { recursive: true, force: true });
 });
 
-const kept = () => JSON.parse(readFileSync(path, "utf8"));
+const linePath = () => join(folder, "starts", "line.json");
+const line = () => JSON.parse(readFileSync(linePath(), "utf8"));
+const claim = (by: string, extra: object = {}) => ({
+	by,
+	change: `o/r#${by}`,
+	spacingMs: SPACING,
+	lookAgainMs: LOOK,
+	alive: (pid: number) => pid !== GONE,
+	...extra,
+});
 
-/**
- * Until `by` holds the last slot, read as often as the file changes;
- * given up inside vitest's 5 s, so its own message is what shows.
- */
-const slotTakenBy = (by: string) =>
-	vi.waitFor(() => expect(kept().by).toBe(by), {
-		timeout: 4_000,
-		interval: 20,
-	});
+/** A line with `by` started at `at`, as another session left it. */
+function startedAt(by: string, at: Date, waiting: object[] = []): void {
+	mkdirSync(join(folder, "starts"), { recursive: true });
+	writeFileSync(
+		linePath(),
+		JSON.stringify({
+			started: { at: at.toISOString(), by, change: `o/r#${by}` },
+			waiting,
+		}),
+	);
+}
 
 describe("spacing council starts on one machine", () => {
-	it("starts the first at once, and keeps its slot for the next to read", async () => {
-		const slot = await claimCouncilStart(path, {
-			by: "A2VLJN",
-			change: "o/r#1",
-			now: AT,
-		});
+	it("starts the first at once, saying nothing, and keeps its start for the next", async () => {
+		const start = await awaitCouncilStart(path, claim("A2VLJN"));
 
-		expect(slot.ahead, "nothing to wait behind").toBe(0);
-		expect(slot.startAt).toEqual(AT);
-		expect(kept()).toEqual({
-			startAt: AT.toISOString(),
-			by: "A2VLJN",
-			change: "o/r#1",
-		});
+		expect(start.waited).toBeUndefined();
+		expect(start.cancelled).toBeUndefined();
+		expect(line().started.by).toBe("A2VLJN");
+		expect(line().waiting, "nobody left waiting").toEqual([]);
 	});
 
-	it("gives a start inside the spacing the slot a spacing after the last, naming whose", async () => {
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
+	it("waits a spacing after the last start, saying its place and whom it followed", async () => {
+		const first = new Date();
+		startedAt("A2VLJN", first);
 
-		const slot = await claimCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now: later(60_000),
-		});
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
 
-		expect(slot.startAt).toEqual(later(SPACING));
-		expect(slot.ahead, "next in line").toBe(0);
-		expect(slot.behind).toEqual({ by: "A2VLJN", change: "o/r#1" });
-		expect(kept().startAt, "the next claim waits behind this one").toBe(
-			later(SPACING).toISOString(),
+		expect(Date.now(), "it waited a spacing").toBeGreaterThanOrEqual(
+			first.getTime() + SPACING - TIMER_EARLY_MS,
 		);
-	});
-
-	it("starts at once once the spacing has passed", async () => {
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
-
-		const slot = await claimCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now: later(SPACING),
-		});
-
-		expect(slot.ahead).toBe(0);
-		expect(slot.startAt).toEqual(later(SPACING));
+		expect(start.waited).toContain("next in line");
+		expect(line().started.by).toBe("ISXEG8");
 	});
 
 	// 22 November, 03:44 to 04:00: starts every few minutes, because each
 	// session read the mesh and saw no start before it made its own.
-	it("gives claims made at once slots a spacing apart, in the order they took the lock", async () => {
-		const slots = await Promise.all(
-			["A2VLJN", "ISXEG8", "85PKB2", "04TNWT"].map((by) =>
-				claimCouncilStart(path, { by, change: `o/r#${by}`, now: AT }),
-			),
+	it("starts rounds asked at once a spacing apart, in the order they joined", async () => {
+		const asked = Date.now();
+		const order: string[] = [];
+		await Promise.all(
+			["A2VLJN", "ISXEG8", "85PKB2"].map(async (by) => {
+				await awaitCouncilStart(path, claim(by));
+				order.push(by);
+			}),
 		);
 
-		const times = slots.map((slot) => slot.startAt.getTime() - AT.getTime());
-		expect([...times].sort((a, b) => a - b)).toEqual([
-			0,
-			SPACING,
-			2 * SPACING,
-			3 * SPACING,
+		expect(order).toHaveLength(3);
+		expect(
+			Date.now() - asked,
+			"three starts take two spacings",
+		).toBeGreaterThanOrEqual(2 * SPACING - TIMER_EARLY_MS);
+	});
+
+	// 22 November: starts every three minutes until 01:12Z, then every
+	// nine to thirteen, behind slots kept for rounds that never started.
+	it("waits behind no round whose process is gone", async () => {
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "left",
+				by: "ISXEG8",
+				change: "o/r#left",
+				pid: GONE,
+				askedAt: new Date().toISOString(),
+				seenAt: new Date().toISOString(),
+			},
 		]);
-		expect(
-			slots.map((slot) => slot.ahead).sort(),
-			"each says how many rounds still to start come first",
-		).toEqual([0, 0, 1, 2]);
+
+		const start = await awaitCouncilStart(path, claim("85PKB2"));
+
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(line().waiting, "the ticket left behind is dropped").toEqual([]);
 	});
 
-	it("counts the rounds ahead of a claim made partway through a spacing", async () => {
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
-		await claimCouncilStart(path, { by: "ISXEG8", change: "o/r#2", now: AT });
+	// A reload abandons a waiting round while the session's process, and
+	// so its id, runs on.
+	it("waits behind no round that has stopped looking at the line", async () => {
+		const long = new Date(Date.now() - 10 * 60_000).toISOString();
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "abandoned",
+				by: "ISXEG8",
+				change: "o/r#abandoned",
+				pid: process.pid,
+				askedAt: long,
+				seenAt: long,
+			},
+		]);
 
-		const slot = await claimCouncilStart(path, {
-			by: "85PKB2",
-			change: "o/r#3",
-			now: later(60_000),
-		});
+		const start = await awaitCouncilStart(path, claim("85PKB2"));
 
-		expect(slot.startAt).toEqual(later(2 * SPACING));
-		expect(slot.ahead, "only o/r#2 is still to start").toBe(1);
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(line().waiting).toEqual([]);
 	});
 
-	it("keeps its spacing from a round started without a slot", async () => {
-		const slot = await claimCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now: later(60_000),
-			startedElsewhereAt: AT,
-		});
-
-		expect(slot.startAt).toEqual(later(SPACING));
-		expect(slot.behind, "nobody named, since no slot was kept").toBeUndefined();
-	});
-
-	// The round that took a slot stamps its transcripts folder a moment
-	// after it, which is the start read elsewhere for the next claim.
-	it("names the kept slot's round though its own folder was stamped a moment after its slot", async () => {
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
-
-		const slot = await claimCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now: later(60_000),
-			startedElsewhereAt: later(40),
-		});
-
-		expect(slot.startAt).toEqual(later(SPACING + 40));
-		expect(slot.behind).toEqual({ by: "A2VLJN", change: "o/r#1" });
-	});
-
-	it("names no kept slot's round when a later start read elsewhere set the wait", async () => {
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now: AT });
-
-		const slot = await claimCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now: later(SPACING + 60_000),
-			startedElsewhereAt: later(SPACING),
-		});
-
-		expect(slot.startAt).toEqual(later(2 * SPACING));
-		expect(slot.behind).toBeUndefined();
-	});
-
-	it("waits behind no slot a clock moved back put hours ahead, nor a record it can't read", async () => {
-		await claimCouncilStart(path, {
-			by: "A2VLJN",
-			change: "o/r#1",
-			now: later(3 * 60 * 60_000),
-		});
-		expect(
-			(
-				await claimCouncilStart(path, {
-					by: "ISXEG8",
-					change: "o/r#2",
-					now: AT,
-				})
-			).startAt,
-			"a clock that moved back holds nobody",
-		).toEqual(AT);
-
-		writeFileSync(path, "{ cut short");
-		expect(
-			(
-				await claimCouncilStart(path, {
-					by: "85PKB2",
-					change: "o/r#3",
-					now: later(1000),
-				})
-			).startAt,
-			"a record cut short holds nobody",
-		).toEqual(later(1000));
-	});
-});
-
-/**
- * A real wait's spacing: long enough that both claims land inside it
- * on a loaded machine, so the second still waits.
- */
-const REAL_WAIT_MS = 1_500;
-
-describe("waiting for a start", () => {
-	it("starts at once, saying nothing, when nothing is ahead", async () => {
-		const waited = await awaitCouncilStart(path, {
-			by: "A2VLJN",
-			change: "o/r#1",
-			now: new Date(),
-		});
-
-		expect(waited.waited).toBeUndefined();
-		expect(waited.cancelled).toBeUndefined();
-	});
-
-	it("waits for its slot and says its place and start time", async () => {
-		const now = new Date();
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now });
-
-		const waited = await awaitCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now,
-			spacingMs: REAL_WAIT_MS,
-		});
-
-		// Measured against its slot, not the call, so a slow first claim
-		// on a loaded machine can't fail it; a Node timer may fire a
-		// millisecond or so early.
-		expect(Date.now(), "it waited for its slot").toBeGreaterThanOrEqual(
-			now.getTime() + REAL_WAIT_MS - TIMER_EARLY_MS,
-		);
-		expect(waited.waited).toContain(
-			`at ${new Date(now.getTime() + REAL_WAIT_MS).toISOString().slice(11, 19)} UTC, next in line, behind o/r#1 (asked by A2VLJN)`,
-		);
-		expect(waited.cancelled).toBeUndefined();
-	});
-
-	it("says it was stopped, starting nothing, and gives its slot back when given up while it waits", async () => {
-		const now = new Date();
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now });
+	it("waits behind a round still looking, and says whose", async () => {
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "ahead",
+				by: "ISXEG8",
+				change: "o/r#ahead",
+				pid: process.pid,
+				askedAt: now,
+				seenAt: now,
+			},
+		]);
 		const giving = new AbortController();
 
-		const waiting = awaitCouncilStart(
-			path,
-			{ by: "ISXEG8", change: "o/r#2", now },
-			giving.signal,
-		);
-		// Given up once it holds its slot and sleeps, not before.
-		await slotTakenBy("ISXEG8");
+		const waiting = awaitCouncilStart(path, claim("85PKB2"), giving.signal);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(2);
 		giving.abort();
 
-		const waited = await waiting;
-		expect(waited.cancelled).toContain("stopped while it waited");
-		expect(waited.waited).toBeUndefined();
-		expect(kept().by, "the slot before it is the last again").toBe("A2VLJN");
+		expect((await waiting).cancelled).toContain(
+			"1 round ahead, behind o/r#ahead (asked by ISXEG8)",
+		);
 	});
 
-	it("leaves its slot as a gap when given up behind a later claim", async () => {
-		const now = new Date();
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now });
+	it("leaves the line when given up while it waits, so the next isn't held behind it", async () => {
+		startedAt("A2VLJN", new Date());
 		const giving = new AbortController();
-		const waiting = awaitCouncilStart(
-			path,
-			{ by: "ISXEG8", change: "o/r#2", now },
-			giving.signal,
-		);
-		await slotTakenBy("ISXEG8");
-		await claimCouncilStart(path, { by: "85PKB2", change: "o/r#3", now });
+		const waiting = awaitCouncilStart(path, claim("ISXEG8"), giving.signal);
+		await expect
+			.poll(() => line().waiting.length, { timeout: 4_000, interval: 10 })
+			.toBe(1);
+
 		giving.abort();
 
-		await waiting;
-		expect(kept().by, "the later claim keeps its slot").toBe("85PKB2");
+		const start = await waiting;
+		expect(start.cancelled).toContain("stopped while it waited");
+		expect(start.waited).toBeUndefined();
+		expect(line().waiting).toEqual([]);
+		expect(line().started.by, "nothing started in its name").toBe("A2VLJN");
 	});
 
-	it("gives back a slot it waited for when the round is refused once its wait is over", async () => {
-		const now = new Date();
-		await claimCouncilStart(path, { by: "A2VLJN", change: "o/r#1", now });
-		const start = await awaitCouncilStart(path, {
-			by: "ISXEG8",
-			change: "o/r#2",
-			now,
-			spacingMs: REAL_WAIT_MS,
-		});
-		expect(start.waited).toBeDefined();
+	it("puts back the start before it when the round is refused once its wait is over", async () => {
+		const first = new Date(Date.now() - 2 * SPACING);
+		startedAt("A2VLJN", first);
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+		expect(line().started.by).toBe("ISXEG8");
 
 		await start.release?.();
 
-		expect(kept().by, "the slot before it is the last again").toBe("A2VLJN");
+		expect(line().started).toEqual({
+			at: first.toISOString(),
+			by: "A2VLJN",
+			change: "o/r#A2VLJN",
+		});
 	});
 
-	it("takes no slot when stopped before it asks", async () => {
+	it("takes no place when stopped before it asks", async () => {
 		const giving = new AbortController();
 		giving.abort();
 
-		const waited = await awaitCouncilStart(
+		const start = await awaitCouncilStart(path, claim("ISXEG8"), giving.signal);
+
+		expect(start.cancelled).toContain("stopped");
+		expect(() => line(), "nothing kept").toThrow();
+	});
+
+	it("spaces from a round started outside the line", async () => {
+		const elsewhere = new Date();
+
+		await awaitCouncilStart(
 			path,
-			{ by: "ISXEG8", change: "o/r#2", now: new Date() },
-			giving.signal,
+			claim("ISXEG8", { startedElsewhere: async () => elsewhere }),
 		);
 
-		expect(waited.cancelled).toContain("stopped");
-		expect(() => kept(), "nothing kept").toThrow();
+		expect(Date.now()).toBeGreaterThanOrEqual(
+			elsewhere.getTime() + SPACING - TIMER_EARLY_MS,
+		);
+	});
+
+	it("counts an older install's slot once it has come, and waits behind none still to come", async () => {
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			path,
+			JSON.stringify({
+				startAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+				by: "old",
+				change: "o/r#old",
+			}),
+		);
+		const ahead = await awaitCouncilStart(path, claim("ISXEG8"));
+		expect(ahead.waited, "a slot an hour off holds nobody").toBeUndefined();
+
+		rmSync(linePath());
+		const come = new Date();
+		writeFileSync(
+			path,
+			JSON.stringify({
+				startAt: come.toISOString(),
+				by: "old",
+				change: "o/r#old",
+			}),
+		);
+		await awaitCouncilStart(path, claim("85PKB2"));
+		expect(
+			Date.now(),
+			"a slot that has come is a start",
+		).toBeGreaterThanOrEqual(come.getTime() + SPACING - TIMER_EARLY_MS);
+	});
+
+	it("reads a line cut short as nobody waiting", async () => {
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(linePath(), "{ cut short");
+
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+
+		expect(start.waited).toBeUndefined();
 	});
 });
 
