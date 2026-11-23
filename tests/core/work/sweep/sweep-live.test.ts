@@ -917,13 +917,47 @@ describe("taking a tree in a repository of thousands", () => {
 			facts: machine,
 		});
 
-		expect(outcome.taken.map((one) => one.path)).not.toContain(ended);
+		expect(outcome.refused).toEqual([
+			{ path: ended, why: "it has no plain .git file" },
+		]);
 		expect(existsSync(liveGit), "the live tree's git folder is kept").toBe(
 			true,
 		);
 		expect(await git(live, "status", "--porcelain")).toBe("");
-		const listed = await git(main, "worktree", "list", "--porcelain");
-		expect(listed).toContain(live);
+		expect(
+			worktreesOf(await git(main, "worktree", "list", "--porcelain")),
+		).toContain(live);
+	});
+
+	it("keeps one whose .git names another tree's git folder, and that tree's git", async () => {
+		const { main, memory, lockPath, cut } = await setUp();
+		const ended = await cut("ended", ["--detach", "@", "main"]);
+		const live = await cut("live", ["--detach", "@", "main"], [RUNNING]);
+		const liveGit = await git(live, "rev-parse", "--absolute-git-dir");
+		// A plain .git file naming the live tree's folder, which names the
+		// live tree back, not this one: git reads this tree against the live
+		// one's index at the same commit, so it judges clean.
+		writeFileSync(join(ended, ".git"), `gitdir: ${liveGit}\n`);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path)).not.toContain(ended);
+		expect(outcome.refused).toEqual([
+			{ path: ended, why: `git's folder for it names ${live}` },
+		]);
+		expect(readFileSync(join(liveGit, "gitdir"), "utf8").trim()).toBe(
+			join(live, ".git"),
+		);
+		expect(await git(live, "status", "--porcelain")).toBe("");
+		expect(
+			worktreesOf(await git(main, "worktree", "list", "--porcelain")),
+		).toContain(live);
 	});
 
 	it("keeps one that turned dirty, putting it back as it was", async () => {
@@ -952,8 +986,15 @@ describe("taking a tree in a repository of thousands", () => {
 		]);
 		expect(readFileSync(join(tree, "notes.txt"), "utf8")).toBe("unsaved\n");
 		expect(memory.recall().map((one) => one.path)).toContain(tree);
-		const listed = await git(main, "worktree", "list", "--porcelain");
-		expect(listed).toContain(tree);
+		// Git's folder names the tree at its own place again, so git lists it
+		// there and pi's guarded git still runs in it.
+		const gitDir = await git(tree, "rev-parse", "--absolute-git-dir");
+		expect(readFileSync(join(gitDir, "gitdir"), "utf8").trim()).toBe(
+			join(tree, ".git"),
+		);
+		expect(
+			worktreesOf(await git(main, "worktree", "list", "--porcelain")),
+		).toContain(tree);
 		expect(await git(tree, "status", "--porcelain")).toContain("notes.txt");
 	});
 
@@ -1048,37 +1089,49 @@ describe("taking a tree in a repository of thousands", () => {
 		expect(listed).toContain(tree);
 	});
 
-	it("says a git folder that won't go stays, and goes on to the next tree", async () => {
-		const { memory, lockPath, cut } = await setUp();
-		const stuck = await cut("stuck", ["--detach", "@", "main"]);
-		const next = await cut("next", ["--detach", "@", "main"]);
-		const gitDir = await git(stuck, "rev-parse", "--absolute-git-dir");
-		const readOnly = join(gitDir, "held");
-		mkdirSync(join(readOnly, "deep"), { recursive: true });
-		writeFileSync(join(readOnly, "deep", "file"), "kept\n");
-		chmodSync(readOnly, 0o500);
-		try {
-			const outcome = await sweepEndedTrees({
-				exec,
-				memory,
-				claims: [],
-				lockPath,
-				facts: machine,
-			});
+	// Root removes what a folder's mode refuses, so the git folder would go.
+	it.skipIf(process.getuid?.() === 0)(
+		"says a git folder that won't go stays, and goes on to the next tree",
+		async () => {
+			const { memory, lockPath, cut } = await setUp();
+			const stuck = await cut("stuck", ["--detach", "@", "main"]);
+			const next = await cut("next", ["--detach", "@", "main"]);
+			const gitDir = await git(stuck, "rev-parse", "--absolute-git-dir");
+			const readOnly = join(gitDir, "held");
+			mkdirSync(join(readOnly, "deep"), { recursive: true });
+			writeFileSync(join(readOnly, "deep", "file"), "kept\n");
+			chmodSync(readOnly, 0o500);
+			try {
+				const outcome = await sweepEndedTrees({
+					exec,
+					memory,
+					claims: [],
+					lockPath,
+					facts: machine,
+				});
 
-			expect(outcome.taken.map((one) => one.path)).toEqual([next]);
-			expect(outcome.refused).toEqual([
-				{
-					path: stuck,
-					why: expect.stringMatching(/^its git folder .* stays: /),
-				},
-			]);
-			expect(existsSync(stuck), `${stuck}'s files are gone`).toBe(false);
-		} finally {
-			chmodSync(readOnly, 0o700);
-		}
-	});
+				expect(outcome.taken.map((one) => one.path)).toEqual([next]);
+				expect(outcome.refused).toEqual([
+					{
+						path: stuck,
+						why: expect.stringMatching(/^its git folder .* stays: /),
+					},
+				]);
+				expect(existsSync(stuck), `${stuck}'s files are gone`).toBe(false);
+			} finally {
+				chmodSync(readOnly, 0o700);
+			}
+		},
+	);
 });
+
+/** The worktrees `git worktree list --porcelain` names, each whole. */
+function worktreesOf(listed: string): string[] {
+	return listed
+		.split("\n")
+		.filter((line) => line.startsWith("worktree "))
+		.map((line) => line.slice("worktree ".length));
+}
 
 /** What of `tree` is left moved aside beside it. */
 function asidesOf(state: string, tree: string): string[] {

@@ -21,6 +21,7 @@ import {
 	lstatSync,
 	realpathSync,
 	renameSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
@@ -67,7 +68,7 @@ export function moveAside(
 		return messageOf(error);
 	}
 	try {
-		writeFileSync(join(gitDir, "gitdir"), `${join(aside, ".git")}\n`);
+		nameIn(gitDir, `${join(aside, ".git")}\n`);
 	} catch (error) {
 		const why = `git's folder for it can't name it aside: ${messageOf(error)}`;
 		try {
@@ -115,22 +116,59 @@ export async function whyGitKeeps(
 		: "it contains modified or untracked files";
 }
 
+/** Where a put-back left the tree, and what went wrong on the way. */
+export interface PutBack {
+	/** Whether the tree is at its own path again. */
+	home: boolean;
+	why?: string;
+}
+
 /**
  * Put a tree moved aside back where it was, its git folder naming it
- * there again; nothing when it is, else where it was left and why.
+ * there again. Anything at its path by now, even an empty folder a cut
+ * is starting in, keeps it aside, as git's move refuses to land on one;
+ * rename alone would replace an empty folder.
  */
-export function putBack(moved: MovedAside, path: string): string | undefined {
+export function putBack(moved: MovedAside, path: string): PutBack {
+	if (present(path)) {
+		return {
+			home: false,
+			why: `it is left at ${moved.aside}: something stands at ${path} now`,
+		};
+	}
 	try {
 		renameSync(moved.aside, path);
 	} catch (error) {
-		return `it is left at ${moved.aside}: ${messageOf(error)}`;
+		return {
+			home: false,
+			why: `it is left at ${moved.aside}: ${messageOf(error)}`,
+		};
 	}
 	try {
-		writeFileSync(join(moved.gitDir, "gitdir"), moved.back);
+		nameIn(moved.gitDir, moved.back);
 	} catch (error) {
-		return `it is back, but its git folder still names ${moved.aside}: ${messageOf(error)}`;
+		return {
+			home: true,
+			why: `it is back, but its git folder still names ${moved.aside}: ${messageOf(error)}`,
+		};
 	}
-	return undefined;
+	return { home: true };
+}
+
+/**
+ * Write `back` as the way from git's folder `gitDir` to its tree, whole
+ * or not at all: a write cut short on a full disk would leave git a
+ * folder naming nothing, which its prune takes at once.
+ */
+function nameIn(gitDir: string, back: string): void {
+	const next = join(gitDir, `gitdir.${process.pid}.new`);
+	writeFileSync(next, back);
+	try {
+		renameSync(next, join(gitDir, "gitdir"));
+	} catch (error) {
+		rmSync(next, { force: true });
+		throw error;
+	}
 }
 
 /**

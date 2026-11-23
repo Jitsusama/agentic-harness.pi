@@ -823,14 +823,17 @@ async function takeBack(
 	}
 	const kept = await whyGitKeeps(deps.exec, moved.aside);
 	if (kept !== undefined) {
-		const left = putBack(moved, tree.path);
-		if (left !== undefined) {
-			outcome.refused.push({ path: tree.path, why: `${kept}; ${left}` });
+		const back = putBack(moved, tree.path);
+		const why = back.why === undefined ? kept : `${kept}; ${back.why}`;
+		if (!back.home) {
+			outcome.refused.push({ path: tree.path, why });
 			return;
 		}
+		// A tree at its own path keeps its record, whatever else went wrong,
+		// so its sessions and the next sweep still know it.
 		try {
 			deps.memory.remember(forgotten);
-			outcome.refused.push({ path: tree.path, why: kept });
+			outcome.refused.push({ path: tree.path, why });
 		} catch (error) {
 			outcome.refused.push({
 				path: tree.path,
