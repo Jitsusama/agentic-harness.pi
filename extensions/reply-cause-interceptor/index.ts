@@ -45,6 +45,7 @@ import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import { isPersonsOwnText } from "../../lib/internal/session/driven.ts";
 import { settledWithin } from "../../lib/internal/settled.ts";
 import {
+	SLOW_LOOKUP,
 	untestedCauseReason,
 	untestedCausesFound,
 } from "../../lib/prose/claims.ts";
@@ -338,7 +339,12 @@ async function noteUntested(
 	const moved = heard.moved;
 	let found: string[];
 	try {
-		found = await untestedCausesFound(text, lookup);
+		found = await untestedCausesFound(text, lookup, (why, detail) => {
+			// lookupOf has said why it found no classifier; these are the
+			// parts it found one for and couldn't judge.
+			if (why === SLOW_LOOKUP || why === "no classifier") return;
+			sayUnjudged(pi, heard, why, detail);
+		});
 		if (found.length === 0 || heard.moved !== moved || holds(ctx)) return;
 		pi.sendUserMessage(
 			automatedText(

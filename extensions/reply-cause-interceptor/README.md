@@ -91,7 +91,9 @@ refuses nothing, so there is nothing to report, and judging
 would only send the text away.
 
 With no classifier found, or a lookup that failed or was slow,
-nothing is judged and nothing is said in the session. Its log gets a
+nothing is judged and nothing is said in the session; a part the
+classifier failed to judge, or a reply past the parts judged, is
+left unjudged the same way. Its log gets a
 `reply-cause-unjudged` entry saying why, once for each reason,
 with the first line of what went wrong, its secrets scrubbed,
 and each note sent leaves a `reply-cause-note` entry, so notes

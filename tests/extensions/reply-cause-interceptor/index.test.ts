@@ -721,6 +721,30 @@ describe("a reply left unjudged", () => {
 		]);
 	});
 
+	it("is a part the classifier failed to judge, which the log says once", async () => {
+		lookup = async () => ({
+			...FOUND,
+			classify: async () => {
+				throw new Error("the provider is down\nat its gateway");
+			},
+		});
+		await turn(text(CAUSE));
+		await allJudged();
+		await turn(text(CAUSE));
+		await allJudged();
+
+		expect(notes()).toEqual([]);
+		expect(pi.recorded.entries).toEqual([
+			{
+				customType: UNJUDGED,
+				data: {
+					why: expect.stringMatching(/^a part went unjudged: /),
+					detail: expect.stringContaining("the provider is down"),
+				},
+			},
+		]);
+	});
+
 	it("logs what went wrong by its first line, its secrets scrubbed", async () => {
 		const token = `github_pat_${"A1".repeat(20)}`;
 		lookup = async () => {
