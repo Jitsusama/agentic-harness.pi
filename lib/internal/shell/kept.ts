@@ -43,13 +43,20 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
-	readdirSync,
 	readFileSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
-import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
@@ -136,12 +143,27 @@ function numberIn(file: string): number | undefined {
 		// Not there: the stub hasn't written it, or the call was removed.
 		return undefined;
 	}
+	return wholeNumber(text);
+}
+
+/** `numberIn`, read off the thread. */
+async function numberRead(file: string): Promise<number | undefined> {
+	return wholeNumber(await textRead(file));
+}
+
+/** The whole number `text` holds, or nothing. */
+function wholeNumber(text: string): number | undefined {
 	return /^\d+\n?$/.test(text) ? Number(text.trim()) : undefined;
 }
 
 /** The exit status the call's stub wrote as it ended, or nothing yet. */
 export function endOf(path: string): number | undefined {
 	return numberIn(`${path}.end`);
+}
+
+/** `endOf`, read off the thread. */
+export function endRead(path: string): Promise<number | undefined> {
+	return numberRead(`${path}.end`);
 }
 
 /** The pid of the call's shell, as its stub wrote it first. */
@@ -220,16 +242,21 @@ export const RECORD_SPARED_FOR_MS = 24 * 60 * 60 * 1000;
  * its shell runs, within its time limit and a day of its start. A call's
  * mark reaches what it started in a group of its own, as `timeout` and
  * `setsid` make; its shell's group covers a call run without one.
+ *
+ * Read off the thread, since a host asks at every stop and sweep on the
+ * loop its conversations share, and the folder holds every call a week
+ * kept. Its files are read one at a time, leaving the thread pool to
+ * the rest of the process.
  */
-export function carriedCalls(
+export async function carriedCalls(
 	folder: string = keptFolder(),
 	now: number = Date.now(),
-): CarriedCalls {
+): Promise<CarriedCalls> {
 	const marks = new Set<string>();
 	const groups = new Set<number>();
 	let names: string[];
 	try {
-		names = readdirSync(folder);
+		names = await readdir(folder);
 	} catch {
 		// No folder yet: nothing was ever kept, so nothing is carried.
 		return { marks, groups };
@@ -238,8 +265,8 @@ export function carriedCalls(
 		if (name.endsWith(JOB_SUFFIX)) {
 			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
 			// Once its status is written nothing of it runs to spare.
-			if (endOf(path) !== undefined) continue;
-			const spared = recordedSpare(`${path}${JOB_SUFFIX}`);
+			if ((await endRead(path)) !== undefined) continue;
+			const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
 			if (spared === undefined || !sparedAt(spared, now)) continue;
 			groups.add(spared.pid);
 			if (spared.mark !== "") marks.add(spared.mark);
@@ -247,9 +274,9 @@ export function carriedCalls(
 		}
 		if (!name.endsWith(CARRIED)) continue;
 		const path = join(folder, name.slice(0, -CARRIED.length));
-		const pid = pidOf(path);
+		const pid = await numberRead(`${path}.pid`);
 		if (pid !== undefined) groups.add(pid);
-		const mark = textOf(`${path}${CARRIED}`).trim();
+		const mark = (await textRead(`${path}${CARRIED}`)).trim();
 		if (mark !== "") marks.add(mark);
 	}
 	return { marks, groups };
@@ -263,13 +290,13 @@ interface RecordedSpare {
 	readonly deadline?: number;
 }
 
-/** What a job's record says of its call, or nothing when it says none. */
-function recordedSpare(file: string): RecordedSpare | undefined {
+/** What a job's record, as `text`, says of its call, or nothing when it says none. */
+function recordedSpare(text: string): RecordedSpare | undefined {
 	let record: unknown;
 	try {
-		record = JSON.parse(textOf(file));
+		record = JSON.parse(text);
 	} catch {
-		// Gone as its call ended: nothing of it runs to spare.
+		// Gone as its call ended, so empty: nothing of it runs to spare.
 		return undefined;
 	}
 	if (typeof record !== "object" || record === null || !("work" in record))
@@ -313,10 +340,10 @@ export function processThere(pid: number): boolean {
 	}
 }
 
-/** What a kept file holds, or nothing once it is gone. */
-function textOf(file: string): string {
+/** What a kept file holds, read off the thread, or nothing once it is gone. */
+async function textRead(file: string): Promise<string> {
 	try {
-		return readFileSync(file, "utf8");
+		return await readFile(file, "utf8");
 	} catch {
 		// Removed as its call's end was said: nothing left to spare.
 		return "";

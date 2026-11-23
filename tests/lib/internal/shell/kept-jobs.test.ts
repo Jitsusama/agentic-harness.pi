@@ -30,6 +30,7 @@ import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
 	makeKept,
+	markCarried,
 	RECORD_SPARED_FOR_MS,
 } from "../../../../lib/internal/shell/kept.ts";
 import {
@@ -228,6 +229,16 @@ function heard(
 	return out;
 }
 
+/**
+ * What was asked of a path under `path` on the thread: the synchronous
+ * calls, which hold it, and none of the reads off it.
+ */
+function askedOnThread(path: string): string[] {
+	return disk.asked.filter(
+		(said) => said.includes(path) && /^\w+Sync /.test(said),
+	);
+}
+
 const PRIVATE = 0o600;
 const PRIVATE_FOLDER = 0o700;
 const READ_ONLY = 0o500;
@@ -379,9 +390,32 @@ describe("a recorded job", () => {
 	it("spares a running call from every reaper, by its group and its mark", async () => {
 		const where = folder();
 		await recorded(where, "s1", "j1", HERE);
-		const found = carriedCalls(where, SOON);
+		const found = await carriedCalls(where, SOON);
 		expect([...found.groups], "its shell's group").toEqual([HERE]);
 		expect([...found.marks], "its call's mark").toEqual(["mark-j1"]);
+	});
+
+	// A host reaps at every stop and sweep, on the loop its conversations
+	// share, and a busy disk held that loop here for about 40 s a day.
+	it("is read for every reaper off the thread, recorded or carried", async () => {
+		const where = folder();
+		await recorded(where, "s1", "j1", HERE);
+		const carried = await makeKept(where);
+		writeFileSync(`${carried}.pid`, "4242\n");
+		markCarried(carried, "call-1");
+		disk.forget();
+		const found = await carriedCalls(where, SOON);
+		expect(
+			askedOnThread(where),
+			"nothing asked of the folder on the thread",
+		).toEqual([]);
+		expect([...found.groups].sort(), "both shells' groups").toEqual(
+			[HERE, 4242].sort(),
+		);
+		expect([...found.marks].sort(), "both calls' marks").toEqual([
+			"call-1",
+			"mark-j1",
+		]);
 	});
 
 	it.each([
@@ -392,7 +426,7 @@ describe("a recorded job", () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", pid, extra);
 		if (ended) writeFileSync(`${job.work.keep}.end`, "0\n");
-		const found = carriedCalls(where, SOON);
+		const found = await carriedCalls(where, SOON);
 		expect(found.groups.size + found.marks.size, "nothing left to spare").toBe(
 			0,
 		);
@@ -401,7 +435,7 @@ describe("a recorded job", () => {
 	it("spares nothing a day after its call started", async () => {
 		const where = folder();
 		await recorded(where, "s1", "j1", HERE);
-		const found = carriedCalls(where, STARTED + RECORD_SPARED_FOR_MS);
+		const found = await carriedCalls(where, STARTED + RECORD_SPARED_FOR_MS);
 		expect(found.groups.size + found.marks.size, "nothing left to spare").toBe(
 			0,
 		);
@@ -462,7 +496,7 @@ describe("a recorded job", () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		forgetKeptJob(job.work.keep);
-		const found = carriedCalls(where, SOON);
+		const found = await carriedCalls(where, SOON);
 		expect(found.groups.size + found.marks.size, "nothing spared").toBe(0);
 		expect(listed(where), "its pid still kept").toContain(
 			`${job.work.keep.split("/").pop()}.pid`,
@@ -2177,8 +2211,17 @@ describe("a stray recorded job", () => {
 		await recorded(where, "s1", "stray", 4242, { owner: 88 });
 		const ended = await recorded(where, "s2", "ended", 4242, { owner: 88 });
 		writeFileSync(`${ended.work.keep}.end`, "0\n");
+		disk.forget();
 		expect(
-			strayKeptJobs(where, (pid) => pid === 77).map((job) => job.id),
+			(await strayKeptJobs(where, (pid) => pid === 77)).map((job) => job.id),
 		).toEqual(["stray"]);
+		expect(
+			askedOnThread(where),
+			"read off the thread, as a host's sweep reads it",
+		).toEqual([]);
+	});
+
+	it("is none before there is a folder", async () => {
+		expect(await strayKeptJobs(folder())).toEqual([]);
 	});
 });

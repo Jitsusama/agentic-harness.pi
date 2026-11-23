@@ -184,6 +184,31 @@ describe("sweeping a key for what no live host holds", () => {
 		expect(stopped).toEqual(["recorded"]);
 	});
 
+	// The shell's kept folder is read off the loop the supervisor shares.
+	it("stops a due call jobs recorded once the kept folder's readings come back", async () => {
+		const stopped: string[] = [];
+		const { fake } = table({ 1: { group: 1, env: {} } });
+		const { session, label, work } = carried("gone", "recorded");
+		const options = sweeping(stopped);
+		const swept = await sweepUnheld(KEY, new Set(), {
+			...options,
+			carried: async () => NONE,
+			shells: {
+				...options.shells,
+				recorded: async () => [
+					{ session, id: "job-1", kind: "shell", label, work },
+				],
+			},
+			table: fake,
+		});
+		expect(stopped).toEqual(["recorded"]);
+		expect(options.report, "nothing went wrong").not.toHaveBeenCalled();
+		expect(swept.reaped, "nothing left to end").toEqual({
+			groups: [],
+			pids: [],
+		});
+	});
+
 	it("looks only in conversation folders holding a note, and reads its cgroup once", async () => {
 		await mkdir(join(root, "stored-only"));
 		await writeFile(join(root, "stored-only", "store.sqlite"), "");

@@ -153,12 +153,12 @@ describe("carried shells", () => {
 			writeFileSync(join(stateDir, KEPT_FILE), `${JSON.stringify([due])}\n`);
 		// The host's own judgement of running, not this file's stand-in.
 		write();
-		make({ running: undefined }).look(() => false);
+		await make({ running: undefined }).look(() => false);
 		expect(stopped, "where /proc is, the pid and its mark say").toHaveLength(1);
 
 		stopped = [];
 		write();
-		make({
+		await make({
 			running: undefined,
 			table: { ...table({}), absent: () => true, pids: () => [] },
 		}).look(() => false);
@@ -327,8 +327,8 @@ describe("carried shells", () => {
 		function watched(
 			holds: (session: string) => boolean,
 			overrides: Partial<CarriedShellsOptions> = {},
-		): () => void {
-			let look: (() => void) | undefined;
+		): () => Promise<void> {
+			let look: (() => void | Promise<void>) | undefined;
 			make({
 				every: (ms, run) => {
 					expect(ms).toBe(STRAY_LOOK_MS);
@@ -337,7 +337,9 @@ describe("carried shells", () => {
 				},
 				...overrides,
 			}).watch(holds);
-			return () => look?.();
+			return async () => {
+				await look?.();
+			};
 		}
 
 		const call = (work: CarriedShell): KeptCall => ({
@@ -348,20 +350,20 @@ describe("carried shells", () => {
 			work,
 		});
 
-		it("leaves a call that isn't due yet", () => {
+		it("leaves a call that isn't due yet", async () => {
 			keptEarlier(call(shell("m1")));
 			const look = watched(() => false);
 			now += STRAY_FOR_MS - 1;
-			look();
+			await look();
 			expect(stopped).toEqual([]);
 			expect(kept()).toHaveLength(1);
 		});
 
-		it("stops a call nobody took up a day after the restart, saying so", () => {
+		it("stops a call nobody took up a day after the restart, saying so", async () => {
 			keptEarlier(call(shell("m1")));
 			const look = watched(() => false);
 			now += STRAY_FOR_MS;
-			look();
+			await look();
 			expect(stopped).toEqual([shell("m1")]);
 			expect(said).toEqual([
 				expect.stringMatching(/make test.*j1 of s1.*a day passed/),
@@ -369,11 +371,11 @@ describe("carried shells", () => {
 			expect(kept()).toEqual([]);
 		});
 
-		it("stops one sooner once its time limit passes", () => {
+		it("stops one sooner once its time limit passes", async () => {
 			keptEarlier(call(shell("m1", { deadline: 1_000_000 + 60_000 })));
 			const look = watched(() => false);
 			now += 60_000;
-			look();
+			await look();
 			expect(stopped).toHaveLength(1);
 			expect(said).toEqual([expect.stringMatching(/its time limit passed/)]);
 		});
@@ -387,35 +389,66 @@ describe("carried shells", () => {
 				work,
 			});
 
-			it("is left until a day from its start", () => {
+			it("is left until a day from its start", async () => {
 				const work = shell("m1", { startedAt: now });
 				const look = watched(() => false, { recorded: () => [stray(work)] });
 				now += STRAY_FOR_MS - 1;
-				look();
+				await look();
 				expect(stopped).toEqual([]);
 			});
 
-			it("is stopped a day from its start, saying so", () => {
+			it("is stopped a day from its start, saying so", async () => {
 				const work = shell("m1", { startedAt: now });
 				const look = watched(() => false, { recorded: () => [stray(work)] });
 				now += STRAY_FOR_MS;
-				look();
+				await look();
 				expect(stopped).toEqual([work]);
 				expect(said).toEqual([
 					expect.stringMatching(/make test.*j1 of s1.*recorded.*a day passed/),
 				]);
 			});
 
-			it("is stopped sooner once its time limit passes", () => {
+			it("is stopped sooner once its time limit passes", async () => {
 				const work = shell("m1", { startedAt: now, deadline: now + 60_000 });
 				const look = watched(() => false, { recorded: () => [stray(work)] });
 				now += 60_000;
-				look();
+				await look();
 				expect(stopped).toEqual([work]);
 				expect(said).toEqual([expect.stringMatching(/its time limit passed/)]);
 			});
 
-			it("is left to a conversation here that holds it, or once it ended", () => {
+			// The kept folder is read off the thread the host's conversations
+			// share, so what jobs recorded comes back later.
+			it("is stopped once the folder's reading comes back", async () => {
+				const work = shell("m1", { startedAt: now });
+				const look = watched(() => false, {
+					recorded: async () => [stray(work)],
+				});
+				now += STRAY_FOR_MS;
+				await look();
+				expect(stopped).toEqual([work]);
+			});
+
+			it("is stopped once, however long the folder takes to read", async () => {
+				const work = shell("m1", { startedAt: now });
+				const readings: ((jobs: KeptJob[]) => void)[] = [];
+				const look = watched(() => false, {
+					recorded: () =>
+						new Promise<KeptJob[]>((done) => {
+							readings.push(done);
+						}),
+				});
+				now += STRAY_FOR_MS;
+				const first = look();
+				const second = look();
+				for (const answer of readings) answer([stray(work)]);
+				await Promise.all([first, second]);
+				expect(stopped, "a tick during a look waits for the next").toEqual([
+					work,
+				]);
+			});
+
+			it("is left to a conversation here that holds it, or once it ended", async () => {
 				const held = shell("m1", { startedAt: 0 });
 				const ended = shell("m2", { startedAt: 0 });
 				const look = watched((session) => session === "s1", {
@@ -423,12 +456,12 @@ describe("carried shells", () => {
 					running: (work) => work.mark !== "m2",
 				});
 				now += STRAY_FOR_MS;
-				look();
+				await look();
 				expect(stopped).toEqual([]);
 			});
 		});
 
-		it("lets go of a call a conversation here holds, or that ended", () => {
+		it("lets go of a call a conversation here holds, or that ended", async () => {
 			keptEarlier(
 				call(shell("m1")),
 				{ ...call(shell("m2")), session: "s2" },
@@ -437,7 +470,7 @@ describe("carried shells", () => {
 			const look = watched((session) => session === "s1", {
 				running: (work) => work.mark !== "m2",
 			});
-			look();
+			await look();
 			expect(stopped).toEqual([]);
 			expect(kept().map((each) => each.session)).toEqual(["s3"]);
 		});

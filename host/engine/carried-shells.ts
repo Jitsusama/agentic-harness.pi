@@ -143,7 +143,7 @@ export interface CarriedShells {
 	 * Look once, as a watch does each time: stop each call nobody holds
 	 * once it is due, those its jobs recorded as running among them.
 	 */
-	look(holds: (session: string) => boolean): void;
+	look(holds: (session: string) => boolean): Promise<void>;
 }
 
 /** What the carried calls need of the machine, for tests to stand in for. */
@@ -166,10 +166,10 @@ export interface CarriedShellsOptions {
 	 */
 	readonly scoped?: boolean;
 	/**
-	 * The recorded calls whose pi has gone; read from the kept folder by
-	 * default.
+	 * The recorded calls whose pi has gone; read from the kept folder,
+	 * off the thread, by default.
 	 */
-	readonly recorded?: () => readonly KeptJob[];
+	readonly recorded?: () => readonly KeptJob[] | Promise<readonly KeptJob[]>;
 	readonly table?: ProcessTable;
 	/** Writes a pid into a cgroup.procs file. */
 	readonly move?: (procs: string, pid: number) => Promise<void>;
@@ -180,7 +180,7 @@ export interface CarriedShellsOptions {
 	readonly report: (error: unknown) => void;
 	readonly now?: () => number;
 	/** Starts a repeating timer; setInterval, unref'd, by default. */
-	readonly every?: (ms: number, run: () => void) => () => void;
+	readonly every?: (ms: number, run: () => void | Promise<void>) => () => void;
 }
 
 /** Whether the shell of a carried call is still there, as itself. */
@@ -276,8 +276,10 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	}
 
 	/** Stop each recorded call due, whose pi has gone and nobody holds. */
-	function lookRecorded(holds: (session: string) => boolean): void {
-		for (const job of recorded()) {
+	async function lookRecorded(
+		holds: (session: string) => boolean,
+	): Promise<void> {
+		for (const job of await recorded()) {
 			if (!isRunning(job.work) || holds(job.session)) continue;
 			const due = Math.min(
 				job.work.deadline ?? Number.POSITIVE_INFINITY,
@@ -295,8 +297,8 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		}
 	}
 
-	function look(holds: (session: string) => boolean): void {
-		lookRecorded(holds);
+	async function look(holds: (session: string) => boolean): Promise<void> {
+		await lookRecorded(holds);
 		const kept = readKept(keptFile());
 		if (kept.length === 0) return;
 		const left = kept.filter((call) => {
@@ -376,12 +378,17 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 					timer.unref();
 					return () => clearInterval(timer);
 				});
+			// A tick while a slow disk still holds the last look waits for
+			// the next, so no call is stopped, or said stopped, twice.
+			let under: Promise<void> | undefined;
 			const looking = () => {
-				try {
-					look(holds);
-				} catch (error) {
-					options.report(error);
-				}
+				if (under !== undefined) return under;
+				under = look(holds)
+					.catch(options.report)
+					.finally(() => {
+						under = undefined;
+					});
+				return under;
 			};
 			return every(STRAY_LOOK_MS, looking);
 		},
