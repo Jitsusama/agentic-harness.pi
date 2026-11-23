@@ -105,6 +105,12 @@ spot. After a try that stopped at its cap, every summary of that
 compaction, ahead or on the spot, is asked for half the size, as a
 limit, so the rest of the cap is left for thinking.
 
+A move in the session tree that keeps the point a summary written
+ahead covers keeps the summary and the failed tries, since the
+compaction to come covers that point too. A move off it drops a
+summary still being written or ready, logging it as unused, and
+starts the count again.
+
 Only when the summary cannot be written from the cache (see Writing the
 Summary), or has failed ahead twice, does the session compact on the
 spot, and the notice says why. Each compaction's entry records `written` (`ahead` or `on the
