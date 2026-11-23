@@ -33,11 +33,13 @@
 #
 # An agent's check goes to penelope alone: elsewhere it would run a
 # pushed branch's install scripts and tests unfenced, as an account
-# holding Joel's credentials, as the Mac's does (ISXEG8, 22 November).
-# That lifts once a host runs it inside its agent fence or under an
-# account of its own. It guards against a slip, not an agent set on
-# reaching the Mac: only a fence holds that. Joel running it by hand,
-# from a shell outside pi, may send it anywhere.
+# holding Joel's credentials, as the Mac's does (ISXEG8, 22 November),
+# on an agent's say alone. That lifts once a host runs it inside its
+# agent fence or under an account of its own. It guards against a slip,
+# not an agent set on reaching the Mac: only a fence holds that. Joel
+# running it by hand, from a shell outside pi, may send it anywhere, and
+# runs the branch's code as himself there, whoever wrote it, so the
+# refusal points an agent at penelope and nowhere else.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -71,7 +73,7 @@ case "$host" in
     ;;
 esac
 if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: an agent's check goes only to penelope, since $host would run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope, or ask Joel to run this one" >&2
+  echo "check-there: an agent's check goes only to penelope, since $host would run it unfenced as an account holding Joel's credentials; run pnpm check:there $branch penelope" >&2
   exit 2
 fi
 
