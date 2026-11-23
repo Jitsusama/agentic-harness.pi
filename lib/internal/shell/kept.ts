@@ -368,15 +368,19 @@ export interface JobRecordRemoval {
 // files go passes through it. Each path is a call's own, so
 // conversations never share one. The key names the shape: a copy loaded
 // under another key would see none of these, and its calls would leave
-// their records to `removeKept` just after. Whether the process takes
-// back, as it exits, the records of removals still running is kept
-// beside them, so it is asked to once however many copies there are.
+// their records to `removeKept` just after. Beside them: how many of
+// `removeKept`'s removals of each call run, and whether the process
+// takes back, as it exits, what those and the record removals had yet
+// to remove, asked once however many copies there are and done by the
+// copy loaded last, so a reload's fix reaches it.
 const jobRecords = processGlobal(
-	"agentic-harness.internal/shell/kept-jobs/records.v3",
+	"agentic-harness.internal/shell/kept-jobs/records.v4",
 	() => ({
 		own: new Map<string, string>(),
 		removing: new Map<string, JobRecordRemoval>(),
-		takenBackAtExit: false,
+		ending: new Map<string, number>(),
+		hooked: false,
+		takeBack: (): void => undefined,
 	}),
 );
 
@@ -441,32 +445,56 @@ export function beginJobRecordRemoval(
 		setAside: false,
 	};
 	jobRecords.removing.set(path, removal);
-	if (!jobRecords.takenBackAtExit) {
-		jobRecords.takenBackAtExit = true;
-		process.on("exit", takeRunningRecordsBack);
-	}
+	takeBackAtExit();
 	return removal;
 }
 
 /**
- * Take back, on the thread, the record at its name of each removal still
- * running for a call neither handed on nor gone, as the process exits:
- * the disk's pool does nothing more once it has, so a record left would
- * stand beside the call's end for its next start to say again. Only an
- * exit does it, never a session's close, since in a host the process
- * lives on and the removal ends off the thread; a pi killed outright
- * runs nothing, and its next start says the call's end again. Never
- * throws, as nothing is left to tell.
+ * Whether a removal of the job record kept at `path` runs for a call not
+ * handed on, so it takes each record it finds there in turn, one written
+ * again included.
  */
-export function takeRunningRecordsBack(): void {
-	for (const [path, removal] of jobRecords.removing) {
-		if (removal.handed || removal.gone) continue;
-		try {
-			rmSync(`${path}${JOB_SUFFIX}`, { force: true });
-		} catch {
-			// Only something other than a file holds the name, which nothing
-			// here writes; the process is going, so nothing could say it.
-		}
+export function removingUnhanded(path: string): boolean {
+	const removal = jobRecords.removing.get(path);
+	return removal !== undefined && !removal.handed;
+}
+
+/** What the process runs as it exits: the newest copy's take-back. */
+const takeRecordsBackAtExit = (): void => jobRecords.takeBack();
+
+/** Have the process take back, as it exits, what its disk had yet to remove. */
+function takeBackAtExit(): void {
+	if (jobRecords.hooked) return;
+	jobRecords.hooked = true;
+	process.on("exit", takeRecordsBackAtExit);
+}
+
+/**
+ * Take back, on the thread, what the disk had yet to remove as the
+ * process exits, since its pool does nothing more once it has, and a
+ * record or carried mark left would stand beside the call's end for its
+ * next start to say again: the record of each removal still running,
+ * but for a call handed on whose files stay, and the marks of each call
+ * `removeKept` still removes. Only an exit does it, never a session's
+ * close, since in a host the process lives on and the disk gets to them
+ * off the thread; a pi killed outright runs nothing, and its next start
+ * says the call's end again.
+ */
+function takeRecordsBack(): void {
+	for (const [path, removal] of jobRecords.removing)
+		if (!removal.handed || removal.gone) unlinkNow(`${path}${JOB_SUFFIX}`);
+	for (const path of jobRecords.ending.keys())
+		for (const mark of MARKS) unlinkNow(`${path}${mark}`);
+}
+jobRecords.takeBack = takeRecordsBack;
+
+/** Remove `file` on the thread, as a process exiting does. */
+function unlinkNow(file: string): void {
+	try {
+		rmSync(file, { force: true });
+	} catch {
+		// Only something other than a file holds the name, which nothing
+		// here writes; the process is going, so nothing could say it.
 	}
 }
 
@@ -487,35 +515,24 @@ export function endJobRecordRemoval(
  */
 export async function removeKept(path: string): Promise<void> {
 	letJobRecordGo(path);
-	for (const suffix of SUFFIXES) {
-		try {
-			await rm(`${path}${suffix}`, { force: true });
-		} catch {
-			// A folder in its place, or one that refuses it: no call leaves
-			// either, and its callers between processes have no one to tell;
-			// the week's sweep, which says nothing of one it can't remove
-			// either, tries it again.
-			if (MARKS.has(suffix)) return;
+	takeBackAtExit();
+	jobRecords.ending.set(path, (jobRecords.ending.get(path) ?? 0) + 1);
+	try {
+		for (const suffix of SUFFIXES) {
+			try {
+				await rm(`${path}${suffix}`, { force: true });
+			} catch {
+				// A folder in its place, or one that refuses it: no call leaves
+				// either, and its callers between processes have no one to tell;
+				// the week's sweep, which says nothing of one it can't remove
+				// either, tries it again.
+				if (MARKS.has(suffix)) return;
+			}
 		}
-	}
-}
-
-/**
- * Take back on the thread the marks that say a call at `path` is someone's,
- * its record and its carried mark, for a pi about to exit before the disk
- * would get to them: a move that couldn't be written, at a quit. Its other
- * files are left to `removeKept`, and the week's sweep, since a start
- * finds a call by its marks alone.
- */
-export function takeMarksBack(path: string): void {
-	letJobRecordGo(path);
-	for (const mark of MARKS) {
-		try {
-			rmSync(`${path}${mark}`, { force: true });
-		} catch {
-			// A folder in its place, which no call leaves; removeKept, just
-			// after, tries again and leaves it to the week's sweep.
-		}
+	} finally {
+		const left = (jobRecords.ending.get(path) ?? 1) - 1;
+		if (left > 0) jobRecords.ending.set(path, left);
+		else jobRecords.ending.delete(path);
 	}
 }
 

@@ -61,6 +61,7 @@ import {
 	ownsJobRecord,
 	processThere,
 	removeKept,
+	removingUnhanded,
 	takeJobRecord,
 } from "./kept.ts";
 
@@ -173,9 +174,10 @@ function clearStaged(staged: string): void {
  * on is its taker's. A removal still running is left to end off the
  * thread: one for a call handed on puts the record back for the taker,
  * as a move hands its calls on and closes the session in one turn, and
- * one for a call not handed on removes it, on a disk slow enough that
- * an unlink here would hold every conversation a host runs. A pi that
- * exits first takes that record back as it goes (kept.ts).
+ * one for a call not handed on removes it, a record written again
+ * meanwhile included, since it takes each in turn, on a disk slow enough
+ * that an unlink here would hold every conversation a host runs. A pi
+ * that exits first takes that record back as it goes (kept.ts).
  *
  * Whether this process holds the record is asked by path, not by which
  * session wrote it: a taker in this process that wrote it again before
@@ -183,6 +185,7 @@ function clearStaged(staged: string): void {
  * up only at a later session's start, after the giver's close.
  */
 export function forgetKeptJob(keep: string): void {
+	if (removingUnhanded(keep)) return;
 	if (takeJobRecord(keep) === undefined) return;
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
@@ -212,9 +215,7 @@ export async function forgetOwnKeptJob(
 	const removal = beginJobRecordRemoval(keep);
 	if (removal === undefined) return;
 	const waitMs = options.waitMs ?? REMOVAL_WAIT_MS;
-	const going = removeOwn(keep, removal, options.now ?? Date.now).finally(() =>
-		endJobRecordRemoval(keep, removal),
-	);
+	const going = removeOwn(keep, removal, options.now ?? Date.now);
 	let timer: NodeJS.Timeout | undefined;
 	const waited = new Promise<"waited">((done) => {
 		timer = setTimeout(() => done("waited"), waitMs);
@@ -287,19 +288,26 @@ async function removeOwn(
 ): Promise<void> {
 	const file = `${keep}${JOB_SUFFIX}`;
 	const aside = `${file}.${process.pid}.gone`;
-	while (!removal.handed) {
-		const record = takeJobRecord(keep);
-		if (record === undefined) return;
-		const began = now();
-		try {
-			await removeOnce(file, aside, record, removal);
-		} finally {
-			// Timed whichever way the pass ended: a slow refusal is as telling.
-			const took = now() - began;
-			if (took > SLOW_REMOVAL_MS) {
-				process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+	try {
+		while (!removal.handed) {
+			const record = takeJobRecord(keep);
+			if (record === undefined) return;
+			const began = now();
+			try {
+				await removeOnce(file, aside, record, removal);
+			} finally {
+				// Timed whichever way the pass ended: a slow refusal is as telling.
+				const took = now() - began;
+				if (took > SLOW_REMOVAL_MS) {
+					process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+				}
 			}
 		}
+	} finally {
+		// In the same turn as its last look for a record written again, so
+		// one written after it is the close's to take back, never left by
+		// both (`forgetKeptJob`).
+		endJobRecordRemoval(keep, removal);
 	}
 }
 
