@@ -141,8 +141,10 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 	].filter((path) => existsSync(path));
 	const read: string[] = [];
 	for (const path of paths) {
+		// On Linux a hidden file reads as `/dev/null`, which opens and is
+		// empty, so a read counts only when it brings something back.
 		const ran = await fenced(
-			`head -c1 '${path}' > /dev/null 2>&1`,
+			`head -c1 '${path}' > /dev/null 2>&1 && test -s '${path}'`,
 			context.scratch,
 			context.session,
 		);

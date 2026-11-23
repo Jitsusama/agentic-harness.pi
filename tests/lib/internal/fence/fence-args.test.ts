@@ -387,6 +387,37 @@ describe("the fence's arguments", () => {
 		).toBe(false);
 	});
 
+	// bubblewrap can't make a mount point in a folder it emptied read-only,
+	// so a bind there would refuse every command.
+	it("leaves a hidden file linked into a hidden folder to the folder", () => {
+		const histfile = `${place.home}/.histfile`;
+		const zsh = `${place.home}/.local/share/zsh`;
+		const stored = `${zsh}/histfile`;
+		const linked: Disk = {
+			kind: (path) => {
+				if (path === histfile) return "link";
+				return path === stored ? "file" : "folder";
+			},
+			entries: () => [],
+			real: (path) => (path === histfile ? stored : undefined),
+		};
+		const given = fenceArgs(place, linked);
+		const folder = given.indexOf(zsh);
+		expect(given.slice(folder - 1, folder + 3), "the folder emptied").toEqual([
+			"--tmpfs",
+			zsh,
+			"--remount-ro",
+			zsh,
+		]);
+		expect(given, "nothing bound inside the emptied folder").not.toContain(
+			stored,
+		);
+		expect(
+			fenceRefusesRead(stored, place, linked),
+			"the history still refused to pi's tools",
+		).toBe(true);
+	});
+
 	it("makes the home folder read-only, binding back writable every hidden entry but the read-only ones and links", () => {
 		expect(
 			pairs("--ro-bind").find((path) => path?.startsWith(place.home)),

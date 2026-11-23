@@ -174,7 +174,34 @@ describe("the key files the fence hides beside the rest", () => {
 			".docker/key.pem",
 			".docker/contexts/tls/",
 		]) {
-			expect(HIDDEN).toContain(key);
+			expect(HIDDEN, key).toContain(key);
+		}
+	});
+
+	it("names the shell's history, where a pasted token lingers", () => {
+		for (const history of [
+			".zsh_history",
+			".zsh_sessions/",
+			".bash_history",
+			".local/share/zsh/",
+		]) {
+			expect(HIDDEN, history).toContain(history);
+		}
+	});
+
+	it("names the other shells' and consoles' history, where a pasted token lingers too", () => {
+		for (const history of [
+			".histfile",
+			".local/state/zsh/",
+			".local/share/fish/fish_history",
+			".python_history",
+			".node_repl_history",
+			".psql_history",
+			".mysql_history",
+			".sqlite_history",
+			".irb_history",
+		]) {
+			expect(HIDDEN, history).toContain(history);
 		}
 	});
 });

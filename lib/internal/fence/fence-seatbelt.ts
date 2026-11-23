@@ -28,7 +28,7 @@
  */
 
 import { realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 
 /** Where macOS keeps sandbox-exec, the one program trusted to run it. */
@@ -529,11 +529,11 @@ function realPath(path: string): string {
 	try {
 		return realpathSync(path);
 	} catch {
-		// Not there yet: its folder names where it will be.
+		// Not there yet: its folder names where it will be. Its last name
+		// is taken whole, since slicing past the folder's length and a
+		// slash cut a letter from one under the root (`/pplications`).
 		const folder = dirname(path);
-		return folder === path
-			? path
-			: join(realPath(folder), path.slice(folder.length + 1));
+		return folder === path ? path : join(realPath(folder), basename(path));
 	}
 }
 

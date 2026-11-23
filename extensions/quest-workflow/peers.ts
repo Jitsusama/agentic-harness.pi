@@ -121,8 +121,14 @@ export function peersSaid(
 	peers: readonly Peer[],
 ): string | undefined {
 	if (peers.length === 0) return undefined;
+	// A session's id and folder are its README entry's, which can say
+	// anything, so each is quoted as a JSON string, never framing of its own.
+	const said = (text: string) => JSON.stringify(text);
 	const named = peers
-		.map((p) => `session ${p.id}${p.cwd ? ` in ${p.cwd}` : ""} (pid ${p.pid})`)
+		.map(
+			(p) =>
+				`session ${said(p.id)}${p.cwd ? ` in ${said(p.cwd)}` : ""} (pid ${p.pid})`,
+		)
 		.join(", ");
 	const who =
 		peers.length === 1

@@ -49,8 +49,10 @@ export function matchHeredocs(command: string): HeredocMatch[] {
 	// go blind on the same command. The closing delimiter is
 	// matched via a backreference to group 2 and must sit on its
 	// own line (`\n\2`) with only trailing horizontal whitespace
-	// before the line end, anchored by `$` under `/m`.
-	const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\2[ \t]*$/gm;
+	// before the line end, anchored by `$` under `/m`. A here-string's
+	// `<<<` opens no heredoc, so no `<` may sit either side of the `<<`.
+	const HEREDOC =
+		/(?<!<)<<(?!<)-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\2[ \t]*$/gm;
 	const matches: HeredocMatch[] = [];
 	for (const match of command.matchAll(HEREDOC)) {
 		if (match.index === undefined) continue;

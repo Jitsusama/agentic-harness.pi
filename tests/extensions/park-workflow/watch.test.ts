@@ -59,6 +59,7 @@ import {
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { CALLS_WATCHED_MS } from "../../../lib/internal/shell/carried.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -1622,7 +1623,188 @@ describe("why a session stays awake", () => {
 				readParked(SESSION, folder)?.afterMs,
 				"a drain's park says so, and its wake isn't the rule's",
 			).toBe(0);
+			drained.stop();
+			writeFileSync(parkSwitch(folder), "\n");
+			clock = 0;
+			const drainedSwitchedOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedSwitchedOff.look(),
+				"a drain parks it with the switch off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION]);
+			drainedSwitchedOff.stop();
+			writeFileSync(parkSwitch(folder), "off\n");
+			clock = 0;
+			const drainedLineOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedLineOff.look(),
+				"a drain parks it under a line off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION, SESSION]);
 		} finally {
+			host.dispose();
+		}
+	});
+
+	// 22 November, 05:52: 26 of 78 background conversations, 8.8 GB, stayed
+	// awake only for a bash call, most a loop waiting on another run's rc.
+	it("parks a background host's conversation with only bash calls out where its host carries them, and stays for anything else", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		let carries = true;
+		let viewed = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => carries;
+		host.host.viewed = () => viewed;
+		// As job-workflow's own: a job whose spec can't carry it (a shell
+		// whose tee won't outlive pi) holds, whatever the host keeps.
+		const shell = (over: Record<string, unknown> = {}) => ({
+			kind: "shell",
+			keep: join(folder, "kept"),
+			pid: 2 ** 22 + 1,
+			mark: "a-mark",
+			startedAt: 0,
+			...over,
+		});
+		const out: {
+			id: string;
+			kind: string;
+			label: string;
+			carry?: { kind: string; [field: string]: unknown };
+		}[] = [
+			{
+				id: "j1",
+				kind: "shell",
+				label: "until grep -q rc= run.log",
+				carry: shell(),
+			},
+		];
+		let unsaid = 0;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => out.length + unsaid,
+			running: () => out,
+			holds: (carriable = () => true) =>
+				out.filter((job) => job.carry === undefined || !carriable(job.carry)),
+		});
+		const env = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const onMac = watching(session(), env, [], "darwin");
+			const watched = watching(session(), env, [], "linux");
+			clock = BACKGROUND_PARK_AFTER_MS;
+
+			carries = false;
+			expect(watched.look(), "a host that can't keep it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			carries = true;
+			viewed = true;
+			clock = PARK_AFTER_MS;
+			expect(watched.look(), "a window views it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			viewed = false;
+			expect(onMac.look(), "a Mac's holder is lost in a park").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			onMac.stop();
+			out.push({ id: "j2", kind: "subagent", label: "k7-read" });
+			expect(watched.look(), "a fleet goes nowhere").toBe(
+				"a fleet is out (j2: k7-read)",
+			);
+			out.pop();
+			// One its watch would wake for at once holds it, rather than a park
+			// and a wake every few minutes (#1981 F72).
+			out.push({
+				id: "j4",
+				kind: "shell",
+				label: "sleep 1d",
+				carry: shell({ startedAt: PARK_AFTER_MS - CALLS_WATCHED_MS }),
+			});
+			expect(watched.look(), "a call a day old").toBe(
+				"a command is out (j4: sleep 1d)",
+			);
+			out.pop();
+			// A drain lists heavy runs only from awake conversations, so a
+			// suite or a build a park carried would be cut by a drained
+			// restart (#1981 F70).
+			out.push({
+				id: "j6",
+				kind: "shell",
+				label: "pnpm test",
+				carry: shell(),
+			});
+			expect(watched.look(), "a heavy run").toBe(
+				"a command is out (j6: pnpm test)",
+			);
+			out.pop();
+			out.push({
+				id: "j5",
+				kind: "shell",
+				label: "timeout 60",
+				carry: shell({ deadline: PARK_AFTER_MS }),
+			});
+			expect(watched.look(), "a call past its limit").toBe(
+				"a command is out (j5: timeout 60)",
+			);
+			out.pop();
+			out.push({ id: "j3", kind: "shell", label: "tee run.log" });
+			expect(watched.look(), "a call that can't outlive pi").toBe(
+				"a command is out (j3: tee run.log)",
+			);
+			unsaid = 1;
+			expect(
+				watched.look(),
+				"a held call beside an end not yet said names neither",
+			).toBe("background jobs are out");
+			out.pop();
+			expect(watched.look(), "an end not yet said").toBe(
+				"background jobs are out",
+			);
+			unsaid = 0;
+			expect(asked, "nothing parked yet").toEqual([]);
+
+			expect(watched.look(), "only a carried call: it parks").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			stopJobs();
+			host.dispose();
+		}
+	});
+
+	it("stays for every job a job host from before its holds says is out", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => true;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => 1,
+		});
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const watched = watching(
+				session(),
+				{ MYCELIUM_WAKE: join(folder, "conversation.wake") },
+				[],
+				"linux",
+			);
+			clock = PARK_AFTER_MS;
+			expect(watched.look()).toBe("background jobs are out");
+			expect(asked).toEqual([]);
+		} finally {
+			stopJobs();
 			host.dispose();
 		}
 	});

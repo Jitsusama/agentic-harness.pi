@@ -144,7 +144,8 @@ a fault already on main refuses nothing new. Then it runs
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
 vitest config, and the extensions and libraries whose tools the host
 cases drive: jobs, loadout, mesh, park, quest, reload, result store,
-spend and subagent) merges as before; one that does merges only once the
+spend and subagent; a folder's README.md under them doesn't count, since
+nothing a host runs reads one) merges as before; one that does merges only once the
 keeper kept a whole run passing at that very commit, its words exactly
 those `scripts/host-test-words.sh` makes for that runtime and this
 machine's tools, since the keeper keeps any program that passed. A refusal names the

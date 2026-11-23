@@ -112,6 +112,13 @@ const SLACK_URL_REGEX =
 	/https:\/\/([\w-]+)\.slack\.com\/archives\/([A-Z0-9]+)\/(p\d+)(\?[^\s"')\]]*)?/g;
 
 /**
+ * A Slack link's thread parent, from its own `thread_ts` parameter only,
+ * never one merely ending in it, such as `not_thread_ts`. Slack's own
+ * message text escapes the `&` before it as `&amp;`, which reads alike.
+ */
+const THREAD_TS = /(?:[?&]|&amp;)thread_ts=([\d.]+)/;
+
+/**
  * Why a Slack ref will not become a URL, or nothing when it will.
  *
  * Shared by both Slack types, which store and encode identically.
@@ -154,7 +161,7 @@ const slackMessage: RefType = {
 		const results: string[] = [];
 		for (const m of text.matchAll(SLACK_URL_REGEX)) {
 			const query = m[4] ?? "";
-			if (query.includes("thread_ts=")) continue;
+			if (THREAD_TS.test(query)) continue;
 			results.push(`${m[1]}/${m[2]}/${m[3]}`);
 		}
 		return results;
@@ -169,7 +176,7 @@ const slackThread: RefType = {
 		const results: string[] = [];
 		for (const m of text.matchAll(SLACK_URL_REGEX)) {
 			const query = m[4] ?? "";
-			const threadTs = /thread_ts=([\d.]+)/.exec(query)?.[1];
+			const threadTs = THREAD_TS.exec(query)?.[1];
 			if (threadTs === undefined) continue;
 			// Canonical value points at the THREAD PARENT
 			// (whose ts is `thread_ts`), not the reply we

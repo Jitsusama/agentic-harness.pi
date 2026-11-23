@@ -38,6 +38,34 @@ export function madeByHost(reply: ControlReply): boolean {
 	return madeHere.has(reply);
 }
 
+// Each refusal the host made for a child that runs a conversation all
+// the same, by that conversation: the reply crosses the wire as it is.
+const leftRunningBy = new WeakMap<ControlReply, string>();
+
+/**
+ * The answer to `id` when the child gave none in time but runs
+ * `sessionId`: refused, so nothing waits on it, and naming the one it
+ * runs, so the caller attaches rather than opening another.
+ */
+export function unsettledReply(id: string, sessionId: string): ControlReply {
+	const reply: ControlReply = {
+		v: 1,
+		id,
+		ok: false,
+		error: {
+			code: "open_unsettled",
+			message: `The conversation's process gave no answer in time, but runs ${sessionId}: attach to it, or close it, rather than open another`,
+		},
+	};
+	leftRunningBy.set(reply, sessionId);
+	return reply;
+}
+
+/** The conversation a refusal the host made left running, or nothing. */
+export function leftRunning(reply: ControlReply): string | undefined {
+	return leftRunningBy.get(reply);
+}
+
 /** The answer to `id` when the child can't give one. */
 export function childUnreachable(id: string, message?: string): ControlReply {
 	const reply: ControlReply = {

@@ -78,11 +78,13 @@ import {
 	agentCommand,
 	askAgents,
 	isThisMachine,
+	type LeftIdle,
 	machineByDefault,
 	machineFor,
 	spawnHeld,
 	startsPi,
 	swapsAgent,
+	whatReopens,
 } from "./spawn-held.ts";
 import { hostTargetOf, reachedInHost, spawnByHost } from "./spawn-host.ts";
 import {
@@ -105,6 +107,10 @@ interface SpawnSaid {
 	budget?: FolderBudget;
 	fence?: FenceDeclaration;
 	handed?: DeclaredFence;
+	/** An idle session left unreopened, since the spawn starts fresh. */
+	leftIdle?: LeftIdle;
+	/** Whether it only planned, so what it left is said as what it would. */
+	planned?: boolean;
 }
 
 /**
@@ -118,10 +124,14 @@ export async function spawn(
 	params: QuestToolParams,
 ): Promise<QuestResult> {
 	const said: SpawnSaid = {};
-	const result = withFence(
-		await spawnNaming(state, ctx, params, said),
-		said.fence,
-		said.handed,
+	const result = withLeftIdle(
+		withFence(
+			await spawnNaming(state, ctx, params, said),
+			said.fence,
+			said.handed,
+		),
+		said.leftIdle,
+		said.planned === true,
 	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
@@ -166,6 +176,32 @@ function withFence(
 		...result,
 		message: `${result.message} ${declarationSaid(fence, handed)}`,
 		details: { ...result.details, fence },
+	};
+}
+
+/**
+ * A spawn's answer saying the idle session it left as it was, so the
+ * history it holds is not lost from sight when the start went fresh.
+ */
+function withLeftIdle(
+	result: QuestResult,
+	leftIdle: LeftIdle | undefined,
+	planned: boolean,
+): QuestResult {
+	if (!result.ok || leftIdle === undefined) return result;
+	const here = hostname().split(".")[0];
+	// Pi finds a session by id only among the logs of the folder it starts
+	// in, so the way back names the folder when the record has it.
+	const back = leftIdle.cwd
+		? `\`cd ${leftIdle.cwd} && pi --session ${leftIdle.id}\``
+		: `\`pi --session ${leftIdle.id}\`, from the folder it ran in,`;
+	const left = planned
+		? `It would start fresh there, leaving the quest's idle session ${leftIdle.id} unreopened on ${here}`
+		: `It started fresh there, leaving the quest's idle session ${leftIdle.id} unreopened on ${here}`;
+	return {
+		...result,
+		message: `${result.message} ${left}; ${back} on ${here} reopens it.`,
+		details: { ...result.details, leftIdle: leftIdle.id },
 	};
 }
 
@@ -251,11 +287,14 @@ async function spawnNaming(
 	// command it starts, both follow the one answer.
 	const realmAgents = params.command?.trim() ? undefined : await askAgents();
 	const agentsHere = async () => realmAgents;
-	const placementClaim = placementFence(fence, {
-		command: params.command,
-		resumes: resumable !== undefined && "id" in resumable,
-		swapped: swapsAgent(realmAgents),
-	});
+	const reopen = whatReopens(resumable, sessions, (resumes) =>
+		placementFence(fence, {
+			command: params.command,
+			resumes,
+			swapped: swapsAgent(realmAgents),
+		}),
+	);
+	const placementClaim = reopen.claim;
 	const chosen = await machineFor(
 		named,
 		named !== undefined || params.needs !== undefined
@@ -266,16 +305,23 @@ async function spawnNaming(
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { needs } = chosen;
-	// Naming neither, it goes where the node places work, unless it resumes.
+	// Naming neither, it goes where the node places work, unless it
+	// resumes a live session.
 	const machine = await machineByDefault(chosen.machine, needs, {
-		resumes: Boolean(resumable && "id" in resumable),
+		resumes: reopen.holds,
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),
 		fence: placementClaim,
 	});
-	const resume =
-		machine === undefined || isThisMachine(machine) ? resumable : undefined;
+	const landsHere = machine === undefined || isThisMachine(machine);
+	const resume = reopen.reopens(landsHere);
+	const leftIdle = reopen.leaves(landsHere);
+	// A command of the caller's own reopens nothing, so it leaves nothing.
+	if (leftIdle !== undefined && !params.command?.trim()) {
+		said.leftIdle = leftIdle;
+		if (params.dryRun) said.planned = true;
+	}
 	// A session a host holds is reached through that host, never opened
 	// again here or adopted by another, which would give its log a second
 	// writer. A command of the caller's own resumes nothing.

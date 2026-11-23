@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	FAILED_RESUME_TEXT,
+	FAILED_WAITING_TEXT,
 	isResumeText,
 	RESUME_TEXT,
+	WAITING_TEXT,
 } from "../../../lib/compaction/resume.ts";
 import {
 	automatedHeader,
@@ -81,5 +83,12 @@ describe("the turns the harness starts itself", () => {
 			isResumeText(OUTBOX_HEADER),
 			"a job report does not read as a resume",
 		).toBe(false);
+	});
+
+	it("reads a run for messages that waited as automated, not as a resume", () => {
+		for (const text of [WAITING_TEXT, FAILED_WAITING_TEXT]) {
+			expect(isResumeText(text), text).toBe(false);
+			expect(isAutomatedText(text), text).toBe(true);
+		}
 	});
 });

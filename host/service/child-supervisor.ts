@@ -58,7 +58,12 @@ import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
-import { askOnce, madeByHost, reach } from "./child-requests.ts";
+import {
+	askOnce,
+	madeByHost,
+	reach,
+	unsettledReply,
+} from "./child-requests.ts";
 import {
 	clearSlot,
 	forsakeSlot,
@@ -1218,16 +1223,7 @@ export function childSupervisor(options: {
 			if (error instanceof StoppedWatching) throw error;
 			throw new RefusedBeginning(reply);
 		}
-		const { sessionId } = watching.conversation;
-		return {
-			v: 1,
-			id: request.id,
-			ok: false,
-			error: {
-				code: "open_unsettled",
-				message: `The conversation's process gave no answer in time, but runs ${sessionId}: attach to it, or close it, rather than open another`,
-			},
-		};
+		return unsettledReply(request.id, watching.conversation.sessionId);
 	}
 
 	/** Ask the child at `slot` its first request, before `by`, as a stop can end. */

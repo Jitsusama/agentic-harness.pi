@@ -9,18 +9,24 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../../lib/core/session/host.ts";
 import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
 import { adoptTree, applyQuestGuards } from "../guard.ts";
-import { persist, refreshProgress } from "../lifecycle.ts";
+import { persist, refreshProgress, retryPendingQuest } from "../lifecycle.ts";
 import { keepDesktopListsCurrent } from "../quest-index.ts";
-import { questsTouchedBy, RecordWatch } from "../record-watch.ts";
+import {
+	noteToolWrites,
+	questsTouchedBy,
+	RecordWatch,
+} from "../record-watch.ts";
 import type { QuestState } from "../state.ts";
 import { currentSessionId } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";
 import { defaultWorkspaceRoot } from "../workspace.ts";
 import { updateScoreboard } from "./scoreboard.ts";
+import { settleOnLoadedQuest } from "./session.ts";
 
 /** What an `agent_before_settle` handler may return, as pi 0.87 defines it. */
 interface BeforeSettleResult {
@@ -113,7 +119,22 @@ export function watchToolCalls(
 			updateScoreboard(state, ctx);
 			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 		}
+		// A quest the log named that a slow walk hid at the start loads now,
+		// and this session settles on it as its start would have.
+		const tried = retryPendingQuest(state, pi);
+		if (tried === "loaded") {
+			settleOnLoadedQuest(state, pi, ctx);
+			updateScoreboard(state, ctx);
+		}
+		if (tried === "gone") sayLetGo(pi, ctx);
 		persist(state, pi, ctx);
+		noteToolWrites(
+			state,
+			event.toolName,
+			event.input as Record<string, unknown>,
+			ctx.cwd,
+			homedir(),
+		);
 		// A quest action can change what a quest's work is weighted by, and
 		// which quests orchestrate, and what the desktop lists.
 		if (event.toolName === "quest") {
@@ -128,4 +149,29 @@ export function watchToolCalls(
 		}
 		return undefined;
 	});
+}
+
+const LET_GO =
+	"The quest this session last held was never found again, so it has none loaded now.";
+
+/**
+ * Say that the quest the log named was let go: on a screen as a warning,
+ * and on a host, whose conversations are bound with no interface, as a
+ * line in the log, which its viewer shows and the model reads with its
+ * next turn. Mid-turn, pi appends it once the turn ends, so it never
+ * starts one. A quest is held pending mostly on a host.
+ */
+function sayLetGo(
+	pi: ExtensionAPI,
+	ctx: {
+		readonly hasUI: boolean;
+		readonly ui: { notify(m: string, t: "warning"): void };
+	},
+): void {
+	if (ctx.hasUI) ctx.ui.notify(LET_GO, "warning");
+	else if (hosted())
+		pi.sendMessage(
+			{ customType: "quest-let-go", content: LET_GO, display: true },
+			{ triggerTurn: false },
+		);
 }
