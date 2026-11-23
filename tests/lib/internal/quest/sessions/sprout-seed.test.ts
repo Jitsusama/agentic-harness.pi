@@ -267,7 +267,7 @@ describe("a sprouted session's first words", () => {
 
 	it("leave a joined quest's Summary alone and say who else is on it", () => {
 		const peers =
-			"Another live pi session is on QEST-1-ABC: session s-9 (pid 9).";
+			'Another live pi session is on QEST-1-ABC: session "s-9" (pid 9).';
 		const words = sproutedWords(
 			"QEST-1-ABC",
 			{ link: "https://github.com/o/r/pull/1" },
