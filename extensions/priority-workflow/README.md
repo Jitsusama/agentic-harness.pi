@@ -31,8 +31,10 @@ is born there. pi itself stays where it was started.
   `shell-workflow` has the shell write its own pid first, and then all
   200 shells' commands ran in the cgroup.
 - **A Mac takes turns too, and places nothing.** It keeps the same queue,
-  in the account's temporary folder, where its mycelium node looks, under
-  the same turn rules. Its room comes from its kernel's own terms
+  in the folder `AGENTS_RUNTIME_DIR` names or the account's cache folder,
+  where its mycelium node looks, under the same turn rules. That folder
+  outlasts a reboot, so a job asked before the boot counts as ended,
+  whatever process its pid names now. Its room comes from its kernel's own terms
   (`lib/internal/priority/room-darwin.ts`). Memory waits at
   `kern.memorystatus_vm_pressure_level` warning or worse, while it swaps
   out, or under 20% available. CPU pressure is load past the cores, and
@@ -85,7 +87,9 @@ else's VM, and ran one VM at a time across the machine. One VM test
 waited 35 minutes while 3.7 of 16 cores were busy and 45 of 62 GiB
 stood free.
 
-Now every pi session shares one queue in `$XDG_RUNTIME_DIR/jobs`, with
+Now every pi session shares one queue in `jobs` in the runtime folder
+(AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache
+folder), with
 no daemon and no command to learn. When a bash call runs heavy work,
 the harness reads its kind from one map, puts a job in the queue, and
 the call's shell waits for its turn before it runs anything; pi itself

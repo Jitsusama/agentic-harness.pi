@@ -85,6 +85,18 @@ describe("a child's slot", () => {
 		expect(slot.woken, "not woken unless the slot says so").toBeUndefined();
 	});
 
+	it("finds its slot in the folder AGENTS_RUNTIME_DIR names, before XDG_RUNTIME_DIR", async () => {
+		const folder = await children();
+		await writeFile(join(folder, "fresh.json"), "{}");
+		const slot = childSlot({
+			PI_HOST_CHILD_KEY: KEY,
+			PI_HOST_CHILD_SOCKET: join(folder, "fresh.sock"),
+			AGENTS_RUNTIME_DIR: runtime,
+			XDG_RUNTIME_DIR: join(runtime, "elsewhere"),
+		});
+		expect(slot.folder).toBe(join(folder, "fresh.d"));
+	});
+
 	it("says a resume its supervisor woke is woken", async () => {
 		const folder = await children();
 		await writeFile(

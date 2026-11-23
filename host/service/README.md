@@ -5,7 +5,8 @@ H1's engine and V's Terminal. It does not implement pi's session loop,
 input pipeline or screen. No unit or running host is installed yet.
 
 - address.ts: the host's realm (MYCELIUM_REALM, else PI_HOME_REALM),
-  its realm-kind key and its socket in XDG_RUNTIME_DIR.
+  its realm-kind key and its socket in the login's runtime folder
+  (AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache folder).
 - attach-waits.ts: what the journal says of a window's attach that
   waits past ATTACH_SLOW_MS: the step it is on, each later step that
   holds it again, how it ended (answered, or refused and why), and the

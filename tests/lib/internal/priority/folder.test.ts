@@ -436,6 +436,20 @@ describe("the machine's queue folder", () => {
 		).toBe(false);
 	});
 
+	it("gives up a job asked before the boot, though its pid names a running process", () => {
+		// A Mac's queue folder outlasts a reboot, and its pids come back.
+		const queue = queueFolder(dir, {
+			...processes,
+			bootedAt: () => NOW - 60_000,
+		});
+		queue.ask(job("before", { since: new Date(NOW - 120_000).toISOString() }));
+		shellSays("before", 100);
+		queue.ask(job("after", { since: new Date(NOW - 30_000).toISOString() }));
+		shellSays("after", 100);
+		queue.keep(TIGHT, NOW, () => undefined);
+		expect(record().jobs.map((one) => one.id)).toEqual(["after"]);
+	});
+
 	it("clears what a job left behind once its .job is gone", () => {
 		// A session on older code dropped a job without the files it did not
 		// know, so a `.began` stayed in the folder for every job it ended.
