@@ -20,11 +20,34 @@ const COMPACTED = "the context was compacted to keep this session affordable";
 /** Why a resume after a compaction failed was sent. */
 const FAILED = "compacting the context failed, so it was left as it is";
 
+/** Why a run for messages that waited through a compaction was sent. */
+const WAITED = "messages waited while the context was compacted";
+
+/** As {@link WAITED}, for a compaction that failed. */
+const WAITED_FAILED = "messages waited while compacting the context failed";
+
 /** Sent once a compaction lands, to carry on the run it stopped. */
 export const RESUME_TEXT = automatedText(COMPACTED, CARRY_ON);
 
 /** Sent once a compaction fails, to carry on the run it stopped. */
 export const FAILED_RESUME_TEXT = automatedText(FAILED, CARRY_ON);
+
+/**
+ * pi gives a queued steer with this message and a queued follow-up just
+ * after the reply to it, so the reply to this alone stays short.
+ */
+const ANSWER_WAITING =
+	"Messages waited while it ran, and pi gives them to you with this or just after it; answer them as you would have, and say nothing to this one alone.";
+
+/**
+ * Sent once a compaction ends with messages waiting and no run owed:
+ * pi's compaction aborts the run they were queued for, which leaves
+ * them queued, and only a run delivers them.
+ */
+export const WAITING_TEXT = automatedText(WAITED, ANSWER_WAITING);
+
+/** As {@link WAITING_TEXT}, once a compaction fails. */
+export const FAILED_WAITING_TEXT = automatedText(WAITED_FAILED, ANSWER_WAITING);
 
 /**
  * How each opens, today and before the header. A message is matched
@@ -38,7 +61,11 @@ const OPENINGS = [
 	"Compacting the context failed, so it was left as it is.",
 ];
 
-/** Whether a user message's text is one the harness sent to resume a run. */
+/**
+ * Whether a user message's text is one the harness sent to resume a run:
+ * not one sent for messages that waited, whose header is its own and
+ * which resumes nothing.
+ */
 export function isResumeText(text: string): boolean {
 	const opening = text.trimStart();
 	return OPENINGS.some((sentence) => opening.startsWith(sentence));
@@ -156,6 +183,14 @@ export function cutSince(entries: readonly unknown[], at: number): boolean {
 	return false;
 }
 
+/** The ask a compaction answered, and whether it owes a run. */
+export interface LandedAsk {
+	/** The ask, as it was recorded. */
+	readonly ask: CompactionAsk;
+	/** Whether its run was going on, or one begun after it was cut. */
+	readonly owed: boolean;
+}
+
 /**
  * Whether the session's newest compaction stopped a run that nothing
  * has resumed: its ask said the run was going on, or a run begun after
@@ -171,6 +206,20 @@ export function owesResume(
 	now: number,
 	withinMs: number = OWED_WITHIN_MS,
 ): boolean {
+	return askLanded(branch, now, withinMs)?.owed === true;
+}
+
+/**
+ * The ask the session's newest compaction answered, while nothing has
+ * settled it and no message has followed: the landing of a compaction
+ * the harness asked for, as against one pi or a person started. None
+ * for a landing older than `withinMs`, or one no ask asked for.
+ */
+export function askLanded(
+	branch: readonly unknown[],
+	now: number,
+	withinMs: number = OWED_WITHIN_MS,
+): LandedAsk | undefined {
 	let compaction = -1;
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
@@ -178,31 +227,36 @@ export function owesResume(
 			compaction = i;
 			break;
 		}
-		if (isCustom(entry, SETTLED_ENTRY)) return false;
+		if (isCustom(entry, SETTLED_ENTRY)) return undefined;
 		const message = conversed(entry);
-		if (message !== undefined && message.role !== "toolResult") return false;
+		if (message !== undefined && message.role !== "toolResult")
+			return undefined;
 	}
 	const landed = branch[compaction];
-	if (!isRecord(landed)) return false;
+	if (!isRecord(landed)) return undefined;
 	const landedAt = timeOf(landed);
 	const age = now - landedAt;
 	// A stamp from the future, by a skewed clock or a written log, is no
 	// reason to start a run.
-	if (!(age <= withinMs && age >= -CLOCK_SKEW_MS)) return false;
+	if (!(age <= withinMs && age >= -CLOCK_SKEW_MS)) return undefined;
 	const before = branch.slice(0, compaction);
 	for (let i = before.length - 1; i >= 0; i--) {
 		const entry = before[i];
 		if (!isRecord(entry)) continue;
-		if (entry.type === "compaction") return false;
-		if (isCustom(entry, SETTLED_ENTRY)) return false;
-		if (finishedAnswer(entry)) return false;
+		if (entry.type === "compaction") return undefined;
+		if (isCustom(entry, SETTLED_ENTRY)) return undefined;
+		if (finishedAnswer(entry)) return undefined;
 		if (!isCustom(entry, ASKED_ENTRY)) continue;
 		const ask = entry.data;
-		if (!isRecord(ask) || typeof ask.at !== "number") return false;
-		if (!(landedAt - ask.at <= ASK_LANDS_WITHIN_MS)) return false;
-		return ask.resume === true || cutSince(before, ask.at);
+		if (!isRecord(ask) || typeof ask.at !== "number") return undefined;
+		if (!(landedAt - ask.at <= ASK_LANDS_WITHIN_MS)) return undefined;
+		const resume = ask.resume === true;
+		return {
+			ask: { at: ask.at, resume },
+			owed: resume || cutSince(before, ask.at),
+		};
 	}
-	return false;
+	return undefined;
 }
 
 /**
