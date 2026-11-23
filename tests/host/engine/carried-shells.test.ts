@@ -503,6 +503,35 @@ describe("carried shells", () => {
 				]);
 			});
 
+			it("says it again of a later look that sticks, once the first came back", async () => {
+				let cameBack: (jobs: KeptJob[]) => void = () => undefined;
+				const looks = [
+					new Promise<KeptJob[]>((resolve) => {
+						cameBack = resolve;
+					}),
+					new Promise<KeptJob[]>(() => undefined),
+				];
+				const look = watched(() => false, {
+					recorded: () => looks.shift() ?? [],
+				});
+				void look();
+				void look();
+				cameBack([]);
+				// One turn of the event loop lets the first look's finally run.
+				await new Promise((resolve) => setImmediate(resolve));
+				void look();
+				void look();
+				expect(
+					reported.map((error) =>
+						error instanceof Error ? error.message : error,
+					),
+					"each look that sticks is said",
+				).toEqual([
+					expect.stringMatching(/has not come back/),
+					expect.stringMatching(/has not come back/),
+				]);
+			});
+
 			it("is left to a conversation here that holds it, or once it ended", async () => {
 				const held = shell("m1", { startedAt: 0 });
 				const ended = shell("m2", { startedAt: 0 });

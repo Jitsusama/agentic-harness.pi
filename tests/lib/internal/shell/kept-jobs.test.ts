@@ -432,21 +432,26 @@ describe("a recorded job", () => {
 		);
 	});
 
-	// A folder at the name stands in for EIO or too many open files: any
-	// failure but the file's absence leaves whom to spare unknown.
+	// A folder at the name fails for good, as no retry reads it: waiting
+	// on it would end no reap again, so it says nothing and the rest read.
+	// kept-faults.test.ts holds what a failure of the moment does.
 	it.each([
 		["a job's record", ".job"],
 		["a carried call's mark", ".carried"],
 	])(
-		"says when %s won't read, rather than spare nothing of it",
+		"reads %s that will never read as saying nothing, and reads the rest",
 		async (_what, suffix) => {
 			const where = folder();
 			const job = await recorded(where, "s1", "j1", HERE);
 			if (suffix === ".carried") markCarried(job.work.keep, "call-1");
+			const other = await recorded(where, "s1", "j2", HERE);
 			rmSync(`${job.work.keep}${suffix}`);
 			mkdirSync(`${job.work.keep}${suffix}`);
 			const found = await carriedCalls(where, SOON);
-			expect(found.unread, "whom to spare is not known").toBe(true);
+			expect(found.unread, "no reap waits on it").toBeUndefined();
+			expect(found.marks.has(other.work.mark), "the rest still read").toBe(
+				true,
+			);
 		},
 	);
 
