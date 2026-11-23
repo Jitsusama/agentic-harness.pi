@@ -52,6 +52,15 @@ describe("a move's hold on its session's reload", () => {
 			[moveWaiting(one), moveWaiting(other)],
 			"the old one let go, the new one held",
 		).toEqual([undefined, "background"]);
+		// F13: it holds the new one from then on, so the next change and the
+		// stop let go of it rather than of the session it started on.
+		holder.hold(one, "background");
+		expect(
+			[moveWaiting(one), moveWaiting(other)],
+			"changed back, the second let go",
+		).toEqual(["background", undefined]);
+		holder.letGo();
+		expect(moveWaiting(one), "the stop lets go of the latest").toBe(undefined);
 	});
 
 	it("lets go of the session it held at a stop, and holds nothing with no session", () => {
@@ -64,9 +73,13 @@ describe("a move's hold on its session's reload", () => {
 		);
 		holder.letGo();
 		expect(moveWaiting(one)).toBe(undefined);
-		holdForMove(other, "pi");
+		// F14: once let go it holds nothing, so a hold taken since on the
+		// session it held, by another move, outlasts its next stop.
+		holdForMove(one, "pi");
 		holder.letGo();
-		expect(moveWaiting(other), "another's own hold stays").toBe("pi");
+		expect(moveWaiting(one), "another's hold on the same session stays").toBe(
+			"pi",
+		);
 	});
 
 	it("renews the hold of the session it holds", () => {
