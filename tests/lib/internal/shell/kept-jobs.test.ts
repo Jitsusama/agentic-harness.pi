@@ -46,8 +46,9 @@ import {
 // callback comes late, or before, as a busy disk's pool gets to it late,
 // either for every kind of ask or only one, on every path or only those
 // matching, and can be refused, as a failing disk refuses it or as a
-// name taken already does; and each synchronous call that could stall
-// the thread, by the path asked.
+// name taken already does; and each other call that asks after a file,
+// every synchronous one, which could stall the thread, and the stats,
+// reads, opens and unlinks off it, by the path asked.
 type Ask = "rename" | "rm" | "link" | "writeFile";
 const disk = vi.hoisted(() => {
 	let held: Promise<void> | undefined;
@@ -62,6 +63,8 @@ const disk = vi.hoisted(() => {
 		refused: undefined as Ask | undefined,
 		/** What a refusal says: a failing disk's EIO unless set. */
 		refusal: "EIO",
+		/** Whether another hand takes each staged name as it is written. */
+		takesStaged: false,
 		/** How many asks wait, held, for the disk to act at all. */
 		parked: 0,
 		/** Those asks, each as `ask path`. */
@@ -156,31 +159,55 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 		await real.writeFile(...args);
 		await disk.pass("writeFile", path);
 	}) as typeof real.writeFile;
-	const mocked = { ...real, rename, rm, link, writeFile };
+	const mocked: Record<string, unknown> = {
+		...real,
+		...heard(real, ["stat", "lstat", "access", "unlink", "open", "readFile"]),
+		rename,
+		rm,
+		link,
+		writeFile,
+	};
 	return { ...mocked, default: mocked };
 });
 
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
-	const rmSync = ((...args: Parameters<typeof real.rmSync>) => {
-		disk.asked.push(`rmSync ${String(args[0])}`);
-		return real.rmSync(...args);
-	}) as typeof real.rmSync;
-	const statSync = ((...args: Parameters<typeof real.statSync>) => {
-		disk.asked.push(`statSync ${String(args[0])}`);
-		return real.statSync(...args);
-	}) as typeof real.statSync;
-	const lstatSync = ((...args: Parameters<typeof real.lstatSync>) => {
-		disk.asked.push(`lstatSync ${String(args[0])}`);
-		return real.lstatSync(...args);
-	}) as typeof real.lstatSync;
-	const existsSync = ((...args: Parameters<typeof real.existsSync>) => {
-		disk.asked.push(`existsSync ${String(args[0])}`);
-		return real.existsSync(...args);
-	}) as typeof real.existsSync;
-	const mocked = { ...real, rmSync, statSync, lstatSync, existsSync };
+	const mocked: Record<string, unknown> = {
+		...real,
+		...heard(
+			real,
+			Object.keys(real).filter((name) => name.endsWith("Sync")),
+		),
+	};
+	const write = mocked.writeFileSync as typeof real.writeFileSync;
+	mocked.writeFileSync = ((...args: Parameters<typeof real.writeFileSync>) => {
+		const [path] = args;
+		if (disk.takesStaged && String(path).endsWith(".new"))
+			real.writeFileSync(path, "taken\n");
+		return write(...args);
+	}) as typeof real.writeFileSync;
 	return { ...mocked, default: mocked };
 });
+
+/**
+ * `module`'s functions `names`, each writing down in `disk.asked` that
+ * it was asked, and of which path, before it does as it would.
+ */
+function heard(
+	module: object,
+	names: readonly string[],
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const name of names) {
+		const real: unknown = Reflect.get(module, name);
+		if (typeof real !== "function") continue;
+		out[name] = Object.assign((...args: unknown[]) => {
+			disk.asked.push(`${name} ${String(args[0])}`);
+			return Reflect.apply(real, module, args);
+		}, real);
+	}
+	return out;
+}
 
 const PRIVATE = 0o600;
 const PRIVATE_FOLDER = 0o700;
@@ -208,6 +235,7 @@ afterEach(() => {
 	disk.go();
 	disk.refused = undefined;
 	disk.refusal = "EIO";
+	disk.takesStaged = false;
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	for (const dir of made.splice(0))
@@ -575,6 +603,26 @@ describe("a call's own record, taken back as the call ends", () => {
 		).toEqual([]);
 	});
 
+	// Handed on before the rename answered, it would link the aside back,
+	// unless a close for good came after.
+	it("puts nothing back, and leaves nothing aside, when a close for good follows a hand-off before the rename answered", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
+		);
+		disownKeptJob(job.work.keep);
+		forgetKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(
+			listed(where).filter((name) => name.includes(".job")),
+			"no record, nor its aside",
+		).toEqual([]);
+	});
+
 	// A taker in this process that ended the call removed its files, end
 	// and all; a record put back beside them has a start say it again.
 	it("puts nothing back once its taker has ended the call and removed its files", async () => {
@@ -671,10 +719,13 @@ describe("a call's own record, taken back as the call ends", () => {
 				.filter((text) => text.includes(job.work.keep)),
 			"one line naming it and what follows",
 		).toEqual([
-			expect.stringMatching(/couldn't put .*\.job back .*: EIO.*to strays/),
+			// Its aside went before it wrote, so none is said to stay.
+			expect.stringMatching(
+				/^(?!.*stays set aside).*couldn't put .*\.job back .*: EIO.*to strays/,
+			),
 		]);
-		expect(listed(where), "nothing left staged").not.toContainEqual(
-			expect.stringMatching(/\.back$/),
+		expect(listed(where), "nothing left staged, nor aside").not.toContainEqual(
+			expect.stringMatching(/\.(back|gone)$/),
 		);
 	});
 
@@ -706,12 +757,15 @@ describe("a call's own record, taken back as the call ends", () => {
 				"one line naming it and what follows",
 			).toEqual([
 				expect.stringMatching(
-					new RegExp(`couldn't put .*\\.job back .*${why}.*to strays`),
+					new RegExp(
+						`^(?!.*stays set aside).*couldn't put .*\\.job back .*${why}.*to strays`,
+					),
 				),
 			]);
-			expect(listed(where), "nothing left staged").not.toContainEqual(
-				expect.stringMatching(/\.back$/),
-			);
+			expect(
+				listed(where),
+				"nothing left staged, nor aside",
+			).not.toContainEqual(expect.stringMatching(/\.(back|gone)$/));
 		},
 	);
 
@@ -956,6 +1010,74 @@ describe("a call's own record, taken back as the call ends", () => {
 		expect(listed(where), "nothing left staged").not.toContainEqual(
 			expect.stringMatching(/\.new$/),
 		);
+	});
+
+	it("says its record couldn't be written when its staged name is taken again as it is written", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		disk.takesStaged = true;
+		recordKeptJob({ ...job, label: "again" });
+		disk.takesStaged = false;
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"one line saying the record wasn't written",
+		).toEqual([
+			expect.stringMatching(
+				/couldn't record .*\.job: .*taken again.*; a pi gone before the call ends leaves it unsaid/,
+			),
+		]);
+		expect(labelsIn(where), "the record it had, still at its name").toEqual([
+			"run j1",
+		]);
+		expect(listed(where), "nothing left staged").not.toContainEqual(
+			expect.stringMatching(/\.new$/),
+		);
+	});
+
+	// Root's writes pass a folder's mode, so there is nothing to refuse them.
+	it.skipIf(process.getuid?.() === 0)(
+		"says its record couldn't be written when the disk refuses it",
+		async () => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			const said = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			chmodSync(where, READ_ONLY);
+			try {
+				recordKeptJob({ ...job, label: "again" });
+			} finally {
+				// Writable again before the folder is cleared away.
+				chmodSync(where, PRIVATE_FOLDER);
+			}
+			expect(
+				said.mock.calls
+					.map(([text]) => String(text))
+					.filter((text) => text.includes(job.work.keep)),
+				"one line saying the record wasn't written",
+			).toEqual([expect.stringMatching(/couldn't record .*\.job: .*EACCES/)]);
+		},
+	);
+
+	it("says nothing when its files went before its record was written", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		rmSync(where, { recursive: true, force: true });
+		recordKeptJob({ ...job, label: "again" });
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"nothing to say of a call already gone",
+		).toEqual([]);
 	});
 
 	// A rollover gives a running job's recorder a new key, which writes its

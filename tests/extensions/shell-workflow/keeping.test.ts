@@ -441,6 +441,26 @@ describe("a kept call", () => {
 		).toBeUndefined();
 	});
 
+	// Carried then, its taker would find a shell gone with no end, and
+	// say it was lost rather than stopped.
+	it("can't be carried while its record goes once this pi stopped it", async () => {
+		const call = endsRecorded({ stops: true });
+		disk.hold();
+		const running = run(call.kept.operations, "true", call.signal).catch(
+			() => undefined,
+		);
+		await until("its record unlinked", () => call.recordGone());
+		expect(
+			call.kept.carryOf(call.signal)?.what(),
+			"nothing to carry: its stop is said here",
+		).toBeUndefined();
+		disk.go();
+		await running;
+		await vi.waitFor(() =>
+			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
+		);
+	});
+
 	it("leaves its files to whoever it was handed to while its record went", async () => {
 		const call = endsRecorded();
 		disk.hold();
@@ -520,9 +540,17 @@ async function turns(count: number): Promise<void> {
 /**
  * A kept call whose shell ends at once with status 0, its job recorded
  * as a job's recorder records one in this process, unless `records` is
- * false.
+ * false. With `stops`, pi stops it as it runs, and its shell writes no
+ * end.
  */
-function endsRecorded({ records = true }: { records?: boolean } = {}) {
+function endsRecorded({
+	records = true,
+	stops = false,
+}: {
+	records?: boolean;
+	stops?: boolean;
+} = {}) {
+	const stopping = new AbortController();
 	const dir = mkdtempSync(join(tmpdir(), "keeping-"));
 	made.push(dir);
 	const folder = join(dir, "kept");
@@ -547,6 +575,10 @@ function endsRecorded({ records = true }: { records?: boolean } = {}) {
 				keep = call.env?.[KEEP_VARIABLE] ?? "";
 				writeFileSync(`${keep}.pid`, String(process.pid));
 				if (records) record("true");
+				if (stops) {
+					stopping.abort();
+					return { exitCode: null };
+				}
 				writeFileSync(`${keep}.end`, "0");
 				return { exitCode: 0 };
 			},
@@ -556,7 +588,7 @@ function endsRecorded({ records = true }: { records?: boolean } = {}) {
 	return {
 		folder,
 		kept,
-		signal: new AbortController().signal,
+		signal: stopping.signal,
 		keep: () => keep,
 		/** Record the call's job again, as one taking it up does. */
 		record,
