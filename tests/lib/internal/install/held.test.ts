@@ -240,6 +240,39 @@ describe("sayHeldOnce", () => {
 		expect(told).toEqual([]);
 	});
 
+	it("keeps a note another session said when this one's hold fails, so it is never said twice", async () => {
+		const once = { said: true };
+		await sayHeldOnce(Promise.reject(new Error("no hold")), screen([]), {
+			once,
+		});
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told), { once });
+		expect(told, "said once already, by another session").toEqual([]);
+	});
+
+	it("never rejects when telling its fault fails too", async () => {
+		await expect(
+			sayHeldOnce(Promise.reject(new Error("no hold")), screen([]), {
+				once: { said: false },
+				fault: () => {
+					throw new Error("no log");
+				},
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it("never rejects for an error whose message can't be read", async () => {
+		const odd = new Error("odd");
+		Object.defineProperty(odd, "message", {
+			get() {
+				throw new Error("unreadable");
+			},
+		});
+		await expect(
+			sayHeldOnce(Promise.reject(odd), screen([]), { once: { said: false } }),
+		).resolves.toBeUndefined();
+	});
+
 	it("says nothing for a hold that missed nothing", async () => {
 		const told: string[] = [];
 		await sayHeldOnce(
@@ -262,6 +295,16 @@ describe("faultsInto", () => {
 			expect.stringContaining("Error: the screen is gone"),
 			"plain",
 		]);
+	});
+
+	it("throws nothing for a fault that can't be put into words", () => {
+		const log = join(folder, "faults.jsonl");
+		const unsayable = {
+			toString(): string {
+				throw new Error("no words");
+			},
+		};
+		expect(() => faultsInto(log)(unsayable)).not.toThrow();
 	});
 });
 
