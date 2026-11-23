@@ -622,6 +622,20 @@ describe("warming across a restart", () => {
 		expect(sent).toHaveLength(4);
 	});
 
+	// A host shuts down every conversation it parks, many at once as it
+	// restarts; compressing and writing each carry on its thread made 193
+	// of 701 loop-hold samples from 21 to 23 November.
+	it("writes the carry off the thread, and has it written once its shutdown ends", async () => {
+		const { fire, ctx } = await idleSession();
+
+		const shutdown = fire("session_shutdown", { reason: "quit" }, ctx);
+		for (let i = 0; i < 50; i++) await Promise.resolve();
+		const duringTheThreadsOwnWork = onDisk(state).length;
+		await shutdown;
+
+		expect([duringTheThreadsOwnWork, onDisk(state).length]).toEqual([0, 1]);
+	});
+
 	it("takes nothing back once the cache it warmed has expired", async () => {
 		const { fire, sent, ctx } = await idleSession();
 
