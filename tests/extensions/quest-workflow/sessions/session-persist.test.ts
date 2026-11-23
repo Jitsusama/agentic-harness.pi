@@ -60,6 +60,33 @@ function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
 
+/** Tool results past the try that lets the quest go, so "once" can fail. */
+const TRIES_PAST_LETTING_GO = 2;
+
+/**
+ * Hand the tool_result handler a read's result for every try of a
+ * pending quest, a minute apart, and then a few more once it is let go.
+ */
+async function triesPastLettingGo(
+	state: ReturnType<typeof buildState>,
+	result: (event: unknown, ctx: unknown) => unknown,
+	ctx: unknown,
+): Promise<void> {
+	const last = PENDING_TRIES + TRIES_PAST_LETTING_GO;
+	for (let tries = 1; tries < last; tries++) {
+		state.pendingRetryAt = 0;
+		await result(
+			{
+				toolName: "read",
+				input: { path: "x" },
+				toolCallId: `c${tries}`,
+				content: [],
+			},
+			ctx,
+		);
+	}
+}
+
 const envGuard = createEnvGuard();
 let savedHome: string | undefined;
 beforeEach(() => {
@@ -605,24 +632,19 @@ describe("persist + restore", () => {
 			if (!result) throw new Error("no tool_result handler");
 			const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
 			const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
-			for (let tries = 1; tries < PENDING_TRIES; tries++) {
-				next.pendingRetryAt = 0;
-				await result(
-					{
-						toolName: "read",
-						input: { path: "x" },
-						toolCallId: `c${tries}`,
-						content: [],
-					},
-					ctx,
-				);
-			}
+			await triesPastLettingGo(next, result, ctx);
 			expect(next.pendingQuest, "let go").toBeUndefined();
-			const said = pi.recorded.sent.filter((m) =>
-				String(m.content).includes("never found again"),
+			const said = pi.recorded.sentWith.filter(({ message }) =>
+				String(message.content).includes("never found again"),
 			);
 			expect(said, "said once, in the log").toHaveLength(1);
-			expect(said[0]?.display, "the viewer shows it").toBe(true);
+			expect(said[0]?.message.customType, "named for what it says").toBe(
+				"quest-let-go",
+			);
+			expect(said[0]?.message.display, "the viewer shows it").toBe(true);
+			expect(said[0]?.options, "it never starts a turn").toEqual({
+				triggerTurn: false,
+			});
 			expect(ui.notify, "no interface to tell").not.toHaveBeenCalled();
 		} finally {
 			uninstall();
@@ -645,19 +667,9 @@ describe("persist + restore", () => {
 		if (!result) throw new Error("no tool_result handler");
 		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
 		const ctx = { ...fakeCtx(tmpRoot), hasUI: true, ui };
-		for (let tries = 1; tries < PENDING_TRIES; tries++) {
-			next.pendingRetryAt = 0;
-			await result(
-				{
-					toolName: "read",
-					input: { path: "x" },
-					toolCallId: `c${tries}`,
-					content: [],
-				},
-				ctx,
-			);
-		}
+		await triesPastLettingGo(next, result, ctx);
 		expect(next.pendingQuest, "let go").toBeUndefined();
+		expect(ui.notify, "warned once").toHaveBeenCalledTimes(1);
 		expect(ui.notify).toHaveBeenCalledWith(
 			expect.stringContaining("never found again"),
 			"warning",
@@ -666,6 +678,33 @@ describe("persist + restore", () => {
 			String(m.content).includes("never found again"),
 		);
 		expect(said, "the screen says it, not the log").toHaveLength(0);
+	});
+
+	// Plain pi with no screen (a spawn, print or RPC mode) has no viewer to
+	// read a line in the log, and a line there would reach only the model.
+	it("says nothing in a log with neither a screen nor a host when the quest it names is let go", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const budgets: BudgetKeeper = {
+			keep: async () => undefined,
+			forget: () => undefined,
+		};
+		watchToolCalls(pi, next, next.questsRoot, budgets);
+		const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+		if (!result) throw new Error("no tool_result handler");
+		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+		const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+		await triesPastLettingGo(next, result, ctx);
+		expect(next.pendingQuest, "let go").toBeUndefined();
+		const said = pi.recorded.sent.filter((m) =>
+			String(m.content).includes("never found again"),
+		);
+		expect(said, "nothing in the log").toHaveLength(0);
+		expect(ui.notify, "no screen to tell").not.toHaveBeenCalled();
 	});
 
 	it("lets go of a quest still waiting to load when the session unloads", async () => {
