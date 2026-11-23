@@ -1,13 +1,18 @@
 /**
  * What the calls carried read as when the disk fails for the moment, out
  * of descriptors or asked to try again: whom to spare is not known, so a
- * reap waits, where a fault of the path itself reads as nothing there.
+ * reap waits, where a fault of the path itself reads as nothing there;
+ * and an end that fails so keeps the stray watch from no other stray.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { carriedCalls } from "../../../../lib/internal/shell/kept.ts";
+import {
+	recordKeptJob,
+	strayKeptJobs,
+} from "../../../../lib/internal/shell/kept-jobs.ts";
 
 /** The paths to fail, each with the code the machine would give. */
 const faults = vi.hoisted(() => new Map<string, string>());
@@ -40,6 +45,22 @@ let where: string;
 function carried(name: string, mark: string, pid: number): void {
 	writeFileSync(join(where, `${name}.pid`), `${pid}\n`);
 	writeFileSync(join(where, `${name}.carried`), `${mark}\n`);
+}
+
+/** A job its session recorded, its call's files as a shell left them. */
+function recorded(id: string): string {
+	const keep = join(where, id);
+	for (const suffix of [".out", ".end", ".pid"])
+		writeFileSync(`${keep}${suffix}`, "");
+	recordKeptJob({
+		session: "s1",
+		id,
+		kind: "shell",
+		label: `run ${id}`,
+		owner: 88,
+		work: { kind: "shell", keep, pid: 4242, mark: `mark-${id}`, startedAt: 0 },
+	});
+	return keep;
 }
 
 beforeEach(() => {
@@ -80,6 +101,16 @@ describe("the calls carried, when the disk fails", () => {
 		const found = await carriedCalls(where, 0);
 		expect(found.unread, "no reap waits on it").toBeUndefined();
 		expect([...found.marks], "the rest still read").toEqual(["m2"]);
+	});
+
+	it("keeps the stray watch on the rest while one end fails to read for the moment", async () => {
+		const unread = recorded("unread");
+		recorded("stray");
+		faults.set(`${unread}.end`, "EMFILE");
+		expect(
+			(await strayKeptJobs(where, () => false)).map((job) => job.id).sort(),
+			"an end not read is an end not said",
+		).toEqual(["stray", "unread"]);
 	});
 
 	it("reads a folder that fails to list for good as nothing carried", async () => {
