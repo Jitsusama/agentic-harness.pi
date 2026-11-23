@@ -626,6 +626,8 @@ describe("a kept call", () => {
 			.listeners("exit")
 			.filter((hook) => hook.name === "takeRecordsBackAtExit");
 		expect(hooks, "one hook as the process exits").toHaveLength(1);
+		// Only what the exit asks: the call wrote its own files as it ran.
+		disk.asked.length = 0;
 		const said = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
@@ -633,7 +635,7 @@ describe("a kept call", () => {
 		said.mockRestore();
 		expect(
 			disk.asked.filter((asked) => asked.includes(call.keep())),
-			"no name of its asked after on the thread",
+			"no name of its asked after on the thread as pi exits",
 		).toEqual([]);
 	});
 });

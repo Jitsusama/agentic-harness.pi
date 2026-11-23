@@ -1796,7 +1796,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		const store = Symbol.for(
-			"agentic-harness.internal/shell/kept-jobs/records.v4",
+			"agentic-harness.internal/shell/kept-jobs/records.v5",
 		);
 		const records = (): { takeBack: () => void } | undefined =>
 			(globalThis as Record<symbol, { takeBack: () => void } | undefined>)[
