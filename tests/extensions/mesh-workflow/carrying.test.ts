@@ -142,8 +142,10 @@ describe("carrying a steered session's work", () => {
 	// trees that stayed reported a carry that went as refused.
 	it("answers a carry that went, though its screen throws once its done file is written", async () => {
 		const home = folder(made, "home");
-		// On no branch and no snapshot, so it stays and is named on screen.
+		// A folder git can't read as a tree is refused, so it stays and is
+		// named on screen, which throws.
 		const plain = folder(made, "plain");
+		let asked = 0;
 		createTreeMemory(treeRecordDir()).remember({
 			identity: { key: "plain-carry", shareable: false },
 			path: plain,
@@ -154,6 +156,7 @@ describe("carrying a steered session's work", () => {
 		const stale: CarriedContext = {
 			...session("s-stale", home, join(home, "none.jsonl")),
 			get hasUI(): boolean {
+				asked++;
 				throw new Error("the context is stale");
 			},
 		};
@@ -162,6 +165,7 @@ describe("carrying a steered session's work", () => {
 
 		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
 		expect(done).toBe(join(into, "s-stale.done.json"));
+		expect(asked, "it reached the stale screen").toBeGreaterThan(0);
 	});
 
 	it("refuses with no quest loaded, having no handover to carry into", async () => {

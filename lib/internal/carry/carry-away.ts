@@ -13,7 +13,8 @@
  * wanted. Refusing them closed live sessions and failed whole carries on
  * 23 November, for 2, 11 and 87 such trees, and judging each one clean
  * took seconds a tree in World. One gone from this machine, whose record
- * outlived it, is skipped too. Any other tree that can't go is refused
+ * outlived it, is skipped too; one that can't be read, or that git can't
+ * read as a tree, is refused. Any other tree that can't go is refused
  * and named, never a reason to carry nothing, since the rest still goes.
  *
  * A session file larger than the largest a mycelium share carries goes
@@ -28,7 +29,6 @@ import {
 	copyFileSync,
 	createReadStream,
 	createWriteStream,
-	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	renameSync,
@@ -155,6 +155,27 @@ export async function carryTrees(
 	return trees;
 }
 
+/** Whether `path` is there, gone, or can't be told, saying why. */
+function standing(
+	path: string,
+):
+	| { readonly kind: "there" | "gone" }
+	| { readonly kind: "unread"; readonly why: string } {
+	try {
+		return {
+			kind:
+				statSync(path, { throwIfNoEntry: false }) === undefined
+					? "gone"
+					: "there",
+		};
+	} catch (error) {
+		return {
+			kind: "unread",
+			why: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
 /** One tree, carried into `into` or named with why not. */
 async function carryTreeAway(
 	exec: Exec,
@@ -168,19 +189,32 @@ async function carryTreeAway(
 	};
 	const no = (why: string): TreeCarried => ({ kind: "refused", path, why });
 	// A record outlives a tree removed by hand: 16 of 18 refused at once.
-	if (!existsSync(path)) {
+	// Only a path that isn't there is gone; one that can't be read is refused.
+	const stood = standing(path);
+	if (stood.kind === "gone") {
 		return {
 			kind: "skipped",
 			path,
 			why: "It is gone from this machine, so there is nothing of it to carry.",
 		};
 	}
-	if ((await ask("symbolic-ref", "-q", "HEAD")) === undefined) {
+	if (stood.kind === "unread") {
+		return no(`It can't be read here: ${stood.why}`);
+	}
+	// symbolic-ref says 1 for a HEAD on no branch and more for a folder git
+	// can't read, which is refused rather than passed over as detached.
+	const branch = await exec("git", ["-C", path, "symbolic-ref", "-q", "HEAD"]);
+	if (branch.code === 1) {
 		return {
 			kind: "skipped",
 			path,
 			why: "It is on no branch, so it isn't carried: a snapshot is cut again there when it is wanted, and anything changed in it stays here.",
 		};
+	}
+	if (branch.code !== 0) {
+		return no(
+			`git couldn't read its branch: ${branch.stderr.trim() || `it exited ${branch.code}`}`,
+		);
 	}
 	const origin = await ask("config", "--get", "remote.origin.url");
 	if (origin === undefined) {
