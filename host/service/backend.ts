@@ -155,8 +155,16 @@ export interface BackendChildren {
 	opens(): boolean;
 	/** The conversation as the child running it lists it; nothing when none does. */
 	running(sessionId: string): SessionIdentity | undefined;
-	/** Run a held conversation in a child, `woken` when its park's wake asked. */
-	resume(entry: RosterEntry, woken: boolean): Promise<SessionIdentity>;
+	/**
+	 * Run a held conversation in a child, `woken` when its park's wake
+	 * asked; `bounded` gives up on a child that hasn't listened within
+	 * the listen time, starved or not, for a caller that can't wait.
+	 */
+	resume(
+		entry: RosterEntry,
+		woken: boolean,
+		bounded?: boolean,
+	): Promise<SessionIdentity>;
 	/** Start a conversation in a child, settling with the child's answer. */
 	begin(request: OpenRequest | AdoptRequest): Promise<ControlReply>;
 	/**

@@ -95,7 +95,7 @@ describe("what a session asking for the fence is given", () => {
 		});
 	});
 
-	it("runs nothing without bwrap, without landrun, or off Linux, and says what is missing", () => {
+	it("runs nothing on Linux without bwrap or without landrun, and says what is missing", () => {
 		const noBwrap = sandboxFor(
 			{ PI_SANDBOX: FENCE },
 			"linux",
@@ -106,9 +106,54 @@ describe("what a session asking for the fence is given", () => {
 		expect(
 			sandboxFor({ PI_SANDBOX: FENCE }, "linux", finder({ bwrap: "/b" })).kind,
 		).toBe("refused");
-		expect(sandboxFor({ PI_SANDBOX: FENCE }, "darwin", all).kind).toBe(
+	});
+
+	const onMac = (env: NodeJS.ProcessEnv, inside: boolean) =>
+		sandboxFor(
+			env,
+			"darwin",
+			all,
+			undefined,
+			undefined,
+			undefined,
+			() => inside,
+		);
+
+	it("runs a Mac's commands as they are inside the sandbox pi runs in, and says so, rather than refusing every one", () => {
+		const mac = onMac({ PI_SANDBOX: FENCE }, true);
+		expect(mac.kind, "a Mac's fenced session ran nothing").toBe("none");
+		const note = mac.kind === "none" ? mac.note : undefined;
+		expect(note, "the session wasn't told its commands run unfenced").toMatch(
+			/agent fence.*as they are, inside the sandbox pi itself runs in/,
+		);
+		expect(
+			mac.kind === "none" && mac.asked,
+			"the fence asked for was lost, so its host would be told none",
+		).toBe("fence");
+	});
+
+	it("runs nothing on a Mac where nothing fences pi, so no command runs as the person", () => {
+		const mac = onMac({ PI_SANDBOX: FENCE }, false);
+		expect(mac.kind, "an unfenced pi ran a fenced session's commands").toBe(
 			"refused",
 		);
+		expect(mac.kind === "refused" && mac.reason).toContain("no sandbox");
+	});
+
+	it("keeps a mistyped name's way back on a Mac, beside why commands run as they are", () => {
+		const mac = onMac({ PI_SANDBOX: "loose" }, true);
+		const note = mac.kind === "none" ? mac.note : undefined;
+		expect(note, "the way back was lost").toContain("PI_SANDBOX=off");
+		expect(note, "why commands run as they are was lost").toContain(
+			"as they are",
+		);
+	});
+
+	it("keeps a mistyped name's way back on a Mac where nothing fences pi, in the refusal", () => {
+		const mac = onMac({ PI_SANDBOX: "loose" }, false);
+		const reason = mac.kind === "refused" ? mac.reason : undefined;
+		expect(reason, "the way back was lost").toContain("PI_SANDBOX=off");
+		expect(reason, "why nothing runs was lost").toContain("no sandbox");
 	});
 
 	it("carries the system's logger for its refusals, refused or not", () => {
@@ -118,12 +163,16 @@ describe("what a session asking for the fence is given", () => {
 			logger: "/bin/logger",
 		});
 		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", logged);
-		const offLinux = sandboxFor({ PI_SANDBOX: FENCE }, "darwin", logged);
+		const noBwrap = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			finder({ landrun: "/bin/landrun", logger: "/bin/logger" }),
+		);
 		const none = sandboxFor({}, "linux", logged);
 		expect(fence, "the fence's logger").toMatchObject({
 			logger: "/bin/logger",
 		});
-		expect(offLinux, "a refusal's logger").toMatchObject({
+		expect(noBwrap, "a refusal's logger").toMatchObject({
 			kind: "refused",
 			logger: "/bin/logger",
 		});

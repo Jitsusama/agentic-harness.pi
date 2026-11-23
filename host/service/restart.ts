@@ -109,21 +109,17 @@
  * reason, each would decide alone what the others must let pass.
  */
 
-import { realpath } from "node:fs/promises";
-import { basename, join } from "node:path";
 import {
 	constants,
 	type PerformanceEntry,
 	PerformanceObserver,
 } from "node:perf_hooks";
 import { getHeapStatistics } from "node:v8";
-import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
-import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import { quietFrom, RESTART_WAITS_ON_VARIABLE } from "./quiet.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
 import {
-	hostCodeOf,
+	installMovesFrom,
 	isUnitMain,
 	type LaunchdFacts,
 	ownLaunchdJob,
@@ -801,26 +797,7 @@ export async function followWhatStarts(
 ): Promise<() => void> {
 	const supervisor = await supervisorOf(options);
 	if (supervisor === undefined) return () => undefined;
-	const root = options.root ?? hostRoot();
-	const install = installOfVersion(root);
-	const link = install === undefined ? undefined : join(install, "current");
-	const code = await hostCodeOf(root);
-	// A version's code never changes under its name, so each is read once.
-	const codeOf = new Map<string, Promise<string>>();
-
-	async function installMoved(): Promise<string | undefined> {
-		if (link === undefined) return undefined;
-		const now = await realpath(link).catch(() => undefined);
-		if (now === undefined || now === root || !dependenciesReady(now))
-			return undefined;
-		let next = codeOf.get(now);
-		if (!next) {
-			next = hostCodeOf(now);
-			codeOf.set(now, next);
-		}
-		if ((await next) === code) return undefined;
-		return `the install's ${basename(now).slice(0, 12)} changes the host's own code`;
-	}
+	const installMoved = installMovesFrom(options.root ?? hostRoot());
 
 	const watched = options.heap ? undefined : liveHeap();
 	const heap = options.heap ?? watched?.read ?? (() => getHeapUse());

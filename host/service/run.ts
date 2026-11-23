@@ -38,7 +38,7 @@
 
 import { join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
-import { stateDir } from "../../lib/internal/paths.ts";
+import { runtimeDir, stateDir } from "../../lib/internal/paths.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type { ConversationEngine, ResumePhase } from "./backend.ts";
@@ -448,7 +448,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			starting,
 			mark,
 			finished,
-			runtimeDir: options.env.XDG_RUNTIME_DIR,
+			runtimeDir: runtimeDir(options.env),
 		});
 	} catch (error) {
 		child?.life.fail();

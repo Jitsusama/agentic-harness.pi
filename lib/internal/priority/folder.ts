@@ -166,7 +166,8 @@ export function questsFirstIn(dir: string): ReadonlySet<string> {
 export function machineQueueDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-	// A Mac's is its account's temporary folder, where its node looks too.
+	// A Mac's is the folder AGENTS_RUNTIME_DIR names, else its account's
+	// cache folder, where its node looks too.
 	const runtime = runtimeDir(env);
 	return runtime ? join(runtime, "jobs") : undefined;
 }
@@ -197,6 +198,11 @@ export function readQueue(
 /** What keeping the queue reads the processes through. */
 export interface Processes {
 	isRunning(pid: number): boolean;
+	/**
+	 * When the machine last started, in epoch milliseconds, for setting
+	 * aside a job asked before it. A reader that can't say leaves it out.
+	 */
+	bootedAt?(): number;
 	cgroupOf(pid: number): string | undefined;
 	/**
 	 * The most memory a cgroup has held, in bytes, while it holds only
@@ -411,7 +417,19 @@ export function queueFolder(
 		writing.add(written);
 	};
 
+	/** When the boot came, if the job was asked before it, which ended it. */
+	const cutOffAt = (job: Job): number | undefined => {
+		const booted = processes.bootedAt?.();
+		return booted !== undefined && Date.parse(job.since) < booted
+			? booted
+			: undefined;
+	};
+
 	const ended = (job: Job, now: number) => {
+		// Asked before the boot, it has ended, whatever its pid names now: a
+		// Mac's queue folder is its cache folder, which outlasts a reboot,
+		// and a pid comes back as another process after one.
+		if (cutOffAt(job) !== undefined) return true;
 		const shell = shellOf(job.id);
 		if (shell !== undefined) return !processes.isRunning(shell);
 		return (
@@ -656,7 +674,8 @@ export function queueFolder(
 					jobs()
 						.filter((job) => {
 							if (!ended(job, now)) return true;
-							remember(job, now);
+							// A job the boot cut off ended then, not when it was seen.
+							remember(job, cutOffAt(job) ?? now);
 							drop(job.id);
 							return false;
 						})

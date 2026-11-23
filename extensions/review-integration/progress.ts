@@ -46,6 +46,7 @@ import {
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
+import { settledHere } from "./settling.ts";
 import type { Answer } from "./tools/shared.ts";
 
 /**
@@ -595,6 +596,9 @@ export async function answerWatching(
 	try {
 		return withBoards(await answer(watch), opened);
 	} finally {
+		// Every mark first: a board that throws taking itself down must
+		// not leave a later round held until pi restarts.
+		for (const made of opened) settledHere(made);
 		for (const made of opened) {
 			made.progress.finish();
 			made.close();

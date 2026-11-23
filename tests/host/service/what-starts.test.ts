@@ -1,11 +1,20 @@
 /** What a host would start: its own code's fingerprint and its unit's. */
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rename,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	hostCodeOf,
 	hostModules,
+	installMovesFrom,
 	isUnitMain,
 	ownLaunchdJob,
 	ownUnit,
@@ -88,6 +97,44 @@ describe("hostCodeOf", () => {
 		await put("host/unused.ts", "export const unused = 2;\n");
 		await put("host/types.ts", "export type T = 2;\n");
 		expect(await hostCodeOf(root)).toBe(before);
+	});
+});
+
+// 22 November: 15 children ran host code 34 hours old, holding 10.9 GB,
+// since a child never restarts; each asks this whether its install moved on.
+describe("installMovesFrom", () => {
+	async function version(name: string, body: string): Promise<string> {
+		await put(
+			`install/versions/${name}/scripts/pi-host.ts`,
+			'import "../host/a.ts";\n',
+		);
+		await put(`install/versions/${name}/host/a.ts`, body);
+		return join(root, "install", "versions", name);
+	}
+	async function moveTo(name: string): Promise<void> {
+		const next = join(root, "install", "next");
+		await symlink(join(root, "install", "versions", name), next);
+		await rename(next, join(root, "install", "current"));
+	}
+
+	it("says why once the install moves to other host code, and nothing before", async () => {
+		const one = await version("one", "export const a = 1;\n");
+		await version("same", "export const a = 1;\n");
+		await version("two", "export const a = 2;\n");
+		await symlink(one, join(root, "install", "current"));
+		const moved = installMovesFrom(one);
+
+		expect(await moved(), "unmoved").toBeUndefined();
+		await moveTo("same");
+		expect(await moved(), "moved to the same host code").toBeUndefined();
+		await moveTo("two");
+		expect(await moved()).toBe("the install's two changes the host's own code");
+	});
+
+	it("never moves for a version outside an install, such as a tree", async () => {
+		await put("tree/scripts/pi-host.ts", "export {};\n");
+		const moved = installMovesFrom(join(root, "tree"));
+		expect(await moved()).toBeUndefined();
 	});
 });
 

@@ -5,11 +5,13 @@
  * be had is said, never thrown, since a host starts without one.
  */
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { constants } from "node:module";
@@ -62,7 +64,101 @@ function folderOf(cache: ReturnType<typeof start>): string {
 }
 
 describe("a host's compile cache", () => {
-	it("lies in pi's state by default, which the fence holds read-only, not its cache", () => {
+	// Only Linux's fence empties the runtime folder, so only there does the
+	// cache lie in it; elsewhere it would lie in, and sweep, pi's state.
+	it.runIf(process.platform === "linux")(
+		"lies in the runtime folder by default, which no fenced command sees, not on disk",
+		() => {
+			// A flush into pi's state held a host's thread 50 s on a contended
+			// disk (21 November); a tmpfs waits on none.
+			const runtime = join(dir, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+			const inState = join(
+				dir,
+				"state",
+				"pi",
+				"agentic-harness.pi",
+				"host-compile",
+			);
+			mkdirSync(join(inState, "work-attended-0123456789abcdef"), {
+				recursive: true,
+			});
+			mkdirSync(join(inState, "work-background-0123456789abcdef"));
+			const nodeCache = join(runtime, "pi-compile", "node", "v24-x64-1");
+			mkdirSync(nodeCache, { recursive: true, mode: 0o700 });
+			chmodSync(join(runtime, "pi-compile"), 0o700);
+			chmodSync(join(runtime, "pi-compile", "node"), 0o700);
+			const idle = join(nodeCache, "unused");
+			writeFileSync(idle, "compiled");
+			const long = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+			utimesSync(idle, long, long);
+			const used = join(nodeCache, "used");
+			writeFileSync(used, "compiled");
+			try {
+				const folder = folderOf(
+					startCompileCache({
+						argv: ["attended"],
+						env: {
+							MYCELIUM_REALM: "work",
+							PI_PACKAGE_DIR: pi,
+							XDG_RUNTIME_DIR: runtime,
+							HOME: join(dir, "home"),
+						},
+						harnessRoot: harness,
+						login: runtime,
+						enable,
+					}),
+				);
+				expect(
+					folder.startsWith(`${join(runtime, "pi-compile", "host")}/`),
+					`the cache folder ${folder} sits in the runtime folder's pi-compile/host`,
+				).toBe(true);
+				expect(
+					readdirSync(inState),
+					"its own folders left in pi's state are swept, and no other host's",
+				).toEqual(["work-background-0123456789abcdef"]);
+				expect(
+					readdirSync(nodeCache),
+					"what node's cache holds that nothing used for a day is swept, as memory",
+				).toEqual(["used"]);
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		},
+	);
+
+	it.runIf(process.platform === "linux")(
+		"stays on in the runtime folder when what it left in pi's state can't be swept",
+		() => {
+			const runtime = join(dir, "run");
+			mkdirSync(runtime, { mode: 0o700 });
+			vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+			const state = join(dir, "state", "pi", "agentic-harness.pi");
+			mkdirSync(state, { recursive: true });
+			// A file where its folder was, which no sweep can read.
+			writeFileSync(join(state, "host-compile"), "");
+			try {
+				const cache = startCompileCache({
+					argv: ["attended"],
+					env: {
+						MYCELIUM_REALM: "work",
+						PI_PACKAGE_DIR: pi,
+						XDG_RUNTIME_DIR: runtime,
+						HOME: join(dir, "home"),
+					},
+					harnessRoot: harness,
+					login: runtime,
+					enable,
+				});
+				expect(cache.state, JSON.stringify(cache)).toBe("on");
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		},
+	);
+
+	it("lies in pi's state without a runtime folder, which the fence holds read-only, not its cache", () => {
 		// node runs what it reads back from here at the next start, outside
 		// the fence, and ~/.cache is writable inside (04TNWT, 19 November).
 		const state = join(dir, "state");
@@ -81,6 +177,32 @@ describe("a host's compile cache", () => {
 				folder.startsWith(`${join(state, "pi", "agentic-harness.pi")}/`),
 				`the cache folder ${folder} sits in pi's state`,
 			).toBe(true);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("keeps what it compiled in pi's state for the next start there, sweeping only earlier installs", () => {
+		vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+		const inState = () =>
+			folderOf(
+				startCompileCache({
+					argv: ["attended"],
+					env: { MYCELIUM_REALM: "work", PI_PACKAGE_DIR: pi },
+					harnessRoot: harness,
+					login: null,
+					enable,
+				}),
+			);
+		try {
+			const folder = inState();
+			writeFileSync(join(folder, "compiled"), "code");
+
+			expect(inState(), "the same folder").toBe(folder);
+
+			expect(readdirSync(folder), "what it compiled kept").toEqual([
+				"compiled",
+			]);
 		} finally {
 			vi.unstubAllEnvs();
 		}

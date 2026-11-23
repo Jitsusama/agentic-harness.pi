@@ -1,5 +1,10 @@
 /** Stable realm-kind sockets, independent of a host process's restart identity. */
 import { isAbsolute, join } from "node:path";
+import { runtimeDir as loginRuntimeDir } from "../../lib/internal/paths.ts";
+
+/** What a host says when it has no runtime folder to listen in. */
+const NO_RUNTIME_FOLDER =
+	"Host requires an absolute runtime folder: AGENTS_RUNTIME_DIR, XDG_RUNTIME_DIR, or a Mac's cache folder";
 
 /** The longest socket path every Unix this runs on binds whole. */
 export const MAX_SOCKET_PATH_BYTES = 103;
@@ -59,11 +64,11 @@ export function hostKeyParts(key: string): { realm: string; kind: HostKind } {
 /** The folder a realm-kind host's children listen in, beside its own socket. */
 export function childFolder(
 	key: string,
-	runtimeDir = process.env.XDG_RUNTIME_DIR,
+	runtimeDir = loginRuntimeDir(),
 ): string {
 	hostKeyParts(key);
 	if (!runtimeDir || !isAbsolute(runtimeDir))
-		throw new Error("Host requires an absolute XDG_RUNTIME_DIR");
+		throw new Error(NO_RUNTIME_FOLDER);
 	return join(runtimeDir, "pi-host", `${key}.d`);
 }
 
@@ -76,11 +81,11 @@ export function socketFits(path: string): boolean {
 export function hostSocketPath(
 	realm: string,
 	kind: HostKind,
-	runtimeDir = process.env.XDG_RUNTIME_DIR,
+	runtimeDir = loginRuntimeDir(),
 ): string {
 	const key = hostKey(realm, kind);
 	if (!runtimeDir || !isAbsolute(runtimeDir))
-		throw new Error("Host requires an absolute XDG_RUNTIME_DIR");
+		throw new Error(NO_RUNTIME_FOLDER);
 	const path = join(runtimeDir, "pi-host", `${key}.sock`);
 	if (Buffer.byteLength(path) > MAX_SOCKET_PATH_BYTES)
 		throw new Error("Host socket path exceeds the portable Unix socket limit");

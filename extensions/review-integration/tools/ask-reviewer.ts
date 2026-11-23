@@ -66,6 +66,7 @@ import type { RoundWatch } from "../progress.ts";
 import { answerFromReviewer, keepAnswer, reviewerRunner } from "../reviewer.ts";
 import { recordReviewerRun } from "../run-record.ts";
 import { askedInRound, roundOpened } from "../run-records.ts";
+import { settlingHere } from "../settling.ts";
 
 /** Whether this participant's limits come from its own entry. */
 export function keepsItsOwnClocks(participant: Participant): boolean {
@@ -371,6 +372,9 @@ export function deps(
 		// nothing records until it is over. Recorded rather than
 		// replaced, since at this point the round is new.
 		async opened(run: AskRun) {
+			// Held until this call answers, so a collect in a session that
+			// reloaded meanwhile leaves the round to the load settling it.
+			settlingHere(run.id, watch);
 			roundOpened(change, run);
 			try {
 				await createRunStore(runDir()).keep(change, {

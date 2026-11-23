@@ -15,7 +15,9 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
+import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 
 /** The host program, from a version's root. */
 export const HOST_ENTRY = "scripts/pi-host.ts";
@@ -61,6 +63,38 @@ export async function hostCodeOf(root: string): Promise<string> {
 		hash.update("\0");
 	}
 	return hash.digest("hex");
+}
+
+/**
+ * How a process started from the version at `root` asks whether its
+ * install has moved on to other host code: each ask answers why, or
+ * nothing while the install's `current` still names the same host code,
+ * its packages are still installing, or `root` lies outside an install,
+ * such as a tree. A version's code never changes under its name, so
+ * each is read once, its own only at the first ask, as a child starts
+ * on a loaded machine and reads nothing it doesn't need to listen.
+ */
+export function installMovesFrom(
+	root: string,
+): () => Promise<string | undefined> {
+	const install = installOfVersion(root);
+	if (install === undefined) return async () => undefined;
+	const link = join(install, "current");
+	let code: Promise<string> | undefined;
+	const codeOf = new Map<string, Promise<string>>();
+	return async () => {
+		code ??= hostCodeOf(root);
+		const now = await realpath(link).catch(() => undefined);
+		if (now === undefined || now === root || !dependenciesReady(now))
+			return undefined;
+		let next = codeOf.get(now);
+		if (!next) {
+			next = hostCodeOf(now);
+			codeOf.set(now, next);
+		}
+		if ((await next) === (await code)) return undefined;
+		return `the install's ${basename(now).slice(0, 12)} changes the host's own code`;
+	};
 }
 
 /** Every module the host program under `root` reaches, in a stable order. */

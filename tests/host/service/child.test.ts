@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ChildLifeOptions,
+	childHost,
 	childLife,
 	childRosterSeed,
 	childSlot,
@@ -66,6 +67,39 @@ function env(socket: string): NodeJS.ProcessEnv {
 	};
 }
 
+describe("a child as its program runs it", () => {
+	// The life reads the host the program gives it, so a roll there ends a
+	// resumed conversation's child as soon as it rests parked.
+	it("ends parked at once once the host it runs rolls, and waits its grace before", async () => {
+		const folder = await children();
+		const ends = async (rolls: boolean) => {
+			await writeFile(
+				join(folder, `${SLOT}.json`),
+				JSON.stringify({ session: entry() }),
+			);
+			const started = childHost(env(join(folder, `${SLOT}.sock`)), "/harness");
+			const host = new SessionHost({
+				key: KEY,
+				owner: OWNER,
+				registryDir: join(runtime, `registry-${rolls}`),
+			});
+			started.hosts(host);
+			if (rolls) host.roll();
+			let ended: string | undefined;
+			void started.life.ending.then((why) => {
+				ended = why;
+			});
+			started.life.resumed("parked");
+			await Promise.resolve();
+			started.life.dispose();
+			host.dispose();
+			return ended;
+		};
+		expect(await ends(false), "current, it waits its grace").toBeUndefined();
+		expect(await ends(true)).toBe("parked");
+	});
+});
+
 describe("a child's slot", () => {
 	it("resumes the roster entry its slot file holds", async () => {
 		const folder = await children();
@@ -83,6 +117,18 @@ describe("a child's slot", () => {
 			held: entry(),
 		});
 		expect(slot.woken, "not woken unless the slot says so").toBeUndefined();
+	});
+
+	it("finds its slot in the folder AGENTS_RUNTIME_DIR names, before XDG_RUNTIME_DIR", async () => {
+		const folder = await children();
+		await writeFile(join(folder, "fresh.json"), "{}");
+		const slot = childSlot({
+			PI_HOST_CHILD_KEY: KEY,
+			PI_HOST_CHILD_SOCKET: join(folder, "fresh.sock"),
+			AGENTS_RUNTIME_DIR: runtime,
+			XDG_RUNTIME_DIR: join(runtime, "elsewhere"),
+		});
+		expect(slot.folder).toBe(join(folder, "fresh.d"));
 	});
 
 	it("says a resume its supervisor woke is woken", async () => {
@@ -330,6 +376,34 @@ describe("a child's life", () => {
 		child.life.viewers(A, 0);
 		child.hold(conversation(A));
 		expect(child.timers.has(2), "a wake ends the grace").toBe(false);
+	});
+
+	// A wake within the grace would resume it on the stale code it
+	// rolled to leave, and park it again at once (F52).
+	it("ends parked at once, with no grace, once its host's code is stale", async () => {
+		let stale = false;
+		const child = following({ aloneWithin: 2, stale: () => stale });
+		child.hold(conversation(A));
+		stale = true;
+		parkAway(child);
+		expect(child.timers.has(2), "no grace to wait out").toBe(false);
+		expect(await child.life.ending).toBe("parked");
+	});
+
+	it("stays while a window views its stale conversation, ending at once when none does", async () => {
+		const child = following({ aloneWithin: 2, stale: () => true });
+		child.hold(conversation(A));
+		child.life.viewers(A, 1);
+		parkAway(child);
+		let ended = false;
+		void child.life.ending.then(() => {
+			ended = true;
+		});
+		await Promise.resolve();
+		expect(ended, "a window views it").toBe(false);
+		child.life.viewers(A, 0);
+		expect(child.timers.has(2)).toBe(false);
+		expect(await child.life.ending).toBe("parked");
 	});
 
 	it("never arms its grace for a conversation listed parked only while it closes", async () => {

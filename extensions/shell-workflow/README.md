@@ -173,7 +173,16 @@ through landrun:
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a
 stranger wrote; the fence is for every session. A session asking for
-it without bwrap and landrun on `PATH`, or off Linux, runs no command.
+it on Linux without bwrap and landrun on `PATH` runs no command. On
+a Mac, where pi itself runs inside a sandbox, its commands run as they
+are inside that one, and the session is told so once, since a session
+that runs nothing does no work there. pi can't run inside `pi-fence`,
+whose Mac profile hides pi's own state, so that sandbox is another's,
+and it may reach more than the fence. A Mac where nothing fences pi
+runs no command, and nor does
+one whose check of that couldn't tell, as a busy Mac may cause. A
+later conversation in pi-host checks again, no sooner than 30 s on; a
+lone pi checks once, at load, so it needs a reload.
 It cost about 80 ms a command on a machine at a load of 20 (85 ms
 against 8 ms unfenced), most of it bubblewrap's mounts.
 
@@ -255,8 +264,10 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
 
 The strict profile costs 20 to 35 ms a command. The queue still reads the command as
 given, and the lines that wait for its turn run outside the sandbox. A
-session that asks for it where it can't be had, off Linux or without
-landrun on `PATH`, runs no command at all rather than run one unfenced.
+session that asks for it on Linux without landrun on `PATH` runs no
+command at all rather than run one unfenced. On a Mac it runs them as
+the fence does there: inside the sandbox pi runs in, saying so once,
+and none where nothing fences pi.
 The tool tells the agent it is sandboxed, so a refusal reads as the
 sandbox rather than a fault.
 

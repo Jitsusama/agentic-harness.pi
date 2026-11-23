@@ -16,10 +16,12 @@
  * test or a benchmark waits in its shell for its turn, and timed work
  * then runs in the cgroup `TIMED_CGROUP` names, or in jobs while there
  * is none. Every session keeps the queue a little at a time, so it goes
- * on while any session runs. A Mac keeps the same queue, in its
- * account's temporary folder, by its own room reading
- * (lib/internal/priority/room-darwin.ts), and places nothing, since it
- * has no cgroups. Elsewhere, nothing changes.
+ * on while any session runs. A Mac keeps the same queue by its own room
+ * reading (lib/internal/priority/room-darwin.ts), and places nothing,
+ * since it has no cgroups. Its queue is in the folder
+ * `AGENTS_RUNTIME_DIR` names or its account's cache folder, which
+ * outlasts a reboot, so a job asked before the boot counts as ended.
+ * Elsewhere, nothing changes.
  *
  * The machine's room and the builds' yield are read and set off pi's
  * main thread, so a cgroup file, a process's memory or systemd taking
@@ -59,6 +61,7 @@ import {
 } from "../../lib/internal/priority/queue.ts";
 import { claimReading } from "../../lib/internal/priority/reading-claim.ts";
 import {
+	bootedAt,
 	cgroupOf,
 	commandsIn,
 	floorsIn,
@@ -286,6 +289,9 @@ function linuxMachine(own: string | undefined): Machine {
 	let floorsAt = Number.NEGATIVE_INFINITY;
 	const uplink = uplinkMeter();
 	return {
+		// No boot check: a Linux queue is in XDG_RUNTIME_DIR, which the
+		// reboot empties, and a wall clock stepped forward would move a boot
+		// worked out from uptime past jobs still running.
 		processes: {
 			isRunning,
 			cgroupOf,
@@ -332,7 +338,7 @@ function macMachine(): Machine {
 	const room = darwinRoom();
 	return {
 		// No cgroups to say what a job's processes are or held.
-		processes: { isRunning, cgroupOf: () => undefined },
+		processes: { isRunning, bootedAt, cgroupOf: () => undefined },
 		// Read on the main thread still: its facts come from a program run
 		// synchronously (room-darwin.ts).
 		room: async () => room(),
