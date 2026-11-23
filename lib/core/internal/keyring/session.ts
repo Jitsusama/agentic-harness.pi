@@ -12,8 +12,11 @@
  * nowhere, so it waits, and each turn's start offers it again: pi says
  * nothing as it gives a session a screen, so a turn is the first moment
  * this can see one, and an idle session shows the notice at its next.
- * A reload keeps what the session is owed, for the extensions it starts
- * again; any other end forgets it.
+ * A reload keeps what the session is owed for the extensions it starts
+ * again, where they share one copy of the notices rather than each
+ * loading its own as pi does today; any other end forgets it. pi makes
+ * a new manager for each new, resumed or saved forked session, so the
+ * key is one conversation; only forking an unsaved one reuses it.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

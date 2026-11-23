@@ -160,6 +160,34 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
+	it("forgets what a session was owed when it ends other than by a reload", async () => {
+		const manager = SessionManager.inMemory(process.cwd());
+		const ending = session(manager);
+		const elsewhere = session();
+		elsewhere.runner.setUIContext(screen().ui, "tui");
+		await Promise.all([ending.start(), elsewhere.start()]);
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		await ending.runner.emit({ type: "session_shutdown", reason: "quit" });
+		const after = session(manager);
+		const shown = screen();
+		after.runner.setUIContext(shown.ui, "tui");
+		await after.runner.emit({ type: "session_start", reason: "resume" });
+		expect(shown.told).toEqual([]);
+	});
+
+	it("keeps what a session is owed when it starts again on the same manager", async () => {
+		const one = session();
+		const elsewhere = session();
+		elsewhere.runner.setUIContext(screen().ui, "tui");
+		await Promise.all([one.start(), elsewhere.start()]);
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		const shown = screen();
+		one.runner.setUIContext(shown.ui, "tui");
+		await one.runner.emit({ type: "session_start", reason: "reload" });
+		expect(shown.told).toEqual(["warning: keyring locked"]);
+		expect([one.errors, elsewhere.errors]).toEqual([[], []]);
+	});
+
 	it("stops showing notices in a session that ended, keeping them for the next", async () => {
 		const ended = session();
 		const endedScreen = screen();
