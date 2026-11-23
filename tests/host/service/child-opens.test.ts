@@ -381,6 +381,67 @@ describe("a host starting again", () => {
 		expect(units.started, "no child started again").toHaveLength(1);
 	});
 
+	it("takes up a child a wake waited on starved as the host restarted, starting no second one", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		const listening = deferred();
+		units.next = { listensWhen: listening.promise };
+		units.spent = growing(200, 20);
+		const waking = supervisor.resume(entry(a), true);
+		await vi.waitFor(() =>
+			expect(said.join("\n")).toContain("starved rather than stuck"),
+		);
+
+		supervisor.close();
+		await expect(waking).rejects.toThrow("stopped watching");
+		expect(units.stopped, "left running for the next host").toEqual([]);
+		superviseAgain({ nextHost: true });
+		listening.settle();
+
+		expect(await supervisor.adopt(), "taken up").toBe(1);
+		expect(routes.routeOf(a), "watched again").toBeDefined();
+		const resumed = await supervisor.resume(entry(a));
+		expect(resumed.sessionId).toBe(a);
+		expect(units.started, "no child started again").toHaveLength(1);
+		expect(units.stopped).toEqual([]);
+	});
+
+	it("stops a child a wake waited on starved as the host restarted, when it still won't listen, before starting another", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(200, 20);
+		const waking = supervisor.resume(entry(a), true);
+		await vi.waitFor(() =>
+			expect(said.join("\n")).toContain("starved rather than stuck"),
+		);
+		supervisor.close();
+		await expect(waking).rejects.toThrow("stopped watching");
+		superviseAgain({
+			nextHost: true,
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		const { unit } = slotOf(folder, key, a);
+		const start = units.start;
+		const runningAtStart: boolean[] = [];
+		units.start = (named) => {
+			runningAtStart.push(units.children.has(named));
+			return start(named);
+		};
+
+		expect(await supervisor.adopt(), "given up at its listen time").toBe(0);
+		await supervisor.resume(entry(a), false, true);
+
+		expect(units.stopped, "the starved child stopped").toEqual([unit]);
+		expect(
+			runningAtStart,
+			"its successor started only once it had gone",
+		).toEqual([false]);
+		expect(routes.routeOf(a), "watched").toBeDefined();
+	});
+
 	it("holds again a child's conversation an earlier host never held", async () => {
 		await supervisor.resume(entry(a));
 		// As when a host ends between its child's open and its hold.
