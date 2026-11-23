@@ -75,7 +75,11 @@ function nonEmpty(raw: string): string | undefined {
  * boot's identifier cannot change under the process reading it. A read
  * that found none is tried again once {@link BOOT_TOKEN_AGAIN_MS} has
  * passed on `now`, a clock that never steps, rather than leaving the
- * process with no token until it restarts.
+ * process with no token until it restarts. Each read holds its caller
+ * for as long as it takes, so a sysctl that hangs rather than failing
+ * costs up to {@link BOOT_TOKEN_TIMEOUT_MS} of every
+ * {@link BOOT_TOKEN_AGAIN_MS}, as getconf's look costs the queue's folder
+ * (paths.ts).
  */
 export function bootTokenReader(
 	read: () => string | undefined,

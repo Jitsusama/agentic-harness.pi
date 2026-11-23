@@ -485,13 +485,22 @@ describe("the machine's queue folder", () => {
 
 	it("keeps a job asked in this boot, though its clock dates it before the boot", () => {
 		// A clock stepped forward moves a boot worked out from uptime past
-		// jobs still running, so the boot is told by its token, not a time.
+		// jobs still running, so the boot is told by its token, not a time:
+		// dated an hour past the slack before it, which the time's rule
+		// would give up.
+		const booted = NOW - 60_000;
 		const queue = queueFolder(dir, {
 			...processes,
 			bootToken: () => "boot-1",
-			bootedAt: () => NOW - 60_000,
+			bootedAt: () => booted,
 		});
-		queue.ask(job("stepped", { since: new Date(NOW - 120_000).toISOString() }));
+		queue.ask(
+			job("stepped", {
+				since: new Date(
+					booted - UNSTAMPED_BOOT_SLACK_MS - 3_600_000,
+				).toISOString(),
+			}),
+		);
 		shellSays("stepped", 100);
 		queue.keep(TIGHT, NOW, () => undefined);
 		expect(record().jobs.map((one) => one.id)).toEqual(["stepped"]);
@@ -522,7 +531,7 @@ describe("the machine's queue folder", () => {
 			expect(record().jobs).toEqual([]);
 		});
 
-		it("keeps a job begun within the slack before the boot, for a clock stepped back a little", () => {
+		it("keeps a job begun within the slack before the boot, for a clock stepped forward a little", () => {
 			let boot: string | undefined;
 			const queue = queueFolder(dir, {
 				...processes,
@@ -540,7 +549,10 @@ describe("the machine's queue folder", () => {
 			expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
 		});
 
-		it("judges a stamped job by the boot's time while the keeper can't read its token", () => {
+		// PV3TE0's round 2 (F12, F16): judged by the clock meanwhile, a job
+		// running since the boot was given up for a token read that missed,
+		// and is read again within half a minute.
+		it("keeps a stamped job, however long before the boot it is dated, while the keeper can't read its token", () => {
 			let boot: string | undefined = "boot-1";
 			const queue = queueFolder(dir, {
 				...processes,
@@ -557,7 +569,10 @@ describe("the machine's queue folder", () => {
 			shellSays("long-before", 100);
 			boot = undefined;
 			queue.keep(TIGHT, NOW, () => undefined);
-			expect(record().jobs.map((one) => one.id)).toEqual(["since"]);
+			expect(record().jobs.map((one) => one.id)).toEqual([
+				"since",
+				"long-before",
+			]);
 		});
 
 		it("judges a job by its pid alone where the keeper can tell no boot at all", () => {

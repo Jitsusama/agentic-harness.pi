@@ -11,6 +11,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+	KEEP_MS,
 	keepQueue,
 	type Machine,
 } from "../../../extensions/priority-workflow/index.ts";
@@ -50,7 +51,8 @@ const fire = (name: string, event: object = {}) =>
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "queue-found-late-"));
 	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
-	// The keep's tick never comes, so only the command's own look finds it.
+	// The keep's tick comes only when a case moves the clock, so a case
+	// that doesn't proves the command's own look finds the folder.
 	vi.useFakeTimers();
 	named.dir = undefined;
 	handlers = new Map();
@@ -80,6 +82,19 @@ it("holds heavy work to turns once a command finds the folder the session starte
 
 	expect({ before, after: queuedCommand("cargo build") }).toEqual({
 		before: "cargo build",
-		after: expect.not.stringMatching(/^cargo build$/),
+		after: expect.stringContaining(join(root, "jobs")),
+	});
+});
+
+it("holds heavy work to turns once the keep's tick finds the folder, with no command between", async () => {
+	await fire("session_start", { reason: "startup" });
+	const before = queuedCommand("cargo build");
+
+	named.dir = join(root, "jobs");
+	vi.advanceTimersByTime(KEEP_MS);
+
+	expect({ before, after: queuedCommand("cargo build") }).toEqual({
+		before: "cargo build",
+		after: expect.stringContaining(join(root, "jobs")),
 	});
 });

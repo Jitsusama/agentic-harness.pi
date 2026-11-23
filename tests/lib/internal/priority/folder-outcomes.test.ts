@@ -70,6 +70,52 @@ describe("the machine's queue folder", () => {
 		expect(kept, "no run time is kept for it").not.toHaveProperty("ranS");
 	});
 
+	// PV3TE0's round 2 (F9): a start no clock can read, as a hand-edited
+	// or torn .job may hold.
+	describe("for a job whose start can't be read", () => {
+		const booted = NOW - 3_600_000;
+
+		it("keeps a stamped one the boot cut off as ended at the boot", async () => {
+			const file = join(dir, "..", "state", "outcomes.jsonl");
+			let boot = "boot-1";
+			const queue = queueFolder(
+				dir,
+				{ ...processes, bootToken: () => boot, bootedAt: () => booted },
+				undefined,
+				file,
+			);
+			queue.ask(job("unread", { since: "not a date" }));
+			shellSays("unread", 100);
+			boot = "boot-2";
+			queue.keep(ROOMY, NOW, () => undefined);
+			await queue.outcomesKept();
+			const [kept] = readFileSync(file, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+
+			expect(kept).toMatchObject({
+				id: "unread",
+				ended: new Date(booted).toISOString(),
+			});
+		});
+
+		it("judges an unstamped one by its shell, never by a time it can't read", () => {
+			let boot: string | undefined;
+			const queue = queueFolder(dir, {
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => booted,
+			});
+			queue.ask(job("unread", { since: "not a date" }));
+			shellSays("unread", 100);
+			boot = "boot-2";
+			queue.keep(ROOMY, NOW, () => undefined);
+
+			expect(record().jobs.map((one) => one.id)).toEqual(["unread"]);
+		});
+	});
+
 	/** A queue whose boot changes once `cut` is asked, and its outcomes file. */
 	const cutOff = (
 		bootedAt: number,

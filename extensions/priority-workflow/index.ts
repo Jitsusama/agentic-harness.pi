@@ -122,7 +122,7 @@ export function refuseSkippedPushHooks(pi: Pick<ExtensionAPI, "on">): void {
 }
 
 /** How often a session keeps the queue. */
-const KEEP_MS = 2_000;
+export const KEEP_MS = 2_000;
 
 /** How often the memory floors are looked for again. */
 const FLOORS_MS = 5 * 60_000;

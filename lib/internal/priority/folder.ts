@@ -93,9 +93,14 @@ export const PID_MS = 30_000;
 
 /**
  * How long before the boot a job with no boot token to tell it by must
- * have begun to be taken as cut off by it: room for a clock stepped back
- * a little, as a sleeping Mac's often is, without giving up work running
- * since the boot.
+ * have begun to be taken as cut off by it. The boot's time is the clock
+ * less the uptime, so it moves with the clock: one stepped forward after
+ * the job was asked, as a Mac waking from sleep often is, puts the boot
+ * after work running since it, and this is that step's room. The cost:
+ * an unstamped job a reboot cut off within this of its start is judged
+ * by its shell's pid alone, which a reboot may give another process.
+ * Only jobs asked by a session before tokens, or while its token read
+ * missed, go unstamped.
  */
 export const UNSTAMPED_BOOT_SLACK_MS = 15 * 60_000;
 
@@ -448,15 +453,20 @@ export function queueFolder(
 
 	/**
 	 * When the boot came, if the job was asked in an earlier one, which
-	 * ended it: never before the job began, nor after now. Told by the
-	 * boot's token where both the job and this reader have one; else by
-	 * the boot's time, as before tokens, only for a job begun well before
-	 * it, so a clock stepped a little gives up nothing running.
+	 * ended it: never before the job began, nor after now. A job stamped
+	 * with its boot's token is told by that alone, and while this reader
+	 * has no token of its own it waits for one: a miss is read again
+	 * within half a minute, and a job given up by the clock meanwhile can't
+	 * be taken back. One with no token is told by the boot's time, as
+	 * before tokens, only once begun well before it, so a clock stepped a
+	 * little gives up nothing running.
 	 */
 	const cutOffAt = (job: Job, now: number): number | undefined => {
-		const token = processes.bootToken?.();
-		const stamped = typeof job.boot === "string" && token !== undefined;
-		if (stamped && job.boot === token) return undefined;
+		const stamped = typeof job.boot === "string";
+		if (stamped) {
+			const token = processes.bootToken?.();
+			if (token === undefined || job.boot === token) return undefined;
+		}
 		const bootedAt = processes.bootedAt?.();
 		const began = Date.parse(job.started ?? job.since);
 		if (!stamped) {
