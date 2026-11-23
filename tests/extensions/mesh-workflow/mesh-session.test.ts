@@ -16,6 +16,7 @@ import { HAND_EXTENSION } from "../../../extensions/mesh-workflow/index.ts";
 import {
 	type CarryHold,
 	carryUnderWay,
+	closeLanded,
 	holdForCarry,
 } from "../../../lib/internal/carry/under-way.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
@@ -192,6 +193,9 @@ describe("parking", () => {
 		// Each is let go though one before it throws, which then fails the
 		// test that left it.
 		afterEach(async () => {
+			// A carried hold no release lets go, for one that failed before its
+			// own close (PV3TE0's round 9, F5).
+			closeLanded(session);
 			const ended = await Promise.allSettled(
 				left.splice(0).map((end) => end()),
 			);
@@ -446,7 +450,8 @@ describe("parking", () => {
 		// PV3TE0's round 8 (F3, F4, F6, F9, F12): only state.ts hands the
 		// registry an ordered carry's carried, and only the session's
 		// shutdown says its close landed; drop either and nothing else fails.
-		it("keeps an ordered carry that carried holding the session until its close lands", async () => {
+		/** A session an ordered carry to penelope carried, with a quest loaded. */
+		const carriedAway = async () => {
 			const loaded = join(sessionRegistryDir(), `${session}.json`);
 			mkdirSync(sessionRegistryDir(), { recursive: true });
 			writeFileSync(
@@ -473,6 +478,11 @@ describe("parking", () => {
 			await toldOf("the ordered carry carries", (text) =>
 				text.startsWith("Carried to penelope"),
 			);
+			return { fire, told, steered, toldOf };
+		};
+
+		it("keeps an ordered carry that carried holding the session until its close lands", async () => {
+			const { fire, told, steered, toldOf } = await carriedAway();
 
 			steered({ act: "carry", to: "equilibrius", from: FROM_PERSON });
 			await toldOf("the Carry is left to the one that carried", (text) =>
@@ -486,6 +496,16 @@ describe("parking", () => {
 			]);
 			expect(closing, "held while it closes").toBe("penelope");
 			expect(carryUnderWay(session), "let go once it closed").toBeUndefined();
+		});
+
+		// PV3TE0's round 9 (F4): a reload's shutdown is no close, since the
+		// session goes on in fresh modules; nothing else tells them apart.
+		it("keeps an ordered carry that carried holding the session through a reload's shutdown", async () => {
+			const { fire } = await carriedAway();
+
+			await fire("session_shutdown", { reason: "reload" });
+
+			expect(carryUnderWay(session)).toBe("penelope");
 		});
 
 		// PV3TE0's round 5 (F13, F18) and 6 (F6): read bare, the id threw

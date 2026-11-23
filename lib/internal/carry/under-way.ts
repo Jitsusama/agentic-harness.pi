@@ -5,7 +5,8 @@
  * its host's settled and ceiling restarts (host/engine/stopping.ts),
  * and every reload, whether the follower, the agent or the person asks
  * for it (reload-workflow's follow.ts and transitions.ts, and the host
- * engine's reload, through {@link carryHoldsReload}).
+ * engine's reload, through {@link carryHoldsReload}), and a rollover's
+ * switch of logs in place (rollover-workflow's rollOverNow).
  *
  * Two doors go anyway. A host restart for its heap running out only
  * names the carry it ends, since a host out of memory loses every
@@ -16,7 +17,8 @@
  * file is written last. On 23 November a background conversation idle
  * five minutes parked part-way through a carry its node had ordered,
  * and wrote no done file (BMDYSH, 01:03). A reload is held too, since
- * it replaces the context a carry under way reads and closes through.
+ * it replaces the context a carry under way reads and closes through,
+ * as a rollover's switch does.
  *
  * A carry that carried keeps its hold while its session closes, so no
  * door and no second carry of the session goes before the close lands;
@@ -60,7 +62,8 @@ export interface CarryHold {
 	 * The carry carried, so its session closes: the hold stays, through
 	 * any release, until its close lands or its time is up, when it goes
 	 * saying that its close never landed. Called once its time is up, it
-	 * changes nothing, so its release lets it go.
+	 * changes nothing, so its release lets it go; called once its close
+	 * has landed already, as a person's Close mid-carry lands, it goes.
 	 */
 	carried(): void;
 }
@@ -81,7 +84,10 @@ interface Entry {
 	readonly hold: CarryHold;
 	readonly since: number;
 	readonly until: number;
-	/** Its session's close landed: a carried hold goes. */
+	/**
+	 * Its session's close landed: a carried hold goes, and one still under
+	 * way goes as it carries, since no later close will say so.
+	 */
 	readonly landed: () => void;
 }
 
@@ -107,6 +113,7 @@ export function holdForCarry(
 	const all = underWay();
 	let released = false;
 	let closing = false;
+	let closed = false;
 	let timedOut = false;
 	let lapse: ReturnType<typeof setTimeout> | undefined;
 	const letGo = () => {
@@ -124,7 +131,9 @@ export function holdForCarry(
 			if (!closing) letGo();
 		},
 		carried() {
-			if (!(released || timedOut)) closing = true;
+			if (released || timedOut) return;
+			if (closed) letGo();
+			else closing = true;
 		},
 	};
 	const since = now();
@@ -133,6 +142,7 @@ export function holdForCarry(
 		since,
 		until: since + mostMs,
 		landed: () => {
+			closed = true;
 			if (closing) letGo();
 		},
 	};
@@ -161,7 +171,8 @@ export function holdForCarry(
 
 /**
  * `session`'s close has landed, as its shutdown says: the holds of its
- * carries that carried go, and a carry still under way keeps its own.
+ * carries that carried go, and a carry still under way keeps its own
+ * until it ends, carried or not.
  */
 export function closeLanded(session: string): void {
 	for (const entry of [...(underWay().get(session) ?? [])]) entry.landed();

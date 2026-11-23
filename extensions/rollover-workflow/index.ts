@@ -46,6 +46,7 @@ import type {
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { formatSize } from "../../lib/internal/quest/workspace/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
@@ -172,6 +173,12 @@ export async function rollOverNow(
 	const slot = reloadSlot();
 	if (slot.request !== undefined || slot.performing || slot.reloading) {
 		return "Not rolled over: a reload is waiting or under way, and switching logs during it would leave this session running on the old one too. The next compaction rolls over.";
+	}
+	// A switch replaces the context a carry reads and closes through, as a
+	// reload does (lib/internal/carry/under-way.ts).
+	const to = carryUnderWay(sessions.getSessionId());
+	if (to !== undefined) {
+		return `Not rolled over: this session's work is being carried to ${to}, and switching logs would end the carry part-way. The next compaction rolls over.`;
 	}
 	slot.rolling = true;
 	try {

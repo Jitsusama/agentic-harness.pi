@@ -149,6 +149,19 @@ describe("a carry under way", () => {
 		expect(carryUnderWay(session)).toBe("penelope");
 	});
 
+	// PV3TE0's round 9 (F1, F3): a person's Close mid-carry landed before
+	// the carry carried, and no later close came to let its hold go.
+	it("lets a carry whose session's close landed while it ran go as it carries", () => {
+		const carry = hold("penelope", {}, closing(5));
+
+		closeLanded(closing(5));
+		const during = carryUnderWay(closing(5));
+		carry.carried();
+
+		expect(during).toBe("penelope");
+		expect(carryUnderWay(closing(5))).toBeUndefined();
+	});
+
 	// PV3TE0's round 8 (F7): one called carried past its time stayed in
 	// the registry for the life of its process.
 	it("lets a hold called carried once its time is up go at its release", () => {
