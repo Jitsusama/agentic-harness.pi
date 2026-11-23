@@ -6,9 +6,11 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
+	MOVED_OFF,
 	readTags,
 	SELECTION_TAGS_ENTRY,
 	taggedBranchAt,
+	untagged,
 } from "../../../../lib/compaction/selection/tags.ts";
 import { unitsOf } from "../../../../lib/compaction/selection/units.ts";
 
@@ -32,6 +34,7 @@ function folded(manager: SessionManager) {
 		recorded: {
 			kinds: new Map(recorded.kinds),
 			entries: new Set(recorded.entries),
+			quotable: new Set(recorded.quotable),
 		},
 		live: live.map((entry) => entry.id),
 	};
@@ -48,6 +51,7 @@ function tag(manager: SessionManager, id: string): void {
 	manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
 		entryId: id,
 		units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: ["rule"] })),
+		seenOnBranch: true,
 	});
 }
 
@@ -88,6 +92,92 @@ describe("a session's branch as tagging reads it", () => {
 		expect(compacted?.recorded.kinds.size).toBe(2);
 		expect(asked.at(-1)?.[1].recorded.kinds.size).toBe(0);
 		expect(asked.at(-1)?.[1].live).toHaveLength(2);
+	});
+
+	it("names the messages a record found something worth quoting in", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		tag(manager, rule);
+		const chatter = say(manager, "Thanks, that reads well.");
+		const entry = manager.getEntry(chatter);
+		if (entry === undefined) throw new Error("no chatter");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: chatter,
+			units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: [] })),
+		});
+
+		const { quotable, entries } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule, chatter]);
+		expect([...quotable]).toEqual([rule]);
+	});
+
+	it("stops naming a message whose latest record found nothing worth quoting", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		tag(manager, rule);
+		const entry = manager.getEntry(rule);
+		if (entry === undefined) throw new Error("no rule");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: [] })),
+		});
+
+		const { quotable, entries } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule]);
+		expect([...quotable]).toEqual([]);
+	});
+
+	it("leaves out a message whose record did not see it on the branch", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		const entry = manager.getEntry(rule);
+		if (entry === undefined) throw new Error("no rule");
+		// As a tagger that did not look recorded it, perhaps on another branch.
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: unitsOf(entry).map((unit) => ({
+				hash: unit.hash,
+				kinds: ["rule"],
+			})),
+		});
+
+		const { quotable, entries, kinds } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule]);
+		expect(kinds.size).toBe(1);
+		expect([...quotable]).toEqual([]);
+	});
+
+	it("does not ask again about a failure recorded before failures listed their paragraphs", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: [],
+			failed: "context too long",
+		});
+
+		const branch = manager.getBranch();
+
+		expect(untagged(branch, readTags(branch))).toEqual([]);
+	});
+
+	it("still asks about a message the person moved off while it was asked about", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: [],
+			failed: MOVED_OFF,
+		});
+
+		const branch = manager.getBranch();
+		const index = readTags(branch);
+
+		expect([...index.entries]).toEqual([]);
+		expect(untagged(branch, index).map((entry) => entry.id)).toEqual([rule]);
 	});
 
 	it("reads nothing of an empty session", () => {
