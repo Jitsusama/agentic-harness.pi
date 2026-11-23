@@ -41,7 +41,10 @@ const LISTEN_MS = 30_000;
 /**
  * The most a child on pi's engine may hold with one conversation open, in
  * MB: about twice the 527 MB the first one measured held (20 November),
- * so a child grown much heavier fails here.
+ * so a child grown much heavier fails here. It is read once the child has
+ * sent its heap line, not straight after the open: the open's own peak
+ * reached 1155 and 1195 MB in 2 of 31 runs and fell to under 400 MB
+ * seconds later, so it measured when the collector last ran.
  */
 const CHILD_RSS_MB = 1024;
 /** How long a child may take to send a line with its heap: its heap timer, and a margin. */
@@ -346,10 +349,11 @@ it(
 				);
 				const openedMs = Date.now() - opening;
 				const watched = parseWatchResult(resultIn((await lines.next()).value));
-				const held = await residentMb(child.process.pid);
+				const atOpen = await residentMb(child.process.pid);
 				const heap = await heapLine(lines);
+				const held = await residentMb(child.process.pid);
 				process.stdout.write(
-					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${held.toFixed(0)} MB with it open, then ${(await residentMb(child.process.pid)).toFixed(0)} MB with a heap of ${(heap.used / BYTES_PER_MB).toFixed(0)} of ${(heap.limit / BYTES_PER_MB).toFixed(0)} MB\n`,
+					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${atOpen.toFixed(0)} MB with it open, then ${held.toFixed(0)} MB with a heap of ${(heap.used / BYTES_PER_MB).toFixed(0)} of ${(heap.limit / BYTES_PER_MB).toFixed(0)} MB\n`,
 				);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
 				const closed = await controlRequest(child.socket, {
