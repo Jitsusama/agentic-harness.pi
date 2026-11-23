@@ -33,11 +33,11 @@ import {
 	renderRulesBlock,
 	type Turn,
 } from "../../lib/core/governance/index.ts";
+import { entriesToTurns } from "../../lib/internal/logs/transcript.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { registerPromptContributor } from "../../lib/prompt/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
-import { sessionTurns } from "./session-turns.ts";
 import { residentRules, rulesForSkill, skillRead } from "./when.ts";
 
 /** Captured lessons sit just below the enforced conventions. */
@@ -228,7 +228,11 @@ export default function correctionCapture(pi: ExtensionAPI) {
 			}
 
 			// Draft mode: distill the session into candidate rules.
-			const turns: Turn[] = sessionTurns(ctx.sessionManager);
+			// Only what memory holds, held view or not: the transcript keeps
+			// its last 6,000 characters, and a compaction keeps about 20,000
+			// tokens by default, so history on disk would mostly be read only
+			// to be dropped, and a parent log can be hundreds of megabytes.
+			const turns: Turn[] = entriesToTurns(ctx.sessionManager.getEntries());
 			if (turns.length === 0) {
 				return {
 					content: [
