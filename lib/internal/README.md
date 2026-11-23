@@ -4,6 +4,10 @@ Code for this package's extensions alone. There are no barrels:
 extensions import the file they need. Nothing outside the package
 may import from here, and any of it may change without notice.
 
+Many entries because each folder is one domain with its own seam,
+imported file by file; grouping them would add a level of path that
+no caller reads by.
+
 ## Folders
 
 - **`away/`**: whether the person is away from the machine, shared
