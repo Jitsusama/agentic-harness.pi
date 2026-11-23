@@ -237,6 +237,48 @@ describe("a conversation that moves into a child", () => {
 		expect(inHost.resume).not.toHaveBeenCalled();
 	});
 
+	// F174: a close or release waits in the conversation's turn behind the
+	// wake, which waits on its starved child for as long as the supervisor
+	// does, up to STARVED_WITHIN_MS, 10 minutes; a caller gives up long
+	// before. A bug reported, pinned here as it stands.
+	it.each(["close", "release"] as const)(
+		"answers a %s asked while a wake waits on a starved child only once that wake's resume ends",
+		async (op) => {
+			const held = entry();
+			await roster.hold(held);
+			const moved = children([held.sessionId]);
+			let listens: () => void = () => undefined;
+			moved.fake.resume.mockImplementationOnce(async (resumed) => {
+				await new Promise<void>((done) => {
+					listens = done;
+				});
+				moved.runs.set(resumed.sessionId, shown(resumed));
+				return shown(resumed);
+			});
+			const backend = backendWith(engine(), moved.fake);
+			const waking = backend.wake(held.sessionId);
+			await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalled());
+			let answered = false;
+			const ending = backend
+				.execute({ v: 1, id: "e", op, sessionId: held.sessionId })
+				.finally(() => {
+					answered = true;
+				});
+			// Long past any turn of the loop the end would take if it didn't
+			// wait on the wake, which it does however long the child starves.
+			await new Promise((later) => setTimeout(later, 200));
+			expect(answered, "waiting on the wake's resume").toBe(false);
+
+			listens();
+			await waking;
+
+			expect(await ending, "ended by the child the wake started").toEqual({
+				sessionId: held.sessionId,
+				asked: "the child",
+			});
+		},
+	);
+
 	it("passes the rollout gate before its child starts beside another", async () => {
 		const held = entry();
 		await roster.hold(held);
