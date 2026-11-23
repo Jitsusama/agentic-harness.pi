@@ -54,7 +54,7 @@ interface Held {
 }
 
 /** The version changes with the shape. */
-const WAITING_KEY = "pi.session.move-waiting.v1";
+const WAITING_KEY = "agentic-harness.session.move-waiting.v1";
 
 const waiting = () => processGlobal(WAITING_KEY, () => new Map<string, Held>());
 

@@ -31,6 +31,10 @@ import {
 	STILL_MS,
 } from "../../../extensions/reload-workflow/transitions.ts";
 import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	leaveSession,
@@ -390,6 +394,44 @@ describe("the agent asking for a reload", LANDS, () => {
 
 		await now.command("reload", next);
 		expect(reloads, "the reload goes once the carry lets go").toBe(1);
+	});
+
+	// A move taken while the follower's reload waited for the run to be
+	// still is one it never saw (5BACCAC3's F76 on #2029): going would
+	// stop the move unwritten, as E30 failed.
+	it("takes the follower's reload back when a move waits, and lets a person's go", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		holdForMove(SESSION_ID, "background");
+		try {
+			const slot = reloadSlot();
+			slot.request = { reason: "the install moved", by: "self" };
+			slot.dispatched = true;
+			await now.command("reload", next);
+
+			expect(reloads, "nothing reloads under the move").toBe(0);
+			expect(
+				reloadSlot().request,
+				"taken back for the follower to ask again",
+			).toBeUndefined();
+			expect(reloadSlot().dispatched).toBe(false);
+			expect(
+				now.notices.filter((text) => text.startsWith("Did not reload")),
+				"the follower's is taken back quietly",
+			).toEqual([]);
+
+			await now.command("reload", next);
+			expect(reloads, "a person's goes, the move carried over it").toBe(1);
+		} finally {
+			letMoveGo(SESSION_ID);
+		}
 	});
 
 	// PV3TE0's round 4 (F2, F7, F10): the agent, told to wait for word of
