@@ -682,8 +682,8 @@ is followed by judgment, not by a regex.
   agent writes about a result, not in the result.
 - **GitHub navigation guides**: `github-project-guide`,
   `github-sub-issue-guide`.
-- **Review round output contracts**: `review-council-format`,
-  `review-judge-format`, `review-critique-format`,
+- **Review round output contracts**: `review-finding-format`,
+  `review-council-format`, `review-judge-format`, `review-critique-format`,
   `review-audit-format`, `review-stack-format`. The substrate's
   own contracts, loaded into each round's subagent via `--skill`.
   Enforcement is the harvest reader rather than a verify tool: a

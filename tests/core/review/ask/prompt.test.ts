@@ -217,6 +217,18 @@ describe("what a judge is told", () => {
 		).toContain("raisedBy");
 	});
 
+	it("sends the judge's findings to the finding shape, not the layout it is shown", () => {
+		// The findings are shown to the judge as "[F1] who · label · where",
+		// and a judge that copied that layout answered in fields of its own
+		// (23 November), so its last line names the shape its round loads.
+		const prompt = judgePrompt({ proposal: proposal(), diff, findings: "x" });
+
+		expect(
+			prompt.trim().split("\n").at(-1),
+			"the judge's last line names the finding skill its round loads",
+		).toMatch(/review-finding-format/);
+	});
+
 	it("tells the judge it may drop a finding entirely", () => {
 		expect(judgePrompt({ proposal: proposal(), diff, findings: "x" })).toMatch(
 			/drop/i,

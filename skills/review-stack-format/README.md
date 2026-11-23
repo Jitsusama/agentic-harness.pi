@@ -16,7 +16,7 @@ Read [`SKILL.md`](./SKILL.md) for the contract. The reader it describes
 is [`lib/core/review/ask/span.ts`][span], and the round is
 [`lib/core/review/ask/stack-round.ts`][round].
 
-Related: [`review-council-format`](../review-council-format) for the
+Related: [`review-finding-format`](../review-finding-format) for the
 shared finding shape, and [`review-guide`](../review-guide) for driving
 the tools.
 

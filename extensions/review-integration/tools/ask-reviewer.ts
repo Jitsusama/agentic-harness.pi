@@ -124,23 +124,35 @@ export async function boundsForRound(): Promise<
 }
 
 /**
- * The output contract for one round.
- *
- * A path rather than prose, because it is loaded into the subagent as a
- * skill. Resolved from this file so it works whatever directory the
- * session was started in.
+ * The rounds that answer with findings: each loads the one shape of a
+ * finding beside its own contract, which says only what wraps them.
  */
-export function contractSkill(round: AskRound): string {
+const ANSWERS_WITH_FINDINGS: ReadonlySet<AskRound> = new Set([
+	"council",
+	"judge",
+	"stack",
+]);
+
+/**
+ * The output contract for one round, as the skills that state it.
+ *
+ * Paths rather than prose, because they are loaded into the subagent as
+ * skills. Resolved from this file so they work whatever directory the
+ * session was started in. A reviewer starts with no skills but these, so
+ * a contract that points at another skill reaches nothing unless that
+ * one is loaded too: on 23 November four judges of about twenty on the
+ * Mac answered in a shape of their own, with no label or location,
+ * because the judge's contract defers every field to the council's.
+ * So the shape is a skill of its own, which every round that answers
+ * with findings loads by name, and no round loads another's contract.
+ */
+export function contractSkills(round: AskRound): string[] {
 	const here = dirname(fileURLToPath(import.meta.url));
-	return join(
-		here,
-		"..",
-		"..",
-		"..",
-		"skills",
-		`review-${round}-format`,
-		"SKILL.md",
-	);
+	const skill = (name: string): string =>
+		join(here, "..", "..", "..", "skills", `review-${name}-format`, "SKILL.md");
+	return ANSWERS_WITH_FINDINGS.has(round)
+		? [skill("finding"), skill(round)]
+		: [skill(round)];
 }
 
 /**
@@ -346,7 +358,7 @@ export function deps(
 ) {
 	const findings = createFindingStore(findingDir());
 	// The watch knows which round this is, so it is not passed twice.
-	const contract = contractSkill(watch.round);
+	const contract = contractSkills(watch.round);
 	// Read once for the round rather than once per participant, and
 	// started here rather than awaited, so seven reviewers share one
 	// config read without any of them waiting on it to be asked.
@@ -430,7 +442,7 @@ export function deps(
 			// than restating it in the prompt keeps one copy: a contract
 			// stated twice drifts, and the copy in the prompt is the one
 			// nobody updates.
-			extraSkills: [contract],
+			extraSkills: contract,
 			// So a finding survives the reviewer that found it. Every
 			// other protection here recovers an answer, and an answer
 			// only exists if the reviewer reached the end.

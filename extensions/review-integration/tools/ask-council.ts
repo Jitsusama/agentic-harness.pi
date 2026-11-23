@@ -12,6 +12,7 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { lensFor, tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import {
+	type AskRound,
 	type ChangeRef,
 	councilNotEarned,
 	councilPrompt,
@@ -45,7 +46,7 @@ import { readFrom, treeForRound } from "../work.ts";
 import { answerFor, keptOnLedger } from "./ask-answer.ts";
 import {
 	boundsForRound,
-	contractSkill,
+	contractSkills,
 	deps,
 	FENCED,
 	fencePacks,
@@ -226,7 +227,7 @@ export async function startRound(
 	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
-	const contract = contractSkill("council");
+	const contract = contractSkills("council");
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
@@ -270,7 +271,7 @@ export async function startRound(
 					cwd: tree.path,
 					isolated: ISOLATED,
 					env: FENCED,
-					extraSkills: [contract],
+					extraSkills: contract,
 					// Not optional here the way it is on the waiting path.
 					// A detached reviewer's answer is only ever read off
 					// disk, so a finding it did not write down before it
@@ -344,13 +345,17 @@ export async function startRound(
 	);
 }
 
-/** Ask one participant again, in place. */
+/**
+ * Ask one participant again, in place, watched as the round its role
+ * answers in, so a judge asked again loads the judge's contract and not
+ * a council reviewer's.
+ */
 export async function retryOne(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
 	seat: RoundSeat,
-	watch: RoundWatch,
+	watchFor: (round: AskRound) => RoundWatch,
 ): Promise<Answer> {
 	if (params.participant === undefined) {
 		return refuse(
@@ -480,6 +485,7 @@ export async function retryOne(
 		asked.role === "judge" ? NARROWER_WEIGHING : NARROWER_COUNCIL,
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	const watch = watchFor(asked.role === "judge" ? "judge" : "council");
 	const { run: fresh, warnings } =
 		asked.role === "judge"
 			? await runJudge(

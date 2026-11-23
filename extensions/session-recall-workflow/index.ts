@@ -51,6 +51,7 @@ import {
 	type RecallRequest,
 } from "../../lib/internal/logs/recall.ts";
 import { markedOnDisk } from "../../lib/internal/logs/recall-on-disk.ts";
+import { count } from "../../lib/ui/count.ts";
 import { recallSection } from "./status.ts";
 
 /** What every summary says about the tool, appended after its text. */
@@ -92,7 +93,7 @@ function recallWhole(
 		const again =
 			disk.readAgain > 0 ? `, ${disk.readAgain} read a second time` : "";
 		process.stderr.write(
-			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${disk.logs} log(s) on disk, ${disk.entries} entries${again}, in ${ms} ms\n`,
+			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${count(disk.logs, "log")} on disk, ${count(disk.entries, "entry", "entries")}${again}, in ${ms} ms\n`,
 		);
 	}
 	// The path comes from the log, so it is quoted: a newline in it
