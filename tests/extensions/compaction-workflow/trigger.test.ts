@@ -17,6 +17,9 @@ vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 const { default: compactionWorkflow } = await import(
 	"../../../extensions/compaction-workflow/index.ts"
 );
+const { AHEAD_UNUSED_ENTRY } = await import(
+	"../../../extensions/compaction-workflow/host.ts"
+);
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type CompactOptions = { onComplete?: () => void; onError?: (e: Error) => void };
@@ -380,10 +383,10 @@ describe("the compaction trigger", () => {
 			expect(closingOf(1)).toContain("Keep it to at most");
 			// Recorded once, saying which try it was and whether it was halved.
 			expect(
-				entries.filter((entry) => entry.type === "compaction-ahead-unused"),
+				entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY),
 			).toEqual([
 				{
-					type: "compaction-ahead-unused",
+					type: AHEAD_UNUSED_ENTRY,
 					data: expect.objectContaining({ tries: 1, halved: false }),
 				},
 			]);
