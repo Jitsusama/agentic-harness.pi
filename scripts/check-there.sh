@@ -22,19 +22,22 @@
 # one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
 # check before it to end, and its holder's line names the pid that stops
 # the whole of a check with a TERM, its turn passing once its work has
-# stopped. A check whose caller goes away, its ssh killed or its
-# connection dropped, stops the same way within a second or so, since
+# stopped. A check whose caller goes away stops the same way, since
 # without a pty sshd signals nothing as it goes and the check asks after
-# it instead. Each waiter's limit is its own, and waiters take the turn
-# in no order, so a 75 says only that its turn didn't come in time, not
-# that the check before it hung. Exits with what `pnpm check` exited
-# with, or 75 when its turn never came.
+# it each second instead: within a second or so of its ssh being killed,
+# and of the host's sshd noticing a dropped connection, which by sshd's
+# defaults waits on TCP and so may take hours. Each waiter's limit is
+# its own, and waiters take the turn in no order, so a 75 says only that
+# its turn didn't come in time, not that the check before it hung. Exits
+# with what `pnpm check` exited with, or 75 when its turn never came.
 #
 # An agent's check goes to penelope alone: elsewhere it would run a
 # pushed branch's install scripts and tests unfenced, as an account
 # holding Joel's credentials, as the Mac's does (ISXEG8, 22 November).
 # That lifts once a host runs it inside its agent fence or under an
-# account of its own. Joel running it by hand may send it anywhere.
+# account of its own. It guards against a slip, not an agent set on
+# reaching the Mac: only a fence holds that. Joel running it by hand,
+# from a shell outside pi, may send it anywhere.
 set -euo pipefail
 
 branch="${1:-$(git rev-parse --abbrev-ref HEAD)}"
@@ -80,7 +83,9 @@ if [ "$#" -lt 1 ]; then
 fi
 
 # The branch goes quoted all the same, should its characters ever widen.
-exec ssh -o BatchMode=yes "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
+# The check has a connection of its own, never a shared master's, so the
+# sshd that starts its shell goes when its ssh does.
+exec ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
 set -euo pipefail
 # Each job this shell starts leads a process group of its own, so a stop
 # reaches a check's work, and waits for all of it, without signalling
@@ -88,7 +93,9 @@ set -euo pipefail
 set -m
 # What the stop acts on starts empty, whatever the host's shell exports.
 holder= node_link= ending= deadline= killed= stop_wait_s=
-# What started this shell: the sshd that goes once the caller's ssh does.
+# What started this shell: the sshd that goes once the caller's ssh does,
+# since bash and zsh, the hosts' login shells, run a lone command they
+# are given in place of themselves.
 caller=$PPID
 branch="$1"
 turn_wait_s="$2"
@@ -206,8 +213,8 @@ trap caller_gone PIPE
 # group is named for a stop as it starts, so a stop landing at any point
 # after reaches it, whatever bash's job table still holds.
 alone() {
-  case "$-:${BASHPID:-$$}" in
-    *m*:"$$") ;;
+  case "$-:$BASH_SUBSHELL" in
+    *m*:0) ;;
     *)
       echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
       return 1
@@ -285,13 +292,13 @@ take_turn() {
     held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
     echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
     # A second's try at a time, so a stop meanwhile, held until the
-    # command it lands in ends, lands within one.
-    local tries=0
-    while [ "$tried" -eq 1 ] && [ "$tries" -lt "$wait_s" ]; do
+    # command it lands in ends, lands within one; the wait is timed by
+    # the clock, so slow tries on a busy host don't stretch it.
+    local ends_at=$(( SECONDS + wait_s ))
+    while [ "$tried" -eq 1 ] && [ "$SECONDS" -lt "$ends_at" ]; do
       caller_here || caller_gone
       tried=0
       lock -w 1 || tried=$?
-      tries=$(( tries + 1 ))
     done
     if [ "$tried" -eq 1 ]; then
       held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
