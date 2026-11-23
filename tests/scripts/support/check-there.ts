@@ -487,13 +487,12 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					check(host, `${swap}\nturn_wait_s=1\ntake_turn\necho took`),
 				);
 				const waitedFor = Date.now() - asked;
+				// Read before the holder ends, which takes its line with it.
+				const swapped = lstatSync(join(host, "lock.holder")).isFIFO();
 				holder.stdin?.end();
 				await ended(holder);
 				expect(waiter.code, waiter.err).toBe(75);
-				expect(
-					lstatSync(join(host, "lock.holder")).isFIFO(),
-					"the swap was made",
-				).toBe(true);
+				expect(swapped, "the swap was made").toBe(true);
 				// Its limit, the second more it promises and a second's read,
 				// with room for a slow start, and far short of a held open.
 				expect(waitedFor, "gave up on time").toBeLessThan(7_000);
