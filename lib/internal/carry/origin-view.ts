@@ -22,9 +22,14 @@
  * a tree with no origin/main would bundle all of its trunk.
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Exec, ExecResult } from "../../core/exec/index.ts";
+import {
+	callSignal,
+	type Exec,
+	type ExecResult,
+	withCallSignal,
+} from "../../core/exec/index.ts";
 
 /** git run in one tree, as arrive hears it. */
 export interface ViewGit {
@@ -273,37 +278,14 @@ async function refsOf(
 }
 
 /**
- * git as `sh` runs it in the tree at `path`: its input from `file`, and,
- * where `seconds` is over 0, its whole process group stopped once it has
- * run that long, with `file.stopped` left to say so. The watch runs
- * apart from what exec hears, so it never holds exec's pipes open.
+ * git run in the tree at `path`, through `exec`. A call `within` a time
+ * runs under a signal that fires then, as well as its call's own, which
+ * exec stops the command's whole process group on: a remote helper or
+ * ssh git started goes with it.
  */
-const THROUGH = `p=$1 f=$2 t=$3
-shift 3
-set -m
-git -C "$p" "$@" <"$f" &
-g=$!
-set +m
-w=
-if [ "$t" -gt 0 ]; then
-	(
-		trap 'kill "$s" 2>/dev/null; exit 0' TERM
-		sleep "$t" &
-		s=$!
-		wait "$s" && : >"$f.stopped" && kill -TERM -"$g"
-	) >/dev/null 2>&1 &
-	w=$!
-fi
-wait "$g"
-c=$?
-if [ -n "$w" ]; then kill "$w" 2>/dev/null; fi
-exit "$c"`;
-
-/** git run in the tree at `path`, through `exec`. */
 export function gitIn(exec: Exec, path: string): ViewGit {
 	const run = (...args: string[]) => exec("git", ["-C", path, ...args]);
-	const through = async (
-		seconds: number,
+	const fed = async (
 		lines: readonly string[],
 		args: readonly string[],
 	): Promise<ExecResult> => {
@@ -313,24 +295,15 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 		try {
 			folder = mkdtempSync(join(path, ".git", "carry-in-"));
 			const file = join(folder, "in");
-			writeFileSync(file, lines.length === 0 ? "" : `${lines.join("\n")}\n`);
-			const done = await exec("sh", [
+			writeFileSync(file, `${lines.join("\n")}\n`);
+			return await exec("sh", [
 				"-c",
-				THROUGH,
+				'f=$1 p=$2; shift 2; exec git -C "$p" "$@" < "$f"',
 				"sh",
-				path,
 				file,
-				String(seconds),
+				path,
 				...args,
 			]);
-			return existsSync(`${file}.stopped`)
-				? {
-						...done,
-						code: done.code === 0 ? 1 : done.code,
-						stderr:
-							`git was stopped after ${seconds} seconds. ${done.stderr}`.trim(),
-					}
-				: done;
 		} catch (error) {
 			// Exec answers rather than throws, and so does this.
 			return { code: 1, stdout: "", stderr: String(error) };
@@ -347,12 +320,35 @@ export function gitIn(exec: Exec, path: string): ViewGit {
 			const result = await run(...args);
 			return result.code === 0 ? result.stdout.trim() : undefined;
 		},
-		fed: (lines, ...args) => through(0, lines, args),
+		fed: (lines, ...args) => fed(lines, args),
 		within: (seconds) => ({
-			run: (...args) => through(seconds, [], args),
-			fed: (lines, ...args) => through(seconds, lines, args),
+			run: (...args) => timed(seconds, () => run(...args)),
+			fed: (lines, ...args) => timed(seconds, () => fed(lines, args)),
 		}),
 	};
+}
+
+/**
+ * What `start` answers, its commands stopped once `seconds` pass, or
+ * when its call's own signal fires, whichever is first.
+ */
+async function timed(
+	seconds: number,
+	start: () => Promise<ExecResult>,
+): Promise<ExecResult> {
+	const clock = AbortSignal.timeout(seconds * 1000);
+	const own = callSignal();
+	const done = await withCallSignal(
+		own === undefined ? clock : AbortSignal.any([own, clock]),
+		start,
+	);
+	return clock.aborted && done.code !== 0
+		? {
+				...done,
+				stderr:
+					`git was stopped after ${seconds} seconds. ${done.stderr}`.trim(),
+			}
+		: done;
 }
 
 /** `<commit> <ref>` lines, tab or space apart, by name under `prefix`. */
