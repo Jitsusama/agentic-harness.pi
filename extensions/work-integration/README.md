@@ -403,9 +403,9 @@ the tree needs first, each commit with the remote branch it was on
 (with no bundle, the head itself). `patch` holds every change never
 committed, untracked files included, made from a copy of the tree's
 index so the tree's own index and files are never touched, and is
-absent when it was clean. A tree on no branch is passed over when
-it's clean at a commit a remote has, and refused otherwise; the
-rest still go. `fence` is how the session's commands were fenced
+absent when it was clean. A tree on no branch, or one gone from
+the machine, is passed over, its files left where they are; one
+git can't read is refused; the rest still go. `fence` is how the session's commands were fenced
 (its `PI_SANDBOX`), and `notes` are its quest's remembered facts,
 which live in each machine's own memory store; older harnesses
 leave both out. The quest's own done file holds trees only.

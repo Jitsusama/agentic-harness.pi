@@ -3,7 +3,13 @@
  * git: its trees as bundles and patches, its file, and the done file.
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
@@ -124,7 +130,7 @@ describe("carrying a session's work away", () => {
 		});
 	});
 
-	it("passes over a snapshot of a commit a remote has, with nothing in it to carry", async () => {
+	it("passes over a snapshot on no branch, to be cut again there", async () => {
 		const { home, tree, into } = await homeWithTree();
 		await git(tree, "checkout", "-q", "--detach");
 
@@ -142,15 +148,66 @@ describe("carrying a session's work away", () => {
 			{
 				kind: "skipped",
 				path: tree,
-				why: expect.stringContaining("nothing to carry"),
+				why: expect.stringContaining("on no branch"),
 			},
 		]);
 	});
 
-	it("refuses a tree on no branch with work in it, and still carries the rest", async () => {
+	// Records of trees removed by hand were refused, 16 of 18 at once.
+	it("passes over a tree gone from this machine", async () => {
+		const { origin, home, into } = await homeWithTree();
+		const gone = await cloneAt(origin, join(home, "src", "gone"));
+		rmSync(gone, { recursive: true, force: true });
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-gone", cwd: home },
+			trees: [gone],
+		});
+
+		expect(carried.trees).toEqual([
+			{
+				kind: "skipped",
+				path: gone,
+				why: expect.stringContaining("gone from this machine"),
+			},
+		]);
+	});
+
+	// Only symbolic-ref's 1 says a HEAD is on no branch; any other failure
+	// is git unable to read the tree, which is refused, not passed over.
+	it("refuses a folder git can't read as a tree, rather than passing it over", async () => {
+		const { home, into } = await homeWithTree();
+		const plain = folder(made, "plain");
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-plain", cwd: home },
+			trees: [plain],
+		});
+
+		expect(carried.trees).toEqual([
+			{
+				kind: "refused",
+				path: plain,
+				why: expect.stringContaining("git couldn't read its branch"),
+			},
+		]);
+	});
+
+	// Refusing these closed live sessions on 23 November: what was
+	// committed or changed in it stays here, where it was.
+	it("passes over a tree on no branch with work in it, and still carries the rest", async () => {
 		const { origin, home, tree, into } = await homeWithTree();
 		await git(tree, "checkout", "-q", "--detach");
-		await commit(tree, "lost.txt", "would be lost\n");
+		const kept = await commit(tree, "lost.txt", "would be lost\n");
+		writeFileSync(join(tree, "draft.txt"), "never added\n");
 		const other = await cloneAt(origin, join(home, "src", "other"));
 
 		const carried = await carryAway({
@@ -163,9 +220,17 @@ describe("carrying a session's work away", () => {
 		});
 
 		expect(carried.trees.map((one) => one.kind)).toEqual([
-			"refused",
+			"skipped",
 			"carried",
 		]);
+		expect(
+			await git(tree, "rev-parse", "HEAD"),
+			"its commit stays here, checked out",
+		).toBe(kept);
+		expect(
+			readFileSync(join(tree, "draft.txt"), "utf8"),
+			"and so does what it never added",
+		).toBe("never added\n");
 		expect(carried.handover.trees.map((one) => one.path)).toEqual([
 			"~/src/other",
 		]);

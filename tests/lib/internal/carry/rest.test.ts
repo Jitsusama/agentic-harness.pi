@@ -181,8 +181,7 @@ describe("carrying what a quest's steered sessions left", () => {
 
 	it("says which tree it refused, and that not everything went", async () => {
 		const { home, trees, into } = await homeWith("stuck");
-		await git(trees.stuck ?? "", "checkout", "-q", "--detach");
-		writeFileSync(join(trees.stuck ?? "", "work.txt"), "would be lost\n");
+		await git(trees.stuck ?? "", "remote", "remove", "origin");
 
 		const { whole, said } = await carry(
 			home,
