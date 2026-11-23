@@ -23,6 +23,7 @@ import {
 	holderSteers,
 	steerWakes,
 	WAKING_STEERS,
+	wakeForCarriedIn,
 	wakeParked,
 	wakeSteered,
 	wakes,
@@ -198,6 +199,72 @@ describe("waking a parked peer", () => {
 		);
 		expect(woken).toEqual(["s-parked"]);
 		expect(asked).toEqual([["s-parked", "2-80ECO2-1-aaaa"]]);
+	});
+});
+
+describe("waking a parked peer for a message carried in", () => {
+	const here: Presence = {
+		...parked,
+		session: "s-here",
+		addresses: ["80ECO2"],
+		state: "listening",
+	};
+	const elsewhere: Presence = { ...here, machine: "equilibrius" };
+	const unread = () => undefined;
+
+	/** The sessions woken for the question, with the sender as given. */
+	function wokenFor(
+		sender: Presence | undefined,
+		handed: (addresses: readonly string[]) => string | undefined = unread,
+	): [string, string][] {
+		const asked: [string, string][] = [];
+		wakeForCarriedIn(
+			message(),
+			sender ? [parked, sender] : [parked],
+			nothing,
+			(session) => session === "s-parked",
+			(session, id) => asked.push([session, id]),
+			handed,
+		);
+		return asked;
+	}
+
+	it("wakes it for a question from a session on another machine", () => {
+		expect(wokenFor(elsewhere)).toEqual([["s-parked", "2-80ECO2-1-aaaa"]]);
+	});
+
+	it("wakes it for a question from a sender this machine doesn't know", () => {
+		expect(wokenFor(undefined)).toEqual([["s-parked", "2-80ECO2-1-aaaa"]]);
+	});
+
+	it("leaves a question from this machine to its sender, who woke it already", () => {
+		expect(wokenFor(here)).toEqual([]);
+	});
+
+	it("passes over a peer already handed the message, or one after it", () => {
+		for (const last of ["2-80ECO2-1-aaaa", "3-WCJQSG-1-bbbb"]) {
+			const handed = (addresses: readonly string[]) =>
+				addresses.includes("85PKB2") ? last : undefined;
+			expect(wokenFor(elsewhere, handed), last).toEqual([]);
+		}
+		const before = (addresses: readonly string[]) =>
+			addresses.includes("85PKB2") ? "1-WCJQSG-1-cccc" : undefined;
+		expect(wokenFor(elsewhere, before)).toEqual([
+			["s-parked", "2-80ECO2-1-aaaa"],
+		]);
+	});
+
+	it("lets an fyi from another machine wait, as its sender's would", () => {
+		const asked: string[] = [];
+		wakeForCarriedIn(
+			message({ intent: "fyi" }),
+			[parked, elsewhere],
+			nothing,
+			() => true,
+			(session) => asked.push(session),
+			unread,
+		);
+		expect(asked).toEqual([]);
 	});
 });
 

@@ -192,6 +192,47 @@ export function wakeParked(
 	return woken;
 }
 
+/**
+ * Wake, as its sender would, every parked peer a message carried in from
+ * another machine gives a turn; answers the sessions asked for.
+ *
+ * Only a sender wakes a parked peer, and only through its own machine's
+ * markers, so a message a node carries in from another machine woke
+ * nobody: on 23 Nov 2026 a question from optimus sat ten minutes in a
+ * parked Mac session's folder, and its holder started it within 8 s once
+ * its wake file was written. So a running peer that hears a message whose
+ * sender is on another machine, or isn't known here, wakes for it. One
+ * sent from this machine is left to its sender, who woke for it already.
+ * A peer already handed the message is passed over, so a message a
+ * session read before it parked never starts it again.
+ */
+export function wakeForCarriedIn(
+	message: Message,
+	everyone: readonly Presence[],
+	read: Reader,
+	isParked: (session: string) => boolean,
+	askWake: (session: string, messageId: string) => void,
+	handed: (addresses: readonly string[]) => string | undefined,
+): string[] {
+	const sender = everyone.find((one) => one.addresses.includes(message.from));
+	if (sender !== undefined && sender.machine === undefined) return [];
+	const unhanded = new Set(
+		everyone
+			.filter((one) => {
+				const last = handed(one.addresses);
+				return last === undefined || last < message.id;
+			})
+			.map((one) => one.session),
+	);
+	return wakeParked(
+		message,
+		everyone,
+		read,
+		(session) => unhanded.has(session) && isParked(session),
+		askWake,
+	);
+}
+
 /** A steer file's ending once it is whole in its inbox. */
 const READY = ".json";
 

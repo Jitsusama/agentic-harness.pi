@@ -34,7 +34,7 @@ import {
 } from "../../../lib/mesh/message.ts";
 import { nodeSocket, servedAt } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
-import { wakeSteered } from "../../../lib/mesh/parked.ts";
+import { wakeForCarriedIn, wakeSteered } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import {
 	readsAsReceptor,
@@ -247,6 +247,9 @@ export function createHearing(m: MeshState, f: Handing) {
 			});
 		}
 		if (drops.length > 0) f.handedOver(drops.map(([message]) => message));
+		// Heard as it lands, a message from another machine wakes whoever its
+		// sender couldn't; a catch-up's were heard by peers running then.
+		if (!starting) wakeForElsewhere(messages);
 		if (messages.length === 0 || !m.ctx) return;
 		m.peer.refresh();
 		identity();
@@ -554,6 +557,26 @@ export function createHearing(m: MeshState, f: Handing) {
 		// A parked peer told to close or carry is started again to do it.
 		if (m.paths.steer !== undefined) {
 			await wakeSteered(everyone, m.paths.steer, isParked, askWake);
+		}
+	};
+
+	/** Wakes the parked peers here that messages carried in give a turn. */
+	const wakeForElsewhere = (messages: readonly Message[]) => {
+		if (messages.length === 0) return;
+		try {
+			const everyone = m.presences.all();
+			for (const message of messages) {
+				wakeForCarriedIn(
+					message,
+					everyone,
+					(id) => m.transport.read(id),
+					isParked,
+					askWake,
+					(addresses) => m.transport.lastRead(addresses),
+				);
+			}
+		} catch {
+			// Unwoken, a parked peer reads them at its next start all the same.
 		}
 	};
 
