@@ -307,3 +307,33 @@ it("waits out a host's refusal under a move taken as it asked, saying nothing", 
 	await until("it asks again once the move lets go", () => asked.length === 2);
 	await until("it lands", () => landings.has("a"));
 });
+
+// A runtime logs each reason it waits once, so a later failure the
+// follower waits out under a move, saying something else, would go
+// unlogged (5BACCAC3's F161 on #2029).
+it("logs each different failure it waits out under a move", async () => {
+	const landed = runner;
+	const whys = ["a move to background waits", "the host is draining"];
+	runner = async () => {
+		holdForMove("a", "background");
+		throw new Error(whys[asked.length - 1] ?? "the host refused");
+	};
+	const a = await start("a");
+	try {
+		await land("feat: something to try");
+		await until("the host refuses", () => asked.length === 1);
+		letMoveGo("a");
+		a.follower?.consider(true);
+		await until("it refuses again", () => asked.length === 2);
+		await quietFor(QUIET_MS, 4);
+		expect(a.notices, "nothing is said").toEqual([]);
+		for (const why of whys) {
+			expect(a.entries, `${why} is kept in the log`).toContainEqual(
+				expect.objectContaining({ reason: MOVE_TOOK_HOSTS, why }),
+			);
+		}
+	} finally {
+		runner = landed;
+		letMoveGo("a");
+	}
+});

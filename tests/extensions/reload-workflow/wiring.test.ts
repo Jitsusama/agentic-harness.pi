@@ -424,6 +424,7 @@ describe("the agent asking for a reload", LANDS, () => {
 			const slot = reloadSlot();
 			slot.request = { reason: "the install moved", by: "self" };
 			slot.dispatched = true;
+			slot.dispatchedAt = Date.now();
 			const said = now.notices.length;
 			await now.command("reload", next, false, moveTaken);
 
@@ -433,6 +434,10 @@ describe("the agent asking for a reload", LANDS, () => {
 				"taken back for the follower to ask again",
 			).toBeUndefined();
 			expect(reloadSlot().dispatched).toBe(false);
+			expect(
+				reloadSlot().dispatchedAt,
+				"its dispatch forgotten, so no stuck dispatch is read",
+			).toBeUndefined();
 			expect(now.notices.slice(said), "nothing is said").toEqual([]);
 			expect(now.hidden, "nor told the agent").toEqual([]);
 		});

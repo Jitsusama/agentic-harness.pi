@@ -29,7 +29,6 @@ import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	holdForMove,
 	letMoveGo,
-	moveWaiting,
 } from "../../../lib/internal/session/move-waiting.ts";
 import {
 	isRestartAsk,
