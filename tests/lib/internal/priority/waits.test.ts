@@ -296,6 +296,21 @@ describe("why each job waits", () => {
 			const vm = [older("vm", 9_000, { kind: "vm-test" })];
 			expect(waitsWithRoom(vm, moving), "memory still holds a VM").toBe(false);
 		});
+
+		it("shuts the lane during a call, its one heavy job waiting on the call", () => {
+			const jobs = [older("build", 9_000)];
+			const calling = { ...moving, onCall: true };
+
+			expect(nextTurn(jobs, moving, NOW)?.id, "the lane, off the call").toBe(
+				"build",
+			);
+			expect(nextTurn(jobs, calling, NOW), "the lane, on a call").toBeUndefined();
+			expect(waitReasons(jobs, calling, NOW).get("build")).toBe("call");
+			expect(roomLeft([], calling, NOW)).toEqual({ vms: 0, builds: 0 });
+			expect(waitsWithRoom(jobs, calling), "a lane wait for the call").toBe(
+				false,
+			);
+		});
 	});
 
 	// 23 November: Joel's 09:39 call was choppy at a load of 119 to 127,

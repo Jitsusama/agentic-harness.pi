@@ -102,6 +102,21 @@ describe("the machine's queue folder", () => {
 		expect(record().jobs[0]?.state).toBe("running");
 	});
 
+	it("writes a call's start and end at once, though nothing else changed", () => {
+		// TIGHT gives no room either way, so only quiet tells the two apart.
+		folder().keep(TIGHT, NOW, () => undefined);
+		expect(record().room, "no room off the call either").toEqual({
+			vms: 0,
+			builds: 0,
+		});
+		folder().keep({ ...TIGHT, onCall: true }, NOW + 1_000, () => undefined);
+		expect(record().quiet, "the call's start, before the heartbeat").toEqual({
+			call: true,
+		});
+		folder().keep(TIGHT, NOW + 2_000, () => undefined);
+		expect(record().quiet, "the call's end, before the heartbeat").toBeNull();
+	});
+
 	it("says how fast the uplink sends, leaving it to the heartbeat", () => {
 		// The shell paces sessions told to carry on by it, so it's said;
 		// it changes in every reading, as pressure does, so it waits.

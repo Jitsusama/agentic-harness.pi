@@ -30,7 +30,10 @@ export type CallProbe = () => Promise<boolean | undefined>;
 /**
  * What a call probe says by its exit: true for 0, false for 1, and
  * nothing for any other exit, a program that can't start, or one that
- * outlasts `timeoutMs`.
+ * outlasts `timeoutMs`. The answer comes by its own timer, not the
+ * probe's exit, and the probe is killed outright: one that ignored a
+ * polite stop would otherwise hold every keep and heavy command
+ * waiting on it.
  */
 export function probeCall(
 	program = "a-call-is-on",
@@ -38,12 +41,19 @@ export function probeCall(
 	timeoutMs = CALL_PROBE_MS,
 ): Promise<boolean | undefined> {
 	return new Promise((resolve) => {
-		const child = withPi(() =>
-			spawn(program, args, { stdio: "ignore", timeout: timeoutMs }),
-		);
-		child.once("error", () => resolve(undefined));
+		const child = withPi(() => spawn(program, args, { stdio: "ignore" }));
+		const late = setTimeout(() => {
+			child.kill("SIGKILL");
+			resolve(undefined);
+		}, timeoutMs);
+		late.unref();
+		const answer = (onCall: boolean | undefined) => {
+			clearTimeout(late);
+			resolve(onCall);
+		};
+		child.once("error", () => answer(undefined));
 		child.once("exit", (code) =>
-			resolve(code === 0 ? true : code === 1 ? false : undefined),
+			answer(code === 0 ? true : code === 1 ? false : undefined),
 		);
 	});
 }
@@ -52,11 +62,12 @@ export function probeCall(
  * Reads the call through `probe`, answering from the last answer while
  * it is younger than {@link CALL_READ_MS} and sharing one probe in
  * flight among the keeps asking meanwhile. A probe that refuses reads as
- * not knowing.
+ * not knowing. Its clock is monotonic, so a wall clock stepped back
+ * can't keep an old answer standing.
  */
 export function callReader(
 	probe: CallProbe = () => probeCall(),
-	clock: () => number = Date.now,
+	clock: () => number = () => performance.now(),
 ): CallProbe {
 	let last: { readonly at: number; readonly onCall?: boolean } | undefined;
 	let reading: Promise<boolean | undefined> | undefined;

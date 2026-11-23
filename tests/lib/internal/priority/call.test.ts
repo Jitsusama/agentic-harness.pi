@@ -18,7 +18,45 @@ describe("whether the person is on a call", () => {
 			"no probe",
 		).toBeUndefined();
 		// The probe outlasts its 50 ms and is stopped, never answering.
-		expect(await probeCall("sh", ["-c", "sleep 5"], 50)).toBeUndefined();
+		expect(
+			await probeCall("sh", ["-c", "sleep 5"], 50),
+			"a probe past its time",
+		).toBeUndefined();
+	});
+
+	it("stops waiting at its time for a probe that won't stop when asked", async () => {
+		const started = performance.now();
+		// A probe that ignores SIGTERM and would say a call is on at 5 s.
+		const answer = await probeCall(
+			"sh",
+			["-c", "trap '' TERM; sleep 5; exit 0"],
+			200,
+		);
+		const tookMs = performance.now() - started;
+
+		expect(answer, "a probe past its time says nothing").toBeUndefined();
+		expect(tookMs, "answered near its time, not at the probe's end").toBeLessThan(
+			2_000,
+		);
+	});
+
+	it("ages its answer by a clock that never steps back", async () => {
+		let asked = 0;
+		const read = callReader(() => {
+			asked += 1;
+			return Promise.resolve(true);
+		});
+		const wall = Date.now;
+		try {
+			await read();
+			// The wall clock steps an hour forward: the answer is no older.
+			Date.now = () => wall() + 3_600_000;
+			await read();
+		} finally {
+			Date.now = wall;
+		}
+
+		expect(asked, "a step of the wall clock doesn't age the answer").toBe(1);
 	});
 
 	it("asks again only once its last answer is old, sharing one probe meanwhile", async () => {
