@@ -32,7 +32,6 @@ import {
 	ownJobRecord,
 	RECORD_SPARED_FOR_MS,
 	removeKept,
-	takeRunningRecordsBack,
 } from "../../../../lib/internal/shell/kept.ts";
 import {
 	disownKeptJob,
@@ -272,6 +271,18 @@ function labelsIn(where: string): string[] {
 /** What the kept folder holds, nothing staged left beside a record. */
 function listed(where: string): string[] {
 	return readdirSync(where);
+}
+
+/**
+ * Run what the process runs as it exits, which a test can't have it do,
+ * once it is there: one hook however many removals asked for it.
+ */
+function exiting(): void {
+	const hooks = process
+		.listeners("exit")
+		.filter((hook) => hook.name === "takeRecordsBackAtExit");
+	expect(hooks, "one hook as the process exits").toHaveLength(1);
+	for (const hook of hooks) hook(0);
 }
 
 /** A call kept in `where`, its shell's pid written, recorded for `session`. */
@@ -713,15 +724,59 @@ describe("a call's own record, taken back as the call ends", () => {
 		await vi.waitFor(() =>
 			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
 		);
-		expect(
-			process.listeners("exit"),
-			"taken back as the process exits",
-		).toContain(takeRunningRecordsBack);
-		takeRunningRecordsBack();
+		exiting();
 		expect(
 			existsSync(`${job.work.keep}.job`),
 			"its record, taken back before the disk got to the removal",
 		).toBe(false);
+		disk.go();
+		await going;
+		expect(
+			listed(where).filter((name) => name.includes(".job")),
+			"no record, nor its aside",
+		).toEqual([]);
+	});
+
+	// A call whose wait ran out has its files go at once, the removal still
+	// waiting on the disk: the likeliest way a pi exits mid-removal.
+	it("is taken back as the process exits once its wait ran out and its files began to go", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
+		);
+		const removing = removeKept(job.work.keep);
+		exiting();
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"its record, taken back before the disk got to either",
+		).toBe(false);
+		disk.go();
+		await Promise.all([going, removing]);
+	});
+
+	// A rollover's recorder can write the record again while the removal
+	// waits on a slow disk; the removal takes each record it finds in turn,
+	// so a close unlinking it on the thread would only wait on that disk.
+	it("leaves a record written again mid-removal to that removal at a session's close", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold();
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${job.work.keep}.job`), "the first removal").toBe(
+				false,
+			),
+		);
+		recordKeptJob(job);
+		disk.forget();
+		forgetKeptJob(job.work.keep);
+		expect(
+			disk.of(job.work.keep).asked,
+			"nothing asked of the disk on the thread",
+		).toEqual([]);
 		disk.go();
 		await going;
 		expect(
@@ -739,7 +794,7 @@ describe("a call's own record, taken back as the call ends", () => {
 			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
 		);
 		disownKeptJob(job.work.keep);
-		takeRunningRecordsBack();
+		exiting();
 		expect(existsSync(`${job.work.keep}.job`), "its record, the taker's").toBe(
 			true,
 		);

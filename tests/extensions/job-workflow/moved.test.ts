@@ -7,9 +7,15 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createJobs,
@@ -39,9 +45,10 @@ import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
 /**
  * How long a stopped call's shell may take to end: a KILL to its group
- * ends a sleep at once, so this only bounds a stop that regressed.
+ * ends a sleep at once, so this only bounds a stop that regressed, well
+ * inside the test's own limit, so the stop's own check says so.
  */
-const STOPS_IN_MS = 5_000;
+const STOPS_IN_MS = 3_000;
 
 const made: string[] = [];
 afterEach(() => {
@@ -203,6 +210,7 @@ describe("carrying away", () => {
 			label: "sleep 30",
 			carry: { what: () => work, handed: () => disownKeptJob(work.keep) },
 		});
+		writeFileSync(`${work.keep}.carried`, "");
 		const carried = carryAway(
 			jobs,
 			{ waiting: () => [] },
@@ -212,13 +220,15 @@ describe("carrying away", () => {
 			5000,
 		);
 		// A pi quits straight after, and may exit before the disk gets to
-		// anything left to it.
+		// what it was left: its exit takes the marks back.
+		for (const hook of process.listeners("exit"))
+			if (hook.name === "takeRecordsBackAtExit") hook(0);
 		const marks = [".job", ".carried"].filter((mark) =>
 			existsSync(`${work.keep}${mark}`),
 		);
 		try {
 			expect(carried, "nothing carried").toBeUndefined();
-			expect(marks, "its marks, taken back as it returned").toEqual([]);
+			expect(marks, "its marks, taken back as pi exits").toEqual([]);
 			expect(
 				await Promise.race([
 					exited.then(() => "stopped"),
@@ -226,9 +236,13 @@ describe("carrying away", () => {
 				]),
 				"what it handed, stopped",
 			).toBe("stopped");
-			forgetKeptJob(work.keep);
 			await vi.waitFor(() =>
-				expect(existsSync(`${work.keep}.job`), "its record, gone").toBe(false),
+				expect(
+					readdirSync(dirname(work.keep)).filter((name) =>
+						name.startsWith(basename(work.keep)),
+					),
+					"its files, removed",
+				).toEqual([]),
 			);
 		} finally {
 			// A stop that regressed would leave its sleep running past the run.
