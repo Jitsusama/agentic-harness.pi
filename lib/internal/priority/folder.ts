@@ -417,12 +417,19 @@ export function queueFolder(
 		writing.add(written);
 	};
 
+	/** When the boot came, if the job was asked before it, which ended it. */
+	const cutOffAt = (job: Job): number | undefined => {
+		const booted = processes.bootedAt?.();
+		return booted !== undefined && Date.parse(job.since) < booted
+			? booted
+			: undefined;
+	};
+
 	const ended = (job: Job, now: number) => {
 		// Asked before the boot, it has ended, whatever its pid names now: a
 		// Mac's queue folder is its cache folder, which outlasts a reboot,
 		// and a pid comes back as another process after one.
-		const booted = processes.bootedAt?.();
-		if (booted !== undefined && Date.parse(job.since) < booted) return true;
+		if (cutOffAt(job) !== undefined) return true;
 		const shell = shellOf(job.id);
 		if (shell !== undefined) return !processes.isRunning(shell);
 		return (
@@ -667,7 +674,8 @@ export function queueFolder(
 					jobs()
 						.filter((job) => {
 							if (!ended(job, now)) return true;
-							remember(job, now);
+							// A job the boot cut off ended then, not when it was seen.
+							remember(job, cutOffAt(job) ?? now);
 							drop(job.id);
 							return false;
 						})

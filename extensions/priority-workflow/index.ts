@@ -289,9 +289,11 @@ function linuxMachine(own: string | undefined): Machine {
 	let floorsAt = Number.NEGATIVE_INFINITY;
 	const uplink = uplinkMeter();
 	return {
+		// No boot check: a Linux queue is in XDG_RUNTIME_DIR, which the
+		// reboot empties, and a wall clock stepped forward would move a boot
+		// worked out from uptime past jobs still running.
 		processes: {
 			isRunning,
-			bootedAt,
 			cgroupOf,
 			ownedPeakOf: (cgroup, shell) => ownedMemoryPeakOf(cgroup, shell),
 			commandsIn: (cgroup) => commandsIn(cgroup),

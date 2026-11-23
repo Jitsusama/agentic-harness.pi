@@ -1,5 +1,11 @@
 // Where a Mac's runtime folder is, and where its node's socket is found while the folder moves.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -9,7 +15,13 @@ type Node = typeof import("../../../lib/mesh/node.ts");
 type Address = typeof import("../../../host/service/address.ts");
 
 /** The folders getconf names on this pretend Mac, set once the test's folder exists. */
-const folders = vi.hoisted(() => ({ cache: "", temporary: "", failing: 0 }));
+const folders = vi.hoisted(() => ({
+	cache: "",
+	temporary: "",
+	failing: 0,
+	// The time limit each ask of getconf was given, in ms.
+	limits: [] as unknown[],
+}));
 
 vi.mock("node:os", async (actual) => ({
 	...(await actual<typeof import("node:os")>()),
@@ -21,8 +33,11 @@ vi.mock("node:child_process", async (actual) => {
 	return {
 		...real,
 		execFileSync: (...args: Parameters<typeof real.execFileSync>) => {
-			const [file, argv] = args;
+			const [file, argv, options] = args;
 			if (file !== "/usr/bin/getconf") return real.execFileSync(...args);
+			folders.limits.push(
+				options && "timeout" in options ? options.timeout : undefined,
+			);
 			if (folders.failing > 0) {
 				folders.failing -= 1;
 				throw new Error("spawnSync /usr/bin/getconf EAGAIN");
@@ -81,6 +96,14 @@ function serving(folder: string, realm: string): string {
 	return socket;
 }
 
+/** Pretend a node that served `realm` in `folder` ended a day ago, leaving its socket. */
+function leftBehind(folder: string, realm: string): string {
+	const socket = serving(folder, realm);
+	const dayAgo = new Date(Date.now() - 86_400_000);
+	utimesSync(socket, dayAgo, dayAgo);
+	return socket;
+}
+
 describe("a Mac's runtime folder", () => {
 	it("is the folder AGENTS_RUNTIME_DIR names, before XDG_RUNTIME_DIR and the cache folder", () => {
 		expect(
@@ -118,9 +141,13 @@ describe("a Mac's runtime folder", () => {
 		vi.resetModules();
 		const fresh = await import("../../../lib/internal/paths.ts");
 		folders.failing = 1;
+		folders.limits = [];
 
 		expect(fresh.runtimeDir(mac())).toBeUndefined();
 		expect(fresh.runtimeDir(mac())).toBe(folders.cache);
+		expect(folders.limits, "each ask is held to its time limit").toEqual([
+			2000, 2000,
+		]);
 	});
 });
 
@@ -142,6 +169,27 @@ describe("a Mac's node socket while the runtime folder moves", () => {
 		const moved = serving(folders.cache, "both");
 
 		expect(nodeSocket(mac({ MYCELIUM_REALM: "both" }))).toBe(moved);
+	});
+
+	it("is the temporary folder's when a node bound there after one left the cache folder's behind", () => {
+		// The cache folder outlasts a reboot, so a node that ended there
+		// leaves a socket nothing listens on.
+		leftBehind(folders.cache, "stale");
+		const live = serving(folders.temporary, "stale");
+
+		expect(nodeSocket(mac({ MYCELIUM_REALM: "stale" }))).toBe(live);
+	});
+
+	it("lists another realm from the socket bound later when both folders hold it", () => {
+		serving(folders.cache, "home");
+		leftBehind(folders.cache, "aside");
+		const live = serving(folders.temporary, "aside");
+
+		const listed = nodeSockets(mac({ MYCELIUM_REALM: "home" }));
+
+		expect(listed.filter((socket) => socket.endsWith("aside.sock"))).toEqual([
+			live,
+		]);
 	});
 
 	it("lists the other realms beside the one found in the temporary folder", () => {

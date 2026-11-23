@@ -182,7 +182,8 @@ function darwinFolder(name: string): string | undefined {
  * so the sockets with it. `XDG_RUNTIME_DIR` goes with the login, but a
  * Mac's cache folder outlasts a reboot, so what reads it sets aside what
  * came before the boot: the queue a job asked before it, a client a
- * socket nothing listens on. Nothing where none is known.
+ * node's socket bound before the one in the folder it moved from.
+ * Nothing where none is known.
  */
 export function runtimeDir(
 	env: NodeJS.ProcessEnv = process.env,

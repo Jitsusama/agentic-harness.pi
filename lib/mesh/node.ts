@@ -21,7 +21,7 @@
  * socket shares the same framing, patience and reading of the answer.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -869,8 +869,8 @@ export function machineNamesFrom(line: string): string[] | undefined {
 
 /**
  * The socket the machine's node serves, or nothing when no realm is
- * named. On a Mac whose node still serves from the folder the runtime
- * folder moved from, that one, while nothing is in the new folder yet.
+ * named. On a Mac whose node serves from the folder the runtime folder
+ * moved from, that one, when nothing in the new folder was bound later.
  */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,
@@ -881,9 +881,33 @@ export function nodeSocket(
 	if (!base) return undefined;
 	const socket = join(base, "mycelium", `${realm}.sock`);
 	const former = formerRuntimeDir(env);
-	if (!former || existsSync(socket)) return socket;
-	const kept = join(former, "mycelium", `${realm}.sock`);
-	return existsSync(kept) ? kept : socket;
+	if (!former) return socket;
+	return laterBound(socket, join(former, "mycelium", `${realm}.sock`));
+}
+
+/**
+ * Of a socket in the runtime folder and one in the folder it moved from,
+ * the one bound last. A bind makes a new file, so the older is one a
+ * node left behind when it ended: a Mac's cache folder outlasts a
+ * reboot, so one left there after a node ended must not hide a node
+ * serving in the temporary folder since. The runtime folder's on a tie,
+ * or when neither is there.
+ */
+function laterBound(socket: string, kept: string): string {
+	const keptAt = boundAt(kept);
+	if (keptAt === undefined) return socket;
+	const at = boundAt(socket);
+	return at === undefined || keptAt > at ? kept : socket;
+}
+
+/** When a socket's file was made, or nothing when there is none. */
+function boundAt(socket: string): number | undefined {
+	try {
+		return statSync(socket).mtimeMs;
+	} catch {
+		// No file: no node bound it, so it is never the later.
+		return undefined;
+	}
 }
 
 /**
@@ -896,16 +920,21 @@ export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
 	const own = nodeSocket(env);
 	if (own === undefined) return [];
 	// A realm's node serves in the runtime folder, or on a Mac still in
-	// the one it moved from: each realm is read from the first holding it.
+	// the one it moved from: a realm in both is read from the socket
+	// bound later, as the own realm's is.
 	const base = runtimeDir(env);
 	const former = formerRuntimeDir(env);
-	const folders = [base, former].flatMap((dir) =>
-		dir ? [join(dir, "mycelium")] : [],
-	);
 	const byName = new Map<string, string>([[basename(own), own]]);
-	for (const folder of folders)
-		for (const name of socketsIn(folder))
-			if (!byName.has(name)) byName.set(name, join(folder, name));
+	const moved = base ? join(base, "mycelium") : undefined;
+	for (const name of moved ? socketsIn(moved) : [])
+		if (moved && !byName.has(name)) byName.set(name, join(moved, name));
+	const left = former ? join(former, "mycelium") : undefined;
+	for (const name of left ? socketsIn(left) : []) {
+		if (!left || name === basename(own)) continue;
+		const kept = join(left, name);
+		const seen = byName.get(name);
+		byName.set(name, seen === undefined ? kept : laterBound(seen, kept));
+	}
 	const others = [...byName.entries()]
 		.filter(([name]) => name !== basename(own))
 		.sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
