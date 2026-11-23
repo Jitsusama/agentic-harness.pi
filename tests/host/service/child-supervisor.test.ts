@@ -7,7 +7,7 @@
  * claims and leavings already have files of their own.
  */
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { childSupervisor } from "../../../host/service/child-supervisor.ts";
@@ -472,6 +472,79 @@ describe("a resumed conversation", () => {
 		expect(asks, "its CPU asked through the failures").toBeGreaterThan(3);
 		// Asked once a second, five times before it listens.
 	}, 15_000);
+
+	it("gives up a wake's resume waiting on a starved child as soon as asked, stopping that child", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(200, 20);
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow(
+			`The resume of ${a} was given up before its child had it`,
+		);
+		await vi.waitFor(() =>
+			expect(said.join("\n")).toContain("starved rather than stuck"),
+		);
+		const asked = Date.now();
+
+		supervisor.giveUp(a);
+
+		await outcome;
+		expect(Date.now() - asked, "at once, not at the ceiling").toBeLessThan(
+			1_000,
+		);
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
+		expect(routes.listed()).toEqual([]);
+	}, 15_000);
+
+	it("gives up a wake's resume whose starved child hasn't answered its watch, stopping that child", async () => {
+		superviseAgain({ clocks: { starvedWithinMs: 10_000 } });
+		units.next = { silent: true };
+		units.spent = growing(200, 20);
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow("was given up");
+		// Its answer is judged a second into its watch, past its 500 ms.
+		await vi.waitFor(
+			() => expect(said.join("\n")).toContain("hasn't answered its watch"),
+			{ timeout: 5_000 },
+		);
+
+		supervisor.giveUp(a);
+
+		await outcome;
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
+	}, 15_000);
+
+	it("starts no child for a resume given up while it waits on an adopt", async () => {
+		// A slot an earlier host left naming it, whose take-up waits on systemd.
+		await writeFile(
+			slotOf(folder, key, a).file,
+			JSON.stringify({ session: entry(a) }),
+		);
+		const answering = deferred();
+		units.goneAnswers = answering.promise;
+		const adopting = supervisor.adopt();
+		const resumed = supervisor.resume(entry(a), true);
+		const outcome = expect(resumed).rejects.toThrow("was given up");
+
+		supervisor.giveUp(a);
+		answering.settle();
+
+		await outcome;
+		await adopting;
+		expect(units.started, "no child started").toEqual([]);
+	});
+
+	it("gives up nothing of a conversation whose child has it, nor of one not starting", async () => {
+		supervisor.giveUp(a);
+		await supervisor.resume(entry(a));
+
+		supervisor.giveUp(a);
+
+		expect(routes.routeOf(a), "still routed to its child").toBeDefined();
+		expect(units.stopped).toEqual([]);
+	});
 
 	it("stops waiting on a starved child whose unit ends", async () => {
 		superviseAgain({
