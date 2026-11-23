@@ -377,6 +377,32 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 			TEST_MS,
 		);
 
+		// A try that returns at once, as on a host whose lock answers fast,
+		// would end a wait counted in tries long before its limit.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+			"times its wait by the clock, however quickly each try comes back",
+			async () => {
+				const host = hostWith(tools);
+				const asked = Date.now();
+				const waiter = await ended(
+					check(
+						host,
+						"lock() { return 1; }\nturn_wait_s=2\ntake_turn\necho took",
+					),
+				);
+				// The clock is whole seconds, so a two-second wait runs over one.
+				expect(
+					Date.now() - asked,
+					"it waited by the clock, not by its tries",
+				).toBeGreaterThanOrEqual(1_000);
+				expect(waiter).toMatchObject({ code: 75, out: "" });
+				expect(waiter.err, "giving up as its limit passed").toMatch(
+					/gave up after 2 s waiting/,
+				);
+			},
+			TEST_MS,
+		);
+
 		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
 			"lets the next check in once the first ends, whatever it left running outside its work",
 			async () => {
@@ -610,16 +636,20 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				// what the work left. A wait ends by the clock, in whole seconds,
 				// so never sooner than its length nor a second past it: what was
 				// left ends 3.5 to 4.5 s after the stop, where six of its own
-				// would end 6 s or more after it.
+				// would end 6 s or more after it, and a kill at once at none.
 				await new Promise((resolve) => setTimeout(resolve, 2_500));
 				const stopAt = Date.now();
 				holder.kill("SIGTERM");
 				const stop = await stopped;
 				expect(stop.code, "it ends as signalled").toBe(143);
+				const tookMs = Date.now() - stopAt;
 				expect(
-					Date.now() - stopAt,
+					tookMs,
 					"killing it with what was left of alone's six seconds, not six more",
-				).toBeLessThan(5_250);
+				).toBeLessThan(5_900);
+				expect(tookMs, "and not before it ran out").toBeGreaterThanOrEqual(
+					3_000,
+				);
 				expect(
 					await goneWithin(left),
 					"what its work left, ended before its turn passed",
@@ -631,6 +661,39 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					stop.err.match(/what it ran outlived 6 s, so it was killed/g),
 					"and, once, what outlived its wait",
 				).toHaveLength(1);
+			},
+			TEST_MS,
+		);
+
+		// A stop landing once alone has said it killed, its KILL not yet
+		// sent, would otherwise send a TERM again and wait out the six
+		// seconds alone gave the KILL. The window is too short to land a
+		// signal in, so the stop's own ending is run from the state alone
+		// leaves there.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+			"goes on with its KILL when a stop lands once alone has killed",
+			async () => {
+				const host = hostWith(tools);
+				const stopping = check(
+					host,
+					[
+						"( trap '' TERM; sleep 30 ) >/dev/null 2>&1 <&- &",
+						"group=$!",
+						'echo "$group"',
+						"stop_wait_s=10 killed=1 deadline=$(( SECONDS + 6 ))",
+						'end_groups "$group"',
+						"echo ended",
+					].join("\n"),
+				);
+				const [group = 0] = await saidPids(stopping, 1);
+				const asked = Date.now();
+				const stop = await ended(stopping);
+				expect(stop.code, stop.err).toBe(0);
+				expect(Date.now() - asked, "killed at once").toBeLessThan(3_000);
+				expect(stop.err, "saying nothing more of the kill").not.toMatch(
+					/outlived/,
+				);
+				expect(await goneWithin(group), "what was left, killed").toBe(true);
 			},
 			TEST_MS,
 		);
@@ -664,6 +727,12 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				);
 				expect(inner.code, "one asked from a subshell fails too").toBe(1);
 				expect(inner.err, "saying why").toMatch(/no process group of its own/);
+				expect(existsSync(join(host, "ran")), "having run nothing").toBe(false);
+				// A command substitution is a subshell too.
+				const substituted = await ended(
+					check(host, 'take_turn\nsaid=$(alone touch "$HOME/ran")\necho ran'),
+				);
+				expect(substituted.code, "one asked from $( ) fails too").toBe(1);
 				expect(existsSync(join(host, "ran")), "having run nothing").toBe(false);
 				const next = await ended(check(host, "lock -n"));
 				expect(next.code, "the next check gets its turn").toBe(0);
@@ -821,6 +890,43 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				expect(await goneWithin(work), "its work stopped with it").toBe(true);
 				const after = await ended(check(host, "lock -n"));
 				expect(after.code, "the next check gets its turn").toBe(0);
+			},
+			TEST_MS,
+		);
+
+		// A write of its own finding no reader, with no stop under way, would
+		// end its shell by SIGPIPE with its work running on.
+		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+			"stops as a hang-up when a write of its own finds its reader gone",
+			async () => {
+				const host = hostWith(tools);
+				const holder = check(host, "take_turn\necho held\nread -r _ || true");
+				await says(holder, "held");
+				const waiter = check(
+					host,
+					"read -r _ || true\nturn_wait_s=30\ntake_turn\necho took",
+				);
+				const sofar = heard(waiter);
+				const stopped = new Promise<{
+					code: number | null;
+					signal: NodeJS.Signals | null;
+				}>((resolve) =>
+					waiter.once("exit", (code, signal) => resolve({ code, signal })),
+				);
+				// Its stderr's reader goes before it says it is waiting its turn.
+				waiter.stderr?.destroy();
+				waiter.stdin?.end("go\n");
+				expect(await stopped, "it ends as a hang-up, not by SIGPIPE").toEqual({
+					code: 129,
+					signal: null,
+				});
+				expect(sofar(), "taking no turn").not.toContain("took");
+				expect(
+					readFileSync(join(host, "lock.holder"), "utf8"),
+					"the holder's line stays its own",
+				).toContain(`pid ${holder.pid}`);
+				holder.stdin?.end();
+				await ended(holder);
 			},
 			TEST_MS,
 		);
@@ -1027,12 +1133,18 @@ function localHalf(): void {
 					const branch = "jitsusama/fix-1.2_b+c@d";
 					const sent = sendFrom([branch, "there"], "60");
 					expect(sent.code, sent.err).toBe(0);
-					expect(sent.sent?.slice(0, 3)).toEqual([
+					// A connection of its own: a shared master's sshd would outlive
+					// its ssh, and the check would never see its caller go.
+					expect(sent.sent?.slice(0, -1)).toEqual([
 						"-o",
 						"BatchMode=yes",
+						"-o",
+						"ControlMaster=no",
+						"-o",
+						"ControlPath=none",
 						"there",
 					]);
-					const line = sent.sent?.[3] ?? "";
+					const line = sent.sent?.at(-1) ?? "";
 					expect(line, "the host's command").toMatch(/^bash -s -- .* 60$/);
 					// The host's shell reads the line again: its words, one a line.
 					const words = spawnSync(
@@ -1065,7 +1177,7 @@ function localHalf(): void {
 		it("waits its default when the wait is set empty", () => {
 			const sent = sendFrom(["feature", "there"], "");
 			expect(sent.code, sent.err).toBe(0);
-			expect(sent.sent?.[3], "ninety minutes").toMatch(/ 5400$/);
+			expect(sent.sent?.at(-1), "ninety minutes").toMatch(/ 5400$/);
 		});
 
 		// A host but penelope runs the check as an account holding Joel's
@@ -1091,7 +1203,7 @@ function localHalf(): void {
 			(args) => {
 				const sent = sendFrom(args, undefined, "a-session");
 				expect(sent.code, sent.err).toBe(0);
-				expect(sent.sent?.[2], "to penelope").toBe("penelope");
+				expect(sent.sent?.at(-2), "to penelope").toBe("penelope");
 			},
 		);
 
@@ -1129,8 +1241,8 @@ function localHalf(): void {
 			(host) => {
 				const sent = sendFrom(["feature", host], "9999999");
 				expect(sent.code, sent.err).toBe(0);
-				expect(sent.sent?.[2], "the host, as named").toBe(host);
-				expect(sent.sent?.[3], "with the longest wait there is").toMatch(
+				expect(sent.sent?.at(-2), "the host, as named").toBe(host);
+				expect(sent.sent?.at(-1), "with the longest wait there is").toMatch(
 					/ 9999999$/,
 				);
 			},
@@ -1186,8 +1298,9 @@ function workThere(): void {
 			).toEqual(['  "$@" 9>&- </dev/null &']);
 		});
 
-		// A name a stop reads with a default, left out of that line, would be
-		// read as whatever the host's shell exports.
+		// A name a stop reads, left out of that line, would be read as
+		// whatever the host's shell exports; only its own locals and what
+		// bash sets itself are its own.
 		it("clears every name its stops read before it sets them", () => {
 			const text = there();
 			const cleared = CLEARED.split(" ").map((word) =>
@@ -1196,9 +1309,12 @@ function workThere(): void {
 			const read = STOPPING.flatMap((name) => {
 				const body = defined(text, name);
 				expect(body, `check-there.sh defines ${name}`).toBeDefined();
-				return [...(body ?? "").matchAll(/\$\{([a-z_]\w*):-/g)].map(
-					(found) => found[1],
-				);
+				const locals = [...(body ?? "").matchAll(/^\s*local ([^\n]*)$/gm)]
+					.flatMap((found) => (found[1] ?? "").split(/\s+/))
+					.map((word) => word.replace(/[=].*$/, ""));
+				return [...(body ?? "").matchAll(/\$\{?([A-Za-z_]\w*)/g)]
+					.map((found) => found[1] ?? "")
+					.filter((read) => read !== "SECONDS" && !locals.includes(read));
 			});
 			expect(read.length, "names its stops read").toBeGreaterThan(0);
 			expect(
