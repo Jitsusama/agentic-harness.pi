@@ -100,13 +100,18 @@ lockfile, the vitest config or a setup file reaches every test, so it
 runs them all.
 
 A test that runs a shell script reaches it by path, which the graph
-doesn't follow, so it also imports each `.sh` it runs
+doesn't follow, so it also imports each script it runs
 (`import "../../scripts/merge-gate.sh"`); the loader in
 `tests/setup/scripts-as-text.ts` makes that import the script's text,
-and imports in turn each script it sources from beside it. A package
-rule, `tests-import-the-scripts-they-run`, fails a test that names a
-script on its own in a string without importing it, and any shipped
-file that imports one, since pi would read it as JavaScript.
+for a `.sh`, a `.bash` or a file with no ending that opens with `#!`,
+and imports in turn each script it sources or runs from beside it. A
+package rule, `tests-import-the-scripts-they-run`, fails a test that
+names a script on its own in a string without importing it, a script
+shipped beside the package's code that no test imports, a source line
+the loader can't follow, and any shipped file that imports a script,
+since pi would read it as JavaScript. A name built from parts is past
+the rule, so such a test imports its scripts by hand, as
+`ssh-guard.test.ts` does the guard's wrappers.
 Vite's `?raw` won't do: vitest drops a dependency whose id, query
 included, names no file. A `.ts` script a test runs as its own process
 is still reached only by what it imports.
