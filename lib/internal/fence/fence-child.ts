@@ -42,6 +42,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { isatty } from "node:tty";
+import { FENCE_TEXT, RUN_FENCE_TEXT } from "../sandbox/sandbox-shell.ts";
 
 /** The status a signal's end gives, as a shell reports it. */
 const SIGNALLED = 128;
@@ -84,11 +85,15 @@ export type ChildEnd =
 /**
  * Run `text` with bash in `folder`, wiring its stdio to this process's,
  * and pass on each ending signal this process hears until the shell ends.
+ * The text travels in a variable rather than as bash's argument, since it
+ * can hold Delta's token, which `/proc` would show every user.
  */
 export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 	const fromTerminal = isatty(0);
-	const shell = spawn("bash", ["-c", fromTerminal ? text : WATCHER + text], {
+	const run = fromTerminal ? RUN_FENCE_TEXT : WATCHER + RUN_FENCE_TEXT;
+	const shell = spawn("bash", ["-c", run], {
 		cwd: folder,
+		env: { ...process.env, [FENCE_TEXT]: text },
 		stdio: fromTerminal ? "inherit" : ["inherit", "inherit", "inherit", "pipe"],
 		detached: !fromTerminal,
 	});

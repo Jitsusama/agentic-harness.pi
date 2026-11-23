@@ -13,6 +13,7 @@ import {
 	expiresAt,
 	FRESH_BELOW_MS,
 	type MintAsk,
+	mintEnvironment,
 } from "../../../../lib/internal/sandbox/delta-token.ts";
 
 const HOUR = 60 * 60_000;
@@ -86,6 +87,31 @@ describe("Delta's tokens from mint", () => {
 		expect(deltaTokens(mint(spent, spent).ask, () => HOUR)()).toBeUndefined();
 	});
 
+	it("keep a short-lived one until the quarter hour when no fresh one comes, not asking on every command", () => {
+		const short = expiring(HOUR);
+		const { ask, asked } = mint(short, new Error("no"));
+		let now = 0;
+		const tokens = deltaTokens(ask, () => now);
+		expect(tokens()).toBe(short);
+		now = ASK_EVERY_MS - 1;
+		expect(tokens()).toBe(short);
+		expect(asked).toEqual([false, true]);
+		now = ASK_EVERY_MS;
+		tokens();
+		expect(asked).toEqual([false, true, false, true]);
+	});
+
+	it("ask again once a short-lived one runs out, even before the quarter hour", () => {
+		const soon = expiring(60_000);
+		const { ask, asked } = mint(soon, new Error("no"));
+		let now = 0;
+		const tokens = deltaTokens(ask, () => now);
+		expect(tokens()).toBe(soon);
+		now = 60_000;
+		expect(tokens()).toBeUndefined();
+		expect(asked).toEqual([false, true, false, true]);
+	});
+
 	it("are none where mint gives none, and it isn't asked again at once", () => {
 		const { ask, asked } = mint(new Error("spawnSync mint ENOENT"));
 		const tokens = deltaTokens(ask, () => 0);
@@ -108,6 +134,30 @@ describe("Delta's tokens from mint", () => {
 		]) {
 			expect(deltaTokens(mint(answer).ask, () => 0)(), answer).toBeUndefined();
 		}
+	});
+});
+
+describe("what mint runs with", () => {
+	it("is who it runs as and where its broker listens, with a PATH of the system's folders alone", () => {
+		const env = mintEnvironment(
+			{
+				HOME: "/home/p",
+				USER: "p",
+				LOGNAME: "p",
+				XDG_RUNTIME_DIR: "/run/user/1000",
+				PATH: "/home/p/src/repo/.direnv/bin:/usr/bin",
+				WGH_TOKEN: "the person's",
+				LD_PRELOAD: "/tmp/planted.so",
+			},
+			["/etc/profiles/per-user/p/bin", "/run/current-system/sw/bin"],
+		);
+		expect(env).toEqual({
+			HOME: "/home/p",
+			USER: "p",
+			LOGNAME: "p",
+			XDG_RUNTIME_DIR: "/run/user/1000",
+			PATH: "/etc/profiles/per-user/p/bin:/run/current-system/sw/bin",
+		});
 	});
 });
 

@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { SANDBOX_VARIABLE, sandboxFor, wrapFor } from "../sandbox/sandbox.ts";
+import { FENCE_TEXT, RUN_FENCE_TEXT } from "../sandbox/sandbox-shell.ts";
 import { FENCE } from "./fence.ts";
 
 /** Who a check stands for: the person's paths, agents', or what stays refused. */
@@ -74,6 +75,9 @@ const USUAL_LIMIT_MS = 120_000;
  * process group of its own that a time limit ends whole. It's done when
  * bash exits, not when every holder of its output lets go: wl-copy, for
  * one, stays behind to serve what it copied and keeps the output open.
+ * The script travels in a variable rather than as bash's argument, since
+ * a fence's text can hold Delta's token, which `/proc` would show every
+ * user.
  */
 function bash(
 	script: string,
@@ -83,9 +87,9 @@ function bash(
 ): Promise<Ran> {
 	const started = Date.now();
 	return new Promise((resolve) => {
-		const child = spawn("bash", ["-c", script], {
+		const child = spawn("bash", ["-c", RUN_FENCE_TEXT], {
 			cwd,
-			env,
+			env: { ...env, [FENCE_TEXT]: script },
 			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -149,8 +153,6 @@ export function fenced(
 		[SANDBOX_VARIABLE]: FENCE,
 		PI_SESSION_ID: session,
 	};
-	// Run as bash's argument, which the fence's text can be, since it
-	// holds no cloud token (`fenceCloud`).
 	const sandbox = sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		throw new Error(

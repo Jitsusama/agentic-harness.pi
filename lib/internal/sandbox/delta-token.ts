@@ -20,7 +20,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { systemProgram } from "./system-program.ts";
+import { systemFolders, systemProgram } from "./system-program.ts";
 
 /** Delta's host, as `WGH_HOST` names it, and the destination mint takes. */
 export const DELTA_HOST = "delta.shopify.io";
@@ -59,7 +59,33 @@ export type DeltaTokenSource = () => string | undefined;
 /** Asks mint for Delta's token, fresh or from its cache, throwing when it gives none. */
 export type MintAsk = (fresh: boolean) => string;
 
-/** Runs mint from where only root puts it, or throws when it isn't there. */
+/**
+ * What mint runs with: who it runs as and where its broker listens, and
+ * a `PATH` of the system's own folders alone. pi's own `PATH` can hold a
+ * folder a fenced command writes, such as a project's `.direnv/bin`, and
+ * mint, run outside the fence, would find a program planted there.
+ */
+export function mintEnvironment(
+	env: NodeJS.ProcessEnv = process.env,
+	folders: readonly string[] = systemFolders(),
+): NodeJS.ProcessEnv {
+	const kept = ["HOME", "USER", "LOGNAME", "XDG_RUNTIME_DIR", "LANG"];
+	return {
+		...Object.fromEntries(
+			kept.flatMap((name) => {
+				const value = env[name];
+				return value === undefined ? [] : [[name, value]];
+			}),
+		),
+		PATH: folders.join(":"),
+	};
+}
+
+/**
+ * Runs mint from where only root puts it, or throws when it isn't there.
+ * It runs while pi waits, at most twice a quarter hour and up to
+ * `PATIENCE_MS` each; mint answers from its cache in a few milliseconds.
+ */
 function askMint(fresh: boolean): string {
 	const mint = systemProgram("mint", MINT_FOLDERS);
 	if (!mint) throw new Error("no mint where only root puts it");
@@ -70,6 +96,7 @@ function askMint(fresh: boolean): string {
 			encoding: "utf8",
 			timeout: PATIENCE_MS,
 			stdio: ["ignore", "pipe", "ignore"],
+			env: mintEnvironment(),
 		},
 	);
 }
@@ -99,32 +126,36 @@ export function expiresAt(token: string): number | undefined {
  * A source that asks mint at most once a quarter hour, keeping its
  * answer, a refusal included, so a machine without mint pays a failed
  * lookup a few times an hour rather than once a command. A token with
- * under two hours left is minted fresh, and one that is spent, or isn't
- * a JWT, is never handed on.
+ * under two hours left is minted fresh; when that fails, the one in hand
+ * serves until the quarter hour or its expiry, whichever is sooner, so a
+ * failing mint is asked no more often than a working one. A token that
+ * is spent, or isn't a JWT, is never handed on.
  */
 export function deltaTokens(
 	ask: MintAsk = askMint,
 	now: () => number = Date.now,
 ): DeltaTokenSource {
-	let held: { token: string | undefined; at: number } | undefined;
+	let held: { token: string | undefined; until: number } | undefined;
 	const lasting = (token: string | undefined, at: number) =>
 		token !== undefined && (expiresAt(token) ?? 0) - at >= FRESH_BELOW_MS;
 	return () => {
 		const at = now();
-		if (
-			held &&
-			at - held.at < ASK_EVERY_MS &&
-			(held.token === undefined || lasting(held.token, at))
-		) {
-			return held.token;
-		}
+		if (held && at < held.until) return held.token;
 		let token = tried(ask, false);
 		// A fresh one only replaces it when one comes: a token with an hour
 		// left still serves a command that ends sooner.
 		if (!lasting(token, at)) token = tried(ask, true) ?? token;
-		const handed =
-			token !== undefined && (expiresAt(token) ?? 0) > at ? token : undefined;
-		held = { token: handed, at };
+		const expiry = token === undefined ? 0 : (expiresAt(token) ?? 0);
+		const handed = expiry > at ? token : undefined;
+		const next = at + ASK_EVERY_MS;
+		const until =
+			handed === undefined
+				? next
+				: Math.min(
+						next,
+						lasting(handed, at) ? expiry - FRESH_BELOW_MS : expiry,
+					);
+		held = { token: handed, until };
 		return handed;
 	};
 }
