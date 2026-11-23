@@ -142,7 +142,8 @@ export function answeringIntent(
 
 /**
  * Whether these groups reach the orchestrator above the sender's quest,
- * by any address its presence goes by.
+ * by any address its presence goes by, in any letters: a group named is
+ * always upper case, and a presence may list its address otherwise.
  */
 function toOrchestrator(
 	named: readonly string[],
@@ -153,7 +154,9 @@ function toOrchestrator(
 	const addresses = present.find((one) =>
 		one.addresses.includes(orchestratedBy),
 	)?.addresses ?? [orchestratedBy];
-	return addresses.some((address) => named.includes(homeOf(address)));
+	return addresses.some((address) =>
+		named.includes(homeOf(address.toUpperCase())),
+	);
 }
 
 /**
@@ -167,7 +170,7 @@ function toOrchestrator(
  * send naming no address that a live cell on a quest above this peer's
  * holds can't reach its hub, which is only ever found there, so it
  * waits on no find: a question to a peer's owner by address, the
- * common case, then costs no census and no wait on the node.
+ * common case, then costs no second census and no wait on the node.
  */
 async function toHubByAddress(
 	at: Local,

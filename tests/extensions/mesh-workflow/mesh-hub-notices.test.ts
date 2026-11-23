@@ -148,6 +148,35 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		expect(sent()).toHaveLength(0);
 	});
 
+	// A group named is always upper case, and the find matches a hub's
+	// address in any letters, so the send does too.
+	it("counts the person's acts in a question to the hub by address when its presence lists it in lower case", async () => {
+		onQuest();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5gv2ah"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			quest: "QEST-20261021-5GV2AH",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"5GV2AH",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(0);
+	});
+
 	// No answer can't say the address isn't the hub's, so the check is
 	// made rather than skipped.
 	it("counts the person's acts in a question to the hub by address when no node answers", async () => {

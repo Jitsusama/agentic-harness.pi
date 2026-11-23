@@ -107,19 +107,15 @@ describe("orchestrator, on a quest with no mark", () => {
 	});
 
 	// A send reads the address upper-cased, and no session goes by it in
-	// that case, so a question never reaches such a hub past its checks.
+	// that case, so a question never reaches such a hub past its checks;
+	// one for the person's hands is refused before, as the hub's own.
 	it("sends nothing to a hub whose presence spells its address in lower case", async () => {
 		onQuest();
 		cellIn("session-q", "5gv2ah", ["#quest/5gv2ah"]);
 		const env = await node([asker], [tieTo("5gv2ah", 2)]);
 		const { tools } = await startSession(env);
 
-		const refused = await send(
-			tools,
-			"orchestrator",
-			"question",
-			"May Joel touch the key at 02:00?",
-		);
+		const refused = await send(tools, "orchestrator", "question", "May I?");
 
 		expect(refused).toContain(
 			"Not sent: no session in this realm goes by 5GV2AH",

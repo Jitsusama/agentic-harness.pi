@@ -305,6 +305,106 @@ describe("a kept hub", () => {
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 	});
 
+	it("is none once finds have failed for its trust, and back once one comes to it", async () => {
+		let failing = false;
+		const { at } = onMesh(async () => {
+			if (failing) throw new Error("node gone");
+			return [tie("ROOT01", 3)];
+		});
+		const hub = keep(at, { ...QUICK, trust: A_FEW_FINDS_MS });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		failing = true;
+
+		await vi.waitFor(() => expect(hub.current()).toBeUndefined());
+		failing = false;
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	// Trust runs on the clock the finds' own timers run on: a machine that
+	// slept asked no find, and a wall clock NTP stepped heard no silence.
+	it("stays the hub when the wall clock jumps past its trust", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at, {
+			every: NEVER_AGAIN_MS,
+			retry: NEVER_AGAIN_MS,
+			trust: 60_000,
+		});
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		const woken = Date.now() + 10 * 60_000;
+		const clock = vi.spyOn(Date, "now").mockReturnValue(woken);
+		try {
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
+	// The find reads an ended session by the addresses it still answers
+	// to, so one that once worked on the hub's quest, and lists the hub's
+	// address behind a signature of its own, holds no claim on it; the read
+	// must agree, or it refuses on every read a hub each find comes to.
+	it("stays the hub when an ended session on another quest lists its address behind its own", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		at.presences.publish({
+			session: "session-e",
+			addresses: ["OTHER1", "ROOT01"],
+			groups: ["#quest/other1"],
+			joined: [],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			ended: new Date().toISOString(),
+			at: new Date().toISOString(),
+		});
+		const found = vi.fn();
+
+		const hub = keep(at, { ...QUICK, found });
+
+		await vi.waitFor(() => expect(found).toHaveBeenCalledWith("ROOT01"));
+		expect(hub.current()).toBe("ROOT01");
+	});
+
+	// The read counts a session the last find judged gone as ended, as
+	// the find does, so one that turns up on another quest still listing
+	// the hub's address is refused as the next find would refuse it.
+	it("is none at once, the node quiet, when a session the find judged gone lists its address on another quest", async () => {
+		let quiet = false;
+		const { at, asked } = onMesh(async () =>
+			quiet ? undefined : [tie("ROOT01", 3)],
+		);
+		const dead = {
+			session: "session-d",
+			addresses: ["ROOT01"],
+			groups: ["#quest/root01"],
+			joined: [],
+			quest: "QEST-20261021-ROOT01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			// This process under another start, so the census reads it gone.
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		};
+		at.presences.publish(dead);
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
+		);
+
+		at.presences.publish({
+			...dead,
+			groups: ["#quest/other1"],
+			quest: "QEST-20261021-OTHER1",
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
 	it("is none once a later find finishes and finds none", async () => {
 		let tied = true;
 		const { at } = onMesh(async () => (tied ? [tie("ROOT01", 3)] : []));

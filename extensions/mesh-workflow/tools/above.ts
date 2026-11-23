@@ -188,7 +188,10 @@ export function keepHub(
 	}: HubKeeping = {},
 ): KeptHub {
 	let kept: string | undefined;
-	// When a find last came to the kept hub.
+	// When a find last came to the kept hub, on the monotonic clock the
+	// finds' own timers run on: a machine asleep asks no find, so its
+	// sleep is no silence from the node, and a wall clock stepped by NTP
+	// neither ends nor stretches the trust.
 	let confirmed = 0;
 	let gone: ReadonlySet<string> = new Set();
 	let stopped = false;
@@ -222,7 +225,7 @@ export function keepHub(
 			if (stopped) return;
 			if ("address" in finding.above) {
 				kept = finding.above.address;
-				confirmed = Date.now();
+				confirmed = performance.now();
 				came = true;
 			} else if (finding.settled) kept = undefined;
 			gone = new Set(finding.gone);
@@ -248,18 +251,22 @@ export function keepHub(
 		current: () => {
 			const address = kept;
 			if (stopped || address === undefined) return undefined;
-			if (Date.now() - confirmed > trust) return undefined;
+			if (performance.now() - confirmed > trust) return undefined;
 			const reading = at();
 			if (reading === undefined || !unmarked(reading.peer)) return undefined;
-			// Read as the find's census was: each presence answering only to
-			// the addresses no other signs with, as `peers` gives them.
+			// Read as the find's census was: each presence, live or ended,
+			// answering only to the addresses no other signs with, as `peers`
+			// gives them, so an ended session's older address that the hub
+			// now signs with is no second holder here either.
 			const everyone = reading.presences.all();
 			const isLive = (one: (typeof everyone)[number]) =>
 				one.ended === undefined && !gone.has(one.session);
-			const live = everyone
-				.filter(isLive)
-				.map((one) => ({ ...one, addresses: answeringTo(one, everyone) }));
-			const ended = everyone.filter((one) => !isLive(one));
+			const answering = everyone.map((one) => ({
+				...one,
+				addresses: answeringTo(one, everyone),
+			}));
+			const live = answering.filter(isLive);
+			const ended = answering.filter((one) => !isLive(one));
 			const self = live.find((one) => one.session === reading.peer.session);
 			if (self === undefined) return undefined;
 			return stillAbove(self, live, address, ended) ? address : undefined;

@@ -3,6 +3,7 @@
  * else is, what each peer is doing, and whom this one is tied to.
  */
 
+import { isId, prefixOf } from "../../../lib/internal/quest/creation/id.ts";
 import {
 	groupNamed,
 	groupsNamed,
@@ -15,6 +16,7 @@ import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach } from "./reach.ts";
@@ -253,12 +255,61 @@ export function groupsText(standing: Census, peer: Peer): string {
 const WORK_CHARS = 100;
 
 /**
- * A quest id as quest-workflow mints one, whole. A peer's presence says
- * its quest as any string, and a grant is checked against the quest a
- * peer line names, so one that isn't shaped so (a newline that would
- * forge a line, or a flood) is left unnamed.
+ * The census as mesh_groups lists it, each presence held to what its
+ * lines may say. A presence says its strings as any it likes, and a
+ * reader checks a grant against the quest a peer line names, so none
+ * may carry a line of its own into the listing: a presence whose
+ * signature isn't an address is left out, as are any of its other
+ * addresses or groups that aren't one word, a quest that isn't a quest
+ * id as quest-workflow mints one, and every other string it prints is
+ * said on one line.
  */
-const QUEST_ID = /^QEST-\d{8}-[0-9A-Z]{6}$/u;
+export function listable(standing: Census): Census {
+	const shown = (all: readonly Presence[]) => all.flatMap(listed);
+	return {
+		present: shown(standing.present),
+		gone: shown(standing.gone),
+		resuming: shown(standing.resuming),
+	};
+}
+
+/** One presence as mesh_groups may list it, or none. */
+function listed(one: Presence): Presence[] {
+	const [signature, ...others] = one.addresses;
+	if (signature === undefined || !isAddress(signature)) return [];
+	const word = (text: string) => !/\s/u.test(text);
+	const { quest, machine, stepDetail, wants, joined, ...rest } = one;
+	return [
+		{
+			...rest,
+			addresses: [signature, ...others.filter(isAddress)],
+			groups: one.groups.filter(word),
+			worksOn: oneLine(one.worksOn),
+			...(joined !== undefined ? { joined: joined.filter(word) } : {}),
+			...(quest !== undefined && isId(quest) && prefixOf(quest) === "QEST"
+				? { quest }
+				: {}),
+			...(machine !== undefined ? { machine: oneLine(machine) } : {}),
+			...(stepDetail !== undefined
+				? {
+						stepDetail: {
+							...stepDetail,
+							name: oneLine(stepDetail.name),
+							detail: oneLine(stepDetail.detail),
+						},
+					}
+				: {}),
+			...(wants !== undefined
+				? { wants: { ...wants, said: oneLine(wants.said) } }
+				: {}),
+		},
+	];
+}
+
+/** Text said on one line, however many it came on. */
+function oneLine(text: string): string {
+	return text.replace(/\s+/gu, " ").trim();
+}
 
 /** How long a step runs before mesh_groups says what it is. */
 const STEP_SAID_AFTER_MS = 60_000;
@@ -266,6 +317,7 @@ const STEP_SAID_AFTER_MS = 60_000;
 /**
  * Every other peer still there, one line each: whether it is in a run,
  * and what it works on, so a peer can tell whom to ask without asking.
+ * One line each holds only for presences as `listable` gives them.
  */
 export function peersText(
 	present: readonly Presence[],
@@ -277,16 +329,13 @@ export function peersText(
 	const lines = present.flatMap((one) => {
 		const address = one.addresses[0];
 		if (one.session === peer.session || !address) return [];
-		const work = one.worksOn.replace(/\s+/g, " ").trim();
+		const work = oneLine(one.worksOn);
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
 		const where = one.machine ? ` on ${one.machine}` : "";
 		// Its own quest, apart from the groups it joined, which any peer
 		// may: a grant comes from the peer whose own quest holds the work.
-		const quest =
-			one.quest !== undefined && QUEST_ID.test(one.quest)
-				? `, quest ${one.quest}`
-				: "";
+		const quest = one.quest !== undefined ? `, quest ${one.quest}` : "";
 		const run = back.has(one.session)
 			? "resuming as its host starts again"
 			: runText(one, now);
