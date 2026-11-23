@@ -483,6 +483,12 @@ describe("a kept call", () => {
 		await vi.waitFor(() =>
 			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
 		);
+		// Its files' removal takes the record; a second, setting it aside,
+		// would only wait on the same disk and say it waited.
+		expect(
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"its record removed, never set aside",
+		).toEqual([]);
 	});
 
 	// Its limit stops it with the caller's own signal still live, so only
@@ -507,6 +513,10 @@ describe("a kept call", () => {
 		await vi.waitFor(() =>
 			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
 		);
+		expect(
+			disk.moved.filter((path) => path.startsWith(call.keep())),
+			"its record removed, never set aside",
+		).toEqual([]);
 	});
 
 	it("leaves its files to whoever it was handed to while its record went", async () => {

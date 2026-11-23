@@ -5,6 +5,8 @@
  * lost call with its last lines, and removes its files once said.
  */
 
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,16 +29,13 @@ import type {
 	CarriedEnd,
 	CarriedShell,
 } from "../../../lib/internal/shell/carried.ts";
+import { makeKept } from "../../../lib/internal/shell/kept.ts";
 import {
-	makeKept,
-	ownJobRecord,
-	ownsJobRecord,
-} from "../../../lib/internal/shell/kept.ts";
-import {
+	disownKeptJob,
 	forgetKeptJob,
-	forgetOwnKeptJob,
 	recordKeptJob,
 } from "../../../lib/internal/shell/kept-jobs.ts";
+import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
 const made: string[] = [];
 afterEach(() => {
@@ -174,6 +173,43 @@ describe("carrying away", () => {
 			jobs.holds().map(({ id }) => id),
 			"a move: the fleet",
 		).toEqual(["j3"]);
+	});
+
+	// Handed on, its record is left by its session's close for a taker; a
+	// move that can't be written has none, so the record would stay for a
+	// start to find a call stopped here.
+	it("stops what it handed on and removes its files when the move can't be written", async () => {
+		const { jobs } = registry();
+		const mark = `moved-${randomUUID()}`;
+		const shell = spawn("sleep", ["30"], {
+			detached: true,
+			stdio: "ignore",
+			env: { ...process.env, [CALL_VARIABLE]: mark },
+		});
+		const exited = new Promise((done) => shell.once("exit", done));
+		// Its group is what the stop kills; without a pid it would be ours.
+		if (shell.pid === undefined) throw new Error("its sleep never started");
+		const work = { ...(await shellWork()), pid: shell.pid, mark };
+		recordKeptJob({ session: "s1", id: "j1", kind: "shell", label: "x", work });
+		jobs.start({
+			kind: "shell",
+			label: "sleep 30",
+			carry: { what: () => work, handed: () => disownKeptJob(work.keep) },
+		});
+		const carried = carryAway(
+			jobs,
+			{ waiting: () => [] },
+			() => {
+				throw new Error("no space left on device");
+			},
+			5000,
+		);
+		expect(carried, "nothing carried").toBeUndefined();
+		await exited;
+		forgetKeptJob(work.keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${work.keep}.job`), "its record, gone").toBe(false),
+		);
 	});
 
 	it("writes nothing when there is nothing to carry", () => {
@@ -342,29 +378,17 @@ describe("taking up", () => {
 		expect(watch.handed, "the watch let go").toEqual([work.keep]);
 	});
 
-	// Its next taker records it again; this host would otherwise hold the
-	// record it wrote for as long as it runs.
-	it("lets go of the record it wrote of a call it carries on again", async () => {
-		const { jobs, work } = await tookUp();
-		ownJobRecord(work.keep, "{}");
-		jobs.carryOut();
-		expect(ownsJobRecord(work.keep), "its record, let go").toBe(false);
-	});
-
-	// A move carries its calls out and closes the session in the same turn,
-	// so the close follows; without the hand-off letting the record go as
-	// handed, the removal would take the record its next taker reads.
-	it("leaves the record of a call it carries on again at its name, a removal of it under way and its session closing", async () => {
+	// A move carries its calls out and closes the session in the same turn;
+	// the close takes back the records this host wrote, but not one of a
+	// call it handed on, which its next taker reads.
+	it("leaves the record of a call it carries on again at its name as its session closes", async () => {
 		const { jobs, work } = await tookUp();
 		recordKeptJob({ session: "s1", id: "j3", kind: "shell", label: "x", work });
-		const going = forgetOwnKeptJob(work.keep);
 		jobs.carryOut();
 		forgetKeptJob(work.keep);
-		await going;
-		expect(
-			existsSync(`${work.keep}.job`),
-			"its record, put back for its taker",
-		).toBe(true);
+		expect(existsSync(`${work.keep}.job`), "its record, for its taker").toBe(
+			true,
+		);
 	});
 
 	it("says a kind it can't take up, rather than dropping it", () => {

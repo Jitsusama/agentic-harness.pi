@@ -653,20 +653,15 @@ describe("a call's own record, taken back as the call ends", () => {
 		);
 	});
 
-	// A session closed for good with no hand-off takes back the record a
-	// rollover wrote again as the first removal ran.
-	it("leaves no record once a close for good took back a rewrite", async () => {
+	// A rollover's recorder can write the record again once the call's own
+	// removal has ended, where only the session's close takes it back.
+	it("leaves no record once a close took back one written after its removal ended", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
-		disk.hold(true, "rename");
-		const going = forgetOwnKeptJob(job.work.keep);
-		await vi.waitFor(() =>
-			expect(disk.parked, "its removal, waiting on the disk").toBe(1),
-		);
+		await forgetOwnKeptJob(job.work.keep);
 		recordKeptJob({ ...job, label: "rolled over" });
+		expect(labelsIn(where), "written again").toEqual(["rolled over"]);
 		forgetKeptJob(job.work.keep);
-		disk.go();
-		await going;
 		expect(
 			listed(where).filter((name) => name.includes(".job")),
 			"no record, nor its aside",
