@@ -12,7 +12,15 @@
  * with no ending beside it that it names at all. Following too much
  * only runs a test more; following too little runs none.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	readSync,
+	statSync,
+} from "node:fs";
 import {
 	dirname,
 	extname,
@@ -33,13 +41,23 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
  */
 const NAMED = /(?<![\w.$-])((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b/g;
 
+/** The script's own path: `$0` or `$BASH_SOURCE`, braced, quoted or not. */
+const ITSELF = String.raw`"?(?:\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE(?:\[0\])?\})"?`;
+
 /**
  * A script named from beside the naming one, in a way that can mean
- * nothing else: after `$(dirname ...)/`, `$(cd ... && pwd)/` or
- * `${BASH_SOURCE%/*}/`.
+ * nothing else: after the folder of the script's own path, as
+ * `$(dirname "$0")/`, `$(cd "$(dirname "$0")" && pwd)/` or
+ * `${BASH_SOURCE%/*}/`. The folder of any other path, as
+ * `$(dirname "$config")`, is another folder.
  */
-const BESIDE =
-	/(?:\$\(dirname [^)]*\)|\$\(cd .*? && pwd\)|\$\{BASH_SOURCE(?:\[0\])?%\/\*\})\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b/g;
+const BESIDE = new RegExp(
+	String.raw`(?:\$\(dirname ${ITSELF}\)|\$\(cd "?\$\(dirname ${ITSELF}\)"? && pwd\)|\$\{BASH_SOURCE(?:\[0\])?%\/\*\})\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b`,
+	"g",
+);
+
+/** How much of a file is read for its shebang, a line far shorter. */
+const SHEBANG_BYTES = 256;
 
 /** A line that is only a comment. */
 const COMMENT = /^\s*#/;
@@ -62,18 +80,28 @@ function codeOf(text: string): string {
 }
 
 /**
- * Whether the file at `path` is a shell script: one ending in `.sh` or
- * `.bash`, or one with no ending whose shebang names a shell, as the
- * ssh guard's wrappers are.
+ * Whether the file at `path` is a shell script: a file, not a folder,
+ * ending in `.sh` or `.bash`, or one with no ending whose shebang names
+ * a shell, as the ssh guard's wrappers are.
  */
 export function isShellScript(path: string): boolean {
 	const ending = extname(path);
-	if (SCRIPT.has(ending)) return true;
-	return (
-		ending === "" &&
-		(statSync(path, { throwIfNoEntry: false })?.isFile() ?? false) &&
-		SHELL.test(readFileSync(path, "utf8").split("\n", 1)[0] ?? "")
-	);
+	if (!(SCRIPT.has(ending) || ending === "")) return false;
+	if (!(statSync(path, { throwIfNoEntry: false })?.isFile() ?? false))
+		return false;
+	return SCRIPT.has(ending) || SHELL.test(firstLine(path));
+}
+
+/** The first line of the file at `path`, read no further than a shebang. */
+function firstLine(path: string): string {
+	const head = Buffer.alloc(SHEBANG_BYTES);
+	const file = openSync(path, "r");
+	try {
+		const read = readSync(file, head, 0, SHEBANG_BYTES, 0);
+		return head.toString("utf8", 0, read).split("\n", 1)[0] ?? "";
+	} finally {
+		closeSync(file);
+	}
 }
 
 /** The shell programs with no ending in `folder`, by name. */

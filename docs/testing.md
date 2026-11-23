@@ -110,10 +110,12 @@ with no ending beside it that it names as a word; comment lines name
 nothing. A package rule, `tests-import-the-scripts-they-run`, fails a
 test that names a script on its own in a string without importing it;
 a script beside the package's code, among the ssh guard's or under
-`tests/` that no test's imports reach; a script naming one beside it,
-by its own folder, that isn't there to follow; and a file pi or node
-loads with no loader that imports a script, since they would read it
-as JavaScript. A name built from parts is past the first, so such a
+`tests/` that no test's imports reach; a script naming one beside it
+that isn't there to follow, by its own folder as `$(dirname "$0")/`,
+`$(cd "$(dirname "$0")" && pwd)/` or `${BASH_SOURCE%/*}/` spells it,
+though a name through a variable, as `$here/`, is past it; and a file
+pi or node loads with no loader, or anything such a file imports in
+turn, that imports a script, since they would read it as JavaScript. A name built from parts is past the first, so such a
 test imports its scripts by hand, as `ssh-guard.test.ts` does the
 guard's wrappers, and the second holds it to them. The rule is a
 package test, so it runs under a whole `pnpm test` and `pnpm

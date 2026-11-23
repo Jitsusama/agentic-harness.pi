@@ -51,11 +51,17 @@ EARLIER_HOURS=12
 generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 
 # What a host runs, and what decides how test:host runs it: the host
-# program, its screens and the session seam its conversations go through,
-# the host tests themselves, and the lockfile, config and setup they run
-# under: the process lane's setup files, its global setup and the
-# scripts' loader, never the unit lane's alone.
-hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|tests/setup/(pi-install|xdg-sandbox|temp-root|scripts-as-text)\.ts$|scripts/pi-host|scripts/host-|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
+# program, the launcher's spawn decider, its screens and the session seam
+# its conversations go through, the host tests themselves, and the
+# lockfile, config and setup they run under: the process lane's setup
+# files and its global setup, with everything those import, the scripts'
+# loader and the keyring's stand-in among it, never the unit lane's alone.
+# host-gate.test.ts reads that setup from the config, so a file it comes
+# to load fails there until it is here. A test helper outside tests/host
+# that every lane shares, as tests/support/until.ts, is left to pnpm
+# check: counting one would ask an hour's run of a change most tests
+# answer.
+hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|lib/core/internal/keyring/|tests/host/|tests/setup/(pi-install|xdg-sandbox|temp-root|scripts-as-text)\.ts$|tests/support/memory-secret-store\.ts$|scripts/pi-host|scripts/host-|scripts/spawn-decide\.ts$|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
 # The extensions whose tools and turns the host cases drive, and the
 # libraries under them: background jobs, tool_search's loadout, the mesh,
 # parking, quests, reloads, stored results, spend and subagents. A host
