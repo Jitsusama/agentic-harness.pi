@@ -5,8 +5,18 @@
  * run past the 104 bytes a Unix socket's path may take.
  */
 
-import { describe, expect, it } from "vitest";
-import { runRootBase } from "./temp-root.ts";
+import type * as Fs from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
+import setup, { runRootBase } from "./temp-root.ts";
+
+// Named rather than made or removed, so the setup's own run is read
+// without writing where this machine's /tmp may not let a test write.
+vi.mock("node:fs", async (importOriginal) => ({
+	...(await importOriginal<typeof Fs>()),
+	mkdtempSync: vi.fn((prefix: string) => `${prefix}XXXXXX`),
+	rmSync: vi.fn(),
+}));
 
 /** A Mac's own TMPDIR, as `os.tmpdir()` gives it. */
 const MAC_TMPDIR = "/var/folders/zz/zyxvpxvq6csfxvn_n0000000000000/T";
@@ -26,5 +36,24 @@ describe("a test run's temp root", () => {
 
 	it("stays under the host's own temporary folder on Linux", () => {
 		expect(runRootBase("linux", "/tmp/pi-quest-x")).toBe("/tmp/pi-quest-x");
+	});
+
+	it("is where the run's setup makes its directory", () => {
+		const platform = Object.getOwnPropertyDescriptor(process, "platform");
+		Object.defineProperty(process, "platform", { value: "darwin" });
+		vi.stubEnv("TMPDIR", MAC_TMPDIR);
+		try {
+			const teardown = setup();
+			expect(vi.mocked(mkdtempSync)).toHaveBeenCalledWith("/tmp/vitest-run-");
+			expect(process.env.TMPDIR, "the run's TMPDIR").toBe(
+				"/tmp/vitest-run-XXXXXX",
+			);
+			teardown();
+			expect(process.env.TMPDIR, "given back at its end").toBe(MAC_TMPDIR);
+		} finally {
+			if (platform !== undefined)
+				Object.defineProperty(process, "platform", platform);
+			vi.unstubAllEnvs();
+		}
 	});
 });

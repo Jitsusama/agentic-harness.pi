@@ -29,6 +29,9 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+// Imported rather than read, so `--changed` finds these tests when the
+// script alone changes: the import graph is all it follows.
+import checkThere from "../../../scripts/check-there.sh?raw";
 
 const SCRIPT = join(
 	import.meta.dirname,
@@ -45,13 +48,13 @@ const TEST_MS = 4 * SETTLES_IN_MS;
 
 /** What the script runs on its host, between its `THERE` lines. */
 function there(): string {
-	const text = readFileSync(SCRIPT, "utf8");
-	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(text)?.[1] ?? "";
+	return /<<'THERE'\n([\s\S]*?)\nTHERE\n/.exec(checkThere)?.[1] ?? "";
 }
 
 /** The lines the script runs as they stand, which the checks here run too. */
 const SETTINGS = [
 	"set -m",
+	"holder= node_link= ending= tenths_left= stop_wait_s=",
 	"trap let_go EXIT",
 	"trap 'stop_all 143' TERM",
 	"trap 'stop_all 130' INT",
@@ -404,7 +407,18 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					holder.once("exit", () => resolve(existsSync(join(host, "tidied")))),
 				);
 				holder.kill("SIGTERM");
-				expect((await stopped).code, "it ends as signalled").toBe(143);
+				// A second stop, landing as the first waits for the work, says nothing more.
+				await complains(holder, /stopped by TERM/);
+				holder.kill("SIGTERM");
+				const stop = await stopped;
+				expect(stop.code, "it ends as signalled").toBe(143);
+				expect(
+					stop.err.match(/check-there: stopped by .*/g),
+					"saying so once",
+				).toEqual([
+					"check-there: stopped by TERM; ending what it runs, then passing its turn",
+				]);
+				expect(stop.err, "its work stopped in time").not.toMatch(/outlived/);
 				expect(
 					await tidiedAtExit,
 					"its work had tidied up before its shell, and its turn, ended",
@@ -451,11 +465,16 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 
 				const asked = Date.now();
 				holder.kill("SIGTERM");
-				expect((await stopped).code, "it ends as signalled").toBe(143);
+				const stop = await stopped;
+				expect(stop.code, "it ends as signalled").toBe(143);
 				expect(
 					Date.now() - asked,
 					"having waited its limit for the work",
 				).toBeGreaterThanOrEqual(900);
+				expect(
+					stop.err.match(/what it ran outlived 1 s, so it was killed/g),
+					"saying, once, that it killed it",
+				).toHaveLength(1);
 				expect(await goneWithin(work), "its work killed with it").toBe(true);
 				const after = await ended(check(host, "lock -n"));
 				expect(after.code, "the next check gets its turn").toBe(0);
@@ -482,6 +501,9 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					),
 				);
 				expect(first.code, "it ends as its work did").toBe(3);
+				expect(first.err, "neither stopped nor killed").not.toMatch(
+					/stopped by|outlived/,
+				);
 				const left = Number(first.out.trim());
 				onTestFinished(() => killIfThere(left));
 				expect(
@@ -532,9 +554,19 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 						).toBe(true),
 					{ timeout: SETTLES_IN_MS, interval: 50 },
 				);
+				// The stop lands two and a half seconds into the three alone gave
+				// what the work left. A wait is counted in tenths that never pass
+				// sooner than real ones, so a stop that began three of its own would
+				// end three seconds or more after it, however loaded the machine.
+				await new Promise((resolve) => setTimeout(resolve, 2_500));
+				const stopAt = Date.now();
 				holder.kill("SIGTERM");
 				const stop = await stopped;
 				expect(stop.code, "it ends as signalled").toBe(143);
+				expect(
+					Date.now() - stopAt,
+					"killing it with what was left of alone's three seconds, not three more",
+				).toBeLessThan(3_000);
 				expect(
 					await goneWithin(left),
 					"what its work left, ended before its turn passed",
@@ -572,6 +604,13 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				);
 				expect(quick.code, "a quick one fails too").toBe(1);
 				expect(existsSync(join(host, "ran")), "having run nothing").toBe(false);
+				// A subshell runs with job control off, whatever its `$-` says.
+				const inner = await ended(
+					check(host, 'take_turn\n( alone touch "$HOME/ran" )\necho ran'),
+				);
+				expect(inner.code, "one asked from a subshell fails too").toBe(1);
+				expect(inner.err, "saying why").toMatch(/no process group of its own/);
+				expect(existsSync(join(host, "ran")), "having run nothing").toBe(false);
 				const next = await ended(check(host, "lock -n"));
 				expect(next.code, "the next check gets its turn").toBe(0);
 			},
@@ -597,6 +636,13 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 					const stopped = await waited;
 					expect(stopped.code, `ended by ${signal}`).toBe(code);
 					expect(stopped.out, "taking no turn").toBe("");
+					expect(
+						stopped.err.match(/check-there: stopped by .*/g),
+						`saying once that ${signal} stopped it, before its turn`,
+					).toEqual([
+						`check-there: stopped by ${signal.slice(3)} before it took its turn; ending what it runs`,
+					]);
+					expect(stopped.err, "with nothing to kill").not.toMatch(/outlived/);
 					expect(
 						Date.now() - asked,
 						`stopped by ${signal} well before its wait ran out`,
@@ -775,22 +821,35 @@ function sendFrom(
 function localHalf(): void {
 	describe("the check's local half", () => {
 		clearsAfterEach();
-		it("sends a branch the host's shell reads back as one word, with the wait last", () => {
-			const branch = "jitsusama/fix-1.2_b+c@d";
-			const sent = sendFrom([branch, "there"], "60");
-			expect(sent.code, sent.err).toBe(0);
-			expect(sent.sent?.slice(0, 3)).toEqual(["-o", "BatchMode=yes", "there"]);
-			const line = sent.sent?.[3] ?? "";
-			expect(line, "the host's command").toMatch(/^bash -s -- .* 60$/);
-			// The host's shell reads the line again: its words, printed one a line.
-			const bash = onPath("bash") ?? "bash";
-			const words = spawnSync(
-				bash,
-				["-c", line.replace(/^bash -s -- /, "printf '%s\\n' ")],
-				{ cwd: sent.root, encoding: "utf8" },
+		// Penelope logs in to bash and the Mac to zsh, and each reads the line.
+		for (const shell of ["bash", "zsh"] as const) {
+			it.runIf(onPath(shell) !== undefined)(
+				`sends a branch ${shell}, as the host's shell, reads back as one word, with the wait last`,
+				() => {
+					const branch = "jitsusama/fix-1.2_b+c@d";
+					const sent = sendFrom([branch, "there"], "60");
+					expect(sent.code, sent.err).toBe(0);
+					expect(sent.sent?.slice(0, 3)).toEqual([
+						"-o",
+						"BatchMode=yes",
+						"there",
+					]);
+					const line = sent.sent?.[3] ?? "";
+					expect(line, "the host's command").toMatch(/^bash -s -- .* 60$/);
+					// The host's shell reads the line again: its words, one a line.
+					const words = spawnSync(
+						onPath(shell) ?? shell,
+						[
+							...(shell === "zsh" ? ["-f"] : []),
+							"-c",
+							line.replace(/^bash -s -- /, "printf '%s\\n' "),
+						],
+						{ cwd: sent.root, encoding: "utf8" },
+					);
+					expect(words.stdout, words.stderr).toBe(`${branch}\n60\n`);
+				},
 			);
-			expect(words.stdout).toBe(`${branch}\n60\n`);
-		});
+		}
 
 		// git lets a branch hold `;` and `$(`, which the host's login shell,
 		// bash or zsh, would read again; a check's branch never needs them.
@@ -855,6 +914,21 @@ function localHalf(): void {
 // its shape is read instead: the check's own work, from the fetch to the
 // last test, is one function run `alone`, which the turns above show
 // runs without fd 9 and stops whole.
+/**
+ * The script's lines as its shell runs them at the top, by their place,
+ * with those inside a function's body, or opening or closing one, left
+ * undefined: those run only once called.
+ */
+function topLevel(lines: readonly string[]): (string | undefined)[] {
+	let inside = false;
+	return lines.map((line) => {
+		if (/^\w+\(\) \{$/.test(line)) inside = true;
+		const top = inside ? undefined : line;
+		if (line === "}") inside = false;
+		return top;
+	});
+}
+
 function workThere(): void {
 	describe("the check's work on its host", () => {
 		const lines = there().split("\n");
@@ -863,11 +937,18 @@ function workThere(): void {
 		// are read: job control and the stops set before its first job, and
 		// every job launched with neither fd 9 nor the script's stdin.
 		it("sets its job control and its stops before its first job, launched bare", () => {
-			const build = lines.findIndex((line) => line.includes("nix build"));
+			const top = topLevel(lines);
+			const firstJob = top.findIndex(
+				(line) =>
+					line !== undefined &&
+					!line.trimStart().startsWith("#") &&
+					(/(^|[\s!])alone\s/.test(line) || /&\s*$/.test(line)),
+			);
+			expect(firstJob, "a first job").toBeGreaterThan(-1);
 			for (const line of SETTINGS) {
-				const at = lines.indexOf(line);
+				const at = top.indexOf(line);
 				expect(at, `${line}, run`).toBeGreaterThan(-1);
-				expect(at, `${line}, before the node build`).toBeLessThan(build);
+				expect(at, `${line}, before its first job`).toBeLessThan(firstJob);
 			}
 			expect(
 				lines.filter(
