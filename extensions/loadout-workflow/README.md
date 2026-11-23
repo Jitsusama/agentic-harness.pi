@@ -73,11 +73,11 @@ everywhere beside `shopify-*` listed in one place. A key with no
 folders lists its names nowhere, and a name no key names is listed
 everywhere. The config is read when a session starts.
 
-The package lists five of its own skills nowhere, under the person's
+The package lists six of its own skills nowhere, under the person's
 keys: `review-audit-format`, `review-council-format`,
-`review-critique-format`, `review-judge-format` and
-`review-stack-format`. They are a review round's output
-contracts, attached by path to the round's own isolated pi, where this
+`review-critique-format`, `review-finding-format`,
+`review-judge-format` and `review-stack-format`. They are a review
+round's output contracts, attached by path to the round's own isolated pi, where this
 extension doesn't run, so the round still lists its contract. Listed in
 every other session they cost about 2,300 characters a turn. A person's
 key for them wins over the package's.

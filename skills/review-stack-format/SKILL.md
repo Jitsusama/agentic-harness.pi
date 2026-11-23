@@ -26,10 +26,10 @@ changes each finding is about. Answer with one JSON object.
 }
 ```
 
-Every other field is as [`review-council-format`](../review-council-format)
+Every other field is as [`review-finding-format`](../review-finding-format)
 describes it, including the three location kinds, the label set and what
-happens to a field that will not read. That contract is loaded beside
-this one, so answer in its shape.
+happens to a field that will not read. That skill is loaded beside this
+one, so answer in its shape.
 
 ## Write Each One Down When You Find It
 

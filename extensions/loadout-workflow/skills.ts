@@ -82,8 +82,8 @@ function parsePlaces(field: string, value: unknown): Parsed<Places> {
  * and needs listing nowhere else.
  */
 const PACKAGE_PLACES: Places = Object.fromEntries(
-	["audit", "council", "critique", "judge", "stack"].map((round) => [
-		`review-${round}-format`,
+	["audit", "council", "critique", "finding", "judge", "stack"].map((kind) => [
+		`review-${kind}-format`,
 		[],
 	]),
 );

@@ -31,11 +31,12 @@ survives consolidation: a finding you record and then leave out of your
 answer stays out, because choosing is your job. Recording only rescues
 the round when you never got to answer at all.
 
-Every field is as [`review-council-format`](../review-council-format)
+Every field is as [`review-finding-format`](../review-finding-format)
 describes it, including the three location kinds and what happens to a
-field that will not read. That contract is loaded beside this one: its
+field that will not read. That skill is loaded beside this one: its
 field table is the shape to answer in, with `location`, `label` and
-`subject`, and no other. One extra field matters here.
+`subject`, and no other, however the prompt lays the council's findings
+out for you. One extra field matters here.
 
 ## Recording Agreement
 

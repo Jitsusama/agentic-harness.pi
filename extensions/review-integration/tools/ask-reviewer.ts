@@ -124,11 +124,14 @@ export async function boundsForRound(): Promise<
 }
 
 /**
- * The rounds whose contract adds to a council reviewer's: their own skill
- * says a finding carries every field the council's does and names only
- * what it adds, so the council's must be loaded beside it.
+ * The rounds that answer with findings: each loads the one shape of a
+ * finding beside its own contract, which says only what wraps them.
  */
-const BUILDS_ON_COUNCIL: ReadonlySet<AskRound> = new Set(["judge", "stack"]);
+const ANSWERS_WITH_FINDINGS: ReadonlySet<AskRound> = new Set([
+	"council",
+	"judge",
+	"stack",
+]);
 
 /**
  * The output contract for one round, as the skills that state it.
@@ -140,13 +143,15 @@ const BUILDS_ON_COUNCIL: ReadonlySet<AskRound> = new Set(["judge", "stack"]);
  * one is loaded too: on 23 November four judges of about twenty on the
  * Mac answered in a shape of their own, with no label or location,
  * because the judge's contract defers every field to the council's.
+ * So the shape is a skill of its own, which every round that answers
+ * with findings loads by name, and no round loads another's contract.
  */
 export function contractSkills(round: AskRound): string[] {
 	const here = dirname(fileURLToPath(import.meta.url));
-	const skill = (name: AskRound): string =>
+	const skill = (name: string): string =>
 		join(here, "..", "..", "..", "skills", `review-${name}-format`, "SKILL.md");
-	return BUILDS_ON_COUNCIL.has(round)
-		? [skill("council"), skill(round)]
+	return ANSWERS_WITH_FINDINGS.has(round)
+		? [skill("finding"), skill(round)]
 		: [skill(round)];
 }
 

@@ -12,6 +12,7 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { lensFor, tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import {
+	type AskRound,
 	type ChangeRef,
 	councilNotEarned,
 	councilPrompt,
@@ -344,13 +345,17 @@ export async function startRound(
 	);
 }
 
-/** Ask one participant again, in place. */
+/**
+ * Ask one participant again, in place, watched as the round its role
+ * answers in, so a judge asked again loads the judge's contract and not
+ * a council reviewer's.
+ */
 export async function retryOne(
 	bound: Awaited<ReturnType<typeof boundFor>>,
 	change: ChangeRef,
 	params: AskParams,
 	seat: RoundSeat,
-	watch: RoundWatch,
+	watchFor: (round: AskRound) => RoundWatch,
 ): Promise<Answer> {
 	if (params.participant === undefined) {
 		return refuse(
@@ -480,6 +485,7 @@ export async function retryOne(
 		asked.role === "judge" ? NARROWER_WEIGHING : NARROWER_COUNCIL,
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	const watch = watchFor(asked.role === "judge" ? "judge" : "council");
 	const { run: fresh, warnings } =
 		asked.role === "judge"
 			? await runJudge(

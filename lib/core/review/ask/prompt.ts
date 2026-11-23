@@ -26,7 +26,7 @@ import { anchorableRanges, describeRanges } from "./anchorable.ts";
  * lookup and teaches it to distrust the rest of the prompt.
  */
 const ANSWER_AS_CONTRACTED =
-	"Answer in the JSON your output contract skill describes. A pass with nothing to say answers with an empty findings list rather than prose.";
+	"Answer in the JSON your output contract skill describes, each finding in the fields the review-finding-format skill gives. A pass with nothing to say answers with an empty findings list rather than prose.";
 
 /**
  * Where a reviewer looks, said in every round's prompt.
@@ -290,7 +290,7 @@ export function judgePrompt(input: JudgePromptInput): string {
 			? "(nothing was raised, so there is nothing to consolidate)"
 			: input.findings.trim(),
 		diffSection(input.diff),
-		"Answer in the JSON your output contract skill describes.",
+		"Answer in the JSON your output contract skill describes, each finding in the fields the review-finding-format skill gives rather than in the layout the reviewers' findings are shown in above.",
 	]
 		.filter((part) => part !== "")
 		.join("\n\n");

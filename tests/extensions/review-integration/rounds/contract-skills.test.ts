@@ -7,6 +7,12 @@ import { contractSkills } from "../../../../extensions/review-integration/tools/
 /** Every round a prompt tells a participant to read a contract for. */
 const ROUNDS = ["council", "judge", "critique", "audit", "stack"] as const;
 
+/** The rounds that answer with findings, and so in a finding's shape. */
+const FINDING_ROUNDS = ["council", "judge", "stack"] as const;
+
+/** The rounds that answer with positions and standings, not findings. */
+const OTHER_ROUNDS = ["critique", "audit"] as const;
+
 const root = join(
 	dirname(fileURLToPath(import.meta.url)),
 	"..",
@@ -80,11 +86,46 @@ describe("the output contract every round attaches", () => {
 		},
 	);
 
+	it.each(FINDING_ROUNDS)(
+		"loads the finding's shape by name, and no other round's contract, for %s",
+		(round) => {
+			// A judge sent to the council's contract for the shape read it and
+			// still answered in fields of its own (23 November), so the shape
+			// is every finding round's own skill rather than another's.
+			expect(
+				contractSkills(round),
+				`${round} loads the finding shape beside its own contract alone`,
+			).toEqual([contractPath("finding"), contractPath(round)]);
+		},
+	);
+
+	it.each(OTHER_ROUNDS)(
+		"loads its own contract alone for %s, which answers with no findings",
+		(round) => {
+			expect(
+				contractSkills(round),
+				`${round} answers with no findings, so it loads no finding shape`,
+			).toEqual([contractPath(round)]);
+		},
+	);
+
+	it.each(FINDING_ROUNDS)(
+		"names the finding skill its round loads in its contract for %s",
+		async (round) => {
+			const text = await readFile(contractPath(round), "utf8");
+
+			expect(
+				text,
+				`${round}'s contract sends a finding to the skill loaded beside it`,
+			).toContain("review-finding-format");
+		},
+	);
+
 	it("promises no verify tool, since nothing attaches one", async () => {
 		// Telling a reviewer to call a tool it cannot see spends a turn on
 		// a failed lookup and teaches it to distrust the rest of what it
 		// was told.
-		for (const round of ROUNDS) {
+		for (const round of [...ROUNDS, "finding"]) {
 			const text = await readFile(contractPath(round), "utf8");
 			expect(text, round).not.toMatch(/verify_output|verify tool/);
 		}
