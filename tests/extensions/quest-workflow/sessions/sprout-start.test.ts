@@ -56,6 +56,7 @@ const failing = vi.hoisted(() => ({
 	serves: false,
 	aliases: false,
 	removals: false,
+	linkMarks: false,
 	linkedLog: false,
 	unwrittenLog: false,
 	tried: [] as string[],
@@ -107,6 +108,11 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 					const added = has.filter((one) => !had.includes(one));
 					failing.tried.push(...added);
 					if (failing.aliases && added.length > 0)
+						throw new Error("the quest's lock didn't come");
+					if (
+						failing.linkMarks &&
+						added.some((one) => one.startsWith("sprout-link:"))
+					)
 						throw new Error("the quest's lock didn't come");
 					if (failing.removals && had.some((one) => !has.includes(one)))
 						throw new Error("the quest's lock didn't come");
@@ -387,19 +393,55 @@ describe("a sprouted session's start", () => {
 				/tied on the map to the cell it came from, TERN02/u,
 			);
 			expect(words, "the words say what no log could").toContain(
-				"The quest's lock was busy, so this start may not have marked it as the sprout's, and couldn't log that: a replay of it may not find this quest and make another. Tell the person",
+				"This start couldn't write all it meant to on the quest, and no log holds what it missed: a replay of it may not find this quest and make another; the need it serves isn't recorded on the quest, so the node can't say whose need its cell serves. Tell the person",
 			);
 		} finally {
 			failing.aliases = false;
 		}
 	});
 
+	it("says only the link's mark is missed when its own landed and the link's met the lock", async () => {
+		const link = "https://github.com/o/r/pull/63";
+		// The link's own alias sits on an ended quest, so the made quest
+		// takes the link's mark of its own after its own mark.
+		const ended = await start({ words: "the PR's work", id: "S64" });
+		const endedId = ended.state.questId;
+		if (!endedId) throw new Error("no quest to end");
+		markWith(endedId, link);
+		seal(endedId);
+		failing.linkMarks = true;
+		failing.tried.length = 0;
+		try {
+			const again = await start(
+				{ link, id: "S65" },
+				{ sessionId: "sess-link-mark-busy" },
+			);
+			const made = again.state.questId ?? "";
+			expect(sproutedQuest("S65"), "its own mark landed").toBe(made);
+			expect(
+				failing.tried.some((one) => one.startsWith("sprout-link:")),
+				"its link's mark met the lock",
+			).toBe(true);
+			expect(again.words, "the link's mark is said missed").toContain(
+				"no log holds what it missed: the next sprout of its link may not find this quest and make another. Tell the person",
+			);
+			expect(again.words, "and never its own, which landed").not.toContain(
+				"a replay of it may not find this quest",
+			);
+		} finally {
+			failing.linkMarks = false;
+		}
+	});
+
 	it("logs no mark as unwritten that landed before the verb's own log failed", async () => {
 		failing.linkedLog = true;
 		try {
-			const { state } = await start(
+			const { state, words } = await start(
 				{ words: "tea", id: "S51" },
 				{ sessionId: "sess-linked-log-fails" },
+			);
+			expect(words, "nor do its words say it missed").not.toContain(
+				"couldn't write",
 			);
 			const made = state.questId ?? "";
 			expect(sproutedQuest("S51"), "its mark landed").toBe(made);
@@ -447,8 +489,8 @@ describe("a sprouted session's start", () => {
 		).toContain(
 			"sprout S50: its mark sprout:S50 wasn't written, so a replay of it may not find this quest and make another",
 		);
-		expect(again.words, "a mark its log holds needs no words").not.toMatch(
-			/lock was busy/u,
+		expect(again.words, "a mark its log holds needs no words").not.toContain(
+			"couldn't write",
 		);
 	});
 
@@ -509,9 +551,9 @@ describe("a sprouted session's start", () => {
 			).toEqual(["tie"]);
 			expect(
 				again.words,
-				"its words name both marks no log holds, its own and its link's",
+				"its words name each write no log holds, its own mark, its link's and its need",
 			).toContain(
-				"couldn't log that: a replay of it may not find this quest and make another, and the next sprout of its link may not find this quest and make another.",
+				"no log holds what it missed: a replay of it may not find this quest and make another; the next sprout of its link may not find this quest and make another; the need it serves isn't recorded on the quest, so the node can't say whose need its cell serves.",
 			);
 		} finally {
 			failing.unwrittenLog = false;
@@ -742,6 +784,12 @@ describe("a sprouted session's start", () => {
 					.frontMatter._extra?.serves,
 				"its need never asked the busy lock",
 			).toBeUndefined();
+			expect(
+				again.words,
+				"its words say its join mark and need missed",
+			).toContain(
+				"no log holds what it missed: a replay of it after this quest ends may start its work again; the need it serves isn't recorded on the quest",
+			);
 		} finally {
 			failing.unwrittenLog = false;
 		}
@@ -790,7 +838,7 @@ describe("a sprouted session's start", () => {
 			).toBeUndefined();
 			expect(ran, "a quest it joined is never tied").toEqual([]);
 			expect(again.words, "the words say what no log could").toContain(
-				"couldn't log that: a replay of it after this quest ends may start its work again.",
+				"no log holds what it missed: a replay of it after this quest ends may start its work again; the need it serves isn't recorded on the quest, so the node can't say whose need its cell serves.",
 			);
 		} finally {
 			failing.aliases = false;
@@ -901,7 +949,7 @@ describe("a sprouted session's start", () => {
 		const ran: string[][] = [];
 		failing.serves = true;
 		try {
-			const { state } = await start(
+			const { state, words } = await start(
 				{ words: "tea", from: "TERN02", need: "TERN02/mi1x.0123456789ab" },
 				{
 					run: async (_program, args) => {
@@ -916,6 +964,9 @@ describe("a sprouted session's start", () => {
 				ran.map((args) => args[2]),
 				"the tie to the map is still made",
 			).toEqual(["tie"]);
+			expect(words, "and its words say the need went unrecorded").toContain(
+				"no log holds what it missed: the need it serves isn't recorded on the quest",
+			);
 		} finally {
 			failing.serves = false;
 		}

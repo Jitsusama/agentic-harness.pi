@@ -251,15 +251,16 @@ export function sproutedWords(
 }
 
 /**
- * What the first words add when the quest's lock was busy for a sprout's
- * marks, each cost being what one mark left unwritten, and unlogged,
- * means for a later start; nothing when every mark was written or
- * logged. A mark the lock refused may still have landed, so it says
- * "may not".
+ * What the first words add when a sprout's start couldn't write to its
+ * quest what it meant to, nor log that it didn't, each cost naming what
+ * one missing write means for a later start or the node, each apart
+ * from the next by a semicolon, since a cost may hold a comma; nothing
+ * when there's none. It names no cause, since a busy lock, a full disk and a
+ * refused mark whose log then failed all reach it.
  */
 export function unrecordedSaid(costs: readonly string[]): string {
 	if (costs.length === 0) return "";
-	return ` The quest's lock was busy, so this start may not have marked it as the sprout's, and couldn't log that: ${costs.join(", and ")}. Tell the person, so a second start of this work has a reason they can find.`;
+	return ` This start couldn't write all it meant to on the quest, and no log holds what it missed: ${costs.join("; ")}. Tell the person, so a second start of this work has a reason they can find.`;
 }
 
 /**

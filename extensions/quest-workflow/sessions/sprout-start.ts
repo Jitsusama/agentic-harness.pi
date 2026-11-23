@@ -153,9 +153,14 @@ export async function startSprouted(
 	// and every write left would ask for it again, so once one throws this
 	// start writes that quest no more: its tie and first words still go.
 	let locked = false;
-	// What each mark the busy lock kept unwritten, or unlogged, costs: no
-	// log can say so, so the first words do, needing no lock.
+	// What each write this start couldn't make, and couldn't log, costs:
+	// no log can say so, so the first words do, needing no lock.
 	const unrecorded: string[] = [];
+	// A mark is only lost where the quest doesn't hold it, which reading
+	// the index, taking no lock, says: a verb whose own log threw had
+	// written it first.
+	const lost = (mark: { type: string; value: string }): boolean =>
+		!idsWith(state, mark).includes(id);
 	if (held === undefined) {
 		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
@@ -171,11 +176,16 @@ export async function startSprouted(
 			// A refusal takes no lock, so its log is the first write to ask
 			// for one, and a log whose lock didn't come stops the writes too.
 			const got = marking(state, id, mark);
-			locked =
-				got === "locked" ||
-				(got === "refused" && markUnwritten(state, id, seed, mark, so));
+			const logged =
+				got === "refused" ? markUnwritten(state, id, seed, mark, so) : "logged";
+			if (logged === "unlogged") unrecorded.push(so);
+			locked = got === "locked" || logged === "locked";
 			if (locked) {
-				unrecorded.push(...marks.slice(at).map((left) => left.so));
+				const left = got === "locked" ? marks.slice(at) : marks.slice(at + 1);
+				if (got !== "locked") unrecorded.push(so);
+				unrecorded.push(
+					...left.filter((one) => lost(one.mark)).map((one) => one.so),
+				);
 				break;
 			}
 		}
@@ -187,13 +197,17 @@ export async function startSprouted(
 		// still recorded below, and its log says a replay after the quest
 		// ends may start the work again.
 		const got = marking(state, id, joinMark);
-		locked =
-			got === "locked" ||
-			(got === "refused" &&
-				markUnwritten(state, id, seed, joinMark, RESTARTED));
-		if (locked) unrecorded.push(RESTARTED);
+		const logged =
+			got === "refused"
+				? markUnwritten(state, id, seed, joinMark, RESTARTED)
+				: "logged";
+		locked = got === "locked" || logged === "locked";
+		const missing = got === "locked" ? lost(joinMark) : logged !== "logged";
+		if (missing) unrecorded.push(RESTARTED);
 	}
-	if (!locked) servesNeed(state, id, seed);
+	if (seed.need && (locked || !servesNeed(state, id, seed))) {
+		unrecorded.push(UNSERVED);
+	}
 	// Only a quest it made, or its own replayed, is sprouted from the cell
 	// that asked: a live one it joined predates it, and may be that very
 	// cell's own, so the map is left saying where it really came from.
@@ -212,12 +226,15 @@ export async function startSprouted(
  * since its cell now serves that need as well; one already holding it
  * is left as it is. A README that can't be written, or whose lock
  * doesn't come, leaves the quest standing without it and the tie still
- * made, since the work matters more than its lineage.
+ * made, since the work matters more than its lineage. Answers whether
+ * the quest holds all the seed's need gives it to, so the first words
+ * say when it doesn't.
  */
-function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
+function servesNeed(state: QuestState, id: string, seed: SproutSeed): boolean {
 	const cell = seed.need ? needAsker(seed.need) : undefined;
+	if (!seed.need || !cell) return true;
 	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!seed.need || !cell || !dir) return;
+	if (!dir) return false;
 	const taken = {
 		cell,
 		need: seed.words || seed.need,
@@ -229,9 +246,11 @@ function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
 			const serves = withServed(fm._extra?.serves, taken);
 			return serves ? { ...fm, _extra: { ...fm._extra, serves } } : undefined;
 		});
+		return true;
 	} catch {
 		// A lock that didn't come or a write that failed: the quest stands
 		// without its lineage, and the tie after this is still made.
+		return false;
 	}
 }
 
@@ -315,6 +334,10 @@ const LINK_UNFOUND =
 const RESTARTED =
 	"a replay of it after this quest ends may start its work again";
 
+/** What a need its quest doesn't record costs the node's forage. */
+const UNSERVED =
+	"the need it serves isn't recorded on the quest, so the node can't say whose need its cell serves";
+
 /**
  * What became of a mark: written; refused, by the alias verb's answer
  * (held by another quest, or a README it couldn't read); or locked,
@@ -337,7 +360,7 @@ function marking(
 	} catch {
 		// A lock that didn't come, or a write that failed; the verb also
 		// throws when the lock for its own log line doesn't come, after the
-		// mark has landed. Either way the quest's lock is held elsewhere.
+		// mark has landed, which the start reads the index to tell.
 		return "locked";
 	}
 }
@@ -346,7 +369,9 @@ function marking(
  * Say in quest `id`'s harness log that its sprout's `mark` wasn't
  * written, and `so`, what that costs a replay of `seed`; a log that
  * can't be written leaves the quest as the start left it. Answers
- * whether the log's lock didn't come, so the start asks it no more.
+ * whether it's logged, locked when the log threw, as a lock that never
+ * came does, so the start asks the quest no more, or unlogged when the
+ * quest had no folder to log in.
  */
 function markUnwritten(
 	state: QuestState,
@@ -354,19 +379,20 @@ function markUnwritten(
 	seed: SproutSeed,
 	mark: { type: string; value: string },
 	so: string,
-): boolean {
+): "logged" | "locked" | "unlogged" {
 	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!dir) return false;
+	if (!dir) return "unlogged";
 	try {
 		appendHarnessLog(
 			dir,
 			`sprout ${seed.id ?? "with no id"}: its mark ${mark.type}:${mark.value} wasn't written, so ${so}`,
 		);
-		return false;
+		return "logged";
 	} catch {
-		// A log whose lock didn't come: the quest stands as the start left
-		// it, and only this note of its missing mark is lost.
-		return true;
+		// A log whose lock didn't come, or a write that failed: the quest
+		// stands as the start left it, and the first words say what this
+		// note would have.
+		return "locked";
 	}
 }
 

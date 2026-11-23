@@ -11,6 +11,7 @@ import {
 	sproutSeedFrom,
 	tieArguments,
 	titleFromWords,
+	unrecordedSaid,
 } from "../../../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { needId } from "../../../../../lib/mesh/need-route.ts";
 
@@ -319,5 +320,25 @@ describe("a sprouted session's first words", () => {
 				{ also: [forged] },
 			),
 		).not.toMatch(/holds? this work as well/u);
+	});
+});
+
+describe("what a sprout's start couldn't write", () => {
+	it("says nothing when it wrote all it meant to", () => {
+		expect(unrecordedSaid([])).toBe("");
+	});
+
+	it("names one cost, and no cause it can't know", () => {
+		const said = unrecordedSaid(["a replay may make another"]);
+		expect(said).toBe(
+			" This start couldn't write all it meant to on the quest, and no log holds what it missed: a replay may make another. Tell the person, so a second start of this work has a reason they can find.",
+		);
+		expect(said).not.toMatch(/lock/u);
+	});
+
+	it("keeps each cost apart, though one holds a comma", () => {
+		expect(unrecordedSaid(["one", "two, by the node", "three"])).toContain(
+			"what it missed: one; two, by the node; three. Tell",
+		);
 	});
 });
