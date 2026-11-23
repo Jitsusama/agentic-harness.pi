@@ -2,7 +2,7 @@
  * Where a conversation opens when its log's folder is gone: the nearest
  * folder above that stands, or home, said to it once.
  */
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,7 +15,10 @@ import {
 import type { SessionManager } from "../../../host/engine/pi-session.ts";
 
 const folders: string[] = [];
+/** Folders a test locked, opened again first so rm can read them. */
+const locked: string[] = [];
 afterEach(() => {
+	for (const folder of locked.splice(0)) chmodSync(folder, 0o700);
 	for (const folder of folders.splice(0))
 		rmSync(folder, { recursive: true, force: true });
 });
@@ -49,9 +52,33 @@ describe("a conversation whose folder is gone", () => {
 	});
 
 	it("opens at home when only the root stands, never at the root", () => {
-		expect(standingFolder("/no-such-folder-here/tree", "/home/x")).toBe(
-			"/home/x",
-		);
+		const home = scratch();
+		expect(standingFolder("/no-such-folder-here/tree", home)).toBe(home);
+	});
+
+	it("opens in the fallback when home is gone or is the root", () => {
+		const fallback = scratch();
+		expect(
+			standingFolder("/no-such-folder-here/tree", "/no-such-home", fallback),
+			"home gone",
+		).toBe(fallback);
+		expect(
+			standingFolder("/no-such-folder-here/tree", "/", fallback),
+			"home at the root",
+		).toBe(fallback);
+	});
+
+	it("stays in a folder it can't read rather than read it as gone", () => {
+		const root = scratch();
+		const lock = join(root, "locked");
+		mkdirSync(join(lock, "tree"), { recursive: true });
+		chmodSync(lock, 0o000);
+		locked.push(lock);
+		const pi = piOpening(join(lock, "tree"));
+		const opened = openStanding(pi.sessions, "/log.jsonl", root);
+
+		expect(opened.left).toBeUndefined();
+		expect(pi.calls).toHaveLength(1);
 	});
 
 	it("opens its log once, as pi does, when its folder stands", () => {
@@ -67,7 +94,7 @@ describe("a conversation whose folder is gone", () => {
 		const root = scratch();
 		const gone = join(root, "tree");
 		const pi = piOpening(gone);
-		const opened = openStanding(pi.sessions, "/log.jsonl", "/home/x");
+		const opened = openStanding(pi.sessions, "/log.jsonl", scratch());
 
 		expect(opened.left).toBe(gone);
 		expect(opened.manager.getCwd()).toBe(root);

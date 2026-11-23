@@ -4,8 +4,8 @@
  * that still stands, or the home folder, rather than pi refusing the
  * whole conversation at its start (pi's MissingSessionCwdError).
  */
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname } from "node:path";
 import type { SessionManager, SessionManagerStatics } from "./pi-session.ts";
 
@@ -30,19 +30,40 @@ export function openStanding(
 ): StandingOpen {
 	const manager = sessions.open(file);
 	const left = manager.getCwd();
-	if (!left || existsSync(left)) return { manager };
+	if (!left || !isGone(left)) return { manager };
 	const now = standingFolder(left, home);
 	return { manager: sessions.open(file, undefined, now), left };
 }
 
 /**
  * The nearest folder above `gone` that still exists, or `home` when only
- * the root does: a conversation never opens at the root unasked.
+ * the root does, or `fallback` when home is gone or is the root itself:
+ * a conversation never opens at the root unasked.
  */
-export function standingFolder(gone: string, home: string): string {
+export function standingFolder(
+	gone: string,
+	home: string,
+	fallback: string = tmpdir(),
+): string {
 	for (let at = dirname(gone); at !== dirname(at); at = dirname(at))
-		if (existsSync(at)) return at;
-	return home;
+		if (!isGone(at)) return at;
+	return home !== dirname(home) && !isGone(home) ? home : fallback;
+}
+
+/**
+ * Whether nothing is at `path`. A folder that can't be read, as one
+ * behind a lock or a mount gone stale, is no proof it is gone, so only
+ * the system saying there is no such entry moves a conversation.
+ */
+function isGone(path: string): boolean {
+	try {
+		statSync(path);
+		return false;
+	} catch (error) {
+		const code =
+			error instanceof Error ? Reflect.get(error, "code") : undefined;
+		return code === "ENOENT" || code === "ENOTDIR";
+	}
 }
 
 /** What a conversation is told when it opens somewhere other than its log says. */
