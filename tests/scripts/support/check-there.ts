@@ -1649,6 +1649,15 @@ function workThere(): void {
 			).toBeLessThan(build);
 		});
 
+		// Under errexit and pipefail, an ls matching nothing ends the check
+		// at its own line, before the one saying what was missing.
+		it("finds what it runs by globs, never by an ls in a pipe", () => {
+			expect(
+				lines.filter((line) => /\$\(ls\b[^)]*\|/.test(line)),
+				"an ls piped on, whose match of none would end it unsaid",
+			).toEqual([]);
+		});
+
 		it("runs alone, from its turn to its end", () => {
 			const after = lines
 				.slice(lines.indexOf("take_turn") + 1)
