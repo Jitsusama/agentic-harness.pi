@@ -752,6 +752,24 @@ describe("how a command and a span are named", () => {
 		expect(labelOf("a".repeat(80))).toBe(`${"a".repeat(57)}...`);
 	});
 
+	// A job taken up after a move is judged a wait by its label alone, so a
+	// label must never read plainer than its command: bash splits words on
+	// spaces and tabs only, and runs `x=1\u00a0sleep` as one word.
+	it("folds only spaces and tabs, keeping any other space as typed", () => {
+		expect(labelOf("sleep \t  5")).toBe("sleep 5");
+		for (const odd of ["\u00a0", "\v", "\f", "\r", "\u2003"]) {
+			expect(labelOf(`x=1${odd}sleep touch y`), JSON.stringify(odd)).toBe(
+				`x=1${odd}sleep touch y`,
+			);
+			expect(labelOf(`${odd}sleep 5;${odd}`), JSON.stringify(odd)).toBe(
+				`${odd}sleep 5;${odd}`,
+			);
+		}
+		expect(labelOf(" \t\nsleep 5 \n"), "spaces, tabs and lines trim").toBe(
+			"sleep 5",
+		);
+	});
+
 	it("says a span the way a person would", () => {
 		expect(spoken(1000)).toBe("1 second");
 		expect(spoken(5 * 60 * 1000)).toBe("5 minutes");

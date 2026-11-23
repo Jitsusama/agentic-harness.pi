@@ -61,10 +61,16 @@ export interface Call<T> {
 	readonly carryOf?: (signal: AbortSignal) => JobCarry | undefined;
 }
 
-/** A command, named in a line. */
+/**
+ * A command, named in a line. Only spaces and tabs fold, as bash splits
+ * words on them alone: a job taken up after a move is judged a wait by
+ * its label, so any other space must stay for that judging to see, at
+ * its ends too.
+ */
 export function labelOf(command: string): string {
-	const line = command.trim().split("\n")[0]?.replace(/\s+/g, " ") ?? "";
-	const more = command.trim().includes("\n") ? " ..." : "";
+	const whole = command.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+	const line = whole.split("\n")[0]?.replace(/[ \t]+/g, " ") ?? "";
+	const more = whole.includes("\n") ? " ..." : "";
 	if (line.length + more.length <= LABEL_CHARS) return `${line}${more}`;
 	return `${line.slice(0, LABEL_CHARS - 3)}...`;
 }
