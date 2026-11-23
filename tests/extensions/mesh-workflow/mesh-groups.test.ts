@@ -347,7 +347,7 @@ describe("groups", () => {
 		publish("session-i", "Q1IDLE", false);
 		publish("session-b", "Q2BUSY", true);
 		publish("session-o", "5GV2AH", false);
-		publish("session-l", "Q3LED", false, "7M6JKG");
+		publish("session-l", "Q3LEDX", false, "7M6JKG");
 		const { tools } = await startSession();
 		const idle = "is idle, and an fyi starts no turn";
 
@@ -357,7 +357,7 @@ describe("groups", () => {
 		expect(await send(tools, "Q1IDLE", "finding", "Broken.")).toContain(
 			"Q1IDLE is idle, and a finding starts no turn",
 		);
-		expect(await send(tools, "Q3LED", "fyi", "Go on.")).toContain(
+		expect(await send(tools, "Q3LEDX", "fyi", "Go on.")).toContain(
 			"Send a question or a pivot if it should act on it now.",
 		);
 		expect(await send(tools, "Q1IDLE", "question", "Which?")).not.toContain(
