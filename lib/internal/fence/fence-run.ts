@@ -113,8 +113,9 @@ folder of the tree it runs in, a held work tree whole,
 and npm's settings without tokens; it writes there only
 its folder. Outside the home it reads and writes what the
 account can, /tmp and the Mac's temporary folder among
-them, but for what the fence hides, and writes no
-program folder outside its own.
+them, but for what the fence hides and the code caches
+it keeps read-only there, and writes no program folder
+outside its own.
 
 Options:
   --folder DIR   where it runs and may write, the working

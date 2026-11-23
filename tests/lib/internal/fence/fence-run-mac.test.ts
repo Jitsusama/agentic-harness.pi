@@ -118,7 +118,17 @@ describe.skipIf(!sandboxes)(
 		it("keeps the shell's history from a fenced command, and writes /tmp when strict", () => {
 			const history = join(home, ".zsh_history");
 			writeFileSync(history, "export TOKEN=not-a-token\n");
+			// The same fence reads a file it doesn't hide, so a refusal below
+			// is the hide, not a fence that never started.
+			expect(
+				running(["/bin/cat", join(home, "work", "mine")], "fence").stdout,
+				"the fence ran",
+			).toBe("mine\n");
 			const read = running(["/bin/cat", history], "fence");
+			expect(read.status, "the history read refused").not.toBe(0);
+			expect(read.stderr, "refused by the profile").toContain(
+				"Operation not permitted",
+			);
 			expect(read.stdout, "the history unread").not.toContain("TOKEN");
 			const made = join(realpathSync("/tmp"), `fx-${process.pid}`);
 			try {
