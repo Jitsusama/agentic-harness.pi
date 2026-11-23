@@ -122,7 +122,11 @@ function startTrouble(
 	error: unknown,
 ): CallTrouble | undefined {
 	const code = isRecord(error) ? error.code : undefined;
-	if (code === "ENOENT" && !isThere(program)) {
+	if (typeof code !== "string") return undefined;
+	if (code !== "ENOENT" && !UNRUNNABLE.has(code)) return undefined;
+	// A PATH folder it can't search, or a file listed as one, fails the
+	// way a program that can't run does; only something there is broken.
+	if (!isThere(program)) {
 		return { kind: "missing", why: `${program} isn't on the PATH` };
 	}
 	if (code === "ENOENT") {
@@ -131,10 +135,7 @@ function startTrouble(
 			why: `${program} is there, but what it runs isn't`,
 		};
 	}
-	if (typeof code === "string" && UNRUNNABLE.has(code)) {
-		return { kind: "broken", why: `${program} can't be started (${code})` };
-	}
-	return undefined;
+	return { kind: "broken", why: `${program} can't be started (${code})` };
 }
 
 /** Why `program` couldn't answer, from its exit. */

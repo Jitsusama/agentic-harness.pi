@@ -6,6 +6,7 @@
 import {
 	chmodSync,
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -61,10 +62,26 @@ describe("asking whether a call is on", () => {
 	it("reports no trouble for a program that can't tell, or doesn't answer in time", async () => {
 		const cannotAsk = vi.fn();
 
+		const pidFile = join(dir, "late-pid");
+
 		await askCall({ program: standIn("exit 2"), timeoutMs: 5_000, cannotAsk });
 		await askCall({ program: standIn("exit 69"), timeoutMs: 5_000, cannotAsk });
-		await askCall({ program: standIn("sleep 5"), timeoutMs: 200, cannotAsk });
+		// One that would refuse, were it not killed at its time first.
+		await askCall({
+			program: standIn(`echo $$ > '${pidFile}'; sleep 5; exit 64`),
+			timeoutMs: 500,
+			cannotAsk,
+		});
+		const late = Number(readFileSync(pidFile, "utf8").trim());
+		const deadline = performance.now() + 2_000;
+		while (alive(late) && performance.now() < deadline) {
+			// A short poll for the reaping, bounded by the deadline above.
+			await new Promise((wake) => setTimeout(wake, 20));
+		}
+		// Its exit is heard in the turn that reaps it; one more lets it land.
+		await new Promise((wake) => setTimeout(wake, 50));
 
+		expect(alive(late), "the killed probe is gone").toBe(false);
 		expect(
 			cannotAsk,
 			"a call it can't read now is not a broken program",
@@ -163,11 +180,34 @@ describe("asking whether a call is on", () => {
 		expect(answers, "neither can say").toEqual([undefined, undefined]);
 		expect(
 			cannotAsk.mock.calls.map(([trouble]) => trouble.why),
-			"the errors spawn throws rather than emits",
+			"errors spawn throws: a loop is there, a path through a file leads nowhere",
 		).toEqual([
 			`${looped} can't be started (ELOOP)`,
-			`${join(file, "a-call-is-on")} can't be started (ENOTDIR)`,
+			`${join(file, "a-call-is-on")} isn't on the PATH`,
 		]);
+	});
+
+	it("says a program is missing when a PATH folder it can't search is all there is", async () => {
+		const cannotAsk = vi.fn();
+		const shut = join(dir, "shut");
+		mkdirSync(shut);
+		chmodSync(shut, 0o000);
+		vi.stubEnv("PATH", shut);
+
+		try {
+			await askCall({
+				program: "a-call-is-on-nowhere",
+				timeoutMs: 5_000,
+				cannotAsk,
+			});
+		} finally {
+			chmodSync(shut, 0o755);
+		}
+
+		expect(
+			cannotAsk.mock.calls.map(([trouble]) => trouble.kind),
+			"an odd PATH on a machine without the program warns no one",
+		).toEqual(["missing"]);
 	});
 
 	it("looks on the PATH for a bare name, counting a link to nothing as there", async () => {
