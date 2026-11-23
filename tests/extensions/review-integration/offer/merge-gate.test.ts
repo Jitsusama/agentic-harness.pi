@@ -122,6 +122,40 @@ describe("a repo's merge gate", () => {
 		}
 	});
 
+	it("accepts a queued base only on a forge whose queue lands the change", () => {
+		// 23 November: World's main moved 40 times in 140 seconds, so a
+		// gate that compared it before and after refused nearly every merge.
+		const WORLD = "delta:shop/world";
+		const queued = (repo: string, base: unknown) =>
+			gateFor({ merge: { gates: { [repo]: { command: "x", base } } } }, repo);
+		expect(queued(WORLD, "queued"), "Delta's queue lands it").toEqual({
+			kind: "gate",
+			command: "x",
+			minutes: DEFAULT_GATE_MINUTES,
+			queued: true,
+		});
+		expect(
+			queued(WORLD, undefined),
+			"a gate naming no base has it read, on any forge",
+		).toEqual({ kind: "gate", command: "x", minutes: DEFAULT_GATE_MINUTES });
+		expect(
+			queued(CORE, "queued"),
+			"a forge not known to queue every change has its base read",
+		).toMatchObject({
+			kind: "malformed",
+			problem: expect.stringContaining(
+				"github isn't known here to land every change through a queue",
+			),
+		});
+		expect(
+			queued(WORLD, "unread"),
+			"a base that isn't queued is refused, naming it",
+		).toMatchObject({
+			kind: "malformed",
+			problem: expect.stringContaining('may only be "queued", not "unread"'),
+		});
+	});
+
 	it("refuses a key a gate doesn't read, so a misspelt time isn't the default", () => {
 		expect(
 			gateFor(
@@ -253,6 +287,15 @@ describe("a repo's merge gate", () => {
 			await gateRefusal({ ...GATE, minutes: 100 }, HEAD, dir, slow),
 			"the more time offered stops at the most a gate may name",
 		).toContain(`"minutes": ${MOST_GATE_MINUTES} }`);
+		expect(
+			await gateRefusal(
+				{ ...GATE, minutes: 30, queued: true },
+				HEAD,
+				dir,
+				slow,
+			),
+			"a late queued gate is offered more time, its base still queued",
+		).toContain(`"minutes": 60, "base": "queued" }`);
 		const broken: RunGate = async () => {
 			throw new Error("spawn bash ENOENT");
 		};

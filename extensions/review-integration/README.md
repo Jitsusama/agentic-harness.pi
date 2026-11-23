@@ -238,6 +238,25 @@ the merge is held to the head the gate was handed. No backend
 guards the base, so it is read once more after the merge is
 approved, and one that moved meanwhile is refused too.
 
+A forge that lands a change through a queue, such as Delta's Merge
+Garden, puts it onto main's newest tip itself and runs its own
+checks there, so comparing the base guards nothing; on World, whose
+main moved 40 times in 140 seconds on 23 November, it would refuse
+nearly every merge. Such a gate says its base is queued, and its
+base is neither read nor compared, while its head is read again as
+any gate's is:
+
+```json
+{ "merge": { "gates": { "delta:shop/world":
+  { "command": "zone-gate ready", "base": "queued" } } } }
+```
+
+Only a forge known here to land every change through a queue may
+say it, and today that is `delta` alone. On any other the gate is
+refused as unreadable when a merge is asked, since the base its
+gate read may be the one the change lands on. A queued change that
+names no base is still refused.
+
 ### Councils Mirrored From Another Machine
 
 Proposing or merging waits for a council of ours. A round run on

@@ -31,6 +31,15 @@
  * refuses when it moved: core.nix's main has no branch protection to
  * refuse two gated merges overlapping, and the longer a gate the wider
  * that window.
+ *
+ * A forge that lands a change through a queue puts it onto its main's
+ * newest tip itself, and runs its own checks there, so comparing the
+ * base guards nothing; and on World, whose main moved 40 times in 140
+ * seconds on 23 November while each read took 3 to 5, it would refuse
+ * nearly every gated merge. Such a gate says `"base": "queued"`, and
+ * its base is neither read nor compared; the head is read again as
+ * ever. A forge that merges when asked can't say it, since there the
+ * base its gate read is the one the change lands on.
  */
 
 import { stat } from "node:fs/promises";
@@ -60,10 +69,17 @@ const BASE_READ_MS = 2 * MINUTE_MS;
 const NOT_FOUND = 127;
 
 /** The keys a gate's object form may hold. */
-const GATE_KEYS = new Set(["command", "minutes"]);
+const GATE_KEYS = new Set(["command", "minutes", "base"]);
+
+/**
+ * The forges whose merges go through a queue onto main's newest tip, by
+ * the repo key's part before its colon: Delta, whose Merge Garden lands
+ * World's changes.
+ */
+const QUEUED_FORGES = new Set(["delta"]);
 
 /** How a gate is named, for a message saying it was named wrongly. */
-const GATE_FORMS = `a command, or { "command": ..., "minutes": ... } with minutes a whole number from 1 to ${MOST_GATE_MINUTES}`;
+const GATE_FORMS = `a command, or { "command": ..., "minutes": ..., "base": "queued" } with minutes a whole number from 1 to ${MOST_GATE_MINUTES} and base queued only on ${[...QUEUED_FORGES].join(", ")}`;
 
 /** The gate a repo names, or why the config can't be read for one. */
 export type GateFor =
@@ -75,6 +91,8 @@ export type GateFor =
 export interface Gate {
 	readonly command: string;
 	readonly minutes: number;
+	/** Set when a queue lands the change, so its base isn't read or compared. */
+	readonly queued?: true;
 }
 
 /** The gate `review` names for one repo key. */
@@ -110,12 +128,15 @@ export function gateFor(review: unknown, repo: string): GateFor {
 			problem: `review.merge.gates["${repo}"] should be ${GATE_FORMS}.${unknown}`,
 		};
 	}
+	const queued = queuedOf(isRecord(named) ? named.base : undefined, repo);
+	if (typeof queued === "string") return { kind: "malformed", problem: queued };
 	const minutes = isRecord(named) ? named.minutes : undefined;
 	if (minutes === undefined) {
 		return {
 			kind: "gate",
 			command: command.trim(),
 			minutes: DEFAULT_GATE_MINUTES,
+			...queued,
 		};
 	}
 	if (
@@ -129,7 +150,25 @@ export function gateFor(review: unknown, repo: string): GateFor {
 			problem: `review.merge.gates["${repo}"].minutes should be a whole number from 1 to ${MOST_GATE_MINUTES}, not ${JSON.stringify(minutes) ?? String(minutes)}.`,
 		};
 	}
-	return { kind: "gate", command: command.trim(), minutes };
+	return { kind: "gate", command: command.trim(), minutes, ...queued };
+}
+
+/**
+ * What a gate's `base` says: nothing when it names none, `queued` on a
+ * forge that merges through a queue, and otherwise why it is refused.
+ */
+function queuedOf(
+	base: unknown,
+	repo: string,
+): { readonly queued?: true } | string {
+	if (base === undefined) return {};
+	const at = `review.merge.gates["${repo}"].base`;
+	if (base !== "queued") {
+		return `${at} may only be "queued", not ${JSON.stringify(base) ?? String(base)}.`;
+	}
+	const forge = repo.split(":")[0] ?? "";
+	if (QUEUED_FORGES.has(forge)) return { queued: true };
+	return `${at} is "queued", but ${forge || repo} isn't known here to land every change through a queue onto its base's newest tip, so the base its gate read must be read; only ${[...QUEUED_FORGES].join(", ")} is.`;
 }
 
 /** How long a gate may run, in milliseconds. */
@@ -291,7 +330,8 @@ export async function gateRefusal(
 		if (gate.minutes >= MOST_GATE_MINUTES) {
 			return `${stopped} ${MOST_GATE_MINUTES} minutes is the most a gate may name, so the gate itself needs looking at.${tail}`;
 		}
-		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)} }.${tail}`;
+		const queued = gate.queued ? `, "base": "queued"` : "";
+		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)}${queued} }.${tail}`;
 	}
 	if (ran.aborted === true) {
 		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.${tail}`;
