@@ -1,17 +1,24 @@
 /**
  * Where a host's pi-spawner runs: a scope of its own where a host on
  * Linux can make one with the system's own systemd-run, and where it
- * always has otherwise, saying why once; and a scope that fails to
- * start leaves every spawner after it unscoped.
+ * always has otherwise, saying why once; a scope that fails to start
+ * leaves every spawner after it unscoped; and a scoped start is never
+ * placed in jobs, while an unscoped one is. The placing cases wrap every
+ * spawn in the process, as pi's placement does, and undo it after each.
  */
 
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { placeChildren } from "../../../../lib/internal/priority/place.ts";
+import { startProgram } from "../../../../lib/internal/shell/spawner.ts";
 import {
 	inSpawnerScope,
 	resetScopeForTests,
 	type ScopeSetting,
+	type SpawnerStart,
 	sayUnscoped,
 	scopeFailed,
 	settingHere,
@@ -21,6 +28,9 @@ import {
 } from "../../../../lib/internal/shell/spawner-scope.ts";
 
 const SYSTEM = "/run/current-system/sw/bin";
+
+/** How long a started spawner's output is waited for past its exit. */
+const NO_DRAIN_MS = 0;
 
 /** A Linux host with systemd-run in its profile and a user manager. */
 function linuxHost(overrides: Partial<ScopeSetting> = {}): ScopeSetting {
@@ -55,6 +65,7 @@ describe("starting a host's spawner", () => {
 				"--",
 				"/nix/bin/pi-spawner",
 			],
+			scoped: true,
 		});
 		expect(spawnersScoped(linuxHost()), "a host's calls are kept").toBe(true);
 	});
@@ -75,6 +86,7 @@ describe("starting a host's spawner", () => {
 		expect(spawnerStart("/bin/pi-spawner", setting)).toEqual({
 			command: "/bin/pi-spawner",
 			args: [],
+			scoped: false,
 			unscoped: "systemd-run isn't in the system's profile",
 		});
 	});
@@ -106,6 +118,7 @@ describe("starting a host's spawner", () => {
 		expect(spawnerStart("/bin/pi-spawner", setting)).toEqual({
 			command: "/bin/pi-spawner",
 			args: [],
+			scoped: false,
 			unscoped: why,
 		});
 		expect(spawnersScoped(setting), "nothing keeps a host's calls").toBe(false);
@@ -114,7 +127,7 @@ describe("starting a host's spawner", () => {
 	it("runs plain pi's where it always has, with nothing to say", () => {
 		expect(
 			spawnerStart("/bin/pi-spawner", linuxHost({ hosted: false })),
-		).toEqual({ command: "/bin/pi-spawner", args: [] });
+		).toEqual({ command: "/bin/pi-spawner", args: [], scoped: false });
 	});
 });
 
@@ -123,9 +136,12 @@ describe("starting a host's spawner", () => {
 // 59 hosted spawners in jobs outside any scope (5FWIUS).
 describe("where a host's spawner is placed", () => {
 	let undo: (() => void) | undefined;
+	let folder: string | undefined;
 	afterEach(() => {
 		undo?.();
 		undo = undefined;
+		if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
+		folder = undefined;
 	});
 
 	/** The pids placing writes into jobs, from now on. */
@@ -137,8 +153,31 @@ describe("where a host's spawner is placed", () => {
 		return written;
 	};
 
+	/**
+	 * A stand-in systemd-run, which runs its last word in its own process
+	 * as the real one runs the spawner once its scope is made, and a
+	 * spawner that ends at once.
+	 */
+	const standIns = (): { run: string; spawner: string } => {
+		folder = mkdtempSync(join(tmpdir(), "spawner-start-"));
+		const run = join(folder, "systemd-run");
+		writeFileSync(run, '#!/bin/sh\nfor last do :; done\nexec "$last"\n', {
+			mode: 0o755,
+		});
+		const spawner = join(folder, "pi-spawner");
+		writeFileSync(spawner, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		return { run, spawner };
+	};
+
+	/** Starts `spawner` as a host's start does, answering its pid once it ends. */
+	const startedAs = (spawner: string, setting: ScopeSetting) =>
+		new Promise<number>((resolve) => {
+			const started = startProgram(spawner, undefined, NO_DRAIN_MS, setting);
+			started.ended(() => resolve(started.pid ?? -1));
+		});
+
 	/** Spawns `true` for a spawner started as `start`, answering its pid once it exits. */
-	const spawnedFor = (start: ReturnType<typeof spawnerStart>) =>
+	const spawnedFor = (start: SpawnerStart) =>
 		new Promise<number>((resolve, reject) => {
 			const child = spawningSpawner(start, () => spawn("true"));
 			child.on("error", reject);
@@ -147,23 +186,37 @@ describe("where a host's spawner is placed", () => {
 
 	it("leaves a scoped one where pi is, for its scope to keep", async () => {
 		const written = placing();
+		const { run, spawner } = standIns();
+		const scoped = linuxHost({
+			find: (program) => (program === "systemd-run" ? run : undefined),
+		});
 
-		await spawnedFor(spawnerStart("/nix/bin/pi-spawner", linuxHost()));
+		const kept = await startedAs(spawner, scoped);
+		const placed = await startedAs(spawner, linuxHost({ hosted: false }));
 
-		expect(written).toEqual([]);
+		expect(kept, "the scoped one started").toBeGreaterThan(0);
+		expect(written, "only plain pi's is placed").toEqual([placed]);
 	});
 
-	it("places an unscoped one in jobs, as any child", async () => {
-		const written = placing();
-		const start = spawnerStart(
-			"/nix/bin/pi-spawner",
-			linuxHost({ platform: "darwin" }),
-		);
+	it.each([
+		["for plain pi", { hosted: false }],
+		["off Linux", { platform: "darwin" as const }],
+		[
+			"once a scope failed to start",
+			{ failed: "a scoped pi-spawner ended with 1" },
+		],
+	])(
+		"places an unscoped one in jobs %s, as any child",
+		async (_case, overrides) => {
+			const written = placing();
 
-		const pid = await spawnedFor(start);
+			const pid = await spawnedFor(
+				spawnerStart("/nix/bin/pi-spawner", linuxHost(overrides)),
+			);
 
-		expect(written).toEqual([pid]);
-	});
+			expect(written).toEqual([pid]);
+		},
+	);
 });
 
 describe("whether a host's calls are kept", () => {

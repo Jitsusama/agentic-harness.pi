@@ -31,7 +31,10 @@
  * itself into its new scope by then: the write moved it back out, the
  * scope emptied, and the spawner and all it ran sat in jobs outside any
  * scope. On 23 November 8 of 59 spawners under hosted conversations sat
- * there (5FWIUS).
+ * there (5FWIUS). What a scoped spawner runs then reaches jobs only by
+ * its own move: each bash call's shell moves itself there
+ * (`shellMovesItself`), and a command that doesn't, or a move the
+ * cgroup refuses, runs in the scope at the person's priority.
  */
 
 import { randomUUID } from "node:crypto";
@@ -66,9 +69,11 @@ export interface ScopeSetting {
 }
 
 /** How to start the spawner: the program and its arguments. */
-interface SpawnerStart {
+export interface SpawnerStart {
 	readonly command: string;
 	readonly args: readonly string[];
+	/** Whether systemd-run makes it a scope, so it is never placed in jobs. */
+	readonly scoped: boolean;
 	/** Why it runs in the host's own cgroup, when a host's spawner does. */
 	readonly unscoped?: string;
 }
@@ -110,7 +115,7 @@ export function spawnerStart(
 	program: string,
 	setting: ScopeSetting,
 ): SpawnerStart {
-	const direct = { command: program, args: [] };
+	const direct = { command: program, args: [], scoped: false };
 	if (!setting.hosted) return direct;
 	if (setting.platform !== "linux")
 		return { ...direct, unscoped: "this machine has no systemd" };
@@ -132,6 +137,7 @@ export function spawnerStart(
 			"--",
 			program,
 		],
+		scoped: true,
 	};
 }
 
@@ -141,7 +147,7 @@ export function spawnerStart(
  * unscoped one placed in jobs as any child is.
  */
 export function spawningSpawner<T>(start: SpawnerStart, spawning: () => T): T {
-	return start.args.length > 0 ? withPi(spawning) : spawning();
+	return start.scoped ? withPi(spawning) : spawning();
 }
 
 /**
