@@ -19,6 +19,7 @@ import {
 	follow,
 	HELD_ENTRY,
 	HELD_MS,
+	MOVE_TAKEN_AS_ASKED,
 	RESTARTING_ENTRY,
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
@@ -362,7 +363,8 @@ describe("following the install", () => {
 
 	// The follower reads what the session runs after it looks for a move,
 	// so a move taken there is one only the dispatch's own look, after git
-	// is asked, can see (5BACCAC3's F74 on #2029).
+	// is asked, can see (5BACCAC3's F74, F99 and F100 on #2029). The move
+	// is taken a turn of the event loop on, as git is asked.
 	it("holds back a reload when a move is taken after the follower looked", async () => {
 		const moving = "01a1ecbb-0000-7000-8000-0000000e3002";
 		let armed = false;
@@ -370,15 +372,19 @@ describe("following the install", () => {
 			const { install, prompted, entries, follower } = await session({
 				sessionId: moving,
 				looked: () => {
-					if (armed) holdForMove(moving, "background");
+					if (armed) setImmediate(() => holdForMove(moving, "background"));
 				},
 			});
 
 			armed = true;
 			await land(install, "feat: something to try");
-			await until("the move is taken", () => moveWaiting(moving) !== undefined);
-			// Long enough for the dispatch to ask git and send.
-			await quietFor(QUIET_MS, 10);
+			await until("the dispatch sees the move", () =>
+				entries.some(
+					(entry) =>
+						entry.type === WAITING_ENTRY &&
+						(entry.data as { reason?: string }).reason === MOVE_TAKEN_AS_ASKED,
+				),
+			);
 			expect(prompted, "while the move holds it").toEqual([]);
 			expect(
 				entries.filter(

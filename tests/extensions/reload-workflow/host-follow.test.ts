@@ -31,6 +31,10 @@ import {
 } from "../../../lib/internal/carry/under-way.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import type { ReloadLanded } from "../../../lib/internal/reload/slot.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import { sessionHost } from "../../support/session-host.ts";
 import { quietFor, until } from "../../support/until.ts";
@@ -144,7 +148,8 @@ it("reloads each conversation through its host, saying the move was its own", as
 	await land("feat: something to try");
 	await until("both conversations ask", () => asked.length === 2);
 
-	const want = { reason: "feat: something to try" };
+	// The follower's own yields to a move, which the host honours once idle.
+	const want = { reason: "feat: something to try", yieldsToMove: true };
 	expect(
 		[...asked].sort(([x], [y]) => x.localeCompare(y)),
 		"B's start left A following",
@@ -202,7 +207,9 @@ it("waits for a busy conversation's run to end", async () => {
 	a.busy = false;
 	a.follower?.consider(true);
 	await until("the reload is asked for", () => asked.length === 1);
-	expect(asked).toEqual([["a", { reason: "feat: something to try" }]]);
+	expect(asked).toEqual([
+		["a", { reason: "feat: something to try", yieldsToMove: true }],
+	]);
 });
 
 it("says a reload its host failed once, and doesn't ask again at every look", async () => {
@@ -255,5 +262,32 @@ it("stops a closed conversation's follower and leaves the others following", asy
 	await until("B asks", () => asked.length > 0);
 	await quietFor(QUIET_MS, 4);
 
-	expect(asked).toEqual([["b", { reason: "feat: something to try" }]]);
+	expect(asked).toEqual([
+		["b", { reason: "feat: something to try", yieldsToMove: true }],
+	]);
+});
+
+// 5BACCAC3's F98 on #2029: the host refuses the follower's reload under
+// a move taken as the run ended. The follower waits that out as it does
+// a move it saw, saying nothing and asking again once the move lets go.
+it("waits out a host's refusal under a move taken as it asked, saying nothing", async () => {
+	const landed = runner;
+	runner = async () => {
+		holdForMove("a", "background");
+		throw new Error("a move to background waits");
+	};
+	const a = await start("a");
+	try {
+		await land("feat: something to try");
+		await until("the host refuses", () => asked.length === 1);
+		await quietFor(QUIET_MS, 4);
+		expect(a.notices, "nothing is said").toEqual([]);
+		runner = landed;
+	} finally {
+		letMoveGo("a");
+	}
+
+	a.follower?.consider(true);
+	await until("it asks again once the move lets go", () => asked.length === 2);
+	await until("it lands", () => landings.has("a"));
 });

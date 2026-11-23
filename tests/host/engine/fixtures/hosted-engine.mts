@@ -103,6 +103,9 @@ const {
 const { holdForCarry } = await import(
 	"../../../../lib/internal/carry/under-way.ts"
 );
+const { holdForMove, letMoveGo } = await import(
+	"../../../../lib/internal/session/move-waiting.ts"
+);
 const { WAKE_ENV, writeParked } = await import(
 	"../../../../lib/internal/session/park.ts"
 );
@@ -1012,6 +1015,40 @@ const scenarios: Record<string, Scenario> = {
 					reloadDuring,
 					reloadAfter,
 				},
+			};
+		},
+	},
+	/** Hold a conversation for a move: the follower's reload refused once idle, another's let go, then the follower's once it lets go. */
+	"move-held": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			const reloaded = (yieldsToMove: boolean) =>
+				host
+					.reload(id, {
+						reason: "the install moved",
+						...(yieldsToMove ? { yieldsToMove } : {}),
+					})
+					.then(
+						() => "reloaded",
+						(error: unknown) =>
+							error instanceof Error ? error.message : String(error),
+					);
+			holdForMove(id, "background");
+			let yieldingDuring: string;
+			let otherDuring: string;
+			try {
+				yieldingDuring = await reloaded(true);
+				otherDuring = await reloaded(false);
+			} finally {
+				letMoveGo(id);
+			}
+			const yieldingAfter = await reloaded(true);
+			await host.close(id);
+			return {
+				firstId: id,
+				moveHeld: { yieldingDuring, otherDuring, yieldingAfter },
 			};
 		},
 	},
