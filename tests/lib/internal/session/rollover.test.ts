@@ -14,6 +14,8 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 	writeSync,
@@ -22,12 +24,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { askedBy } from "../../../../lib/internal/logs/recall.ts";
+import { markedOnDisk } from "../../../../lib/internal/logs/recall-on-disk.ts";
 import {
-	ancestry,
 	carriedBy,
 	diskFinds,
 	type Entry,
 	leaveInParentLog,
+	logLines,
 	messagesOnDisk,
 	messagesOnDiskAsync,
 	ROLLOVER_RECORD,
@@ -308,7 +312,17 @@ describe("what does not roll over", () => {
 	});
 });
 
-describe("the parent logs", () => {
+/** What recall reads of the logs `branch` rolled over from, by id. */
+function readByRecall(
+	branch: readonly unknown[],
+	lines?: Parameters<typeof markedOnDisk>[2],
+): string[] {
+	return markedOnDisk(branch, askedBy({ query: "answer" }), lines).marked.map(
+		(mark) => mark.id,
+	);
+}
+
+describe("the parent logs, as recall reads them", () => {
 	it("read back oldest first, without what the fresh log carried", () => {
 		const { manager, ids } = longSession();
 		const first = rolledInto(manager).fresh;
@@ -316,7 +330,7 @@ describe("the parent logs", () => {
 		const middle = first.appendMessage(assistant("middle answer"));
 		first.appendCompaction("again", middle, 10);
 		const second = rolledInto(first).fresh;
-		const older = ancestry(second.getBranch()).map((e) => e.id);
+		const older = readByRecall(second.getBranch());
 		const all = [...older, ...second.getBranch().map((e) => e.id)];
 
 		// The state before it was carried, so the oldest conversation leads.
@@ -330,16 +344,16 @@ describe("the parent logs", () => {
 		const { fresh } = rolledInto(manager);
 		rmSync(manager.getSessionFile() ?? "");
 
-		expect(ancestry(fresh.getBranch())).toEqual([]);
+		expect(readByRecall(fresh.getBranch())).toEqual([]);
 	});
 
 	it("are not read for a log that never rolled over", () => {
 		const { manager } = longSession();
-		const read = () => {
+		const read = (): Iterable<string> => {
 			throw new Error("read a parent");
 		};
 
-		expect(ancestry(manager.getBranch(), read)).toEqual([]);
+		expect(readByRecall(manager.getBranch(), read)).toEqual([]);
 	});
 });
 
@@ -732,6 +746,141 @@ function texts(entries: readonly Entry[]): string[] {
 			: "";
 	});
 }
+
+describe("a log's lines, read a chunk at a time", () => {
+	it("are every line of the log, whole past a chunk, each read before its buffer is refilled", () => {
+		const path = join(dir, "log.jsonl");
+		// Past two chunks, of letters two, four and one bytes wide. "first"
+		// is a view of the first chunk's buffer, so a line decoded after
+		// the next read fills that buffer would come back as other bytes.
+		const long = "é🌲a".repeat(300_000);
+		const lines = ["first", long, "", `${long}ü`, "last, cut short"];
+		writeFileSync(path, lines.join("\n"));
+
+		expect([...logLines(path)]).toEqual(lines);
+	});
+
+	it("are whole where a short line straddles two chunks", () => {
+		const path = join(dir, "log.jsonl");
+		// The reader's chunk is a mebibyte: "short" starts two bytes before
+		// its end and finishes in the next, one line either side of it.
+		const lines = ["a".repeat(1024 * 1024 - 3), "short", "end"];
+		writeFileSync(path, lines.join("\n"));
+
+		expect([...logLines(path)]).toEqual(lines);
+	});
+
+	// Linux names each open descriptor's file under /proc/self/fd.
+	it.skipIf(process.platform !== "linux")(
+		"close the log when their reader stops before the end",
+		() => {
+			const path = join(dir, "log.jsonl");
+			writeFileSync(path, "one\ntwo\nthree\n");
+			// A descriptor's link names the file through no symlink.
+			const real = realpathSync(path);
+			const holding = (): number =>
+				readdirSync("/proc/self/fd").filter((fd) => {
+					try {
+						return readlinkSync(join("/proc/self/fd", fd)) === real;
+					} catch {
+						// The descriptor readdir itself held is closed by now.
+						return false;
+					}
+				}).length;
+			const lines = logLines(path);
+
+			expect(lines.next().value).toBe("one");
+			expect(holding()).toBe(1);
+			lines.return(undefined);
+			expect(holding()).toBe(0);
+		},
+	);
+
+	it("add what each read brought in to the tally, the whole file in all", () => {
+		const path = join(dir, "log.jsonl");
+		writeFileSync(path, `one\n${"é🌲".repeat(400_000)}\nthree\n`);
+		const tally = { bytes: 0 };
+
+		const count = [...logLines(path, tally)].length;
+
+		expect(count).toBe(3);
+		expect(tally.bytes).toBe(readFileSync(path).length);
+	});
+
+	it("leave out a line longer than the longest asked for, counting its bytes", () => {
+		const path = join(dir, "log.jsonl");
+		const chunk = 1024 * 1024;
+		const longest = chunk + 10;
+		// Too long in one chunk, then across chunks; one just fits, and an
+		// unended last line is too long.
+		const fits = "c".repeat(longest);
+		const lines = [
+			"a".repeat(longest + 1),
+			"short",
+			"b".repeat(3 * chunk),
+			fits,
+			"after",
+			"d".repeat(longest + 1),
+		];
+		writeFileSync(path, lines.join("\n"));
+		const tally = { bytes: 0 };
+
+		expect([...logLines(path, tally, longest)]).toEqual([
+			"short",
+			fits,
+			"after",
+		]);
+		expect(tally.bytes).toBe(readFileSync(path).length);
+		expect([...logLines(path, tally, 4)]).toEqual([]);
+		expect([...logLines(path, tally, 5)]).toEqual(["short", "after"]);
+	});
+
+	it("hold no more of a line than the longest asked for, however long it runs", () => {
+		const path = join(dir, "log.jsonl");
+		const chunk = 1024 * 1024;
+		const longest = chunk + 10;
+		// One line runs eight chunks; one fills a chunk and ends just past
+		// the longest, in the next.
+		const lines = ["x".repeat(8 * chunk), "y".repeat(longest + 1), "end"];
+		writeFileSync(path, `${lines.join("\n")}\n`);
+		const copied: number[] = [];
+		const joined: number[] = [];
+		const from = vi.spyOn(Buffer, "from");
+		const concat = vi.spyOn(Buffer, "concat");
+		try {
+			expect([...logLines(path, { bytes: 0 }, longest)]).toEqual(["end"]);
+			for (const result of from.mock.results) {
+				if (Buffer.isBuffer(result.value)) copied.push(result.value.length);
+			}
+			for (const result of concat.mock.results) {
+				if (Buffer.isBuffer(result.value)) joined.push(result.value.length);
+			}
+		} finally {
+			from.mockRestore();
+			concat.mockRestore();
+		}
+
+		// What waited of each long line, before it passed the longest.
+		expect(copied.reduce((sum, bytes) => sum + bytes, 0)).toBeLessThanOrEqual(
+			2 * longest,
+		);
+		expect(joined).toEqual([]);
+	});
+
+	it("are none from a pipe, rather than a wait on it", () => {
+		const file = join(dir, "log.jsonl");
+		execFileSync("mkfifo", [file]);
+		// The pipe already holds a log and stays open for writing, so a
+		// reader that took it would find the line, and none can block.
+		const pipe = openSync(file, constants.O_RDWR | constants.O_NONBLOCK);
+		try {
+			expect(writeSync(pipe, "a line in a pipe\n")).toBe(17);
+			expect([...logLines(file)]).toEqual([]);
+		} finally {
+			closeSync(pipe);
+		}
+	});
+});
 
 describe("the fresh log on disk", () => {
 	it("is written whole, with no partial file left", () => {

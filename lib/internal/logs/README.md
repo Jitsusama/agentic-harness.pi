@@ -13,3 +13,6 @@ distiller and the session's own search.
   governance distiller reads.
 - **`recall.ts`**: searching a session's own log, or reading one
   entry of it, so what a compaction dropped stays within reach.
+- **`recall-on-disk.ts`**: the history a rolled-over session left in
+  its older logs, marked for one recall a line at a time, so a search
+  never holds a whole log.

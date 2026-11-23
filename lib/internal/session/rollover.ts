@@ -40,6 +40,7 @@
  * once.
  */
 
+import { constants as bufferLimits } from "node:buffer";
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
@@ -479,73 +480,17 @@ export function rollOver(
 	return { header, entries, record };
 }
 
-/**
- * The branch a log held where it was rolled over, read from disk: from
- * its root to `leaf`, or to its last entry without one.
- */
-function branchIn(
-	path: string,
-	leaf: string | undefined,
-	read: (path: string) => string,
-): Entry[] {
-	const byId = new Map<string, Entry>();
-	let last: Entry | undefined;
-	for (const line of read(path).split("\n")) {
-		if (line.trim() === "") continue;
-		let entry: Entry;
-		try {
-			entry = JSON.parse(line) as Entry;
-		} catch {
-			// A line cut short by a crash is the end of what can be read.
-			continue;
-		}
-		if (entry.type === "session" || typeof entry.id !== "string") continue;
-		byId.set(entry.id, entry);
-		last = entry;
-	}
-	const walked: Entry[] = [];
-	let at = leaf === undefined ? last : byId.get(leaf);
-	while (at) {
-		walked.push(at);
-		at = at.parentId ? byId.get(at.parentId) : undefined;
-	}
-	return walked.reverse();
-}
-
-/**
- * Everything the logs this one rolled over from held on their branches,
- * oldest first and without the entries this branch carried over, so a
- * search of the session reads its whole history. Read from disk on
- * asking and never kept: a parent can be hundreds of megabytes. A
- * parent gone from disk ends the chain there.
- */
-export function ancestry(
-	branch: readonly unknown[],
-	read: (path: string) => string = (path) => readFileSync(path, "utf8"),
-): Entry[] {
-	const seen = new Set(
-		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
-	);
-	const older: Entry[][] = [];
-	let record = rolledFrom(branch);
-	const visited = new Set<string>();
-	while (record && !visited.has(record.parentSession)) {
-		visited.add(record.parentSession);
-		let parent: Entry[];
-		try {
-			parent = branchIn(record.parentSession, record.parentLeaf, read);
-		} catch {
-			break;
-		}
-		older.unshift(parent.filter((entry) => !seen.has(entry.id)));
-		for (const entry of parent) seen.add(entry.id);
-		record = rolledFrom(parent);
-	}
-	return older.flat();
-}
-
 /** How much of a parent log is read at once. */
 const CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * The longest line read, in bytes: a line no longer always decodes to
+ * a string, and a longer one might not, so it is dropped as cut short.
+ * The longest of 1,528 real logs was under a tenth of it. This bounds
+ * what a line can cost, not a small cost: one just under it holds about
+ * twice it while its pieces are joined, and its string beside that.
+ */
+const LONGEST_LINE_BYTES = bufferLimits.MAX_STRING_LENGTH;
 
 /** The byte that ends each line of a log. */
 const NEWLINE = 0x0a;
@@ -877,11 +822,15 @@ function wantedLine(
  *
  * Only a regular file is read. A pipe or a device named as a parent
  * could block a read for good, so anything else is left unread, and
- * false is returned for it.
+ * false is returned for it. A line longer than `longest` bytes is
+ * skipped rather than handed over, its pieces let go once they pass
+ * that, so no more than `longest` bytes of a line wait in pieces, and
+ * at most twice that are held while they are joined.
  */
 function* linesOf(
 	path: string,
 	take: (line: Buffer, offset: number) => boolean,
+	longest = LONGEST_LINE_BYTES,
 ): Scan<boolean> {
 	const fd = openSync(path, READ_FLAGS);
 	try {
@@ -889,7 +838,12 @@ function* linesOf(
 		const buffer = Buffer.alloc(CHUNK_BYTES);
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
+		let heldBytes = 0;
 		let heldAt = 0;
+		// Whether the line that spans chunks has passed `longest`.
+		let skipping = false;
+		const handOver = (line: Buffer, offset: number) =>
+			line.length <= longest && take(line, offset);
 		let base = 0;
 		for (;;) {
 			const read = yield* readOf(fd, buffer, CHUNK_BYTES, base);
@@ -897,21 +851,34 @@ function* linesOf(
 			const chunk = buffer.subarray(0, read);
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
-			if (end !== -1 && held.length > 0) {
-				if (take(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt))
+			if (end !== -1 && (held.length > 0 || skipping)) {
+				if (
+					!skipping &&
+					heldBytes + end <= longest &&
+					take(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt)
+				)
 					return true;
 				held = [];
+				heldBytes = 0;
+				skipping = false;
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
 			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
-				if (take(chunk.subarray(start, end), base + start)) return true;
+				if (handOver(chunk.subarray(start, end), base + start)) return true;
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
-			if (start < read) {
-				if (held.length === 0) heldAt = base + start;
-				held.push(Buffer.from(chunk.subarray(start)));
+			if (start < read && !skipping) {
+				if (heldBytes + read - start > longest) {
+					skipping = true;
+					held = [];
+					heldBytes = 0;
+				} else {
+					if (held.length === 0) heldAt = base + start;
+					held.push(Buffer.from(chunk.subarray(start)));
+					heldBytes += read - start;
+				}
 			}
 			base += read;
 		}
@@ -919,6 +886,54 @@ function* linesOf(
 		return true;
 	} finally {
 		closeSync(fd);
+	}
+}
+
+/**
+ * A log's lines as text, for a reader that walks a whole log once, so
+ * it holds one chunk's lines of it, or one line up to `longest`
+ * bytes, rather than the whole file. Like
+ * the parents' scan, it reads only a regular file: a pipe or a device
+ * gives no lines. Each read's size is added to `tally`, so a reader
+ * learns what a log cost without measuring every line again. A line
+ * longer than `longest` bytes is not given, though its bytes count.
+ *
+ * A chunk's lines wait as views of the buffer the next read fills, and
+ * each is decoded only as it is handed over, all before that read: a
+ * chunk decoded whole at once held its every line as text beside the
+ * entries parsed from them.
+ */
+export function* logLines(
+	path: string,
+	tally: { bytes: number } = { bytes: 0 },
+	longest = LONGEST_LINE_BYTES,
+): Generator<string> {
+	const batch: Buffer[] = [];
+	const scan = linesOf(
+		path,
+		(line) => {
+			batch.push(line);
+			return false;
+		},
+		longest,
+	);
+	function* drain(): Generator<string> {
+		for (const line of batch) yield line.toString("utf8");
+		batch.length = 0;
+	}
+	try {
+		let step = scan.next();
+		while (!step.done) {
+			yield* drain();
+			const { fd, buffer, length, position } = step.value;
+			const read = readSync(fd, buffer, 0, length, position);
+			tally.bytes += read;
+			step = scan.next(read);
+		}
+		yield* drain();
+	} finally {
+		// Closes the log when its reader stops before the end.
+		scan.return(false);
 	}
 }
 
