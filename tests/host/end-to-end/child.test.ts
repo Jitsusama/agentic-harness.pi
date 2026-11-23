@@ -471,6 +471,14 @@ it(
 							plainKinds.sources,
 							DIFFERENCES,
 						),
+						"script source by the root it was loaded from, hosted over plain:",
+						...heapDifference(hostedKinds.roots, plainKinds.roots, DIFFERENCES),
+						`script source loaded again: hosted ${megabytes(totalOf(hostedKinds.repeats))}, plain ${megabytes(totalOf(plainKinds.repeats))}; by package, hosted over plain:`,
+						...heapDifference(
+							hostedKinds.repeats,
+							plainKinds.repeats,
+							DIFFERENCES,
+						),
 					];
 					process.stdout.write(`${said.join("\n")}\n`);
 					expect(hostedHeap, "the hosted child's heap").toBeGreaterThan(0);

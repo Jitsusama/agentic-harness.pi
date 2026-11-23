@@ -2,7 +2,8 @@
  * What a heap snapshot holds, by kind, so two processes' heaps can be
  * told apart: the bytes of each node type, of each constructor or code
  * name within it, and of the source each loaded script keeps, by the
- * package its file sits in.
+ * package its file sits in and by the root it was loaded from, with the
+ * scripts loaded again from another root, or the same one, apart.
  *
  * Reads the snapshot format V8's HeapProfiler writes, whose meta says
  * the fields of each node and edge; self sizes only, so every byte is
@@ -38,6 +39,13 @@ export interface HeapKinds {
 	names: Map<string, Tally>;
 	/** Script source bytes by the package the script's file sits in. */
 	sources: Map<string, Tally>;
+	/** Script source bytes by the root the script was loaded from. */
+	roots: Map<string, Tally>;
+	/**
+	 * Script source bytes, by package, of the scripts whose path within
+	 * their root an earlier script already had: a module loaded twice.
+	 */
+	repeats: Map<string, Tally>;
 }
 
 /** How long a name may run as a key before it is cut. */
@@ -45,6 +53,12 @@ const NAME_CHARS = 60;
 
 /** A harness file's top folder and the one in it. */
 const HARNESS_FOLDER = /\/(extensions|lib|host|core)\/([^/]+)\//;
+
+/** The folder that holds a package installed from npm. */
+const MODULES = "/node_modules/";
+
+/** A nix store path's hash, which says nothing a reader can use. */
+const STORE_HASH = /\/nix\/store\/[0-9a-z]{32}-/g;
 
 /** Count `json`, a heap snapshot, by kind. */
 export function heapKinds(json: string): HeapKinds {
@@ -72,7 +86,10 @@ export function heapKinds(json: string): HeapKinds {
 		types: new Map(),
 		names: new Map(),
 		sources: new Map(),
+		roots: new Map(),
+		repeats: new Map(),
 	};
+	const loaded = new Set<string>();
 	let edge = 0;
 	for (let n = 0; n < count; n++) {
 		const kind = type(n);
@@ -96,7 +113,13 @@ export function heapKinds(json: string): HeapKinds {
 			else if (label === "source" && type(to).includes("string"))
 				source = size(to);
 		}
-		if (source !== undefined) add(kinds.sources, packageOf(file), source);
+		if (source === undefined) continue;
+		add(kinds.sources, packageOf(file), source);
+		const { root, within } = placeOf(file);
+		add(kinds.roots, root, source);
+		if (within === "") continue;
+		if (loaded.has(within)) add(kinds.repeats, packageOf(file), source);
+		else loaded.add(within);
 	}
 	return kinds;
 }
@@ -173,4 +196,25 @@ function packageOf(file: string): string {
 	if (file.startsWith("node:") || !file.includes("/")) return "node";
 	const parts = file.split("/");
 	return `file ${parts.slice(-3, -1).join("/")}`;
+}
+
+/**
+ * Where a script's file was loaded from, and its path within that: the
+ * root ends where its first node_modules folder or its harness folder
+ * starts, store hashes left out. Node's own modules, and scripts with no
+ * file, have a root of their own and no path within one.
+ */
+function placeOf(file: string): { root: string; within: string } {
+	const path = file.replace(/^file:\/\//, "");
+	if (path.startsWith("node:") || !path.includes("/"))
+		return { root: "node", within: "" };
+	const modules = path.indexOf(MODULES);
+	const harness = HARNESS_FOLDER.exec(path);
+	const at =
+		modules >= 0 ? modules : harness ? harness.index : path.lastIndexOf("/");
+	const root = path.slice(0, at).replaceAll(STORE_HASH, "/nix/store/");
+	return {
+		root: modules >= 0 ? `${root} (npm)` : root,
+		within: path.slice(at),
+	};
 }
