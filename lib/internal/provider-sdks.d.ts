@@ -17,6 +17,8 @@
  * typed from them read as `any`. A type taken from one of them here
  * fails the typecheck instead. To type something from an SDK, depend on
  * it in package.json and drop its mapping, at the cost of its lines.
+ * `provider-sdk-types-stay-out.test.ts` pins where pi-ai takes them,
+ * so an upgrade that types something new from them is seen.
  *
  * This maps types only. pi-ai loads the real SDKs at run time.
  */
