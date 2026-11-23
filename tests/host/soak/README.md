@@ -69,10 +69,15 @@ host adds, and records that drift from plain pi's.
   its run left: the report cut into the files a reader checks it by, and
   the day's figures, with the bursts and the opening's loop beside the
   bar.
-- `soak.test.ts`: the soak at its smallest, two conversations of two turns,
-  once with no parking, once parked and woken in turn, and once woken
-  in a burst and through a restart; and two of ten turns, which take
-  every kind through a restart mid-run; in `pnpm test:host`.
+- `soak.test.ts`: the soak at its smallest, two conversations of two turns
+  with no parking; `soak-parked.test.ts` parks and wakes them in turn,
+  `soak-burst.test.ts` wakes them in a burst and through a restart,
+  `soak-mid.test.ts` takes two of ten turns, every kind, through a
+  restart mid-run, and `soak-door.test.ts` goes through the real-model
+  slice's door; all in `pnpm test:host`, a file each so a lender runs
+  them side by side.
+- `soaked.ts`: what those files share, a soak run as a process of its own
+  and read back.
 
 ## Running a Day of the Week
 

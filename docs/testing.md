@@ -133,7 +133,11 @@ the pass, with the words that ran, where no session can write, so the
 script writes no record of its own. Inside the agent fence, which hides the
 builders' key, it prints that call instead, to be run alone, which the
 fence lets out. Given test files, it runs only those, which answers for a
-branch's own tests but clears no merge. `scripts/merge-gate.sh` is the harness's
+branch's own tests but clears no merge. On the lender its files run side
+by side, one for each two cores and at most eight (`PI_HOST_WORKERS`,
+which `scripts/host-run.sh` sets), since nothing else runs there and each
+file seals its host in folders of its own; on a laptop, which sets none,
+the process lane stays one file at a time. `scripts/merge-gate.sh` is the harness's
 `review.merge.gates` entry. It first runs Biome's check over every file the
 head changes, read from that commit, with the Biome the head pins, so a
 change written where Biome can't run (the work Mac's security software

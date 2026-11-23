@@ -92,6 +92,10 @@ const PROCESS_TESTS = [
 	"tests/host/engine/engine.test.ts",
 	"tests/host/parity/parity.test.ts",
 	"tests/host/soak/soak.test.ts",
+	"tests/host/soak/soak-parked.test.ts",
+	"tests/host/soak/soak-burst.test.ts",
+	"tests/host/soak/soak-mid.test.ts",
+	"tests/host/soak/soak-door.test.ts",
 	"tests/host/end-to-end/sealed-host.test.ts",
 	"tests/host/end-to-end/killed-busy.test.ts",
 	"tests/host/end-to-end/listed-busy.test.ts",
@@ -137,6 +141,17 @@ const PROCESS_TESTS = [
 	"tests/host/fenced/fence-stage.test.ts",
 ];
 
+/**
+ * How many process files run at once: one, unless `PI_HOST_WORKERS` names
+ * more. Only scripts/host-run.sh names more, on a lent builder, where
+ * nothing else runs and each file seals its host in folders of its own;
+ * on a laptop the process lane stays one file at a time, as said below.
+ */
+const PROCESS_WORKERS = Math.max(
+	1,
+	Number.parseInt(process.env.PI_HOST_WORKERS ?? "", 10) || 1,
+);
+
 // Pi's loader rewrites the @sinclair/typebox imports onto its
 // bundled `typebox` package at runtime. Mirror that mapping for
 // vitest so the same imports work in tests without a separate
@@ -162,7 +177,7 @@ export default defineConfig({
 		// option and sizes the pool itself underneath the cap. The
 		// "never below one worker" part of the note above is the
 		// Math.max on the cap, which still holds.
-		maxWorkers: MAX_WORKERS,
+		maxWorkers: Math.max(MAX_WORKERS, PROCESS_WORKERS),
 		projects: [
 			{
 				resolve: { alias: ALIAS },
@@ -196,9 +211,10 @@ export default defineConfig({
 					// One at a time, and one worker. The point is not to be
 					// quick here: it is that a test watching a grandchild
 					// process is measuring the machine as much as the code, so
-					// it must not be measuring the rest of the suite too.
-					fileParallelism: false,
-					maxWorkers: 1,
+					// it must not be measuring the rest of the suite too. A lent
+					// builder's host run is the one exception (PROCESS_WORKERS).
+					fileParallelism: PROCESS_WORKERS > 1,
+					maxWorkers: PROCESS_WORKERS,
 				},
 			},
 		],
