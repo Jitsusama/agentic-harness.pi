@@ -19,8 +19,9 @@
 # names in its Nix store, since corepack can't fetch one there, and runs
 # npm's prebuilt biome through glibc's own loader where the host has no
 # nix-ld. Checks on one host take turns, since they share that worktree;
-# one waits at most CHECK_THERE_WAIT_S seconds (5400 by default) for the
-# check before it to end, and its holder's line names the pid that stops
+# one waits CHECK_THERE_WAIT_S seconds (5400 by default), never fewer and
+# a second or two more, for the check before it to end, and a Mac stays
+# awake while a check there runs. Its holder's line names the pid that stops
 # the whole of a check with a TERM, its turn passing once its work has
 # stopped. A check whose caller goes away stops the same way, since
 # without a pty sshd signals nothing as it goes and the check asks after
@@ -29,19 +30,29 @@
 # defaults waits on TCP and so may take hours. Each waiter's limit is
 # its own, and waiters take the turn in no order, so a 75 says only that
 # its turn didn't come in time, not that the check before it hung. Exits
-# with what `pnpm check`, or tests/package after it, exited with; 75 when
-# its turn never came; 143, 130 or 129 after a TERM, an INT, or a HUP or
-# its caller going; 2 for a branch, host, wait or agent it refuses; 3
-# when the host's lock can't be taken at all; 1 when nix gives the host
-# no node; and otherwise with what failed under it, such as ssh's 255
-# when the host can't be reached or git's own when a fetch fails.
+# with what `pnpm check`, or tests/package after it, exited with, or
+# otherwise with what failed under it, such as ssh's 255 when the host
+# can't be reached or its link drops for a minute, or git's own when a
+# fetch fails. Of its own codes, a caller can act on three alone, since
+# nothing under it exits with them as a rule: 75 when its turn never
+# came; 3 when the host's lock can't be taken at all; and 143, 130 or
+# 129 after a TERM, an INT, or a HUP or its caller going. A branch,
+# host, wait or agent it refuses exits 2, and a host with no node or no
+# pnpm for the branch 1, which a failing check exits with too, so its
+# `check-there:` line on stderr is what tells them apart.
+#
+# Its checks run one after another in a tree each branch's code ran in,
+# whose untracked files and node_modules outlast it, so a check trusts
+# the branches checked before it there as much as its own.
 #
 # A check run under pi, PI_SESSION_ID set, goes to penelope alone, the
 # host agreed for agents' checks (ISXEG8, 22 November): another, as the
 # Mac does, would run a pushed branch's install scripts and tests as an
 # account holding Joel's credentials, outside any agent fence, on an
-# agent's say alone. That lifts once a host runs it inside its agent
-# fence or under an account of its own. It guards against a slip,
+# agent's say alone. Nothing here shows penelope's account is any less
+# Joel's: the agreement is the reason, not a fence this script knows
+# of. That lifts once a host runs it inside its agent fence or under an
+# account of its own. It guards against a slip,
 # not an agent set on reaching the Mac: only a fence holds that. Joel
 # running it by hand, from a shell outside pi, may send it anywhere, and
 # runs the branch's code as himself there, whoever wrote it, so the
@@ -79,7 +90,7 @@ case "$host" in
     ;;
 esac
 if [ -n "${PI_SESSION_ID:-}" ] && [ "$host" != penelope ]; then
-  echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks, since another, as the Mac does, may run it as an account holding Joel's credentials outside any agent fence; run pnpm check:there $branch penelope" >&2
+  echo "check-there: a check run under pi (PI_SESSION_ID is set) goes only to the host named penelope, the one agreed for agents' checks; run pnpm check:there $branch penelope" >&2
   exit 2
 fi
 
@@ -93,8 +104,11 @@ fi
 
 # The branch goes quoted all the same, should its characters ever widen.
 # The check has a connection of its own, never a shared master's, so the
-# sshd that starts its shell goes when its ssh does.
-exec ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
+# sshd that starts its shell goes when its ssh does. A host asleep, or a
+# link dropped mid-check, ends it with ssh's 255 within a minute or so,
+# not when TCP gives up hours on, as the host's other scripts have it.
+exec ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none \
+  -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
 set -euo pipefail
 # Each job this shell starts leads a process group of its own, so a stop
 # reaches a check's work, and waits for all of it, without signalling
@@ -168,6 +182,9 @@ gone_within() {
 # in ended with.
 end_groups() {
   local group
+  # None named, as a stop while waiting its turn has it: an empty "$@"
+  # under `set -u` is an error to some older bash.
+  [ "$#" -gt 0 ] || return 0
   if [ -z "${killed:-}" ]; then
     for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
     [ -n "${deadline:-}" ] || deadline=$(( SECONDS + ${stop_wait_s:-10} + 1 ))
@@ -285,11 +302,15 @@ fi
 # not the process, so it holds after perl exits, while this shell keeps
 # fd 9 open. `lock -n` tries once and `lock -w SECONDS` waits that long;
 # each exits 1 while another holds the lock, and anything else but 0
-# when it couldn't try it, as flock(1) does.
+# when it couldn't try it, as flock(1) does, saying why.
 lock() {
   if command -v flock >/dev/null 2>&1; then
     flock "$@" 9
     return
+  fi
+  if ! command -v perl >/dev/null 2>&1; then
+    echo "check-there: $(hostname) has neither flock nor perl to lock with" >&2
+    return 127
   fi
   perl -MFcntl=:flock -MPOSIX=EWOULDBLOCK -e '
     open(my $f, ">&=", 9) or do { print STDERR "check-there: fd 9: $!\n"; exit 2 };
@@ -306,11 +327,22 @@ lock() {
 # every later one waiting with no word. A wait that runs out exits 75, so
 # it reads apart from a failed check. A lock that can't be tried fails
 # the check, which would otherwise share the worktree.
+# The holder's line as its holder wrote it, which that check's own code
+# can rewrite, so it is said only as printable text and at most 120
+# characters: no escapes reach a terminal, nor lines another session
+# would read as this script's.
+held_by() {
+  local said
+  said=$(cat "$turn.holder" 2>/dev/null) || said=
+  said=${said//[^[:print:]]/}
+  said=${said:0:120}
+  echo "${said:-unsaid}"
+}
 take_turn() {
   local tried=0 held wait_s=$(( 10#${turn_wait_s:-5400} ))
   lock -n || tried=$?
   if [ "$tried" -eq 1 ]; then
-    held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
+    held=$(held_by)
     echo "check-there: another check runs on $(hostname) ($held); waiting its turn" >&2
     # A second's try at a time, so a stop meanwhile, held until the
     # command it lands in ends, lands within one; the wait is timed by
@@ -323,7 +355,7 @@ take_turn() {
       lock -w 1 || tried=$?
     done
     if [ "$tried" -eq 1 ]; then
-      held=$(cat "$turn.holder" 2>/dev/null || echo "unsaid")
+      held=$(held_by)
       echo "check-there: gave up after ${wait_s} s waiting for $(hostname)'s check lock, held by ($held)" >&2
       return 75
     fi
@@ -331,12 +363,18 @@ take_turn() {
   if [ "$tried" -ne 0 ]; then
     # Its own code, since the lock tool's own, a 2 among them, would read
     # as one of the script's.
-    echo "check-there: can't take $(hostname)'s check lock (its tool exited $tried)" >&2
+    echo "check-there: can't take $(hostname)'s check lock (its lock exited $tried)" >&2
     return 3
   fi
   holder="$turn.holder"
   printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%a %H:%M')" > "$holder" || true
 }
+# A Mac sleeps once nobody has touched it a while, however hard it
+# works, which would freeze a check there with its turn held; so a check
+# holds it awake for as long as this shell lives, waiting or running.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -i -w "$$" </dev/null >/dev/null 2>&1 &
+fi
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
 take_turn

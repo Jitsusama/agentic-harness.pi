@@ -73,7 +73,9 @@ among those: with none to take it, it runs on optimus and says why.
 The work Mac is the machine it is meant for, once it declares one.
 
 `pnpm check:there` stays the way to send the whole gate, for a pushed
-branch.
+branch. Run under pi it goes only to penelope, the host agreed for
+agents' checks; Joel, running it from a shell outside pi, may name
+another, such as the work Mac.
 
 ## Tests
 
