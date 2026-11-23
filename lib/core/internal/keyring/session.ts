@@ -9,9 +9,10 @@
  * while it asks.
  *
  * A session with no screen yet declines a notice rather than showing it
- * nowhere, so it waits, and each turn's start offers it again: pi says
- * nothing as it gives a session a screen, so a turn is the first moment
- * this can see one, and an idle session shows the notice at its next.
+ * nowhere, so it waits. pi starts a session again as it binds it a
+ * screen, which offers what waits; each turn's start offers it again
+ * too, so a screen set without a bind, or one that failed to show it,
+ * shows it at the session's next turn.
  * A reload keeps what the session is owed for the extensions it starts
  * again, where they share one copy of the notices rather than each
  * loading its own as pi does today; any other end forgets it. pi makes
