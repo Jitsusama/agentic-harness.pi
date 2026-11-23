@@ -342,6 +342,8 @@ describe("following the install", () => {
 							"a move waits",
 				);
 			});
+			// Long enough for a dispatch the settle started to ask git and send.
+			await quietFor(QUIET_MS, 10);
 			expect(prompted, "while the move holds it").toEqual([]);
 
 			letMoveGo(moving);

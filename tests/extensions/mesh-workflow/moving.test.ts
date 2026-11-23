@@ -124,7 +124,18 @@ describe("moving a session", () => {
 		expect(one.reloads.at(-1)).toBe("let go");
 	});
 
-	it("keeps the hold once made until its session stops", () => {
+	it("lets go at its next look when the move was dropped elsewhere", () => {
+		const one = session("a run is under way");
+		one.move.move("background");
+		one.moving = undefined;
+		one.tick?.();
+		expect(one.reloads).toEqual(["hold for background", "let go"]);
+		expect(one.tick).toBeUndefined();
+	});
+
+	// It looks no more once made, so the hold lapses a minute on unless
+	// the session stops first.
+	it("keeps the hold once made, renewing it no more, until its session stops", () => {
 		const one = session();
 		one.move.move("background");
 		expect(one.did).toEqual(["note background", "close"]);

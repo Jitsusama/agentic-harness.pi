@@ -8,9 +8,12 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readMoveNote } from "../../../lib/internal/session/move.ts";
-import { moveWaiting } from "../../../lib/internal/session/move-waiting.ts";
+import {
+	letMoveGo,
+	moveWaiting,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { fixture, session, startSession } from "./support/mesh.ts";
@@ -22,6 +25,9 @@ const STEER_TAKEN_MS = 6000;
 const MOVE_LOOKED_MS = 5000;
 
 describe("a move asked during a run", () => {
+	// A failed expectation leaves no hold on globalThis for the next case.
+	afterEach(() => letMoveGo(session));
+
 	it("holds the session's reload from when it is taken until the session ends", async () => {
 		fixture.paths = { ...fixture.paths, steer: join(fixture.root, "steer") };
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));

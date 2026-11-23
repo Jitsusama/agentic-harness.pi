@@ -55,12 +55,14 @@
  * (host-command.ts): the same move, said as asked there, and saying at
  * once what it waits for first.
  *
- * While a move waits, and until its session ends once it is made, it
- * holds off the reload an install's move would start
- * (lib/internal/session/move-waiting.ts): that reload, going as the same
- * run settles, stops the move unwritten, and the move restarts the
- * session on current code anyway. It renews the hold at every look and
- * lets it go when it is called off or stops.
+ * While a move waits it holds off the reload an install's move would
+ * start (lib/internal/session/move-waiting.ts): that reload, going as
+ * the same run settles, stops the move unwritten, and the move restarts
+ * the session on current code anyway. It renews the hold at every look
+ * and lets it go when it is called off, dropped or stopped. Once made it
+ * looks no more, so its hold lasts the minute the last look gave it, or
+ * until the session it closes stops, whichever is first: a close takes
+ * well under that.
  */
 
 import type {
@@ -301,8 +303,8 @@ export function createMoving(host: MovingHost): MovingSession {
 		const moving = host.moving();
 		if (moving === undefined || ended) {
 			unlook();
-			// A move made keeps its hold until its session ends; one dropped
-			// elsewhere lets go now.
+			// A move made keeps its hold, lapsing a minute after its last look,
+			// while its session ends; one dropped elsewhere lets go now.
 			if (moving === undefined) host.letReloadsGo?.();
 			return;
 		}

@@ -18,6 +18,14 @@
  * was never said) never keeps an install's reload off for long. A move
  * lets go when it is called off and when its runtime stops.
  *
+ * A hold covers every move that waits, whatever holds it: a job or an
+ * open prompt clears as a run does, with the same race, so an idle
+ * session waiting on one runs its old code until the move is made or
+ * called off at its bound, and the move restarts it on current code.
+ * Only the install's follower honours a hold: a reload the person or
+ * the agent asks for goes, and the move carries over it and looks again
+ * as the session restarts.
+ *
  * Held on `globalThis`, so a host's conversations, each with its own
  * modules, are held apart by their session's id.
  */
@@ -27,9 +35,9 @@ import { processGlobal } from "../process/process-global.ts";
 
 /**
  * How long a hold lasts past the move's last look. A move looks every
- * 2 s; a minute covers a starved event loop many times over, and is
- * twice the follower's 30 s recheck, so a reload waits a minute at most
- * past a move that stopped looking.
+ * 2 s; a minute covers a starved event loop many times over. The
+ * follower looks again every 30 s, so a reload goes at most a minute
+ * and a half after a move stopped looking.
  */
 export const MOVE_HOLDS_MOST_MS = 60_000;
 
