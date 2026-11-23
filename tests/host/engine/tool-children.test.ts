@@ -158,7 +158,7 @@ describe("reaping a conversation's tool children", () => {
 			1: { group: 1, env: {} },
 			10: { group: 10, env: conversationMarker("a", HOST) },
 		});
-		const unread = { ...groupsCarried(), unread: true };
+		const unread = { ...groupsCarried(), unread: true as const };
 		expect(await reapToolChildren("a", table, unread)).toEqual({
 			groups: [],
 			pids: [],
