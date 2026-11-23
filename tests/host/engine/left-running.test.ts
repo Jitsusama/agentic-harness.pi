@@ -136,6 +136,9 @@ describe("what parks kept running", () => {
 		expect([...kept().spared(NONE).marks], "the earlier note stays").toContain(
 			"call-1",
 		);
-		expect(reported.length, "the note that could not go in is said").toBe(1);
+		expect(reported, "the note and the close left undone are said").toEqual([
+			expect.objectContaining({ message: expect.stringMatching(/note b's/) }),
+			expect.objectContaining({ message: expect.stringMatching(/end c's/) }),
+		]);
 	});
 });
