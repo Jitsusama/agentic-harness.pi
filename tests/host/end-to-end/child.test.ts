@@ -25,7 +25,15 @@ import {
 	parseWatchLine,
 	parseWatchResult,
 } from "../../../host/service/protocol.ts";
+import {
+	heapDifference,
+	heapKinds,
+	megabytes,
+	totalOf,
+} from "./support/heap-kinds.ts";
 import { onHostPi } from "./support/hosted-case.ts";
+import { INSPECT_LOCALLY, inspect } from "./support/inspector.ts";
+import { startPlainPi } from "./support/plain-pi.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const FAKE_ENGINE = resolve(import.meta.dirname, "support/fake-engine.ts");
@@ -375,6 +383,105 @@ it(
 		);
 	},
 	REAL_CASE_MS,
+);
+
+/** A heap measure's case: two whole harness loads, two collections and two snapshots. */
+const HEAP_CASE_MS = 600_000;
+/** How many of the largest differences a heap measure prints, per kind. */
+const DIFFERENCES = 40;
+
+/** How much memory process `pid` holds now as its share, in MB, from /proc's Pss. */
+async function proportionalMb(pid: number | undefined): Promise<number> {
+	const rollup = await readFile(`/proc/${pid}/smaps_rollup`, "utf8");
+	const kb = /^Pss:\s+(\d+) kB$/m.exec(rollup)?.[1];
+	if (kb === undefined) throw new Error(`no Pss for ${pid}: ${rollup}`);
+	return Number(kb) / KB_PER_MB;
+}
+
+/**
+ * A measure, not a check: what a child on pi's engine holds, with an
+ * empty conversation open, over what a plain pi holds on an empty session,
+ * both after V8 has collected all it can, said by kind. Kept to a scratch
+ * branch; it asserts only that both heaps were read.
+ */
+it(
+	"a child on pi's engine and a plain pi, each on an empty session, say where their heaps differ",
+	async ({ skip }) => {
+		let errors = () => "";
+		await onHostPi(
+			skip,
+			() => errors(),
+			async (pi) => {
+				const child = await startChild("heap", {}, PI_ENGINE, {
+					PI_HOST_PACKAGE_DIR: pi,
+					PI_PACKAGE_DIR: pi,
+					NODE_OPTIONS: INSPECT_LOCALLY,
+				});
+				errors = child.errors;
+				parseOpenResult(
+					resultOf(
+						await controlRequest(
+							child.socket,
+							{
+								v: 1,
+								id: "o",
+								op: "open",
+								cwd: sealed.home,
+								attended: false,
+							},
+							OPEN_MS,
+						),
+					),
+				);
+				const hosted = await inspect(child.errors);
+				const hostedHeap = await hosted.heapAfterCollect();
+				const hostedPss = await proportionalMb(child.process.pid);
+				const hostedKinds = heapKinds(await hosted.snapshot());
+				hosted.close();
+				child.process.kill("SIGKILL");
+				await child.exited;
+
+				const plain = startPlainPi({
+					seal: {
+						...sealed,
+						env: { ...sealed.env, NODE_OPTIONS: INSPECT_LOCALLY },
+					},
+					packageDir: pi,
+					cwd: sealed.home,
+				});
+				errors = plain.errors;
+				try {
+					await plain.session();
+					const own = await inspect(plain.errors);
+					const plainHeap = await own.heapAfterCollect();
+					const plainPss = await proportionalMb(plain.pid);
+					const plainKinds = heapKinds(await own.snapshot());
+					own.close();
+					const said = [
+						`heap after collection: hosted ${megabytes(hostedHeap)}, plain ${megabytes(plainHeap)}`,
+						`Pss: hosted ${hostedPss.toFixed(1)} MB, plain ${plainPss.toFixed(1)} MB`,
+						`snapshot self sizes: hosted ${megabytes(totalOf(hostedKinds.types))}, plain ${megabytes(totalOf(plainKinds.types))}`,
+						"by node type, hosted over plain:",
+						...heapDifference(hostedKinds.types, plainKinds.types, DIFFERENCES),
+						"by type and name, hosted over plain:",
+						...heapDifference(hostedKinds.names, plainKinds.names, DIFFERENCES),
+						`script source: hosted ${megabytes(totalOf(hostedKinds.sources))}, plain ${megabytes(totalOf(plainKinds.sources))}; by package, hosted over plain:`,
+						...heapDifference(
+							hostedKinds.sources,
+							plainKinds.sources,
+							DIFFERENCES,
+						),
+					];
+					process.stdout.write(`${said.join("\n")}\n`);
+					expect(hostedHeap, "the hosted child's heap").toBeGreaterThan(0);
+					expect(plainHeap, "the plain pi's heap").toBeGreaterThan(0);
+				} finally {
+					await plain.stop();
+				}
+			},
+		);
+	},
+	HEAP_CASE_MS,
 );
 
 it(
