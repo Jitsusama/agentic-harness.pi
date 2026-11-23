@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { gunzipSync, gzip } from "node:zlib";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { clearWriting } from "../../lib/internal/write-whole.ts";
 
 /** What the provider holds about the last request the session sent. */
 export interface SentRequest {
@@ -136,8 +137,13 @@ export function takeKeptRequest(
 	return kept.sent;
 }
 
-/** Remove every kept file older than any cache that could use it. */
+/**
+ * Remove every kept file older than any cache that could use it, and
+ * what a writer cut off left staged in the folder's `.writing` (a
+ * warming carry is written whole through it), once it is as old.
+ */
 export function sweepKeptRequests(dir: string, now: number = Date.now()): void {
+	clearWriting(dir, now - KEPT_REQUEST_LIFETIME_MS);
 	let names: string[];
 	try {
 		names = readdirSync(dir);

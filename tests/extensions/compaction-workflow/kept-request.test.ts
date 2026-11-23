@@ -6,8 +6,10 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	statSync,
 	utimesSync,
 	writeFileSync,
@@ -78,6 +80,34 @@ describe("a request kept across a restart", () => {
 		expect(takeKeptRequest(dir, "s1")).toBeNull();
 		const kept = join(dir, "s1.json.gz");
 		expect(existsSync(kept), `${kept} is removed`).toBe(false);
+	});
+
+	it("gives nothing back, and removes the file, when a crash cut it short", async () => {
+		await saveKeptRequest(dir, "s1", sent());
+		const kept = join(dir, "s1.json.gz");
+		const whole = readFileSync(kept);
+		writeFileSync(kept, whole.subarray(0, Math.floor(whole.length / 2)));
+		expect(takeKeptRequest(dir, "s1")).toBeNull();
+		expect(existsSync(kept), `${kept} is removed`).toBe(false);
+	});
+
+	it("resolves rather than failing a shutdown when it can't be written", async () => {
+		const blocked = join(dir, "..", "a-file");
+		writeFileSync(blocked, "in the way");
+		await expect(
+			saveKeptRequest(blocked, "s1", sent()),
+		).resolves.toBeUndefined();
+	});
+
+	it("sweeps away what a writer cut off left staged, once it is as old as a cache", () => {
+		const writing = join(dir, ".writing");
+		mkdirSync(writing, { recursive: true });
+		writeFileSync(join(writing, "old.json.gz.1.ab"), "cut off");
+		writeFileSync(join(writing, "new.json.gz.2.cd"), "being written");
+		const long = (Date.now() - KEPT_REQUEST_LIFETIME_MS - 60_000) / 1000;
+		utimesSync(join(writing, "old.json.gz.1.ab"), long, long);
+		sweepKeptRequests(dir);
+		expect(readdirSync(writing)).toEqual(["new.json.gz.2.cd"]);
 	});
 
 	it("sweeps away what is older than any cache, and leaves the rest", async () => {
