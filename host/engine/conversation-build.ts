@@ -493,10 +493,12 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		mark?.("screen");
 		const recovery = await agent.recover(turn);
 		mark?.("recovery");
-		// Once recovered, so a carried call is paired before it; mid-turn, pi
-		// appends it as the turn ends, so it never starts one.
-		const { left } = record.traits;
-		if (left && !toldOfMove(sessionManager.getEntries(), left, cwd))
+		// Told once the recovery settles: while the run it shows is under way the
+		// message is held to that run's next turn end, which is after the next
+		// answer, so the model answered before it knew (engine.test, 23 November).
+		const tell = async (): Promise<void> => {
+			const { left } = record.traits;
+			if (!left || toldOfMove(sessionManager.getEntries(), left, cwd)) return;
 			await runtime.session.sendCustomMessage(
 				{
 					customType: FOLDER_GONE_TYPE,
@@ -506,11 +508,13 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 				},
 				{ triggerTurn: false },
 			);
+		};
 		if (first === undefined) {
-			recovery.settled.catch(report);
+			recovery.settled.then(tell).catch(report);
 			return;
 		}
 		await recovery.settled;
+		await tell();
 		await promptFirst(record, agent, first);
 		mark?.("first");
 	}
