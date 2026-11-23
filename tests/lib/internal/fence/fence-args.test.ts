@@ -191,6 +191,43 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user ");
 	});
 
+	it("hides nothing above a missing runtime folder that holds the fence's own, or that is no plain folder", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const tmpfsOf = (given: string[]) =>
+			given.flatMap((arg, at) => (arg === "--tmpfs" ? [given[at + 1]] : []));
+		const missing = (above: "folder" | "link"): Disk => ({
+			kind: (path) =>
+				path === "/run/user/1000" || path.startsWith("/run/user/1000/")
+					? undefined
+					: path === "/run/user"
+						? above
+						: "folder",
+			entries: () => [],
+		});
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{
+						home: place.home,
+						runtimeDir: "/run/user/2000",
+						compileRoots: roots,
+					},
+					missing("folder"),
+				),
+			),
+			"the fence's own runtime folder kept in reach",
+		).not.toContain("/run/user");
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+					missing("link"),
+				),
+			),
+			"nothing mounted over a link",
+		).not.toContain("/run/user");
+	});
+
 	it("keeps read-only the runtime folder holding a compile root that is no folder, so nothing inside swaps it for a folder a host trusts", () => {
 		const roots = ["/run/user/1000/pi-compile"];
 		for (const kind of ["file", "link"] as const) {
