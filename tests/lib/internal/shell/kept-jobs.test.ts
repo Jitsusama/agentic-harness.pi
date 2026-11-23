@@ -60,6 +60,10 @@ const disk = vi.hoisted(() => {
 		moved: [] as string[],
 		removed: [] as string[],
 		asked: [] as string[],
+		/** Each rename and link the disk has acted on, done or refused, as `ask path`. */
+		acted: [] as string[],
+		/** Run as each rename is asked, before the disk acts on it. */
+		onRename: undefined as ((path: string) => void) | undefined,
 		before: false,
 		only: undefined as Ask | undefined,
 		on: undefined as RegExp | undefined,
@@ -126,6 +130,7 @@ const disk = vi.hoisted(() => {
 			this.moved.length = 0;
 			this.removed.length = 0;
 			this.asked.length = 0;
+			this.acted.length = 0;
 		},
 	};
 });
@@ -135,9 +140,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const rename = (async (...args: Parameters<typeof real.rename>) => {
 		const path = String(args[0]);
 		disk.moved.push(path);
+		disk.onRename?.(path);
 		await disk.first("rename", path);
-		disk.refuse("rename", path);
-		await real.rename(...args);
+		try {
+			disk.refuse("rename", path);
+			await real.rename(...args);
+		} finally {
+			disk.acted.push(`rename ${path}`);
+		}
 		await disk.pass("rename", path);
 	}) as typeof real.rename;
 	const rm = (async (...args: Parameters<typeof real.rm>) => {
@@ -151,8 +161,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 	const link = (async (...args: Parameters<typeof real.link>) => {
 		const path = String(args[1]);
 		await disk.first("link", path);
-		disk.refuse("link", path);
-		await real.link(...args);
+		try {
+			disk.refuse("link", path);
+			await real.link(...args);
+		} finally {
+			disk.acted.push(`link ${path}`);
+		}
 		await disk.pass("link", path);
 	}) as typeof real.link;
 	const writeFile = (async (...args: Parameters<typeof real.writeFile>) => {
@@ -236,6 +250,7 @@ const SOON = 2_000;
 const made: string[] = [];
 afterEach(() => {
 	disk.go();
+	disk.onRename = undefined;
 	disk.refused = undefined;
 	disk.refusal = "EIO";
 	disk.takesStaged = false;
@@ -1043,14 +1058,24 @@ describe("a call's own record, taken back as the call ends", () => {
 	it("puts its record back when handed on just after a pass removed it", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
-		let asked = 0;
-		// The pass's timing reads the clock again once the pass has ended.
+		const keep = job.work.keep;
+		let handed = false;
+		// The pass's timing reads the clock once the pass has ended: handed
+		// on there, at the first read finding its record removed, however
+		// many reads come before.
 		const now = (): number => {
-			asked += 1;
-			if (asked === 2) disownKeptJob(job.work.keep);
+			const removed =
+				disk.of(keep).removed.some((path) => path.endsWith(".gone")) &&
+				!existsSync(`${keep}.job`) &&
+				!listed(where).some((name) => name.endsWith(".gone"));
+			if (removed && !handed) {
+				handed = true;
+				disownKeptJob(keep);
+			}
 			return 0;
 		};
-		await forgetOwnKeptJob(job.work.keep, { now });
+		await forgetOwnKeptJob(keep, { now });
+		expect(handed, "handed on once the pass had removed it").toBe(true);
 		await vi.waitFor(() =>
 			expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]),
 		);
@@ -1091,22 +1116,177 @@ describe("a call's own record, taken back as the call ends", () => {
 		await removing;
 	});
 
-	it("leaves a call handed on mid-removal to its taker as the process exits", async () => {
+	// Handed on, or its files gone, while the disk had yet to answer: the
+	// record at its name is the taker's, or beside the call's end, and no
+	// longer this process's to take back at a session's close.
+	it("leaves a record the disk wouldn't set aside to its taker when handed on meanwhile", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
-		disk.hold(true);
-		const going = forgetOwnKeptJob(job.work.keep);
+		const keep = job.work.keep;
+		disk.hold(true, "rename", /\.job$/);
+		const going = forgetOwnKeptJob(keep);
+		await parkedByTheClock();
+		disownKeptJob(keep);
+		disk.refused = "rename";
+		const stays = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			disk.go();
+			await going;
+		} finally {
+			stays.mockRestore();
+			disk.refused = undefined;
+		}
+		forgetKeptJob(keep);
+		expect(labelsIn(where), "its record, the taker's").toEqual(["run j1"]);
+	});
+
+	it("asks nothing at a session's close of a record the disk wouldn't set aside once its files went meanwhile", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold(true, "rename", /\.job$/);
+		const going = forgetOwnKeptJob(keep);
+		await parkedByTheClock();
+		await removeKept(keep, { neverHanded: true });
+		disk.refused = "rename";
+		const stays = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			disk.go();
+			await going;
+		} finally {
+			stays.mockRestore();
+			disk.refused = undefined;
+		}
+		disk.forget();
+		forgetKeptJob(keep);
+		expect(disk.of(keep).asked, "nothing asked on the thread").toEqual([]);
+	});
+
+	// A rename asked before the exit is the pool's to finish after it, its
+	// answer never heard: the exit leaves the record where that rename,
+	// landing, moves nothing.
+	it("leaves a call handed on mid-removal to its taker as the process exits, though its rename lands after", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold(true, "rename", /\.job$/);
+		const going = forgetOwnKeptJob(keep);
+		await parkedByTheClock();
+		disownKeptJob(keep);
+		expect(saidAtExit(), "a record stands, so nothing said").toEqual([]);
+		disk.go();
+		disk.hold(false, "rename", /\.job$/);
 		await vi.waitFor(() =>
-			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
+			expect(disk.acted, "its rename, landed").toContain(`rename ${keep}.job`),
 		);
-		disownKeptJob(job.work.keep);
-		exiting();
-		expect(existsSync(`${job.work.keep}.job`), "its record, the taker's").toBe(
-			true,
-		);
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
 		disk.go();
 		await going;
-		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+		expect(labelsIn(where), "its record, still").toEqual(["run j1"]);
+	});
+
+	// A reload in one process: the taker writes its own before the exit.
+	it("leaves the taker's own record as the process exits, when handed on mid-removal", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold();
+		const going = forgetOwnKeptJob(keep);
+		await vi.waitFor(() =>
+			expect(existsSync(`${keep}.job`), "set aside").toBe(false),
+		);
+		disownKeptJob(keep);
+		recordKeptJob({ ...job, label: "taken up" });
+		expect(saidAtExit(), "a record stands, so nothing said").toEqual([]);
+		expect(labelsIn(where), "the taker's record").toEqual(["taken up"]);
+		expect(listed(where), "nothing left set aside").not.toContainEqual(
+			expect.stringMatching(/\.gone$/),
+		);
+		const late = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			disk.go();
+			await going;
+		} finally {
+			late.mockRestore();
+		}
+		expect(labelsIn(where), "the taker's record, still").toEqual(["taken up"]);
+	});
+
+	// A rollover's write lands while the rename waits, so the rename moves
+	// it and the next pass finds nothing at its name: the record this
+	// process wrote last is gone, and a hand-off then has it put back.
+	it("puts back the record it wrote last when handed on as a later pass finds it removed already", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold(true, "rename", /\.job$/);
+		const going = forgetOwnKeptJob(keep);
+		await parkedByTheClock();
+		recordKeptJob({ ...job, label: "rolled over" });
+		let renames = 0;
+		disk.onRename = (path) => {
+			if (path !== `${keep}.job`) return;
+			renames += 1;
+			if (renames === 1) disownKeptJob(keep);
+		};
+		disk.go();
+		await going;
+		expect(renames, "a second pass, handed on as it renamed").toBe(1);
+		await vi.waitFor(() =>
+			expect(labelsIn(where), "the record it wrote last").toEqual([
+				"rolled over",
+			]),
+		);
+		expect(listed(where), "nothing set aside or staged").not.toContainEqual(
+			expect.stringMatching(/\.(gone|back)$/),
+		);
+	});
+
+	// The put-back's link, asked before the exit, lands after it: what it
+	// links from is gone by then, so no record stands beside the call's end.
+	it("takes back as the process exits a put-back still on its way once its taker removed the call's files", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const keep = job.work.keep;
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(keep);
+		await parkedByTheClock();
+		disownKeptJob(keep);
+		disk.go();
+		disk.hold(true, "link");
+		await vi.waitFor(() =>
+			expect(disk.waiting, "its put-back, waiting on the disk").toEqual([
+				expect.stringMatching(/^link .*\.job$/),
+			]),
+		);
+		await removeKept(keep);
+		exiting();
+		const late = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			disk.go();
+			disk.hold(false, "link");
+			await vi.waitFor(() =>
+				expect(disk.acted, "its put-back, landed").toContain(
+					`link ${keep}.job`,
+				),
+			);
+			expect(
+				existsSync(`${keep}.job`),
+				"no record beside the call's files at its next start",
+			).toBe(false);
+			disk.go();
+			await going;
+		} finally {
+			late.mockRestore();
+		}
 	});
 
 	// A rollover's recorder can write the record again once the call's own
