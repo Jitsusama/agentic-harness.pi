@@ -962,7 +962,10 @@ describe("children starting at once", () => {
 			await expect(one).rejects.toThrow("stopped watching");
 		// Each started child listens later, and is left for the next host.
 		await vi.waitFor(() =>
-			expect([...units.children.values()].every(Boolean)).toBe(true),
+			expect(
+				[...units.children.values()].every(Boolean),
+				"every started child listening",
+			).toBe(true),
 		);
 	});
 });
