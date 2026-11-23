@@ -1,16 +1,16 @@
 /**
  * A move asked of a session while its run goes on, as the session meets
- * it: the move goes the moment the run settles, which is when anything
- * else a settle starts (a reload onto a moved install, say) goes too.
- * Left to its next look, a few seconds on, a reload that began meanwhile
- * stops it, and a slow reload holds the move until a release gives up
- * on it, as E30 failed under a full host test's load on 23 November.
+ * it: from the moment it is taken until its session ends, it holds off
+ * the reload an install's move would start, which going as the run
+ * settles would stop the move unwritten, as E30 failed under a full host
+ * test's load on 23 November.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { readMoveNote } from "../../../lib/internal/session/move.ts";
+import { moveWaiting } from "../../../lib/internal/session/move-waiting.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { fixture, session, startSession } from "./support/mesh.ts";
@@ -18,12 +18,13 @@ import { fixture, session, startSession } from "./support/mesh.ts";
 /** Past steering's first look at its inboxes, three seconds in. */
 const STEER_TAKEN_MS = 6000;
 
+/** Past a waiting move's next look, two seconds on. */
+const MOVE_LOOKED_MS = 5000;
+
 describe("a move asked during a run", () => {
-	it("goes as the run settles, not at its next look", async () => {
+	it("holds the session's reload from when it is taken until the session ends", async () => {
 		fixture.paths = { ...fixture.paths, steer: join(fixture.root, "steer") };
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));
-		// The run counts as under way through its end, as pi's does, until
-		// it settles.
 		let idle = false;
 		let shut = 0;
 		const { fire } = await startSession(
@@ -50,17 +51,32 @@ describe("a move asked during a run", () => {
 			},
 			{ timeout: STEER_TAKEN_MS },
 		);
+		expect(moveWaiting(session), "held while the run goes on").toBe(
+			"background",
+		);
 
 		await fire("agent_end");
-		expect(readMoveNote(session), "no note while the run still counts").toBe(
-			undefined,
-		);
 		idle = true;
 		await fire("agent_settled", { aborted: false });
+		expect(moveWaiting(session), "held as the run settles").toBe("background");
 
-		expect(readMoveNote(session), "the note, as the run settles").toMatchObject(
-			{ session, to: "background" },
+		await vi.waitFor(
+			() => {
+				expect(readMoveNote(session)).toMatchObject({
+					session,
+					to: "background",
+				});
+			},
+			{ timeout: MOVE_LOOKED_MS },
 		);
 		expect(shut, "the session ends with its note left").toBe(1);
-	}, 10_000);
+		expect(moveWaiting(session), "held until the session has ended").toBe(
+			"background",
+		);
+
+		await fire("session_shutdown");
+		expect(moveWaiting(session), "let go as the session ends").toBe(
+			undefined,
+		);
+	}, 15_000);
 });

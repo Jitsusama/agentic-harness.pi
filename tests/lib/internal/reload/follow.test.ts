@@ -90,6 +90,14 @@ describe("whenToReload", () => {
 	it("never moves a session running a tree on purpose", () => {
 		expect(whenToReload({ ...still, swapped: true })).toBe("never");
 	});
+
+	// A reload going first would stop the move unwritten, and the move
+	// restarts the session on current code anyway.
+	it("waits while a move of the session waits, idle or not", () => {
+		expect(whenToReload({ ...still, moving: true })).toBe("wait");
+		expect(whenToReload({ ...still, idle: false, moving: true })).toBe("wait");
+		expect(whenToReload({ ...still, moving: false })).toBe("now");
+	});
 });
 
 describe("dependenciesReady", () => {

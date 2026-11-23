@@ -23,6 +23,10 @@ import {
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	isRestartAsk,
@@ -170,6 +174,8 @@ async function session({
 	stale = false,
 	// How long idle reloads are spread over; none, unless a case is about it.
 	spreadMs = 0,
+	// The session's id, where a case needs one; a context may have none.
+	sessionId = undefined as string | undefined,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -182,17 +188,23 @@ async function session({
 		pending: () => pending,
 	};
 	stops.push(announceJobHost(events, host));
+	const entries: { type: string; data: unknown }[] = [];
 	const pi = {
 		events,
 		sendUserMessage: (text: string) => {
 			if (stale) throw new Error("This extension ctx is stale.");
 			prompted.push(text);
 		},
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 	};
+	const ids =
+		sessionId === undefined
+			? {}
+			: { sessionManager: { getSessionId: () => sessionId } };
 	let busy = !idle;
 	const follower = await follow(
 		pi as never,
-		{ hasUI, isIdle: () => !busy } as never,
+		{ hasUI, isIdle: () => !busy, ...ids } as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
 		{ env: {}, quietMs: QUIET_MS, spreadMs },
@@ -200,6 +212,7 @@ async function session({
 	return {
 		install,
 		prompted,
+		entries,
 		follower,
 		settle: () => {
 			busy = false;
@@ -291,6 +304,38 @@ describe("following the install", () => {
 			settle();
 			return prompted.length > 0;
 		});
+	});
+
+	// A reload going as the run settles stops a waiting move unwritten,
+	// and the move restarts the session on current code anyway: E30 failed
+	// so under a full host test's load on 23 November.
+	it("waits while a move of the session waits, as its run settles too, and reloads once it lets go", async () => {
+		const moving = "01a1ecbb-0000-7000-8000-0000000e3001";
+		holdForMove(moving, "background");
+		try {
+			const { install, prompted, entries, follower, settle } = await session({
+				idle: false,
+				sessionId: moving,
+			});
+
+			await land(install, "feat: something to try");
+			await until("the move is said as what it waits on", () => {
+				settle();
+				return entries.some(
+					(entry) =>
+						entry.type === WAITING_ENTRY &&
+						(entry.data as { reason?: string; to?: string }).reason ===
+							"a move waits",
+				);
+			});
+			expect(prompted, "while the move holds it").toEqual([]);
+
+			letMoveGo(moving);
+			follower?.consider();
+			await until("the reload is asked for", () => prompted.length > 0);
+		} finally {
+			letMoveGo(moving);
+		}
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {

@@ -35,6 +35,8 @@ interface Session {
 	readonly offs: MoveOff[];
 	/** What each run it ended said ended it. */
 	readonly cuts: string[];
+	/** Each hold on its reload it renewed, and each time it let go. */
+	readonly reloads: string[];
 	/** Its clock, in ms since the epoch. */
 	time: number;
 	/** The look the clock would make, while one is set. */
@@ -57,6 +59,7 @@ function session(
 		said: [],
 		offs: [],
 		cuts: [],
+		reloads: [],
 		time: ASKED,
 		clocks: [],
 		move: createMoving({
@@ -81,6 +84,8 @@ function session(
 				at.asked.push(`close by ${by}`);
 			},
 			cutRun: (by) => at.cuts.push(by),
+			holdReloads: (to) => at.reloads.push(`hold for ${to}`),
+			letReloadsGo: () => at.reloads.push("let go"),
 			...(release
 				? {
 						release: (by: string) => {
@@ -104,6 +109,30 @@ function session(
 }
 
 describe("moving a session", () => {
+	// A reload going as the run settles stops a waiting move unwritten;
+	// E30 failed so under a full host test's load on 23 November.
+	it("holds its session's reload at every look while it waits, and lets go as it is called off", () => {
+		const one = session("a run is under way");
+		one.move.move("background");
+		one.tick?.();
+		expect(one.reloads).toEqual([
+			"hold for background",
+			"hold for background",
+		]);
+		one.move.cancel();
+		expect(one.reloads.at(-1)).toBe("let go");
+	});
+
+	it("keeps the hold once made until its session stops", () => {
+		const one = session();
+		one.move.move("background");
+		expect(one.did).toEqual(["note background", "close"]);
+		one.move.look();
+		expect(one.reloads).toEqual(["hold for background"]);
+		one.move.stop();
+		expect(one.reloads).toEqual(["hold for background", "let go"]);
+	});
+
 	it("ends a free session at once, its note written before it closes", () => {
 		const one = session();
 		one.move.move("background");
