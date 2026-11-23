@@ -10,8 +10,10 @@
  * rest still go; a session with no quest loaded has no handover to carry
  * into, so it refuses, and stays open.
  *
- * A carry under way holds every door that would end the process it runs
- * in (lib/internal/carry/under-way.ts): one ordered through the node
+ * A carry under way holds the doors that would end the process it runs
+ * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
+ * restart for its heap and a person's Close or /exit, which go anyway:
+ * one ordered through the node
  * holds them from the order, and passes its hold in; one the person
  * asked for takes its own. A second carry of a session already being
  * carried refuses, since the first one's success closes it.

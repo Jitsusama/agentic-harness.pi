@@ -221,16 +221,17 @@ export async function follow(
 	const hear = () => {
 		heardAt ??= Date.now();
 	};
-	/** This session's place in the spread, fixed by its id. */
-	const place = (() => {
-		let id: string = String(process.pid);
+	/** This session's id, which a carry under way is held by. */
+	const sessionId = (() => {
 		try {
-			id = ctx.sessionManager?.getSessionId?.() ?? id;
+			return ctx.sessionManager?.getSessionId?.();
 		} catch {
-			// A context with no session yet is placed by its process.
+			// A context with no session yet has no carry to wait on.
+			return undefined;
 		}
-		return spreadOf(id, spreadMs);
 	})();
+	/** This session's place in the spread, fixed by its id. */
+	const place = spreadOf(sessionId ?? String(process.pid), spreadMs);
 
 	// Read once, as the runtime starts: links made after the process
 	// started mean a reload brought it up on them. In a host no holder
@@ -483,7 +484,7 @@ export async function follow(
 		let carrying: string | undefined;
 		try {
 			idle = settled || ctx.isIdle();
-			carrying = carryUnderWay(ctx.sessionManager.getSessionId());
+			carrying = sessionId === undefined ? undefined : carryUnderWay(sessionId);
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");

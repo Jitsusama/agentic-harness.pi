@@ -1,9 +1,15 @@
 /**
- * The carries under way in this process, which every door that ends a
- * session's process asks before it goes: its park and restart in place
- * (the mesh's park ask), a move (moving.ts's holdsOf), its host's
- * restart (host/engine/stopping.ts) and following its install with a
- * reload (reload-workflow's follow.ts).
+ * The carries under way in this process, which the doors that would end
+ * a session's process unasked check before they go: its park and
+ * restart in place (the mesh's park ask), a move (moving.ts's holdsOf),
+ * its host's settled and ceiling restarts (host/engine/stopping.ts),
+ * and every reload, whether the follower, the agent or the person asks
+ * for it (reload-workflow's follow.ts and transitions.ts, and the host
+ * engine's reload, through {@link carryHoldsReload}).
+ *
+ * Two doors go anyway. A host restart for its heap running out only
+ * names the carry it ends, since a host out of memory loses every
+ * conversation; and a person's Close or /exit is theirs to press.
  *
  * A carry ends its session's run before it bundles the session's
  * trees, so the session reads as idle while it writes, and its done
@@ -99,6 +105,18 @@ export function holdForCarry(
 	}, mostMs);
 	lapse.unref?.();
 	return hold;
+}
+
+/**
+ * Why a reload of `session` waits, while a carry of its work is under
+ * way: a reload replaces the context the carry reads and closes
+ * through. Undefined when nothing holds it.
+ */
+export function carryHoldsReload(session: string): string | undefined {
+	const to = carryUnderWay(session);
+	return to === undefined
+		? undefined
+		: `its work is being carried to ${to}, and a reload would end the carry part-way`;
 }
 
 /**

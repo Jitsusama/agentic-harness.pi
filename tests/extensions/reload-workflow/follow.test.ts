@@ -22,6 +22,7 @@ import {
 	RESTARTING_ENTRY,
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
@@ -170,6 +171,8 @@ async function session({
 	stale = false,
 	// How long idle reloads are spread over; none, unless a case is about it.
 	spreadMs = 0,
+	// The session's id, where a case needs one; a context may have none.
+	sessionId = undefined as string | undefined,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -192,7 +195,13 @@ async function session({
 	let busy = !idle;
 	const follower = await follow(
 		pi as never,
-		{ hasUI, isIdle: () => !busy } as never,
+		{
+			hasUI,
+			isIdle: () => !busy,
+			...(sessionId === undefined
+				? {}
+				: { sessionManager: { getSessionId: () => sessionId } }),
+		} as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
 		{ env: {}, quietMs: QUIET_MS, spreadMs },
@@ -291,6 +300,29 @@ describe("following the install", () => {
 			settle();
 			return prompted.length > 0;
 		});
+	});
+
+	// A reload replaces the context a carry reads and closes through, so
+	// one waits for the carry; the call site was once left untested
+	// (PV3TE0's F4 and F8).
+	it("waits while a carry of its work is under way, and reloads once it lets go", async () => {
+		const carried = "01a1ecbb-0000-7000-8000-0000000f0110";
+		const hold = holdForCarry(carried, "penelope");
+		try {
+			const { install, prompted, follower } = await session({
+				sessionId: carried,
+			});
+
+			await land(install, "feat: something to try");
+			await quietFor(QUIET_MS, 4);
+			expect(prompted, "while the carry holds it").toEqual([]);
+
+			hold.release();
+			follower?.consider();
+			await until("the reload is asked for", () => prompted.length > 0);
+		} finally {
+			hold.release();
+		}
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {

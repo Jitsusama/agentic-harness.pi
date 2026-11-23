@@ -31,6 +31,7 @@ import {
 	type SessionStamp,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	clearParked,
@@ -436,6 +437,9 @@ export async function createEngine(
 		const { sessionId } = record.traits;
 		const session = view(sessionId, record).runtime.session;
 		await session.waitForIdle();
+		// A carry ends its run first, so it is idle while it bundles.
+		const carried = carryHoldsReload(sessionId);
+		if (carried !== undefined) throw new Error(carried);
 		const screens = options.screens;
 		if (!screens?.reload) return session.reload();
 		const before = session.extensionRunner;

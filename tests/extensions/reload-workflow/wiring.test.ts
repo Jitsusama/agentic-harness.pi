@@ -27,6 +27,7 @@ import {
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
 import { STILL_MS } from "../../../extensions/reload-workflow/transitions.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	leaveSession,
@@ -71,6 +72,9 @@ interface Command {
 }
 
 const GIT_SOURCE = "git:github.com/Jitsusama/agentic-harness.pi";
+
+/** The session every runtime here runs in, as its session manager names it. */
+const SESSION_ID = "wiring-session";
 
 /**
  * How long a landing may take to be said. Each asks git twice what this
@@ -187,6 +191,7 @@ function runtime() {
 			command?.handler(args, {
 				ui,
 				cwd: dir,
+				sessionManager: { getSessionId: () => SESSION_ID },
 				waitForIdle: async () => {},
 				isIdle: () => true,
 				hasPendingMessages: () => false,
@@ -329,6 +334,36 @@ describe("the agent asking for a reload", LANDS, () => {
 			{ type: "reload-waited-for-run", data: { times: expect.any(Number) } },
 		]);
 	}, 10_000);
+
+	it("is called off while a carry of the session's work is under way, and goes once it lets go", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+		const hold = holdForCarry(SESSION_ID, "penelope");
+		try {
+			await now.command("reload", next);
+		} finally {
+			hold.release();
+		}
+
+		expect(reloads, "nothing reloads under the carry").toBe(0);
+		expect(now.notices).toContain(
+			"Did not reload: its work is being carried to penelope, and a reload would end the carry part-way.",
+		);
+		expect(
+			reloadSlot().request,
+			"no request is left for the next settle to run",
+		).toBeUndefined();
+
+		await now.command("reload", next);
+		expect(reloads, "the reload goes once the carry lets go").toBe(1);
+	});
 
 	it("is called off when the person stops the run", async () => {
 		runningTheInstall();

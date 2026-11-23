@@ -4,7 +4,7 @@
  * subagent working as its peer's hands, and a folder left untrusted.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -36,10 +36,12 @@ import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 import { holderSteers } from "../../../lib/mesh/parked.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
+import { inboxOf } from "../../../lib/mesh/steer.ts";
 import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 } from "../../../lib/subagent/events.ts";
+import { until } from "../../support/until.ts";
 import {
 	fixture,
 	fromElsewhere,
@@ -283,6 +285,77 @@ describe("parking", () => {
 			await first.ended();
 
 			expect(refusals).toEqual(["its work is being carried to penelope"]);
+		});
+
+		// PV3TE0's round 3 (F2, F5, F10): state.ts sets the ordered carry's
+		// own hold aside in its looks and hands it to the carry; drop
+		// either and every ordered carry refuses itself.
+		it("carries an ordered carry steered in, its own hold set aside, and holds the park meanwhile", async () => {
+			const steer = join(fixture.root, "steer");
+			fixture.paths = { ...fixture.paths, steer };
+			let idle = false;
+			const told: string[] = [];
+			// Every other call a screen takes is answered with nothing.
+			const ui = new Proxy(
+				{},
+				{
+					get: (_, key) =>
+						key === "notify"
+							? (text: string) => told.push(text)
+							: () => undefined,
+				},
+			);
+			const { emit } = await startSession(
+				{},
+				{ hasUI: true, ui, isIdle: () => idle, abort: () => {} },
+			);
+			const inbox = inboxOf(steer, "7M6JKG");
+			mkdirSync(inbox, { recursive: true });
+			const name = join(inbox, `${Date.now()}-0a1b.json`);
+			writeFileSync(
+				`${name}.tmp`,
+				JSON.stringify({
+					act: "ordered-carry",
+					to: "penelope",
+					why: "its camera work needs the Mac",
+					by: "WCJQSG",
+					from: "WCJQSG",
+				}),
+			);
+			renameSync(`${name}.tmp`, name);
+			left.push(async () => {
+				idle = true;
+			});
+
+			await until(
+				"the ordered carry waits out the run under way",
+				() =>
+					told.some((text) =>
+						text.includes("letting the turn under way end first"),
+					),
+				10_000,
+			);
+			const waiting = parkAsked(emit);
+			idle = true;
+			await until(
+				"the ordered carry ends",
+				() => told.some((text) => text.startsWith("This session refused")),
+				10_000,
+			);
+			const after = parkAsked(emit);
+
+			expect(waiting, "the park is held from the order").toEqual([
+				"its work is being carried to penelope",
+			]);
+			// It reached the carry, which refuses here only for want of a quest.
+			expect(
+				told.filter((text) => text.startsWith("This session refused")),
+			).toEqual([
+				expect.stringContaining(
+					"an ordered carry to penelope by WCJQSG: its work couldn't be carried: no quest is loaded",
+				),
+			]);
+			expect(after, "the park goes once the order lets go").toEqual([]);
 		});
 
 		it("holds the park from an ordered carry's order until it lets go", async () => {

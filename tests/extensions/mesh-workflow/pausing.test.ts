@@ -31,6 +31,9 @@ function session(
 	const closedBy: string[] = [];
 	let paused = false;
 	const state = { idle, time: 0 };
+	// The machine a carry under way takes its work to, as the carry's
+	// hold says it from when it is asked until it settles.
+	let underWay: string | undefined;
 	const at: Session = {
 		get idle() {
 			return state.idle;
@@ -61,8 +64,14 @@ function session(
 			},
 			carry: async (to) => {
 				did.push(`carry to ${to}`);
-				await carry(to);
+				underWay = to;
+				try {
+					await carry(to);
+				} finally {
+					underWay = undefined;
+				}
 			},
+			carryUnderWay: () => underWay,
 		}),
 		did,
 		told,
@@ -347,5 +356,31 @@ describe("carrying a session to another machine", () => {
 		expect(one.told.at(-1)).toContain("the scratch folder can't be written");
 		one.pausing.started();
 		expect(one.did, "and goes on working as it was").toHaveLength(1);
+	});
+
+	// A second press while the first carry bundles once turned its run
+	// guard off and said the session stays open (PV3TE0's F1 and F9).
+	it("leaves a second Carry to the one under way, which still ends every run", async () => {
+		let carried = () => {};
+		const one = session(
+			true,
+			() =>
+				new Promise((done) => {
+					carried = done;
+				}),
+		);
+
+		const first = one.pausing.carry("penelope");
+		await one.pausing.carry("equilibrius");
+		expect(one.did, "carries once").toEqual(["carry to penelope"]);
+		expect(one.told.at(-1)).toBe(
+			"A carry to penelope is already under way and closes this session once it has carried, so this Carry to equilibrius is left to it.",
+		);
+		one.pausing.started();
+		expect(one.did.at(-1), "a run started mid-carry still ends").toBe("abort");
+
+		carried();
+		await first;
+		expect(one.did).toEqual(["carry to penelope", "abort", "close"]);
 	});
 });

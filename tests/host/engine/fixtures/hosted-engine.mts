@@ -100,6 +100,9 @@ const {
 	warmingCarryDir,
 	writeWarmingCarry,
 } = await import("../../../../lib/internal/cache/warming-carry.ts");
+const { holdForCarry } = await import(
+	"../../../../lib/internal/carry/under-way.ts"
+);
 const { WAKE_ENV, writeParked } = await import(
 	"../../../../lib/internal/session/park.ts"
 );
@@ -970,6 +973,46 @@ const scenarios: Record<string, Scenario> = {
 			const unheld = engine.backgroundOf("never-held");
 			await host.close(id);
 			return { background: { before, during, own, unheld } };
+		},
+	},
+	/** Hold a conversation for a carry: what a restart waits on, and a reload refused, then both once it lets go. */
+	"carry-held": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			const reloaded = () =>
+				host.reload(id, { reason: "the install moved" }).then(
+					() => "reloaded",
+					(error: unknown) =>
+						error instanceof Error ? error.message : String(error),
+				);
+			const before = engine.background();
+			const hold = holdForCarry(id, "penelope");
+			let during: number;
+			let holding: readonly string[];
+			let reloadDuring: string;
+			try {
+				during = engine.background();
+				holding = engine.holding();
+				reloadDuring = await reloaded();
+			} finally {
+				hold.release();
+			}
+			const after = engine.background();
+			const reloadAfter = await reloaded();
+			await host.close(id);
+			return {
+				firstId: id,
+				carryHeld: {
+					before,
+					during,
+					after,
+					holding,
+					reloadDuring,
+					reloadAfter,
+				},
+			};
 		},
 	},
 	/** Answer, start a new conversation from an extension's command, answer there, then stop. */

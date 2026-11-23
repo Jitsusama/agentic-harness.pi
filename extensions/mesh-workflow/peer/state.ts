@@ -13,6 +13,7 @@ import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
 import {
 	type CarryHold,
+	carryUnderWay,
 	holdForCarry,
 } from "../../../lib/internal/carry/under-way.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
@@ -233,6 +234,10 @@ export function createState(
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
 			await carryThisSession(m.ctx, to, { timing: { lapsed } });
+		},
+		carryUnderWay: () => {
+			const session = m.ctx?.sessionManager.getSessionId();
+			return session === undefined ? undefined : carryUnderWay(session);
 		},
 	});
 	// A host's conversation has no window of its own to hand over.

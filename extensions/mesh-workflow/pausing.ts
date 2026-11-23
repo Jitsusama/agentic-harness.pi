@@ -21,7 +21,11 @@
  *   handover with a done file saying so (carrying.ts), and then it
  *   closes as Close does. A run that starts from then on is ended, so
  *   the file carried is the whole session. A carry that fails leaves it
- *   open, saying why, so nothing is lost.
+ *   open, saying why, so nothing is lost. A Carry pressed while one is
+ *   already under way, the person's or one the node ordered, is left to
+ *   that one, which closes the session once it has carried: it neither
+ *   ends a run nor stops the first from ending them, so a second press
+ *   never lets a run start mid-carry.
  *
  * An ended run ends away mode (away-workflow), so a Stop, or a Pause
  * landing mid-run, ends it for every session: pressing either says the
@@ -71,6 +75,8 @@ export interface PausingHost {
 	 * settling once its done file is written.
 	 */
 	readonly carry: (to: string) => Promise<void>;
+	/** The machine a carry under way takes its work to, if one is. */
+	readonly carryUnderWay: () => string | undefined;
 }
 
 /** Pausing for one session. */
@@ -183,6 +189,13 @@ export function createPausing(host: PausingHost): Pausing {
 			host.setPaused(false);
 		},
 		async carry(to, from) {
+			const other = host.carryUnderWay();
+			if (other !== undefined) {
+				host.tell(
+					`A carry to ${other} is already under way and closes this session once it has carried, so this Carry to ${to} is left to it.`,
+				);
+				return;
+			}
 			carrying = true;
 			if (!host.idle()) host.abort();
 			host.tell(

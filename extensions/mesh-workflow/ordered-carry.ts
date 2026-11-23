@@ -32,8 +32,8 @@
  * who ordered or chose it and why, a node's choice never as an order.
  *
  * From the moment it is taken until it is carried or its refusal is
- * written, it holds every door that would end the session's process
- * (`hold`, lib/internal/carry/under-way.ts): the run it waits out and
+ * written, it holds the doors that would end the session's process
+ * unasked (`hold`, lib/internal/carry/under-way.ts): the run it waits out and
  * the holds it looks at again leave the session idle, and a park in
  * that gap would end it with nothing written for its node.
  */
@@ -128,8 +128,8 @@ export interface OrderedCarryHost {
 	 */
 	readonly holds: (runEnded: boolean) => Promise<string | undefined>;
 	/**
-	 * Hold every door that would end the session's process for a carry to
-	 * `to`, until the answer is called.
+	 * Hold the doors that would end the session's process unasked for a
+	 * carry to `to`, until the answer is called (lib/internal/carry/under-way.ts).
 	 */
 	readonly hold: (to: string) => () => void;
 	/** Carry its work for the machine `to`, settling once it is carried. */

@@ -16,6 +16,7 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
+import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import {
 	inside,
 	installedPackages,
@@ -356,6 +357,16 @@ async function reloadOnce(
 	};
 	const overruled = await untilStill(ctx, STILL_MS, run.underWay);
 	if (overruled > 0) run.overruled(overruled);
+	// Asked after the wait, since a carry may start during it; whoever
+	// asked, the follower asks again once the carry lets go.
+	const session = ctx.sessionManager?.getSessionId?.();
+	const carried = session === undefined ? undefined : carryHoldsReload(session);
+	if (carried !== undefined) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		ctx.ui.notify(`Did not reload: ${carried}.`, "warning");
+		return;
+	}
 	// Read after the wait: the session's own request says what came in,
 	// and more can come in while it waits.
 	const request: ReloadRequest = slot.request;

@@ -88,6 +88,15 @@ interface Seen {
 		readonly own: number;
 		readonly unheld: number;
 	};
+	/** A carry's hold on a conversation: the background counted and what a restart waits on, and its reload, while held and after. */
+	readonly carryHeld?: {
+		readonly before: number;
+		readonly during: number;
+		readonly after: number;
+		readonly holding: readonly string[];
+		readonly reloadDuring: string;
+		readonly reloadAfter: string;
+	};
 	/** What a restart would wait on of a heavy run, before and while the host drains, and what the drain said goes. */
 	readonly heavyHeld?: {
 		readonly holding: readonly string[];
@@ -673,6 +682,23 @@ describe("the host's engine", () => {
 				seen.recordLeft,
 				"its close for good stops what a park carried",
 			).toBe(false);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"counts a carry under way as what a restart waits on, and refuses a reload until it lets go",
+		async () => {
+			const seen = await step(hostFolder(), "carry-held");
+			expect(seen.carryHeld).toEqual({
+				before: 0,
+				during: 1,
+				after: 0,
+				holding: [`${seen.firstId}: a carry to penelope`],
+				reloadDuring:
+					"its work is being carried to penelope, and a reload would end the carry part-way",
+				reloadAfter: "reloaded",
+			});
 		},
 		HOST_LIFE_MS,
 	);
