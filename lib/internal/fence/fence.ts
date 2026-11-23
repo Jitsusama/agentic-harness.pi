@@ -394,6 +394,8 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		"--proc",
 		"/proc",
 		...renderNodeArgs(disk),
+		// First, so the fence's own mounts inside go over it, writable.
+		...frozenRuntimeArgs(unfencedCompileRoots(place), disk),
 	];
 	if (place.runtimeDir) {
 		args.push("--perms", "0700", "--tmpfs", place.runtimeDir);
@@ -787,8 +789,8 @@ function unfencedCompileRoots(place: FencePlace): readonly string[] {
  * bubblewrap makes the folder for its mount. Where the runtime folder it
  * lies in isn't made yet, as before a login, the folder that runtime
  * folder would be made in is hidden instead, so one mounted there later
- * never shows inside. Nothing goes over a root that is no folder: no
- * host compiles there, and bubblewrap can't mount over it.
+ * never shows inside. Nothing goes over a root that is no folder, since
+ * bubblewrap can't mount over it: `frozenRuntimeArgs` keeps that one.
  */
 function compileRootArgs(
 	roots: readonly string[],
@@ -820,6 +822,22 @@ function compileRootArgs(
 			args.push("--perms", "0700", "--tmpfs", root);
 	}
 	return args;
+}
+
+/**
+ * The runtime folder holding a compile root that is no folder, as one
+ * planted there would be, kept read-only: bubblewrap can't mount over
+ * the root, and a command could otherwise swap it for a private folder
+ * of planted code the next host trusts. Its sockets are still reached,
+ * as a connect writes nothing.
+ */
+function frozenRuntimeArgs(roots: readonly string[], disk: Disk): string[] {
+	const frozen = new Set<string>();
+	for (const root of roots) {
+		const kind = disk.kind(root);
+		if (kind !== undefined && kind !== "folder") frozen.add(dirname(root));
+	}
+	return [...frozen].flatMap((folder) => ["--ro-bind", folder, folder]);
 }
 
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */

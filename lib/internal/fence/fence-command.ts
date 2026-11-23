@@ -18,8 +18,9 @@ import {
  * Variables that name the desktop, left out so a command fails at once
  * rather than looking for a socket it can't reach. And node's compile
  * cache, which names a folder the fence hides or holds read-only (the
- * runtime folder's or pi's state's), so a node inside uses its temporary folder's, which the fence lets it
- * write to a tmpfs of its own (`fence-temp-caches.ts`).
+ * runtime folder's or pi's state's), so a node inside uses its
+ * temporary folder's, which the fence lets it write to a tmpfs of its
+ * own (`fence-temp-caches.ts`).
  */
 const UNSET = [
 	"WAYLAND_DISPLAY",

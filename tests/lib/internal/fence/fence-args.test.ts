@@ -173,9 +173,9 @@ describe("the fence's arguments", () => {
 					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
 					noLogin,
 				),
-			),
-			"none where the login has no runtime folder",
-		).not.toContain("/run/user/1000/pi-compile");
+			).filter((path) => path?.startsWith("/run") && path !== "/run/dbus"),
+			"none, nor over a folder above, where no runtime folder can be made",
+		).toEqual([]);
 	});
 
 	it("hides where the login's runtime folder would be made, when it has none yet, so one made later is out of reach", () => {
@@ -191,20 +191,38 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user ");
 	});
 
-	it("lays nothing over a compile root that is no folder, which no host compiles in", () => {
+	it("keeps read-only the runtime folder holding a compile root that is no folder, so nothing inside swaps it for a folder a host trusts", () => {
 		const roots = ["/run/user/1000/pi-compile"];
 		for (const kind of ["file", "link"] as const) {
 			const planted: Disk = {
 				kind: (path) => (path === roots[0] ? kind : "folder"),
 				entries: () => [],
 			};
+			const given = fenceArgs(
+				{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+				planted,
+			).join(" ");
 			expect(
-				fenceArgs(
-					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
-					planted,
-				).join(" "),
-				`a ${kind} left there, which bubblewrap can't mount over`,
+				given,
+				`nothing over a ${kind} left there, which bubblewrap can't mount over`,
 			).not.toContain("--tmpfs /run/user/1000/pi-compile");
+			expect(
+				given,
+				`the folder a ${kind} is left in kept read-only, its sockets still reached`,
+			).toContain("--ro-bind /run/user/1000 /run/user/1000");
+			const inside = fenceArgs(
+				{
+					home: place.home,
+					runtimeDir: "/run/user/1000/own",
+					compileRoots: roots,
+				},
+				planted,
+			).join(" ");
+			expect(
+				inside.indexOf("--ro-bind /run/user/1000 "),
+				"kept read-only before the fence's own runtime folder goes over it",
+			).toBeLessThan(inside.indexOf("--tmpfs /run/user/1000/own"));
+			expect(inside.indexOf("--ro-bind /run/user/1000 ")).toBeGreaterThan(0);
 		}
 	});
 
