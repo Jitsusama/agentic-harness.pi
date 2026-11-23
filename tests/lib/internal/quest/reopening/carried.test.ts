@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -15,6 +16,7 @@ import {
 	placeTakenOver,
 	sessionFolderOf,
 	takeUpCarried,
+	writePlaced,
 } from "../../../../../lib/internal/quest/reopening/carried.ts";
 
 const QUEST = "QEST-20261025-85PKB2";
@@ -200,6 +202,64 @@ describe("sessions carried home", () => {
 	});
 });
 
+describe("a session's file placed a chunk at a time", () => {
+	const header = (cwd: string) =>
+		JSON.stringify({ type: "session", id: "01a19111-sbx1", cwd, pad: "ü" });
+
+	/** The copy of `text` placed for `/home/joel` reading `chunk` bytes at a time. */
+	function placed(text: string | Buffer, chunk: number): Buffer {
+		const from = join(folder(), FILE);
+		const to = join(folder(), "--home-joel--", FILE);
+		writeFileSync(from, text);
+		writePlaced(from, to, "/home/joel", chunk);
+		return readFileSync(to);
+	}
+
+	it("rewrites a header split across chunks, and copies lines split across them as they were", () => {
+		const lines = Array.from({ length: 500 }, (_, at) =>
+			JSON.stringify({ type: "message", at, says: "naïve ✓".repeat(at % 5) }),
+		);
+		const text = `${header("/Users/joel")}\n${lines.join("\n")}\n`;
+
+		// Chunks of 7 and 13 bytes split the header, the newline after it,
+		// many lines and many of their two- and three-byte characters.
+		for (const chunk of [1, 7, 13, 4096]) {
+			expect(
+				placed(text, chunk).toString("utf8"),
+				`${chunk} bytes a read`,
+			).toBe(`${header("/home/joel")}\n${lines.join("\n")}\n`);
+		}
+	});
+
+	it("copies every byte after the header as it stands, even one that isn't text", () => {
+		const after = Buffer.from([0x0a, 0xff, 0xfe, 0x0a, 0xc3, 0x0a]);
+		const text = Buffer.concat([Buffer.from(header("/Users/joel")), after]);
+
+		expect(placed(text, 5)).toEqual(
+			Buffer.concat([Buffer.from(header("/home/joel")), after]),
+		);
+	});
+
+	it("ends a file of only a header, with no newline, with one", () => {
+		expect(placed(header("/Users/joel"), 3).toString("utf8")).toBe(
+			`${header("/home/joel")}\n`,
+		);
+	});
+
+	it("writes nothing from a file whose first line is no header, or never ends", () => {
+		const from = join(folder(), FILE);
+		const to = join(folder(), "--home-joel--", FILE);
+
+		writeFileSync(from, '{"type":"sess\n{}\n');
+		expect(() => writePlaced(from, to, "/home/joel", 4)).toThrow(SyntaxError);
+		writeFileSync(from, "x".repeat(70 * 1024));
+		expect(() => writePlaced(from, to, "/home/joel", 4096)).toThrow(
+			"its first line passes 64 KiB",
+		);
+		expect(existsSync(to), "nothing placed").toBe(false);
+	});
+});
+
 describe("a session taken over from another machine", () => {
 	it("is placed for its folder here, over a copy from an earlier visit", () => {
 		const store = folder();
@@ -220,6 +280,34 @@ describe("a session taken over from another machine", () => {
 		const [header, turn] = readFileSync(earlier, "utf8").split("\n");
 		expect(JSON.parse(header ?? "").cwd).toBe("/home/joel/src/app");
 		expect(turn).toContain('"content":"hi"');
+	});
+
+	it("is placed whole from a log of more lines than one read takes, only its header changed", () => {
+		const store = folder();
+		const carried = join(folder(), FILE);
+		const turns = Array.from({ length: 40_000 }, (_, at) =>
+			JSON.stringify({ type: "message", at, content: "é".repeat(at % 7) }),
+		).join("\n");
+		writeFileSync(
+			carried,
+			`${sessionText("01a19111-sbx1", "/Users/joel/src/app")}${turns}\n`,
+		);
+
+		const path = placeTakenOver(
+			"01a19111-sbx1",
+			carried,
+			"/home/joel/src/app",
+			store,
+		);
+
+		const [was, ...wasRest] = readFileSync(carried, "utf8").split("\n");
+		const [header, ...rest] = readFileSync(path ?? "", "utf8").split("\n");
+		expect(JSON.parse(header ?? "")).toEqual({
+			...JSON.parse(was ?? ""),
+			cwd: "/home/joel/src/app",
+		});
+		expect(rest, "every line after the header as it was").toEqual(wasRest);
+		expect(rest).toHaveLength(40_002);
 	});
 
 	it("is never placed from a file that names another session", () => {

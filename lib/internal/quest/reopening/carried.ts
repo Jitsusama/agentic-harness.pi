@@ -16,7 +16,9 @@
  * when that's missing, as the leaving machine's always is here. So a
  * carried session is placed as a copy under a home folder's session
  * folder with only its header's cwd rewritten, and never over a session
- * this machine already has.
+ * this machine already has. A log passes 512 MiB, so the copy is
+ * streamed: only its header is held and rewritten, and the rest is
+ * copied a chunk at a time as it stands.
  */
 
 import {
@@ -32,8 +34,9 @@ import {
 import { basename, dirname, join } from "node:path";
 import type { CarriedSession } from "../../../core/work/carry.ts";
 import type { QuestTree } from "../../../quest/types.ts";
+import { writeWholeBy } from "../../write-whole.ts";
 import { parseQuestDoc } from "../documents/quest-doc.ts";
-import { atomicWriteFile } from "../io.ts";
+import { noteWriteMadeElsewhere } from "../io.ts";
 import { ancestorTreesOf, resolveSpawnCwd } from "./reopen.ts";
 import { carriedEntry, type RestoreEntry } from "./restore-file.ts";
 
@@ -60,6 +63,12 @@ const SAFE_ID = /^[A-Za-z0-9._-]+$/;
 
 /** Enough of a session file to hold its header, which is a few hundred bytes. */
 const HEADER_BYTES = 64 * 1024;
+
+/** How much of a session file is read at a time as it is placed. */
+const COPY_BYTES = 1024 * 1024;
+
+/** The byte that ends a line of a session file. */
+const NEWLINE = 0x0a;
 
 /**
  * Every session carried into any quest's handover folder under
@@ -134,14 +143,85 @@ export function placeTakenOver(
 	return path;
 }
 
-/** A copy of the session file at `from` at `to`, its header naming `homeCwd`. */
-function writePlaced(from: string, to: string, homeCwd: string): void {
-	const text = readFileSync(from, "utf8");
-	const end = text.indexOf("\n");
-	const header = JSON.parse(end < 0 ? text : text.slice(0, end));
-	const rest = end < 0 ? "\n" : text.slice(end);
-	mkdirSync(dirname(to), { recursive: true });
-	atomicWriteFile(to, `${JSON.stringify({ ...header, cwd: homeCwd })}${rest}`);
+/**
+ * Writes a copy of the session file at `from` at `to`, whole, its header
+ * naming `homeCwd`, reading `chunk` bytes at a time: only the header
+ * line is held, and every byte after it is copied as it stands, so a log
+ * of any size costs one chunk of memory. A header that isn't JSON, or
+ * passes {@link HEADER_BYTES}, throws before anything is written.
+ */
+export function writePlaced(
+	from: string,
+	to: string,
+	homeCwd: string,
+	chunk = COPY_BYTES,
+): void {
+	const fd = openSync(from, "r");
+	try {
+		const buffer = Buffer.alloc(chunk);
+		const { line, after } = headerLine(fd, buffer);
+		const header = JSON.parse(line);
+		mkdirSync(dirname(to), { recursive: true });
+		try {
+			writeWholeBy(
+				to,
+				(write) => {
+					write(JSON.stringify({ ...header, cwd: homeCwd }));
+					// A file of only a header gains the newline that ends it.
+					if (after === undefined) {
+						write("\n");
+						return;
+					}
+					write(after);
+					for (;;) {
+						const read = readSync(fd, buffer, 0, buffer.length, null);
+						if (read === 0) return;
+						write(buffer.subarray(0, read));
+					}
+				},
+				{ durable: true },
+			);
+		} finally {
+			noteWriteMadeElsewhere(to);
+		}
+	} finally {
+		closeSync(fd);
+	}
+}
+
+/**
+ * The first line of the file at `fd`, read a chunk at a time into
+ * `buffer` from its start, and the bytes read past it, from its newline
+ * on; none past it when the file ends with no newline.
+ */
+function headerLine(
+	fd: number,
+	buffer: Buffer,
+): { line: string; after: Buffer | undefined } {
+	const pieces: Buffer[] = [];
+	let held = 0;
+	for (;;) {
+		const read = readSync(fd, buffer, 0, buffer.length, null);
+		if (read === 0) {
+			return { line: Buffer.concat(pieces).toString("utf8"), after: undefined };
+		}
+		const end = buffer.subarray(0, read).indexOf(NEWLINE);
+		const piece = buffer.subarray(0, end < 0 ? read : end);
+		held += piece.length;
+		if (held > HEADER_BYTES) {
+			throw new Error(
+				`its first line passes ${HEADER_BYTES / 1024} KiB, so it holds no session header`,
+			);
+		}
+		// Copied, since the next read fills the buffer again.
+		pieces.push(Buffer.from(piece));
+		if (end >= 0) {
+			return {
+				line: Buffer.concat(pieces).toString("utf8"),
+				after: Buffer.from(buffer.subarray(end, read)),
+			};
+		}
+	}
 }
 
 /** Where taking carried sessions up looks, and puts them. */

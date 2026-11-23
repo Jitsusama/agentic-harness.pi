@@ -86,6 +86,48 @@ export function writeWhole(
 	}
 }
 
+/**
+ * Replace `file` whole with what `fill` writes, a piece at a time, as
+ * `writeWhole` does, for content too large to hold at once (a session's
+ * log passes 512 MiB). The file is renamed into place only once `fill`
+ * returns; one that throws leaves the file as it was.
+ */
+export function writeWholeBy(
+	file: string,
+	fill: (write: (piece: string | Uint8Array) => void) => void,
+	options: WriteWholeOptions = {},
+): void {
+	const { writing, staged } = stagedFor(file);
+	mkdirSync(writing, { recursive: true });
+	try {
+		const fd = openSync(staged, "w", options.mode);
+		try {
+			fill((piece) => writeAll(fd, piece));
+			if (options.durable) fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+		renameSync(staged, file);
+	} catch (error) {
+		try {
+			rmSync(staged, { force: true });
+		} catch {
+			// The write's own error is the one to say; a staged file left is
+			// cleared by clearWriting.
+		}
+		throw error;
+	}
+}
+
+/** Write all of `piece` at `fd`'s place, however many writes that takes. */
+function writeAll(fd: number, piece: string | Uint8Array): void {
+	const bytes = typeof piece === "string" ? Buffer.from(piece, "utf8") : piece;
+	let written = 0;
+	while (written < bytes.length) {
+		written += writeSync(fd, bytes, written, bytes.length - written);
+	}
+}
+
 /** Replace `file` whole with `content` as `writeWhole` does, off the thread. */
 export async function writeWholeOff(
 	file: string,
