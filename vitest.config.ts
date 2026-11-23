@@ -141,15 +141,19 @@ const PROCESS_TESTS = [
 	"tests/host/fenced/fence-stage.test.ts",
 ];
 
+/** The most process files a lent builder runs at once, whatever it names. */
+const MOST_PROCESS_WORKERS = 8;
+
 /**
  * How many process files run at once: one, unless `PI_HOST_WORKERS` names
- * more. Only scripts/host-run.sh names more, on a lent builder, where
- * nothing else runs and each file seals its host in folders of its own;
- * on a laptop the process lane stays one file at a time, as said below.
+ * more, and never more than MOST_PROCESS_WORKERS. Only
+ * scripts/host-run.sh names more, on a lent builder, where nothing else
+ * runs and each file seals its host in folders of its own; on a laptop
+ * the process lane stays one file at a time, as said below.
  */
-const PROCESS_WORKERS = Math.max(
-	1,
-	Number.parseInt(process.env.PI_HOST_WORKERS ?? "", 10) || 1,
+const PROCESS_WORKERS = Math.min(
+	MOST_PROCESS_WORKERS,
+	Math.max(1, Number.parseInt(process.env.PI_HOST_WORKERS ?? "", 10) || 1),
 );
 
 // Pi's loader rewrites the @sinclair/typebox imports onto its

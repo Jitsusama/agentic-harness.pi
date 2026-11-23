@@ -1,7 +1,8 @@
 /**
  * The soak at its smallest, parked and woken in turn: the first
  * conversation by a window, timed to its answer apart from its first
- * drawing, and the second by the mesh.
+ * drawing. The second wakes by the mesh, which this case leaves to the
+ * soak's own fault list.
  */
 import { describe, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
@@ -18,8 +19,8 @@ describe.skipIf(!packageDir)(
 			async () => {
 				const { said, report } = await soaked(out, []);
 				expect(report, said).toMatchObject({ faults: [] });
-				// At the first checkpoint the first conversation wakes by a window,
-				// the second by the mesh.
+				// At the first checkpoint the first conversation wakes by a window;
+				// the second's mesh wake is checked only as having no faults.
 				expect(
 					isRecord(report) && Array.isArray(report.checkpoints)
 						? report.checkpoints[0]

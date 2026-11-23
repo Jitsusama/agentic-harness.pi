@@ -22,6 +22,13 @@ const SOAK = resolve(import.meta.dirname, "soak.mts");
 /** Two sides each loading every extension, on a loaded machine. */
 export const RUN_MS = 600_000;
 
+/**
+ * How long a soak may run: just inside its case's limit, so one that
+ * overruns is stopped with the hosts it started, and says what it had,
+ * rather than going on loading the cores the files beside it share.
+ */
+const SOAK_WITHIN_MS = RUN_MS - 15_000;
+
 /** The pi with the host's patches, or undefined to skip; a host run that requires one and finds none fails. */
 export function soakPackageDir(): string | undefined {
 	const packageDir = hostPackageDir();
@@ -57,8 +64,16 @@ export async function soaked(
 			"--out",
 			into,
 		],
-		{ stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
+		{
+			stdio: ["ignore", "pipe", "pipe"],
+			env: { ...process.env, ...env },
+			// A group of its own, so a stop reaches the hosts it started too.
+			detached: true,
+		},
 	);
+	const overrun = setTimeout(() => {
+		if (child.pid !== undefined) stopGroup(child.pid);
+	}, SOAK_WITHIN_MS);
 	let said = "";
 	child.stdout.on("data", (chunk) => {
 		said += String(chunk);
@@ -67,11 +82,21 @@ export async function soaked(
 		said += String(chunk);
 	});
 	const [code] = await once(child, "exit");
+	clearTimeout(overrun);
 	expect(code, said).toBe(0);
 	const report: unknown = JSON.parse(
 		readFileSync(join(into, "report.json"), "utf8"),
 	);
 	return { said, report };
+}
+
+/** Ask every process in a soak's group to stop, as each host does on SIGTERM. */
+function stopGroup(pid: number): void {
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		// The group has already ended, between the overrun and the stop.
+	}
 }
 
 /** The JSON a soak line opening with `lead` holds, or undefined when no line does. */
