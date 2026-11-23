@@ -9,6 +9,13 @@
  * whole session. A tree that can't be carried is named on screen and the
  * rest still go; a session with no quest loaded has no handover to carry
  * into, so it refuses, and stays open.
+ *
+ * A carry under way holds the session's park and its restart in place
+ * ({@link carryUnderWay}), since either ends the process the carry runs
+ * in. Its run ended, the session reads as idle while its trees are
+ * bundled, so on 23 November a background conversation idle five
+ * minutes parked part-way through a carry its node had ordered, and
+ * wrote no done file (BMDYSH, 01:03).
  */
 
 import { existsSync } from "node:fs";
@@ -47,6 +54,14 @@ export interface CarryingPlaces {
 	readonly notes?: (quest: string) => Promise<readonly CarriedNote[]>;
 }
 
+/** The machine each session's carry under way goes to, by session id. */
+const underWay = new Map<string, string>();
+
+/** The machine `session`'s work is being carried to, while a carry is under way. */
+export function carryUnderWay(session: string): string | undefined {
+	return underWay.get(session);
+}
+
 /**
  * Carries this session's work for the machine `to`, answering the done
  * file it wrote; throws, saying why, when it couldn't carry at all.
@@ -55,6 +70,20 @@ export async function carryThisSession(
 	ctx: CarriedContext,
 	to: string,
 	places: CarryingPlaces = {},
+): Promise<string> {
+	const id = ctx.sessionManager.getSessionId();
+	underWay.set(id, to);
+	try {
+		return await carryOut(ctx, to, places);
+	} finally {
+		underWay.delete(id);
+	}
+}
+
+async function carryOut(
+	ctx: CarriedContext,
+	to: string,
+	places: CarryingPlaces,
 ): Promise<string> {
 	await windDown(ctx, places.windDownMs ?? WIND_DOWN_MS);
 	const sessions = ctx.sessionManager;

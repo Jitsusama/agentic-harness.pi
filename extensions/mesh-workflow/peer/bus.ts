@@ -34,6 +34,7 @@ import { sentBy } from "../../../lib/mesh/thread.ts";
 import { UNANSWERED_WITHIN_MS } from "../../../lib/mesh/unanswered.ts";
 import { waitingOf } from "../../../lib/mesh/waiting.ts";
 import { wantFrom } from "../../../lib/mesh/want.ts";
+import { carryUnderWay } from "../carrying.ts";
 import { tellRepository } from "../landing-notes.ts";
 import { ended } from "../talks.ts";
 import { tellOrchestrator } from "../tells.ts";
@@ -154,6 +155,12 @@ export function onBus(m: MeshState, f: Handing) {
 	});
 	m.pi.events?.on(PARK_ASK, (data: unknown) => {
 		if (!isParkAsk(data) || !m.peer || data.session !== m.peer.session) return;
+		// A park or a restart ends the process a carry runs in, and its done
+		// file is written last, so neither goes until the carry has ended.
+		const carrying = carryUnderWay(data.session);
+		if (carrying !== undefined) {
+			data.refusals.push(`its work is being carried to ${carrying}`);
+		}
 		// A restart comes back in seconds as the same peer, and what was
 		// sent meanwhile waits in files it reads as it starts; refused for
 		// its sessions at work, an orchestrator of thirty never took a new

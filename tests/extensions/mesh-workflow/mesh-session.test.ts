@@ -7,6 +7,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+	type CarriedContext,
+	carryThisSession,
+} from "../../../extensions/mesh-workflow/carrying.ts";
 import { HAND_EXTENSION } from "../../../extensions/mesh-workflow/index.ts";
 import { leaveUntrusted } from "../../../lib/internal/session/carried-trust.ts";
 import {
@@ -165,6 +169,78 @@ describe("parking", () => {
 
 			emit(PARK_ASK, ask);
 			expect(ask.refusals).toEqual([]);
+		});
+	});
+
+	// 23 November: a background conversation idle five minutes parked
+	// part-way through a carry its node had ordered, and wrote no done
+	// file (BMDYSH, 01:03).
+	describe("while its work is being carried", () => {
+		/** A carry of this session that waits on its run until `ended` is called. */
+		const carrying = () => {
+			let idle = false;
+			const ctx: CarriedContext = {
+				sessionManager: {
+					getSessionId: () => session,
+					getSessionFile: () => undefined,
+					getSessionName: () => undefined,
+					getCwd: () => fixture.root,
+				} as unknown as CarriedContext["sessionManager"],
+				isIdle: () => idle,
+				hasUI: false,
+				ui: {} as CarriedContext["ui"],
+			};
+			const carried = carryThisSession(ctx, "penelope", {
+				windDownMs: 60_000,
+			});
+			return {
+				// With no quest loaded here, the carry refuses once its run ends.
+				ended: () => {
+					idle = true;
+					return expect(carried).rejects.toThrow(/no quest is loaded/);
+				},
+			};
+		};
+
+		it("refuses to park until the carry ends", async () => {
+			const { emit } = await startSession();
+			const carry = carrying();
+			const during = { session, refusals: [] as string[] };
+
+			emit(PARK_ASK, during);
+			await carry.ended();
+			const after = { session, refusals: [] as string[] };
+			emit(PARK_ASK, after);
+
+			expect(during.refusals).toEqual([
+				"its work is being carried to penelope",
+			]);
+			expect(after.refusals).toEqual([]);
+		});
+
+		it("refuses to start again in place, which would end the carry too", async () => {
+			const { emit } = await startSession();
+			const carry = carrying();
+			const ask = { session, refusals: [] as string[], restart: true };
+
+			emit(PARK_ASK, ask);
+			await carry.ended();
+
+			expect(ask.refusals).toEqual(["its work is being carried to penelope"]);
+		});
+
+		it("leaves another session's park to that session", async () => {
+			const { emit } = await startSession();
+			const carry = carrying();
+			const other = {
+				session: "01a15f3a-0000-7463-9909-afa624b025fe",
+				refusals: [] as string[],
+			};
+
+			emit(PARK_ASK, other);
+			await carry.ended();
+
+			expect(other.refusals).toEqual([]);
 		});
 	});
 
