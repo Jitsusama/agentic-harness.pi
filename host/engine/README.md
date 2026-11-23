@@ -346,8 +346,8 @@ stay as they are, so the roster, socket, store and mesh address do
 too. A rollover record that is never written names the same file as
 its parent and carries the spend and first prompt of the turns left
 on disk, so session_recall, the spend total and the compaction
-trigger read as before, and compaction quotes and a lesson's capture
-read back what they need from the file; usage entries,
+trigger read as before, and compaction quotes read back what they need
+from the file; usage entries,
 never written either, carry their tokens and cost for pi's footer and
 /session; and every id in the file stays taken. The tree, a fork, a
 lookup of an entry left on disk, a branch to one from before the last
