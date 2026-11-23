@@ -136,9 +136,9 @@ function declarations(dir: string): string[] {
 /** The bare specifiers a declaration imports, Node's own left out. */
 function bareSpecifiers(file: string): string[] {
 	const text = readFileSync(join(PI_AI_DIST, file), "utf8");
-	return [...text.matchAll(BARE_SPECIFIER)]
-		.map(([, specifier]) => specifier)
-		.filter((specifier) => !specifier.startsWith("node:"));
+	return [...text.matchAll(BARE_SPECIFIER)].flatMap(([, specifier]) =>
+		specifier === undefined || specifier.startsWith("node:") ? [] : [specifier],
+	);
 }
 
 /** The package a specifier names: a scope and a name, or a name. */
