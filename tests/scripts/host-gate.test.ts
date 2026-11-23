@@ -237,8 +237,13 @@ function gate(on: Harness, sha: string) {
 	return answer(on, GATE, [sha]);
 }
 
-/** A relative import in a file of code, its path the first group. */
-const IMPORT = /(?:\bfrom\s*|\bimport\s*)["'](\.{1,2}\/[^"']+)["']/g;
+/**
+ * A relative import in a file of code, its path the first group: static,
+ * dynamic, or a file beside it named by `new URL`, as a program it
+ * spawns by path is.
+ */
+const IMPORT =
+	/(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew URL\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
 
 /**
  * What test:host loads before its first case, as paths from the root:
@@ -391,6 +396,7 @@ describe("host-gate.sh", () => {
 				"tests/setup/xdg-sandbox.ts",
 				"tests/setup/temp-root.ts",
 				"tests/support/memory-secret-store.ts",
+				"lib/core/internal/keyring/secret-service-call.mjs",
 			]),
 		);
 		const hosted = hostedPattern();
@@ -400,6 +406,8 @@ describe("host-gate.sh", () => {
 		).toEqual([]);
 	});
 
+	// The pattern is read as the gate reads it, so each path is asked of
+	// it here; one each way runs the gate, to show grep reads it alike.
 	it.each([
 		"tests/setup/scripts-as-text.ts",
 		"tests/setup/pi-install.ts",
@@ -407,19 +415,11 @@ describe("host-gate.sh", () => {
 		"tests/setup/temp-root.ts",
 		"tests/support/memory-secret-store.ts",
 		"lib/core/internal/keyring/store.ts",
+		"lib/core/internal/keyring/secret-service-call.mjs",
 		"scripts/spawn-decide.ts",
-	])(
-		"refuses a change to %s, which the host or its tests load, until test:host ran at it",
-		async (file) => {
-			const on = await harness();
-			const sha = await change(on, file);
-
-			const answered = await gate(on, sha);
-
-			expect(answered.code).toBe(1);
-			expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
-		},
-	);
+	])("counts %s, which the host or its tests load, as hosted", (file) => {
+		expect(hostedPattern().test(file)).toBe(true);
+	});
 
 	it.each([
 		"tests/setup/chrome-present.ts",
@@ -427,20 +427,36 @@ describe("host-gate.sh", () => {
 		"tests/setup/signal-stamp.ts",
 		// A helper every lane's tests share, left to pnpm check's.
 		"tests/support/until.ts",
+		// Google's and Slack's sign-ins keep their tokens here; no host does.
+		"lib/core/internal/keyring/document.ts",
 	])(
-		"lets a change to %s, which test:host loads only as any test does, merge without a run",
-		async (file) => {
-			const on = await harness();
-			const sha = await change(on, file);
-
-			const answered = await gate(on, sha);
-
-			expect(answered).toMatchObject({
-				code: 0,
-				said: expect.stringContaining("touches nothing pi hosts run"),
-			});
+		"counts %s, which test:host loads only as any test does, as no host's",
+		(file) => {
+			expect(hostedPattern().test(file)).toBe(false);
 		},
 	);
+
+	it("refuses a change to the scripts' loader until test:host ran at it", async () => {
+		const on = await harness();
+		const sha = await change(on, "tests/setup/scripts-as-text.ts");
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+	});
+
+	it("lets a change to a helper every lane shares merge without a run", async () => {
+		const on = await harness();
+		const sha = await change(on, "tests/support/until.ts");
+
+		const answered = await gate(on, sha);
+
+		expect(answered).toMatchObject({
+			code: 0,
+			said: expect.stringContaining("touches nothing pi hosts run"),
+		});
+	});
 
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();

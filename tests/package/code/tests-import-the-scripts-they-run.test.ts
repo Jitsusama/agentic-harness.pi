@@ -26,9 +26,10 @@
  * it, so a test naming a new script without importing it fails there.
  *
  * A script naming another beside it by its own folder, as
- * `$(dirname "$0")/`, `$(cd "$(dirname "$0")" && pwd)/` or
- * `${BASH_SOURCE%/*}/` spell it, is held to that one being there; a
- * name through a variable, as `$here/`, is past it.
+ * `$(dirname "$0")/`, `$(cd "$(dirname "$0")" && pwd)/`, `${0%/*}/` or
+ * `${BASH_SOURCE%/*}/` spell it, `--`, a real path or a CDPATH-safe
+ * `cd` among them, is held to that one being there; a name through a
+ * variable, as `$here/`, is past it.
  *
  * Only vitest has the loader: pi or node reads a script import as
  * JavaScript, so a typecheck that passes one in a file they load, or in
@@ -79,13 +80,16 @@ const HELD_SCRIPTS = [
 ];
 
 /**
- * Files under tests/ that node or pi loads with no loader, as knip.jsonc's
- * entries name them: programs a test runs in a node of its own, the soak
- * runs, and the engines and providers a host loads by path.
+ * Files under tests/ that node or pi loads with no loader: every `.mjs`
+ * and `.mts` there, which only a node of its own runs, as the fixtures,
+ * the soak runs, the parity probes and the keyring's calls are; each
+ * child a test starts by its path, named `-child.ts`; and the engines
+ * and providers a host loads by path. One loaded by vitest too is only
+ * held to more.
  */
 const RUN_OUTSIDE_VITEST = [
-	/^tests\/.*\/fixtures\/[^/]+\.mts$/,
-	/^tests\/host\/soak\/(?:soak|day)\.mts$/,
+	/^tests\/.*\.m[jt]s$/,
+	/^tests\/.*-child\.ts$/,
 	/^tests\/host\/end-to-end\/support\/(?:fake-engine|pi-engine|scripted-provider|keyed-provider)\.ts$/,
 ];
 
@@ -292,11 +296,26 @@ describe("shell scripts", () => {
 	});
 
 	it("are imported by nothing vitest doesn't load", () => {
-		const importing = importingAScript(
-			codeOf(files).filter(
-				(file) => !file.startsWith("tests/") || runOutsideVitest(file),
-			),
+		const loaded = codeOf(files).filter(
+			(file) => !file.startsWith("tests/") || runOutsideVitest(file),
 		);
+		expect(loaded, "what pi or node loads, from each place").toEqual(
+			expect.arrayContaining([
+				"vitest.config.ts",
+				"extensions/job-workflow/index.ts",
+				"lib/core/internal/keyring/secret-service-call.mjs",
+				"tests/core/internal/keyring/calls/holds.mjs",
+				"tests/core/support/ts-source.mjs",
+				"tests/core/work/support/custody-child.ts",
+				"tests/host/parity/hosted-rpc.mts",
+				"tests/host/end-to-end/support/fake-engine.ts",
+			]),
+		);
+		expect(
+			loaded.filter((file) => file.startsWith("tests/")),
+			"no test vitest runs",
+		).not.toContainEqual(expect.stringMatching(/\.test\.ts$/));
+		const importing = importingAScript(loaded);
 		expect(importing, "a file pi or node loads, importing a script").toEqual(
 			[],
 		);

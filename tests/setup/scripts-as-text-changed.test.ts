@@ -3,7 +3,7 @@
 // test, which without the loader it never does. It runs vitest itself,
 // in a repo of its own, so it sits in the process lane.
 import { execFile } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -22,6 +22,8 @@ const LOADER = join(ROOT, "tests", "setup", "scripts-as-text.ts");
 const LIST_MS = 30_000;
 /** A case's two starts, and its repo's making. */
 const LISTS_IN_MS = 2 * LIST_MS + 10_000;
+/** How much of what vitest printed a failure shows. */
+const OUTPUT_SHOWN = 500;
 
 const repos: string[] = [];
 afterEach(() => {
@@ -66,6 +68,38 @@ async function sourcedScriptChanged(loader: boolean): Promise<string> {
 	return repo;
 }
 
+/**
+ * A repo whose one test imports a shell program with no ending, as the
+ * ssh guard's wrappers are, under the loader, and only that program
+ * changed since its last commit: vite must resolve the import to the
+ * file's own path, which is what `--changed` compares.
+ */
+async function wrapperChanged(): Promise<string> {
+	const repo = await freshRepo("changed-wrapper");
+	repos.push(repo);
+	writeFileSync(
+		join(repo, "vitest.config.ts"),
+		`import { scriptsAsText } from ${JSON.stringify(LOADER)};\nexport default { plugins: [scriptsAsText()], test: { globals: true, include: ["*.test.ts"] } };\n`,
+	);
+	writeFileSync(
+		join(repo, "a.test.ts"),
+		'import "./bin/tool";\n\nit("runs the tool", () => undefined);\n',
+	);
+	writeFileSync(
+		join(repo, "other.test.ts"),
+		'it("runs nothing of the tool", () => undefined);\n',
+	);
+	mkdirSync(join(repo, "bin"));
+	writeFileSync(join(repo, "bin", "tool"), "#!/usr/bin/env bash\necho tool\n");
+	await git(repo, "add", ".");
+	await git(repo, "commit", "-qm", "a tool");
+	writeFileSync(
+		join(repo, "bin", "tool"),
+		"#!/usr/bin/env bash\necho tool, changed\n",
+	);
+	return repo;
+}
+
 /** The test files `vitest list` names in `repo`, those `--changed HEAD` runs or all. */
 async function listed(repo: string, changed = true): Promise<string[]> {
 	// The vitest running this test says so in its environment; the one
@@ -100,12 +134,24 @@ async function listed(repo: string, changed = true): Promise<string[]> {
 			{ cause: error },
 		);
 	});
-	return filesIn(JSON.parse(stdout));
+	let list: unknown;
+	try {
+		list = JSON.parse(stdout);
+	} catch (error) {
+		throw new Error(
+			`vitest ${words.join(" ")} printed no JSON: ${stdout.slice(0, OUTPUT_SHOWN)}`,
+			{ cause: error },
+		);
+	}
+	return filesIn(list, stdout);
 }
 
 /** The test files' names a JSON list from `vitest list` holds. */
-function filesIn(list: unknown): string[] {
-	if (!Array.isArray(list)) throw new Error("vitest listed no array");
+function filesIn(list: unknown, printed: string): string[] {
+	if (!Array.isArray(list))
+		throw new Error(
+			`vitest listed no array: ${printed.slice(0, OUTPUT_SHOWN)}`,
+		);
 	return list
 		.map((entry: unknown) => {
 			if (!(isRecord(entry) && typeof entry.file === "string"))
@@ -134,6 +180,17 @@ describe("a script a test's script sources, changed alone", () => {
 				"other.test.ts",
 			]);
 			expect(await listed(repo), "nothing reaching it").toEqual([]);
+		},
+		LISTS_IN_MS,
+	);
+
+	it(
+		"has vitest's --changed run the test importing a program with no ending",
+		async () => {
+			const repo = await wrapperChanged();
+			expect(await listed(repo), "the test importing it").toEqual([
+				"a.test.ts",
+			]);
 		},
 		LISTS_IN_MS,
 	);
