@@ -188,4 +188,20 @@ describe("the key files the fence hides beside the rest", () => {
 			expect(HIDDEN, history).toContain(history);
 		}
 	});
+
+	it("names the other shells' and consoles' history, where a pasted token lingers too", () => {
+		for (const history of [
+			".histfile",
+			".local/state/zsh/",
+			".local/share/fish/fish_history",
+			".python_history",
+			".node_repl_history",
+			".psql_history",
+			".mysql_history",
+			".sqlite_history",
+			".irb_history",
+		]) {
+			expect(HIDDEN, history).toContain(history);
+		}
+	});
 });

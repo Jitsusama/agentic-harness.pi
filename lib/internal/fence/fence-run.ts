@@ -107,11 +107,14 @@ Kinds:
   fence    the agent fence a pi session lays
   strict   the strict Landlock profile inside its root
 
-On a Mac both run under sandbox-exec. Strict reads in
-the home only what it reads on Linux, and writes there
-only the folder; it writes no program folder, and
-elsewhere it writes what the account can, /tmp and the
-Mac's temporary folder among them.
+On a Mac both run under sandbox-exec. In the home,
+strict reads what it reads on Linux, and also the git
+folder of the tree it runs in, a held work tree whole,
+and npm's settings without tokens; it writes there only
+its folder. Outside the home it reads and writes what the
+account can, /tmp and the Mac's temporary folder among
+them, but for what the fence hides, and writes no
+program folder outside its own.
 
 Options:
   --folder DIR   where it runs and may write, the working
