@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -44,10 +45,12 @@ async function homeWithTree() {
 	return { origin, home, tree, into };
 }
 
-/** Each of `names` in `into`, by name, as its bytes. */
+/** Each file of `names` in `into`, by name, as its bytes. */
 function bytesOf(into: string, names: readonly string[]) {
 	return Object.fromEntries(
-		names.map((name) => [name, readFileSync(join(into, name))]),
+		names
+			.filter((name) => statSync(join(into, name)).isFile())
+			.map((name) => [name, readFileSync(join(into, name))]),
 	);
 }
 
