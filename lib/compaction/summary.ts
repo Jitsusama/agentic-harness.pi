@@ -57,6 +57,11 @@ export interface SummaryLength {
 	readonly maxOutputTokens: number;
 	/** The most the summary is asked for, however much it replaces. */
 	readonly ceilingTokens?: number;
+	/**
+	 * An earlier try stopped at its output cap: half the size is asked
+	 * for, as a limit, leaving the rest of the cap for thinking.
+	 */
+	readonly halved?: boolean;
 }
 
 /**
@@ -235,14 +240,19 @@ function foldFor(length: SummaryLength | undefined): string {
 
 /** Whether a ceiling holds the summary under what its share of what it replaces would ask. */
 function ceilingBinds(length: SummaryLength): boolean {
-	const { ceilingTokens, ...unheld } = length;
+	const { ceilingTokens, halved, ...unheld } = length;
 	return (
 		ceilingTokens !== undefined && summaryTarget(length) < summaryTarget(unheld)
 	);
 }
 
-/** The size a summary is asked for: a share of what it replaces, within the floor, the output limit and any ceiling. */
+/** The size a summary is asked for: a share of what it replaces, within the floor, the output limit and any ceiling, halved after a try that stopped at its cap. */
 function summaryTarget(length: SummaryLength): number {
+	const whole = wholeTarget(length);
+	return length.halved === true ? roundToHundred(whole / 2) : whole;
+}
+
+function wholeTarget(length: SummaryLength): number {
 	const ceiling = Math.min(
 		Math.floor((TARGET_SHARE_OF_OUTPUT * length.maxOutputTokens) / ROUNDING) *
 			ROUNDING,

@@ -163,6 +163,12 @@ export interface CompactionHost {
 	chain(): { providers: readonly string[]; unknown: readonly string[] };
 	/** The reason a summary written ahead failed, once, clearing it. */
 	takeFailure(): string | undefined;
+	/**
+	 * How many summaries written ahead have failed since a compaction
+	 * last landed. Every summary after one that stopped at its output
+	 * cap is asked for half the size, until a compaction lands.
+	 */
+	failedAhead(): number;
 	/** Called when a summary written ahead is ready to apply. */
 	whenReady(listener: (ctx: ExtensionContext) => void): void;
 	/**
@@ -237,16 +243,23 @@ export function registerCompactionHost(
 	pi.events.emit(COMPACTION_READY, api);
 
 	let ahead: Ahead | null = null;
+	// Counted until a compaction lands, since each try ahead is of the
+	// compaction still to come.
+	let failed = { tries: 0, capped: false };
 	const readyListeners: Array<(ctx: ExtensionContext) => void> = [];
 
 	const drop = () => {
 		ahead?.controller.abort();
 		ahead = null;
 	};
-	pi.on("session_start", async () => drop());
+	pi.on("session_start", async () => {
+		drop();
+		failed = { tries: 0, capped: false };
+	});
 	pi.on("session_shutdown", async () => drop());
 	pi.on("session_compact", async (event, ctx) => {
 		drop();
+		failed = { tries: 0, capped: false };
 		// Said once pi has applied it, not when a summary was handed over,
 		// so a compaction pi went on to fail is never reported as done.
 		const entry = event.compactionEntry;
@@ -333,6 +346,9 @@ export function registerCompactionHost(
 			maxSummaryTokens: Math.floor(
 				SUMMARY_SHARE_OF_RESERVE * details.reserveTokens,
 			),
+			// Ahead or on the spot, a summary of the compaction to come is
+			// asked for less once a try at it ran out of room.
+			...(failed.capped ? { afterCap: true } : {}),
 		};
 	};
 
@@ -467,6 +483,7 @@ export function registerCompactionHost(
 			ahead = null;
 			return reason;
 		},
+		failedAhead: () => failed.tries,
 		whenReady(listener) {
 			readyListeners.push(listener);
 		},
@@ -518,6 +535,10 @@ export function registerCompactionHost(
 						if (ahead !== entry || controller.signal.aborted) return timed;
 						entry.result = timed;
 						if (!timed.written.ok) {
+							failed = {
+								tries: failed.tries + 1,
+								capped: failed.capped || timed.written.capped === true,
+							};
 							unused(ctx, timed.written.reason);
 						} else {
 							for (const listener of readyListeners) tell(listener, ctx);
