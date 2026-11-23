@@ -17,6 +17,7 @@ import {
 	maxReviewers,
 	setSizes,
 	sourceSentence,
+	startSpacingMs,
 	tooMany,
 } from "../../../../extensions/review-integration/roster.ts";
 
@@ -163,6 +164,22 @@ describe("what a participant runs on", () => {
 		const roster = asItRuns({ reviewers: [{ id: "a" }] });
 
 		expect(roster.reviewers[0]).toEqual({ id: "a", thinkingLevel: "high" });
+	});
+});
+
+describe("how far apart rounds start on this machine", () => {
+	it("leaves the line's own spacing unless the config sets minutes", () => {
+		expect(startSpacingMs(undefined)).toBeUndefined();
+		expect(startSpacingMs({})).toBeUndefined();
+		expect(startSpacingMs({ startSpacingMinutes: 1 })).toBe(60_000);
+		expect(startSpacingMs({ startSpacingMinutes: 0.5 })).toBe(30_000);
+		expect(startSpacingMs({ startSpacingMinutes: 0 }), "no gap at all").toBe(0);
+	});
+
+	it("ignores a spacing no clock can keep", () => {
+		for (const said of [-1, Number.NaN, Number.POSITIVE_INFINITY, "2"]) {
+			expect(startSpacingMs({ startSpacingMinutes: said })).toBeUndefined();
+		}
 	});
 });
 
