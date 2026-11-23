@@ -481,11 +481,13 @@ function takeBackAtExit(): void {
  * next start to say again: the record of each removal still running
  * for a call not handed on, or whose files went, as one put back for a
  * taker can land after they did, and the marks of each call
- * `removeKept` still removes. Only an exit does it, never a session's
- * close, since in a host the process lives on and the disk gets to them
- * off the thread; a pi killed outright runs nothing, and its next start
- * says the call's end again. Each waits on the disk that left it, so
- * how many it asks after is said first, for a slow exit to be read by.
+ * `removeKept` has yet to get past. Only an exit does it, never a
+ * session's close, since in a host the process lives on and the disk
+ * gets to them off the thread; a pi killed outright runs nothing, and
+ * its next start says the call's end again. Each waits on the disk that
+ * left it, so how many names it asks after is said first, for a slow
+ * exit to be read by: up to that many, since a mark may never have been
+ * written.
  */
 function takeRecordsBack(): void {
 	const records = [...jobRecords.removing]
@@ -494,11 +496,11 @@ function takeRecordsBack(): void {
 	const marks = [...jobRecords.ending.keys()].flatMap((path) =>
 		[...MARKS].map((mark) => `${path}${mark}`),
 	);
-	const files = [...records, ...marks];
+	const files = [...new Set([...records, ...marks])];
 	if (files.length === 0) return;
 	try {
 		process.stderr.write(
-			`[shell] taking back ${count(files.length, "kept file")} the disk had yet to remove as pi exits\n`,
+			`[shell] taking back up to ${count(files.length, "kept file")} the disk had yet to remove as pi exits\n`,
 		);
 	} catch {
 		// Its error output gone with whatever read it; the files still go.
@@ -533,24 +535,42 @@ export function endJobRecordRemoval(
  * it reads the call as ended; any other file it can't remove it passes.
  * As it begins, its record is no longer this process's, a removal of
  * the record still running is marked gone so nothing puts it back, and
- * a process exiting before it ends takes back its marks.
+ * a process exiting before it is past its marks takes them back.
  */
 export async function removeKept(path: string): Promise<void> {
 	letJobRecordGo(path);
 	takeBackAtExit();
+	if (!(await removeMarks(path))) return;
+	for (const suffix of SUFFIXES) {
+		if (MARKS.has(suffix)) continue;
+		try {
+			await rm(`${path}${suffix}`, { force: true });
+		} catch {
+			// A folder in its place, or one that refuses it, is left to the
+			// week's sweep, as a mark is; the next file still goes.
+		}
+	}
+}
+
+/**
+ * Remove the marks kept at `path`, counted among those an exit takes
+ * back until this is past them, answering whether all went.
+ */
+async function removeMarks(path: string): Promise<boolean> {
 	jobRecords.ending.set(path, (jobRecords.ending.get(path) ?? 0) + 1);
 	try {
-		for (const suffix of SUFFIXES) {
+		for (const mark of MARKS) {
 			try {
-				await rm(`${path}${suffix}`, { force: true });
+				await rm(`${path}${mark}`, { force: true });
 			} catch {
 				// A folder in its place, or one that refuses it: no call leaves
 				// either, and its callers between processes have no one to tell;
 				// the week's sweep, which says nothing of one it can't remove
 				// either, tries it again.
-				if (MARKS.has(suffix)) return;
+				return false;
 			}
 		}
+		return true;
 	} finally {
 		const left = (jobRecords.ending.get(path) ?? 1) - 1;
 		if (left > 0) jobRecords.ending.set(path, left);
