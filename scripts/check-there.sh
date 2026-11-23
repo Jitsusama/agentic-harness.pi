@@ -348,15 +348,15 @@ lock() {
 # only from a plain file, and at most 200 bytes of it, so a FIFO or a
 # link to an endless device left there can't hold the waiter, and only
 # with bash's own read, which every host has.
-HOLDER_LINE='^([A-Za-z0-9._/@+-]{1,160}|a branch), pid [0-9]+, from [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$'
 held_by() {
   local LC_ALL=C said=
+  local shape='^([A-Za-z0-9._/@+-]{1,160}|a branch), pid [0-9]+, from [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$'
   if [ -f "$turn.holder" ] && [ ! -L "$turn.holder" ]; then
     IFS= read -r -n 200 said < "$turn.holder" || true
   fi
   if [ -z "$said" ]; then
     echo unsaid
-  elif [[ $said =~ $HOLDER_LINE ]]; then
+  elif [[ $said =~ $shape ]]; then
     echo "$said"
   else
     echo "a line not in its shape"
