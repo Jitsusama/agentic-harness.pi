@@ -659,23 +659,27 @@ describe("messages asked of the parent logs", () => {
 		expect(finds.scanned).toBe(1);
 	});
 
-	it("are looked for again once a parent unreadable for a while can be read", () => {
-		const { manager, ids } = longSession();
-		const branch = rolledInto(manager).fresh.getBranch();
-		const file = manager.getSessionFile() ?? "";
-		const finds = diskFinds();
-		chmodSync(file, 0o000);
-		try {
-			expect(messagesOnDisk(branch, new Set([ids.early]), finds)).toEqual([]);
-		} finally {
-			chmodSync(file, 0o600);
-		}
+	// Root reads a file whatever its mode, so the log never turns unreadable.
+	it.skipIf(process.getuid?.() === 0)(
+		"are looked for again once a parent unreadable for a while can be read",
+		() => {
+			const { manager, ids } = longSession();
+			const branch = rolledInto(manager).fresh.getBranch();
+			const file = manager.getSessionFile() ?? "";
+			const finds = diskFinds();
+			chmodSync(file, 0o000);
+			try {
+				expect(messagesOnDisk(branch, new Set([ids.early]), finds)).toEqual([]);
+			} finally {
+				chmodSync(file, 0o600);
+			}
 
-		const read = messagesOnDisk(branch, new Set([ids.early]), finds);
+			const read = messagesOnDisk(branch, new Set([ids.early]), finds);
 
-		expect(texts(read)).toEqual(["early question"]);
-		expect(finds.scanned).toBe(2);
-	});
+			expect(texts(read)).toEqual(["early question"]);
+			expect(finds.scanned).toBe(2);
+		},
+	);
 
 	it("pause once a chunk, all through a long log", async () => {
 		const { manager, ids } = longSession();

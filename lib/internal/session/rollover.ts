@@ -612,7 +612,8 @@ export function diskFinds(): DiskFinds {
  * walk ends once all are found. A parent gone from disk, or not a
  * regular file, ends the chain there, and what is still missing counts
  * as found nowhere; a parent unreadable for another reason ends it
- * too, but leaves what is missing to be looked for again.
+ * too, but leaves what is missing to be looked for again, so while it
+ * stays unreadable each read goes through the logs before it in full.
  */
 export function messagesOnDisk(
 	branch: readonly unknown[],
