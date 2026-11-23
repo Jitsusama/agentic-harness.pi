@@ -150,16 +150,25 @@ export function saidByAsk(input: unknown): Said {
 }
 
 /**
- * What a `show_person` look says: its title, why and ask as prose, read
- * for the form of an ask, since a title can name a reboot it only
- * explains, and its choices as the ask itself. Taking a look back asks
- * nothing, whatever it named.
+ * What a `show_person` look says: its title, why, ask, happened, matters,
+ * act and what follows each choice as prose, read for the form of an ask,
+ * since a title can name a reboot it only explains, and its choices as
+ * the ask itself. Taking a look back asks nothing, whatever it named.
  */
 export function saidByLook(input: unknown): Said {
 	if (!isRecord(input) || input.withdraw === true) return NOTHING;
 	const choices = Array.isArray(input.choices) ? input.choices : [];
+	const follows = Array.isArray(input.follows) ? input.follows : [];
 	return {
-		prose: texts([input.title, input.why, input.ask]),
+		prose: texts([
+			input.title,
+			input.why,
+			input.ask,
+			input.happened,
+			input.matters,
+			input.act,
+			...follows,
+		]),
 		labels: texts(choices),
 	};
 }

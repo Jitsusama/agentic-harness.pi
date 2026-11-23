@@ -349,6 +349,19 @@ describe("a show_person call", () => {
 		expect(verdict).toMatchObject({ block: true });
 	});
 
+	it("is refused when its second form asks a session-ending act", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The pairing steps",
+			happened: "The card pairs only at the login window.",
+			matters: "Until it pairs, the Mac asks for your password.",
+			act: "Log Out and Pair",
+		});
+
+		expect(verdict, "an act that logs out").toMatchObject({ block: true });
+	});
+
 	it("is refused for a choice that is one", async () => {
 		const verdict = await call("show_person", {
 			kind: "page",

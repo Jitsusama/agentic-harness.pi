@@ -74,7 +74,7 @@ export const SHOWING_LASTS_MS = 24 * 60 * 60 * 1000;
 
 /** An ask that wants nothing back: "Nothing, just to see". */
 const ONLY_TO_SEE =
-	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b/i;
+	/^\s*(?:nothing|none|no action|fyi|for your information)\b|\b(?:just|only) (?:to|so you) (?:see|read|know|look)\b|^\s*(?:just|only) (?:see|read|look)\b/i;
 
 /**
  * How a look was resolved without the person: its change merged or
@@ -103,10 +103,41 @@ export const MOST_CHOICES = 4;
 /** The most words a choice runs to: a button's label. */
 export const CHOICE_WORDS = 4;
 
+/** The most characters a look's happened runs to: a line, read at a glance. */
+export const HAPPENED_CHARACTERS = 100;
+
+/** The most characters a look's matters runs to: two lines. */
+export const MATTERS_CHARACTERS = 200;
+
+/** The most words a look's act runs to: what he presses. */
+export const ACT_WORDS = 4;
+
 /** One answer a look offers, as the launcher shows it and steers it back. */
 export interface LookChoice {
 	readonly value: string;
 	readonly label: string;
+	/** What follows once he picks it, in a sentence. */
+	readonly follows?: string;
+}
+
+/**
+ * What a look wants back, as its second form says it: the choices he
+ * picks from, each with what follows, and whether he may answer in his
+ * own words.
+ */
+export interface LookWants {
+	readonly choices?: readonly {
+		readonly label: string;
+		readonly follows: string;
+	}[];
+	readonly words?: boolean;
+}
+
+/** What a look is about: what opens, and what it is called. */
+export interface LookAbout {
+	readonly kind: LookKind;
+	readonly target: string;
+	readonly title: string;
 }
 
 /** One thing a session points the person at. */
@@ -149,6 +180,22 @@ export interface Look {
 	/** The answers it offers, for a look that asks for a word back. */
 	readonly choices?: readonly LookChoice[];
 	/**
+	 * The look's second form, kept beside the first so a reader that
+	 * knows only the first still shows it (the launcher reads version 1
+	 * alone): what happened and why it matters to him, in his words; what
+	 * he presses; what it wants back; and what it is about. A look kept
+	 * before these has none. Once every reader reads them, `v` turns 2.
+	 */
+	readonly happened?: string;
+	readonly matters?: string;
+	readonly act?: string;
+	/**
+	 * What it wants back. Named apart from `answer`, which holds what he
+	 * answered, as every reader of the first form reads it.
+	 */
+	readonly wants?: LookWants;
+	readonly about?: LookAbout;
+	/**
 	 * Whether it wants something back from the person; a look kept before
 	 * looks said counts as asking.
 	 */
@@ -178,6 +225,46 @@ export interface Pointing {
 	readonly choices?: readonly string[];
 	/** A thread of the session's, such as a question's id, to fold on. */
 	readonly thread?: string;
+	/**
+	 * The second form, which a session says in place of why and ask:
+	 * what happened, why it matters to him, what he presses, and what
+	 * follows each choice, in the order of `choices`. Given happened, the
+	 * look keeps its why and ask as the first form says them, made from
+	 * these.
+	 */
+	readonly happened?: string;
+	readonly matters?: string;
+	readonly act?: string;
+	readonly follows?: readonly string[];
+	/** Whether he may answer in his own words. */
+	readonly words?: boolean;
+}
+
+/**
+ * A pointing said in the second form, with its first form made from it:
+ * why is what happened then why it matters, and ask is the act, then
+ * its choices. Answers it as said when it says no happened.
+ */
+export function inBothForms(pointing: Pointing): Pointing {
+	if (pointing.happened === undefined) return pointing;
+	const happened = sentence(pointing.happened);
+	const matters = sentence(pointing.matters ?? "");
+	const labels = (pointing.choices ?? []).map((one) => one.trim());
+	const act = (pointing.act ?? "").trim();
+	return {
+		...pointing,
+		why: pointing.why.trim() || [happened, matters].join(" ").trim(),
+		ask:
+			pointing.ask.trim() ||
+			(labels.length > 0 ? `${act}: ${labels.join(", or ")}.` : act),
+	};
+}
+
+/** `text` trimmed, ending as a sentence ends. */
+function sentence(text: string): string {
+	const trimmed = text.trim();
+	if (trimmed === "" || /[.!?]$/.test(trimmed)) return trimmed;
+	return `${trimmed}.`;
 }
 
 /** Whose a look is. */
@@ -230,12 +317,51 @@ function stands(look: Look): boolean {
 
 /** Whether a pointing wants something back: choices, or an ask beyond seeing. */
 function asksBack(pointing: Pointing): boolean {
-	return (pointing.choices?.length ?? 0) > 0 || !ONLY_TO_SEE.test(pointing.ask);
+	return (
+		(pointing.choices?.length ?? 0) > 0 ||
+		pointing.words === true ||
+		!ONLY_TO_SEE.test(pointing.ask)
+	);
+}
+
+/** The second form's fields of a look, for one said in it; none else. */
+function secondForm(pointing: Pointing): Partial<Look> {
+	if (pointing.happened === undefined) return {};
+	const labels = (pointing.choices ?? []).map((one) => one.trim());
+	const follows = pointing.follows ?? [];
+	const wants: LookWants = {
+		...(labels.length > 0
+			? {
+					choices: labels.map((label, at) => ({
+						label,
+						follows: (follows[at] ?? "").trim(),
+					})),
+				}
+			: {}),
+		...(pointing.words === true ? { words: true } : {}),
+	};
+	return {
+		happened: pointing.happened.trim(),
+		matters: (pointing.matters ?? "").trim(),
+		act: (pointing.act ?? "").trim(),
+		...(wants.choices || wants.words ? { wants } : {}),
+		about: {
+			kind: pointing.kind,
+			target: pointing.target.trim(),
+			title: pointing.title.trim(),
+		},
+	};
 }
 
 /** Why a pointing can't be kept, or nothing when it can. */
-export function refusalOf(pointing: Pointing): string | undefined {
-	if (pointing.target.trim() === "") return "A look needs what it opens.";
+export function refusalOf(said: Pointing): string | undefined {
+	if (said.target.trim() === "") return "A look needs what it opens.";
+	const second = said.happened !== undefined;
+	if (second) {
+		const refused = secondFormRefusal(said);
+		if (refused) return refused;
+	}
+	const pointing = inBothForms(said);
 	if (pointing.title.trim() === "")
 		return "A look needs what it is, in a few words.";
 	if (pointing.why.trim() === "") {
@@ -244,7 +370,11 @@ export function refusalOf(pointing: Pointing): string | undefined {
 	if (pointing.ask.trim() === "") {
 		return "A look needs what the person is asked to do and the choices, or that it is only to see.";
 	}
-	const talk = agentTalkIn(pointing);
+	// The second form's words were read above, by its own limits; its
+	// why and ask are made from them, so only the title is read here.
+	const talk = agentTalkIn(
+		second ? { ...pointing, why: "", ask: "" } : pointing,
+	);
 	if (talk) return talk;
 	const choices = choiceRefusal(pointing.choices ?? []);
 	if (choices) return choices;
@@ -273,7 +403,7 @@ function agentTalkIn(pointing: Pointing): string | undefined {
 		if (said.some((text) => pattern.test(text)))
 			return `A look names ${what}, which the person can't place. ${plain}`;
 	}
-	if (/(?:^|\s)(?:~\/|\/[\w.-]+\/)/.test(`${pointing.why} ${pointing.ask}`)) {
+	if (PATH.test(`${pointing.why} ${pointing.ask}`)) {
 		return `A look's why and ask name no path: what opens is its target. ${plain}`;
 	}
 	if (wordsIn(pointing.why) > WHY_WORDS)
@@ -281,6 +411,84 @@ function agentTalkIn(pointing: Pointing): string | undefined {
 	if (wordsIn(pointing.ask) > ASK_WORDS)
 		return `A look's ask is at most ${ASK_WORDS} words.`;
 	return undefined;
+}
+
+/**
+ * Why a look said in its second form can't be kept, or nothing when it
+ * can: the limits the launcher's For You lays it out by (QGB4ON, 22
+ * November), so each reads whole in its place.
+ */
+function secondFormRefusal(pointing: Pointing): string | undefined {
+	const happened = (pointing.happened ?? "").trim();
+	const matters = (pointing.matters ?? "").trim();
+	const act = (pointing.act ?? "").trim();
+	if (happened === "")
+		return "A look needs what happened, in a sentence written for him.";
+	if (matters === "") return "A look needs why what happened matters to him.";
+	if (act === "")
+		return "A look needs its act: the words on what he presses, such as Review It.";
+	if (happened.length > HAPPENED_CHARACTERS)
+		return `A look's happened is at most ${HAPPENED_CHARACTERS} characters; it is ${happened.length}.`;
+	if (matters.length > MATTERS_CHARACTERS)
+		return `A look's matters is at most ${MATTERS_CHARACTERS} characters; it is ${matters.length}.`;
+	if (wordsIn(act) > ACT_WORDS || !titleCased(act))
+		return `A look's act is a button: at most ${ACT_WORDS} words in Title Case, a verb first, such as Review It.`;
+	const labels = pointing.choices ?? [];
+	if (labels.some((one) => !titleCased(one.trim())))
+		return "A look's choices are labels in Title Case, such as Keep It or Roll It Back.";
+	const follows = pointing.follows ?? [];
+	if (follows.length !== labels.length)
+		return `A look says what follows each choice: ${labels.length} choices, ${follows.length} follows.`;
+	if (follows.some((one) => one.trim() === "" || moreThanASentence(one)))
+		return "A look's follows say in one sentence what happens once he picks that choice.";
+	const said = [happened, matters, act, ...follows];
+	for (const [pattern, what] of AGENT_TALK) {
+		if (said.some((text) => pattern.test(text)))
+			return `A look names ${what}, which the person can't place. Write it for the person, in plain words that say what it means for him.`;
+	}
+	if (said.some((text) => PATH.test(text)))
+		return "A look's words name no path: what opens is its target.";
+	return undefined;
+}
+
+/** A path in running words: one from the home, or two folders deep. */
+const PATH = /(?:^|\s)(?:~\/|\/[\w.-]+\/)/;
+
+/** The short words Title Case leaves small, inside a label. */
+const SMALL_WORDS = new Set([
+	"a",
+	"an",
+	"and",
+	"as",
+	"at",
+	"but",
+	"by",
+	"for",
+	"in",
+	"nor",
+	"of",
+	"on",
+	"or",
+	"per",
+	"the",
+	"to",
+	"via",
+]);
+
+/**
+ * Whether `label` reads in Title Case: its first word and every word
+ * past the short ones begin in a capital or a digit.
+ */
+function titleCased(label: string): boolean {
+	const words = label.split(/\s+/).filter((word) => word !== "");
+	return words.every(
+		(word, at) => /^[^\p{Ll}]/u.test(word) || (at > 0 && SMALL_WORDS.has(word)),
+	);
+}
+
+/** Whether `text` runs past one sentence. */
+function moreThanASentence(text: string): boolean {
+	return /[.!?]\s+\S/.test(text.trim());
 }
 
 /** Why a look's choices can't be offered, or nothing when they can. */
@@ -322,10 +530,11 @@ function wordsIn(text: string): number {
  */
 export function pointAt(
 	dir: string,
-	pointing: Pointing,
+	said: Pointing,
 	pointer: Pointer,
 	now: Date = new Date(),
 ): Look {
+	const pointing = inBothForms(said);
 	const fold = foldOf(pointing.kind, pointing.target);
 	const thread = pointing.thread?.trim() || undefined;
 	const folded = looksIn(dir).filter(
@@ -355,12 +564,17 @@ export function pointAt(
 		ask: pointing.ask.trim(),
 		...(pointing.choices?.length
 			? {
-					choices: pointing.choices.map((one) => ({
-						value: one.trim(),
-						label: one.trim(),
-					})),
+					choices: pointing.choices.map((one, at) => {
+						const follows = pointing.follows?.[at]?.trim();
+						return {
+							value: one.trim(),
+							label: one.trim(),
+							...(follows ? { follows } : {}),
+						};
+					}),
 				}
 			: {}),
+		...secondForm(pointing),
 		asks,
 		...(asks
 			? {}

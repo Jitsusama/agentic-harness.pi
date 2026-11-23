@@ -431,6 +431,127 @@ describe("a look written for the person", () => {
 // that ended in another session.
 // 2RCBOJ, 12 November: most looks ask for a word back, and the only way
 // to give it was to find the session, which may have moved on.
+// Joel, 22 November: the look list is inscrutable. QGB4ON's For You
+// lays a look out by what happened, why it matters, and what he presses.
+describe("a look in its second form", () => {
+	const bar = {
+		kind: "pr" as const,
+		target: "https://github.com/Jitsusama/agentic-harness.pi/pull/1378",
+		title: "The status bar at narrow widths",
+		why: "",
+		ask: "",
+		happened:
+			"The status bar now keeps the model, the cost and the branch at narrow widths",
+		matters:
+			"At 76 columns it showed only the folder, so you couldn't see what a session cost.",
+		act: "Try the Bar",
+		choices: ["Keep It", "Roll It Back"],
+		follows: ["It stays as it is.", "I put the old bar back tonight."],
+	};
+
+	it("keeps both forms, so a reader of only the first still shows it", () => {
+		pointAt(dir, { ...bar, words: true }, who);
+
+		expect(looksIn(dir)[0], "the look as kept").toMatchObject({
+			v: 1,
+			title: bar.title,
+			why: `${bar.happened}. ${bar.matters}`,
+			ask: "Try the Bar: Keep It, or Roll It Back.",
+			choices: [
+				{ value: "Keep It", label: "Keep It", follows: "It stays as it is." },
+				{
+					value: "Roll It Back",
+					label: "Roll It Back",
+					follows: "I put the old bar back tonight.",
+				},
+			],
+			happened: bar.happened,
+			matters: bar.matters,
+			act: "Try the Bar",
+			wants: {
+				choices: [
+					{ label: "Keep It", follows: "It stays as it is." },
+					{ label: "Roll It Back", follows: "I put the old bar back tonight." },
+				],
+				words: true,
+			},
+			about: { kind: "pr", target: bar.target, title: bar.title },
+			asks: true,
+		});
+	});
+
+	it("asks nothing back when it wants nothing and only shows", () => {
+		const shows = pointAt(
+			dir,
+			{ ...bar, act: "Just See", choices: [], follows: [] },
+			who,
+		);
+
+		expect(shows.asks, "a look to see").toBe(false);
+		expect(shows.wants, "nothing wanted back").toBeUndefined();
+		expect(
+			pointAt(dir, { ...bar, choices: [], follows: [], words: true }, who).asks,
+			"a look he may answer in words",
+		).toBe(true);
+	});
+
+	it("takes a long happened and matters, past the first form's word limit", () => {
+		const long = {
+			...bar,
+			happened: `${"a".repeat(95)} ok.`,
+			matters: Array.from({ length: 40 }, () => "word").join(" "),
+		};
+
+		expect(refusalOf(long), "at the limits").toBeUndefined();
+	});
+
+	it.each([
+		["no happened", { happened: " " }, /what happened/],
+		["no matters", { matters: "" }, /why what happened matters/],
+		["no act", { act: "" }, /its act/],
+		["a happened past 100", { happened: "a".repeat(101) }, /at most 100/],
+		["a matters past 200", { matters: "a".repeat(201) }, /at most 200/],
+		["an act past 4 words", { act: "Try the Bar Right Now" }, /a button/],
+		["an act not in Title Case", { act: "try it" }, /a button/],
+		[
+			"a choice not in Title Case",
+			{ choices: ["Keep it", "Roll It Back"] },
+			/Title Case/,
+		],
+		[
+			"choices alike",
+			{ choices: ["Keep It", "Keep It"] },
+			/each say something different/,
+		],
+		["a follows missing", { follows: ["It stays as it is."] }, /2 choices, 1/],
+		[
+			"a follows past a sentence",
+			{ follows: ["It stays. Nothing more.", "Back tonight."] },
+			/one sentence/,
+		],
+		[
+			"a session's address",
+			{ matters: "WCJQSG wants it read." },
+			/can't place/,
+		],
+		[
+			"a mesh message's id in a follows",
+			{ follows: ["As in [4a4ae257].", "Back tonight."] },
+			/can't place/,
+		],
+		["a path", { happened: "Wrote ~/notes/plan.md for you." }, /no path/],
+	])("refuses %s", (_what, part, said) => {
+		expect(refusalOf({ ...bar, ...part }), JSON.stringify(part)).toMatch(said);
+	});
+
+	it("reads short words inside a label as Title Case leaves them", () => {
+		expect(
+			refusalOf({ ...bar, act: "Look at the Bar" }),
+			"Look at the Bar",
+		).toBeUndefined();
+	});
+});
+
 describe("a look answered where the person is", () => {
 	const asking = {
 		...pr,
