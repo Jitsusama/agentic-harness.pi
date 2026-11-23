@@ -140,15 +140,17 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 	const { into, session } = carrying;
 	mkdirSync(into, { recursive: true });
 	if (!carrying.whole) return await carryAll(carrying);
-	// The handover is the quest's, so other sessions' files are here too:
-	// only what this call wrote anew is taken back.
+	// The handover is the quest's, so other sessions' files are here too,
+	// though none under this session's names; of those, only what this
+	// call wrote anew is taken back, leaving a done file of its own from
+	// before what it names.
 	const before = new Set(readdirSync(into));
 	const ours = [
 		...(session.file === undefined
 			? []
 			: [basename(session.file), `${basename(session.file)}${ZIPPED}`]),
 		...carrying.trees.flatMap((path) => {
-			const name = nameFor(path);
+			const name = nameFor(path, session.id);
 			return [`${name}.bundle`, `${name}.patch`];
 		}),
 	].filter((name) => !before.has(name));
@@ -171,9 +173,9 @@ async function carryAll(carrying: Carrying): Promise<CarriedAway> {
 		session.file === undefined
 			? undefined
 			: await copyBeside(session.file, into, largest);
-	const trees = (await carryTrees(exec, carrying.trees, into, home)).map(
-		(one) => withinShare(one, into, largest),
-	);
+	const trees = (
+		await carryTrees(exec, carrying.trees, into, home, session.id)
+	).map((one) => withinShare(one, into, largest));
 	if (carrying.whole && trees.some((one) => one.kind === "refused")) {
 		throw new CarryNotWhole(trees);
 	}
@@ -230,7 +232,8 @@ function takeBack(into: string, names: readonly string[]): void {
 
 /**
  * Carries each tree at `paths` into `into`, its bundle and patch beside
- * where a done file goes, and says what became of each; writes no done
+ * where a done file goes, named for `owner`, the session or quest whose
+ * done file names them, and says what became of each; writes no done
  * file, which whoever names them writes once they are all in place.
  */
 export async function carryTrees(
@@ -238,11 +241,12 @@ export async function carryTrees(
 	paths: readonly string[],
 	into: string,
 	home: string,
+	owner: string,
 ): Promise<TreeCarried[]> {
 	mkdirSync(into, { recursive: true });
 	const trees: TreeCarried[] = [];
 	for (const path of paths) {
-		trees.push(await carryTreeAway(exec, path, into, home));
+		trees.push(await carryTreeAway(exec, path, into, home, owner));
 	}
 	return trees;
 }
@@ -277,6 +281,7 @@ async function carryTreeAway(
 	path: string,
 	into: string,
 	home: string,
+	owner: string,
 ): Promise<TreeCarried> {
 	const ask = async (...args: string[]) => {
 		const said = await exec("git", ["-C", path, ...args]);
@@ -332,7 +337,7 @@ async function carryTreeAway(
 	// Before anything is written, so a refused tree leaves nothing behind.
 	const sparse = await sparseOf(ask);
 	if (sparse !== undefined && "why" in sparse) return no(sparse.why);
-	const name = nameFor(path);
+	const name = nameFor(path, owner);
 	const bundled = await bundleTree(exec, path, into, name);
 	if (bundled.kind === "refused") return no(bundled.reason);
 	const head =
@@ -362,14 +367,21 @@ async function carryTreeAway(
 
 /**
  * What a tree's files are named in the handover: its folder's name, for
- * a person reading the folder, and a short hash of its whole path, so two
- * trees of one name never share one.
+ * a person reading the folder, and a short hash of its whole path and
+ * its `owner`, the session or quest whose done file names them. So two
+ * trees of one name never share one, and nor do two sessions of one
+ * quest carrying one tree: the handover is the quest's, and a carry
+ * writing over another session's bundle would leave that session's done
+ * file naming bytes it never carried.
  */
-function nameFor(path: string): string {
+export function nameFor(path: string, owner: string): string {
 	const readable = basename(path)
 		.replace(/[^A-Za-z0-9._-]/g, "-")
 		.replace(/^[.-]+/, "");
-	const hash = createHash("sha256").update(path).digest("hex").slice(0, 8);
+	const hash = createHash("sha256")
+		.update(`${owner}\0${path}`)
+		.digest("hex")
+		.slice(0, 8);
 	return `${readable || "tree"}-${hash}`;
 }
 

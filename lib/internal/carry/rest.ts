@@ -129,7 +129,7 @@ export async function carryRest(carrying: CarryingRest): Promise<boolean> {
 				.map((tree) => tree.path),
 		]),
 	].filter(unhandled);
-	const trees = await carryTrees(exec, left, into, home);
+	const trees = await carryTrees(exec, left, into, home, here.quest);
 	tell(here.quest, trees);
 	const handed = trees.flatMap((one) =>
 		one.kind === "carried" ? [one.tree] : [],
