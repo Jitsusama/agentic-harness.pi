@@ -358,7 +358,8 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 					`  trap 'sleep 1; : > "$HOME/tidied"; exit 0' TERM`,
 					"  sleep 30 >/dev/null 2>&1 <&- &",
 					"  echo $!",
-					"  while :; do sleep 0.1; done",
+					// Until the check's shell goes, which afterEach sees to.
+					"  while kill -0 $$ 2>/dev/null; do sleep 0.1; done",
 					"}",
 					"take_turn",
 					"alone work",
@@ -372,6 +373,7 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 					);
 				}),
 			);
+			onTestFinished(() => killIfThere(work));
 			const during = await ended(check(host, "lock -n"));
 			expect(during.code, "no turn while its work runs").toBe(1);
 			const line = readFileSync(join(host, "lock.holder"), "utf8");
@@ -413,7 +415,7 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 					"  trap '' TERM",
 					"  sleep 30 >/dev/null 2>&1 <&- &",
 					"  echo $!",
-					"  while :; do sleep 0.1; done",
+					"  while kill -0 $$ 2>/dev/null; do sleep 0.1; done",
 					"}",
 					"stop_wait_s=1",
 					"take_turn",
@@ -428,6 +430,7 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 					);
 				}),
 			);
+			onTestFinished(() => killIfThere(work));
 
 			const asked = Date.now();
 			holder.kill("SIGTERM");
@@ -463,18 +466,52 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			);
 			expect(first.code, "it ends as its work did").toBe(3);
 			const left = Number(first.out.trim());
-			onTestFinished(() => {
-				try {
-					process.kill(left, "SIGKILL");
-				} catch {
-					// Already gone: nothing left to stop.
-				}
-			});
+			onTestFinished(() => killIfThere(left));
 			expect(await goneWithin(left), "what its work left, ended with it").toBe(
 				true,
 			);
 			const next = await ended(check(host, "lock -n"));
 			expect(next.code, "the next check gets its turn").toBe(0);
+		},
+		TEST_MS,
+	);
+
+	// The work's job is gone from the shell's table by then, so only the
+	// group alone is ending says what a stop must wait for.
+	it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
+		"stops whole when the stop lands as it ends what its work left",
+		async () => {
+			const host = hostWith(tools);
+			const holder = check(
+				host,
+				[
+					"work() {",
+					"  ( trap '' TERM; sleep 30 ) >/dev/null 2>&1 <&- &",
+					"  echo $!",
+					"}",
+					"stop_wait_s=3",
+					"take_turn",
+					"alone work",
+				].join("\n"),
+			);
+			const stopped = ended(holder);
+			const left = Number(
+				await new Promise<string>((resolve) => {
+					holder.stdout?.once("data", (chunk: Buffer) =>
+						resolve(chunk.toString().trim()),
+					);
+				}),
+			);
+			onTestFinished(() => killIfThere(left));
+			// alone asks after its job each second, then gives what it left
+			// three seconds: 1.5 s lands the stop inside that wait.
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+			holder.kill("SIGTERM");
+			expect((await stopped).code, "it ends as signalled").toBe(143);
+			expect(
+				await goneWithin(left),
+				"what its work left, ended before its turn passed",
+			).toBe(true);
 		},
 		TEST_MS,
 	);
@@ -493,6 +530,12 @@ describe.each(Object.entries(HOSTS))("check-there's turns %s", (_, tools) => {
 			expect(refused.code, "the check fails").toBe(1);
 			expect(refused.out, "going no further").toBe("");
 			expect(refused.err, "saying why").toMatch(/no process group of its own/);
+			// A job that ends at once is refused as surely, before it runs.
+			const quick = await ended(
+				check(host, 'set +m\ntake_turn\nalone touch "$HOME/ran"'),
+			);
+			expect(quick.code, "a quick one fails too").toBe(1);
+			expect(existsSync(join(host, "ran")), "having run nothing").toBe(false);
 			const next = await ended(check(host, "lock -n"));
 			expect(next.code, "the next check gets its turn").toBe(0);
 		},
@@ -618,6 +661,15 @@ async function goneWithin(pid: number): Promise<boolean> {
 	return false;
 }
 
+/** Kill `pid` if it is still there, as a test that failed may leave it. */
+function killIfThere(pid: number): void {
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch {
+		// Already gone: nothing left to stop.
+	}
+}
+
 /** A link's own status, or null when there is none to read. */
 function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
 	try {
@@ -703,7 +755,8 @@ describe("the check's local half", () => {
 		},
 	);
 
-	// Past bash's integers, a wait reads as negative and ends at once.
+	// A wait is at most seven digits, over a hundred days, so no wait is
+	// mistyped into one that never ends.
 	it.each(["abc", "12345678"])(
 		"refuses a wait that isn't a number of seconds under ten million, '%s', reaching no host",
 		(wait) => {
@@ -728,6 +781,18 @@ describe("the check's local half", () => {
 			expect(sent.code).toBe(2);
 			expect(sent.err).toMatch(/names no host/);
 			expect(sent.sent, "no ssh").toBeNull();
+		},
+	);
+
+	it.each(["joel@there", "there.local", "192.168.4.49", "my-host"])(
+		"sends to a host named in plain words, %s",
+		(host) => {
+			const sent = sendFrom(["feature", host], "9999999");
+			expect(sent.code, sent.err).toBe(0);
+			expect(sent.sent?.[2], "the host, as named").toBe(host);
+			expect(sent.sent?.[3], "with the longest wait there is").toMatch(
+				/ 9999999$/,
+			);
 		},
 	);
 });
