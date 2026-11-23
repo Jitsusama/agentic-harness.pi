@@ -570,9 +570,9 @@ describe("the compaction trigger", () => {
 			await endTurn(fire, ranTools, ctx);
 			expect(state.compactions).toHaveLength(1);
 			expect(completeSimple).toHaveBeenCalledTimes(1);
-			expect(entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)).toEqual(
-				[],
-			);
+			expect(
+				entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY),
+			).toEqual([]);
 		});
 
 		it("is recorded as unused when the move leaves that point", async () => {

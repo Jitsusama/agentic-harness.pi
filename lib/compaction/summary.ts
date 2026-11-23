@@ -248,8 +248,7 @@ function limitBinds(length: SummaryLength): boolean {
 	const { ceilingTokens, halved, ...unheld } = length;
 	if (halved === true) return true;
 	return (
-		ceilingTokens !== undefined &&
-		summaryTarget(length) < summaryTarget(unheld)
+		ceilingTokens !== undefined && summaryTarget(length) < summaryTarget(unheld)
 	);
 }
 
