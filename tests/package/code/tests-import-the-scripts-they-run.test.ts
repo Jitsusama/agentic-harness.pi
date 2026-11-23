@@ -6,16 +6,24 @@
  * script a test starts by its path is no import, so an edit to that
  * script alone ran none of its tests. The loader in
  * `tests/setup/scripts-as-text.ts` lets a test import the script, and
- * follows what the script sources or runs from beside it; this holds
- * every test to doing so. It finds a script named on its own in a
- * string, as `join(SCRIPTS, "x.sh")`, `"./x.sh"` or a fixture's bare
- * name does, rather than in a sentence or a command line, which a test
- * can hold without running the script. A name built from parts, as the
- * host runtime's stand-ins are, or held in a library's constant, as the
- * ssh guard's folder is, is past it, so those tests import their
- * scripts by hand. So a script the package ships beside its code, which
- * that code reads, and one under tests/, which only a test runs, is
- * held to being reached by some test's imports.
+ * follows each script there is that the script names. This holds every
+ * test that names a script to importing it itself: one reached only
+ * through another script it imports doesn't count, so a test says what
+ * it runs. It finds a script named on its own in a string, as
+ * `join(SCRIPTS, "x.sh")`, `"./x.sh"` or a fixture's bare name does,
+ * rather than in a sentence or a command line, which a test can hold
+ * without running the script. A name built from parts, as the host
+ * runtime's stand-ins are, held in a library's constant, as the ssh
+ * guard's folder is, or read by a library from its own folder, as the
+ * commit hook's script is, is past it, so the tests running those
+ * import them by hand: such a script reaches only the tests that do. So
+ * a script the package ships beside its code, which that code reads,
+ * and one under tests/, which only a test runs, is held to being
+ * reached by some test's imports.
+ *
+ * It runs under a full `pnpm test` and `pnpm check:there`, which run
+ * tests/package whole; `pnpm check` runs it only when a change reaches
+ * it, so a test naming a new script without importing it fails there.
  *
  * Only vitest has the loader: pi or node reads a script import as
  * JavaScript, so a typecheck that passes one in a file they load would
@@ -23,11 +31,19 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	besideOf,
+	followedBy,
 	isShellScript,
 	unfollowedNames,
 } from "../../setup/scripts-as-text.ts";
@@ -111,7 +127,9 @@ function codeOf(files: readonly string[]): string[] {
 /**
  * The scripts `text`, at `file`, imports, as paths from the root: any
  * relative import naming a script by its ending, or a file on disk the
- * loader would read as one, as the ssh guard's wrappers.
+ * loader would read as one, as the ssh guard's wrappers. An import
+ * written inside a string reads as one too, and names no script there
+ * is, so it only ever adds a path no rule asks after.
  */
 function scriptImports(file: string, text: string): string[] {
 	return [
@@ -123,16 +141,19 @@ function scriptImports(file: string, text: string): string[] {
 		.filter((path) => /\.(?:sh|bash)$/.test(path) || isScriptFile(path));
 }
 
-/** The scripts `imported` reaches, with every one each sources or runs from beside it. */
-function reached(imported: Iterable<string>): Set<string> {
+/**
+ * The scripts `imported`, paths from `root`, reaches, with every one
+ * the loader follows from each.
+ */
+function reached(imported: Iterable<string>, root: string = ROOT): Set<string> {
 	const found = new Set<string>();
 	const next = [...imported];
 	for (let path = next.pop(); path !== undefined; path = next.pop()) {
-		if (found.has(path) || !existsSync(join(ROOT, path))) continue;
+		if (found.has(path) || !existsSync(join(root, path))) continue;
 		found.add(path);
-		const text = readFileSync(join(ROOT, path), "utf8");
-		for (const name of besideOf(join(ROOT, path), text))
-			next.push(relative(ROOT, resolve(ROOT, dirname(path), name)));
+		const text = readFileSync(join(root, path), "utf8");
+		for (const file of followedBy(join(root, path), text, root))
+			next.push(relative(root, file));
 	}
 	return found;
 }
@@ -206,10 +227,15 @@ describe("shell scripts", () => {
 		const held = scripts.filter((path) =>
 			HELD_SCRIPTS.some((folder) => path.startsWith(folder)),
 		);
+		const wrappers = files.filter(
+			(file) =>
+				file.startsWith("scripts/ssh-guard/bin/") && !file.endsWith(".md"),
+		);
+		expect(wrappers.length, "the ssh guard's wrappers").toBeGreaterThan(0);
 		expect(
-			held.filter((path) => path.startsWith("scripts/ssh-guard/bin/")),
-			"the ssh guard's wrappers, read by their shebang",
-		).toHaveLength(4);
+			wrappers.filter((file) => !held.includes(file)),
+			"a wrapper not read as a script by its shebang",
+		).toEqual([]);
 		expect(
 			held.filter((path) => !imported.has(path)),
 			"held, reached by no test",
@@ -238,18 +264,16 @@ describe("shell scripts", () => {
 		).toEqual([]);
 	});
 
-	// A script sourced or run some other way would reach no test from an edit.
-	it("source and run scripts beside them only in a way the loader follows", () => {
+	// A slip in a name only beside a script can mean would leave the one
+	// meant out of every test's reach.
+	it("name no script beside them that isn't there", () => {
 		const unfollowed = scripts.flatMap((path) =>
 			unfollowedNames(
 				join(ROOT, path),
 				readFileSync(join(ROOT, path), "utf8"),
 			).map((line) => `${path}: ${line}`),
 		);
-		expect(
-			unfollowed,
-			"a script named in a way the loader can't follow",
-		).toEqual([]);
+		expect(unfollowed, "a script named beside one, not there").toEqual([]);
 	});
 
 	it("leave out only scripts that exist and that their test names but doesn't import", () => {
@@ -269,6 +293,28 @@ describe("shell scripts", () => {
 });
 
 describe("the rule's reading", () => {
+	it("reaches every script the loader follows from those imported, through each in turn", () => {
+		const root = mkdtempSync(join(tmpdir(), "scripts-reached-"));
+		try {
+			mkdirSync(join(root, "scripts", "lib"), { recursive: true });
+			const write = (path: string, text: string) =>
+				writeFileSync(join(root, path), text);
+			write("scripts/a.sh", 'source "$(dirname "$0")/lib/b.sh"\n');
+			write("scripts/lib/b.sh", 'exec "$here/../c.sh"\n');
+			write("scripts/c.sh", "bash scripts/d.sh\n");
+			write("scripts/d.sh", "echo done\n");
+			write("scripts/alone.sh", "echo alone\n");
+			expect([...reached(["scripts/a.sh"], root)].sort()).toEqual([
+				"scripts/a.sh",
+				"scripts/c.sh",
+				"scripts/d.sh",
+				"scripts/lib/b.sh",
+			]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	const scripts = [
 		"scripts/host-gate.sh",
 		"scripts/ssh-guard/guard.bash",

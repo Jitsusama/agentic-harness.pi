@@ -4,9 +4,13 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { scriptsAsText, unfollowedNames } from "./scripts-as-text.ts";
+import {
+	isShellScript,
+	scriptsAsText,
+	unfollowedNames,
+} from "./scripts-as-text.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it reads changes alone; it reads them from their paths below.
 import "../../scripts/host-gate.sh";
@@ -23,24 +27,48 @@ afterEach(() => {
 		rmSync(folder, { recursive: true, force: true });
 });
 
+/** A shebang a shell program with no ending opens with, with env's options. */
+const PROGRAM = "#!/usr/bin/env -S bash -eu\n";
+
 /**
  * A shell script on disk with the text given, named `name` in a folder
- * under a fresh one, beside a file for each of `beside`, a path from
- * that folder.
+ * `in` under a fresh root, beside a file for each of `beside`, a path
+ * from that folder, or that path and its text: empty, or a shell's
+ * shebang for a name with no ending.
  */
 function script(
 	text: string,
-	beside: readonly string[] = [],
+	beside: readonly (string | readonly [string, string])[] = [],
 	name = "it.sh",
 ): string {
 	const root = mkdtempSync(join(tmpdir(), "scripts-as-text-"));
 	folders.push(root);
 	const folder = join(root, "in");
 	mkdirSync(folder);
-	for (const other of beside) writeFileSync(join(folder, other), "");
+	for (const other of beside) {
+		const [file, body] =
+			typeof other === "string"
+				? [other, other.includes(".") ? "" : PROGRAM]
+				: other;
+		mkdirSync(dirname(join(folder, file)), { recursive: true });
+		writeFileSync(join(folder, file), body);
+	}
 	const path = join(folder, name);
 	writeFileSync(path, text);
 	return path;
+}
+
+/** The root `script` made `path` under. */
+function rootOf(path: string): string {
+	return dirname(dirname(path));
+}
+
+/** The scripts the loader's module for `path` imports, read from its root. */
+function importsOf(path: string): string[] {
+	const code = scriptsAsText(rootOf(path)).load(path) ?? "";
+	return [...code.matchAll(/^import "([^"]+)";$/gm)].map(
+		(found) => found[1] ?? "",
+	);
 }
 
 /** What the loader's module says by default, run as the module it is. */
@@ -91,52 +119,77 @@ describe("scriptsAsText", () => {
 	// host-gate.sh and host-test-there.sh each source host-test-words.sh,
 	// which no test runs by its own path, and run another script beside
 	// them, as the ssh guard's wrappers run guard.bash.
-	it("imports each script a script sources or runs from beside it, so --changed follows it too", () => {
-		const code = scriptsAsText().load(
-			script(
-				[
-					"# shellcheck source=words.sh",
-					`source "$(dirname "\${BASH_SOURCE[0]}")/words.sh"`,
-					'  . "$(dirname "$0")/more-words.sh"',
-					'runner="$(cd "$(dirname "$0")" && pwd)/runner.sh"',
-					'exec bash "$here/../guard.bash" "$here"',
-					'source "$(dirname "$0")/missing.sh"',
-					'source "$HOME/elsewhere.sh"',
-					'source "$(git rev-parse --show-toplevel)/root.sh"',
-					'"$bash/bin/bash" in/from-root.sh "$@"',
-					'echo "usage: in/it.sh"',
-					"# called by in/commented.sh, said only in a comment",
-					"",
-				].join("\n"),
-				[
-					"words.sh",
-					"more-words.sh",
-					"runner.sh",
-					"../guard.bash",
-					"root.sh",
-					"from-root.sh",
-					"commented.sh",
-				],
-			),
+	it("imports each script a script names that is there, so --changed follows it too", () => {
+		const path = script(
+			[
+				"# shellcheck source=words.sh",
+				`source "$(dirname "\${BASH_SOURCE[0]}")/words.sh"`,
+				'  . "$(dirname "$0")/more-words.sh"',
+				'runner="$(cd "$(dirname "$0")" && pwd)/runner.sh"',
+				'exec bash "$here/../guard.bash" "$here"',
+				'source "$(dirname "$0")/missing.sh"',
+				'source "$HOME/elsewhere.sh"',
+				'source "$(git rev-parse --show-toplevel)/root.sh"',
+				'"$bash/bin/bash" in/from-root.sh "$@"',
+				'echo "usage: in/it.sh"',
+				"# called by in/commented.sh, said only in a comment",
+				'cd "$(dirname "$0")" && bash helper.sh',
+				'exec "$here/lib/send.sh"',
+				`. "\${SCRIPT_DIR}/.common.sh"`,
+				"bash scripts/run.sh",
+				'exec "$here/wrapper" "$@"',
+				"cat notes",
+				"",
+			].join("\n"),
+			[
+				"words.sh",
+				"more-words.sh",
+				"runner.sh",
+				"../guard.bash",
+				"../root.sh",
+				"from-root.sh",
+				"commented.sh",
+				"helper.sh",
+				"lib/send.sh",
+				".common.sh",
+				"../scripts/run.sh",
+				"wrapper",
+				["notes", "plain words\n"],
+			],
 		);
 
 		expect(
-			[...(code ?? "").matchAll(/^import "([^"]+)";$/gm)].map(
-				(found) => found[1],
-			),
-			"the scripts beside it it names, from its folder or the root, and none that isn't there, nor itself",
+			importsOf(path),
+			"each it names that is there, from its folder or the root, but itself and a file that is no script",
 		).toEqual([
 			"./words.sh",
 			"./more-words.sh",
 			"./runner.sh",
 			"../guard.bash",
+			"../root.sh",
 			"./from-root.sh",
+			"./helper.sh",
+			"./lib/send.sh",
+			"./.common.sh",
+			"../scripts/run.sh",
+			"./wrapper",
 		]);
+	});
+
+	// A script run from the root names its own from there; one beside the
+	// naming script with the same name is another script.
+	it("reads a name from the naming script's folder before the root", () => {
+		const path = script("bash scripts/run.sh\n", [
+			"scripts/run.sh",
+			"../scripts/run.sh",
+		]);
+		expect(importsOf(path)).toEqual(["./scripts/run.sh"]);
 	});
 
 	it("loads a script with no ending by its shebang, and leaves any other such file", async () => {
 		const text = '#!/usr/bin/env bash\nexec bash "$here/../guard.bash"\n';
-		const code = scriptsAsText().load(script(text, ["../guard.bash"], "ssh"));
+		const path = script(text, ["../guard.bash"], "ssh");
+		const code = scriptsAsText(rootOf(path)).load(path);
 		expect(code, "a module for a wrapper").toContain('import "../guard.bash";');
 		expect(await moduleDefault(code ?? "")).toBe(text);
 		expect(
@@ -145,9 +198,30 @@ describe("scriptsAsText", () => {
 		).toBeNull();
 	});
 
-	// A script sourcing or running another named some other way would
-	// leave that one out of every test's reach with no word.
-	it("names each script beside it, and each source, that it can't follow", () => {
+	it.each([
+		"#!/bin/sh",
+		"#!/bin/bash",
+		"#!/usr/bin/env bash",
+		"#!/usr/bin/env -S bash -euo pipefail",
+		"#!/nix/store/0abc-bash-5.2/bin/bash",
+		"#! /usr/bin/env zsh",
+	])("reads a file with no ending and the shebang %s as a shell's", (line) => {
+		expect(isShellScript(script(`${line}\necho\n`, [], "tool"))).toBe(true);
+	});
+
+	it.each([
+		"#!/usr/bin/env node",
+		"#!/usr/bin/env -S node --test",
+		"#!/usr/bin/python3",
+		"#!/usr/bin/env shellcheck",
+	])("reads a file with no ending and the shebang %s as no shell's", (line) => {
+		expect(isShellScript(script(`${line}\necho\n`, [], "tool"))).toBe(false);
+	});
+
+	// A slip of a name only beside the script can mean leaves the script
+	// meant out of every test's reach; any other name, a script elsewhere
+	// or a file made as it runs, is the script's own business.
+	it("names each script beside it that it names in a way meaning only there, and isn't there", () => {
 		const path = script("", ["words.sh", "runner.sh"]);
 		expect(
 			unfollowedNames(
@@ -157,18 +231,18 @@ describe("scriptsAsText", () => {
 					'source "$HOME/elsewhere.sh"',
 					". ./words.sh",
 					`"\${here}/runner.sh" go`,
-					'source "$(dirname "$0")/words.sh"; source "$HOME/b.sh"',
+					"source /etc/os-release.sh",
+					'cd "$(dirname "$0")" && bash helper.sh',
 					'source "$(dirname "$0")/gone.sh"',
-					"# runs $dir/runner.sh, said in a comment",
-					"echo source",
+					'"$(cd "$(dirname "$0")" && pwd)/lost.sh"',
+					`. "\${BASH_SOURCE%/*}/strayed.sh"`,
+					'# runs "$(dirname "$0")/said.sh", in a comment',
 				].join("\n"),
 			),
 		).toEqual([
-			'source "$HOME/elsewhere.sh": a source named in a way the loader can\'t follow',
-			". ./words.sh: names words.sh, beside it, in a way the loader can't follow",
-			`"\${here}/runner.sh" go: names runner.sh, beside it, in a way the loader can't follow`,
-			'source "$(dirname "$0")/words.sh"; source "$HOME/b.sh": a source named in a way the loader can\'t follow',
-			'source "$(dirname "$0")/gone.sh": sources gone.sh, which isn\'t there',
+			'source "$(dirname "$0")/gone.sh": names gone.sh beside it, which isn\'t there to follow',
+			'"$(cd "$(dirname "$0")" && pwd)/lost.sh": names lost.sh beside it, which isn\'t there to follow',
+			`. "\${BASH_SOURCE%/*}/strayed.sh": names strayed.sh beside it, which isn't there to follow`,
 		]);
 	});
 

@@ -330,17 +330,44 @@ describe("host-gate.sh", () => {
 		},
 	);
 
-	// The host tests load under the setup files, the scripts' loader among
-	// them, so a change there alone shapes how test:host runs.
-	it("refuses a change to the tests' setup alone until test:host ran at it", async () => {
-		const on = await harness();
-		const sha = await change(on, "tests/setup/scripts-as-text.ts");
+	// The host tests load under the process lane's setup, the scripts'
+	// loader among it, so a change there alone shapes how test:host runs.
+	it.each([
+		"tests/setup/scripts-as-text.ts",
+		"tests/setup/pi-install.ts",
+		"tests/setup/xdg-sandbox.ts",
+		"tests/setup/temp-root.ts",
+	])(
+		"refuses a change to %s, setup the host tests load, until test:host ran at it",
+		async (file) => {
+			const on = await harness();
+			const sha = await change(on, file);
 
-		const answered = await gate(on, sha);
+			const answered = await gate(on, sha);
 
-		expect(answered.code).toBe(1);
-		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
-	});
+			expect(answered.code).toBe(1);
+			expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
+		},
+	);
+
+	it.each([
+		"tests/setup/chrome-present.ts",
+		"tests/setup/scripts-as-text.test.ts",
+		"tests/setup/signal-stamp.ts",
+	])(
+		"lets a change to %s, setup no host test loads, merge without a run",
+		async (file) => {
+			const on = await harness();
+			const sha = await change(on, file);
+
+			const answered = await gate(on, sha);
+
+			expect(answered).toMatchObject({
+				code: 0,
+				said: expect.stringContaining("touches nothing pi hosts run"),
+			});
+		},
+	);
 
 	it("still refuses hosted code renamed to a README, by the path it left", async () => {
 		const on = await harness();

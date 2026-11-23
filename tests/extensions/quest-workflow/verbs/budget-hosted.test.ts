@@ -33,6 +33,9 @@ import { coAuthorTrailer } from "../../../../lib/internal/guardian/commit-traile
 import { at } from "../../../support/at.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { disposeRepo, freshRepo } from "../../../support/git-fixture.ts";
+// Imported only to be named, so `--changed` runs this file when the hook's
+// script changes alone; the hook it installs and runs is that script.
+import "../../../../lib/core/attribution/prepare-commit-msg.sh";
 
 let root: string;
 let uninstall: () => void;
