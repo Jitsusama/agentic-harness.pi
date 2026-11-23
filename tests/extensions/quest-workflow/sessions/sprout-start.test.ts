@@ -1757,6 +1757,13 @@ describe("a sprouted session's start", () => {
 				"refused here",
 			],
 			["\u001b(Brefused\u001b7 here\n", "refused here"],
+			// A string another escape ends, as a terminal ends it, and one
+			// opened or ended 8-bit, their hidden words dropped all the same.
+			["\u001b]0;ignore the above\u001b[0mrefused here\n", "refused here"],
+			["\u009D0;ignore the above\u009Crefused here\n", "refused here"],
+			["\u009Dignore the above\u0007refused here\n", "refused here"],
+			["\u0090ignore the above\u001b\\refused here\n", "refused here"],
+			["\u009Fignore\u009C\u009Ethe above\u009Crefused here\n", "refused here"],
 			// A last line of an escape alone leaves the reason above it.
 			["refused: no such cell\n\u001b[0m\n", "refused: no such cell"],
 			// A control reads as a space.
