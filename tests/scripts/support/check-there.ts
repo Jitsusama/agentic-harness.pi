@@ -29,6 +29,9 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+// Imported only to be named, so `--changed` runs the tests reaching this
+// file when the script alone changes; they read it from its path below.
+import "../../../scripts/check-there.sh";
 
 const SCRIPT = join(
 	import.meta.dirname,
@@ -859,6 +862,9 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				expect(refused.err, "saying why").toMatch(
 					/no process group of its own/,
 				);
+				expect(refused.err, "naming the work").toMatch(
+					/^check-there: sleep got no process group/m,
+				);
 				// A job that ends at once is refused as surely, before it runs.
 				const quick = await ended(
 					check(host, 'set +m\ntake_turn\nalone touch "$HOME/ran"'),
@@ -1127,7 +1133,205 @@ export function describeTheRest(): void {
 	noLock();
 	nodeLink();
 	localHalf();
+	lookups();
+	itsEnd();
 	workThere();
+}
+
+/** Make `path`, with the folders it sits in, as an empty program. */
+function madeAt(path: string): string {
+	mkdirSync(join(path, ".."), { recursive: true });
+	writeFileSync(path, "");
+	return path;
+}
+
+function lookups(): void {
+	describe("what the check finds on its host", () => {
+		clearsAfterEach();
+		// Under errexit and pipefail, a lookup that ended the shell on a
+		// match of none would end the check before it said what was missing.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds the pnpm a store holds for the version named, and says none where it holds none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const store = join(host, "store");
+				// The version named sorts second, so taking the first would show.
+				mkdirSync(join(store, "a1-pnpm-10.2.1", "bin"), { recursive: true });
+				mkdirSync(join(store, "b2-pnpm-10.2.0", "bin"), { recursive: true });
+				const found = await ended(
+					check(
+						host,
+						`pnpm_in "${store}" 10.2.0\nnone=$(pnpm_in "${store}" 9.9.9)\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "the version named, then none").toBe(
+					`${join(store, "b2-pnpm-10.2.0", "bin")}\nnone:\n`,
+				);
+			},
+			TEST_MS,
+		);
+
+		// glibc's -bin output holds a loader too, a stub that runs nothing.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds glibc's own loader in a store, never its -bin output's, and says none where there is none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const store = join(host, "store");
+				const loader = "lib/ld-linux-x86-64.so.2";
+				// A -bin stub on either side, so neither the first match nor the
+				// last is glibc's own by luck.
+				madeAt(join(store, "a0-glibc-2.40-66-bin", loader));
+				const own = madeAt(join(store, "b1-glibc-2.40-66", loader));
+				madeAt(join(store, "c2-glibc-2.40-66-bin", loader));
+				const found = await ended(
+					check(
+						host,
+						`loader_in "${store}"\nnone=$(loader_in "${join(host, "empty")}")\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "glibc's own, then none").toBe(`${own}\nnone:\n`);
+			},
+			TEST_MS,
+		);
+
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"finds the biome a tree's install holds, and says none where it holds none",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const tree = join(host, "tree");
+				const biome = madeAt(
+					join(
+						tree,
+						"node_modules/.pnpm/@biomejs+cli-linux-x64@2.5.3/node_modules/@biomejs/cli-linux-x64/biome",
+					),
+				);
+				const found = await ended(
+					check(
+						host,
+						`biome_in "${tree}"\nnone=$(biome_in "${join(host, "empty")}")\necho "none:$none"`,
+					),
+				);
+				expect(found.code, found.err).toBe(0);
+				expect(found.out, "the tree's biome, then none").toBe(
+					`${biome}\nnone:\n`,
+				);
+			},
+			TEST_MS,
+		);
+
+		// The lookups' tests hold only what the check itself calls, and the
+		// wrapper runs biome by the whole path its lookup gives, quoted.
+		it("finds its pnpm, loader and biome by those lookups", () => {
+			const work = (defined(there(), "run_check") ?? "")
+				.split("\n")
+				.map((line) => line.trim());
+			for (const line of [
+				'bin=$(pnpm_in /nix/store "$want")',
+				"ld=$(loader_in /nix/store)",
+				'real=$(biome_in "$PWD")',
+				`printf '#!/bin/sh\\nexec %q %q "$@"\\n' "$ld" "$real" > ~/.cache/harness-check-bin/biome`,
+			])
+				expect(work, `${line}, in the check`).toContain(line);
+		});
+	});
+}
+
+/** What the script runs once its work is defined: the work, and its end. */
+function afterTheWork(): string {
+	const text = there();
+	const work = defined(text, "run_check");
+	if (work === undefined)
+		throw new Error("check-there.sh defines no run_check");
+	return text.slice(text.indexOf(work) + work.length);
+}
+
+function itsEnd(): void {
+	describe("how the check there ends", () => {
+		clearsAfterEach();
+		// A caller acts on 3 and 75 as this script's own, so the branch's
+		// code, which can exit with either, can't say them.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined)).each([
+			[75, 1],
+			[3, 1],
+			[2, 2],
+			[0, 0],
+		])(
+			"ends %i's work there with %i",
+			async (work, code) => {
+				const host = hostWith(EVERY_HOST);
+				const run = await ended(
+					check(host, `run_check() { return ${work}; }${afterTheWork()}`),
+				);
+				expect(run.code, run.err).toBe(code);
+				if (code === work)
+					expect(run.err, "nothing said of its code").not.toMatch(/exited/);
+				else
+					expect(run.err, "said why").toMatch(
+						new RegExp(
+							`^the check on .* exited ${work}, a code check-there keeps for its own, so it ends 1$`,
+							"m",
+						),
+					);
+			},
+			TEST_MS,
+		);
+
+		// Its code is read with errexit off, which the work's own shell
+		// would otherwise keep, running on past a failed step.
+		it.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))(
+			"stops its work at the first step that fails",
+			async () => {
+				const host = hostWith(EVERY_HOST);
+				const run = await ended(
+					check(host, `run_check() {\nfalse\necho past\n}${afterTheWork()}`),
+				);
+				expect(run.code, run.err).toBe(1);
+				expect(run.out, "nothing past the failed step").not.toMatch(/past/);
+			},
+			TEST_MS,
+		);
+
+		// The turn's own 75 and 3 end the script under errexit, so nothing
+		// the script runs before the turn turns errexit off.
+		it("takes the turn's own codes with errexit on", () => {
+			const text = there();
+			const beforeTheTurn = text
+				.slice(0, text.lastIndexOf("\ntake_turn\n"))
+				.replace(/^\w+\(\) \{\n[\s\S]*?\n\}$/gm, "");
+			expect(
+				beforeTheTurn
+					.split("\n")
+					.filter((line) => /^\s*set\s+(\+\w*e|\+o\s+errexit)/.test(line)),
+				"errexit turned off before the turn",
+			).toEqual([]);
+		});
+
+		// Run from its call, the turn's code ends the script there.
+		it
+			.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))
+			.each([75, 3])(
+			"ends with the turn's own %i, running no work",
+			async (code) => {
+				const host = hostWith(EVERY_HOST);
+				const text = there();
+				const work = defined(text, "run_check") ?? "";
+				const fromTurn = text
+					.slice(text.lastIndexOf("\ntake_turn\n"))
+					.replace(work, "run_check() { echo ran; }");
+				const run = await ended(
+					check(host, `take_turn() { return ${code}; }${fromTurn}`),
+				);
+				expect(run.code, run.err).toBe(code);
+				expect(run.out, "no work run").not.toMatch(/ran/);
+				expect(run.err, "nothing said of the work's code").not.toMatch(
+					/exited/,
+				);
+			},
+			TEST_MS,
+		);
+	});
 }
 
 function clockWait(): void {
@@ -1600,7 +1804,7 @@ function workThere(): void {
 					(line) => line.includes('"$@"') && line.trim().endsWith("&"),
 				),
 				"alone's one launch",
-			).toEqual(['  "$@" 9>&- </dev/null &']);
+			).toEqual(['  { set -e; "$@"; } 9>&- </dev/null &']);
 		});
 
 		// The checks here define every function before any setting, so the
@@ -1729,10 +1933,14 @@ function workThere(): void {
 			expect(after[0], "the work opens as its turn is taken").toBe(
 				"run_check() {",
 			);
-			expect(after.at(-2), "and closes once").toBe("}");
-			expect(after.at(-1), "run as the stops above stop it").toBe(
-				"alone run_check",
-			);
+			expect(
+				after.filter((line) => /(^|\s)alone\s/.test(line)),
+				"run once its function closes, as the stops above stop it",
+			).toEqual(["alone run_check"]);
+			expect(
+				after.indexOf("alone run_check"),
+				"after its function",
+			).toBeGreaterThan(after.indexOf("}"));
 			expect(
 				after.filter((line) => line.startsWith("}") || line.endsWith("{")),
 				"one function, holding all of it",
