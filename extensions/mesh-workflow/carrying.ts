@@ -16,7 +16,8 @@
  * one ordered through the node
  * holds them from the order, and passes its hold in; one the person
  * asked for takes its own. A second carry of a session already being
- * carried refuses, since the first one's success closes it.
+ * carried refuses, since the first one's success closes it; one that
+ * carried keeps its hold until its close lands, or its time is up.
  */
 
 import { existsSync } from "node:fs";
@@ -78,15 +79,16 @@ export async function carryThisSession(
 	places: CarryingPlaces = {},
 ): Promise<string> {
 	const id = ctx.sessionManager.getSessionId();
-	// One past its time still writes the handover this one would.
-	const other = carryUnderWay(id, { except: places.hold, evenLapsed: true });
+	const other = carryUnderWay(id, { except: places.hold });
 	if (other !== undefined) {
 		throw new Error(`a carry to ${other} is already under way.`);
 	}
 	if (places.hold !== undefined) return await carryOut(ctx, to, places);
 	const hold = holdForCarry(id, to, places.timing);
 	try {
-		return await carryOut(ctx, to, places);
+		const done = await carryOut(ctx, to, places);
+		hold.carried();
+		return done;
 	} finally {
 		hold.release();
 	}

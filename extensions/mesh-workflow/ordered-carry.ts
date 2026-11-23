@@ -36,11 +36,13 @@
  * and ends any run that starts before it has closed, leaving any
  * later order.
  *
- * From the moment it is taken until it is carried or refused, it holds
- * the doors that would end the session's process unasked (`hold`,
- * lib/internal/carry/under-way.ts): the run it waits out and the holds
- * it looks at again leave the session idle, and a park in that gap would
- * end it with nothing written for its node. A refusal lets go as it
+ * From the moment it is taken until it is refused, or, carried, until
+ * its close lands, it holds the doors that would end the session's
+ * process unasked (`hold`, lib/internal/carry/under-way.ts): the run it
+ * waits out and the holds it looks at again leave the session idle, and
+ * a park in that gap would end it with nothing written for its node;
+ * carried, a door or a second carry before the close would end or carry
+ * a session whose work is already elsewhere. A refusal lets go as it
  * begins, since it carries nothing: a park or restart while it is
  * written can lose it, which is taken over turning away a person's
  * Carry meanwhile.
@@ -143,10 +145,10 @@ export interface OrderedCarryHost {
 	readonly holds: (runEnded: boolean) => Promise<string | undefined>;
 	/**
 	 * Hold the doors that would end the session's process unasked for a
-	 * carry to `to`, until the answer is called (lib/internal/carry/under-way.ts);
-	 * calling it again does nothing more.
+	 * carry to `to` (lib/internal/carry/under-way.ts), until the answer's
+	 * release, or, once carried, while the session closes.
 	 */
-	readonly hold: (to: string) => () => void;
+	readonly hold: (to: string) => DoorsHeld;
 	/** Carry its work for the machine `to`, settling once it is carried. */
 	readonly carry: (to: string) => Promise<void>;
 	/**
@@ -159,8 +161,7 @@ export interface OrderedCarryHost {
 	readonly tell: (text: string) => void;
 	/**
 	 * Whether a carry of this session is under way besides this
-	 * ordering's, as a person's Carry is once a refusal has let go, its
-	 * time lapsed or not.
+	 * ordering's, as a person's Carry is once a refusal has let go.
 	 */
 	readonly carrying?: () => boolean;
 	/** End the session, as /exit does, saying `by` asked. */
@@ -188,16 +189,30 @@ export interface OrderedCarrying {
 	turnEnded(): void;
 }
 
+/** The doors an order holds, as {@link OrderedCarryHost.hold} takes them. */
+export interface DoorsHeld {
+	/** Let them go, unless carried; a second call does nothing. */
+	readonly release: () => void;
+	/** Carried: kept while the session closes, through any release. */
+	readonly carried: () => void;
+}
+
 /**
  * One order taken: the doors it holds, whether it ended a run, and
  * whether it has said how it went, by a refusal or by carrying, which
  * no later throw then says again.
  */
 interface Taken {
-	release: () => void;
+	held: DoorsHeld;
 	ended: boolean;
 	settled: boolean;
 }
+
+/** Doors not yet held, as an order is before its hold is taken. */
+const NO_DOORS: DoorsHeld = {
+	release: () => undefined,
+	carried: () => undefined,
+};
 
 /** Ordered carries, none under way. */
 export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
@@ -213,6 +228,10 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	// Whether this session was carried, so it is closing: a later order
 	// is left, and a run that starts is ended.
 	let carried = false;
+	// Whether a run an order ended waits to be taken up: once, by the
+	// first refusal to finish with no order under way, however many
+	// orders ended runs while their refusals were written.
+	let owed = false;
 	// Whether a refusal stamped as it was asked is being written, while
 	// which a carry is said on screen alone, since its node may read that
 	// refusal as its own. One stamped from its steer's name is older than
@@ -248,12 +267,12 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				? new Date(ordered.put.getTime() + 1)
 				: new Date(asked);
 		taken.settled = true;
-		const tookUp = taken.ended;
+		if (taken.ended) owed = true;
 		if (underWay === taken) underWay = undefined;
 		// Refused, it carries nothing, so it holds nothing while its refusal
 		// is written: a later order, or a person's Carry, would otherwise be
 		// turned away by a carry that isn't happening.
-		taken.release();
+		taken.held.release();
 		say(
 			`This session refused ${carryOf(ordered).a}: ${why}. It stays here, working.`,
 		);
@@ -280,17 +299,15 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			clearTimeout(timer);
 			if (!stamped) refusing = false;
 		}
-		// Whether its refusal was written, late or not at all, the run it
-		// ended is taken up again, unless the session is carried since and
-		// closing, or another carry is taking it: told to carry on, it would
-		// write into the conversation being carried that nothing was. An
-		// order taken since takes it up in its turn, if it refuses too, since
-		// it ends no run of its own on a session already idle.
-		if (!tookUp || carried) return;
-		if (underWay !== undefined) {
-			underWay.ended = true;
-			return;
-		}
+		// Whether its refusal was written, late or not at all, a run an
+		// order ended is taken up again, once, unless the session is carried
+		// since and closing, or another carry is taking it: told to carry on,
+		// it would write into the conversation being carried that nothing
+		// was. An order taken since takes it up in its turn, if it refuses
+		// too, since it ends no run of its own on a session already idle; a
+		// refusal that finished first has taken it up already.
+		if (!owed || carried || underWay !== undefined) return;
+		owed = false;
 		if (host.carrying?.() === true) {
 			say(
 				"The run it ended isn't taken up: a carry begun since is taking this session.",
@@ -327,7 +344,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		taken: Taken,
 		ordered: OrderedCarry,
 	): Promise<void> => {
-		taken.release = host.hold(ordered.to);
+		taken.held = host.hold(ordered.to);
 		const before = await host.holds(false);
 		if (before !== undefined) return refuse(taken, ordered, before);
 		if (!host.idle()) {
@@ -353,9 +370,12 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				`its work couldn't be carried: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
-		// Carried, its done file written: nothing after this refuses it.
+		// Carried, its done file written: nothing after this refuses it, and
+		// its doors stay held while it closes, so neither a door nor a
+		// second carry, a person's included, goes before the close lands.
 		taken.settled = true;
 		carried = true;
+		taken.held.carried();
 		if (underWay === taken) underWay = undefined;
 		say(
 			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
@@ -396,11 +416,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				);
 				return;
 			}
-			const taken: Taken = {
-				release: () => undefined,
-				ended: false,
-				settled: false,
-			};
+			const taken: Taken = { held: NO_DOORS, ended: false, settled: false };
 			underWay = taken;
 			try {
 				await carryOrdered(taken, ordered);
@@ -422,7 +438,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				}
 			} finally {
 				if (underWay === taken) underWay = undefined;
-				taken.release();
+				taken.held.release();
 			}
 		},
 		// Carried, it ends a run that starts before it has closed, as the

@@ -11,6 +11,8 @@ import {
 
 const session = "01a1ecbb-0000-7000-8000-00000000c4ee";
 const other = "01a15f3a-0000-7463-9909-afa624b025fe";
+// Each carried hold outlives its test, so each holds a session of its own.
+const closing = (n: number) => `01a1ecbb-0000-7000-8000-0000000c105${n}`;
 
 describe("a carry under way", () => {
 	const held: CarryHold[] = [];
@@ -80,18 +82,57 @@ describe("a carry under way", () => {
 		expect(late).toBeUndefined();
 	});
 
-	// Two carries of one session would write one handover, so only the
-	// doors lapse (PV3TE0's F13).
-	it("still turns a second carry away once its hold has lapsed, until it lets go", () => {
+	// PV3TE0's round 7 (F2, F7, F11): one that held a second carry off
+	// past its time stranded a hosted session until its host restarted.
+	it("takes a carry past its time as hung, for every reader alike", () => {
 		let now = 1_000;
-		const carry = hold("penelope", { now: () => now });
+		hold("penelope", { now: () => now });
 
 		now += CARRY_HOLDS_MOST_MS;
-		const lapsed = carryUnderWay(session, { now, evenLapsed: true });
-		carry.release();
 
-		expect(lapsed).toBe("penelope");
-		expect(carryUnderWay(session, { now, evenLapsed: true })).toBeUndefined();
+		expect(carryUnderWay(session, { now })).toBeUndefined();
+	});
+
+	// PV3TE0's round 7 (F6): a carry that carried let go before its
+	// session's close landed, so a second could carry it again.
+	it("keeps a carried hold through its release, until its time", () => {
+		let now = 1_000;
+		const carry = hold("penelope", { now: () => now }, closing(1));
+
+		carry.carried();
+		carry.release();
+		const during = carryUnderWay(closing(1), { now });
+		now += CARRY_HOLDS_MOST_MS;
+
+		expect(during).toBe("penelope");
+		expect(carryUnderWay(closing(1), { now })).toBeUndefined();
+	});
+
+	it("lets a carried hold go at its time, saying nothing", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const told: string[] = [];
+		const carry = hold(
+			"penelope",
+			{ lapsed: (one) => told.push(one.to) },
+			closing(2),
+		);
+
+		carry.carried();
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+
+		expect(told).toEqual([]);
+		// Read on a clock where its time is never up, so only a hold the
+		// timer let go is gone.
+		expect(carryUnderWay(closing(2), { now: 0 })).toBeUndefined();
+	});
+
+	it("lets go of one released before it is called carried", () => {
+		const carry = hold("penelope");
+
+		carry.release();
+		carry.carried();
+
+		expect(carryUnderWay(session)).toBeUndefined();
 	});
 
 	it("lets a lapse that throws go by, so its bare timer never ends the process", () => {

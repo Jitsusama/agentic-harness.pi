@@ -109,10 +109,16 @@ function session(
 				over.taking?.();
 				holdsTaken += 1;
 				let held = true;
-				// Let go once, as the registry's hold is.
-				return () => {
-					if (held) holdsTaken -= 1;
-					held = false;
+				let closing = false;
+				// Let go once, unless carried, as the registry's hold is.
+				return {
+					release: () => {
+						if (held && !closing) holdsTaken -= 1;
+						if (!closing) held = false;
+					},
+					carried: () => {
+						if (held) closing = true;
+					},
 				};
 			},
 			carry: async (to) => {
@@ -601,7 +607,7 @@ describe("an ordered carry", () => {
 		await second;
 		expect(one.did).toContain("carry to penelope");
 		expect(one.said, "carried, nothing is taken up").toEqual([]);
-		expect(one.holdsTaken()).toBe(0);
+		expect(one.holdsTaken(), "carried, kept as it closes").toBe(1);
 	});
 
 	// The second order ends no run on a session the first left idle, so
@@ -639,6 +645,48 @@ describe("an ordered carry", () => {
 		expect(one.refused).toEqual([HELD, HELD]);
 		expect(one.said, "taken up once").toHaveLength(1);
 		expect(one.said[0]).toContain("carry on where you left off");
+	});
+
+	// Each refusal took up the run it ended, so a later order that
+	// ended a run and refused before the first's write landed started
+	// two turns (PV3TE0's round 7, F5 and F10).
+	it("takes up a run once, though an order taken as the first wrote ends a run and refuses first", async () => {
+		let writes = 0;
+		let written: () => void = () => undefined;
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			writing: () => {
+				writes += 1;
+				return writes > 1
+					? Promise.resolve()
+					: new Promise<void>((done) => {
+							written = done;
+						});
+			},
+			carrying: () => one.holdsTaken() > 0,
+		});
+		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await until("its refusal is being written", () => writes === 1);
+		one.idle = false;
+		const second = one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await second;
+		const bySecond = [...one.said];
+		written();
+		await first;
+
+		expect(one.refused).toEqual([HELD, HELD]);
+		expect(
+			bySecond,
+			"taken up by the refusal that finished first",
+		).toHaveLength(1);
+		expect(one.said, "and only once").toHaveLength(1);
 	});
 
 	// A later order of its own carried and let go as it wrote, and the
@@ -847,7 +895,7 @@ describe("an ordered carry", () => {
 		await going;
 
 		expect(seen).toEqual([1, 1, 1]);
-		expect(one.holdsTaken()).toBe(0);
+		expect(one.holdsTaken(), "kept once carried, while it closes").toBe(1);
 	});
 
 	it("lets go of them as it refuses, before its refusal is written, since it carries nothing", async () => {
@@ -877,7 +925,7 @@ describe("an ordered carry", () => {
 		await first;
 
 		expect(during).toEqual([1]);
-		expect(one.holdsTaken()).toBe(0);
+		expect(one.holdsTaken(), "the first's, kept as it closes").toBe(1);
 	});
 
 	it("says a second order on screen alone, so the first carries with no refusal left", async () => {

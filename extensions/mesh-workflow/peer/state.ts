@@ -220,7 +220,7 @@ export function createState(
 	// next isn't taken for an ordinary one. Called from a bare timer, it
 	// never throws: a host would end every conversation for a warning.
 	const lapsed = (hold: CarryHold) => {
-		const text = `a carry to ${hold.to} has held this session its whole time and lets it go; a park or restart may now end it part-way.`;
+		const text = `a carry to ${hold.to} has held this session its whole time and lets it go; a park, a restart or a second carry may now go beside it.`;
 		try {
 			journal(text);
 		} catch {
@@ -257,13 +257,9 @@ export function createState(
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
 			await carryThisSession(m.ctx, to, { timing: { lapsed } });
 		},
-		// A carry past its time still turns a second away: two would write
-		// one handover.
 		carryUnderWay: () => {
 			const session = sessionOf();
-			return session === undefined
-				? undefined
-				: carryUnderWay(session, { evenLapsed: true });
+			return session === undefined ? undefined : carryUnderWay(session);
 		},
 	});
 	// A host's conversation has no window of its own to hand over.
@@ -302,9 +298,12 @@ export function createState(
 		hold: (to) => {
 			const hold = holdForCarry(sessionOf() ?? "", to, { lapsed });
 			orderedHold = hold;
-			return () => {
-				hold.release();
-				if (orderedHold === hold) orderedHold = undefined;
+			return {
+				release: () => {
+					hold.release();
+					if (orderedHold === hold) orderedHold = undefined;
+				},
+				carried: () => hold.carried(),
 			};
 		},
 		carry: async (to) => {
@@ -323,10 +322,8 @@ export function createState(
 			const session = sessionOf();
 			return (
 				session !== undefined &&
-				carryUnderWay(session, {
-					...(orderedHold ? { except: orderedHold } : {}),
-					evenLapsed: true,
-				}) !== undefined
+				carryUnderWay(session, orderedHold ? { except: orderedHold } : {}) !==
+					undefined
 			);
 		},
 		close: (by) => {

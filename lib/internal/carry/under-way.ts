@@ -18,6 +18,9 @@
  * and wrote no done file (BMDYSH, 01:03). A reload is held too, since
  * it replaces the context a carry under way reads and closes through.
  *
+ * A carry that carried keeps its hold while its session closes, so no
+ * door and no second carry of the session goes before the close lands.
+ *
  * Held on `globalThis`, so a reload's fresh modules and a host's engine
  * see the carries the modules before them started; each carry holds
  * its own entry, so of two carries of one session the first to end
@@ -31,9 +34,12 @@ import { processGlobal } from "../process/process-global.ts";
  * How long a carry holds its session's doors at most, so one that hangs
  * never keeps a dead conversation's memory for good (ISXEG8, 23
  * November). A carry takes a minute or two; a node gives an ordered one
- * a quarter hour in all, counted from about when its hold begins. Only
- * the doors lapse: a second carry of the session is turned away while
- * the first still holds, past its time or not.
+ * a quarter hour in all, counted from about when its hold begins. One
+ * past it is taken as hung, by every door and by a second carry of the
+ * session alike: in a host, whose process outlives a conversation's
+ * park, a hold that never lapsed for any of them would turn away every
+ * later carry of the session until the host restarted, which costs more
+ * than a hung carry waking to write beside a second.
  */
 export const CARRY_HOLDS_MOST_MS = 15 * 60_000;
 
@@ -42,8 +48,16 @@ export interface CarryHold {
 	readonly session: string;
 	/** The machine the work goes to. */
 	readonly to: string;
-	/** Let the session's doors go; a second call does nothing. */
+	/**
+	 * Let the session's doors go, unless its carry carried; a second call
+	 * does nothing.
+	 */
 	release(): void;
+	/**
+	 * The carry carried, so its session closes: the hold stays, through
+	 * any release, until its time is up, when it goes saying nothing.
+	 */
+	carried(): void;
 }
 
 /** How a hold is timed, given in tests. */
@@ -82,17 +96,24 @@ export function holdForCarry(
 	const mostMs = timing.mostMs ?? CARRY_HOLDS_MOST_MS;
 	const all = underWay();
 	let released = false;
+	let closing = false;
 	let lapse: ReturnType<typeof setTimeout> | undefined;
+	const letGo = () => {
+		if (released) return;
+		released = true;
+		clearTimeout(lapse);
+		const held = all.get(session);
+		held?.delete(entry);
+		if (held?.size === 0) all.delete(session);
+	};
 	const hold: CarryHold = {
 		session,
 		to,
 		release() {
-			if (released) return;
-			released = true;
-			clearTimeout(lapse);
-			const held = all.get(session);
-			held?.delete(entry);
-			if (held?.size === 0) all.delete(session);
+			if (!closing) letGo();
+		},
+		carried() {
+			if (!released) closing = true;
 		},
 	};
 	const since = now();
@@ -101,9 +122,14 @@ export function holdForCarry(
 	held.add(entry);
 	all.set(session, held);
 	// Says once that a carry outlived its hold, so a park that ends it
-	// isn't silent; unref'd, so it never keeps a process up.
+	// isn't silent, and lets a carried session's go, its close long due;
+	// unref'd, so it never keeps a process up.
 	lapse = setTimeout(() => {
 		if (released) return;
+		if (closing) {
+			letGo();
+			return;
+		}
 		try {
 			timing.lapsed?.(hold);
 		} catch {
@@ -130,23 +156,16 @@ export function carryHoldsReload(session: string): string | undefined {
 /**
  * The machine `session`'s work is being carried to, while a carry other
  * than `except` holds it within its time; the newest, when several do.
- * `evenLapsed` counts a carry past its time that hasn't let go, for
- * what must never run beside one, as a second carry of the session
- * into the same handover: only the doors lapse.
  */
 export function carryUnderWay(
 	session: string,
-	options: {
-		readonly except?: CarryHold;
-		readonly now?: number;
-		readonly evenLapsed?: boolean;
-	} = {},
+	options: { readonly except?: CarryHold; readonly now?: number } = {},
 ): string | undefined {
 	const now = options.now ?? monotonic();
 	let newest: Entry | undefined;
 	for (const entry of underWay().get(session) ?? []) {
 		if (entry.hold === options.except) continue;
-		if (options.evenLapsed !== true && now >= entry.until) continue;
+		if (now >= entry.until) continue;
 		if (newest === undefined || entry.since >= newest.since) newest = entry;
 	}
 	return newest?.hold.to;

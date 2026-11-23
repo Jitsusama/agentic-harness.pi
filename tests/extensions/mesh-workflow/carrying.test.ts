@@ -111,6 +111,26 @@ describe("carrying a steered session's work", () => {
 		});
 	});
 
+	// PV3TE0's round 7 (F6): a carry that carried let go before its
+	// session's close landed, so a second Carry wrote a second handover
+	// of work already gone.
+	it("turns a second carry away once the first has carried, while its session closes", async () => {
+		const home = folder(made, "home");
+		loaded("s-closing", QUEST);
+		const file = join(folder(made, "sessions"), "2026-11-07_s-closing.jsonl");
+		writeFileSync(file, '{"type":"session","id":"s-closing"}\n');
+		const carry = () =>
+			carryThisSession(session("s-closing", home, file), "penelope", {
+				home,
+			});
+
+		await carry();
+
+		await expect(carry()).rejects.toThrow(
+			"a carry to penelope is already under way.",
+		);
+	});
+
 	it("refuses with no quest loaded, having no handover to carry into", async () => {
 		const home = folder(made, "home");
 

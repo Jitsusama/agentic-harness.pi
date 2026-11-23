@@ -294,17 +294,19 @@ describe("parking", () => {
 			expect(refusals).toEqual(["its work is being carried to penelope"]);
 		});
 
-		// PV3TE0's round 6 (F13): two carries would write one handover.
-		it("refuses a second carry beside one whose hold has had its time, though the park goes", async () => {
+		// PV3TE0's round 7 (F2, F7, F11): a hung carry's hold that never
+		// lapsed for a second carry turned away every later Carry of a
+		// hosted session until its host restarted.
+		it("takes a carry whose hold has had its time as hung, letting the park and a second carry go", async () => {
 			const { emit } = await startSession();
 			const hung = holdForCarry(session, "penelope", { mostMs: 0 });
 			left.push(async () => hung.release());
 			const second = carrying();
 
-			await expect(second.carried).rejects.toThrow(
-				"a carry to penelope is already under way.",
-			);
-			expect(parkAsked(emit)).toEqual([]);
+			const park = parkAsked(emit);
+			await second.ended();
+
+			expect(park).toEqual([]);
 		});
 
 		// PV3TE0's round 3 (F2, F5, F10): state.ts sets the ordered carry's
