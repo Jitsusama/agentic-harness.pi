@@ -29,17 +29,21 @@
 # and of the host's sshd noticing a dropped connection, which by sshd's
 # defaults waits on TCP and so may take hours. Each waiter's limit is
 # its own, and waiters take the turn in no order, so a 75 says only that
-# its turn didn't come in time, not that the check before it hung. Exits
-# with what `pnpm check`, or tests/package after it, exited with, or
-# otherwise with what failed under it, such as ssh's 255 when the host
-# can't be reached or its link drops for a minute, or git's own when a
-# fetch fails. Of its own codes, a caller can act on three alone, since
-# nothing under it exits with them as a rule: 75 when its turn never
-# came; 3 when the host's lock can't be taken at all; and 143, 130 or
-# 129 after a TERM, an INT, or a HUP or its caller going. A branch,
-# host, wait or agent it refuses exits 2, and a host with no node or no
-# pnpm for the branch 1, which a failing check exits with too, so its
-# `check-there:` line on stderr is what tells them apart.
+# its turn didn't come in time, not that the check before it hung.
+#
+# Of its exit codes a caller can act on two alone, since nothing under
+# it exits with them as a rule: 75 when its turn never came, and 3 when
+# the host's lock can't be taken at all. Any other is the check's own,
+# tests/package's after it, or what failed under it, such as ssh's 255
+# when the host can't be reached or its link is silent for five
+# minutes, or git's own when a fetch fails. Whatever it refuses, a
+# branch, host, wait or agent, a host with no node or no pnpm for the
+# branch among them, it says in a `check-there:` line on stderr, which
+# is what tells a refusal from a failing check. A TERM, INT or HUP sent
+# to the holder's pid on the host ends it with 143, 130 or 129; a stop
+# at the caller's own terminal ends its ssh, so it comes back as ssh's
+# code. On a 255 the host's check may hold its turn until the host's
+# sshd notices the link went, and the holder's line names its pid.
 #
 # Its checks run one after another in a tree each branch's code ran in,
 # whose untracked files and node_modules outlast it, so a check trusts
@@ -105,10 +109,13 @@ fi
 # The branch goes quoted all the same, should its characters ever widen.
 # The check has a connection of its own, never a shared master's, so the
 # sshd that starts its shell goes when its ssh does. A host asleep, or a
-# link dropped mid-check, ends it with ssh's 255 within a minute or so,
-# not when TCP gives up hours on, as the host's other scripts have it.
+# link silent mid-check, ends it with ssh's 255 after five minutes, not
+# when TCP gives up hours on: long enough that a busy host or a wifi
+# blip doesn't end an hour's check, short enough that a caller hears of
+# a lost host. The host's check may then hold its turn until its sshd
+# notices; the holder's line names the pid to stop it by.
 exec ssh -o BatchMode=yes -o ControlMaster=no -o ControlPath=none \
-  -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
+  -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=20 "$host" "bash -s -- $(printf '%q' "$branch") $wait_s" <<'THERE'
 set -euo pipefail
 # Each job this shell starts leads a process group of its own, so a stop
 # reaches a check's work, and waits for all of it, without signalling
@@ -279,6 +286,13 @@ let_go_of_dead() {
     kill -0 "${link##*.}" 2>/dev/null || rm -f "$link"
   done
 }
+# A Mac sleeps once nobody has touched it a while, however hard it
+# works, which would freeze a check there mid-build or with its turn
+# held; so a check holds it awake for as long as this shell lives,
+# building node, waiting or running.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -i -w "$$" </dev/null >/dev/null 2>&1 &
+fi
 # A shell ssh starts on a Mac finds no node, and pnpm 12 is one binary
 # with its own node inside, so the check's scripts get the node 24 the
 # harness's other scripts run on, from the host's nixpkgs. It is found
@@ -328,15 +342,25 @@ lock() {
 # it reads apart from a failed check. A lock that can't be tried fails
 # the check, which would otherwise share the worktree.
 # The holder's line as its holder wrote it, which that check's own code
-# can rewrite, so it is said only as printable text and at most 120
-# characters: no escapes reach a terminal, nor lines another session
-# would read as this script's.
+# can rewrite, so it is said only when it reads as take_turn writes it,
+# in plain characters: no escapes or reordering marks reach a terminal,
+# nor words another session would read as this script's. It is read
+# only from a plain file, and at most 200 bytes of it, so a FIFO or a
+# link to an endless device left there can't hold the waiter, and only
+# with bash's own read, which every host has.
+HOLDER_LINE='^([A-Za-z0-9._/@+-]{1,160}|a branch), pid [0-9]+, from [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$'
 held_by() {
-  local said
-  said=$(cat "$turn.holder" 2>/dev/null) || said=
-  said=${said//[^[:print:]]/}
-  said=${said:0:120}
-  echo "${said:-unsaid}"
+  local LC_ALL=C said=
+  if [ -f "$turn.holder" ] && [ ! -L "$turn.holder" ]; then
+    IFS= read -r -n 200 said < "$turn.holder" || true
+  fi
+  if [ -z "$said" ]; then
+    echo unsaid
+  elif [[ $said =~ $HOLDER_LINE ]]; then
+    echo "$said"
+  else
+    echo "a line not in its shape"
+  fi
 }
 take_turn() {
   local tried=0 held wait_s=$(( 10#${turn_wait_s:-5400} ))
@@ -367,14 +391,10 @@ take_turn() {
     return 3
   fi
   holder="$turn.holder"
+  # A fresh file, so a link or a FIFO left in its place takes no line.
+  rm -f "$holder"
   printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%a %H:%M')" > "$holder" || true
 }
-# A Mac sleeps once nobody has touched it a while, however hard it
-# works, which would freeze a check there with its turn held; so a check
-# holds it awake for as long as this shell lives, waiting or running.
-if command -v caffeinate >/dev/null 2>&1; then
-  caffeinate -i -w "$$" </dev/null >/dev/null 2>&1 &
-fi
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
 take_turn
@@ -396,7 +416,12 @@ cd "$dir"
 git checkout -q --force --detach "origin/$branch"
 git log --oneline -1
 want=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
-bin=$(ls -d /nix/store/*-pnpm-"$want"/bin 2>/dev/null | head -1)
+# Globs, not ls in a pipe: under errexit and pipefail a match of none
+# would end the check before it said why.
+bin=
+for found in /nix/store/*-pnpm-"$want"/bin; do
+  if [ -d "$found" ]; then bin=$found; break; fi
+done
 if [ -z "$bin" ]; then
   echo "check-there: no pnpm $want in $(hostname)'s store" >&2
   exit 1
@@ -406,8 +431,20 @@ pnpm install --frozen-lockfile --silent
 # On NixOS a prebuilt binary finds only nix-ld's stub loader, which runs
 # nothing without nix-ld set up, so biome is run through glibc's by hand.
 if [ -e /etc/NIXOS ]; then
-  ld=$(ls /nix/store/*-glibc-2.*/lib/ld-linux-x86-64.so.2 2>/dev/null | grep -v -- -bin | tail -1)
-  real=$(ls -d node_modules/.pnpm/@biomejs+cli-linux-x64@*/node_modules/@biomejs/cli-linux-x64/biome | head -1)
+  ld= real=
+  for found in /nix/store/*-glibc-2.*/lib/ld-linux-x86-64.so.2; do
+    case "$found" in
+      /nix/store/*-bin/*) ;;
+      *) if [ -e "$found" ]; then ld=$found; fi ;;
+    esac
+  done
+  for found in node_modules/.pnpm/@biomejs+cli-linux-x64@*/node_modules/@biomejs/cli-linux-x64/biome; do
+    if [ -e "$found" ]; then real=$found; break; fi
+  done
+  if [ -z "$ld" ] || [ -z "$real" ]; then
+    echo "check-there: no glibc loader or no biome on $(hostname) to run biome by" >&2
+    exit 1
+  fi
   mkdir -p ~/.cache/harness-check-bin
   printf '#!/bin/sh\nexec %s %s "$@"\n' "$ld" "$PWD/$real" > ~/.cache/harness-check-bin/biome
   chmod +x ~/.cache/harness-check-bin/biome
