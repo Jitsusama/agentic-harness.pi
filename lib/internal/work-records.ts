@@ -127,16 +127,8 @@ const RACY_MS = 3_000;
  */
 const HUNG_AFTER_MS = 5 * 60_000;
 
-/**
- * How long a caller that asks once waits for its reading by default:
- * long enough to wait behind one reading and run its own at load 85,
- * where one took 26 s, and short enough that an ordered carry's three
- * asks, its ten-minute wait for a run and its half-minute wind-down
- * come to 14.5 minutes, inside the quarter hour its node and its hold
- * give it (ORDERED_WAIT_MS, CARRY_HOLDS_MOST_MS). A caller behind a
- * hung reading is refused at this, not handed the reading after it.
- */
-const ASKED_ONCE_WITHIN_MS = 80_000;
+/** How long a caller that asks once waits for its reading by default. */
+const ASKED_ONCE_WITHIN_MS = 60_000;
 
 // The records each folder held when it was last read, for the whole
 // process and every copy of this module: every session in a host asks

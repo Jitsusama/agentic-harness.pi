@@ -458,11 +458,14 @@ async function eachAtOnce<T, R>(
 }
 
 /**
- * The records a reading has read, by file name, none for a file that
- * holds no record: a listing the directory moved under is listed
- * again, and only the names no listing found before are read.
+ * The records a reading has read, by file name: a listing the directory
+ * moved under is listed again, and only the names it holds no record
+ * for are read. A file that held no record when read, gone or half
+ * written, stays out, so a later listing that names it reads it again:
+ * a record removed and written again at its key during one reading is
+ * still found.
  */
-type ReadSoFar = Map<string, Found | undefined>;
+type ReadSoFar = Map<string, Found>;
 
 /** The names of the records in `dir`, listed off the thread. */
 async function namesOff(dir: string): Promise<string[]> {
@@ -491,7 +494,10 @@ async function readNewOff(
 			return unreadRecord(error);
 		}
 	});
-	for (const [at, name] of fresh.entries()) read.set(name, found[at]);
+	for (const [at, name] of fresh.entries()) {
+		const one = found[at];
+		if (one) read.set(name, one);
+	}
 }
 
 /**
@@ -543,8 +549,11 @@ async function standsOff(path: string): Promise<boolean> {
  * reads only the records no listing found before: on a machine at load
  * 85 one reading of 3,870 records took 26 s, and sessions write the
  * folder every few seconds, so reading each again up to eight times ran
- * past the minute a carry waits. A record rewritten while one reading
- * runs is seen as it was when first read, and as rewritten by the next.
+ * past the minute a carry waits. That 26 s was main's reader, which
+ * read every record again at each listing, timed by hand. A record
+ * rewritten while one reading runs is seen as it was when first read,
+ * and as rewritten by the next, since the kept listing is stamped from
+ * before this one began.
  */
 export async function recallOff(dir: string): Promise<HeldTree[]> {
 	const read: ReadSoFar = new Map();
@@ -632,7 +641,11 @@ export function createTreeMemory(
 	}
 
 	/**
-	 * Every record, read while the directory held still.
+	 * Every record the directory named once it held still, or every one any
+	 * listing named when it never did. A record is read once a reading, so
+	 * one rewritten meanwhile is handed back as first read; a caller that
+	 * rewrites a record does so under that record's lock, which keeps the
+	 * one it changes still from its first read to its write.
 	 *
 	 * A listing taken while another session renamed a record over itself
 	 * left that record out on btrfs, though the file was there throughout:
@@ -679,10 +692,12 @@ export function createTreeMemory(
 			try {
 				text = readFileSync(at, "utf8");
 			} catch (error) {
-				read.set(name, unreadRecord(error));
+				// A passing fault fails the reading; anything else is no record.
+				unreadRecord(error);
 				continue;
 			}
-			read.set(name, parsedRecord(at, text));
+			const one = parsedRecord(at, text);
+			if (one) read.set(name, one);
 		}
 	}
 
