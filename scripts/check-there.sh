@@ -31,13 +31,13 @@
 # its own, and waiters take the turn in no order, so a 75 says only that
 # its turn didn't come in time, not that the check before it hung.
 #
-# Of its exit codes a caller can act on two alone, since the check's
-# own 3 or 75 comes back as 1, saying so: 75 when its turn never came,
-# and 3 when the host's lock can't be taken at all. Any other is the
-# check's own, tests/package's after it, or what failed under it, such
-# as ssh's 255
-# when the host can't be reached or its link is silent for five
-# minutes, or git's own when a fetch fails. Whatever it refuses, a
+# Of its exit codes a caller can act on two alone: 75 when its turn
+# never came, and 3 when the host's lock can't be taken at all. The
+# check's own 3 or 75 comes back as 1, said in a line of its own that
+# doesn't open `check-there:`, since it is a failing check. Any other
+# is the check's own, tests/package's after it, or what failed under
+# it, such as ssh's 255 when the host can't be reached or its link is
+# silent for five minutes, or git's own when a fetch fails. Whatever it refuses, a
 # branch, host, wait or agent, a host with no node or no pnpm for the
 # branch among them, it says in a `check-there:` line on stderr, which
 # is what tells a refusal from a failing check. A TERM, INT or HUP sent
@@ -267,7 +267,7 @@ alone() {
   case "$-:$BASH_SUBSHELL" in
     *m*:0) ;;
     *)
-      echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
+      echo "check-there: ${!#} got no process group of its own, so no stop could reach it" >&2
       return 1
       ;;
   esac
@@ -406,10 +406,10 @@ take_turn() {
 # What the check finds on its host, each said on stdout, or nothing when
 # it isn't there: globs, not ls in a pipe, since under errexit and
 # pipefail a match of none would end the check before it said why.
-# The pnpm a store holds for the version `$1`, from store `$2`.
+# The pnpm store `$1` holds for the version `$2`.
 pnpm_in() {
   local found
-  for found in "$2"/*-pnpm-"$1"/bin; do
+  for found in "$1"/*-pnpm-"$2"/bin; do
     if [ -d "$found" ]; then
       echo "$found"
       return
@@ -464,7 +464,7 @@ cd "$dir"
 git checkout -q --force --detach "origin/$branch"
 git log --oneline -1
 want=$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)
-bin=$(pnpm_in "$want" /nix/store)
+bin=$(pnpm_in /nix/store "$want")
 if [ -z "$bin" ]; then
   echo "check-there: no pnpm $want in $(hostname)'s store" >&2
   exit 1
@@ -481,7 +481,7 @@ if [ -e /etc/NIXOS ]; then
     exit 1
   fi
   mkdir -p ~/.cache/harness-check-bin
-  printf '#!/bin/sh\nexec %s %s "$@"\n' "$ld" "$real" > ~/.cache/harness-check-bin/biome
+  printf '#!/bin/sh\nexec %q %q "$@"\n' "$ld" "$real" > ~/.cache/harness-check-bin/biome
   chmod +x ~/.cache/harness-check-bin/biome
   export BIOME_BINARY=~/.cache/harness-check-bin/biome
 fi
@@ -497,7 +497,7 @@ checked=$?
 set -e
 case "$checked" in
   3 | 75)
-    echo "check-there: the check on $(hostname) exited $checked, a code this script keeps for its own, so it ends 1" >&2
+    echo "the check on $(hostname) exited $checked, a code check-there keeps for its own, so it ends 1" >&2
     exit 1
     ;;
 esac
