@@ -1181,9 +1181,9 @@ export function childSupervisor(options: {
 	 * cleared, so no conversation runs where nothing watches it, and a
 	 * resume's conversation said given up (`gaveUp`), unless the host
 	 * stopped watching, which leaves every child running for the next
-	 * host to take up. A woken one is not said: the wake that asked for
-	 * it still watches, and keeps its refusal and its carried calls, which
-	 * resting it again would drop (F23).
+	 * host to take up. A woken one is said too: a window's attach may wake
+	 * one nothing watches, and the host keeps the watch of one whose
+	 * sleeper still stands (F23), writing back only its marker.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
@@ -1207,7 +1207,7 @@ export function childSupervisor(options: {
 		} catch (error) {
 			if (taken && !closing) {
 				void leave(slot, true);
-				if (session && !woken) options.gaveUp?.(session.sessionId);
+				if (session) options.gaveUp?.(session.sessionId);
 			}
 			throw error;
 		}

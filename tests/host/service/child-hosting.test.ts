@@ -189,9 +189,9 @@ describe("a host's children", () => {
 		);
 	});
 
-	// F23: the wake that asked still watches, keeping the refusal it
-	// writes and the calls its park carried; resting it again drops both.
-	it("leaves one whose wake gave its child up to the wake still watching it", async () => {
+	// F26: a window's attach may wake one nothing watches, so a wake's
+	// give-up is said too; the engine keeps a watch that stands (F23).
+	it("rests one whose wake gave its child up as given up", async () => {
 		units.next = { silent: true };
 
 		await expect(
@@ -201,8 +201,13 @@ describe("a host's children", () => {
 			expect(units.stopped, "its child stopped").toHaveLength(1),
 		);
 
-		expect(givenUp, "not rested as given up").toEqual([]);
-		expect(rested, "nor asked whether it parked").toEqual([]);
+		await vi.waitFor(() =>
+			expect(
+				givenUp.map(({ sessionId }) => sessionId),
+				"rested as given up",
+			).toEqual([a]),
+		);
+		expect(rested, "not asked whether it parked").toEqual([]);
 		expect(
 			held.map(({ sessionId }) => sessionId),
 			"still held",

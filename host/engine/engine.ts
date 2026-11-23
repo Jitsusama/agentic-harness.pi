@@ -666,6 +666,7 @@ export async function createEngine(
 			restGivenUp(entry, {
 				runs: (sessionId) => host.holds(sessionId) !== undefined,
 				wakeFile: (sessionId) => parked.wakeFile(sessionId),
+				watches: (sessionId) => parked.watches(sessionId),
 				takeOn: takeOnResting,
 				pid: host.owner.pid,
 			}),

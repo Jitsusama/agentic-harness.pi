@@ -55,6 +55,7 @@ function hostParking(runs = false) {
 	const place = {
 		runs: () => runs,
 		wakeFile: (sessionId: string) => parked.wakeFile(sessionId),
+		watches: (sessionId: string) => parked.watches(sessionId),
 		takeOn: (held: RosterEntry) => {
 			takenOn.push(held.sessionId);
 			parked.rests(held.sessionId);
@@ -206,5 +207,25 @@ describe("a given-up child's conversation", () => {
 		expect(() => restGivenUp(entry(), place)).toThrow("no watch");
 
 		expect(readParked(A, host.parks), "its own park's marker").toEqual(before);
+	});
+
+	// F23, F26, F27: a wake's give-up keeps the sleeper that woke it, with
+	// the refusal and carried calls it holds, and writes back the marker
+	// its pi's start cleared, so a sender still finds where to wake it.
+	it("keeps the watch that woke it, writing back only its marker", async () => {
+		const host = hostParking();
+		host.parked.rests(A);
+
+		expect(restGivenUp(entry(), host.place), "rested").toBeUndefined();
+
+		expect(host.takenOn, "not taken on again").toEqual([]);
+		expect(readParked(A, host.parks)?.wake, "its marker back").toBe(
+			host.parked.wakeFile(A),
+		);
+		expect(askWake(A, "2f95756a", host.parks), "a sender asked").toBe(true);
+		await until("the sender's wake to reach the first watch", () =>
+			host.asking.mock.calls.some(([id]) => id === A),
+		);
+		host.parked.unwatch(A);
 	});
 });
