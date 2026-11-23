@@ -123,6 +123,51 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(lastSent()).toBeUndefined();
 	});
 
+	it("counts the person's acts in a question put to a hub whose presence spells its address in lower case", async () => {
+		onQuest();
+		cellIn("session-q", "5gv2ah", ["#quest/5gv2ah"]);
+		const env = await node([asker], [tieTo("5gv2ah", 2)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"orchestrator",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	});
+
+	// The mark names the orchestrator in upper case; its presence may list
+	// it otherwise, and every address it lists is still the orchestrator's.
+	it("counts the person's acts in a question put to the marked orchestrator by another address, whatever case its presence lists", async () => {
+		onQuest();
+		markedParent();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5gv2ah", "OLD001"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession(noNode());
+
+		const refused = await send(
+			tools,
+			"OLD001",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	});
+
 	// Its owner is this process under another start, so it has ended.
 	it("never picks a cell whose session has ended", async () => {
 		onQuest();

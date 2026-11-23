@@ -14,6 +14,7 @@ import {
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
+import { isWord, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
@@ -118,7 +119,7 @@ async function saidLately(at: Local, group: string): Promise<string> {
 		if (latest.length >= LATELY) break;
 		const message = await at.transport.readOff(ids[index] as string);
 		if (!message?.to.includes(group)) continue;
-		const whole = line(message).replace(/\s+/g, " ");
+		const whole = oneLine(line(message));
 		latest.unshift(
 			whole.length > LATELY_CHARS
 				? `${whole.slice(0, LATELY_CHARS - 3)}...`
@@ -258,11 +259,13 @@ const WORK_CHARS = 100;
  * The census as mesh_groups lists it, each presence held to what its
  * lines may say. A presence says its strings as any it likes, and a
  * reader checks a grant against the quest a peer line names, so none
- * may carry a line of its own into the listing: a presence whose
- * signature isn't an address is left out, as are any of its other
- * addresses or groups that aren't one word, a quest that isn't a quest
- * id as quest-workflow mints one, and every other string it prints is
- * said on one line.
+ * may carry a line of its own into the listing, nor a field of another
+ * peer's into its own line. A presence whose signature isn't an address
+ * is left out, as are its other addresses that aren't one, its groups,
+ * joined groups, machine or tool step that aren't one word and a quest
+ * that isn't a quest id as quest-workflow mints one; its prose, what it
+ * works on, wants and a step's detail, is said on one line, as
+ * `stopsText` says the reasons its stops give.
  */
 export function listable(standing: Census): Census {
 	const shown = (all: readonly Presence[]) => all.flatMap(listed);
@@ -277,27 +280,20 @@ export function listable(standing: Census): Census {
 function listed(one: Presence): Presence[] {
 	const [signature, ...others] = one.addresses;
 	if (signature === undefined || !isAddress(signature)) return [];
-	const word = (text: string) => !/\s/u.test(text);
 	const { quest, machine, stepDetail, wants, joined, ...rest } = one;
+	const named = questNamed(quest);
 	return [
 		{
 			...rest,
 			addresses: [signature, ...others.filter(isAddress)],
-			groups: one.groups.filter(word),
+			groups: one.groups.filter(isWord),
 			worksOn: oneLine(one.worksOn),
-			...(joined !== undefined ? { joined: joined.filter(word) } : {}),
-			...(quest !== undefined && isId(quest) && prefixOf(quest) === "QEST"
-				? { quest }
-				: {}),
-			...(machine !== undefined ? { machine: oneLine(machine) } : {}),
-			...(stepDetail !== undefined
-				? {
-						stepDetail: {
-							...stepDetail,
-							name: oneLine(stepDetail.name),
-							detail: oneLine(stepDetail.detail),
-						},
-					}
+			...(joined !== undefined ? { joined: joined.filter(isWord) } : {}),
+			...(named !== undefined ? { quest: named } : {}),
+			...(machine !== undefined && isWord(machine) ? { machine } : {}),
+			...(stepDetail !== undefined &&
+			(stepDetail.kind !== "tool" || isWord(stepDetail.name))
+				? { stepDetail: { ...stepDetail, detail: oneLine(stepDetail.detail) } }
 				: {}),
 			...(wants !== undefined
 				? { wants: { ...wants, said: oneLine(wants.said) } }
@@ -306,9 +302,15 @@ function listed(one: Presence): Presence[] {
 	];
 }
 
-/** Text said on one line, however many it came on. */
-function oneLine(text: string): string {
-	return text.replace(/\s+/gu, " ").trim();
+/**
+ * A presence's quest, when it is a quest id as quest-workflow mints one:
+ * a reader checks a grant against the quest a peer line names, so a
+ * document's id or anything longer than an id is never named as one.
+ */
+function questNamed(quest: string | undefined): string | undefined {
+	return quest !== undefined && isId(quest) && prefixOf(quest) === "QEST"
+		? quest
+		: undefined;
 }
 
 /** How long a step runs before mesh_groups says what it is. */
@@ -317,7 +319,8 @@ const STEP_SAID_AFTER_MS = 60_000;
 /**
  * Every other peer still there, one line each: whether it is in a run,
  * and what it works on, so a peer can tell whom to ask without asking.
- * One line each holds only for presences as `listable` gives them.
+ * A quest is named only as `listable` would keep it, whoever calls; one
+ * line each holds for presences as `listable` gives them.
  */
 export function peersText(
 	present: readonly Presence[],
@@ -335,7 +338,8 @@ export function peersText(
 		const where = one.machine ? ` on ${one.machine}` : "";
 		// Its own quest, apart from the groups it joined, which any peer
 		// may: a grant comes from the peer whose own quest holds the work.
-		const quest = one.quest !== undefined ? `, quest ${one.quest}` : "";
+		const named = questNamed(one.quest);
+		const quest = named !== undefined ? `, quest ${named}` : "";
 		const run = back.has(one.session)
 			? "resuming as its host starts again"
 			: runText(one, now);
@@ -384,16 +388,15 @@ export function tiesText(
 		return "\nTies: none in the last day. A message ties its sender to each peer its to names and to the one it answers; one only to groups ties no one.";
 	}
 	const lines = ties.slice(0, MOST_TIES).map((tie) => {
-		const work = present
-			.find((one) => one.addresses.includes(tie.other))
-			?.worksOn.replace(/\s+/g, " ")
-			.trim();
+		const found = present.find((one) => one.addresses.includes(tie.other));
+		const work = found !== undefined ? oneLine(found.worksOn) : undefined;
 		const cut =
 			work && work.length > TIE_WORK_CHARS
 				? `${work.slice(0, TIE_WORK_CHARS - 3)}...`
 				: work;
-		const intents = tie.intents.length > 0 ? `; ${tie.intents.join(", ")}` : "";
-		return `${tie.other}${cut ? ` (${cut})` : ""}: ${tie.strength.toFixed(1)}; this hour ${tie.hour[0]} sent, ${tie.hour[1]} heard; today ${tie.today[0]} sent, ${tie.today[1]} heard${intents}`;
+		const intents =
+			tie.intents.length > 0 ? `; ${oneLine(tie.intents.join(", "))}` : "";
+		return `${oneLine(tie.other)}${cut ? ` (${cut})` : ""}: ${tie.strength.toFixed(1)}; this hour ${tie.hour[0]} sent, ${tie.hour[1]} heard; today ${tie.today[0]} sent, ${tie.today[1]} heard${intents}`;
 	});
 	const more =
 		ties.length > MOST_TIES ? [`and ${ties.length - MOST_TIES} weaker`] : [];

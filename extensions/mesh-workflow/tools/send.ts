@@ -19,7 +19,7 @@ import {
 	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
-import { onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
+import { lists, onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
 import {
 	heading,
@@ -151,9 +151,8 @@ function toOrchestrator(
 	present: readonly Presence[],
 ): boolean {
 	if (orchestratedBy === undefined) return false;
-	const addresses = present.find((one) =>
-		one.addresses.includes(orchestratedBy),
-	)?.addresses ?? [orchestratedBy];
+	const addresses = present.find((one) => lists(one, orchestratedBy))
+		?.addresses ?? [orchestratedBy];
 	return addresses.some((address) =>
 		named.includes(homeOf(address.toUpperCase())),
 	);

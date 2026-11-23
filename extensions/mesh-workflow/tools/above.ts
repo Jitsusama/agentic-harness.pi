@@ -35,10 +35,11 @@ export const HUB_KEEP_MS = 5 * 60_000;
 export const HUB_RETRY_MS = 30_000;
 
 /**
- * How long a kept hub is trusted with no find coming to it: a node
- * quiet this long is down rather than slow, and the talk the hub was
- * chosen from is going stale, so the hub is read as none until a find
- * comes to one again.
+ * How long a kept hub is trusted with no find coming to it, in waking
+ * time: a node quiet this long is down rather than slow, so the hub is
+ * read as none until a find comes to one again. A sleep doesn't count,
+ * since the talk the hub was chosen from is read afresh by the next
+ * find, due within `HUB_KEEP_MS` of waking.
  */
 export const HUB_TRUST_MS = 30 * 60_000;
 

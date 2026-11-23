@@ -1,17 +1,23 @@
 /** mesh_stop: stopping a peer reaching this one, and saying who has. */
 
 import { groupNamed } from "../../../lib/mesh/group.ts";
+import { oneLine } from "../../../lib/mesh/one-line.ts";
 import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
 
-/** The stops on this peer, said to it. */
+/**
+ * The stops on this peer, said to it on one line: a stopper gives its
+ * reason as it likes, so none may start a line of its own.
+ */
 export function stopsText(stops: ReturnType<typeof stoppedBy>): string {
-	return stops
-		.map(
-			({ stopper, stop }) =>
-				`${stopper.addresses[0]} stopped this peer reaching it${stop.why ? ` (${stop.why})` : ""}: it sees what this peer sends as one line only.`,
-		)
-		.join(" ");
+	return oneLine(
+		stops
+			.map(
+				({ stopper, stop }) =>
+					`${stopper.addresses[0]} stopped this peer reaching it${stop.why ? ` (${stop.why})` : ""}: it sees what this peer sends as one line only.`,
+			)
+			.join(" "),
+	);
 }
 
 export async function stop(
