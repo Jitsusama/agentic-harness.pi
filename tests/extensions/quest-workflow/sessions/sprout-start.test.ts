@@ -386,6 +386,9 @@ describe("a sprouted session's start", () => {
 			expect(words).toMatch(
 				/tied on the map to the cell it came from, TERN02/u,
 			);
+			expect(words, "the words say what no log could").toContain(
+				"The quest's lock was busy, so this start may not have marked it as the sprout's, and couldn't log that: a replay of it may not find this quest and make another. Tell the person",
+			);
 		} finally {
 			failing.aliases = false;
 		}
@@ -444,6 +447,9 @@ describe("a sprouted session's start", () => {
 		).toContain(
 			"sprout S50: its mark sprout:S50 wasn't written, so a replay of it may not find this quest and make another",
 		);
+		expect(again.words, "a mark its log holds needs no words").not.toMatch(
+			/lock was busy/u,
+		);
 	});
 
 	it("still marks a made quest with its link and need after its own mark is refused", async () => {
@@ -501,6 +507,12 @@ describe("a sprouted session's start", () => {
 				ran.map((args) => args[2]),
 				"the tie to the map is still made",
 			).toEqual(["tie"]);
+			expect(
+				again.words,
+				"its words name both marks no log holds, its own and its link's",
+			).toContain(
+				"couldn't log that: a replay of it may not find this quest and make another, and the next sprout of its link may not find this quest and make another.",
+			);
 		} finally {
 			failing.unwrittenLog = false;
 		}
@@ -777,6 +789,9 @@ describe("a sprouted session's start", () => {
 				"nor is its need",
 			).toBeUndefined();
 			expect(ran, "a quest it joined is never tied").toEqual([]);
+			expect(again.words, "the words say what no log could").toContain(
+				"couldn't log that: a replay of it after this quest ends may start its work again.",
+			);
 		} finally {
 			failing.aliases = false;
 		}

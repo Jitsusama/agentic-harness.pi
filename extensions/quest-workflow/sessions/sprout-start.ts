@@ -40,6 +40,7 @@ import {
 	type Tied,
 	tieArguments,
 	titleFromWords,
+	unrecordedSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
@@ -152,6 +153,9 @@ export async function startSprouted(
 	// and every write left would ask for it again, so once one throws this
 	// start writes that quest no more: its tie and first words still go.
 	let locked = false;
+	// What each mark the busy lock kept unwritten, or unlogged, costs: no
+	// log can say so, so the first words do, needing no lock.
+	const unrecorded: string[] = [];
 	if (held === undefined) {
 		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
@@ -161,7 +165,7 @@ export async function startSprouted(
 			...(alias ? [{ mark: alias, so: UNFOUND }] : []),
 			...(link ? [{ mark: link, so: LINK_UNFOUND }] : []),
 		];
-		for (const { mark, so } of marks) {
+		for (const [at, { mark, so }] of marks.entries()) {
 			// A mark refused leaves the quest made, so it is still tied below
 			// rather than left untied, and its log says what may not find it.
 			// A refusal takes no lock, so its log is the first write to ask
@@ -170,7 +174,10 @@ export async function startSprouted(
 			locked =
 				got === "locked" ||
 				(got === "refused" && markUnwritten(state, id, seed, mark, so));
-			if (locked) break;
+			if (locked) {
+				unrecorded.push(...marks.slice(at).map((left) => left.so));
+				break;
+			}
 		}
 	} else if (!replayed && joinMark) {
 		// A live quest it joined takes a mark of its own, so a replay after
@@ -184,6 +191,7 @@ export async function startSprouted(
 			got === "locked" ||
 			(got === "refused" &&
 				markUnwritten(state, id, seed, joinMark, RESTARTED));
+		if (locked) unrecorded.push(RESTARTED);
 	}
 	if (!locked) servesNeed(state, id, seed);
 	// Only a quest it made, or its own replayed, is sprouted from the cell
@@ -193,7 +201,7 @@ export async function startSprouted(
 		held !== undefined && !made
 			? ({ kind: "none" } as const)
 			: await tie(id, seed.from, ctx.cwd, deps.run);
-	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
+	hints.firstWords = `${sproutedWords(id, seed, tied, joined, linkIs)}${unrecordedSaid(unrecorded)}`;
 }
 
 /**

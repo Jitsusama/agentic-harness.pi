@@ -251,6 +251,18 @@ export function sproutedWords(
 }
 
 /**
+ * What the first words add when the quest's lock was busy for a sprout's
+ * marks, each cost being what one mark left unwritten, and unlogged,
+ * means for a later start; nothing when every mark was written or
+ * logged. A mark the lock refused may still have landed, so it says
+ * "may not".
+ */
+export function unrecordedSaid(costs: readonly string[]): string {
+	if (costs.length === 0) return "";
+	return ` The quest's lock was busy, so this start may not have marked it as the sprout's, and couldn't log that: ${costs.join(", and ")}. Tell the person, so a second start of this work has a reason they can find.`;
+}
+
+/**
  * Where a sprout's work comes from when its link names a place work
  * happens, such as a repository, rather than the work: the words say
  * the work, and with none the person is asked for it, unless the quest
