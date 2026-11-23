@@ -20,8 +20,8 @@
 # npm's prebuilt biome through glibc's own loader where the host has no
 # nix-ld. Checks on one host take turns, since they share that worktree;
 # one waits CHECK_THERE_WAIT_S seconds (5400 by default), never fewer and
-# a second or two more, for the check before it to end, and a Mac stays
-# awake while a check there runs. Its holder's line names the pid that stops
+# a second or two more, for the check before it to end, and a Mac doesn't
+# idle to sleep while a check there runs. Its holder's line names the pid that stops
 # the whole of a check with a TERM, its turn passing once its work has
 # stopped. A check whose caller goes away stops the same way, since
 # without a pty sshd signals nothing as it goes and the check asks after
@@ -80,13 +80,18 @@ esac
 # takes only a branch named in plain characters. ssh would read a host
 # that opens with a dash, or a name after its user that does, as one of
 # its options, and an older ssh puts the name as it stands into a
-# ProxyCommand's shell line.
+# ProxyCommand's shell line. Past 160 characters the holder's line it
+# writes would read to every waiter as not in its shape.
 case "$branch" in
   '' | -* | *[!A-Za-z0-9._/@+-]*)
     echo "check-there: '$branch' names no branch a check can take" >&2
     exit 2
     ;;
 esac
+if [ "${#branch}" -gt 160 ]; then
+  echo "check-there: '$branch' is past 160 characters, longer than a check's holder's line names" >&2
+  exit 2
+fi
 case "$host" in
   -* | *@-* | *[!A-Za-z0-9._@-]*)
     echo "check-there: '$host' names no host" >&2
@@ -345,14 +350,16 @@ lock() {
 # can rewrite, so it is said only when it reads as take_turn writes it,
 # in plain characters: no escapes or reordering marks reach a terminal,
 # nor words another session would read as this script's. It is read
-# only from a plain file, and at most 200 bytes of it, so a FIFO or a
-# link to an endless device left there can't hold the waiter, and only
-# with bash's own read, which every host has.
+# only from a plain file, at most 200 bytes of it for at most a second,
+# opened for writing too, which never waits on a FIFO, so neither a FIFO
+# nor a link to an endless device can hold the waiter, even one swapped
+# in after the look; and only with bash's own read, which every host has.
+# Its time is in digits, so a host's locale can't make it another shape.
 held_by() {
   local LC_ALL=C said=
-  local shape='^([A-Za-z0-9._/@+-]{1,160}|a branch), pid [0-9]+, from [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$'
+  local shape='^([A-Za-z0-9._/@+-]{1,160}|a branch), pid [0-9]+, from [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
   if [ -f "$turn.holder" ] && [ ! -L "$turn.holder" ]; then
-    IFS= read -r -n 200 said < "$turn.holder" || true
+    IFS= read -r -t 1 -n 200 said 2>/dev/null <> "$turn.holder" || true
   fi
   if [ -z "$said" ]; then
     echo unsaid
@@ -393,7 +400,7 @@ take_turn() {
   holder="$turn.holder"
   # A fresh file, so a link or a FIFO left in its place takes no line.
   rm -f "$holder"
-  printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%a %H:%M')" > "$holder" || true
+  printf '%s, pid %s, from %s\n' "${branch:-a branch}" "$$" "$(date '+%Y-%m-%d %H:%M')" > "$holder" || true
 }
 turn=~/.cache/harness-check.lock
 exec 9> "$turn"
