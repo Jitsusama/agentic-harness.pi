@@ -117,7 +117,10 @@ function context(
  * of the session context, such as what is waiting to go.
  */
 async function runUntilCompaction(
-	outcome: Parameters<typeof context>[1],
+	outcome: (
+		options: Parameters<Parameters<typeof context>[1]>[0],
+		handlers: Map<string, Handler>,
+	) => void,
 	branch?: () => unknown[],
 	toolResults: unknown[] = [{}],
 	overrides: object = {},
@@ -130,7 +133,7 @@ async function runUntilCompaction(
 			() => size,
 			(options) => {
 				compacted = true;
-				outcome(options);
+				outcome(options, handlers);
 			},
 			branch,
 		),
@@ -145,7 +148,7 @@ async function runUntilCompaction(
 		await turnEnd({ toolResults });
 	}
 	if (!compacted) throw new Error("the policy never compacted");
-	// A run for waiting messages is started once pi is idle, a turn on.
+	// A resume is started once pi is idle, a turn on.
 	await nextTurn();
 	return calls;
 }
@@ -199,6 +202,23 @@ const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 const nextLook = () =>
 	// A check that found pi busy looks again a quarter-second on.
 	new Promise((resolve) => setTimeout(resolve, 400));
+
+/** Long enough for a run for waiting messages to take its first look. */
+const settles = () =>
+	// It holds its first look half a second, for a prompt still starting.
+	new Promise((resolve) => setTimeout(resolve, 600));
+
+/** A prompt pi's screen sent, as an input handler hears it. */
+const input = (handlers: Map<string, Handler>, streamingBehavior?: string) =>
+	handlers.get("input")?.(
+		{
+			type: "input",
+			text: "and this",
+			source: "interactive",
+			streamingBehavior,
+		},
+		{},
+	);
 
 /** The entries of a type a runtime appended. */
 const appended = (calls: Recorded, type: string) =>
@@ -349,6 +369,7 @@ describe("resuming the run a compaction interrupted", () => {
 			[],
 			{ hasPendingMessages: () => true },
 		);
+		await settles();
 
 		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
 			WAITING_TEXT,
@@ -380,9 +401,113 @@ describe("resuming the run a compaction interrupted", () => {
 		expect(calls.sendUserMessage, "nothing while that run goes").toEqual([]);
 		pending = false;
 		idle = true;
-		await nextLook();
+		await settles();
 
 		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("starts nothing for waiting messages a prompt pi's screen began will deliver, though pi is still idle", async () => {
+		// pi's prompt awaits its input handlers and its auth check before
+		// it is busy, and the rest of what was typed is queued meanwhile.
+		const calls = await runUntilCompaction(
+			(options, handlers) => {
+				input(handlers);
+				options.onComplete?.();
+			},
+			() => [],
+			[],
+			{ hasPendingMessages: () => true },
+		);
+		await settles();
+
+		expect(calls.sendUserMessage).toEqual([]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "asker" }),
+		]);
+	});
+
+	it("waits a moment before its first look, for a prompt whose input handlers are still running", async () => {
+		// One loaded before this extension that awaits the disk holds back
+		// the input this one hears.
+		const calls = await runUntilCompaction(
+			(options, handlers) => {
+				options.onComplete?.();
+				setTimeout(() => input(handlers), 200);
+			},
+			() => [],
+			[],
+			{ hasPendingMessages: () => true },
+		);
+		await settles();
+
+		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("starts a run for waiting messages though one was queued while pi streamed", async () => {
+		// A message queued behind a run starts none, and the compaction cut
+		// the run it was queued for.
+		const calls = await runUntilCompaction(
+			(options, handlers) => {
+				input(handlers, "followUp");
+				options.onComplete?.();
+			},
+			() => [],
+			[],
+			{ hasPendingMessages: () => true },
+		);
+		await settles();
+
+		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
+			WAITING_TEXT,
+		]);
+	});
+
+	it("leaves its landing unsettled until the run for waiting messages is decided, for a reload's successor", async () => {
+		const calls = await runUntilCompaction(
+			(options) => options.onComplete?.(),
+			() => [],
+			[],
+			{ hasPendingMessages: () => true },
+		);
+		expect(appended(calls, SETTLED_ENTRY), "nothing settled yet").toEqual([]);
+		await settles();
+
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "asker" }),
+		]);
+	});
+
+	it("settles quietly when pi stays busy past the wait for waiting messages, as a run going delivers them", async () => {
+		const written: string[] = [];
+		const spy = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation((chunk: string | Uint8Array) => {
+				written.push(String(chunk));
+				return true;
+			});
+		let idle = true;
+		vi.useFakeTimers({ toFake: ["setTimeout", "Date"] });
+		try {
+			const calls = await runUntilCompaction(
+				(options) => {
+					idle = false;
+					options.onComplete?.();
+				},
+				() => [],
+				[],
+				{ isIdle: () => idle, hasPendingMessages: () => true },
+			);
+			await vi.advanceTimersByTimeAsync(61_000);
+
+			expect(calls.sendUserMessage).toEqual([]);
+			expect(written).toEqual([]);
+			expect(appended(calls, SETTLED_ENTRY)).toEqual([
+				expect.objectContaining({ resumed: false, by: "asker" }),
+			]);
+		} finally {
+			vi.useRealTimers();
+			spy.mockRestore();
+		}
 	});
 
 	it("starts a run for messages that waited through a failed compaction that cut nothing", async () => {
@@ -392,6 +517,7 @@ describe("resuming the run a compaction interrupted", () => {
 			[],
 			{ hasPendingMessages: () => true },
 		);
+		await settles();
 
 		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
 			FAILED_WAITING_TEXT,
@@ -409,6 +535,7 @@ describe("resuming the run a compaction interrupted", () => {
 			[],
 			{ hasPendingMessages: () => true },
 		);
+		await settles();
 
 		expect(calls.sendUserMessage).toEqual([]);
 	});
@@ -709,6 +836,7 @@ describe("resuming from the log a run another runtime owed", () => {
 
 		await handlers.get("session_compact_failed")?.({ aborted: false }, ctx);
 		await nextTurn();
+		await settles();
 
 		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
 			FAILED_WAITING_TEXT,
@@ -725,6 +853,7 @@ describe("resuming from the log a run another runtime owed", () => {
 
 		await handlers.get("session_compact_failed")?.({ aborted: true }, ctx);
 		await nextTurn();
+		await settles();
 
 		expect(calls.sendUserMessage).toEqual([]);
 	});
@@ -742,6 +871,7 @@ describe("resuming from the log a run another runtime owed", () => {
 		entries.push(compactionEntry(now));
 		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
 		await nextTurn();
+		await settles();
 
 		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
 			WAITING_TEXT,
@@ -767,6 +897,7 @@ describe("resuming from the log a run another runtime owed", () => {
 			"reload",
 			{ hasPendingMessages: () => true },
 		);
+		await settles();
 
 		expect(duringStart, "nothing sent from session_start").toBe(0);
 		expect(calls.sendUserMessage.map((call) => call[0])).toEqual([
@@ -790,6 +921,7 @@ describe("resuming from the log a run another runtime owed", () => {
 		entries.push(compactionEntry(now));
 		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
 		await nextTurn();
+		await settles();
 
 		expect(calls.sendUserMessage).toEqual([]);
 	});
@@ -807,6 +939,7 @@ describe("resuming from the log a run another runtime owed", () => {
 
 		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
 		await nextTurn();
+		await settles();
 
 		expect(calls.sendUserMessage).toEqual([]);
 	});

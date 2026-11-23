@@ -234,37 +234,65 @@ const IDLE_LOOKS_EVERY_MS = 250;
 const IDLE_LOOKS_FOR_MS = 60_000;
 
 /**
- * Run `then` once pi is idle: on the next turn of the loop, and again
- * every IDLE_LOOKS_EVERY_MS until IDLE_LOOKS_FOR_MS has passed, after
- * which it gives up and says so. A context a reload replaced ends it
- * quietly. Any other failure is said rather than thrown, since a throw
- * from a timer has nobody above it to catch and takes pi down.
+ * How long a run for waiting messages holds its first look, in ms. A
+ * prompt pi's screen sends as a compaction ends is idle until its input
+ * handlers and its auth check are done, and only this extension's own
+ * input handler says it has begun: one loaded before it that awaits the
+ * disk holds that past the next turn of the loop. Messages that waited
+ * through a whole compaction lose nothing to half a second more.
+ */
+const WAITING_SETTLES_MS = 500;
+
+/** How a check waiting for pi to be idle begins and gives up. */
+interface IdleWait {
+	/** How long the first look waits, in ms; the next turn of the loop if unsaid. */
+	readonly firstLookMs?: number;
+	/** What it does once pi has stayed busy IDLE_LOOKS_FOR_MS. */
+	readonly busy: () => void;
+}
+
+/** Says so, for a run a compaction owed, which nothing else will start. */
+const OWED_WAIT: IdleWait = {
+	busy: () =>
+		say(
+			`pi stayed busy for ${IDLE_LOOKS_FOR_MS / 1000} s, so the run a compaction owed wasn't started`,
+		),
+};
+
+/**
+ * Run `then` once pi is idle: on the first look, and again every
+ * IDLE_LOOKS_EVERY_MS until IDLE_LOOKS_FOR_MS has passed, after which it
+ * gives up as `wait` says. A context a reload replaced ends it quietly.
+ * Any other failure is said rather than thrown, since a throw from a
+ * timer has nobody above it to catch and takes pi down.
  */
 function whenIdle(
 	ctx: ExtensionContext,
 	then: () => void,
+	wait: IdleWait = OWED_WAIT,
 	until: number = Date.now() + IDLE_LOOKS_FOR_MS,
 	looked = false,
 ): void {
 	const look = () => {
 		try {
 			if (ctx.isIdle()) then();
-			else if (Date.now() < until) whenIdle(ctx, then, until, true);
-			else
-				say(
-					`pi stayed busy for ${IDLE_LOOKS_FOR_MS / 1000} s, so the run a compaction owed wasn't started`,
-				);
+			else if (Date.now() < until) whenIdle(ctx, then, wait, until, true);
+			else wait.busy();
 		} catch (error) {
 			if (isStaleContext(error)) return;
 			const why = error instanceof Error ? error.message : String(error);
 			say(`couldn't start the run a compaction owed: ${why}`);
 		}
 	};
-	// The first look waits only for this turn of the loop to finish, as
-	// pi's own state settles once the handler that asked returns.
-	if (!looked) setImmediate(look);
-	// Later looks are spaced, so a long wait costs the loop little.
-	else setTimeout(look, IDLE_LOOKS_EVERY_MS);
+	if (looked) {
+		// Later looks are spaced, so a long wait costs the loop little.
+		setTimeout(look, IDLE_LOOKS_EVERY_MS);
+	} else if (wait.firstLookMs === undefined) {
+		// pi's own state settles once the handler that asked returns.
+		setImmediate(look);
+	} else {
+		setTimeout(look, wait.firstLookMs);
+	}
 }
 
 /**
@@ -370,6 +398,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// so its own landing is left to its onComplete rather than resumed
 	// from the log too: pi awaits the work item's end between the two.
 	let askOpen = false;
+	// When a prompt that starts a run of its own last began, which pi
+	// says before it is busy (see waitingRun).
+	let runPromptAt = Number.NEGATIVE_INFINITY;
 	let failures = 0;
 	let holdTurns = 0;
 
@@ -482,10 +513,14 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		ctx.compact({
 			onComplete: whileCurrent(() => {
 				askOpen = false;
-				const resume = owed();
-				settleAsk(pi, resume, "asker");
-				if (resume) resumeRun(pi, RESUME_TEXT);
-				else answerWaiting(ctx, WAITING_TEXT);
+				if (owed()) {
+					settleAsk(pi, true, "asker");
+					resumeRun(pi, RESUME_TEXT);
+				} else {
+					// Settled once the waiting run is decided, so a reload before
+					// then leaves the landing for its successor to answer.
+					waitingRun(ctx, WAITING_TEXT, ask.at, "asker");
+				}
 			}),
 			onError: whileCurrent((error: Error) => {
 				askOpen = false;
@@ -510,22 +545,46 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				const resume = !cancelled && owed();
 				settleAsk(pi, resume, "asker");
 				if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
-				else if (!cancelled) answerWaiting(ctx, FAILED_WAITING_TEXT);
+				else if (!cancelled) waitingRun(ctx, FAILED_WAITING_TEXT, ask.at);
 			}),
 		});
 	};
 
 	/**
-	 * Start a run for messages still waiting once pi is idle. pi's
-	 * interactive screen sends what was typed during the compaction itself
-	 * as it ends, and any run drains the queue before it ends, so messages
-	 * still waiting once pi rests are those only a run of ours delivers.
+	 * Start a run for messages still waiting once pi is idle, settling the
+	 * ask first as `by` when it is still to answer. pi's interactive screen
+	 * sends what was typed during the compaction itself as it ends, and any
+	 * run drains the queue before it ends, so messages still waiting once
+	 * pi rests are those only a run of ours delivers. A prompt that starts
+	 * a run is idle until its input handlers and its auth check are done,
+	 * so one begun since the ask (`since`) counts as that run. pi busy past
+	 * the wait is a run going, which delivers them, so it is not said.
 	 */
-	function answerWaiting(ctx: ExtensionContext, text: string): void {
-		whenIdle(ctx, () => {
-			if (ctx.hasPendingMessages()) resumeRun(pi, text);
-		});
+	function waitingRun(
+		ctx: ExtensionContext,
+		text: string,
+		since: number,
+		by?: SettledBy,
+	): void {
+		const settle = () => {
+			if (by) settleAsk(pi, false, by);
+		};
+		whenIdle(
+			ctx,
+			() => {
+				const waiting = ctx.hasPendingMessages() && runPromptAt < since;
+				settle();
+				if (waiting) resumeRun(pi, text);
+			},
+			{ firstLookMs: WAITING_SETTLES_MS, busy: settle },
+		);
 	}
+
+	// pi gives a prompt that will start a run no streaming behaviour, and
+	// says it before the run is under way.
+	pi.on("input", (event) => {
+		if (event.streamingBehavior === undefined) runPromptAt = Date.now();
+	});
 
 	// A summary finished while nobody is working is applied at once: a
 	// compaction between runs interrupts nothing.
@@ -642,8 +701,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 				return;
 			}
 			if (landed && ctx.hasPendingMessages()) {
-				settleAsk(pi, false, "successor");
-				resumeRun(pi, WAITING_TEXT);
+				waitingRun(ctx, WAITING_TEXT, landed.ask.at, "successor");
 				return;
 			}
 			if (reason !== "startup") return;
@@ -673,7 +731,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			settleAsk(pi, resume, "successor");
 			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
 			else if (!cancelled && ctx.hasPendingMessages()) {
-				resumeRun(pi, FAILED_WAITING_TEXT);
+				waitingRun(ctx, FAILED_WAITING_TEXT, ask.at);
 			}
 		});
 	}
