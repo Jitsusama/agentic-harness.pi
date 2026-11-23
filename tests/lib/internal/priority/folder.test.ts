@@ -9,12 +9,12 @@ import {
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tellAwaited } from "../../../../lib/internal/priority/awaited.ts";
+import { UNSTAMPED_BOOT_SLACK_MS } from "../../../../lib/internal/priority/boot-cut.ts";
 import {
 	KEPT_FOR_MS,
 	PID_MS,
 	QUEUE_FIRST_FILE,
 	queueFolder,
-	UNSTAMPED_BOOT_SLACK_MS,
 } from "../../../../lib/internal/priority/folder.ts";
 import { NEWER_KEEPER_MS } from "../../../../lib/internal/priority/keeper.ts";
 import {
