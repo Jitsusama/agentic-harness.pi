@@ -780,3 +780,95 @@ describe("taking a tree only while its sessions have all ended", () => {
 		expect(memory.recall().map((one) => one.path)).toContain(tree);
 	});
 });
+
+describe("a tree whose record another process holds locked past the wait", () => {
+	// On 22 November one record's lock, held past 10 s on a loaded machine,
+	// failed the outside sweep's whole run 40 minutes in, logging nothing it
+	// took.
+	const held = "its record's lock has been held for over 10s";
+
+	/** `real`, but another process holds `locked`'s record past the wait. */
+	function lockedFor(
+		real: ReturnType<typeof createTreeMemory>,
+		locked: string,
+	): ReturnType<typeof createTreeMemory> {
+		const memory: typeof real = Object.create(real);
+		const refuse = (path: string) => {
+			// Coded as file-lock's own throw is, which its test pins.
+			if (path === locked) {
+				throw Object.assign(new Error(held), { code: "ELOCKHELD" });
+			}
+		};
+		memory.whileUnheld = async (path, take, facts) => {
+			refuse(path);
+			return await real.whileUnheld(path, take, facts);
+		};
+		memory.holdWhileUnheld = async (path, facts) => {
+			refuse(path);
+			return await real.holdWhileUnheld(path, facts);
+		};
+		return memory;
+	}
+
+	it("keeps that ended tree and takes the others", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const first = await cut("first", ["--detach", "@", "main"]);
+		const middle = await cut("middle", ["--detach", "@", "main"]);
+		const last = await cut("last", ["--detach", "@", "main"]);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory: lockedFor(memory, middle),
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken.map((one) => one.path).sort()).toEqual(
+			[first, last].sort(),
+		);
+		expect(outcome.kept, "the one it couldn't lock").toContainEqual({
+			path: middle,
+			why: held,
+		});
+		expect(existsSync(middle), `${middle} is kept`).toBe(true);
+	});
+
+	it("keeps that tree of a clone gone with finished work", async () => {
+		const { memory, lockPath, lostClone } = await setUp();
+		const { tree, clone } = await lostClone("lost");
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory: lockedFor(memory, tree),
+			claims: [],
+			lockPath,
+			facts: machine,
+			wentWithFinishedWork: (gitDir) => gitDir.startsWith(clone),
+		});
+
+		expect(outcome.kept).toContainEqual({ path: tree, why: held });
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+
+	it("keeps that tree of another provider", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const tree = elsewhereTree("dev-tree");
+		settleFolder(tree);
+		const provider = elsewhere(undefined, async (spent) => {
+			rmSync(spent.path, { recursive: true, force: true });
+		});
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory: lockedFor(memory, tree),
+			claims: [],
+			lockPath,
+			facts: machineWithUs,
+			providers: () => [provider],
+		});
+
+		expect(outcome.kept).toContainEqual({ path: tree, why: held });
+		expect(existsSync(tree), `${tree} is kept`).toBe(true);
+	});
+});

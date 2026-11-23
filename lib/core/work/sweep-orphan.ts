@@ -11,6 +11,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { isLockHeld } from "../internal/file-lock.ts";
 import type { ProcessFacts } from "../process/index.ts";
 import type { HeldTree } from "./broker.ts";
 import { readPlain } from "./plain-file.ts";
@@ -55,19 +56,28 @@ export async function takeOrphan(
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	let moveRefused: string | undefined;
-	const forgotten = await deps.memory.whileUnheld(
-		tree.path,
-		async () => {
-			try {
-				renameSync(tree.path, aside);
-				return true;
-			} catch (error) {
-				moveRefused = messageOf(error);
-				return false;
-			}
-		},
-		facts,
-	);
+	let forgotten: HeldTree | undefined;
+	try {
+		forgotten = await deps.memory.whileUnheld(
+			tree.path,
+			async () => {
+				try {
+					renameSync(tree.path, aside);
+					return true;
+				} catch (error) {
+					moveRefused = messageOf(error);
+					return false;
+				}
+			},
+			facts,
+		);
+	} catch (error) {
+		// Another process holding its record's lock past the wait keeps this
+		// tree alone, as it keeps any the sweep takes, rather than end the run.
+		if (!isLockHeld(error)) throw error;
+		outcome.kept.push({ path: tree.path, why: messageOf(error) });
+		return;
+	}
 	if (forgotten === undefined) {
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });

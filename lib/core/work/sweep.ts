@@ -355,18 +355,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			for await (const idle of eachIdleSnapshot(live, choice)) {
 				if (before) await deps.betweenIdleTakes?.();
 				before = true;
-				try {
-					await takeIdle(deps, facts, idle, now, outcome);
-				} catch (error) {
-					// One record's lock held too long keeps that snapshot alone:
-					// ending a run of hundreds there would cost the outside stamp
-					// and send the hosts back to sweeping on their own threads.
-					// Any other failure, which every take may meet or which may
-					// leave a tree moved aside, ends the run unjudged, so the run
-					// says so and leaves no stamp.
-					if (!isLockHeld(error)) throw error;
-					outcome.kept.push({ path: idle.tree.path, why: messageOf(error) });
-				}
+				// Any failure but a held lock, which every take may meet or which
+				// may leave a tree moved aside, ends the run unjudged, so the run
+				// says so and leaves no stamp.
+				await takeIdle(deps, facts, idle, now, outcome);
 			}
 		} catch (error) {
 			// A census or a take failing leaves the other providers' trees
@@ -530,7 +522,13 @@ async function releaseThroughProvider(
 		keep(why);
 		return;
 	}
-	const before = await deps.memory.holdWhileUnheld(tree.path, facts);
+	let before: HeldTree | undefined;
+	try {
+		before = await deps.memory.holdWhileUnheld(tree.path, facts);
+	} catch (error) {
+		if (!keptForItsLock(tree, error, outcome)) throw error;
+		return;
+	}
 	if (before === undefined) {
 		keep("a session took it up again");
 		return;
@@ -792,11 +790,17 @@ async function takeBack(
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	const git = (...args: string[]) => deps.exec("git", ["-C", main, ...args]);
 	let moveRefused: string | undefined;
-	const forgotten = await guard(async () => {
-		const moved = await git("worktree", "move", tree.path, aside);
-		if (moved.code !== 0) moveRefused = said(moved);
-		return moved.code === 0;
-	});
+	let forgotten: HeldTree | undefined;
+	try {
+		forgotten = await guard(async () => {
+			const moved = await git("worktree", "move", tree.path, aside);
+			if (moved.code !== 0) moveRefused = said(moved);
+			return moved.code === 0;
+		});
+	} catch (error) {
+		if (!keptForItsLock(tree, error, outcome)) throw error;
+		return;
+	}
 	if (forgotten === undefined) {
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });
@@ -825,6 +829,23 @@ async function takeBack(
 				? said(removed)
 				: `${said(removed)}; it is left at ${aside}: ${said(back)}`,
 	});
+}
+
+/**
+ * Keep `tree` when `error` is another process holding its record's lock
+ * past the wait, saying whether it did. One record's lock held too long
+ * keeps that tree alone: ending a run of hundreds there would cost the
+ * outside stamp and send the hosts back to sweeping on their own threads,
+ * as one did 40 minutes into a run on 22 November.
+ */
+function keptForItsLock(
+	tree: HeldTree,
+	error: unknown,
+	outcome: SweepOutcome,
+): boolean {
+	if (!isLockHeld(error)) return false;
+	outcome.kept.push({ path: tree.path, why: messageOf(error) });
+	return true;
 }
 
 /** The branch trunk is, as the remote names it, else main. */
