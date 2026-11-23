@@ -12,8 +12,9 @@ import {
 import { hosted } from "../../lib/core/session/host.ts";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
+import { commandWrapFor } from "../../lib/internal/fence/fence-mac-command.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
-import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
+import type { Sandbox } from "../../lib/internal/sandbox/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
 import {
 	type SpawnerOptions,
@@ -126,7 +127,7 @@ export function agentBash(
 				...plain,
 				env: guardedEnvironment(plain.env, sshGuard(), sandbox.kind),
 			};
-			const wrap = wrapFor(sandbox, offered, homedir());
+			const wrap = commandWrapFor(sandbox, offered, homedir());
 			return offCommandLine({
 				...offered,
 				command: placedCommand(offered.command, offered.cwd, wrap),

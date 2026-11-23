@@ -117,16 +117,23 @@ describe("what a session asks for", () => {
 		).toBe("refused");
 	});
 
-	const strictOnMac = (inside: boolean) =>
+	const onMac = (
+		asked: "strict" | "fence",
+		inside: boolean,
+		sandboxExec: string | undefined,
+		platform: NodeJS.Platform = "darwin",
+	) =>
 		sandboxFor(
-			{ PI_SANDBOX: "strict" },
-			"darwin",
+			{ PI_SANDBOX: asked },
+			platform,
 			found,
 			undefined,
 			undefined,
 			undefined,
 			() => inside,
+			() => sandboxExec,
 		);
+	const strictOnMac = (inside: boolean) => onMac("strict", inside, undefined);
 
 	it("runs a strict session's commands on a Mac as they are inside the sandbox pi runs in, saying so, since Landlock is Linux's", () => {
 		const mac = strictOnMac(true);
@@ -268,8 +275,42 @@ describe("what a session asks for", () => {
 		).toBe("ran kept");
 	});
 
-	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {
+	it("runs none of a strict session's commands on a Mac where nothing fences pi and sandbox-exec is missing, since a stranger's text would run as the person", () => {
 		expect(strictOnMac(false).kind).toBe("refused");
+	});
+
+	it("lays the fence asked for around each command on a Mac where nothing fences pi, so a bare pi runs its commands fenced rather than none at all", () => {
+		for (const asked of ["strict", "fence"] as const) {
+			const mac = onMac(asked, false, "/usr/bin/sandbox-exec");
+			expect(mac, `a bare Mac pi's ${asked} session laid no fence`).toEqual({
+				kind: "seatbelt",
+				asked,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				logger: "/bin/landrun",
+			});
+		}
+		expect(
+			onMac("strict", true, "/usr/bin/sandbox-exec").kind,
+			"a pi inside a sandbox laid a second profile, which macOS refuses",
+		).toBe("none");
+		expect(
+			onMac("strict", false, "/usr/bin/sandbox-exec", "freebsd").kind,
+			"a system with no seatbelt was handed one",
+		).toBe("refused");
+	});
+
+	it("runs nothing when the one wrap asked of a Mac's own fence isn't the one that lays it", () => {
+		const wrap = wrapFor(
+			onMac("strict", false, "/usr/bin/sandbox-exec"),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const ran = spawnSync("bash", ["-c", wrap?.("echo ran") ?? "echo ran"], {
+			encoding: "utf8",
+			env: { PATH: process.env.PATH },
+		});
+		expect(ran.stdout, "the command ran unfenced").not.toContain("ran");
+		expect(ran.status, "the refusal's status wasn't the fence's").toBe(126);
 	});
 
 	it("reads a name it doesn't know as the fence, saying so once", () => {

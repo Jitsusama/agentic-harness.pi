@@ -17,6 +17,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { SANDBOX_EXEC } from "../fence/fence-seatbelt.ts";
 
 /** How a trial's run turned out, as `spawnSync` reports it. */
@@ -125,4 +126,12 @@ export function macSandbox(run: () => Trial = keptTrial): MacSandbox {
 /** Whether this process is known to run inside a sandbox (`macSandbox`). */
 export function insideMacSandbox(run: () => Trial = keptTrial): boolean {
 	return macSandbox(run) === "inside";
+}
+
+/**
+ * sandbox-exec, where this Mac has it, to lay the fence's own profile
+ * around each command of a pi no sandbox holds; nothing where it isn't.
+ */
+export function macSandboxExec(): string | undefined {
+	return existsSync(SANDBOX_EXEC) ? SANDBOX_EXEC : undefined;
 }

@@ -56,6 +56,17 @@ describe("fenceOf", () => {
 			).map(fenceOf),
 		).toEqual(["strict", "fence"]);
 	});
+
+	it("names the fence a bare Mac pi lays around each command, which is what runs", () => {
+		expect(
+			(
+				[
+					{ kind: "seatbelt", asked: "strict", sandboxExec: "/x" },
+					{ kind: "seatbelt", asked: "fence", sandboxExec: "/x" },
+				] as const
+			).map(fenceOf),
+		).toEqual(["strict", "fence"]);
+	});
 });
 
 describe("tellHostFence", () => {
