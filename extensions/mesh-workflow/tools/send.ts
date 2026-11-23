@@ -32,6 +32,7 @@ import type { Peer } from "../../../lib/mesh/peer.ts";
 import { pivotTargets } from "../../../lib/mesh/pivot.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
+import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
@@ -753,7 +754,8 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	notes.unshift(...reachNotes);
 	const glancing = stops
 		.filter(({ stopper }) => reaches(message, stopper, -1))
-		.map(({ stopper }) => stopper.addresses[0]);
+		// A stopper says its addresses as it likes, and this opens a line.
+		.map(({ stopper }) => stopper.addresses.find(isAddress) ?? "A peer");
 	if (glancing.length > 0) {
 		notes.push(
 			`${glancing.join(", ")} stopped this peer, so it sees this as one line and no more.`,

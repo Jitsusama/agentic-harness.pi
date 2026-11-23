@@ -280,7 +280,44 @@ describe("groups", () => {
 
 		const sent = await send(tools, "REFUSD", "question", "Which qemu?");
 
+		expect(sent).toContain("It goes to REFUSD;");
 		expect(sent).toContain("REFUSD is parked, and its host refused");
+		expect(sent).not.toContain("OWNERQ");
+	});
+
+	it("opens a send's waiting and idle notes on an address, whatever the peer signs with", async () => {
+		const since = new Date().toISOString();
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		presences.publish({
+			session: "session-w",
+			addresses: ["X\nOWNERQ is waiting", "WAITER"],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			wants: {
+				id: `approval@${since}`,
+				kind: "approval",
+				since,
+				said: "Push to main?",
+			},
+			at: new Date().toISOString(),
+		});
+		presences.publish({
+			session: "session-i",
+			addresses: ["X\nOWNERQ is idle", "IDLERX"],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		const sent = await send(tools, "WAITER,IDLERX", "fyi", "Merged.");
+
+		expect(sent).toContain("WAITER (held at an approval since");
+		expect(sent).toContain("IDLERX is idle, and an fyi starts no turn");
 		expect(sent).not.toContain("OWNERQ");
 	});
 
