@@ -128,6 +128,7 @@ describe("the machine's queue folder", () => {
 			asked: string | undefined,
 			kept: string | undefined,
 			began = started,
+			saidAt?: number,
 		) => {
 			const file = join(dir, "..", "state", "outcomes.jsonl");
 			let boot = asked;
@@ -144,6 +145,11 @@ describe("the machine's queue folder", () => {
 				}),
 			);
 			shellSays("ended", 100);
+			if (saidAt !== undefined) {
+				const end = join(dir, "ended.end");
+				writeFileSync(end, "0\n");
+				utimesSync(end, saidAt / 1000, saidAt / 1000);
+			}
 			running.delete(100);
 			boot = kept;
 			queue.keep(ROOMY, NOW, () => undefined);
@@ -182,6 +188,19 @@ describe("the machine's queue folder", () => {
 				id: "ended",
 				ended: new Date(NOW).toISOString(),
 				ranS: (NOW - started) / 1000,
+			});
+		});
+
+		// PV3TE0's round 4 (F1): its shell's word, dated after the boot, was
+		// capped at the boot's date, cutting its run short.
+		it("keeps the run time its shell said, past the boot it began before", async () => {
+			const saidAt = booted + 60_000;
+			const outcome = await endedUnder("boot-1", undefined, started, saidAt);
+
+			expect(outcome).toMatchObject({
+				id: "ended",
+				exit: 0,
+				ranS: (saidAt - started) / 1000,
 			});
 		});
 
@@ -297,6 +316,43 @@ describe("the machine's queue folder", () => {
 			ended: new Date(started).toISOString(),
 		});
 		expect(kept, "never taught as quick").not.toHaveProperty("ranS");
+	});
+
+	// PV3TE0's round 4 (F1): its shell's word was capped at the cut's date,
+	// its start, so a long job kept a run of none and was taught as quick.
+	it("keeps the run time its shell said, though the boot is dated before the job began", async () => {
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const started = NOW - 120_000;
+		let boot = "boot-1";
+		const queue = queueFolder(
+			dir,
+			{
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => started - 3_600_000,
+			},
+			undefined,
+			file,
+		);
+		queue.ask(
+			job("cut", {
+				since: new Date(started - 1000).toISOString(),
+				started: new Date(started).toISOString(),
+			}),
+		);
+		shellSays("cut", 100);
+		const end = join(dir, "cut.end");
+		writeFileSync(end, "0\n");
+		utimesSync(end, (started + 30_000) / 1000, (started + 30_000) / 1000);
+		boot = "boot-2";
+		queue.keep(ROOMY, NOW, () => undefined);
+		await queue.outcomesKept();
+		const [kept] = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+
+		expect(kept).toMatchObject({ id: "cut", exit: 0, ranS: 30 });
 	});
 
 	it("answers the fetches of main waiting on one that moved origin/main, for a minute after", async () => {

@@ -409,21 +409,24 @@ export function queueFolder(
 
 	/**
 	 * Keeps how the job ended, by its shell's word and when it said it.
-	 * One a boot `cut` off without its shell's word keeps no run time: it
-	 * ran until some moment before the boot, not for as long as it seems,
-	 * and a short one would teach its work as quick.
+	 * One a boot cut off, at `cutAt`, without its shell's word is dated
+	 * then and keeps no run time: it ran until some moment before the
+	 * boot, not for as long as it seems, and a short one would teach its
+	 * work as quick. A shell's word is dated by its own clock, the one
+	 * its start was, so it keeps its run time whichever boot reads it.
 	 */
-	const remember = (job: Job, now: number, cut = false) => {
+	const remember = (job: Job, now: number, cutAt?: number) => {
 		if (!outcomes) return;
 		const end = path(job.id, "end");
 		const said = text(end).trim();
 		const exit = /^\d+$/.test(said) ? Number(said) : undefined;
-		let at = now;
+		let at = cutAt ?? now;
 		let unsaid = false;
 		try {
 			at = Math.min(now, statSync(end).mtimeMs);
 		} catch {
-			// Unsaid: it ended when it was seen to.
+			// Unsaid: it ended when it was seen to, or with the boot that cut
+			// it off.
 			unsaid = true;
 		}
 		const moved =
@@ -434,7 +437,7 @@ export function queueFolder(
 			);
 		const measured = outcomeOf(job, at, exit, moved);
 		const { ranS: _unknown, ...unmeasured } = measured;
-		const outcome = cut && unsaid ? unmeasured : measured;
+		const outcome = cutAt !== undefined && unsaid ? unmeasured : measured;
 		const file = outcomes;
 		adding.set(outcome.id, outcome);
 		const written: Promise<void> = lastWrite
@@ -483,25 +486,25 @@ export function queueFolder(
 	};
 
 	/**
-	 * When a job seen to have ended is remembered as ending, and whether a
-	 * boot cut it off, for one that said nothing of its end. Beside what
-	 * {@link cutOffAt} gives up, a job no token places in this boot whose
-	 * clock says it began before the boot, its shell gone, ended with the
-	 * boot: remembered as ending now, its run would span the time the
-	 * machine was down. Only its record is dated so, never whether it
-	 * ended, so a stepped clock costs one run's time, nothing running.
+	 * When a boot cut off a job seen to have ended, should its shell have
+	 * said nothing of its end; undefined for one that ran into this boot.
+	 * Beside what {@link cutOffAt} gives up, a job no token places in this
+	 * boot whose clock says it began before the boot, its shell gone,
+	 * ended with the boot: remembered as ending now, its run would span
+	 * the time the machine was down. Only its record is dated so, never
+	 * whether it ended, so a stepped clock costs one run's time, nothing
+	 * running.
 	 */
-	const endOf = (job: Job, now: number): { at: number; cut: boolean } => {
+	const cutAtOf = (job: Job, now: number): number | undefined => {
 		const cutAt = cutOffAt(job, now);
-		if (cutAt !== undefined) return { at: cutAt, cut: true };
+		if (cutAt !== undefined) return cutAt;
 		const thisBoot =
 			typeof job.boot === "string" && job.boot === processes.bootToken?.();
 		const bootedAt = processes.bootedAt?.();
 		const began = Date.parse(job.started ?? job.since);
-		if (!thisBoot && bootedAt !== undefined && began < bootedAt) {
-			return { at: Math.min(bootedAt, now), cut: true };
-		}
-		return { at: now, cut: false };
+		return !thisBoot && bootedAt !== undefined && began < bootedAt
+			? Math.min(bootedAt, now)
+			: undefined;
 	};
 
 	const ended = (job: Job, now: number) => {
@@ -756,8 +759,7 @@ export function queueFolder(
 						.filter((job) => {
 							if (!ended(job, now)) return true;
 							// A job the boot cut off ended then, not when it was seen.
-							const { at, cut } = endOf(job, now);
-							remember(job, at, cut);
+							remember(job, now, cutAtOf(job, now));
 							drop(job.id);
 							return false;
 						})

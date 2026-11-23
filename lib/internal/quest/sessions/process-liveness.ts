@@ -279,8 +279,16 @@ export function currentProcessIdentity(
 	processIdentityCache ??= readProcessIdentity();
 	const host = hosted();
 	if (!host || !processIdentityCache) return processIdentityCache;
+	// A hosted record names its boot as its host's owner does, the one
+	// reading the host took as it started: this module may be another
+	// instance of the boot's reader, which a miss in one and not the other
+	// would leave naming the boot apart from its owner (PV3TE0's round 4,
+	// F2 and F4).
+	const { bootToken: _ownReading, ...identity } = processIdentityCache;
+	const { bootId } = host.owner;
 	return {
-		...processIdentityCache,
+		...identity,
+		...(bootId ? { bootToken: bootId } : {}),
 		hosted: { host: host.key, session: requireSession(ref), owner: host.owner },
 	};
 }

@@ -256,9 +256,10 @@ export const systemFacts: ProcessFacts = {
 	// Linux reads each start from /proc in microseconds; elsewhere each
 	// is a `ps` of its own, so a census lists them all at once instead.
 	...(process.platform === "linux" ? {} : { startTimes: startTimesFromPs }),
-	// The one reader every judge of a boot shares, so a hosted session's
-	// owner and its record never name the boot by two readings that
-	// disagree: Linux's procfs or Apple's own sysctl, a miss read again.
+	// The reader every judge of a boot shares, Linux's procfs or Apple's
+	// own sysctl, a miss read again. A host's owner keeps the reading it
+	// took as it started, and its sessions' records name the boot by that
+	// owner's, since an extension may load another instance of this.
 	bootId: currentBootToken,
 	alive(pid) {
 		try {
