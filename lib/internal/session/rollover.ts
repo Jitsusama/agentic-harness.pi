@@ -486,7 +486,9 @@ const CHUNK_BYTES = 1024 * 1024;
 /**
  * The longest line read, in bytes: a line no longer always decodes to
  * a string, and a longer one might not, so it is dropped as cut short.
- * The longest of 1,528 real logs was under a tenth of it.
+ * The longest of 1,528 real logs was under a tenth of it. This bounds
+ * what a line can cost, not a small cost: one just under it holds about
+ * twice it while its pieces are joined, and its string beside that.
  */
 const LONGEST_LINE_BYTES = bufferLimits.MAX_STRING_LENGTH;
 
@@ -822,7 +824,8 @@ function wantedLine(
  * could block a read for good, so anything else is left unread, and
  * false is returned for it. A line longer than `longest` bytes is
  * skipped rather than handed over, its pieces let go once they pass
- * that, so no more than `longest` bytes of a line are ever held.
+ * that, so no more than `longest` bytes of a line wait in pieces, and
+ * at most twice that are held while they are joined.
  */
 function* linesOf(
 	path: string,
