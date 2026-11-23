@@ -97,10 +97,27 @@ export const CHILD_SAID_UNSETTLED =
  * the time was the host weighing a loaded machine, which an ask at once
  * would only weigh again.
  */
-export function tooLateWords(spentMs: number, withinMs: number): string {
+function tooLateWords(spentMs: number, withinMs: number): string {
 	const spent = Math.round(spentMs / 1000);
 	const within = Math.round(withinMs / 1000);
 	return `The host spent ${spent} s of its ${within} s weighing the conversations it runs before it could begin this one, too late to start another: nothing was opened, so ask again in a minute, once the machine is quieter`;
+}
+
+/**
+ * The journal's line for a begin refused as too late, naming its request
+ * and quest. Both are only the caller's words, so each is kept to one
+ * plain line, as backend.ts keeps a caller's name, and none can read as
+ * a journal line of its own.
+ */
+export function tooLateLine(
+	request: { readonly id: string; readonly quest?: string | undefined },
+	spentMs: number,
+	withinMs: number,
+): string {
+	const plain = (word: string) => word.replace(/\p{Cc}/gu, " ");
+	const quest =
+		request.quest !== undefined ? ` for quest ${plain(request.quest)}` : "";
+	return `Request ${plain(request.id)}${quest}: ${tooLateWords(spentMs, withinMs)}`;
 }
 
 /**

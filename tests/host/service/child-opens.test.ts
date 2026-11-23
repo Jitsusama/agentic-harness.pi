@@ -282,6 +282,39 @@ describe("a new conversation", () => {
 		]);
 	});
 
+	// Held comes first: told too late, its caller would ask again in a
+	// minute for a file no begin will ever take.
+	it("refuses an adopt of a held file as held, even when too late", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 10_000, unsettledWithinMs: 5_000 },
+		});
+
+		await expect(
+			supervisor.begin(adopting("adopt-5", a), Date.now() - 6_000),
+		).rejects.toThrow(`Conversation already held: ${entry(a).file}`);
+
+		expect(units.started, "no child started").toEqual([]);
+		expect(reported, "nothing said of a late begin").toEqual([]);
+	});
+
+	// A request's id and quest are only the caller's words.
+	it("names a late begin's quest in the journal, on one plain line", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 10_000, unsettledWithinMs: 5_000 },
+		});
+		const asked = {
+			...opening("open-21\nforged"),
+			quest: "QEST-20261123-AAAAAA\nHost stopped",
+		};
+
+		const reply = await supervisor.begin(asked, Date.now() - 6_000);
+
+		const message = reply.ok ? "" : reply.error.message;
+		expect(reported.map(String), "one line, its quest named").toEqual([
+			`Request open-21 forged for quest QEST-20261123-AAAAAA Host stopped: ${message}`,
+		]);
+	});
+
 	// A begin left more than its watch but less than its child needs to
 	// start and answer would start a unit only to stop it again.
 	it("refuses a begin left too little for its child to start and answer", async () => {

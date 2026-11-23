@@ -19,7 +19,11 @@ import {
 import { serveHost } from "../../../host/service/serve.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { until } from "../../support/until.ts";
-import { fakeUnits } from "./support/fake-children.ts";
+import {
+	conversationIn,
+	derivedIn,
+	fakeUnits,
+} from "./support/fake-children.ts";
 
 // The net is process-wide, so the worker running these tests keeps its
 // own handling; what is checked is that a host sets it, and where.
@@ -654,6 +658,52 @@ describe("serveHost with children", () => {
 			for (const child of units.children.values()) await child?.exit();
 		}
 		expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
+	});
+
+	it("names in a repeat of a child's open the conversation that child's became", async () => {
+		const folder = slotFolder(run, "work-attended");
+		const units = fakeUnits(folder, "work-attended", report);
+		const host = await serveHost({
+			...places(),
+			children: {
+				units,
+				policy: async () => ({
+					moves: () => false,
+					opens: () => true,
+					close: () => undefined,
+				}),
+			},
+			engine: async (h) => engine(h),
+		});
+		try {
+			const first = await opened(host.path, "spawn-1");
+			if (!first.ok) throw new Error(first.error.message);
+			const { sessionId } = parseOpenResult(first.result);
+			const child = units.childOf(sessionId);
+			const next = randomUUID();
+			child.conversation = conversationIn(folder, next);
+			child.entry = derivedIn(folder, next);
+			child.say({
+				type: "became",
+				previousId: sessionId,
+				conversation: child.conversation,
+				entry: child.entry,
+			});
+			// Asked again until it lands: a repeat before the became reaches
+			// the backend answers the first as parked, opening nothing.
+			await until(
+				"a repeat to name the conversation as it is called now",
+				async () => {
+					const repeat = await opened(host.path, "spawn-1");
+					return repeat.ok && parseOpenResult(repeat.result).sessionId === next;
+				},
+			);
+			expect(units.started, "nothing opened again").toHaveLength(1);
+			expect(report, "nothing went wrong on the way").not.toHaveBeenCalled();
+		} finally {
+			await host.stop();
+			for (const child of units.children.values()) await child?.exit();
+		}
 	});
 
 	it("runs every conversation itself when no child's socket would fit, saying so", async () => {

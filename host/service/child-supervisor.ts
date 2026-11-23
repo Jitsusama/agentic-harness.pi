@@ -63,7 +63,7 @@ import {
 	beganTooLate,
 	madeByHost,
 	reach,
-	tooLateWords,
+	tooLateLine,
 	unsettledReply,
 } from "./child-requests.ts";
 import { type Doing, type Starvation, starvation } from "./child-starvation.ts";
@@ -1411,11 +1411,7 @@ export function childSupervisor(options: {
 			// the time went.
 			const spent = Date.now() - taken;
 			if (beginsWithinMs - spent <= leastToBegin) {
-				const quest =
-					request.quest !== undefined ? ` for quest ${request.quest}` : "";
-				options.report(
-					`Request ${request.id}${quest}: ${tooLateWords(spent, beginsWithinMs)}`,
-				);
+				options.report(tooLateLine(request, spent, beginsWithinMs));
 				return Promise.resolve(beganTooLate(request.id, spent, beginsWithinMs));
 			}
 			const slot = slotOf(options.folder, options.key, randomUUID());
