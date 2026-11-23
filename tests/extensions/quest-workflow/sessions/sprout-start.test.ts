@@ -13,7 +13,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type MockInstance,
+	vi,
+} from "vitest";
 import {
 	pendingWords,
 	resolveStartup,
@@ -52,9 +60,12 @@ import { createEnvGuard } from "../_helpers.ts";
  * Whether a README write that records a need, one that adds aliases or
  * one that removes them fails, as a lock that never comes does; every
  * other write goes through. `tried` keeps each alias a write would add.
+ * `servesRefused` has a need's write answer that it wasn't made, as a
+ * README it can't read back does, rather than throw.
  */
 const failing = vi.hoisted(() => ({
 	serves: false,
+	servesRefused: false,
 	aliases: false,
 	removals: false,
 	linkMarks: false,
@@ -93,13 +104,23 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 		...real,
 		mutateQuestFrontMatter: (
 			...[dir, transform, opts]: Parameters<typeof real.mutateQuestFrontMatter>
-		) =>
-			real.mutateQuestFrontMatter(
+		) => {
+			let refused = false;
+			const done = real.mutateQuestFrontMatter(
 				dir,
 				(fm) => {
 					const next = transform(fm);
-					if (failing.serves && next?._extra?.serves !== fm._extra?.serves)
+					// By value, since a write of another field may copy them.
+					const serves =
+						next !== undefined &&
+						JSON.stringify(next._extra?.serves) !==
+							JSON.stringify(fm._extra?.serves);
+					if (failing.serves && serves)
 						throw new Error("the quest's lock didn't come");
+					if (failing.servesRefused && serves) {
+						refused = true;
+						return undefined;
+					}
 					const had = (fm.aliases ?? []).map(
 						(one) => `${one.type}:${one.value}`,
 					);
@@ -120,7 +141,11 @@ vi.mock("../../../../lib/internal/quest/fields/mutate.ts", async (actual) => {
 					return next;
 				},
 				opts,
-			),
+			);
+			return refused
+				? { ok: false as const, guidance: "its README can't be read back" }
+				: done;
+		},
 	};
 });
 
@@ -228,14 +253,16 @@ function markWith(id: string, url: string): void {
 	});
 }
 
-/** The quest carrying alias sprout:`value`, if one does. */
-function sproutedQuest(value: string): string | undefined {
+/** The quest carrying alias `type`:`value` (sprout by default), if one does. */
+function sproutedQuest(value: string, type = "sprout"): string | undefined {
 	const { index } = discoverQuests(join(tmpRoot, "quests"));
-	const found = lookupAliasDetail(buildAliasIndex(index), {
-		type: "sprout",
-		value,
-	});
+	const found = lookupAliasDetail(buildAliasIndex(index), { type, value });
 	return found.kind === "hit" ? found.questId : undefined;
+}
+
+/** What the host's log was written this case, as one string. */
+function stderrSaid(): string {
+	return stderrWrites.mock.calls.map(([said]) => String(said)).join("");
 }
 
 /**
@@ -274,7 +301,12 @@ async function forgedOwnMark(id: string, pr: number) {
 	return { link, ref, need: "TERN02/mi1x.0123456789ab" };
 }
 
+let stderrWrites: MockInstance<typeof process.stderr.write>;
+
 beforeEach(() => {
+	stderrWrites = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation(() => true);
 	failing.tried.length = 0;
 	// The extension registers them as it loads; a link reads by them.
 	registerBuiltinRefTypes();
@@ -291,6 +323,7 @@ afterEach(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	envGuard.leave();
 	clearRefTypes();
+	stderrWrites.mockRestore();
 });
 
 describe("a sprouted session's start", () => {
@@ -968,8 +1001,90 @@ describe("a sprouted session's start", () => {
 			expect(words, "and its words say the need went unrecorded").toContain(
 				"no log holds what it missed: the need it serves isn't recorded on the quest",
 			);
+			expect(
+				stderrSaid(),
+				"and the host's log keeps what no quest log could",
+			).toContain(
+				`[quest-workflow] the sprout of ${state.questId} could log none of what it missed: the need it serves isn't recorded on the quest`,
+			);
 		} finally {
 			failing.serves = false;
+		}
+	});
+
+	it("says a need went unrecorded when its write answers that it wasn't made", async () => {
+		failing.servesRefused = true;
+		try {
+			const { state, words } = await start(
+				{ words: "tea", id: "S14", need: "TERN02/mi1x.0123456789ab" },
+				{ sessionId: "sess-need-refused" },
+			);
+			clearDiscoveryCache();
+			expect(
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+					state.questId ?? "",
+				)?.doc.frontMatter._extra?.serves,
+				"the need wasn't written",
+			).toBeUndefined();
+			expect(words, "so its words say so").toContain(
+				"no log holds what it missed: the need it serves isn't recorded on the quest",
+			);
+		} finally {
+			failing.servesRefused = false;
+		}
+	});
+
+	it("never says a need its quest already serves went unrecorded", async () => {
+		const need = "TERN02/mi1x.0123456789ab";
+		const first = await start({ words: "tea", id: "S15", need });
+		failing.serves = true;
+		try {
+			const again = await start(
+				{ words: "tea", id: "S15", need },
+				{ sessionId: "sess-need-held" },
+			);
+			expect(again.state.questId, "a replay loads its quest").toBe(
+				first.state.questId,
+			);
+			expect(again.words, "whose need is already held").not.toContain(
+				"the need it serves isn't recorded",
+			);
+			expect(stderrSaid(), "nor does the host's log").not.toContain(
+				"could log none of what it missed",
+			);
+		} finally {
+			failing.serves = false;
+		}
+	});
+
+	it("says only the need missed when a join's mark landed before its log's lock failed", async () => {
+		const link = "https://github.com/o/r/pull/71";
+		const first = await start({ words: "the PR's work", id: "S71" });
+		const id = first.state.questId;
+		if (!id) throw new Error("no quest to join");
+		markWith(id, link);
+		failing.linkedLog = true;
+		try {
+			const again = await start(
+				{ link, id: "S72", need: "KESTRL/mi1y.ba9876543210" },
+				{ sessionId: "sess-join-log-fails" },
+			);
+			expect(again.state.questId, "the quest it joined").toBe(id);
+			expect(
+				sproutedQuest("S72", "sprout-joined"),
+				"its join mark landed",
+			).toBe(id);
+			expect(again.words, "so a replay finds it").not.toContain(
+				"may start its work again",
+			);
+			expect(
+				again.words,
+				"but its need, which the lock stopped, is said missed",
+			).toContain(
+				"no log holds what it missed: the need it serves isn't recorded on the quest",
+			);
+		} finally {
+			failing.linkedLog = false;
 		}
 	});
 

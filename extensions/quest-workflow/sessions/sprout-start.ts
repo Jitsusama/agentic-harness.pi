@@ -207,7 +207,7 @@ export async function startSprouted(
 		const missing = got === "locked" ? lost(joinMark) : logged !== "logged";
 		if (missing) unrecorded.push(RESTARTED);
 	}
-	if (seed.need && (locked || !servesNeed(state, id, seed))) {
+	if (seed.need && !servesNeed(state, id, seed, locked)) {
 		unrecorded.push(UNSERVED);
 	}
 	// Only a quest it made, or its own replayed, is sprouted from the cell
@@ -217,6 +217,13 @@ export async function startSprouted(
 		held !== undefined && !made
 			? ({ kind: "none" } as const)
 			: await tie(id, seed.from, ctx.cwd, deps.run);
+	// The first words reach only the model, so the host's own log keeps
+	// what no quest log could, for whoever reads the machine later.
+	if (unrecorded.length > 0) {
+		process.stderr.write(
+			`[quest-workflow] the sprout of ${id} could log none of what it missed: ${unrecorded.join("; ")}\n`,
+		);
+	}
 	hints.firstWords = `${sproutedWords(id, seed, tied, joined, linkIs)}${unrecordedSaid(unrecorded)}`;
 }
 
@@ -228,27 +235,37 @@ export async function startSprouted(
  * since its cell now serves that need as well; one already holding it
  * is left as it is. A README that can't be written, or whose lock
  * doesn't come, leaves the quest standing without it and the tie still
- * made, since the work matters more than its lineage. Answers whether
- * the quest holds all the seed's need gives it to, so the first words
- * say when it doesn't.
+ * made, since the work matters more than its lineage. While `locked`
+ * (an earlier write's lock didn't come) it writes nothing. Answers
+ * whether the quest holds all the seed's need gives it to, read from
+ * the index without a lock first, so a need with no cell to name, or
+ * one already held, is never said to be missing.
  */
-function servesNeed(state: QuestState, id: string, seed: SproutSeed): boolean {
+function servesNeed(
+	state: QuestState,
+	id: string,
+	seed: SproutSeed,
+	locked: boolean,
+): boolean {
 	const cell = seed.need ? needAsker(seed.need) : undefined;
 	if (!seed.need || !cell) return true;
-	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!dir) return false;
+	const quest = discoverQuests(state.questsRoot).index.quests.get(id);
+	if (!quest) return false;
 	const taken = {
 		cell,
 		need: seed.words || seed.need,
 		since: new Date().toISOString(),
 		id: seed.need,
 	};
+	if (withServed(quest.doc.frontMatter._extra?.serves, taken) === undefined) {
+		return true;
+	}
+	if (locked) return false;
 	try {
-		mutateQuestFrontMatter(dir, (fm) => {
+		return mutateQuestFrontMatter(quest.dir, (fm) => {
 			const serves = withServed(fm._extra?.serves, taken);
 			return serves ? { ...fm, _extra: { ...fm._extra, serves } } : undefined;
-		});
-		return true;
+		}).ok;
 	} catch {
 		// A lock that didn't come or a write that failed: the quest stands
 		// without its lineage, and the tie after this is still made.
