@@ -335,7 +335,8 @@ input pipeline or screen. No unit or running host is installed yet.
   at it without asking systemd: a caller's open or adopt, and a host
   starting's take-ups and resumes, which go a few at a time, so a
   starved child there would hold those behind it. A start's resume
-  that a wake pulled forward waits as a wake does. A host starting takes up the
+  that a wake pulled forward is bounded too; given up, that wake
+  resumes it itself and waits while it starves. A host starting takes up the
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:

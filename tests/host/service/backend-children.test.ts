@@ -334,25 +334,6 @@ describe("a start's resume of what the host held", () => {
 		expect(resumed).toEqual([]);
 	});
 
-	it("leaves unbounded a moved one a wake pulled forward, which that wake waits on", async () => {
-		const moving = entry();
-		await roster.hold(moving);
-		const moved = children([moving.sessionId]);
-
-		await resumeHeld({
-			roster,
-			engine: engine(),
-			children: moved.fake,
-			woken: (held) => held.sessionId === moving.sessionId,
-		});
-
-		expect(moved.fake.resume).toHaveBeenCalledExactlyOnceWith(
-			moving,
-			false,
-			false,
-		);
-	});
-
 	it("takes up a moved one in its child, and leaves one a child already runs", async () => {
 		const moving = entry();
 		const running = entry();
@@ -370,7 +351,7 @@ describe("a start's resume of what the host held", () => {
 
 		expect(
 			moved.fake.resume,
-			"bounded, as a start's resume nothing woke is",
+			"bounded, as every resume of a start is",
 		).toHaveBeenCalledExactlyOnceWith(moving, false, true);
 		expect(inHost.resume).toHaveBeenCalledOnce();
 		expect(inHost.resume).toHaveBeenCalledWith(

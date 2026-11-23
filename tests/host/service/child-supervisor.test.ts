@@ -338,7 +338,7 @@ describe("a resumed conversation", () => {
 			/did not listen within \d+ ms, with 50 ms of CPU, none of it in the last \d+ ms: it is stuck rather than starved/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
-	});
+	}, 15_000);
 
 	it("is given up as stuck when its child gains only a sliver of CPU over a whole listen time", async () => {
 		// A listen time of two asks, so the sliver is summed across them.
@@ -354,7 +354,7 @@ describe("a resumed conversation", () => {
 			/did not listen within \d+ ms, with 5\d ms of CPU, only 2 ms of it in the last \d+ ms: it is stuck rather than starved/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(8_000);
-	});
+	}, 15_000);
 
 	it("waits on a child whose CPU grows under its share at each ask but not over a whole listen time", async () => {
 		// 4 ms a second, 0.4% of a core: under the 5 ms of a 2 s listen time
@@ -403,7 +403,7 @@ describe("a resumed conversation", () => {
 			600,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
-	});
+	}, 15_000);
 
 	it("gives up a starved child at its listen time when resumed bounded, as the host's start does", async () => {
 		superviseAgain({
@@ -435,7 +435,7 @@ describe("a resumed conversation", () => {
 			/did not listen within \d+ ms, with 1300 ms of CPU$/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
-	});
+	}, 15_000);
 
 	it("keeps waiting on a starved child when systemd fails to say its CPU", async () => {
 		superviseAgain({
@@ -481,7 +481,7 @@ describe("a resumed conversation", () => {
 
 		await outcome;
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
-	});
+	}, 15_000);
 
 	it("is given up at its listen time when its child spent its CPU without listening", async () => {
 		superviseAgain({

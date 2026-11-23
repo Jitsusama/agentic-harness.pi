@@ -113,10 +113,11 @@ export const STARVED_WITHIN_MS = 600_000;
 /**
  * The share of a listen time a starved child gains in CPU over one, at
  * the least: 150 ms a minute. The child above that took 142 s to resume
- * gained about 0.9% of a core over it, so this leaves it near four times
- * the room; one that gains less waits on a lock, the disk or the
- * network, with only its timers ticking, so it is stuck rather than
- * starved.
+ * gained about 0.9% of a core over its whole wait, an average of one
+ * child, which a single listen time of it may have fallen below; 1%
+ * would have given it up. One that gains less waits on a lock, the disk
+ * or the network, with only its timers ticking, so it is taken as stuck
+ * rather than starved, and the next wake starts it again.
  */
 const STALLED_SHARE = 0.0025;
 /**
@@ -837,7 +838,8 @@ export function childSupervisor(options: {
 			fresh,
 			asked,
 			by = Number.POSITIVE_INFINITY,
-			bounded = false,
+			// A caller's `by` bounds its child too, as `once` takes it.
+			bounded = by !== Number.POSITIVE_INFINITY,
 		} = holding;
 		let current: string | undefined;
 		let over = false;
