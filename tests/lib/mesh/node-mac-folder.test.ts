@@ -9,7 +9,7 @@ type Node = typeof import("../../../lib/mesh/node.ts");
 type Address = typeof import("../../../host/service/address.ts");
 
 /** The folders getconf names on this pretend Mac, set once the test's folder exists. */
-const folders = vi.hoisted(() => ({ cache: "", temporary: "" }));
+const folders = vi.hoisted(() => ({ cache: "", temporary: "", failing: 0 }));
 
 vi.mock("node:os", async (actual) => ({
 	...(await actual<typeof import("node:os")>()),
@@ -22,7 +22,11 @@ vi.mock("node:child_process", async (actual) => {
 		...real,
 		execFileSync: (...args: Parameters<typeof real.execFileSync>) => {
 			const [file, argv] = args;
-			if (file !== "getconf") return real.execFileSync(...args);
+			if (file !== "/usr/bin/getconf") return real.execFileSync(...args);
+			if (folders.failing > 0) {
+				folders.failing -= 1;
+				throw new Error("spawnSync /usr/bin/getconf EAGAIN");
+			}
 			if (argv?.[0] === "DARWIN_USER_CACHE_DIR") return `${folders.cache}\n`;
 			if (argv?.[0] === "DARWIN_USER_TEMP_DIR") return `${folders.temporary}\n`;
 			throw new Error(`getconf: no such name: ${String(argv?.[0])}`);
@@ -103,6 +107,21 @@ describe("a Mac's runtime folder", () => {
 	it("was nowhere else when XDG_RUNTIME_DIR names it", () => {
 		expect(formerRuntimeDir(mac({ XDG_RUNTIME_DIR: "/xdg" }))).toBeUndefined();
 	});
+
+	it("was nowhere else when AGENTS_RUNTIME_DIR names a folder of its own, as a sandbox does", () => {
+		expect(
+			formerRuntimeDir(mac({ [AGENTS_RUNTIME_ENV]: join(root, "box") })),
+		).toBeUndefined();
+	});
+
+	it("is asked of getconf again after it once couldn't answer", async () => {
+		vi.resetModules();
+		const fresh = await import("../../../lib/internal/paths.ts");
+		folders.failing = 1;
+
+		expect(fresh.runtimeDir(mac())).toBeUndefined();
+		expect(fresh.runtimeDir(mac())).toBe(folders.cache);
+	});
 });
 
 describe("a Mac's node socket while the runtime folder moves", () => {
@@ -139,9 +158,12 @@ describe("a Mac's node socket while the runtime folder moves", () => {
 		const own = serving(folders.cache, "moved");
 		const left = serving(folders.temporary, "behind");
 
-		expect(nodeSockets(mac({ MYCELIUM_REALM: "moved" }))).toEqual(
-			expect.arrayContaining([own, left]),
-		);
+		const listed = nodeSockets(mac({ MYCELIUM_REALM: "moved" }));
+
+		expect(listed).toEqual(expect.arrayContaining([own, left]));
+		expect(listed.filter((socket) => socket.endsWith("moved.sock"))).toEqual([
+			own,
+		]);
 	});
 
 	it("lists a realm once, from the cache folder, when both folders hold it", () => {
@@ -159,18 +181,22 @@ describe("a Mac's node socket while the runtime folder moves", () => {
 
 describe("a host given only AGENTS_RUNTIME_DIR", () => {
 	it("listens, and keeps its children, in the folder it names", () => {
-		const before = process.env[AGENTS_RUNTIME_ENV];
-		process.env[AGENTS_RUNTIME_ENV] = join(root, "A");
+		// Short and apart from `root`, so the socket fits a Unix address
+		// under a Mac's deep temporary folder too.
+		const named = mkdtempSync(join(tmpdir(), "r"));
+		vi.stubEnv(AGENTS_RUNTIME_ENV, named);
+		// As core's Mac start leaves it, with no XDG runtime folder.
+		vi.stubEnv("XDG_RUNTIME_DIR", undefined);
 		try {
 			expect(hostSocketPath("work", "attended")).toBe(
-				join(root, "A", "pi-host", "work-attended.sock"),
+				join(named, "pi-host", "work-attended.sock"),
 			);
 			expect(childFolder("work-attended")).toBe(
-				join(root, "A", "pi-host", "work-attended.d"),
+				join(named, "pi-host", "work-attended.d"),
 			);
 		} finally {
-			if (before === undefined) delete process.env[AGENTS_RUNTIME_ENV];
-			else process.env[AGENTS_RUNTIME_ENV] = before;
+			vi.unstubAllEnvs();
+			rmSync(named, { recursive: true, force: true });
 		}
 	});
 });

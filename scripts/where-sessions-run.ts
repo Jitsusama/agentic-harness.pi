@@ -202,7 +202,7 @@ if (import.meta.main) {
 	const runtimeDir = loginRuntimeDir();
 	if (!runtimeDir)
 		throw new Error(
-			"No runtime folder: neither AGENTS_RUNTIME_DIR nor XDG_RUNTIME_DIR is set",
+			"No runtime folder: neither AGENTS_RUNTIME_DIR nor XDG_RUNTIME_DIR is set, and on a Mac getconf named no cache folder",
 		);
 	let unread = false;
 	for (const kind of kinds) {

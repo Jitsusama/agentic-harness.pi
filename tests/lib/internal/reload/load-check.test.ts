@@ -98,6 +98,8 @@ describe("reading pi's answer", () => {
 				XDG_STATE_HOME: "/home/j/.local/state",
 				MYCELIUM_WAKE: "/run/user/1000/mycelium/work.held/x.wake",
 				KITTY_WINDOW_ID: "174",
+				// Inherited from a Mac's host start, and overridden.
+				AGENTS_RUNTIME_DIR: "/Users/j/Library/Caches/x",
 			},
 			"/tmp/box",
 		);

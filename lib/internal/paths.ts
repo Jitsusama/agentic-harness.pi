@@ -142,31 +142,47 @@ export function whyRealmsUnlisted(kind: "data" | "state"): string | undefined {
 /** The variable naming the agents' runtime folder outright, set by a Mac's host start. */
 export const AGENTS_RUNTIME_ENV = "AGENTS_RUNTIME_DIR";
 
-/** A Mac's account folders, by getconf's name for each, asked once each. */
+/** A Mac's account folders, by getconf's name for each, once it has named one. */
 const darwinFolders = new Map<string, string>();
 
-/** A Mac account's folder getconf names, or nothing when it won't say. */
+/**
+ * How long getconf may take to name a folder: it answers in a few
+ * milliseconds, and a host or session asking waits on it.
+ */
+const GETCONF_MS = 2000;
+
+/**
+ * A Mac account's folder getconf names, or nothing when it won't say.
+ * Apple's own getconf, as the fence asks it, since a profile's earlier on
+ * PATH may not know the name. Only an answer is kept: a getconf that
+ * couldn't start once, under load, is asked again next time, rather than
+ * leaving a long-lived session with no runtime folder until it restarts.
+ */
 function darwinFolder(name: string): string | undefined {
-	let folder = darwinFolders.get(name);
-	if (folder === undefined) {
-		try {
-			folder = execFileSync("getconf", [name], { encoding: "utf8" }).trim();
-		} catch {
-			// The system won't say, so there is no such folder to name.
-			folder = "";
-		}
-		darwinFolders.set(name, folder);
+	const kept = darwinFolders.get(name);
+	if (kept !== undefined) return kept;
+	try {
+		const folder = execFileSync("/usr/bin/getconf", [name], {
+			encoding: "utf8",
+			timeout: GETCONF_MS,
+		}).trim();
+		if (folder) darwinFolders.set(name, folder);
+		return folder || undefined;
+	} catch {
+		// The system won't say now, so there is no such folder to name.
+		return undefined;
 	}
-	return folder || undefined;
 }
 
 /**
- * The login's own runtime folder, for sockets and queues that last only
- * as long as the login: `AGENTS_RUNTIME_DIR` when set, then
- * `XDG_RUNTIME_DIR`, or on a Mac, which has neither, the account's cache
- * folder. Its temporary folder held them before, but a fenced command's
- * `TMPDIR` is hidden there, and so the sockets with it. Nothing where
- * none is known.
+ * The login's own runtime folder, for sockets and queues:
+ * `AGENTS_RUNTIME_DIR` when set, then `XDG_RUNTIME_DIR`, or on a Mac,
+ * which has neither, the account's cache folder. Its temporary folder
+ * held them before, but a fenced command's `TMPDIR` is hidden there, and
+ * so the sockets with it. `XDG_RUNTIME_DIR` goes with the login, but a
+ * Mac's cache folder outlasts a reboot, so what reads it sets aside what
+ * came before the boot: the queue a job asked before it, a client a
+ * socket nothing listens on. Nothing where none is known.
  */
 export function runtimeDir(
 	env: NodeJS.ProcessEnv = process.env,
@@ -181,16 +197,34 @@ export function runtimeDir(
  * Where a Mac kept the runtime folder before it moved to the cache
  * folder, the account's temporary folder, for a client to try for one
  * release while a daemon started on the old code still serves there.
- * Nothing off a Mac, where `XDG_RUNTIME_DIR` names it, or where it is the
- * same folder. It goes, with the node lookups that try it, once a Mac's
- * node and hosts have each restarted on a release that has it.
+ * Nothing off a Mac, where `XDG_RUNTIME_DIR` names it, where it is the
+ * same folder, or where `AGENTS_RUNTIME_DIR` names a folder other than
+ * the cache folder, as a sandbox does, which no daemon on the old code
+ * served. It goes, with the node lookups that try it, once a Mac's node
+ * and hosts have each restarted on a release that has it and mycelium's
+ * own Mac default is the cache folder too.
  */
 export function formerRuntimeDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
 	if (env.XDG_RUNTIME_DIR || platform() !== "darwin") return undefined;
+	const named = env[AGENTS_RUNTIME_ENV];
+	if (named && !sameFolder(named, darwinFolder("DARWIN_USER_CACHE_DIR")))
+		return undefined;
 	const former = darwinFolder("DARWIN_USER_TEMP_DIR");
-	return former === runtimeDir(env) ? undefined : former;
+	return sameFolder(former, runtimeDir(env)) ? undefined : former;
+}
+
+/** Whether two folders are one, a trailing slash or none. */
+function sameFolder(
+	one: string | undefined,
+	other: string | undefined,
+): boolean {
+	return (
+		one !== undefined &&
+		other !== undefined &&
+		join(one, ".") === join(other, ".")
+	);
 }
 
 /**

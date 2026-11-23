@@ -31,8 +31,10 @@ is born there. pi itself stays where it was started.
   `shell-workflow` has the shell write its own pid first, and then all
   200 shells' commands ran in the cgroup.
 - **A Mac takes turns too, and places nothing.** It keeps the same queue,
-  in the account's temporary folder, where its mycelium node looks, under
-  the same turn rules. Its room comes from its kernel's own terms
+  in the folder `AGENTS_RUNTIME_DIR` names or the account's cache folder,
+  where its mycelium node looks, under the same turn rules. That folder
+  outlasts a reboot, so a job asked before the boot counts as ended,
+  whatever process its pid names now. Its room comes from its kernel's own terms
   (`lib/internal/priority/room-darwin.ts`). Memory waits at
   `kern.memorystatus_vm_pressure_level` warning or worse, while it swaps
   out, or under 20% available. CPU pressure is load past the cores, and

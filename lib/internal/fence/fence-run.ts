@@ -442,8 +442,9 @@ function macFenceText(
 	makeCachesFirst(caches);
 	const macPlanted = plantedCache(caches);
 	if (macPlanted) return { refused: macPlanted };
-	// The Mac has no runtime folder, so the copy of npm's settings goes
-	// in the person's own temporary folder, which commands there write
+	// The Mac's runtime folder (AGENTS_RUNTIME_DIR, else the cache folder)
+	// is laid nothing over here yet, a risk ISXEG8 holds to close, so the
+	// copy of npm's settings goes in the person's own temporary folder, which commands there write
 	// too, so pi's folder in it is kept from them below.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;

@@ -198,6 +198,11 @@ export function readQueue(
 /** What keeping the queue reads the processes through. */
 export interface Processes {
 	isRunning(pid: number): boolean;
+	/**
+	 * When the machine last started, in epoch milliseconds, for setting
+	 * aside a job asked before it. A reader that can't say leaves it out.
+	 */
+	bootedAt?(): number;
 	cgroupOf(pid: number): string | undefined;
 	/**
 	 * The most memory a cgroup has held, in bytes, while it holds only
@@ -413,6 +418,11 @@ export function queueFolder(
 	};
 
 	const ended = (job: Job, now: number) => {
+		// Asked before the boot, it has ended, whatever its pid names now: a
+		// Mac's queue folder is its cache folder, which outlasts a reboot,
+		// and a pid comes back as another process after one.
+		const booted = processes.bootedAt?.();
+		if (booted !== undefined && Date.parse(job.since) < booted) return true;
 		const shell = shellOf(job.id);
 		if (shell !== undefined) return !processes.isRunning(shell);
 		return (

@@ -9,9 +9,10 @@
  * moment the link to it drops. So a session elsewhere is judged by asking
  * the node over its socket, never by how lately its file was touched.
  *
- * The node serves one socket per realm, in the login's runtime folder, or
- * on a Mac in the account's own temporary folder, which a session's
- * `TMPDIR` need not name, since a quest moves that. The realm is the
+ * The node serves one socket per realm, in the login's runtime folder,
+ * which on a Mac is the folder `AGENTS_RUNTIME_DIR` names, else the
+ * account's cache folder (for one release, its temporary folder too,
+ * while a node on the old code serves there). The realm is the
  * session's own, as `MYCELIUM_REALM` names it, since a machine in two
  * realms runs a node for each; else the one the node last ran in, as it
  * keeps it.
