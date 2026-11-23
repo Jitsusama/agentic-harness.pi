@@ -176,8 +176,9 @@ through landrun:
   any your shell names. `dt` and `devx ci` then read and push through
   Delta as you. It is a day-long token that writes as you: less than
   an unfenced session holds, more than the GitHub door gives, which
-  keeps GitHub's token outside. A machine without mint in
-  `/usr/local/bin` hands none. The strict profile never gets it.
+  keeps GitHub's token outside. Only Linux's fence hands it: a Mac's
+  fence, and a machine without mint in `/usr/local/bin`, hand none.
+  The strict profile never gets it.
 
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a

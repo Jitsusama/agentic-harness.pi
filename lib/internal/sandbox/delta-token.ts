@@ -44,8 +44,13 @@ export const ASK_EVERY_MS = 15 * 60_000;
  */
 export const FRESH_BELOW_MS = 2 * 60 * 60_000;
 
-/** How long mint has to answer before a command runs without it. */
-const PATIENCE_MS = 5000;
+/**
+ * How long mint has to answer before a command runs without it. The
+ * call holds pi's shared host while it waits, and mint answers in under
+ * half a second even when it mints afresh, so a hung mint costs the
+ * host at most four seconds a quarter hour.
+ */
+const PATIENCE_MS = 2000;
 
 /** A JWT: three base64url parts, each letters, digits, `-` and `_`. */
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
