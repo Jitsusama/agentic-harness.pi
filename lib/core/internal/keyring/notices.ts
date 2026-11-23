@@ -4,8 +4,8 @@
  *
  * The documents live in library code with no screen of their own, so
  * they say it here, and the extension that has a screen listens. A
- * notice said before anyone listens waits for the first listener rather
- * than going nowhere, and the same words are said once a process, since
+ * notice said before anyone listens waits for the first listener, and
+ * reaches that one only, rather than going nowhere, and the same words are said once a process, since
  * a locked keyring would otherwise repeat itself on every read.
  *
  * Each listener names the screen it shows notices on, and a notice
@@ -40,7 +40,13 @@ export function sayKeyringNotice(notice: KeyringNotice): void {
 	for (const [listener, screen] of listeners) {
 		if (shown.has(screen)) continue;
 		shown.add(screen);
-		listener(notice);
+		try {
+			listener(notice);
+		} catch {
+			// A notice that failed to show has nowhere to be reported; the
+			// screen is left for its next listener, and the rest still hear.
+			shown.delete(screen);
+		}
 	}
 }
 

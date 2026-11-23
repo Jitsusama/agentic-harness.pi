@@ -1,3 +1,9 @@
+import {
+	createExtensionRuntime,
+	type Extension,
+	ExtensionRunner,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	resetKeyringNotices,
@@ -27,6 +33,87 @@ function extension(label: string): FakePi {
 	keepCredentialsInKeyring(pi, label, async () => {});
 	return pi;
 }
+
+type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
+
+/** An extension keeping its credentials in the keyring, as pi loads one. */
+function loaded(label: string): Extension {
+	const extension: Extension = {
+		path: label,
+		resolvedPath: label,
+		sourceInfo: {
+			path: label,
+			source: "sdk",
+			scope: "temporary",
+			origin: "top-level",
+		},
+		handlers: new Map(),
+		tools: new Map(),
+		messageRenderers: new Map(),
+		commands: new Map(),
+		flags: new Map(),
+		shortcuts: new Map(),
+	};
+	// The keyring's session hook uses only `on`; pi's runner reads the rest.
+	const api = {
+		on(name: string, handler: Handler) {
+			extension.handlers.set(name, [
+				...(extension.handlers.get(name) ?? []),
+				handler,
+			]);
+		},
+	} as never;
+	keepCredentialsInKeyring(api, label, async () => {});
+	return extension;
+}
+
+/** One session whose pi runs both extensions, through pi's own runner. */
+function bothInOneSession(): ExtensionRunner {
+	return new ExtensionRunner(
+		[loaded("Slack"), loaded("Google")],
+		createExtensionRuntime(),
+		process.cwd(),
+		SessionManager.inMemory(process.cwd()),
+		{} as never,
+	);
+}
+
+/** A screen as pi takes one, counting what it was told. */
+function piScreen(): { ui: never; told: string[] } {
+	const told: string[] = [];
+	const ui = { notify: (message: string) => told.push(message) };
+	return { ui: ui as never, told };
+}
+
+describe("keepCredentialsInKeyring, under pi's own runner", () => {
+	beforeEach(() => {
+		resetKeyringNotices();
+	});
+
+	afterEach(() => {
+		resetKeyringNotices();
+	});
+
+	it("shows a notice once, since pi gives both extensions one screen", async () => {
+		const runner = bothInOneSession();
+		const screen = piScreen();
+		runner.setUIContext(screen.ui, "interactive");
+		await runner.emit({ type: "session_start", reason: "startup" });
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		expect(screen.told).toEqual(["keyring locked"]);
+	});
+
+	it("shows a notice once on the screen the host rebinds the session to", async () => {
+		const runner = bothInOneSession();
+		const first = piScreen();
+		const second = piScreen();
+		runner.setUIContext(first.ui, "interactive");
+		await runner.emit({ type: "session_start", reason: "startup" });
+		runner.setUIContext(second.ui, "interactive");
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		expect([first.told, second.told]).toEqual([[], ["keyring locked"]]);
+	});
+});
 
 describe("keepCredentialsInKeyring", () => {
 	beforeEach(() => {
