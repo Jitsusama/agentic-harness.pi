@@ -1393,6 +1393,15 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/wiki/Design",
 			"https://github.com/o/repo/security/advisories/GHSA-abcd-efgh-ijkl",
 			"https://github.com/o/repo/actions/runs/123",
+			"https://github.com/o/repo/runs/123",
+			"https://github.com/o/repo/blame/main/src/a.ts",
+			"https://github.com/o/repo/raw/main/src/a.ts",
+			"https://github.com/o/repo/security/code-scanning/7",
+			"https://github.com/o/repo/security/dependabot/3",
+			"https://github.com/o/repo/security/secret-scanning/2",
+			// An upload kept in a repository, by its id and its name.
+			"https://github.com/o/repo/files/123/report.pdf",
+			"https://github.com/o/repo/assets/123/0f0e-77aa",
 			"https://github.com/orgs/acme/discussions/5",
 			"https://github.com/users/someone/projects/1",
 			// What GitHub keeps of one person's: an upload, a conversation.
@@ -1419,6 +1428,12 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/discussions/categories/ideas",
 			"https://github.com/o/repo/issues/created_by/me",
 			"https://github.com/o/repo/tree/main/docs",
+			// A form to make a piece, an index of them, a part short of one.
+			"https://github.com/o/repo/releases/new",
+			"https://github.com/o/repo/security/advisories/new",
+			"https://github.com/o/repo/wiki/_pages",
+			"https://github.com/o/repo/security/code-scanning",
+			"https://github.com/o/repo/files/123",
 		].entries()) {
 			const one = await start(
 				{ link, words: `deep list ${n}`, id: `SP${n}` },

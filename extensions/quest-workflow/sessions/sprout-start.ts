@@ -539,18 +539,34 @@ function linkIsPlace(seed: SproutSeed): boolean {
 
 /**
  * Whether a GitHub path past GITHUB_PLACE_DEPTH names a piece of work by
- * its tab: a file, a commit, a comparison, a release or a wiki page
- * whatever follows; a pull request, an issue, a discussion, a milestone
- * or a project by its number; one advisory under /security, one run
- * under /actions, never their lists.
+ * its tab. A file, a commit, a comparison, a release, a wiki page or an
+ * upload is one once its tab has as many parts below it as
+ * GITHUB_WORK_TABS says. A pull request, an issue, a discussion, a
+ * milestone, a project or a run is one by its number. One alert or
+ * advisory under /security, and one run under /actions, is one too, but
+ * never their lists. A form or an index (isPiece) is never one.
  */
 function gitHubWork(path: readonly string[]): boolean {
 	const tab = path[GITHUB_TAB] ?? "";
-	const item = path[GITHUB_TAB + 1] ?? "";
-	if (GITHUB_WORK_TABS.has(tab)) return true;
-	if (GITHUB_NUMBERED_TABS.has(tab)) return /^\d+$/u.test(item);
-	return GITHUB_WORK_UNDER.get(tab) === item && path.length > GITHUB_TAB + 2;
+	const below = path.slice(GITHUB_TAB + 1);
+	const fewest = GITHUB_WORK_TABS.get(tab);
+	if (fewest !== undefined) return below.length >= fewest && isPiece(below[0]);
+	if (GITHUB_NUMBERED_TABS.has(tab)) return /^\d+$/u.test(below[0] ?? "");
+	const under = GITHUB_WORK_UNDER.get(tab);
+	return under?.has(below[0] ?? "") === true && isPiece(below[1]);
 }
+
+/**
+ * Whether a part of a GitHub path names a piece rather than a form to
+ * make or change one (/releases/new, /advisories/new) or an index of
+ * them (/wiki/_pages), which GitHub starts with an underscore.
+ */
+function isPiece(part: string | undefined): boolean {
+	return part !== undefined && !GITHUB_FORMS.has(part) && !part.startsWith("_");
+}
+
+/** GitHub's parts naming a form to make or change a piece of work. */
+const GITHUB_FORMS: ReadonlySet<string> = new Set(["new", "edit"]);
 
 /** GitHub's advisories, each of which (/advisories/GHSA-...) is the work. */
 const GITHUB_ADVISORIES = "advisories";
@@ -577,13 +593,22 @@ const GITHUB_PLACE_DEPTH = 3;
  */
 const GITHUB_TAB = 2;
 
-/** GitHub's tabs whose every page is a piece of work. */
-const GITHUB_WORK_TABS: ReadonlySet<string> = new Set([
-	"blob",
-	"commit",
-	"compare",
-	"releases",
-	"wiki",
+/**
+ * GitHub's tabs whose pages are each a piece of work, with the fewest
+ * parts below the tab that name one: a ref and a file for a file's
+ * pages; one for a commit, a comparison, a release or a wiki page; an
+ * id and a name for an upload kept in a repository.
+ */
+const GITHUB_WORK_TABS: ReadonlyMap<string, number> = new Map([
+	["blob", 2],
+	["blame", 2],
+	["raw", 2],
+	["commit", 1],
+	["compare", 1],
+	["releases", 1],
+	["wiki", 1],
+	["files", 2],
+	["assets", 2],
 ]);
 
 /** GitHub's tabs whose numbered pages are each a piece of work. */
@@ -593,12 +618,19 @@ const GITHUB_NUMBERED_TABS: ReadonlySet<string> = new Set([
 	"discussions",
 	"milestone",
 	"projects",
+	"runs",
 ]);
 
-/** GitHub's tabs holding a piece of work one part below them. */
-const GITHUB_WORK_UNDER: ReadonlyMap<string, string> = new Map([
-	["security", "advisories"],
-	["actions", "runs"],
+/**
+ * GitHub's tabs holding lists whose every page below them is a piece of
+ * work: an advisory or an alert under /security, a run under /actions.
+ */
+const GITHUB_WORK_UNDER: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	[
+		"security",
+		new Set(["advisories", "code-scanning", "dependabot", "secret-scanning"]),
+	],
+	["actions", new Set(["runs"])],
 ]);
 
 /**
