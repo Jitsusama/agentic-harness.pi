@@ -10,6 +10,7 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -242,7 +243,7 @@ describe("arriving with a carried session", () => {
 		).toBe("");
 	});
 
-	it("holds the twin's stale view of origin to origin's own branches, keeping a behind one's commit aside", async () => {
+	it("holds the twin's stale view of origin to origin's own branches, taking a behind one from origin", async () => {
 		const home = folder(made, "arriving");
 		const twinAt = join(home, "src", "twin");
 		const elsewhere = join(folder(made, "elsewhere"), "src");
@@ -272,9 +273,10 @@ describe("arriving with a carried session", () => {
 		);
 		const tree = join(home, "src", "app");
 
-		const { whole } = await arriveAt(home, from);
+		const { whole, said } = await arriveAt(home, from);
 
 		expect(whole, "it arrived whole").toBe(true);
+		expect(said[0], "sure of origin").not.toHaveProperty("unsure");
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
 		const at = (ref: string) => git(origin, "rev-parse", ref);
 		expect(
@@ -285,16 +287,62 @@ describe("arriving with a carried session", () => {
 				"refs/remotes/",
 				"refs/carry/",
 			),
-			"gone goes; same stays; caught follows origin; main and moved, past what's here, step aside at the twin's commit",
+			"gone goes; same stays; caught follows origin; main and moved, past what's here, come from origin, leaving nothing aside",
 		).toBe(
 			[
-				`refs/carry/twin/main ${was.main}`,
-				`refs/carry/twin/moved ${was.moved}`,
 				`refs/remotes/origin/caught ${await at("caught")}`,
+				`refs/remotes/origin/main ${await at("main")}`,
+				`refs/remotes/origin/moved ${await at("moved")}`,
 				`refs/remotes/origin/same ${await at("same")}`,
 			].join("\n"),
 		);
 		expect(await at("caught")).toBe(was.caught);
+		expect(
+			await git(tree, "rev-list", "--count", head, "--not", "--remotes"),
+			"a carry onward bundles only the carried commit, not the trunk",
+		).toBe("1");
+	});
+
+	it("keeps a behind branch's commit aside when origin won't send it, saying why", async () => {
+		const home = folder(made, "arriving");
+		const twinAt = join(home, "src", "twin");
+		let was = "";
+		const { origin, from, head } = await carried(
+			undefined,
+			{},
+			async (tree) => {
+				const url = await git(tree, "remote", "get-url", "origin");
+				await cloneAt(url, twinAt);
+				const other = await cloneAt(url, join(folder(made, "elsewhere"), "o"));
+				was = await git(other, "rev-parse", "HEAD");
+				await commit(other, "main.txt", "moved on, never here\n");
+				await git(other, "push", "-q", "origin", "main");
+			},
+		);
+		// Origin still lists main, but can't send the commit it names.
+		const moved = await git(origin, "rev-parse", "main");
+		rmSync(join(origin, "objects", moved.slice(0, 2), moved.slice(2)));
+		const tree = join(home, "src", "app");
+
+		const { whole, said } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole, needing nothing of origin").toBe(true);
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
+		expect(
+			await git(
+				tree,
+				"for-each-ref",
+				"--format=%(refname) %(objectname)",
+				"refs/remotes/",
+				"refs/carry/",
+			),
+		).toBe(`refs/carry/twin/main ${was}`);
+		expect(said[0]).toMatchObject({
+			did: "cloned",
+			unsure: expect.stringMatching(
+				/^Origin's branches past the twin didn't come, so they wait under refs\/carry\/twin\/: \S/,
+			),
+		});
 	});
 
 	it("takes a view of origin's x/y from a twin with a branch x of its own", async () => {
@@ -350,7 +398,7 @@ describe("arriving with a carried session", () => {
 		renameSync(origin, `${origin}.away`);
 		const tree = join(home, "src", "app");
 
-		const { whole } = await arriveAt(home, from);
+		const { whole, said } = await arriveAt(home, from);
 
 		expect(whole, "it arrived whole, needing nothing of origin").toBe(true);
 		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
@@ -363,6 +411,12 @@ describe("arriving with a carried session", () => {
 				"refs/carry/",
 			),
 		).toBe(`refs/carry/twin/main ${main}`);
+		expect(said[0]).toMatchObject({
+			did: "cloned",
+			unsure: expect.stringMatching(
+				/^Origin couldn't be listed, so its branches wait under refs\/carry\/twin\/: \S/,
+			),
+		});
 	});
 
 	it("lends a bare twin's own branches as origin's only where origin agrees", async () => {

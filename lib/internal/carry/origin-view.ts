@@ -16,21 +16,36 @@
  * force-pushed, so it leaves refs/remotes but keeps the twin's commit
  * under `refs/carry/twin/`: a fetch sends every ref's commit as a have,
  * and a twin merely behind origin, the usual case, would otherwise make
- * the tree's next fetch send none and take all of World again.
+ * the tree's next fetch send none and take all of World again. Those
+ * branches are then fetched from origin at once, with the twin's commits
+ * as haves, since a carry onward counts only refs/remotes as on origin:
+ * a tree with no origin/main would bundle all of its trunk.
  */
+
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Exec, ExecResult } from "../../core/exec/index.ts";
 
 /** git run in one tree, as arrive hears it. */
 export interface ViewGit {
-	run(
-		...args: string[]
-	): Promise<{ code: number; stdout: string; stderr: string }>;
+	run(...args: string[]): Promise<ExecResult>;
 	ok(...args: string[]): Promise<boolean>;
 	said(...args: string[]): Promise<string | undefined>;
 	/** git with these lines as its standard input. */
-	fed(
-		lines: readonly string[],
-		...args: string[]
-	): Promise<{ code: number; stdout: string; stderr: string }>;
+	fed(lines: readonly string[], ...args: string[]): Promise<ExecResult>;
+	/**
+	 * git stopped once it has run `seconds`, for a call to a remote that
+	 * may never answer: ssh and git:// have no bound of git's own.
+	 */
+	within(seconds: number): Pick<ViewGit, "run" | "fed">;
+}
+
+/** How holding a tree to origin went: refused with why, or unsure why. */
+export interface Held {
+	/** Why the tree can't stand, so it goes. */
+	readonly why?: string;
+	/** Why it stands claiming less of origin than origin holds. */
+	readonly unsure?: string;
 }
 
 const REMOTE = "refs/remotes/origin/";
@@ -43,6 +58,12 @@ export const ASIDE = "refs/carry/twin/";
  * under a kilobyte a second for half a minute.
  */
 const BOUNDED = ["-c", "http.lowSpeedLimit=1024", "-c", "http.lowSpeedTime=30"];
+
+/** How long origin has to list its branches, over any transport. */
+const LISTING = 60;
+
+/** How long origin has to send the branches it moved past the twin. */
+const FETCHING = 900;
 
 /**
  * Makes the tree's origin branches the twin's view of origin, or, for a
@@ -88,14 +109,18 @@ export async function takeView(
  * does. One origin lacks goes. One origin moved follows it when its
  * commit is here, and otherwise steps aside under `ASIDE`, as does every
  * branch when origin can't be listed, so the tree claims nothing of
- * origin it can't show yet keeps its haves. Answers why not, or nothing.
+ * origin it can't show yet keeps its haves. Those set aside then come
+ * from origin, where it answers. Answers why not, or why the tree claims
+ * less of origin than origin holds, or nothing.
  */
-export async function holdToOrigin(git: ViewGit): Promise<string | undefined> {
+export async function holdToOrigin(git: ViewGit): Promise<Held> {
 	const ours = await refsOf(git, REMOTE);
 	if (typeof ours === "string") {
-		return `git couldn't read its origin branches: ${ours}`;
+		return { why: `git couldn't read its origin branches: ${ours}` };
 	}
-	const listed = await git.run(...BOUNDED, "ls-remote", "--heads", "origin");
+	const listed = await git
+		.within(LISTING)
+		.run(...BOUNDED, "ls-remote", "--heads", "origin");
 	const theirs =
 		listed.code === 0 ? named(listed.stdout, "refs/heads/") : undefined;
 	const moved = [...ours].filter(
@@ -105,7 +130,7 @@ export async function holdToOrigin(git: ViewGit): Promise<string | undefined> {
 		git,
 		moved.flatMap(([name]) => theirs?.get(name) ?? []),
 	);
-	if (typeof here === "string") return here;
+	if (typeof here === "string") return { why: here };
 	const gone: string[] = [];
 	const set: [string, string][] = [];
 	for (const [name, commit] of moved) {
@@ -119,7 +144,64 @@ export async function holdToOrigin(git: ViewGit): Promise<string | undefined> {
 			set.push([`${ASIDE}${name}`, commit]);
 		}
 	}
-	return setRefs(git, gone, set, "hold its origin branches to origin");
+	const why = await setRefs(
+		git,
+		gone,
+		set,
+		"hold its origin branches to origin",
+	);
+	if (why !== undefined) return { why };
+	if (theirs === undefined) {
+		return {
+			unsure: `Origin couldn't be listed, so its branches wait under ${ASIDE}: ${saidOf(listed)}`,
+		};
+	}
+	return takeAside(
+		git,
+		set.flatMap(([ref]) =>
+			ref.startsWith(ASIDE) ? [ref.slice(ASIDE.length)] : [],
+		),
+	);
+}
+
+/**
+ * The branches `names`, set aside, fetched from origin into the tree's
+ * origin branches, the twin's commits under `ASIDE` sent as haves, and
+ * those then dropped. Answers why they wait aside still, or nothing.
+ */
+async function takeAside(
+	git: ViewGit,
+	names: readonly string[],
+): Promise<Held> {
+	if (names.length === 0) return {};
+	const fetched = await git.within(FETCHING).fed(
+		names.map((name) => `+refs/heads/${name}:${REMOTE}${name}`),
+		...BOUNDED,
+		"fetch",
+		"-q",
+		"--no-tags",
+		"--no-write-fetch-head",
+		"--stdin",
+		"origin",
+	);
+	if (fetched.code !== 0) {
+		return {
+			unsure: `Origin's branches past the twin didn't come, so they wait under ${ASIDE}: ${saidOf(fetched)}`,
+		};
+	}
+	// Left behind, they would only keep commits from gc.
+	const dropped = await setRefs(
+		git,
+		names.map((name) => `${ASIDE}${name}`),
+		[],
+		"drop the twin's commits origin's own now cover",
+	);
+	return dropped === undefined ? {} : { unsure: dropped };
+}
+
+/** What git said of why it failed. */
+function saidOf(result: ExecResult): string {
+	return result.stderr.trim() || `git exited ${result.code}`;
 }
 
 /**
@@ -188,6 +270,89 @@ async function refsOf(
 	const refs = named(read.stdout, under);
 	refs.delete("HEAD");
 	return refs;
+}
+
+/**
+ * git as `sh` runs it in the tree at `path`: its input from `file`, and,
+ * where `seconds` is over 0, its whole process group stopped once it has
+ * run that long, with `file.stopped` left to say so. The watch runs
+ * apart from what exec hears, so it never holds exec's pipes open.
+ */
+const THROUGH = `p=$1 f=$2 t=$3
+shift 3
+set -m
+git -C "$p" "$@" <"$f" &
+g=$!
+set +m
+w=
+if [ "$t" -gt 0 ]; then
+	(
+		trap 'kill "$s" 2>/dev/null; exit 0' TERM
+		sleep "$t" &
+		s=$!
+		wait "$s" && : >"$f.stopped" && kill -TERM -"$g"
+	) >/dev/null 2>&1 &
+	w=$!
+fi
+wait "$g"
+c=$?
+if [ -n "$w" ]; then kill "$w" 2>/dev/null; fi
+exit "$c"`;
+
+/** git run in the tree at `path`, through `exec`. */
+export function gitIn(exec: Exec, path: string): ViewGit {
+	const run = (...args: string[]) => exec("git", ["-C", path, ...args]);
+	const through = async (
+		seconds: number,
+		lines: readonly string[],
+		args: readonly string[],
+	): Promise<ExecResult> => {
+		// Exec gives no stdin, so the lines go through a file sh reads in,
+		// kept in the tree's own .git, which goes with it if it's refused.
+		let folder: string | undefined;
+		try {
+			folder = mkdtempSync(join(path, ".git", "carry-in-"));
+			const file = join(folder, "in");
+			writeFileSync(file, lines.length === 0 ? "" : `${lines.join("\n")}\n`);
+			const done = await exec("sh", [
+				"-c",
+				THROUGH,
+				"sh",
+				path,
+				file,
+				String(seconds),
+				...args,
+			]);
+			return existsSync(`${file}.stopped`)
+				? {
+						...done,
+						code: done.code === 0 ? 1 : done.code,
+						stderr:
+							`git was stopped after ${seconds} seconds. ${done.stderr}`.trim(),
+					}
+				: done;
+		} catch (error) {
+			// Exec answers rather than throws, and so does this.
+			return { code: 1, stdout: "", stderr: String(error) };
+		} finally {
+			if (folder !== undefined) {
+				rmSync(folder, { recursive: true, force: true });
+			}
+		}
+	};
+	return {
+		run,
+		ok: async (...args) => (await run(...args)).code === 0,
+		said: async (...args) => {
+			const result = await run(...args);
+			return result.code === 0 ? result.stdout.trim() : undefined;
+		},
+		fed: (lines, ...args) => through(0, lines, args),
+		within: (seconds) => ({
+			run: (...args) => through(seconds, [], args),
+			fed: (lines, ...args) => through(seconds, lines, args),
+		}),
+	};
 }
 
 /** `<commit> <ref>` lines, tab or space apart, by name under `prefix`. */
