@@ -77,14 +77,19 @@ and can answer a question or a gate left open on screen.
   cell on a quest above its own that it talks with most, each
   tie counted for its own share of today's messages on it
   (`lib/mesh/hub-from-use.ts`). That is an address only, and
-  grants nothing the mark does. What the mesh says by itself
-  reads the hub each session keeps, which rides out a node
-  that does not answer rather than reading as no hub, since
-  the node going quiet says nothing about who is above and
-  every unmarked session would otherwise send its questions
-  to the person at once. With no such cell the send is
-  refused, and so it is for any session on a quest heading an
-  orchestration, which is told the head's address. The tree is walked on the quest side; the mesh reads
+  grants nothing the mark does: it passes on no yes of the
+  person's, since any cell above can grow its ties. With no
+  such cell the send is refused, and so it is for any session
+  on a quest heading an orchestration, which is told the
+  head's address. A send finds the hub afresh, but what the
+  mesh says by itself, and the delivery note, read the hub
+  each session keeps, and the note names it by address. The
+  kept hub rides out a node that does not answer rather than
+  reading as no hub, since the node going quiet says nothing
+  about who is above and every unmarked session would
+  otherwise send its questions to the person at once; it
+  still goes once either it or the session stops the other,
+  it ends, or it leaves the quests above. The tree is walked on the quest side; the mesh reads
   only presence. Within a mission, an unaddressed message now
   usually goes to the orchestration's group, since another
   peer is nearly always in it: the same reach `#quest/<root>`
@@ -244,8 +249,9 @@ and can answer a question or a gate left open on screen.
   oldest shown, so `before` with that id reads on.
 - `mesh_join`, `mesh_leave` and `mesh_groups`: the groups this
   peer is in, and who is in each. `mesh_groups` also lists
-  each other peer still there, one line each, saying whether
-  it is busy or idle and what it works on, and the leases of
+  each other peer still there, one line each, saying its own
+  quest (apart from the groups it joined, which any peer may),
+  whether it is busy or idle and what it works on, and the leases of
   the peers still there. Last, it lists the peers this one is
   tied to, as the machine's mycelium node keeps ties from who
   talked with whom in the last day (its `tie` kind): at most
@@ -372,7 +378,9 @@ take a question about work to its owner or to `need`, asking
 the orchestrator only who owns one neither finds an owner for,
 settle work shared with a peer between the two (a yes, ruling
 or grant still comes only from the person or from the work's
-owner, the peer whose quest holds it, named by address), and
+owner, the peer whose own quest holds it, as `mesh_groups`
+names it, by address; only the mark's orchestrator passes on
+the person's yes), and
 take the rest as context, with no acknowledgement. A session
 with nobody above asks the person in its reply about work that
 is theirs, and asks them who owns a question neither the owner

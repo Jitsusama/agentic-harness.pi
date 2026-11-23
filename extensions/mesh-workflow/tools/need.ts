@@ -14,8 +14,9 @@
  * A need finds who works on something and grants nothing, since a cell
  * is found by what it says it works on, its title, repository and
  * declared subjects: a yes, a ruling or a grant still comes only from
- * the person or from the work's owner, the peer whose quest holds it,
- * which mesh_groups shows, and each answer says so.
+ * the person or from the work's owner, the peer whose own quest holds
+ * it, which mesh_groups names apart from groups it joined, and each
+ * answer says so.
  */
 
 import { needNamed } from "../../../lib/mesh/group.ts";
@@ -30,7 +31,7 @@ import type { SendDetails, SendParams } from "./send.ts";
 
 /** What every need's answer says, since a fit is no owner. */
 export const NEED_GRANTS_NOTHING =
-	"A need finds who works on something; a yes, ruling or grant still comes only from the person or from the work's owner: the peer whose quest holds it (mesh_groups shows each peer's quest), named by address.";
+	"A need finds who works on something; a yes, ruling or grant still comes only from the person or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address.";
 
 /** What `to` says once a need in it is read, or why it may not be sent. */
 export type NeedRead =

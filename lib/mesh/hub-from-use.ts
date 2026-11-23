@@ -201,16 +201,22 @@ export function questsAbove(
 
 /**
  * Whether a hub found earlier still stands as `self` reads it now: its
- * address listed by exactly one of the `live` presences, and that one
- * on a quest above `self`'s, as the find required when it chose it.
+ * address listed by exactly one of the `live` presences, that one on a
+ * quest above `self`'s, and neither having stopped the other, as the
+ * find required when it chose it. A hub is kept while the node is
+ * quiet, so this is the only check it meets until a find settles.
  */
 export function stillAbove(
-	self: Pick<Presence, "groups" | "joined" | "quest">,
+	self: Pick<
+		Presence,
+		"session" | "addresses" | "stops" | "groups" | "joined" | "quest"
+	>,
 	live: readonly Presence[],
 	address: string,
 ): boolean {
 	const [holder, ...others] = live.filter((one) => lists(one, address));
 	if (holder === undefined || others.length > 0) return false;
+	if (stoppedHere(self, holder) || stoppedHere(holder, self)) return false;
 	const own = ownQuestOf(holder);
 	return own !== undefined && questsAbove(self).includes(own);
 }

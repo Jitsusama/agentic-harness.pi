@@ -15,7 +15,7 @@ const plain = (line: string) => line.replace(/<\/?[a-z]+>/g, "");
  * them, or the owner, whose quest can be checked.
  */
 const grants = (person: string) =>
-	`Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose quest holds it (mesh_groups shows each peer's quest), named by address.`;
+	`Work you share with a peer is settled between you, though a yes, ruling or grant comes only from ${person}, or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest), named by address.`;
 
 const message = (over: Partial<Message> = {}): Message => ({
 	v: 1,
@@ -75,12 +75,21 @@ describe("the mesh on screen", () => {
 			expect(content).toContain(
 				`the one thing to do. That path carries only what needs the person. A question about work goes to its owner by address, or to need (mesh_send to: need, about: what it is about); only when neither finds an owner, ask ${above.address} who owns it.`,
 			);
-			// The person's yes counts only down the path the note sends their
-			// questions, never as some other peer tells it.
-			expect(content).toContain(
-				grants(`the person, said to you or passed on by ${above.address}`),
-			);
 		}
+	});
+
+	// A hub from use is chosen by how much it talks, which any cell above
+	// can grow, so only the mark's orchestrator passes on the person's yes,
+	// and never some other peer telling it.
+	it("takes the person's yes as passed on by the mark's orchestrator alone", () => {
+		const messages = [message()];
+
+		expect(noted(messages, [], { address: "WCJQSG", by: "mark" })).toContain(
+			grants("the person, said to you or passed on by WCJQSG"),
+		);
+		const used = noted(messages, [], { address: "5GV2AH", by: "use" });
+		expect(used).toContain(grants("the person, said to you"));
+		expect(used).not.toContain("passed on by");
 	});
 
 	it("leaves a session with nobody above free to ask the person about its own work, and to ask them who owns a question nobody found an owner for", () => {
@@ -101,7 +110,9 @@ describe("the mesh on screen", () => {
 			],
 			[
 				{ address: "5GV2AH", by: "use" } as const,
-				"to your hub from use, 5GV2AH, as a question (mesh_send to: orchestrator)",
+				// By address: a send to `orchestrator` finds the hub afresh, and
+				// finds none while the node is quiet and the kept hub holds.
+				"to your hub from use, 5GV2AH, as a question (mesh_send to: 5GV2AH)",
 			],
 			[
 				undefined,

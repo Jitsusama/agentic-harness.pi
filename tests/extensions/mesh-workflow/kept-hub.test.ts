@@ -3,8 +3,8 @@
  * at once, read without waiting, never sought under the mark or on a
  * quest heading an orchestration, kept through a find that fails or gets
  * no answer, and none once a find finishes finding none, a role is
- * taken, the quest moves, the hub ends or its address is shared, or the
- * keeping stops.
+ * taken, the quest moves, the hub ends, either stops the other or its
+ * address is shared, or the keeping stops.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -209,16 +209,53 @@ describe("a kept hub", () => {
 		const { at, asked } = onMesh(async () =>
 			quiet ? undefined : [tie("ROOT01", 3)],
 		);
-		const hub = keep(at, QUICK);
+		const found = vi.fn();
+		const hub = keep(at, { ...QUICK, found });
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 		quiet = true;
 		const before = asked.mock.calls.length;
-
 		await vi.waitFor(() =>
 			expect(asked.mock.calls.length).toBeGreaterThan(before + 2),
 		);
+		const said = found.mock.calls.length;
+		const quietSince = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(quietSince + 2),
+		);
+
 		expect(hub.current()).toBe("ROOT01");
+		expect(found, "an unanswered find says no hub").toHaveBeenCalledTimes(said);
 	});
+
+	// While the node is quiet the kept hub meets no find, so reading it
+	// holds to the stops the find would have refused it on.
+	for (const [who, stopper, stopped] of [
+		["this peer stops the hub", "session-s", "ROOT01"],
+		["the hub stops this peer", "session-r", "7M6JKG"],
+	] as const) {
+		it(`is none at once, the node quiet, when ${who}`, async () => {
+			let quiet = false;
+			const { at, asked } = onMesh(async () =>
+				quiet ? undefined : [tie("ROOT01", 3)],
+			);
+			const hub = keep(at, QUICK);
+			await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+			quiet = true;
+			const before = asked.mock.calls.length;
+			await vi.waitFor(() =>
+				expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
+			);
+
+			const one = at.presences.of(stopper);
+			if (one === undefined) throw new Error(`${stopper} is not on the mesh`);
+			at.presences.publish({
+				...one,
+				stops: [{ address: stopped, at: new Date().toISOString() }],
+			});
+
+			expect(hub.current()).toBeUndefined();
+		});
+	}
 
 	it("is none once a later find finishes and finds none", async () => {
 		let tied = true;

@@ -313,6 +313,43 @@ describe("groups", () => {
 		]);
 	});
 
+	// A grant comes from the peer whose own quest holds the work, and any
+	// peer may join a quest's group, so its line says its own quest.
+	it("names each peer's own quest on its line, apart from groups it joined", async () => {
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		presences.publish({
+			session: "session-o",
+			addresses: ["OWNERQ"],
+			groups: ["#quest/root01/ownerq"],
+			quest: "QEST-20261021-OWNERQ",
+			worksOn: "the carry",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		presences.publish({
+			session: "session-j",
+			addresses: ["JOINER"],
+			groups: ["#quest/root01/ownerq", "#quest/other1"],
+			joined: ["#quest/root01/ownerq"],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "something else",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		const text = listed?.content[0]?.text ?? "";
+		const lines = text.split("\nPeers:\n")[1]?.split("\n") ?? [];
+		expect([...lines].sort()).toEqual([
+			"JOINER, quest QEST-20261021-OTHER1, idle: something else",
+			"OWNERQ, quest QEST-20261021-OWNERQ, idle: the carry",
+		]);
+	});
+
 	it("lists the peers it is tied to, strongest first, as the node keeps them", async () => {
 		const presences = createPresences(join(fixture.paths.mesh, "presence"));
 		presences.publish({

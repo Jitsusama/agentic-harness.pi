@@ -273,10 +273,13 @@ export function peersText(
 		const cut =
 			work.length > WORK_CHARS ? `${work.slice(0, WORK_CHARS - 3)}...` : work;
 		const where = one.machine ? ` on ${one.machine}` : "";
+		// Its own quest, apart from the groups it joined, which any peer
+		// may: a grant comes from the peer whose own quest holds the work.
+		const quest = one.quest ? `, quest ${one.quest}` : "";
 		const run = back.has(one.session)
 			? "resuming as its host starts again"
 			: runText(one, now);
-		return [`${address}${where}, ${run}: ${cut}`];
+		return [`${address}${where}${quest}, ${run}: ${cut}`];
 	});
 	return lines.length > 0 ? `\nPeers:\n${lines.join("\n")}` : "";
 }

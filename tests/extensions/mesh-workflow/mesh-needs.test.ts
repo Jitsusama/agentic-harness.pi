@@ -34,7 +34,9 @@ async function sending(
  * never goes to an orchestrator. Naming whom to ask there is still free.
  */
 function expectNoBarAbove(said: string): void {
-	expect(said).not.toMatch(/never sent to an orchestrator|no orchestrator/);
+	expect(said).not.toMatch(
+		/never sent to an orchestrator|(goes|went) to no orchestrator/,
+	);
 }
 
 describe("sending to a need", () => {
@@ -62,7 +64,7 @@ describe("sending to a need", () => {
 		// the peer whose quest holds the work, and the answer says how to see.
 		expect(said).toContain(NEED_GRANTS_NOTHING);
 		expect(NEED_GRANTS_NOTHING).toContain(
-			"the person or from the work's owner: the peer whose quest holds it (mesh_groups shows each peer's quest)",
+			"the person or from the work's owner: the peer whose own quest holds it (mesh_groups names each peer's own quest)",
 		);
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		const [id] = transport.ids();
@@ -121,6 +123,8 @@ describe("sending to a need", () => {
 		expect(said).toContain("Not sent: no word of its text");
 		expect(said).toContain("counted as lost and passed to nobody in its place");
 		expectNoBarAbove(said);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		expect(transport.ids()).toEqual([]);
 	});
 
 	it("keeps only the text's words a cell works on when about is left out", async () => {
