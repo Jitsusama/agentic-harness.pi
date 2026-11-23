@@ -10,6 +10,8 @@ import { scriptsAsText, unfollowedNames } from "./scripts-as-text.ts";
 // Imported only to be named, so `--changed` runs this file when a script
 // it reads changes alone; it reads them from their paths below.
 import "../../scripts/host-gate.sh";
+import "../../scripts/host-run.sh";
+import "../../scripts/host-send-runtime.sh";
 import "../../scripts/host-test-there.sh";
 import "../../scripts/host-test-words.sh";
 import "../../scripts/merge-gate.sh";

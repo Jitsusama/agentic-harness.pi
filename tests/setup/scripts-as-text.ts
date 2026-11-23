@@ -23,7 +23,7 @@ const BESIDE =
 
 /**
  * A script named by its path from the checkout's root, as a command run
- * from there names one: `scripts/host-run.sh`.
+ * from there names one, as `scripts/build.sh` from a script in scripts/.
  */
 const FROM_ROOT = /(?<![\w.$/-])((?:[\w-]+\/)+)([\w.-]+\.(?:sh|bash))\b/g;
 
