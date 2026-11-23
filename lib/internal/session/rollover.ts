@@ -48,6 +48,7 @@ import {
 	openSync,
 	readFileSync,
 	readSync,
+	read as readWithoutBlocking,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
@@ -609,7 +610,9 @@ export function diskFinds(): DiskFinds {
  * reading costs little more than scanning the bytes. No log is opened
  * when every wanted message is on the branch or in `finds`, and the
  * walk ends once all are found. A parent gone from disk, or not a
- * regular file, ends the chain there.
+ * regular file, ends the chain there, and what is still missing counts
+ * as found nowhere; a parent unreadable for another reason ends it
+ * too, but leaves what is missing to be looked for again.
  */
 export function messagesOnDisk(
 	branch: readonly unknown[],
@@ -618,7 +621,17 @@ export function messagesOnDisk(
 ): Entry[] {
 	const scan = scanParents(branch, wanted, finds);
 	let step = scan.next();
-	while (!step.done) step = scan.next();
+	while (!step.done) {
+		const { fd, buffer, length, position } = step.value;
+		let read: number;
+		try {
+			read = readSync(fd, buffer, 0, length, position);
+		} catch (error) {
+			step = scan.throw(error);
+			continue;
+		}
+		step = scan.next(read);
+	}
 	return step.value;
 }
 
@@ -631,9 +644,11 @@ export interface PacedRead {
 }
 
 /**
- * As {@link messagesOnDisk}, for a reader that can wait: the event loop
- * is given back after each chunk's worth of lines. A pause comes only
- * between lines, so a line longer than a chunk is read whole first.
+ * As {@link messagesOnDisk}, for a reader that can wait: each chunk and
+ * each line found before is read without blocking the event loop, so
+ * the conversation goes on while the disk answers, and between reads
+ * the loop holds only for the lines of one chunk. A line longer than a
+ * chunk is joined and judged once its last piece is read.
  */
 export async function messagesOnDiskAsync(
 	branch: readonly unknown[],
@@ -644,9 +659,16 @@ export async function messagesOnDiskAsync(
 	try {
 		let step = scan.next();
 		while (!step.done) {
-			await new Promise<void>((resolve) => setImmediate(resolve));
+			let read: number;
+			try {
+				read = await readAsync(step.value);
+			} catch (error) {
+				if (signal?.aborted) return [];
+				step = scan.throw(error);
+				continue;
+			}
 			if (signal?.aborted) return [];
-			step = scan.next();
+			step = scan.next(read);
 		}
 		return step.value;
 	} finally {
@@ -655,16 +677,47 @@ export async function messagesOnDiskAsync(
 	}
 }
 
+/** A read the scan needs done: `length` bytes of `fd` at `position`. */
+interface ReadWanted {
+	readonly fd: number;
+	readonly buffer: Buffer;
+	readonly length: number;
+	readonly position: number;
+}
+
 /**
- * The walk both readers share, pausing after each chunk's worth of
- * lines so a reader can give the event loop back, and returning the
- * messages found.
+ * A walk over parent logs that leaves its reads to whoever drives it:
+ * it yields each read it needs and is given back how many bytes came,
+ * or the error thrown in, so one walk serves a reader that blocks and
+ * one that awaits.
  */
+type Scan<T> = Generator<ReadWanted, T, number>;
+
+/** The read `wanted`, done without blocking the event loop. */
+function readAsync({ fd, buffer, length, position }: ReadWanted) {
+	return new Promise<number>((resolve, reject) => {
+		readWithoutBlocking(fd, buffer, 0, length, position, (error, bytes) =>
+			error ? reject(error) : resolve(bytes),
+		);
+	});
+}
+
+/** How many bytes of `fd` at `position` came into `buffer`. */
+function* readOf(
+	fd: number,
+	buffer: Buffer,
+	length: number,
+	position: number,
+): Scan<number> {
+	return yield { fd, buffer, length, position };
+}
+
+/** The walk both readers share, returning the messages found. */
 function* scanParents(
 	branch: readonly unknown[],
 	wanted: ReadonlySet<string>,
 	finds: DiskFinds,
-): Generator<void, Entry[]> {
+): Scan<Entry[]> {
 	const seen = new Set(
 		branch.map((entry) => (entry as Partial<Entry> | undefined)?.id),
 	);
@@ -677,7 +730,7 @@ function* scanParents(
 	const missing = new Set(
 		[...wanted].filter((id) => !seen.has(id) && !finds.absent.has(id)),
 	);
-	const found = foundBefore(missing, finds);
+	const found = yield* foundBefore(missing, finds);
 	const visited = new Set<string>();
 	let depth = 0;
 	let ended = true;
@@ -686,33 +739,32 @@ function* scanParents(
 		visited.add(path);
 		finds.scanned++;
 		let next: RolloverRecord | undefined;
-		let sincePause = 0;
-		const where = { offset: 0 };
+		const within = depth;
+		let aLog: boolean;
 		try {
-			for (const line of linesOf(path, where)) {
-				sincePause += line.length + 1;
-				if (sincePause >= CHUNK_BYTES) {
-					sincePause = 0;
-					yield;
-				}
+			aLog = yield* linesOf(path, (line, offset) => {
 				const entry = wantedLine(line, missing);
 				if (entry?.type !== "message") {
 					if (entry) next = rolledFrom([entry]) ?? next;
-					continue;
+					return false;
 				}
-				const at = { path, depth, offset: where.offset, length: line.length };
+				const at = { path, depth: within, offset, length: line.length };
 				found.push({ at, entry });
 				finds.located.set(entry.id, at);
 				// An older log may hold it again; the newest copy is the one read.
 				missing.delete(entry.id);
-				if (missing.size === 0) break;
-			}
-		} catch {
-			// A parent gone from disk, or unreadable, ends the chain there,
-			// keeping what it gave; what is still missing may yet be read.
-			ended = false;
+				return missing.size === 0;
+			});
+		} catch (error) {
+			// A parent gone from disk ends the chain there for good, and what
+			// is still missing counts as found nowhere. One unreadable for a
+			// while ends it too, keeping what it gave, but what is still
+			// missing may yet be read.
+			if (!goneForGood(error)) ended = false;
 			break;
 		}
+		// A parent that is not a regular file, such as a pipe, ends it too.
+		if (!aLog) break;
 		record = next;
 		depth++;
 	}
@@ -720,6 +772,12 @@ function* scanParents(
 	// Oldest first: the furthest log back, then each log's own order.
 	found.sort((a, b) => b.at.depth - a.at.depth || a.at.offset - b.at.offset);
 	return found.map(({ entry }) => entry);
+}
+
+/** Whether a read failed because the log is not there, which lasts. */
+function goneForGood(error: unknown): boolean {
+	if (!(error instanceof Error) || !("code" in error)) return false;
+	return error.code === "ENOENT" || error.code === "ENOTDIR";
 }
 
 /** A message read back, and where it was. */
@@ -733,12 +791,12 @@ interface Found {
  * lines and taken out of `missing`. A line that no longer holds its
  * message is forgotten, so a scan looks for that message again.
  */
-function foundBefore(missing: Set<string>, finds: DiskFinds): Found[] {
+function* foundBefore(missing: Set<string>, finds: DiskFinds): Scan<Found[]> {
 	const found: Found[] = [];
 	for (const id of [...missing]) {
 		const at = finds.located.get(id);
 		if (!at) continue;
-		const entry = lineAt(at, id);
+		const entry = yield* lineAt(at, id);
 		if (entry) {
 			found.push({ at, entry });
 			missing.delete(id);
@@ -750,13 +808,13 @@ function foundBefore(missing: Set<string>, finds: DiskFinds): Found[] {
 }
 
 /** The message `id` at `at`, if that line still holds it. */
-function lineAt(at: Located, id: string): Entry | undefined {
+function* lineAt(at: Located, id: string): Scan<Entry | undefined> {
 	let fd: number | undefined;
 	try {
 		fd = openSync(at.path, READ_FLAGS);
 		if (!fstatSync(fd).isFile()) return undefined;
 		const bytes = Buffer.alloc(at.length);
-		if (readSync(fd, bytes, 0, at.length, at.offset) !== at.length)
+		if ((yield* readOf(fd, bytes, at.length, at.offset)) !== at.length)
 			return undefined;
 		const entry = wantedLine(bytes, new Set([id]));
 		return entry?.type === "message" ? entry : undefined;
@@ -813,40 +871,40 @@ function wantedLine(
  * lines it wants, and a line decoded alone reads exactly as it would in
  * the whole file: no byte of a multibyte UTF-8 letter is a newline. A
  * line that fits in one chunk is a view of a buffer read into again, so
- * a reader must be done with it before asking for the next. As each
- * line is handed over, `where.offset` says where in the file it starts.
+ * `take` must be done with it before it returns. `take` is given each
+ * line and where in the file it starts, and returns true to stop.
  *
  * Only a regular file is read. A pipe or a device named as a parent
- * could block a read for good, so anything else throws.
+ * could block a read for good, so anything else is left unread, and
+ * false is returned for it.
  */
 function* linesOf(
 	path: string,
-	where: { offset: number } = { offset: 0 },
-): Generator<Buffer> {
+	take: (line: Buffer, offset: number) => boolean,
+): Scan<boolean> {
 	const fd = openSync(path, READ_FLAGS);
 	try {
-		if (!fstatSync(fd).isFile()) throw new Error(`${path} is not a log file`);
+		if (!fstatSync(fd).isFile()) return false;
 		const buffer = Buffer.alloc(CHUNK_BYTES);
 		// A long line spans chunks: its pieces wait here, joined once it ends.
 		let held: Buffer[] = [];
 		let heldAt = 0;
 		let base = 0;
 		for (;;) {
-			const read = readSync(fd, buffer, 0, CHUNK_BYTES, null);
+			const read = yield* readOf(fd, buffer, CHUNK_BYTES, base);
 			if (read === 0) break;
 			const chunk = buffer.subarray(0, read);
 			let start = 0;
 			let end = chunk.indexOf(NEWLINE);
 			if (end !== -1 && held.length > 0) {
-				where.offset = heldAt;
-				yield Buffer.concat([...held, chunk.subarray(0, end)]);
+				if (take(Buffer.concat([...held, chunk.subarray(0, end)]), heldAt))
+					return true;
 				held = [];
 				start = end + 1;
 				end = chunk.indexOf(NEWLINE, start);
 			}
 			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
-				where.offset = base + start;
-				yield chunk.subarray(start, end);
+				if (take(chunk.subarray(start, end), base + start)) return true;
 				start = end + 1;
 			}
 			// The buffer is read into again, so what waits is a copy.
@@ -856,10 +914,8 @@ function* linesOf(
 			}
 			base += read;
 		}
-		if (held.length > 0) {
-			where.offset = heldAt;
-			yield Buffer.concat(held);
-		}
+		if (held.length > 0) take(Buffer.concat(held), heldAt);
+		return true;
 	} finally {
 		closeSync(fd);
 	}

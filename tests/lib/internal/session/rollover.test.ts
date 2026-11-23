@@ -6,6 +6,7 @@
 
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	closeSync,
 	constants,
 	existsSync,
@@ -620,20 +621,60 @@ describe("messages asked of the parent logs", () => {
 		expect(read).toEqual([]);
 	});
 
-	it("stop partway once their reader is aborted during the scan", async () => {
+	it("stop partway once their reader is aborted during the scan, marking nothing", async () => {
 		const { manager, ids } = longSession();
 		const { fresh } = withFillerBefore(manager);
 		const controller = new AbortController();
-		// Aborted at the first pause, once a chunk has been read.
+		// Aborted while the first chunk is read; the message is three on.
 		setImmediate(() => controller.abort());
+		const finds = diskFinds();
 
 		const read = await messagesOnDiskAsync(
 			fresh.getBranch(),
 			new Set([ids.early]),
-			{ signal: controller.signal },
+			{ signal: controller.signal, finds },
 		);
 
 		expect(read).toEqual([]);
+		expect(finds.located.has(ids.early)).toBe(false);
+		expect([...finds.absent]).toEqual([]);
+		const after = messagesOnDisk(
+			fresh.getBranch(),
+			new Set([ids.early]),
+			finds,
+		);
+		expect(texts(after)).toEqual(["early question"]);
+		expect(finds.scanned).toBe(2);
+	});
+
+	it("are not looked for again once their parent is gone from disk", () => {
+		const { manager, ids } = longSession();
+		const branch = rolledInto(manager).fresh.getBranch();
+		rmSync(manager.getSessionFile() ?? "");
+		const finds = diskFinds();
+		expect(messagesOnDisk(branch, new Set([ids.early]), finds)).toEqual([]);
+
+		expect(messagesOnDisk(branch, new Set([ids.early]), finds)).toEqual([]);
+		expect([...finds.absent]).toEqual([ids.early]);
+		expect(finds.scanned).toBe(1);
+	});
+
+	it("are looked for again once a parent unreadable for a while can be read", () => {
+		const { manager, ids } = longSession();
+		const branch = rolledInto(manager).fresh.getBranch();
+		const file = manager.getSessionFile() ?? "";
+		const finds = diskFinds();
+		chmodSync(file, 0o000);
+		try {
+			expect(messagesOnDisk(branch, new Set([ids.early]), finds)).toEqual([]);
+		} finally {
+			chmodSync(file, 0o600);
+		}
+
+		const read = messagesOnDisk(branch, new Set([ids.early]), finds);
+
+		expect(texts(read)).toEqual(["early question"]);
+		expect(finds.scanned).toBe(2);
 	});
 
 	it("pause once a chunk, all through a long log", async () => {
