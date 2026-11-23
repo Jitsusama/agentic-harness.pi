@@ -191,6 +191,23 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user ");
 	});
 
+	it("hides the folder two missing runtime folders would be made in once, not once a root", () => {
+		const roots = ["/run/user/1000/pi-compile", "/run/user/1001/pi-compile"];
+		const beforeLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user/") ? undefined : "folder"),
+			entries: () => [],
+		};
+		const args = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			beforeLogin,
+		);
+		expect(
+			args.filter(
+				(arg, at) => arg === "/run/user" && args[at - 1] === "--tmpfs",
+			),
+		).toHaveLength(1);
+	});
+
 	it("hides nothing above a missing runtime folder that holds the fence's own, or that is no plain folder", () => {
 		const roots = ["/run/user/1000/pi-compile"];
 		const tmpfsOf = (given: string[]) =>
