@@ -58,6 +58,8 @@ interface Session {
 	readonly refused: string[];
 	/** When each refusal says it was, as `refused` lists them. */
 	readonly refusedAt: Date[];
+	/** How many holds on the session's doors are taken and not let go. */
+	readonly holdsTaken: () => number;
 	readonly said: string[];
 }
 
@@ -81,7 +83,9 @@ function session(
 	const refusedAt: Date[] = [];
 	const said: string[] = [];
 	let now = over.start ?? 0;
+	let holdsTaken = 0;
 	const at: Session = {
+		holdsTaken: () => holdsTaken,
 		idle: over.idle ?? true,
 		holding: over.holding ?? (() => undefined),
 		did,
@@ -93,6 +97,12 @@ function session(
 			idle: () => at.idle,
 			abort: () => did.push("abort"),
 			holds: async (runEnded) => at.holding(runEnded),
+			hold: () => {
+				holdsTaken += 1;
+				return () => {
+					holdsTaken -= 1;
+				};
+			},
 			carry: async (to) => {
 				did.push(`carry to ${to}`);
 				await (over.carry ?? (async () => {}))();
@@ -556,6 +566,60 @@ describe("an ordered carry", () => {
 			"its work couldn't be carried: no quest is loaded",
 		]);
 		expect(one.did).toEqual(["carry to penelope"]);
+	});
+
+	// A park in the gap between ending its run and carrying, or while its
+	// refusal is written, would end it with nothing written for its node
+	// (PV3TE0's F39, 23 November).
+	it("holds the session's doors from its order until it is carried", async () => {
+		const seen: number[] = [];
+		const one = session({
+			idle: false,
+			holding: () => {
+				seen.push(one.holdsTaken());
+				return undefined;
+			},
+			carry: async () => {
+				seen.push(one.holdsTaken());
+			},
+		});
+		const going = one.ordering.order(ORDER);
+		one.ordering.turnEnded();
+		one.idle = true;
+		await going;
+
+		expect(seen).toEqual([1, 1, 1]);
+		expect(one.holdsTaken()).toBe(0);
+	});
+
+	it("holds them while its refusal is written, and lets go after", async () => {
+		const seen: number[] = [];
+		const one = session({
+			holding: once("a fleet is out"),
+			writing: async () => {
+				seen.push(one.holdsTaken());
+			},
+		});
+
+		await one.ordering.order(ORDER);
+
+		expect(one.refused).toEqual(["a fleet is out"]);
+		expect(seen).toEqual([1]);
+		expect(one.holdsTaken()).toBe(0);
+	});
+
+	it("takes no hold for an order it leaves to the carry under way", async () => {
+		const one = session({ idle: false });
+		const first = one.ordering.order(ORDER);
+		const during: number[] = [];
+		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		during.push(one.holdsTaken());
+		one.ordering.turnEnded();
+		one.idle = true;
+		await first;
+
+		expect(during).toEqual([1]);
+		expect(one.holdsTaken()).toBe(0);
 	});
 
 	it("says a second order on screen alone, so the first carries with no refusal left", async () => {

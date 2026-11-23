@@ -6,13 +6,17 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
-	CARRY_HOLDS_MOST_MS,
 	type CarriedContext,
+	type CarryingPlaces,
 	carryThisSession,
 } from "../../../extensions/mesh-workflow/carrying.ts";
 import { HAND_EXTENSION } from "../../../extensions/mesh-workflow/index.ts";
+import {
+	type CarryHold,
+	holdForCarry,
+} from "../../../lib/internal/carry/under-way.ts";
 import { leaveUntrusted } from "../../../lib/internal/session/carried-trust.ts";
 import {
 	leaveSession,
@@ -177,8 +181,32 @@ describe("parking", () => {
 	// part-way through a carry its node had ordered, and wrote no done
 	// file (BMDYSH, 01:03).
 	describe("while its work is being carried", () => {
+		// What each test left holding, let go after it whether it passed or
+		// not, so no later park test reads a carry it never started.
+		const left: (() => Promise<unknown>)[] = [];
+		afterEach(async () => {
+			for (const end of left.splice(0)) await end();
+		});
+
+		/** A hold an ordered carry would take, let go after the test. */
+		const ordered = (): CarryHold => {
+			const hold = holdForCarry(session, "penelope");
+			left.push(async () => hold.release());
+			return hold;
+		};
+
+		/** Asks this session's park, answering what refused it. */
+		const parkAsked = (
+			emit: (event: string, data: unknown) => void,
+			restart = false,
+		) => {
+			const ask = { session, refusals: [] as string[], restart };
+			emit(PARK_ASK, ask);
+			return ask.refusals;
+		};
+
 		/** A carry of this session that waits on its run until `ended` is called. */
-		const carrying = () => {
+		const carrying = (places: CarryingPlaces = {}) => {
 			let idle = false;
 			const ctx: CarriedContext = {
 				sessionManager: {
@@ -193,6 +221,13 @@ describe("parking", () => {
 			};
 			const carried = carryThisSession(ctx, "penelope", {
 				windDownMs: 60_000,
+				...places,
+			});
+			// Settled either way after the test, so a failing one leaves
+			// nothing polling and no rejection unheard.
+			left.push(() => {
+				idle = true;
+				return carried.catch(() => undefined);
 			});
 			return {
 				// With no quest loaded here, the carry refuses once its run ends.
@@ -200,70 +235,69 @@ describe("parking", () => {
 					idle = true;
 					return expect(carried).rejects.toThrow(/no quest is loaded/);
 				},
+				carried,
 			};
 		};
 
 		it("refuses to park until the carry ends", async () => {
 			const { emit } = await startSession();
 			const carry = carrying();
-			const during = { session, refusals: [] as string[] };
 
-			emit(PARK_ASK, during);
+			const during = parkAsked(emit);
 			await carry.ended();
-			const after = { session, refusals: [] as string[] };
-			emit(PARK_ASK, after);
+			const after = parkAsked(emit);
 
-			expect(during.refusals).toEqual([
-				"its work is being carried to penelope",
-			]);
-			expect(after.refusals).toEqual([]);
+			expect(during).toEqual(["its work is being carried to penelope"]);
+			expect(after).toEqual([]);
 		});
 
 		it("refuses to start again in place, which would end the carry too", async () => {
 			const { emit } = await startSession();
 			const carry = carrying();
-			const ask = { session, refusals: [] as string[], restart: true };
 
-			emit(PARK_ASK, ask);
+			const refusals = parkAsked(emit, true);
 			await carry.ended();
 
-			expect(ask.refusals).toEqual(["its work is being carried to penelope"]);
+			expect(refusals).toEqual(["its work is being carried to penelope"]);
 		});
 
-		it("lets the park go once a carry has held it fifteen minutes", async () => {
+		it("lets the park go once a carry's hold has had its time", async () => {
 			const { emit } = await startSession();
-			vi.useFakeTimers({ toFake: ["Date"] });
-			try {
-				const carry = carrying();
-				const early = { session, refusals: [] as string[] };
-				vi.setSystemTime(Date.now() + CARRY_HOLDS_MOST_MS - 1);
-				emit(PARK_ASK, early);
-				const late = { session, refusals: [] as string[] };
-				vi.setSystemTime(Date.now() + 1);
-				emit(PARK_ASK, late);
-				await carry.ended();
+			const hold = holdForCarry(session, "penelope", { mostMs: 0 });
+			left.push(async () => hold.release());
 
-				expect(early.refusals).toEqual([
-					"its work is being carried to penelope",
-				]);
-				expect(late.refusals).toEqual([]);
-			} finally {
-				vi.useRealTimers();
-			}
+			expect(parkAsked(emit)).toEqual([]);
 		});
 
-		it("leaves another session's park to that session", async () => {
+		// 23 November (PV3TE0's F41): of two carries of one session, the
+		// first to end lifted the other's hold.
+		it("refuses a second carry, and keeps the first one's hold", async () => {
 			const { emit } = await startSession();
-			const carry = carrying();
-			const other = {
-				session: "01a15f3a-0000-7463-9909-afa624b025fe",
-				refusals: [] as string[],
-			};
+			const first = carrying();
+			const second = carrying();
 
-			emit(PARK_ASK, other);
-			await carry.ended();
+			await expect(second.carried).rejects.toThrow(
+				"a carry to penelope is already under way.",
+			);
+			const refusals = parkAsked(emit);
+			await first.ended();
 
-			expect(other.refusals).toEqual([]);
+			expect(refusals).toEqual(["its work is being carried to penelope"]);
+		});
+
+		it("holds the park from an ordered carry's order until it lets go", async () => {
+			const { emit } = await startSession();
+			const hold = ordered();
+
+			const before = parkAsked(emit);
+			await carrying({ hold }).ended();
+			const carried = parkAsked(emit);
+			hold.release();
+			const after = parkAsked(emit);
+
+			expect(before).toEqual(["its work is being carried to penelope"]);
+			expect(carried).toEqual(["its work is being carried to penelope"]);
+			expect(after).toEqual([]);
 		});
 	});
 

@@ -30,6 +30,12 @@
  *
  * Carried, it closes as the person's Carry does, saying in its journal
  * who ordered or chose it and why, a node's choice never as an order.
+ *
+ * From the moment it is taken until it is carried or its refusal is
+ * written, it holds every door that would end the session's process
+ * (`hold`, lib/internal/carry/under-way.ts): the run it waits out and
+ * the holds it looks at again leave the session idle, and a park in
+ * that gap would end it with nothing written for its node.
  */
 
 import { readFile } from "node:fs/promises";
@@ -42,6 +48,7 @@ import { createGitRebaser } from "../../lib/core/work/rebase.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
+import type { CarryHold } from "../../lib/internal/carry/under-way.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
@@ -120,6 +127,11 @@ export interface OrderedCarryHost {
 	 * once the run has ended, when a run's own leases count too.
 	 */
 	readonly holds: (runEnded: boolean) => Promise<string | undefined>;
+	/**
+	 * Hold every door that would end the session's process for a carry to
+	 * `to`, until the answer is called.
+	 */
+	readonly hold: (to: string) => () => void;
 	/** Carry its work for the machine `to`, settling once it is carried. */
 	readonly carry: (to: string) => Promise<void>;
 	/**
@@ -243,6 +255,34 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		return true;
 	};
 
+	/** Carries a taken order, or refuses it, saying why. */
+	const carryOrdered = async (ordered: OrderedCarry): Promise<void> => {
+		const before = await host.holds(false);
+		if (before !== undefined) return refuse(ordered, before);
+		if (!host.idle()) {
+			host.tell(
+				`${carryOf(ordered).opens}, for ${ordered.why}: letting the turn under way end first.`,
+			);
+		}
+		if (!(await runEnds())) {
+			return refuse(ordered, `its run didn't end within ${waitMs / 1000} s`);
+		}
+		const after = await host.holds(true);
+		if (after !== undefined) return refuse(ordered, after);
+		try {
+			await host.carry(ordered.to);
+		} catch (error) {
+			return refuse(
+				ordered,
+				`its work couldn't be carried: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+		host.tell(
+			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
+		);
+		host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
+	};
+
 	return {
 		async order(ordered) {
 			// No node here began it, or none can be told to have, and this
@@ -271,30 +311,12 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				return;
 			}
 			underWay = true;
-			const before = await host.holds(false);
-			if (before !== undefined) return refuse(ordered, before);
-			if (!host.idle()) {
-				host.tell(
-					`${carryOf(ordered).opens}, for ${ordered.why}: letting the turn under way end first.`,
-				);
-			}
-			if (!(await runEnds())) {
-				return refuse(ordered, `its run didn't end within ${waitMs / 1000} s`);
-			}
-			const after = await host.holds(true);
-			if (after !== undefined) return refuse(ordered, after);
+			const release = host.hold(ordered.to);
 			try {
-				await host.carry(ordered.to);
-			} catch (error) {
-				return refuse(
-					ordered,
-					`its work couldn't be carried: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				await carryOrdered(ordered);
+			} finally {
+				release();
 			}
-			host.tell(
-				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
-			);
-			host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
 		},
 		started() {
 			if (underWay) end();
@@ -397,6 +419,8 @@ export interface HoldsAt {
 	readonly prompts: number;
 	readonly board: Board;
 	readonly session: string;
+	/** The asking carry's own hold, which holds nothing against it. */
+	readonly ownCarry?: CarryHold;
 }
 
 /**
@@ -409,7 +433,10 @@ export async function orderedHolds(
 	runEnded: boolean,
 ): Promise<string | undefined> {
 	return (
-		holdsOf(at.ctx, at.events, at.prompts, { runAside: true }) ??
+		holdsOf(at.ctx, at.events, at.prompts, {
+			runAside: true,
+			ownCarry: at.ownCarry,
+		}) ??
 		leasesHolding(at.board, at.session, runEnded) ??
 		(await rebaseHalted(at.session))
 	);

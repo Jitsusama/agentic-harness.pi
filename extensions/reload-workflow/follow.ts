@@ -37,6 +37,7 @@ import {
 	sessionKeyOf,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
@@ -479,8 +480,10 @@ export async function follow(
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
+		let carrying: string | undefined;
 		try {
 			idle = settled || ctx.isIdle();
+			carrying = carryUnderWay(ctx.sessionManager.getSessionId());
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");
@@ -494,9 +497,13 @@ export async function follow(
 		if (swapped) {
 			sayWhy("it runs a tree", { root: now.root, install: now.install });
 		}
+		if (carrying !== undefined) {
+			sayWhy("its work is being carried", { to: carrying });
+		}
 		const moment = whenToReload({
 			swapped,
 			idle,
+			carrying: carrying !== undefined,
 			ready: [...moved.values()].every((one) =>
 				dependenciesReady(one.root, one.at),
 			),

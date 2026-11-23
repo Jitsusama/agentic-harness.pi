@@ -11,6 +11,10 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
+import {
+	type CarryHold,
+	holdForCarry,
+} from "../../../lib/internal/carry/under-way.ts";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { everyRealmsDir } from "../../../lib/internal/paths.ts";
 import { withQuestLock } from "../../../lib/internal/quest/io.ts";
@@ -186,6 +190,22 @@ export function createState(
 						inboxOf(m.steerRoot ?? "", address),
 					),
 	});
+	// A host's standard error is its journal; plain pi's window said it.
+	const journal = (text: string) => {
+		if (!hosted()) return;
+		const session = m.ctx?.sessionManager.getSessionId() ?? "unknown";
+		process.stderr.write(`pausing ${session}: ${text}\n`);
+	};
+	// A carry that outlives its hold is said, so the park that may end it
+	// next isn't taken for an ordinary one.
+	const lapsed = (hold: CarryHold) => {
+		const text = `a carry to ${hold.to} has held this session its whole time and lets it go; a park or restart may now end it part-way.`;
+		journal(text);
+		if (m.ctx?.hasUI) m.ctx.ui.notify(text, "warning");
+	};
+	// The hold an ordered carry took at its order, which its own looks at
+	// what holds the session set aside.
+	let orderedHold: CarryHold | undefined;
 	// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 	const pausing = createPausing({
 		now: Date.now,
@@ -204,12 +224,7 @@ export function createState(
 		tell: (text) => {
 			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
 		},
-		// A host's standard error is its journal; plain pi's window said it.
-		journal: (text) => {
-			if (!hosted()) return;
-			const session = m.ctx?.sessionManager.getSessionId() ?? "unknown";
-			process.stderr.write(`pausing ${session}: ${text}\n`);
-		},
+		journal,
 		// Plain pi waits until it is idle, so the run just ended winds down
 		// first; a host closes it as a Close over its socket does.
 		close: (by) => {
@@ -217,7 +232,7 @@ export function createState(
 		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to);
+			await carryThisSession(m.ctx, to, { timing: { lapsed } });
 		},
 	});
 	// A host's conversation has no window of its own to hand over.
@@ -249,12 +264,25 @@ export function createState(
 					prompts: m.prompts,
 					board,
 					session: m.peer?.session ?? "",
+					ownCarry: orderedHold,
 				},
 				runEnded,
 			),
+		hold: (to) => {
+			const session =
+				m.ctx?.sessionManager.getSessionId() ?? m.peer?.session ?? "";
+			const hold = holdForCarry(session, to, { lapsed });
+			orderedHold = hold;
+			return () => {
+				hold.release();
+				if (orderedHold === hold) orderedHold = undefined;
+			};
+		},
 		carry: async (to) => {
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
-			await carryThisSession(m.ctx, to);
+			await carryThisSession(m.ctx, to, {
+				...(orderedHold ? { hold: orderedHold } : { timing: { lapsed } }),
+			});
 		},
 		refuse: async (why, at) => {
 			if (!m.peer) throw new Error("the session isn't on the mesh yet");

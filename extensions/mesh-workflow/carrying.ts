@@ -10,12 +10,11 @@
  * rest still go; a session with no quest loaded has no handover to carry
  * into, so it refuses, and stays open.
  *
- * A carry under way holds the session's park and its restart in place
- * ({@link carryUnderWay}), since either ends the process the carry runs
- * in. Its run ended, the session reads as idle while its trees are
- * bundled, so on 23 November a background conversation idle five
- * minutes parked part-way through a carry its node had ordered, and
- * wrote no done file (BMDYSH, 01:03).
+ * A carry under way holds every door that would end the process it runs
+ * in (lib/internal/carry/under-way.ts): one ordered through the node
+ * holds them from the order, and passes its hold in; one the person
+ * asked for takes its own. A second carry of a session already being
+ * carried refuses, since the first one's success closes it.
  */
 
 import { existsSync } from "node:fs";
@@ -26,6 +25,12 @@ import { carryAway } from "../../lib/internal/carry/carry-away.ts";
 import { fenceKindOf } from "../../lib/internal/carry/fence.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
+import {
+	type CarryHold,
+	carryUnderWay,
+	type HoldTiming,
+	holdForCarry,
+} from "../../lib/internal/carry/under-way.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
@@ -52,31 +57,13 @@ export interface CarryingPlaces {
 	readonly env?: NodeJS.ProcessEnv;
 	/** The quest's remembered facts; this machine's memory store's by default. */
 	readonly notes?: (quest: string) => Promise<readonly CarriedNote[]>;
-}
-
-/**
- * How long a carry holds its session's park and restart at most, so one
- * that hangs never holds them for good (ISXEG8, 23 November). A carry
- * takes a minute or two; its node has given up on one long before this.
- */
-export const CARRY_HOLDS_MOST_MS = 15 * 60_000;
-
-/** Each session's carry under way: the machine it goes to, and since when. */
-const underWay = new Map<string, { to: string; since: number }>();
-
-/**
- * The machine `session`'s work is being carried to, while a carry is
- * under way and has held it less than {@link CARRY_HOLDS_MOST_MS}.
- */
-export function carryUnderWay(
-	session: string,
-	now = Date.now(),
-): string | undefined {
-	const carry = underWay.get(session);
-	if (carry === undefined || now - carry.since >= CARRY_HOLDS_MOST_MS) {
-		return undefined;
-	}
-	return carry.to;
+	/**
+	 * The hold already taken for this carry, as an ordered one takes it
+	 * at its order and lets it go itself; else the carry takes its own,
+	 * timed by `timing`.
+	 */
+	readonly hold?: CarryHold;
+	readonly timing?: HoldTiming;
 }
 
 /**
@@ -89,11 +76,16 @@ export async function carryThisSession(
 	places: CarryingPlaces = {},
 ): Promise<string> {
 	const id = ctx.sessionManager.getSessionId();
-	underWay.set(id, { to, since: Date.now() });
+	const other = carryUnderWay(id, { except: places.hold });
+	if (other !== undefined) {
+		throw new Error(`a carry to ${other} is already under way.`);
+	}
+	if (places.hold !== undefined) return await carryOut(ctx, to, places);
+	const hold = holdForCarry(id, to, places.timing);
 	try {
 		return await carryOut(ctx, to, places);
 	} finally {
-		underWay.delete(id);
+		hold.release();
 	}
 }
 

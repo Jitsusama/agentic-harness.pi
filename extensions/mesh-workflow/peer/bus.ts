@@ -3,6 +3,7 @@
  * wants, ended quests, parking and restarts, and what will wake it.
  */
 
+import { carryUnderWay } from "../../../lib/internal/carry/under-way.ts";
 import { onConcluded } from "../../../lib/internal/quest/fields/concluded.ts";
 import { onDid } from "../../../lib/internal/session/events.ts";
 import {
@@ -34,7 +35,6 @@ import { sentBy } from "../../../lib/mesh/thread.ts";
 import { UNANSWERED_WITHIN_MS } from "../../../lib/mesh/unanswered.ts";
 import { waitingOf } from "../../../lib/mesh/waiting.ts";
 import { wantFrom } from "../../../lib/mesh/want.ts";
-import { carryUnderWay } from "../carrying.ts";
 import { tellRepository } from "../landing-notes.ts";
 import { ended } from "../talks.ts";
 import { tellOrchestrator } from "../tells.ts";
