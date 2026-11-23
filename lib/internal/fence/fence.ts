@@ -71,6 +71,7 @@
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";
+import { loginCompileRoots } from "./compile-cache-place.ts";
 import {
 	type BrokerTrees,
 	brokerTreeArgs,
@@ -217,6 +218,10 @@ export const NEVER_THROUGH = [
 	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).
 	"daemons/secret-asks.sock",
 	"secret-asks",
+	// The compile caches a host and pi's node run outside the fence
+	// (compile-cache-place.ts): emptied with the runtime folder, or a
+	// tmpfs of the fence's own where it fences none (`compileRoots`).
+	"pi-compile",
 ] as const;
 
 /** Where a fenced command runs, and the worktrees it writes (`fence-worktrees.ts`). */
@@ -260,6 +265,14 @@ export interface FencePlace extends Worktrees {
 	 * a test names its own.
 	 */
 	readonly tempCaches?: readonly string[];
+	/**
+	 * The login's runtime folder's compile caches, where a host keeps its
+	 * compiled code (`compile-cache-place.ts`), `loginCompileRoots()`
+	 * unless a test names its own. One the fenced runtime folder holds is
+	 * emptied with it; any other is a tmpfs of the fence's own, since a pi
+	 * started without `XDG_RUNTIME_DIR`, as from ssh, fences none.
+	 */
+	readonly compileRoots?: readonly string[];
 	/**
 	 * The session's writable copies of dev's settings and git's global
 	 * folder, bound in their place (`fence-dev.ts`).
@@ -395,6 +408,11 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
+	// Whether or not it is there yet, or a command could make it and plant
+	// code a host runs; bubblewrap makes the folder for its mount.
+	for (const root of unfencedCompileRoots(place)) {
+		if (exists(dirname(root))) args.push("--perms", "0700", "--tmpfs", root);
+	}
 	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
@@ -733,6 +751,18 @@ export function fenceDisplay(
 	return disk.kind(path) === undefined ? undefined : path;
 }
 
+/**
+ * The login's compile caches that the fenced runtime folder doesn't
+ * hold, which the fence lays a tmpfs of its own over.
+ */
+function unfencedCompileRoots(place: FencePlace): readonly string[] {
+	const runtime = place.runtimeDir;
+	return (place.compileRoots ?? loginCompileRoots()).filter(
+		(root) =>
+			!(runtime && (root === runtime || root.startsWith(`${runtime}/`))),
+	);
+}
+
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */
 export function nixDoor(runtimeDir: string | undefined): string | undefined {
 	return runtimeDir ? `unix://${join(runtimeDir, LET_THROUGH[0])}` : undefined;
@@ -758,6 +788,7 @@ export function fenceRefusesWrite(
 		...(place.runtimeDir ? [place.runtimeDir] : []),
 		// Written inside, but only to a tmpfs that goes with the command.
 		...(place.tempCaches ?? tempCodeCaches()),
+		...unfencedCompileRoots(place),
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);

@@ -197,8 +197,9 @@ describe("refusing to run where the fence can't hold", () => {
 				platform: "linux",
 			});
 			expect(made, JSON.stringify(made)).toHaveProperty("text");
+			// Strict reaches the compiled code in the runtime folder first.
 			expect(unfencedFolder(holder, home, "strict", { mac: false })).toContain(
-				`holds ${join(holder, "runtime")}`,
+				"which holds or lies in the code pi and its host compiled",
 			);
 		} finally {
 			vi.unstubAllEnvs();

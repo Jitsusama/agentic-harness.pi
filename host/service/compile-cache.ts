@@ -21,6 +21,7 @@ import {
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { compileFolderOf } from "../../lib/internal/fence/compile-cache-place.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
 /** How many hex characters of the install's hash name its folder. */
@@ -92,6 +93,17 @@ function keyOf(
 	return { host, install };
 }
 
+/** Remove `host`'s folders in `root` but the one `keep` names. */
+function sweepEarlier(
+	root: string,
+	host: string,
+	keep: string | undefined,
+): void {
+	for (const entry of readdirSync(root))
+		if (entry.startsWith(`${host}-`) && entry !== keep)
+			rmSync(join(root, entry), { recursive: true, force: true });
+}
+
 /**
  * Enable node's compile cache for this host's install, removing the same
  * host's earlier installs' folders. Never throws: a cache that can't be
@@ -104,9 +116,12 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 		const root = options.root ?? compileFolderOf("host", options.env);
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
-		for (const entry of readdirSync(root))
-			if (entry.startsWith(`${key.host}-`) && entry !== name)
-				rmSync(join(root, entry), { recursive: true, force: true });
+		sweepEarlier(root, key.host, name);
+		// Its folders from before the cache lay in the runtime folder, or
+		// from a start that found none, which no later start would reach.
+		const inState = stateDir("host-compile");
+		if (!options.root && inState !== root && existsSync(inState))
+			sweepEarlier(inState, key.host, undefined);
 		const folder = join(root, name);
 		mkdirSync(folder, { recursive: true });
 		const enabled = (options.enable ?? enableCompileCache)(folder);

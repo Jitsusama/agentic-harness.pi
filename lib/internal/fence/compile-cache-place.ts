@@ -20,7 +20,7 @@
  * folder's binds are laid back over it.
  */
 
-import { lstatSync, mkdirSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import type { SessionEnvironment } from "../../core/session/host.ts";
@@ -48,17 +48,56 @@ const SHARED_BITS = 0o077;
 const PRIVATE_MODE = 0o700;
 
 /**
- * Each one's folder in the login's runtime folder, when `env` names an
- * absolute one, whether or not it could be used: the folders strict
- * and pi's file tools refuse as a command's own.
+ * The login's runtime folder as systemd makes it on Linux, whatever a
+ * process's `XDG_RUNTIME_DIR` says: a pi started without it (from ssh
+ * or cron) fences no runtime folder, yet a host's cache lies here.
+ */
+export function loginRuntimeFolder(
+	platform: NodeJS.Platform = process.platform,
+	uid: number | undefined = process.getuid?.(),
+): string | undefined {
+	return platform === "linux" && uid !== undefined
+		? `/run/user/${uid}`
+		: undefined;
+}
+
+/**
+ * The login's runtime folder's compile caches, none off Linux. A `login`
+ * of null names none, as a test asks.
+ */
+export function loginCompileRoots(
+	login: string | null = loginRuntimeFolder() ?? null,
+): string[] {
+	return login ? [join(login, RUNTIME_COMPILE)] : [];
+}
+
+/**
+ * Where compile caches may lie in a runtime folder: the one `env` names
+ * when absolute, and the login's own.
+ */
+export function runtimeCompileRoots(
+	env: NodeJS.ProcessEnv = process.env,
+	login: string | null = loginRuntimeFolder() ?? null,
+): string[] {
+	const named = env.XDG_RUNTIME_DIR;
+	const roots = [
+		...(named && isAbsolute(named) ? [join(named, RUNTIME_COMPILE)] : []),
+		...loginCompileRoots(login),
+	];
+	return [...new Set(roots)];
+}
+
+/**
+ * Each one's folder in those runtime folders, whether or not it could
+ * be used: the folders strict and pi's file tools refuse as a
+ * command's own.
  */
 export function runtimeCompileFolders(
 	env: NodeJS.ProcessEnv = process.env,
+	login: string | null = loginRuntimeFolder() ?? null,
 ): string[] {
-	const root = env.XDG_RUNTIME_DIR;
-	if (!root || !isAbsolute(root)) return [];
-	return (["host", "node"] as const).map((by) =>
-		join(root, RUNTIME_COMPILE, by),
+	return runtimeCompileRoots(env, login).flatMap((root) =>
+		(["host", "node"] as const).map((by) => join(root, by)),
 	);
 }
 
@@ -104,10 +143,26 @@ export function keepCompileCacheOutOfReach(
 	env.set(COMPILE_CACHE_VARIABLE, compileCacheFolder());
 }
 
-/** Whether `folder` is the home folder or lies within it. */
+/**
+ * Whether `folder` is the home folder or lies within it, as spelled or
+ * through the links either is reached by.
+ */
 function insideHome(folder: string, home: string): boolean {
-	const path = relative(home, folder);
-	return path === "" || !(path.startsWith("..") || isAbsolute(path));
+	const within = (inner: string, outer: string) => {
+		const path = relative(outer, inner);
+		return path === "" || !(path.startsWith("..") || isAbsolute(path));
+	};
+	return within(folder, home) || within(real(folder), real(home));
+}
+
+/** `path` through its links, or as given where it can't be resolved. */
+function real(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// Missing: nothing it could be reached through.
+		return path;
+	}
 }
 
 /** Make `folder` private if it is missing, then whether it is private. */

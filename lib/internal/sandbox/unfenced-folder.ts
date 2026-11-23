@@ -360,7 +360,14 @@ export function unfencedFolder(
 			"or lies in the records this machine's node trusts (its own and pi's host records)",
 		);
 	}
-	const caches = new Set(place.cachesClosed ? tempCodeCaches() : []);
+	// The fence lays a tmpfs of its own over each: the temporary folder's
+	// caches, and on Linux the runtime folder's, with the runtime folder
+	// or alone (fence.ts's `compileRoots`).
+	const caches = new Set(
+		place.cachesClosed
+			? [...tempCodeCaches(), ...(mac ? [] : runtimeCompileFolders())]
+			: [],
+	);
 	const code = compiledCode(home).filter((folder) => !caches.has(folder));
 	if (code.some(meets)) {
 		return refusing(

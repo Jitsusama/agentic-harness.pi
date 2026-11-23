@@ -62,6 +62,39 @@ describe("the fence's arguments", () => {
 		expect(args.join(" ")).toContain("--tmpfs /run/user/1000");
 	});
 
+	it("empties the login's compile caches even where no runtime folder is fenced, as from ssh", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const everything: Disk = { kind: () => "folder", entries: () => [] };
+		const tmpfsOf = (given: string[]) =>
+			given.flatMap((arg, at) => (arg === "--tmpfs" ? [given[at + 1]] : []));
+		const unfenced = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			everything,
+		);
+		expect(tmpfsOf(unfenced), "a tmpfs of its own over them").toContain(
+			"/run/user/1000/pi-compile",
+		);
+		expect(
+			tmpfsOf(fenceArgs({ ...place, compileRoots: roots }, everything)).filter(
+				(path) => path?.startsWith("/run/user/1000/"),
+			),
+			"none more where the runtime folder is emptied already",
+		).toEqual([]);
+		const noLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user") ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(
+			tmpfsOf(
+				fenceArgs(
+					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+					noLogin,
+				),
+			),
+			"none where the login has no runtime folder",
+		).not.toContain("/run/user/1000/pi-compile");
+	});
+
 	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, the jobs broker, the clipboard door's folder and the sandboxed display's in the runtime folder, each read-only", () => {
 		expect(
 			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),

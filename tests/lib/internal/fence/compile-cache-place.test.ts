@@ -15,13 +15,14 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	COMPILE_CACHE_VARIABLE,
 	compileCacheFolder,
 	compileFolderOf,
 	keepCompileCacheOutOfReach,
+	loginRuntimeFolder,
 	RUNTIME_COMPILE,
 	runtimeCompileFolders,
 } from "../../../../lib/internal/fence/compile-cache-place.ts";
@@ -68,10 +69,38 @@ describe("where pi's compile cache is kept", () => {
 		expect(compileFolderOf("host", env)).toBe(
 			join(runtime, RUNTIME_COMPILE, "host"),
 		);
-		expect(runtimeCompileFolders(env)).toEqual([
+		expect(runtimeCompileFolders(env, null)).toEqual([
 			join(runtime, RUNTIME_COMPILE, "host"),
 			join(runtime, RUNTIME_COMPILE, "node"),
 		]);
+	});
+
+	it("names the login's runtime folder's caches as unwritable, even to a pi started without one", () => {
+		expect(
+			runtimeCompileFolders({}, "/run/user/1000"),
+			"from ssh or cron, with no XDG_RUNTIME_DIR",
+		).toEqual([
+			"/run/user/1000/pi-compile/host",
+			"/run/user/1000/pi-compile/node",
+		]);
+		expect(
+			runtimeCompileFolders({ XDG_RUNTIME_DIR: runtime }, "/run/user/1000"),
+			"another runtime folder named, and the login's still",
+		).toEqual([
+			join(runtime, RUNTIME_COMPILE, "host"),
+			join(runtime, RUNTIME_COMPILE, "node"),
+			"/run/user/1000/pi-compile/host",
+			"/run/user/1000/pi-compile/node",
+		]);
+		expect(
+			runtimeCompileFolders(
+				{ XDG_RUNTIME_DIR: "/run/user/1000" },
+				"/run/user/1000",
+			),
+			"each named once",
+		).toHaveLength(2);
+		expect(loginRuntimeFolder("linux", 1000)).toBe("/run/user/1000");
+		expect(loginRuntimeFolder("darwin", 501)).toBeUndefined();
 	});
 
 	it("is a folder of pi's state where there is no runtime folder, as on a Mac", () => {
@@ -79,7 +108,9 @@ describe("where pi's compile cache is kept", () => {
 		vi.stubEnv("TMPDIR", "/tmp/pi-quest-QEST-1");
 		expect(compileCacheFolder()).toBe(join(IN_STATE, "node-compile-cache"));
 		expect(compileFolderOf("host", {})).toBe(join(IN_STATE, "host-compile"));
-		expect(runtimeCompileFolders({ XDG_RUNTIME_DIR: "run/user" })).toEqual([]);
+		expect(
+			runtimeCompileFolders({ XDG_RUNTIME_DIR: "run/user" }, null),
+		).toEqual([]);
 	});
 
 	it("passes over a runtime folder on any platform but Linux, whose fence alone empties it", () => {
@@ -103,6 +134,19 @@ describe("where pi's compile cache is kept", () => {
 			expect(
 				compileFolderOf("host", { XDG_RUNTIME_DIR: runtime, HOME: runtime }),
 			).toBe(join(IN_STATE, "host-compile"));
+			const linkedHome = join(dir, "..", `${basename(dir)}-home`);
+			symlinkSync(dir, linkedHome);
+			try {
+				expect(
+					compileFolderOf("node", {
+						XDG_RUNTIME_DIR: runtime,
+						HOME: linkedHome,
+					}),
+					"a home reached through a link",
+				).toBe(join(IN_STATE, "node-compile-cache"));
+			} finally {
+				rmSync(linkedHome);
+			}
 			expect(
 				compileFolderOf("node", {
 					XDG_RUNTIME_DIR: runtime,
@@ -113,9 +157,31 @@ describe("where pi's compile cache is kept", () => {
 		},
 	);
 
+	/** Where `by`'s cache is kept on Linux, the one platform it may lie in a runtime folder. */
+	const onLinuxIn = (by: "host" | "node", root: string) =>
+		compileFolderOf(
+			by,
+			{ XDG_RUNTIME_DIR: root, HOME: "/home/someone" },
+			"linux",
+		);
+
 	it("passes over a runtime folder others may enter", () => {
+		expect(onLinuxIn("node", runtime), "while it is private").toBe(
+			join(runtime, RUNTIME_COMPILE, "node"),
+		);
 		chmodSync(runtime, 0o755);
-		expect(compileFolderOf("node", { XDG_RUNTIME_DIR: runtime })).toBe(
+		expect(onLinuxIn("node", runtime)).toBe(
+			join(IN_STATE, "node-compile-cache"),
+		);
+	});
+
+	it("passes over a runtime folder that is a link, wherever it points", () => {
+		const linked = join(dir, "linked-run");
+		symlinkSync(runtime, linked);
+		expect(onLinuxIn("node", runtime), "the folder itself").toBe(
+			join(runtime, RUNTIME_COMPILE, "node"),
+		);
+		expect(onLinuxIn("node", linked)).toBe(
 			join(IN_STATE, "node-compile-cache"),
 		);
 	});
@@ -124,14 +190,15 @@ describe("where pi's compile cache is kept", () => {
 		const shared = join(runtime, RUNTIME_COMPILE);
 		mkdirSync(shared, { mode: 0o755 });
 		chmodSync(shared, 0o755);
-		expect(compileFolderOf("node", { XDG_RUNTIME_DIR: runtime })).toBe(
+		expect(onLinuxIn("node", runtime)).toBe(
 			join(IN_STATE, "node-compile-cache"),
 		);
 		chmodSync(shared, 0o700);
-		writeFileSync(join(shared, "host"), "not a folder");
-		expect(compileFolderOf("host", { XDG_RUNTIME_DIR: runtime })).toBe(
-			join(IN_STATE, "host-compile"),
+		expect(onLinuxIn("node", runtime), "once closed again").toBe(
+			join(shared, "node"),
 		);
+		writeFileSync(join(shared, "host"), "not a folder");
+		expect(onLinuxIn("host", runtime)).toBe(join(IN_STATE, "host-compile"));
 	});
 
 	it("passes over a folder reached through a link, wherever the link points", () => {
@@ -139,7 +206,7 @@ describe("where pi's compile cache is kept", () => {
 		mkdirSync(elsewhere, { mode: 0o700 });
 		chmodSync(elsewhere, 0o700);
 		symlinkSync(elsewhere, join(runtime, RUNTIME_COMPILE));
-		expect(compileFolderOf("node", { XDG_RUNTIME_DIR: runtime })).toBe(
+		expect(onLinuxIn("node", runtime)).toBe(
 			join(IN_STATE, "node-compile-cache"),
 		);
 		mkdirSync(join(elsewhere, "host"), { mode: 0o700 });
@@ -149,9 +216,7 @@ describe("where pi's compile cache is kept", () => {
 			join(elsewhere, "host"),
 			join(runtime, RUNTIME_COMPILE, "host"),
 		);
-		expect(compileFolderOf("host", { XDG_RUNTIME_DIR: runtime })).toBe(
-			join(IN_STATE, "host-compile"),
-		);
+		expect(onLinuxIn("host", runtime)).toBe(join(IN_STATE, "host-compile"));
 	});
 
 	it("is where a fenced command can't write, in pi's state or the runtime folder", () => {
@@ -163,14 +228,24 @@ describe("where pi's compile cache is kept", () => {
 			}),
 			"the fence refuses a write into the compile cache in pi's state",
 		).toBe(true);
-		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+		const roots = [join(runtime, RUNTIME_COMPILE)];
+		const cached = join(runtime, RUNTIME_COMPILE, "host", "entry");
+		const unfenced = { home: "/home/someone", runtimeDir: undefined };
 		expect(
-			fenceRefusesWrite(join(compileCacheFolder(), "x", "entry"), {
-				home: "/home/someone",
-				runtimeDir: runtime,
-			}),
-			"the fence refuses a write into the compile cache in the runtime folder",
+			fenceRefusesWrite(cached, { ...unfenced, compileRoots: roots }),
+			"the host's cache in the login's runtime folder, under a pi that fences none",
 		).toBe(true);
+		expect(
+			fenceRefusesWrite(join(runtime, "other", "entry"), {
+				...unfenced,
+				compileRoots: roots,
+			}),
+			"the rest of a runtime folder the fence leaves unfenced",
+		).toBe(false);
+		expect(
+			fenceRefusesWrite(cached, { ...unfenced, compileRoots: [] }),
+			"with no compile root, as before",
+		).toBe(false);
 	});
 
 	it.runIf(onLinux)(
