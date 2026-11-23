@@ -130,6 +130,14 @@ interface Seen {
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
 	readonly logs?: Readonly<Record<string, unknown>>;
+	/**
+	 * What a resumed, an adopted and a switched-to conversation held of
+	 * their compacted logs; whether the switched-to one was closed before
+	 * the switch; whether the switch opened its log; and whether kept
+	 * history ran on the host's pi-ai, which pins the fixture's hook order,
+	 * not the engine's late import.
+	 */
+	readonly keptHistory?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -795,6 +803,23 @@ describe("the host's engine", () => {
 				woken: ["read"],
 				closed: [],
 				closedParked: [],
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"holds only the kept history of a compacted log it resumes, adopts, or that a command switches it to",
+		async () => {
+			const seen = await step(hostFolder(), "kept-history");
+			const held = { record: true, keptNext: true, earlyHeld: false };
+			expect(seen.keptHistory).toEqual({
+				resumed: held,
+				adopted: held,
+				replaced: held,
+				closedBefore: true,
+				switchedTo: true,
+				onHostPi: true,
 			});
 		},
 		HOST_LIFE_MS,
