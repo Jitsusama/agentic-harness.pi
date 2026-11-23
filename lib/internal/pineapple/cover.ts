@@ -3,9 +3,9 @@
  *
  * A stop on one pull request holds every write to that change, and
  * nothing else: the session keeps its other work. A repository, quest or
- * realm holds what is in it, and everything holds every write. Switches
- * and deploys belong to no repository, so only a realm or everything
- * holds them.
+ * realm holds what is in it, and everything holds every write. Switches,
+ * deploys and starts of more agents belong to no repository, so only a
+ * quest, a realm or everything holds them.
  *
  * Where the write leaves something unknown that the stop depends on, a
  * push whose repository git couldn't say, say, the stop holds it and
@@ -15,7 +15,7 @@
  */
 
 import { describeReach, type Reach, type Stop } from "./stops.ts";
-import type { Write } from "./writes.ts";
+import { machineWide, type Write } from "./writes.ts";
 
 /** What the session making the write is part of. */
 export interface Here {
@@ -78,7 +78,7 @@ async function holds(
 				? `this session's quest is in ${reach.id}`
 				: undefined;
 	}
-	if (write.kind === "machine") return undefined;
+	if (machineWide(write.kind)) return undefined;
 	switch (reach.kind) {
 		case "repo":
 			if (write.repo === undefined) return "where this goes couldn't be told";

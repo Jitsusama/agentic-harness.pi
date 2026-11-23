@@ -61,14 +61,24 @@ hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|scripts/p
 # rest load; only these have behaviour a host case would catch. #1441
 # changed subagent-workflow and merged with no run, breaking 3 cases.
 driven='^(extensions/(job|loadout|mesh|park|quest|reload|result-store|spend|subagent)-workflow/|lib/(mesh|jobs|subagent)/|lib/internal/(session|reload|quest)/)'
+# A folder's README, which says what the folder holds for a person and
+# which nothing a host runs reads. Counting one asked a whole run, over an
+# hour on a lender, of a change to prose alone: #1973 and #2002 on 22
+# November each waited on one for a README line. Any other markdown still
+# counts, since a host could read it.
+prose='(^|/)README\.md$'
 
 git fetch -q origin main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
 base=$(git merge-base origin/main "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
-# than passing as a change that touches nothing.
-changed=$(git diff --name-only "$base" "$sha")
-touched=$(echo "$changed" | grep -E "$hosted|$driven" || true)
+# than passing as a change that touches nothing. A rename is listed as
+# the path it left and the path it took, so hosted code moved to a README
+# still counts by the path it left.
+changed=$(git diff --name-only --no-renames "$base" "$sha")
+# A grep finding nothing exits 1, which means nothing a host runs; any
+# other failure stops the gate rather than passing the change.
+touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose") || [[ $? == 1 ]]
 if [[ -z $touched ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0

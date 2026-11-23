@@ -325,7 +325,7 @@ export function registerTools(
 		promptSnippet:
 			"Point the person at something to look at (a PR, a page, a file, a diff, a terminal): it goes on their look list, never opened for them.",
 		description:
-			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an ask of 'Nothing, just to see', and no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, why and ask for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
+			"Point the person at something to look at: a pull request, a page, a file, a diff or a session's terminal. It goes on their look list in the launcher, newest first, where they open it in its place or clear it; nothing opens by itself. It stays until they do, through reboots, apart from notices and Needs You, naming this session, what it is and why they should look. A look that asks nothing back (an act of 'Just See', with no choices) leaves once they open it, or a day on, and you are told. Pointing at the same thing again from this session or another on its quest replaces the look in its place rather than adding it twice: a pull request's tabs and diffs count as the pull request, and a page's fragment as the page. Use it whenever you would otherwise tell them a link or a path to go and find. Write title, happened, matters, act and follows for the person reaching it hours later, in plain words: no message or quest ids, session addresses, paths or code. When it no longer applies (the question was answered, the work moved on), take it back with withdraw.",
 		parameters: Type.Object({
 			kind: StringEnum([...LOOK_KINDS], {
 				description:
@@ -338,22 +338,34 @@ export function registerTools(
 			title: Type.Optional(
 				Type.String({ description: "What it is, in a few words" }),
 			),
-			why: Type.Optional(
+			happened: Type.Optional(
 				Type.String({
 					description:
-						"Why they should look, in a sentence: what happened, for him",
+						"What happened, in one plain sentence of at most 100 characters, e.g. 'The status bar now keeps the model, the cost and the branch at narrow widths.'",
 				}),
 			),
-			ask: Type.Optional(
+			matters: Type.Optional(
 				Type.String({
 					description:
-						"What they're asked to do, with the choices, e.g. 'Say whether the bar reads right at your width: keep it or roll it back', or 'Nothing, just to see'",
+						"Why it matters to him, at most 200 characters, e.g. 'At 76 columns it showed only the folder, so you couldn't see what a session cost.'",
+				}),
+			),
+			act: Type.Optional(
+				Type.String({
+					description:
+						"The words on what he presses to open it: at most 4 words in Title Case, a verb first, e.g. 'Review It' or 'Try the Bar'; 'Just See' when it asks nothing back",
 				}),
 			),
 			choices: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"When the ask wants a word back, its answers as short labels (at most 4, a few words each), e.g. ['Keep it', 'Roll it back']: the person picks one where they are, and it comes back to this session, or the one on its quest, as a message",
+						"When it wants a word back, its answers as labels in Title Case (at most 4, at most 4 words each, no two alike), e.g. ['Keep It', 'Roll It Back']: the person picks one where they are, and it comes back to this session, or the one on its quest, as a message",
+				}),
+			),
+			follows: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"What follows each choice, in the order of choices, one sentence each, e.g. ['It stays as it is.', 'I put the old bar back tonight.']",
 				}),
 			),
 			thread: Type.Optional(
@@ -365,7 +377,7 @@ export function registerTools(
 			withdraw: Type.Optional(
 				Type.Boolean({
 					description:
-						"true to take back the look at kind and target that this session, or an earlier one on its quest, put up, opened or not, since it no longer applies; title, why and ask are then left out",
+						"true to take back the look at kind and target that this session, or an earlier one on its quest, put up, opened or not, since it no longer applies; title, happened, matters, act and follows are then left out",
 				}),
 			),
 		}),
@@ -394,9 +406,16 @@ export function registerTools(
 				kind: params.kind,
 				target: params.target,
 				title: params.title ?? "",
-				why: params.why ?? "",
-				ask: params.ask ?? "",
+				why: "",
+				ask: "",
+				// Said in the second form always, so a look made from the tool
+				// carries what happened and why it matters (Joel, 22 November:
+				// the look list is inscrutable).
+				happened: params.happened ?? "",
+				matters: params.matters ?? "",
+				act: params.act ?? "",
 				...(params.choices ? { choices: params.choices } : {}),
+				...(params.follows ? { follows: params.follows } : {}),
 				...(params.thread ? { thread: params.thread } : {}),
 			};
 			const refused = refusalOf(pointing);
@@ -419,7 +438,7 @@ export function registerTools(
 		exposure: "deferred",
 		label: "Mesh",
 		description:
-			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest, or joins a live quest already holding the work beside whoever works there, and asks the map to tie it to this one; the tie is there only once the map shows it. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
+			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest and asks the map to tie it to this one, there only once the map shows it; or it joins a live quest already holding the work beside whoever works there, which this start doesn't tie. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
 		parameters: Type.Object({
 			words: Type.String({
 				description:
@@ -468,9 +487,11 @@ interface ShowPersonParams {
 	readonly kind: Pointing["kind"];
 	readonly target: string;
 	readonly title?: string;
-	readonly why?: string;
-	readonly ask?: string;
+	readonly happened?: string;
+	readonly matters?: string;
+	readonly act?: string;
 	readonly choices?: readonly string[];
+	readonly follows?: readonly string[];
 	readonly thread?: string;
 	readonly withdraw?: boolean;
 }

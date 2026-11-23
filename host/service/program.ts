@@ -59,6 +59,10 @@ export const EXIT_TO_RESTART = 75;
  * which would point an ordinary pi a tool starts at the patched one, and
  * the unit's stop limit and launchd's Label for its job, which a pi-host a
  * tool starts would take as its own.
+ * The allocator's tuning, GLIBC_TUNABLES, is the host's too: a unit sets
+ * a fixed trim threshold so a long-lived conversation hands freed memory
+ * back, and a fixed threshold turns off glibc's dynamic mmap threshold,
+ * which the builds and tests a command starts are better off keeping.
  * The runtime's own tools and the viewers' terminal (HOST_READS) are
  * kept from them too: code in the host still reads them, but a newer pi
  * a command starts runs its own tools, as its PATH finds them, and
@@ -74,6 +78,7 @@ const HOST_ONLY = [
 	"PI_PACKAGE_DIR",
 	"PI_HOST_PROOF",
 	"PI_HOST_STOP_USEC",
+	"GLIBC_TUNABLES",
 	"XPC_SERVICE_NAME",
 ] as const;
 

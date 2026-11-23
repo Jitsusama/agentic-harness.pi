@@ -1,13 +1,27 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	noteToolWrites,
 	questsTouchedBy,
 	RecordWatch,
 } from "../../../../extensions/quest-workflow/record-watch.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { auditQuestRecord } from "../../../../lib/core/internal/quest/record-audit.ts";
+import {
+	questsWrittenSince,
+	questWritesMade,
+	useRunFolderForTests,
+} from "../../../../lib/internal/quest/io.ts";
+import { journalIn } from "../../../../lib/internal/quest/write-journal.ts";
 
 vi.mock(
 	"../../../../lib/core/internal/quest/record-audit.ts",
@@ -187,5 +201,76 @@ describe("questsTouchedBy", () => {
 		expect(questsTouchedBy(state, "read", { path: "x" }, root, home)).toEqual(
 			[],
 		);
+	});
+});
+
+describe("noteToolWrites", () => {
+	const home = "/home/test";
+	let journal: string;
+
+	beforeEach(() => {
+		const run = join(root, "run");
+		const locks = join(run, "agentic-harness.pi", "quest-locks");
+		mkdirSync(locks, { recursive: true, mode: 0o700 });
+		journal = journalIn(locks);
+		useRunFolderForTests(run);
+	});
+
+	afterEach(() => useRunFolderForTests(undefined));
+
+	/** The quest folders the journal names, in the order they were noted. */
+	function journaled(): string[] {
+		return existsSync(journal)
+			? readFileSync(journal, "utf8").split("\n").filter(Boolean)
+			: [];
+	}
+
+	it("notes a write or an edit into a quest, for every host and this one", () => {
+		const state = createQuestState({ questsRoot });
+		const since = questWritesMade();
+		noteToolWrites(
+			state,
+			"write",
+			{ path: join(questsRoot, OTHER, "PLAN-20260101-AAAAAA.md") },
+			root,
+			home,
+		);
+		noteToolWrites(
+			state,
+			"edit",
+			{ path: join(questsRoot, QUEST, "README.md"), edits: [] },
+			root,
+			home,
+		);
+		expect(journaled()).toEqual([
+			join(questsRoot, OTHER),
+			join(questsRoot, QUEST),
+		]);
+		expect([...(questsWrittenSince(since) ?? [])].sort()).toEqual(
+			[OTHER, QUEST].sort(),
+		);
+	});
+
+	it("notes nothing for a write outside the quests, a read, or a bash call", () => {
+		const state = createQuestState({ questsRoot });
+		state.questId = QUEST;
+		const since = questWritesMade();
+		noteToolWrites(state, "write", { path: join(root, "x.txt") }, root, home);
+		noteToolWrites(
+			state,
+			"read",
+			{ path: join(questsRoot, QUEST, "README.md") },
+			root,
+			home,
+		);
+		noteToolWrites(
+			state,
+			"bash",
+			{ command: "touch README.md" },
+			join(questsRoot, QUEST),
+			home,
+		);
+		expect(journaled()).toEqual([]);
+		expect(questWritesMade(), "a write counted").toBe(since);
 	});
 });

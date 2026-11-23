@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { accessSync, constants, existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import { whyWriting } from "../../lib/internal/session/hand-over.ts";
@@ -60,8 +61,12 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import {
+	isCarriedShell,
+	withinWatch,
+} from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
-import { findJobHost } from "../../lib/jobs/host.ts";
+import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -76,6 +81,41 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
 	const host = hosted();
 	const park = host?.park;
 	return host && park ? { park: (id) => park.call(host, id) } : undefined;
+}
+
+/**
+ * The jobs that keep a conversation awake, named where its job host can
+ * say which. Where its park would carry its bash calls (`carried`), a
+ * call out within its watch holds it no longer; one past its time limit
+ * or a day old, whose watch would wake it at once, still does, as do any
+ * other job and an end not yet said. So does a heavy run (`isHeavy`): a
+ * drain lists heavy runs only from conversations awake, so a parked
+ * one's would be cut by a drained restart. A job host from before
+ * `holds` counts every pending job.
+ */
+function jobsHolding(
+	jobs: JobHost | undefined,
+	carried: boolean,
+	now: number,
+): Pick<Holding, "jobs" | "heldBy"> {
+	const pending = jobs?.pending?.() ?? 0;
+	if (!jobs?.holds || !jobs.running) return { jobs: pending };
+	const held = jobs.holds(
+		carried
+			? (work) => isCarriedShell(work) && withinWatch(work, now)
+			: () => false,
+	);
+	const heavy = jobs
+		.running()
+		.filter(
+			(job) => isHeavy(job.label) && !held.some((hold) => hold.id === job.id),
+		);
+	const heldBy = [...held, ...heavy];
+	const unsaid = Math.max(0, pending - jobs.running().length);
+	return {
+		jobs: heldBy.length + unsaid,
+		...(heldBy.length > 0 && unsaid === 0 ? { heldBy } : {}),
+	};
 }
 
 /**
@@ -533,7 +573,13 @@ export function watch(
 	const holding = (): Holding => ({
 		agentIdle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
-		jobs: findJobHost(bus)?.pending?.() ?? 0,
+		...jobsHolding(
+			findJobHost(bus),
+			inBackgroundHost(options.platform) &&
+				hosted()?.carries?.(session) === true &&
+				hosted()?.viewed?.(session) !== true,
+			now(),
+		),
 		prompting: prompts > 0,
 		typed: ctx.ui.getEditorText().trim() !== "",
 	});

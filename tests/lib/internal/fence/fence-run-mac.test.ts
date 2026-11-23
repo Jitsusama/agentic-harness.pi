@@ -3,8 +3,9 @@
  * sandbox-exec profile a fenced command runs under, read as sandbox-exec
  * reads it, the last matching rule deciding. It tries itself first, hides
  * ssh's keys and pi's and mycelium's state whatever is granted, writes
- * only the folder when strict, grants a held broker tree again after
- * every hide, and reads npm's settings only as the copy without tokens.
+ * nothing in the home but the folder when strict, grants a held broker
+ * tree again after every hide, and reads npm's settings only as the copy
+ * without tokens.
  */
 
 import { spawnSync } from "node:child_process";
@@ -23,6 +24,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	FENCE_RUN_HELP,
 	type FenceRunAsk,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
@@ -86,9 +88,9 @@ describe.skipIf(!sandboxes)(
 		});
 		afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-		const running = (words: string[]) => {
+		const running = (words: string[], kind: FenceRunAsk["kind"] = "strict") => {
 			const made = fenceRunText(
-				{ kind: "strict", folder: join(home, "work"), words },
+				{ kind, folder: join(home, "work"), words },
 				{ env: { PATH: "/usr/bin:/bin" }, home, platform: "darwin" },
 			);
 			if (!("text" in made)) throw new Error(JSON.stringify(made));
@@ -111,6 +113,32 @@ describe.skipIf(!sandboxes)(
 			expect(
 				running(["/bin/ln", other, join(home, "work", "h")]).status,
 			).not.toBe(0);
+		});
+
+		it("keeps the shell's history from a fenced command, and writes /tmp when strict", () => {
+			const history = join(home, ".zsh_history");
+			writeFileSync(history, "export TOKEN=not-a-token\n");
+			// The same fence reads a file it doesn't hide, so a refusal below
+			// is the hide, not a fence that never started.
+			expect(
+				running(["/bin/cat", join(home, "work", "mine")], "fence").stdout,
+				"the fence ran",
+			).toBe("mine\n");
+			const read = running(["/bin/cat", history], "fence");
+			expect(read.status, "the history read refused").not.toBe(0);
+			expect(read.stderr, "refused by the profile").toContain(
+				"Operation not permitted",
+			);
+			expect(read.stdout, "the history unread").not.toContain("TOKEN");
+			const made = join(realpathSync("/tmp"), `fx-${process.pid}`);
+			try {
+				expect(
+					running(["/usr/bin/touch", made]).status,
+					"strict writes /tmp",
+				).toBe(0);
+			} finally {
+				rmSync(made, { force: true });
+			}
 		});
 	},
 );
@@ -350,7 +378,7 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
-	it("writes only its folder when strict, so nothing it plants runs later", () => {
+	it("writes nothing in the home but its folder when strict, so nothing it plants runs later", () => {
 		const text = onMac("strict");
 		for (const planted of [
 			".lldbinit",
@@ -449,6 +477,61 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
+	// The temporary folders are this host's, as the profile names them,
+	// so a rule that denied them fails here on Linux as on a Mac, and the
+	// profile's default is read from it rather than assumed.
+	it("writes outside the home where the account can when strict, as its help says", () => {
+		const temporary = realpathSync(mkdtempSync(join(tmpdir(), "fx-tmp-")));
+		try {
+			const made = fenceRunText(
+				{ kind: "strict", folder, words: ["true"] },
+				{
+					env: {
+						TMPDIR: temporary,
+						PATH: `/zz-pi-absent:${join(folder, "bin")}:/usr/bin`,
+					},
+					home,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			const { text } = made;
+			expect(
+				text.split("\nexec ")[1]?.split("\n")[1],
+				"what no rule names is allowed",
+			).toBe("(allow default)");
+			for (const outside of [
+				join(realpathSync("/tmp"), "x"),
+				join(temporary, "x"),
+			]) {
+				const rule = deciding(text, outside, "file-write*");
+				expect(rule ?? "(allow default)", outside).toMatch(/^\(allow /);
+			}
+			// One under the root that no host has: its rule names it whole,
+			// where slicing past its folder once made it /z-pi-absent.
+			for (const program of ["/zz-pi-absent/x", "/Applications/x"]) {
+				expect(deciding(text, program, "file-write*"), program).toMatch(
+					/^\(deny /,
+				);
+			}
+			expect(
+				deciding(text, join(folder, "bin", "x"), "file-write*"),
+				"a program folder inside its own",
+			).toMatch(/^\(allow /);
+		} finally {
+			rmSync(temporary, { recursive: true, force: true });
+		}
+		const said = FENCE_RUN_HELP.replace(/\s+/g, " ");
+		for (const claim of [
+			"it writes there only its folder",
+			"/tmp and the Mac's temporary folder among them",
+			"writes no program folder outside its own",
+		]) {
+			expect(said, claim).toContain(claim);
+		}
+	});
+
 	it("reads nothing of pi's or mycelium's state, so no realm's messages reach the asker", () => {
 		for (const kind of ["fence", "strict"] as const) {
 			for (const state of [
@@ -508,7 +591,7 @@ describe("the fence on a Mac", () => {
 				deciding(made.text, join(tree, "README.md"), "file-write*"),
 				kind === "fence"
 					? "fence writes the whole tree, as on Linux"
-					: "strict writes only its folder, not the tree's root",
+					: "strict writes its folder, not the tree's root",
 			).toMatch(kind === "fence" ? /^\(allow / : /^\(deny /);
 			// Strict keeps the whole home from writes, so only fence's
 			// writable home needs the rule, and shows it.

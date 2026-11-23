@@ -10,12 +10,14 @@ import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { HostChanges } from "../engine/session-host.ts";
 import { attachWaits } from "./attach-waits.ts";
+import { leftRunning } from "./child-requests.ts";
 import {
 	type ControlBackend,
 	type ControlReply,
 	hostRefusal,
 } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import { type Outcome, REPEAT_WINDOW_MS, repeats } from "./repeats.ts";
 import type { HeldOrder } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
@@ -238,6 +240,11 @@ export interface HostBackend extends ControlBackend {
 	 * they leave rather than racing a resume into a host it disposes.
 	 */
 	settled(): Promise<void>;
+	/**
+	 * A held conversation became another (pi's new, fork or resume), so a
+	 * repeat of the open that made it answers with the one it became.
+	 */
+	became(previousId: string, nextId: string): void;
 }
 
 /**
@@ -277,6 +284,31 @@ export function hostBackend(options: {
 	// Begins still in progress, so two opens at once on an empty host can't
 	// both count themselves first.
 	let beginning = 0;
+	// Each open and adopt by its request id, so one asked again after its
+	// answer was lost gets the first's conversation, not a twin: CWUEGJ's
+	// retry of a spawn that timed out while it loaded made one of ZH3VLR
+	// (IKQ63G, 20 November).
+	// An answer stands while its conversation is still held, and a start
+	// that failed after registering stands while that one is (F2, F3).
+	// The journal says each repeat, since a spawn that reports success
+	// while nothing new runs is otherwise unexplained there (F19).
+	const asked = repeats(
+		Date.now,
+		REPEAT_WINDOW_MS,
+		stillStands,
+		(id, underWay) =>
+			options.say?.(
+				underWay
+					? `Request ${id} was asked again while its start was under way; it joins that start`
+					: `Request ${id} was asked again; it gets the answer its first ask got`,
+			),
+	);
+	// Each failed start's error, by the conversation it left held.
+	const leftHeld = new WeakMap<object, string>();
+	// Each conversation that became another, by the one it became, so a
+	// repeat of the open that made it answers with the one now running;
+	// kept as long as a repeat is.
+	const became = new Map<string, { next: string; at: number }>();
 	// Each conversation's wakes and ends, one at a time, so a close never
 	// lands between a wake's look at the roster and its resume.
 	const turns = new Map<string, Promise<unknown>>();
@@ -408,24 +440,75 @@ export function hostBackend(options: {
 		return roster.entries().some((held) => held.sessionId === sessionId);
 	}
 
+	// The conversation `sessionId` is now, after each new, fork or resume
+	// that made it another; a loop, which no replace makes, ends the walk.
+	function nowCalled(sessionId: string): string {
+		let current = sessionId;
+		for (let step = 0; step <= became.size; step += 1) {
+			const next = became.get(current)?.next;
+			if (next === undefined) return current;
+			current = next;
+		}
+		return current;
+	}
+
+	function stands(sessionId: string): boolean {
+		const current = nowCalled(sessionId);
+		return rostered(current) || children?.running(current) !== undefined;
+	}
+
+	function stillStands(outcome: Outcome): boolean {
+		if (!outcome.ok) {
+			const error = outcome.error;
+			const held =
+				typeof error === "object" && error !== null
+					? leftHeld.get(error)
+					: undefined;
+			return held !== undefined && stands(held);
+		}
+		const opened = namedIn(outcome.value);
+		return opened === undefined || stands(opened);
+	}
+
+	// A repeat's answer was taken as its first settled; what it opened may
+	// have parked, stranded or become another since, so the answer says
+	// the conversation as it is now (F27, F39).
+	function asItIsNow(answer: unknown): unknown {
+		const opened = namedIn(answer);
+		if (opened === undefined) return answer;
+		const current = nowCalled(opened);
+		if (host.holds(current) !== undefined) return live(current);
+		return (
+			children?.running(current) ??
+			stranded().find((held) => held.sessionId === current) ??
+			answer
+		);
+	}
+
 	async function begin(request: OpenRequest | AdoptRequest): Promise<unknown> {
+		return asItIsNow(await asked.answer(request, () => beginOnce(request)));
+	}
+
+	async function beginOnce(
+		request: OpenRequest | AdoptRequest,
+	): Promise<unknown> {
 		const another = roster.entries().length + beginning > 0;
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
-			if (children?.opens()) {
-				heldElsewhere(request);
-				return await inChild(children, request);
-			}
+			heldElsewhere(request);
+			if (children?.opens()) return await inChild(children, request);
 			return await started(request);
 		} finally {
 			beginning -= 1;
 		}
 	}
 
-	// The engine refuses an adopt of a file it holds; a child holds
-	// nothing yet, so the host refuses one its roster holds, wherever it
-	// runs, rather than start a second pi on one file.
+	// The engine refuses an adopt of a file it holds, but only as an
+	// error the requester never reads, and a child holds nothing yet; so
+	// the host refuses one its roster holds, wherever it would run, in
+	// words the requester can act on, rather than start a second pi on
+	// one file.
 	function heldElsewhere(request: OpenRequest | AdoptRequest): void {
 		if (request.op !== "adopt") return;
 		const file = resolve(request.sessionFile);
@@ -444,8 +527,13 @@ export function hostBackend(options: {
 		request: OpenRequest | AdoptRequest,
 	): Promise<unknown> {
 		const reply = await moved.begin(request);
-		if (!reply.ok) throw hostRefusal(reply.error.code, reply.error.message);
-		return reply.result;
+		if (reply.ok) return reply.result;
+		const refusal = hostRefusal(reply.error.code, reply.error.message);
+		// The child runs a conversation all the same, so its repeat is told
+		// the same, not given a second beside it (F24).
+		const running = leftRunning(reply);
+		if (running !== undefined) leftHeld.set(refusal, running);
+		throw refusal;
 	}
 
 	async function started(
@@ -493,6 +581,9 @@ export function hostBackend(options: {
 			if (host.holds(prepared.sessionId) === undefined) {
 				await engine.discard(prepared);
 				await roster.drop(prepared.sessionId);
+			} else if (typeof error === "object" && error !== null) {
+				// Its repeat is told the same, not given a second.
+				leftHeld.set(error, prepared.sessionId);
 			}
 			throw error;
 		}
@@ -566,6 +657,13 @@ export function hostBackend(options: {
 	return {
 		identity: options.identity,
 		wake,
+		became(previousId, nextId) {
+			const at = now().getTime();
+			for (const [id, one] of became)
+				if (at - one.at > REPEAT_WINDOW_MS) became.delete(id);
+			became.delete(nextId);
+			became.set(previousId, { next: nextId, at });
+		},
 		async settled() {
 			while (turns.size > 0) await Promise.all(turns.values());
 		},
@@ -661,6 +759,14 @@ export function conversationEvents(options: {
 			});
 		},
 	};
+}
+
+// The conversation an answer names, or nothing for one naming none.
+function namedIn(answer: unknown): string | undefined {
+	if (typeof answer !== "object" || answer === null) return undefined;
+	if (!("sessionId" in answer) || typeof answer.sessionId !== "string")
+		return undefined;
+	return answer.sessionId;
 }
 
 /**

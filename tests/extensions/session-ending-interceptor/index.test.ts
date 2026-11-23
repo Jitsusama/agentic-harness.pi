@@ -349,6 +349,52 @@ describe("a show_person call", () => {
 		expect(verdict).toMatchObject({ block: true });
 	});
 
+	it("is refused when its second form asks a session-ending act", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The pairing steps",
+			happened: "The card pairs only at the login window.",
+			matters: "Until it pairs, the Mac asks for your password.",
+			act: "Log Out and Pair",
+		});
+
+		expect(verdict, "an act that logs out").toMatchObject({ block: true });
+	});
+
+	// The act is a button, read as the ask itself: as prose, a bare
+	// "Approve Restart" has no ask's form and went past the guard.
+	it("is refused when its act is a button that restarts", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The new kernel",
+			happened: "The new kernel is installed.",
+			matters: "It takes effect only once the machine starts again.",
+			act: "Approve Restart",
+		});
+
+		expect(verdict, "an act that restarts").toMatchObject({ block: true });
+	});
+
+	it("is refused when what follows a choice is a session-ending act", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The pairing steps",
+			happened: "The card pairs only at the login window.",
+			matters: "Until it pairs, the Mac asks for your password.",
+			act: "Pick a Time",
+			choices: ["Now", "Tonight"],
+			follows: [
+				"Log out and pair the card, then say how it went.",
+				"I ask again at nine.",
+			],
+		});
+
+		expect(verdict, "a follows that logs out").toMatchObject({ block: true });
+	});
+
 	it("is refused for a choice that is one", async () => {
 		const verdict = await call("show_person", {
 			kind: "page",
@@ -393,6 +439,21 @@ describe("a show_person call", () => {
 		});
 
 		expect(verdict).toBeUndefined();
+	});
+
+	// What happened and why it matters are prose, read as the why is,
+	// so a reboot they only mention asks nothing of him.
+	it("goes ahead when its second form only mentions a reboot that happened", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "The mic",
+			happened: "The mic stopped after the last reboot.",
+			matters: "Calls lose your voice until a restart of the sound service.",
+			act: "Read the Notes",
+		});
+
+		expect(verdict, "prose that only mentions a reboot").toBeUndefined();
 	});
 });
 

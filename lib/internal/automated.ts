@@ -24,6 +24,8 @@ const LEGACY_OPENINGS = [
 	"The context was compacted to keep this session affordable.",
 	"Compacting the context failed, so it was left as it is.",
 	"Verification found ",
+	// A machine's steer, before it carried the header.
+	"[Said by this machine's ",
 ];
 
 /**

@@ -7,6 +7,7 @@ import { saveRecord } from "../../../../extensions/quest-workflow/sessions/recor
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
+	type ControlCall,
 	hostBySetting,
 	spawnInHost,
 } from "../../../../extensions/quest-workflow/verbs/spawn-host.ts";
@@ -20,6 +21,7 @@ import {
 	joinSpawns,
 	leaveSpawns,
 	listedForStage,
+	STAGE_VARIABLE,
 } from "../../../../lib/internal/fence/fence-stage.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
 import { openRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
@@ -45,6 +47,7 @@ const SAVED = [
 	"PI_HOME_REALM",
 	"XDG_CONFIG_HOME",
 	"XDG_RUNTIME_DIR",
+	"XDG_STATE_HOME",
 ];
 
 let tmpRoot: string;
@@ -149,6 +152,8 @@ beforeEach(() => {
 	process.env.MYCELIUM_REALM = "home";
 	delete process.env.PI_HOME_REALM;
 	delete process.env.XDG_CONFIG_HOME;
+	// An unanswered spawn is kept under the state folder, here the test's.
+	delete process.env.XDG_STATE_HOME;
 	process.env.XDG_RUNTIME_DIR = runtime;
 	received = [];
 	answer = async (request) => identityFor(request);
@@ -835,6 +840,196 @@ describe("spawn into a host", () => {
 		expect(chosen.note).toContain(
 			"but this pi couldn't ask the home-background host anything (the host's client didn't load (Cannot find module 'zod')), so it opens in a terminal.",
 		);
+	});
+
+	// IKQ63G, 20 November: a spawn asked again after its open timed out
+	// opened a second conversation beside the first.
+	it("sends a spawn asked again after a lost answer under the first's id, then a new one once answered", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		let lost = true;
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (lost) throw new Error("Host control request timed out");
+			return { v: 1, id: request.id, ok: true, result: identityFor(request) };
+		};
+		const first = await spawnInHost(spawn, call);
+		if (first.ok) throw new Error("expected the first to go unanswered");
+		expect(first.guidance, "names the id kept").toContain(sent[0]?.id);
+		lost = false;
+		const again = await spawnInHost(spawn, call);
+		expect(again, "answered").toMatchObject({ ok: true });
+		const after = await spawnInHost(spawn, call);
+		expect(after, "answered").toMatchObject({ ok: true });
+		const [one, two, three] = sent.map((request) => request.id);
+		expect(two, "the retry repeats the lost one's id").toBe(one);
+		expect(three, "a spawn after an answer is new").not.toBe(one);
+	});
+
+	// Each spawn lists the fence's first stage under a token of its own,
+	// so a retry carries a new one and must still repeat the first's id.
+	it("repeats the lost one's id for a staged spawn asked again with a fresh token", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			throw new Error("Host control request timed out");
+		};
+		await spawnInHost({ ...spawn, carried: { [STAGE_VARIABLE]: "t-1" } }, call);
+		await spawnInHost({ ...spawn, carried: { [STAGE_VARIABLE]: "t-2" } }, call);
+		const [one, two] = sent.map((request) => request.id);
+		expect(two, "the restaged retry repeats the lost one's id").toBe(one);
+	});
+
+	it("sends a new id when the spawn asked again asks for something else", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			throw new Error("Host control request timed out");
+		};
+		await spawnInHost(spawn, call);
+		await spawnInHost({ ...spawn, note: "Something else entirely." }, call);
+		const [one, two] = sent.map((request) => request.id);
+		expect(two, "another ask, another id").not.toBe(one);
+	});
+
+	it("sends a new id after a refusal, which a repeat would only get again", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const replies: Awaited<ReturnType<ControlCall>>[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			const reply =
+				sent.length === 2
+					? {
+							v: 1 as const,
+							id: request.id,
+							ok: false as const,
+							error: { code: "busy", message: "Not now" },
+						}
+					: {
+							v: 1 as const,
+							id: request.id,
+							ok: true as const,
+							result: identityFor(request),
+						};
+			replies.push(reply);
+			return reply;
+		};
+		await spawnInHost(spawn, call);
+		const refused = await spawnInHost(spawn, call);
+		expect(refused, "refused").toMatchObject({ ok: false });
+		await spawnInHost(spawn, call);
+		const [one, two, three] = sent.map((request) => request.id);
+		expect(two, "the retry repeats the lost one's id").toBe(one);
+		expect(three, "a spawn after a refusal is new").not.toBe(one);
+	});
+
+	it("keeps the id of a yes it couldn't read, and says to check the list first", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			return {
+				v: 1,
+				id: request.id,
+				ok: true,
+				result: { sessionId: "not-a-uuid" },
+			};
+		};
+		const unread = await spawnInHost(spawn, call);
+		if (unread.ok) throw new Error("expected an unreadable yes to refuse");
+		expect(unread.guidance, "names the id kept").toContain(sent[0]?.id);
+		expect(unread.guidance).toContain("check the host's list");
+		await spawnInHost(spawn, call);
+		const [one, two] = sent.map((request) => request.id);
+		expect(two, "the retry repeats the unread one's id").toBe(one);
+	});
+
+	// A host gone since restarts holding what the lost ask opened, but not
+	// the ask, so the spawn names it rather than only the missing host.
+	it("names an earlier unanswered spawn when it finds no host listening", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			throw Object.assign(new Error("connect ECONNREFUSED"), {
+				code: "ECONNREFUSED",
+			});
+		};
+		await spawnInHost(spawn, call);
+		const down = await spawnInHost(spawn, call);
+		if (down.ok) throw new Error("expected no host to refuse");
+		expect(down.guidance).toContain("nothing was opened");
+		expect(down.guidance).toContain(`(id ${sent[0]?.id}) went unanswered`);
+	});
+
+	// What this send opened is nothing, but the ask it repeats may have.
+	it("names an earlier unanswered spawn when the host's client didn't load to repeat it", async () => {
+		const spawn = {
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		};
+		const sent: ControlRequest[] = [];
+		const call: ControlCall = async (_socket, request) => {
+			sent.push(request);
+			if (sent.length === 1) throw new Error("Host control request timed out");
+			throw new HostClientUnloaded(new Error("Cannot find module 'zod'"));
+		};
+		await spawnInHost(spawn, call);
+		const unloaded = await spawnInHost(spawn, call);
+		if (unloaded.ok) throw new Error("expected an unloaded client to refuse");
+		expect(unloaded.guidance).toContain("Nothing was sent");
+		expect(unloaded.guidance).toContain(`(id ${sent[0]?.id}) went unanswered`);
 	});
 
 	it("sends a plain spawn to the host quest-workflow.spawnHost names, with no window", async () => {

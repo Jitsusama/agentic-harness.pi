@@ -289,15 +289,14 @@ export function steerFrom(
 			: undefined;
 	const given = asked === "answer" ? givenFrom(parsed) : undefined;
 	// A carry or move goes nowhere without a to, nor a fill without words,
-	// nor an answer without what it answers and what it gives; a look
-	// takes only one of its choices.
+	// nor an answer without what it answers and what it gives. A look
+	// takes one of its choices as a value, or his own words as other,
+	// which answerLook reads against what the look wants.
 	const act =
 		((asked === "carry" || asked === "move") && to === undefined) ||
 		(asked === "fill" && said === "") ||
 		(asked === "answer" &&
-			(given === undefined ||
-				(want === undefined && look === undefined) ||
-				(look !== undefined && !("value" in given))))
+			(given === undefined || (want === undefined && look === undefined)))
 			? undefined
 			: asked;
 	// Words would start the run a pause, stop or close is ending.

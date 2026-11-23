@@ -156,7 +156,10 @@ describe("waking a parked conversation", () => {
 		const fake = engine();
 		const backend = backendWith(fake);
 		const sleeping = await parked(backend);
-		const { sessionId: running } = parseOpenResult(await backend.execute(open));
+		// Another open, by its own id: the same one again is a repeat.
+		const { sessionId: running } = parseOpenResult(
+			await backend.execute({ ...open, id: "o2" }),
+		);
 
 		for (const [id, sessionId] of [
 			["c1", sleeping],

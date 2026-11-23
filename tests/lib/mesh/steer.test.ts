@@ -391,7 +391,7 @@ describe("the steer inbox", () => {
 		).toBeUndefined();
 	});
 
-	it("reads an answer to a look by its id, with a choice and never words", () => {
+	it("reads an answer to a look by its id, with a choice or his words", () => {
 		expect(
 			steerFrom(
 				'{"act":"answer","from":"joel","look":"ab12","value":"Posted"}',
@@ -407,9 +407,12 @@ describe("the steer inbox", () => {
 			file: "f",
 		});
 		expect(
-			steerFrom('{"act":"answer","look":"ab12","other":"Later"}', "f"),
-			"a look offers choices only",
-		).toBeUndefined();
+			steerFrom(
+				'{"act":"answer","from":"joel","look":"ab12","other":"Later"}',
+				"f",
+			),
+			"his words, kept apart from a pick, for the look to weigh",
+		).toMatchObject({ act: "answer", look: "ab12", given: { other: "Later" } });
 		expect(
 			steerFrom('{"act":"answer","look":7,"value":"Posted"}', "f"),
 			"a look named by no id",

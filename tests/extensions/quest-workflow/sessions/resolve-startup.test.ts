@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	loadQuest,
+	questsAStartKnows,
 	resolveStartup,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -146,6 +147,38 @@ describe("resolveStartup precedence", () => {
 		expect(process.env.QUEST_WORKFLOW_AUTOLOAD_ID).toBeUndefined();
 	});
 
+	// A host reads these again before a start, rather than its whole tree.
+	it("knows the quest it had, its log's and its spawn's before it resolves", () => {
+		const state = buildState();
+		state.questId = "QEST-20260101-HADONE";
+		expect(
+			questsAStartKnows(
+				state,
+				ctxWith({ cwd: tmpRoot, persistedQuestId: "QEST-20260101-LOGGED" }),
+				{ questId: "QEST-20260101-ASKED", orchestrate: false },
+			),
+		).toEqual([
+			"QEST-20260101-HADONE",
+			"QEST-20260101-LOGGED",
+			"QEST-20260101-ASKED",
+		]);
+	});
+
+	it("resolves from the hints a start took already, reading no others", async () => {
+		const requested = await createQuest("Requested");
+		const other = await createQuest("Other");
+		process.env.QUEST_WORKFLOW_AUTOLOAD_ID = other;
+		const resolution = resolveStartup(
+			buildState(),
+			fakePi(),
+			ctxWith({ cwd: tmpRoot }),
+			{ questId: requested, orchestrate: false },
+		);
+		expect(resolution.source).toBe("explicit");
+		expect(resolution.questId).toBe(requested);
+		expect(process.env.QUEST_WORKFLOW_AUTOLOAD_ID).toBe(other);
+	});
+
 	it("falls back to persisted history when there is no explicit request", async () => {
 		const persisted = await createQuest("Persisted");
 		const state = buildState();
@@ -181,6 +214,19 @@ describe("resolveStartup precedence", () => {
 		);
 		expect(resolution.source).toBe("cwd");
 		expect(resolution.questId).toBe(id);
+	});
+
+	it("waits for the log's quest rather than taking the cwd's while it can't load", async () => {
+		const id = await createQuest("Cwd Match");
+		const questDir = join(tmpRoot, "quests", id);
+		const state = buildState();
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: questDir, persistedQuestId: "QEST-20260101-NOTYET" }),
+		);
+		expect(resolution.source).toBe("none");
+		expect(state.pendingQuest?.questId).toBe("QEST-20260101-NOTYET");
 	});
 
 	it("stays idle on a fresh session in a quest dir when cwd autoload is off", async () => {
@@ -224,6 +270,42 @@ describe("resolveStartup precedence", () => {
 		);
 		expect(resolution.source).toBe("record");
 		expect(resolution.questId).toBe(drill);
+	});
+
+	it("waits for the log's quest rather than taking one whose README lists the session", async () => {
+		const listed = await createQuest("Listed While Waiting");
+		addSession(listed, "01a1b948", "active");
+		const state = buildState({ autoloadFromCwd: false });
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({
+				cwd: tmpRoot,
+				sessionId: "01a1b948",
+				persistedQuestId: "QEST-20260101-NOTYET",
+			}),
+		);
+		expect(resolution.source).toBe("none");
+		expect(state.pendingQuest?.questId).toBe("QEST-20260101-NOTYET");
+	});
+
+	// The state lives as long as the pi, and a new conversation in it
+	// starts again through here.
+	it("forgets what an earlier conversation waited for when another starts", async () => {
+		const cwdQuest = await createQuest("Cwd After Waiting");
+		const state = buildState();
+		resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: tmpRoot, persistedQuestId: "QEST-20260101-NOTYET" }),
+		);
+		const resolution = resolveStartup(
+			state,
+			fakePi(),
+			ctxWith({ cwd: join(tmpRoot, "quests", cwdQuest) }),
+		);
+		expect(state.pendingQuest).toBeUndefined();
+		expect(resolution.source).toBe("cwd");
 	});
 
 	it("lets the log's own history win over the README's", async () => {

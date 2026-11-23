@@ -11,8 +11,10 @@
  *
  * The host keeps its key, socket, roster and stores, so nothing outside
  * it learns of children: a window still attaches to the host, and a
- * release or close still names it. The host passes each request for a
- * conversation a child runs on to that child's own socket, naming the
+ * release or close still names it, or names the child that runs the
+ * conversation, as the machine's registry does. The host passes each
+ * request for a conversation a child runs on to that child's own
+ * socket, naming the
  * child as the host it expects, and hands a viewer's connection over
  * whole once the request is passed on, so the child's frames and the
  * window's keys go through as bytes, decoded on neither side's behalf
@@ -72,7 +74,8 @@ export function heldChildren(): HeldChildren {
 
 /**
  * The request as the child takes it: the host checked the identity the
- * caller expected against its own, so the child is asked under its own.
+ * caller expected against its own and this child's, so the child is
+ * asked under its own.
  */
 export function passedOn(
 	request: ControlRequest,

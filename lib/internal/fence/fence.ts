@@ -497,22 +497,35 @@ function devArgs(place: FencePlace, disk: Disk): string[] {
 	return ["--bind", dev, settings, "--bind", git, git];
 }
 
+/** A hidden entry there to empty: where it lies, and whether a folder. */
+interface Emptied {
+	readonly over: string;
+	readonly folder: boolean;
+}
+
 /**
  * bubblewrap's arguments emptying each hidden file and folder that is
  * there: a file bound over with `/dev/null`, a folder with an empty one
  * made read-only. A link's target is emptied instead, since bubblewrap
- * won't mount on a link and the link would still lead to it.
+ * won't mount on a link and the link would still lead to it. A file
+ * lying in a hidden folder is left to the folder: bubblewrap would make
+ * its mount point in the emptied, read-only folder, fail, and refuse
+ * every command, as a history file linked into a hidden zsh folder would.
  */
 function hiddenArgs(home: string, disk: Disk): string[] {
-	return hiddenIn(home).flatMap(({ path, folder }) => {
+	const emptied = hiddenIn(home).flatMap(({ path, folder }): Emptied[] => {
 		const link = disk.kind(path) === "link";
 		const over = link ? disk.real?.(path) : path;
 		if (over === undefined) return [];
 		const kind = disk.kind(over);
-		if (folder) {
-			return kind === "folder" ? ["--tmpfs", over, "--remount-ro", over] : [];
-		}
-		return kind === "file" ? ["--ro-bind", "/dev/null", over] : [];
+		if (folder) return kind === "folder" ? [{ over, folder }] : [];
+		return kind === "file" ? [{ over, folder }] : [];
+	});
+	const folders = emptied.filter((one) => one.folder).map((one) => one.over);
+	return emptied.flatMap(({ over, folder }) => {
+		if (folder) return ["--tmpfs", over, "--remount-ro", over];
+		const inEmptied = folders.some((one) => over.startsWith(`${one}/`));
+		return inEmptied ? [] : ["--ro-bind", "/dev/null", over];
 	});
 }
 

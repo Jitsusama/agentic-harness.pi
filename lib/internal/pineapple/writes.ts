@@ -4,9 +4,12 @@
  *
  * A write is anything that reaches other people or lands for good:
  * pushing a branch, opening, editing, commenting on or merging a pull
- * request, and switching or deploying a machine. Reads, builds and
- * commits stay on this machine and are never writes here, so a stop
- * leaves a session free to keep working in its own tree.
+ * request, and switching or deploying a machine. Starting more agents
+ * counts too: a pi host cut or restarted, a session spawned, a council
+ * or fleet run, since a stop that parks every session means nothing if
+ * a parked one can start more. Reads, builds and commits stay on this
+ * machine and are never writes here, so a stop leaves a session free to
+ * keep working in its own tree.
  *
  * This only reads the call. What it names but doesn't say, such as the
  * repository a bare `git push` goes to, is left for {@link settle} to ask
@@ -15,14 +18,38 @@
 
 import { isAbsolute, join, resolve } from "node:path";
 import { effectiveCwd, tokenize } from "../../command/index.ts";
-import type { SimpleCommand } from "../../command/types.ts";
+import type { CommandLine, SimpleCommand, Word } from "../../command/types.ts";
 import { unquote } from "../../shell/index.ts";
+import {
+	ansiUnquoted,
+	flatten,
+	heredocRuns,
+	inlined,
+	uncommented,
+} from "./flatten.ts";
+import {
+	ranAtLast,
+	readsStdin,
+	runs,
+	SHELLS,
+	sourcesStdin,
+	sshReadsStdin,
+	unwrapped,
+} from "./runs.ts";
+import { startIn } from "./starts.ts";
 
 /**
  * What a write lands on: one change (a push, a comment, a merge), a
- * repository (a new pull request), or the machine (a switch, a deploy).
+ * repository (a new pull request), the machine (a switch, a deploy), or
+ * its agents (a start: a pi host cut or restarted, a session spawned, a
+ * council or fleet run).
  */
-export type WriteKind = "change" | "repo" | "machine";
+export type WriteKind = "change" | "repo" | "machine" | "start";
+
+/** Whether a write lands on the machine as a whole, not on a repository. */
+export function machineWide(kind: WriteKind): boolean {
+	return kind === "machine" || kind === "start";
+}
 
 /** A write as the call states it, before git fills in what it left out. */
 export interface WriteCall {
@@ -51,7 +78,7 @@ export interface GitFacts {
 
 /** Fill in the repository and branch a call leaves to its checkout. */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
-	if (call.kind === "machine" || call.dir === undefined) return call;
+	if (machineWide(call.kind) || call.dir === undefined) return call;
 	const repo =
 		call.repo ?? (await git.repoOf(call.dir, call.remote ?? "origin"));
 	const branch =
@@ -104,6 +131,12 @@ const REVIEW_READS = new Set(["capabilities"]);
 /** review_offer's actions that open a new change rather than touch one. */
 const OPENS = new Set(["propose", "propose-stack"]);
 
+/** The quest tool's actions that start a pi session. */
+const SPAWNS = new Set(["spawn", "spawn-tab", "spawn-pane", "spawn-window"]);
+
+/** review_ask's actions that only read the rounds already run. */
+const ASK_READS = new Set(["runs", "roster", "collect", "stop", "release"]);
+
 /**
  * The write a call to one of the harness's own tools makes, or undefined
  * when it makes none. `trees` is where the work tool keeps its trees, so
@@ -128,6 +161,13 @@ export function writeInTool(
 			return action === "publish"
 				? reviewWrite(tool, action, args, cwd)
 				: undefined;
+		case "quest":
+			return questStart(action, args);
+		case "subagent":
+			return { action: "subagent", kind: "start" };
+		case "review_ask":
+			if (ASK_READS.has(action ?? "runs")) return undefined;
+			return { action: `review_ask ${action}`, kind: "start" };
 		case "work":
 			if (action !== "push") return undefined;
 			return {
@@ -138,6 +178,17 @@ export function writeInTool(
 		default:
 			return undefined;
 	}
+}
+
+/** A quest spawn, or a reopening of lost sessions that isn't a dry run. */
+function questStart(
+	action: string | undefined,
+	args: Record<string, unknown>,
+): WriteCall | undefined {
+	if (args.dryRun === true || action === undefined) return undefined;
+	const starts =
+		SPAWNS.has(action) || (action === "reopen-sessions" && args.force === true);
+	return starts ? { action: `quest ${action}`, kind: "start" } : undefined;
 }
 
 function reviewWrite(
@@ -206,74 +257,226 @@ const MACHINE: ReadonlyArray<
 	["colmena", new Set(["apply"])],
 ];
 
-/** Words that run the command after them, and how many words they take. */
-const WRAPPERS = new Map<string, number>([
-	["command", 0],
-	["exec", 0],
-	["nohup", 0],
-	["time", 0],
-	["sudo", 0],
-	["run0", 0],
-	["timeout", 1],
-]);
-
 /**
  * The writes a bash command makes, in order. A line the command model
- * can't read is searched by pattern instead, so a write hidden in a
+ * can't read is flattened into one it can (flatten.ts), and only one
+ * that still can't is searched by pattern, so a write hidden in a
  * construct it doesn't parse is still seen, though with nothing known
  * about where it goes.
  */
 export function writesInBash(command: string, cwd: string): WriteCall[] {
-	const line = tokenize(command);
-	if (!line.supported) return patternWrites(command);
+	return writesInLine(command, cwd);
+}
+
+/**
+ * As {@link writesInBash}, where `cwd` may be unknown, as a shell's `-c`
+ * line's is when its own shell's can't be told: every write in it is then
+ * left without a directory, rather than read from this process's own.
+ */
+function writesInLine(command: string, cwd: string | undefined): WriteCall[] {
+	// Comments, `$'...'` strings and heredocs, which the command model
+	// misreads, go first.
+	const plain = ansiUnquoted(uncommented(command));
+	const source = inlined(plain);
+	const flat = flatten(source);
+	// What a substitution runs in double quotes or an unquoted heredoc,
+	// where isn't known, read before its heredocs were inlined, which
+	// left those in double quotes bodiless.
+	const substituted = [
+		...flatten(plain).substituted,
+		...heredocRuns(plain),
+	].flatMap((inner) => writesInLine(inner, undefined));
+	const line = defusedLine(source);
+	if (line.supported) return [...writesOf(line, cwd), ...substituted];
+	const flattened = defusedLine(flat.line);
+	if (!flattened.supported) return patternWrites(source);
+	// Its structure moves offsets and may move directories, so no
+	// command in it is said to run anywhere known.
+	return [...writesOf(flattened, undefined), ...substituted];
+}
+
+/** A `<<` that is no here-string's `<<<`. */
+const HEREDOC_OPENER = /(?<!<)<<(?!<)/g;
+
+/**
+ * What stands in for a `<<` while the command model reads a line: two
+ * private-use characters, which it takes for a word's own, and which
+ * keep every offset where it was.
+ */
+const DEFUSED_OPENER = "\uE000\uE000";
+
+const DEFUSED = new RegExp(DEFUSED_OPENER, "g");
+
+/**
+ * The line as the command model reads it, with each `<<` left in it
+ * read as plain text. Every heredoc has been inlined, so one left is
+ * quoted or never closed, and the model, which finds heredocs without
+ * knowing quotes, would take the lines after it for a body and leave
+ * their commands unread. Each word keeps its `<<`, so a shell's `-c`
+ * line still holds the heredoc it opens.
+ */
+function defusedLine(source: string): CommandLine {
+	const read = tokenize(source.replace(HEREDOC_OPENER, DEFUSED_OPENER));
+	const word = (each: Word): Word => ({
+		...each,
+		text: each.text.replace(DEFUSED, "<<"),
+	});
+	return {
+		...read,
+		source,
+		commands: read.commands.map((simple) => ({
+			...simple,
+			assignments: simple.assignments.map(word),
+			argv: simple.argv.map(word),
+			redirects: simple.redirects.map((redirect) =>
+				redirect.target
+					? { ...redirect, target: word(redirect.target) }
+					: redirect,
+			),
+		})),
+	};
+}
+
+/** The writes of each command a readable line holds, in order. */
+function writesOf(line: CommandLine, cwd: string | undefined): WriteCall[] {
 	const writes: WriteCall[] = [];
 	for (const simple of line.commands) {
-		const here = effectiveCwd(line, cwd, simple.span.start);
-		const dir = "dir" in here ? here.dir : undefined;
-		const write = writeIn(words(simple), dir);
-		if (write) writes.push(write);
+		const here =
+			cwd === undefined
+				? undefined
+				: effectiveCwd(line, cwd, simple.span.start);
+		const dir = here !== undefined && "dir" in here ? here.dir : undefined;
+		// Its here-strings go first, so a wrapper left with none opens a
+		// shell for them.
+		const given = hereStrings(simple.argv.map((word) => unquote(word.text)));
+		const own = unwrapped(given.own);
+		const { strings } = given;
+		writes.push(...writeIn(own, dir));
+		const fed = fedTo(line, simple, own, strings);
+		if (fed === undefined) continue;
+		const read = fed.lines.flatMap((one) =>
+			writesInLine(one, fed.runner === undefined ? dir : undefined),
+		);
+		writes.push(
+			...(fed.runner === undefined ? read : startsBy(fed.runner, read)),
+		);
 	}
 	return writes;
 }
 
-/** A command's words, unquoted, from the program it runs past any wrapper. */
-export function words(simple: SimpleCommand): string[] {
-	const argv = simple.argv.map((word) => unquote(word.text));
-	let at = 0;
-	while (at < argv.length) {
-		const word = argv[at] ?? "";
-		if (word === "env") {
-			at += 1;
-			while (
-				at < argv.length &&
-				/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[at] ?? "")
-			)
-				at += 1;
-			continue;
-		}
-		if (word === "direnv" && argv[at + 1] === "exec") {
-			at += 3;
-			continue;
-		}
-		const takes = WRAPPERS.get(word);
-		if (takes === undefined) break;
-		at += 1;
-		while (at < argv.length && (argv[at] ?? "").startsWith("-")) at += 1;
-		at += takes;
+/**
+ * What a command reading its commands on stdin is fed, as lines to read:
+ * its here-strings, which its heredocs became, and the words and
+ * here-strings of the command piped into it. That command is a shell
+ * reading stdin, or ssh, whose starts alone count, as it says, behind
+ * any wrapper or launcher. Nothing when it is neither.
+ */
+function fedTo(
+	line: CommandLine,
+	simple: SimpleCommand,
+	argv: string[],
+	strings: string[],
+): { lines: string[]; runner?: string } | undefined {
+	const [program, ...args] = ranAtLast(argv);
+	const name = program?.split("/").at(-1) ?? "";
+	const shell =
+		(SHELLS.has(name) && readsStdin(args)) || sourcesStdin(name, args);
+	if (!shell && !(name === "ssh" && sshReadsStdin(args))) return undefined;
+	const lines = [...strings];
+	const producer = pipedInto(line, simple);
+	if (producer !== undefined) {
+		const fed = hereStrings(words(producer));
+		lines.push(...fed.own.slice(1), ...fed.strings);
 	}
-	return argv.slice(at);
+	return shell ? { lines } : { lines, runner: name };
 }
 
-function writeIn(
-	argv: string[],
+/**
+ * The command piped into `simple`, found by where each sits in the line
+ * rather than by its index, since the command model leaves an empty one
+ * out but keeps the connector after it. A pipe may end its line, the
+ * command it feeds starting the next, so the line breaks after it with
+ * no command between are passed over.
+ */
+function pipedInto(
+	line: CommandLine,
+	simple: SimpleCommand,
+): SimpleCommand | undefined {
+	const connectors = line.connectors.filter(
+		(connector) => connector.span.end <= simple.span.start,
+	);
+	let at = connectors.length - 1;
+	while (connectors[at]?.op === "\n" && at > 0) {
+		const after = connectors[at - 1]?.span.end ?? 0;
+		const until = connectors[at]?.span.start ?? 0;
+		const between = line.commands.some(
+			(command) => command.span.start >= after && command.span.end <= until,
+		);
+		if (between) break;
+		at -= 1;
+	}
+	const before = connectors[at];
+	if (before?.op !== "|" && before?.op !== "|&") return undefined;
+	return line.commands
+		.filter((command) => command.span.end <= before.span.start)
+		.at(-1);
+}
+
+/**
+ * A command's own words, and the here-strings the command model leaves
+ * among them as words: `<<<` and its string, or the two as one.
+ */
+function hereStrings(argv: string[]): { own: string[]; strings: string[] } {
+	const own: string[] = [];
+	const strings: string[] = [];
+	for (let at = 0; at < argv.length; at += 1) {
+		const word = argv[at] ?? "";
+		if (word === "<<<") {
+			const string = argv[at + 1];
+			if (string !== undefined) strings.push(string);
+			at += 1;
+		} else if (word.startsWith("<<<")) strings.push(word.slice(3));
+		else own.push(word);
+	}
+	return { own, strings };
+}
+
+/** Of what a runner runs, only its starts, named by the runner. */
+function startsBy(runner: string, writes: WriteCall[]): WriteCall[] {
+	return writes
+		.filter((write) => write.kind === "start")
+		.map((write) => ({ ...write, action: `${runner} ${write.action}` }));
+}
+
+/** A command's words, unquoted, from the program it runs past any wrapper. */
+export function words(simple: SimpleCommand): string[] {
+	return unwrapped(simple.argv.map((word) => unquote(word.text)));
+}
+
+/** The writes one command makes, with those of any command it runs. */
+function writeIn(argv: string[], dir: string | undefined): WriteCall[] {
+	const [program, ...rest] = argv;
+	if (program === undefined) return [];
+	const name = program.split("/").at(-1) ?? program;
+	const launched = launchedBy(name, rest)?.(dir) ?? [];
+	// A launcher's own verb still counts when what it runs writes nothing,
+	// as `mycelium start ... -- program` does.
+	if (launched.length > 0) return launched;
+	const write = ownWrite(name, rest, dir);
+	return write === undefined ? [] : [write];
+}
+
+/** What a command writes itself, apart from any command it runs. */
+function ownWrite(
+	name: string,
+	rest: string[],
 	dir: string | undefined,
 ): WriteCall | undefined {
-	const [program, ...rest] = argv;
-	if (program === undefined) return undefined;
-	const name = program.split("/").at(-1) ?? program;
 	if (name === "git") return gitPush(rest, dir);
 	if (name === "gh") return ghWrite(rest, dir);
 	if (name === "dt") return dtWrite(rest, dir);
+	const start = startIn(name, rest);
+	if (start) return start;
 	for (const [machine, verbs] of MACHINE) {
 		if (name !== machine) continue;
 		const verb = rest.find((word) => !word.startsWith("-"));
@@ -285,6 +488,28 @@ function writeIn(
 		}
 	}
 	return undefined;
+}
+
+/**
+ * What a command that runs another command writes (runs.ts): a shell's
+ * `-c` line, whatever a launcher runs, or what follows `--` in a
+ * `mycelium` call. Of what an opaque runner runs, only its starts count,
+ * named by the runner, as where it runs isn't known.
+ */
+function launchedBy(
+	name: string,
+	args: string[],
+): ((dir: string | undefined) => WriteCall[]) | undefined {
+	const ran = runs(name, args);
+	if (ran === undefined) return undefined;
+	return (dir) => {
+		const at = ran.opaque === undefined ? dir : undefined;
+		const writes =
+			"line" in ran
+				? writesInLine(ran.line, at)
+				: writeIn(unwrapped(ran.argv), at);
+		return ran.opaque === undefined ? writes : startsBy(ran.opaque, writes);
+	};
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */
@@ -519,6 +744,23 @@ function patternWrites(command: string): WriteCall[] {
 			"switch",
 			"machine",
 		],
+		[
+			/\bsystemctl\b[^;&|\n]*\b(?:re)?(?:start|enable)\b[^;&|\n]*\b(?:pi-host|pi-conversation|mycelium-pi)[-*@]/,
+			"pi host start",
+			"start",
+		],
+		[
+			/\b(?:node|tsx|bun|deno)\s+(?:\S*\/)?(?:host-(?:cutover|drain|release|take-up|join)|pi-host|pi-carry)\.ts\b/,
+			"pi host move",
+			"start",
+		],
+		[/\bpi-packages\s+update\b/, "pi-packages update", "start"],
+		[
+			/(?:^|[;&|(`]|\b(?:do|then|else|nohup|exec|setsid|command|time|sudo)\b)\s*(?:[\w.~-]*\/)*pi(?:-host|-carry)?(?=[\s;&|)`]|$)(?!\s+(?:--version|-v|--help|-h)\s*(?:$|[;&|)]))/,
+			"pi",
+			"start",
+		],
+		[/\bmycelium\s+(?:carry|start|sprout)\b/, "mycelium start", "start"],
 	];
 	for (const [pattern, action, kind] of patterns) {
 		const found = pattern.exec(command);

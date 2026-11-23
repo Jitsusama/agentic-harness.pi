@@ -178,6 +178,16 @@ the same restart once idle, whether or not the install moved: that is
 how the first swap after this change reaches pis whose follower
 predates it.
 
+Each process holds the pi install it started on from a switch's
+collection (`lib/internal/install/held.ts`), so its subagents and
+councils keep working. When it couldn't, the first session with a
+screen says so once, as a warning. A session replaced before the hold
+answers, or one with no screen, leaves the note for the next, so a
+background host, whose conversations have no screen, never says it.
+Any other failure to say it is kept as a JSON line in
+`held-note-faults.jsonl` in the workflow's state folder, for whoever
+looks into a note that never showed; nothing reads it.
+
 `/harness restart` is the same restart, now, at a moment its person
 chose, so it goes even while they are at the window: the one way an
 orchestrator they always watch takes such an install. It is still
