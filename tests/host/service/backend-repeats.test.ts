@@ -427,14 +427,16 @@ describe("a start asked again under its id", () => {
 		const { fake } = slowEngine();
 		const sessionId = randomUUID();
 		const next = randomUUID();
+		// The child runs the first one until it becomes the next.
+		let calledNow = sessionId;
 		const children: BackendChildren = {
 			moves: () => false,
 			opens: () => true,
 			running: (id) =>
-				id === next
+				id === calledNow
 					? {
-							sessionId: next,
-							file: join(dir, `${next}.jsonl`),
+							sessionId: calledNow,
+							file: join(dir, `${calledNow}.jsonl`),
 							cwd: "/work",
 							state: "idle",
 							since: "2026-11-21T10:00:00.000Z",
@@ -448,6 +450,7 @@ describe("a start asked again under its id", () => {
 		const backend = backendWith(fake, children);
 		await dispatchControl(open, backend);
 
+		calledNow = next;
 		backend.became(sessionId, next);
 		const again = await dispatchControl({ ...open }, backend);
 		const still = await dispatchControl({ ...open }, backend);
