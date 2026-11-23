@@ -169,6 +169,15 @@ through landrun:
   unfenced session until an account that only reads is named for the
   fence. The strict profile below does hand a token, so the account a
   machine names for its agents (`gcloud-broker`) must only read too.
+- **Delta from mint.** mint answers only outside the fence, and dev's
+  token cache is hidden, so pi asks `mint token delta.shopify.io`
+  itself, at most once a quarter hour, and hands each command the
+  token as `WGH_TOKEN` with `WGH_HOST=delta.shopify.io`, in place of
+  any your shell names. `dt` and `devx ci` then read and push through
+  Delta as you. It is a day-long token that writes as you: less than
+  an unfenced session holds, more than the GitHub door gives, which
+  keeps GitHub's token outside. A machine without mint in
+  `/usr/local/bin` hands none. The strict profile never gets it.
 
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a

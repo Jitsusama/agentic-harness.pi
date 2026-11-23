@@ -18,6 +18,8 @@ sandbox its hour-long tokens.
   background every few minutes for the strict sandbox.
 - **`github-broker.ts`**: the hour-long GitHub tokens the machine's
   github-broker gives the strict sandbox, asked for every few minutes.
+- **`delta-token.ts`**: Delta's token for the agent fence, asked of
+  mint outside it once a quarter hour, for `dt` and `devx ci`.
 - **`sandbox-shell.ts`**: the shell text both sandboxes build on: a
   word quoted for the shell, and the variable a command travels in.
 - **`sandbox-trees.ts`**: which tree a fenced command stands in, and
