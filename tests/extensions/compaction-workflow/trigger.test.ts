@@ -404,7 +404,7 @@ describe("the compaction trigger", () => {
 
 		it("compacts on the spot once a second try ahead has failed too", async () => {
 			completeSimple.mockResolvedValue(capped);
-			const { fire, state, ctx } = await toTheEdge(true);
+			const { fire, entries, state, ctx } = await toTheEdge(true);
 			await endTurn(fire, ranTools, ctx);
 			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
 			await new Promise((r) => setTimeout(r, 0));
@@ -416,6 +416,15 @@ describe("the compaction trigger", () => {
 			await endTurn(fire, ranTools, ctx);
 			expect(state.compactions).toHaveLength(1);
 			expect(completeSimple).toHaveBeenCalledTimes(2);
+			// Each recorded with which try it was, the second asked for half.
+			expect(
+				entries
+					.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
+					.map((entry) => entry.data),
+			).toEqual([
+				expect.objectContaining({ tries: 1, halved: false }),
+				expect.objectContaining({ tries: 2, halved: true }),
+			]);
 		});
 
 		/** The session at the edge, two summaries ahead failed at their cap. */
@@ -462,6 +471,27 @@ describe("the compaction trigger", () => {
 			expect(acted(), "did nothing at the edge").toBe(true);
 			return state.compactions.length > compacted;
 		}
+		/**
+		 * The count started again: the try ahead made afresh fails too, and
+		 * the next firing turn still writes ahead rather than on the spot.
+		 */
+		async function triesAheadOnceMore({
+			fire,
+			state,
+			ctx,
+		}: Awaited<ReturnType<typeof failedTwice>>) {
+			const calls = completeSimple.mock.calls.length;
+			const compacted = state.compactions.length;
+			// One tick, for the afresh try's failure to be counted.
+			await new Promise((r) => setTimeout(r, 0));
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(
+				compacted,
+			);
+			await vi.waitFor(() =>
+				expect(completeSimple).toHaveBeenCalledTimes(calls + 1),
+			);
+		}
 
 		it("tries ahead afresh for the next compaction once one has landed", async () => {
 			const at = await failedTwice();
@@ -479,23 +509,86 @@ describe("the compaction trigger", () => {
 				false,
 			);
 			expect(closingOf(3), "asked full size again").toContain("Make it about");
+			await triesAheadOnceMore(at);
 		});
 
 		it.each([
-			["the session starts again", "session_start", { reason: "resume" }],
-			[
-				"the session moves in its tree",
-				"session_tree",
-				{ newLeafId: "a1", oldLeafId: "a1" },
-			],
-		])("tries ahead afresh once %s", async (_, name, event) => {
+			["the session starts again", false],
+			["the session moves in its tree off the summarised point", true],
+		])("tries ahead afresh once %s", async (_, moves) => {
 			const at = await failedTwice();
-			await at.fire(name, event, at.ctx);
+			if (moves) {
+				const oldLeafId = at.state.leaf;
+				at.state.branch = [userEntry];
+				at.state.leaf = "u1";
+				await at.fire("session_tree", { newLeafId: "u1", oldLeafId }, at.ctx);
+			} else {
+				await at.fire("session_start", { reason: "resume" }, at.ctx);
+			}
 
 			expect(await compactsOnTheSpotAgain(at), "compacted on the spot").toBe(
 				false,
 			);
 			expect(closingOf(2), "asked full size again").toContain("Make it about");
+			await triesAheadOnceMore(at);
+		});
+
+		// The compaction to come still summarises that point, so what was
+		// tried for it still counts.
+		it("keeps counting across a move in the tree that keeps the summarised point", async () => {
+			const { fire, state, ctx } = await failedTwice();
+			const leaf = state.leaf;
+			await fire("session_tree", { newLeafId: leaf, oldLeafId: leaf }, ctx);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions, "compacted on the spot").toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("a summary written ahead across a move in the tree", () => {
+		const written = {
+			stopReason: "stop",
+			content: [{ type: "text", text: "## Goal" }],
+			usage: {},
+		};
+		/** The session at the edge, a summary written ahead and ready. */
+		async function writtenAhead() {
+			completeSimple.mockResolvedValue(written);
+			const at = await toTheEdge(true);
+			await endTurn(at.fire, ranTools, at.ctx);
+			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
+			await new Promise((r) => setTimeout(r, 0));
+			return at;
+		}
+
+		it("is applied when the move keeps the point it summarised", async () => {
+			const { fire, entries, state, ctx } = await writtenAhead();
+			const leaf = state.leaf;
+			await fire("session_tree", { newLeafId: leaf, oldLeafId: leaf }, ctx);
+
+			await endTurn(fire, ranTools, ctx);
+			expect(state.compactions).toHaveLength(1);
+			expect(completeSimple).toHaveBeenCalledTimes(1);
+			expect(entries.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)).toEqual(
+				[],
+			);
+		});
+
+		it("is recorded as unused when the move leaves that point", async () => {
+			const { fire, entries, state, ctx } = await writtenAhead();
+			const oldLeafId = state.leaf;
+			state.branch = [userEntry];
+			state.leaf = "u1";
+			await fire("session_tree", { newLeafId: "u1", oldLeafId }, ctx);
+
+			expect(
+				entries
+					.filter((entry) => entry.type === AHEAD_UNUSED_ENTRY)
+					.map((entry) => entry.data),
+			).toEqual([
+				{ reason: "the session moved in its tree off the point it summarised" },
+			]);
 		});
 	});
 
