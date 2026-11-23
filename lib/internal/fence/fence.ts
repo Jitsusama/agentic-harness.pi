@@ -143,6 +143,15 @@ export const LET_THROUGH = [
 	"pi-fence-display",
 ] as const;
 
+/**
+ * What `place` lets through of the runtime folder: for a language
+ * server, which runs code the project picked on a hover, nothing that
+ * acts as the person (the agent's proxy, the clipboard, a display).
+ */
+function letThrough(place: FencePlace): readonly string[] {
+	return place.served ? LET_THROUGH.slice(0, 1) : LET_THROUGH;
+}
+
 /** The sandboxed display's socket, in the runtime folder. */
 const FENCE_DISPLAY = "pi-fence-display/wayland";
 
@@ -238,6 +247,8 @@ export interface FencePlace extends Worktrees {
 	readonly home: string;
 	/** `XDG_RUNTIME_DIR`, which the fence empties. */
 	readonly runtimeDir: string | undefined;
+	/** Drawn for a language server: of `LET_THROUGH`, only Nix's door. */
+	readonly served?: boolean;
 	/** Where quests' scratch folders live, and this session's quest's own. */
 	readonly scratch?: OwnFolders;
 	/**
@@ -402,7 +413,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		// Read-only, which a connect doesn't need written: bound writable,
 		// the proxy's folder could be emptied and a command listen in the
 		// proxy's place for every other session's signing (JMJ7J4).
-		for (const name of LET_THROUGH) {
+		for (const name of letThrough(place)) {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
@@ -718,7 +729,7 @@ export function fenceRules(place: FencePlace): string[] {
 	const sockets = [
 		...SOCKETS_ELSEWHERE,
 		...(place.runtimeDir
-			? LET_THROUGH.map((name) => join(place.runtimeDir as string, name))
+			? letThrough(place).map((name) => join(place.runtimeDir as string, name))
 			: []),
 		...(place.githubDoor ? [place.githubDoor] : []),
 	];
