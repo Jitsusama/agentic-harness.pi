@@ -5,7 +5,9 @@
  * start leaves every spawner after it unscoped.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { placeChildren } from "../../../../lib/internal/priority/place.ts";
 import {
 	inSpawnerScope,
 	resetScopeForTests,
@@ -15,6 +17,7 @@ import {
 	settingHere,
 	spawnerStart,
 	spawnersScoped,
+	spawningSpawner,
 } from "../../../../lib/internal/shell/spawner-scope.ts";
 
 const SYSTEM = "/run/current-system/sw/bin";
@@ -112,6 +115,54 @@ describe("starting a host's spawner", () => {
 		expect(
 			spawnerStart("/bin/pi-spawner", linuxHost({ hosted: false })),
 		).toEqual({ command: "/bin/pi-spawner", args: [] });
+	});
+});
+
+// 23 November: placing a scoped spawner in jobs just after it started
+// moved it back out of the scope its systemd-run had made, leaving 8 of
+// 59 hosted spawners in jobs outside any scope (5FWIUS).
+describe("where a host's spawner is placed", () => {
+	let undo: (() => void) | undefined;
+	afterEach(() => {
+		undo?.();
+		undo = undefined;
+	});
+
+	/** The pids placing writes into jobs, from now on. */
+	const placing = (): number[] => {
+		const written: number[] = [];
+		undo = placeChildren("/jobs/cgroup.procs", (_path, pid) => {
+			written.push(pid);
+		});
+		return written;
+	};
+
+	/** Spawns `true` for a spawner started as `start`, answering its pid once it exits. */
+	const spawnedFor = (start: ReturnType<typeof spawnerStart>) =>
+		new Promise<number>((resolve, reject) => {
+			const child = spawningSpawner(start, () => spawn("true"));
+			child.on("error", reject);
+			child.on("exit", () => resolve(child.pid ?? -1));
+		});
+
+	it("leaves a scoped one where pi is, for its scope to keep", async () => {
+		const written = placing();
+
+		await spawnedFor(spawnerStart("/nix/bin/pi-spawner", linuxHost()));
+
+		expect(written).toEqual([]);
+	});
+
+	it("places an unscoped one in jobs, as any child", async () => {
+		const written = placing();
+		const start = spawnerStart(
+			"/nix/bin/pi-spawner",
+			linuxHost({ platform: "darwin" }),
+		);
+
+		const pid = await spawnedFor(start);
+
+		expect(written).toEqual([pid]);
 	});
 });
 

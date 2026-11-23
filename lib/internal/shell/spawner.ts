@@ -84,6 +84,7 @@ import {
 	scopeFailed,
 	settingHere,
 	spawnerStart,
+	spawningSpawner,
 } from "./spawner-scope.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
@@ -838,11 +839,13 @@ function startProgram(
 	const start = spawnerStart(program, settingHere(hosted() !== undefined));
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
 	const scoped = start.args.length > 0;
-	const child = spawn(start.command, [...start.args], {
-		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
-		detached: true,
-		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
-	});
+	const child = spawningSpawner(start, () =>
+		spawn(start.command, [...start.args], {
+			stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
+			detached: true,
+			env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
+		}),
+	);
 	child.unref();
 	if (scoped) {
 		let said = "";
