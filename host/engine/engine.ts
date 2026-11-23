@@ -45,7 +45,7 @@ import type {
 	ConversationEvents,
 	OpenRequest,
 	Prepared,
-	ResumePhase,
+	StartPhase,
 } from "../service/backend.ts";
 import { carriedShells } from "./carried-shells.ts";
 import { checkpointing } from "./checkpoints.ts";
@@ -249,7 +249,7 @@ export async function createEngine(
 		manager: SessionManager,
 		launch: Readonly<Record<string, string>>,
 		request?: OpenRequest | AdoptRequest,
-		mark?: (phase: ResumePhase) => void,
+		mark?: (phase: StartPhase) => void,
 		turn?: TakeTurn,
 	): Promise<void> {
 		const { sessionId } = traits;
@@ -561,7 +561,7 @@ export async function createEngine(
 			};
 		},
 
-		async start(conversation: Prepared, request) {
+		async start(conversation: Prepared, request, mark) {
 			const preparing = prepared.get(conversation.sessionId);
 			if (!preparing)
 				throw new Error(
@@ -569,7 +569,7 @@ export async function createEngine(
 				);
 			prepared.delete(conversation.sessionId);
 			const { manager, traits, launch } = preparing;
-			await begin(traits, manager, launch, request);
+			await begin(traits, manager, launch, request, mark);
 		},
 
 		async discard(conversation) {
@@ -579,7 +579,7 @@ export async function createEngine(
 		async resume(
 			entry: RosterEntry,
 			woken = false,
-			mark?: (phase: ResumePhase) => void,
+			mark?: (phase: StartPhase) => void,
 		) {
 			if (host.holds(entry.sessionId) !== undefined)
 				throw new Error(`Conversation already running: ${entry.sessionId}`);

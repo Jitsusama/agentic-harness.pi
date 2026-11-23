@@ -1,12 +1,14 @@
 /**
  * What a host says of itself in words, as systemd's status and the
  * journal show it: the step its start is in, how long each phase of a
- * resume took, what it holds once ready, and what it parks as it stops.
+ * resume, open or adopt took, what it holds once ready, and what it
+ * parks as it stops.
  * run.ts says these at the moments they belong to; the words change for
  * the people reading them, apart from when the host says them.
  */
 
-import type { ResumePhase } from "./backend.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
+import type { StartPhase } from "./backend.ts";
 import type { ServingHost, StartStep } from "./serve.ts";
 
 const MS_PER_SECOND = 1000;
@@ -91,7 +93,7 @@ function conversations(count: number): string {
 
 /** When one phase of a resume ended. */
 export interface PhaseEnd {
-	readonly phase: ResumePhase;
+	readonly phase: StartPhase;
 	readonly at: number;
 }
 
@@ -113,6 +115,26 @@ export function phaseTimes(
 	});
 	parts.push(`rest ${((ended - from) / MS_PER_SECOND).toFixed(1)} s`);
 	return ` (${parts.join(", ")})`;
+}
+
+/**
+ * How long a conversation's open or adopt took, begun at `began` and
+ * settled at `ended`, and each phase within it; one that failed before
+ * pi named its conversation is said as a conversation not yet named.
+ */
+export function startLine(
+	sessionId: string | undefined,
+	request: { readonly op: "open" | "adopt" },
+	began: number,
+	phases: readonly PhaseEnd[],
+	ended: number,
+): string {
+	const who =
+		sessionId === undefined
+			? "A conversation not yet named"
+			: `${sessionAddress(sessionId)} (${sessionId})`;
+	const took = ((ended - began) / MS_PER_SECOND).toFixed(1);
+	return `${who}: its ${request.op} took ${took} s${phaseTimes(began, phases, ended)}`;
 }
 
 /**

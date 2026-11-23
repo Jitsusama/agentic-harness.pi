@@ -41,7 +41,7 @@ import { ambientSession } from "../../lib/core/session/index.ts";
 import { runtimeDir, stateDir } from "../../lib/internal/paths.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
-import type { ConversationEngine, ResumePhase } from "./backend.ts";
+import type { ConversationEngine, StartPhase } from "./backend.ts";
 import {
 	type ChildLife,
 	type ChildSlot,
@@ -344,7 +344,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		renewing?: () => void;
 	}
 	const resuming = new Map<number, UnderWay>();
-	const mark = (step: Resuming, phase: ResumePhase) => {
+	const mark = (step: Resuming, phase: StartPhase) => {
 		resuming.get(step.number)?.phases.push({ phase, at: Date.now() });
 	};
 	const finished = (step: Resuming, end: ResumeEnd, reason?: unknown) => {
