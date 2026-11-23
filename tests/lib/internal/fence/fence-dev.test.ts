@@ -209,7 +209,10 @@ describe("the session's copies of dev's and git's settings", () => {
 			expect(copiesOf("s-1"), "the set before").toEqual(copies);
 			expect(copiesOf("s-1"), "still the set before").toEqual(copies);
 			expect(told, "told once for the one change").toHaveLength(1);
-			writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = vi\n");
+			// Never back to the setup's vi: within one tick of the clock the
+			// file's times don't move, so its size alone tells it from the set
+			// before, and going back reads, rightly, as no change.
+			writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = emacs\n");
 			copiesOf("s-1");
 			expect(told, "told again once they change").toHaveLength(2);
 		} finally {
