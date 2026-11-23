@@ -139,30 +139,116 @@ export function whyRealmsUnlisted(kind: "data" | "state"): string | undefined {
 	}
 }
 
-let darwinTemporary: string | undefined;
+/** The variable naming the agents' runtime folder outright, set by a Mac's host start. */
+export const AGENTS_RUNTIME_ENV = "AGENTS_RUNTIME_DIR";
+
+/** A Mac's account folders, by getconf's name for each, once it has named one. */
+const darwinFolders = new Map<string, string>();
 
 /**
- * The login's own runtime folder, for sockets and queues that last only
- * as long as the login: `XDG_RUNTIME_DIR`, or on a Mac, which has none,
- * the account's own temporary folder, which a session's `TMPDIR` need
- * not name since a quest moves that. Nothing where neither is known.
+ * How long getconf may take to name a folder: it answers in a few
+ * milliseconds, and a host or session asking waits on it.
+ */
+const GETCONF_MS = 2000;
+
+/**
+ * How long a getconf that couldn't answer is let be before it is asked
+ * again: each ask can hold its caller for {@link GETCONF_MS}, and the
+ * runtime folder is read on every socket a session looks for.
+ */
+export const GETCONF_AGAIN_MS = 30_000;
+
+/** When getconf last couldn't name each folder, by its name. */
+const darwinMisses = new Map<string, number>();
+
+/**
+ * A Mac account's folder getconf names, or nothing when it won't say.
+ * Apple's own getconf, as the fence asks it, since a profile's earlier on
+ * PATH may not know the name. An answer is kept for good; a getconf that
+ * couldn't start, under load, is asked again once
+ * {@link GETCONF_AGAIN_MS} has passed, rather than leaving a long-lived
+ * session with no runtime folder until it restarts, or holding every
+ * caller in the meantime. A miss dated after now, by a clock stepped
+ * back, is taken as old. A getconf that never answers so costs one
+ * {@link GETCONF_MS} hold a name every {@link GETCONF_AGAIN_MS}, a
+ * bound accepted for a folder no session can work without.
+ */
+function darwinFolder(name: string): string | undefined {
+	const kept = darwinFolders.get(name);
+	if (kept !== undefined) return kept;
+	const missed = darwinMisses.get(name);
+	const since = missed === undefined ? undefined : Date.now() - missed;
+	if (since !== undefined && since >= 0 && since < GETCONF_AGAIN_MS) {
+		return undefined;
+	}
+	try {
+		const folder = execFileSync("/usr/bin/getconf", [name], {
+			encoding: "utf8",
+			timeout: GETCONF_MS,
+		}).trim();
+		if (folder) {
+			darwinFolders.set(name, folder);
+			return folder;
+		}
+	} catch {
+		// The system won't say now, so there is no such folder to name yet.
+	}
+	darwinMisses.set(name, Date.now());
+	return undefined;
+}
+
+/**
+ * The login's own runtime folder, for sockets and queues:
+ * `AGENTS_RUNTIME_DIR` when set, then `XDG_RUNTIME_DIR`, or on a Mac,
+ * which has neither, the account's cache folder. Its temporary folder
+ * held them before, but a fenced command's `TMPDIR` is hidden there, and
+ * so the sockets with it. `XDG_RUNTIME_DIR` goes with the login, but a
+ * Mac's cache folder outlasts a reboot, so what reads it sets aside what
+ * came before the boot: the queue a job asked before it, a client a
+ * node's socket bound before the one in the folder it moved from.
+ * Nothing where none is known.
  */
 export function runtimeDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
+	if (env[AGENTS_RUNTIME_ENV]) return env[AGENTS_RUNTIME_ENV];
 	if (env.XDG_RUNTIME_DIR) return env.XDG_RUNTIME_DIR;
 	if (platform() !== "darwin") return undefined;
-	if (darwinTemporary === undefined) {
-		try {
-			darwinTemporary = execFileSync("getconf", ["DARWIN_USER_TEMP_DIR"], {
-				encoding: "utf8",
-			}).trim();
-		} catch {
-			// The system won't say, so there is no runtime folder to name.
-			darwinTemporary = "";
-		}
-	}
-	return darwinTemporary || undefined;
+	return darwinFolder("DARWIN_USER_CACHE_DIR");
+}
+
+/**
+ * Where a Mac kept the runtime folder before it moved to the cache
+ * folder, the account's temporary folder, for a client to try for one
+ * release while a daemon started on the old code still serves there.
+ * Nothing off a Mac, where `XDG_RUNTIME_DIR` names it, where it is the
+ * same folder, or where `AGENTS_RUNTIME_DIR` names a folder other than
+ * the cache folder, as a sandbox does, which no daemon on the old code
+ * served. It goes, with the node lookups that try it, once a Mac's node
+ * and hosts have each restarted on a release that has it and mycelium's
+ * own Mac default is the cache folder too.
+ */
+export function formerRuntimeDir(
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (env.XDG_RUNTIME_DIR || platform() !== "darwin") return undefined;
+	const named = env[AGENTS_RUNTIME_ENV];
+	if (named && !sameFolder(named, darwinFolder("DARWIN_USER_CACHE_DIR")))
+		return undefined;
+	const former = darwinFolder("DARWIN_USER_TEMP_DIR");
+	return sameFolder(former, runtimeDir(env)) ? undefined : former;
+}
+
+/** Whether two folders are one, a trailing slash or none. */
+function sameFolder(
+	one: string | undefined,
+	other: string | undefined,
+): boolean {
+	return (
+		one !== undefined &&
+		other !== undefined &&
+		join(one, ".") === join(other, ".")
+	);
 }
 
 /**

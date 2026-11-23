@@ -34,6 +34,10 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+	compactionHistory,
+	FIRST_PROMPT_CARRY,
+} from "../../lib/compaction/history.ts";
+import {
 	type Entry,
 	keptView,
 	ROLLOVER_RECORD,
@@ -185,13 +189,20 @@ function heldEntries(manager: HeldManager, file: string): Held | undefined {
 	const leaf = branch[branch.length - 1];
 	if (!view.entries.some((entry) => entry.id === leaf?.id)) return undefined;
 
+	const left = branch.slice(0, view.from);
+	// The turn that paid the session's first prompt is left on disk, so
+	// the trigger reads that prompt from here.
+	const { firstPromptTokens } = compactionHistory(left);
 	const record: RolloverRecord = {
 		parentSession: file,
 		parentLeaf: before.id,
 		dropped: view.dropped,
 		carried: {
-			...rolledFrom(branch.slice(0, view.from))?.carried,
-			[SPEND_CARRY]: { spend: spentOnBranch(branch.slice(0, view.from)) },
+			...rolledFrom(left)?.carried,
+			[SPEND_CARRY]: { spend: spentOnBranch(left) },
+			...(firstPromptTokens === null
+				? {}
+				: { [FIRST_PROMPT_CARRY]: { firstPromptTokens } }),
 		},
 	};
 	const at = view.entries.findIndex((entry) => entry.id === firstKept.id);

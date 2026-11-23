@@ -25,6 +25,43 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("sudo nixos-rebuild switch")).toBe("build");
 	});
 
+	// 22 November: a `# cargo check` comment beside two systemd-run starts
+	// held the whole command as a build (48UZ44).
+	it("reads nothing a comment says", () => {
+		for (const command of [
+			"# cargo check --all-targets\ngit status",
+			"git status # then cargo check",
+			"git status; # cargo build",
+			"git status;# cargo build",
+			"git status && # cargo build",
+			"(git status #cargo build\n)",
+			"git status # don't cargo build",
+			"git status \\\n# cargo build",
+		]) {
+			expect(kindOf(command), command).toBeUndefined();
+		}
+		for (const command of [
+			"# a note\ncargo build",
+			"echo '#'; cargo build",
+			'git commit -m "fix #12" && cargo build',
+			"echo 'a #b' && cargo build",
+			"echo a#b && cargo build",
+			"echo a\\ #b && cargo build",
+			'echo "a\\\nb #c" && cargo build',
+			"echo $'it\\'s #' && cargo build",
+			// `$\u007B` spells a dollar and a brace, which a lint takes for a slip.
+			"echo $# $\u007B#x} $\u007Bx#pre} $((16#ff)) && cargo build",
+			"git status && nix-store -r .#x && cargo build",
+			"nix build .#checks.x86_64-linux.x",
+		]) {
+			expect(kindOf(command), command).toBe("build");
+		}
+		expect(
+			whatOf("cargo build # then cargo test"),
+			"a step's comment is no part of what it runs",
+		).toBe("cargo build");
+	});
+
 	it("reads a test suite of vitest's, and the pnpm scripts that run one, as a build", () => {
 		// 21:09 on 7 November: several 4- to 8-worker vitest runs took no
 		// turn beside cargo and clippy (80ECO2).

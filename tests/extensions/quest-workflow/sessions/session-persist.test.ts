@@ -1,16 +1,30 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import {
 	detachSessionFromLoaded,
+	PENDING_RETRY_MS,
+	PENDING_TRIES,
 	persist,
 	prunePhantomSessionsOnLoaded,
 	releaseSessionOnShutdown,
+	resolveStartup,
 	restore,
+	retryPendingQuest,
 } from "../../../../extensions/quest-workflow/lifecycle.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { watchToolCalls } from "../../../../extensions/quest-workflow/wiring/calls.ts";
+import { installHost } from "../../../../lib/core/session/index.ts";
+import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
@@ -44,6 +58,41 @@ function fakeCtx(cwd: string, sessionId = "sess-1", persisted = true) {
 
 function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
+}
+
+/** Tool results past the try that lets the quest go, so "once" can fail. */
+const TRIES_PAST_LETTING_GO = 2;
+
+/**
+ * Hand the tool_result handler a read's result for every try of a
+ * pending quest, a minute apart, until it is let go, and then exactly
+ * TRIES_PAST_LETTING_GO more, however many tries letting go took.
+ */
+async function triesPastLettingGo(
+	state: ReturnType<typeof buildState>,
+	result: (event: unknown, ctx: unknown) => unknown,
+	ctx: unknown,
+): Promise<void> {
+	let results = 0;
+	let letGoAt: number | undefined;
+	while (letGoAt === undefined || results - letGoAt < TRIES_PAST_LETTING_GO) {
+		if (letGoAt === undefined && results > PENDING_TRIES)
+			throw new Error("the quest was never let go");
+		state.pendingRetryAt = 0;
+		results++;
+		await result(
+			{
+				toolName: "read",
+				input: { path: "x" },
+				toolCallId: `c${results}`,
+				content: [],
+			},
+			ctx,
+		);
+		if (letGoAt === undefined && state.pendingQuest === undefined) {
+			letGoAt = results;
+		}
+	}
 }
 
 const envGuard = createEnvGuard();
@@ -299,9 +348,412 @@ describe("persist + restore", () => {
 		// instead of half-loading or throwing.
 		rmSync(a.dir, { recursive: true, force: true });
 		const next = buildState();
-		const restored = restore(next, pi, fakeCtx(tmpRoot));
+		const restored = restore(next, pi, fakeCtx(tmpRoot), false);
 		expect(restored, "a quest gone from disk is not restored").toBe(false);
 		expect(next.questId).toBeNull();
+		expect(
+			next.pendingQuest,
+			"a walk that caught up holds nothing pending",
+		).toBeUndefined();
+	});
+
+	// A quest removed for good, read through a walk that was behind,
+	// mustn't keep the session from saying anything for good.
+	it("lets go of the log's quest once its tries find no such quest", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		let now = Date.now();
+		for (let tries = 2; tries < PENDING_TRIES; tries++) {
+			now += PENDING_RETRY_MS;
+			expect(retryPendingQuest(next, pi, now), `try ${tries}`).toBe("waiting");
+		}
+		expect(next.pendingQuest?.questId, "held to the last try").toBe(a.id);
+		now += PENDING_RETRY_MS;
+		expect(retryPendingQuest(next, pi, now), "the last try").toBe("gone");
+		expect(next.pendingQuest).toBeUndefined();
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as
+			| { questId?: string | null }
+			| undefined;
+		expect(last?.questId ?? null, "free to say it holds none").toBeNull();
+	});
+
+	// A pi restarted in place keeps the quest its last conversation had;
+	// the next persist would write that over this log's word.
+	it("puts down a quest this pi had for another conversation while the log's waits", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Beta");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		persist(state, pi);
+		renameSync(a.dir, `${a.dir}.aside`);
+
+		const next = buildState();
+		await handle(next, pi, fakeCtx(tmpRoot), { action: "load", id: b.id });
+		expect(restore(next, pi, fakeCtx(tmpRoot)), "not found yet").toBe(false);
+		expect(next.questId, "the earlier conversation's quest").toBeNull();
+		expect(next.pendingQuest?.questId).toBe(a.id);
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as { questId?: string } | undefined;
+		expect(last?.questId, "the log still names its own").toBe(a.id);
+	});
+
+	// What production runs: a tool's result tries again, and a quest that
+	// loads is settled on as a start would.
+	it("loads the log's quest at a tool's result once it can, and records the session on it", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot, "sess-late"));
+		renameSync(aside, a.dir);
+
+		const budgets: BudgetKeeper = {
+			keep: async () => undefined,
+			forget: () => undefined,
+		};
+		watchToolCalls(pi, next, next.questsRoot, budgets);
+		const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+		if (!result) throw new Error("no tool_result handler");
+		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+		const ctx = { ...fakeCtx(tmpRoot, "sess-late"), hasUI: true, ui };
+		const call = {
+			toolName: "read",
+			input: { path: "x" },
+			toolCallId: "c1",
+			content: [],
+		};
+		await result(call, ctx);
+		expect(next.questId, "inside its first minute").toBeNull();
+		next.pendingRetryAt = 0;
+		await result({ ...call, toolCallId: "c2" }, ctx);
+		expect(next.questId).toBe(a.id);
+		const text = readFileSync(join(a.dir, "README.md"), "utf8");
+		const sessions = parseQuestFrontMatter(text)?.frontMatter.sessions ?? [];
+		expect(
+			sessions.find((s) => s.id === "sess-late")?.status,
+			"the session is recorded on it",
+		).toBe("active");
+		const last = entries.at(-1)?.data as { questId?: string } | undefined;
+		expect(last?.questId).toBe(a.id);
+		expect(ui.notify, "nothing to warn of").not.toHaveBeenCalled();
+	});
+
+	// 20 November: a host restart's signings timed out, the start read a
+	// walk without the quest, and the session's next tool wrote
+	// questId null over a quest it had held for two days.
+	it("keeps the log's quest while it can't load, and loads it once it can", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		expect(restore(next, pi, fakeCtx(tmpRoot)), "not found yet").toBe(false);
+		const written = entries.length;
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(entries.length, "nothing is written over it").toBe(written);
+		const last = entries.at(-1)?.data as { questId?: string } | undefined;
+		expect(last?.questId).toBe(a.id);
+
+		renameSync(aside, a.dir);
+		const later = Date.now() + PENDING_RETRY_MS;
+		expect(retryPendingQuest(next, pi, later), "loads once it can").toBe(
+			"loaded",
+		);
+		expect(next.questId).toBe(a.id);
+		expect(next.pendingQuest).toBeUndefined();
+	});
+
+	it("keeps the log's focused document while its quest can't load, and focuses it once it can", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		await handle(state, pi, fakeCtx(tmpRoot), {
+			action: "draft",
+			kind: "plan",
+			note: "investigate",
+			title: "Doc One",
+		});
+		expect(state.documentPath).not.toBeNull();
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const written = entries.length;
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(entries.length, "a pending quest writes nothing").toBe(written);
+
+		renameSync(aside, a.dir);
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"loads once it can",
+		).toBe("loaded");
+		expect(next.documentPath).toBe(state.documentPath);
+		expect(next.documentId).toBe(state.documentId);
+	});
+
+	it("keeps a quest left unfocused on purpose unfocused once it loads", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		await handle(state, pi, fakeCtx(tmpRoot), {
+			action: "draft",
+			kind: "plan",
+			note: "investigate",
+			title: "Doc One",
+		});
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "unfocus" });
+		persist(state, pi);
+		const saved = entries.at(-1)?.data as { unfocused?: boolean } | undefined;
+		expect(saved?.unfocused, "the log says unfocused").toBe(true);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		renameSync(aside, a.dir);
+		retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS);
+		expect(next.questId).toBe(a.id);
+		expect(next.documentPath).toBeNull();
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as { unfocused?: boolean } | undefined;
+		expect(last?.unfocused, "still unfocused on purpose").toBe(true);
+	});
+
+	it("lets go of a quest still waiting to load once the session loads another", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		const b = await createQuest(state, "Beta");
+		await handle(state, pi, fakeCtx(tmpRoot), { action: "load", id: a.id });
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		await handle(next, pi, fakeCtx(tmpRoot), { action: "load", id: b.id });
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(next.pendingQuest, "the log's quest is let go").toBeUndefined();
+		renameSync(aside, a.dir);
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"nothing is tried again",
+		).toBe("waiting");
+		expect(next.questId).toBe(b.id);
+	});
+
+	// A host's try reads the quest's folder again on the thread, and may
+	// sign the tree off it, so a session's tools mustn't each ask for one.
+	it("tries a quest still waiting to load at most once a minute, never on a persist", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		const aside = `${a.dir}.aside`;
+		renameSync(a.dir, aside);
+		const next = buildState();
+		const started = Date.now();
+		restore(next, pi, fakeCtx(tmpRoot));
+		renameSync(aside, a.dir);
+
+		persist(next, pi, fakeCtx(tmpRoot));
+		expect(next.questId, "a persist tries nothing").toBeNull();
+		expect(
+			retryPendingQuest(next, pi, started),
+			"within a minute of the start's try",
+		).toBe("waiting");
+		expect(next.questId).toBeNull();
+		expect(
+			retryPendingQuest(next, pi, Date.now() + PENDING_RETRY_MS),
+			"a minute on",
+		).toBe("loaded");
+		expect(next.questId).toBe(a.id);
+	});
+
+	// A pi restarted in place keeps what its last conversation wrote to
+	// its own log; a key that matches this log's next write mustn't pass
+	// for this log having said it.
+	it("says a quest let go in this log, though the pi's earlier conversation said none in its own", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+
+		const next = buildState();
+		persist(next, fakePi(), fakeCtx(tmpRoot));
+		expect(
+			next.lastPersistedKey,
+			"the earlier conversation said",
+		).toBeDefined();
+		resolveStartup(next, pi, fakeCtx(tmpRoot), {});
+		expect(next.pendingQuest?.questId).toBe(a.id);
+		await handle(next, pi, fakeCtx(tmpRoot), { action: "unload" });
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as
+			| { questId?: string | null }
+			| undefined;
+		expect(last?.questId ?? null, "this log says it holds none").toBeNull();
+	});
+
+	// A quest is held pending mostly on a host, whose conversations are
+	// bound with no interface, so only what goes into the log reaches the
+	// viewer (and the model).
+	it("tells a hosted session's log when the quest it names is let go", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+
+		const owner = await tickedOwnerNow();
+		if (!owner) throw new Error("test process has no identity");
+		const uninstall = installHost({
+			kind: "pi-durable",
+			key: "persist-test-host",
+			owner,
+			holds: () => "busy",
+			env: () => {
+				throw new Error("no environment needed");
+			},
+			hints: () => ({}),
+			close: () => undefined,
+			stamp: vi.fn(),
+		});
+		try {
+			const budgets: BudgetKeeper = {
+				keep: async () => undefined,
+				forget: () => undefined,
+			};
+			watchToolCalls(pi, next, next.questsRoot, budgets);
+			const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+			if (!result) throw new Error("no tool_result handler");
+			const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+			const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+			// Everything sent from here on, whatever its words, so a second
+			// line or one sent as the user is seen (PV3TE0's round 2, F1).
+			const sent = pi.recorded.sentWith.length;
+			const sentAsUser = pi.recorded.sentAsUser.length;
+			await triesPastLettingGo(next, result, ctx);
+			expect(next.pendingQuest, "let go").toBeUndefined();
+			expect(
+				pi.recorded.sentWith.slice(sent),
+				"said once, in the log, never starting a turn",
+			).toEqual([
+				{
+					message: expect.objectContaining({
+						customType: "quest-let-go",
+						content: expect.stringContaining("never found again"),
+						display: true,
+					}),
+					options: { triggerTurn: false },
+				},
+			]);
+			expect(
+				pi.recorded.sentAsUser.slice(sentAsUser),
+				"nor as the user",
+			).toEqual([]);
+			expect(ui.notify, "no interface to tell").not.toHaveBeenCalled();
+		} finally {
+			uninstall();
+		}
+	});
+
+	it("warns a session with a screen when the quest its log names is let go", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const budgets: BudgetKeeper = {
+			keep: async () => undefined,
+			forget: () => undefined,
+		};
+		watchToolCalls(pi, next, next.questsRoot, budgets);
+		const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+		if (!result) throw new Error("no tool_result handler");
+		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+		const ctx = { ...fakeCtx(tmpRoot), hasUI: true, ui };
+		const sent = pi.recorded.sent.length;
+		const sentAsUser = pi.recorded.sentAsUser.length;
+		await triesPastLettingGo(next, result, ctx);
+		expect(next.pendingQuest, "let go").toBeUndefined();
+		expect(ui.notify, "warned once").toHaveBeenCalledTimes(1);
+		expect(ui.notify).toHaveBeenCalledWith(
+			expect.stringContaining("never found again"),
+			"warning",
+		);
+		expect(
+			pi.recorded.sent.slice(sent),
+			"the screen says it, not the log",
+		).toEqual([]);
+		expect(pi.recorded.sentAsUser.slice(sentAsUser), "nor as the user").toEqual(
+			[],
+		);
+	});
+
+	// Plain pi with no screen (a spawn, print or RPC mode) has no viewer to
+	// read a line in the log, and a line there would reach only the model.
+	it("says nothing in a log with neither a screen nor a host when the quest it names is let go", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const budgets: BudgetKeeper = {
+			keep: async () => undefined,
+			forget: () => undefined,
+		};
+		watchToolCalls(pi, next, next.questsRoot, budgets);
+		const [result] = pi.recorded.handlers.get("tool_result") ?? [];
+		if (!result) throw new Error("no tool_result handler");
+		const ui = { setStatus: vi.fn(), setWidget: vi.fn(), notify: vi.fn() };
+		const ctx = { ...fakeCtx(tmpRoot), hasUI: false, ui };
+		const sent = pi.recorded.sent.length;
+		const sentAsUser = pi.recorded.sentAsUser.length;
+		await triesPastLettingGo(next, result, ctx);
+		expect(next.pendingQuest, "let go").toBeUndefined();
+		expect(pi.recorded.sent.slice(sent), "nothing in the log").toEqual([]);
+		expect(pi.recorded.sentAsUser.slice(sentAsUser), "nor as the user").toEqual(
+			[],
+		);
+		expect(ui.notify, "no screen to tell").not.toHaveBeenCalled();
+	});
+
+	it("lets go of a quest still waiting to load when the session unloads", async () => {
+		const state = buildState();
+		const a = await createQuest(state, "Alpha");
+		persist(state, pi);
+		rmSync(a.dir, { recursive: true, force: true });
+
+		const next = buildState();
+		restore(next, pi, fakeCtx(tmpRoot));
+		const unloaded = await handle(next, pi, fakeCtx(tmpRoot), {
+			action: "unload",
+		});
+		expect(unloaded).toMatchObject({ ok: true });
+		if (!unloaded.ok) throw new Error("expected the unload to go through");
+		expect(unloaded.message, "says what it let go").toContain(a.id);
+		expect(next.pendingQuest).toBeUndefined();
+		expect(next.pendingRetryAt).toBeUndefined();
+		expect(next.pendingTries).toBeUndefined();
+		persist(next, pi, fakeCtx(tmpRoot));
+		const last = entries.at(-1)?.data as
+			| { questId?: string | null }
+			| undefined;
+		expect(last?.questId ?? null).toBeNull();
 	});
 });
 

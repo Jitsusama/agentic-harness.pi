@@ -149,12 +149,16 @@ export function fenced(
 		[SANDBOX_VARIABLE]: FENCE,
 		PI_SESSION_ID: session,
 	};
+	// Run as bash's argument, which the fence's text can be, since it
+	// holds no cloud token (`fenceCloud`).
 	const sandbox = sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		throw new Error(
 			sandbox.kind === "refused"
 				? `this machine can't fence a command: ${sandbox.reason}`
-				: "this machine can't fence a command",
+				: sandbox.kind === "none" && sandbox.note
+					? `this machine can't lay pi's own fence, which the check needs, though a session's commands may run without it: ${sandbox.note}`
+					: "this machine can't fence a command",
 		);
 	}
 	const wrap = wrapFor(sandbox, { cwd, env }, homedir());

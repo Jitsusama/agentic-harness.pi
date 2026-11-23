@@ -58,6 +58,37 @@ const judge: Participant = { id: "wren", model: "opus" };
 // does.
 
 describe("asking a judge", () => {
+	it("files its findings when its reporter's session has reloaded", async () => {
+		// A judge's reporter is the round's board, as a council's is, and
+		// the judge has paid for its answer before it is counted.
+		const stale = (): never => {
+			throw new Error(
+				"This extension ctx is stale after session replacement or reload.",
+			);
+		};
+		const recorded: Finding[] = [];
+
+		const { run } = await runJudge(
+			{ judge, prompt: "consolidate", seq: 1 },
+			{
+				...deps({ text: consolidated() }, { recorded }),
+				progress: {
+					start: stale,
+					started: stale,
+					activity: stale,
+					answered: stale,
+					failed: stale,
+					cancelled: stale,
+					recorded: stale,
+					finish: stale,
+				},
+			},
+		);
+
+		expect(recorded, "the finding is filed").toHaveLength(1);
+		expect(run.outcomes[0]?.findingIds, "and kept on the run").toEqual([1]);
+	});
+
 	it("asks the judge and nobody else", async () => {
 		const asked: Participant[] = [];
 		await runJudge(

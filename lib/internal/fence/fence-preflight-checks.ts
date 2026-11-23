@@ -17,10 +17,10 @@ import {
 	rmSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
 import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
-import { FENCE, NEVER_THROUGH } from "./fence.ts";
+import { FENCE, LET_THROUGH, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -141,8 +141,10 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 	].filter((path) => existsSync(path));
 	const read: string[] = [];
 	for (const path of paths) {
+		// On Linux a hidden file reads as `/dev/null`, which opens and is
+		// empty, so a read counts only when it brings something back.
 		const ran = await fenced(
-			`head -c1 '${path}' > /dev/null 2>&1`,
+			`head -c1 '${path}' > /dev/null 2>&1 && test -s '${path}'`,
 			context.scratch,
 			context.session,
 		);
@@ -153,23 +155,135 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
 		: failed(`readable inside: ${read.join(", ")}`);
 }
 
-/** Check (13b): each socket the fence never lets through is absent inside. */
+/**
+ * What a fenced node says of its connect to the socket at its argument:
+ * `connected`, or the error's code, EACCES being Landlock's refusal.
+ */
+const CONNECT = [
+	'const s = require("node:net").connect(process.argv[1]);',
+	'const say = (what) => process.stdout.write(what + "\\n", () => process.exit(0));',
+	's.on("connect", () => say("connected"));',
+	's.on("error", (e) => say(e.code));',
+].join(" ");
+
+/**
+ * The paths a never-through name stands for here: itself, or each entry
+ * of the runtime folder a name ending in a wildcard matches. An entry
+ * whose name holds a quote or a line break is left out, since it would
+ * break the probe's script or forge a line of its answer, so its name
+ * reads as not tried (`leavesOut`).
+ */
+function servedAs(name: string, entries: readonly string[]): string[] {
+	if (isAbsolute(name)) return [name];
+	if (!name.endsWith("*")) return [join(runtime(), name)];
+	const start = name.slice(0, -1);
+	return entries
+		.filter((entry) => entry.startsWith(start) && !/['\n]/.test(entry))
+		.map((entry) => join(runtime(), entry));
+}
+
+/**
+ * Whether `servedAs` leaves out any entry `name` matches, so the name
+ * can't be said to be tried, however many of its other matches were.
+ */
+function leavesOut(name: string, entries: readonly string[]): boolean {
+	const start = name.slice(0, -1);
+	return (
+		name.endsWith("*") &&
+		entries.some((entry) => entry.startsWith(start) && /['\n]/.test(entry))
+	);
+}
+
+/** A line saying how a connect to `path` went, run outside or inside. */
+function connectTo(path: string): string {
+	return `printf 'connect %s ' '${path}'; '${process.execPath}' -e '${CONNECT}' '${path}'`;
+}
+
+/**
+ * Check (13b): no socket the fence never lets through is reached inside.
+ * One in the runtime folder must be absent, since that folder starts
+ * inside as an empty tmpfs; an absolute one is seen through the whole
+ * disk's bind, so it is connected to, and Landlock must refuse it or
+ * the fence hide it. An absolute one is tried only once it connects
+ * outside, so a refusal inside is the fence's, not one the person meets
+ * anyway. Each is tried in one fenced run that first sees a socket the
+ * fence lets through, and each probe says what it found, so a fence that
+ * never ran fails rather than reading as every socket kept shut. A name
+ * not served here can't be tried, so each is named rather than passed
+ * over, and a machine serving none fails, having shown nothing.
+ */
 async function socketsAbsent(context: PreflightContext): Promise<Verdict> {
-	const sockets = NEVER_THROUGH.filter((name) => !/[*?]/.test(name))
-		.map((name) => join(runtime(), name))
-		.filter((path) => existsSync(path));
-	const reached: string[] = [];
-	for (const path of sockets) {
-		const ran = await fenced(
-			`test -e '${path}'`,
-			context.scratch,
-			context.session,
+	const entries = existsSync(runtime()) ? readdirSync(runtime()) : [];
+	const control = LET_THROUGH.map((name) => join(runtime(), name)).find(
+		(path) => existsSync(path),
+	);
+	if (control === undefined) {
+		return failed(
+			"nothing the fence lets through is served here to show it ran",
 		);
-		if (ran.code === 0) reached.push(path);
 	}
+	const connected = (path: string) => !path.startsWith(`${runtime()}/`);
+	const there = NEVER_THROUGH.flatMap((name) => servedAs(name, entries)).filter(
+		(path) => existsSync(path),
+	);
+	const absolute = there.filter(connected);
+	const tried =
+		absolute.length === 0
+			? undefined
+			: await outside(absolute.map(connectTo).join("\n"), context.scratch);
+	const before = tried?.out.split("\n") ?? [];
+	const served = there.filter(
+		(path) => !connected(path) || before.includes(`connect ${path} connected`),
+	);
+	if (served.length === 0) {
+		return failed(
+			"no socket the fence never lets through answers here, so none was tried",
+		);
+	}
+	const untried = NEVER_THROUGH.filter(
+		(name) =>
+			leavesOut(name, entries) ||
+			servedAs(name, entries).every((path) => !served.includes(path)),
+	);
+	const probe = (path: string) =>
+		connected(path)
+			? connectTo(path)
+			: `if test -e '${path}'; then echo 'there ${path}'; else echo 'absent ${path}'; fi`;
+	const ran = await fenced(
+		[
+			`test -e '${control}' && echo control`,
+			...served.map((path) => probe(path)),
+			"echo probed",
+		].join("\n"),
+		context.scratch,
+		context.session,
+	);
+	const lines = ran.out.split("\n").filter((line) => line !== "");
+	if (lines.at(-1) !== "probed") {
+		return failed(
+			`the fenced probe didn't run through (exit ${ran.code}), so not every socket was tried`,
+		);
+	}
+	if (lines[0] !== "control") {
+		return failed(
+			`${control}, which the fence lets through, wasn't seen inside, so nothing shows the probe ran fenced`,
+		);
+	}
+	// Kept shut: absent from the runtime folder, or, connected to,
+	// refused by Landlock or hidden by the fence. Anything else, a probe
+	// that said nothing among it, is reached or untold.
+	const reached = served.filter((path) =>
+		connected(path)
+			? !["EACCES", "ENOENT"].some((code) =>
+					lines.includes(`connect ${path} ${code}`),
+				)
+			: !lines.includes(`absent ${path}`),
+	);
 	return reached.length === 0
-		? passed(`${sockets.length} sockets, none there inside`)
-		: failed(`there inside: ${reached.join(", ")}`);
+		? passed(
+				`${served.length} sockets, none reached inside; not tried here: ${untried.join(", ") || "none"}`,
+			)
+		: failed(`reached or not told inside: ${reached.join(", ")}`);
 }
 
 /** Check (14c): another session's tree can't be written. */

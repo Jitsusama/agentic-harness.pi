@@ -1,8 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
-import { describe, expect, it, vi } from "vitest";
-import { startTicksFromProcSync } from "../../../../../lib/internal/process-ticks.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	type Host,
+	installHost,
+} from "../../../../../lib/core/session/index.ts";
+import {
+	startTicksFromProcSync,
+	type TickedOwner,
+} from "../../../../../lib/internal/process-ticks.ts";
 import {
 	currentProcessIdentity,
 	localProcessDeps,
@@ -49,6 +56,54 @@ describe("currentProcessIdentity", () => {
 
 		expect(again).toEqual(first);
 		expect(spawned.mock.calls.filter(([cmd]) => cmd === "ps")).toHaveLength(0);
+	});
+});
+
+// PV3TE0's round 4 (F2, F4): a host reads its boot once, as it starts,
+// and an extension may load another instance of the reader; a miss in
+// one and not the other named the boot two ways, so every live hosted
+// session of that host probed as unknown for the host's life.
+describe("currentProcessIdentity in a host", () => {
+	const SESSION = "a0000000-0000-4000-8000-000000000002";
+	let uninstall: (() => void) | undefined;
+	afterEach(() => {
+		uninstall?.();
+		uninstall = undefined;
+	});
+
+	/** Installs a host in this process whose owner is `owner`. */
+	const hostedBy = (owner: TickedOwner) => {
+		const host: Host = {
+			kind: "pi-durable",
+			key: "test-host",
+			owner,
+			holds: () => "idle",
+			env: () => ({
+				get: () => undefined,
+				set() {},
+				delete() {},
+				snapshot: () => ({}),
+			}),
+			hints: () => ({}),
+			close() {},
+			stamp() {},
+		};
+		uninstall = installHost(host);
+	};
+
+	it("names the boot as the host's owner does, not by a reading of its own", () => {
+		hostedBy({ pid: process.pid, startedAt: 1, bootId: "the-host's-boot" });
+
+		const me = currentProcessIdentity(SESSION);
+
+		expect(me?.bootToken).toBe("the-host's-boot");
+		expect(me?.hosted?.owner.bootId).toBe("the-host's-boot");
+	});
+
+	it("names no boot when the host's owner read none", () => {
+		hostedBy({ pid: process.pid, startedAt: 1 });
+
+		expect(currentProcessIdentity(SESSION)).not.toHaveProperty("bootToken");
 	});
 });
 

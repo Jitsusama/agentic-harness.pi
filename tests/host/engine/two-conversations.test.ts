@@ -24,6 +24,9 @@ import { registerBudgetProvider } from "../../../lib/budget/provider.ts";
 import { coAuthorTrailer } from "../../../lib/internal/guardian/commit-trailer.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+// Imported only to be named, so `--changed` runs this file when the hook's
+// script changes alone; the hook it installs and runs is that script.
+import "../../../lib/core/attribution/prepare-commit-msg.sh";
 
 const owner = { pid: 321, startedAt: 1000, bootId: "boot", startTicks: 40 };
 /** What the host's own launch wrote, which neither conversation shares. */

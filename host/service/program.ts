@@ -34,7 +34,9 @@ import { followWhatStarts } from "./restart.ts";
 import { hostRoot } from "./rollout.ts";
 import { type HostRun, hostKind, reportToJournal, runHost } from "./run.ts";
 import { hostSettings } from "./settings.ts";
+import { rollChildWhenStale } from "./stale-child.ts";
 import { noticingInput } from "./viewer.ts";
+import { installMovesFrom } from "./what-starts.ts";
 
 /**
  * The exit status of a host refused for its configuration, EX_CONFIG from
@@ -57,6 +59,10 @@ export const EXIT_TO_RESTART = 75;
  * which would point an ordinary pi a tool starts at the patched one, and
  * the unit's stop limit and launchd's Label for its job, which a pi-host a
  * tool starts would take as its own.
+ * The allocator's tuning, GLIBC_TUNABLES, is the host's too: a unit sets
+ * a fixed trim threshold so a long-lived conversation hands freed memory
+ * back, and a fixed threshold turns off glibc's dynamic mmap threshold,
+ * which the builds and tests a command starts are better off keeping.
  * The runtime's own tools and the viewers' terminal (HOST_READS) are
  * kept from them too: code in the host still reads them, but a newer pi
  * a command starts runs its own tools, as its PATH finds them, and
@@ -72,6 +78,7 @@ const HOST_ONLY = [
 	"PI_PACKAGE_DIR",
 	"PI_HOST_PROOF",
 	"PI_HOST_STOP_USEC",
+	"GLIBC_TUNABLES",
 	"XPC_SERVICE_NAME",
 ] as const;
 
@@ -203,6 +210,7 @@ export async function startHostProgram(
 		report,
 	});
 	let engine: HostEngine | undefined;
+	let rollable: { roll(): void } | undefined;
 	const run = await runHost({
 		argv,
 		env,
@@ -211,6 +219,7 @@ export async function startHostProgram(
 		engine: async (host) => {
 			const engineDir = join(stateDir("host-engine"), host.key);
 			child?.hosts(host);
+			rollable = host;
 			engine = await createEngine({
 				packageDir: configured.packageDir,
 				stateDir: engineDir,
@@ -246,9 +255,18 @@ export async function startHostProgram(
 		contain: (sessionId, error) => screens.faulted(sessionId, error),
 	});
 	// A child is started fresh for each conversation, on whatever its
-	// supervisor runs then: it never restarts itself.
-	if (child)
+	// supervisor runs then: it never restarts itself, but once its
+	// install's host code moves on, its conversation parks at its next
+	// quiet moment, so its next wake starts a fresh child on current code.
+	if (child) {
+		rollChildWhenStale({
+			moved: installMovesFrom(hostRoot()),
+			host: () => rollable,
+			stopped: run.stopped,
+			report,
+		});
 		return { ...run, ending: child.life.ending, restarts: () => false };
+	}
 	// The host's own code and pi move only as it restarts, so it restarts
 	// itself once either would differ and nobody would notice.
 	const { exitToRestart, restarts } = restartingByExit(run, report);

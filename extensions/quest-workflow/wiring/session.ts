@@ -5,8 +5,12 @@
  * on its quest at either end does.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../../lib/core/session/host.ts";
+import { launchHints } from "../../../lib/core/session/index.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -42,6 +46,7 @@ import {
 	captureSessionIdentity,
 	persist,
 	prunePhantomSessionsOnLoaded,
+	questsAStartKnows,
 	reconcileSessionMembership,
 	releaseSessionOnShutdown,
 	resolveStartup,
@@ -71,6 +76,43 @@ import { keepQuestWeights } from "../weights.ts";
 import { updateScoreboard } from "./scoreboard.ts";
 
 /**
+ * Record this session on the quest it loaded, as its start does, so
+ * the sessions frontmatter says where work happens; a quest its log
+ * named that loaded only later is settled on the same way.
+ */
+export function settleOnLoadedQuest(
+	state: QuestState,
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+): void {
+	if (!state.questId) return;
+	// Garbage-collect no-log phantoms here too: most reopens go through
+	// this autoload/restore path rather than the explicit load verb, so
+	// pruning only there would rarely fire. The no-op case is cheap (it
+	// skips the write).
+	prunePhantomSessionsOnLoaded(state);
+	// Before attaching, which writes this process over the record.
+	sayPeersOnStartup(state, pi, ctx);
+	const sid = currentSessionId(ctx, undefined);
+	attachCurrentSession(state, {
+		id: sid,
+		cwd: ctx.cwd,
+		persisted: isPersistedSession(ctx),
+		...captureSessionIdentity(),
+	});
+	// Reconcile on the launch path too, not only the explicit load verb:
+	// a resumed or spawned session lands here, and without this it would
+	// re-attach while still reading active on a straggler quest from an
+	// earlier run.
+	if (sid && isPersistedSession(ctx)) {
+		reconcileSessionMembership(state, sid, state.questId);
+	}
+	// Said in the log now, not first at a tool's result, so a pi ended
+	// before its first call still leaves the quest for its resume.
+	persist(state, pi, ctx);
+}
+
+/**
  * Answer the session's start, park and shutdown for its quest.
  * `stayed` is why a launched spawn stayed in this pi, said once the
  * first start has a screen.
@@ -93,7 +135,12 @@ export function followSessionLife(
 	// The start's every discovery after its first reads that walk, plus
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
 	pi.on("session_start", async (event, ctx) => {
-		await readyForStart(state);
+		// Taken once, here, so the quest a spawn asks for is read first.
+		const hints = launchHints(ctx);
+		const behind = !(await readyForStart(
+			state,
+			questsAStartKnows(state, ctx, hints),
+		));
 		const begin = (): StartupResolution["source"] => {
 			// What a start restores and records rests on its quest as it is:
 			// the one it had, here, and the one it resolves, once chosen.
@@ -131,7 +178,7 @@ export function followSessionLife(
 			// session's persisted history (a /reload restores the last
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
-			const { source } = resolveStartup(state, pi, ctx);
+			const { source } = resolveStartup(state, pi, ctx, hints, behind);
 			if (state.questId !== had) {
 				refreshQuests(state.questsRoot, [state.questId]);
 			}
@@ -147,35 +194,7 @@ export function followSessionLife(
 			// A session a spawn started sets to work on its quest by itself,
 			// once start is done (resources_discover, below).
 			firstWords = sayFirstWords(pi, ctx, currentSessionId(ctx, undefined));
-			// Once a quest is loaded (restored, autoloaded or
-			// resolved from the cwd), record this session on it so
-			// the sessions frontmatter reflects where work happens.
-			if (state.questId) {
-				// Garbage-collect no-log phantoms here too: most reopens go
-				// through this autoload/restore path rather than the explicit
-				// load verb, so pruning only there would rarely fire. The
-				// no-op case is cheap (it skips the write).
-				prunePhantomSessionsOnLoaded(state);
-				// Before attaching, which writes this process over the record.
-				sayPeersOnStartup(state, pi, ctx);
-				const sid = currentSessionId(ctx, undefined);
-				attachCurrentSession(state, {
-					id: sid,
-					cwd: ctx.cwd,
-					persisted: isPersistedSession(ctx),
-					...captureSessionIdentity(),
-				});
-				// Reconcile on the launch path too, not only the explicit
-				// load verb: a resumed or spawned session lands here, and
-				// without this it would re-attach while still reading active
-				// on a straggler quest from an earlier run.
-				if (sid && isPersistedSession(ctx) && state.questId) {
-					reconcileSessionMembership(state, sid, state.questId);
-				}
-				// Said in the log now, not first at a tool's result, so a pi ended
-				// before its first call still leaves the quest for its resume.
-				persist(state, pi, ctx);
-			}
+			if (state.questId) settleOnLoadedQuest(state, pi, ctx);
 			// Record every tab a person could want back, quest or not, so a
 			// later restart can reconstruct what was open together. Only a
 			// persisted interactive session is resumable: a fan-out runs
@@ -312,32 +331,42 @@ export function followSessionLife(
 
 /**
  * On a host, bring the tree up to now before a start resolves its
- * quest, off the thread: the quest it had is read again, and a start
- * with none signs the whole tree, since its spawn request, its history
- * or its folder may name any quest, and a tree another process just
- * added draws it only once read. When the disk gives no answer in
- * time, the start goes on from the last walk and the journal says so.
+ * quest, off the thread: the quests it can know (`known`: the one it
+ * had, its log's and its spawn's) are read again, and the rest of the
+ * tree comes from a walk under a minute old, or a signing when there is
+ * none. A folder another process added in that minute draws its quest
+ * from the cwd only once the next walk reads it. When the disk gives
+ * no answer in time, the start reads the quests it can know by name,
+ * goes on from the last walk for the rest, and the journal says so.
  * With no walk at all, which only a signing on the thread could give,
  * it waits on the next signing instead, holding only itself, until
  * {@link START_TRIES} have given up, as a disk that hangs does.
+ * Resolves whether the walk caught up; one that didn't may be behind
+ * the disk, so a quest it lacks may yet be there.
  */
-async function readyForStart(state: QuestState): Promise<void> {
+async function readyForStart(
+	state: QuestState,
+	known: readonly (string | null | undefined)[],
+): Promise<boolean> {
 	const root = state.questsRoot;
 	for (let tries = 1; ; tries++) {
 		try {
-			await readyQuests(root, [state.questId], state.questId === undefined);
-			return;
+			await readyQuests(root, known, false);
+			return true;
 		} catch (error) {
 			if (!signingGaveUp(error)) throw error;
 			const walked = questsWalked(root);
 			if (walked || tries >= START_TRIES) {
+				refreshQuests(root, known);
 				const reads = walked
 					? "reads the last walk of"
 					: `signs on the thread, after ${tries} waits gave up,`;
 				process.stderr.write(
 					`[quest-workflow] a session's start ${reads} ${root}: ${error.message}\n`,
 				);
-				return;
+				// With no walk, the read just made signed the tree on the thread,
+				// so only a start reading the last walk may be behind.
+				return !walked;
 			}
 			process.stderr.write(
 				`[quest-workflow] a session's start waits on a first walk of ${root}: ${error.message}\n`,

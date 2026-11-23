@@ -37,6 +37,7 @@ import {
 	sessionKeyOf,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
@@ -220,16 +221,17 @@ export async function follow(
 	const hear = () => {
 		heardAt ??= Date.now();
 	};
-	/** This session's place in the spread, fixed by its id. */
-	const place = (() => {
-		let id: string = String(process.pid);
+	/** This session's id, which a carry under way is held by. */
+	const sessionId = (() => {
 		try {
-			id = ctx.sessionManager?.getSessionId?.() ?? id;
+			return ctx.sessionManager?.getSessionId?.();
 		} catch {
-			// A context with no session yet is placed by its process.
+			// A context with no session yet has no carry to wait on.
+			return undefined;
 		}
-		return spreadOf(id, spreadMs);
 	})();
+	/** This session's place in the spread, fixed by its id. */
+	const place = spreadOf(sessionId ?? String(process.pid), spreadMs);
 
 	// Read once, as the runtime starts: links made after the process
 	// started mean a reload brought it up on them. In a host no holder
@@ -287,9 +289,14 @@ export async function follow(
 			// alone; its new runtime says it landed, as plain pi's does.
 			if (inHost) {
 				if (hostedReloadAsker(ctx) !== undefined) return;
-				if (!(await reloadThroughHost(ctx, { reason, by: "self" }))) {
-					retryAt = Date.now() + HELD_MS;
-				}
+				// A carry begun while git was asked is waited on as any is, by
+				// the next look, not taken for a host that failed: the host
+				// refuses a reload under one.
+				const carried = () =>
+					sessionId !== undefined && carryUnderWay(sessionId) !== undefined;
+				if (carried()) return;
+				const reloaded = await reloadThroughHost(ctx, { reason, by: "self" });
+				if (!(reloaded || carried())) retryAt = Date.now() + HELD_MS;
 				return;
 			}
 			const links = linksMovedSince(extensions, startedAt);
@@ -479,8 +486,10 @@ export async function follow(
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
+		let carrying: string | undefined;
 		try {
 			idle = settled || ctx.isIdle();
+			carrying = sessionId === undefined ? undefined : carryUnderWay(sessionId);
 		} catch {
 			// A stale context belongs to a runtime that has gone.
 			sayWhy("its context has gone");
@@ -494,9 +503,13 @@ export async function follow(
 		if (swapped) {
 			sayWhy("it runs a tree", { root: now.root, install: now.install });
 		}
+		if (carrying !== undefined) {
+			sayWhy("its work is being carried", { to: carrying });
+		}
 		const moment = whenToReload({
 			swapped,
 			idle,
+			carrying: carrying !== undefined,
 			ready: [...moved.values()].every((one) =>
 				dependenciesReady(one.root, one.at),
 			),

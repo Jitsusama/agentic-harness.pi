@@ -62,6 +62,12 @@ export interface Units {
 	 * never started again. Never throws, since nothing waits on it.
 	 */
 	forget(unit: string): Promise<void>;
+	/**
+	 * The CPU time a unit has spent, in whole ms, or undefined when
+	 * systemd keeps no account of it or won't say. Never throws, since an
+	 * answer it can't give only leaves a child to the wall clock.
+	 */
+	cpuSpentMs(unit: string): Promise<number | undefined>;
 }
 
 /** The folder a host's children keep their slots in. */
@@ -266,6 +272,18 @@ function refused(what: string, { err }: Said): Error {
 	return new Error(why ? `${what}: ${why}` : what);
 }
 
+/** What systemd shows for a count it keeps no account of. */
+const UNSET_COUNT = "18446744073709551615";
+
+/** How many nanoseconds make the millisecond a CPU time is said in. */
+const NS_PER_MS = 1_000_000n;
+
+/** The value of `property` in what `systemctl show` printed, if any. */
+function shown(out: string, property: string): string | undefined {
+	const row = out.split("\n").find((line) => line.startsWith(`${property}=`));
+	return row?.slice(property.length + 1).trim();
+}
+
 /** The states a unit with nothing queued for it has gone in. */
 const GONE = new Set(["inactive", "failed"]);
 
@@ -310,6 +328,18 @@ export function unitsOver(run: Systemctl): Units {
 				await run(["reset-failed", unit]);
 			} catch {
 				// A user manager that hangs keeps a failed unit listed, no worse.
+			}
+		},
+		async cpuSpentMs(unit) {
+			try {
+				const said = await run(["show", "--property=CPUUsageNSec", unit]);
+				if (said.code !== 0) return undefined;
+				const ns = shown(said.out, "CPUUsageNSec");
+				if (!ns || ns === UNSET_COUNT || !/^\d+$/.test(ns)) return undefined;
+				return Number(BigInt(ns) / NS_PER_MS);
+			} catch {
+				// A user manager that hangs leaves the child to the wall clock.
+				return undefined;
 			}
 		},
 	};

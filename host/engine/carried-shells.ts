@@ -102,6 +102,18 @@ export interface CarriedShells {
 	 */
 	readonly keeps: boolean;
 	/**
+	 * Whether a park keeps a carried call alive (parked-calls.ts). A host
+	 * that runs on through the park holds the call in its own cgroup until
+	 * its own stop keeps it, as `keeps` says, which it can because the
+	 * park's stop tells the conversation of a restart and `heard` hears
+	 * its carry (stamped with the park's time, so a call parked a day
+	 * before the next host's look is stopped on it, as a parked
+	 * conversation's watch wakes it after a day); a child, whose process ends
+	 * once it parks (`processEnds`), keeps only what its spawners' scopes
+	 * hold apart from its unit.
+	 */
+	keepsThroughPark(processEnds: boolean): boolean;
+	/**
 	 * Hear the calls a conversation's bus says it carried through a
 	 * restart, once the host told it of one; a move's carry is the place
 	 * it moved to's to watch. Returns a disposer.
@@ -109,6 +121,12 @@ export interface CarriedShells {
 	heard(bus: {
 		on(channel: string, listener: (data: unknown) => void): () => void;
 	}): () => void;
+	/**
+	 * Let go of the calls heard from `session`, as it is released to
+	 * another holder that takes them up: this host's restart neither keeps
+	 * nor, later, stops them.
+	 */
+	released(session: string): void;
 	/**
 	 * As a restart stops the host, once every conversation has parked:
 	 * move each carried call out of the host's cgroup and write them down.
@@ -125,7 +143,7 @@ export interface CarriedShells {
 	 * Look once, as a watch does each time: stop each call nobody holds
 	 * once it is due, those its jobs recorded as running among them.
 	 */
-	look(holds: (session: string) => boolean): void;
+	look(holds: (session: string) => boolean): Promise<void>;
 }
 
 /** What the carried calls need of the machine, for tests to stand in for. */
@@ -148,10 +166,10 @@ export interface CarriedShellsOptions {
 	 */
 	readonly scoped?: boolean;
 	/**
-	 * The recorded calls whose pi has gone; read from the kept folder by
-	 * default.
+	 * The recorded calls whose pi has gone; read from the kept folder,
+	 * off the thread, by default.
 	 */
-	readonly recorded?: () => readonly KeptJob[];
+	readonly recorded?: () => readonly KeptJob[] | Promise<readonly KeptJob[]>;
 	readonly table?: ProcessTable;
 	/** Writes a pid into a cgroup.procs file. */
 	readonly move?: (procs: string, pid: number) => Promise<void>;
@@ -162,7 +180,7 @@ export interface CarriedShellsOptions {
 	readonly report: (error: unknown) => void;
 	readonly now?: () => number;
 	/** Starts a repeating timer; setInterval, unref'd, by default. */
-	readonly every?: (ms: number, run: () => void) => () => void;
+	readonly every?: (ms: number, run: () => void | Promise<void>) => () => void;
 }
 
 /** Whether the shell of a carried call is still there, as itself. */
@@ -258,8 +276,10 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	}
 
 	/** Stop each recorded call due, whose pi has gone and nobody holds. */
-	function lookRecorded(holds: (session: string) => boolean): void {
-		for (const job of recorded()) {
+	async function lookRecorded(
+		holds: (session: string) => boolean,
+	): Promise<void> {
+		for (const job of await recorded()) {
 			if (!isRunning(job.work) || holds(job.session)) continue;
 			const due = Math.min(
 				job.work.deadline ?? Number.POSITIVE_INFINITY,
@@ -277,8 +297,8 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		}
 	}
 
-	function look(holds: (session: string) => boolean): void {
-		lookRecorded(holds);
+	async function look(holds: (session: string) => boolean): Promise<void> {
+		await lookRecorded(holds);
 		const kept = readKept(keptFile());
 		if (kept.length === 0) return;
 		const left = kept.filter((call) => {
@@ -301,17 +321,26 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		if (left.length !== kept.length) write(left);
 	}
 
+	const scoped = () => options.scoped ?? spawnersScoped();
 	return {
 		get keeps() {
-			return procs !== undefined || (options.scoped ?? spawnersScoped());
+			return procs !== undefined || scoped();
+		},
+		keepsThroughPark(processEnds) {
+			return processEnds ? scoped() : procs !== undefined || scoped();
 		},
 		heard(bus) {
 			let restarting = false;
 			const told = bus.on(HOST_RESTARTING_EVENT, (data) => {
 				if (isHostRestarting(data)) restarting = true;
 			});
+			// A park's stop tells its conversation of a restart too, so a shared
+			// host hears every carrying park here: those that ended since go,
+			// so the list holds no more than the calls still out.
 			const carrying = bus.on(JOBS_CARRIED, (data) => {
 				if (!restarting || !isJobsCarried(data)) return;
+				const out = carried.filter((call) => isRunning(call.work));
+				carried.splice(0, carried.length, ...out);
 				for (const job of data.jobs)
 					if (isCarriedShell(job.work))
 						carried.push({
@@ -327,7 +356,13 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 				carrying();
 			};
 		},
+		released(session) {
+			const kept = carried.filter((call) => call.session !== session);
+			carried.splice(0, carried.length, ...kept);
+		},
 		async keep() {
+			const out = carried.filter((call) => isRunning(call.work));
+			carried.splice(0, carried.length, ...out);
 			if (carried.length === 0) return [];
 			const moved: number[] = [];
 			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));
@@ -343,12 +378,17 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 					timer.unref();
 					return () => clearInterval(timer);
 				});
+			// A tick while a slow disk still holds the last look waits for
+			// the next, so no call is stopped, or said stopped, twice.
+			let under: Promise<void> | undefined;
 			const looking = () => {
-				try {
-					look(holds);
-				} catch (error) {
-					options.report(error);
-				}
+				if (under !== undefined) return under;
+				under = look(holds)
+					.catch(options.report)
+					.finally(() => {
+						under = undefined;
+					});
+				return under;
 			};
 			return every(STRAY_LOOK_MS, looking);
 		},

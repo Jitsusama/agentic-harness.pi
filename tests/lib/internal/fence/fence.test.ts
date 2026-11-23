@@ -47,6 +47,9 @@ function argsReadIn(text: string): string {
 	);
 }
 
+/** A broker that never answers, so a test never asks the real one for a token. */
+const noCloud = () => ({ reason: "no broker in this test" });
+
 /** A finder that knows `programs`, as PATH would. */
 function finder(programs: Record<string, string>) {
 	return (program: string) => programs[program];
@@ -92,7 +95,7 @@ describe("what a session asking for the fence is given", () => {
 		});
 	});
 
-	it("runs nothing without bwrap, without landrun, or off Linux, and says what is missing", () => {
+	it("runs nothing on Linux without bwrap or without landrun, and says what is missing", () => {
 		const noBwrap = sandboxFor(
 			{ PI_SANDBOX: FENCE },
 			"linux",
@@ -103,9 +106,54 @@ describe("what a session asking for the fence is given", () => {
 		expect(
 			sandboxFor({ PI_SANDBOX: FENCE }, "linux", finder({ bwrap: "/b" })).kind,
 		).toBe("refused");
-		expect(sandboxFor({ PI_SANDBOX: FENCE }, "darwin", all).kind).toBe(
+	});
+
+	const onMac = (env: NodeJS.ProcessEnv, inside: boolean) =>
+		sandboxFor(
+			env,
+			"darwin",
+			all,
+			undefined,
+			undefined,
+			undefined,
+			() => inside,
+		);
+
+	it("runs a Mac's commands as they are inside the sandbox pi runs in, and says so, rather than refusing every one", () => {
+		const mac = onMac({ PI_SANDBOX: FENCE }, true);
+		expect(mac.kind, "a Mac's fenced session ran nothing").toBe("none");
+		const note = mac.kind === "none" ? mac.note : undefined;
+		expect(note, "the session wasn't told its commands run unfenced").toMatch(
+			/agent fence.*as they are, inside the sandbox pi itself runs in/,
+		);
+		expect(
+			mac.kind === "none" && mac.asked,
+			"the fence asked for was lost, so its host would be told none",
+		).toBe("fence");
+	});
+
+	it("runs nothing on a Mac where nothing fences pi, so no command runs as the person", () => {
+		const mac = onMac({ PI_SANDBOX: FENCE }, false);
+		expect(mac.kind, "an unfenced pi ran a fenced session's commands").toBe(
 			"refused",
 		);
+		expect(mac.kind === "refused" && mac.reason).toContain("no sandbox");
+	});
+
+	it("keeps a mistyped name's way back on a Mac, beside why commands run as they are", () => {
+		const mac = onMac({ PI_SANDBOX: "loose" }, true);
+		const note = mac.kind === "none" ? mac.note : undefined;
+		expect(note, "the way back was lost").toContain("PI_SANDBOX=off");
+		expect(note, "why commands run as they are was lost").toContain(
+			"as they are",
+		);
+	});
+
+	it("keeps a mistyped name's way back on a Mac where nothing fences pi, in the refusal", () => {
+		const mac = onMac({ PI_SANDBOX: "loose" }, false);
+		const reason = mac.kind === "refused" ? mac.reason : undefined;
+		expect(reason, "the way back was lost").toContain("PI_SANDBOX=off");
+		expect(reason, "why nothing runs was lost").toContain("no sandbox");
 	});
 
 	it("carries the system's logger for its refusals, refused or not", () => {
@@ -115,12 +163,16 @@ describe("what a session asking for the fence is given", () => {
 			logger: "/bin/logger",
 		});
 		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", logged);
-		const offLinux = sandboxFor({ PI_SANDBOX: FENCE }, "darwin", logged);
+		const noBwrap = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			finder({ landrun: "/bin/landrun", logger: "/bin/logger" }),
+		);
 		const none = sandboxFor({}, "linux", logged);
 		expect(fence, "the fence's logger").toMatchObject({
 			logger: "/bin/logger",
 		});
-		expect(offLinux, "a refusal's logger").toMatchObject({
+		expect(noBwrap, "a refusal's logger").toMatchObject({
 			kind: "refused",
 			logger: "/bin/logger",
 		});
@@ -133,7 +185,13 @@ describe("what a session asking for the fence is given", () => {
 			landrun: "/bin/landrun",
 			"pi-github-door": "/bin/pi-github-door",
 		});
-		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", withDoor);
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			withDoor,
+			undefined,
+			noCloud,
+		);
 		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
 		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
 		// Its own runtime folder, so the arguments file is always written,
@@ -169,7 +227,13 @@ describe("what a session asking for the fence is given", () => {
 	});
 
 	it("binds the session's copy of dev's settings over the person's, and names its git file to git", () => {
-		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", all);
+		const fence = sandboxFor(
+			{ PI_SANDBOX: FENCE },
+			"linux",
+			all,
+			undefined,
+			noCloud,
+		);
 		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-dev-")));
 		const home = join(base, "home");
 		const runtimeDir = join(base, "run");
@@ -229,13 +293,17 @@ describe("a command in the fence, through stand-ins", () => {
 	let sandbox: Extract<Sandbox, { kind: "fence" }>;
 
 	/** Runs `command` as a fenced session would, with `env` given it. */
-	function run(command: string, env: Record<string, string> = {}) {
+	function run(
+		command: string,
+		env: Record<string, string> = {},
+		fence: Extract<Sandbox, { kind: "fence" }> = sandbox,
+	) {
 		const environment = {
 			PATH: process.env.PATH ?? "",
 			XDG_RUNTIME_DIR: runtimeDir,
 			...env,
 		};
-		const wrap = wrapFor(sandbox, { cwd: folder, env: environment }, home);
+		const wrap = wrapFor(fence, { cwd: folder, env: environment }, home);
 		const text = wrap ? wrap(command) : command;
 		// No stdin, as pi's bash tool starts a command: bash takes a socket
 		// on stdin for sshd and reads /etc/bashrc, which on NixOS sets PATH
@@ -335,6 +403,30 @@ describe("a command in the fence, through stand-ins", () => {
 		);
 	});
 
+	it("is handed no cloud token, only settings in the fence's own place, and a command naming gcloud is told why", () => {
+		const result = run(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash expands it, not JavaScript.
+			'command -v gcloud >/dev/null; echo "${CLOUDSDK_AUTH_ACCESS_TOKEN:-none} ${CLOUDSDK_CORE_PROJECT:-none} $CLOUDSDK_CONFIG"',
+			{
+				PI_SESSION_ID: "s-cloud",
+				CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.the-person's",
+				CLOUDSDK_CORE_PROJECT: "the-person-s-project",
+			},
+		);
+		const [given, project, settings] = result.stdout.trim().split(" ");
+		expect(given, "a token was handed in").toBe("none");
+		expect(project, "a project was handed in").toBe("none");
+		expect(settings, "gcloud's settings aren't the fence's").toMatch(
+			new RegExp(`^${join(home, ".cache/pi-fence/gcloud")}/`),
+		);
+		expect(result.stderr, "gcloud wasn't told why").toContain(
+			"pi: gcloud has no token in the sandbox: the agent fence hands no command",
+		);
+		expect(run("echo plain").stderr, "a plain command was noted").not.toContain(
+			"pi: gcloud",
+		);
+	});
+
 	it("is handed every variable but those naming the desktop, and reaches Nix by its door", () => {
 		const result = run("env", {
 			WAYLAND_DISPLAY: "wayland-1",
@@ -358,7 +450,7 @@ describe("a command in the fence, through stand-ins", () => {
 		]) {
 			expect(env, `${name} is the fence's own`).toMatch(
 				new RegExp(
-					`^${name}=${join(home, ".cache/pi-sandbox/cache", tool ?? "")}$`,
+					`^${name}=${join(home, ".cache/pi-fence/homes", tool ?? "")}$`,
 					"m",
 				),
 			);
@@ -588,7 +680,7 @@ describe("pi's file tools in a fenced session", () => {
 	});
 
 	it("makes the folders it keeps within an entry first, since a command could make none", () => {
-		for (const entry of [".aws", ".local"]) {
+		for (const entry of [".bundle", ".local"]) {
 			mkdirSync(join(home, entry), { recursive: true });
 		}
 		wrapFor(
@@ -596,7 +688,7 @@ describe("pi's file tools in a fenced session", () => {
 			{ cwd: work, env: { XDG_RUNTIME_DIR: runtimeDir } },
 			home,
 		);
-		expect(existsSync(join(home, ".aws/cli/cache")), "aws's own cache").toBe(
+		expect(existsSync(join(home, ".bundle/cache")), "bundler's own cache").toBe(
 			true,
 		);
 		for (const folder of [".local/share/dbus-1", ".local/bin"]) {

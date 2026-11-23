@@ -58,6 +58,7 @@ import {
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
+	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
 	councilFindingsBehind,
@@ -79,6 +80,7 @@ export async function askCouncil(
 	const set = await councilRound(bound, change, params, seat);
 	if (set.refused) return set.refused;
 	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
+	const { waited } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -102,6 +104,7 @@ export async function askCouncil(
 	return say(
 		[
 			`Asked ${chosen}.`,
+			...(waited === undefined ? [] : [waited]),
 			answerFor(run, [...warnings, ...kept], tree.caveat),
 		].join("\n"),
 		{ run, warnings },
@@ -149,7 +152,31 @@ async function councilRound(
 	});
 	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
 	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
-	return { roster, chosen, proposal, tree, charters, conventions, prompt };
+	const start = await awaitRosterStart(change.label, seat.signal);
+	if (start.cancelled !== undefined)
+		return { refused: refuse(start.cancelled) };
+	// Asked again after the wait: a council on this head queued ahead of
+	// this one writes its ledger entry only as it opens, a spacing ago.
+	// Refused then, it gives its slot back, so the next round on the
+	// machine waits behind none that never started.
+	if (start.waited !== undefined) {
+		const since = await councilRefused(change, proposal.headCommit, params);
+		if (since !== undefined) {
+			await start.release?.();
+			return { refused: refuse(since) };
+		}
+	}
+	return {
+		roster,
+		chosen,
+		proposal,
+		tree,
+		charters,
+		conventions,
+		prompt,
+		waited: start.waited,
+		...(start.release === undefined ? {} : { release: start.release }),
+	};
 }
 
 /**
@@ -167,7 +194,11 @@ async function councilRefused(
 }
 
 /**
- * Start a council and hand the session straight back.
+ * Start a council and hand the session back once it starts.
+ *
+ * It first waits for the machine's next roster start, as a council
+ * does (`awaitRosterStart`), which can be several spacings behind a
+ * queue; past the hand-off that wait runs as a background job.
  *
  * The same roster, prompt, tree and ledger entry a council makes,
  * dispatched and abandoned on purpose. What is given up is worth
@@ -266,6 +297,9 @@ export async function startRound(
 	// Left there it is an alarm about a round that never ran, pointing
 	// at directories that will always be empty.
 	const kept = await keptOnLedger(change, run);
+	// A round that started nobody gives its slot back, so a retry after a
+	// failed dispatch waits behind none that never ran.
+	if (started === 0) await set.release?.();
 	// Its record says each reviewer until it ends, and anyone who could
 	// not be started as failed.
 	await roundDispatched(run.id);
@@ -294,6 +328,7 @@ export async function startRound(
 			started === 0
 				? `Started nothing for ${run.id}, so there is nothing to collect.`
 				: `Started ${run.id} in the background: ${count(started, "reviewer")} running from ${chosen}, nothing waiting for them.`,
+			...(set.waited === undefined ? [] : [set.waited]),
 			...(started === 0
 				? []
 				: watched === undefined

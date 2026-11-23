@@ -58,6 +58,9 @@ export function loadCheckEnvironment(
 		XDG_DATA_HOME: join(sandbox, "data"),
 		XDG_CACHE_HOME: join(sandbox, "cache"),
 		XDG_RUNTIME_DIR: join(sandbox, "runtime"),
+		// Read before XDG_RUNTIME_DIR, so an inherited one would take the
+		// check's pi back to the real runtime folder.
+		AGENTS_RUNTIME_DIR: join(sandbox, "runtime"),
 		PI_NOTIFY: "off",
 		PI_LAUNCHER: "off",
 		PI_SETTLE: "off",

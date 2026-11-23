@@ -177,13 +177,18 @@ interface Sought {
  * Kill every process group holding a process this conversation's tools
  * started, answering the groups and lone processes it killed.
  */
-export function reapToolChildren(
+export async function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
-	spared: CarriedCalls = carriedCalls(),
+	spared?: CarriedCalls,
 	among?: readonly number[],
 ): Promise<Reaped> {
-	return reapWhere(conversationSought(sessionId), table, spared, among);
+	return reapWhere(
+		conversationSought(sessionId),
+		table,
+		spared ?? (await carriedCalls()),
+		among,
+	);
 }
 
 /**
@@ -221,12 +226,13 @@ export async function markedByConversation(
  * A conversation `held` names is left alone, as one a child host is
  * starting for, which reaps its own as it resumes.
  */
-export function reapLeftBehind(
+export async function reapLeftBehind(
 	key: string,
 	table: ProcessTable = linuxProcessTable(),
-	spared: CarriedCalls = carriedCalls(),
+	sparedOr?: CarriedCalls,
 	held: (sessionId: string) => boolean = () => false,
 ): Promise<Reaped> {
+	const spared = sparedOr ?? (await carriedCalls());
 	return reapWhere(
 		{
 			mentioning: `${KEY_MARKER}=${key}`,
@@ -259,8 +265,9 @@ export function reapLeftBehind(
 export async function callsLeftRunning(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
-	carried: CarriedCalls = carriedCalls(),
+	carriedOr?: CarriedCalls,
 ): Promise<Set<string>> {
+	const carried = carriedOr ?? (await carriedCalls());
 	const inherited = process.env[CALL_VARIABLE];
 	const marks = new Set<string>();
 	for (const environ of (

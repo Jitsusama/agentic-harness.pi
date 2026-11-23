@@ -17,7 +17,7 @@ import { isRecord } from "../../../internal/record.ts";
 import { type Ask, askRoster, type Warmed } from "./council.ts";
 import { participantIdentity } from "./identity.ts";
 import { outcomeOf } from "./outcome.ts";
-import type { AskProgress } from "./progress.ts";
+import { type AskProgress, reporterOf } from "./progress.ts";
 import type { Roster } from "./roster.ts";
 import {
 	type AskRun,
@@ -175,7 +175,7 @@ export async function runCritique(
 	// that record them finish through `settleReplies`, and a critique never
 	// goes near it, so the board it put up would have outlived the round
 	// and sat there describing work that had stopped.
-	deps.progress?.finish();
+	reporterOf(deps.progress).finish();
 
 	return {
 		run: {

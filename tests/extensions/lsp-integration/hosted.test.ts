@@ -44,6 +44,8 @@ function fakeBackend(name: string): StandaloneBackend {
 		dispose: vi.fn(async () => {}),
 		serverCount: () => 0,
 		syncDocument: () => {},
+		stopFence: () => {},
+		dropFence: () => {},
 	};
 }
 
@@ -154,6 +156,25 @@ describe("hosted LSP registries", () => {
 		expect(() => standaloneLease().ensure()).toThrow(NoSessionInHost);
 		expect(created).toHaveLength(0);
 		expect(resolveLspBackend(registry("a"))).toBeUndefined();
+	});
+
+	it("registers the pool as its runner wraps it, the pool it starts and the one that replaces it alike", async () => {
+		host();
+		const a = registry("a");
+		const wrapped = new Map<StandaloneBackend, StandaloneBackend>();
+		const lease = standaloneLease((pool) => {
+			const found = wrapped.get(pool) ?? fakeBackend(`wrapping-${pool.name}`);
+			wrapped.set(pool, found);
+			return found;
+		});
+		cleanups.push(() => lease.release(a));
+
+		const first = lease.ensure(a);
+		expect(resolveLspBackend(a)).toBe(wrapped.get(first));
+		const second = await lease.restart(first, a);
+
+		expect(second).not.toBe(first);
+		expect(resolveLspBackend(a)).toBe(wrapped.get(second));
 	});
 
 	it("routes A to its editor and B to the pool, then keeps B alive after A closes", async () => {

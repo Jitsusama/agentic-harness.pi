@@ -147,6 +147,10 @@ may import from here, and any of it may change without notice.
 
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
+- **`boot-token.ts`**: the token a machine mints as it boots, which
+  quest liveness and the machine queue judge an earlier boot's
+  leftovers by, since a clock that steps moves a boot worked out
+  from uptime.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.
@@ -156,9 +160,16 @@ may import from here, and any of it may change without notice.
   since boot, which no suspend or clock change moves, and the one
   judgement of whether a recorded process (a mesh presence, a
   fleet's owner) still runs.
+- **`provider-sdks.d.ts`**: what the typecheck reads in place of
+  the model providers' SDKs, which only pi-ai's declarations name:
+  nothing, through tsconfig's `paths`, so `tsc` skips their 199,000
+  lines.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.
+- **`settled.ts`**: what work settles to within a time a caller can
+  afford, kept by a timer of its own: the claim check and the mesh's
+  routing wait on a classifier no longer than that.
 - **`void-owner.ts`**: who owns a line Joel says into the void, read
   from what he attached (a pi session, a pull request, a page, a
   window) and from the quests that claim it, for

@@ -12,8 +12,7 @@
  * terms in `answers.ts`.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import {
 	type CancellationToken,
@@ -40,11 +39,13 @@ import {
 	RenameRequest,
 	WorkspaceSymbolRequest,
 } from "vscode-languageserver-protocol";
+import { systemProgram } from "../../../internal/sandbox/system-program.ts";
 import type { ServerConfig } from "../config.ts";
 import type {
 	CodeAction,
 	Diagnostic,
 	HoverInfo,
+	LspFence,
 	LspLocation,
 	LspRange,
 	LspTarget,
@@ -52,25 +53,31 @@ import type {
 	WorkspaceEdit,
 } from "../types.ts";
 import {
-	editsByUri,
 	flattenDocumentSymbol,
-	fromSymbolInformation,
+	fromSymbols,
 	hoverText,
 	type ProtocolDiagnostic,
 	toDiagnostic,
 	toLocations,
 } from "./answers.ts";
 import {
-	applyProtocolEdits,
 	fileToUri,
 	fromProtocolRange,
 	languageIdFor,
 	toLines,
 	toProtocolPosition,
-	uriToFile,
 } from "./document.ts";
+import {
+	END_GRACE_MS,
+	exitOf,
+	FENCE_REFUSED,
+	groupEnder,
+	lastSaid,
+} from "./fenced-process.ts";
 import { answerClientRequests, CLIENT_CAPABILITIES } from "./handshake.ts";
+import { type Refuses, readJudged } from "./judged-files.ts";
 import { settledWriter } from "./settled-writer.ts";
+import { applyWorkspaceEdit } from "./workspace-edit.ts";
 
 /** How long a cold initialize may take before we give up. */
 const WARMUP_TIMEOUT_MS = 15_000;
@@ -97,34 +104,84 @@ export class StandaloneServer {
 
 	readonly serverName: string;
 	readonly root: string;
-	private readonly child: ChildProcess;
+	private readonly end: () => void;
 	private readonly connection: MessageConnection;
+	private readonly fence: LspFence | undefined;
 
 	private constructor(
 		serverName: string,
 		root: string,
-		child: ChildProcess,
+		end: () => void,
 		connection: MessageConnection,
+		fence: LspFence | undefined,
 	) {
 		this.serverName = serverName;
 		this.root = root;
-		this.child = child;
+		this.end = end;
 		this.connection = connection;
+		this.fence = fence;
 	}
 
-	/** Spawn a server, run the initialize handshake and return it ready. */
+	/**
+	 * Spawn a server, run the initialize handshake and return it ready.
+	 * Under a fence the server runs inside it, as the fence launches it,
+	 * and one the fence refuses never starts. A fenced server ends with
+	 * its whole process group, told first and killed `graceMs` later.
+	 * The bash that runs the fence's text runs outside it, so it is the
+	 * system's own, from `bash`, never one found on the session's PATH.
+	 */
 	static async start(
 		config: ServerConfig,
 		root: string,
 		binaryPath: string,
+		fence?: LspFence,
+		graceMs: number = END_GRACE_MS,
+		bash: () => string | undefined = () => systemProgram("bash"),
 	): Promise<StandaloneServer> {
-		const child = spawn(binaryPath, [...config.args], {
-			cwd: root,
-			stdio: ["pipe", "pipe", "pipe"],
+		const words = [binaryPath, ...config.args];
+		const fenced = await fence?.launch(words);
+		if (fenced && "refused" in fenced) {
+			throw new Error(`${config.name} won't start: ${fenced.refused}`);
+		}
+		const shell = fenced ? bash() : undefined;
+		if (fenced && !shell)
+			throw new Error(
+				`${config.name} won't start: no bash lies where only the system's administrator can put one, to run its fence`,
+			);
+		// The fence's text is bash's, and runs in a process group of its
+		// own: strict's landrun doesn't die with the shell that started it,
+		// so the whole group is ended with the server. The fourth pipe is
+		// held for the server's life, so the text can tell once pi is gone.
+		const child =
+			fenced && shell
+				? spawn(shell, ["-c", fenced.text], {
+						cwd: root,
+						env: fenced.env,
+						stdio: ["pipe", "pipe", "pipe", "pipe"],
+						detached: true,
+					})
+				: spawn(binaryPath, [...config.args], {
+						cwd: root,
+						stdio: ["pipe", "pipe", "pipe"],
+					});
+		// Its far end closes as the group ends.
+		child.stdio[3]?.on("error", () => {});
+		const end = fenced
+			? groupEnder(child, graceMs)
+			: () => {
+					child.kill();
+				};
+		const said = fenced ? lastSaid(child) : undefined;
+		const exited = exitOf(child);
+		// A spawn that fails says so here, and nowhere else would catch it.
+		let failed: Error | undefined;
+		child.once("error", (error) => {
+			failed = error;
+			started?.markGone();
 		});
 		const { stdout, stdin } = child;
 		if (!stdout || !stdin) {
-			child.kill();
+			end();
 			throw new Error(`failed to open stdio for ${config.name}`);
 		}
 		// Killing the server mid-write (on dispose) makes the jsonrpc
@@ -143,8 +200,9 @@ export class StandaloneServer {
 		const server: StandaloneServer = new StandaloneServer(
 			config.name,
 			root,
-			child,
+			end,
 			connection,
+			fence,
 		);
 		started = server;
 		// Swallow transport errors (a write after the child is killed);
@@ -166,7 +224,9 @@ export class StandaloneServer {
 		connection.listen();
 		const initResult = await withTimeout(
 			connection.sendRequest(InitializeRequest.type, {
-				processId: process.pid,
+				// A fenced server may not see pi's pid, in a namespace of its
+				// own or kept from signalling out, and would take pi for gone.
+				processId: fenced ? null : process.pid,
 				rootUri: fileToUri(root),
 				workspaceFolders: [{ uri: fileToUri(root), name: basename(root) }],
 				capabilities: CLIENT_CAPABILITIES,
@@ -176,7 +236,28 @@ export class StandaloneServer {
 			}),
 			WARMUP_TIMEOUT_MS,
 			`initialize ${config.name}`,
-		);
+		).catch(async (error: unknown) => {
+			// A fenced server that exits says why on its error output, which
+			// can come after the request has failed: by the status it exits
+			// with, the fence's own refusal or a program bash can't run, which
+			// share it, and anything else as the server's. One
+			// still running when its output settles failed for its own
+			// reason, which stands.
+			const why = (await said?.())?.trim();
+			const ended = why ? await exited() : undefined;
+			end();
+			if (failed)
+				throw new Error(`${config.name} didn't start: ${failed.message}`, {
+					cause: failed,
+				});
+			if (!why || !ended) throw error;
+			throw new Error(
+				ended.code === FENCE_REFUSED
+					? `${config.name} couldn't run in the fence: ${why}`
+					: `${config.name} exited as it started: ${why}`,
+				{ cause: error },
+			);
+		});
 		// Prefer pull diagnostics when the server advertises them, and
 		// fall back to the pushed stream otherwise.
 		server.pullSupported = Boolean(
@@ -290,7 +371,7 @@ export class StandaloneServer {
 		const lines = this.linesFor(path);
 		return result.flatMap((item) =>
 			"location" in item
-				? [fromSymbolInformation(item, (file) => this.linesFor(file))]
+				? fromSymbols([item], (file) => this.linesFor(file))
 				: flattenDocumentSymbol(path, lines, item),
 		);
 	}
@@ -308,9 +389,7 @@ export class StandaloneServer {
 			),
 		);
 		if (!result) return [];
-		return result.map((item) =>
-			fromSymbolInformation(item, (file) => this.linesFor(file)),
-		);
+		return fromSymbols(result, (file) => this.linesFor(file));
 	}
 
 	/** Rename the symbol under the target and apply the edits. */
@@ -372,6 +451,24 @@ export class StandaloneServer {
 
 	/** Re-sync a document after the caller edited it, so diagnostics stay current. */
 	syncDocument(path: string, text: string): void {
+		if (!this.fence) {
+			this.tell(path, text);
+			return;
+		}
+		// The caller read its text by path, which the server could have
+		// pointed anywhere since, so a fenced server gets only what pi
+		// reads here through a descriptor its fence lets it read.
+		let judged: string;
+		try {
+			judged = this.read(path);
+		} catch {
+			return;
+		}
+		this.tell(path, judged);
+	}
+
+	/** Tells the server a document now holds `text`, which pi vouches for. */
+	private tell(path: string, text: string): void {
 		const uri = fileToUri(path);
 		if (!this.openDocs.has(uri)) {
 			this.ensureOpen(path);
@@ -426,6 +523,9 @@ export class StandaloneServer {
 		} catch {
 			// Already torn down; the waiting requests went with it.
 		}
+		// What it left running ends with it: a fenced server's shell can
+		// exit, or its output close, while the rest of its group runs on.
+		this.end();
 		for (const listener of this.goneListeners) listener();
 		this.goneListeners.clear();
 	}
@@ -437,7 +537,7 @@ export class StandaloneServer {
 		} catch {
 			// The connection may already be torn down; nothing to do.
 		}
-		this.child.kill();
+		this.end();
 	}
 
 	/**
@@ -552,7 +652,7 @@ export class StandaloneServer {
 	private ensureOpen(path: string): void {
 		const uri = fileToUri(path);
 		if (this.openDocs.has(uri)) return;
-		const text = readFileSync(path, "utf8");
+		const text = this.read(path);
 		this.lineCache.set(uri, toLines(text));
 		this.version += 1;
 		this.openDocs.add(uri);
@@ -572,36 +672,35 @@ export class StandaloneServer {
 		const uri = fileToUri(path);
 		const cached = this.lineCache.get(uri);
 		if (cached) return cached;
-		const lines = toLines(readFileSync(path, "utf8"));
+		const lines = toLines(this.read(path));
 		this.lineCache.set(uri, lines);
 		return lines;
 	}
 
 	/**
-	 * Apply a protocol workspace edit to disk, updating caches
-	 * and re-syncing open documents, and return what changed in
-	 * tool coordinates.
+	 * Apply a protocol workspace edit to disk, re-syncing open
+	 * documents, and return what changed in tool coordinates.
 	 */
 	private applyWorkspaceEdit(edit: ProtocolWorkspaceEdit): WorkspaceEdit {
-		const byUri = editsByUri(edit);
-		const changes: WorkspaceEdit["changes"][number][] = [];
-		for (const [uri, edits] of byUri) {
-			const path = uriToFile(uri);
-			const original = readFileSync(path, "utf8");
-			const updated = applyProtocolEdits(original, edits);
-			writeFileSync(path, updated);
-			const lines = toLines(original);
-			changes.push({
-				path,
-				edits: edits.map((e) => ({
-					range: fromProtocolRange(lines, e.range),
-					newText: e.newText,
-				})),
-			});
-			// Keep the server in step with what we just wrote.
-			this.syncDocument(path, updated);
-		}
-		return { changes };
+		return applyWorkspaceEdit(edit, {
+			name: this.serverName,
+			refuses: this.refuses,
+			tell: (path, text) => this.tell(path, text),
+		});
+	}
+
+	/** What the fence refuses pi for this server, when it has one. */
+	private get refuses(): Refuses | undefined {
+		return this.fence?.refuses;
+	}
+
+	/**
+	 * A file's text, read by pi for the server. Under a fence, the file
+	 * opened is judged as pi's file tools are there, since its text would
+	 * reach the server past the fence (`judged-files.ts`).
+	 */
+	private read(path: string): string {
+		return readJudged(path, this.refuses);
 	}
 }
 

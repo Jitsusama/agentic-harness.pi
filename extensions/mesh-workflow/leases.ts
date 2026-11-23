@@ -572,7 +572,11 @@ function holders(held: readonly (Held & { holder: Presence })[]): string {
 	return `${each.join(" and ")} ${each.length === 1 ? "is" : "are"}`;
 }
 
-/** What a peer's changes in one checkout are, to follow "is". */
+/**
+ * What a peer's changes in one checkout are, to follow "is". A holder
+ * writes its why as it likes, so it is said on one line and its
+ * backticks as quotes, which can't close the code span it is said in.
+ */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
 	const shown = files.slice(0, 3).map((lease) => oneLine(lease.subject));
@@ -585,7 +589,7 @@ function changingText(leases: readonly Lease[]): string {
 			.filter(claimsCheckout)
 			.map((lease) =>
 				lease.why
-					? `working on what \`${oneLine(lease.why)}\` left`
+					? `working on what \`${oneLine(lease.why).replaceAll("`", "'")}\` left`
 					: "working on all of them",
 			),
 	]

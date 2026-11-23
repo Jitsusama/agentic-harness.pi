@@ -42,6 +42,8 @@ vi.mock("../../../lib/core/lsp/index.ts", async (original) => ({
 				documents.set(path, text);
 			},
 			serverCount: () => 0,
+			stopFence: () => {},
+			dropFence: () => {},
 			dispose: vi.fn(async () => {}),
 		};
 		started.push(backend);

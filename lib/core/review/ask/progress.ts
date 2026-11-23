@@ -13,6 +13,7 @@
  * streams, terminals or pi's wire format.
  */
 
+import { whileCurrent } from "../../../internal/errors/stale.ts";
 import type { Participant } from "./identity.ts";
 
 /**
@@ -114,6 +115,7 @@ export async function settleReplies<Reply, Outcome>(
 	count: (outcome: Outcome) => { participantId: string; findings: number },
 	progress: AskProgress | undefined,
 ): Promise<Outcome[]> {
+	const told = progress === undefined ? undefined : heedless(progress);
 	const outcomes: Outcome[] = [];
 	for (const reply of replies) {
 		const outcome = await file(reply);
@@ -121,10 +123,43 @@ export async function settleReplies<Reply, Outcome>(
 		// The count comes from filing rather than from the answer: a
 		// finding that would not parse never became one.
 		const { participantId, findings } = count(outcome);
-		progress?.recorded(participantId, findings);
+		told?.recorded(participantId, findings);
 	}
-	progress?.finish();
+	told?.finish();
 	return outcomes;
+}
+
+/**
+ * The same observer, which goes quiet once its session is replaced.
+ *
+ * A reporter is a view of the round, and a view whose session reloaded
+ * must not take the round with it. On 22 November two councils opened,
+ * asked nobody and never settled, because their session had reloaded
+ * while they waited to start and the board's first draw threw on the
+ * stale context. The round is what was paid for; a board that cannot
+ * draw shows as a board that is not there.
+ *
+ * Only the stale context is passed over, as the board and the dock do:
+ * any other throw is a real fault in the view, and swallowed it would
+ * hide itself behind a board that silently stopped.
+ */
+export function heedless(progress: AskProgress): AskProgress {
+	const told = whileCurrent;
+	return {
+		start: told((participants) => progress.start(participants)),
+		started: told((id) => progress.started(id)),
+		activity: told((id, what) => progress.activity(id, what)),
+		answered: told((id) => progress.answered(id)),
+		failed: told((id, reason) => progress.failed(id, reason)),
+		cancelled: told((id) => progress.cancelled(id)),
+		recorded: told((id, findings) => progress.recorded(id, findings)),
+		finish: told(() => progress.finish()),
+	};
+}
+
+/** What a round tells: its observer, made heedless, or one that does nothing. */
+export function reporterOf(progress: AskProgress | undefined): AskProgress {
+	return progress === undefined ? noAskProgress : heedless(progress);
 }
 
 /** An observer that does nothing, for a caller that does not care. */

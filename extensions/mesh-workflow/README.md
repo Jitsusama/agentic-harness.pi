@@ -241,9 +241,20 @@ and can answer a question or a gate left open on screen.
   sent again to the same peers gets past it; the node across
   a realm can still refuse it after that. No group holds it,
   so setting `send` leaves it as it was, though setting
-  `form` or `all` reaches it. With no classifier nothing is judged, and with the guard off a
-  message is still judged and the person shown what it would
-  have refused. So every message's text goes to the
+  `form` or `all` reaches it. With no classifier nothing is
+  judged, and a `mesh-unjudged` entry in the session's log says
+  why, once for each kind of reason a session meets, with the
+  first line of what went wrong, its secrets scrubbed, as it
+  does for a slow or failing classifier or a text past 12
+  parts. A paragraph past 2000 characters is judged in
+  stretches of 2000, each a part; past 12 parts the
+  neighbours shortest together are joined, up to 2000
+  characters each, only until 12 are left, and a text
+  still past 12 has its first 11 and its last judged, its
+  middle not. A send the classifier judged in full lets each
+  be said again.
+  With the guard off a message is still judged and the person
+  shown what it would have refused. So every message's text goes to the
   classifier's provider, one to a single peer's address or
   into another realm too, which the peer hearing it never
   judges; `PI_MESH_CLASSIFIER=off` stops that, with the
@@ -332,14 +343,16 @@ and can answer a question or a gate left open on screen.
   request, a page, a file, a diff, a terminal) rather than open it.
   Each look is a file of its own in
   `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks/looks.ts`),
-  naming its session, what it is, why and what the person is asked
-  (`ask`, with the choices, or that it is only to see), which the
-  launcher shows and marks opened or cleared. A look is refused that
-  names a message's or quest's id, a session's address, a path or
-  code, or runs past a sentence, since he reads it hours later
-  without the agents' context. Nothing here removes one. A look says
-  whether it `asks` for something back: it does when it has choices
-  or an ask other than only to see, and a look kept without the
+  naming its session, what it is, what happened, why it matters to
+  him, the act on his button, and what follows each choice, which
+  the launcher shows and marks opened or cleared. The record keeps
+  version 1's why and ask too, made from those, for readers that
+  read only them. A look is refused that names a message's or
+  quest's id, a session's address, a path or code, or runs past its
+  limits, since he reads it hours later without the agents' context.
+  Nothing here removes one. A look says whether it `asks` for
+  something back: it does when it has choices, wants his own words,
+  or has an act other than Just See, and a look kept without the
   field counts as asking. Each names its `cell`, its session's own
   address, which no other session on its quest shares, for the
   launcher to read the cell it leads to rather than search every
@@ -1409,7 +1422,9 @@ come from the calling conversation rather than the host directory.
 mesh_end closes just the addressed conversation when it belongs to the
 installed host. A hosted owner in another process, once its host's list
 still holds the conversation, is closed through that host's control
-socket, `$XDG_RUNTIME_DIR/pi-host/<realm>-<kind>.sock`, named by the host
+socket, `pi-host/<realm>-<kind>.sock` in the runtime folder
+(AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache
+folder), named by the host
 key `<realm>-<kind>`. The request carries the host's whole process
 identity as expectedHost, so a successor on the same socket refuses it,
 and says who asked (`by`, as `mesh_end from <address>`), which the

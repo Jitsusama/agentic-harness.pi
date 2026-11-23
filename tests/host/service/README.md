@@ -1,5 +1,9 @@
 # Service Tests
 
+Many entries because each file mirrors one module of host/service, which
+keeps a module a reason to change, so a test sits beside the one it
+checks rather than in a folder grouping several.
+
 Protocol validation, byte framing and session-scoped engine dispatch.
 socket.test.ts checks real private sockets, strict replies and bounded
 transport with H1 ownership and V Terminals, including reconnect. These
@@ -128,7 +132,10 @@ the screen takes it, and passes edits and detaches on unnoticed.
 roster.test.ts checks durable holds across stop and a host that died
 without closing, lock refusal and takeover races, launch environments
 written only when they hold something, and refusal to start over an
-unreadable roster, in a private temporary folder. They do not
+unreadable roster, in a private temporary folder.
+repeats.test.ts checks a spawn asked again inside its window gets the
+first answer rather than a second conversation, whatever stage token it
+carries, and only while what it opened still stands. They do not
 start a production host, copy credential files or use Joel's screen.
 
 - `support/`: helpers these tests share, such as the fake units,

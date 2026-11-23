@@ -8,7 +8,7 @@
  *
  * The supervisor picks the slot: the conversation's id for a resume, a
  * fresh one for an open. It writes `KEY.d/SLOT.json` under
- * `$XDG_RUNTIME_DIR/pi-host`, holding the conversation's roster entry
+ * `<runtime folder>/pi-host`, holding the conversation's roster entry
  * for a resume (`{"session": ENTRY}`) or nothing for an open (`{}`),
  * then starts the unit with PI_HOST_CHILD_KEY naming KEY and
  * PI_HOST_CHILD_SOCKET naming `KEY.d/SLOT.sock`. The child reads the
@@ -57,6 +57,7 @@ import {
 	type RosterEntry,
 	rosterPath,
 } from "../../lib/core/session/roster.ts";
+import { runtimeDir } from "../../lib/internal/paths.ts";
 import type { SessionHost } from "../engine/index.ts";
 import type { HostLeaving } from "../engine/session-host.ts";
 import {
@@ -164,7 +165,7 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 	const key = env.PI_HOST_CHILD_KEY ?? "";
 	const { realm, kind } = hostKeyParts(key);
 	const socket = env.PI_HOST_CHILD_SOCKET ?? "";
-	const children = childFolder(key, env.XDG_RUNTIME_DIR);
+	const children = childFolder(key, runtimeDir(env));
 	const named = SLOT_NAME.exec(basename(socket));
 	const slot = named?.[1];
 	if (dirname(socket) !== children || slot === undefined)
@@ -249,6 +250,7 @@ export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
 		conversations: () => hosted?.list() ?? [],
 		entry: childEntry(slot),
 		resumes: slot.held !== undefined,
+		stale: () => hosted?.rolls() ?? false,
 	});
 	return {
 		slot,
@@ -285,7 +287,8 @@ export function childEntry(
 		try {
 			text = readFileSync(path, "utf8");
 		} catch {
-			// Not written yet, or mid-replacement: no entry this time.
+			// Not written yet: no entry this time. It is replaced whole by a
+			// rename, so a read never finds it half-written.
 			return undefined;
 		}
 		return parseRoster(text, slot.key)?.sessions.find(
@@ -316,6 +319,12 @@ export interface ChildLifeOptions {
 	readonly resumes?: boolean;
 	/** How long it stays parked with nobody viewing; ALONE_WITHIN_MS by default. */
 	readonly aloneWithin?: number;
+	/**
+	 * Whether its host's own code is stale, so it ends as soon as its
+	 * conversation parks away unviewed, with no grace: a wake within one
+	 * would resume it on the code it rolled to leave. Never, by default.
+	 */
+	readonly stale?: () => boolean;
 }
 
 /** A conversation as the host's registry holds it. */
@@ -340,7 +349,8 @@ export interface ChildLife {
 	/**
 	 * A conversation left the host, ended as its stop or close said. One
 	 * stopped while the child isn't, as an idle park is, rests for a wake
-	 * while a window views it and for its grace once none does.
+	 * while a window views it and for its grace once none does. One whose
+	 * start neither answered nor rested ends the child failed.
 	 */
 	left(ending: HostLeaving, why: string): void;
 	/** A conversation is becoming another inside pi, under `nextId`. */
@@ -352,7 +362,10 @@ export interface ChildLife {
 	 * nobody has viewed it for its grace.
 	 */
 	resumed(end: "resumed" | "parked" | "unresumed"): void;
-	/** The child is stopping: parked once it held its conversation, else failed. */
+	/**
+	 * The child is stopping: parked once its start worked, holding its
+	 * conversation or resting it as the slot left it, else failed.
+	 */
 	stopping(): void;
 	/** The conversation it runs, or last ran, by id; none before the first. */
 	conversation(): string | undefined;
@@ -408,6 +421,14 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let viewing = 0;
 	let stopAlone: (() => void) | undefined;
 
+	// Whether an end that stops it parks or ends it as asked rather than
+	// calling the child failed: its start answered, or it still rests
+	// parked as the slot left it. A wake that registered and died before
+	// it answered ended the rest, so it no longer does.
+	function endsAsAsked(): boolean {
+		return answered !== undefined || resting;
+	}
+
 	function send(line: WatchLine): void {
 		for (const follow of followers) follow(line);
 	}
@@ -436,9 +457,14 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	}
 
 	// A conversation parked away that nobody views ends its child once its
-	// grace passes; a window joining, or a wake, ends the grace. One the
-	// host still lists, parked only while it closes, never arms it.
+	// grace passes, or at once on stale host code; a window joining, or a
+	// wake, ends the grace. One the host still lists, parked only while it
+	// closes, never arms it.
 	function weighAlone(): void {
+		if (away && viewing === 0 && options.stale?.() === true) {
+			end("parked");
+			return;
+		}
 		if (away && viewing === 0) {
 			stopAlone ??= after(options.aloneWithin ?? ALONE_WITHIN_MS, () =>
 				end("parked"),
@@ -464,7 +490,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	const stopFirst = options.resumes
 		? () => undefined
 		: after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
-				if (!answered) end(resting ? "parked" : "failed");
+				// A rest comes only from a slot it resumes, which keeps no first
+				// wait, so a first wait that passes unanswered is a failure.
+				if (!answered) end("failed");
 			});
 	const stopHeap = every(HEAP_EVERY_MS, () => {
 		const held = current();
@@ -545,7 +573,18 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
-			if (held) away = false;
+			// A wake that registers ends the rest: one that dies before it
+			// answers then ends the child failed, rather than resting parked as
+			// it was. A wake answers as it registers once its roster names it.
+			// One whose build fails after that stays listed parked, as any
+			// failed start in a child does, until it is closed or the host
+			// stops. One that throws before it registers changes nothing held,
+			// so the rest stands: the conversation is still parked as the slot
+			// left it, for a later wake, and the child ends parked.
+			if (held) {
+				away = false;
+				resting = false;
+			}
 			followChange(held);
 			weighAlone();
 		},
@@ -560,7 +599,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		},
 		left(stop) {
 			if (ended || options.conversations().length > 0) return;
-			if (!answered) {
+			// One resting parked was never answered, as it hadn't woken, and
+			// leaves as it was asked to rather than failing.
+			if (!endsAsAsked()) {
 				end("failed");
 				return;
 			}
@@ -582,7 +623,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			weighAlone();
 		},
 		stopping() {
-			end(answered || resting ? "parked" : "failed");
+			end(endsAsAsked() ? "parked" : "failed");
 		},
 		conversation() {
 			return current()?.id ?? sent?.id;

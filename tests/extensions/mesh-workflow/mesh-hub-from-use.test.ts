@@ -244,36 +244,48 @@ describe("orchestrator, on a quest with no mark", () => {
 	});
 
 	// A presence lists what addresses it likes, so one listing the
-	// orchestrator's beside its own hides none of the real one's.
-	it("counts the person's acts in a question to the marked orchestrator's other address when another presence also lists its address", async () => {
-		onQuest();
-		markedParent();
-		const presences = createPresences(join(fixture.paths.mesh, "presence"));
-		const cell = (session: string, addresses: string[]) =>
-			presences.publish({
-				session,
-				addresses,
-				groups: ["#quest/5gv2ah"],
-				joined: [],
-				worksOn: "",
-				owns: [],
-				busy: false,
-				at: new Date().toISOString(),
-			});
-		cell("session-a", ["EVIL01", "5gv2ah"]);
-		cell("session-q", ["5GV2AH", "OLD001"]);
-		const { tools } = await startSession(noNode());
+	// orchestrator's beside its own hides none of the real one's, in
+	// whichever order the census reads them; and it fails closed, so the
+	// impostor's own address is checked as the orchestrator's too.
+	it.each([
+		{ order: "the impostor first", impostor: "session-a", real: "session-q" },
+		{ order: "the impostor last", impostor: "session-z", real: "session-b" },
+	])(
+		"counts the person's acts in a question to any address listed beside the marked orchestrator's, $order",
+		async ({ impostor, real }) => {
+			onQuest();
+			markedParent();
+			const presences = createPresences(join(fixture.paths.mesh, "presence"));
+			const cell = (session: string, addresses: string[]) =>
+				presences.publish({
+					session,
+					addresses,
+					groups: ["#quest/5gv2ah"],
+					joined: [],
+					worksOn: "",
+					owns: [],
+					busy: false,
+					at: new Date().toISOString(),
+				});
+			cell(impostor, ["EVIL01", "5gv2ah"]);
+			cell(real, ["5GV2AH", "OLD001"]);
+			const { tools } = await startSession(noNode());
 
-		const refused = await send(
-			tools,
-			"OLD001",
-			"question",
-			"May Joel touch the key at 02:00?",
-		);
+			for (const to of ["OLD001", "EVIL01"]) {
+				const refused = await send(
+					tools,
+					to,
+					"question",
+					"May Joel touch the key at 02:00?",
+				);
 
-		expect(refused).toContain("Not sent: this asks for the person's hands");
-		expect(lastSent()).toBeUndefined();
-	});
+				expect(refused, to).toContain(
+					"Not sent: this asks for the person's hands",
+				);
+			}
+			expect(lastSent()).toBeUndefined();
+		},
+	);
 
 	// Its owner is this process under another start, so it has ended.
 	it("never picks a cell whose session has ended", async () => {

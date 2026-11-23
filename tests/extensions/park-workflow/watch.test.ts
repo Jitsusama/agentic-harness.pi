@@ -25,6 +25,8 @@ import {
 	mayPark,
 	noteNeverParks,
 	type Parkable,
+	replaceInPlace,
+	restartEnvironment,
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
@@ -44,6 +46,7 @@ import {
 	opensOnlyItself,
 	PARK_AFTER_MS,
 	PARK_ASK,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	parkSwitch,
@@ -52,9 +55,11 @@ import {
 	readParked,
 	readWakes,
 	SESSION_WOKEN,
+	takeBackRestartPark,
 	WAKES_KEPT_MS,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { CALLS_WATCHED_MS } from "../../../lib/internal/shell/carried.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -188,6 +193,41 @@ describe("parking a session", () => {
 		// Asked again before pi has gone, it doesn't park twice.
 		expect(watched.look()).toBe("parking already");
 		expect(shutdowns).toBe(1);
+	});
+
+	// 21 November, P10876: parked, its exit hung on a name lookup and
+	// ended by a signal, so its holder, seeing no 75, let the window go.
+	it("tells a holder that names a file for it that the run parked, before pi ends", () => {
+		const parked = join(folder, "held.parked");
+		const saidAtExit: boolean[] = [];
+		let refusing = true;
+		events.on(PARK_ASK, (data) => {
+			if (refusing && isParkAsk(data)) data.refusals.push("a run is on");
+		});
+		const watched = watch(session(), events, {
+			env: { ...holder(), MYCELIUM_PARKED: parked },
+			args: [],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code) => {
+				saidAtExit.push(existsSync(parked));
+				exits.push(code);
+			},
+			clock: false,
+		});
+		clock = NAMED_PARK_AFTER_MS - 1;
+		expect(watched.look()).toBe("not idle long enough");
+		expect(existsSync(parked), "awake, it says nothing").toBe(false);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("a run is on");
+		expect(existsSync(parked), "refused when due, it says nothing").toBe(false);
+		refusing = false;
+		expect(watched.look()).toBeUndefined();
+		expect(readFileSync(parked, "utf8"), "parked, it says so").toBe("");
+		expect(saidAtExit, "said before pi's exit is set").toEqual([true]);
+		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
 	it("names its holder the command that opens its log, to wake with", () => {
@@ -731,6 +771,67 @@ describe("starting again on a fresh log", () => {
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
+	// A shutdown that hangs before the exit, where the restart runs, ends
+	// by a signal: said only there, the holder would let the window go.
+	it("tells its holder the run parked as it commits to starting again, before pi ends", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_PARKED: parked });
+		asked();
+		expect(shutdowns, "pi is asked to end").toBe(1);
+		expect(readFileSync(parked, "utf8"), "said before it exits").toBe("");
+		fallbacks[0]?.();
+		expect(readFileSync(parked, "utf8"), "ending for its holder").toBe("");
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	// Node ends a process whose execve call fails by abort, with no
+	// fallback (PV3TE0 on node 24, 21 November): taken back before it,
+	// the window would be lost, unparked and unwoken.
+	it("leaves the park said through the execve, for the pi it becomes to take back as it starts", () => {
+		const parked = join(folder, "held.parked");
+		const env = {
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			PI_SESSION_FILE: "/logs/first.jsonl",
+		};
+		shownIn("kitty");
+		restarting(env);
+		asked();
+		expect(readFileSync(parked, "utf8"), "standing as it is replaced").toBe("");
+
+		const becomes = restartEnvironment(env, HELD_PID);
+		expect(becomes[PARK_SAID_ENV], "the pi it becomes knows who said it").toBe(
+			String(HELD_PID),
+		);
+		expect(becomes.PI_SESSION_FILE, "a first start's alone").toBe(undefined);
+		takeBackRestartPark(becomes, HELD_PID);
+
+		expect(existsSync(parked), "up again, it hasn't parked").toBe(false);
+	});
+
+	// One-writer's hand-over says a park in the same session_start
+	// (F14, #1951), and pi may run its handler first: only the factory,
+	// as pi loads it, takes a restart's park back (index.test.ts).
+	it("takes back no park as it starts watching, even one a restart said", () => {
+		const parked = join(folder, "held.parked");
+		writeFileSync(parked, "");
+
+		restarting({
+			...holder(),
+			MYCELIUM_PARKED: parked,
+			[PARK_SAID_ENV]: String(HELD_PID),
+		});
+
+		expect(readFileSync(parked, "utf8"), "another's park stands").toBe("");
+	});
+
+	it("says nothing of a park when it refuses to start again", () => {
+		const parked = join(folder, "held.parked");
+		restarting({ ...holder(), MYCELIUM_AGAIN: "", MYCELIUM_PARKED: parked });
+		expect(asked().why).toBe("its holder would start it on the log it left");
+		expect(existsSync(parked)).toBe(false);
+	});
+
 	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {
 		mkdirSync(join(folder, "held.wake"));
 		restarting();
@@ -932,6 +1033,60 @@ describe("starting again on a fresh log", () => {
 		events.emit(RESTART_ASK, other);
 		expect(other).not.toHaveProperty("restarting");
 		expect(shutdowns).toBe(0);
+	});
+});
+
+describe("replacing the process in place", () => {
+	const argv = ["/bin/node", "pi.js", "--session", "s.jsonl"] as const;
+
+	const recording =
+		(steps: string[]): NodeJS.Process["execve"] =>
+		(file, args, env) => {
+			steps.push(`execve ${file} ${args?.join(" ")} ${env?.HOME}`);
+			return undefined as never;
+		};
+
+	it("replaces it by execve when its program can run", () => {
+		const steps: string[] = [];
+		replaceInPlace(recording(steps), argv, { HOME: "/home/joel" }, () => true);
+		expect(steps).toEqual([
+			"execve /bin/node /bin/node pi.js --session s.jsonl /home/joel",
+		]);
+	});
+
+	// Node aborts on a failed execve call rather than throwing, so a
+	// program gone from under a long-running pi has to be caught first.
+	it("returns without calling execve when its program can't be run, so its holder starts it", () => {
+		const steps: string[] = [];
+		replaceInPlace(recording(steps), argv, {}, () => false);
+		expect(steps).toEqual([]);
+	});
+
+	it("returns without calling execve where its program is gone from the disk", () => {
+		const steps: string[] = [];
+		replaceInPlace(
+			recording(steps),
+			[join(folder, "no-such-node"), "pi.js"],
+			{},
+		);
+		expect(steps).toEqual([]);
+	});
+
+	it("returns where Node has no execve, so its holder starts it", () => {
+		expect(() => replaceInPlace(undefined, argv, {}, () => true)).not.toThrow();
+	});
+
+	it("returns, never throwing, when execve throws", () => {
+		expect(() =>
+			replaceInPlace(
+				() => {
+					throw new Error("ENOENT: no such file, execve");
+				},
+				argv,
+				{},
+				() => true,
+			),
+		).not.toThrow();
 	});
 });
 
@@ -1140,6 +1295,38 @@ describe("why a session stays awake", () => {
 			);
 			draining = true;
 			expect(usual.look(), "drained, it parks at once").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	// 22 November: 15 children ran host code 34 hours old, holding 10.9 GB,
+	// since a child never restarts (3PXQTB [bc2e766b]); one whose host code
+	// is stale parks at its next quiet moment, so its wake starts it fresh.
+	it("parks a hosted conversation as soon as its rule holds once its host rolls onto new code", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let rolling = false;
+		host.host.park = (id) => asked.push(id);
+		// Only this conversation rolls, as a host whose window views another says.
+		host.host.rolling = (id) => rolling && id === SESSION;
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			const busy = watching(session({ isIdle: () => false }), conversation);
+			rolling = true;
+			expect(busy.look(), "a running one stays, stale or not").toBe(
+				RUN_UNDER_WAY,
+			);
+			busy.stop();
+
+			rolling = false;
+			const usual = watching(session(), conversation);
+			expect(usual.look(), "current, it waits its time").toBe(
+				"not idle long enough",
+			);
+			rolling = true;
+			expect(usual.look(), "stale, it parks at once").toBeUndefined();
 			expect(asked).toEqual([SESSION]);
 		} finally {
 			host.dispose();
@@ -1468,7 +1655,188 @@ describe("why a session stays awake", () => {
 				readParked(SESSION, folder)?.afterMs,
 				"a drain's park says so, and its wake isn't the rule's",
 			).toBe(0);
+			drained.stop();
+			writeFileSync(parkSwitch(folder), "\n");
+			clock = 0;
+			const drainedSwitchedOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedSwitchedOff.look(),
+				"a drain parks it with the switch off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION]);
+			drainedSwitchedOff.stop();
+			writeFileSync(parkSwitch(folder), "off\n");
+			clock = 0;
+			const drainedLineOff = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+			});
+			expect(
+				drainedLineOff.look(),
+				"a drain parks it under a line off too",
+			).toBeUndefined();
+			expect(asked).toEqual([SESSION, SESSION, SESSION]);
 		} finally {
+			host.dispose();
+		}
+	});
+
+	// 22 November, 05:52: 26 of 78 background conversations, 8.8 GB, stayed
+	// awake only for a bash call, most a loop waiting on another run's rc.
+	it("parks a background host's conversation with only bash calls out where its host carries them, and stays for anything else", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		let carries = true;
+		let viewed = false;
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => carries;
+		host.host.viewed = () => viewed;
+		// As job-workflow's own: a job whose spec can't carry it (a shell
+		// whose tee won't outlive pi) holds, whatever the host keeps.
+		const shell = (over: Record<string, unknown> = {}) => ({
+			kind: "shell",
+			keep: join(folder, "kept"),
+			pid: 2 ** 22 + 1,
+			mark: "a-mark",
+			startedAt: 0,
+			...over,
+		});
+		const out: {
+			id: string;
+			kind: string;
+			label: string;
+			carry?: { kind: string; [field: string]: unknown };
+		}[] = [
+			{
+				id: "j1",
+				kind: "shell",
+				label: "until grep -q rc= run.log",
+				carry: shell(),
+			},
+		];
+		let unsaid = 0;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => out.length + unsaid,
+			running: () => out,
+			holds: (carriable = () => true) =>
+				out.filter((job) => job.carry === undefined || !carriable(job.carry)),
+		});
+		const env = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const onMac = watching(session(), env, [], "darwin");
+			const watched = watching(session(), env, [], "linux");
+			clock = BACKGROUND_PARK_AFTER_MS;
+
+			carries = false;
+			expect(watched.look(), "a host that can't keep it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			carries = true;
+			viewed = true;
+			clock = PARK_AFTER_MS;
+			expect(watched.look(), "a window views it").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			viewed = false;
+			expect(onMac.look(), "a Mac's holder is lost in a park").toBe(
+				"a command is out (j1: until grep -q rc= run.log)",
+			);
+			onMac.stop();
+			out.push({ id: "j2", kind: "subagent", label: "k7-read" });
+			expect(watched.look(), "a fleet goes nowhere").toBe(
+				"a fleet is out (j2: k7-read)",
+			);
+			out.pop();
+			// One its watch would wake for at once holds it, rather than a park
+			// and a wake every few minutes (#1981 F72).
+			out.push({
+				id: "j4",
+				kind: "shell",
+				label: "sleep 1d",
+				carry: shell({ startedAt: PARK_AFTER_MS - CALLS_WATCHED_MS }),
+			});
+			expect(watched.look(), "a call a day old").toBe(
+				"a command is out (j4: sleep 1d)",
+			);
+			out.pop();
+			// A drain lists heavy runs only from awake conversations, so a
+			// suite or a build a park carried would be cut by a drained
+			// restart (#1981 F70).
+			out.push({
+				id: "j6",
+				kind: "shell",
+				label: "pnpm test",
+				carry: shell(),
+			});
+			expect(watched.look(), "a heavy run").toBe(
+				"a command is out (j6: pnpm test)",
+			);
+			out.pop();
+			out.push({
+				id: "j5",
+				kind: "shell",
+				label: "timeout 60",
+				carry: shell({ deadline: PARK_AFTER_MS }),
+			});
+			expect(watched.look(), "a call past its limit").toBe(
+				"a command is out (j5: timeout 60)",
+			);
+			out.pop();
+			out.push({ id: "j3", kind: "shell", label: "tee run.log" });
+			expect(watched.look(), "a call that can't outlive pi").toBe(
+				"a command is out (j3: tee run.log)",
+			);
+			unsaid = 1;
+			expect(
+				watched.look(),
+				"a held call beside an end not yet said names neither",
+			).toBe("background jobs are out");
+			out.pop();
+			expect(watched.look(), "an end not yet said").toBe(
+				"background jobs are out",
+			);
+			unsaid = 0;
+			expect(asked, "nothing parked yet").toEqual([]);
+
+			expect(watched.look(), "only a carried call: it parks").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			stopJobs();
+			host.dispose();
+		}
+	});
+
+	it("stays for every job a job host from before its holds says is out", () => {
+		const host = installTestHost("one-background");
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.carries = () => true;
+		const stopJobs = announceJobHost(events, {
+			start: () => {
+				throw new Error("not started here");
+			},
+			pending: () => 1,
+		});
+		try {
+			writeFileSync(parkSwitch(folder), "on\n");
+			clock = 0;
+			const watched = watching(
+				session(),
+				{ MYCELIUM_WAKE: join(folder, "conversation.wake") },
+				[],
+				"linux",
+			);
+			clock = PARK_AFTER_MS;
+			expect(watched.look()).toBe("background jobs are out");
+			expect(asked).toEqual([]);
+		} finally {
+			stopJobs();
 			host.dispose();
 		}
 	});
@@ -1585,6 +1953,23 @@ describe("why a session stays awake", () => {
 		const asked: string[] = [];
 		host.host.park = (id) => asked.push(id);
 		host.host.draining = () => true;
+		try {
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+				PI_PARK: "off",
+			});
+			expect(watched.look()).toBe("parking is off");
+			expect(asked).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("keeps a hosted conversation awake through a roll when PI_PARK is off for it", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.rolling = () => true;
 		try {
 			const watched = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),

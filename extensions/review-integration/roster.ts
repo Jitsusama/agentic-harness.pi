@@ -17,6 +17,10 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	FEWEST_SPACING_MS,
+	MOST_SPACING_MS,
+} from "../../lib/core/review/ask/start-spacing.ts";
 import type { Participant, Roster } from "../../lib/core/review/index.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
@@ -222,6 +226,22 @@ export function maxReviewers(section: unknown): number {
 	return typeof said === "number" && Number.isInteger(said) && said > 0
 		? said
 		: DEFAULT_MAX_REVIEWERS;
+}
+
+/**
+ * How long after one round's start the next may start on this machine,
+ * as the config sets it in `startSpacingMinutes`, or undefined for the
+ * line's own default. A machine with room to spare, as the Mac had on
+ * 22 November while optimus thrashed, has no stampede to space against,
+ * and its rounds waited 3 minutes each behind a line four deep. A value
+ * is held between half a minute and half an hour, the bounds the line
+ * can keep, so a zero or a negative both mean as often as it can; one
+ * that is not a number of minutes at all is ignored.
+ */
+export function startSpacingMs(section: unknown): number | undefined {
+	const said = isRecord(section) ? section.startSpacingMinutes : undefined;
+	if (typeof said !== "number" || Number.isNaN(said)) return undefined;
+	return Math.min(MOST_SPACING_MS, Math.max(FEWEST_SPACING_MS, said * 60_000));
 }
 
 /** Why a round of this size is refused, or undefined when it fits. */

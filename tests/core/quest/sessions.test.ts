@@ -66,6 +66,84 @@ describe("attachSessionInQuestDir", () => {
 		});
 		expect(questOnDisk(dir).updated).toBe(before);
 	});
+
+	it("leaves the README alone when an attach only orders a process's keys apart", () => {
+		// A process read back puts `hosted` before the boot, and one just
+		// captured puts it last, so comparing them as built saw a change
+		// at every attach of a hosted session.
+		const owner = { pid: 7, startedAt: 1, bootId: "b", startTicks: 9 };
+		const dir = seedQuest(state(), "A", {
+			sessions: [
+				{
+					id: "s1",
+					started: FIRST,
+					status: "active",
+					process: {
+						hostId: "h",
+						pid: 7,
+						startToken: "t",
+						bootToken: "b",
+						startTicks: 9,
+						hosted: { host: "bg", session: "s1", owner },
+					},
+				},
+			],
+		});
+		const before = questOnDisk(dir).updated;
+
+		attachSessionInQuestDir(dir, {
+			id: "s1",
+			process: {
+				hostId: "h",
+				pid: 7,
+				startToken: "t",
+				bootToken: "b",
+				startTicks: 9,
+				hosted: { owner, session: "s1", host: "bg" },
+			},
+		});
+
+		expect(
+			questOnDisk(dir).updated,
+			"an attach that only moves keys writes nothing, so stamps no date",
+		).toBe(before);
+	});
+
+	it("writes an attach that changes a hosted process's owner", () => {
+		// The guard skips only what would be written alike; a session taken
+		// up by a new owner after a restart must still be recorded, or a
+		// liveness read would ask after the owner that's gone.
+		const owner = { pid: 7, startedAt: 1, bootId: "b", startTicks: 9 };
+		const process = {
+			hostId: "h",
+			pid: 7,
+			startToken: "t",
+			bootToken: "b",
+			startTicks: 9,
+			hosted: { host: "bg", session: "s1", owner },
+		};
+		const dir = seedQuest(state(), "A", {
+			sessions: [{ id: "s1", started: FIRST, status: "active", process }],
+		});
+		const before = questOnDisk(dir).updated;
+
+		attachSessionInQuestDir(dir, {
+			id: "s1",
+			process: {
+				...process,
+				hosted: { ...process.hosted, owner: { ...owner, pid: 8 } },
+			},
+		});
+
+		expect(
+			questOnDisk(dir).updated,
+			"an attach naming a new owner is written",
+		).not.toBe(before);
+		expect(
+			sessionOf(dir, "s1")?.process?.hosted?.owner.pid,
+			"the new owner is what the README holds",
+		).toBe(8);
+	});
 });
 
 describe("attachCurrentSession", () => {

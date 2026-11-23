@@ -31,8 +31,10 @@ is born there. pi itself stays where it was started.
   `shell-workflow` has the shell write its own pid first, and then all
   200 shells' commands ran in the cgroup.
 - **A Mac takes turns too, and places nothing.** It keeps the same queue,
-  in the account's temporary folder, where its mycelium node looks, under
-  the same turn rules. Its room comes from its kernel's own terms
+  in the folder `AGENTS_RUNTIME_DIR` names or the account's cache folder,
+  where its mycelium node looks, under the same turn rules. That folder
+  outlasts a reboot, so a job asked before the boot counts as ended,
+  whatever process its pid names now. Its room comes from its kernel's own terms
   (`lib/internal/priority/room-darwin.ts`). Memory waits at
   `kern.memorystatus_vm_pressure_level` warning or worse, while it swaps
   out, or under 20% available. CPU pressure is load past the cores, and
@@ -85,7 +87,9 @@ else's VM, and ran one VM at a time across the machine. One VM test
 waited 35 minutes while 3.7 of 16 cores were busy and 45 of 62 GiB
 stood free.
 
-Now every pi session shares one queue in `$XDG_RUNTIME_DIR/jobs`, with
+Now every pi session shares one queue in `jobs` in the runtime folder
+(AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache
+folder), with
 no daemon and no command to learn. When a bash call runs heavy work,
 the harness reads its kind from one map, puts a job in the queue, and
 the call's shell waits for its turn before it runs anything; pi itself
@@ -245,7 +249,13 @@ is a build, never a VM check.
   seconds or the last minute, is at 70% or more, or its IO pressure at
   60% or more, though a Nix build still goes while a builder elsewhere
   has a build slot free, a changed-checks sent whole to a builder goes,
-  and quick work still goes. Both wait on `busy`. From 40% CPU pressure
+  an `elsewhere run` sent to another machine goes (from a session on a
+  quest, with no `--here`, its kind placed far by `elsewhere where`
+  within the last two minutes, named bare as PATH finds it, nothing in
+  the command changing `PI_QUEST`, `PATH` or what `elsewhere` means,
+  and nothing in the step expanding a command here), and quick work
+  still goes. Both wait on `busy`. The same sent runs start while
+  memory is short. From 40% CPU pressure
   a build given its turn is capped, its cargo jobs with it, so one
   build's links can't push the machine past the line. The
   machine's figure alone says little of the person: at 21:27 on 7
@@ -253,7 +263,18 @@ is a build, never a VM check.
   keep the person's programs first and agents wait on each other.
 - **A turn** comes when the memory left past the floors core.nix keeps
   for the person's programs covers the job's need, memory pressure is
-  under 10%, and fewer than six VMs run. No VM starts here at all while
+  under 10%, and fewer than six VMs run. Past 10%, only work light here
+  starts, beside one heavy job other than a VM while the machine still
+  moves: every task stalled on memory under 40% of the last minute
+  (`full avg60`), the person's programs read and not stalling on it
+  past 1%, and no other heavy job, daemon build or VM running here.
+  Pressure counts any task waiting, and on 22 November builds waited
+  178.5 hours on memory to run 28.8. Where the minute's stall or the
+  person's floors aren't read, as on the Mac, every heavy job waits.
+  A VM waits whatever the stall: a guest keeps every page it has
+  touched until it stops. The floors read 0 while the person is away,
+  but their `memory.min` keeps app.slice's pages from reclaim. No VM
+  starts here at all while
   the person's programs stall on memory more than 1% of the time, or CPU
   pressure is at 70% or more: on 29 October VMs kept getting slots while
   Joel's desktop stalled, so nothing waited and no cloud builder was lent.
@@ -413,8 +434,11 @@ is a build, never a VM check.
   nobody keeps the queue, so no harness session runs there. `room` says
   whether heavy work would start now, not whether the machine can take
   another session; that is `machine.availableGib` and its `pressure`.
+  Past 10% memory pressure it is the one heavy lane: one build while
+  the lane is open and nothing holds it, else none.
   `machine.over` names the queue's own pressure limits the machine is
-  at or past now, `memory` (no job starts) and `cpu` (no build starts
+  at or past now, `memory` (only light work and one heavy job start,
+  as `room` says) and `cpu` (no build starts
   beside a VM check), so a reader never applies the limits itself, and
   `room` at 0 with `over` empty reads as a full queue, not a pressed
   machine.

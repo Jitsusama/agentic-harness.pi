@@ -284,7 +284,28 @@ it sleeps on; the conversation's next start or its close clears it.
 While it rests, parking.ts also watches the steer inbox of each address
 its park marker names (`lib/mesh/parked.ts`), and wakes it the same
 way as soon as a talk, close, carry, move, fill or answer lands, rather
-than at the mesh's once-a-minute pass, which stays as the backstop. A
+than at the mesh's once-a-minute pass, which stays as the backstop.
+Where a park keeps carried bash calls (a shared host with a jobs
+cgroup, or spawners in scopes of their own), it stops the conversation
+carrying them as a restart does; parked-calls.ts writes the calls the
+conversation's bus said it carried to `carried-calls.json` beside its
+wake file, and whoever watches that wake looks at them every five
+seconds, rolling their output as the conversation would, and writing
+the wake file once none still runs. Any doubt wakes it, since a woken
+conversation takes its calls up again and holds them or times them
+out: a call past its own time limit or a day old counts as ended, a
+record that can't be written wakes it as it parks, a wake refused is
+asked again after five minutes and then twice as long each time up to
+an hour until it runs, and a wake file that can't be written is tried
+again at each look. The record stands until a resume runs (`ran`), so
+a start that fails watches on; closing the conversation for good,
+held but not running or not, stops the calls, and a release leaves
+them to the next holder, taking them off what this host's own restart
+would keep. `PI_PARK_CARRY=off` turns the
+carry off, parking as before it. Where it falls short: a host unit
+that dies wakes every carried conversation at once as it starts, and
+a restart's carry landing in the same moment as a park's can record
+the calls twice, which only wakes once. A
 host starting leaves parked what its last process parked this boot,
 plain pi's marker still naming this host's wake file
 (`restsParked`): it builds nothing, watches the wake file as the park
@@ -323,8 +344,10 @@ of 98.6 MB held 142 MB of heap whole, against 30 MB for that view
 (126 MB against 14 over a bare session's). The file and session id
 stay as they are, so the roster, socket, store and mesh address do
 too. A rollover record that is never written names the same file as
-its parent and carries the spend of the turns left on disk, so
-session_recall and the spend total read as before; usage entries,
+its parent and carries the spend and first prompt of the turns left
+on disk, so session_recall, the spend total and the compaction
+trigger read as before, and compaction quotes read back what they need
+from the file; usage entries,
 never written either, carry their tokens and cost for pi's footer and
 /session; and every id in the file stays taken. The tree, a fork, a
 lookup of an entry left on disk, a branch to one from before the last

@@ -51,9 +51,20 @@ EARLIER_HOURS=12
 generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 
 # What a host runs, and what decides how test:host runs it: the host
-# program, its screens and the session seam its conversations go through,
-# the host tests themselves, and the lockfile and config they run under.
-hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|scripts/pi-host|scripts/host-|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
+# program, the launcher's spawn decider, its screens and the session seam
+# its conversations go through, the host tests themselves, and the
+# lockfile, config and setup they run under: the process lane's setup
+# files and its global setup, with everything those import, the scripts'
+# loader and the keyring's stand-in among it, never the unit lane's alone:
+# of the keyring, only its store and what picks one, not the tokens
+# Google's and Slack's sign-ins keep. host-gate.test.ts reads that setup
+# from the config, so a file it comes to load fails there until it is
+# here. A test helper outside tests/host that every lane shares, as
+# tests/support/until.ts, and what the spawn decider imports from the
+# library every extension does, as lib/internal/paths.ts, are left to
+# pnpm check: counting one would ask an hour's run of a change most
+# tests answer.
+hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|lib/core/internal/keyring/(secrets\.ts|store\.ts|keychain\.ts|secret-service\.ts|secret-service-call\.mjs)$|tests/host/|tests/setup/(pi-install|xdg-sandbox|temp-root|scripts-as-text)\.ts$|tests/support/memory-secret-store\.ts$|scripts/pi-host|scripts/host-|scripts/spawn-decide\.ts$|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
 # The extensions whose tools and turns the host cases drive, and the
 # libraries under them: background jobs, tool_search's loadout, the mesh,
 # parking, quests, reloads, stored results, spend and subagents. A host
@@ -61,14 +72,24 @@ hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|scripts/p
 # rest load; only these have behaviour a host case would catch. #1441
 # changed subagent-workflow and merged with no run, breaking 3 cases.
 driven='^(extensions/(job|loadout|mesh|park|quest|reload|result-store|spend|subagent)-workflow/|lib/(mesh|jobs|subagent)/|lib/internal/(session|reload|quest)/)'
+# A folder's README, which says what the folder holds for a person and
+# which nothing a host runs reads. Counting one asked a whole run, over an
+# hour on a lender, of a change to prose alone: #1973 and #2002 on 22
+# November each waited on one for a README line. Any other markdown still
+# counts, since a host could read it.
+prose='(^|/)README\.md$'
 
 git fetch -q origin main
 if ! git cat-file -e "$sha^{commit}" 2> /dev/null; then git fetch -q origin "$sha"; fi
 base=$(git merge-base origin/main "$sha")
 # The diff is its own step, so a diff that fails stops the gate rather
-# than passing as a change that touches nothing.
-changed=$(git diff --name-only "$base" "$sha")
-touched=$(echo "$changed" | grep -E "$hosted|$driven" || true)
+# than passing as a change that touches nothing. A rename is listed as
+# the path it left and the path it took, so hosted code moved to a README
+# still counts by the path it left.
+changed=$(git diff --name-only --no-renames "$base" "$sha")
+# A grep finding nothing exits 1, which means nothing a host runs; any
+# other failure stops the gate rather than passing the change.
+touched=$(echo "$changed" | grep -E "$hosted|$driven" | grep -vE "$prose") || [[ $? == 1 ]]
 if [[ -z $touched ]]; then
   echo "host-gate: $sha touches nothing pi hosts run, so test:host isn't needed"
   exit 0

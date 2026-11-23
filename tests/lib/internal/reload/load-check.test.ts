@@ -98,6 +98,8 @@ describe("reading pi's answer", () => {
 				XDG_STATE_HOME: "/home/j/.local/state",
 				MYCELIUM_WAKE: "/run/user/1000/mycelium/work.held/x.wake",
 				KITTY_WINDOW_ID: "174",
+				// Inherited from a Mac's host start, and overridden.
+				AGENTS_RUNTIME_DIR: "/Users/j/Library/Caches/x",
 			},
 			"/tmp/box",
 		);
@@ -109,6 +111,7 @@ describe("reading pi's answer", () => {
 			XDG_DATA_HOME: "/tmp/box/data",
 			XDG_CACHE_HOME: "/tmp/box/cache",
 			XDG_RUNTIME_DIR: "/tmp/box/runtime",
+			AGENTS_RUNTIME_DIR: "/tmp/box/runtime",
 			PI_NOTIFY: "off",
 			PI_LAUNCHER: "off",
 			PI_SETTLE: "off",

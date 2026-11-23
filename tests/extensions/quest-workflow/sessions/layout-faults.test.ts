@@ -25,6 +25,15 @@ vi.mock("../../../../lib/internal/session/journal.ts", async (original) => ({
 		journalled.push({ text, level: command?.args[0] }),
 }));
 
+/**
+ * How long the test waits for a start's faults to reach the journal.
+ * On 21 November, under memory pressure, the default 1 s failed on main.
+ */
+const JOURNALLED_WITHIN_MS = 10_000;
+
+/** The whole test's limit: both starts, each waited on as long as that. */
+const TEST_WITHIN_MS = 3 * JOURNALLED_WITHIN_MS;
+
 const envGuard = createEnvGuard();
 let tmpRoot: string;
 
@@ -75,48 +84,60 @@ function recordedPaths(): string[] {
 		: [];
 }
 
-it("keeps a quest folder with no README to the record and the journal, once, and off the screen", async () => {
-	const questsRoot = join(tmpRoot, "quests");
-	const notices: string[] = [];
-	const budgets = { keep: async () => undefined, forget: () => undefined };
+it(
+	"keeps a quest folder with no README to the record and the journal, once, and off the screen",
+	async () => {
+		const questsRoot = join(tmpRoot, "quests");
+		const notices: string[] = [];
+		const budgets = { keep: async () => undefined, forget: () => undefined };
 
-	for (const [reason, folder] of [
-		["startup", "QEST-20261120-AAAAAA"],
-		["reload", "QEST-20261120-BBBBBB"],
-	]) {
-		mkdirSync(join(questsRoot, folder ?? ""), { recursive: true });
-		const pi = fakePi();
-		const state = createQuestState({ questsRoot });
-		followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
-		const [start] = pi.recorded.handlers.get("session_start") ?? [];
-		clearDiscoveryCache();
-		await withSession("a", async () =>
-			start?.({ type: "session_start", reason }, startIn(tmpRoot, notices)),
-		);
-		// The start keeps the faults without waiting, and journals after
-		// the record is written, so the test waits for the journal.
-		await vi.waitFor(() =>
-			expect(
-				journalled.map((write) => write.text).join("\n"),
-				`the journal after the ${reason}`,
-			).toContain(folder ?? ""),
-		);
-	}
+		for (const [reason, folder] of [
+			["startup", "QEST-20261120-AAAAAA"],
+			["reload", "QEST-20261120-BBBBBB"],
+		]) {
+			mkdirSync(join(questsRoot, folder ?? ""), { recursive: true });
+			const pi = fakePi();
+			const state = createQuestState({ questsRoot });
+			followSessionLife(
+				pi,
+				state,
+				budgets as unknown as BudgetKeeper,
+				undefined,
+			);
+			const [start] = pi.recorded.handlers.get("session_start") ?? [];
+			clearDiscoveryCache();
+			await withSession("a", async () =>
+				start?.({ type: "session_start", reason }, startIn(tmpRoot, notices)),
+			);
+			// The start keeps the faults without waiting, and journals after
+			// the record is written, so the test waits for the journal: under
+			// load the record's lock and write outlast vi.waitFor's 1 s default.
+			await vi.waitFor(
+				() =>
+					expect(
+						journalled.map((write) => write.text).join("\n"),
+						`the journal after the ${reason}`,
+					).toContain(folder ?? ""),
+				{ timeout: JOURNALLED_WITHIN_MS },
+			);
+		}
 
-	expect(notices, "what the starts showed").toEqual([]);
-	// In the walk's order, which is the folder listing's, so sorted here.
-	expect(recordedPaths().sort(), "the faults the reload found").toEqual([
-		expect.stringContaining("QEST-20261120-AAAAAA"),
-		expect.stringContaining("QEST-20261120-BBBBBB"),
-	]);
-	expect(journalled, "each fault journalled once, as first found").toEqual([
-		{
-			text: expect.stringMatching(/QEST-20261120-AAAAAA.*README\.md missing/),
-			level: "warning",
-		},
-		{
-			text: expect.stringMatching(/QEST-20261120-BBBBBB.*README\.md missing/),
-			level: "warning",
-		},
-	]);
-});
+		expect(notices, "what the starts showed").toEqual([]);
+		// In the walk's order, which is the folder listing's, so sorted here.
+		expect(recordedPaths().sort(), "the faults the reload found").toEqual([
+			expect.stringContaining("QEST-20261120-AAAAAA"),
+			expect.stringContaining("QEST-20261120-BBBBBB"),
+		]);
+		expect(journalled, "each fault journalled once, as first found").toEqual([
+			{
+				text: expect.stringMatching(/QEST-20261120-AAAAAA.*README\.md missing/),
+				level: "warning",
+			},
+			{
+				text: expect.stringMatching(/QEST-20261120-BBBBBB.*README\.md missing/),
+				level: "warning",
+			},
+		]);
+	},
+	TEST_WITHIN_MS,
+);

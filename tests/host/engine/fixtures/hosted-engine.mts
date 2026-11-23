@@ -22,7 +22,8 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { registerHooks } from "node:module";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
 	EngineKey,
@@ -30,25 +31,9 @@ import type {
 	HostEngine,
 	HostedView,
 } from "../../../../host/engine/contract.ts";
-import { createEngine } from "../../../../host/engine/engine.ts";
-import { bindHeadless } from "../../../../host/engine/headless.ts";
-import { SessionHost } from "../../../../host/engine/session-host.ts";
-import { emptyOverlay, layBudget } from "../../../../lib/budget/environment.ts";
+import type { SessionHost } from "../../../../host/engine/session-host.ts";
+import { piFromHost } from "../../../../host/service/pi-resolution.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
-import {
-	LONG_CACHE_LIFETIME_MS,
-	warmingDelayMs,
-} from "../../../../lib/internal/cache/cache-warming.ts";
-import {
-	pendingWarmsDir,
-	takePendingWarms,
-	warmingCarryDir,
-	writeWarmingCarry,
-} from "../../../../lib/internal/cache/warming-carry.ts";
-import {
-	WAKE_ENV,
-	writeParked,
-} from "../../../../lib/internal/session/park.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 import { until } from "../../../support/until.ts";
 
@@ -80,6 +65,64 @@ function argument(position: number): string {
 const packageDir = argument(0);
 const folder = argument(1);
 const scenarioName = argument(2);
+
+// The harness's code binds the host's pi, as pi-host binds it in a host, so
+// what loads after pi (kept history) runs on the pi the host was built with,
+// not the tree's dev copy. The hook goes in before any harness code loads.
+const hostPi = piFromHost(packageDir);
+/** Where kept history's rollover module found pi-ai, once it has loaded. */
+let rolloverPi: string | undefined;
+registerHooks({
+	resolve: (specifier, context, next) => {
+		// Read before resolving: once the hook has handed the install's root on
+		// as the parent, this context's parentURL names that root, not rollover.
+		const fromRollover =
+			specifier === "@earendil-works/pi-ai" &&
+			(context.parentURL?.endsWith("/lib/internal/session/rollover.ts") ??
+				false);
+		const resolved = hostPi(specifier, context, next);
+		if (fromRollover) rolloverPi = resolved.url;
+		return resolved;
+	},
+});
+const { createEngine } = await import("../../../../host/engine/engine.ts");
+const { bindHeadless } = await import("../../../../host/engine/headless.ts");
+const sessionHosts = await import("../../../../host/engine/session-host.ts");
+const { emptyOverlay, layBudget } = await import(
+	"../../../../lib/budget/environment.ts"
+);
+const { LONG_CACHE_LIFETIME_MS, warmingDelayMs } = await import(
+	"../../../../lib/internal/cache/cache-warming.ts"
+);
+const {
+	pendingWarmsDir,
+	takePendingWarms,
+	warmingCarryDir,
+	writeWarmingCarry,
+} = await import("../../../../lib/internal/cache/warming-carry.ts");
+const { holdForCarry } = await import(
+	"../../../../lib/internal/carry/under-way.ts"
+);
+const { WAKE_ENV, writeParked } = await import(
+	"../../../../lib/internal/session/park.ts"
+);
+const { ROLLOVER_RECORD } = await import(
+	"../../../../lib/internal/session/rollover.ts"
+);
+
+/**
+ * Whether kept history's pi-ai is the one the host's pi installs. It
+ * checks this fixture's load order, its hook before its own rollover
+ * import, not that the engine loads kept history late: the engine itself
+ * loads after the hook here, so that order is held by
+ * program-binds-no-pi-at-load.test.ts and pi-host.test.ts instead.
+ */
+function keptHistoryOnHostPi(): boolean {
+	const installed = realpathSync(
+		join(packageDir, "node_modules/@earendil-works/pi-ai"),
+	);
+	return rolloverPi?.startsWith(pathToFileURL(`${installed}/`).href) ?? false;
+}
 
 const compat = piModule<Compat>(
 	await import(
@@ -294,6 +337,12 @@ function projectExtension(dir: string, file: string, loaded: string): void {
 			"",
 		].join("\n"),
 	);
+}
+
+/** Whether a probe line says pi refused its `/probe-switch`. */
+function switchCancelled(line: unknown): boolean {
+	const event = field(line, "event");
+	return event === "switch-cancelled" || event === "switch-refused";
 }
 
 /** Whether a probe line is something other than its input handler's answer. */
@@ -521,6 +570,77 @@ const scenarios: Record<string, Scenario> = {
 					woken,
 					closed,
 					closedParked: logHolds(otherFile),
+				},
+			};
+		},
+	},
+	/**
+	 * What the host holds of a compacted log on each way it builds one
+	 * from disk: a resume and an adopt, through the engine's own binding,
+	 * and a conversation an extension's command switches to, through the
+	 * parts a replacement is built from.
+	 */
+	"kept-history": {
+		// Each conversation is compacted in full before the next starts, so
+		// its three turns are answered in a row.
+		responses: () =>
+			["first", "second", "third"].flatMap((conversation) =>
+				["early", "kept", "after"].map((word) =>
+					say(`${conversation} ${word}`),
+				),
+			),
+		run: async (engine, host) => {
+			const first = await compacted(engine, host);
+			const second = await compacted(engine, host);
+			const third = await compacted(engine, host);
+			const request = {
+				v: 1 as const,
+				id: "adopt-1",
+				op: "adopt" as const,
+				sessionFile: third.entry.file,
+				attended: false,
+			};
+			const prepared = await engine.prepare(request);
+			await engine.start(prepared, request);
+			await idle(engine, prepared.sessionId);
+			const adopted = heldOf(engine, prepared.sessionId, third.kept);
+			await host.close(prepared.sessionId);
+			await engine.resume(first.entry);
+			await idle(engine, first.entry.sessionId);
+			const resumed = heldOf(engine, first.entry.sessionId, first.kept);
+			// Closed once compacted, so only the switch can hold it again.
+			const closedBefore = engine.view(second.entry.sessionId) === undefined;
+			await host.run(first.entry.sessionId, () =>
+				prompt(
+					engine,
+					first.entry.sessionId,
+					`/probe-switch ${second.entry.file}`,
+				),
+			);
+			const switched = second.entry.sessionId;
+			await until(
+				"the conversation switched to to be held",
+				() => {
+					const refused = lines(probe).find(switchCancelled);
+					if (refused)
+						throw new Error(
+							`pi refused the switch to ${second.entry.file}: ${JSON.stringify(refused)}`,
+						);
+					return engine.view(switched) !== undefined;
+				},
+				UNTIL_MS,
+			);
+			const replaced = heldOf(engine, switched, second.kept);
+			const switchedTo = summary(engine, switched).file === second.entry.file;
+			await host.close(switched);
+			return {
+				keptHistory: {
+					resumed,
+					adopted,
+					replaced,
+					closedBefore,
+					switchedTo,
+					onHostPi: keptHistoryOnHostPi(),
 				},
 			};
 		},
@@ -855,6 +975,46 @@ const scenarios: Record<string, Scenario> = {
 			return { background: { before, during, own, unheld } };
 		},
 	},
+	/** Hold a conversation for a carry: what a restart waits on, and a reload refused, then both once it lets go. */
+	"carry-held": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			const reloaded = () =>
+				host.reload(id, { reason: "the install moved" }).then(
+					() => "reloaded",
+					(error: unknown) =>
+						error instanceof Error ? error.message : String(error),
+				);
+			const before = engine.background();
+			const hold = holdForCarry(id, "penelope");
+			let during: number;
+			let holding: readonly string[];
+			let reloadDuring: string;
+			try {
+				during = engine.background();
+				holding = engine.holding();
+				reloadDuring = await reloaded();
+			} finally {
+				hold.release();
+			}
+			const after = engine.background();
+			const reloadAfter = await reloaded();
+			await host.close(id);
+			return {
+				firstId: id,
+				carryHeld: {
+					before,
+					during,
+					after,
+					holding,
+					reloadDuring,
+					reloadAfter,
+				},
+			};
+		},
+	},
 	/** Answer, start a new conversation from an extension's command, answer there, then stop. */
 	replace: {
 		responses: () => [say("hello there"), say("fine, thanks")],
@@ -938,9 +1098,16 @@ const scenarios: Record<string, Scenario> = {
 			}
 			const id = readEntry().sessionId;
 			const state = host.holds(id) ?? "gone";
+			// A park before it carried calls, whose record a close for good of
+			// one held but not running stops and forgets (#1981 F27).
+			const wake = host.env(id).snapshot()[WAKE_ENV];
+			if (wake === undefined) throw new Error(`${id} was given no wake file`);
+			const record = join(dirname(wake), "carried-calls.json");
+			mkdirSync(dirname(wake), { recursive: true });
+			writeFileSync(record, "[]\n");
 			// The host disposes only once it holds nothing.
 			await host.close(id);
-			return { refused, state };
+			return { refused, state, recordLeft: existsSync(record) };
 		},
 	},
 	/** A conversation's launch names a gateway key of its own, and the host has another. */
@@ -1404,7 +1571,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		JSON.stringify({ [realpathSync(work)]: true }),
 	);
 
-	const host = new SessionHost({
+	const host = new sessionHosts.SessionHost({
 		// A key of the folder's own, as each real host has: a start reaps what a dead host under its key left.
 		key: `test-host-${basename(folder)}`,
 		owner: { pid: process.pid, startedAt: Date.now() },
@@ -1526,6 +1693,86 @@ async function open(
 	return prepared.sessionId;
 }
 
+/** A session manager as kept history leaves it: its entries, header first. */
+interface HeldLog {
+	readonly fileEntries: readonly {
+		readonly type: string;
+		readonly id?: string;
+		readonly customType?: string;
+		readonly message?: Message;
+	}[];
+	getBranch(): readonly { readonly id: string; readonly message?: Message }[];
+	appendCompaction(
+		summary: string,
+		firstKeptEntryId: string,
+		tokens: number,
+	): string;
+}
+
+/** The session manager a held conversation reads its log through. */
+function logOf(engine: HostEngine, id: string): HeldLog | undefined {
+	const session = engine.view(id)?.runtime.session as unknown as
+		| { readonly sessionManager: HeldLog }
+		| undefined;
+	return session?.sessionManager;
+}
+
+/**
+ * Open a conversation, talk three turns, compact it from its second
+ * user message on, and close it: its roster entry, and the first entry
+ * the compaction keeps.
+ */
+async function compacted(
+	engine: HostEngine,
+	host: SessionHost,
+): Promise<{ entry: RosterEntry; kept: string }> {
+	const id = await open(engine, { first: "early" });
+	await idle(engine, id);
+	await prompt(engine, id, "kept");
+	await idle(engine, id);
+	await prompt(engine, id, "after");
+	await idle(engine, id);
+	const entry = readEntry();
+	const log = logOf(engine, id);
+	const said = (words: string) =>
+		log
+			?.getBranch()
+			.find((each) => each.message && text(each.message) === `user: ${words}`)
+			?.id;
+	const kept = said("kept");
+	// Either missing, the case below would hold nothing to tell a kept view from a whole log.
+	if (!log || !kept || !said("early"))
+		throw new Error(`Conversation ${id} doesn't hold what it was told`);
+	log.appendCompaction("talked early on", kept, 1000);
+	await host.close(id);
+	return { entry, kept };
+}
+
+/**
+ * What a conversation holds of its compacted log: the rollover record
+ * kept history writes in place of what it leaves out, whether the first
+ * entry after that record is the one the compaction keeps, and whether
+ * the turn before it is still held.
+ */
+function heldOf(
+	engine: HostEngine,
+	id: string,
+	kept: string,
+): Record<string, unknown> {
+	const entries = logOf(engine, id)?.fileEntries ?? [];
+	const record = entries.findIndex(
+		(entry) => entry.type === "custom" && entry.customType === ROLLOVER_RECORD,
+	);
+	return {
+		record: record !== -1,
+		keptNext: record !== -1 && entries[record + 1]?.id === kept,
+		earlyHeld: entries.some(
+			(entry) =>
+				entry.message !== undefined && text(entry.message) === "user: early",
+		),
+	};
+}
+
 /** Each line of a file the probe writes, read as JSON. */
 function lines(file: string): unknown[] {
 	return existsSync(file)
@@ -1572,16 +1819,21 @@ function summary(engine: HostEngine, id: string): Record<string, unknown> {
 
 interface Message {
 	readonly role: string;
-	readonly content: string | readonly { type: string; text?: string }[];
+	/** Absent on a message pi makes of an entry, such as a compaction's summary. */
+	readonly content?: string | readonly { type: string; text?: string }[];
 }
 
 function text(message: Message): string {
 	const content =
-		typeof message.content === "string"
-			? message.content
-			: message.content
-					.map((part) => (part.type === "text" ? part.text : `[${part.type}]`))
-					.join("");
+		message.content === undefined
+			? ""
+			: typeof message.content === "string"
+				? message.content
+				: message.content
+						.map((part) =>
+							part.type === "text" ? part.text : `[${part.type}]`,
+						)
+						.join("");
 	return `${message.role}: ${content}`;
 }
 

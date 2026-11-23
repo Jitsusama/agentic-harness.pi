@@ -60,6 +60,7 @@ export type {
 export { blocksRepoint, createGitHistory } from "./history.ts";
 export type { TreeAmbiguous, TreeInPlay } from "./inplay.ts";
 export { chooseTree, treeInPlay } from "./inplay.ts";
+export type { Landed } from "./landed.ts";
 export { createTreeMemory, type TreeMemory } from "./memory.ts";
 export type {
 	Objection,

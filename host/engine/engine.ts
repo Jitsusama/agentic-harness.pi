@@ -31,6 +31,7 @@ import {
 	type SessionStamp,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	clearParked,
@@ -59,7 +60,6 @@ import {
 } from "./harness-settings.ts";
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
-import { holdKeptHistory } from "./kept-history.ts";
 import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
@@ -78,7 +78,13 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
-import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
+import {
+	backgroundIn,
+	carryEnds,
+	heavyIn,
+	restartEnds,
+	stopKeeping,
+} from "./stopping.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -98,6 +104,11 @@ export async function createEngine(
 	options: EngineOptions,
 ): Promise<HostEngine> {
 	const pi = await loadHostPi(options.packageDir);
+	// Only here, never at the top: kept history binds values from pi's
+	// modules, which pi-host resolves from the host's install. Bound as
+	// the program loads, a missing install would fail the import before
+	// the program's configuration check refuses it with exit 78.
+	const { holdKeptHistory } = await import("./kept-history.ts");
 	// Before any conversation's extensions load, so the first subagent finds it.
 	pinSubagentInstall(hostedSubagentInstall(pi));
 	if (options.key) pinSubagentKey(options.key, KEY_VARIABLES);
@@ -129,6 +140,19 @@ export async function createEngine(
 		say: report,
 		report,
 	});
+	// A park carries a conversation's bash calls where they outlive it: a
+	// child's process ends once it parks, while a shared host runs on.
+	// Its stop tells the conversation the host restarts, which is how the
+	// conversation carries them and how `shells` hears of them, so a shared
+	// host's own later stop keeps them too. PI_PARK_CARRY=off turns it off,
+	// so a conversation with a call out stays awake, as before.
+	const parkCarries = () =>
+		process.env.PI_PARK_CARRY !== "off" &&
+		shells.keepsThroughPark(kept !== undefined);
+	// Conversations released to another holder, whose carried calls it takes up.
+	const released = new Set<string>();
+	// One whose carried calls couldn't be recorded carries none for a while.
+	host.keepsCarried((sessionId) => parkCarries() && parked.mayCarry(sessionId));
 	// What an earlier restart kept and no conversation here took up is
 	// stopped once due; a child's are the supervisor's to look over.
 	if (!kept) shells.watch((sessionId) => live.has(sessionId));
@@ -137,9 +161,11 @@ export async function createEngine(
 	const { warming } = requests;
 	const parked = parking({
 		stateDir: options.stateDir,
-		stop: (sessionId, why) => host.stop(sessionId, why),
+		stop: (sessionId, why, carrying) => host.stop(sessionId, why, carrying),
+		carries: parkCarries,
 		asking: () => watched?.wake,
 		report,
+		said: report,
 		parked: (sessionId) => warming.start(sessionId),
 		// The host serves one realm, its conversations' own (service/address.ts).
 		steers: {
@@ -162,7 +188,14 @@ export async function createEngine(
 					forgetsPaces: kept !== undefined,
 				});
 	const { build, view, failedAfterStart } = conversationBuilds({
-		parts: { pi, sessions, builtIns, trust, library },
+		parts: {
+			pi,
+			sessions,
+			builtIns,
+			trust,
+			library,
+			keptHistory: holdKeptHistory,
+		},
 		options,
 		report,
 		logs,
@@ -255,7 +288,10 @@ export async function createEngine(
 	): Live {
 		const { sessionId } = traits;
 		const record: Live = { traits, launch, bus: sessions.createEventBus() };
+		// Held here again: a release before says nothing of its next close.
+		released.delete(sessionId);
 		shells.heard(record.bus);
+		parked.hears(sessionId, record.bus);
 		host.register({
 			id: sessionId,
 			file: traits.file,
@@ -311,6 +347,11 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
+		// A close, not a stop: held but not running, as a failed start or a
+		// park's failed stop leaves it, it may still watch calls its park
+		// carried, which a close for good stops and a release leaves.
+		if (record.ending === "closed")
+			parked.closed(sessionId, !released.delete(sessionId));
 		await stopping.afterRelease(sessionId, record);
 		const events = watched;
 		if (record.ending === "closed" && events)
@@ -396,6 +437,9 @@ export async function createEngine(
 		const { sessionId } = record.traits;
 		const session = view(sessionId, record).runtime.session;
 		await session.waitForIdle();
+		// A carry ends its run first, so it is idle while it bundles.
+		const carried = carryHoldsReload(sessionId);
+		if (carried !== undefined) throw new Error(carried);
 		const screens = options.screens;
 		if (!screens?.reload) return session.reload();
 		const before = session.extensionRunner;
@@ -420,10 +464,12 @@ export async function createEngine(
 		},
 
 		background() {
-			// A warm of a parked conversation is out too.
+			// A warm of a parked conversation is out too, as is a carry.
 			let held = warming.inFlight();
-			for (const record of live.values())
-				held += restartEnds(record, shells, host.drains()).length;
+			for (const [sessionId, record] of live)
+				held +=
+					restartEnds(record, shells, host.drains()).length +
+					carryEnds(sessionId).length;
 			return held;
 		},
 
@@ -433,7 +479,10 @@ export async function createEngine(
 			if (warms > 0)
 				held.push(`${warms} parked warm${warms === 1 ? "" : "s"} in flight`);
 			for (const [sessionId, record] of live)
-				for (const what of restartEnds(record, shells, host.drains()))
+				for (const what of [
+					...restartEnds(record, shells, host.drains()),
+					...carryEnds(sessionId),
+				])
 					held.push(`${sessionId}: ${what}`);
 			return held;
 		},
@@ -552,9 +601,11 @@ export async function createEngine(
 				mark,
 				woken ? undefined : turns.take,
 			);
-			// Only once it runs: a wake that failed leaves its wake file watched,
-			// and one refused as it began says nothing true now.
+			// Only once it runs: a wake that failed leaves its wake file and the
+			// calls its park carried watched, and one refused as it began says
+			// nothing true now.
 			parked.unwatch(sessionId);
+			parked.ran(sessionId);
 		},
 
 		lost(entry) {
@@ -598,6 +649,10 @@ export async function createEngine(
 		},
 
 		handsOn(sessionId) {
+			// Read as it closes or is dropped, so its carried calls are left to
+			// the new holder, here and in what this host's restart keeps.
+			released.add(sessionId);
+			shells.released(sessionId);
 			stopping.handsOn(sessionId);
 			host.handsOn(sessionId);
 		},
@@ -606,7 +661,7 @@ export async function createEngine(
 			warming.stop(sessionId);
 			logs.release(sessionId);
 			requests.forget(sessionId);
-			parked.closed(sessionId);
+			parked.closed(sessionId, !released.delete(sessionId));
 			await stopping.dropped(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},

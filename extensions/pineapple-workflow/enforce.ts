@@ -20,6 +20,7 @@ import {
 } from "../../lib/internal/pineapple/stops.ts";
 import {
 	type GitFacts,
+	machineWide,
 	settle,
 	type Write,
 	type WriteCall,
@@ -116,7 +117,7 @@ export function refusal(write: Write, held: readonly Held[]): string {
 }
 
 function target(write: Write): string {
-	if (write.kind === "machine") return "";
+	if (machineWide(write.kind)) return "";
 	const repo = write.repo ?? "";
 	if (write.pr !== undefined) return ` to ${repo}#${write.pr}`;
 	if (write.branch !== undefined)

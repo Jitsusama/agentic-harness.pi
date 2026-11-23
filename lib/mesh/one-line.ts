@@ -10,30 +10,37 @@
  * controls, marks as well as overrides, which reorder what is around
  * them; the zero-width characters and word joiner, which hide a
  * boundary; and the tag characters, which a person never sees and a
- * model reads as text. Folding them costs a joined emoji or a soft hyphen
- * in what a peer says it works on, which a listing can spare.
+ * model reads as text. The variation selectors carry text the same
+ * unseen way, a byte each hung off any letter, though Unicode files them
+ * as marks (Mn), so both of their blocks are named here; so are the
+ * letters and symbol that draw as nothing, the Hangul fillers and the
+ * blank Braille pattern. Folding them costs a joined emoji, an emoji's
+ * chosen style or a soft hyphen in what a peer says it works on, which a
+ * listing can spare.
  */
 
 /** A run of what may break, rearrange or hide inside a line, as one class. */
-const BREAK = "[\\s\\p{Cc}\\p{Cf}]";
+const BREAK =
+	"[\\s\\p{Cc}\\p{Cf}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}\\u115F\\u1160\\u3164\\uFFA0\\u2800]";
 const BREAKS = new RegExp(`${BREAK}+`, "gu");
-const HAS_BREAK = new RegExp(BREAK, "u");
 
 /** Text said on one line, however many it came on. */
 export function oneLine(text: string): string {
 	return text.replace(BREAKS, " ").trim();
 }
 
-/** Whether text is one word, with nothing in it that could break a line. */
-export function isWord(text: string): boolean {
-	return text.length > 0 && !HAS_BREAK.test(text);
-}
+/**
+ * A machine's or a tool's name: letters and digits, joined by `.`, `_` or
+ * `-`, and at most 64 long, as a tool's name is held to and a machine's
+ * short name fits in, so none can flood the line it is printed in.
+ */
+const NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
 
-/** A machine's or a tool's name: letters and digits, joined by `.`, `_` or `-`. */
-const NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
-
-/** A quest id, wherever it stands in a name. */
-const QUEST_IN = /QEST-\d{8}-/i;
+/**
+ * A quest id, wherever it stands in a name and however it is joined,
+ * since a reader taking a near spelling for the id is a model.
+ */
+const QUEST_IN = /QEST[-_.]?\d{8}/i;
 
 /**
  * Whether text is a name a listing may print inside a peer's own line,

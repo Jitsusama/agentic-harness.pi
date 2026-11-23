@@ -20,16 +20,20 @@
  * said; any left a week are swept as a session starts, at most once an
  * hour for a process.
  *
+ * pi writes and reads these names as they stand, following a link left
+ * at one, since nothing that could leave one gains by it: the agent
+ * fence holds pi's state read-only to the command (fence-home.ts, and
+ * fence-bwrap's test of this folder), and an unfenced command runs as
+ * the person, who can write whatever a link would lead pi to.
+ *
  * Making, removing and sweeping them go through libuv's pool rather than
  * pi's loop, which in a host every conversation shares: a busy disk held
  * it in these files' openat and unlink 24 times in 287 hold samples on
  * 17 November. Reading a call's status, pid and output, marking it
  * carried and rolling its output stay on the loop: they come when a move
  * or a job's record asks after a running call, at its hand-off, and each
- * 64 KB of its output, none of which the samples caught. A removal takes
- * turns of the loop, so it removes the marks that would have a call taken
- * up again before its status, and a pi ended partway through leaves no
- * call that reads as running.
+ * 64 KB of its output, none of which the samples caught. Removing them,
+ * and the job records a removal takes back, is kept-removal.ts's.
  *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
@@ -45,13 +49,20 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
-	readdirSync,
 	readFileSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
-import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
@@ -103,17 +114,6 @@ export const KEPT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
-/**
- * Every file a call keeps, in the order they are removed: the marks that
- * have it taken up again first, then its status, so a removal cut short
- * leaves no call that reads as running. A carried call taken up has both
- * marks, and one cut between them can still have its end said again.
- */
-const SUFFIXES = [".job", ".carried", ".end", ".pid", ".out", ".old"] as const;
-
-/** The suffixes that have a call taken up again. */
-const MARKS: ReadonlySet<string> = new Set([".job", ".carried"]);
-
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
 
@@ -149,12 +149,27 @@ function numberIn(file: string): number | undefined {
 		// Not there: the stub hasn't written it, or the call was removed.
 		return undefined;
 	}
+	return wholeNumber(text);
+}
+
+/** `numberIn`, read off the thread. */
+async function numberRead(file: string): Promise<number | undefined> {
+	return wholeNumber(await textRead(file));
+}
+
+/** The whole number `text` holds, or nothing. */
+function wholeNumber(text: string): number | undefined {
 	return /^\d+\n?$/.test(text) ? Number(text.trim()) : undefined;
 }
 
 /** The exit status the call's stub wrote as it ended, or nothing yet. */
 export function endOf(path: string): number | undefined {
 	return numberIn(`${path}.end`);
+}
+
+/** `endOf`, read off the thread. */
+export function endRead(path: string): Promise<number | undefined> {
+	return numberRead(`${path}.end`);
 }
 
 /** The pid of the call's shell, as its stub wrote it first. */
@@ -233,16 +248,21 @@ export const RECORD_SPARED_FOR_MS = 24 * 60 * 60 * 1000;
  * its shell runs, within its time limit and a day of its start. A call's
  * mark reaches what it started in a group of its own, as `timeout` and
  * `setsid` make; its shell's group covers a call run without one.
+ *
+ * Read off the thread, since a host asks at every stop and sweep on the
+ * loop its conversations share, and the folder holds every call a week
+ * kept. Its files are read one at a time, leaving the thread pool to
+ * the rest of the process.
  */
-export function carriedCalls(
+export async function carriedCalls(
 	folder: string = keptFolder(),
 	now: number = Date.now(),
-): CarriedCalls {
+): Promise<CarriedCalls> {
 	const marks = new Set<string>();
 	const groups = new Set<number>();
 	let names: string[];
 	try {
-		names = readdirSync(folder);
+		names = await readdir(folder);
 	} catch {
 		// No folder yet: nothing was ever kept, so nothing is carried.
 		return { marks, groups };
@@ -251,8 +271,8 @@ export function carriedCalls(
 		if (name.endsWith(JOB_SUFFIX)) {
 			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
 			// Once its status is written nothing of it runs to spare.
-			if (endOf(path) !== undefined) continue;
-			const spared = recordedSpare(`${path}${JOB_SUFFIX}`);
+			if ((await endRead(path)) !== undefined) continue;
+			const spared = recordedSpare(await textRead(`${path}${JOB_SUFFIX}`));
 			if (spared === undefined || !sparedAt(spared, now)) continue;
 			groups.add(spared.pid);
 			if (spared.mark !== "") marks.add(spared.mark);
@@ -260,9 +280,9 @@ export function carriedCalls(
 		}
 		if (!name.endsWith(CARRIED)) continue;
 		const path = join(folder, name.slice(0, -CARRIED.length));
-		const pid = pidOf(path);
+		const pid = await numberRead(`${path}.pid`);
 		if (pid !== undefined) groups.add(pid);
-		const mark = textOf(`${path}${CARRIED}`).trim();
+		const mark = (await textRead(`${path}${CARRIED}`)).trim();
 		if (mark !== "") marks.add(mark);
 	}
 	return { marks, groups };
@@ -276,13 +296,13 @@ interface RecordedSpare {
 	readonly deadline?: number;
 }
 
-/** What a job's record says of its call, or nothing when it says none. */
-function recordedSpare(file: string): RecordedSpare | undefined {
+/** What a job's record, as `text`, says of its call, or nothing when it says none. */
+function recordedSpare(text: string): RecordedSpare | undefined {
 	let record: unknown;
 	try {
-		record = JSON.parse(textOf(file));
+		record = JSON.parse(text);
 	} catch {
-		// Gone as its call ended: nothing of it runs to spare.
+		// Gone as its call ended, so empty: nothing of it runs to spare.
 		return undefined;
 	}
 	if (typeof record !== "object" || record === null || !("work" in record))
@@ -326,33 +346,13 @@ export function processThere(pid: number): boolean {
 	}
 }
 
-/** What a kept file holds, or nothing once it is gone. */
-function textOf(file: string): string {
+/** What a kept file holds, read off the thread, or nothing once it is gone. */
+async function textRead(file: string): Promise<string> {
 	try {
-		return readFileSync(file, "utf8");
+		return await readFile(file, "utf8");
 	} catch {
 		// Removed as its call's end was said: nothing left to spare.
 		return "";
-	}
-}
-
-/**
- * Remove everything a call kept. It never fails, so a caller that has
- * nothing to wait for can leave it to run. A mark it can't remove stops
- * it there, leaving the call's status beside the mark so whatever finds
- * it reads the call as ended; any other file it can't remove it passes.
- */
-export async function removeKept(path: string): Promise<void> {
-	for (const suffix of SUFFIXES) {
-		try {
-			await rm(`${path}${suffix}`, { force: true });
-		} catch {
-			// A folder in its place, or one that refuses it: no call leaves
-			// either, and its callers between processes have no one to tell;
-			// the week's sweep, which says nothing of one it can't remove
-			// either, tries it again.
-			if (MARKS.has(suffix)) return;
-		}
 	}
 }
 

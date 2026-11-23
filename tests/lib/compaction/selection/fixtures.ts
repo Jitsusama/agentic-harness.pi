@@ -53,7 +53,11 @@ export function compaction(id: string): SessionEntry {
 	} as SessionEntry;
 }
 
-/** The tags entry for a message, each paragraph given the kinds listed in order. */
+/**
+ * The tags entry for a message, each paragraph given the kinds listed
+ * in order, as the tagger records it, having seen the message on the
+ * branch.
+ */
 export function tagged(
 	message: SessionEntry,
 	...kinds: SelectionKind[][]
@@ -70,6 +74,7 @@ export function tagged(
 				hash: unit.hash,
 				kinds: kinds[at] ?? [],
 			})),
+			seenOnBranch: true,
 		},
 	} as SessionEntry;
 }

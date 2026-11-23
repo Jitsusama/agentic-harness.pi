@@ -73,7 +73,9 @@ among those: with none to take it, it runs on optimus and says why.
 The work Mac is the machine it is meant for, once it declares one.
 
 `pnpm check:there` stays the way to send the whole gate, for a pushed
-branch.
+branch. Run under pi it goes only to penelope, the host agreed for
+agents' checks; Joel, running it from a shell outside pi, may name
+another, such as the work Mac.
 
 ## Tests
 
@@ -98,6 +100,37 @@ check to run before a merge. A new file counts only once git knows it
 (`git add -N` is enough), and a change to `package.json`, the
 lockfile, the vitest config or a setup file reaches every test, so it
 runs them all.
+
+A test that runs a shell script reaches it by path, which the graph
+doesn't follow, so it also imports each script it runs
+(`import "../../scripts/merge-gate.sh"`); the loader in
+`tests/setup/scripts-as-text.ts` makes that import the script's text,
+for a `.sh`, a `.bash` or a file with no ending whose shebang names a
+shell, and imports in turn each script its code names that is there,
+by a path from its own folder or from the root, and each shell script
+with no ending beside it that it names as a word; comments name
+nothing. A package rule, `tests-import-the-scripts-they-run`, fails a
+test that names a script on its own in a string without importing it
+itself, one reached through another script it imports not counting; a
+script beside the package's code, among the ssh guard's or under
+`tests/`, that no test's imports reach; a script naming one beside it
+that isn't there to follow, by its own folder as `$(dirname "$0")/`,
+`$(dirname -- "$(realpath "$0")")/`, `$(cd "$(dirname "$0")" &&
+pwd)/`, its CDPATH-safe form, `${0%/*}/` or `${BASH_SOURCE%/*}/`
+spells it, though a name through a variable, as `$here/`, is past it;
+and a file pi or node loads with no loader, or anything such a file
+imports in turn, that imports a script, since they would read it as
+JavaScript. A name built from parts is past the first, so such a test
+imports its scripts by hand, as `ssh-guard.test.ts` does the guard's
+wrappers, and the second holds it to them. The rule is a package
+test, so it runs under a whole `pnpm test` and `pnpm check:there`,
+and under `pnpm check` only when a change reaches it. So removing a
+script another only follows runs no test under `pnpm check`, since
+nothing imports it then; `pnpm check:there` names it gone, when it
+was named from beside.
+Vite's `?raw` won't do: vitest drops a dependency whose id, query
+included, names no file. A `.ts` script a test runs as its own process
+is still reached only by what it imports.
 
 `pnpm test:host` is the host's one gate. It runs every host check that
 needs a real pi: the end-to-end ones (E1 to E8, the sealed host and the
@@ -144,7 +177,8 @@ a fault already on main refuses nothing new. Then it runs
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
 vitest config, and the extensions and libraries whose tools the host
 cases drive: jobs, loadout, mesh, park, quest, reload, result store,
-spend and subagent) merges as before; one that does merges only once the
+spend and subagent; a folder's README.md under them doesn't count, since
+nothing a host runs reads one) merges as before; one that does merges only once the
 keeper kept a whole run passing at that very commit, its words exactly
 those `scripts/host-test-words.sh` makes for that runtime and this
 machine's tools, since the keeper keeps any program that passed. A refusal names the

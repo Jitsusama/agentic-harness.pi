@@ -1,6 +1,7 @@
 /**
- * The fence lifted from every session but subagents and, on Linux,
- * spawns that declared it, until it relands.
+ * The fence lifted from every session but subagents and spawns that
+ * declared it, on Linux or on a Mac not known to be outside a sandbox,
+ * until it relands.
  */
 
 import { describe, expect, it } from "vitest";
@@ -33,12 +34,33 @@ describe("the fence lifted until it relands", () => {
 		expect(env.PI_SANDBOX, "a declared spawn lost its fence").toBe("fence");
 	});
 
-	it("lifts a declared fence on a Mac, whose fence is the seatbelt around the run, mark and all", () => {
+	it("lifts a declared fence on a Mac where nothing sandboxes pi, mark and all, since its commands would be refused", () => {
 		const env: NodeJS.ProcessEnv = { ...declaredSandbox("fence") };
-		expect(liftFence(env, "darwin"), "the Mac kept a fence that refuses").toBe(
-			true,
-		);
+		expect(
+			liftFence(env, "darwin", () => "outside"),
+			"the Mac kept a fence with nothing around pi",
+		).toBe(true);
 		expect(env, "the fence or its mark is still set").toEqual({});
+	});
+
+	it("leaves a declared fence on a Mac where pi runs inside some sandbox, so its host is told the fence", () => {
+		const env: NodeJS.ProcessEnv = { ...declaredSandbox("fence") };
+		expect(
+			liftFence(env, "darwin", () => "inside"),
+			"a declared fence inside a sandbox was lifted",
+		).toBe(false);
+		expect(env.PI_SANDBOX, "a declared spawn lost its fence").toBe("fence");
+	});
+
+	it("keeps a declared fence on a Mac whose trial couldn't tell, so a later trial decides", () => {
+		const env: NodeJS.ProcessEnv = { ...declaredSandbox("fence") };
+		expect(
+			liftFence(env, "darwin", () => "unknown"),
+			"a slow trial lifted a declared fence for good",
+		).toBe(false);
+		expect(env, "the fence or its mark was taken").toEqual(
+			declaredSandbox("fence"),
+		);
 	});
 
 	it("lifts a fence whose mark says anything but its own value", () => {

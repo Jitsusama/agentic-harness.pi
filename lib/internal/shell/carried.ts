@@ -116,6 +116,50 @@ export function alive(pid: number, mark: string): boolean {
 	return there(pid) && carriesMark(pid, mark);
 }
 
+/**
+ * Whether `pid` is proved to be the call `mark` names: its environment
+ * read, and carrying the mark. Unlike {@link carriesMark}, one that
+ * can't be read proves nothing, so a kill that leans on it never lands
+ * on a pid another process took; nor on pid 1 or below, whose group
+ * would be everything.
+ */
+export function provedCall(
+	pid: number,
+	mark: string,
+	read: (file: string) => string = (file) => readFileSync(file, "latin1"),
+): boolean {
+	if (!Number.isInteger(pid) || pid <= 1) return false;
+	try {
+		return read(`/proc/${pid}/environ`)
+			.split("\0")
+			.includes(`${CALL_VARIABLE}=${mark}`);
+	} catch {
+		// Unreadable: gone, no /proc here, or not ours; nothing is proved.
+		return false;
+	}
+}
+
+/**
+ * How long a carried call with no time limit is watched for its end:
+ * a day, as long as a carried call nobody took up is spared. Past it a
+ * parked conversation wakes and holds it awake, so a pid another
+ * process took, which this account can't read, can't keep it asleep.
+ */
+export const CALLS_WATCHED_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a call is still within its watch: before its time limit, and
+ * within {@link CALLS_WATCHED_MS} of its start. A park carries only such
+ * a call, since past either its watch would wake it at once.
+ */
+export function withinWatch(
+	work: Pick<CarriedShell, "startedAt" | "deadline">,
+	now: number = Date.now(),
+): boolean {
+	if (work.deadline !== undefined && now >= work.deadline) return false;
+	return now - work.startedAt < CALLS_WATCHED_MS;
+}
+
 /** Kill a call's process group and everything else it marked. */
 export function stopCarried(work: CarriedShell): void {
 	try {

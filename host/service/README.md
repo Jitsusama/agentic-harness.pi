@@ -5,7 +5,8 @@ H1's engine and V's Terminal. It does not implement pi's session loop,
 input pipeline or screen. No unit or running host is installed yet.
 
 - address.ts: the host's realm (MYCELIUM_REALM, else PI_HOME_REALM),
-  its realm-kind key and its socket in XDG_RUNTIME_DIR.
+  its realm-kind key and its socket in the login's runtime folder
+  (AGENTS_RUNTIME_DIR, else XDG_RUNTIME_DIR, else a Mac's cache folder).
 - attach-waits.ts: what the journal says of a window's attach that
   waits past ATTACH_SLOW_MS: the step it is on, each later step that
   holds it again, how it ended (answered, or refused and why), and the
@@ -265,8 +266,10 @@ input pipeline or screen. No unit or running host is installed yet.
   enables before anything else loads, so a start reads back what an
   earlier start of the same install compiled rather than compiling
   pi's and the harness's modules again. Each realm, kind and install
-  has its own folder in the harness's state (`host-compile`), which
-  the fence keeps read-only, and a
+  has its own folder in the login's runtime folder (`pi-compile/host`),
+  a private tmpfs no fenced command sees, so a flush waits on no disk;
+  without one, as on a Mac, in the harness's state (`host-compile`),
+  which the fence keeps read-only. A
   host removes its own earlier installs' folders as it starts. It is
   flushed once the host serves, since a killed host never reaches the
   exit where node would write it. A cache that can't be had is said
@@ -316,15 +319,42 @@ input pipeline or screen. No unit or running host is installed yet.
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it
   resumes, SLOT.sock where it listens and SLOT.d/ for its own use.
+- stale-child.ts: a child rolling onto new code. A child never
+  restarts itself, so it keeps the host code it started with; on 22
+  November 15 children ran host code 34 hours old. Every five
+  minutes it asks its install (what-starts.ts `installMovesFrom`, as
+  restart.ts does) whether the host code there differs, and once it
+  does, says so in the journal and marks its host stale for good
+  (`SessionHost.roll`). Its conversation then parks at its next quiet
+  moment, idle time aside, unless a window views it
+  (`Host.rolling`), and the next wake starts a fresh child on current
+  code. Unlike a drain, a roll holds no wake.
 - child-watch.ts: watching one child on a connection kept open: its
   first answer names who it is and its conversation, then a line for
   each state, each new id the conversation takes, and its ending. A
   line it can't read ends the watch as failed.
+- child-starvation.ts: judging a child past its time to listen or to
+  answer its watch, which nobody waits on: starved by a busy machine,
+  and waited on, or stuck, and given up.
 - child-supervisor.ts: the host starting a child for a conversation it
   resumes or a caller opens, holding a route to it from the child's
   watch, moving it as the conversation becomes another and letting it
   go with the slot as the child ends. A child that never listens or
-  refuses its first request is stopped; a host starting takes up the
+  refuses its first request is stopped. A wake, or a resume a window
+  or a message asks for, past its 60 s waits on a child that has had
+  under 20 s of CPU, as systemd accounts it, for up to 10 minutes,
+  since a busy machine starves a start rather than wedging it; one
+  that gains under 0.25% of a core over a whole 60 s waits on
+  something else, and is given up then; one whose CPU systemd never
+  says is given up at 120 s. Once it listens, it is judged the same
+  way on answering its watch, as it builds its conversation, by the
+  CPU it gains while watched, within the same 10 minutes. Its journal
+  says as it starts waiting and as it listens or answers. Three keep a 60 s bound to listen and are refused
+  at it without asking systemd: a caller's open or adopt, and a host
+  starting's take-ups and resumes, which go a few at a time, so a
+  starved child there would hold those behind it. A start's resume
+  that a wake pulled forward is bounded too; given up, that wake
+  resumes it itself and waits while it starves. A host starting takes up the
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:

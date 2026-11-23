@@ -8,6 +8,7 @@ import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, type Message, reaches } from "../../../lib/mesh/message.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import type { Reader } from "../../../lib/mesh/thread.ts";
 import { type Refusal, refusedNotes } from "../refusals.ts";
 import { WANTING } from "./said.ts";
@@ -33,6 +34,15 @@ export function unheardOf(
 	return groups.filter((group) => group.startsWith("@") && !homes.has(group));
 }
 
+/**
+ * The address a sender is told a peer goes by. A presence says its
+ * addresses as it likes, and each note opens on this one, so a peer
+ * that names nothing shaped as an address is left unnamed.
+ */
+function told(one: Presence): string | undefined {
+	return one.addresses.find(isAddress);
+}
+
 /** Who a message just sent goes to, and which addressed peers it misses. */
 export function reach(
 	message: Message,
@@ -43,9 +53,9 @@ export function reach(
 ): { notes: string[]; reached: string[]; gone: string[] } {
 	const everyone = standing.present;
 	const reached = everyone
-		.filter((one) => one.session !== peer.session && one.addresses.length > 0)
+		.filter((one) => one.session !== peer.session)
 		.filter((one) => reaches(message, one, -1))
-		.map((one) => one.addresses[0] as string);
+		.flatMap((one) => told(one) ?? []);
 	const homes = (list: readonly Presence[]) =>
 		new Set(list.flatMap((one) => one.addresses.map(homeOf)));
 	const there = homes(everyone);
@@ -56,16 +66,17 @@ export function reach(
 		.map((group) => group.slice(1));
 	const unknown = unheardOf(addressed, standing).map((group) => group.slice(1));
 	// Waited on as though it were free to answer, it would hold its asker up.
-	const waiting = everyone.flatMap((one) =>
-		one.session !== peer.session &&
-		one.wants &&
-		one.addresses[0] &&
-		one.addresses.some((address) => addressed.includes(homeOf(address)))
+	const waiting = everyone.flatMap((one) => {
+		const address = told(one);
+		return one.session !== peer.session &&
+			one.wants &&
+			address !== undefined &&
+			one.addresses.some((each) => addressed.includes(homeOf(each)))
 			? [
-					`${one.addresses[0]} (${WANTING[one.wants.kind]} since ${clock({ at: one.wants.since })})`,
+					`${address} (${WANTING[one.wants.kind]} since ${clock({ at: one.wants.since })})`,
 				]
-			: [],
-	);
+			: [];
+	});
 	const idle = idleAddressed(message, everyone, peer, addressed, read);
 	const refused = refusedNotes(
 		everyone.filter(
@@ -121,7 +132,7 @@ function idleAddressed(
 	const asked = message.re === undefined ? undefined : read(message.re);
 	const asker = asked?.intent === "question" ? asked.from : undefined;
 	return everyone.flatMap((one) => {
-		const address = one.addresses[0];
+		const address = told(one);
 		if (
 			address === undefined ||
 			one.session === peer.session ||

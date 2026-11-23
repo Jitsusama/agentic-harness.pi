@@ -47,7 +47,13 @@
 			],
 			"googleapis/build/src/apis/index.js": [
 				"./lib/google/apis/googleapis-root.d.ts"
-			]
+			],
+			"openai": ["./lib/internal/provider-sdks.d.ts"],
+			"openai/*": ["./lib/internal/provider-sdks.d.ts"],
+			"@anthropic-ai/sdk": ["./lib/internal/provider-sdks.d.ts"],
+			"@anthropic-ai/sdk/*": ["./lib/internal/provider-sdks.d.ts"],
+			"@google/genai": ["./lib/internal/provider-sdks.d.ts"],
+			"@google/genai/*": ["./lib/internal/provider-sdks.d.ts"]
 		}
 	},
 	"include": [

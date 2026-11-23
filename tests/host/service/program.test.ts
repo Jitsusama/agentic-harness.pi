@@ -148,7 +148,7 @@ describe("restartingByExit", () => {
 });
 
 describe("conversationBase", () => {
-	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof, its stop limit, launchd's Label, its tools or its viewers' terminal", () => {
+	it("keeps the realm's environment but not systemd's hand-over, the host's pi, its proof, its stop limit, its allocator's tuning, launchd's Label, its tools or its viewers' terminal", () => {
 		const host: NodeJS.ProcessEnv = {
 			HOME: "/home/someone",
 			MYCELIUM_REALM: "work",
@@ -159,6 +159,7 @@ describe("conversationBase", () => {
 			PI_PACKAGE_DIR: "/nix/store/host-pi",
 			PI_HOST_PROOF: "/nix/store/host-pi-proof.json",
 			PI_HOST_STOP_USEC: "150000000",
+			GLIBC_TUNABLES: "glibc.malloc.trim_threshold=131072",
 			XPC_SERVICE_NAME: "org.jitsusama.pi-host-work-background",
 			AI_PROXY_HEADERS_BIN: "/nix/store/host-runtime/libexec/ai-proxy-headers",
 			WORKTRAIL_BIN: "/nix/store/host-runtime/libexec/worktrail",

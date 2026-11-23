@@ -11,6 +11,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -19,8 +20,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addRootWithNixStore,
+	faultsInto,
+	HELD_SAID,
+	type Held,
 	heldNote,
 	holdInstall,
+	type NoteScreen,
+	sayHeldOnce,
 	startOf,
 	storePathsOf,
 	sweepHeld,
@@ -111,6 +117,194 @@ describe("holdInstall", () => {
 		expect(heldNote(held)).toContain(
 			`subagents and councils would fail until it restarts: ${NODE}: the daemon said no`,
 		);
+	});
+});
+
+describe("sayHeldOnce", () => {
+	const missed: Held = { links: [], missed: [`${NODE}: the daemon said no`] };
+
+	/** pi's words for a replaced context, as its extension runner throws them. */
+	const STALE =
+		"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession()";
+
+	/** A screen that notes what it was told. */
+	function screen(told: string[]): NoteScreen {
+		return { hasUI: true, ui: { notify: (note) => told.push(note) } };
+	}
+
+	/**
+	 * A session's context that is live until `replace` is called, as pi's
+	 * is at session start, and throws on every read once it is replaced.
+	 */
+	function session(): { ctx: NoteScreen; replace: () => void } {
+		let stale = false;
+		const live = (): void => {
+			if (stale) throw new Error(STALE);
+		};
+		return {
+			ctx: {
+				get hasUI(): boolean {
+					live();
+					return true;
+				},
+				get ui(): NoteScreen["ui"] {
+					live();
+					return { notify: () => live() };
+				},
+			},
+			replace: () => {
+				stale = true;
+			},
+		};
+	}
+
+	afterEach(() => {
+		Reflect.deleteProperty(globalThis, Symbol.for(HELD_SAID));
+	});
+
+	it("says a missed hold once in a process, however many sessions start", async () => {
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told));
+		await sayHeldOnce(Promise.resolve(missed), screen(told));
+		expect(told).toEqual([heldNote(missed)]);
+	});
+
+	it("says nothing, and fails nothing, in a session replaced while its hold ran, leaving it for the next", async () => {
+		const once = { said: false };
+		const faults: unknown[] = [];
+		let resolve: (held: Held) => void = () => undefined;
+		const held = new Promise<Held>((settle) => {
+			resolve = settle;
+		});
+		const first = session();
+		const saying = sayHeldOnce(held, first.ctx, {
+			once,
+			fault: (error) => faults.push(error),
+		});
+		first.replace();
+		resolve(missed);
+		await expect(saying).resolves.toBeUndefined();
+		const told: string[] = [];
+		await sayHeldOnce(held, screen(told), { once });
+		expect(told).toEqual([heldNote(missed)]);
+		expect(faults, "a replacement is no fault").toEqual([]);
+	});
+
+	it("leaves the note for the next session when telling the screen fails after it said it had one", async () => {
+		const once = { said: false };
+		const faults: unknown[] = [];
+		const broken: NoteScreen = {
+			hasUI: true,
+			ui: {
+				notify: () => {
+					throw new Error("the screen is gone");
+				},
+			},
+		};
+		await expect(
+			sayHeldOnce(Promise.resolve(missed), broken, {
+				once,
+				fault: (error) => faults.push(error),
+			}),
+		).resolves.toBeUndefined();
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told), { once });
+		expect(told).toEqual([heldNote(missed)]);
+		expect(faults.map(String)).toEqual(["Error: the screen is gone"]);
+	});
+
+	it("leaves the note for a session with a screen when one without starts first", async () => {
+		const once = { said: false };
+		const headless: string[] = [];
+		const told: string[] = [];
+		await sayHeldOnce(
+			Promise.resolve(missed),
+			{ hasUI: false, ui: { notify: (note) => headless.push(note) } },
+			{ once },
+		);
+		await sayHeldOnce(Promise.resolve(missed), screen(told), { once });
+		expect(headless).toEqual([]);
+		expect(told).toEqual([heldNote(missed)]);
+	});
+
+	it("tells a hold that failed as a fault, never rejecting", async () => {
+		const faults: unknown[] = [];
+		const told: string[] = [];
+		await expect(
+			sayHeldOnce(Promise.reject(new Error("no hold")), screen(told), {
+				once: { said: false },
+				fault: (error) => faults.push(error),
+			}),
+		).resolves.toBeUndefined();
+		expect(faults.map(String)).toEqual(["Error: no hold"]);
+		expect(told).toEqual([]);
+	});
+
+	it("keeps a note another session said when this one's hold fails, so it is never said twice", async () => {
+		const once = { said: true };
+		await sayHeldOnce(Promise.reject(new Error("no hold")), screen([]), {
+			once,
+		});
+		const told: string[] = [];
+		await sayHeldOnce(Promise.resolve(missed), screen(told), { once });
+		expect(told, "said once already, by another session").toEqual([]);
+	});
+
+	it("never rejects when telling its fault fails too", async () => {
+		await expect(
+			sayHeldOnce(Promise.reject(new Error("no hold")), screen([]), {
+				once: { said: false },
+				fault: () => {
+					throw new Error("no log");
+				},
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it("never rejects for an error whose message can't be read", async () => {
+		const odd = new Error("odd");
+		Object.defineProperty(odd, "message", {
+			get() {
+				throw new Error("unreadable");
+			},
+		});
+		await expect(
+			sayHeldOnce(Promise.reject(odd), screen([]), { once: { said: false } }),
+		).resolves.toBeUndefined();
+	});
+
+	it("says nothing for a hold that missed nothing", async () => {
+		const told: string[] = [];
+		await sayHeldOnce(
+			Promise.resolve({ links: [], missed: [] }),
+			screen(told),
+			{ once: { said: false } },
+		);
+		expect(told).toEqual([]);
+	});
+});
+
+describe("faultsInto", () => {
+	it("keeps each fault as a line in its log, making the folder", () => {
+		const log = join(folder, "deeper", "faults.jsonl");
+		const fault = faultsInto(log);
+		fault(new Error("the screen is gone"));
+		fault("plain");
+		const lines = readFileSync(log, "utf8").trim().split("\n");
+		expect(lines.map((line) => JSON.parse(line).why)).toEqual([
+			expect.stringContaining("Error: the screen is gone"),
+			"plain",
+		]);
+	});
+
+	it("throws nothing for a fault that can't be put into words", () => {
+		const log = join(folder, "faults.jsonl");
+		const unsayable = {
+			toString(): string {
+				throw new Error("no words");
+			},
+		};
+		expect(() => faultsInto(log)(unsayable)).not.toThrow();
 	});
 });
 

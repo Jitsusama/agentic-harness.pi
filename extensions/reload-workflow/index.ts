@@ -36,12 +36,11 @@ import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
 import { askedSandbox } from "../../lib/internal/fence/fence-stage.ts";
 import {
-	type Held,
-	heldNote,
+	faultsInto,
 	holdRunningInstall,
+	sayHeldOnce,
 } from "../../lib/internal/install/held.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import {
 	describeLoaded,
 	type Loaded,
@@ -75,7 +74,9 @@ import {
 	INSTALLED,
 	performReload,
 	RELOAD_ARG,
+	RELOAD_CALLED_OFF,
 	RESTART_ARG,
+	type ReloadRun,
 	requestReload,
 	restartByHand,
 	takeForDispatch,
@@ -96,26 +97,6 @@ function settledAborted(event: unknown): boolean {
 		"aborted" in event &&
 		event.aborted === true
 	);
-}
-
-/**
- * Say once in this process, where the person sees it, that the pi it
- * runs isn't kept from a switch's collection.
- */
-async function sayHeld(
-	held: Promise<Held>,
-	ctx: ExtensionContext,
-): Promise<void> {
-	const note = heldNote(await held);
-	const once = processGlobal("pi.install.held.said", () => ({ said: false }));
-	if (note === undefined || once.said || !ctx.hasUI) return;
-	once.said = true;
-	try {
-		ctx.ui.notify(note, "warning");
-	} catch {
-		// The session was replaced while the hold ran: the next one says it.
-		once.said = false;
-	}
 }
 
 export default function reloadWorkflow(pi: ExtensionAPI) {
@@ -142,10 +123,18 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 	pi.on("agent_start", started);
 	pi.on("turn_start", started);
 	pi.on("tool_execution_start", started);
-	const run = {
+	// It never starts a turn: the agent reads it with its next.
+	const toAgent = (text: string) =>
+		pi.sendMessage({
+			customType: RELOAD_CALLED_OFF,
+			content: text,
+			display: false,
+		});
+	const run: ReloadRun = {
 		underWay: () => underWay,
 		overruled: (times: number) =>
 			pi.appendEntry(OVERRULED_ENTRY, { times, at: new Date().toISOString() }),
+		toAgent,
 	};
 
 	// A closed conversation's slots go with it, so its follower stops
@@ -156,7 +145,11 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
-		void sayHeld(held, ctx);
+		void sayHeldOnce(held, ctx, {
+			fault: faultsInto(
+				join(stateDir("reload-workflow"), "held-note-faults.jsonl"),
+			),
+		});
 		// A session this process rolled away from, started again, follows
 		// nothing: on 3 November one ran code older than the install, so it
 		// saw a move every 30 seconds and reloaded the live session each
@@ -176,7 +169,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 		// A hosted conversation's request waits in its own slot, for its host;
 		// with none, the install may have moved during the run.
 		if (hosted()) {
-			if (!settleHostedReload(ctx, settledAborted(event))) {
+			if (!settleHostedReload(ctx, settledAborted(event), toAgent)) {
 				follower?.consider(true);
 			}
 			return;

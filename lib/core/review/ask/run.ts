@@ -685,8 +685,26 @@ export function substituteOutcome(
 	// to be pinned does not clear a caveat earned by the reviewers
 	// already in the round.
 	const fell = read?.unpinned === undefined ? {} : { unpinned: read.unpinned };
-	const { open: _wasOpen, ...rest } = run;
+	// A round closed unfinished whose every reviewer has now answered by
+	// retries is a council that reported, so it stops saying closed:
+	// every gate passes over a closed round, merge-net's among them, and a
+	// round stopped after a reload and then retried counted for none of
+	// them (Y2YBTS, 22 November). Only once no gap is left and none of
+	// its outcomes failed, read from them all rather than this retry's,
+	// so the order retries land in can't decide it: a stopped round holds
+	// no outcomes, and one retry of several would else stand as the
+	// council at its head.
+	const answered =
+		!waiting && outcomes.every((held) => held.failure === undefined);
+	const held = answered ? unclosed(run) : run;
+	const { open: _wasOpen, ...rest } = held;
 	return waiting
-		? { ...run, outcomes, ...fell }
+		? { ...held, outcomes, ...fell }
 		: { ...rest, outcomes, ...fell };
+}
+
+/** `run` without its mark of being closed unfinished. */
+function unclosed(run: AskRun): AskRun {
+	const { closed: _wasClosed, ...rest } = run;
+	return rest;
 }

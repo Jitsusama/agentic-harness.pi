@@ -14,7 +14,7 @@ import {
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
-import { isName, isWord, oneLine } from "../../../lib/mesh/one-line.ts";
+import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
@@ -262,7 +262,8 @@ const WORK_CHARS = 100;
  * may carry a line of its own into the listing, nor a field of another
  * peer's into its own line. A presence whose signature isn't an address
  * is left out, as are its other addresses that aren't one, its groups
- * and joined groups that aren't one word, a machine or tool step whose
+ * and joined groups that aren't one as `groupNamed` writes it (each opens
+ * a line of the Groups section), a machine or tool step whose
  * name isn't shaped as a name, and a quest that isn't a quest id as
  * quest-workflow mints one; its prose, what it
  * works on, wants and a step's detail, is said on one line, as
@@ -277,6 +278,11 @@ export function listable(standing: Census): Census {
 	};
 }
 
+/** Whether a presence's group is one as it is written canonically. */
+function isGroup(group: string): boolean {
+	return groupNamed(group) === group;
+}
+
 /** One presence as mesh_groups may list it, or none. */
 function listed(one: Presence): Presence[] {
 	const [signature, ...others] = one.addresses;
@@ -287,9 +293,9 @@ function listed(one: Presence): Presence[] {
 		{
 			...rest,
 			addresses: [signature, ...others.filter(isAddress)],
-			groups: one.groups.filter(isWord),
+			groups: one.groups.filter(isGroup),
 			worksOn: oneLine(one.worksOn),
-			...(joined !== undefined ? { joined: joined.filter(isWord) } : {}),
+			...(joined !== undefined ? { joined: joined.filter(isGroup) } : {}),
 			...(named !== undefined ? { quest: named } : {}),
 			...(machine !== undefined && isName(machine) ? { machine } : {}),
 			...(stepDetail !== undefined &&
@@ -392,6 +398,12 @@ export function tiesText(
 	// relays its intents as it counted them, so a line opens only on an
 	// address and names only intents shaped as one.
 	const shown = ties.filter((tie) => isAddress(tie.other));
+	const unshown = ties.length - shown.length;
+	const left =
+		unshown > 0
+			? `${unshown} ${unshown === 1 ? "tie" : "ties"} left out, the other end not an address`
+			: "";
+	if (shown.length === 0) return `\nTies: ${left}.`;
 	const lines = shown.slice(0, MOST_TIES).map((tie) => {
 		const found = present.find((one) => one.addresses.includes(tie.other));
 		const work = found !== undefined ? oneLine(found.worksOn) : undefined;
@@ -405,7 +417,8 @@ export function tiesText(
 	});
 	const more =
 		shown.length > MOST_TIES ? [`and ${shown.length - MOST_TIES} weaker`] : [];
-	return `\nTies, strongest first (one a message, halving every two hours):\n${[...lines, ...more].join("\n")}`;
+	const rest = left ? [`and ${left}`] : [];
+	return `\nTies, strongest first (one a message, halving every two hours):\n${[...lines, ...more, ...rest].join("\n")}`;
 }
 
 /**

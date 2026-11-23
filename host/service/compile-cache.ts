@@ -5,8 +5,12 @@
  * host's code loads, in a folder of the realm, kind and install, since
  * an install's files never change and another install's never apply;
  * starting, a host removes its own earlier installs' folders and keeps
- * every other host's. A cache that can't be had is said, and the host
- * starts without it.
+ * every other host's. The folders lie in the login's runtime folder
+ * where it can be had, and in pi's state else (compile-cache-place.ts).
+ * There a start also sweeps what node's cache for every pi holds that
+ * nothing used for a day, since that folder is memory
+ * (compile-cache-sweep.ts).
+ * A cache that can't be had is said, and the host starts without it.
  */
 
 import { createHash } from "node:crypto";
@@ -19,6 +23,12 @@ import {
 } from "node:fs";
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
+import {
+	compileFolderOf,
+	loginRuntimeFolder,
+	runtimeCompileFolderOf,
+} from "../../lib/internal/fence/compile-cache-place.ts";
+import { sweepIdleCompiled } from "../../lib/internal/fence/compile-cache-sweep.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
@@ -40,11 +50,17 @@ export interface CompileCacheOptions {
 	/** The harness the host runs from, reached through any link. */
 	readonly harnessRoot: string;
 	/**
-	 * Where every host's folder sits; the harness's state by default,
-	 * which the fence holds read-only: node runs what it reads back
-	 * from here outside the fence, so no fenced command may write it.
+	 * Where every host's folder sits; by default the login's runtime
+	 * folder's, which no fenced command sees, or the harness's state,
+	 * which the fence holds read-only: node runs what it reads back from
+	 * here outside the fence, so no fenced command may write it.
 	 */
 	readonly root?: string;
+	/**
+	 * The login's runtime folder, the only one the cache may lie in; the
+	 * system's by default, null for none.
+	 */
+	readonly login?: string | null;
 	/** Enables node's cache in a folder; node's own by default. */
 	readonly enable?: (directory: string) => Enabled;
 }
@@ -90,6 +106,17 @@ function keyOf(
 	return { host, install };
 }
 
+/** Remove `host`'s folders in `root` but the one `keep` names. */
+function sweepEarlier(
+	root: string,
+	host: string,
+	keep: string | undefined,
+): void {
+	for (const entry of readdirSync(root))
+		if (entry.startsWith(`${host}-`) && entry !== keep)
+			rmSync(join(root, entry), { recursive: true, force: true });
+}
+
 /**
  * Enable node's compile cache for this host's install, removing the same
  * host's earlier installs' folders. Never throws: a cache that can't be
@@ -99,12 +126,35 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 	try {
 		const key = keyOf(options);
 		if (!key) return { state: "unkeyed" };
-		const root = options.root ?? stateDir("host-compile");
+		const login =
+			options.login === undefined
+				? (loginRuntimeFolder() ?? null)
+				: options.login;
+		const root =
+			options.root ??
+			compileFolderOf("host", options.env, process.platform, login);
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
-		for (const entry of readdirSync(root))
-			if (entry.startsWith(`${key.host}-`) && entry !== name)
-				rmSync(join(root, entry), { recursive: true, force: true });
+		sweepEarlier(root, key.host, name);
+		// Its folders from before the cache lay in the runtime folder, or
+		// from a start that found none, which no later start would reach.
+		const inState = stateDir("host-compile");
+		if (!options.root && inState !== root && existsSync(inState))
+			try {
+				sweepEarlier(inState, key.host, undefined);
+			} catch {
+				// Only room on the disk is lost: the cache this start uses lies
+				// elsewhere, so it stays on, and the next start sweeps again.
+			}
+		if (!options.root) {
+			const node = runtimeCompileFolderOf(
+				"node",
+				options.env,
+				process.platform,
+				login,
+			);
+			if (node) sweepIdleCompiled(node);
+		}
 		const folder = join(root, name);
 		mkdirSync(folder, { recursive: true });
 		const enabled = (options.enable ?? enableCompileCache)(folder);

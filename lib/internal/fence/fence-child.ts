@@ -64,8 +64,10 @@ export const GRACE_MS = 5000;
  * subshell that ends at once, so it is nobody's child; then the shell
  * takes them back. One passed in that moment is lost, and the grace's
  * SIGKILL ends the run. The command itself runs without descriptor 3.
+ * A fenced language server's shell runs it too (lsp-integration's
+ * fence.ts), so a server outlives no pi that started it.
  */
-const WATCHER = [
+export const WATCHER = [
 	"trap '' TERM HUP ALRM INT",
 	"( { read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 & )",
 	"trap - TERM HUP ALRM INT",

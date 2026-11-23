@@ -13,6 +13,7 @@ import {
 	type HolderFiles,
 	holderFiles,
 	PARKED_EXIT,
+	sayParkedIn,
 } from "./park.ts";
 
 /** What a pi needs before it may hand its window over. */
@@ -60,7 +61,8 @@ export type Told =
  * Tells the holder to start `command` next, woken at once with `wake`'s
  * words. Untold when either file can't be written, with both taken away,
  * even one cut short as it was written, so the holder starts nothing
- * half told.
+ * half told. Told, it also says the run parked where the holder names
+ * a file for it, since the run ends with {@link PARKED_EXIT}.
  */
 export function tellHolder(
 	files: HolderFiles,
@@ -72,6 +74,7 @@ export function tellHolder(
 		writeFileSync(files.again, JSON.stringify(command));
 		writing = files.wake;
 		writeFileSync(files.wake, JSON.stringify(wake));
+		if (files.parked !== undefined) sayParkedIn(files.parked);
 		return { told: true };
 	} catch (error) {
 		untellHolder(files);
@@ -96,6 +99,9 @@ export function whyWriting(path: string, error: unknown): string {
 export function untellHolder(files: HolderFiles): void {
 	forget(files.again);
 	forget(files.wake);
+	// Still running, it hasn't parked: a quit whose exit hangs later
+	// must not count as one.
+	if (files.parked !== undefined) forget(files.parked);
 }
 
 /**

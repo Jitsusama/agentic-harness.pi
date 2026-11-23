@@ -92,6 +92,11 @@ export interface CompactionRequest {
 	 * host could not say.
 	 */
 	readonly replacedTokens?: number;
+	/**
+	 * An earlier try at this summary stopped at its output cap, so a
+	 * provider that sizes its summary asks for a shorter one.
+	 */
+	readonly afterCap?: boolean;
 }
 
 /** Whether a provider can write a summary, and what it would cost. */
@@ -119,6 +124,11 @@ export type CompactionWritten =
 			 * once more before passing the compaction on.
 			 */
 			readonly retryable?: boolean;
+			/**
+			 * The reply stopped at its output cap, so a shorter summary asked
+			 * for again could fit.
+			 */
+			readonly capped?: boolean;
 	  };
 
 /** One provider that did not write the summary, and why. */

@@ -3,6 +3,7 @@
  * wants, ended quests, parking and restarts, and what will wake it.
  */
 
+import { carryUnderWay } from "../../../lib/internal/carry/under-way.ts";
 import { onConcluded } from "../../../lib/internal/quest/fields/concluded.ts";
 import { onDid } from "../../../lib/internal/session/events.ts";
 import {
@@ -145,6 +146,12 @@ export function onBus(m: MeshState, f: Handing) {
 	});
 	m.pi.events?.on(PARK_ASK, (data: unknown) => {
 		if (!isParkAsk(data) || !m.peer || data.session !== m.peer.session) return;
+		// A park or a restart ends the process a carry runs in, and its done
+		// file is written last, so neither goes until the carry has ended.
+		const carrying = carryUnderWay(data.session);
+		if (carrying !== undefined) {
+			data.refusals.push(`its work is being carried to ${carrying}`);
+		}
 		// A restart comes back in seconds as the same peer, and what was
 		// sent meanwhile waits in files it reads as it starts; refused for
 		// its sessions at work, an orchestrator of thirty never took a new

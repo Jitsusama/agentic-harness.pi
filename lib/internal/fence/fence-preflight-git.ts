@@ -8,9 +8,10 @@
  * holds from a command started elsewhere (5f).
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { createTreeMemory } from "../../core/work/memory.ts";
 import { treeRecordDir } from "../work-records.ts";
 import { routedPackedRefs } from "./fence-git-route.ts";
 import {
@@ -151,16 +152,14 @@ export async function heldTreeGit(context: PreflightContext): Promise<Verdict> {
 			context.scratch,
 		);
 		if (made.code !== 0) return failed(`no repository: ${tailOf(made)}`);
-		mkdirSync(treeRecordDir(), { recursive: true });
-		writeFileSync(
-			record,
-			JSON.stringify({
-				identity: { key, shareable: false },
-				path: held,
-				providerId: "git-worktree",
-				sessions: [context.session],
-			}),
-		);
+		// Written as the broker writes one, so this process's fence, which
+		// answers from a kept listing, sees it at once.
+		createTreeMemory(treeRecordDir()).remember({
+			identity: { key, shareable: false },
+			path: held,
+			providerId: "git-worktree",
+			sessions: [context.session],
+		});
 		const inHeld = await fenced(work(held), context.scratch, context.session);
 		if (inHeld.code !== 0)
 			return failed(`git in the held tree failed: ${tailOf(inHeld)}`);
@@ -177,7 +176,15 @@ export async function heldTreeGit(context: PreflightContext): Promise<Verdict> {
 			`a commit and a fetch in a held tree from the scratch folder (${inHeld.ms} ms), and a tree not held still refused: ${tailOf(inUnheld, 1)}`,
 		);
 	} finally {
-		rmSync(record, { force: true });
+		// Forgotten as the broker forgets one, so this process's kept
+		// listing drops it at once rather than a reading later.
+		try {
+			createTreeMemory(treeRecordDir()).forget(held);
+		} catch {
+			// The records couldn't be read for now: the file goes by its
+			// name, and the listing sees it gone a reading later.
+			rmSync(record, { force: true });
+		}
 		await outside(
 			`git -C '${root}' worktree remove --force '${held}'; git -C '${root}' worktree remove --force '${unheld}'`,
 			context.scratch,

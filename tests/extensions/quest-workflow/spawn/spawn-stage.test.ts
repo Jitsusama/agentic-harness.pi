@@ -135,7 +135,7 @@ describe("how a spawn starts, for the claim it settles", () => {
 		).toEqual(unfenced);
 		expect(
 			settledFor(fresh, "darwin"),
-			"opened on a Mac, whose pi lifts it",
+			"opened on a Mac, where the spawner can't see whether a sandbox around pi keeps it",
 		).toEqual(unfenced);
 		const strict = { kind: "strict", from: "spawn" } as const;
 		expect(
@@ -143,7 +143,7 @@ describe("how a spawn starts, for the claim it settles", () => {
 				strict,
 				spawnSettled({ ...fresh, held: true, here: false }, "darwin"),
 			),
-			"strict, which no pi lifts and a Mac's refuses all under",
+			"strict, which no pi lifts, so its claim stands on a Mac too",
 		).toEqual(strict);
 	});
 });

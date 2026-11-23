@@ -26,6 +26,7 @@ import { execFile } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { runtimeDir as loginRuntimeDir } from "../../lib/internal/paths.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 
 const run = promisify(execFile);
@@ -245,7 +246,7 @@ export function parseKittyWindows(text: string): KittyWindow[] {
 /** Read what the machine says of its windows, for the realm's sessions. */
 export async function readMachineWindows(
 	realm: string,
-	runtimeDir: string | undefined = process.env.XDG_RUNTIME_DIR,
+	runtimeDir: string | undefined = loginRuntimeDir(),
 	quietMycelium: readonly string[] = [],
 ): Promise<MachineWindows> {
 	const empty: MachineWindows = {

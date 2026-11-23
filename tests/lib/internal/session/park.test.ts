@@ -7,6 +7,7 @@ import {
 	linkSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -32,6 +33,7 @@ import {
 	NAMED_PARK_AFTER_MS,
 	noteWake,
 	PARK_AFTER_MS,
+	PARK_SAID_ENV,
 	type Parked,
 	parkAfterMs,
 	parkedPath,
@@ -39,8 +41,11 @@ import {
 	promptIn,
 	readParked,
 	type Stillness,
+	sayParked,
 	sweepWakes,
 	switchOff,
+	takeBackRestartPark,
+	unsayParked,
 	WAKES_KEPT_MS,
 	wakesPath,
 	whyNotPark,
@@ -343,6 +348,108 @@ describe("the record its holder keeps beside the wake file", () => {
 			holderFiles({ MYCELIUM_WAKE: wake() }, 4242),
 			"a holder taking no next command",
 		).toBeUndefined();
+	});
+});
+
+describe("saying a run parked", () => {
+	const held = () => {
+		writeFileSync(join(folder, "held.json"), JSON.stringify({ pid: 4242 }));
+		return { MYCELIUM_WAKE: join(folder, "held.wake") };
+	};
+	const parked = () => join(folder, "held.parked");
+
+	it("writes the file its holder named, run by that holder itself", () => {
+		sayParked({ ...held(), MYCELIUM_PARKED: parked() }, 4242);
+
+		expect(readFileSync(parked(), "utf8")).toBe("");
+	});
+
+	// A subagent inherits its parent's variables, and parks nothing.
+	it("writes nothing for a process its holder doesn't run itself", () => {
+		sayParked({ ...held(), MYCELIUM_PARKED: parked() }, 4243);
+
+		expect(existsSync(parked())).toBe(false);
+	});
+
+	it("writes nothing where its holder names no file, and never throws", () => {
+		const env = held();
+		const before = readdirSync(folder);
+
+		expect(() => sayParked(env, 4242), "none named").not.toThrow();
+		expect(readdirSync(folder), "none named, none written").toEqual(before);
+
+		mkdirSync(parked());
+		expect(
+			() => sayParked({ ...env, MYCELIUM_PARKED: parked() }, 4242),
+			"a folder where the file should be",
+		).not.toThrow();
+	});
+
+	it("takes it back for a run that stays up, and never throws", () => {
+		const env = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(env, 4242);
+
+		unsayParked(env, 4242);
+
+		expect(existsSync(parked()), "up, it hasn't parked").toBe(false);
+		expect(() => unsayParked(env, 4242), "already gone").not.toThrow();
+		expect(() => unsayParked({}, 4242), "none named").not.toThrow();
+	});
+
+	// A subagent inherits its parent's variables: taking back the parent's
+	// real mark would lose the parent's park if its exit then hung.
+	it("takes back nothing for a process its holder doesn't run itself", () => {
+		const env = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(env, 4242);
+
+		unsayParked(env, 4243);
+
+		expect(readFileSync(parked(), "utf8"), "the parent's mark stands").toBe("");
+	});
+
+	it("takes back the park a restart of this same process said, once, forgetting the restart", () => {
+		const env: NodeJS.ProcessEnv = {
+			...held(),
+			MYCELIUM_PARKED: parked(),
+			[PARK_SAID_ENV]: "4242",
+		};
+		sayParked(env, 4242);
+
+		takeBackRestartPark(env, 4242);
+
+		expect(existsSync(parked()), "up again, it hasn't parked").toBe(false);
+		expect(env[PARK_SAID_ENV], "forgotten, so no later start acts on it").toBe(
+			undefined,
+		);
+	});
+
+	// One-writer's hand-over says a park as a session starts (F14, #1951):
+	// only a restart of this process may take a mark back.
+	it("keeps a park anything but a restart of this process said", () => {
+		const said = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(said, 4242);
+
+		takeBackRestartPark({ ...said }, 4242);
+		expect(readFileSync(parked(), "utf8"), "no restart said it").toBe("");
+
+		// A subagent inherits the variable from a parent that restarted.
+		const inherited: NodeJS.ProcessEnv = { ...said, [PARK_SAID_ENV]: "4242" };
+		takeBackRestartPark(inherited, 4243);
+		expect(readFileSync(parked(), "utf8"), "another process's restart").toBe(
+			"",
+		);
+		expect(inherited[PARK_SAID_ENV], "forgotten all the same").toBe(undefined);
+	});
+
+	// Its holder runs this process, so only the pid it names keeps the
+	// mark: a holder that started it afresh after another's restart.
+	it("keeps a park another pid's restart said, in a process its holder runs", () => {
+		const said = { ...held(), MYCELIUM_PARKED: parked() };
+		sayParked(said, 4242);
+
+		takeBackRestartPark({ ...said, [PARK_SAID_ENV]: "4241" }, 4242);
+
+		expect(readFileSync(parked(), "utf8"), "another pid's restart").toBe("");
 	});
 });
 

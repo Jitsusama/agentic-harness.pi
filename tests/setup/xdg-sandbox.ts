@@ -44,6 +44,10 @@ process.env.XDG_CONFIG_HOME = join(sandbox, "config");
 // The machine's queue and each quest's weight live in the runtime
 // directory's jobs folder, which every session on the machine reads.
 process.env.XDG_RUNTIME_DIR = join(sandbox, "runtime");
+// A Mac's host start names the runtime folder in AGENTS_RUNTIME_DIR,
+// which is read before XDG_RUNTIME_DIR, so it would take a test back to
+// the developer's own folder.
+delete process.env.AGENTS_RUNTIME_DIR;
 
 // The desktop is the developer's too: a test that reaches someone
 // through a notification must not put one on their screen.

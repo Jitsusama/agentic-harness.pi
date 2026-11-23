@@ -88,6 +88,15 @@ interface Seen {
 		readonly own: number;
 		readonly unheld: number;
 	};
+	/** A carry's hold on a conversation: the background counted and what a restart waits on, and its reload, while held and after. */
+	readonly carryHeld?: {
+		readonly before: number;
+		readonly during: number;
+		readonly after: number;
+		readonly holding: readonly string[];
+		readonly reloadDuring: string;
+		readonly reloadAfter: string;
+	};
 	/** What a restart would wait on of a heavy run, before and while the host drains, and what the drain said goes. */
 	readonly heavyHeld?: {
 		readonly holding: readonly string[];
@@ -124,10 +133,20 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** Whether a close for good left the calls a park carried recorded. */
+	readonly recordLeft?: boolean;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
 	readonly logs?: Readonly<Record<string, unknown>>;
+	/**
+	 * What a resumed, an adopted and a switched-to conversation held of
+	 * their compacted logs; whether the switched-to one was closed before
+	 * the switch; whether the switch opened its log; and whether kept
+	 * history ran on the host's pi-ai, which pins the fixture's hook order,
+	 * not the engine's late import.
+	 */
+	readonly keptHistory?: Readonly<Record<string, unknown>>;
 	/** The folder each opened conversation was given, opened through a symlink to the work folder. */
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
@@ -659,6 +678,27 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "start-fails");
 			expect(seen.refused, "the open fails, saying why").not.toBe("");
 			expect(seen.state, "the host still holds it, parked").toBe("parked");
+			expect(
+				seen.recordLeft,
+				"its close for good stops what a park carried",
+			).toBe(false);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"counts a carry under way as what a restart waits on, and refuses a reload until it lets go",
+		async () => {
+			const seen = await step(hostFolder(), "carry-held");
+			expect(seen.carryHeld).toEqual({
+				before: 0,
+				during: 1,
+				after: 0,
+				holding: [`${seen.firstId}: a carry to penelope`],
+				reloadDuring:
+					"its work is being carried to penelope, and a reload would end the carry part-way",
+				reloadAfter: "reloaded",
+			});
 		},
 		HOST_LIFE_MS,
 	);
@@ -789,6 +829,23 @@ describe("the host's engine", () => {
 				woken: ["read"],
 				closed: [],
 				closedParked: [],
+			});
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"holds only the kept history of a compacted log it resumes, adopts, or that a command switches it to",
+		async () => {
+			const seen = await step(hostFolder(), "kept-history");
+			const held = { record: true, keptNext: true, earlyHeld: false };
+			expect(seen.keptHistory).toEqual({
+				resumed: held,
+				adopted: held,
+				replaced: held,
+				closedBefore: true,
+				switchedTo: true,
+				onHostPi: true,
 			});
 		},
 		HOST_LIFE_MS,

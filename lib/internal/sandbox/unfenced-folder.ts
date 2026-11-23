@@ -19,12 +19,16 @@
  */
 import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { compileCacheFolder } from "../fence/compile-cache-place.ts";
+import { runtimeCompileFolders } from "../fence/compile-cache-place.ts";
 import { lenderFolders } from "../fence/fence-builders.ts";
 import { DISK } from "../fence/fence-disk.ts";
 import { DOCKER_CONFIG } from "../fence/fence-docker.ts";
 import { FENCE_HIDDEN } from "../fence/fence-hidden.ts";
-import { keptHomeAbove, readOnlyPaths } from "../fence/fence-home.ts";
+import {
+	fenceFolders,
+	keptHomeAbove,
+	readOnlyPaths,
+} from "../fence/fence-home.ts";
 import { NPMRC } from "../fence/fence-npmrc.ts";
 import {
 	MAC_HIDDEN,
@@ -60,18 +64,23 @@ export function nodeRecords(home: string): string[] {
 /**
  * Where pi and its host keep the code they compiled, which the next one
  * started outside every sandbox runs as its own (ISXEG8, 19 November):
- * the host's cache and node's in pi's state, where they now lie, and
- * in the cache folder, where an older install kept the host's, and
- * node's and jiti's in the temporary folder, where a pi left to itself
- * keeps them. The fence holds each closed to its other commands; strict
- * would make one writable as a command's own folder.
+ * the host's cache and node's in the login's runtime folder, where they
+ * now lie on Linux, and in pi's state, where they lie on a Mac and lay
+ * before, and in the cache folder, where an older install kept the
+ * host's, and node's and jiti's in the temporary folder, where a pi left
+ * to itself keeps them. The fence holds each closed to its other
+ * commands; strict would make one writable as a command's own folder.
  */
-export function compiledCode(home: string): string[] {
+export function compiledCode(
+	home: string,
+	env: NodeJS.ProcessEnv = process.env,
+): string[] {
 	return unique([
+		...runtimeCompileFolders(env),
 		join(home, ".local/state/pi/agentic-harness.pi/host-compile"),
 		join(home, ".local/state/pi/agentic-harness.pi/node-compile-cache"),
 		stateDir("host-compile"),
-		compileCacheFolder(),
+		stateDir("node-compile-cache"),
 		join(home, ".cache/pi/agentic-harness.pi/host-compile"),
 		cacheDir("host-compile"),
 		...tempCodeCaches(),
@@ -355,11 +364,25 @@ export function unfencedFolder(
 			"or lies in the records this machine's node trusts (its own and pi's host records)",
 		);
 	}
-	const caches = new Set(place.cachesClosed ? tempCodeCaches() : []);
+	// The fence lays a tmpfs of its own over each: the temporary folder's
+	// caches, and on Linux the runtime folder's, with the runtime folder
+	// or alone (fence.ts's `compileRoots`).
+	const caches = new Set(
+		place.cachesClosed
+			? [...tempCodeCaches(), ...(mac ? [] : runtimeCompileFolders())]
+			: [],
+	);
 	const code = compiledCode(home).filter((folder) => !caches.has(folder));
 	if (code.some(meets)) {
 		return refusing(
 			"or lies in the code pi and its host compiled, which the next one runs outside the sandbox",
+		);
+	}
+	// The fence's cargo and gradle run what their homes hold, and its
+	// gcloud reads its settings folder (fence-home.ts).
+	if (Object.values(fenceFolders(home)).some(meets)) {
+		return refusing(
+			"or lies in the agent fence's own state, which its commands run later",
 		);
 	}
 	const closed = closedHere(cwd, home, place);

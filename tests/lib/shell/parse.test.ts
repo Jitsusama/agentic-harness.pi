@@ -39,6 +39,13 @@ describe("matchHeredocs", () => {
 		expect(matchHeredocs('echo "hi"')).toEqual([]);
 	});
 
+	it("takes a here-string for no heredoc", () => {
+		expect(
+			matchHeredocs("cat <<< x\npi -p go\nx"),
+			"a <<< opens no heredoc at its second <",
+		).toEqual([]);
+	});
+
 	it("captures body and quote-state for a quoted delimiter", () => {
 		const command = "git commit -F- <<'EOF'\nmessage\nEOF";
 		const matches = matchHeredocs(command);

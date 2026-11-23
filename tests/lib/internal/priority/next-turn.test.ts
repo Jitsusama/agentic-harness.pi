@@ -11,6 +11,8 @@ import {
 	LENDING_WAIT_MS,
 	leastGibOfCommand,
 	MOST_FLOORS_PRESSURE,
+	MOST_MEMORY_PRESSURE,
+	MOST_MEMORY_STALL_FOR_ONE,
 	MOST_VMS,
 	needsGibOf,
 	needsGibOfCommand,
@@ -92,9 +94,13 @@ describe("whose turn it is", () => {
 		expect(nextTurn([running, job("next")], ROOMY, NOW)).toBeUndefined();
 		const settled = { ...running, started: startedAgo(SPREAD_MS) };
 		expect(nextTurn([settled, job("next")], ROOMY, NOW)?.id).toBe("next");
-		expect(
-			nextTurn([job("next")], { ...ROOMY, memoryPressure: 10 }, NOW),
-		).toBeUndefined();
+		const pressed = {
+			...ROOMY,
+			memoryPressure: MOST_MEMORY_PRESSURE,
+			memoryFullMinute: MOST_MEMORY_STALL_FOR_ONE,
+			floorsPressure: 0,
+		};
+		expect(nextTurn([job("next")], pressed, NOW)).toBeUndefined();
 	});
 
 	it("holds everyone behind a job the memory left can't fit", () => {

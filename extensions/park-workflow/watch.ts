@@ -3,8 +3,9 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
 import { whyWriting } from "../../lib/internal/session/hand-over.ts";
@@ -28,6 +29,7 @@ import {
 	opensOnlyItself,
 	PARK_ASK,
 	PARK_ENV,
+	PARK_SAID_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -39,6 +41,7 @@ import {
 	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
+	sayParked,
 	switchOff,
 	tellHolderSteers,
 	WAKE_ENV,
@@ -58,8 +61,12 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import {
+	isCarriedShell,
+	withinWatch,
+} from "../../lib/internal/shell/carried.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
-import { findJobHost } from "../../lib/jobs/host.ts";
+import { findJobHost, type JobHost } from "../../lib/jobs/host.ts";
 
 /**
  * Why a hosted conversation whose host can't park it stays awake.
@@ -74,6 +81,41 @@ function parkingHost(): { park(sessionId: string): void } | undefined {
 	const host = hosted();
 	const park = host?.park;
 	return host && park ? { park: (id) => park.call(host, id) } : undefined;
+}
+
+/**
+ * The jobs that keep a conversation awake, named where its job host can
+ * say which. Where its park would carry its bash calls (`carried`), a
+ * call out within its watch holds it no longer; one past its time limit
+ * or a day old, whose watch would wake it at once, still does, as do any
+ * other job and an end not yet said. So does a heavy run (`isHeavy`): a
+ * drain lists heavy runs only from conversations awake, so a parked
+ * one's would be cut by a drained restart. A job host from before
+ * `holds` counts every pending job.
+ */
+function jobsHolding(
+	jobs: JobHost | undefined,
+	carried: boolean,
+	now: number,
+): Pick<Holding, "jobs" | "heldBy"> {
+	const pending = jobs?.pending?.() ?? 0;
+	if (!jobs?.holds || !jobs.running) return { jobs: pending };
+	const held = jobs.holds(
+		carried
+			? (work) => isCarriedShell(work) && withinWatch(work, now)
+			: () => false,
+	);
+	const heavy = jobs
+		.running()
+		.filter(
+			(job) => isHeavy(job.label) && !held.some((hold) => hold.id === job.id),
+		);
+	const heldBy = [...held, ...heavy];
+	const unsaid = Math.max(0, pending - jobs.running().length);
+	return {
+		jobs: heldBy.length + unsaid,
+		...(heldBy.length > 0 && unsaid === 0 ? { heldBy } : {}),
+	};
 }
 
 /**
@@ -219,7 +261,10 @@ export interface WatchOptions {
 	 * can't be told; asked only as a restart is weighed.
 	 */
 	readonly focusedWindow?: () => string | null;
-	/** Start this process again in place on `sessionFile`, once pi exits. */
+	/**
+	 * Start this process again in place on `sessionFile`, once pi exits,
+	 * running `fallback` where it can't be.
+	 */
 	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
@@ -260,27 +305,73 @@ const FIRST_START_ONLY = [
 function restartWith(sessionFile: string, fallback: () => void): void {
 	process.once("exit", () => {
 		process.stdout.write(`\r\n${RESTART_LINE}\r\n`);
-		const env = { ...process.env };
-		for (const name of FIRST_START_ONLY) delete env[name];
+		const env = restartEnvironment(process.env, process.pid);
 		const [script = ""] = process.argv.slice(1);
-		try {
-			// Node calls execve experimental and would print so in the window.
-			process.removeAllListeners("warning");
-			process.execve?.(
+		// Node calls execve experimental and would print so in the window.
+		process.removeAllListeners("warning");
+		replaceInPlace(
+			process.execve?.bind(process),
+			[
 				process.execPath,
-				[
-					process.execPath,
-					...process.execArgv,
-					script,
-					...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
-				],
-				env,
-			);
-		} catch {
-			// Not replaced: its holder starts it again instead, below.
-		}
+				...process.execArgv,
+				script,
+				...restartCommand(sessionFile, process.argv.slice(2)).slice(1),
+			],
+			env,
+		);
+		// Not replaced: its holder starts it again instead.
 		fallback();
 	});
+}
+
+/**
+ * The variables the pi a restart in place of process `pid` becomes
+ * runs with: `env` without those a spawn gave its first start alone,
+ * and naming `pid` as the process that said its park, for that pi to
+ * take back as it loads.
+ */
+export function restartEnvironment(
+	env: NodeJS.ProcessEnv,
+	pid: number,
+): NodeJS.ProcessEnv {
+	const next: NodeJS.ProcessEnv = { ...env, [PARK_SAID_ENV]: String(pid) };
+	for (const name of FIRST_START_ONLY) delete next[name];
+	return next;
+}
+
+/**
+ * Replaces this process with `argv` by `execve`. It returns only when it
+ * couldn't, as on a Node without execve, where `argv[0]` can't be run,
+ * or when execve throws, for the caller to start it another way.
+ *
+ * Node ends the process by abort, never returning, when the execve call
+ * itself fails (PV3TE0 saw ENOENT do so on node 24, 21 November), so
+ * the program is checked first: Node upgraded or collected under a
+ * long-running pi is the likeliest way it fails, and that way the
+ * caller's fallback still runs.
+ */
+export function replaceInPlace(
+	execve: NodeJS.Process["execve"],
+	argv: readonly [string, ...string[]],
+	env: NodeJS.ProcessEnv,
+	canRun: (file: string) => boolean = runnable,
+): void {
+	if (execve === undefined || !canRun(argv[0])) return;
+	try {
+		execve(argv[0], argv, env);
+	} catch {
+		// Not replaced: the process runs on as it was, and the caller knows.
+	}
+}
+
+/** Whether this account may run `file`. */
+function runnable(file: string): boolean {
+	try {
+		accessSync(file, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -482,7 +573,13 @@ export function watch(
 	const holding = (): Holding => ({
 		agentIdle: ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
-		jobs: findJobHost(bus)?.pending?.() ?? 0,
+		...jobsHolding(
+			findJobHost(bus),
+			inBackgroundHost(options.platform) &&
+				hosted()?.carries?.(session) === true &&
+				hosted()?.viewed?.(session) !== true,
+			now(),
+		),
 		prompting: prompts > 0,
 		typed: ctx.ui.getEditorText().trim() !== "",
 	});
@@ -505,12 +602,15 @@ export function watch(
 	// How long it waits idle before it parks: not at all while its host
 	// drains for a restart, since on 16 November the background host's 17
 	// conversations took turns that overlapped for over an hour, and no
-	// moment came with none running. PI_PARK=off keeps it awake still.
+	// moment came with none running. Nor while its host's code is stale,
+	// since on 22 November 15 children ran host code 34 hours old, and its
+	// next wake starts it on current code. PI_PARK=off keeps it awake still.
 	const dueAfterMs = (): number | undefined => {
 		const usual = parkAfterMs(session, options.env, options.switchPath);
 		if (env[PARK_ENV] === "off") return usual;
 		if (parkingHost()) {
 			if (hosted()?.draining?.(session) === true) return 0;
+			if (hosted()?.rolling?.(session) === true) return 0;
 			if (!inBackgroundHost(options.platform)) return usual;
 			// One a window views may be read by the person, whose next key
 			// would wait out its wake, so it waits as an attended one does,
@@ -544,6 +644,7 @@ export function watch(
 			return;
 		}
 		endedProcess = true;
+		sayParked(env, options.pid ?? process.pid);
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
@@ -679,6 +780,12 @@ export function watch(
 		};
 		parked = true;
 		endedProcess = true;
+		// Said now, so a shutdown that hangs and ends by a signal before
+		// the exit, or an execve that aborts, still leaves its holder a
+		// park, as a park says it. Replaced in place, the pi it becomes
+		// takes it back as it loads (takeBackRestartPark), since its holder
+		// saw no exit and never clears it.
+		sayParked(env, options.pid ?? process.pid);
 		(options.restartWith ?? restartWith)(fresh, throughHolder);
 		void ctx.shutdown();
 		return undefined;

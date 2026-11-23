@@ -5,6 +5,7 @@
  */
 
 import { noun } from "../../ui/count.ts";
+import { wordsOf } from "../shell/steps.ts";
 import { NOBODY } from "./awaited.ts";
 import {
 	BUILDS_BESIDE_VMS,
@@ -14,6 +15,7 @@ import {
 	floorsWait,
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_MEMORY_PRESSURE,
+	MOST_MEMORY_STALL_FOR_ONE,
 	QUICK_AT_ONCE,
 	QUICK_OUTRUN_MS,
 	vmSettling,
@@ -33,6 +35,7 @@ import {
 } from "./job.ts";
 import {
 	CLASS_OF,
+	elsewhereKindOf,
 	type Kind,
 	LIGHT_GIB,
 	NEEDS_GIB,
@@ -115,11 +118,61 @@ const rank = (job: Job) =>
  * 0.4 GB at most yet waited 14,016 s on memory, a third of each one's
  * time to its result (80ECO2). A sent `nix-offload there
  * --here-when-idle` stays held: idle by CPU, it may build here while
- * memory is short.
+ * memory is short. A sent `elsewhere run` goes too: it is sent only
+ * while elsewhere places its kind on another machine, and never beside
+ * an idle-only build (send.ts).
  */
 function startsPressed(job: Job): boolean {
-	if (job.sent === true && runsChangedChecks(job.what)) return true;
+	if (job.sent !== true) return lightAndQuick(job);
+	if (runsChangedChecks(job.what)) return true;
+	if (elsewhereKindOf(wordsOf(job.what)) !== undefined) return true;
+	return lightAndQuick(job);
+}
+
+/** Quick work other than a build, held to no more than {@link LIGHT_GIB}. */
+function lightAndQuick(job: Job): boolean {
 	return isQuick(job) && job.kind !== "build" && needsGibOf(job) <= LIGHT_GIB;
+}
+
+/**
+ * Which waiting jobs memory holds: none while pressure is under
+ * {@link MOST_MEMORY_PRESSURE}, and past it every job that doesn't start
+ * while memory is short (see {@link startsPressed}), but for one heavy
+ * job other than a VM while the lane is open (see {@link oneLaneOpen}).
+ * A guest keeps every page it has touched until it stops, so a VM is
+ * the last thing to let in while memory is short.
+ */
+function memoryHolder(jobs: readonly Job[], room: Room): (job: Job) => boolean {
+	if (room.memoryPressure < MOST_MEMORY_PRESSURE) return () => false;
+	const lane = oneLaneOpen(jobs, room);
+	return (job) => !startsPressed(job) && !(lane && !isVm(job));
+}
+
+/**
+ * Whether one heavy job may start while memory pressure is past
+ * {@link MOST_MEMORY_PRESSURE}: every task stalled on memory under
+ * {@link MOST_MEMORY_STALL_FOR_ONE} of the last minute, the person's
+ * own programs are read and don't wait on it ({@link floorsWait}), and
+ * no heavy job runs here already: none of the queue's that wouldn't
+ * have started while memory was short, no daemon build and no VM. An
+ * answered fetch holds nothing. Where the minute's stall or the floors
+ * aren't read, as on the Mac, the lane is shut. The job let in is held
+ * to every other rule, its booking fitting among them.
+ */
+function oneLaneOpen(jobs: readonly Job[], room: Room): boolean {
+	const stall = room.memoryFullMinute;
+	return (
+		stall !== undefined &&
+		stall < MOST_MEMORY_STALL_FOR_ONE &&
+		room.floorsPressure !== undefined &&
+		!floorsWait(room) &&
+		room.vms === 0 &&
+		(room.builds ?? []).length === 0 &&
+		!jobs.some(
+			(job) =>
+				job.started !== undefined && !job.answered && !startsPressed(job),
+		)
+	);
 }
 
 /**
@@ -283,9 +336,18 @@ function memoryWaitedMs(job: Job, now: number): number {
  * beside one started within {@link WALK_SETTLES_MS}, and git's revert in
  * a World checkout reads as a walk. 15: a quick push opens no settling
  * window, and a command chaining another walk before a push is no quick
- * push, though its push still leaves out its LFS scan.
+ * push, though its push still leaves out its LFS scan. 16: an
+ * `elsewhere run` placed on another machine, from a session on a quest,
+ * is sent, so it skips the CPU hold and starts while memory is short.
+ * 17: a shell comment reads as nothing, where older code read the work
+ * it names. 18: one heavy job other than a VM starts while memory is
+ * pressed, while the minute's full stall is under bounds.ts's
+ * `MOST_MEMORY_STALL_FOR_ONE`, the person's programs are read and don't
+ * wait on memory, and no heavy job, daemon build or VM runs here. 19: a
+ * Mac's queue tells a job's boot by its token, keeps no run time for a
+ * job a boot cut off, and dates its end within its run and now.
  */
-export const RULES_VERSION = 15;
+export const RULES_VERSION = 19;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -309,8 +371,7 @@ export function nextTurn(
 			.map((job) => Date.parse(job.started as string)),
 	);
 	if (now - last < SPREAD_MS) return undefined;
-	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
-	if (pressed && !jobs.some(startsPressed)) return undefined;
+	const held = memoryHolder(jobs, room);
 	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
@@ -326,7 +387,7 @@ export function nextTurn(
 		);
 	let holds = HOLDS_NONE;
 	for (const job of waiting) {
-		if (pressed && !startsPressed(job)) continue;
+		if (held(job)) continue;
 		if (isQuick(job)) {
 			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
@@ -406,8 +467,7 @@ export function waitReasons(
 		}
 	}
 	const waiting = waitingInOrder(jobs, awaited, first);
-	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
-	const heldPressed = (job: Job) => pressed && !startsPressed(job);
+	const heldPressed = memoryHolder(jobs, room);
 	for (const job of waiting) {
 		if (heldPressed(job)) reasons.set(job.id, "memory");
 	}
@@ -623,7 +683,8 @@ function standing(
 
 /**
  * How many more VMs and builds would get their turns now, beside what
- * runs and behind what waits: the room nobody is using.
+ * runs and behind what waits: the room nobody is using. While memory is
+ * pressed, that is the one heavy lane's build, if it is open.
  */
 export function roomLeft(
 	jobs: readonly Job[],
@@ -631,9 +692,21 @@ export function roomLeft(
 	now: number,
 	rules: Rules = RULES,
 ): RoomLeft {
-	if (room.memoryPressure >= MOST_MEMORY_PRESSURE || floorsBusy(room)) {
+	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	if ((pressed && !oneLaneOpen(jobs, room)) || floorsBusy(room)) {
 		return { vms: 0, builds: 0 };
 	}
+	const left = unpressedRoomLeft(jobs, room, now, rules);
+	return pressed ? { vms: 0, builds: Math.min(1, left.builds) } : left;
+}
+
+/** {@link roomLeft} on a machine with memory to spare. */
+function unpressedRoomLeft(
+	jobs: readonly Job[],
+	room: Room,
+	now: number,
+	rules: Rules,
+): RoomLeft {
 	const { growing, vmsHere, vmsElsewhere, settling, builds } = standing(
 		jobs,
 		room,
@@ -677,10 +750,13 @@ export function roomSaid(left: RoomLeft): string {
  */
 export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
 	// Waiting while the machine is busy is the rule's aim, not a waste.
+	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
+	if ((pressed && !oneLaneOpen(jobs, room)) || floorsBusy(room)) return false;
+	const held = memoryHolder(jobs, room);
 	return (
-		room.memoryPressure < MOST_MEMORY_PRESSURE &&
-		!floorsBusy(room) &&
 		!cpuHoldsBuilds(room) &&
-		waitingInOrder(jobs).some((job) => needsGibOf(job) <= room.availableGib)
+		waitingInOrder(jobs).some(
+			(job) => !held(job) && needsGibOf(job) <= room.availableGib,
+		)
 	);
 }

@@ -22,6 +22,7 @@ import {
 	RESTARTING_ENTRY,
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
@@ -170,6 +171,10 @@ async function session({
 	stale = false,
 	// How long idle reloads are spread over; none, unless a case is about it.
 	spreadMs = 0,
+	// The session's id, where a case needs one; a context may have none.
+	sessionId = undefined as string | undefined,
+	// A context whose session manager throws as its id is read.
+	idThrows = false,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -182,17 +187,34 @@ async function session({
 		pending: () => pending,
 	};
 	stops.push(announceJobHost(events, host));
+	const entries: { type: string; data: unknown }[] = [];
 	const pi = {
 		events,
 		sendUserMessage: (text: string) => {
 			if (stale) throw new Error("This extension ctx is stale.");
 			prompted.push(text);
 		},
+		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 	};
+	const ids = idThrows
+		? {
+				sessionManager: {
+					getSessionId: () => {
+						throw new Error("This extension ctx is stale.");
+					},
+				},
+			}
+		: sessionId === undefined
+			? {}
+			: { sessionManager: { getSessionId: () => sessionId } };
 	let busy = !idle;
 	const follower = await follow(
 		pi as never,
-		{ hasUI, isIdle: () => !busy } as never,
+		{
+			hasUI,
+			isIdle: () => !busy,
+			...ids,
+		} as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
 		{ env: {}, quietMs: QUIET_MS, spreadMs },
@@ -200,6 +222,7 @@ async function session({
 	return {
 		install,
 		prompted,
+		entries,
 		follower,
 		settle: () => {
 			busy = false;
@@ -291,6 +314,53 @@ describe("following the install", () => {
 			settle();
 			return prompted.length > 0;
 		});
+	});
+
+	// A reload replaces the context a carry reads and closes through, so
+	// one waits for the carry; the call site was once left untested
+	// (PV3TE0's F4 and F8).
+	it("waits while a carry of its work is under way, and reloads once it lets go", async () => {
+		const carried = "01a1ecbb-0000-7000-8000-0000000f0110";
+		const hold = holdForCarry(carried, "penelope");
+		try {
+			const { install, prompted, entries, follower } = await session({
+				sessionId: carried,
+			});
+
+			await land(install, "feat: something to try");
+			await until("the carry is said as what it waits on", () =>
+				entries.some(
+					(entry) =>
+						entry.type === WAITING_ENTRY &&
+						(entry.data as { reason?: string }).reason ===
+							"its work is being carried",
+				),
+			);
+			// A dispatch the carry failed to hold back starts its git log in
+			// the same call that says the entry, and sends once git answers.
+			// So the wait is git's own: the same log twice over, begun after
+			// the follower's, then a few spells for its answer to be sent.
+			// It scales with how loaded the machine is, but is no bound.
+			await git(install, "log", "--first-parent", "-n2");
+			await git(install, "log", "--first-parent", "-n2");
+			await quietFor(QUIET_MS, 4);
+			expect(prompted, "while the carry holds it").toEqual([]);
+			expect(reloadSlot().request, "while the carry holds it").toBeUndefined();
+
+			hold.release();
+			follower?.consider();
+			await until("the reload is asked for", () => prompted.length > 0);
+			expect(reloadSlot().request?.by, "once the carry lets go").toBe("self");
+		} finally {
+			hold.release();
+		}
+	});
+
+	it("reloads a session whose context throws as its id is read", async () => {
+		const { install, prompted } = await session({ idThrows: true });
+
+		await land(install, "feat: something to try");
+		await until("the reload is asked for", () => prompted.length > 0);
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {

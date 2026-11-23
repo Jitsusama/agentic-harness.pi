@@ -11,6 +11,9 @@
 		".config/gcloud/access_tokens.db",
 		".config/gcloud/legacy_credentials/",
 		".gsutil/credstore2",
+		".kube/gke_gcloud_auth_plugin_cache",
+		".aws/sso/cache/",
+		".aws/cli/cache/",
 		".gnupg/private-keys-v1.d/",
 		".gnupg/secring.gpg",
 		".dockercfg",
@@ -19,7 +22,20 @@
 		".local/share/keyrings/",
 		".local/state/gnome-keyring/login.cred",
 		".local/state/eero/session.cred",
-		".local/state/aquifer-cell/"
+		".local/state/aquifer-cell/",
+		".zsh_history",
+		".zsh_sessions/",
+		".bash_history",
+		".local/share/zsh/",
+		".histfile",
+		".local/state/zsh/",
+		".local/share/fish/fish_history",
+		".python_history",
+		".node_repl_history",
+		".psql_history",
+		".mysql_history",
+		".sqlite_history",
+		".irb_history"
 	],
 	"sshKept": [
 		"^(config|known_hosts(\\.old)?|google_compute_known_hosts(\\.old)?|.*\\.pub)$"

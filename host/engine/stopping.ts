@@ -7,6 +7,7 @@
  * a day; a close for good ends that too.
  */
 import type { SessionStamp } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { carriedCalls } from "../../lib/internal/shell/kept.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 import type { CarriedShells } from "./carried-shells.ts";
@@ -113,7 +114,7 @@ export function stopKeeping(options: {
 		await reapToolChildren(
 			sessionId,
 			table,
-			left.spared(carriedCalls()),
+			left.spared(await carriedCalls()),
 			among,
 		);
 	}
@@ -181,7 +182,7 @@ export function stopKeeping(options: {
 			const reaped = await reapLeftBehind(
 				hostKey,
 				undefined,
-				left.spared(carriedCalls()),
+				left.spared(await carriedCalls()),
 			);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(
@@ -281,6 +282,18 @@ export function restartEnds(
 	return [...held, ...heavy].map(
 		(job) => `${job.id} ${job.kind}: ${job.label}`,
 	);
+}
+
+/**
+ * The carry of a conversation's work a host restart would end, as a
+ * line, or none. A carry ends its run first, so the conversation reads
+ * as idle while it bundles, and its done file is written last: a restart
+ * then loses the carry and leaves its node waiting
+ * (lib/internal/carry/under-way.ts).
+ */
+export function carryEnds(sessionId: string): string[] {
+	const to = carryUnderWay(sessionId);
+	return to === undefined ? [] : [`a carry to ${to}`];
 }
 
 /** The heavy runs one conversation has going, carried or not, a line each. */

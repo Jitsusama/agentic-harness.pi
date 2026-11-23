@@ -19,6 +19,7 @@ import { askOne } from "./council.ts";
 import type { CritiqueDeps } from "./critique.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
 import { outcomeOf } from "./outcome.ts";
+import { reporterOf } from "./progress.ts";
 import {
 	type AskRun,
 	newRunId,
@@ -152,7 +153,7 @@ export async function runAudit(
 	// once for every round with a single participant rather than spelled
 	// out here in beats the judge then forgot to copy.
 	const answer = await askOne(request.auditor, request.prompt, id, deps);
-	deps.progress?.finish();
+	reporterOf(deps.progress).finish();
 
 	const warnings: string[] = [];
 	const audits: ThreadAudit[] = [];

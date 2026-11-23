@@ -8,6 +8,8 @@
  * names each file and every number moved, so nothing changed unseen. Lines
  * the branch's other commits added that still cite a moved number cannot be
  * rewritten mid-replay, so those are named as the one thing left to do.
+ * A commit that had already landed keeps the base's side of its Markdown,
+ * and the answer says where it landed, so a dropped change is never unseen.
  */
 
 import type { Settling } from "../../../lib/core/work/rebase.ts";
@@ -16,8 +18,13 @@ import { GLYPH } from "../render.ts";
 
 /** Lines saying what a replay settled and what still cites a moved number. */
 export function settlingLines(said: Settling = {}): string[] {
-	const { settled = [], recited = [], stale = [] } = said;
+	const { settled = [], recited = [], stale = [], landed = [] } = said;
 	const lines: string[] = [];
+	for (const one of landed) {
+		lines.push(
+			`   ${GLYPH.clean} ${one.paths.join(", ")}: ${one.commit} had already landed as ${one.as}, so the base's side was kept, with whatever the base changed since.`,
+		);
+	}
 	for (const file of settled) {
 		lines.push(
 			`   ${GLYPH.clean} ${file.path}: both sides only added, at ${count(file.hunks, "place")}, so both were kept, what had landed first.`,

@@ -137,8 +137,10 @@ through landrun:
   `~/.docker` and `~/.cargo`, whose settings run a credential command
   or a build, and `~/.rustup`, `~/.mozilla` and `~/.bundle`, whose
   toolchains, messaging hosts and plugins run as you. Their caches
-  (kube's, aws's and bundler's) are bound back writable,
-  and cargo and gradle get homes of their own in the sandbox's cache,
+  (kube's and bundler's) are bound back writable, aws's login caches
+  are hidden, and cargo and gradle get homes of their own in
+  `~/.cache/pi-fence/homes` (those under `~/.cache/pi-sandbox/cache`
+  from before are left for you to delete),
   since cargo builds the sources it extracted without checking them
   again. A deeper read-only folder is made first where its top entry
   is there, so a command can't make one that wasn't. The home folder
@@ -159,11 +161,28 @@ through landrun:
   walk's shared slice outside the fence, before it starts.
 - **No new privileges.** A setgid wrapper such as 1Password's `op`
   gains nothing.
+- **No cloud account.** Your own gcloud login is hidden, and gcloud
+  gets an empty settings folder of the session's own as
+  `CLOUDSDK_CONFIG`, but no token: the agents' account can change
+  machines, and a fenced session reads text a stranger may have
+  written. A command naming gcloud is told why. Run cloud work from an
+  unfenced session until an account that only reads is named for the
+  fence. The strict profile below does hand a token, so the account a
+  machine names for its agents (`gcloud-broker`) must only read too.
 
 Everything else is as it was: the home folder's hidden entries, the
 work, the network and the rest of the environment. The strict profile below is for text a
 stranger wrote; the fence is for every session. A session asking for
-it without bwrap and landrun on `PATH`, or off Linux, runs no command.
+it on Linux without bwrap and landrun on `PATH` runs no command. On
+a Mac, where pi itself runs inside a sandbox, its commands run as they
+are inside that one, and the session is told so once, since a session
+that runs nothing does no work there. pi can't run inside `pi-fence`,
+whose Mac profile hides pi's own state, so that sandbox is another's,
+and it may reach more than the fence. A Mac where nothing fences pi
+runs no command, and nor does
+one whose check of that couldn't tell, as a busy Mac may cause. A
+later conversation in pi-host checks again, no sooner than 30 s on; a
+lone pi checks once, at load, so it needs a reload.
 It cost about 80 ms a command on a machine at a load of 20 (85 ms
 against 8 ms unfenced), most of it bubblewrap's mounts.
 
@@ -245,8 +264,10 @@ with `PI_SANDBOX=strict` and each command runs under Landlock through
 
 The strict profile costs 20 to 35 ms a command. The queue still reads the command as
 given, and the lines that wait for its turn run outside the sandbox. A
-session that asks for it where it can't be had, off Linux or without
-landrun on `PATH`, runs no command at all rather than run one unfenced.
+session that asks for it on Linux without landrun on `PATH` runs no
+command at all rather than run one unfenced. On a Mac it runs them as
+the fence does there: inside the sandbox pi runs in, saying so once,
+and none where nothing fences pi.
 The tool tells the agent it is sandboxed, so a refusal reads as the
 sandbox rather than a fault.
 

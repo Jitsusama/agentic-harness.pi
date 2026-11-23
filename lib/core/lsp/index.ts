@@ -18,6 +18,7 @@ export {
 	formatLocations,
 	formatSymbols,
 	formatWorkspaceEdit,
+	LEFT_OUT,
 } from "./format.ts";
 export {
 	clearLspBackends,
@@ -30,8 +31,11 @@ export {
 	MissingServerError,
 	type StandaloneBackend,
 } from "./standalone/backend.ts";
+export { readJudged } from "./standalone/judged-files.ts";
 export type {
 	Diagnostic,
+	FencedLaunch,
 	LspBackend,
 	LspCallOptions,
+	LspFence,
 } from "./types.ts";

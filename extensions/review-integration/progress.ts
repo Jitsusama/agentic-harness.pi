@@ -35,6 +35,7 @@ import {
 	type AskRound,
 	trackAskProgress,
 } from "../../lib/core/review/index.ts";
+import { isStaleContext } from "../../lib/internal/reload/stale-rejections.ts";
 import { AGENT_GLYPH } from "../../lib/ui/agent-glyphs.ts";
 import {
 	type Board,
@@ -45,6 +46,7 @@ import {
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
+import { settledHere } from "./settling.ts";
 import type { Answer } from "./tools/shared.ts";
 
 /**
@@ -382,7 +384,26 @@ export function watchRound(
 	// the whole harness shares, so a loaded quest and a disabled git
 	// interception have to compete with a transient.
 	const draw = (): void => {
-		docked?.refresh();
+		drawn(() => docked?.refresh());
+	};
+
+	// A session that reloads while a round waits for its start, or while
+	// it runs, leaves this call holding a context pi has replaced, whose
+	// every read throws. On 22 November that killed every round waiting
+	// through an install move at the moment it started, before any
+	// reviewer spawned, after it had queued for up to forty-seven minutes.
+	// The board is best-effort, so a stale screen ends the board, never
+	// the round.
+	let gone = false;
+	const drawn = (paint: () => void): void => {
+		try {
+			paint();
+		} catch (error) {
+			if (!isStaleContext(error)) throw error;
+			stopTicking();
+			docked = undefined;
+			gone = true;
+		}
 	};
 
 	const stopTicking = (): void => {
@@ -456,8 +477,9 @@ export function watchRound(
 		return false;
 	};
 
-	const install = (): void => {
-		if (ctx === null || !ctx.hasUI || docked !== undefined) return;
+	const install = (): void => drawn(installOnScreen);
+	const installOnScreen = (): void => {
+		if (gone || ctx === null || !ctx.hasUI || docked !== undefined) return;
 		const theme = ctx.ui.theme;
 		// Read once per draw rather than per row, so every row of one round
 		// is measured against the same instant. The cursor shows only while
@@ -501,7 +523,7 @@ export function watchRound(
 		snapshot: () => ({ round, entries: entries(), at: Date.now() }),
 		close: () => {
 			stopTicking();
-			docked?.close();
+			drawn(() => docked?.close());
 			docked = undefined;
 		},
 		progress: {
@@ -574,6 +596,9 @@ export async function answerWatching(
 	try {
 		return withBoards(await answer(watch), opened);
 	} finally {
+		// Every mark first: a board that throws taking itself down must
+		// not leave a later round held until pi restarts.
+		for (const made of opened) settledHere(made);
 		for (const made of opened) {
 			made.progress.finish();
 			made.close();

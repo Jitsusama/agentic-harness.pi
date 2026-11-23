@@ -53,7 +53,9 @@ each from measurement:
 
 A compaction that kept more than 100k past the default keep (the
 session's first prompt plus 30k) says nothing about what the next will
-keep, so its keep and rewrite are not taken. On 9 November two
+keep, so its keep and rewrite are not taken. The first prompt crosses a
+rollover, and a log the host holds only the kept part of, in the
+record they carry, since the turn that paid it stays on disk. On 9 November two
 compactions that had waited nine hours kept 510k and 616k; counted from
 there, the next ones waited until 748k and 903k.
 
@@ -97,12 +99,30 @@ it was written is dropped and one written on the spot: everything after
 its point would stay verbatim and be read again every turn, which costs
 more than writing it again. It is logged as unused, with the sizes.
 
+A summary that failed ahead is written ahead once more when the
+trigger next fires, rather than on the spot, which holds the session
+while it writes: on 22 November four failed ahead, three at the output
+cap, and each next turn waited 7 to 16 minutes on one written on the
+spot. After a try that stopped at its cap, every summary of that
+compaction, ahead or on the spot, is asked for half the size, as a
+limit, so the rest of the cap is left for thinking.
+
+A move in the session tree that keeps the point a summary written
+ahead covers keeps the summary and the failed tries, since the
+compaction to come covers that point too. A move off it drops a
+summary still being written or ready, logging it as unused, and
+starts the count again.
+
 Only when the summary cannot be written from the cache (see Writing the
-Summary) does the session compact on the spot, and the notice says
-why. Each compaction's entry records `written` (`ahead` or `on the
-spot`), how long the summary took (`summaryMs`) and how long anybody
-waited for it (`waitedMs`). A summary written ahead that went unused is
-logged as a `compaction-summary-ahead-unused` entry with the reason.
+Summary), or has failed ahead twice, does the session compact on the
+spot, and the notice says why. One on the spot that is cancelled or
+fails leaves the next summary to be written ahead once more, so the
+session isn't held again for one it gave up; the count and the
+shorter summaries go on. Each compaction's entry records `written`
+(`ahead` or `on the spot`), how long the summary took (`summaryMs`)
+and how long anybody waited for it (`waitedMs`). A summary written
+ahead that went unused is logged as a
+`compaction-summary-ahead-unused` entry with the reason.
 
 ## Compacting While Idle
 
@@ -220,7 +240,22 @@ from the branch alone, so every request in a cycle agrees.
 pi's `compact()` aborts the run in progress and does not continue it.
 When the turn that tripped the decision made tool calls, so the run was
 going to carry on, a message resumes it once the compaction lands,
-unless a message of yours is already queued. Tested end to end in RPC
+whether or not messages of yours are queued: the abort leaves them
+queued, and only a run delivers them. With no run to resume, messages
+still queued once pi rests get a run of their own, under its own
+header (`WAITED`, or `WAITED_FAILED` after a failed compaction), so
+nobody's typing waits for their next message. A cancel starts nothing,
+since somebody stopped it, and neither does a compaction nobody here
+asked for, which pi follows with a turn of its own. Nor does a prompt
+begun since the ask, such as the one pi's screen sends as a compaction
+ends: pi is idle until its input handlers and auth check are done, so
+the first look waits half a second and a prompt that pi said would start
+a run counts as the run that delivers the rest. The ask is settled only
+once that run is decided, so a reload meanwhile leaves it for the
+runtime that replaces this one. pi counts queued user messages as
+waiting (`pendingMessageCount`), typed or sent as a user's by an
+extension; a mesh notice or another custom message never starts that
+run. Tested end to end in RPC
 mode: a run compacted between tool turns resumed and finished its task.
 A compaction applied while the session is idle interrupts nothing, so
 it resumes only a run begun after it was asked for, such as one a job's
@@ -301,6 +336,13 @@ far above where this policy compacts. A summary written ahead is capped
 against that same 64,000 reserve, since pi hands an extension its
 settings only with a compaction.
 
+Summaries sized to what they replace have since grown to meet it. Of
+7,585 written from the conversation from 11 to 23 November, output ran
+to a median 10,218 tokens and a 99th percentile of 39,870, thinking
+included, and 6 came within 2 percent of the cap; those that reached it
+were refused and are not among them. So a try that stops at the cap is
+followed by one asked for half the size (see Writing Ahead).
+
 ## Summary Providers
 
 This extension is the only handler of pi's `session_before_compact`,
@@ -315,15 +357,17 @@ but it does not write summaries itself. It asks a chain of providers
 
 On the spot, the first provider whose assessment passes writes, and a
 failure passes the compaction to the next. Ahead, the first that
-passes writes, and a failure leaves the compaction to the walk on the
-spot. The host keeps everything around the summary: the clock on each
-write, the verbatim tail, the file lists, what other extensions
-contribute, and the record. The compaction entry's details name the
-provider that wrote it (`summariser`), anything it wanted kept
-(`provider`), and every provider that declined or failed before it
-(`attempts`). When none writes, pi's own summariser runs as it would
-with no extension, and a `compaction-summary-fallback` entry records
-the attempts.
+passes writes, and a failure leaves the compaction to a second try
+ahead, then to the walk on the spot; one that pi's own compaction was
+waiting on goes to the walk on the spot at once, since that
+compaction can't wait for another. The host keeps everything around
+the summary: the clock on each write, the verbatim tail, the file
+lists, what other extensions contribute, and the record. The
+compaction entry's details name the provider that wrote it
+(`summariser`), anything it wanted kept (`provider`), and every
+provider that declined or failed before it (`attempts`). When none
+writes, pi's own summariser runs as it would with no extension, and a
+`compaction-summary-fallback` entry records the attempts.
 
 A failure the provider marks `retryable` (a dropped stream, an
 overloaded or rate-limited provider, a server error) is asked once

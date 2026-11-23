@@ -40,6 +40,12 @@ export interface SandboxPlace {
 	readonly cwd: string;
 	/** The git folder of the repository `cwd` is a worktree of, if it is one. */
 	readonly repository?: string;
+	/**
+	 * Drawn for a language server, which reaches none of gcloud's
+	 * settings: the session's next command with the cloud's grant reads
+	 * them.
+	 */
+	readonly served?: boolean;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -88,7 +94,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 		place.cwd,
 		own.temporary,
 		own.cache,
-		own.gcloud,
+		...(place.served ? [] : [own.gcloud]),
 		"/dev/null",
 		"/dev/full",
 		"/dev/zero",
@@ -142,4 +148,19 @@ export function fileReach(place: SandboxPlace, use: FileUse): string[] {
 	const written = writable.filter(ours);
 	if (use === "write") return written;
 	return [...runnable, ...readable.filter(ours), ...written];
+}
+
+/**
+ * What a strict command may read in the home on a Mac, where seatbelt
+ * refuses the rest: what landrun lets it run and read there on Linux,
+ * and its folder. Not Linux's own temporary and cache folders, which a
+ * Mac's strict command never uses and a fenced one could plant as links.
+ * Kept apart from `fileReach`, pi's own tools' reach, so widening theirs
+ * widens no command's.
+ */
+export function strictHomeReads(place: SandboxPlace): string[] {
+	const { runnable, readable } = strictPaths(place);
+	const inHome = (path: string) =>
+		path === place.home || path.startsWith(`${place.home}/`);
+	return [...runnable, ...readable, place.cwd].filter(inHome);
 }

@@ -43,26 +43,22 @@ import { join } from "node:path";
 import { runtimeDir } from "../paths.ts";
 import { clearWriting, writeWhole } from "../write-whole.ts";
 import { awaitedNow, NOBODY } from "./awaited.ts";
+import { cutAtOf, cutOffAt } from "./boot-cut.ts";
 import {
 	answerable,
 	answeringFetch,
-	movedMain,
 	placeFetchedGit,
 	worldGit,
 } from "./fetched.ts";
 import { mayKeep } from "./keeper.ts";
+import { keptOutcomes } from "./kept-outcomes.ts";
 import {
-	appendOutcome,
 	besideNow,
 	capFor,
-	halveOutcomes,
 	kindAfter,
 	mostBeside,
 	NOTHING_BESIDE,
-	type Outcome,
-	outcomeOf,
 	peakGibAfter,
-	processOutcomes,
 	quickAfter,
 	ranSAfter,
 	vmsFor,
@@ -166,7 +162,8 @@ export function questsFirstIn(dir: string): ReadonlySet<string> {
 export function machineQueueDir(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-	// A Mac's is its account's temporary folder, where its node looks too.
+	// A Mac's is the folder AGENTS_RUNTIME_DIR names, else its account's
+	// cache folder, where its node looks too.
 	const runtime = runtimeDir(env);
 	return runtime ? join(runtime, "jobs") : undefined;
 }
@@ -197,6 +194,24 @@ export function readQueue(
 /** What keeping the queue reads the processes through. */
 export interface Processes {
 	isRunning(pid: number): boolean;
+	/**
+	 * The token the machine minted as it last started, which a job asked
+	 * in that boot carries, for setting aside a job asked before it. A
+	 * token rather than a time, since a stepped clock moves a boot worked
+	 * out from uptime past jobs still running. A reader that can't say
+	 * leaves it out, or answers nothing while it can't; a stamped job then
+	 * waits for a token, judged meanwhile by its shell's pid, and only an
+	 * unstamped one is set aside by {@link bootedAt}, with
+	 * boot-cut.ts's `UNSTAMPED_BOOT_SLACK_MS` of room.
+	 */
+	bootToken?(): string | undefined;
+	/**
+	 * When the machine last started, in epoch milliseconds, as the end a
+	 * job the boot cut off is remembered with, and what tells a boot for a
+	 * job with no token to tell it by. A clock that stepped can misdate the
+	 * one, and the other has boot-cut.ts's `UNSTAMPED_BOOT_SLACK_MS` of room.
+	 */
+	bootedAt?(): number;
 	cgroupOf(pid: number): string | undefined;
 	/**
 	 * The most memory a cgroup has held, in bytes, while it holds only
@@ -315,30 +330,8 @@ export function queueFolder(
 		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 	};
 
-	// Outcomes this session is still adding, by job, which count from the
-	// moment their job is given up, as when they were written at once.
-	const adding = new Map<string, Outcome>();
-	// An outcome is looked for this far back in the file before it counts
-	// as still being added: far more than end between two keeps.
-	const ADDED_WITHIN = 64;
-	const writing = new Set<Promise<void>>();
-	// Each write waits for the one before, so outcomes kept in one keep land
-	// in the order they were seen rather than the order the disk answers.
-	let lastWrite: Promise<void> = Promise.resolve();
-	const recorded = (): readonly Outcome[] => {
-		if (!outcomes) return [];
-		// The queue is kept every two seconds and the file is up to 2 MiB,
-		// so the process reads only what was added since, once for all.
-		const read = processOutcomes(outcomes);
-		if (adding.size === 0) return read;
-		const lately = new Set(
-			read.slice(-ADDED_WITHIN).map((outcome) => outcome.id),
-		);
-		const unwritten = [...adding.values()].filter(
-			(outcome) => !lately.has(outcome.id),
-		);
-		return unwritten.length === 0 ? read : [...read, ...unwritten];
-	};
+	const endings = keptOutcomes(outcomes, path);
+	const recorded = () => endings.recorded();
 
 	const drop = (id: string) => {
 		for (const ending of JOB_FILES) rmSync(path(id, ending), { force: true });
@@ -374,44 +367,11 @@ export function queueFolder(
 		clearWriting(dir, now - LEFTOVER_MS);
 	};
 
-	/** Keeps how the job ended, by its shell's word and when it said it. */
-	const remember = (job: Job, now: number) => {
-		if (!outcomes) return;
-		const end = path(job.id, "end");
-		const said = text(end).trim();
-		const exit = /^\d+$/.test(said) ? Number(said) : undefined;
-		let at = now;
-		try {
-			at = Math.min(now, statSync(end).mtimeMs);
-		} catch {
-			// Unsaid: it ended when it was seen to.
-		}
-		const moved =
-			job.walk === "main-fetch" &&
-			movedMain(
-				text(path(job.id, "main-before")),
-				text(path(job.id, "main-after")),
-			);
-		const outcome = outcomeOf(job, at, exit, moved);
-		const file = outcomes;
-		adding.set(outcome.id, outcome);
-		const written: Promise<void> = lastWrite
-			.then(() => appendOutcome(file, outcome))
-			.then(
-				() => halveOutcomes(file),
-				() => undefined,
-			)
-			// An outcome that can't be kept never holds up the queue.
-			.catch(() => undefined)
-			.finally(() => {
-				adding.delete(outcome.id);
-				writing.delete(written);
-			});
-		lastWrite = written;
-		writing.add(written);
-	};
-
 	const ended = (job: Job, now: number) => {
+		// Asked in an earlier boot, it has ended, whatever its pid names now:
+		// a Mac's queue folder is its cache folder, which outlasts a reboot,
+		// and a pid comes back as another process after one.
+		if (cutOffAt(job, now, processes) !== undefined) return true;
 		const shell = shellOf(job.id);
 		if (shell !== undefined) return !processes.isRunning(shell);
 		return (
@@ -591,7 +551,9 @@ export function queueFolder(
 
 		ask(job) {
 			ensure();
-			replace(path(job.id, "job"), `${JSON.stringify(job)}\n`);
+			const boot = processes.bootToken?.();
+			const asked = boot === undefined ? job : { ...job, boot };
+			replace(path(job.id, "job"), `${JSON.stringify(asked)}\n`);
 		},
 
 		hasTurn(id) {
@@ -643,7 +605,7 @@ export function queueFolder(
 		},
 
 		async outcomesKept() {
-			await Promise.all([...writing]);
+			await endings.written();
 		},
 
 		keep(read, now, cgroupFor) {
@@ -656,7 +618,8 @@ export function queueFolder(
 					jobs()
 						.filter((job) => {
 							if (!ended(job, now)) return true;
-							remember(job, now);
+							// A job the boot cut off ended then, not when it was seen.
+							endings.remember(job, now, cutAtOf(job, now, processes));
 							drop(job.id);
 							return false;
 						})

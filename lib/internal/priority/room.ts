@@ -54,6 +54,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { uptime } from "node:os";
 import { join } from "node:path";
 import { kernelText } from "./kernel-file.ts";
 import { MOST_MEMORY_PRESSURE, type Offload, type Room } from "./queue.ts";
@@ -375,6 +376,11 @@ async function keptBy(floor: string): Promise<number> {
 	]);
 	const anon = /^anon (\d+)$/m.exec(memoryStat);
 	return Math.max(0, floorBytes - (anon ? Number(anon[1]) : 0));
+}
+
+/** When the machine last started, in epoch milliseconds, as its uptime says. */
+export function bootedAt(): number {
+	return Date.now() - uptime() * 1000;
 }
 
 /** Whether a process is still running. */

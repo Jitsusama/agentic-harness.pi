@@ -25,6 +25,7 @@ import { deps, ISOLATED } from "./ask-reviewer.ts";
 import { type RoundSeat, rosterOrThrow } from "./ask-roster.ts";
 import {
 	type AskParams,
+	awaitRosterStart,
 	chartersFor,
 	claimIdentities,
 	nextSeq,
@@ -143,6 +144,8 @@ export async function askStack(
 		"Ask about fewer of its changes: a council on each change, or on the lower part of the stack first.",
 	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
+	const start = await awaitRosterStart(tip.change.label, seat.signal);
+	if (start.cancelled !== undefined) return refuse(start.cancelled);
 	const asking = deps(tip.change, tree.path, watch, charters);
 	const { run, warnings } = await runStackCouncil(
 		{
@@ -180,6 +183,7 @@ export async function askStack(
 	return say(
 		[
 			`${stackRefs.length} changes put to ${roster.reviewers.length} reviewers together.`,
+			...(start.waited === undefined ? [] : [start.waited]),
 			answerFor(run, warnings, tree.caveat),
 		].join("\n"),
 		{ run, warnings, refs: stackRefs },

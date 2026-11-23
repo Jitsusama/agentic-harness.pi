@@ -12,9 +12,17 @@
  */
 
 import { isRecord } from "../internal/record.ts";
+import { carriedBy } from "../internal/session/rollover.ts";
 
 /** The summariser recorded on compactions written from the conversation. */
 const CONVERSATION_SUMMARISER = "conversation";
+
+/**
+ * The name a rollover, or a host holding only a log's kept history,
+ * carries the session's first prompt under, since the turn that paid it
+ * is left on disk.
+ */
+export const FIRST_PROMPT_CARRY = "compaction-workflow";
 
 /** Recent turns averaged for what a turn costs beyond its reads. */
 const OVERHEAD_WINDOW = 50;
@@ -40,6 +48,19 @@ export interface CompactionHistory {
 	readonly retainedTokens: number | null;
 	/** Prompt of the session's first turn: its fixed overhead. */
 	readonly firstPromptTokens: number | null;
+}
+
+/**
+ * The first prompt a rollover or a held log carried, when it is a count;
+ * otherwise the branch's own first turn says it.
+ */
+function carriedFirstPrompt(entries: readonly unknown[]): number | null {
+	const carried = carriedBy(entries, FIRST_PROMPT_CARRY);
+	if (!isRecord(carried)) return null;
+	const tokens = carried.firstPromptTokens;
+	return typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0
+		? tokens
+		: null;
 }
 
 function count(value: unknown): number {
@@ -79,7 +100,7 @@ export function compactionHistory(
 	let retainedTokens: number | null = null;
 	let rewriteTokens: number | null = null;
 	let summaryOutputTokens: number | null = null;
-	let firstPromptTokens: number | null = null;
+	let firstPromptTokens = carriedFirstPrompt(entries);
 	let awaitingRetained = false;
 	const overheads: number[] = [];
 

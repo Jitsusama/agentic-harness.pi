@@ -38,7 +38,7 @@ import {
 	type HostedConversation,
 	openHostedConversation,
 } from "./hosted-conversation.ts";
-import { holdKeptHistory } from "./kept-history.ts";
+import type { holdKeptHistory } from "./kept-history.ts";
 import type { KeptRequests } from "./kept-requests.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import {
@@ -105,6 +105,8 @@ export interface PiParts {
 	readonly builtIns: readonly BuiltInExtension[];
 	readonly trust: ProjectTrust;
 	readonly library: PiLibrary;
+	/** Holds only a log's kept history; loaded once pi has, as it binds pi. */
+	readonly keptHistory: typeof holdKeptHistory;
 }
 
 /** What a build asks of the engine it builds for. */
@@ -153,7 +155,7 @@ export interface ConversationBuilds {
 /** Build each conversation on the host's pi, for the engine this context names. */
 export function conversationBuilds(context: BuildContext): ConversationBuilds {
 	const { parts, options, report, logs, requests } = context;
-	const { pi, sessions, builtIns, trust, library } = parts;
+	const { pi, sessions, builtIns, trust, library, keptHistory } = parts;
 	const { host } = options;
 
 	function view(sessionId: string, record: Live): HostedView {
@@ -196,7 +198,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 				session(
 					next,
 					target,
-					holdKeptHistory(keptFile(sessions, target.sessionManager), report),
+					keptHistory(keptFile(sessions, target.sessionManager), report),
 					{ starting: false },
 				),
 			);

@@ -35,7 +35,8 @@
  * so the person's tools run as they do, and unlike bwrap alone it refuses
  * abstract Unix sockets, which a mount namespace leaves open while the
  * network is shared. Asked for where it can't be had (not Linux, or no
- * landrun), it runs no command rather than one unfenced.
+ * landrun), it runs no command rather than one unfenced, save on a Mac
+ * whose pi already runs in a sandbox (`offLinux`).
  *
  * A working folder that is or holds the home folder would hand over the
  * person's startup files, and one holding its repository's git folder the
@@ -75,7 +76,11 @@ import {
 	guardedListFile,
 } from "../fence/fence-args-file.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
-import { bwrapWords, fencedCommand } from "../fence/fence-command.ts";
+import {
+	bwrapWords,
+	fencedCommand,
+	isHandedName,
+} from "../fence/fence-command.ts";
 import { fenceDevCopies, gitGlobalIn } from "../fence/fence-dev.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
@@ -86,7 +91,11 @@ import {
 	withAfterCheckIn,
 } from "../fence/fence-git-root.ts";
 import { githubDoorFolder } from "../fence/fence-github.ts";
-import { foldersMadeFirst, OWN_HOMES } from "../fence/fence-home.ts";
+import {
+	fenceFolders,
+	foldersMadeFirst,
+	OWN_HOMES,
+} from "../fence/fence-home.ts";
 import { recordedInShell } from "../fence/fence-log.ts";
 import { fenceNpmrc } from "../fence/fence-npmrc.ts";
 import { seedOwnHomes } from "../fence/fence-seed.ts";
@@ -109,6 +118,7 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import { insideMacSandbox } from "./mac-sandbox.ts";
 import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
@@ -245,6 +255,11 @@ const NEVER = [
 	"*SOCK*",
 ] as const;
 
+/** Whether `name` holds one of `NEVER`'s words, so no fenced command may keep it. */
+export function neverKept(name: string): boolean {
+	return NEVER.some((glob) => name.includes(glob.slice(1, -1)));
+}
+
 /**
  * The shell text that runs `command` under landrun with `rules`.
  *
@@ -266,9 +281,7 @@ export function sandboxedCommand(
 	const kept = KEPT.join("|");
 	const flags = rules.map(([flag, value]) => `${flag} ${quoted(value)}`);
 	const stub = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	const handed = Object.entries(passed).filter(([name]) =>
-		/^[A-Z_][A-Z0-9_]*$/.test(name),
-	);
+	const handed = Object.entries(passed).filter(([name]) => isHandedName(name));
 	return [
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${refused}) ;; ${kept}) __pi_env+=(--env "$__pi_name");; esac; done`,
 		[
@@ -289,18 +302,54 @@ export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
 }
 
+/** The one cloud name a fenced command is handed, counted before it is made. */
+const CLOUD_COUNTED: Readonly<Record<string, string>> = {
+	CLOUDSDK_CONFIG: "",
+};
+
+/**
+ * What the agent fence hands a command for gcloud, whatever the session
+ * or the machine: no token, only the reason (`NO_CLOUD_IN_THE_FENCE`) and
+ * an empty settings folder in the fence's own place (`fenceFolders`),
+ * which no strict command can write. The fence's type holds no source to
+ * ask, so no caller can hand it a token by mistake.
+ */
+export function fenceCloud(
+	home: string,
+	env: NodeJS.ProcessEnv,
+): { grant: CloudGrant; passed: Record<string, string> } {
+	const grant = NO_CLOUD_IN_THE_FENCE();
+	return {
+		grant,
+		passed: cloudVariables(grant, home, env, fenceFolders(home).gcloud),
+	};
+}
+
 /**
  * How a session's commands run: as they are, fenced, or not at all. A
- * fenced command is handed a GitHub token from `github`, and a cloud
- * token and project from `gcloud`, when they give them.
+ * strict command is handed a GitHub token from `github`, and a cloud
+ * token and project from `gcloud`, when they give them; a command in
+ * the agent fence only the reason it has none (`NO_CLOUD_IN_THE_FENCE`).
  */
 export type Sandbox =
-	| { readonly kind: "none" }
+	| {
+			readonly kind: "none";
+			/** Said once in the session, when a fence it asked for can't be had here. */
+			readonly note?: string;
+			/**
+			 * The fence asked for, where commands run as they are inside the
+			 * sandbox pi runs in: what the host's record names, so the node
+			 * judges where the session may go by it, beside its process.
+			 */
+			readonly asked?: "fence" | "strict";
+	  }
 	| (Logged & {
 			readonly kind: "strict";
 			readonly landrun: string;
 			readonly github?: GitHubTokenSource;
 			readonly gcloud?: CloudGrantSource;
+			/** Drawn for a language server, with no way to gcloud's settings. */
+			readonly served?: boolean;
 	  })
 	| (Logged & {
 			readonly kind: "fence";
@@ -311,6 +360,8 @@ export type Sandbox =
 			readonly githubDoor?: string;
 			/** Said once in the session, when the fence wasn't what it asked. */
 			readonly note?: string;
+			/** Drawn for a language server, with nothing that acts as the person. */
+			readonly served?: boolean;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -347,14 +398,16 @@ const freshSettings = new Set<string>();
  * person's own folder, which the fence refuses, made it die calling its
  * install corrupt. The folder is emptied the first time a process hands
  * it on, so a session resumed starts from no settings an earlier command,
- * or a stranger's text, left there.
+ * or a stranger's text, left there. It lies in `parent`: strict's own
+ * folder, or the agent fence's, which no strict command can write.
  */
 export function cloudVariables(
 	grant: CloudGrant | undefined,
 	home: string,
 	env: NodeJS.ProcessEnv,
+	parent: string = sandboxFolders(home).gcloud,
 ): Record<string, string> {
-	const settings = join(sandboxFolders(home).gcloud, sessionFolderName(env));
+	const settings = join(parent, sessionFolderName(env));
 	if (!freshSettings.has(settings)) {
 		rmSync(settings, { recursive: true, force: true });
 		freshSettings.add(settings);
@@ -369,13 +422,27 @@ export function cloudVariables(
 }
 
 /**
- * Starts a fenced session's broker minting its first cloud token now,
+ * Starts a strict session's broker minting its first cloud token now,
  * rather than at its first command, so the commands a first turn runs
- * side by side don't all meet a token still on its way.
+ * side by side don't all meet a token still on its way. The agent fence
+ * asks no broker (`NO_CLOUD_IN_THE_FENCE`), so nothing is started for it.
  */
 export function askTheCloudAhead(sandbox: Sandbox): void {
 	if (sandbox.kind === "strict") sandbox.gcloud?.();
 }
+
+/**
+ * What the agent fence's gcloud is given: never a token, only why. The
+ * agents' account may change the cloud's machines, and a fenced session
+ * reads strangers' text, so a token in reach would let that text take
+ * over a machine. The fence keeps its own empty settings folder, so
+ * gcloud says it has no credentialed account rather than calling its
+ * install corrupt, until an account that only reads is named for it.
+ */
+export const NO_CLOUD_IN_THE_FENCE: CloudGrantSource = () => ({
+	reason:
+		"the agent fence hands no command the agents' cloud account, which can change machines; run it from an unfenced session",
+});
 
 /**
  * `command`, preceded by a note on stderr saying why gcloud has no token
@@ -415,12 +482,10 @@ export function githubRules(): Rule[] {
 function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
+	inside: () => boolean,
 ): Sandbox {
 	if (platform !== "linux") {
-		return {
-			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${FENCE} asks for bubblewrap and Landlock, which only Linux has, so no command runs unfenced here.`,
-		};
+		return offLinux("fence", "bubblewrap and Landlock", inside);
 	}
 	const bwrap = find("bwrap");
 	const landrun = find("landrun");
@@ -463,14 +528,22 @@ export function sandboxFor(
 	github: GitHubTokenSource = sessionTokens,
 	gcloud: CloudGrantSource = sessionGrants,
 	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
+	inside: () => boolean = insideMacSandbox,
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
 	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
 	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const asked = askedFor(name, platform, find, github, gcloud);
-	const sandbox = note && asked.kind === "fence" ? { ...asked, note } : asked;
+	const asked = askedFor(name, platform, find, github, gcloud, inside);
+	// A refusal carries the stray value's note too, the way back to a
+	// fence that runs.
+	const sandbox =
+		note && (asked.kind === "fence" || asked.kind === "none")
+			? { ...asked, note: asked.note ? `${note} ${asked.note}` : note }
+			: note && asked.kind === "refused"
+				? { ...asked, reason: `${note} ${asked.reason}` }
+				: asked;
 	return logger && sandbox.kind !== "none" ? { ...sandbox, logger } : sandbox;
 }
 
@@ -481,14 +554,10 @@ function askedFor(
 	find: (program: string) => string | undefined,
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
+	inside: () => boolean,
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find);
-	if (platform !== "linux") {
-		return {
-			kind: "refused",
-			reason: `${SANDBOX_VARIABLE}=${STRICT} asks for a Landlock sandbox, which only Linux has, so no command runs unfenced here.`,
-		};
-	}
+	if (asked === FENCE) return fenceFor(platform, find, inside);
+	if (platform !== "linux") return offLinux("strict", "Landlock", inside);
 	const landrun = find("landrun");
 	if (!landrun) {
 		return {
@@ -497,6 +566,38 @@ function askedFor(
 		};
 	}
 	return { kind: "strict", landrun, github, gcloud };
+}
+
+/**
+ * A fence asked for where its programs can't run, a Mac. Where pi
+ * itself runs inside a sandbox, its commands run inside that one as
+ * they are, rather than not at all, since a session that can run
+ * nothing does no work. pi can't run inside `pi-fence`, whose Mac
+ * profile hides pi's own state, so that sandbox is another's, and
+ * it may reach more than the one asked for (ISXEG8 [038ae722] took
+ * that risk). The host
+ * is still told the fence asked for, so the node, which reads the
+ * sandbox pi runs in, judges where the session may go. Where pi finds
+ * no sandbox around it, no command runs, so a stranger's text never
+ * runs as the person (`mac-sandbox.ts`).
+ */
+function offLinux(
+	kind: "fence" | "strict",
+	needs: string,
+	inside: () => boolean,
+): Sandbox {
+	const asked = kind === "fence" ? "agent fence" : "strict fence";
+	if (!inside()) {
+		return {
+			kind: "refused",
+			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, or sandbox-exec couldn't tell, as a busy Mac may cause (a reload checks again), so no command runs unfenced.`,
+		};
+	}
+	return {
+		kind: "none",
+		asked: kind,
+		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.`,
+	};
 }
 
 /**
@@ -569,9 +670,11 @@ export function wrapFor(
 			// dev's setup writes its settings and git's global ones on every
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
+			const served = sandbox.served === true;
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				...(served ? { served } : {}),
 				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
@@ -586,7 +689,7 @@ export function wrapFor(
 			setAsidePlanted();
 			const planted = plantedCache();
 			if (planted) return () => refused(planted);
-			const own = sandboxFolders(home).cache;
+			const own = fenceFolders(home).homes;
 			// Never waited on: a command started first finds what the own
 			// homes held already.
 			void seedOwnHomes(home, own);
@@ -599,9 +702,13 @@ export function wrapFor(
 				args: bwrapArgsFile(fence.runtimeDir, args) ?? args,
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
-				agent: agentProxy(fence.runtimeDir),
-				shims: fenceShims(home),
-				display: fenceDisplay(fence.runtimeDir),
+				...(served
+					? {}
+					: {
+							agent: agentProxy(fence.runtimeDir),
+							shims: fenceShims(home),
+							display: fenceDisplay(fence.runtimeDir),
+						}),
 				homes: [
 					...OWN_HOMES.map(
 						([name, folder]) => [name, join(own, folder)] as const,
@@ -616,7 +723,8 @@ export function wrapFor(
 			// Said only for a command the fence would run, never one sent
 			// outside it. Those it can count are counted here; the shell
 			// counts the variables it passes as well, before bubblewrap starts.
-			const counted = bwrapWords(made);
+			// gcloud's settings folder is counted here before it is made.
+			const counted = bwrapWords({ ...made, passed: CLOUD_COUNTED });
 			const tooMany =
 				counted > BWRAP_MOST_ARGS
 					? `The fence would hand bubblewrap at least ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`
@@ -634,6 +742,11 @@ export function wrapFor(
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
 				if (tooMany) return refused(tooMany);
+				// The person's cloud login stays hidden (fence-hidden.ts), and
+				// gcloud gets an empty settings folder of its own and no token
+				// (`NO_CLOUD_IN_THE_FENCE`).
+				const { grant, passed } = fenceCloud(home, place.env);
+				const cloud = { ...made, passed };
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
@@ -641,7 +754,7 @@ export function wrapFor(
 				);
 				const text = withAfterCheckIn(
 					fence.runtimeDir,
-					fencedCommand(withSecretNote(command), made),
+					fencedCommand(withCloudNote(withSecretNote(command), grant), cloud),
 					guarded,
 					planted,
 				);
@@ -668,20 +781,24 @@ export function wrapFor(
 			for (const folder of Object.values(sandboxFolders(home))) {
 				mkdirSync(folder, { recursive: true, mode: 0o700 });
 			}
+			const served = sandbox.served === true;
 			const rules = strictRules({
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
+				...(served ? { served } : {}),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
 			const given = token ? [...rules, ...githubRules()] : rules;
 			// gcloud reads its token, project and settings folder from these.
 			const grant = sandbox.gcloud?.();
+			// A server's sandbox has neither, and its own gcloud settings would
+			// be ones the session's next granted command reads.
 			const passed: Record<string, string> = {
 				...(token ? { GH_TOKEN: token } : {}),
-				...cloudVariables(grant, home, place.env),
+				...(served ? {} : cloudVariables(grant, home, place.env)),
 			};
 			return (command) =>
 				sandboxedCommand(

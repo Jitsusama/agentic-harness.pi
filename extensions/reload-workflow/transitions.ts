@@ -16,6 +16,7 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
+import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import {
 	inside,
 	installedPackages,
@@ -273,12 +274,7 @@ export async function performReload(
 	ctx: ExtensionCommandContext,
 	running: Loaded,
 	settings: PackageSettings,
-	run: {
-		/** Whether a run has started since the last one settled. */
-		underWay: () => boolean;
-		/** Told when pi said still while a run was under way. */
-		overruled: (times: number) => void;
-	} = { underWay: () => false, overruled: () => {} },
+	run: ReloadRun = { underWay: () => false, overruled: () => {} },
 ): Promise<void> {
 	if (hosted()) {
 		if (hostReloads()) {
@@ -335,15 +331,41 @@ export async function performReload(
 	}
 }
 
+/**
+ * The custom message the agent is told in that a reload it asked for was
+ * called off, never shown and never starting a turn.
+ */
+export const RELOAD_CALLED_OFF = "harness-reload-called-off";
+
+/** What {@link performReload} reads of the session's runs, and tells. */
+export interface ReloadRun {
+	/** Whether a run has started since the last one settled. */
+	readonly underWay: () => boolean;
+	/** Told when pi said still while a run was under way. */
+	readonly overruled: (times: number) => void;
+	/**
+	 * Tell the agent a reload it asked for was called off, since it waits
+	 * for word of a landing that won't come.
+	 */
+	readonly toAgent?: (text: string) => void;
+}
+
+/** The session's id, or nothing from a context gone stale, which throws. */
+function sessionOf(ctx: ExtensionCommandContext): string | undefined {
+	try {
+		return ctx.sessionManager?.getSessionId?.();
+	} catch {
+		// Stale, it has no session to hold a carry for.
+		return undefined;
+	}
+}
+
 /** The reload {@link performReload} runs, once nothing else is. */
 async function reloadOnce(
 	ctx: ExtensionCommandContext,
 	running: Loaded,
 	settings: PackageSettings,
-	run: {
-		underWay: () => boolean;
-		overruled: (times: number) => void;
-	},
+	run: ReloadRun,
 ): Promise<void> {
 	const slot = reloadSlot();
 	const tree = isSwapped(running) ? running.root : undefined;
@@ -356,6 +378,29 @@ async function reloadOnce(
 	};
 	const overruled = await untilStill(ctx, STILL_MS, run.underWay);
 	if (overruled > 0) run.overruled(overruled);
+	// Asked after the wait, since a carry may start during it. Only the
+	// follower's own reload is asked again once the carry lets go
+	// (follow.ts); the agent's is told it was called off, and the
+	// person's is said on screen.
+	const session = sessionOf(ctx);
+	const carried = session === undefined ? undefined : carryHoldsReload(session);
+	if (carried !== undefined) {
+		const calledOff = slot.request;
+		slot.request = undefined;
+		slot.dispatched = false;
+		const said = `Did not reload: ${carried}.`;
+		try {
+			ctx.ui.notify(said, "warning");
+		} catch {
+			// A context with no screen to say it on.
+		}
+		if (calledOff.by === "agent") {
+			run.toAgent?.(
+				`${said} Nothing was reloaded; ask again if this session is still here once the carry has ended.`,
+			);
+		}
+		return;
+	}
 	// Read after the wait: the session's own request says what came in,
 	// and more can come in while it waits.
 	const request: ReloadRequest = slot.request;

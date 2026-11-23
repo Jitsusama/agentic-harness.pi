@@ -26,6 +26,8 @@ import {
 	DEFAULT_COMPACTION_SETTINGS,
 	type ExtensionContext,
 	findCutPoint,
+	type SessionEntry,
+	type SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
 import {
 	isSummaryContributions,
@@ -52,6 +54,15 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
+import { isRecord } from "../../lib/internal/record.ts";
+import {
+	type DiskFinds,
+	diskFinds,
+	type Entry,
+	messagesOnDisk,
+	messagesOnDiskAsync,
+	type PacedRead,
+} from "../../lib/internal/session/rollover.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
 
@@ -70,6 +81,73 @@ export const SELECTION_RECORD_ID = "selection";
  * judged too by the time they are needed.
  */
 const CHECK_OVERSAMPLE = 2;
+
+/**
+ * The branch with the messages worth quoting that a held log left on
+ * disk read back before it, so a compaction still quotes them. Only
+ * those lines are parsed, never the whole parent log, and a line the
+ * check already found is read straight from where it sits.
+ *
+ * Only the session store's tags are read back from disk. The memory
+ * store keeps one index for the whole process, so its tags can name a
+ * message on a branch the person has left, which the log still holds.
+ */
+function withQuotableOnDisk(
+	branch: readonly SessionEntry[],
+	quotable: ReadonlySet<string>,
+	store: SelectionStore,
+	finds: DiskFinds,
+): SessionEntry[] {
+	if (store.kind !== "session") return [...branch];
+	return [...messagesOnly(messagesOnDisk(branch, quotable, finds)), ...branch];
+}
+
+/**
+ * As {@link withQuotableOnDisk}, giving the event loop back as it reads,
+ * for the check, which runs while the conversation goes on and leaves
+ * what it finds for the compaction.
+ */
+async function withQuotableOnDiskAsync(
+	branch: readonly SessionEntry[],
+	quotable: ReadonlySet<string>,
+	store: SelectionStore,
+	read: PacedRead,
+): Promise<SessionEntry[]> {
+	if (store.kind !== "session") return [...branch];
+	const messages = await messagesOnDiskAsync(branch, quotable, read);
+	return [...messagesOnly(messages), ...branch];
+}
+
+/** The lines read back that are messages as pi writes them. */
+function messagesOnly(read: readonly Entry[]): SessionEntry[] {
+	const messages: SessionEntry[] = [];
+	for (const entry of read) {
+		if (isMessageEntry(entry)) messages.push(entry);
+	}
+	return messages;
+}
+
+/**
+ * Whether a line read back from disk is a message entry as pi writes
+ * one: an id and a message with a role, whose content, for a person or
+ * the agent, is text or a list of parts. A malformed line is left out
+ * rather than read for its paragraphs, which would throw and cost the
+ * compaction every quote.
+ */
+function isMessageEntry(value: unknown): value is SessionMessageEntry {
+	if (
+		!isRecord(value) ||
+		value.type !== "message" ||
+		typeof value.id !== "string"
+	)
+		return false;
+	const { message } = value;
+	if (!isRecord(message) || typeof message.role !== "string") return false;
+	if (message.role !== "user" && message.role !== "assistant") return true;
+	const { content } = message;
+	if (message.role === "user" && typeof content === "string") return true;
+	return Array.isArray(content) && content.every(isRecord);
+}
 
 /** The excerpt budget the environment sets. */
 export function excerptTokens(env: NodeJS.ProcessEnv = process.env): number {
@@ -108,6 +186,9 @@ export function selectionContributor(
 ): SelectionContributor {
 	const { store } = options;
 	const status = options.status ?? classifierStatus();
+	// Shared by the check and the compaction, so the compaction, which
+	// cannot wait, reads only lines the check has already found.
+	const finds = diskFinds();
 	let controller = new AbortController();
 	let checking: Promise<void> | null = null;
 
@@ -120,7 +201,13 @@ export function selectionContributor(
 		const branch = ctx.sessionManager.getBranch();
 		const tags = store.tags(branch);
 		const holds = store.holds(branch);
-		const candidates = candidatesBefore(branch, tags, firstKeptEntryId);
+		const scannedBefore = finds.scanned;
+		const candidates = candidatesBefore(
+			withQuotableOnDisk(branch, tags.quotable, store, finds),
+			tags,
+			firstKeptEntryId,
+		);
+		const logsScanned = finds.scanned - scannedBefore;
 		const chosen = selectExcerpts(candidates, budget, holds);
 		const refs = options.refs?.() ?? false;
 		const text = renderExcerpts(chosen, { refs });
@@ -138,6 +225,7 @@ export function selectionContributor(
 			...status.current(),
 			store: store.kind,
 			budget,
+			logsScanned,
 			candidates: candidates.length,
 			chosen: chosen.length,
 			excerptTokens: chosen.reduce(
@@ -172,16 +260,25 @@ export function selectionContributor(
 	) => {
 		await options.caughtUp?.(ctx);
 		if (signal.aborted) return;
+		const branch = ctx.sessionManager.getBranch();
+		const tags = store.tags(branch);
+		// Read ahead whether or not a classifier answers, since the
+		// compaction quotes unjudged candidates too and should find each
+		// message where this read left it.
+		const read = await withQuotableOnDiskAsync(branch, tags.quotable, store, {
+			signal,
+			finds,
+		});
+		if (signal.aborted) return;
 		const classifier = await status.resolve(ctx);
 		if (!classifier.ok || signal.aborted) return;
-		const branch = ctx.sessionManager.getBranch();
 		const holds = store.holds(branch);
 		const pending = selectExcerpts(
-			candidatesBefore(branch, store.tags(branch), estimatedFirstKept(branch)),
+			candidatesBefore(read, tags, estimatedFirstKept(branch)),
 			budget * CHECK_OVERSAMPLE,
 			holds,
 		).filter((candidate) => !holds.has(candidate.unit.hash));
-		const requests = holdsRequests(pending, unitsOfBranch(branch));
+		const requests = holdsRequests(pending, unitsOfBranch(read));
 		for (const [at, request] of requests.entries()) {
 			if (signal.aborted) return;
 			const chunk = pending.slice(at * HOLDS_BATCH, (at + 1) * HOLDS_BATCH);

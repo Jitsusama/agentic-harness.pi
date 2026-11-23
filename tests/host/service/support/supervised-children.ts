@@ -167,6 +167,14 @@ export interface FakeUnits extends Units {
 	refusesStart?: boolean;
 	/** How many of the next asks whether a unit has gone fail. */
 	goneFails?: number;
+	/**
+	 * The CPU time, in ms, each unit is said to have spent, when a test
+	 * says, or what each ask answers; otherwise systemd is taken to say
+	 * none it can tell.
+	 */
+	spent?: number | (() => number | undefined);
+	/** How many times the CPU a unit spent was asked. */
+	cpuAsks: number;
 	/** The next ask whether a unit has gone answers only once this settles. */
 	goneAnswers?: Promise<void>;
 	/** How many of the next stops fail once their unit has gone. */
@@ -187,6 +195,8 @@ export interface ChildTraits {
 	connected?: () => void;
 	/** How many of its first watches it takes and answers none of. */
 	unansweredWatches?: number;
+	/** How long it takes to answer a watch, as a loaded child may. */
+	answersWatchAfterMs?: number;
 	/** The id it opens its conversation under, rather than a new one. */
 	opensAs?: string;
 	/** Build what it is asked to open, but never answer the open. */
@@ -226,7 +236,7 @@ async function runChild(
 	own: FakeUnits,
 ): Promise<FakeChild> {
 	const { refuses, refusesWith, silent, opensUnanswered, opensAs } = traits;
-	const { endsAsItAnswers, answers, connected } = traits;
+	const { endsAsItAnswers, answers, connected, answersWatchAfterMs } = traits;
 	let unansweredWatches = traits.unansweredWatches ?? 0;
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
 	await mkdir(slot.folder, { recursive: true });
@@ -308,7 +318,11 @@ async function runChild(
 						result: answers ? answers(result) : result,
 					});
 					const ending = line({ type: "ending", why: "parked" });
-					socket.write(endsAsItAnswers ? `${answer}${ending}` : answer);
+					const write = (): void => {
+						socket.write(endsAsItAnswers ? `${answer}${ending}` : answer);
+					};
+					if (answersWatchAfterMs === undefined) write();
+					else setTimeout(write, answersWatchAfterMs);
 				}
 			}
 		});
@@ -325,6 +339,7 @@ function fakeUnits(): FakeUnits {
 		markedAtStop: [],
 		forgotten: [],
 		children: new Map(),
+		cpuAsks: 0,
 		async start(unit) {
 			fake.started.push(unit);
 			if (fake.refusesStart) {
@@ -390,6 +405,11 @@ function fakeUnits(): FakeUnits {
 		async forget(unit) {
 			fake.forgotten.push(unit);
 		},
+		async cpuSpentMs(unit) {
+			fake.cpuAsks += 1;
+			if (!fake.children.has(unit)) return undefined;
+			return typeof fake.spent === "function" ? fake.spent() : fake.spent;
+		},
 	};
 	return fake;
 }
@@ -408,6 +428,8 @@ interface Clocks {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	listensWithinCpuMs?: number;
+	starvedWithinMs?: number;
 }
 
 function supervise(clocks: Clocks = {}): ChildSupervisor {

@@ -17,7 +17,13 @@ import type {
 const TOKENS_PER_K = 1_000;
 
 /** How the summary for a firing compaction is being written. */
-export type SummaryTiming = { ahead: true } | { ahead: false; reason: string };
+export type SummaryTiming =
+	| {
+			ahead: true;
+			/** Why the summary written ahead before this one failed, if one did. */
+			againAfter?: string;
+	  }
+	| { ahead: false; reason: string };
 
 function dollars(amount: number): string {
 	return `$${amount.toFixed(2)}`;
@@ -48,8 +54,12 @@ export function compactionNotice(
 	timing: SummaryTiming,
 ): string {
 	if (timing.ahead) {
+		const again =
+			timing.againAfter === undefined
+				? ""
+				: ` again, since the last one failed: ${timing.againAfter}`;
 		return (
-			`Writing a compaction summary in the background at ${size(tokens)}. ` +
+			`Writing a compaction summary in the background at ${size(tokens)}${again}. ` +
 			priced(decision)
 		);
 	}

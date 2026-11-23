@@ -10,8 +10,9 @@
  * grow the map, rather than omp's full catalogue.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
+import { readJudged } from "./standalone/judged-files.ts";
 
 /** One server's declaration: how to run it and what it serves. */
 export interface ServerConfig {
@@ -65,7 +66,10 @@ export const DEFAULT_SERVERS: Readonly<Record<string, ServerConfig>> = {
 /**
  * The major version of the TypeScript package installed nearest to
  * `fromDir`, walking up through node_modules, or null when none is
- * found or its version cannot be read.
+ * found or its version cannot be read. A fenced command can write the
+ * project's node_modules, so the package is read as a server's files
+ * are: only a plain file, without waiting, and none past what pi holds
+ * whole.
  */
 export function typescriptMajorAt(fromDir: string): number | null {
 	let dir = fromDir;
@@ -73,7 +77,7 @@ export function typescriptMajorAt(fromDir: string): number | null {
 		const pkg = join(dir, "node_modules", "typescript", "package.json");
 		if (existsSync(pkg)) {
 			try {
-				const { version } = JSON.parse(readFileSync(pkg, "utf8"));
+				const { version } = JSON.parse(readJudged(pkg, undefined));
 				const [first = ""] = String(version).split(".");
 				const major = Number.parseInt(first, 10);
 				return Number.isNaN(major) ? null : major;

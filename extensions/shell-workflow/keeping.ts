@@ -26,10 +26,13 @@ import {
 	makeKept,
 	markCarried,
 	pidOf,
-	removeKept,
 	rollIfFull,
 } from "../../lib/internal/shell/kept.ts";
-import { forgetKeptJob } from "../../lib/internal/shell/kept-jobs.ts";
+import {
+	disownKeptJob,
+	forgetOwnKeptJob,
+} from "../../lib/internal/shell/kept-jobs.ts";
+import { removeKept } from "../../lib/internal/shell/kept-removal.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { MAX_TIMEOUT_MS } from "../../lib/internal/shell/spawner.ts";
 import type { JobCarry } from "../../lib/jobs/index.ts";
@@ -157,19 +160,43 @@ export function keepsOnDisk(
 				} finally {
 					clearTimeout(timer);
 					call.signal?.removeEventListener("abort", stop);
+					// Its job's record goes before it settles, so a pi gone just
+					// after never leaves one for its next start to take up and say
+					// the end of again. It goes off the thread, and only when this
+					// process wrote one: most calls have none, and asking the disk
+					// for a name that isn't there held every conversation's loop for
+					// seconds when the disk was busy. The call waits for it a few
+					// seconds at most, so a wedged disk never holds it open, and no
+					// longer than a stop the person asks for meanwhile, its files'
+					// removal below taking the record; a session's close meanwhile
+					// leaves it to the removal, and a pi exiting first takes it back
+					// on the thread as it goes (kept-removal.ts). While it goes the call can
+					// still be carried, so a move or a host's stop meeting it then
+					// carries it, its end said where it lands, rather than finding a
+					// job neither carriable nor ended and stopping it. Not one this
+					// pi stopped or timed out: it is said stopped here, and a taker
+					// would call it lost. Its files go below, record first, not
+					// waited for, as a wedged disk would hold the stop the person
+					// asked for. Its shell is killed, so a record a pi gone at once
+					// leaves reads as a call gone unsaid, which a start only
+					// removes, unless the shell wrote its end just before the stop,
+					// when that start says the end it wrote.
+					const stopped = stopping.signal.aborted;
+					if (!(kept.handed || stopped))
+						await forgetOwnKeptJob(
+							path,
+							call.signal ? { signal: call.signal } : {},
+						);
+					// Handed on meanwhile, its files are the taker's. Otherwise ended
+					// here, so nothing may carry or hand it on while they go, which
+					// takes turns of the loop, and from here to its settle none
+					// passes: its job is said ended at once, and its files go just
+					// after, not waited for. It ran here and was never handed on, so
+					// nothing marked it carried, and a pi exiting first asks after
+					// only the record it holds.
 					if (!kept.handed) {
-						// Ended here, so nothing may carry or hand it on while its files
-						// go, which takes turns of the loop.
 						if (call.signal) calls.delete(call.signal);
-						// Its job's record goes before it settles, on the loop, so a pi
-						// gone just after never leaves one for its next start to take up
-						// and say the end of again. Most calls have none, and removing a
-						// name that isn't there is answered from the kernel's cache.
-						forgetKeptJob(path);
-						// Not waited for: the call settles as it ends, so its job is
-						// said ended rather than met by a move or a shutdown as neither
-						// carriable nor ended, and its files go just after.
-						void removeKept(path);
+						void removeKept(path, { neverHanded: true });
 					}
 				}
 			},
@@ -198,6 +225,9 @@ export function keepsOnDisk(
 					if (!kept) return;
 					kept.handed = true;
 					kept.disarm();
+					// Its record is the taker's to write again and take back; one
+					// set aside by its removal meanwhile is put back.
+					disownKeptJob(kept.path);
 					// A host's reaper spares it until its end is said elsewhere.
 					markCarried(kept.path, kept.mark);
 				},

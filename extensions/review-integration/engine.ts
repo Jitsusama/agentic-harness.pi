@@ -199,6 +199,14 @@ export function findingDir(): string {
 	return join(stateDir("review"), "findings");
 }
 
+/**
+ * Where older installs keep the machine's last council slot; the line
+ * every session waits in under one lock is kept beside it.
+ */
+export function councilStartsPath(): string {
+	return join(stateDir("review"), "council-starts", "last.json");
+}
+
 /** Where the rounds asked about a change live. */
 export function runDir(): string {
 	return join(stateDir("review"), "runs");

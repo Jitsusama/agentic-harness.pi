@@ -185,6 +185,80 @@ describe("review_ask", () => {
 		expect(source).not.toMatch(/rosterOrThrow\(params\)/);
 	});
 
+	it("spaces every round that asks the whole roster, once nothing else refuses it", () => {
+		// Each reviewer is a pi's worth of memory for minutes, and on 22
+		// November councils started every few minutes on a machine near its
+		// memory bar, each session having read that none had started. A
+		// round asking the reviewers that skips the claim starts beside
+		// whatever else just did, which is the race the claim exists for.
+		const rounds = [...functions].flatMap(([name, body]) =>
+			body.includes('rosterOrThrow(params, "reviewers", seat)')
+				? [{ name, body }]
+				: [],
+		);
+		expect(
+			rounds.map((round) => round.name).sort(),
+			"the council, the stack and the critique each read the reviewers",
+		).toEqual(["askCritique", "askStack", "councilRound"]);
+
+		const wrong = rounds.flatMap(({ name, body }) => {
+			const claims = body.indexOf("await awaitRosterStart(");
+			if (claims === -1) return [`${name} starts without claiming a start`];
+			const sized = body.indexOf("tooLargeToAsk(");
+			if (sized === -1) return [`${name} has no size check to claim after`];
+			// After the size check, so a round refused as too large holds
+			// no slot for three minutes it never used; given the round's own
+			// signal, so a round given up while it waits gives its slot back.
+			const call = body.slice(claims, body.indexOf(")", claims) + 1);
+			return [
+				...(sized < claims
+					? []
+					: [`${name} claims a start before its last refusal`]),
+				...(call.includes("signal")
+					? []
+					: [`${name} waits for its start without its signal`]),
+				...(body.includes(".cancelled")
+					? []
+					: [`${name} starts even when its wait was stopped`]),
+			];
+		});
+		expect(wrong).toEqual([]);
+
+		// A council on this head queued ahead writes its ledger entry only
+		// as it opens, so the council asks again once its wait is over, and
+		// refused then gives its slot back.
+		const council = rounds.find((round) => round.name === "councilRound");
+		const afterWait = council?.body.slice(
+			council.body.indexOf("await awaitRosterStart("),
+		);
+		expect(afterWait, "asks the ledger again after its wait").toContain(
+			"councilRefused(",
+		);
+		expect(afterWait, "gives its slot back when refused then").toContain(
+			"start.release",
+		);
+
+		// A started round that started nobody gives its slot back too, so
+		// a retry after a failed dispatch waits behind none that never ran.
+		const started = [...functions].find(([, body]) =>
+			body.includes("await startCouncil("),
+		)?.[1];
+		expect(started, "a round that started nobody gives its slot back").toMatch(
+			/if \(started === 0\) await set\.release\?\.\(\)/,
+		);
+
+		// A critique with nothing to challenge asks nobody, so it takes no
+		// slot at all.
+		const critique = rounds.find((round) =>
+			round.body.includes("await runCritique("),
+		)?.body;
+		const claim = critique?.indexOf("await awaitRosterStart(") ?? -1;
+		const none = critique?.indexOf("raised.length === 0") ?? -1;
+		expect(none !== -1 && none < claim, "an empty critique takes no slot").toBe(
+			true,
+		);
+	});
+
 	it("reads every round's lenses out of the tree that round reads", () => {
 		// The composition is driven for real elsewhere. What cannot be
 		// driven is whether these seven call sites hand it the right tree,

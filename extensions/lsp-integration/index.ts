@@ -19,11 +19,11 @@
  * and a person who stops it stops the server's work as well.
  */
 
-import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { bounded, WallClockExceeded } from "../../lib/clock/index.ts";
@@ -36,7 +36,9 @@ import {
 	formatLocations,
 	formatSymbols,
 	formatWorkspaceEdit,
+	LEFT_OUT,
 	MissingServerError,
+	readJudged,
 	registerLspBackend,
 	resolveLspBackend,
 	toBackendEntry,
@@ -48,9 +50,21 @@ import {
 	ambientSession,
 	hosted,
 	type SessionRef,
+	sessionEnv,
 	sessionKeyOf,
 } from "../../lib/core/session/index.ts";
+import {
+	type Sandbox,
+	sandboxFor,
+} from "../../lib/internal/sandbox/sandbox.ts";
+import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
+import {
+	readSshGuard,
+	type SshGuard,
+} from "../../lib/internal/shell/ssh-guard.ts";
+import { type FencedSession, fenceKey, lspFence } from "./fence.ts";
 import { LSP_CALL_WALL_MS } from "./limits.ts";
+import { fencedPool, fences, UNFENCED_POOL } from "./pool.ts";
 
 /**
  * What vscode-jsonrpc says when its server has gone:
@@ -66,6 +80,51 @@ export function closedConnection(err: unknown): boolean {
 	return err instanceof Error && GONE.test(err.message);
 }
 
+/**
+ * The session a fence is drawn for, as its shell draws its commands':
+ * from the conversation's environment, with what is offered to its
+ * commands and its id, around its own folder, the ssh guard read as a
+ * server starts. pi names the session only on its own spawns, so it is
+ * named here, as pi's file tools' fence names it.
+ */
+function fencedSession(ctx: ExtensionContext): FencedSession {
+	const conversation = sessionKeyOf(ctx);
+	return {
+		session: conversation,
+		cwd: ctx.cwd,
+		env: {
+			...sessionEnv(conversation).snapshot(),
+			...offeredShellEnvironment(),
+			PI_SESSION_ID: conversation,
+		},
+		guard: guardNow,
+	};
+}
+
+/** The ssh guard as last read here, once one has been. */
+let lastGuard: SshGuard | undefined;
+
+/**
+ * The ssh guard as it stands, kept as the shell's watch keeps it: a
+ * node that is slow to answer leaves the machines last read, and a
+ * setting that can't be read leaves the guard as last read. Never read
+ * at all, it fails the start, rather than letting the server's code
+ * reach machines the commands can't.
+ */
+async function guardNow(): Promise<SshGuard> {
+	let read: SshGuard;
+	try {
+		read = await readSshGuard(lastGuard);
+	} catch (error) {
+		if (lastGuard) return lastGuard;
+		throw new Error(
+			`the ssh guard's setting can't be read: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+	lastGuard = read;
+	return read;
+}
+
 /** File types the standalone backend can currently serve. */
 const SYNCABLE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
@@ -78,11 +137,31 @@ interface LspToolDetails {
 const POSITION_OPS = new Set(["definition", "references", "hover", "rename"]);
 
 export default function lspIntegration(pi: ExtensionAPI) {
-	const lease = standaloneLease();
 	let session: SessionRef | undefined = ambientSession();
+	// Drawn at the first call, as the shell drew its own once it loaded
+	// (shell-workflow lifts the fence from process.env first), so a
+	// session's servers run in the sandbox its commands run in.
+	let sandbox: Sandbox | undefined;
+	// The conversation as last seen, which the lease registers the pool
+	// for before anything can look it up.
+	let conversation: ExtensionContext | undefined;
+	// The pool as the conversation's other extensions reach it: with its
+	// fence drawn into each call, drawn afresh at each lookup.
+	const lease = standaloneLease((pool) => {
+		sandbox ??= sandboxFor();
+		if (sandbox.kind === "none") return pool;
+		const seen = conversation;
+		if (!seen)
+			throw new Error("pi's language servers were looked up before a session");
+		return fencedPool(
+			pool,
+			lspFence(sandbox, () => fencedSession(seen)),
+		);
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		session = sessionKeyOf(ctx);
+		conversation = ctx;
 		lease.ensure(ctx);
 	});
 
@@ -106,7 +185,10 @@ export default function lspIntegration(pi: ExtensionAPI) {
 	pi.events.emit("lsp:ready", {});
 
 	// Keep the servers current with pi's own edits so diagnostics
-	// track the bytes on disk rather than the bytes at open.
+	// track the bytes on disk rather than the bytes at open. A fenced
+	// server can write where the file was, so it is read without
+	// waiting and only as a plain file: a pipe left there can't hold
+	// pi's thread (`judged-files.ts`).
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return;
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
@@ -114,7 +196,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 		if (typeof path !== "string" || !SYNCABLE.test(path)) return;
 		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		try {
-			lease.current()?.syncDocument(absolute, readFileSync(absolute, "utf8"));
+			lease.current()?.syncDocument(absolute, readJudged(absolute, undefined));
 		} catch {
 			// The file may have been deleted or moved; a stale sync
 			// is not worth disturbing the edit over.
@@ -122,6 +204,11 @@ export default function lspIntegration(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async (event, ctx) => {
+		// Its servers could answer no other conversation, and run its
+		// project's code in its fence until stopped.
+		const current = lease.current();
+		if (sandbox && sandbox.kind !== "none" && current && fences(current))
+			current.stopFence(fenceKey(sandbox, sessionKeyOf(ctx)));
 		await lease.release(ctx);
 		if (hosted() && event.reason === "quit") clearLspBackends(ctx);
 	});
@@ -192,8 +279,9 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			_onUpdate,
 			ctx,
 		): Promise<AgentToolResult<LspToolDetails>> {
+			conversation = ctx;
 			let active = resolveLspBackend(ctx) ?? lease.ensure(ctx);
-			const standalone = active === lease.current();
+			let standalone = active === lease.current();
 			const op = params.operation;
 			// A `records` argument rather than a details heuristic: these
 			// details carry a count, not the findings, and the count is
@@ -204,16 +292,21 @@ export default function lspIntegration(pi: ExtensionAPI) {
 				body: string,
 				count?: number,
 				records?: readonly unknown[],
+				// Said after the listing, which a cut for its size never drops.
+				trailer?: string,
 			): AgentToolResult<LspToolDetails> => ({
 				content: [
 					{
 						type: "text",
 						text:
 							records === undefined || records.length === 0
-								? body
+								? trailer
+									? `${body}\n${trailer}`
+									: body
 								: citeListing(openSessionStore(ctx), {
 										view: body,
 										records,
+										...(trailer ? { trailer } : {}),
 										unit: `${op} results`,
 										narrowing:
 											"Ask about one file or one symbol rather than the " +
@@ -237,7 +330,20 @@ export default function lspIntegration(pi: ExtensionAPI) {
 			// stopping or the clock running out, so a backend that can tell
 			// its server to cancel does so on both.
 			const stop = new AbortController();
-			const options = { signal: stop.signal, root: ctx.cwd };
+			sandbox ??= sandboxFor();
+			const fence = lspFence(sandbox, () => fencedSession(ctx));
+			// An editor's servers run outside the fence, as the editor started
+			// them, so a fenced call asks pi's own, which start inside it.
+			if (fence && !standalone) {
+				active = lease.ensure(ctx);
+				standalone = true;
+			}
+			if (fence && !fences(active)) return bad(UNFENCED_POOL);
+			const options = {
+				signal: stop.signal,
+				root: ctx.cwd,
+				...(fence ? { fence } : {}),
+			};
 			const ask = <T>(work: Promise<T>): Promise<T> =>
 				bounded(
 					work,
@@ -249,6 +355,8 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					() => stop.abort(),
 				);
 
+			// Files pi can't read for a fenced server are left out of these.
+			const leftOut = fence ? LEFT_OUT : undefined;
 			const answer = async (): Promise<AgentToolResult<LspToolDetails>> => {
 				if (op === "workspace_symbols") {
 					if (!params.query) return bad("workspace_symbols needs a query.");
@@ -261,7 +369,7 @@ export default function lspIntegration(pi: ExtensionAPI) {
 							path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 						);
 					});
-					return text(formatSymbols(symbols), symbols.length, symbols);
+					return text(formatSymbols(symbols), symbols.length, symbols, leftOut);
 				}
 				if (!params.path) return bad(`${op} needs a path.`);
 				const path = absolute(params.path);
@@ -314,7 +422,12 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					op === "definition"
 						? await ask(active.definition(target, options))
 						: await ask(active.references(target, options));
-				return text(formatLocations(locations), locations.length, locations);
+				return text(
+					formatLocations(locations),
+					locations.length,
+					locations,
+					leftOut,
+				);
 			};
 
 			try {
@@ -324,10 +437,13 @@ export default function lspIntegration(pi: ExtensionAPI) {
 					// A server that died leaves its connection closed, and the
 					// pool hands the same dead one to every later call: 11 of 93
 					// calls failed that way. Start the standalone servers afresh
-					// and ask once more. An editor's backend is the editor's to
-					// restart, so its failure is reported as it came.
+					// and ask once more. A fenced call's server may have been ended
+					// by its own project's code, so only its fence's servers go, and
+					// every other conversation's keep theirs. An editor's backend is
+					// the editor's to restart, so its failure is reported as it came.
 					if (!closedConnection(err) || !standalone) throw err;
-					active = await lease.restart(active, ctx);
+					if (fence && fences(active)) active.dropFence(fence.key);
+					else active = await lease.restart(active, ctx);
 					return await answer();
 				}
 			} catch (err) {

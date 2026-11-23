@@ -9,11 +9,14 @@
  * and its lease named a VM job here.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { homedir } from "node:os";
+import { promisify } from "node:util";
 import { loadPackageConfig } from "../config/loader.ts";
 import { packageConfigPath } from "../paths.ts";
-import { type Step, stepsOf } from "../shell/steps.ts";
+import { offeredShellEnvironment } from "../shell/environment.ts";
+import { type Step, stepsOf, wordsOf } from "../shell/steps.ts";
+import { elsewhereKindOf, reroutesElsewhere } from "./needs.ts";
 import { kindOf, runsChangedChecks } from "./queue.ts";
 import {
 	builderReady,
@@ -43,6 +46,8 @@ const DECIDED_MS = 10 * 60_000;
 
 interface Kept {
 	takes?: { readonly at: number; readonly takes: Promise<Takes> };
+	/** Where elsewhere last said each kind of job would run, by kind. */
+	placed?: Map<string, Placed>;
 	/** What the last answer said, for a caller that can't wait for one. */
 	known?: Takes;
 	readonly decided: Map<
@@ -176,15 +181,159 @@ export function takesKnown(now = Date.now()): Takes | undefined {
 	return kept().known;
 }
 
+/** How long elsewhere may take to say where a kind of job would run. */
+const WHERE_MS = 10_000;
+
+/** What elsewhere last said of a kind, and when it was asked and answered. */
+interface Placed {
+	readonly asked: number;
+	answered?: { readonly at: number; readonly far: boolean };
+	/** The ask made at {@link Placed.asked}, settled once it answers. */
+	asking?: Promise<void>;
+}
+
+/**
+ * What elsewhere has said of a kind, asking again when the last ask is
+ * {@link TAKES_MS} old, and keeping the last answer while it asks.
+ */
+function placing(
+	kind: string,
+	now: number,
+	ask: (kind: string) => Promise<boolean>,
+): Placed {
+	const store = kept();
+	store.placed ??= new Map();
+	const known = store.placed.get(kind);
+	if (known !== undefined && now - known.asked < TAKES_MS) return known;
+	const placed: Placed = {
+		asked: now,
+		...(known?.answered ? { answered: known.answered } : {}),
+	};
+	store.placed.set(kind, placed);
+	placed.asking = ask(kind).then((far) => {
+		placed.answered = { at: Date.now(), far };
+	});
+	return placed;
+}
+
+/**
+ * How old an answer from elsewhere may be and still say a job goes far:
+ * two of its asks, so one ask still out keeps the last answer good, and a
+ * Mac gone longer than that is believed gone.
+ */
+const PLACED_FOR_MS = 2 * TAKES_MS;
+
+/** The variable quest-workflow offers every command, naming its quest. */
+const QUEST_VARIABLE = "PI_QUEST";
+
+/**
+ * Whether elsewhere said, within {@link PLACED_FOR_MS}, that it places a
+ * kind of job on another machine, asking again at most once a minute in
+ * the background, and false until it first answers: for the queue, which
+ * can't wait. {@link placesNow} has the answer fresh before a run is
+ * queued; without it, a run of a kind not asked of lately is held as
+ * local work, as every run was before. Placement is asked by kind alone, since
+ * elsewhere's `where` reads neither the quest nor the folder (measured on
+ * 22 November: the same answer with `PI_QUEST` set and empty); the quest
+ * is checked where it is known, in `travels`.
+ */
+export function placedFarKnown(
+	kind: string,
+	now = Date.now(),
+	ask: (kind: string) => Promise<boolean> = placedFar,
+): boolean {
+	const answered = placing(kind, now, ask).answered;
+	return (
+		answered !== undefined && now - answered.at < PLACED_FOR_MS && answered.far
+	);
+}
+
+/**
+ * Has elsewhere say where it places each kind of job `command` sends
+ * with `elsewhere run`, waiting for any answer older than
+ * {@link TAKES_MS}, so a run queued straight after is judged on a fresh
+ * one rather than held for want of it. It asks nothing for a session on
+ * no quest or a command that changes what elsewhere means, whose runs
+ * no answer could count as sent. An agent runs a check, edits for
+ * minutes and runs it again, so an answer kept warm only by the runs
+ * themselves is nearly always stale. `elsewhere where` answered in 0.67 s
+ * on 22 November, and gives up within {@link WHERE_MS}.
+ */
+export async function placesNow(
+	command: string,
+	cwd: string,
+	home: string = homedir(),
+	ask: (kind: string) => Promise<boolean> = placedFar,
+	now = Date.now(),
+	quest: string | undefined = offeredShellEnvironment()[QUEST_VARIABLE],
+): Promise<void> {
+	if (!quest || !command.includes("elsewhere")) return;
+	if (reroutesElsewhere(command)) return;
+	const kinds = new Set<string>();
+	for (const step of stepsOf(command, cwd, home) ?? []) {
+		const kind = elsewhereKindOf(wordsOf(step.text));
+		if (kind !== undefined) kinds.add(kind);
+	}
+	await Promise.all(
+		[...kinds].map(async (kind) => {
+			const placed = placing(kind, now, ask);
+			const answered = placed.answered;
+			if (answered === undefined || now - answered.at >= TAKES_MS) {
+				await placed.asking;
+			}
+		}),
+	);
+}
+
+/** Whether `elsewhere where KIND` says the job would run on another machine. */
+async function placedFar(kind: string): Promise<boolean> {
+	try {
+		const { stdout } = await promisify(execFile)(
+			"elsewhere",
+			["where", kind, "--json"],
+			{ timeout: WHERE_MS },
+		);
+		return placesFar(stdout);
+	} catch {
+		// Not installed, a kind it doesn't know, or no answer in time: a run
+		// of it is believed to stay here, which holds it as before.
+		return false;
+	}
+}
+
+/**
+ * Whether `elsewhere where --json` placed a job on another machine, by
+ * its `elsewhere.where/1` answer: `here` false. Anything else, an answer
+ * that doesn't parse included, reads as here.
+ */
+export function placesFar(answer: string): boolean {
+	try {
+		const read: unknown = JSON.parse(answer);
+		return (
+			typeof read === "object" &&
+			read !== null &&
+			"here" in read &&
+			read.here === false
+		);
+	} catch {
+		// Not JSON: nothing says it goes, so it stays.
+		return false;
+	}
+}
+
 /** How long `git status` may take to say whether a tree is committed. */
 const STATUS_MS = 2_000;
 
 /**
  * Whether every heavy step of `command`, run from `cwd`, sends its whole
- * run to a builder: a changed-checks run that sends itself, or a
+ * run to a builder: a changed-checks run that sends itself, a
  * `nix-offload there --here-when-idle` that builds here only while this
- * machine is idle. Held as a build here, one such run waited 36 minutes
- * on memory on 10 November, and changed-checks runs waited behind it.
+ * machine is idle, or an `elsewhere run` that travels (see `travels`).
+ * Held as a build here, one such run waited 36 minutes on memory on 10
+ * November, and changed-checks runs waited behind it. On 22 November an
+ * `elsewhere run harness-check` bound for the Mac, at load 5, waited
+ * over half an hour behind optimus's CPU and memory, while vitest, tsc
+ * and cargo runs waited 79 hours that day to run 2.4.
  */
 export function sendsWholeRun(
 	command: string,
@@ -192,18 +341,46 @@ export function sendsWholeRun(
 	takes: Takes | undefined,
 	isCommitted: (folder: string) => boolean = committedAt,
 	home: string = homedir(),
+	far: Far = {},
 ): boolean {
 	const heavy = (stepsOf(command, cwd, home) ?? []).filter(
 		(step) => kindOf(step.text) !== undefined,
 	);
+	// A sent elsewhere run starts while memory is short, and the queue
+	// reads only a job's first heavy step, so an idle-only build beside
+	// one, which may build here, keeps the run from counting as sent.
+	const idleOnly = heavy.some((step) => SENT_UNLESS_IDLE.test(step.text));
+	const routed = reroutesElsewhere(command) || idleOnly ? {} : far;
 	return (
 		heavy.length > 0 &&
 		heavy.every(
 			(step) =>
 				SENT_UNLESS_IDLE.test(step.text) ||
+				travels(step, routed) ||
 				changedChecksSent(step, takes, isCommitted),
 		)
 	);
+}
+
+/** What says whether an `elsewhere run` leaves this machine. */
+export interface Far {
+	/** The quest the command's session has loaded, if any. */
+	readonly quest?: string;
+	/** Whether elsewhere places a kind of job on another machine now. */
+	readonly placedFar?: (kind: string) => boolean;
+}
+
+/**
+ * Whether a step is an `elsewhere run` that leaves this machine: not
+ * asked to stay with `--here`, from a session on a quest (its tracked
+ * files travel through that quest's handover, and with no quest it runs
+ * here), and of a kind elsewhere places on another machine now. Only a
+ * placement that changes between asking and running keeps one here.
+ */
+function travels(step: Step, far: Far): boolean {
+	const kind = elsewhereKindOf(wordsOf(step.text));
+	if (kind === undefined || !far.quest) return false;
+	return (far.placedFar ?? placedFarKnown)(kind);
 }
 
 /**

@@ -58,10 +58,15 @@ export interface Queueing {
 	readonly cgroupFor: (job: Job) => string | undefined;
 	readonly now?: () => number;
 	/**
-	 * Whether a command run from a folder is a changed-checks run that
-	 * sends itself to the builder (send.ts's `sendsWholeRun`).
+	 * Whether a command run from a folder, for the quest its session has
+	 * loaded, sends its whole run to another machine (send.ts's
+	 * `sendsWholeRun`).
 	 */
-	readonly sendsWholeRun?: (command: string, cwd: string) => boolean;
+	readonly sendsWholeRun?: (
+		command: string,
+		cwd: string,
+		quest: string | undefined,
+	) => boolean;
 }
 
 /**
@@ -185,10 +190,11 @@ export function queuedCommand(
 	// to what one never seen is held to, since a run the builder turned
 	// away ran here whole and says nothing of a send.
 	const seen = queueing.folder.peakFor(what);
+	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	const sent =
 		kind !== "world-walk" &&
 		cwd !== undefined &&
-		(queueing.sendsWholeRun?.(command, cwd) ?? false);
+		(queueing.sendsWholeRun?.(command, cwd, quest) ?? false);
 	const walk = kind === "world-walk" ? walkOf(command, where) : undefined;
 	// A push of World leaves out its LFS scan when it holds no LFS file
 	// (pushes.ts), chained after a rebase or not; without the hooks placed
@@ -223,7 +229,6 @@ export function queuedCommand(
 		lightPush ||
 		(needsGib <= NEEDS_GIB[kind] && queueing.folder.quickFor(kind, what));
 	const lastRanS = queueing.folder.ranFor(what);
-	const quest = offeredShellEnvironment()[QUEST_VARIABLE];
 	// A build of checks is asked what it will build before its turn, since
 	// its text can't say whether a VM runs (plan.ts); quick work is cached.
 	const plan =
