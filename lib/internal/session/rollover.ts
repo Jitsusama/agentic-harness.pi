@@ -50,7 +50,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { StringDecoder } from "node:string_decoder";
 import {
 	getCurrentSystemMessage,
 	type SystemMessage,
@@ -545,6 +544,9 @@ export function ancestry(
 /** How much of a parent log is read at once. */
 const CHUNK_BYTES = 1024 * 1024;
 
+/** The byte that ends each line of a log. */
+const NEWLINE = 0x0a;
+
 /** How pi starts each message line it writes. */
 const MESSAGE_HEAD = '{"type":"message","id":"';
 
@@ -626,28 +628,41 @@ function wantedLine(
 		: undefined;
 }
 
-/** A file's lines, read a chunk at a time. */
+/**
+ * A file's lines, read a chunk at a time.
+ *
+ * Lines are cut at their newline bytes and each is decoded alone, which
+ * reads exactly what decoding the whole file would: no byte of a
+ * multibyte UTF-8 letter is a newline. Decoding each chunk and then
+ * splitting its text cost more instructions on a log of hundreds of
+ * megabytes than cutting the bytes first.
+ */
 function* linesOf(path: string): Generator<string> {
 	const fd = openSync(path, "r");
 	try {
-		const decoder = new StringDecoder("utf8");
 		const buffer = Buffer.alloc(CHUNK_BYTES);
-		let rest = "";
+		// A long line spans chunks: its pieces wait here, joined once it ends.
+		let held: Buffer[] = [];
 		for (;;) {
 			const read = readSync(fd, buffer, 0, CHUNK_BYTES, null);
 			if (read === 0) break;
-			const chunk = decoder.write(buffer.subarray(0, read));
-			// A long line spans chunks: gather it until one ends it.
-			if (!chunk.includes("\n")) {
-				rest += chunk;
-				continue;
+			const chunk = buffer.subarray(0, read);
+			let start = 0;
+			let end = chunk.indexOf(NEWLINE);
+			if (end !== -1 && held.length > 0) {
+				yield Buffer.concat([...held, chunk.subarray(0, end)]).toString("utf8");
+				held = [];
+				start = end + 1;
+				end = chunk.indexOf(NEWLINE, start);
 			}
-			const lines = (rest + chunk).split("\n");
-			rest = lines.pop() ?? "";
-			yield* lines;
+			for (; end !== -1; end = chunk.indexOf(NEWLINE, start)) {
+				yield chunk.toString("utf8", start, end);
+				start = end + 1;
+			}
+			// The buffer is read into again, so what waits is a copy.
+			if (start < read) held.push(Buffer.from(chunk.subarray(start)));
 		}
-		rest += decoder.end();
-		if (rest !== "") yield rest;
+		if (held.length > 0) yield Buffer.concat(held).toString("utf8");
 	} finally {
 		closeSync(fd);
 	}

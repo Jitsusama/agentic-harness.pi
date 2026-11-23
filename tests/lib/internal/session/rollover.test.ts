@@ -389,6 +389,25 @@ describe("messages asked of the parent logs", () => {
 		expect(texts(read)).toEqual(["early question"]);
 	});
 
+	it("are read whole from lines longer than a chunk, letters of every width", () => {
+		const { manager, ids } = longSession();
+		// Seven bytes a round, so a chunk's end falls inside a letter.
+		const long = "é🌲a".repeat(300_000);
+		const first = manager.appendMessage(user(long));
+		const second = manager.appendMessage(user(`${long}ü`));
+		const kept = manager.appendMessage(user("kept after the long lines"));
+		manager.appendCompaction("long lines", kept, 10);
+		const { fresh } = rolledInto(manager);
+
+		const read = messagesOnDisk(
+			fresh.getBranch(),
+			new Set([ids.early, first, second]),
+		);
+
+		expect(read.map((entry) => entry.id)).toEqual([ids.early, first, second]);
+		expect(texts(read)).toEqual(["early question", long, `${long}ü`]);
+	});
+
 	it("are not read for a log that never rolled over", () => {
 		const { manager, ids } = longSession();
 
