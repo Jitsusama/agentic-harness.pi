@@ -14,7 +14,7 @@ import {
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
-import { isWord, oneLine } from "../../../lib/mesh/one-line.ts";
+import { isName, isWord, oneLine } from "../../../lib/mesh/one-line.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { isAddress } from "../../../lib/mesh/steer-who.ts";
@@ -42,7 +42,7 @@ export async function join(
 	const already =
 		hears(at.peer.scopes, group) && !at.peer.joined.includes(group);
 	const joinedNow = !already && at.peer.join(group);
-	const standing = await peers(at);
+	const standing = listable(await peers(at));
 	const said = already
 		? `Already in ${group} by this peer's work.`
 		: `In ${group}.`;
@@ -261,9 +261,10 @@ const WORK_CHARS = 100;
  * reader checks a grant against the quest a peer line names, so none
  * may carry a line of its own into the listing, nor a field of another
  * peer's into its own line. A presence whose signature isn't an address
- * is left out, as are its other addresses that aren't one, its groups,
- * joined groups, machine or tool step that aren't one word and a quest
- * that isn't a quest id as quest-workflow mints one; its prose, what it
+ * is left out, as are its other addresses that aren't one, its groups
+ * and joined groups that aren't one word, a machine or tool step whose
+ * name isn't shaped as a name, and a quest that isn't a quest id as
+ * quest-workflow mints one; its prose, what it
  * works on, wants and a step's detail, is said on one line, as
  * `stopsText` says the reasons its stops give.
  */
@@ -290,9 +291,9 @@ function listed(one: Presence): Presence[] {
 			worksOn: oneLine(one.worksOn),
 			...(joined !== undefined ? { joined: joined.filter(isWord) } : {}),
 			...(named !== undefined ? { quest: named } : {}),
-			...(machine !== undefined && isWord(machine) ? { machine } : {}),
+			...(machine !== undefined && isName(machine) ? { machine } : {}),
 			...(stepDetail !== undefined &&
-			(stepDetail.kind !== "tool" || isWord(stepDetail.name))
+			(stepDetail.kind !== "tool" || isName(stepDetail.name))
 				? { stepDetail: { ...stepDetail, detail: oneLine(stepDetail.detail) } }
 				: {}),
 			...(wants !== undefined
@@ -324,7 +325,7 @@ const STEP_SAID_AFTER_MS = 60_000;
  */
 export function peersText(
 	present: readonly Presence[],
-	peer: Peer,
+	peer: Pick<Peer, "session">,
 	now: number,
 	resuming: readonly Presence[] = [],
 ): string {
@@ -387,19 +388,23 @@ export function tiesText(
 	if (ties.length === 0) {
 		return "\nTies: none in the last day. A message ties its sender to each peer its to names and to the one it answers; one only to groups ties no one.";
 	}
-	const lines = ties.slice(0, MOST_TIES).map((tie) => {
+	// A tie's other end is whatever its messages signed, and the node
+	// relays its intents as it counted them, so a line opens only on an
+	// address and names only intents shaped as one.
+	const shown = ties.filter((tie) => isAddress(tie.other));
+	const lines = shown.slice(0, MOST_TIES).map((tie) => {
 		const found = present.find((one) => one.addresses.includes(tie.other));
 		const work = found !== undefined ? oneLine(found.worksOn) : undefined;
 		const cut =
 			work && work.length > TIE_WORK_CHARS
 				? `${work.slice(0, TIE_WORK_CHARS - 3)}...`
 				: work;
-		const intents =
-			tie.intents.length > 0 ? `; ${oneLine(tie.intents.join(", "))}` : "";
-		return `${oneLine(tie.other)}${cut ? ` (${cut})` : ""}: ${tie.strength.toFixed(1)}; this hour ${tie.hour[0]} sent, ${tie.hour[1]} heard; today ${tie.today[0]} sent, ${tie.today[1]} heard${intents}`;
+		const named = tie.intents.filter(isName);
+		const intents = named.length > 0 ? `; ${named.join(", ")}` : "";
+		return `${tie.other}${cut ? ` (${cut})` : ""}: ${tie.strength.toFixed(1)}; this hour ${tie.hour[0]} sent, ${tie.hour[1]} heard; today ${tie.today[0]} sent, ${tie.today[1]} heard${intents}`;
 	});
 	const more =
-		ties.length > MOST_TIES ? [`and ${ties.length - MOST_TIES} weaker`] : [];
+		shown.length > MOST_TIES ? [`and ${shown.length - MOST_TIES} weaker`] : [];
 	return `\nTies, strongest first (one a message, halving every two hours):\n${[...lines, ...more].join("\n")}`;
 }
 

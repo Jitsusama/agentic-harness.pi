@@ -49,6 +49,7 @@ import {
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
@@ -574,7 +575,7 @@ function holders(held: readonly (Held & { holder: Presence })[]): string {
 /** What a peer's changes in one checkout are, to follow "is". */
 function changingText(leases: readonly Lease[]): string {
 	const files = leases.filter((lease) => !claimsCheckout(lease));
-	const shown = files.slice(0, 3).map((lease) => lease.subject);
+	const shown = files.slice(0, 3).map((lease) => oneLine(lease.subject));
 	const more = files.length - shown.length;
 	return [
 		files.length > 0
@@ -584,7 +585,7 @@ function changingText(leases: readonly Lease[]): string {
 			.filter(claimsCheckout)
 			.map((lease) =>
 				lease.why
-					? `working on what \`${lease.why}\` left`
+					? `working on what \`${oneLine(lease.why)}\` left`
 					: "working on all of them",
 			),
 	]
@@ -631,6 +632,6 @@ export function createEditNotes(): EditNotes {
 
 /** A message's words, cut to what a lease keeps. */
 function cut(text: string): string {
-	const one = text.replace(/\s+/g, " ").trim();
+	const one = oneLine(text);
 	return one.length > WHY_CHARS ? `${one.slice(0, WHY_CHARS)}...` : one;
 }

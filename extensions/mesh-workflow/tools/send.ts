@@ -143,7 +143,11 @@ export function answeringIntent(
 /**
  * Whether these groups reach the orchestrator above the sender's quest,
  * by any address its presence goes by, in any letters: a group named is
- * always upper case, and a presence may list its address otherwise.
+ * always upper case, and a presence may list its address otherwise. A
+ * presence lists what addresses it likes, so every one that lists the
+ * orchestrator's counts, not the first: a check that fails closed counts
+ * a question to an impostor's other address too, where taking the first
+ * would let an impostor that sorts early hide the real one's.
  */
 function toOrchestrator(
 	named: readonly string[],
@@ -151,8 +155,12 @@ function toOrchestrator(
 	present: readonly Presence[],
 ): boolean {
 	if (orchestratedBy === undefined) return false;
-	const addresses = present.find((one) => lists(one, orchestratedBy))
-		?.addresses ?? [orchestratedBy];
+	const addresses = [
+		orchestratedBy,
+		...present
+			.filter((one) => lists(one, orchestratedBy))
+			.flatMap((one) => one.addresses),
+	];
 	return addresses.some((address) =>
 		named.includes(homeOf(address.toUpperCase())),
 	);

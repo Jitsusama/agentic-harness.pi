@@ -6,18 +6,19 @@ import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
 
 /**
- * The stops on this peer, said to it on one line: a stopper gives its
- * reason as it likes, so none may start a line of its own.
+ * The stops on this peer, said to it a line each. A stopper gives its
+ * reason as it likes, so the reason is folded to that line, and each
+ * stop has a line of its own, opening on its stopper's address: on a
+ * shared line, one stopper's reason could end its sentence and say
+ * another peer's stop after it.
  */
 export function stopsText(stops: ReturnType<typeof stoppedBy>): string {
-	return oneLine(
-		stops
-			.map(
-				({ stopper, stop }) =>
-					`${stopper.addresses[0]} stopped this peer reaching it${stop.why ? ` (${stop.why})` : ""}: it sees what this peer sends as one line only.`,
-			)
-			.join(" "),
-	);
+	return stops
+		.map(({ stopper, stop }) => {
+			const why = stop.why !== undefined ? oneLine(stop.why) : "";
+			return `${stopper.addresses[0]} stopped this peer reaching it${why ? ` (${why})` : ""}: it sees what this peer sends as one line only.`;
+		})
+		.join("\n");
 }
 
 export async function stop(

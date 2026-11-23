@@ -30,6 +30,7 @@
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 import { sessionCell } from "../../core/session/index.ts";
+import { oneLine as folded } from "../../mesh/one-line.ts";
 
 /** Said on the bus when a want starts, changes or ends. */
 export const SESSION_WANTS = "session:wants:v1";
@@ -144,9 +145,12 @@ export function onWants(
 /** The longest a want's line is said at, so a launcher can show it whole. */
 export const SAID_CHARS = 120;
 
-/** One line, no longer than {@link SAID_CHARS}. */
+/**
+ * One line, no longer than {@link SAID_CHARS}, broken where any listing
+ * of another session's text breaks it (lib/mesh/one-line.ts).
+ */
 export function oneLine(text: string): string {
-	const line = text.replace(/\s+/g, " ").trim();
+	const line = folded(text);
 	return line.length <= SAID_CHARS
 		? line
 		: `${line.slice(0, SAID_CHARS - 1).trimEnd()}\u2026`;

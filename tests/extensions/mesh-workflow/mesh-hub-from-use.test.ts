@@ -107,8 +107,7 @@ describe("orchestrator, on a quest with no mark", () => {
 	});
 
 	// A send reads the address upper-cased, and no session goes by it in
-	// that case, so a question never reaches such a hub past its checks;
-	// one for the person's hands is refused before, as the hub's own.
+	// that case, so a question never reaches such a hub past its checks.
 	it("sends nothing to a hub whose presence spells its address in lower case", async () => {
 		onQuest();
 		cellIn("session-q", "5gv2ah", ["#quest/5gv2ah"]);
@@ -123,7 +122,10 @@ describe("orchestrator, on a quest with no mark", () => {
 		expect(lastSent()).toBeUndefined();
 	});
 
-	it("counts the person's acts in a question put to a hub whose presence spells its address in lower case", async () => {
+	// This pins the order too: a question for the person's hands is
+	// refused as the hub's own before any session is looked for by the
+	// address, so its refusal is the hands one, not the missing session.
+	it("refuses a question for the person's hands to a lower-case hub before looking for the session", async () => {
 		onQuest();
 		cellIn("session-q", "5gv2ah", ["#quest/5gv2ah"]);
 		const env = await node([asker], [tieTo("5gv2ah", 2)]);
@@ -155,6 +157,67 @@ describe("orchestrator, on a quest with no mark", () => {
 			busy: false,
 			at: new Date().toISOString(),
 		});
+		const { tools } = await startSession(noNode());
+
+		const refused = await send(
+			tools,
+			"OLD001",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	});
+
+	// A hub from use is checked by every address its presence lists, as
+	// the marked orchestrator is, whatever case it lists them in.
+	it("counts the person's acts in a question put to the hub from use by another address", async () => {
+		onQuest();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5gv2ah", "OLD001"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			quest: "QEST-20261021-5GV2AH",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const env = await node([asker], [tieTo("5GV2AH", 2)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"OLD001",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(lastSent()).toBeUndefined();
+	});
+
+	// A presence lists what addresses it likes, so one listing the
+	// orchestrator's beside its own hides none of the real one's.
+	it("counts the person's acts in a question to the marked orchestrator's other address when another presence also lists its address", async () => {
+		onQuest();
+		markedParent();
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		const cell = (session: string, addresses: string[]) =>
+			presences.publish({
+				session,
+				addresses,
+				groups: ["#quest/5gv2ah"],
+				joined: [],
+				worksOn: "",
+				owns: [],
+				busy: false,
+				at: new Date().toISOString(),
+			});
+		cell("session-a", ["EVIL01", "5gv2ah"]);
+		cell("session-q", ["5GV2AH", "OLD001"]);
 		const { tools } = await startSession(noNode());
 
 		const refused = await send(

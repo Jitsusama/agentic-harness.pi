@@ -13,14 +13,20 @@
 
 import type { RefusedWake } from "../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../lib/mesh/message.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 
 /** A parked peer's refused wake, when its host keeps one. */
 export type Refusal = (presence: Presence) => RefusedWake | undefined;
 
-/** A refusal's reason as one sentence, whether or not it ended in a stop. */
+/**
+ * A refusal's reason as one sentence on one line, whether or not it
+ * ended in a stop. The reason is read from beside the wake path the
+ * parked peer's own presence names, and a host may keep an error's
+ * message there, so it may come on any number of lines.
+ */
 function sentence(refused: RefusedWake): string {
-	const reason = refused.reason.trim();
+	const reason = oneLine(refused.reason);
 	return reason.endsWith(".") ? reason : `${reason}.`;
 }
 
