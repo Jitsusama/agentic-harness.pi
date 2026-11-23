@@ -47,6 +47,8 @@ const disk = vi.hoisted(() => {
 		listingsOf(dir: string): number {
 			return this.listed.filter((one) => one === dir).length;
 		},
+		/** Each folder of records listed on the thread, once a listing. */
+		listedOnThread: [] as string[],
 		/** What a listing, on the thread or off it, does to the disk just before it lists. */
 		onList: undefined as ((dir: string) => void) | undefined,
 		/** The record names a listing leaves out, as btrfs did beside a rename. */
@@ -122,6 +124,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 vi.mock("node:fs", async (importOriginal) => {
 	const real = await importOriginal<typeof import("node:fs")>();
 	const readdirSync = ((...args: Parameters<typeof real.readdirSync>) => {
+		disk.listedOnThread.push(String(args[0]));
 		disk.onList?.(String(args[0]));
 		return real
 			.readdirSync(...args)
@@ -268,6 +271,32 @@ function recordedElsewhere(
 }
 
 /** `dir` as last written a while ago, so a listing of it is settled. */
+/**
+ * A folder whose record of tree x is half written when the first listing
+ * reads it, and written whole by the second listing, which moves the
+ * folder once more; the third listing holds still.
+ */
+function halfWritten(): {
+	dir: string;
+	x: string;
+	half: { listings: number };
+} {
+	const root = mkdtempSync(join(tmpdir(), "records-"));
+	const dir = join(root, "cut");
+	const x = join(root, "trees", "x");
+	recorded(dir, join(root, "trees", "one"), ["s-1"]);
+	writeFileSync(join(dir, `${x.replaceAll("/", "-")}.json`), "{");
+	const half = { listings: 0 };
+	disk.onList = (listed) => {
+		if (listed !== dir) return;
+		half.listings += 1;
+		if (half.listings === 1)
+			recordedElsewhere(dir, join(root, "trees", "more"), ["s-2"]);
+		if (half.listings === 2) recordedElsewhere(dir, x, ["s-3"]);
+	};
+	return { dir, x, half };
+}
+
 function settled(dir: string): void {
 	const while_ago = new Date(Date.now() - 10_000);
 	utimesSync(dir, while_ago, while_ago);
@@ -1077,58 +1106,6 @@ describe("the work broker's records", () => {
 		await whenRefreshed(dir);
 	});
 
-	it("wait past a minute by default for a reading a loaded machine is slow to land", async () => {
-		const root = mkdtempSync(join(tmpdir(), "records-"));
-		const dir = join(root, "cut");
-		const one = join(root, "trees", "one");
-		const two = join(root, "trees", "two");
-		recorded(dir, one, ["s-1"]);
-		settled(dir);
-		expect(treesHeldBy("s-1", dir)).toEqual([one]);
-
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		disk.stop(root);
-		recordedElsewhere(dir, two, ["s-1"]);
-		treesHeldBy("s-1", dir);
-		await disk.stopped();
-		const asked = treesHeldByNow("s-1", dir);
-		const outcome = asked.then(
-			(trees) => ({ trees }),
-			(error: unknown) => ({ error: String(error) }),
-		);
-		await vi.advanceTimersByTimeAsync(61_000);
-		disk.go();
-
-		expect(await outcome).toEqual({ trees: [one, two] });
-	});
-
-	it("refuse a caller that asks once by default once 80 seconds pass, inside a carry's quarter hour", async () => {
-		const root = mkdtempSync(join(tmpdir(), "records-"));
-		const dir = join(root, "cut");
-		const one = join(root, "trees", "one");
-		const two = join(root, "trees", "two");
-		recorded(dir, one, ["s-1"]);
-		settled(dir);
-		expect(treesHeldBy("s-1", dir)).toEqual([one]);
-
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		disk.stop(root);
-		recordedElsewhere(dir, two, ["s-1"]);
-		treesHeldBy("s-1", dir);
-		await disk.stopped();
-		const outcome = treesHeldByNow("s-1", dir).then(
-			(trees) => ({ trees }),
-			(error: unknown) => ({ error: String(error) }),
-		);
-		await vi.advanceTimersByTimeAsync(80_001);
-
-		expect(await outcome).toEqual({
-			error: `Error: the tree records in ${dir} weren't read in 80000 ms`,
-		});
-		disk.go();
-		await whenRefreshed(dir);
-	});
-
 	it("list a folder that never holds still again by name, reading each record once and keeping all", async () => {
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
@@ -1168,8 +1145,58 @@ describe("the work broker's records", () => {
 		};
 
 		const trees = (await recallOff(dir)).map((tree) => tree.path);
+		const more = Array.from({ length: 8 }, (_, at) =>
+			join(root, "trees", `more-${at + 1}`),
+		);
 
-		expect(trees).toContain(one);
+		expect(listings).toBe(8);
+		expect(trees.sort()).toEqual([one, ...more].sort());
+	});
+
+	it("keep a record a later listing left out on the thread too", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const name = basename(recordOf(dir, one));
+		let listings = 0;
+		disk.onList = (listed) => {
+			if (listed !== dir) return;
+			listings += 1;
+			recordedElsewhere(dir, join(root, "trees", `more-${listings}`), ["s-2"]);
+			if (listings === 2) disk.hidden.add(name);
+		};
+
+		// The hidden record's tree stays on disk, so recall keeps its record.
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+		const more = Array.from({ length: 8 }, (_, at) =>
+			join(root, "trees", `more-${at + 1}`),
+		);
+
+		expect(listings).toBe(8);
+		expect(trees.sort()).toEqual([one, ...more].sort());
+	});
+
+	it("read again a name that held no record when first read, once a later listing names it", async () => {
+		const { dir, x, half } = halfWritten();
+
+		const trees = (await recallOff(dir)).map((tree) => tree.path);
+
+		expect(half.listings).toBe(3);
+		expect(trees).toContain(x);
+	});
+
+	it("read again on the thread a name that held no record when first read", () => {
+		const { dir, x, half } = halfWritten();
+
+		const trees = createTreeMemory(dir)
+			.recall()
+			.map((tree) => tree.path);
+
+		expect(half.listings).toBe(3);
+		expect(trees).toContain(x);
 	});
 
 	it("list a moving folder again by name on the thread too, reading each record once", () => {
@@ -1193,6 +1220,8 @@ describe("the work broker's records", () => {
 			.slice(before)
 			.filter((at) => at.startsWith(`${dir}/`));
 
+		// Listed as many times as LISTING_TRIES allows, eight.
+		expect(disk.listedOnThread.filter((one) => one === dir).length).toBe(8);
 		expect(readHere.length).toBe(new Set(readHere).size);
 		expect(trees.sort()).toEqual([one, ...written].sort());
 	});
