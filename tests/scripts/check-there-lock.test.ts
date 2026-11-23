@@ -5,7 +5,10 @@
  * perl on the PATH, as on a Mac. A check that holds the lock keeps every
  * other waiting until its shell closes the file, or until the wait's
  * limit passes, and a lock that can't be tried at all fails the check
- * rather than reading as a busy one.
+ * rather than reading as a busy one. Long because its local half and
+ * the shape of its work there are read through the same pieces as its
+ * turns: the script read out of its file, the stand-in hosts with only
+ * the tools they're given, and what each test leaves to be cleared.
  */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
