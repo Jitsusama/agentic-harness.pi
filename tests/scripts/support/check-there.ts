@@ -42,8 +42,6 @@ const SCRIPT = join(
 const SETTLES_IN_MS = 10_000;
 /** How long a test is given: several of its checks settling in turn. */
 const TEST_MS = 4 * SETTLES_IN_MS;
-/** How far into a second of the clock a timed check may start. */
-const SECOND_STARTS_MS = 50;
 
 /** What the script runs on its host, between its `THERE` lines. */
 function there(): string {
@@ -950,7 +948,7 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 			async () => {
 				const host = hostWith(tools);
 				const tried = await ended(check(host, "take_turn\necho took", false));
-				expect(tried.code, "a lock never tried").not.toBe(0);
+				expect(tried.code, "a lock never tried, said as its own").toBe(3);
 				expect(tried.out).toBe("");
 				expect(tried.err).not.toMatch(/waiting its turn/);
 				expect(tried.err, "why it couldn't").toMatch(/Bad file descriptor/);
@@ -981,43 +979,50 @@ function clockWait(): void {
 			"times its wait by the clock, however quickly each try comes back",
 			async () => {
 				const host = hostWith(EVERY_HOST);
-				// The shell counts whole seconds from where the clock's second
-				// stood, so it starts just past one. A run counts only when its
-				// shell started and set its deadline in that same second, which
-				// its first timed try says: then a wait two seconds long, and
-				// one more, ends at least 2.95 s on, and one without that one by
-				// about 2.25 s. A run starved past that second is tried again.
+				// The shell's clock ticks with the wall's whole seconds, so the
+				// second its deadline was set in lies between its first try and
+				// its first timed one, which say theirs by `date`, as a bash 3.2
+				// has no EPOCHSECONDS. When both say one second, a wait two
+				// seconds long, and one more, ends no sooner than 3 s past its
+				// start, and one without that one by about 2.25 s. A run whose
+				// two tries straddle a second, a few ms apart, is tried again.
 				const stub =
-					'said=\nlock() { if [ "$1" = -w ] && [ -z "$said" ]; then said=1; echo "first try $SECONDS $EPOCHSECONDS" >&2; fi; sleep 0.2; return 1; }';
-				let counted: { waited: number; waiter: Ended } | undefined;
+					'said=\nlock() { if [ "$1" = -n ]; then echo "first try $(date +%s)" >&2; return 1; fi; if [ -z "$said" ]; then said=1; echo "first timed try $(date +%s)" >&2; fi; sleep 0.2; return 1; }';
+				let counted:
+					| { set: number; waiter: Ended; endedAt: number }
+					| undefined;
 				const tries: string[] = [];
 				for (let attempt = 0; attempt < 3 && counted === undefined; attempt++) {
-					while (Date.now() % 1_000 > SECOND_STARTS_MS) {
-						// The clock itself is what's waited on, a few ms a look.
-						await new Promise((done) => setTimeout(done, 5));
-					}
-					const asked = Date.now();
 					const waiter = await ended(
 						check(host, `${stub}\nturn_wait_s=2\ntake_turn\necho took`),
 					);
-					const waited = Date.now() - asked;
-					const first = /first try (\d+) (\d+)/.exec(waiter.err);
-					tries.push(first?.[0] ?? "no first try said");
-					const sameSecond =
-						first?.[1] === "0" &&
-						Number(first[2]) === Math.floor(asked / 1_000);
-					if (sameSecond) counted = { waited, waiter };
+					const endedAt = Date.now();
+					const first = /first try (\d+)/.exec(waiter.err)?.[1];
+					const timed = /first timed try (\d+)/.exec(waiter.err)?.[1];
+					tries.push(`${first ?? "unsaid"} then ${timed ?? "unsaid"}`);
+					if (first !== undefined && first === timed)
+						counted = { set: Number(first) * 1_000, waiter, endedAt };
 				}
 				expect(
 					counted,
-					`a run whose shell set its deadline in the second it was asked: ${tries.join("; ")}`,
+					`a run whose deadline's second its tries say: ${tries.join("; ")}`,
 				).toBeDefined();
-				const { waited, waiter } = counted ?? { waited: 0, waiter: undefined };
+				const { set, waiter, endedAt } = counted ?? {
+					set: 0,
+					waiter: undefined,
+					endedAt: 0,
+				};
 				// Two tries would end in about 0.4 s.
 				expect(
-					waited,
+					endedAt - set,
 					"it waited by the clock, never less than it says",
-				).toBeGreaterThanOrEqual(2_900);
+				).toBeGreaterThanOrEqual(3_000);
+				// Its last try starts before the limit and takes a fifth of a
+				// second; seconds more would be a wait that overruns it.
+				expect(
+					endedAt - set,
+					"it gave up once its limit passed, not seconds after",
+				).toBeLessThan(6_000);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
 				expect(waiter?.err, "giving up as its limit passed").toMatch(
 					/gave up after 2 s waiting/,
@@ -1108,7 +1113,7 @@ function noLock(): void {
 				const tried = await ended(
 					check(hostWith(EVERY_HOST), "take_turn\necho took"),
 				);
-				expect(tried.code, "no lock to take").not.toBe(0);
+				expect(tried.code, "no lock to take, said as its own").toBe(3);
 				expect(tried.out).toBe("");
 				expect(tried.err).not.toMatch(/waiting its turn/);
 				expect(tried.err).toMatch(/can't take/);
@@ -1296,15 +1301,22 @@ function localHalf(): void {
 		});
 
 		// A host but penelope runs the check as an account holding Joel's
-		// credentials, unfenced, so an agent's check goes to penelope alone
-		// until one runs it fenced or under an account of its own (ISXEG8).
-		it.each(["equilibrius", "joel@there", "192.168.4.49"])(
-			"sends an agent's check to no host but penelope, %s, naming penelope",
+		// credentials, outside any agent fence, so a check run under pi goes
+		// to penelope alone until one runs it fenced or under an account of
+		// its own (ISXEG8). A name holding penelope's is another host.
+		it.each([
+			"equilibrius",
+			"joel@there",
+			"192.168.4.49",
+			"penelope.local",
+			"notpenelope",
+		])(
+			"sends a check run under pi to no host but penelope, %s, naming penelope",
 			(host) => {
 				const sent = sendFrom(["feature", host], undefined, "a-session");
 				expect(sent.code, "refused").toBe(2);
 				expect(sent.err, "saying where it may go").toMatch(
-					/an agent's check goes only to the host named penelope/,
+					/a check run under pi \(PI_SESSION_ID is set\) goes only to the host named penelope/,
 				);
 				expect(sent.err, "and what it would do instead").toContain(
 					"pnpm check:there feature penelope",
@@ -1314,7 +1326,7 @@ function localHalf(): void {
 		);
 
 		it.each([[["feature"]], [["feature", "penelope"]]])(
-			"sends an agent's check to penelope, named or not, %j",
+			"sends a check run under pi to penelope, named or not, %j",
 			(args) => {
 				const sent = sendFrom(args, undefined, "a-session");
 				expect(sent.code, sent.err).toBe(0);
@@ -1423,23 +1435,46 @@ function workThere(): void {
 
 		// The checks here define every function before any setting, so the
 		// script's own order is read where it matters: a function a setting
-		// calls or a trap names is defined first, or a signal meanwhile runs
-		// nothing; the caller is known before it is asked after; and what
-		// a stop reads is cleared before a trap can run one. What it was
-		// sent, read before its turn, is held the same way.
+		// calls or a trap names, and every one that one calls in turn, is
+		// defined first, or a signal meanwhile runs nothing; the caller is
+		// known before it is asked after; and what a stop reads is cleared
+		// before a trap can run one. What it was sent, read before its
+		// turn, is held the same way.
 		it("defines what each setting calls first, knows its caller and clears what its stops read before they can run, and reads what it was sent before its turn", () => {
 			const top = topLevel(lines);
 			const at = (line: string): number => top.indexOf(line);
 			const traps = SETTINGS.filter((line) => line.startsWith("trap "));
+			const text = there();
+			const functions = lines.flatMap(
+				(line) => /^(\w+)\(\) \{$/.exec(line)?.[1] ?? [],
+			);
+			/** The functions `name`'s code calls, and those they call in turn. */
+			const reached = (name: string): Set<string> => {
+				const seen = new Set([name]);
+				for (const each of seen) {
+					const body = (defined(text, each) ?? "")
+						.split("\n")
+						.filter((line) => !line.trimStart().startsWith("#"))
+						.join("\n");
+					for (const called of functions)
+						if (new RegExp(`(^|[^\\w-])${called}($|[^\\w-])`, "m").test(body))
+							seen.add(called);
+				}
+				return seen;
+			};
+			expect(reached("stop_all"), "what a stop calls, followed").toContain(
+				"end_groups",
+			);
 			for (const line of SETTINGS) {
 				const name = line.startsWith("trap ")
 					? (/^trap '?(\w+)/.exec(line)?.[1] ?? "")
 					: (line.split(" ")[0] ?? "");
-				const definedAt = lines.indexOf(`${name}() {`);
-				if (definedAt === -1) continue;
-				expect(definedAt, `${name}, defined before ${line}`).toBeLessThan(
-					at(line),
-				);
+				if (!functions.includes(name)) continue;
+				for (const called of reached(name))
+					expect(
+						lines.indexOf(`${called}() {`),
+						`${called}, defined before ${line}`,
+					).toBeLessThan(at(line));
 			}
 			expect(traps.length, "traps named").toBeGreaterThan(0);
 			for (const line of ["note_caller", "trap caller_gone PIPE"])
