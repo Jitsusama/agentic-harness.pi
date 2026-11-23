@@ -341,36 +341,36 @@ describe("hostBackend", () => {
 
 	// F34: a child whose conversation parked away heard nothing of its
 	// close or release, so it ended as parked 30 s later.
-	it.each([
-		"close",
-		"release",
-	] as const)("tells what hears its changes of a %s of one held but not running", async (op) => {
-		const { fake } = engine();
-		const left: [string, string][] = [];
-		const backend = hostBackend({
-			identity: { key: host.key, owner: host.owner },
-			host,
-			roster,
-			engine: fake,
-			changes: { left: (ending, why) => left.push([ending, why]) },
-		});
-		const stranded = parseOpenResult(await backend.execute(open)).sessionId;
-		await host.stop(stranded);
-		left.length = 0;
+	it.each(["close", "release"] as const)(
+		"tells what hears its changes of a %s of one held but not running",
+		async (op) => {
+			const { fake } = engine();
+			const left: [string, string][] = [];
+			const backend = hostBackend({
+				identity: { key: host.key, owner: host.owner },
+				host,
+				roster,
+				engine: fake,
+				changes: { left: (ending, why) => left.push([ending, why]) },
+			});
+			const stranded = parseOpenResult(await backend.execute(open)).sessionId;
+			await host.stop(stranded);
+			left.length = 0;
 
-		await backend.execute({
-			v: 1,
-			id: "s",
-			op,
-			sessionId: stranded,
-			by: "the launcher",
-		});
+			await backend.execute({
+				v: 1,
+				id: "s",
+				op,
+				sessionId: stranded,
+				by: "the launcher",
+			});
 
-		const ending = op === "close" ? "closed" : "released";
-		expect(left).toEqual([
-			[ending, `${ending}, asked by the launcher over the control socket`],
-		]);
-	});
+			const ending = op === "close" ? "closed" : "released";
+			expect(left).toEqual([
+				[ending, `${ending}, asked by the launcher over the control socket`],
+			]);
+		},
+	);
 
 	it("keeps a hold whose close failed, so the next start still owes it", async () => {
 		const { fake } = engine();

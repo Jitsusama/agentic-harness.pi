@@ -144,13 +144,16 @@ describe("a child's slot", () => {
 		["a number", 42],
 		["null", null],
 		["a misspelt field", { sesion: { sessionId: SLOT } }],
-	])("refuses a slot file holding %s rather than reading it as an open", async (_, given) => {
-		const folder = await children();
-		await writeFile(join(folder, "odd.json"), JSON.stringify(given));
-		expect(() => childSlot(env(join(folder, "odd.sock")))).toThrow(
-			/must hold \{\} for an open/,
-		);
-	});
+	])(
+		"refuses a slot file holding %s rather than reading it as an open",
+		async (_, given) => {
+			const folder = await children();
+			await writeFile(join(folder, "odd.json"), JSON.stringify(given));
+			expect(() => childSlot(env(join(folder, "odd.sock")))).toThrow(
+				/must hold \{\} for an open/,
+			);
+		},
+	);
 
 	it("seeds its roster with the slot's one entry, or none for an open", async () => {
 		const folder = await children();
@@ -361,14 +364,17 @@ describe("a child's life", () => {
 	it.each([
 		["closed", "closed, asked by the launcher", "closed"],
 		["released", "released, asked by the launcher", "released"],
-	] as const)("ends %s (%s) as %s once its conversation has gone", async (how, why, ending) => {
-		const { life, lines, hold } = following();
-		hold(conversation(A));
-		hold();
-		life.left(how, why);
-		expect(await life.ending).toBe(ending);
-		expect(lines.at(-1)).toEqual({ type: "ending", why: ending });
-	});
+	] as const)(
+		"ends %s (%s) as %s once its conversation has gone",
+		async (how, why, ending) => {
+			const { life, lines, hold } = following();
+			hold(conversation(A));
+			hold();
+			life.left(how, why);
+			expect(await life.ending).toBe(ending);
+			expect(lines.at(-1)).toEqual({ type: "ending", why: ending });
+		},
+	);
 
 	it("answers a watch that comes after it ended, then says its ending at once", async () => {
 		const { life, hold } = following();
@@ -441,22 +447,22 @@ describe("a child's life", () => {
 
 	// F40: a conversation resting parked, closed or released before any
 	// wake, ended its child as failed.
-	it.each([
-		"closed",
-		"released",
-	] as const)("ends %s, not failed, when the conversation it rests leaves so before a wake", async (how) => {
-		const { life, timers, lines } = following({
-			aloneWithin: 2,
-			resumes: true,
-		});
-		const answer = life.watch.answer();
-		life.resumed("parked");
-		life.left(how, `${how}, asked by the launcher`);
-		expect(await life.ending).toBe(how);
-		expect(timers.has(2), "its grace ends with it").toBe(false);
-		await expect(answer).rejects.toThrow(`The child ended: ${how}`);
-		expect(lines.at(-1)).toEqual({ type: "ending", why: how });
-	});
+	it.each(["closed", "released"] as const)(
+		"ends %s, not failed, when the conversation it rests leaves so before a wake",
+		async (how) => {
+			const { life, timers, lines } = following({
+				aloneWithin: 2,
+				resumes: true,
+			});
+			const answer = life.watch.answer();
+			life.resumed("parked");
+			life.left(how, `${how}, asked by the launcher`);
+			expect(await life.ending).toBe(how);
+			expect(timers.has(2), "its grace ends with it").toBe(false);
+			await expect(answer).rejects.toThrow(`The child ended: ${how}`);
+			expect(lines.at(-1)).toEqual({ type: "ending", why: how });
+		},
+	);
 
 	// A wake that registers ends the rest, so one that dies before it
 	// answers is no rest kept but a failure. A resting child's roster is
