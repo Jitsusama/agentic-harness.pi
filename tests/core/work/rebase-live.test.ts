@@ -127,6 +127,38 @@ async function atTrunkMergeOverCopies() {
 	await git(repo, "checkout", "-q", "topic");
 }
 
+/**
+ * A branch that meets its base at two commits: trunk merged x and y and
+ * moved on, the base merged x and either y, so both meetings are trunk's,
+ * or w, side work trunk never took, which the branch merged too. The
+ * branch has one commit of its own.
+ */
+async function crissCross(shape: "both on trunk" | "one off trunk") {
+	for (const name of ["x", "y", "w"]) {
+		const path = `${name}.txt`;
+		await git(repo, "checkout", "-q", "-b", `${name}`, "main");
+		await commit(`${path}`, `${name}\n`, `${name} one`);
+	}
+	await git(repo, "checkout", "-q", "main");
+	await git(repo, "merge", "-q", "--no-ff", "-m", "merge x", "x");
+	await git(repo, "merge", "-q", "--no-ff", "-m", "merge y", "y");
+	await commit("later.txt", "main moved on\n", "later on main");
+	await git(repo, "update-ref", "refs/remotes/origin/main", "main");
+	const second = shape === "both on trunk" ? "y" : "w";
+	await git(repo, "checkout", "-q", "base");
+	await git(repo, "merge", "-q", "--no-edit", "x");
+	await git(repo, "merge", "-q", "--no-edit", second);
+	await git(repo, "checkout", "-q", "-b", "topic", "main");
+	if (shape === "one off trunk") {
+		await git(repo, "merge", "-q", "--no-edit", "w");
+	}
+	await commit("mine.txt", "only on topic\n", "mine");
+	const meetings = await git(repo, "merge-base", "--all", "topic", "base");
+	if (meetings.split("\n").length !== 2) {
+		throw new Error(`topic meets base at ${meetings}, not at two commits`);
+	}
+}
+
 describe("a branch that leaves trunk at a merge", () => {
 	it("is refused onto a base lacking trunk's commits when it has none of its own", async () => {
 		await atTrunkMergeOverCopies();
@@ -243,6 +275,107 @@ describe("a branch that leaves trunk at a merge", () => {
 		expect(await head(), "the branch stays where it was").toBe(before);
 	});
 
+	it("leaves a branch on a base it holds, though it merged trunk above it", async () => {
+		// git flattens a range holding a merge, so a replay here would carry
+		// trunk's merged commits onto the branch as its own.
+		await atTrunkMergeOverCopies();
+		await git(repo, "checkout", "-q", "-b", "stacked", "base");
+		await commit("stacked.txt", "one\n", "stacked one");
+		await git(repo, "merge", "-q", "--no-edit", "origin/main");
+		await commit("stacked.txt", "two\n", "stacked two");
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "a base it holds was replayed onto").toMatchObject({
+			kind: "already-there",
+		});
+		expect(await head(), "the branch was rewritten").toBe(before);
+	});
+
+	it("names a base git doesn't know, though trunk is there to judge by", async () => {
+		await atTrunkMergeOverCopies();
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"nope",
+		);
+
+		expect(outcome, "the missing base read as trunk trouble").toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("nope isn't a commit git knows"),
+		});
+		expect(await head(), "the branch moved").toBe(before);
+	});
+
+	it("keeps its own commits on both sides of a merge of trunk", async () => {
+		await git(repo, "checkout", "-q", "-b", "work", "main");
+		await commit("work.txt", "first\n", "work one");
+		await commit("more.txt", "second\n", "work two");
+		await git(repo, "checkout", "-q", "base");
+		await git(repo, "cherry-pick", "work~1");
+		await git(repo, "checkout", "-q", "-b", "topic", "main");
+		await commit("own.txt", "one\n", "own one");
+		await git(repo, "checkout", "-q", "main");
+		await git(repo, "merge", "-q", "--no-ff", "-m", "merge work", "work");
+		await commit("later.txt", "main moved on\n", "later on main");
+		await git(repo, "update-ref", "refs/remotes/origin/main", "main");
+		await git(repo, "checkout", "-q", "topic");
+		await git(repo, "merge", "-q", "--no-edit", "origin/main");
+		await commit("own.txt", "two\n", "own two");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "its two commits, and trunk's three left").toMatchObject({
+			kind: "replayed",
+			commits: 2,
+			trunk: { name: "origin/main", left: 3 },
+		});
+		expect(await above(), "a commit of its own was lost").toEqual([
+			"own one",
+			"own two",
+		]);
+	});
+
+	it("cuts at trunk when the branch meets its base at two of trunk's commits", async () => {
+		await crissCross("both on trunk");
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "trunk's later commit wasn't left").toMatchObject({
+			kind: "replayed",
+			commits: 1,
+			trunk: { name: "origin/main", left: 1 },
+		});
+		expect(await above(), "trunk's commits came along").toEqual(["mine"]);
+	});
+
+	it("is refused when one of two meetings with its base is off trunk", async () => {
+		await crissCross("one off trunk");
+		const before = await head();
+
+		const outcome = await createGitRebaser({ exec: spawnExec() }).rebase(
+			repo,
+			"base",
+		);
+
+		expect(outcome, "a meeting off trunk went unchecked").toMatchObject({
+			kind: "refused",
+			reason: expect.stringContaining("Replay base onto origin/main first"),
+		});
+		expect(await head(), "the branch moved").toBe(before);
+	});
+
 	it("replays as git does in a checkout with no remote trunk", async () => {
 		await atTrunkMergeOverCopies();
 		await commit("mine.txt", "only on topic\n", "mine");
@@ -253,10 +386,18 @@ describe("a branch that leaves trunk at a merge", () => {
 			"base",
 		);
 
-		expect(outcome, "no trunk to cut at").toMatchObject({
-			kind: "replayed",
-		});
-		expect(outcome, "nothing is said of trunk").not.toHaveProperty("trunk");
+		// The known gap, not the aim: with no trunk to judge by, trunk's work
+		// two is carried as the branch's own, and the answer says it couldn't
+		// judge. A change that refused here instead would be safer.
+		expect(outcome, "the replay doesn't say trunk went unjudged").toMatchObject(
+			{
+				kind: "replayed",
+				unjudged: true,
+			},
+		);
+		expect(outcome, "a cut was claimed with no trunk").not.toHaveProperty(
+			"trunk",
+		);
 		expect(
 			await above(),
 			"every commit the base lacks is replayed, its copy of work one dropped",
