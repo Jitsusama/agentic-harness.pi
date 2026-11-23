@@ -183,7 +183,10 @@ describe("waking a parked conversation", () => {
 				said.push("dropped");
 			}),
 		});
-		const backend = backendWith(fake, undefined, (line) => said.push(line));
+		// The open's own time is said too, which backend.test checks.
+		const backend = backendWith(fake, undefined, (line) => {
+			if (!line.includes(": its open took ")) said.push(line);
+		});
 		const { sessionId } = parseOpenResult(await backend.execute(open));
 
 		parking = host.stop(sessionId, "parked while idle");
