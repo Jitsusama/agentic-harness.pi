@@ -1308,7 +1308,8 @@ describe("why a session stays awake", () => {
 		const asked: string[] = [];
 		let rolling = false;
 		host.host.park = (id) => asked.push(id);
-		host.host.rolling = () => rolling;
+		// Only this conversation rolls, as a host whose window views another says.
+		host.host.rolling = (id) => rolling && id === SESSION;
 		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
 		try {
 			const busy = watching(session({ isIdle: () => false }), conversation);
@@ -1770,6 +1771,23 @@ describe("why a session stays awake", () => {
 		const asked: string[] = [];
 		host.host.park = (id) => asked.push(id);
 		host.host.draining = () => true;
+		try {
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+				PI_PARK: "off",
+			});
+			expect(watched.look()).toBe("parking is off");
+			expect(asked).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("keeps a hosted conversation awake through a roll when PI_PARK is off for it", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.rolling = () => true;
 		try {
 			const watched = watching(session(), {
 				MYCELIUM_WAKE: join(folder, "conversation.wake"),

@@ -52,21 +52,50 @@ describe("rollWhenStale", () => {
 		const timers = manualTimers();
 		const roll = vi.fn();
 		let fail = true;
+		const reported: unknown[] = [];
 		const stop = rollWhenStale(
 			async () => {
 				if (fail) throw new Error("unreadable install");
 				return "moved";
 			},
 			roll,
-			{ lookMs: 1, after: timers.after, report: () => undefined },
+			{
+				lookMs: 1,
+				after: timers.after,
+				report: (message) => reported.push(message),
+			},
 		);
 		await timers.fire();
 		expect(roll).not.toHaveBeenCalled();
 		expect(timers.due, "a failed look looks again").toHaveLength(1);
+		expect(reported).toEqual([
+			"Couldn't tell whether the install's host code moved on, so it looks again: unreadable install",
+		]);
 
 		fail = false;
 		stop();
 		expect(timers.due).toEqual([]);
 		expect(roll).not.toHaveBeenCalled();
+	});
+
+	it("rolls not once stopped while a look is under way, though that look finds the code stale", async () => {
+		const timers = manualTimers();
+		const roll = vi.fn();
+		let answer = (_why: string | undefined): void => undefined;
+		const stop = rollWhenStale(
+			() =>
+				new Promise<string | undefined>((resolve) => {
+					answer = resolve;
+				}),
+			roll,
+			{ lookMs: 1, after: timers.after },
+		);
+		await timers.fire();
+		stop();
+		answer("moved");
+		// The look awaits what the install says before it decides.
+		await new Promise((resolve) => setImmediate(resolve));
+		expect(roll, "the child stopped, as it exits").not.toHaveBeenCalled();
+		expect(timers.due, "nor does it look again").toEqual([]);
 	});
 });

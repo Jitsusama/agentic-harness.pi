@@ -26,8 +26,9 @@ const realAfter: After = (ms, run) => {
 /**
  * Look at `moved` each `lookMs` and, the first time it says why the
  * host's code is stale, roll with that reason and stop looking, since
- * stale code stays stale. A look that throws is reported and looks again.
- * Answers the function that stops looking.
+ * stale code stays stale. A look that throws is reported, saying what
+ * it was looking for, and looks again. Answers the function that stops
+ * looking, which holds even over a look already under way.
  */
 export function rollWhenStale(
 	moved: () => Promise<string | undefined>,
@@ -47,7 +48,10 @@ export function rollWhenStale(
 		try {
 			why = await moved();
 		} catch (error) {
-			options.report?.(error);
+			const said = error instanceof Error ? error.message : String(error);
+			options.report?.(
+				`Couldn't tell whether the install's host code moved on, so it looks again: ${said}`,
+			);
 		}
 		if (stopped) return;
 		if (why === undefined) {
