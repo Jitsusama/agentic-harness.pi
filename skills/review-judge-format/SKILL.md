@@ -33,7 +33,9 @@ the round when you never got to answer at all.
 
 Every field is as [`review-council-format`](../review-council-format)
 describes it, including the three location kinds and what happens to a
-field that will not read. One extra field matters here.
+field that will not read. That contract is loaded beside this one: its
+field table is the shape to answer in, with `location`, `label` and
+`subject`, and no other. One extra field matters here.
 
 ## Recording Agreement
 

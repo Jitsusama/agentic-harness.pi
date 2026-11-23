@@ -45,7 +45,7 @@ import { readFrom, treeForRound } from "../work.ts";
 import { answerFor, keptOnLedger } from "./ask-answer.ts";
 import {
 	boundsForRound,
-	contractSkill,
+	contractSkills,
 	deps,
 	FENCED,
 	fencePacks,
@@ -226,7 +226,7 @@ export async function startRound(
 	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());
-	const contract = contractSkill("council");
+	const contract = contractSkills("council");
 
 	const artifacts = new ReviewerArtifactsStore(runArtifactDir());
 	const { run, warnings, started } = await startCouncil(
@@ -270,7 +270,7 @@ export async function startRound(
 					cwd: tree.path,
 					isolated: ISOLATED,
 					env: FENCED,
-					extraSkills: [contract],
+					extraSkills: contract,
 					// Not optional here the way it is on the waiting path.
 					// A detached reviewer's answer is only ever read off
 					// disk, so a finding it did not write down before it
