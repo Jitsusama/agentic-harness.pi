@@ -46,6 +46,7 @@ import {
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
 import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
+import { quoted } from "../../../../lib/internal/sandbox/sandbox-shell.ts";
 import { unfencedFolder } from "../../../../lib/internal/sandbox/unfenced-folder.ts";
 
 describe("reading how pi-fence was asked", () => {
@@ -629,11 +630,11 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 			if (!("text" in made)) throw new Error(JSON.stringify(made));
 			const copy = join(runtime, "pi-fence", "npmrc");
 
-			expect(made.text).toContain(
+			expect(rootIn(made.text)).toContain(
 				`'--ro-bind' '${copy}' '${join(home, ".npmrc")}'`,
 			);
 			expect(readFileSync(copy, "utf8")).not.toContain("not-a-token");
-			expect(made.text).toContain(
+			expect(rootIn(made.text)).toContain(
 				`'--ro-bind' '/dev/null' '${join(home, ".docker", "config.json")}'`,
 			);
 
@@ -646,7 +647,8 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 				{ kind: "strict", folder: work, words: ["true"] },
 				{ env: { XDG_RUNTIME_DIR: runtime }, home, sandbox: LAID },
 			);
-			expect(JSON.stringify(kept)).not.toContain(
+			if (!("text" in kept)) throw new Error(JSON.stringify(kept));
+			expect(rootIn(kept.text)).not.toContain(
 				`'/dev/null' '${join(home, ".docker", "config.json")}'`,
 			);
 		} finally {
@@ -654,6 +656,75 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 		}
 	});
 });
+
+describe("Linux's strict fence, for its own arguments", () => {
+	let own: string;
+	let home: string;
+	let work: string;
+	let runtime: string;
+
+	beforeAll(() => {
+		own = realpathSync(mkdtempSync(join(tmpdir(), "fa-")));
+		home = join(own, "home");
+		work = join(home, "work");
+		runtime = join(own, "run");
+		mkdirSync(work, { recursive: true });
+		mkdirSync(runtime);
+	});
+
+	afterAll(() => {
+		rmSync(own, { recursive: true, force: true });
+	});
+
+	const strict = (words: readonly string[], env: NodeJS.ProcessEnv) =>
+		fenceRunText(
+			{ kind: "strict", folder: work, words },
+			{ env, home, sandbox: LAID },
+		);
+
+	it("reads bubblewrap's from a file in the runtime folder, closed before landrun starts", () => {
+		const made = strict(["true"], { XDG_RUNTIME_DIR: runtime });
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		const file = /--args 3 3<'([^']+)'/.exec(made.text)?.[1];
+
+		expect(file?.startsWith(`${runtime}/`), made.text).toBe(true);
+		expect(made.text).not.toContain("'--ro-bind'");
+		expect(rootIn(made.text)).toContain("'--ro-bind'");
+		expect(made.text).toContain("-- bash -c 'exec 3<&-; ");
+	});
+
+	it("writes them into the text where there is no runtime folder to hold the file", () => {
+		const made = strict(["true"], {});
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+
+		expect(made.text).not.toContain("--args 3");
+		expect(made.text).toContain("'--ro-bind'");
+		expect(made.text).not.toContain("exec 3<&-");
+	});
+
+	it("refuses a command past what Linux passes in one string, saying to put it in a script", () => {
+		const made = strict(["echo", "x".repeat(130_000)], {
+			XDG_RUNTIME_DIR: runtime,
+		});
+
+		expect(made).toHaveProperty("refused");
+		expect(JSON.stringify(made)).toContain("put it in a script");
+	});
+});
+
+/**
+ * The strict fence's bubblewrap arguments as its text would quote them:
+ * read from the file its text names, when it names one, or else the text.
+ */
+function rootIn(text: string): string {
+	const file = /--args 3 3<'([^']+)'/.exec(text)?.[1];
+	if (file === undefined) return text;
+	return readFileSync(file, "utf8")
+		.split("\0")
+		.slice(0, -1)
+		.map(quoted)
+		.join(" ");
+}
 
 /** curl, as the store has it, for a fenced command to connect with. */
 function storeCurl(): string | undefined {

@@ -42,6 +42,7 @@ import {
 	STRICT,
 	sandboxedCommand,
 	sandboxFor,
+	tooLong,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
@@ -55,6 +56,8 @@ import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
+import { BWRAP_MOST_ARGS, bwrapArgsFile } from "./fence-args-file.ts";
+import { ARGS_FD } from "./fence-command.ts";
 import type { Disk } from "./fence-disk.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
@@ -205,6 +208,11 @@ function censusAsked(
 	return { census: value };
 }
 
+/** The text that runs what was asked and the folder it runs in, or why it can't run. */
+type FenceRunMade =
+	| { readonly folder: string; readonly text: string }
+	| { readonly refused: string };
+
 /** Where a fenced run takes its machine from; tests give their own. */
 export interface FenceRunPlace {
 	readonly env: NodeJS.ProcessEnv;
@@ -235,9 +243,7 @@ const MAC_NIX_DAEMON = "/nix/var/nix/daemon-socket/socket";
 export function fenceRunText(
 	ask: FenceRunAsk,
 	place: FenceRunPlace,
-):
-	| { readonly folder: string; readonly text: string }
-	| { readonly refused: string } {
+): FenceRunMade {
 	const mac = (place.platform ?? process.platform) === "darwin";
 	// On a Mac, as the volume spells it, so a name in other case or
 	// folded otherwise is the folder it opens and no neighbour.
@@ -327,15 +333,48 @@ export function fenceRunText(
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 	});
-	return {
-		folder,
-		text: [
-			quoted(sandbox.bwrap),
-			...root.map(quoted),
-			"-- bash -c",
-			quoted(inner),
-		].join(" "),
-	};
+	return strictText(sandbox.bwrap, root, inner, command, runtimeDir, folder);
+}
+
+/**
+ * The text that runs `inner` in bubblewrap with the strict fence's root
+ * `root`, or why it can't start. The root is read from a file, as the
+ * fence's is (`fence-args-file.ts`), since it grows with the trees a
+ * session holds and in the text can pass the 128 KiB Linux takes in one
+ * string; it is in the text only where no file can be had. What
+ * bubblewrap or Linux would refuse anyway is said instead.
+ */
+function strictText(
+	bwrap: string,
+	root: readonly string[],
+	inner: string,
+	command: string,
+	runtimeDir: string | undefined,
+	folder: string,
+): FenceRunMade {
+	const listed = bwrapArgsFile(runtimeDir, root);
+	// Every word after bubblewrap's name counts, the file's and the
+	// command's after `--` alike.
+	const counted =
+		root.length +
+		(listed ? ["--args", `${ARGS_FD}`] : []).length +
+		["--", "bash", "-c", inner].length;
+	if (counted > BWRAP_MOST_ARGS) {
+		return {
+			refused: `The strict fence would hand bubblewrap ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`,
+		};
+	}
+	const text = [
+		quoted(bwrap),
+		...(listed
+			? [`--args ${ARGS_FD} ${ARGS_FD}<${quoted(listed.path)}`]
+			: root.map(quoted)),
+		"-- bash -c",
+		// Closed before landrun starts, so nothing inside holds the file.
+		quoted(listed ? `exec ${ARGS_FD}<&-; ${inner}` : inner),
+	].join(" ");
+	const long = tooLong(text, command, listed ?? root);
+	return long === undefined ? { folder, text } : { refused: long };
 }
 
 /**
@@ -430,9 +469,7 @@ function macFenceText(
 	place: FenceRunPlace,
 	treesRoot: string,
 	tree: string | undefined,
-):
-	| { readonly folder: string; readonly text: string }
-	| { readonly refused: string } {
+): FenceRunMade {
 	const sandboxExec =
 		"sandboxExec" in place
 			? place.sandboxExec
