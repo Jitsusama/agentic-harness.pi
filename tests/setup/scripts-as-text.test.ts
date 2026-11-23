@@ -55,7 +55,41 @@ describe("scriptsAsText", () => {
 		expect(loader.load("/x/it.sh?raw"), "a query is vite's own").toBeNull();
 	});
 
-	it("runs before vite's own loading, which would read a script as JavaScript", () => {
+	// host-gate.sh and host-test-there.sh each source host-test-words.sh,
+	// which no test runs by its own path.
+	it("imports each script a script sources from beside it, so --changed follows it too", () => {
+		const code = scriptsAsText().load(
+			script(
+				[
+					"# shellcheck source=words.sh",
+					`source "$(dirname "\${BASH_SOURCE[0]}")/words.sh"`,
+					'  . "$(dirname "$0")/more-words.sh"',
+					'echo "source \\"$(dirname "$0")/said.sh\\""',
+					'source "$HOME/elsewhere.sh"',
+					"",
+				].join("\n"),
+			),
+		);
+
+		expect(
+			[...(code ?? "").matchAll(/^import "([^"]+)";$/gm)].map(
+				(found) => found[1],
+			),
+			"the scripts beside it it sources, and nothing it only says",
+		).toEqual(["./words.sh", "./more-words.sh"]);
+	});
+
+	it("follows what the host gate's scripts source", () => {
+		const scripts = join(import.meta.dirname, "..", "..", "scripts");
+		for (const name of ["host-gate.sh", "host-test-there.sh"]) {
+			expect(
+				scriptsAsText().load(join(scripts, name)),
+				`${name}'s module`,
+			).toContain('import "./host-test-words.sh";');
+		}
+	});
+
+	it("asks vite to run it before its own loading, which would read a script as JavaScript", () => {
 		expect(scriptsAsText().enforce).toBe("pre");
 	});
 });
