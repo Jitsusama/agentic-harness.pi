@@ -9,6 +9,7 @@ import {
 	readTags,
 	SELECTION_TAGS_ENTRY,
 	taggedBranchAt,
+	untagged,
 } from "../../../../lib/compaction/selection/tags.ts";
 import { unitsOf } from "../../../../lib/compaction/selection/units.ts";
 
@@ -146,6 +147,23 @@ describe("a session's branch as tagging reads it", () => {
 		expect([...entries]).toEqual([rule]);
 		expect(kinds.size).toBe(1);
 		expect([...quotable]).toEqual([]);
+	});
+
+	it("still asks about a message whose record names no paragraph", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		// What an answer cost once the person had moved off the message.
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: [],
+			failed: "moved off the branch",
+		});
+
+		const branch = manager.getBranch();
+		const index = readTags(branch);
+
+		expect([...index.entries]).toEqual([]);
+		expect(untagged(branch, index).map((entry) => entry.id)).toEqual([rule]);
 	});
 
 	it("reads nothing of an empty session", () => {

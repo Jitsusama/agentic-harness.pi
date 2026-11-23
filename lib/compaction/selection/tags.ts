@@ -81,11 +81,16 @@ export function emptyTagIndex(): {
 	return { kinds: new Map(), entries: new Set(), quotable: new Set() };
 }
 
-/** Add one record to an index. */
+/**
+ * Add one record to an index. A record naming no paragraph, such as what
+ * an answer cost once the person moved off its message, tags nothing, so
+ * the message is still asked about should the person come back to it.
+ */
 export function indexTags(
 	index: ReturnType<typeof emptyTagIndex>,
 	tags: SelectionTags,
 ): void {
+	if (tags.units.length === 0) return;
 	index.entries.add(tags.entryId);
 	for (const unit of tags.units) index.kinds.set(unit.hash, unit.kinds);
 	if (

@@ -306,6 +306,32 @@ describe("tagging", () => {
 		);
 	});
 
+	it("tags a message kept in the process once the person comes back to it", async () => {
+		const rule = user("u1", "Always sign every commit.");
+		const branch: SessionEntry[] = [rule];
+		const yes = answeringYesTo(".rule");
+		let moved = false;
+		const { ctx } = session(branch, (context) => {
+			// Moved to another branch while the first answer was coming.
+			if (!moved) {
+				moved = true;
+				branch.splice(0, branch.length, user("u9", "Try another way."));
+			}
+			return yes(context);
+		});
+		const store = memoryStore();
+		const tags = tagger(store);
+		tags.schedule(ctx);
+		await tags.idle();
+
+		branch.splice(0, branch.length, rule);
+		tags.schedule(ctx);
+		await tags.idle();
+
+		const [unit] = unitsOf(rule);
+		expect(store.tags(branch).kinds.get(unit?.hash ?? "")).toEqual(["rule"]);
+	});
+
 	it("stops asking once the person moves off, billing what was asked and tagging the new branch", async () => {
 		const branch: SessionEntry[] = Array.from({ length: 6 }, (_, at) =>
 			user(`u${at}`, `Message number ${at} of the session.`),
