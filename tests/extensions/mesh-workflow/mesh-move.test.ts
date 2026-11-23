@@ -15,6 +15,9 @@ import { createPresences } from "../../../lib/mesh/presence.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { fixture, session, startSession } from "./support/mesh.ts";
 
+/** Past steering's first look at its inboxes, three seconds in. */
+const STEER_TAKEN_MS = 6000;
+
 describe("a move asked during a run", () => {
 	it("goes as the run settles, not at its next look", async () => {
 		fixture.paths = { ...fixture.paths, steer: join(fixture.root, "steer") };
@@ -40,11 +43,15 @@ describe("a move asked during a run", () => {
 			join(inbox, "1-move.json"),
 			JSON.stringify({ act: "move", to: "background" }),
 		);
-		await vi.waitFor(() => {
-			expect(presences.of(session)?.moving?.holds).toBe(
-				"a run is under way",
-			);
-		});
+		// Taken at steering's first look, three seconds after the start.
+		await vi.waitFor(
+			() => {
+				expect(presences.of(session)?.moving?.holds).toBe(
+					"a run is under way",
+				);
+			},
+			{ timeout: STEER_TAKEN_MS },
+		);
 
 		await fire("agent_end");
 		expect(readMoveNote(session), "no note while the run still counts").toBe(
@@ -57,5 +64,5 @@ describe("a move asked during a run", () => {
 			{ session, to: "background" },
 		);
 		expect(shut, "the session ends with its note left").toBe(1);
-	});
+	}, 10_000);
 });
