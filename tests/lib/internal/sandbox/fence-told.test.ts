@@ -45,6 +45,17 @@ describe("fenceOf", () => {
 			"strict",
 		]);
 	});
+
+	it("names the fence a Mac's session asked for where its commands run as they are, so the node never reads it as unfenced", () => {
+		expect(
+			(
+				[
+					{ kind: "none", asked: "strict", note: "as they are" },
+					{ kind: "none", asked: "fence", note: "as they are" },
+				] as const
+			).map(fenceOf),
+		).toEqual(["strict", "fence"]);
+	});
 });
 
 describe("tellHostFence", () => {

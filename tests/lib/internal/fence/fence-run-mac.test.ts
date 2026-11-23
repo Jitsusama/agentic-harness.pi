@@ -28,6 +28,7 @@ import {
 	type FenceRunAsk,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
+import { macSandbox } from "../../../../lib/internal/sandbox/mac-sandbox.ts";
 
 /** A file rule in a sandbox-exec profile: what it does, to which operations, on which path. */
 const RULE =
@@ -69,9 +70,16 @@ function deciding(
 	return itself[itself.length - 1] ?? every[every.length - 1];
 }
 
-/** Whether this machine has sandbox-exec, so a profile can be run, not only read. */
+/**
+ * Whether this machine has sandbox-exec and can lay a profile, so one
+ * can be run, not only read: inside a sandbox, as a fenced Mac
+ * session's commands run, macOS lays no second one. A trial that
+ * couldn't tell runs them, so a busy Mac fails loudly, not silently.
+ */
 const sandboxes =
-	process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec");
+	process.platform === "darwin" &&
+	existsSync("/usr/bin/sandbox-exec") &&
+	macSandbox() !== "inside";
 
 // The rules read above as sandbox-exec would, run by it: what strict
 // may and may not read in the home, past the test's model of it.

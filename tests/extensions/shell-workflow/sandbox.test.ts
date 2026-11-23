@@ -110,13 +110,38 @@ describe("what a session asks for", () => {
 		});
 	});
 
-	it("runs nothing where the sandbox can't be had", () => {
-		for (const [env, platform, find] of [
-			[{ PI_SANDBOX: "strict" }, "darwin", found],
-			[{ PI_SANDBOX: "strict" }, "linux", () => undefined],
-		] as const) {
-			expect(sandboxFor(env, platform, find).kind).toBe("refused");
-		}
+	it("runs nothing where Linux lacks the sandbox's program", () => {
+		expect(
+			sandboxFor({ PI_SANDBOX: "strict" }, "linux", () => undefined).kind,
+		).toBe("refused");
+	});
+
+	const strictOnMac = (inside: boolean) =>
+		sandboxFor(
+			{ PI_SANDBOX: "strict" },
+			"darwin",
+			found,
+			undefined,
+			undefined,
+			undefined,
+			() => inside,
+		);
+
+	it("runs a strict session's commands on a Mac as they are inside the sandbox pi runs in, saying so, since Landlock is Linux's", () => {
+		const mac = strictOnMac(true);
+		expect(mac.kind, "a Mac's strict session ran nothing").toBe("none");
+		const note = mac.kind === "none" ? mac.note : undefined;
+		expect(note, "the session wasn't told its commands run unfenced").toMatch(
+			/strict fence.*as they are/,
+		);
+		expect(
+			mac.kind === "none" && mac.asked,
+			"its host would be told none, and the node could carry it back unfenced",
+		).toBe("strict");
+	});
+
+	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {
+		expect(strictOnMac(false).kind).toBe("refused");
 	});
 
 	it("reads a name it doesn't know as the fence, saying so once", () => {
