@@ -19,6 +19,7 @@ import {
 	linuxProcessTable,
 	markedByConversation,
 	type ProcessTable,
+	REAP_WAITED,
 	reapLeftBehind,
 	reapToolChildren,
 } from "./tool-children.ts";
@@ -111,12 +112,14 @@ export function stopKeeping(options: {
 		sessionId: string,
 		among: readonly number[] | undefined,
 	): Promise<void> {
-		await reapToolChildren(
+		const reaped = await reapToolChildren(
 			sessionId,
 			table,
 			left.spared(await carriedCalls()),
 			among,
 		);
+		// A close for good reaps its conversation's tools only this once.
+		if (reaped.waited) report(`${REAP_WAITED} of ${sessionId}`);
 	}
 
 	/**
@@ -184,6 +187,7 @@ export function stopKeeping(options: {
 				undefined,
 				left.spared(await carriedCalls()),
 			);
+			if (reaped.waited) report(`${REAP_WAITED} under ${hostKey}`);
 			if (reaped.groups.length > 0 || reaped.pids.length > 0)
 				report(
 					`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,

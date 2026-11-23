@@ -451,6 +451,87 @@ describe("carried shells", () => {
 				]);
 			});
 
+			it("is looked at again once a look has ended", async () => {
+				const work = shell("m1", { startedAt: now });
+				let reads = 0;
+				const look = watched(() => false, {
+					recorded: async () => {
+						reads += 1;
+						return [stray(work)];
+					},
+				});
+				await look();
+				expect(stopped, "not due at the first look").toEqual([]);
+				now += STRAY_FOR_MS;
+				await look();
+				expect(reads, "each tick after a look reads again").toBe(2);
+				expect(stopped).toEqual([work]);
+			});
+
+			it("is looked at again after a look fails, which is reported", async () => {
+				const work = shell("m1", { startedAt: now });
+				const failure = new Error("EIO reading the kept folder");
+				let reads = 0;
+				const look = watched(() => false, {
+					recorded: async () => {
+						reads += 1;
+						if (reads === 1) throw failure;
+						return [stray(work)];
+					},
+				});
+				now += STRAY_FOR_MS;
+				await look();
+				expect(reported).toEqual([failure]);
+				await look();
+				expect(stopped, "the next tick looks as if none failed").toEqual([
+					work,
+				]);
+			});
+
+			it("says once that a look has not come back by the next tick", async () => {
+				const look = watched(() => false, {
+					recorded: () => new Promise<KeptJob[]>(() => {}),
+				});
+				void look();
+				void look();
+				void look();
+				await Promise.resolve();
+				expect(reported).toEqual([
+					expect.objectContaining({
+						message: expect.stringMatching(/has not come back/),
+					}),
+				]);
+			});
+
+			it("says it again of a later look that sticks, once the first came back", async () => {
+				let cameBack: (jobs: KeptJob[]) => void = () => undefined;
+				const looks = [
+					new Promise<KeptJob[]>((resolve) => {
+						cameBack = resolve;
+					}),
+					new Promise<KeptJob[]>(() => undefined),
+				];
+				const look = watched(() => false, {
+					recorded: () => looks.shift() ?? [],
+				});
+				void look();
+				void look();
+				cameBack([]);
+				// One turn of the event loop lets the first look's finally run.
+				await new Promise((resolve) => setImmediate(resolve));
+				void look();
+				void look();
+				expect(
+					reported.map((error) =>
+						error instanceof Error ? error.message : error,
+					),
+					"each look that sticks is said",
+				).toEqual([
+					expect.stringMatching(/has not come back/),
+					expect.stringMatching(/has not come back/),
+				]);
+			});
+
 			it("is left to a conversation here that holds it, or once it ended", async () => {
 				const held = shell("m1", { startedAt: 0 });
 				const ended = shell("m2", { startedAt: 0 });

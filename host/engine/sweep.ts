@@ -41,6 +41,7 @@ import { LEFT_FILE, leftRunning } from "./left-running.ts";
 import {
 	linuxProcessTable,
 	type ProcessTable,
+	REAP_WAITED,
 	type Reaped,
 	reapLeftBehind,
 } from "./tool-children.ts";
@@ -97,6 +98,7 @@ export async function sweepUnheld(
 		spared,
 		held,
 	);
+	if (reaped.waited) say(`${REAP_WAITED} under ${key}`);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		say(
 			`Ended what a host's tools left running under ${key}: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,

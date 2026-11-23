@@ -26,11 +26,13 @@
  * parked or running.
  * A crash or a kill -9 notes nothing, so what they cut ends as before.
  * A note goes a day after its stop, the same day a carried call nobody
- * took up runs (carried-shells.ts).
+ * took up runs (carried-shells.ts). While the notes fail to read for the
+ * moment, a reap waits, and a note or a close is said and left undone.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isPassingFault } from "../../lib/internal/files/errno.ts";
 import type { CarriedCalls } from "../../lib/internal/shell/kept.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { STRAY_FOR_MS } from "./carried-shells.ts";
@@ -44,6 +46,13 @@ interface LeftCall {
 	readonly mark: string;
 	/** When the park noted it, in milliseconds since the epoch. */
 	readonly at: number;
+}
+
+/** What is said when the notes failed to read for the moment, so `what` was left undone. */
+function unknownNotes(what: string): Error {
+	return new Error(
+		`Could not ${what}: what parks kept running failed to read for the moment`,
+	);
 }
 
 /** What the engine asks of what parks kept running. */
@@ -78,12 +87,14 @@ export function leftRunning(options: {
 	const leftFile = () => join(keptIn(), LEFT_FILE);
 	const now = options.now ?? Date.now;
 
-	// The notes still within their day, oldest first.
-	function read(): LeftCall[] {
+	// The notes still within their day, oldest first, or nothing while
+	// the file fails to read for the moment and what it says isn't known.
+	function read(): LeftCall[] | undefined {
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(readFileSync(leftFile(), "utf8"));
-		} catch {
+		} catch (error) {
+			if (isPassingFault(error)) return undefined;
 			// No file: no park kept anything, or it was unreadable and keeps nothing.
 			return [];
 		}
@@ -99,7 +110,13 @@ export function leftRunning(options: {
 			const added = [...marks].map((mark) => ({ session, mark, at }));
 			if (added.length === 0) return;
 			const fresh = new Set(added.map(({ mark }) => mark));
-			const kept = read().filter(({ mark }) => !fresh.has(mark));
+			const left = read();
+			// Writing only these would lose the notes it couldn't read.
+			if (left === undefined) {
+				options.report(unknownNotes(`note ${session}'s calls`));
+				return;
+			}
+			const kept = left.filter(({ mark }) => !fresh.has(mark));
 			try {
 				writeWhole(leftFile(), `${JSON.stringify([...kept, ...added])}\n`);
 			} catch (error) {
@@ -108,14 +125,20 @@ export function leftRunning(options: {
 		},
 		spared(carried) {
 			const left = read();
+			if (left === undefined) return { ...carried, unread: true };
 			if (left.length === 0) return carried;
 			return {
+				...carried,
 				marks: new Set([...carried.marks, ...left.map(({ mark }) => mark)]),
-				groups: carried.groups,
 			};
 		},
 		closed(session) {
 			const left = read();
+			// Its notes stay to their day's end, sparing more, never less.
+			if (left === undefined) {
+				options.report(unknownNotes(`end ${session}'s notes`));
+				return 0;
+			}
 			const kept = left.filter((call) => call.session !== session);
 			const ended = left.length - kept.length;
 			if (ended === 0) return 0;
