@@ -720,7 +720,8 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
 			[
 				'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				// A Mac has no /proc, so there the shell's arguments are read with ps.
+				'{ tr "\\0" " " < /proc/$$/cmdline || ps -o args= -p $$; } 2>/dev/null; echo',
 				'ls -A "$CLOUDSDK_CONFIG"; echo listed',
 			].join("; "),
 			work,
