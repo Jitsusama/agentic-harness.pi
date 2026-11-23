@@ -78,6 +78,18 @@ shipped and tested.
   orders their work; while a live session signs with its
   address, each of those sessions names it in presence as
   `stewardedBy`, and the mesh's `person` reaches it.
+
+- **The node's record of an orchestration**: a session with an
+  open marked quest loaded tells the mycelium node it heads that
+  quest and orchestrates each open quest it is nearest above
+  (`mycelium orchestrates`, `orchestration-claim.ts`), at session
+  start, after each quest action, and at a turn's start once five
+  minutes have passed or the quest changed. A claim the node
+  already holds is not asked again; loading a quest that
+  orchestrates nothing forgets one this session made. The node
+  refuses a claim another session already holds, and that refusal
+  is logged once as a warning in the system journal, tagged `pi`.
+  Without a node socket nothing is asked.
 - **What a session is doing**: after each quest action, each
   write to the focused plan and each start, it says (through
   `lib/internal/quest/sessions/doing.ts`)

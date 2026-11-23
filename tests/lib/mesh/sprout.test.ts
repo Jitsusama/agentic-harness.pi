@@ -305,6 +305,16 @@ describe("running a program", () => {
 		expect(ran).toEqual({ code: 3, stdout: "out\n", stderr: "err\n" });
 	});
 
+	it("runs it with the environment given, when one is", async () => {
+		const ran = await runProgram("sh", ["-c", 'printf %s "$PI_SESSION_ID"'], {
+			...patience,
+			env: { ...process.env, PI_SESSION_ID: "sess-42" },
+		});
+		expect(ran.stdout, "the program reads the session it was given").toBe(
+			"sess-42",
+		);
+	});
+
 	it("says a program that isn't here is missing", async () => {
 		const ran = await runProgram("no-such-program-here", [], patience);
 		expect(ran).toMatchObject({ code: null, missing: true });

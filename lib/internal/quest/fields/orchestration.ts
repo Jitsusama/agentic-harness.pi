@@ -111,6 +111,26 @@ function stewardAbove(
 }
 
 /**
+ * The quests `heads` orchestrates among `quests`, in order of id: each
+ * one whose nearest orchestrator is `heads`, so none below a nested
+ * orchestrator, which heads those itself. None when `heads` can't be
+ * read or isn't marked.
+ */
+export function questsOrchestratedBy(
+	heads: string,
+	quests: Iterable<string>,
+	read: (quest: string) => QuestFrontMatter | undefined,
+): string[] {
+	const own = read(heads);
+	if (!(own && orchestrates(own))) return [];
+	return [...quests]
+		.filter(
+			(quest) => quest !== heads && orchestrationOf(quest, read).by === heads,
+		)
+		.sort();
+}
+
+/**
  * The quest whose workspace a session of this quest opens its window
  * on: the topmost orchestrator above it, through every nested one, else
  * the quest itself. Joel steers a session through that orchestrator, so
