@@ -101,6 +101,7 @@ import {
 	keepYield,
 	systemBuildSlice,
 } from "../../lib/internal/priority/yield.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { onJobFinished } from "../../lib/jobs/host.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
@@ -297,7 +298,7 @@ export interface Machine {
 function sayCallUnasked(pi: ExtensionAPI): (why: string) => void {
 	let why: string | undefined;
 	let said = false;
-	pi.on("turn_end", async (_event, ctx) => {
+	onTurnEnd(pi, (_turn, ctx) => {
 		if (said || why === undefined || !ctx.hasUI) return;
 		said = true;
 		ctx.ui.notify(
