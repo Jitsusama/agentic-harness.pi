@@ -105,13 +105,13 @@ import { compactionHistory } from "../../lib/compaction/history.ts";
 import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
 	ASKED_ENTRY,
+	askLanded,
 	type CompactionAsk,
 	type CompactionSettled,
 	cutSince,
 	FAILED_RESUME_TEXT,
 	FAILED_WAITING_TEXT,
 	OWED_WITHIN_MS,
-	owesResume,
 	RESUME_TEXT,
 	SETTLED_ENTRY,
 	type SettledBy,
@@ -252,12 +252,12 @@ function whenIdle(
 			else if (Date.now() < until) whenIdle(ctx, then, until, true);
 			else
 				say(
-					`pi stayed busy for ${IDLE_LOOKS_FOR_MS / 1000} s, so the run a compaction stopped wasn't resumed`,
+					`pi stayed busy for ${IDLE_LOOKS_FOR_MS / 1000} s, so the run a compaction owed wasn't started`,
 				);
 		} catch (error) {
 			if (isStaleContext(error)) return;
 			const why = error instanceof Error ? error.message : String(error);
-			say(`couldn't resume the run a compaction stopped: ${why}`);
+			say(`couldn't start the run a compaction owed: ${why}`);
 		}
 	};
 	// The first look waits only for this turn of the loop to finish, as
@@ -613,19 +613,25 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 *
 	 * Resumed though messages wait to go: pi's compaction aborted the run
 	 * they were queued for, which leaves them queued, and only a run
-	 * delivers them. With no run owed, a landing (no `reason`) with
-	 * messages waiting starts one for them alone.
+	 * delivers them. With no run owed, a landing (no `reason`) that
+	 * answers an ask, with messages waiting, starts one for them alone.
+	 * A landing nobody here asked for starts nothing: after its own
+	 * compaction pi goes on to a turn for queued messages itself
+	 * (`_runAutoCompaction` answers `hasQueuedMessages`), so one from here
+	 * would be a second.
 	 */
 	function resumeOwed(ctx: ExtensionContext, reason?: string): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
 		whenIdle(ctx, () => {
 			const branch = ctx.sessionManager.getBranch();
-			if (owesResume(branch, Date.now())) {
+			const landed = askLanded(branch, Date.now());
+			if (landed?.owed) {
 				settleAsk(pi, true, "successor");
 				resumeRun(pi, RESUME_TEXT);
 				return;
 			}
-			if (reason === undefined && ctx.hasPendingMessages()) {
+			if (reason === undefined && landed && ctx.hasPendingMessages()) {
+				settleAsk(pi, false, "successor");
 				resumeRun(pi, WAITING_TEXT);
 				return;
 			}

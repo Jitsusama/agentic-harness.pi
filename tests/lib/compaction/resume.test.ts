@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ASK_LANDS_WITHIN_MS,
 	ASKED_ENTRY,
+	askLanded,
 	cutSince,
 	OWED_WITHIN_MS,
 	owesResume,
@@ -297,6 +298,29 @@ describe("whether a compaction left a run owed", () => {
 			owesResume([asked(0, true), answer(100, "aborted")], T0),
 			"with no compaction, nothing is owed",
 		).toBe(false);
+	});
+});
+
+describe("the ask a compaction answered", () => {
+	it("names the ask of a landing that owes no run", () => {
+		const branch = [answer(-1000, "stop"), asked(0, false), compaction(500)];
+
+		expect(askLanded(branch, T0 + 10_000)).toEqual({
+			ask: { at: T0, resume: false },
+			owed: false,
+		});
+	});
+
+	it("is none for a landing nobody asked for", () => {
+		const branch = [answer(-1000, "stop"), compaction(500)];
+
+		expect(askLanded(branch, T0 + 10_000)).toBeUndefined();
+	});
+
+	it("is none once the ask is settled", () => {
+		const branch = [asked(0, false), compaction(500), settled(600)];
+
+		expect(askLanded(branch, T0 + 10_000)).toBeUndefined();
 	});
 });
 
