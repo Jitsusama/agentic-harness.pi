@@ -358,6 +358,17 @@ describe("scriptsAsText", () => {
 		);
 	});
 
+	// A vitest started with a root of its own compares that root's files,
+	// so a loader given none reads names from there, not this checkout.
+	it("reads names from the root vite resolved, when given none", () => {
+		const path = script("bash beside.sh\n", ["beside.sh"]);
+		const loader = scriptsAsText();
+		loader.configResolved({ root: dirname(path) });
+		expect(loader.load(path) ?? "", "the module").toMatch(
+			/^import "\.\/beside\.sh";$/m,
+		);
+	});
+
 	// A folder can carry a script's ending; importing one would fail every
 	// test that imports the script naming it.
 	it("follows no folder whose name ends as a script's does", () => {
