@@ -19,7 +19,9 @@ import { NEWER_KEEPER_MS } from "../../../../lib/internal/priority/keeper.ts";
 import {
 	MOST_CPU_PRESSURE_BESIDE_VMS,
 	MOST_MEMORY_PRESSURE,
+	MOST_MEMORY_STALL_FOR_ONE,
 	MOST_VMS,
+	SPREAD_MS,
 } from "../../../../lib/internal/priority/queue.ts";
 import {
 	dir,
@@ -213,6 +215,32 @@ describe("the machine's queue folder", () => {
 			() => undefined,
 		);
 		expect(record().machine.over).toEqual([]);
+	});
+
+	// The lane holds one because a keep marks the job it turns started
+	// before anything reads the queue again.
+	it("gives one heavy job the lane while memory is pressed, and the next keep none", () => {
+		const queue = folder();
+		queue.ask(job("first", { since: new Date(NOW - 2_000).toISOString() }));
+		queue.ask(job("second"));
+		shellSays("first", 200);
+		shellSays("second", 201);
+		const moving = {
+			...ROOMY,
+			memoryPressure: MOST_MEMORY_PRESSURE,
+			memoryFullMinute: MOST_MEMORY_STALL_FOR_ONE - 1,
+			floorsPressure: 0,
+		};
+
+		queue.keep(moving, NOW, () => undefined);
+		queue.keep(moving, NOW + SPREAD_MS + 1, () => undefined);
+
+		expect(queue.hasTurn("first"), "the first has the lane").toBe(true);
+		expect(queue.hasTurn("second"), "the second waits for it").toBe(false);
+		expect(record().jobs.find((one) => one.id === "second")?.waitingOn).toBe(
+			"memory",
+		);
+		expect(record().room).toEqual({ vms: 0, builds: 0 });
 	});
 
 	it("gives the first job its turn and shows the queue whole", () => {

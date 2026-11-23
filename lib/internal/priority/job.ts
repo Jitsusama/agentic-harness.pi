@@ -146,6 +146,12 @@ export interface Room {
 	readonly memoryFullMinute?: number;
 	/** VMs running on the machine, queued or not. */
 	readonly vms: number;
+	/**
+	 * The Nix builds the daemon runs on this machine itself, queued or
+	 * not, where they are read: a build sent to a builder elsewhere runs
+	 * in no cgroup here. room.ts's `Reading` says what each one is.
+	 */
+	readonly builds?: readonly unknown[];
 	/** CPU pressure, avg10, in percent. */
 	readonly cpuPressure: number;
 	/**
