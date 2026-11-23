@@ -33,6 +33,7 @@ import {
 	createWriteStream,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -96,7 +97,7 @@ export class CarryNotWhole extends Error {
 			one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
 		);
 		super(
-			`${refused.length === 1 ? "a tree" : `${refused.length} trees`} can't go, so nothing was carried and the session stays here:\n${refused.join("\n")}`,
+			`${refused.length === 1 ? "a tree" : `${refused.length} trees`} can't go, so nothing was carried:\n${refused.join("\n")}`,
 		);
 		this.name = "CarryNotWhole";
 		this.trees = trees;
@@ -136,23 +137,44 @@ export interface CarriedAway {
  * writes its done file last.
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
+	const { into, session } = carrying;
+	mkdirSync(into, { recursive: true });
+	if (!carrying.whole) return await carryAll(carrying);
+	// The handover is the quest's, so other sessions' files are here too:
+	// only what this call wrote anew is taken back.
+	const before = new Set(readdirSync(into));
+	const ours = [
+		...(session.file === undefined
+			? []
+			: [basename(session.file), `${basename(session.file)}${ZIPPED}`]),
+		...carrying.trees.flatMap((path) => {
+			const name = nameFor(path);
+			return [`${name}.bundle`, `${name}.patch`];
+		}),
+	].filter((name) => !before.has(name));
+	let kept = false;
+	try {
+		const carried = await carryAll(carrying);
+		kept = true;
+		return carried;
+	} finally {
+		if (!kept) takeBack(into, ours);
+	}
+}
+
+/** carryAway's work, throwing CarryNotWhole when a whole carry can't go. */
+async function carryAll(carrying: Carrying): Promise<CarriedAway> {
 	const { exec, into, home, session } = carrying;
 	// The file first, so one refused leaves no tree's bundle for the share.
-	mkdirSync(into, { recursive: true });
+	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
 	const sessionFile =
 		session.file === undefined
 			? undefined
-			: await copyBeside(
-					session.file,
-					into,
-					carrying.largestFile ?? SHARE_LARGEST_FILE,
-				);
-	const largest = carrying.largestFile ?? SHARE_LARGEST_FILE;
+			: await copyBeside(session.file, into, largest);
 	const trees = (await carryTrees(exec, carrying.trees, into, home)).map(
 		(one) => withinShare(one, into, largest),
 	);
 	if (carrying.whole && trees.some((one) => one.kind === "refused")) {
-		takeBack(into, sessionFile, carrying.trees);
 		throw new CarryNotWhole(trees);
 	}
 	const handover: Handover = {
@@ -199,23 +221,11 @@ function withinShare(
 }
 
 /**
- * Removes what a carry that won't go put in `into`: the session's file
- * and each tree's bundle and patch, so the share never sends them.
+ * Removes `names`, what a carry that won't go wrote anew in `into`, so
+ * the share never sends them.
  */
-function takeBack(
-	into: string,
-	sessionFile: string | undefined,
-	paths: readonly string[],
-): void {
-	const names = paths.flatMap((path) => {
-		const name = nameFor(path);
-		return [`${name}.bundle`, `${name}.patch`];
-	});
-	for (const name of sessionFile === undefined
-		? names
-		: [sessionFile, ...names]) {
-		rmSync(join(into, name), { force: true });
-	}
+function takeBack(into: string, names: readonly string[]): void {
+	for (const name of names) rmSync(join(into, name), { force: true });
 }
 
 /**

@@ -15,7 +15,10 @@ import {
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
-import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
+import {
+	CarryNotWhole,
+	carryAway,
+} from "../../../../lib/internal/carry/carry-away.ts";
 import { readHandover } from "../../../../lib/internal/carry/handover.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -420,5 +423,70 @@ describe("carrying a session's work away", () => {
 		).rejects.toThrow(/gzipped, still over the 0\.0 MiB the share carries/);
 		expect(readdirSync(into), "no bundle, file or done file").toEqual([]);
 		expect(readdirSync(join(into, "..", "..", "tmp"))).toEqual([]);
+	});
+
+	// A session carrying itself is closed once its done file is there, so
+	// it goes whole or not at all; the handover is its quest's, shared.
+	it("takes back only what a whole carry wrote when one tree can't go, leaving another session's files", async () => {
+		const { origin, home, tree, into } = await homeWithTree();
+		await git(tree, "checkout", "-q", "-b", "topic");
+		await commit(tree, "work.txt", "unpushed\n");
+		writeFileSync(join(tree, "README.md"), "changed\n");
+		await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-a", cwd: tree },
+			trees: [tree],
+		});
+		const before = readdirSync(into).sort();
+		const own = await cloneAt(origin, join(home, "src", "own"));
+		await git(own, "checkout", "-q", "-b", "mine");
+		await commit(own, "mine.txt", "only its own\n");
+		const file = join(folder(made, "sessions"), "2026-11-07_s-b.jsonl");
+		writeFileSync(file, '{"type":"message"}\n'.repeat(500));
+
+		await expect(
+			carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-b", cwd: tree, file },
+				trees: [tree, own, folder(made, "plain")],
+				largestFile: 4000,
+				whole: true,
+			}),
+		).rejects.toBeInstanceOf(CarryNotWhole);
+
+		expect(
+			readdirSync(into).sort(),
+			"its gzipped file and its own tree's bundle are taken back; the other session's stay",
+		).toEqual(before);
+		expect(before.filter((name) => name.endsWith(".bundle"))).toHaveLength(1);
+		expect(before).toContain("s-a.done.json");
+	});
+
+	it("writes the done file for a whole carry where every tree goes", async () => {
+		const { home, tree, into } = await homeWithTree();
+		await git(tree, "checkout", "-q", "-b", "topic");
+		await commit(tree, "work.txt", "unpushed\n");
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-c", cwd: tree },
+			trees: [tree],
+			whole: true,
+		});
+
+		expect(carried.handover.trees).toHaveLength(1);
+		expect(existsSync(join(into, "s-c.done.json"))).toBe(true);
+		expect(
+			existsSync(join(into, carried.handover.trees[0]?.bundle ?? "none")),
+		).toBe(true);
 	});
 });

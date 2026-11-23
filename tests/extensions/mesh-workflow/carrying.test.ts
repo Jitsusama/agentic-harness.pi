@@ -208,7 +208,7 @@ describe("carrying a steered session's work", () => {
 		await expect(
 			carryThisSession(session("s-whole", tree, file), "penelope", { home }),
 		).rejects.toThrow(
-			`a tree can't go, so nothing was carried and the session stays here:\n${plain}: git couldn't`,
+			`a tree can't go, so nothing was carried:\n${plain}: git couldn't`,
 		);
 
 		expect(readdirSync(into).sort()).toEqual([...before].sort());

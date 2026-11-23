@@ -6,9 +6,11 @@
  * mycelium waits for written last (lib/internal/carry/carry-away.ts).
  *
  * Its run is ended first and waited out, so the file carried holds the
- * whole session. A tree that can't be carried is named on screen and the
- * rest still go; a session with no quest loaded has no handover to carry
- * into, so it refuses, and stays open.
+ * whole session. It goes whole or not at all: a tree that can't be
+ * carried keeps it here, with what it wrote taken back and that tree
+ * named, since mycelium closes it once its done file is there. A session
+ * with no quest loaded has no handover to carry into, so it refuses, and
+ * stays open.
  *
  * A carry under way holds the doors that would end the process it runs
  * in unasked (lib/internal/carry/under-way.ts lists them), but for a host
