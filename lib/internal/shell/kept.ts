@@ -440,6 +440,15 @@ export function beginJobRecordRemoval(
 	return removal;
 }
 
+/**
+ * Whether a removal of the job record kept at `path` runs for a call
+ * not handed on, so the record, if still at its name, is no taker's.
+ */
+export function removingUnhanded(path: string): boolean {
+	const removal = jobRecords.removing.get(path);
+	return removal !== undefined && !removal.handed;
+}
+
 /** Note that `removal` of the job record kept at `path` has ended. */
 export function endJobRecordRemoval(
 	path: string,

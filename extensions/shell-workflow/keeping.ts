@@ -167,7 +167,9 @@ export function keepsOnDisk(
 					// for a name that isn't there held every conversation's loop for
 					// seconds when the disk was busy. The call waits for it a few
 					// seconds at most, so a wedged disk never holds it open, and no
-					// longer than a stop the person asks for meanwhile. While
+					// longer than a stop the person asks for meanwhile, its files'
+					// removal below taking the record; a session's close meanwhile
+					// takes it back on the thread (forgetKeptJob). While
 					// it goes the call can still be carried, so a move or a host's
 					// stop meeting it then carries it, its end said where it lands,
 					// rather than finding a job neither carriable nor ended and

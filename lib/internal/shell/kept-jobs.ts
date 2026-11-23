@@ -59,6 +59,7 @@ import {
 	ownsJobRecord,
 	processThere,
 	removeKept,
+	removingUnhanded,
 	takeJobRecord,
 } from "./kept.ts";
 
@@ -170,7 +171,10 @@ function clearStaged(staged: string): void {
  * it recorded, nearly all gone with their files since, and one handed
  * on is its taker's. A move hands its calls on and closes the session
  * in one turn, so a removal still running for a call it handed is left
- * to put the record back for the taker.
+ * to put the record back for the taker. One running for a call not
+ * handed on, its rename still waiting on the disk, is beaten to it here:
+ * the close stops the call's job next and its pi may exit, leaving the
+ * record beside the call's end for the next start to say again.
  *
  * Whether this process holds the record is asked by path, not by which
  * session wrote it: a taker in this process that wrote it again before
@@ -178,7 +182,8 @@ function clearStaged(staged: string): void {
  * up only at a later session's start, after the giver's close.
  */
 export function forgetKeptJob(keep: string): void {
-	if (takeJobRecord(keep) === undefined) return;
+	const held = takeJobRecord(keep) !== undefined;
+	if (!(held || removingUnhanded(keep))) return;
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
@@ -222,13 +227,19 @@ export async function forgetOwnKeptJob(
 		if (signal?.aborted) hear();
 		else signal?.addEventListener("abort", hear, { once: true });
 	});
-	const ended = await Promise.race([
-		going.then(() => "removed" as const),
-		waited,
-		stopped,
-	]);
-	clearTimeout(timer);
-	if (hear) signal?.removeEventListener("abort", hear);
+	// The call's signal can be its whole run's, so its listener comes off
+	// however the race ends, a rejection included.
+	let ended: "removed" | "waited" | "stopped";
+	try {
+		ended = await Promise.race([
+			going.then(() => "removed" as const),
+			waited,
+			stopped,
+		]);
+	} finally {
+		clearTimeout(timer);
+		if (hear) signal?.removeEventListener("abort", hear);
+	}
 	if (ended === "waited") {
 		process.stderr.write(
 			`[shell] still removing ${keep}${JOB_SUFFIX} after ${waitMs} ms; its call settles without it, and ${whatFollows(keep, removal)}\n`,
