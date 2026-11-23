@@ -41,7 +41,11 @@ export interface HeldConversation {
 
 /** What a release asks of the machine; tests give their own. */
 export interface ReleaseFacts {
-	/** Every conversation the realm's two hosts hold now. */
+	/**
+	 * Every conversation the realm's two hosts hold now; it rejects when a
+	 * host listening didn't say, so a look nobody answered never reads as
+	 * every conversation gone.
+	 */
 	held(): Promise<HeldConversation[]>;
 	/** The addresses a conversation answers to, its signature first. */
 	addressesOf(session: string): readonly string[];
@@ -184,6 +188,18 @@ export function releaseProse(one: Omit<Released, "journaled">): string {
 	].join(" ");
 }
 
+/**
+ * The sessions the realm's hosts hold now, or why a host didn't say:
+ * one too loaded to answer leaves the look unknown, never empty.
+ */
+async function heldNow(facts: ReleaseFacts): Promise<Set<string> | string> {
+	try {
+		return new Set((await facts.held()).map((one) => one.session));
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
 /** A conversation gone from its host, not yet settled where it went on. */
 interface Departed {
 	readonly one: HeldConversation;
@@ -270,11 +286,27 @@ export async function releaseBack(
 			`${address} released from the ${base.from} host; ${SAID_OPENED[opened]}`,
 		);
 	};
+	let unheard: string | undefined;
 	for (;;) {
-		const still = new Set((await facts.held()).map((one) => one.session));
+		const look = await heldNow(facts);
+		if (typeof look === "string") {
+			// A host too loaded to answer says nothing of who left, so the
+			// look is passed over rather than read as every one gone.
+			if (look !== unheard) facts.say(`looking again: ${look}`);
+			unheard = look;
+		} else unheard = undefined;
+		const still = typeof look === "string" ? undefined : look;
 		let leaving = false;
-		for (const [session, one] of left) {
-			if (still.has(session)) {
+		for (const [session, { one }] of departed) {
+			// Held again, as a host's list can miss one for a look while it
+			// swaps its runtime: it never left, so it is waited on again.
+			if (!still?.has(session) || takenUpNow(session)) continue;
+			departed.delete(session);
+			notes.delete(session);
+			left.set(session, one);
+		}
+		for (const [session, one] of still ? left : []) {
+			if (still?.has(session)) {
 				const holds = await facts.holds(session);
 				lastHolds.set(session, holds);
 				const seen = waitedFor.get(session) ?? [];
@@ -292,9 +324,12 @@ export async function releaseBack(
 		}
 		if (leaving) facts.refreshRestore();
 		for (const [session, { one, at }] of departed) {
-			// Only one about to be opened waits out a window's grace.
+			// One about to be opened waits out a window's grace, and so does
+			// one with no note yet, whose note may follow or which a look may
+			// find held again.
 			const early = facts.now() - at < REOPEN_GRACE_MS;
-			if (reopening && early && !takenUpNow(session)) continue;
+			const unsure = reopening || !(notes.has(session) || facts.note(session));
+			if (early && unsure && !takenUpNow(session)) continue;
 			departed.delete(session);
 			await settle(session, one);
 		}

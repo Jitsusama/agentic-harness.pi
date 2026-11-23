@@ -295,7 +295,77 @@ describe("releaseBack", () => {
 			"s2",
 		]);
 	});
+
+	// On 23 November E30 failed once under load: a release said its one
+	// conversation "closed without a note" while its run went on, since a
+	// host too loaded to answer its list read as holding nothing
+	// (2QZBX9 [c498fc60]).
+	it("passes over a look no host answered, rather than read every one as gone", async () => {
+		const realm = leavesAfter(12);
+		const held = realm.facts.held;
+		let looks = 0;
+		realm.facts.held = async () => {
+			looks += 1;
+			if (looks === 2)
+				throw new Error("the background host didn't say what it holds");
+			return held();
+		};
+		const report = await releaseBack("all", realm.facts, 120_000);
+
+		expect(report.lost, realm.said.join("\n")).toEqual([]);
+		expect(report.released).toMatchObject([
+			{ address: "AAAAAA", opened: "launcher" },
+		]);
+		expect(realm.said).toContain(
+			"looking again: the background host didn't say what it holds",
+		);
+	});
+
+	it("waits again on one a look missed and the next found held", async () => {
+		const realm = leavesAfter(12);
+		const held = realm.facts.held;
+		let looks = 0;
+		realm.facts.held = async () => {
+			looks += 1;
+			return looks === 2 ? [] : held();
+		};
+		const report = await releaseBack("all", realm.facts, 120_000);
+
+		expect(report.lost, realm.said.join("\n")).toEqual([]);
+		expect(report.released).toMatchObject([
+			{ address: "AAAAAA", opened: "launcher" },
+		]);
+		expect(realm.reopened, "opened once, after it left").toEqual(["s1"]);
+	});
+
+	it("waits out the grace for the note of one that left without one yet, even offering only", async () => {
+		const realm = leavesAfter(0);
+		const note = realm.facts.note;
+		const started = realm.clock();
+		realm.facts.note = (session) =>
+			realm.clock() - started >= 4_000 ? note(session) : undefined;
+		const report = await releaseBack("all", realm.facts, 60_000, {
+			reopen: false,
+		});
+
+		expect(report.lost, realm.said.join("\n")).toEqual([]);
+		expect(report.released).toMatchObject([{ opened: "offered" }]);
+	});
 });
+
+/**
+ * A realm whose one conversation runs on past `looks` looks and then
+ * closes, its note written only as it goes, as a hosted one's is.
+ */
+function leavesAfter(looks: number) {
+	const realm = fakeRealm({
+		s1: { after: looks, holds: new Array(looks).fill("a run is under way") },
+	});
+	const note = realm.facts.note;
+	realm.facts.note = (session) =>
+		realm.facts.addressesOf(session).length === 0 ? note(session) : undefined;
+	return realm;
+}
 
 describe("releaseProse", () => {
 	it("says where it went, how to open it and what closed with the host", () => {

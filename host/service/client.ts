@@ -13,6 +13,17 @@ import {
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
+ * Whether a control request's failure says nothing listens at the
+ * socket: no socket file, or one nothing serves. Any other failure, a
+ * timeout or a close before the reply, leaves what the host would have
+ * said unknown.
+ */
+export function nothingListens(error: unknown): boolean {
+	const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
+	return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
+/**
  * Send one control request and verify reply correlation; attach needs V's
  * streaming client. A connection carries one request, so an error a host
  * gave before it could read the request's id (`id: null`, as dispatch
