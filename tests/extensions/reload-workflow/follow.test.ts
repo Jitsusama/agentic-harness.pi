@@ -22,6 +22,7 @@ import {
 	RESTARTING_ENTRY,
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
@@ -176,6 +177,8 @@ async function session({
 	spreadMs = 0,
 	// The session's id, where a case needs one; a context may have none.
 	sessionId = undefined as string | undefined,
+	// A context whose session manager throws as its id is read.
+	idThrows = false,
 } = {}) {
 	const install = await freshRepo("install");
 	repos.push(install);
@@ -197,14 +200,25 @@ async function session({
 		},
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
 	};
-	const ids =
-		sessionId === undefined
+	const ids = idThrows
+		? {
+				sessionManager: {
+					getSessionId: () => {
+						throw new Error("This extension ctx is stale.");
+					},
+				},
+			}
+		: sessionId === undefined
 			? {}
 			: { sessionManager: { getSessionId: () => sessionId } };
 	let busy = !idle;
 	const follower = await follow(
 		pi as never,
-		{ hasUI, isIdle: () => !busy, ...ids } as never,
+		{
+			hasUI,
+			isIdle: () => !busy,
+			...ids,
+		} as never,
 		settingsFor(install),
 		() => ({ root: swapped ? "/a/tree" : install, install }),
 		{ env: {}, quietMs: QUIET_MS, spreadMs },
@@ -336,6 +350,43 @@ describe("following the install", () => {
 		} finally {
 			letMoveGo(moving);
 		}
+	});
+
+	// A reload replaces the context a carry reads and closes through, so
+	// one waits for the carry; the call site was once left untested
+	// (PV3TE0's F4 and F8).
+	it("waits while a carry of its work is under way, and reloads once it lets go", async () => {
+		const carried = "01a1ecbb-0000-7000-8000-0000000f0110";
+		const hold = holdForCarry(carried, "penelope");
+		try {
+			const { install, prompted, entries, follower } = await session({
+				sessionId: carried,
+			});
+
+			await land(install, "feat: something to try");
+			await until("the carry is said as what it waits on", () =>
+				entries.some(
+					(entry) =>
+						entry.type === WAITING_ENTRY &&
+						(entry.data as { reason?: string }).reason ===
+							"its work is being carried",
+				),
+			);
+			expect(prompted, "while the carry holds it").toEqual([]);
+
+			hold.release();
+			follower?.consider();
+			await until("the reload is asked for", () => prompted.length > 0);
+		} finally {
+			hold.release();
+		}
+	});
+
+	it("reloads a session whose context throws as its id is read", async () => {
+		const { install, prompted } = await session({ idThrows: true });
+
+		await land(install, "feat: something to try");
+		await until("the reload is asked for", () => prompted.length > 0);
 	});
 
 	it("does not wait for background jobs, which a reload carries over", async () => {

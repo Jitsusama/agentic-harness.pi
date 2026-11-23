@@ -1,0 +1,246 @@
+/** The carries under way that every door ending a session asks. */
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	CARRY_HOLDS_MOST_MS,
+	type CarryHold,
+	carryUnderWay,
+	closeLanded,
+	type HoldTiming,
+	holdForCarry,
+	sessionOpened,
+} from "../../../../lib/internal/carry/under-way.ts";
+
+const session = "01a1ecbb-0000-7000-8000-00000000c4ee";
+const other = "01a15f3a-0000-7463-9909-afa624b025fe";
+// Each carried hold outlives its test, so each holds a session of its own.
+const closing = (n: number) => `01a1ecbb-0000-7000-8000-0000000c105${n}`;
+
+describe("a carry under way", () => {
+	const held: CarryHold[] = [];
+	afterEach(() => {
+		for (const hold of held.splice(0)) hold.release();
+		vi.useRealTimers();
+	});
+
+	/** A hold let go after the test, whether it passed or not. */
+	const hold = (to: string, timing: HoldTiming = {}, of = session) => {
+		const one = holdForCarry(of, to, timing);
+		held.push(one);
+		return one;
+	};
+
+	it("holds its session until it lets go", () => {
+		const carry = hold("penelope");
+
+		const during = carryUnderWay(session);
+		carry.release();
+
+		expect(during).toBe("penelope");
+		expect(carryUnderWay(session)).toBeUndefined();
+	});
+
+	it("holds only its own session", () => {
+		hold("penelope");
+
+		expect(carryUnderWay(other)).toBeUndefined();
+	});
+
+	it("keeps another carry's hold when the first lets go", () => {
+		const first = hold("penelope");
+		hold("equilibrius");
+
+		first.release();
+		first.release();
+
+		expect(carryUnderWay(session)).toBe("equilibrius");
+	});
+
+	it("sets aside the hold of the carry asking", () => {
+		const own = hold("penelope");
+
+		expect(carryUnderWay(session, { except: own })).toBeUndefined();
+	});
+
+	it("answers the newest carry's machine when several hold", () => {
+		let now = 0;
+		hold("penelope", { now: () => now });
+		now = 1;
+		hold("equilibrius", { now: () => now });
+
+		expect(carryUnderWay(session, { now })).toBe("equilibrius");
+	});
+
+	it("lets go once it has held its whole time, on its own clock", () => {
+		let now = 1_000;
+		hold("penelope", { now: () => now });
+
+		now += CARRY_HOLDS_MOST_MS - 1;
+		const early = carryUnderWay(session, { now });
+		now += 1;
+		const late = carryUnderWay(session, { now });
+
+		expect(early).toBe("penelope");
+		expect(late).toBeUndefined();
+	});
+
+	// PV3TE0's round 7 (F2, F7, F11): one that held a second carry off
+	// past its time stranded a hosted session until its host restarted.
+	it("takes a carry past its time as hung, for every reader alike", () => {
+		let now = 1_000;
+		hold("penelope", { now: () => now });
+
+		now += CARRY_HOLDS_MOST_MS;
+
+		expect(carryUnderWay(session, { now })).toBeUndefined();
+	});
+
+	// PV3TE0's round 7 (F6): a carry that carried let go before its
+	// session's close landed, so a second could carry it again.
+	it("keeps a carried hold through its release, until its time", () => {
+		let now = 1_000;
+		const carry = hold("penelope", { now: () => now }, closing(1));
+
+		carry.carried();
+		carry.release();
+		const during = carryUnderWay(closing(1), { now });
+		now += CARRY_HOLDS_MOST_MS;
+
+		expect(during).toBe("penelope");
+		expect(carryUnderWay(closing(1), { now })).toBeUndefined();
+	});
+
+	// PV3TE0's round 8 (F8): a close that never landed let the hold go
+	// unsaid, and a second carry then wrote the work again.
+	it("lets a carried hold go at its time, saying its close never landed", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const told: [string, boolean][] = [];
+		const carry = hold(
+			"penelope",
+			{ lapsed: (one, carried) => told.push([one.to, carried]) },
+			closing(2),
+		);
+
+		carry.carried();
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+
+		expect(told).toEqual([["penelope", true]]);
+		// Read on a clock where its time is never up, so only a hold the
+		// timer let go is gone.
+		expect(carryUnderWay(closing(2), { now: 0 })).toBeUndefined();
+	});
+
+	// PV3TE0's round 8 (F3, F9, F12): in a host, whose process outlives
+	// the conversation, a carried hold turned the session away for the
+	// rest of its time if it opened there again.
+	it("lets a carried hold go once its session's close lands", () => {
+		const carry = hold("penelope", {}, closing(3));
+
+		carry.carried();
+		closeLanded(closing(3));
+
+		expect(carryUnderWay(closing(3))).toBeUndefined();
+	});
+
+	it("keeps the hold of a carry still under way as its session's close lands", () => {
+		hold("penelope");
+
+		closeLanded(session);
+
+		expect(carryUnderWay(session)).toBe("penelope");
+	});
+
+	// PV3TE0's round 9 (F1, F3): a person's Close mid-carry landed before
+	// the carry carried, and no later close came to let its hold go.
+	it("lets a carry whose session's close landed while it ran go as it carries", () => {
+		const carry = hold("penelope", {}, closing(5));
+
+		closeLanded(closing(5));
+		const during = carryUnderWay(closing(5));
+		carry.carried();
+
+		expect(during).toBe("penelope");
+		expect(carryUnderWay(closing(5))).toBeUndefined();
+	});
+
+	// PV3TE0's round 10 (F1): a host may open a closed conversation again
+	// while the carry its close left running still runs; let go as that
+	// carry carried, the reopened one ran on with no door held.
+	it("holds a carry that carries after its session was closed and opened again, until that opening closes", () => {
+		const carry = hold("penelope", {}, closing(6));
+
+		closeLanded(closing(6));
+		sessionOpened(closing(6));
+		carry.carried();
+		const reopened = carryUnderWay(closing(6));
+		closeLanded(closing(6));
+
+		expect(reopened, "held while it runs again").toBe("penelope");
+		expect(carryUnderWay(closing(6)), "let go as it closes").toBeUndefined();
+	});
+
+	// PV3TE0's round 8 (F7): one called carried past its time stayed in
+	// the registry for the life of its process.
+	it("lets a hold called carried once its time is up go at its release", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const carry = hold("penelope", {}, closing(4));
+
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+		carry.carried();
+		carry.release();
+
+		// Read on a clock where its time is never up, so only a hold let go
+		// is gone.
+		expect(carryUnderWay(closing(4), { now: 0 })).toBeUndefined();
+	});
+
+	it("lets go of one released before it is called carried", () => {
+		const carry = hold("penelope");
+
+		carry.release();
+		carry.carried();
+
+		expect(carryUnderWay(session)).toBeUndefined();
+	});
+
+	it("lets a lapse that throws go by, so its bare timer never ends the process", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		hold("penelope", {
+			mostMs: 0,
+			lapsed: () => {
+				throw new Error("the context is stale");
+			},
+		});
+
+		expect(() => vi.advanceTimersByTime(1)).not.toThrow();
+	});
+
+	it("says once that a carry outlived its hold", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const told: string[] = [];
+		const carry = hold("penelope", {
+			lapsed: (one) => told.push(one.to),
+		});
+
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS - 1);
+		const early = [...told];
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+		carry.release();
+
+		expect(early).toEqual([]);
+		expect(told).toEqual(["penelope"]);
+	});
+
+	it("says nothing of a carry that let go in time", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const told: string[] = [];
+		const carry = hold("penelope", {
+			lapsed: (one) => told.push(one.to),
+		});
+
+		carry.release();
+		vi.advanceTimersByTime(CARRY_HOLDS_MOST_MS);
+
+		expect(told).toEqual([]);
+	});
+});

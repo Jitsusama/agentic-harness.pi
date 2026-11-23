@@ -15,6 +15,7 @@ import {
 	sessionOwner,
 } from "../../../lib/core/session/index.ts";
 import { fenceKindOf } from "../../../lib/internal/carry/fence.ts";
+import { sessionOpened } from "../../../lib/internal/carry/under-way.ts";
 import { tellAwaited } from "../../../lib/internal/priority/awaited.ts";
 import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { isPersonWords } from "../../../lib/internal/session/driven.ts";
@@ -116,6 +117,9 @@ export function onSessionStart(
 		if (!hosted() && (await writerHold(started.sessionManager.getSessionId())))
 			return;
 		m.ctx = started;
+		// Opened again in a host since its close, a carry still running from
+		// before holds it until this opening closes (PV3TE0's round 10, F1).
+		sessionOpened(sessionKeyOf(started));
 		m.unhearKeys?.();
 		m.unhearKeys = started.hasUI
 			? started.ui.onTerminalInput(() => {

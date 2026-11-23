@@ -91,6 +91,12 @@ describe("whenToReload", () => {
 		expect(whenToReload({ ...still, swapped: true })).toBe("never");
 	});
 
+	// A reload would replace the context a carry reads and closes through.
+	it("waits while a carry of its work is under way", () => {
+		expect(whenToReload({ ...still, carrying: true })).toBe("wait");
+		expect(whenToReload({ ...still, carrying: false })).toBe("now");
+	});
+
 	// A reload going first would stop the move unwritten, and the move
 	// restarts the session on current code anyway.
 	it("waits while a move of the session waits, idle or not", () => {

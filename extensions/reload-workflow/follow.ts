@@ -37,6 +37,7 @@ import {
 	sessionKeyOf,
 	withSession,
 } from "../../lib/core/session/index.ts";
+import { carryUnderWay } from "../../lib/internal/carry/under-way.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
 import {
 	cameIn,
@@ -221,12 +222,12 @@ export async function follow(
 	const hear = () => {
 		heardAt ??= Date.now();
 	};
-	/** This session's id, which a move waiting holds the reload of. */
+	/** This session's id, which a carry under way or a move waiting holds. */
 	const sessionId = (() => {
 		try {
 			return ctx.sessionManager?.getSessionId?.();
 		} catch {
-			// A context with no session yet has no move to wait on.
+			// A context with no session yet has no carry or move to wait on.
 			return undefined;
 		}
 	})();
@@ -294,9 +295,14 @@ export async function follow(
 			// alone; its new runtime says it landed, as plain pi's does.
 			if (inHost) {
 				if (hostedReloadAsker(ctx) !== undefined) return;
-				if (!(await reloadThroughHost(ctx, { reason, by: "self" }))) {
-					retryAt = Date.now() + HELD_MS;
-				}
+				// A carry begun while git was asked is waited on as any is, by
+				// the next look, not taken for a host that failed: the host
+				// refuses a reload under one.
+				const carried = () =>
+					sessionId !== undefined && carryUnderWay(sessionId) !== undefined;
+				if (carried()) return;
+				const reloaded = await reloadThroughHost(ctx, { reason, by: "self" });
+				if (!(reloaded || carried())) retryAt = Date.now() + HELD_MS;
 				return;
 			}
 			const links = linksMovedSince(extensions, startedAt);
@@ -486,9 +492,11 @@ export async function follow(
 		if (recheck) clearTimeout(recheck);
 		recheck = undefined;
 		let idle = false;
+		let carrying: string | undefined;
 		let moving: string | undefined;
 		try {
 			idle = settled || ctx.isIdle();
+			carrying = sessionId === undefined ? undefined : carryUnderWay(sessionId);
 			moving = sessionId === undefined ? undefined : moveWaiting(sessionId);
 		} catch {
 			// A stale context belongs to a runtime that has gone.
@@ -503,10 +511,14 @@ export async function follow(
 		if (swapped) {
 			sayWhy("it runs a tree", { root: now.root, install: now.install });
 		}
+		if (carrying !== undefined) {
+			sayWhy("its work is being carried", { to: carrying });
+		}
 		if (moving !== undefined) sayWhy("a move waits", { to: moving });
 		const moment = whenToReload({
 			swapped,
 			idle,
+			carrying: carrying !== undefined,
 			moving: moving !== undefined,
 			ready: [...moved.values()].every((one) =>
 				dependenciesReady(one.root, one.at),

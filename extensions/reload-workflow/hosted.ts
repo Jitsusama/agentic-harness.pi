@@ -69,11 +69,13 @@ export function requestHostedReload(
 /**
  * At a settle, hand this conversation's waiting request to its host, or
  * call it off when the person stopped the run. Answers whether one was
- * waiting.
+ * waiting. A reload the agent asked for that the host can't do is told
+ * to it through `toAgent`, since it waits for word of a landing.
  */
 export function settleHostedReload(
 	ctx: ExtensionContext,
 	aborted: boolean,
+	toAgent?: (text: string) => void,
 ): boolean {
 	const slot = state(ctx);
 	const request = slot.request;
@@ -83,7 +85,7 @@ export function settleHostedReload(
 		say(ctx, "Reload called off: you stopped the run.");
 		return true;
 	}
-	void reloadThroughHost(ctx, request);
+	void reloadThroughHost(ctx, request, toAgent);
 	return true;
 }
 
@@ -94,11 +96,13 @@ export function settleHostedReload(
  * reload that fails is said here, since this runtime is still the one
  * running. A request the agent left waiting goes with it, so the next
  * settle doesn't reload a second time. Answers whether the host
- * reloaded it, for a caller that keeps trying.
+ * reloaded it, for a caller that keeps trying. One the agent asked for
+ * that fails is told to it through `toAgent` as well.
  */
 export function reloadThroughHost(
 	ctx: ExtensionContext,
 	request: ReloadRequest,
+	toAgent?: (text: string) => void,
 ): Promise<boolean> {
 	const host = hosted();
 	if (!host?.reload) return Promise.resolve(false);
@@ -110,10 +114,9 @@ export function reloadThroughHost(
 		(error: unknown) => {
 			slot.landing = undefined;
 			const why = error instanceof Error ? error.message : String(error);
-			say(
-				ctx,
-				`Nothing was reloaded: the host could not reload this conversation: ${why}.`,
-			);
+			const said = `Nothing was reloaded: the host could not reload this conversation: ${why}.`;
+			say(ctx, said);
+			if (request.by === "agent") toAgent?.(said);
 			return false;
 		},
 	);

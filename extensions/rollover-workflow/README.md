@@ -153,7 +153,10 @@ What started it again was a reload: pi's reload of the old session
 was still loading when the rollover switched, and finished on it. So
 a rollover declines while a reload is asked for or under way, leaving
 the next compaction to roll over, and holds reloads off while it
-switches (see the reload workflow).
+switches (see the reload workflow). It declines the same way while a
+carry of the session's work is under way, since a switch would leave
+the carry a stale context to read and close through
+(`lib/internal/carry/under-way.ts`).
 
 ## Carrying State Over
 

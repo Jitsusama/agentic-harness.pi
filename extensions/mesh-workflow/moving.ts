@@ -8,7 +8,10 @@
  * unsent (lib/internal/session/free.ts). It doesn't hold runs off, as a
  * pause does, since a run held off would leave a job's result or a
  * peer's message unanswered in the file the host takes up. It only ends
- * the session between them, the first moment nothing is out: it writes
+ * the session between them, the first moment nothing is out, and never
+ * while a carry of its work is under way (lib/internal/carry/under-way.ts),
+ * whose run has ended but whose process must last until its done file
+ * is written: it writes
  * the note the move is taken up by and ends as Close does. Its presence
  * says where it is moving and what holds it meanwhile. Away mode, whose
  * send-backs would otherwise start a run as each settles for as long as
@@ -64,6 +67,10 @@ import type {
 	EventBus,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+	type CarryHold,
+	carryUnderWay,
+} from "../../lib/internal/carry/under-way.ts";
 import type { CarriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { RUN_UNDER_WAY, whatHolds } from "../../lib/internal/session/free.ts";
 import type { MoveNote, MoveTarget } from "../../lib/internal/session/move.ts";
@@ -395,16 +402,25 @@ export function createMoving(host: MovingHost): MovingSession {
  * the jobs that can't be carried with it, named, the prompts open for
  * its person (`prompts`, counted from pi's prompt events) and its
  * editor's text. A job host from before carrying holds on every job.
- * With `runAside`, a run under way isn't counted, for an ordered carry
- * that ends the run itself once nothing else holds.
+ * A carry of its work under way holds it before all of these, but for
+ * `ownCarry`, the hold of the ordered carry asking. With `runAside`, a
+ * run under way isn't counted, for an ordered carry that ends the run
+ * itself once nothing else holds.
  */
 export function holdsOf(
 	ctx: ExtensionContext | undefined,
 	events: EventBus | undefined,
 	prompts: number,
-	options: { readonly runAside?: boolean } = {},
+	options: {
+		readonly runAside?: boolean;
+		readonly ownCarry?: CarryHold;
+	} = {},
 ): string | undefined {
 	if (!ctx) return "the session isn't there yet";
+	const carrying = carryUnderWay(ctx.sessionManager.getSessionId(), {
+		except: options.ownCarry,
+	});
+	if (carrying !== undefined) return `its work is being carried to ${carrying}`;
 	let typed = false;
 	try {
 		typed = ctx.hasUI && ctx.ui.getEditorText().trim() !== "";

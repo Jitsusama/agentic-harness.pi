@@ -15,6 +15,7 @@ import {
 	type MovingSession,
 	RELEASE_WAIT_MS,
 } from "../../../extensions/mesh-workflow/moving.ts";
+import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import type { MoveTarget } from "../../../lib/internal/session/move.ts";
 import { announceJobHost, type JobHold } from "../../../lib/jobs/index.ts";
 import type { MoveOff, Moving } from "../../../lib/mesh/moving.ts";
@@ -439,8 +440,14 @@ describe("moving a session", () => {
 });
 
 describe("what holds a move", () => {
+	const moved = "01a1ecbb-0000-7000-8000-0000000a07ed";
+
 	/** An idle session whose job host has `pending` jobs, `held` of them holding. */
-	function holding(pending: number, held?: readonly JobHold[]) {
+	function holding(
+		pending: number,
+		held?: readonly JobHold[],
+		options: Parameters<typeof holdsOf>[3] = {},
+	) {
 		const events = createEventBus();
 		announceJobHost(events, {
 			start: () => {
@@ -453,9 +460,40 @@ describe("what holds a move", () => {
 			hasUI: false,
 			isIdle: () => true,
 			hasPendingMessages: () => false,
+			sessionManager: { getSessionId: () => moved },
 		};
-		return holdsOf(ctx as unknown as ExtensionContext, events, 0);
+		return holdsOf(ctx as unknown as ExtensionContext, events, 0, options);
 	}
+
+	// A carry ends the session's run, so it reads as free while its work
+	// is bundled; a move then would end it before its done file is written.
+	it("holds while a carry of its work is under way", () => {
+		const carry = holdForCarry(moved, "penelope");
+		try {
+			expect(holding(0, [])).toBe("its work is being carried to penelope");
+		} finally {
+			carry.release();
+		}
+		expect(holding(0, [])).toBeUndefined();
+	});
+
+	it("sets aside the carry asking, but not another", () => {
+		const own = holdForCarry(moved, "penelope");
+		try {
+			const alone = holding(0, [], { ownCarry: own });
+			const person = holdForCarry(moved, "equilibrius");
+			try {
+				expect(alone).toBeUndefined();
+				expect(holding(0, [], { ownCarry: own })).toBe(
+					"its work is being carried to equilibrius",
+				);
+			} finally {
+				person.release();
+			}
+		} finally {
+			own.release();
+		}
+	});
 
 	it("names only the jobs that can't be carried, by kind and id", () => {
 		expect(holding(2, [{ id: "j2", kind: "subagent", label: "k7-read" }])).toBe(

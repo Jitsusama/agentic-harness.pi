@@ -16,6 +16,7 @@ import {
 	handoverOf,
 	readHandover,
 } from "../../../lib/internal/carry/handover.ts";
+import { closeLanded } from "../../../lib/internal/carry/under-way.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
@@ -28,7 +29,13 @@ import {
 } from "../../lib/internal/carry/support/machines.ts";
 
 const made: string[] = [];
-afterEach(() => removeAll(made));
+afterEach(() => {
+	// A carried hold stays until its session's close lands, so each test's
+	// lets go here rather than lingering in this process for its quarter
+	// hour (PV3TE0's round 10, F2).
+	for (const id of ["s-carry", "s-closing", "s-stale"]) closeLanded(id);
+	removeAll(made);
+});
 
 const QUEST = "QEST-20261107-CARRY2";
 
@@ -109,6 +116,52 @@ describe("carrying a steered session's work", () => {
 			fence: "fence",
 			notes: [{ text: `what ${QUEST} learned`, tags: ["move"] }],
 		});
+	});
+
+	// PV3TE0's round 7 (F6): a carry that carried let go before its
+	// session's close landed, so a second Carry wrote a second handover
+	// of work already gone.
+	it("turns a second carry away once the first has carried, while its session closes", async () => {
+		const home = folder(made, "home");
+		loaded("s-closing", QUEST);
+		const file = join(folder(made, "sessions"), "2026-11-07_s-closing.jsonl");
+		writeFileSync(file, '{"type":"session","id":"s-closing"}\n');
+		const carry = () =>
+			carryThisSession(session("s-closing", home, file), "penelope", {
+				home,
+			});
+
+		await carry();
+
+		await expect(carry()).rejects.toThrow(
+			"a carry to penelope is already under way.",
+		);
+	});
+
+	// PV3TE0's round 8 (F11): a stale screen that threw as it named the
+	// trees that stayed reported a carry that went as refused.
+	it("answers a carry that went, though its screen throws once its done file is written", async () => {
+		const home = folder(made, "home");
+		// On no branch and no snapshot, so it stays and is named on screen.
+		const plain = folder(made, "plain");
+		createTreeMemory(treeRecordDir()).remember({
+			identity: { key: "plain-carry", shareable: false },
+			path: plain,
+			providerId: "git",
+			sessions: ["s-stale"],
+		});
+		loaded("s-stale", QUEST);
+		const stale: CarriedContext = {
+			...session("s-stale", home, join(home, "none.jsonl")),
+			get hasUI(): boolean {
+				throw new Error("the context is stale");
+			},
+		};
+
+		const done = await carryThisSession(stale, "penelope", { home });
+
+		const into = handoverOf(questWorkspacesRoot(), QUEST, thisMachine());
+		expect(done).toBe(join(into, "s-stale.done.json"));
 	});
 
 	it("refuses with no quest loaded, having no handover to carry into", async () => {

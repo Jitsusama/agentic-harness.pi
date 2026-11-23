@@ -31,6 +31,7 @@ import {
 	type SessionStamp,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { carryHoldsReload } from "../../lib/internal/carry/under-way.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	clearParked,
@@ -77,7 +78,13 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
-import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
+import {
+	backgroundIn,
+	carryEnds,
+	heavyIn,
+	restartEnds,
+	stopKeeping,
+} from "./stopping.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -430,6 +437,9 @@ export async function createEngine(
 		const { sessionId } = record.traits;
 		const session = view(sessionId, record).runtime.session;
 		await session.waitForIdle();
+		// A carry ends its run first, so it is idle while it bundles.
+		const carried = carryHoldsReload(sessionId);
+		if (carried !== undefined) throw new Error(carried);
 		const screens = options.screens;
 		if (!screens?.reload) return session.reload();
 		const before = session.extensionRunner;
@@ -454,10 +464,12 @@ export async function createEngine(
 		},
 
 		background() {
-			// A warm of a parked conversation is out too.
+			// A warm of a parked conversation is out too, as is a carry.
 			let held = warming.inFlight();
-			for (const record of live.values())
-				held += restartEnds(record, shells, host.drains()).length;
+			for (const [sessionId, record] of live)
+				held +=
+					restartEnds(record, shells, host.drains()).length +
+					carryEnds(sessionId).length;
 			return held;
 		},
 
@@ -467,7 +479,10 @@ export async function createEngine(
 			if (warms > 0)
 				held.push(`${warms} parked warm${warms === 1 ? "" : "s"} in flight`);
 			for (const [sessionId, record] of live)
-				for (const what of restartEnds(record, shells, host.drains()))
+				for (const what of [
+					...restartEnds(record, shells, host.drains()),
+					...carryEnds(sessionId),
+				])
 					held.push(`${sessionId}: ${what}`);
 			return held;
 		},
