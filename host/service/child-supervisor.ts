@@ -359,6 +359,14 @@ export function childSupervisor(options: {
 	say?: (line: string) => void;
 	/** A child's conversation ended, as it said, its route already gone. */
 	ended?: (sessionId: string, why: ChildEnding) => void;
+	/**
+	 * A resume's child was given up and stopped, as a bounded one is at
+	 * its listen or answer time, before any ending could be heard: its
+	 * conversation is still held and runs nowhere, so whoever kept its
+	 * wake watches it again. Never heard as the host stops watching,
+	 * which leaves the child to the next host.
+	 */
+	gaveUp?: (sessionId: string) => void;
 	listensWithinMs?: number;
 	answersWithinMs?: number;
 	exitsWithinMs?: number;
@@ -1117,9 +1125,10 @@ export function childSupervisor(options: {
 	 * Start the child in `slot` and settle with what `work` makes of it,
 	 * once the last child to run there has left it; a child that never
 	 * gets that far is stopped, without waiting on its stop, and its slot
-	 * cleared, so no conversation runs where nothing watches it, unless
-	 * the host stopped watching, which leaves every child running for the
-	 * next host to take up.
+	 * cleared, so no conversation runs where nothing watches it, and a
+	 * resume's conversation said given up (`gaveUp`), unless the host
+	 * stopped watching, which leaves every child running for the next
+	 * host to take up.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
@@ -1141,7 +1150,10 @@ export function childSupervisor(options: {
 			});
 			return await work();
 		} catch (error) {
-			if (taken && !closing) void leave(slot, true);
+			if (taken && !closing) {
+				void leave(slot, true);
+				if (session) options.gaveUp?.(session.sessionId);
+			}
 			throw error;
 		}
 	}

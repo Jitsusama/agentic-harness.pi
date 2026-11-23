@@ -125,11 +125,11 @@ describe("a host's children", () => {
 		);
 	});
 
-	// A bug, F167: a bounded resume, as a start's, that gives its child up
-	// before its first answer ends no watch, so `ended` never comes and
-	// nothing rests it. It stays held with nothing watching its wake file,
-	// and a message written there wakes nothing until a window asks for it.
-	it.fails("rests one whose bounded resume gave its child up, since it is still held", async () => {
+	// F167: a bounded resume, as a start's, that gives its child up before
+	// its first answer ends no watch, so no ending rests it; left unrested,
+	// a message written to its wake file would wake nothing until a window
+	// asked for it.
+	it("rests one whose bounded resume gave its child up, since it is still held", async () => {
 		units.next = { silent: true };
 
 		await expect(
@@ -148,12 +148,28 @@ describe("a host's children", () => {
 		);
 	});
 
+	it("rests one whose wake gave its child up too, since it is still held", async () => {
+		units.next = { silent: true };
+
+		await expect(
+			children.backend.resume(entryIn(folder, a), true),
+		).rejects.toThrow("as children.json says");
+
+		await vi.waitFor(() =>
+			expect(
+				rested.map(({ sessionId }) => sessionId),
+				"its wake watched again",
+			).toEqual([a]),
+		);
+	}, 15_000);
+
 	it("lets a child start still waiting go at once as it closes", async () => {
 		const resuming = children.backend.resume(held[0] as RosterEntry, false);
 		await vi.waitFor(() => expect(units.started).toHaveLength(1));
 		children.close();
 
 		await expect(resuming).rejects.toThrow();
+		expect(rested, "left to the next host, not rested").toEqual([]);
 		const [unit] = units.started;
 		expect(
 			units.children.get(unit as string),

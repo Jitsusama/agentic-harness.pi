@@ -64,6 +64,8 @@ export function hostChildren(options: {
 		report,
 		...(options.say ? { say: options.say } : {}),
 		ended: (sessionId, why) => rest(sessionId, why),
+		// Given up before it ended, as a failed child is: still held.
+		gaveUp: (sessionId) => rest(sessionId, "failed"),
 		...options.timings,
 	});
 
