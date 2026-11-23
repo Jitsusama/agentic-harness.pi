@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { machineFacts, releaseFacts } from "../../../host/cutover/machine.ts";
+import { hostSocketPath } from "../../../host/service/address.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
 import type { MoveOff } from "../../../lib/mesh/moving.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
@@ -292,6 +294,108 @@ describe("releaseFacts", () => {
 			expect(facts.takenUp(HOPPING), "a live pi of its own").toBe(true);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("reads a host not listening as holding none, and one that won't say as unheard", async () => {
+		const runtimeDir = mkdtempSync(join(tmpdir(), "rh-"));
+		const served: Server[] = [];
+		/** A host at `kind`'s socket answering every request by `answer`. */
+		const host = async (
+			kind: "attended" | "background",
+			answer: (client: Socket, id: string) => void,
+		) => {
+			const server = createServer((client) => {
+				client.once("data", (chunk) => {
+					answer(client, JSON.parse(chunk.toString()).id);
+				});
+			});
+			served.push(server);
+			await new Promise<void>((listening) =>
+				server.listen(hostSocketPath("work", kind, runtimeDir), listening),
+			);
+		};
+		const replying =
+			(reply: object) =>
+			(client: Socket, id: string): void => {
+				client.end(`${JSON.stringify({ v: 1, id, ...reply })}\n`);
+			};
+		try {
+			mkdirSync(join(runtimeDir, "pi-host"), { recursive: true });
+			const facts = releaseFacts({ realm: "work", runtimeDir });
+			expect(await facts.held(), "neither host listening").toEqual({
+				held: [],
+				unheard: [],
+			});
+			// A file where a host's socket goes, as one that died can leave:
+			// nothing listens on it.
+			const stale = createServer();
+			await new Promise<void>((listening) =>
+				stale.listen(hostSocketPath("work", "attended", runtimeDir), listening),
+			);
+			await new Promise((closed) => {
+				stale.close(closed);
+			});
+			writeFileSync(hostSocketPath("work", "attended", runtimeDir), "");
+			expect(await facts.held(), "a file where its socket goes").toEqual({
+				held: [],
+				unheard: [],
+			});
+			rmSync(hostSocketPath("work", "attended", runtimeDir));
+			await host(
+				"background",
+				replying({
+					ok: false,
+					error: { code: "busy", message: "the host is busy" },
+				}),
+			);
+			expect(await facts.held(), "one that won't say").toEqual({
+				held: [],
+				unheard: [
+					{
+						kind: "background",
+						why: "the background host didn't say what it holds: the host is busy",
+					},
+				],
+			});
+			await host("attended", (client) => {
+				client.destroy();
+			});
+			expect(
+				(await facts.held()).unheard.map((one) => one.kind),
+				"one that closes before it answers",
+			).toEqual(["attended", "background"]);
+			expect(
+				await machineFacts({
+					realm: "work",
+					runtimeDir,
+					presence: join(runtimeDir, "presence"),
+				}).held(),
+				"a machine look passes unheard hosts over",
+			).toEqual(new Map());
+			await Promise.all(
+				served.splice(0).map(
+					(server) =>
+						new Promise((closed) => {
+							server.close(closed);
+						}),
+				),
+			);
+			await host("attended", replying({ ok: true, result: { sessions: 1 } }));
+			expect(
+				(await facts.held()).unheard.map((one) => one.kind),
+				"one whose list can't be read",
+			).toEqual(["attended"]);
+		} finally {
+			await Promise.all(
+				served.map(
+					(server) =>
+						new Promise((closed) => {
+							server.close(closed);
+						}),
+				),
+			);
+			rmSync(runtimeDir, { recursive: true, force: true });
 		}
 	});
 
