@@ -40,8 +40,11 @@ import {
 	type Tied,
 	tieArguments,
 	titleFromWords,
+	unrecordedSaid,
+	wroteSaid,
 } from "../../../lib/internal/quest/sessions/sprout-seed.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+import { drawsAsNothing } from "../../../lib/internal/unseen.ts";
 import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
 import { parseRef, type Ref, urlForRef } from "../../../lib/refs/index.ts";
 import { pendingWords } from "../lifecycle.ts";
@@ -152,6 +155,14 @@ export async function startSprouted(
 	// and every write left would ask for it again, so once one throws this
 	// start writes that quest no more: its tie and first words still go.
 	let locked = false;
+	// What each write this start couldn't make, and couldn't log, costs:
+	// no log can say so, so the first words do, needing no lock.
+	const unrecorded: string[] = [];
+	// A mark is only lost where the quest doesn't hold it, which reading
+	// the index, taking no lock, says: a verb whose own log threw had
+	// written it first.
+	const lost = (mark: { type: string; value: string }): boolean =>
+		!idsWith(state, mark).includes(id);
 	if (held === undefined) {
 		const link = linked || forged ? sproutLink(seed) : undefined;
 		// The link's mark moves off any ended quest holding it, since an
@@ -161,16 +172,24 @@ export async function startSprouted(
 			...(alias ? [{ mark: alias, so: UNFOUND }] : []),
 			...(link ? [{ mark: link, so: LINK_UNFOUND }] : []),
 		];
-		for (const { mark, so } of marks) {
+		for (const [at, { mark, so }] of marks.entries()) {
 			// A mark refused leaves the quest made, so it is still tied below
 			// rather than left untied, and its log says what may not find it.
 			// A refusal takes no lock, so its log is the first write to ask
 			// for one, and a log whose lock didn't come stops the writes too.
 			const got = marking(state, id, mark);
-			locked =
-				got === "locked" ||
-				(got === "refused" && markUnwritten(state, id, seed, mark, so));
-			if (locked) break;
+			const logged =
+				got === "refused" ? markUnwritten(state, id, seed, mark, so) : "logged";
+			if (logged === "unlogged") unrecorded.push(so);
+			locked = got === "locked" || logged === "locked";
+			if (locked) {
+				const left = got === "locked" ? marks.slice(at) : marks.slice(at + 1);
+				if (got !== "locked") unrecorded.push(so);
+				unrecorded.push(
+					...left.filter((one) => lost(one.mark)).map((one) => one.so),
+				);
+				break;
+			}
 		}
 	} else if (!replayed && joinMark) {
 		// A live quest it joined takes a mark of its own, so a replay after
@@ -180,12 +199,17 @@ export async function startSprouted(
 		// still recorded below, and its log says a replay after the quest
 		// ends may start the work again.
 		const got = marking(state, id, joinMark);
-		locked =
-			got === "locked" ||
-			(got === "refused" &&
-				markUnwritten(state, id, seed, joinMark, RESTARTED));
+		const logged =
+			got === "refused"
+				? markUnwritten(state, id, seed, joinMark, RESTARTED)
+				: "logged";
+		locked = got === "locked" || logged === "locked";
+		const missing = got === "locked" ? lost(joinMark) : logged !== "logged";
+		if (missing) unrecorded.push(RESTARTED);
 	}
-	if (!locked) servesNeed(state, id, seed);
+	if (seed.need && !servesNeed(state, id, seed, locked)) {
+		unrecorded.push(UNSERVED);
+	}
 	// Only a quest it made, or its own replayed, is sprouted from the cell
 	// that asked: a live one it joined predates it, and may be that very
 	// cell's own, so the map is left saying where it really came from.
@@ -193,7 +217,14 @@ export async function startSprouted(
 		held !== undefined && !made
 			? ({ kind: "none" } as const)
 			: await tie(id, seed.from, ctx.cwd, deps.run);
-	hints.firstWords = sproutedWords(id, seed, tied, joined, linkIs);
+	// The first words reach only the model, so the host's own log keeps
+	// what no quest log could, for whoever reads the machine later.
+	if (unrecorded.length > 0) {
+		process.stderr.write(
+			`[quest-workflow] the sprout of ${id} could log none of what it missed: ${unrecorded.join("; ")}\n`,
+		);
+	}
+	hints.firstWords = `${sproutedWords(id, seed, tied, joined, linkIs)}${unrecordedSaid(unrecorded)}`;
 }
 
 /**
@@ -204,26 +235,41 @@ export async function startSprouted(
  * since its cell now serves that need as well; one already holding it
  * is left as it is. A README that can't be written, or whose lock
  * doesn't come, leaves the quest standing without it and the tie still
- * made, since the work matters more than its lineage.
+ * made, since the work matters more than its lineage. While `locked`
+ * (an earlier write's lock didn't come) it writes nothing. Answers
+ * whether the quest holds all the seed's need gives it to, read from
+ * the index without a lock first, so a need with no cell to name, or
+ * one already held, is never said to be missing.
  */
-function servesNeed(state: QuestState, id: string, seed: SproutSeed): void {
+function servesNeed(
+	state: QuestState,
+	id: string,
+	seed: SproutSeed,
+	locked: boolean,
+): boolean {
 	const cell = seed.need ? needAsker(seed.need) : undefined;
-	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!seed.need || !cell || !dir) return;
+	if (!seed.need || !cell) return true;
+	const quest = discoverQuests(state.questsRoot).index.quests.get(id);
+	if (!quest) return false;
 	const taken = {
 		cell,
 		need: seed.words || seed.need,
 		since: new Date().toISOString(),
 		id: seed.need,
 	};
+	if (withServed(quest.doc.frontMatter._extra?.serves, taken) === undefined) {
+		return true;
+	}
+	if (locked) return false;
 	try {
-		mutateQuestFrontMatter(dir, (fm) => {
+		return mutateQuestFrontMatter(quest.dir, (fm) => {
 			const serves = withServed(fm._extra?.serves, taken);
 			return serves ? { ...fm, _extra: { ...fm._extra, serves } } : undefined;
-		});
+		}).ok;
 	} catch {
 		// A lock that didn't come or a write that failed: the quest stands
 		// without its lineage, and the tie after this is still made.
+		return false;
 	}
 }
 
@@ -307,6 +353,10 @@ const LINK_UNFOUND =
 const RESTARTED =
 	"a replay of it after this quest ends may start its work again";
 
+/** What a need its quest doesn't record costs the node's forage. */
+const UNSERVED =
+	"the need it serves isn't recorded on the quest, so the node can't say whose need its cell serves";
+
 /**
  * What became of a mark: written; refused, by the alias verb's answer
  * (held by another quest, or a README it couldn't read); or locked,
@@ -329,7 +379,7 @@ function marking(
 	} catch {
 		// A lock that didn't come, or a write that failed; the verb also
 		// throws when the lock for its own log line doesn't come, after the
-		// mark has landed. Either way the quest's lock is held elsewhere.
+		// mark has landed, which the start reads the index to tell.
 		return "locked";
 	}
 }
@@ -338,7 +388,9 @@ function marking(
  * Say in quest `id`'s harness log that its sprout's `mark` wasn't
  * written, and `so`, what that costs a replay of `seed`; a log that
  * can't be written leaves the quest as the start left it. Answers
- * whether the log's lock didn't come, so the start asks it no more.
+ * whether it's logged, locked when the log threw, as a lock that never
+ * came does, so the start asks the quest no more, or unlogged when the
+ * quest had no folder to log in.
  */
 function markUnwritten(
 	state: QuestState,
@@ -346,19 +398,20 @@ function markUnwritten(
 	seed: SproutSeed,
 	mark: { type: string; value: string },
 	so: string,
-): boolean {
+): "logged" | "locked" | "unlogged" {
 	const dir = discoverQuests(state.questsRoot).index.quests.get(id)?.dir;
-	if (!dir) return false;
+	if (!dir) return "unlogged";
 	try {
 		appendHarnessLog(
 			dir,
 			`sprout ${seed.id ?? "with no id"}: its mark ${mark.type}:${mark.value} wasn't written, so ${so}`,
 		);
-		return false;
+		return "logged";
 	} catch {
-		// A log whose lock didn't come: the quest stands as the start left
-		// it, and only this note of its missing mark is lost.
-		return true;
+		// A log whose lock didn't come, or a write that failed: the quest
+		// stands as the start left it, and the first words say what this
+		// note would have.
+		return "locked";
 	}
 }
 
@@ -459,11 +512,16 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * work happens (PLACES), so its first words never call the page the
  * work. A link merely carrying a place's address is no place. GitHub's
  * own ways of linking a place count too, which parseRef reads as no
- * ref: an organisation, a repository with a query such as
- * ?tab=readme-ov-file, a branch or folder in one (/tree) and a branch's
- * history (/commits/main). A file
- * (/blob) is often the work itself, a spec or a line, so it reads as
- * the work.
+ * ref: up to three parts of a path name an owner, a repository or one
+ * of its tabs (?tab=readme-ov-file, /pulls, /milestones, /settings), an
+ * organisation's tabs (/orgs/o/repositories) or one of GitHub's own
+ * pages (/topics/rust, /search), but for what GitHub keeps of one
+ * person's (GITHUB_ITEMS). Deeper, a page is the work only where its
+ * tab names a piece of it (gitHubWork), and else a place: a folder
+ * (/tree), a label's list (/labels/bug), a setting or a team. One
+ * advisory (/advisories/GHSA-...) is the work. A page read wrongly as a
+ * place asks the person for the work, which costs less than one read
+ * wrongly as the work, filling a quest from a list.
  */
 function linkIsPlace(seed: SproutSeed): boolean {
 	const url = seed.link ? webAddress(seed.link) : undefined;
@@ -471,59 +529,125 @@ function linkIsPlace(seed: SproutSeed): boolean {
 	const path = url ? url.pathname.split("/").filter((part) => part !== "") : [];
 	// Before pageRead: parseRef reads /advisories/GHSA-... as an owner's
 	// repository.
-	if (onGitHub && GITHUB_OWN.has(path[0] ?? "")) return false;
+	if (onGitHub && path[0] === GITHUB_ADVISORIES) return path.length === 1;
 	const read = pageRead(seed);
 	if (read) return PLACES.has(read.ref.type);
 	if (!onGitHub) return false;
-	return (
-		path.length === 1 ||
-		path.length === 2 ||
-		(path.length === 3 && GITHUB_LISTS.has(path[2] ?? "")) ||
-		(path.length > 2 && GITHUB_PLACES.has(path[2] ?? ""))
-	);
+	if (GITHUB_ITEMS.has(path[0] ?? "")) return path.length === 1;
+	return path.length <= GITHUB_PLACE_DEPTH || !gitHubWork(path);
 }
 
 /**
- * GitHub's own pages, which no owner can be named: an advisory there
- * (/advisories/GHSA-...) is a piece of work, so none of them reads as a
- * place.
+ * Whether a GitHub path past GITHUB_PLACE_DEPTH names a piece of work by
+ * its tab. A file, a commit, a comparison, a release, a wiki page or an
+ * upload is one once its tab has as many parts below it as
+ * GITHUB_WORK_TABS says. A pull request, an issue, a discussion, a
+ * milestone, a project or a run is one by its number. One advisory under
+ * /security is one by its id, and one alert there, or one run under
+ * /actions, by its number, but never their lists. A form or an index
+ * (isPiece) is never one.
  */
-const GITHUB_OWN: ReadonlySet<string> = new Set([
-	"advisories",
-	"apps",
-	"collections",
-	"explore",
-	"features",
-	"marketplace",
-	"notifications",
-	"search",
-	"settings",
-	"sponsors",
-	"topics",
+function gitHubWork(path: readonly string[]): boolean {
+	const tab = path[GITHUB_TAB] ?? "";
+	const below = path.slice(GITHUB_TAB + 1);
+	const fewest = GITHUB_WORK_TABS.get(tab);
+	if (fewest !== undefined)
+		return below.length >= fewest && isPiece(tab, below[0]);
+	if (GITHUB_NUMBERED_TABS.has(tab)) return NUMBERED.test(below[0] ?? "");
+	const list = below[0] ?? "";
+	if (GITHUB_WORK_UNDER.get(tab)?.has(list) !== true) return false;
+	return list === GITHUB_ADVISORIES
+		? isPiece(list, below[1])
+		: NUMBERED.test(below[1] ?? "");
+}
+
+/**
+ * Whether a part of a GitHub path under `tab` names a piece rather than
+ * a form to make or change one (/releases/new, /advisories/new) or a
+ * wiki's index (/wiki/_pages), which GitHub starts with an underscore.
+ * On any other tab the part is a ref or an id, which may read new.
+ */
+function isPiece(tab: string, part: string | undefined): boolean {
+	if (part === undefined) return false;
+	if (tab === GITHUB_WIKI) return !part.startsWith("_");
+	return GITHUB_FORMS.get(tab)?.has(part) !== true;
+}
+
+/** A part GitHub numbers its pieces by. */
+const NUMBERED = /^\d+$/u;
+
+/** GitHub's advisories, each of which (/advisories/GHSA-...) is the work. */
+const GITHUB_ADVISORIES = "advisories";
+
+/** GitHub's wiki, whose own pages start with an underscore. */
+const GITHUB_WIKI = "wiki";
+
+/** GitHub's parts naming a form to make or change a piece, by tab. */
+const GITHUB_FORMS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	["releases", new Set(["new", "edit"])],
+	[GITHUB_ADVISORIES, new Set(["new"])],
 ]);
 
 /**
- * Where in a GitHub repository its own code is, a folder or a branch's
- * history (/commits/main), never a piece of work; one commit (/commit/)
- * is the work.
+ * What GitHub keeps of one person's under its own first part, each the
+ * work: an upload (/user-attachments/assets/...), often the report
+ * itself, and a Copilot conversation (/copilot/c/...).
  */
-const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "commits"]);
+const GITHUB_ITEMS: ReadonlySet<string> = new Set([
+	"user-attachments",
+	"copilot",
+]);
 
 /**
- * A GitHub repository's own lists, such as every open pull request: a
- * place, though one in them (/pull/9, /issues/4) is the work.
+ * The most parts of a GitHub path naming a place whatever they are: an
+ * owner, a repository and one of its tabs.
  */
-const GITHUB_LISTS: ReadonlySet<string> = new Set([
-	"pulls",
+const GITHUB_PLACE_DEPTH = 3;
+
+/**
+ * Where a GitHub path names its tab: after an owner and a repository, or
+ * after /orgs or /users and their name.
+ */
+const GITHUB_TAB = 2;
+
+/**
+ * GitHub's tabs whose pages are each a piece of work, with the fewest
+ * parts below the tab that name one: a ref and a file for a file's
+ * pages; one for a commit, a comparison, a release or a wiki page; an
+ * id and a name for an upload kept in a repository.
+ */
+const GITHUB_WORK_TABS: ReadonlyMap<string, number> = new Map([
+	["blob", 2],
+	["blame", 2],
+	["raw", 2],
+	["commit", 1],
+	["compare", 1],
+	["releases", 1],
+	["wiki", 1],
+	["files", 2],
+	["assets", 2],
+]);
+
+/** GitHub's tabs whose numbered pages are each a piece of work. */
+const GITHUB_NUMBERED_TABS: ReadonlySet<string> = new Set([
+	"pull",
 	"issues",
-	"actions",
-	"releases",
-	"branches",
-	"tags",
-	"commits",
 	"discussions",
+	"milestone",
 	"projects",
-	"wiki",
+	"runs",
+]);
+
+/**
+ * GitHub's tabs holding lists whose every page below them is a piece of
+ * work: an advisory or an alert under /security, a run under /actions.
+ */
+const GITHUB_WORK_UNDER: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	[
+		"security",
+		new Set(["advisories", "code-scanning", "dependabot", "secret-scanning"]),
+	],
+	["actions", new Set(["runs"])],
 ]);
 
 /**
@@ -631,6 +755,37 @@ async function makeQuest(
 	return make({ ...base, title, note });
 }
 
+/**
+ * What ends a line in what mycelium writes, Unicode's own ends too: the
+ * next line (U+0085) and the line and paragraph separators.
+ */
+const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
+
+/** The code point that opens a terminal's escape sequence. */
+const ESCAPE_POINT = 0x1b;
+
+/** The escape, as text. */
+const ESC = String.fromCodePoint(ESCAPE_POINT);
+
+/**
+ * A terminal's escape sequence, dropped whole so none of it reads as
+ * text: a string (a title, a hyperlink's address) up to the bell or the
+ * string's end, or the line's; a colour or a cursor move, 7-bit or
+ * 8-bit; or an ESC and the character it takes.
+ */
+const ESCAPES = new RegExp(
+	[
+		`${ESC}[\\]P_^X][^\\u0007${ESC}]*(?:\\u0007|${ESC}\\\\|$)`,
+		`${ESC}\\[[0-?]*[ -/]*[@-~]`,
+		"\\u009B[0-?]*[ -/]*[@-~]",
+		`${ESC}[ -/]*[0-~]`,
+	].join("|"),
+	"gu",
+);
+
+/** The control characters, a tab among them, each read as a space. */
+const CONTROLS = /\p{Cc}/u;
+
 /** Tie quest `id` to the cell it came from, saying how it went. */
 async function tie(
 	id: string,
@@ -671,27 +826,43 @@ async function tie(
 		return { kind: "failed", from, why, retry: false };
 	}
 	const said = lastLine(ran.stderr);
-	const why = said
-		? `it last wrote ${JSON.stringify(said)}`
-		: `it ended with ${ran.code ?? "no code"}`;
+	const why = said ? wroteSaid(said) : `it ended with ${ran.code ?? "no code"}`;
 	return { kind: "failed", from, why };
 }
 
 /**
- * The last line mycelium wrote, a progress bar's last redraw included, cut
- * to MOST_QUOTED whole characters and ended with "..." where it was cut,
- * so a cut reason never reads as the whole of it, or "" where it wrote
- * none.
+ * The last line mycelium wrote with anything left once cleaned (shown),
+ * a progress bar's last redraw included, so a line of only marks never
+ * hides the reason above it. It's cut to MOST_QUOTED whole characters
+ * and ended with "..." where it was cut, so a cut reason never reads as
+ * the whole of it, or "" where it wrote none. Lines are read from the
+ * end, so only the last few are cleaned however much came before.
  */
 function lastLine(stderr: string): string {
-	const line =
-		stderr
-			.trim()
-			.split(/\r?\n|\r/u)
-			.pop()
-			?.trim() ?? "";
+	const lines = stderr.split(LINE_ENDS);
+	let line = "";
+	for (let at = lines.length - 1; at >= 0 && line === ""; at -= 1) {
+		line = shown(lines[at] ?? "");
+	}
 	const characters = Array.from(line);
 	return characters.length > MOST_QUOTED
 		? `${characters.slice(0, MOST_QUOTED).join("")}...`
 		: line;
+}
+
+/**
+ * A line mycelium wrote as it shows, since what it relays may come from a
+ * node or a peer. Its escape sequences (ESCAPES) and every character that
+ * draws as nothing, a format one or another the node counts as unseen,
+ * are dropped. Each control left reads as a space. Its backticks become
+ * plain quotes, so none reads as a command beside the one the words ask
+ * to run.
+ */
+function shown(line: string): string {
+	return Array.from(line.replace(ESCAPES, ""))
+		.filter((each) => !drawsAsNothing(each))
+		.map((each) => (CONTROLS.test(each) ? " " : each))
+		.join("")
+		.replaceAll("`", "'")
+		.trim();
 }

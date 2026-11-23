@@ -33,6 +33,7 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { drawsAsNothing } from "../internal/unseen.ts";
 
 /** The most subjects a cell declares, as mycelium's node reads them. */
 export const MOST_SUBJECTS = 12;
@@ -67,33 +68,6 @@ const NOT_PLAIN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
  * node could not read the presence at all.
  */
 const LONE_SURROGATE = /\p{Cs}/u;
-
-/**
- * The code points, first and last, the node counts as unseen that
- * aren't format characters: the grapheme joiner, the Hangul and Khmer
- * fillers, the variation selectors, Mongolian or not, and the code
- * points left unassigned among the invisible operators and the tags.
- * Ranges rather than a character class, since most are combining marks,
- * which a class would join to their neighbours.
- */
-const UNSEEN: readonly (readonly [number, number])[] = [
-	[0x034f, 0x034f],
-	[0x115f, 0x1160],
-	[0x17b4, 0x17b5],
-	[0x180b, 0x180f],
-	[0x2060, 0x2065],
-	[0x3164, 0x3164],
-	[0xfe00, 0xfe0f],
-	[0xffa0, 0xffa0],
-	[0xe0000, 0xe007f],
-	[0xe0100, 0xe01ef],
-];
-
-/** Whether a character draws as nothing (see `UNSEEN`). */
-function unseen(each: string): boolean {
-	const point = each.codePointAt(0) ?? 0;
-	return UNSEEN.some(([first, last]) => point >= first && point <= last);
-}
 
 /**
  * The owners file `env` names, else cadence's under the config folder:
@@ -224,6 +198,6 @@ function isPlainSubject(subject: string): boolean {
 		[...subject].length <= LONGEST_SUBJECT &&
 		!NOT_PLAIN.test(subject) &&
 		!LONE_SURROGATE.test(subject) &&
-		![...subject].some(unseen)
+		![...subject].some(drawsAsNothing)
 	);
 }

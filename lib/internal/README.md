@@ -170,6 +170,9 @@ may import from here, and any of it may change without notice.
 - **`settled.ts`**: what work settles to within a time a caller can
   afford, kept by a timer of its own: the claim check and the mesh's
   routing wait on a classifier no longer than that.
+- **`unseen.ts`**: which characters draw as nothing, as the node
+  counts them, for the mesh's subjects and the words a sprout
+  relays from mycelium.
 - **`void-owner.ts`**: who owns a line Joel says into the void, read
   from what he attached (a pi session, a pull request, a page, a
   window) and from the quests that claim it, for
