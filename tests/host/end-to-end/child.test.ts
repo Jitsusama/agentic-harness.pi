@@ -479,6 +479,8 @@ it(
 							plainKinds.repeats,
 							DIFFERENCES,
 						),
+						"scripts the hosted child loaded twice, the earlier copy's name first:",
+						...hostedKinds.repeatNames,
 					];
 					process.stdout.write(`${said.join("\n")}\n`);
 					expect(hostedHeap, "the hosted child's heap").toBeGreaterThan(0);

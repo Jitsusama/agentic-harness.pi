@@ -39,14 +39,24 @@ export interface HeapKinds {
 	names: Map<string, Tally>;
 	/** Script source bytes by the package the script's file sits in. */
 	sources: Map<string, Tally>;
-	/** Script source bytes by the root the script was loaded from. */
+	/**
+	 * Script source bytes by the root the script was loaded from, and
+	 * whether it was named by URL, as Node's own module loader names
+	 * one, or by path, as a loader compiling it itself does.
+	 */
 	roots: Map<string, Tally>;
 	/**
-	 * Script source bytes, by package, of the scripts whose path within
-	 * their root an earlier script already had: a module loaded twice.
+	 * Script source bytes, by package and how each copy was named, of the
+	 * scripts whose path within their root an earlier script already had:
+	 * a module loaded twice.
 	 */
 	repeats: Map<string, Tally>;
+	/** The names of the first few scripts loaded twice, each beside the earlier one's. */
+	repeatNames: string[];
 }
+
+/** How many pairs of names of scripts loaded twice are kept. */
+const REPEAT_NAMES = 6;
 
 /** How long a name may run as a key before it is cut. */
 const NAME_CHARS = 60;
@@ -88,8 +98,9 @@ export function heapKinds(json: string): HeapKinds {
 		sources: new Map(),
 		roots: new Map(),
 		repeats: new Map(),
+		repeatNames: [],
 	};
-	const loaded = new Set<string>();
+	const loaded = new Map<string, { named: string; file: string }>();
 	let edge = 0;
 	for (let n = 0; n < count; n++) {
 		const kind = type(n);
@@ -115,11 +126,21 @@ export function heapKinds(json: string): HeapKinds {
 		}
 		if (source === undefined) continue;
 		add(kinds.sources, packageOf(file), source);
-		const { root, within } = placeOf(file);
-		add(kinds.roots, root, source);
+		const { root, within, named } = placeOf(file);
+		add(kinds.roots, `${root} (by ${named})`, source);
 		if (within === "") continue;
-		if (loaded.has(within)) add(kinds.repeats, packageOf(file), source);
-		else loaded.add(within);
+		const earlier = loaded.get(within);
+		if (earlier === undefined) {
+			loaded.set(within, { named, file });
+			continue;
+		}
+		add(
+			kinds.repeats,
+			`${packageOf(file)}, by ${earlier.named} and by ${named}`,
+			source,
+		);
+		if (kinds.repeatNames.length < REPEAT_NAMES)
+			kinds.repeatNames.push(`${earlier.file} | ${file}`);
 	}
 	return kinds;
 }
@@ -204,10 +225,15 @@ function packageOf(file: string): string {
  * starts, store hashes left out. Node's own modules, and scripts with no
  * file, have a root of their own and no path within one.
  */
-function placeOf(file: string): { root: string; within: string } {
+function placeOf(file: string): {
+	root: string;
+	within: string;
+	named: "url" | "path";
+} {
+	const named = file.startsWith("file://") ? "url" : "path";
 	const path = file.replace(/^file:\/\//, "");
 	if (path.startsWith("node:") || !path.includes("/"))
-		return { root: "node", within: "" };
+		return { root: "node", within: "", named };
 	const modules = path.indexOf(MODULES);
 	const harness = HARNESS_FOLDER.exec(path);
 	const at =
@@ -216,5 +242,6 @@ function placeOf(file: string): { root: string; within: string } {
 	return {
 		root: modules >= 0 ? `${root} (npm)` : root,
 		within: path.slice(at),
+		named,
 	};
 }
