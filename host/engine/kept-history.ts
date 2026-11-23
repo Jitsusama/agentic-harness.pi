@@ -15,7 +15,7 @@
  *
  * Just before the first kept entry the view holds a rollover record that
  * is never written. It names this same file as the parent, so
- * `ancestry` reads exactly what the view left out for session_recall,
+ * session_recall reads exactly what the view left out (recall-on-disk),
  * and it carries the spend of the turns left out, so spend-workflow's
  * total reads as before. Usage entries, also never written, carry the
  * tokens and cost of every entry left out, so pi's footer and /session

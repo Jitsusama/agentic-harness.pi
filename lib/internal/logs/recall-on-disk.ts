@@ -17,7 +17,10 @@
  *
  * A tool call is read with its result, as in memory. The result is
  * sought in the same log only: a log rolls over between turns, so a
- * call and its result are never split across two.
+ * call and its result are never split across two. A call takes the
+ * first result after it with its id, where a whole read takes the last
+ * anywhere: the same, since providers never give two calls one id. An
+ * id given twice still leaves every entry marked, so the walk goes on.
  */
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -48,14 +51,18 @@ export interface OnDisk {
 	readonly bytes: number;
 	/** How many entries the older branches held, said or not. */
 	readonly entries: number;
+	/** The parent that couldn't be read, ending the chain, and why. */
+	readonly unread?: { readonly path: string; readonly code: string };
 }
 
 /**
  * Every entry the logs `branch` rolled over from held on their
  * branches, marked against `asked`, oldest first and without the
- * entries the branch carried over: what `ancestry` reads, marked as
- * `markEntries` would mark it. A parent gone from disk ends the chain
- * there.
+ * entries the branch carried over: what reading each log whole gives,
+ * marked as `markEntries` would mark it. A parent gone from disk, or
+ * that can't be read, ends the chain there and is named; any other
+ * error is the reader's own, and is thrown rather than taken for a
+ * missing log.
  */
 export function markedOnDisk(
 	branch: readonly unknown[],
@@ -70,13 +77,16 @@ export function markedOnDisk(
 	let bytes = 0;
 	let record = rolledFrom(branch);
 	const visited = new Set<string>();
+	let unread: OnDisk["unread"];
 	while (record && !visited.has(record.parentSession)) {
 		visited.add(record.parentSession);
 		let log: LogRead;
 		try {
 			log = branchMarked(record, asked, lines);
-		} catch {
-			// A parent gone from disk, or unreadable, ends the chain there.
+		} catch (error) {
+			const code = fileErrorCode(error);
+			if (code === undefined) throw error;
+			unread = { path: record.parentSession, code };
 			break;
 		}
 		logs++;
@@ -86,7 +96,22 @@ export function markedOnDisk(
 		record = log.next;
 	}
 	const marked = older.flat();
-	return { marked, logs, bytes, entries: marked.length };
+	return {
+		marked,
+		logs,
+		bytes,
+		entries: marked.length,
+		...(unread ? { unread } : {}),
+	};
+}
+
+/** The code of a file system's error, such as ENOENT, or undefined for any other. */
+function fileErrorCode(error: unknown): string | undefined {
+	return error instanceof Error &&
+		"code" in error &&
+		typeof error.code === "string"
+		? error.code
+		: undefined;
 }
 
 /** A log's lines, each read's size added to `tally`. */
@@ -123,9 +148,12 @@ function branchMarked(
 	const slots = new Map<string, Slot>();
 	const records = new Map<string, SessionEntry>();
 	const waiting = new Map<string, Waiting>();
+	// Every entry still waiting, even one whose call id a later call took.
+	const unfinished = new Set<Waiting>();
 	const read = { bytes: 0 };
 
 	const finish = (held: Waiting): void => {
+		unfinished.delete(held);
 		const text = entryText(held.entry, held.results, held.recallCalls);
 		held.slot.mark = markOf(
 			held.entry.id,
@@ -170,10 +198,11 @@ function branchMarked(
 			),
 		};
 		if (asking.length === 0) finish(held);
+		else unfinished.add(held);
 		for (const call of asking) waiting.set(call.id, held);
 	}
 	// A call whose result never came is read without it.
-	for (const held of new Set(waiting.values())) finish(held);
+	for (const held of unfinished) finish(held);
 
 	const walked: Marked[] = [];
 	const on = new Set<string>();

@@ -93,6 +93,10 @@ function recallWhole(
 			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${disk.logs} log(s) on disk, ${disk.entries} entries, in ${ms} ms\n`,
 		);
 	}
+	if (disk.unread)
+		process.stderr.write(
+			`session-recall-workflow: conversation ${sessionId} could not read ${disk.unread.path} (${disk.unread.code}), so recall searched no history older than it\n`,
+		);
 	// The branch is pi's own entries, as the session manager holds them.
 	const own = markEntries(branch as Parameters<typeof markEntries>[0], asked);
 	return answer([...disk.marked, ...own], params, asked);

@@ -22,8 +22,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { askedBy } from "../../../../lib/internal/logs/recall.ts";
+import { markedOnDisk } from "../../../../lib/internal/logs/recall-on-disk.ts";
 import {
-	ancestry,
 	carriedBy,
 	diskFinds,
 	type Entry,
@@ -309,7 +310,17 @@ describe("what does not roll over", () => {
 	});
 });
 
-describe("the parent logs", () => {
+/** What recall reads of the logs `branch` rolled over from, by id. */
+function readByRecall(
+	branch: readonly unknown[],
+	lines?: Parameters<typeof markedOnDisk>[2],
+): string[] {
+	return markedOnDisk(branch, askedBy({ query: "answer" }), lines).marked.map(
+		(mark) => mark.id,
+	);
+}
+
+describe("the parent logs, as recall reads them", () => {
 	it("read back oldest first, without what the fresh log carried", () => {
 		const { manager, ids } = longSession();
 		const first = rolledInto(manager).fresh;
@@ -317,7 +328,7 @@ describe("the parent logs", () => {
 		const middle = first.appendMessage(assistant("middle answer"));
 		first.appendCompaction("again", middle, 10);
 		const second = rolledInto(first).fresh;
-		const older = ancestry(second.getBranch()).map((e) => e.id);
+		const older = readByRecall(second.getBranch());
 		const all = [...older, ...second.getBranch().map((e) => e.id)];
 
 		// The state before it was carried, so the oldest conversation leads.
@@ -331,16 +342,16 @@ describe("the parent logs", () => {
 		const { fresh } = rolledInto(manager);
 		rmSync(manager.getSessionFile() ?? "");
 
-		expect(ancestry(fresh.getBranch())).toEqual([]);
+		expect(readByRecall(fresh.getBranch())).toEqual([]);
 	});
 
 	it("are not read for a log that never rolled over", () => {
 		const { manager } = longSession();
-		const read = () => {
+		const read = (): Iterable<string> => {
 			throw new Error("read a parent");
 		};
 
-		expect(ancestry(manager.getBranch(), read)).toEqual([]);
+		expect(readByRecall(manager.getBranch(), read)).toEqual([]);
 	});
 });
 
@@ -735,14 +746,39 @@ function texts(entries: readonly Entry[]): string[] {
 }
 
 describe("a log's lines, read a chunk at a time", () => {
-	it("are every line of the log, whole past a chunk, letters of every width", () => {
+	it("are every line of the log, whole past a chunk, each read before its buffer is refilled", () => {
 		const path = join(dir, "log.jsonl");
-		// Past two chunks, of letters two, four and one bytes wide.
+		// Past two chunks, of letters two, four and one bytes wide. "first"
+		// is a view of the first chunk's buffer, so a line decoded after
+		// the next read fills that buffer would come back as other bytes.
 		const long = "é🌲a".repeat(300_000);
 		const lines = ["first", long, "", `${long}ü`, "last, cut short"];
 		writeFileSync(path, lines.join("\n"));
 
 		expect([...logLines(path)]).toEqual(lines);
+	});
+
+	it("are whole where a short line straddles two chunks", () => {
+		const path = join(dir, "log.jsonl");
+		// The reader's chunk is a mebibyte: "short" starts two bytes before
+		// its end and finishes in the next, one line either side of it.
+		const lines = ["a".repeat(1024 * 1024 - 3), "short", "end"];
+		writeFileSync(path, lines.join("\n"));
+
+		expect([...logLines(path)]).toEqual(lines);
+	});
+
+	it("close the log when their reader stops before the end", () => {
+		const path = join(dir, "log.jsonl");
+		writeFileSync(path, "one\ntwo\nthree\n");
+		const open = (): number => readdirSync("/proc/self/fd").length;
+		const before = open();
+		const lines = logLines(path);
+
+		expect(lines.next().value).toBe("one");
+		expect(open()).toBe(before + 1);
+		lines.return(undefined);
+		expect(open()).toBe(before);
 	});
 
 	it("add what each read brought in to the tally, the whole file in all", () => {
