@@ -224,6 +224,20 @@ export function maxReviewers(section: unknown): number {
 		: DEFAULT_MAX_REVIEWERS;
 }
 
+/**
+ * How long after one round's start the next may start on this machine,
+ * as the config sets it in `startSpacingMinutes`, or undefined for the
+ * line's own default. A machine with room to spare, as the Mac had on
+ * 22 November while optimus thrashed, has no stampede to space against,
+ * and its rounds waited 3 minutes each behind a line four deep.
+ */
+export function startSpacingMs(section: unknown): number | undefined {
+	const said = isRecord(section) ? section.startSpacingMinutes : undefined;
+	return typeof said === "number" && Number.isFinite(said) && said >= 0
+		? said * 60_000
+		: undefined;
+}
+
 /** Why a round of this size is refused, or undefined when it fits. */
 export function tooMany(
 	asking: number,

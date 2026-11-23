@@ -29,6 +29,9 @@ import {
 	type RunStore,
 	touchedBy,
 } from "../../../lib/core/review/index.ts";
+import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
+import { REVIEW_SLUG } from "../config.ts";
 import {
 	councilStartsPath,
 	findingDir,
@@ -37,7 +40,7 @@ import {
 	sessionKey,
 } from "../engine.ts";
 import { rangeProposal } from "../range.ts";
-import { builtInPersonaDir } from "../roster.ts";
+import { builtInPersonaDir, startSpacingMs } from "../roster.ts";
 import { roundToRead } from "../round-to-read.ts";
 import type { ReadableTree } from "../work.ts";
 import type { RoundAsks } from "./ask-roster.ts";
@@ -166,15 +169,30 @@ export async function awaitRosterStart(
 	// line, but its reviewers' folder says when it began, read again at
 	// each look since such rounds start while this one waits.
 	const runs = join(runArtifactDir(), "runs");
+	const spacingMs = await configuredSpacing();
 	return await awaitCouncilStart(
 		councilStartsPath(),
 		{
 			by: sessionKey(),
 			change,
 			startedElsewhere: () => newestRosterStartIn(runs),
+			...(spacingMs === undefined ? {} : { spacingMs }),
 		},
 		signal,
 	);
+}
+
+/**
+ * The spacing this machine's config sets between round starts, or
+ * undefined for the line's default. A config that can't be read keeps
+ * the default rather than stopping a round over a setting it may not
+ * even hold.
+ */
+async function configuredSpacing(): Promise<number | undefined> {
+	const loaded = await loadPackageConfig();
+	if (!loaded.ok) return undefined;
+	const review = loaded.config.sections[REVIEW_SLUG];
+	return startSpacingMs(isRecord(review) ? review.ask : undefined);
 }
 
 /**

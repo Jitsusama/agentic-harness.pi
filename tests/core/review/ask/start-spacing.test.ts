@@ -1,4 +1,5 @@
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -7,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newRunId } from "../../../../lib/core/review/ask/run.ts";
 import {
 	awaitCouncilStart,
@@ -23,8 +24,25 @@ const SPACING = 600;
 const LOOK = 10;
 /** How early a Node timer may fire against `Date.now()`. */
 const TIMER_EARLY_MS = 2;
+/** How late a promise may settle after the start it answers. */
+const SETTLED_LATE_MS = 50;
 /** A process id nothing holds, for a ticket its process left behind. */
 const GONE = 999_999_001;
+
+/** The next ticket's id, when a test needs to know it before it is drawn. */
+const nextTicket = vi.hoisted(() => ({ id: undefined as string | undefined }));
+
+vi.mock("node:crypto", async (original) => {
+	const crypto = await original<typeof import("node:crypto")>();
+	return {
+		...crypto,
+		randomUUID: () => {
+			const id = nextTicket.id;
+			nextTicket.id = undefined;
+			return id ?? crypto.randomUUID();
+		},
+	};
+});
 
 let folder: string;
 let path: string;
@@ -110,10 +128,17 @@ describe("spacing council starts on one machine", () => {
 		for (const [place, each] of starts.entries()) {
 			const before = starts[place - 1];
 			if (before === undefined) continue;
-			expect(
-				each.at - before.at,
-				`${each.by} a spacing after`,
-			).toBeGreaterThanOrEqual(SPACING - TIMER_EARLY_MS);
+			const gap = each.at - before.at;
+			// Each start is read when its promise settles, which may come a
+			// few milliseconds after the start itself on a loaded machine.
+			expect(gap, `${each.by} a spacing after`).toBeGreaterThanOrEqual(
+				SPACING - SETTLED_LATE_MS,
+			);
+			// The regression this guards: rounds waiting behind gaps, so
+			// starts came several spacings apart. Loose, for a loaded machine.
+			expect(gap, `${each.by} not held past its turn`).toBeLessThan(
+				2 * SPACING,
+			);
 		}
 		expect(starts[2]?.waited).toContain(
 			"1 round ahead, behind o/r#ISXEG8 (asked by ISXEG8)",
@@ -281,19 +306,120 @@ describe("spacing council starts on one machine", () => {
 		expect(start.cancelled).toBeUndefined();
 	});
 
-	it("leaves the line and says why when every look fails", async () => {
+	// The first look is the one that joins, so a fault there must be
+	// retried like any other rather than failing the round outright.
+	it("joins on a later look when the first can't write the line", async () => {
+		// A folder where the line goes fails the first look's write.
+		mkdirSync(linePath(), { recursive: true });
+		let looks = 0;
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				startedElsewhere: async () => {
+					looks += 1;
+					if (looks === 2) rmSync(linePath(), { recursive: true });
+					return undefined;
+				},
+			}),
+		);
+
+		expect(looks, "the first look failed and was retried").toBe(2);
+		expect(start.release).toBeDefined();
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("leaves the line and says why when every look after joining fails", async () => {
+		startedAt("A2VLJN", new Date());
+		let looks = 0;
+
 		await expect(
 			awaitCouncilStart(
 				path,
 				claim("ISXEG8", {
+					spacingMs: 60_000,
 					startedElsewhere: async () => {
-						throw new Error("lock held too long");
+						looks += 1;
+						if (looks > 1) throw new Error("lock held too long");
+						return undefined;
 					},
 				}),
 			),
 		).rejects.toThrow("lock held too long");
 
+		expect(looks, "it joined, then every look failed").toBeGreaterThan(1);
 		expect(line().waiting, "no ticket left holding the head").toEqual([]);
+		expect(line().started.by, "the start before stands").toBe("A2VLJN");
+	});
+
+	// A look can take the start and then fail before it answers; the next
+	// look finds the start its own, and a refusal must still give it back.
+	it("gives back a start a failed look took, putting back the one before", async () => {
+		const first = new Date(Date.now() - 2 * SPACING);
+		const before = {
+			at: first.toISOString(),
+			by: "A2VLJN",
+			change: "o/r#A2VLJN",
+		};
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		writeFileSync(
+			linePath(),
+			JSON.stringify({
+				started: {
+					at: new Date().toISOString(),
+					by: "ISXEG8",
+					change: "o/r#ISXEG8",
+					ticket: "mine",
+					follows: before,
+				},
+				waiting: [],
+			}),
+		);
+		nextTicket.id = "mine";
+
+		const start = await awaitCouncilStart(path, claim("ISXEG8"));
+		await start.release?.();
+
+		expect(line().started).toEqual(before);
+	});
+
+	it("gives the start back when stopped during the look that took it", async () => {
+		const giving = new AbortController();
+
+		const start = await awaitCouncilStart(
+			path,
+			claim("ISXEG8", {
+				startedElsewhere: async () => {
+					giving.abort();
+					return undefined;
+				},
+			}),
+			giving.signal,
+		);
+
+		expect(start.cancelled).toContain("stopped");
+		expect(start.release).toBeUndefined();
+		expect(line().started, "nothing started in its name").toBeUndefined();
+	});
+
+	it("waits behind no ticket naming no single process", async () => {
+		const now = new Date().toISOString();
+		startedAt("A2VLJN", new Date(Date.now() - 2 * SPACING), [
+			{
+				id: "group",
+				by: "ISXEG8",
+				change: "o/r#group",
+				pid: 0,
+				askedAt: now,
+				seenAt: now,
+			},
+		]);
+		const { alive: _, ...bySignal } = claim("85PKB2");
+
+		const start = await awaitCouncilStart(path, bySignal);
+
+		expect(start.waited, "it started at once").toBeUndefined();
+		expect(line().waiting).toEqual([]);
 	});
 
 	it("takes no place when stopped before it asks", async () => {
@@ -349,13 +475,46 @@ describe("spacing council starts on one machine", () => {
 		).toBeGreaterThanOrEqual(come.getTime() + SPACING - TIMER_EARLY_MS);
 	});
 
-	it("reads a line cut short as nobody waiting", async () => {
+	// A garbled line lost its last start, so reading it as empty would let
+	// the next round start with no spacing at all.
+	it("spaces from now when the line is cut short, and writes it whole again", async () => {
 		mkdirSync(join(folder, "starts"), { recursive: true });
 		writeFileSync(linePath(), "{ cut short");
+		const asked = Date.now();
+
+		await awaitCouncilStart(path, claim("ISXEG8"));
+
+		expect(Date.now()).toBeGreaterThanOrEqual(asked + SPACING - TIMER_EARLY_MS);
+		expect(line().started.by).toBe("ISXEG8");
+	});
+
+	it("spaces from now when the line holds no waiting list or a bad start", async () => {
+		for (const kept of ["{}", '{"started":{"at":"soon"},"waiting":[]}']) {
+			mkdirSync(join(folder, "starts"), { recursive: true });
+			writeFileSync(linePath(), kept);
+			const asked = Date.now();
+
+			await awaitCouncilStart(path, claim("ISXEG8"));
+
+			expect(Date.now(), kept).toBeGreaterThanOrEqual(
+				asked + SPACING - TIMER_EARLY_MS,
+			);
+		}
+	});
+
+	// An unreadable line used to fail every round on the machine.
+	it("writes a whole line over one it can't read, spacing from now", async () => {
+		mkdirSync(join(folder, "starts"), { recursive: true });
+		// What a reader that can read it anyway, as root can, takes as garbled.
+		writeFileSync(linePath(), "{}");
+		chmodSync(linePath(), 0o000);
+		const asked = Date.now();
 
 		const start = await awaitCouncilStart(path, claim("ISXEG8"));
 
-		expect(start.waited).toBeUndefined();
+		expect(start.release).toBeDefined();
+		expect(Date.now()).toBeGreaterThanOrEqual(asked + SPACING - TIMER_EARLY_MS);
+		expect(line().started.by, "readable again").toBe("ISXEG8");
 	});
 });
 

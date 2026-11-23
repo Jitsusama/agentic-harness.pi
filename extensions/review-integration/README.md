@@ -313,6 +313,13 @@ out at dispatch, so a reviewer never silently falls back to pi's
 round that would ask more than `maxReviewers` reviewers, eight by
 default, is refused with the count and how to raise it.
 
+Rounds on one machine start in line, three minutes apart, so a
+burst of councils doesn't land on a busy machine at once.
+`startSpacingMinutes` under `ask` sets that gap for the machine
+whose config it is: a machine with room to spare can take `1`, or
+`0` to start each round as soon as it reaches the head of the
+line.
+
 Persona charters are read from your persona directory first and
 then from `personas/` here, which ships seven: the four above,
 `architecture-hawk`, `clean-design` and `intent-fidelity`. A file
