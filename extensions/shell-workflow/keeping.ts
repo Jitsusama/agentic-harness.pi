@@ -26,13 +26,13 @@ import {
 	makeKept,
 	markCarried,
 	pidOf,
-	removeKept,
 	rollIfFull,
 } from "../../lib/internal/shell/kept.ts";
 import {
 	disownKeptJob,
 	forgetOwnKeptJob,
 } from "../../lib/internal/shell/kept-jobs.ts";
+import { removeKept } from "../../lib/internal/shell/kept-removal.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { MAX_TIMEOUT_MS } from "../../lib/internal/shell/spawner.ts";
 import type { JobCarry } from "../../lib/jobs/index.ts";
@@ -170,7 +170,7 @@ export function keepsOnDisk(
 					// longer than a stop the person asks for meanwhile, its files'
 					// removal below taking the record; a session's close meanwhile
 					// leaves it to the removal, and a pi exiting first takes it back
-					// on the thread as it goes (kept.ts). While it goes the call can
+					// on the thread as it goes (kept-removal.ts). While it goes the call can
 					// still be carried, so a move or a host's stop meeting it then
 					// carries it, its end said where it lands, rather than finding a
 					// job neither carriable nor ended and stopping it. Not one this

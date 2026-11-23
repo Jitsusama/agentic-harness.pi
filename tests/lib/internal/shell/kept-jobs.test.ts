@@ -30,9 +30,7 @@ import type { CarriedShell } from "../../../../lib/internal/shell/carried.ts";
 import {
 	carriedCalls,
 	makeKept,
-	ownJobRecord,
 	RECORD_SPARED_FOR_MS,
-	removeKept,
 } from "../../../../lib/internal/shell/kept.ts";
 import {
 	disownKeptJob,
@@ -43,6 +41,10 @@ import {
 	recordKeptJob,
 	strayKeptJobs,
 } from "../../../../lib/internal/shell/kept-jobs.ts";
+import {
+	ownJobRecord,
+	removeKept,
+} from "../../../../lib/internal/shell/kept-removal.ts";
 
 // What the code asks of the disk: each move, link, write and removal off
 // the thread, which can be held after the disk acts, as a busy disk's

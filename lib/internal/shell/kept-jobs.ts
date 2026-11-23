@@ -27,7 +27,7 @@
  * most calls never wrote one: asking the disk, on the loop a host's
  * conversations share, for a name that isn't there held that loop up to
  * 12 s under load. So the process keeps which records it wrote
- * (kept.ts), and a call it wrote none for asks nothing; one it wrote is
+ * (kept-removal.ts), and a call it wrote none for asks nothing; one it wrote is
  * removed off the thread, set aside first, so a hand-off while it goes
  * can put it back, linked into place so it never replaces one its taker
  * wrote first: a state folder on a disk with no hard links has each such
@@ -38,7 +38,7 @@
  * handed to a job have records, so a hold naming a `.job` file can still
  * come from either. A removal still running is left to the disk at a
  * close, and taken back on the thread only as the process exits
- * (kept.ts).
+ * (kept-removal.ts).
  */
 
 import {
@@ -51,25 +51,22 @@ import {
 import { link, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
+import { endOf, JOB_SUFFIX, keptFolder, processThere } from "./kept.ts";
 import {
 	asideOf,
 	beginJobRecordRemoval,
 	endJobRecordRemoval,
-	endOf,
 	handJobRecordOn,
 	isMissing,
 	isTaken,
-	JOB_SUFFIX,
 	type JobRecordRemoval,
-	keptFolder,
 	ownJobRecord,
 	ownsJobRecord,
-	processThere,
 	removeKept,
 	removingUnhanded,
 	stagedBackOf,
 	takeJobRecord,
-} from "./kept.ts";
+} from "./kept-removal.ts";
 
 /** One background bash call, as its session takes it up again. */
 export interface KeptJob {
@@ -199,7 +196,7 @@ function clearStaged(staged: string): void {
  * one for a call not handed on removes it, a record written again
  * meanwhile included, since it takes each in turn, on a disk slow enough
  * that an unlink here would hold every conversation a host runs. A pi
- * that exits first takes that record back as it goes (kept.ts).
+ * that exits first takes that record back as it goes (kept-removal.ts).
  *
  * Whether this process holds the record is asked by path, not by which
  * session wrote it: a taker in this process that wrote it again before

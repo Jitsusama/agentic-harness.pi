@@ -53,8 +53,9 @@ import {
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
-import { isMarkedCarried, removeKept } from "../../lib/internal/shell/kept.ts";
+import { isMarkedCarried } from "../../lib/internal/shell/kept.ts";
 import { disownKeptJob } from "../../lib/internal/shell/kept-jobs.ts";
+import { removeKept } from "../../lib/internal/shell/kept-removal.ts";
 import {
 	finishedSummary,
 	keepInTemp,
@@ -142,7 +143,7 @@ export function carryAway(
 	} catch {
 		// Nobody will be told how they end: stop them, as a quit did. A
 		// plain pi quits next, and one exiting before the disk gets to their
-		// files takes their marks back as it goes (kept.ts); a host's process
+		// files takes their marks back as it goes (kept-removal.ts); a host's process
 		// lives on, and their removal ends off the thread.
 		for (const job of carried.jobs) {
 			if (!isCarriedShell(job.work)) continue;
