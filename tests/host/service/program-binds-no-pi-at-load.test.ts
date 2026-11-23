@@ -46,18 +46,21 @@
  *
  * An `import()` inside a function runs when the function does, and is
  * not followed. So the walk can't see one that a function called
- * elsewhere at load runs ahead of the configuration check.
- * pi-host.test.ts, which runs pi-host against a missing pi install, is
- * the check for that within pi's scope only: it runs in this tree,
- * where typebox and the dev dependencies resolve, so such a load of
- * typebox is seen by neither. The walk fails closed on what it does
- * read: a load that doesn't name its module by a plain string; a
- * createRequire other than one called to make a named `const`, renamed
- * or passed on; a require name used other than in a call; a relative
- * import of a file that isn't there; a bare name that is neither node's
- * nor a dependency (the package's own name among them, which reaches
- * its own code unwalked); or a file that won't parse. Each fails the
- * test, by file and line, rather than being passed over.
+ * elsewhere at load runs ahead of the configuration check, such as a
+ * callback a call at load runs. pi-host.test.ts is the check for that:
+ * it runs pi-host against a missing pi install with each optional peer
+ * and dev dependency refused, as a production install lacks them. The
+ * walk fails closed on what it does read: a load that doesn't name its
+ * module by a plain string; a createRequire other than one called to
+ * make a named `const`, renamed, named by a string or passed on; a
+ * require made and exported; a require name used other than in a call;
+ * a relative import of a file that isn't there; a bare name that is
+ * neither node's nor a dependency (the package's own name among them,
+ * which reaches its own code unwalked); or a file that won't parse.
+ * The createRequire and require checks read the whole file, functions
+ * included, since a require made in a function can be handed back to
+ * run at load. Each fails the test, by file, line and why, rather than
+ * being passed over.
  */
 
 import {
@@ -116,10 +119,16 @@ const CALLABLE_HERE = new Set([
 	"ArrowFunctionExpression",
 ]);
 
-/** What a file loads as it loads, and the lines of loads it can't read. */
+/** A load the walk can't follow: the line it is on, and why. */
+interface Unread {
+	readonly line: number;
+	readonly why: string;
+}
+
+/** What a file loads as it loads, and the loads it can't read. */
 interface Loads {
 	readonly specifiers: readonly string[];
-	readonly unread: readonly number[];
+	readonly unread: readonly Unread[];
 }
 
 /** The module a load names, when it names one by a plain string. */
@@ -211,10 +220,13 @@ function namingOnly(node: Record<string, unknown>): unknown[] {
 		(node.type === "ObjectProperty" ||
 			node.type === "ObjectMethod" ||
 			node.type === "ClassMethod" ||
-			node.type === "ClassProperty") &&
+			node.type === "ClassProperty" ||
+			node.type === "ClassAccessorProperty") &&
 		node.computed !== true
 	)
 		return [node.key];
+	// A private member's name, `#name`, which nothing but its class reads.
+	if (node.type === "PrivateName") return [node.id];
 	return [];
 }
 
@@ -223,13 +235,14 @@ function namingOnly(node: Record<string, unknown>): unknown[] {
  * anywhere in the file, and the lines of any other use of createRequire
  * or of those names, which can't be followed: a createRequire renamed
  * on import or as it is destructured, read without a call, or called
- * other than to make a named `const`; a require passed on, copied or
- * read other than by calling it.
+ * other than to make a named `const`, or named by a string; a require
+ * exported, passed on, copied or read other than by calling it.
  */
 function requiresMade(program: unknown): {
 	readonly names: ReadonlySet<string>;
-	readonly unread: readonly number[];
+	readonly unread: readonly Unread[];
 } {
+	const unread: Unread[] = [];
 	const names = new Set(["require"]);
 	const calls = new Set<unknown>();
 	const made = new Set<unknown>();
@@ -241,6 +254,17 @@ function requiresMade(program: unknown): {
 			return;
 		}
 		if (!isRecord(node)) return;
+		if (
+			node.type === "ExportNamedDeclaration" &&
+			isRecord(node.declaration) &&
+			Array.isArray(node.declaration.declarations)
+		)
+			for (const declarator of node.declaration.declarations)
+				if (isRecord(declarator) && callsCreateRequire(declarator.init))
+					unread.push({
+						line: lineOf(declarator),
+						why: "a require made here is exported",
+					});
 		if (
 			node.type === "VariableDeclarator" &&
 			isRecord(node.id) &&
@@ -274,23 +298,38 @@ function requiresMade(program: unknown): {
 		for (const child of childrenOf(node)) gather(child);
 	};
 	gather(program);
-	const unread: number[] = [];
 	const check = (node: unknown): void => {
 		if (Array.isArray(node)) {
 			for (const each of node) check(each);
 			return;
 		}
 		if (!isRecord(node)) return;
-		if (callsCreateRequire(node) && !made.has(node)) unread.push(lineOf(node));
+		if (callsCreateRequire(node) && !made.has(node))
+			unread.push({
+				line: lineOf(node),
+				why: "createRequire called other than to make a named const",
+			});
+		if (node.type === "StringLiteral" && node.value === "createRequire")
+			unread.push({
+				line: lineOf(node),
+				why: "createRequire named by a string",
+			});
 		if (
 			node.type === "Identifier" &&
 			typeof node.name === "string" &&
 			!bindings.has(node) &&
 			!calls.has(node)
 		) {
-			const requireName = names.has(node.name) && !named.has(node);
-			if (node.name === "createRequire" || requireName)
-				unread.push(lineOf(node));
+			if (node.name === "createRequire")
+				unread.push({
+					line: lineOf(node),
+					why: "createRequire renamed, read or passed on",
+				});
+			else if (names.has(node.name) && !named.has(node))
+				unread.push({
+					line: lineOf(node),
+					why: `${node.name} used other than in a call`,
+				});
 		}
 		for (const child of childrenOf(node)) check(child);
 	};
@@ -306,11 +345,15 @@ function loadsIn(source: string): Loads {
 	});
 	const specifiers: string[] = [];
 	const requires = requiresMade(program.body);
-	const unread: number[] = [...requires.unread];
+	const unread: Unread[] = [...requires.unread];
 	const runsNow = new Set<unknown>();
 	const load = (node: Record<string, unknown>, from: unknown): void => {
 		const specifier = moduleNamed(from);
-		if (specifier === undefined) unread.push(lineOf(node));
+		if (specifier === undefined)
+			unread.push({
+				line: lineOf(node),
+				why: "a load not naming its module by a plain string",
+			});
 		else specifiers.push(specifier);
 	};
 	const visit = (node: unknown, later: boolean): void => {
@@ -403,7 +446,8 @@ function walkFrom(root: string, entry: string): Walk {
 			unfollowed.push(`${file}: won't read: ${String(error)}`);
 			return;
 		}
-		for (const line of loads.unread) unfollowed.push(`${file}:${line}`);
+		for (const { line, why } of loads.unread)
+			unfollowed.push(`${file}:${line}: ${why}`);
 		for (const specifier of loads.specifiers) {
 			if (specifier.startsWith(".")) {
 				const next = relative(root, join(root, dirname(file), specifier));
@@ -426,6 +470,11 @@ function walkFrom(root: string, entry: string): Walk {
 	};
 	walk(entry, []);
 	return { peerBound, unfollowed, reached };
+}
+
+/** The distinct lines of `unread`, in order. */
+function linesOf(unread: readonly Unread[]): number[] {
+	return [...new Set(unread.map(({ line }) => line))].sort((a, b) => a - b);
 }
 
 /** The relative modules a file imports, resolved from the package root. */
@@ -603,7 +652,10 @@ describe("loading the host program", () => {
 		].join("\n");
 		const { specifiers, unread } = loadsIn(source);
 		expect(specifiers).toEqual(["read"]);
-		expect([...unread].sort()).toEqual([3, 5, 8]);
+		expect(linesOf(unread)).toEqual([3, 5, 8]);
+		expect(unread.find(({ line }) => line === 3)?.why).toBe(
+			"a load not naming its module by a plain string",
+		);
 	});
 
 	it("fails on a createRequire or a require it can't follow by name, by its line", () => {
@@ -611,15 +663,32 @@ describe("loading the host program", () => {
 			'import { createRequire as make } from "node:module";',
 			'import { createRequire } from "node:module";',
 			"const { createRequire: made } = module;",
-			"const { createRequire: also } = module;",
 			"const held = module.createRequire;",
 			"const load = createRequire(import.meta.url);",
 			"const copied = load;",
 			"use(require);",
 			'load("followed");',
+			'import { "createRequire" as named } from "node:module";',
+			'const fromString = module["createRequire"](import.meta.url);',
+			"export const shared = createRequire(import.meta.url);",
+			'function resolveLater() { return createRequire(import.meta.url).resolve("x"); }',
+			'{\n\tconst { createRequire } = module;\n\tconst short = createRequire(import.meta.url);\n\tshort("short");\n}',
+			'class Held {\n\t#require(id) {\n\t\treturn id;\n\t}\n\tuse() {\n\t\treturn this.#require("x");\n\t}\n}',
 		].join("\n");
 		const { specifiers, unread } = loadsIn(source);
-		expect(specifiers).toEqual(["node:module", "node:module", "followed"]);
-		expect([...new Set(unread)].sort()).toEqual([1, 3, 4, 5, 7, 8]);
+		expect(specifiers).toEqual([
+			"node:module",
+			"node:module",
+			"followed",
+			"node:module",
+			"short",
+		]);
+		expect(linesOf(unread)).toEqual([1, 3, 4, 6, 7, 9, 10, 11, 12]);
+		expect(unread.find(({ line }) => line === 11)?.why).toBe(
+			"a require made here is exported",
+		);
+		expect(unread.find(({ line }) => line === 7)?.why).toBe(
+			"require used other than in a call",
+		);
 	});
 });
