@@ -333,14 +333,17 @@ describe("a lease", () => {
 	it("tells nobody of a background command's claim, though another holds the same", async () => {
 		// Two sessions running one script share job ids and first words.
 		peer("session-w", ["WCJQSG"], []);
-		leased("session-w", { kind: "heavy", subject: "background j7: ls" });
+		leased("session-w", {
+			kind: "heavy",
+			subject: "background j7: ./watch.sh",
+		});
 		const { sent, fire } = await startSession();
 
 		await fire("tool_call", {
 			type: "tool_call",
 			toolName: "bash",
 			toolCallId: "b1",
-			input: { command: "ls" },
+			input: { command: "./watch.sh" },
 		});
 		await fire("tool_result", {
 			type: "tool_result",
@@ -350,7 +353,7 @@ describe("a lease", () => {
 
 		await vi.waitFor(() =>
 			expect(ownBoard()).toMatchObject([
-				{ kind: "heavy", subject: "background j7: ls" },
+				{ kind: "heavy", subject: "background j7: ./watch.sh" },
 			]),
 		);
 		// A real pause: the test is that neither side is told in it.

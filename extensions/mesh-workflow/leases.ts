@@ -61,9 +61,11 @@ export {
 	createHeavyCalls,
 	heavySaid,
 	parkHeavyCalls,
+	parkWaitingCalls,
 	reloading,
 	type TakenCall,
 	takeHeavyCalls,
+	takeWaitingCalls,
 } from "./leases/heavy-calls.ts";
 export { leasesText } from "./leases/said.ts";
 

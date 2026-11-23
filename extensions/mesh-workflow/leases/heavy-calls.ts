@@ -2,12 +2,22 @@
  * Heavy work a tool call claims: the lease each call takes while it
  * runs, given back as it ends or hands off to the background, and
  * carried across a reload to the runtime it starts. A command handed
- * to the background claims heavy work whatever it runs, named by its
- * job and first words, so a mycelium node never moves a session out
- * from under it (5HJZ8Z, 16 November).
+ * to the background claims heavy work, named by its job and first
+ * words, so a mycelium node never moves a session out from under it
+ * (5HJZ8Z, 16 November), unless it only waits and reads
+ * (lib/internal/priority/only-waits.ts): on 23 November seven ordered
+ * carries were refused, each on the session's own poll loop. A command
+ * known only by a label cut short ("...") still claims, since what was
+ * cut can't be read. The jobs judged waits by their whole command are
+ * kept by call, so a carry names them as stopped though their labels
+ * are cut.
  */
 
 import { sessionSlot } from "../../../lib/core/session/index.ts";
+import {
+	onlyWaits,
+	wholeWait,
+} from "../../../lib/internal/priority/only-waits.ts";
 import {
 	KIND_SAID,
 	type Kind,
@@ -33,10 +43,15 @@ const BACKGROUND_MS = MOST_HOLD_MS;
  * commands share a claim and none is told another runs the same.
  */
 function backgroundSubject(jobId: string, command: string): string {
-	const subject = `background ${jobId.replace(/[.,;]$/, "")}: ${firstWords(command)}`;
+	const subject = `background ${bareJob(jobId)}: ${firstWords(command)}`;
 	return subject.length > SUBJECT_MOST
 		? `${subject.slice(0, SUBJECT_MOST - 3)}...`
 		: subject;
+}
+
+/** A job's id as the job host names it, without the sentence's stop. */
+function bareJob(jobId: string): string {
+	return jobId.replace(/[.,;]$/, "");
 }
 
 /** A command's first line, trimmed. */
@@ -87,13 +102,22 @@ export type TakenCall = readonly [
 ];
 
 /**
+ * A background job judged by its whole command to only wait, by the
+ * call that handed it off.
+ */
+export type WaitingCall = readonly [toolCallId: string, jobId: string];
+
+/**
  * Heavy calls whose work is running, from `carried` on: the calls a
- * reload handed over from the runtime before, whose work runs on.
+ * reload handed over from the runtime before, whose work runs on. The
+ * jobs that only wait are kept in `waiting`, which the caller owns, so
+ * a carry can read them.
  */
 export function createHeavyCalls(
 	heavy: (event: LeaseEvent) => void,
 	why: (command: string) => string = whatOf,
 	carried: readonly HeavyCall[] = [],
+	waiting: Map<string, string> = new Map(),
 ): HeavyCalls {
 	const calls = new Map<string, string>(carried);
 	// Each command running, until it answers or hands off.
@@ -139,18 +163,23 @@ export function createHeavyCalls(
 			const jobId = handedOffAs(content);
 			if (jobId === undefined) ended(toolCallId);
 			else if (!calls.has(toolCallId) && command !== undefined) {
-				background(toolCallId, jobId, command);
+				if (onlyWaits(command)) waiting.set(toolCallId, bareJob(jobId));
+				else background(toolCallId, jobId, command);
 			}
 		},
-		finished: ended,
+		finished(toolCallId) {
+			waiting.delete(toolCallId);
+			ended(toolCallId);
+		},
 		takenUp(toolCallId, jobId, label) {
-			if (ofKind(toolCallId, label) === undefined) {
-				background(toolCallId, jobId, label);
-			}
+			if (ofKind(toolCallId, label) !== undefined) return;
+			if (wholeWait(label)) waiting.set(toolCallId, bareJob(jobId));
+			else if (!waiting.has(toolCallId)) background(toolCallId, jobId, label);
 		},
 		clear: () => {
 			calls.clear();
 			commands.clear();
+			waiting.clear();
 		},
 		held: () => [...calls],
 	};
@@ -193,6 +222,25 @@ export function parkHeavyCalls(calls: readonly HeavyCall[]): void {
 /** Take the heavy calls a reload left, once; none when it left none. */
 export function takeHeavyCalls(): readonly HeavyCall[] {
 	return carriedCalls().splice(0);
+}
+
+/** Where a reload leaves the jobs that only wait, as for the calls. */
+const carriedWaits = () =>
+	sessionSlot<WaitingCall[]>(
+		"agentic-harness.mesh.waiting-calls.v1",
+		undefined,
+		() => [],
+	);
+
+/** Leave the jobs that only wait for the runtime a reload starts. */
+export function parkWaitingCalls(waiting: ReadonlyMap<string, string>): void {
+	const carried = carriedWaits();
+	carried.splice(0, carried.length, ...waiting);
+}
+
+/** Take the jobs that only wait a reload left, once. */
+export function takeWaitingCalls(): readonly WaitingCall[] {
+	return carriedWaits().splice(0);
 }
 
 /** Whether a session is ending only to reload, as pi's shutdown event says. */

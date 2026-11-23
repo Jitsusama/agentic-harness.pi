@@ -274,6 +274,8 @@ export interface MeshState {
 	readonly tidy: ReturnType<typeof sweeper>;
 	readonly unowned: LeaseEvent[];
 	readonly takenUnowned: TakenCall[];
+	/** Background jobs judged by their whole command to only wait, by call. */
+	readonly waitingCalls: Map<string, string>;
 	readonly leasing: ReturnType<typeof createLeasing>;
 	readonly answered: Set<string>;
 	readonly left: Map<string, Left>;

@@ -757,10 +757,18 @@ doing only when it is the easy thing:
   qemu-system-x86` does, or work named in quotes or a heredoc,
   claims nothing. One handed
   to a job runs on past its answer, until the job says it has
-  ended (`jobs:finished:v1`). Any command handed to the background
-  claims heavy work too, whatever it runs, as `background <job>:
-  <first words>` for two hours at most, so a mycelium node moving
-  only idle sessions never moves one under it; its presence says
+  ended (`jobs:finished:v1`). A command handed to the background
+  claims heavy work too, as `background <job>: <first words>` for
+  two hours at most, so a mycelium node moving only idle sessions
+  never moves one under it, unless every step only waits and
+  reads (`sleep`, `grep`, `tail`, a `systemctl status`), writing
+  nowhere but `/dev/null`
+  ([`lib/internal/priority/only-waits.ts`](../../lib/internal/priority/only-waits.ts)).
+  A wait is read in a narrow alphabet rather than as bash reads
+  it, so any form outside it still claims: a backslash, a `${`, a
+  `[[` test, a function, a blank but space or tab, or a counter
+  loop's `n=$((n+1))`. One known only by a label cut short claims
+  too. Its presence says
   `leases: { background: true }`, which a node reads to tell this
   harness from an older one. Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with
@@ -1155,7 +1163,11 @@ nothing of its own would be lost: a background job out, a lease
 it or its hands hold, a rebase halted in a tree it holds, a
 message queued, a prompt open or words typed each refuse at
 once. A run under way is let end its turn first, up to ten
-minutes, and its own leases then count too. A refusal says why
+minutes, and its own leases then count too. A background
+command that only waits and reads, such as a loop polling a
+log, refuses nothing: the close stops it, and a note written
+into the conversation before it is carried names each one, so
+it reads on arrival what to start again. A refusal says why
 on screen, takes up a run it ended, and writes
 `<session>.refused.json` beside where its done file would go,
 in this machine's handover whoever chose the carry, holding only

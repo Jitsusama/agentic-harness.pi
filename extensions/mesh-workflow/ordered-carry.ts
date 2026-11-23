@@ -34,7 +34,11 @@
  * Carried, it closes as the person's Carry does, saying in its journal
  * who ordered or chose it and why, a node's choice never as an order,
  * and ends any run that starts before it has closed, leaving any
- * later order.
+ * later order. Background commands that only wait
+ * (lib/internal/priority/only-waits.ts) claim no lease, so they don't
+ * refuse it: the close stops them, and a note written into the
+ * conversation before it is carried names them, so it reads on arrival
+ * what to start again.
  *
  * From the moment it is taken until it is refused, or, carried, until
  * its close lands, it holds the doors that would end the session's
@@ -66,6 +70,7 @@ import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import type { CarryHold } from "../../lib/internal/carry/under-way.ts";
 import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
+import { wholeWait } from "../../lib/internal/priority/only-waits.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import { allOf } from "../../lib/internal/session/free.ts";
@@ -133,6 +138,18 @@ function opening(words: string): string {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** A background job running as a carried session closes. */
+export interface StoppingJob {
+	/** As the job list names it, cut short where its command is long. */
+	readonly label: string;
+	/**
+	 * Judged a wait by its whole command as it was handed off; false for
+	 * one that runs no command, a fleet or a round, and left out where
+	 * only its label can tell.
+	 */
+	readonly waits?: boolean;
+}
+
 /** What an ordered carry needs from its session. */
 export interface OrderedCarryHost {
 	/** Whether the session is between runs. */
@@ -169,6 +186,14 @@ export interface OrderedCarryHost {
 	readonly close: (by: string) => void;
 	/** Start a turn with these words, to take up a run it ended. */
 	readonly carryOn: (text: string) => void;
+	/**
+	 * The background jobs running as the session closes; only those judged
+	 * waits by their whole command, or whose labels read whole as waits,
+	 * are named as stopped.
+	 */
+	readonly stopping?: () => readonly StoppingJob[];
+	/** Write words into the conversation, carried with it, starting no turn. */
+	readonly note?: (text: string) => void | Promise<void>;
 	readonly waitMs?: number;
 	readonly lookMs?: number;
 	/** How long a refusal may take to write before it is given up. */
@@ -242,6 +267,9 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	// refusal as its own. One stamped from its steer's name is older than
 	// any carry begun since, so carries come through while it is written.
 	let refusing = false;
+	// Where this session's work went though it couldn't close here, which
+	// each run it then stops says, so none is stopped unexplained.
+	let goneTo: string | undefined;
 
 	// Said on screen, never stopping what it goes with: a stale screen
 	// throws, and a refusal or a carry must still be written.
@@ -345,6 +373,24 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		return true;
 	};
 
+	/**
+	 * Takes back a note naming `noted` as stopped, once the carry that
+	 * would have stopped them didn't go: they still run here.
+	 */
+	const unsay = async (ordered: OrderedCarry, noted: readonly string[]) => {
+		try {
+			await host.note?.(
+				automatedText(
+					"a carry didn't go",
+					`${opening(carryOf(ordered).a)} didn't go, so the background commands named as stopped still run here: ${noted.join("; ")}.`,
+				),
+			);
+		} catch {
+			// The refusal still goes and says nothing was carried, which
+			// matters more than taking the note back.
+		}
+	};
+
 	/** Carries a taken order, or refuses it, saying why. */
 	const carryOrdered = async (
 		taken: Taken,
@@ -367,9 +413,29 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		}
 		const after = await host.holds(true);
 		if (after !== undefined) return refuse(taken, ordered, after);
+		// A fleet or a round is carried with it, not stopped, and one known
+		// only by a label cut short can't be told a wait, so neither is named.
+		const stopping = (host.stopping?.() ?? [])
+			.filter(
+				(job) =>
+					job.waits === true ||
+					(job.waits === undefined && wholeWait(job.label)),
+			)
+			.map((job) => job.label);
+		let noted: readonly string[] = [];
 		try {
+			if (stopping.length > 0) {
+				await host.note?.(
+					automatedText(
+						"a carry stopped background commands",
+						`${opening(carryOf(ordered).a)} stopped ${stopping.length === 1 ? "a background command that" : `${stopping.length} background commands that`} only waited, as the session closed here:\n${stopping.map((label) => `- ${label}`).join("\n")}\nThe session now runs on ${ordered.to}: start again there any you still need, minding that one watching this machine's files or units finds them only here.`,
+					),
+				);
+				noted = stopping;
+			}
 			await host.carry(ordered.to);
 		} catch (error) {
+			if (noted.length > 0) await unsay(ordered, noted);
 			return refuse(
 				taken,
 				ordered,
@@ -386,7 +452,14 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		say(
 			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
 		);
-		host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
+		try {
+			host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
+		} catch (error) {
+			goneTo = ordered.to;
+			say(
+				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}, but it couldn't close here: ${error instanceof Error ? error.message : String(error)}. Each run here is stopped, so the two never both work; end it here once it starts there.`,
+			);
+		}
 	};
 
 	return {
@@ -451,7 +524,13 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		// person's Carry does: what the run did would be missing from the
 		// session carried.
 		started() {
-			if (underWay || carried) end();
+			if (!underWay && !carried) return;
+			if (goneTo !== undefined) {
+				say(
+					`This run is stopped: the session was carried to ${goneTo} and runs there, so end it here.`,
+				);
+			}
+			end();
 		},
 		turnEnded() {
 			if ((underWay || carried) && !host.idle()) end();

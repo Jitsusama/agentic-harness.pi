@@ -15,7 +15,7 @@ import { RUN_KINDS } from "../../../lib/mesh/lease.ts";
 import { toolDetail } from "../../../lib/mesh/step.ts";
 import { localDay, noUsage, withCall } from "../../../lib/mesh/usage.ts";
 import { NOTED, noted } from "../delivery.ts";
-import { parkHeavyCalls, reloading } from "../leases.ts";
+import { parkHeavyCalls, parkWaitingCalls, reloading } from "../leases.ts";
 import {
 	assistantText,
 	endsForGood,
@@ -231,6 +231,7 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 			// leases stay and the runtime the reload starts releases them.
 			m.own?.releaseAll(RUN_KINDS);
 			parkHeavyCalls(f.heavyCalls.held());
+			parkWaitingCalls(m.waitingCalls);
 		} else {
 			// Any other end stops the session's jobs, and its heavy work with them.
 			m.own?.releaseAll(new Set([...RUN_KINDS, "heavy" as const]));
