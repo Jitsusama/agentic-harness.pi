@@ -683,6 +683,58 @@ describe("a sprouted session's start", () => {
 		).toEqual([expect.objectContaining({ cell: "TERN02", id: need })]);
 	});
 
+	it("asks a joined quest no more once its refused mark's log lock doesn't come", async () => {
+		const link = "https://github.com/o/r/pull/95";
+		const need = "TERN02/mi1x.0123456789ab";
+		const first = await start(
+			{ words: "the PR's work", id: "S94" },
+			{ sessionId: "sess-join-busy-log-first" },
+		);
+		const id = first.state.questId;
+		if (!id) throw new Error("no quest to join");
+		markWith(id, link);
+		// An ended quest of forged id holds the join mark, so the verb
+		// refuses it, and the refusal's log is the first write to ask.
+		const forged = await start(
+			{ words: "other work", id: "S96" },
+			{ sessionId: "sess-join-busy-log-forged" },
+		);
+		const forgedId = forged.state.questId;
+		if (!forgedId) throw new Error("no quest to forge");
+		aliasAdd(forged.state, {
+			action: "alias-add",
+			id: forgedId,
+			ref: "sprout-joined:S95",
+		});
+		seal(forgedId);
+		const entry = discoverQuests(join(tmpRoot, "quests")).index.quests.get(
+			forgedId,
+		);
+		if (!entry) throw new Error(`no quest ${forgedId} to forge`);
+		const readme = join(entry.dir, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(/^id: .*$/mu, "id: QEST-1 forged"),
+		);
+		clearDiscoveryCache();
+
+		failing.unwrittenLog = true;
+		try {
+			const again = await start(
+				{ link, id: "S95", need },
+				{ sessionId: "sess-join-busy-log" },
+			);
+			expect(again.state.questId, "the quest it joined").toBe(id);
+			expect(
+				discoverQuests(join(tmpRoot, "quests")).index.quests.get(id)?.doc
+					.frontMatter._extra?.serves,
+				"its need never asked the busy lock",
+			).toBeUndefined();
+		} finally {
+			failing.unwrittenLog = false;
+		}
+	});
+
 	it("still loads a live quest it joined when its mark's lock doesn't come", async () => {
 		const link = "https://github.com/o/r/pull/41";
 		const need = "TERN02/mi1x.0123456789ab";
@@ -1155,6 +1207,7 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/pulls",
 			"https://github.com/o/repo/issues",
 			"https://github.com/o/repo/actions",
+			"https://github.com/o/repo/commits/main",
 		].entries()) {
 			const one = await start(
 				{ link, words: `list ${n}`, id: `SL${n}` },

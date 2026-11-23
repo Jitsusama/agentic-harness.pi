@@ -34,7 +34,9 @@ let savedHome: string | undefined;
 /**
  * The session's own ties, which would reach its live mesh, host and node,
  * and the state folder, which would reach the live launcher's quest lists;
- * without it they fall under HOME, here the test's own folder.
+ * without it they fall under HOME, here the test's own folder. A switch
+ * the suite set off (PI_NOTIFY, PI_LAUNCHER, PI_SESSIONS_KITTY,
+ * PI_SETTLE) stays, since deleting it turns its reach to the desktop on.
  */
 const TIES = /^(PI_|MYCELIUM_|XDG_STATE_HOME$)/u;
 let savedTies: [string, string][] = [];
@@ -43,7 +45,7 @@ beforeEach(() => {
 	registerBuiltinRefTypes();
 	envGuard.enter();
 	savedTies = Object.entries(process.env).flatMap(([name, value]) =>
-		TIES.test(name) && value !== undefined
+		TIES.test(name) && value !== undefined && value !== "off"
 			? [[name, value] as [string, string]]
 			: [],
 	);

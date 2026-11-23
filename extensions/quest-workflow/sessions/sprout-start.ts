@@ -460,7 +460,8 @@ const PLACES: ReadonlySet<string> = new Set(["github-repo"]);
  * work. A link merely carrying a place's address is no place. GitHub's
  * own ways of linking a place count too, which parseRef reads as no
  * ref: an organisation, a repository with a query such as
- * ?tab=readme-ov-file, and a branch or folder in one (/tree). A file
+ * ?tab=readme-ov-file, a branch or folder in one (/tree) and a branch's
+ * history (/commits/main). A file
  * (/blob) is often the work itself, a spec or a line, so it reads as
  * the work.
  */
@@ -501,8 +502,12 @@ const GITHUB_OWN: ReadonlySet<string> = new Set([
 	"topics",
 ]);
 
-/** Where in a GitHub repository its own code is, never a piece of work. */
-const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree"]);
+/**
+ * Where in a GitHub repository its own code is, a folder or a branch's
+ * history (/commits/main), never a piece of work; one commit (/commit/)
+ * is the work.
+ */
+const GITHUB_PLACES: ReadonlySet<string> = new Set(["tree", "commits"]);
 
 /**
  * A GitHub repository's own lists, such as every open pull request: a
