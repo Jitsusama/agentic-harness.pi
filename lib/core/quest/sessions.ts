@@ -6,6 +6,7 @@
  */
 
 import { discoverQuests } from "../../internal/quest/discovery/discovery.ts";
+import { writtenAlike } from "../../internal/quest/documents/frontmatter.ts";
 import {
 	currentInstanceId,
 	currentProcessIdentity,
@@ -46,7 +47,7 @@ export function attachSessionInQuestDir(
 				started: existing.started ?? session.started,
 				status: "active",
 			};
-			if (JSON.stringify(merged) === JSON.stringify(existing)) {
+			if (writtenAlike(merged, existing)) {
 				return undefined;
 			}
 			return {
