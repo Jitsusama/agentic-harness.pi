@@ -29,6 +29,9 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+// Imported only to be named, so `--changed` runs the tests reaching this
+// file when the script alone changes; they read it from its path below.
+import "../../../scripts/check-there.sh";
 
 const SCRIPT = join(
 	import.meta.dirname,
