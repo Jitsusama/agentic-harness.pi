@@ -194,7 +194,7 @@ export function createPausing(host: PausingHost): Pausing {
 			// kept in the journal for a window nobody watches.
 			const other = host.carryUnderWay();
 			if (other !== undefined) {
-				const line = `A Carry to ${to} ${steeredBy(from)} was left to the carry to ${other} already under way, which closes this session if it carries; if that one is refused, Carry again.`;
+				const line = `A Carry to ${to} ${steeredBy(from)}, was left to the carry to ${other} already under way, which closes this session if it carries; if that one is refused, Carry again.`;
 				host.tell(line);
 				host.journal(line);
 				return;

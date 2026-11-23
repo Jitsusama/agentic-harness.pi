@@ -25,6 +25,10 @@ import {
 	installHost,
 	withSession,
 } from "../../../lib/core/session/index.ts";
+import {
+	type CarryHold,
+	holdForCarry,
+} from "../../../lib/internal/carry/under-way.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
 import type { ReloadLanded } from "../../../lib/internal/reload/slot.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
@@ -217,6 +221,29 @@ it("says a reload its host failed once, and doesn't ask again at every look", as
 	expect(a.notices).toEqual([
 		"Nothing was reloaded: the host could not reload this conversation: runner busy.",
 	]);
+});
+
+it("asks again once a carry begun as it asked lets go, not taking the carry for a host that failed", async () => {
+	// The host refuses a reload under a carry; a carry begun while git
+	// was asked once put the reload off ten minutes as a failed host.
+	const landed = runner;
+	let hold: CarryHold | undefined;
+	runner = async () => {
+		hold = holdForCarry("a", "penelope");
+		throw new Error("its work is being carried to penelope");
+	};
+	const a = await start("a");
+	try {
+		await land("feat: something to try");
+		await until("the host's refusal is said", () => a.notices.length > 0);
+		runner = landed;
+	} finally {
+		hold?.release();
+	}
+
+	a.follower?.consider(true);
+	await until("it asks again once the carry lets go", () => asked.length === 2);
+	await until("it lands", () => landings.has("a"));
 });
 
 it("stops a closed conversation's follower and leaves the others following", async () => {

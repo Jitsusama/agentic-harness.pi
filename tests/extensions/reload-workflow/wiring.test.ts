@@ -26,7 +26,10 @@ import {
 	PACKAGE_ROOT,
 	STATUS_KEY,
 } from "../../../extensions/reload-workflow/lifecycle.ts";
-import { STILL_MS } from "../../../extensions/reload-workflow/transitions.ts";
+import {
+	RELOAD_CALLED_OFF,
+	STILL_MS,
+} from "../../../extensions/reload-workflow/transitions.ts";
 import { holdForCarry } from "../../../lib/internal/carry/under-way.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
@@ -115,6 +118,11 @@ function packagesOnDisk(): unknown {
 function runtime() {
 	const handlers = new Map<string, Handler[]>();
 	const hidden: string[] = [];
+	// Every message sent, as pi was given it, with its options.
+	const sent: {
+		message: { content: string; customType?: string };
+		options: unknown;
+	}[] = [];
 	const sentToPrompt: { text: string; options: unknown }[] = [];
 	const statuses = new Map<string, string | undefined>();
 	const notices: string[] = [];
@@ -141,8 +149,12 @@ function runtime() {
 		registerTool: (definition: Tool) => {
 			tool = definition;
 		},
-		sendMessage: (message: { content: string; display: boolean }) => {
+		sendMessage: (
+			message: { content: string; display: boolean; customType?: string },
+			options?: unknown,
+		) => {
 			live();
+			sent.push({ message, options });
 			if (!message.display) hidden.push(message.content);
 		},
 		sendUserMessage: (text: string, options: unknown) =>
@@ -174,6 +186,7 @@ function runtime() {
 			replaced = true;
 		},
 		hidden,
+		sent,
 		entries,
 		sentToPrompt,
 		statuses,
@@ -183,15 +196,24 @@ function runtime() {
 		ask: (params: object) =>
 			tool?.execute("t1", params, undefined, undefined, { cwd: dir, ui }) ??
 			Promise.reject(new Error("no tool")),
-		/** Run `/harness <args>`; `reload()` brings up `next`. */
+		/**
+		 * Run `/harness <args>`; `reload()` brings up `next`. `idThrows`
+		 * reads the session's id as a stale context does.
+		 */
 		command: (
 			args: string,
 			next?: { start: (reason: string) => Promise<void> },
+			idThrows = false,
 		) =>
 			command?.handler(args, {
 				ui,
 				cwd: dir,
-				sessionManager: { getSessionId: () => SESSION_ID },
+				sessionManager: {
+					getSessionId: () => {
+						if (idThrows) throw new Error("This extension ctx is stale.");
+						return SESSION_ID;
+					},
+				},
 				waitForIdle: async () => {},
 				isIdle: () => true,
 				hasPendingMessages: () => false,
@@ -397,7 +419,33 @@ describe("the agent asking for a reload", LANDS, () => {
 		).toEqual([
 			"Did not reload: its work is being carried to penelope, and a reload would end the carry part-way. Nothing was reloaded; ask again if this session is still here once the carry has ended.",
 		]);
+		const told = now.sent.find((one) =>
+			one.message.content.startsWith("Did not reload"),
+		);
+		expect(told?.message.customType, "typed as the harness's").toBe(
+			RELOAD_CALLED_OFF,
+		);
+		expect(
+			(told?.options as { triggerTurn?: boolean } | undefined)?.triggerTurn,
+			"it starts no turn",
+		).toBeUndefined();
 		expect(reloadSlot().request).toBeUndefined();
+	});
+
+	it("reloads though the session's id throws as it is read, holding no carry for it", async () => {
+		runningTheInstall();
+		const now = runtime();
+		await now.start("startup");
+		let reloads = 0;
+		const next = {
+			start: async () => {
+				reloads += 1;
+			},
+		};
+
+		await now.command("reload", next, true);
+
+		expect(reloads).toBe(1);
 	});
 
 	it("is called off when the person stops the run", async () => {

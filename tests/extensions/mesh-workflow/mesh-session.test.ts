@@ -37,6 +37,7 @@ import { createBoard } from "../../../lib/mesh/lease.ts";
 import { holderSteers } from "../../../lib/mesh/parked.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
+import { FROM_PERSON } from "../../../lib/mesh/steer-who.ts";
 import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
@@ -321,13 +322,19 @@ describe("parking", () => {
 			);
 			// Whatever the test did, its run ends and its carry lets go, so
 			// no later park test reads a hold it never took.
+			// A hold that never goes fails the test that leaked it, saying
+			// what still holds, rather than a later park test.
 			left.push(async () => {
 				run.idle = true;
 				await until(
 					"the steered carry lets go",
 					() => parkAsked(emit).length === 0,
 					10_000,
-				).catch(() => undefined);
+				).catch(() => {
+					throw new Error(
+						`A steered carry still holds the park: ${JSON.stringify(parkAsked(emit))}. Told: ${JSON.stringify(told)}`,
+					);
+				});
 			});
 			const steered = (body: Record<string, string>) => {
 				const inbox = inboxOf(steer, "7M6JKG");
@@ -363,7 +370,8 @@ describe("parking", () => {
 			await toldOf("the ordered carry ends", (text) =>
 				text.startsWith("This session refused"),
 			);
-			// Refused, it let go before it said so.
+			// Once refused, its hold has gone; that it goes before its refusal
+			// is written is ordered-carry.test's to hold.
 			const after = parkAsked(emit);
 
 			expect(waiting, "the park is held from the order").toEqual([
@@ -387,14 +395,15 @@ describe("parking", () => {
 			// Taken first, so it is let go before the session's end waits on it.
 			ordered();
 			const { told, steered, toldOf } = await steeredSession();
-			steered({ act: "carry", to: "equilibrius", from: "launcher" });
+			// Only the person's own Carry is read as one, the launcher's.
+			steered({ act: "carry", to: "equilibrius", from: FROM_PERSON });
 
 			await toldOf("the Carry is left to the one under way", (text) =>
 				text.startsWith("A Carry to equilibrius"),
 			);
 
 			expect(told.filter((text) => text.startsWith("A Carry"))).toEqual([
-				"A Carry to equilibrius from outside its window, steered by launcher, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.",
+				`A Carry to equilibrius from outside its window, steered by ${FROM_PERSON}, was left to the carry to penelope already under way, which closes this session if it carries; if that one is refused, Carry again.`,
 			]);
 		});
 

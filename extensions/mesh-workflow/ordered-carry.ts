@@ -31,11 +31,18 @@
  * Carried, it closes as the person's Carry does, saying in its journal
  * who ordered or chose it and why, a node's choice never as an order.
  *
- * From the moment it is taken until it is carried or its refusal is
- * written, it holds the doors that would end the session's process
- * unasked (`hold`, lib/internal/carry/under-way.ts): the run it waits out and
- * the holds it looks at again leave the session idle, and a park in
- * that gap would end it with nothing written for its node.
+ * From the moment it is taken until it is carried or refused, it holds
+ * the doors that would end the session's process unasked (`hold`,
+ * lib/internal/carry/under-way.ts): the run it waits out and the holds
+ * it looks at again leave the session idle, and a park in that gap would
+ * end it with nothing written for its node. A refusal lets go as it
+ * begins, since it carries nothing.
+ *
+ * A stale context throws on every read. Whatever throws before an order
+ * has said how it went, the hold taken included, refuses it; what
+ * throws once it has, refused or carried, is only said. What is said on
+ * screen, and the run taken up again, never stop a refusal being
+ * written.
  */
 
 import { readFile } from "node:fs/promises";
@@ -143,6 +150,11 @@ export interface OrderedCarryHost {
 	readonly refuse: (why: string, at: Date) => Promise<void>;
 	/** Say on screen what happened. */
 	readonly tell: (text: string) => void;
+	/**
+	 * Whether a carry of this session is under way besides this one's,
+	 * as a person's Carry is once a refusal has let go.
+	 */
+	readonly carrying?: () => boolean;
 	/** End the session, as /exit does, saying `by` asked. */
 	readonly close: (by: string) => void;
 	/** Start a turn with these words, to take up a run it ended. */
@@ -168,6 +180,17 @@ export interface OrderedCarrying {
 	turnEnded(): void;
 }
 
+/**
+ * One order taken: the doors it holds, whether it ended a run, and
+ * whether it has said how it went, by a refusal or by carrying, which
+ * no later throw then says again.
+ */
+interface Taken {
+	release: () => void;
+	ended: boolean;
+	settled: boolean;
+}
+
 /** Ordered carries, none under way. */
 export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	const now = host.now ?? Date.now;
@@ -177,23 +200,33 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	const waitMs = host.waitMs ?? ORDERED_WAIT_MS;
 	const lookMs = host.lookMs ?? ORDERED_LOOK_MS;
 	const refuseMs = host.refuseMs ?? REFUSE_WRITE_MS;
-	let underWay = false;
+	// The order under way, whose runs are ended while it is.
+	let underWay: Taken | undefined;
+	// Whether this session was carried, so it is closing: a later order
+	// is left, and nothing more is ended for it.
+	let carried = false;
 	// Whether a refusal stamped as it was asked is being written, while
 	// which a carry is said on screen alone, since its node may read that
 	// refusal as its own. One stamped from its steer's name is older than
 	// any carry begun since, so carries come through while it is written.
 	let refusing = false;
-	// Whether this carry ended a run, which a refusal then takes up again.
-	let ended = false;
-	// Lets go of the session's doors the carry under way holds.
-	let letGo: (() => void) | undefined;
+
+	// Said on screen, never stopping what it goes with: a stale screen
+	// throws, and a refusal or a carry must still be written.
+	const say = (text: string) => {
+		try {
+			host.tell(text);
+		} catch {
+			// The screen is gone; what it said is written where it matters.
+		}
+	};
 
 	const end = () => {
-		ended = true;
+		if (underWay) underWay.ended = true;
 		host.abort();
 	};
 
-	const refuse = async (ordered: OrderedCarry, why: string) => {
+	const refuse = async (taken: Taken, ordered: OrderedCarry, why: string) => {
 		// Its node counts any refusal no older than the carry it began, and
 		// began it before it put the steer, so a refusal stamped at the end
 		// of that millisecond (a name floors it) is never a later carry's,
@@ -206,14 +239,14 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			stamped && ordered.put
 				? new Date(ordered.put.getTime() + 1)
 				: new Date(asked);
-		const tookUp = ended;
-		underWay = false;
-		ended = false;
+		taken.settled = true;
+		const tookUp = taken.ended;
+		if (underWay === taken) underWay = undefined;
 		// Refused, it carries nothing, so it holds nothing while its refusal
 		// is written: a later order, or a person's Carry, would otherwise be
 		// turned away by a carry that isn't happening.
-		letGo?.();
-		host.tell(
+		taken.release();
+		say(
 			`This session refused ${carryOf(ordered).a}: ${why}. It stays here, working.`,
 		);
 		if (!stamped) refusing = true;
@@ -227,12 +260,12 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		try {
 			const written = await Promise.race([host.refuse(why, at), late]);
 			if (written === "late") {
-				host.tell(
+				say(
 					`Its refusal wasn't written where mycelium reads it within ${refuseMs / 1000} s; it may still land there, or the carry waits out its time there.`,
 				);
 			}
 		} catch (error) {
-			host.tell(
+			say(
 				`Its refusal couldn't be written where mycelium reads it, so the carry waits out its time there: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		} finally {
@@ -240,14 +273,27 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			if (!stamped) refusing = false;
 		}
 		// Whether its refusal was written, late or not at all, the run it
-		// ended is taken up again.
-		if (tookUp) {
+		// ended is taken up again, unless a carry begun since, a person's
+		// Carry, is taking the session: told to carry on, it would write into
+		// the conversation being carried that nothing was.
+		if (!tookUp) return;
+		if (host.carrying?.() === true) {
+			say(
+				"The run it ended isn't taken up: a carry begun since is taking this session.",
+			);
+			return;
+		}
+		try {
 			// Headed as automated, so a host starting runs never counts it as Joel's.
 			host.carryOn(
 				automatedText(
 					"a carry couldn't go",
 					`${opening(carryOf(ordered).a)} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.`,
 				),
+			);
+		} catch (error) {
+			say(
+				`The run it ended couldn't be taken up: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 	};
@@ -263,28 +309,41 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	};
 
 	/** Carries a taken order, or refuses it, saying why. */
-	const carryOrdered = async (ordered: OrderedCarry): Promise<void> => {
+	const carryOrdered = async (
+		taken: Taken,
+		ordered: OrderedCarry,
+	): Promise<void> => {
+		taken.release = host.hold(ordered.to);
 		const before = await host.holds(false);
-		if (before !== undefined) return refuse(ordered, before);
+		if (before !== undefined) return refuse(taken, ordered, before);
 		if (!host.idle()) {
-			host.tell(
+			say(
 				`${carryOf(ordered).opens}, for ${ordered.why}: letting the turn under way end first.`,
 			);
 		}
 		if (!(await runEnds())) {
-			return refuse(ordered, `its run didn't end within ${waitMs / 1000} s`);
+			return refuse(
+				taken,
+				ordered,
+				`its run didn't end within ${waitMs / 1000} s`,
+			);
 		}
 		const after = await host.holds(true);
-		if (after !== undefined) return refuse(ordered, after);
+		if (after !== undefined) return refuse(taken, ordered, after);
 		try {
 			await host.carry(ordered.to);
 		} catch (error) {
 			return refuse(
+				taken,
 				ordered,
 				`its work couldn't be carried: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
-		host.tell(
+		// Carried, its done file written: nothing after this refuses it.
+		taken.settled = true;
+		carried = true;
+		if (underWay === taken) underWay = undefined;
+		say(
 			`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
 		);
 		host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
@@ -297,7 +356,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			// of this one as its own carry's: said on screen alone, touching
 			// nothing a live carry or a refusal being written holds.
 			if (ordered.refused !== undefined) {
-				host.tell(
+				say(
 					`This session refused ${carryOf(ordered).a}: ${ordered.refused}. It stays here, working.`,
 				);
 				return;
@@ -305,36 +364,51 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			// Said on screen alone: the node counts any refusal no older than
 			// its steer, so one written now would read as the live carry's,
 			// and one stamped as it was asked, being written, as this one's.
+			if (carried) {
+				say(
+					`${opening(carryOf(ordered).a)} came once this session was carried, so it is left: it is closing.`,
+				);
+				return;
+			}
 			if (refusing) {
-				host.tell(
+				say(
 					`${opening(carryOf(ordered).a)} came while a refusal is being written, so it is left unanswered: its node may read that refusal as this one's, or waits out its time.`,
 				);
 				return;
 			}
 			if (underWay) {
-				host.tell(
+				say(
 					`${opening(carryOf(ordered).a)} came while a carry is under way, so it is left to the one under way.`,
 				);
 				return;
 			}
-			underWay = true;
-			const release = host.hold(ordered.to);
-			letGo = release;
+			const taken: Taken = {
+				release: () => undefined,
+				ended: false,
+				settled: false,
+			};
+			underWay = taken;
 			try {
-				await carryOrdered(ordered);
+				await carryOrdered(taken, ordered);
 			} catch (error) {
-				// A look that threw, as a stale context's does, is refused like
-				// any hold, so its node isn't left waiting out its time; one past
-				// its refusal or its carry has said already how it went.
-				if (underWay) {
+				const said = error instanceof Error ? error.message : String(error);
+				// A hold or a look that threw, as a stale context's does, is
+				// refused like any hold, so its node isn't left waiting out its
+				// time. One that has said how it went, refused or carried, says
+				// only what threw after: never a refusal of a carry that went.
+				if (taken.settled) {
+					say(`After ${carryOf(ordered).a} was settled: ${said}`);
+				} else {
+					// It says its own failures, so nothing is left to say here.
 					await refuse(
+						taken,
 						ordered,
-						`it couldn't be looked at: ${error instanceof Error ? error.message : String(error)}`,
-					);
+						`it couldn't be looked at: ${said}`,
+					).catch(() => undefined);
 				}
 			} finally {
-				if (letGo === release) letGo = undefined;
-				release();
+				if (underWay === taken) underWay = undefined;
+				taken.release();
 			}
 		},
 		started() {

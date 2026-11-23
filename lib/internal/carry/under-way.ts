@@ -101,7 +101,13 @@ export function holdForCarry(
 	// Says once that a carry outlived its hold, so a park that ends it
 	// isn't silent; unref'd, so it never keeps a process up.
 	lapse = setTimeout(() => {
-		if (!released) timing.lapsed?.(hold);
+		if (released) return;
+		try {
+			timing.lapsed?.(hold);
+		} catch {
+			// Thrown from a bare timer, it would end a host and every
+			// conversation in it, for a warning: the hold has lapsed either way.
+		}
 	}, mostMs);
 	lapse.unref?.();
 	return hold;

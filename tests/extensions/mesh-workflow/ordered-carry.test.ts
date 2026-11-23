@@ -29,6 +29,7 @@ import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
+import { until } from "../../support/until.ts";
 
 const ORDER: OrderedCarry = {
 	to: "penelope",
@@ -75,6 +76,13 @@ function session(
 		refuseMs?: number;
 		/** Where its clock starts, in ms since the epoch. */
 		start?: number;
+		/** Run as each hold is taken, and as each thing is said, closed or taken up, to throw as a stale context does. */
+		taking?: () => void;
+		telling?: (text: string) => void;
+		closing?: () => void;
+		takingUp?: () => void;
+		/** Whether a carry besides the ordered one is taking the session. */
+		carrying?: () => boolean;
 	} = {},
 ): Session {
 	const did: string[] = [];
@@ -98,6 +106,7 @@ function session(
 			abort: () => did.push("abort"),
 			holds: async (runEnded) => at.holding(runEnded),
 			hold: () => {
+				over.taking?.();
 				holdsTaken += 1;
 				let held = true;
 				// Let go once, as the registry's hold is.
@@ -115,9 +124,19 @@ function session(
 				refused.push(why);
 				refusedAt.push(stamp);
 			},
-			tell: (text) => told.push(text),
-			close: (by) => did.push(`close: ${by}`),
-			carryOn: (text) => said.push(text),
+			tell: (text) => {
+				over.telling?.(text);
+				told.push(text);
+			},
+			close: (by) => {
+				over.closing?.();
+				did.push(`close: ${by}`);
+			},
+			carryOn: (text) => {
+				over.takingUp?.();
+				said.push(text);
+			},
+			...(over.carrying === undefined ? {} : { carrying: over.carrying }),
 			waitMs: over.waitMs ?? 10_000,
 			lookMs: 1_000,
 			...(over.refuseMs === undefined ? {} : { refuseMs: over.refuseMs }),
@@ -471,6 +490,131 @@ describe("an ordered carry", () => {
 			"it couldn't be looked at: the context is stale",
 		]);
 		expect(one.holdsTaken()).toBe(0);
+	});
+
+	/** Throws as a stale context's every read does. */
+	const stale = () => {
+		throw new Error("the context is stale");
+	};
+
+	it("refuses when taking its hold throws, and takes the next order", async () => {
+		// Taken before any look, the hold is a stale context's first read:
+		// thrown past the refusal, it left every later order to a carry that
+		// wasn't happening.
+		let taking: () => void = stale;
+		const one = session({ taking: () => taking() });
+
+		await one.ordering.order(ORDER);
+		taking = () => undefined;
+		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+
+		expect(one.refused).toEqual([
+			"it couldn't be looked at: the context is stale",
+		]);
+		expect(one.told.join("\n")).not.toContain("left to the one under way");
+		expect(one.did, "the next order carries").toContain("carry to penelope");
+	});
+
+	it("writes its refusal though its screen throws as it is told", async () => {
+		const one = session({ holding: stale, telling: stale });
+
+		await one.ordering.order(ORDER);
+
+		expect(one.refused).toEqual([
+			"it couldn't be looked at: the context is stale",
+		]);
+		expect(one.holdsTaken()).toBe(0);
+	});
+
+	it("never refuses a carry that went, though closing after it throws", async () => {
+		const one = session({ idle: false, closing: stale });
+		const going = one.ordering.order(ORDER);
+		one.ordering.turnEnded();
+		one.idle = true;
+		await going;
+
+		expect(one.did).toContain("carry to penelope");
+		expect(one.refused, "its done file is its only answer").toEqual([]);
+		expect(one.said, "the carried run isn't taken up").toEqual([]);
+		expect(one.told.at(-1)).toContain("the context is stale");
+	});
+
+	it("leaves a later order once carried, ending no run for it", async () => {
+		const one = session({ closing: stale });
+		await one.ordering.order(ORDER);
+
+		await one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		one.ordering.started();
+
+		expect(one.did.filter((done) => done.startsWith("carry"))).toEqual([
+			"carry to penelope",
+		]);
+		expect(one.did, "no run is ended").not.toContain("abort");
+		expect(one.told.at(-1)).toContain("came once this session was carried");
+	});
+
+	it("leaves the order taken while its refusal was written alone, though taking up its run throws", async () => {
+		// Stamped from its steer, a refusal lets a second order in as it is
+		// written; its late throw once refused it again, letting go of the
+		// second order's hold.
+		let written: () => void = () => undefined;
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			writing: () =>
+				new Promise<void>((done) => {
+					written = done;
+				}),
+			takingUp: stale,
+		});
+		const first = one.ordering.order({ ...ORDER, put: new Date(0) });
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await until("its refusal is being written", () =>
+			one.told.some((text) => text.startsWith("This session refused")),
+		);
+		one.idle = false;
+		one.holding = () => undefined;
+		const second = one.ordering.order({ ...ORDER, by: "WM4KSZ" });
+		await Promise.resolve();
+		written();
+		await first;
+
+		expect(one.refused, "refused once").toEqual([HELD]);
+		expect(one.holdsTaken(), "the second order's hold stays").toBe(1);
+		one.ordering.started();
+		expect(
+			one.did.filter((done) => done === "abort"),
+			"the second order still ends a run started meanwhile",
+		).toHaveLength(2);
+
+		one.idle = true;
+		await second;
+		expect(one.did).toContain("carry to penelope");
+		expect(one.holdsTaken()).toBe(0);
+	});
+
+	it("takes up no run it ended once a carry begun since is taking the session", async () => {
+		// A person's Carry may start as the refusal lets go; told to carry
+		// on, the agent would write that nothing was carried into the
+		// conversation being carried.
+		const one = session({
+			idle: false,
+			holding: (runEnded) => (runEnded ? HELD : undefined),
+			carrying: () => true,
+		});
+		const going = one.ordering.order(ORDER);
+		await Promise.resolve();
+		one.ordering.turnEnded();
+		one.idle = true;
+		await going;
+
+		expect(one.refused).toEqual([HELD]);
+		expect(one.said).toEqual([]);
+		expect(one.told.at(-1)).toContain(
+			"a carry begun since is taking this session",
+		);
 	});
 
 	it("lets the turn under way end, holding off new runs, then carries", async () => {

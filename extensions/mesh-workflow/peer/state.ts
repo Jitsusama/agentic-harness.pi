@@ -191,18 +191,42 @@ export function createState(
 						inboxOf(m.steerRoot ?? "", address),
 					),
 	});
+	// The session's id, or its peer's while its context has gone stale,
+	// whose every read throws: a carry, its refusal and what is said of
+	// them go on without the context.
+	const sessionOf = (): string | undefined => {
+		try {
+			return m.ctx?.sessionManager.getSessionId() ?? m.peer?.session;
+		} catch {
+			// Stale: the peer was named for the same session.
+			return m.peer?.session;
+		}
+	};
+	// Said on screen where there is one; a stale screen says nothing, and
+	// never stops what saying it went with.
+	const notify = (text: string, type: "info" | "warning") => {
+		try {
+			if (m.ctx?.hasUI) m.ctx.ui.notify(text, type);
+		} catch {
+			// A stale context's screen is gone; the journal keeps what matters.
+		}
+	};
 	// A host's standard error is its journal; plain pi's window said it.
 	const journal = (text: string) => {
 		if (!hosted()) return;
-		const session = m.ctx?.sessionManager.getSessionId() ?? "unknown";
-		process.stderr.write(`pausing ${session}: ${text}\n`);
+		process.stderr.write(`pausing ${sessionOf() ?? "unknown"}: ${text}\n`);
 	};
 	// A carry that outlives its hold is said, so the park that may end it
-	// next isn't taken for an ordinary one.
+	// next isn't taken for an ordinary one. Called from a bare timer, it
+	// never throws: a host would end every conversation for a warning.
 	const lapsed = (hold: CarryHold) => {
 		const text = `a carry to ${hold.to} has held this session its whole time and lets it go; a park or restart may now end it part-way.`;
-		journal(text);
-		if (m.ctx?.hasUI) m.ctx.ui.notify(text, "warning");
+		try {
+			journal(text);
+		} catch {
+			// A journal that can't be written leaves the screen to say it.
+		}
+		notify(text, "warning");
 	};
 	// The hold an ordered carry took at its order, which its own looks at
 	// what holds the session set aside.
@@ -222,9 +246,7 @@ export function createState(
 		paused: () => m.peer?.paused ?? false,
 		setPaused: (paused) => m.peer?.setPaused(paused),
 		carryOn: () => pi.sendUserMessage(RESUMED_TEXT),
-		tell: (text) => {
-			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
-		},
+		tell: (text) => notify(text, "info"),
 		journal,
 		// Plain pi waits until it is idle, so the run just ended winds down
 		// first; a host closes it as a Close over its socket does.
@@ -236,7 +258,7 @@ export function createState(
 			await carryThisSession(m.ctx, to, { timing: { lapsed } });
 		},
 		carryUnderWay: () => {
-			const session = m.ctx?.sessionManager.getSessionId();
+			const session = sessionOf();
 			return session === undefined ? undefined : carryUnderWay(session);
 		},
 	});
@@ -274,9 +296,7 @@ export function createState(
 				runEnded,
 			),
 		hold: (to) => {
-			const session =
-				m.ctx?.sessionManager.getSessionId() ?? m.peer?.session ?? "";
-			const hold = holdForCarry(session, to, { lapsed });
+			const hold = holdForCarry(sessionOf() ?? "", to, { lapsed });
 			orderedHold = hold;
 			return () => {
 				hold.release();
@@ -293,8 +313,10 @@ export function createState(
 			if (!m.peer) throw new Error("the session isn't on the mesh yet");
 			await refuseInHandover(m.peer.session, why, at);
 		},
-		tell: (text) => {
-			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
+		tell: (text) => notify(text, "info"),
+		carrying: () => {
+			const session = sessionOf();
+			return session !== undefined && carryUnderWay(session) !== undefined;
 		},
 		close: (by) => {
 			if (m.ctx) endConversation(m.ctx, by);
