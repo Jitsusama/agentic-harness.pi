@@ -33,15 +33,19 @@ export PATH=$tools:$PATH
 pnpm install --frozen-lockfile > /dev/null 2>&1 || pnpm install --frozen-lockfile
 export PI_HOST_REQUIRED=1 PI_HOST_RUNTIME=$runtime MYCELIUM_BIN=$mycelium
 # A lender runs nothing else, so its files run side by side, each sealing
-# its host in folders of its own: one for each two cores, which
-# vitest.config.ts holds to at most eight (PROCESS_WORKERS). On 22
+# its host in folders of its own: one for each two cores, and at least
+# one, which vitest.config.ts caps (MOST_PROCESS_WORKERS). On 22
 # November that ran the suite in 13 min 20 s on 32 cores, build included,
 # against about 71 min one at a time, its longest file 422 s. A laptop's
-# lane, which sets none, stays one file at a time. It says so on stderr,
-# since what it prints on stdout is the suite's and the report's alone.
+# lane, which sets none, stays one file at a time. The count is the
+# lender's own: `nix-offload there --run` carries no caller's
+# environment, so a PI_HOST_WORKERS set where this was asked from stays
+# there. It says so on stderr, since what it prints on stdout is the
+# suite's and the report's alone.
 cores=$(nproc 2> /dev/null || echo 2)
-export PI_HOST_WORKERS=${PI_HOST_WORKERS:-$((cores / 2))}
-echo "host-run: $PI_HOST_WORKERS files at once asked for on $cores cores, of at most 8" >&2
+half=$((cores / 2))
+export PI_HOST_WORKERS=${PI_HOST_WORKERS:-$((half > 0 ? half : 1))}
+echo "host-run: $PI_HOST_WORKERS files at once asked for on $cores cores, which vitest.config.ts caps" >&2
 if [[ $# -gt 0 ]]; then
   exec pnpm exec vitest run --project process --reporter verbose "$@"
 fi

@@ -10,6 +10,7 @@ import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, expect } from "vitest";
 import {
 	HOST_PI_REQUIRED,
@@ -28,6 +29,23 @@ export const RUN_MS = 600_000;
  * rather than going on loading the cores the files beside it share.
  */
 const SOAK_WITHIN_MS = RUN_MS - 15_000;
+
+/** How long a soak's group has to end on SIGTERM before it is killed. */
+const STOP_GRACE_MS = 10_000;
+
+/** How often a stop looks whether the group has ended. */
+const STOP_LOOK_MS = 100;
+
+/**
+ * The groups of soaks still running, stopped once their file's cases
+ * end, and killed outright should the worker exit first, so a soak's
+ * hosts never outlive the file that started them.
+ */
+const running = new Set<number>();
+afterAll(() => Promise.all([...running].map(stopGroup)));
+process.on("exit", () => {
+	for (const pid of running) signalGroup(pid, "SIGKILL");
+});
 
 /** The pi with the host's patches, or undefined to skip; a host run that requires one and finds none fails. */
 export function soakPackageDir(): string | undefined {
@@ -71,8 +89,13 @@ export async function soaked(
 			detached: true,
 		},
 	);
+	const { pid } = child;
+	if (pid !== undefined) running.add(pid);
+	let overran = false;
 	const overrun = setTimeout(() => {
-		if (child.pid !== undefined) stopGroup(child.pid);
+		overran = true;
+		// Its exit, which this stop brings, is what the case awaits.
+		if (pid !== undefined) void stopGroup(pid);
 	}, SOAK_WITHIN_MS);
 	let said = "";
 	child.stdout.on("data", (chunk) => {
@@ -83,19 +106,44 @@ export async function soaked(
 	});
 	const [code] = await once(child, "exit");
 	clearTimeout(overrun);
-	expect(code, said).toBe(0);
+	// A host the soak left behind goes with its group.
+	if (pid !== undefined) await stopGroup(pid);
+	expect(
+		code,
+		overran
+			? `the soak ran past ${SOAK_WITHIN_MS} ms and was stopped:\n${said}`
+			: said,
+	).toBe(0);
 	const report: unknown = JSON.parse(
 		readFileSync(join(into, "report.json"), "utf8"),
 	);
 	return { said, report };
 }
 
-/** Ask every process in a soak's group to stop, as each host does on SIGTERM. */
-function stopGroup(pid: number): void {
+/**
+ * Stop every process in a soak's group: SIGTERM, which each host ends
+ * on, then SIGKILL for whatever is left once STOP_GRACE_MS has passed.
+ */
+async function stopGroup(pid: number): Promise<void> {
+	if (signalGroup(pid, "SIGTERM")) {
+		const deadline = Date.now() + STOP_GRACE_MS;
+		while (Date.now() < deadline && signalGroup(pid, 0)) {
+			// A group's end can't be awaited, only looked for.
+			await delay(STOP_LOOK_MS);
+		}
+		signalGroup(pid, "SIGKILL");
+	}
+	running.delete(pid);
+}
+
+/** Send `signal` to a soak's group: whether any process in it was there. */
+function signalGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
 	try {
-		process.kill(-pid, "SIGTERM");
+		process.kill(-pid, signal);
+		return true;
 	} catch {
-		// The group has already ended, between the overrun and the stop.
+		// The group has ended, which is what a stop waits for.
+		return false;
 	}
 }
 
