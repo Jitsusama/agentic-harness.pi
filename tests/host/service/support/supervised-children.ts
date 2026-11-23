@@ -169,9 +169,12 @@ export interface FakeUnits extends Units {
 	goneFails?: number;
 	/**
 	 * The CPU time, in ms, each unit is said to have spent, when a test
-	 * says; otherwise systemd is taken to say none it can tell.
+	 * says, or what each ask answers; otherwise systemd is taken to say
+	 * none it can tell.
 	 */
-	spent?: number;
+	spent?: number | (() => number | undefined);
+	/** How many times the CPU a unit spent was asked. */
+	cpuAsks: number;
 	/** The next ask whether a unit has gone answers only once this settles. */
 	goneAnswers?: Promise<void>;
 	/** How many of the next stops fail once their unit has gone. */
@@ -330,6 +333,7 @@ function fakeUnits(): FakeUnits {
 		markedAtStop: [],
 		forgotten: [],
 		children: new Map(),
+		cpuAsks: 0,
 		async start(unit) {
 			fake.started.push(unit);
 			if (fake.refusesStart) {
@@ -396,7 +400,9 @@ function fakeUnits(): FakeUnits {
 			fake.forgotten.push(unit);
 		},
 		async cpuSpentMs(unit) {
-			return fake.children.has(unit) ? fake.spent : undefined;
+			fake.cpuAsks += 1;
+			if (!fake.children.has(unit)) return undefined;
+			return typeof fake.spent === "function" ? fake.spent() : fake.spent;
 		},
 	};
 	return fake;

@@ -36,6 +36,15 @@ import {
 
 superviseEachTest();
 
+/** CPU said from `from` and growing by `step` at each ask, as a starved child's does. */
+function growing(from: number, step: number): () => number {
+	let spent = from - step;
+	return () => {
+		spent += step;
+		return spent;
+	};
+}
+
 describe("a resumed conversation", () => {
 	it("tells a child woken from a park that it was, so it doesn't rest parked again", async () => {
 		await supervisor.resume(entry(a), true);
@@ -288,19 +297,97 @@ describe("a resumed conversation", () => {
 	it("waits past its listen time on a child starved of CPU, and routes to it once it listens", async () => {
 		superviseAgain({ clocks: { listensWithinMs: 300 } });
 		units.next = { listensWhen: pause(1_500) };
-		units.spent = 200;
+		units.spent = growing(200, 1);
 
 		const running = await supervisor.resume(entry(a), true);
 
 		expect(running.sessionId).toBe(a);
 		expect(routes.routeOf(a)?.socket).toBe(slotOf(folder, key, a).socket);
 		expect(units.stopped, "its child left running").toEqual([]);
+		const unit = slotOf(folder, key, a).unit;
 		expect(
-			said.filter((line) => line.includes("starved")),
+			said.filter((line) => line.includes("hasn't listened")),
 			"said once, as it waits on",
 		).toEqual([
-			`${slotOf(folder, key, a).unit} hasn't listened in 300 ms, but has had only 200 ms of CPU: it is starved rather than stuck, so it is waited on`,
+			`${unit} hasn't listened in 300 ms, but has had only 200 ms of CPU: it is starved rather than stuck, so it is waited on`,
 		]);
+		expect(
+			said.filter((line) => line.includes("listened after")),
+			"its wait said once it listens",
+		).toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`^${unit} listened after \\d+ ms, starved, having had 20\\d ms of CPU$`,
+				),
+			),
+		]);
+	});
+
+	it("is given up as stuck when its child gains no CPU for a whole listen time", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = 50;
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			/did not listen within \d+ ms, with 50 ms of CPU, none of it in the last \d+ ms: it is stuck rather than starved/,
+		);
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
+	});
+
+	it("is given up once a starved child spends its CPU while waited on", async () => {
+		superviseAgain({
+			clocks: {
+				listensWithinMs: 300,
+				listensWithinCpuMs: 1_000,
+				starvedWithinMs: 10_000,
+			},
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(100, 400);
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			/did not listen within \d+ ms, with 1300 ms of CPU$/,
+		);
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
+	});
+
+	it("keeps waiting on a starved child when systemd fails to say its CPU", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { listensWhen: pause(3_500) };
+		const answers = [100, undefined, undefined, undefined];
+		let asks = 0;
+		units.spent = () =>
+			asks < answers.length ? answers[asks++] : 100 + asks++;
+
+		const running = await supervisor.resume(entry(a), true);
+
+		expect(running.sessionId).toBe(a);
+		expect(asks, "its CPU asked through the failures").toBeGreaterThan(3);
+	});
+
+	it("stops waiting on a starved child whose unit ends", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		units.next = { neverListens: true };
+		units.spent = growing(0, 1);
+		const unit = slotOf(folder, key, a).unit;
+		const asked = Date.now();
+		const resumed = supervisor.resume(entry(a));
+		const outcome = expect(resumed).rejects.toThrow(
+			`${unit} ended before it listened`,
+		);
+		await pause(1_200);
+		units.children.delete(unit);
+
+		await outcome;
+		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	});
 
 	it("is given up at its listen time when its child spent its CPU without listening", async () => {
@@ -322,11 +409,13 @@ describe("a resumed conversation", () => {
 			clocks: { listensWithinMs: 300, starvedWithinMs: 1_200 },
 		});
 		units.next = { neverListens: true };
-		units.spent = 0;
+		units.spent = growing(0, 1);
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			`${slotOf(folder, key, a).unit} did not listen within 1200 ms, with 0 ms of CPU`,
+			new RegExp(
+				`${slotOf(folder, key, a).unit} did not listen within 1200 ms, with \\d ms of CPU$`,
+			),
 		);
 		expect(Date.now() - asked, "past its listen time").toBeGreaterThanOrEqual(
 			1_200,

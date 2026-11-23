@@ -324,11 +324,14 @@ input pipeline or screen. No unit or running host is installed yet.
   resumes or a caller opens, holding a route to it from the child's
   watch, moving it as the conversation becomes another and letting it
   go with the slot as the child ends. A child that never listens or
-  refuses its first request is stopped. A resume nobody waits on,
-  past its 60 s, waits on a child that has had under 20 s of CPU, as
-  systemd accounts it, for up to 10 minutes, since a busy machine
-  starves a start rather than wedging it; a caller's open keeps its
-  own bound. A host starting takes up the
+  refuses its first request is stopped. A resume, adopt or wake, whose
+  waiter gives no bound, past its 60 s waits on a child that has had
+  under 20 s of CPU, as systemd accounts it, for up to 10 minutes,
+  since a busy machine starves a start rather than wedging it; one
+  that gains no CPU for a whole 60 s waits on something else, and is
+  given up then. Its journal says as it starts waiting and as it
+  listens. A caller's open keeps its own bound, and is refused at it
+  without asking systemd. A host starting takes up the
   children an earlier one left running, and a host stopping leaves
   them, so stopping the host halts none of its children's
   conversations. To halt those too, stop their units:

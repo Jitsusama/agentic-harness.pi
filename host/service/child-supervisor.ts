@@ -497,10 +497,15 @@ export function childSupervisor(options: {
 	/**
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
-	 * asked once a second, or the host stops watching. With no `by`,
-	 * nobody waits on the child, so one past its time that has had little
-	 * CPU is starved by a busy machine rather than stuck, and is waited on
-	 * until it has spent its CPU or STARVED_WITHIN_MS has passed.
+	 * asked once a second, or the host stops watching. A `by` is a caller
+	 * that gives up then, a begin, so its child is given up then too. With
+	 * none, a resume, an adopt or a wake, whoever waits says its own wait
+	 * (a window's attach journals each one) rather than giving up, so a
+	 * child past its time that has had little CPU is starved by a busy
+	 * machine rather than stuck: it is waited on until it has spent its
+	 * CPU, gains none for a whole listen time, or STARVED_WITHIN_MS has
+	 * passed. Stopping it then would throw its start away, and starting
+	 * again on the same machine would starve the same way.
 	 */
 	async function once<T>(
 		slot: Slot,
@@ -509,40 +514,67 @@ export function childSupervisor(options: {
 	): Promise<T> {
 		const began = Date.now();
 		const ms = Math.max(0, Math.min(withinMs, by - began));
-		const waits = by === Number.POSITIVE_INFINITY;
+		const bounded = by !== Number.POSITIVE_INFINITY;
+		const starvedMs = Math.max(ms, starvedWithinMs);
+		const ceiling = began + starvedMs;
 		let until = began + ms;
 		let starved = false;
 		let asked = Date.now();
+		/** The CPU it last said it had spent, and when that last grew. */
+		let spentLast: number | undefined;
+		let grewAt = began;
 		for (;;) {
 			stillWatching();
 			try {
-				return await attempt();
+				const result = await attempt();
+				if (starved)
+					options.say?.(
+						`${slot.unit} listened after ${Date.now() - began} ms, starved, having had ${spentLast ?? "an unknown"} ms of CPU`,
+					);
+				return result;
 			} catch (error) {
 				if (!notListening(error)) throw error;
 				if (Date.now() >= until) {
+					// A begin's caller gives up at its bound, so asking systemd
+					// first would only make its refusal late.
+					if (bounded)
+						throw new Error(`${slot.unit} did not listen within ${ms} ms`);
 					const spent = await units.cpuSpentMs(slot.unit);
-					const starvedMs = Math.max(ms, starvedWithinMs);
-					const ceiling = began + starvedMs;
+					const now = Date.now();
+					if (spent !== undefined && spent !== spentLast) {
+						spentLast = spent;
+						grewAt = now;
+					}
+					// Once it is waited on, a systemd too loaded to say leaves it
+					// waiting: a loaded machine is what starves it.
+					const known = spent ?? (starved ? spentLast : undefined);
 					const stillStarved =
-						spent !== undefined && spent < listensWithinCpuMs;
-					if (waits && stillStarved && Date.now() < ceiling) {
+						known !== undefined && known < listensWithinCpuMs;
+					// One that gains no CPU for a whole listen time waits on a lock,
+					// the disk or the network, not on the machine.
+					const stalled = starved && spent !== undefined && now - grewAt >= ms;
+					if (stillStarved && !stalled && now < ceiling) {
 						if (!starved)
 							options.say?.(
-								`${slot.unit} hasn't listened in ${ms} ms, but has had only ${spent} ms of CPU: it is starved rather than stuck, so it is waited on`,
+								`${slot.unit} hasn't listened in ${ms} ms, but has had only ${known} ms of CPU: it is starved rather than stuck, so it is waited on`,
 							);
 						starved = true;
 						// Asked again each second, as whether it has gone is.
-						until = Math.min(ceiling, Date.now() + ASKED_EVERY_MS);
+						until = Math.min(ceiling, now + ASKED_EVERY_MS);
 					} else {
-						const cpu = spent === undefined ? "" : `, with ${spent} ms of CPU`;
-						// One that spent its CPU while starved is said at the time it took.
+						const cpu = known === undefined ? "" : `, with ${known} ms of CPU`;
+						const why = stalled
+							? `, none of it in the last ${now - grewAt} ms: it is stuck rather than starved`
+							: "";
+						// One given up at the ceiling is said at it; one given up
+						// sooner while starved, at the time it took.
 						const within = !starved
 							? ms
-							: stillStarved
+							: stillStarved && !stalled
 								? starvedMs
-								: Date.now() - began;
+								: now - began;
 						throw new Error(
-							`${slot.unit} did not listen within ${within} ms${cpu}`,
+							`${slot.unit} did not listen within ${within} ms${cpu}${why}`,
 						);
 					}
 				}

@@ -232,13 +232,14 @@ describe("a new conversation", () => {
 		units.spent = 0;
 		const asked = Date.now();
 
-		await expect(supervisor.begin(opening("open-11"))).rejects.toThrow(
-			"did not listen within 300 ms",
+		await expect(supervisor.begin(opening("open-16"))).rejects.toThrow(
+			/did not listen within 300 ms$/,
 		);
 		expect(
 			Date.now() - asked,
 			"within its listen time, not a starved child's",
 		).toBeLessThan(3_000);
+		expect(units.cpuAsks, "its refusal not held up by asking systemd").toBe(0);
 	});
 
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
