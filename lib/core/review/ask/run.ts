@@ -685,8 +685,20 @@ export function substituteOutcome(
 	// to be pinned does not clear a caveat earned by the reviewers
 	// already in the round.
 	const fell = read?.unpinned === undefined ? {} : { unpinned: read.unpinned };
-	const { open: _wasOpen, ...rest } = run;
+	// A round closed unfinished that a retry has now answered is a council
+	// that reported, so it stops saying closed: every gate passes over a
+	// closed round, merge-net's among them, and a round stopped after a
+	// reload and then retried counted for none of them (Y2YBTS, 22
+	// November).
+	const held = outcome.failure === undefined ? reopened(run) : run;
+	const { open: _wasOpen, ...rest } = held;
 	return waiting
-		? { ...run, outcomes, ...fell }
+		? { ...held, outcomes, ...fell }
 		: { ...rest, outcomes, ...fell };
+}
+
+/** `run` without its mark of being closed unfinished. */
+function reopened(run: AskRun): AskRun {
+	const { closed: _wasClosed, ...rest } = run;
+	return rest;
 }

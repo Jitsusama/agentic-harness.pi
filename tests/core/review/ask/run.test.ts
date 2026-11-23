@@ -528,6 +528,29 @@ describe("substituting one outcome", () => {
 		});
 	});
 
+	// Y2YBTS, 22 November: a round stopped after a reload and then retried
+	// stayed closed, so merge-net's gate passed over the answer.
+	it("reopens a round closed unfinished once a retry answers", () => {
+		const closed = run({
+			closed: true,
+			outcomes: [{ participantId: "hawk", findingIds: [1] }],
+		});
+
+		const answered = substituteOutcome(
+			closed,
+			{ participantId: "owl", findingIds: [4] },
+			{},
+		);
+		const failedAgain = substituteOutcome(
+			closed,
+			{ participantId: "owl", findingIds: [], failure: "timed out" },
+			{},
+		);
+
+		expect(answered.closed, "a retry that answered").toBeUndefined();
+		expect(failedAgain.closed, "a retry that failed again").toBe(true);
+	});
+
 	it("refuses to invent a participant nobody asked", () => {
 		// Substituting an outcome for someone outside the roster would
 		// make the run claim it asked somebody it never did.
