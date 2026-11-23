@@ -47,6 +47,7 @@ import {
 	underHome,
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
+import { holdToOrigin } from "./origin-view.ts";
 import { standSparse } from "./sparse.ts";
 import { twinOf } from "./twin.ts";
 
@@ -455,8 +456,11 @@ async function cloneTwin(
 
 /**
  * A tree cloned from `twin` made to hold only what `origin` holds: its
- * origin branches the twin's view of origin, no branch of its own, and
- * `origin` its remote. Answers why not, or nothing.
+ * origin branches the twin's view of origin, held to origin's own list,
+ * no branch of its own, and `origin` its remote. A twin with no view of
+ * origin, such as a bare clone, lends its own branches as the view, since
+ * origin's list then keeps only those that match. Answers why not, or
+ * nothing.
  */
 async function asOrigin(
 	git: TreeGit,
@@ -478,22 +482,37 @@ async function asOrigin(
 	// The clone's pointer to the twin's own branch, which the prune drops.
 	await git.run("symbolic-ref", "-q", "-d", "refs/remotes/origin/HEAD");
 	// Pruned to the twin's view of origin; its objects are here already.
+	const why = await viewOf(git, twin, "refs/remotes/origin");
+	if (why !== undefined) return why;
+	if (!(await git.said("for-each-ref", "--count=1", "refs/remotes/origin/"))) {
+		const lent = await viewOf(git, twin, "refs/heads");
+		if (lent !== undefined) return lent;
+	}
+	const pointed = await git.run("remote", "set-url", "origin", origin);
+	if (pointed.code !== 0) {
+		return `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`;
+	}
+	return holdToOrigin(git);
+}
+
+/** The tree's origin branches made the twin's refs under `under`. */
+async function viewOf(
+	git: TreeGit,
+	twin: string,
+	under: string,
+): Promise<string | undefined> {
 	const viewed = await git.run(
 		"fetch",
 		"-q",
 		"--prune",
 		"--no-tags",
 		twin,
-		"+refs/remotes/origin/*:refs/remotes/origin/*",
-		"^refs/remotes/origin/HEAD",
+		`+${under}/*:refs/remotes/origin/*`,
+		`^${under}/HEAD`,
 	);
-	if (viewed.code !== 0) {
-		return `git couldn't take the twin's view of its origin: ${viewed.stderr.trim()}`;
-	}
-	const pointed = await git.run("remote", "set-url", "origin", origin);
-	return pointed.code === 0
+	return viewed.code === 0
 		? undefined
-		: `git couldn't point it at ${origin}: ${pointed.stderr.trim()}`;
+		: `git couldn't take the twin's view of its origin: ${viewed.stderr.trim()}`;
 }
 
 /**
