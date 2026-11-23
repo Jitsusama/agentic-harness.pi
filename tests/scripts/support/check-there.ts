@@ -352,7 +352,7 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				const waited = ended(waiter);
 				const said = await complains(waiter, /waiting its turn/);
 				expect(said, "whose turn it is").toMatch(
-					/\(feature, pid \d+, from \w{3} \d\d:\d\d\); waiting its turn/,
+					/\(feature, pid \d+, from \d{4}-\d\d-\d\d \d\d:\d\d\); waiting its turn/,
 				);
 				// A wait that let the waiter in at once would print within this
 				// pause; nothing signals a wait still waiting, so time must pass.
@@ -382,11 +382,11 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 			],
 			[
 				"a mark reordering what follows, in a line otherwise its shape",
-				"feature\u202e, pid 12, from Sun 00:00\n",
+				"feature\u202e, pid 12, from 2026-11-22 00:00\n",
 			],
 			[
 				"a branch past 160 characters",
-				`${"b".repeat(161)}, pid 12, from Sun 00:00\n`,
+				`${"b".repeat(161)}, pid 12, from 2026-11-22 00:00\n`,
 			],
 		])(
 			"says no holder's line holding %s",
@@ -415,11 +415,22 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 		);
 
 		// A FIFO's read waits for a writer, and an endless device's never
-		// ends, so a waiter reading either would hold past its limit.
+		// ends, so a waiter reading either would hold past its limit; a
+		// link, even to a line in its shape, is read as no line at all.
 		it.runIf(tools.every((tool) => onPath(tool) !== undefined)).each([
 			[
 				"a link to an endless device",
 				(path: string) => symlinkSync("/dev/zero", path),
+			],
+			[
+				"a link to a line in its shape",
+				(path: string) => {
+					writeFileSync(
+						`${path}.real`,
+						"later, pid 1, from 2026-11-22 00:00\n",
+					);
+					symlinkSync(`${path}.real`, path);
+				},
 			],
 			[
 				"a FIFO",
@@ -455,6 +466,44 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 			TEST_MS,
 		);
 
+		// The look and the read are two lookups of one name, so a holder
+		// can swap a FIFO in between them: here, as the waiter looks.
+		it.runIf([...tools, "mkfifo"].every((tool) => onPath(tool) !== undefined))(
+			"gives up on time when a FIFO is swapped in after its look",
+			async () => {
+				const host = hostWith([...tools, "mkfifo"]);
+				const holder = check(host, "take_turn\necho held\nread -r _ || true");
+				await says(holder, "held");
+				const swap = [
+					"[() {",
+					'  if builtin [ "$1" = "!" ] && builtin [ "$2" = -L ] && builtin [ -f "$3" ]; then',
+					'    rm -f "$3"; mkfifo "$3"',
+					"  fi",
+					'  builtin [ "$@"',
+					"}",
+				].join("\n");
+				const asked = Date.now();
+				const waiter = await ended(
+					check(host, `${swap}\nturn_wait_s=1\ntake_turn\necho took`),
+				);
+				const waitedFor = Date.now() - asked;
+				holder.stdin?.end();
+				await ended(holder);
+				expect(waiter.code, waiter.err).toBe(75);
+				expect(
+					lstatSync(join(host, "lock.holder")).isFIFO(),
+					"the swap was made",
+				).toBe(true);
+				// Its limit, the second more it promises and a second's read,
+				// with room for a slow start, and far short of a held open.
+				expect(waitedFor, "gave up on time").toBeLessThan(7_000);
+				expect(waiter.err, "the line, unsaid").toMatch(
+					/\(unsaid\); waiting its turn[\s\S]*held by \(unsaid\)/,
+				);
+			},
+			TEST_MS,
+		);
+
 		it.runIf(tools.every((tool) => onPath(tool) !== undefined))(
 			"gives up once its wait's limit passes, saying so",
 			async () => {
@@ -469,7 +518,7 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				// The turn changes hands while it waits, as over 90 minutes it may.
 				writeFileSync(
 					join(host, "lock.holder"),
-					"later, pid 1, from Sun 00:00\n",
+					"later, pid 1, from 2026-11-22 00:00\n",
 				);
 				const waiter = await waited;
 				const waitedFor = Date.now() - asked;
@@ -481,7 +530,7 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				expect(waitedFor, "and gave up soon after").toBeLessThan(6_000);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
 				expect(waiter.err, "naming who holds the turn as it gives up").toMatch(
-					/gave up after 2 s waiting for .*'s check lock, held by \(later, pid 1, from Sun 00:00\)/,
+					/gave up after 2 s waiting for .*'s check lock, held by \(later, pid 1, from 2026-11-22 00:00\)/,
 				);
 				expect(
 					waiter.err,
@@ -1404,6 +1453,17 @@ function localHalf(): void {
 			},
 		);
 
+		// Past 160 characters its holder's line would read to every waiter
+		// as not in its shape, so the branch is refused before any host.
+		it("refuses a branch past 160 characters, reaching no host", () => {
+			const fits = sendFrom(["b".repeat(160), "there"]);
+			expect(fits.code, fits.err).toBe(0);
+			const sent = sendFrom(["b".repeat(161), "there"]);
+			expect(sent.code).toBe(2);
+			expect(sent.err).toMatch(/^check-there: .* is past 160 characters/m);
+			expect(sent.sent, "no ssh").toBeNull();
+		});
+
 		// An empty setting reads as none, as `:-` reads it.
 		it("waits its default when the wait is set empty", () => {
 			const sent = sendFrom(["feature", "there"], "");
@@ -1585,7 +1645,12 @@ function workThere(): void {
 				).toBeLessThan(at(line));
 			const turn = top.indexOf("take_turn");
 			expect(turn, "its turn, taken").toBeGreaterThan(-1);
-			for (const sent of ['branch="$1"', 'turn_wait_s="$2"']) {
+			for (const sent of [
+				'branch="$1"',
+				'turn_wait_s="$2"',
+				"turn=~/.cache/harness-check.lock",
+				'exec 9> "$turn"',
+			]) {
 				const read = top.indexOf(sent);
 				expect(read, `${sent}, read`).toBeGreaterThan(-1);
 				expect(read, `${sent}, before its turn`).toBeLessThan(turn);
