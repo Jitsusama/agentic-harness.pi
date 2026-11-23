@@ -1088,6 +1088,31 @@ describe("a sprouted session's start", () => {
 		}
 	});
 
+	it("never says a need went unrecorded when a join's log lock fails on a quest already serving it", async () => {
+		const link = "https://github.com/o/r/pull/73";
+		const need = "KESTRL/mi1y.0a1b2c3d4e5f";
+		const first = await start({ words: "the PR's work", id: "S73", need });
+		const id = first.state.questId;
+		if (!id) throw new Error("no quest to join");
+		markWith(id, link);
+		failing.linkedLog = true;
+		try {
+			const again = await start(
+				{ link, id: "S74", need },
+				{ sessionId: "sess-join-need-held" },
+			);
+			expect(again.state.questId, "the quest it joined").toBe(id);
+			expect(again.words, "whose need is already held").not.toContain(
+				"the need it serves isn't recorded",
+			);
+			expect(stderrSaid(), "nor does the host's log").not.toContain(
+				"the need it serves isn't recorded",
+			);
+		} finally {
+			failing.linkedLog = false;
+		}
+	});
+
 	it("records no need for a seed sent for none", async () => {
 		const { state } = await start({ words: "tea", id: "S10" });
 		clearDiscoveryCache();
