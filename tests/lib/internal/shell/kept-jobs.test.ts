@@ -2248,4 +2248,17 @@ describe("a stray recorded job", () => {
 	it("is none before there is a folder", async () => {
 		expect(await strayKeptJobs(folder())).toEqual([]);
 	});
+
+	// A folder at its end's name stands in for EIO: one record that won't
+	// read must not keep the watch from every other stray.
+	it("is one whose end won't read, beside the rest", async () => {
+		const where = folder();
+		const unread = await recorded(where, "s1", "unread", 4242, { owner: 88 });
+		await recorded(where, "s1", "stray", 4242, { owner: 88 });
+		mkdirSync(`${unread.work.keep}.end`);
+		expect(
+			(await strayKeptJobs(where, () => false)).map((job) => job.id).sort(),
+			"an end not read is an end not said",
+		).toEqual(["stray", "unread"]);
+	});
 });
