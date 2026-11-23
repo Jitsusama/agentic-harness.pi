@@ -8,8 +8,10 @@ pi install the suite runs under. `xdg-sandbox.test.ts` proves the sandbox holds.
 
 `scripts-as-text.ts` is a loader each project takes, so a test can
 import a shell script it runs, as its text, and `--changed` follows an
-edit to that script, or to one it sources or runs from beside it, to
-the test; `scripts.d.ts` gives such an import its type.
+edit to that script, or to one it sources or runs, to the test;
+`scripts.d.ts` gives such an import its type. `scripts-as-text.test.ts`
+proves what it follows, and `scripts-as-text-changed.test.ts`, in the
+process lane, that vitest's own `--changed` then runs the test.
 
 `chrome-present.ts` is the browser lane's, named in
 `vitest.browser.config.ts`: it fails the lane before any test runs where

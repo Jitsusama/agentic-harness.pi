@@ -66,6 +66,7 @@ const PROCESS_TESTS = [
 	"tests/extensions/subagent-workflow/fleet-orphan-is-stopped.test.ts",
 	"tests/extensions/subagent-workflow/fleet-transcripts-are-kept.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",
+	"tests/setup/scripts-as-text-changed.test.ts",
 	"tests/lib/internal/reload/stale-rejections.test.ts",
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 	"tests/package/hosted-loads-add-no-process-listeners.test.ts",

@@ -104,17 +104,20 @@ doesn't follow, so it also imports each script it runs
 (`import "../../scripts/merge-gate.sh"`); the loader in
 `tests/setup/scripts-as-text.ts` makes that import the script's text,
 for a `.sh`, a `.bash` or a file with no ending whose shebang names a
-shell, and imports in turn each script it sources or runs from beside
-it, named from its own folder or by a path from the root. A package
-rule, `tests-import-the-scripts-they-run`, fails a test that names a
-script on its own in a string without importing it; a script beside
-the package's code, among the ssh guard's or under `tests/` that no
-test's imports reach; a script beside another named in a way the
-loader can't follow; and a file pi or node loads with no loader that
-imports a script, since they would read it as JavaScript. A name
-built from parts is past the first, so such a test imports its scripts
-by hand, as `ssh-guard.test.ts` does the guard's wrappers, and the
-second holds it to them.
+shell, and imports in turn each script its code names that is there,
+by a path from its own folder or from the root, and each shell script
+with no ending beside it that it names as a word; comment lines name
+nothing. A package rule, `tests-import-the-scripts-they-run`, fails a
+test that names a script on its own in a string without importing it;
+a script beside the package's code, among the ssh guard's or under
+`tests/` that no test's imports reach; a script naming one beside it,
+by its own folder, that isn't there to follow; and a file pi or node
+loads with no loader that imports a script, since they would read it
+as JavaScript. A name built from parts is past the first, so such a
+test imports its scripts by hand, as `ssh-guard.test.ts` does the
+guard's wrappers, and the second holds it to them. The rule is a
+package test, so it runs under a whole `pnpm test` and `pnpm
+check:there`, and under `pnpm check` only when a change reaches it.
 Vite's `?raw` won't do: vitest drops a dependency whose id, query
 included, names no file. A `.ts` script a test runs as its own process
 is still reached only by what it imports.

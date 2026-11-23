@@ -53,8 +53,9 @@ generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 # What a host runs, and what decides how test:host runs it: the host
 # program, its screens and the session seam its conversations go through,
 # the host tests themselves, and the lockfile, config and setup they run
-# under.
-hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|tests/setup/|scripts/pi-host|scripts/host-|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
+# under: the process lane's setup files, its global setup and the
+# scripts' loader, never the unit lane's alone.
+hosted='^(host/|lib/ui/|lib/core/session/|lib/core/viewer/|tests/host/|tests/setup/(pi-install|xdg-sandbox|temp-root|scripts-as-text)\.ts$|scripts/pi-host|scripts/host-|package\.json$|pnpm-lock\.yaml$|vitest\.config\.ts$)'
 # The extensions whose tools and turns the host cases drive, and the
 # libraries under them: background jobs, tool_search's loadout, the mesh,
 # parking, quests, reloads, stored results, spend and subagents. A host
