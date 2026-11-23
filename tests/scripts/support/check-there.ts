@@ -859,11 +859,7 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				expect(refused.err, "saying why").toMatch(
 					/no process group of its own/,
 				);
-				// The work is named, not what runs it.
-				const wrapped = await ended(
-					check(host, "set +m\ntake_turn\nalone with_errexit sleep 30"),
-				);
-				expect(wrapped.err, "naming the work").toMatch(
+				expect(refused.err, "naming the work").toMatch(
 					/^check-there: sleep got no process group/m,
 				);
 				// A job that ends at once is refused as surely, before it runs.
@@ -1294,8 +1290,22 @@ function itsEnd(): void {
 			TEST_MS,
 		);
 
-		// The turn's own 75 and 3 end the script under errexit, so errexit
-		// is off only once the turn is taken, and the work never runs.
+		// The turn's own 75 and 3 end the script under errexit, so nothing
+		// the script runs before the turn turns errexit off.
+		it("takes the turn's own codes with errexit on", () => {
+			const text = there();
+			const beforeTheTurn = text
+				.slice(0, text.lastIndexOf("\ntake_turn\n"))
+				.replace(/^\w+\(\) \{\n[\s\S]*?\n\}$/gm, "");
+			expect(
+				beforeTheTurn
+					.split("\n")
+					.filter((line) => /^\s*set\s+(\+\w*e|\+o\s+errexit)/.test(line)),
+				"errexit turned off before the turn",
+			).toEqual([]);
+		});
+
+		// Run from its call, the turn's code ends the script there.
 		it
 			.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))
 			.each([75, 3])(
@@ -1791,7 +1801,7 @@ function workThere(): void {
 					(line) => line.includes('"$@"') && line.trim().endsWith("&"),
 				),
 				"alone's one launch",
-			).toEqual(['  "$@" 9>&- </dev/null &']);
+			).toEqual(['  { set -e; "$@"; } 9>&- </dev/null &']);
 		});
 
 		// The checks here define every function before any setting, so the
@@ -1923,9 +1933,9 @@ function workThere(): void {
 			expect(
 				after.filter((line) => /(^|\s)alone\s/.test(line)),
 				"run once its function closes, as the stops above stop it",
-			).toEqual(["alone with_errexit run_check"]);
+			).toEqual(["alone run_check"]);
 			expect(
-				after.indexOf("alone with_errexit run_check"),
+				after.indexOf("alone run_check"),
 				"after its function",
 			).toBeGreaterThan(after.indexOf("}"));
 			expect(
