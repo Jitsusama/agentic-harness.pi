@@ -365,6 +365,43 @@ describe("what a round cost", () => {
 		expect(after.unpinned).toBe("read the checkout");
 	});
 
+	it("takes a retry's base when the round recorded none", () => {
+		// merge-net counts a range round's read only by its base, so a
+		// round that lost its base to a retry would clear no merge.
+		const before = run({
+			participants: [hawk],
+			outcomes: [{ participantId: "hawk", findingIds: [], failure: "it died" }],
+		});
+
+		const after = substituteOutcome(
+			before,
+			{ participantId: "hawk", findingIds: [1] },
+			{ witness: "d7205e3c", from: "b0b0b0b0" },
+		);
+
+		expect(after.from).toBe("b0b0b0b0");
+		expect(after.unpinned, "a filled base is no caveat").toBeUndefined();
+	});
+
+	it("says so when a retry read from another base than the round", () => {
+		// The round keeps its base, since its other reviewers read from
+		// it, and says this reviewer's findings came from another range.
+		const before = run({
+			participants: [hawk],
+			from: "b0b0b0b0",
+			outcomes: [{ participantId: "hawk", findingIds: [], failure: "it died" }],
+		});
+
+		const after = substituteOutcome(
+			before,
+			{ participantId: "hawk", findingIds: [1] },
+			{ witness: "d7205e3c", from: "c1c1c1c1" },
+		);
+
+		expect(after.from).toBe("b0b0b0b0");
+		expect(after.unpinned).toMatch(/c1c1c1c1.*b0b0b0b0/);
+	});
+
 	it("keeps what a retried attempt cost", () => {
 		// The findings are replaced, because the new attempt supersedes
 		// the old one. The money is not: it was spent, and a reviewer

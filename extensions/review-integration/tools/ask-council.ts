@@ -87,7 +87,7 @@ export async function askCouncil(
 			roster,
 			prompt,
 			seq: nextSeq(),
-			...readFrom(tree, proposal.headCommit),
+			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		deps(change, tree.path, watch, charters),
@@ -234,7 +234,7 @@ export async function startRound(
 			roster,
 			prompt,
 			seq: nextSeq(),
-			...readFrom(tree, proposal.headCommit),
+			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		{
@@ -441,7 +441,7 @@ export async function retryOne(
 		"reviewers",
 		diff,
 	);
-	const read = readFrom(tree, proposal.headCommit);
+	const read = readFrom(tree, proposal.headCommit, proposal.baseCommit);
 	const intent = params.intent === undefined ? {} : { intent: params.intent };
 	// Asked again the way it was asked the first time, conventions
 	// included, since a retry that reads a different prompt is not a

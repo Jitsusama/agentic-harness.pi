@@ -111,6 +111,12 @@ export interface Change {
 	/** Tip commit of `head`, when the provider reports it. */
 	headCommit?: string;
 	/**
+	 * The commit a range of commits is read from, when the change is one:
+	 * `base` as a person named it may be a ref, which means another
+	 * commit elsewhere, and a round's record has to say which it read.
+	 */
+	baseCommit?: string;
+	/**
 	 * The commit a merged change landed as on its base, when the
 	 * provider reports it. Absent while the change is open, since a
 	 * host's trial merge of an open change is no commit of the base.

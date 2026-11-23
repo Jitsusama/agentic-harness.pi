@@ -91,11 +91,16 @@ export async function rangeProposal(
 	// The same base the core diffs from, so the description and the diff
 	// cover the same commits.
 	const from = range.upstream?.commit ?? range.base;
+	// Pinned like the head, so a round's record names the commit it read
+	// from, which a ref such as origin/main stops meaning elsewhere.
+	const baseCommit = (
+		await git("rev-parse", "--verify", `${from}^{commit}`)
+	).trim();
 	const log = await git(
 		"log",
 		"--reverse",
 		"--format=%an%x00%s%x00%b%x1e",
-		`${from}..${headCommit}`,
+		`${baseCommit}..${headCommit}`,
 	);
 	const commits = log
 		.split("\x1e")
@@ -130,5 +135,6 @@ export async function rangeProposal(
 		base: range.base,
 		head: range.head,
 		headCommit,
+		baseCommit,
 	};
 }

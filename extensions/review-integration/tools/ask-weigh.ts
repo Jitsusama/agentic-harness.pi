@@ -118,7 +118,7 @@ export async function askJudge(
 			judge: roster.judge,
 			prompt,
 			seq: nextSeq(),
-			...readFrom(tree, proposal.headCommit),
+			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		deps(change, tree.path, watch, charters),
@@ -203,7 +203,7 @@ export async function askCritique(
 			prompt,
 			seq: nextSeq(),
 			findingIds: raised.map((finding) => finding.id),
-			...readFrom(tree, proposal.headCommit),
+			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		{
@@ -306,7 +306,7 @@ export async function askAudit(
 			prompt,
 			seq: nextSeq(),
 			threadIndices,
-			...readFrom(tree, proposal.headCommit),
+			...readFrom(tree, proposal.headCommit, proposal.baseCommit),
 			...givenBy(ISOLATED, conventions),
 		},
 		{
