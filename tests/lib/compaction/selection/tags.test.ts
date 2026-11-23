@@ -6,6 +6,7 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
+	MOVED_OFF,
 	readTags,
 	SELECTION_TAGS_ENTRY,
 	taggedBranchAt,
@@ -149,14 +150,27 @@ describe("a session's branch as tagging reads it", () => {
 		expect([...quotable]).toEqual([]);
 	});
 
-	it("still asks about a message whose record names no paragraph", () => {
+	it("does not ask again about a failure recorded before failures listed their paragraphs", () => {
 		const manager = SessionManager.inMemory("/tmp");
 		const rule = say(manager, "Always sign every commit.");
-		// What an answer cost once the person had moved off the message.
 		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
 			entryId: rule,
 			units: [],
-			failed: "moved off the branch",
+			failed: "context too long",
+		});
+
+		const branch = manager.getBranch();
+
+		expect(untagged(branch, readTags(branch))).toEqual([]);
+	});
+
+	it("still asks about a message the person moved off while it was asked about", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: [],
+			failed: MOVED_OFF,
 		});
 
 		const branch = manager.getBranch();

@@ -82,15 +82,21 @@ export function emptyTagIndex(): {
 }
 
 /**
- * Add one record to an index. A record naming no paragraph, such as what
- * an answer cost once the person moved off its message, tags nothing, so
- * the message is still asked about should the person come back to it.
+ * Why a paid answer was recorded with no paragraph: the person moved off
+ * its message while it was asked about. Such a record keeps the spend.
+ */
+export const MOVED_OFF = "moved off the branch";
+
+/**
+ * Add one record to an index. What an answer cost once the person moved
+ * off its message tags nothing, so the message is still asked about
+ * should the person come back to it.
  */
 export function indexTags(
 	index: ReturnType<typeof emptyTagIndex>,
 	tags: SelectionTags,
 ): void {
-	if (tags.units.length === 0) return;
+	if (tags.failed === MOVED_OFF) return;
 	index.entries.add(tags.entryId);
 	for (const unit of tags.units) index.kinds.set(unit.hash, unit.kinds);
 	if (

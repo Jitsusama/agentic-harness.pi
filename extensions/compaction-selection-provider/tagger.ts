@@ -19,6 +19,7 @@ import {
 	tagsFrom,
 } from "../../lib/compaction/selection/tagging.ts";
 import {
+	MOVED_OFF,
 	taggedBranchAt,
 	untagged,
 } from "../../lib/compaction/selection/tags.ts";
@@ -199,9 +200,6 @@ export function tagger(
 		},
 	};
 }
-
-/** Why a paid answer was recorded with no paragraph: its message left the branch. */
-const MOVED_OFF = "moved off the branch";
 
 /**
  * Whether the session's branch now still holds entry `id`, which lay
