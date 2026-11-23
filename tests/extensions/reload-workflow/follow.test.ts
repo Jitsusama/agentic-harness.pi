@@ -364,7 +364,8 @@ describe("following the install", () => {
 	// The follower reads what the session runs after it looks for a move,
 	// so a move taken there is one only the dispatch's own look, after git
 	// is asked, can see (5BACCAC3's F74, F99 and F100 on #2029). The move
-	// is taken a turn of the event loop on, as git is asked.
+	// is taken a turn of the event loop after that read, while git is
+	// still being asked for the reason, which takes a process start.
 	it("holds back a reload when a move is taken after the follower looked", async () => {
 		const moving = "01a1ecbb-0000-7000-8000-0000000e3002";
 		let armed = false;

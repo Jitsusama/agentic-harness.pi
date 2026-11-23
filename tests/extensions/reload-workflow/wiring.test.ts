@@ -39,6 +39,7 @@ import {
 import {
 	holdForMove,
 	letMoveGo,
+	moveWaiting,
 } from "../../../lib/internal/session/move-waiting.ts";
 import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
@@ -416,7 +417,7 @@ describe("the agent asking for a reload", LANDS, () => {
 		});
 		afterEach(() => letMoveGo(SESSION_ID));
 
-		it("takes the follower's back, quietly, for it to ask again", async () => {
+		it("takes the follower's back quietly, clearing the slot for its next ask", async () => {
 			runningTheInstall();
 			const now = runtime();
 			await now.start("startup");
@@ -442,6 +443,9 @@ describe("the agent asking for a reload", LANDS, () => {
 			await now.start("startup");
 			await now.command("reload", next, false, moveTaken);
 			expect(reloads).toBe(1);
+			expect(moveWaiting(SESSION_ID), "the move still waits").toBe(
+				"background",
+			);
 		});
 
 		it("lets the agent's go", async () => {

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import {
 	type Follower,
 	follow,
+	MOVE_TOOK_HOSTS,
 	stopFollowing,
 } from "../../../extensions/reload-workflow/follow.ts";
 import {
@@ -47,6 +48,8 @@ interface Conversation {
 	readonly ctx: object;
 	readonly notices: string[];
 	readonly prompted: string[];
+	/** What the follower wrote to the session's log. */
+	readonly entries: unknown[];
 	busy: boolean;
 	follower?: Follower;
 }
@@ -74,9 +77,11 @@ function settingsFor(root: string): PackageSettings {
 async function start(id: string): Promise<Conversation> {
 	const notices: string[] = [];
 	const prompted: string[] = [];
+	const entries: unknown[] = [];
 	const conversation: Conversation = {
 		notices,
 		prompted,
+		entries,
 		busy: false,
 		ctx: {
 			// No screen: a background conversation follows too.
@@ -89,7 +94,7 @@ async function start(id: string): Promise<Conversation> {
 	const pi = {
 		events: createEventBus(),
 		sendUserMessage: (text: string) => prompted.push(text),
-		appendEntry: () => {},
+		appendEntry: (_type: string, data: unknown) => entries.push(data),
 	};
 	conversation.follower = await withSession(id, () =>
 		follow(
@@ -282,7 +287,18 @@ it("waits out a host's refusal under a move taken as it asked, saying nothing", 
 		await until("the host refuses", () => asked.length === 1);
 		await quietFor(QUIET_MS, 4);
 		expect(a.notices, "nothing is said").toEqual([]);
+		expect(a.entries, "what the host said is kept in the log").toContainEqual(
+			expect.objectContaining({
+				reason: MOVE_TOOK_HOSTS,
+				to: "background",
+				why: "a move to background waits",
+			}),
+		);
 		runner = landed;
+		// A look while the move still holds asks nothing of the host.
+		a.follower?.consider(true);
+		await quietFor(QUIET_MS, 4);
+		expect(asked, "it stays put while the move holds").toHaveLength(1);
 	} finally {
 		letMoveGo("a");
 	}

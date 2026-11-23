@@ -166,6 +166,10 @@ const became: { previousId: string; sessionId: string; held: string }[] = [];
 const ended: { sessionId: string; why: string }[] = [];
 /** Each key a request carried, as the provider saw it. */
 const keysSeen: unknown[] = [];
+/** The held run's answer waits on this until the scenario lets it go. */
+const heldRun: { started: boolean; release?: () => void } = {
+	started: false,
+};
 /** The header an extension's registration of the provider sets, on each request that carried it. */
 const KEPT_HEADER = "x-registered-by";
 const registeredHeadersSeen: unknown[] = [];
@@ -1018,9 +1022,21 @@ const scenarios: Record<string, Scenario> = {
 			};
 		},
 	},
-	/** Hold a conversation for a move: the follower's reload refused once idle, another's let go, then the follower's once it lets go. */
+	/**
+	 * Hold a conversation for a move taken during its run, after the
+	 * follower's reload was asked: refused once idle, another's let go,
+	 * then the follower's once the move lets go.
+	 */
 	"move-held": {
-		responses: () => [],
+		responses: () => [
+			async () => {
+				heldRun.started = true;
+				await new Promise<void>((resolve) => {
+					heldRun.release = resolve;
+				});
+				return compat.fauxAssistantMessage("let go");
+			},
+		],
 		run: async (engine, host) => {
 			const id = await open(engine, {});
 			await idle(engine, id);
@@ -1035,11 +1051,18 @@ const scenarios: Record<string, Scenario> = {
 						(error: unknown) =>
 							error instanceof Error ? error.message : String(error),
 					);
+			// Asked while the run is under way and held before it ends, so
+			// only a look after the engine's wait for idle can refuse it.
+			const answering = prompt(engine, id, "hold on");
+			await until("the run to be under way", () => heldRun.started, UNTIL_MS);
+			const yielding = reloaded(true);
 			holdForMove(id, "background");
 			let yieldingDuring: string;
 			let otherDuring: string;
 			try {
-				yieldingDuring = await reloaded(true);
+				heldRun.release?.();
+				await answering;
+				yieldingDuring = await yielding;
 				otherDuring = await reloaded(false);
 			} finally {
 				letMoveGo(id);

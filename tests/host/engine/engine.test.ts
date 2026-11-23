@@ -711,7 +711,9 @@ describe("the host's engine", () => {
 
 	// 5BACCAC3's F98 on #2029: the host's reload waits for the run to
 	// end, as the follower's still-wait does, so a move taken as it
-	// settles was stopped unwritten there too.
+	// settles was stopped unwritten there too. The reload is asked and
+	// the move taken while a run is under way (5BACCAC3's F127), so only
+	// a look after the wait for idle refuses it.
 	it(
 		"refuses the follower's reload once idle while a move waits, and lets another go",
 		async () => {
