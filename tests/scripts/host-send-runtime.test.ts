@@ -26,6 +26,10 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../lib/internal/record.ts";
 import { folder, removeAll } from "../lib/internal/carry/support/machines.ts";
+// Imported only to be named, so `--changed` runs this file when a script
+// it runs changes alone; it runs them from their paths below.
+import "../../scripts/host-send-runtime.sh";
+import "../../scripts/host-test-there.sh";
 
 const run = promisify(execFile);
 const SCRIPTS = join(import.meta.dirname, "..", "..", "scripts");

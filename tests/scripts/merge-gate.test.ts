@@ -28,6 +28,10 @@ import {
 	removeAll,
 } from "../lib/internal/carry/support/machines.ts";
 import { git } from "../support/git-fixture.ts";
+// Imported only to be named, so `--changed` runs this file when a script
+// it runs changes alone; it runs them from their paths below.
+import "../../scripts/host-gate.sh";
+import "../../scripts/merge-gate.sh";
 
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, "..", "..");

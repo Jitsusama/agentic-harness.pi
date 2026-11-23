@@ -1,6 +1,7 @@
 import { cpus } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "vitest/config";
+import { scriptsAsText } from "./tests/setup/scripts-as-text.ts";
 
 /**
  * The files whose change reaches every test, so `--changed` runs them all.
@@ -165,6 +166,7 @@ export default defineConfig({
 		maxWorkers: MAX_WORKERS,
 		projects: [
 			{
+				plugins: [scriptsAsText()],
 				resolve: { alias: ALIAS },
 				test: {
 					name: "unit",
@@ -185,6 +187,7 @@ export default defineConfig({
 				},
 			},
 			{
+				plugins: [scriptsAsText()],
 				resolve: { alias: ALIAS },
 				test: {
 					name: "process",

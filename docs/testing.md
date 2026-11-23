@@ -99,6 +99,14 @@ check to run before a merge. A new file counts only once git knows it
 lockfile, the vitest config or a setup file reaches every test, so it
 runs them all.
 
+A test that runs a shell script reaches it by path, which the graph
+doesn't follow, so it also imports each `.sh` it runs
+(`import "../../scripts/merge-gate.sh"`); the loader in
+`tests/setup/scripts-as-text.ts` makes that import the script's text.
+Vite's `?raw` won't do: vitest drops a dependency whose id, query
+included, names no file. A `.ts` script a test runs as its own process
+is still reached only by what it imports.
+
 `pnpm test:host` is the host's one gate. It runs every host check that
 needs a real pi: the end-to-end ones (E1 to E8, the sealed host and the
 screens), the engine's and the parity tests (`tests/host/engine`,
