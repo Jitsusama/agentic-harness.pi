@@ -95,6 +95,22 @@ export type KeptRoster = Pick<
  */
 export const LISTENS_WITHIN_MS = 60_000;
 /**
+ * How much CPU a child may spend before it listens and still be waited
+ * on past its listen time, when nobody waits on it. One that took 142 s
+ * to resume on 22 November, at a load near 130, had spent about 1.3 s
+ * when it listened; across that day's 461 starts the wall clock to the
+ * host's first line was 17 s at the median and 57 s at p99, and two
+ * wakes that passed 60 s were lost. A child that spent this much without
+ * listening is stuck, not starved.
+ */
+export const LISTENS_WITHIN_CPU_MS = 20_000;
+/**
+ * How long a starved child is waited on in all, when nobody waits on
+ * it: a wake that lands late keeps its conversation, where one given up
+ * on leaves it parked with nothing watching its wake.
+ */
+export const STARVED_WITHIN_MS = 600_000;
+/**
  * How long a listening child may take to answer its first request: an
  * open builds its conversation before it answers, so as long as a
  * child may take to listen.
@@ -299,6 +315,8 @@ export function childSupervisor(options: {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	listensWithinCpuMs?: number;
+	starvedWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -308,6 +326,9 @@ export function childSupervisor(options: {
 	const exitsWithinMs = options.exitsWithinMs ?? EXITS_WITHIN_MS;
 	const beginsWithinMs = options.beginsWithinMs ?? BEGINS_WITHIN_MS;
 	const unsettledWithinMs = options.unsettledWithinMs ?? UNSETTLED_WITHIN_MS;
+	const listensWithinCpuMs =
+		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
+	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
@@ -476,15 +497,21 @@ export function childSupervisor(options: {
 	/**
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
-	 * asked once a second, or the host stops watching.
+	 * asked once a second, or the host stops watching. With no `by`,
+	 * nobody waits on the child, so one past its time that has had little
+	 * CPU is starved by a busy machine rather than stuck, and is waited on
+	 * until it has spent its CPU or STARVED_WITHIN_MS has passed.
 	 */
 	async function once<T>(
 		slot: Slot,
 		attempt: () => Promise<T>,
 		by = Number.POSITIVE_INFINITY,
 	): Promise<T> {
-		const ms = Math.max(0, Math.min(withinMs, by - Date.now()));
-		const until = Date.now() + ms;
+		const began = Date.now();
+		const ms = Math.max(0, Math.min(withinMs, by - began));
+		const waits = by === Number.POSITIVE_INFINITY;
+		let until = began + ms;
+		let starved = false;
 		let asked = Date.now();
 		for (;;) {
 			stillWatching();
@@ -492,8 +519,33 @@ export function childSupervisor(options: {
 				return await attempt();
 			} catch (error) {
 				if (!notListening(error)) throw error;
-				if (Date.now() >= until)
-					throw new Error(`${slot.unit} did not listen within ${ms} ms`);
+				if (Date.now() >= until) {
+					const spent = await units.cpuSpentMs(slot.unit);
+					const starvedMs = Math.max(ms, starvedWithinMs);
+					const ceiling = began + starvedMs;
+					const stillStarved =
+						spent !== undefined && spent < listensWithinCpuMs;
+					if (waits && stillStarved && Date.now() < ceiling) {
+						if (!starved)
+							options.say?.(
+								`${slot.unit} hasn't listened in ${ms} ms, but has had only ${spent} ms of CPU: it is starved rather than stuck, so it is waited on`,
+							);
+						starved = true;
+						// Asked again each second, as whether it has gone is.
+						until = Math.min(ceiling, Date.now() + ASKED_EVERY_MS);
+					} else {
+						const cpu = spent === undefined ? "" : `, with ${spent} ms of CPU`;
+						// One that spent its CPU while starved is said at the time it took.
+						const within = !starved
+							? ms
+							: stillStarved
+								? starvedMs
+								: Date.now() - began;
+						throw new Error(
+							`${slot.unit} did not listen within ${within} ms${cpu}`,
+						);
+					}
+				}
 			}
 			if (Date.now() - asked >= ASKED_EVERY_MS) {
 				asked = Date.now();
