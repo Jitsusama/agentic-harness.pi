@@ -32,7 +32,10 @@ import {
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
 import { endOf, outputOf } from "../../../lib/internal/shell/kept.ts";
-import { recordKeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
+import {
+	forgetKeptJob,
+	recordKeptJob,
+} from "../../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 import { until } from "../../support/until.ts";
 
@@ -461,16 +464,22 @@ describe("a kept call", () => {
 	it("can't be carried while its record goes once this pi stopped it", async () => {
 		const call = endsRecorded({ stops: true });
 		disk.hold();
-		const running = run(call.kept.operations, "true", call.signal).catch(
-			() => undefined,
+		const running = run(call.kept.operations, "true", call.signal).then(
+			() => "settled",
+			() => "settled",
 		);
 		await until("its record unlinked", () => call.recordGone());
 		expect(
 			call.kept.carryOf(call.signal)?.what(),
 			"nothing to carry: its stop is said here",
 		).toBeUndefined();
+		// Stopped, it waits on no disk: its record, left, reads as a call
+		// gone with no end, which nothing takes up.
+		expect(
+			await Promise.race([running, settlesWithin()]),
+			"settled while the disk holds its record's removal",
+		).toBe("settled");
 		disk.go();
-		await running;
 		await vi.waitFor(() =>
 			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
 		);
@@ -490,8 +499,11 @@ describe("a kept call", () => {
 			call.kept.carryOf(call.signal)?.what(),
 			"nothing to carry: its time limit is said here",
 		).toBeUndefined();
+		expect(
+			await Promise.race([said, settlesWithin()]),
+			"it times out as pi says, while the disk holds its record's removal",
+		).toContain("timeout:0.3");
 		disk.go();
-		expect(await said, "it times out as pi says").toContain("timeout:0.3");
 		await vi.waitFor(() =>
 			expect(readdirSync(call.folder), "its files go just after").toEqual([]),
 		);
@@ -503,6 +515,8 @@ describe("a kept call", () => {
 		const running = run(call.kept.operations, "true", call.signal);
 		await until("its record set aside", () => call.recordGone());
 		call.kept.carryOf(call.signal)?.handed();
+		// The move that hands it on closes the giving session in that turn.
+		forgetKeptJob(call.keep());
 		disk.go();
 		await running;
 		expect(
@@ -573,6 +587,11 @@ describe("a kept call", () => {
  * all fails, and within a test's own timeout, so it fails as itself.
  */
 const SETTLES_IN_MS = 2_000;
+
+/** Answers "held" once `SETTLES_IN_MS` passes, the bound on a settle. */
+function settlesWithin(): Promise<"held"> {
+	return new Promise((done) => setTimeout(() => done("held"), SETTLES_IN_MS));
+}
 
 /**
  * The call's files kept at `keep` that a removal was asked for, by their

@@ -420,9 +420,14 @@ describe("a recorded job", () => {
 		await removeKept(job.work.keep);
 		disk.forget();
 		forgetKeptJob(job.work.keep);
-		expect(disk.of(job.work.keep).asked, "nothing asked on the thread").toEqual(
-			[],
-		);
+		expect(
+			disk.of(job.work.keep),
+			"nothing asked, on the thread or off it",
+		).toEqual({
+			moved: [],
+			removed: [],
+			asked: [],
+		});
 	});
 
 	it("is left at a session's close once its call was handed on", async () => {
@@ -609,9 +614,9 @@ describe("a call's own record, taken back as the call ends", () => {
 		]);
 	});
 
-	// A session closed for good takes its record back, which nothing may
-	// bring back after.
-	it("puts nothing back once a close for good took its record back", async () => {
+	// A move hands its calls on and closes the session that gave them in
+	// the same turn, so the giver's close always follows the hand-off.
+	it("puts its record back for the taker though the giver's session closes after the hand-off", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		disk.hold(true, "rm", /\.gone$/);
@@ -623,15 +628,14 @@ describe("a call's own record, taken back as the call ends", () => {
 		forgetKeptJob(job.work.keep);
 		disk.go();
 		await going;
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
 		expect(
-			listed(where).filter((name) => name.includes(".job")),
-			"no record, nor one staged",
-		).toEqual([]);
+			listed(where),
+			"nothing left set aside or staged",
+		).not.toContainEqual(expect.stringMatching(/\.(gone|back)$/));
 	});
 
-	// Handed on before the rename answered, it would link the aside back,
-	// unless a close for good came after.
-	it("puts nothing back, and leaves nothing aside, when a close for good follows a hand-off before the rename answered", async () => {
+	it("links back what it set aside, though the giver's session closes, when handed on before the rename answered", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
 		disk.hold();
@@ -640,6 +644,26 @@ describe("a call's own record, taken back as the call ends", () => {
 			expect(existsSync(`${job.work.keep}.job`), "set aside").toBe(false),
 		);
 		disownKeptJob(job.work.keep);
+		forgetKeptJob(job.work.keep);
+		disk.go();
+		await going;
+		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
+		expect(listed(where), "nothing left set aside").not.toContainEqual(
+			expect.stringMatching(/\.gone$/),
+		);
+	});
+
+	// A session closed for good with no hand-off takes back the record a
+	// rollover wrote again as the first removal ran.
+	it("leaves no record once a close for good took back a rewrite", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true, "rename");
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "its removal, waiting on the disk").toBe(1),
+		);
+		recordKeptJob({ ...job, label: "rolled over" });
 		forgetKeptJob(job.work.keep);
 		disk.go();
 		await going;
