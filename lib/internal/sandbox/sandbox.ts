@@ -319,7 +319,10 @@ const KEPT_ON_A_MAC = [
  * are still the outer sandbox's to decide. The work happens in a
  * subshell, so what a queue runs after it keeps the session's
  * environment and its variables. The command travels in a variable, as
- * through landrun, and is unset before it runs.
+ * through landrun, and is unset before it runs, so it sits only briefly
+ * in what `env` is started with. `env` is named by its path, so an
+ * `env` ahead on PATH is never handed the session's environment, and a
+ * shell with no `BASH` runs nothing rather than whatever `-c` finds.
  */
 export function heldBackCommand(command: string): string {
 	const never = NEVER.join("|");
@@ -329,7 +332,7 @@ export function heldBackCommand(command: string): string {
 		"(",
 		"__pi_kept=();",
 		`for __pi_name in $(compgen -e); do case $__pi_name in ${never}) ;; ${kept}) __pi_kept+=("$__pi_name=\${!__pi_name}");; esac; done;`,
-		`exec env -i "\${__pi_kept[@]}" ${SANDBOXED_COMMAND}=${quoted(command)} "$BASH" -c ${quoted(inner)}`,
+		`exec /usr/bin/env -i "\${__pi_kept[@]}" ${SANDBOXED_COMMAND}=${quoted(command)} "\${BASH:?the strict hold-back needs bash}" -c ${quoted(inner)}`,
 		")",
 	].join(" ");
 }
