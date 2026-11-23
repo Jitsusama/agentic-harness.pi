@@ -299,19 +299,26 @@ function asModule(path: string, root: string): string {
 /**
  * The loader, to be given to each vitest project, since none inherits
  * the root's; `root` is where a script's names from the root are read
- * from, this checkout's but in a test of the loader.
+ * from, and the only place it follows into. Given none, it is the root
+ * vite resolved, which `--changed` compares, or this checkout before
+ * vite has resolved one.
  */
-export function scriptsAsText(root: string = ROOT): {
+export function scriptsAsText(root?: string): {
 	name: string;
 	enforce: "pre";
+	configResolved(config: { root: string }): void;
 	load(id: string): string | null;
 } {
+	let from = root ?? ROOT;
 	return {
 		name: "scripts-as-text",
 		// Ahead of every other plugin, so none claims a script first.
 		enforce: "pre",
+		configResolved(config) {
+			if (root === undefined) from = config.root;
+		},
 		load(id) {
-			return isScript(id) ? asModule(id, root) : null;
+			return isScript(id) ? asModule(id, from) : null;
 		},
 	};
 }
