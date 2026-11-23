@@ -546,11 +546,10 @@ async function standsOff(path: string): Promise<boolean> {
  * at the same key since, so removing is left to `recall` and the sweep.
  * A listing that fails rejects rather than answering none. A listing the
  * directory moved under lists its names again, as `all` says why, but
- * reads only the records no listing found before. Reading every record
- * again at each listing, one reading of 3,870 records took 26 s on a
- * machine at load 85, timed by hand without counting its listings, and
- * a carry waiting behind such readings was refused at its minute; read
- * once, a reading costs one pass of reads and its listings. A record
+ * reads only the records no listing found before. One reading of 3,870
+ * records took 26 s on a machine at load 85, timed by hand; how many
+ * listings it made went uncounted. Reading each record once bounds a
+ * reading to one pass of reads plus its listings. A record
  * rewritten while one reading runs is seen as it was when first read,
  * and as rewritten by the next, since the kept listing is stamped from
  * before this one began.
@@ -631,6 +630,23 @@ export function createTreeMemory(
 			: undefined;
 	}
 
+	/**
+	 * The record filed under `key`, as `recordAt` reads it, but a passing
+	 * fault such as running out of descriptors throws rather than reading
+	 * as no record.
+	 */
+	function recordAgainAt(key: string, path: string): HeldTree | undefined {
+		let written: Written;
+		try {
+			written = JSON.parse(readFileSync(fileFor(key), "utf8"));
+		} catch (error) {
+			return unreadRecord(error);
+		}
+		return usable(written) && written.path === path && existsSync(path)
+			? (written as unknown as HeldTree)
+			: undefined;
+	}
+
 	/** Run a rewrite of one record with every other session held off it. */
 	async function underLock(
 		key: string,
@@ -645,8 +661,10 @@ export function createTreeMemory(
 	 * listing named when it never did. A record is read once a reading, so
 	 * one rewritten meanwhile is handed back as first read. The broker's
 	 * own read-modify-writes read again under the record's lock, and
-	 * `otherHolders` reads its one record again, so neither acts on a
-	 * holder list a reading went past.
+	 * `otherHolders` reads its one record again, so neither judges from a
+	 * holder list a reading went past. That narrows a race without closing
+	 * it: nothing holds a record still between `otherHolders` and what its
+	 * caller then does.
 	 *
 	 * A listing taken while another session renamed a record over itself
 	 * left that record out on btrfs, though the file was there throughout:
@@ -795,9 +813,10 @@ export function createTreeMemory(
 			const found = this.recall().find((one) => one.path === path);
 			if (found === undefined) return [];
 			// Its own record read again now: a reading hands each record back
-			// as first read, and a release must see a session that took the
-			// tree up since, or it takes the tree from under it.
-			const tree = recordAt(found.identity.key, path) ?? found;
+			// as first read, and a release judging from that would miss a
+			// session that took the tree up since. A passing fault throws
+			// rather than falling back to the first read.
+			const tree = recordAgainAt(found.identity.key, path) ?? found;
 			const once = askedOnceWithTicks(
 				facts === systemFacts ? tickFacts : facts,
 			);
