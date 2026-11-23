@@ -1511,8 +1511,10 @@ export function childSupervisor(options: {
 				...(request.quest !== undefined ? { quest: request.quest } : {}),
 				...(request.env !== undefined ? { launch: request.env } : {}),
 			};
-			// Ahead, as a wake: its caller waits on it.
-			return inSlot(slot, undefined, false, { ahead: true, by }, async () => {
+			// Ahead, as a wake: its caller waits on it. Its wait for a turn ends
+			// while its least is still left, as its weighing above does.
+			const turn = { ahead: true, by: by - leastToBegin };
+			return inSlot(slot, undefined, false, turn, async () => {
 				const reply = await firstAsked(slot, request, by);
 				// A stop during the ask ends it, and the begin with it.
 				stillWatching();

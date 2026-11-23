@@ -881,13 +881,18 @@ describe("children starting at once", () => {
 	}, 15_000);
 
 	it("starts a wake before the resumes queued ahead of it", async () => {
-		const holding = deferred();
+		// Each held apart, so one turn is freed at a time: two freed at once
+		// let their starts race to systemd in either order.
+		const holdingFirst = deferred();
+		const holdingSecond = deferred();
 		const first = nth(1);
 		const second = nth(2);
-		units.traitsOf = (unit) =>
-			unit === unitOf(first) || unit === unitOf(second)
-				? { listensWhen: holding.promise }
-				: {};
+		units.traitsOf = (unit) => {
+			if (unit === unitOf(first)) return { listensWhen: holdingFirst.promise };
+			if (unit === unitOf(second))
+				return { listensWhen: holdingSecond.promise };
+			return {};
+		};
 		const starting = [
 			supervisor.resume(entry(first)),
 			supervisor.resume(entry(second)),
@@ -904,11 +909,16 @@ describe("children starting at once", () => {
 			2,
 		);
 
-		holding.settle();
-		await Promise.all([...starting, ...later, waking]);
+		holdingFirst.settle();
+		await waking;
+		expect(units.started[2], "the wake given the first turn freed").toBe(
+			unitOf(woken),
+		);
 
-		expect(units.started.slice(2), "the wake first, then in turn").toEqual(
-			[woken, ...queued].map(unitOf),
+		holdingSecond.settle();
+		await Promise.all([...starting, ...later]);
+		expect(units.started.slice(3).sort(), "then the rest").toEqual(
+			queued.map(unitOf).sort(),
 		);
 	});
 

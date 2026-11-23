@@ -420,6 +420,33 @@ describe("a new conversation", () => {
 		for (const one of held) await expect(one).rejects.toThrow();
 	});
 
+	// A turn given with less than its least left would start a unit only
+	// to stop it again, as a begin weighed too late would.
+	it("stops a begin's wait for its turn once less than its least is left", async () => {
+		superviseAgain({
+			clocks: {
+				beginsWithinMs: 2_400,
+				unsettledWithinMs: 400,
+				leastFirstAskMs: 800,
+			},
+		});
+		units.traitsOf = () => ({ neverListens: true });
+		const held = [a, b].map((id) => supervisor.resume(entry(id)));
+		await vi.waitFor(() => expect(units.started).toHaveLength(2));
+		const asked = Date.now();
+
+		await expect(supervisor.begin(opening("open-23"), asked)).rejects.toThrow(
+			"waited past its time",
+		);
+		expect(
+			Date.now() - asked,
+			"at its time less its least, not its whole time",
+		).toBeLessThan(2_000);
+		expect(units.started, "no unit started for it").toHaveLength(2);
+		supervisor.close();
+		for (const one of held) await expect(one).rejects.toThrow();
+	});
+
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
 		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
 		units.next = { silent: true };
