@@ -77,6 +77,13 @@ import {
 import { type LockFresh, sweepLock } from "./sweep-lock.ts";
 import { goneGitDir, standingRepository, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
+import {
+	type MovedAside,
+	moveAside,
+	putBack,
+	removeAside,
+	whyGitKeeps,
+} from "./sweep-take.ts";
 import { orphanedTrees } from "./tidy.ts";
 import { pinnedCommit } from "./tree.ts";
 
@@ -771,8 +778,10 @@ async function takeIdle(
 }
 
 /**
- * Move a tree aside under its record's lock, then remove it. A removal
- * git refuses puts the tree and its record back as they were. `guard`
+ * Move a tree aside under its record's lock, then remove it, with no git
+ * command that reads every worktree but a merged branch's drop (see
+ * `sweep-take.ts`). A removal git
+ * would refuse puts the tree and its record back as they were. `guard`
  * runs the move only while the tree may go: by default, while every
  * session its record names has ended.
  */
@@ -788,20 +797,21 @@ async function takeBack(
 	) => deps.memory.whileUnheld(tree.path, take, facts),
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
-	const git = (...args: string[]) => deps.exec("git", ["-C", main, ...args]);
 	let moveRefused: string | undefined;
+	let moved: MovedAside | undefined;
 	let forgotten: HeldTree | undefined;
 	try {
 		forgotten = await guard(async () => {
-			const moved = await git("worktree", "move", tree.path, aside);
-			if (moved.code !== 0) moveRefused = said(moved);
-			return moved.code === 0;
+			const move = moveAside(tree.path, aside, main);
+			if (typeof move === "string") moveRefused = move;
+			else moved = move;
+			return moved !== undefined;
 		});
 	} catch (error) {
 		if (!keptForItsLock(tree, error, outcome)) throw error;
 		return;
 	}
-	if (forgotten === undefined) {
+	if (forgotten === undefined || moved === undefined) {
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });
 		} else {
@@ -812,23 +822,39 @@ async function takeBack(
 		}
 		return;
 	}
-	const removed = await git("worktree", "remove", aside);
-	if (removed.code === 0) {
-		const gone =
-			taken.branch !== undefined &&
-			(await dropMergedBranch(deps.exec, main, taken.branch));
-		outcome.taken.push(gone ? { ...taken, branchGone: true } : taken);
+	const kept = await whyGitKeeps(deps.exec, moved.aside);
+	if (kept !== undefined) {
+		const back = putBack(moved, tree.path);
+		const why = back.why === undefined ? kept : `${kept}; ${back.why}`;
+		if (!back.home) {
+			outcome.refused.push({ path: tree.path, why });
+			return;
+		}
+		// A tree at its own path keeps its record, whatever else went wrong,
+		// so its sessions and the next sweep still know it.
+		try {
+			deps.memory.remember(forgotten);
+			outcome.refused.push({ path: tree.path, why });
+		} catch (error) {
+			outcome.refused.push({
+				path: tree.path,
+				why: `${kept}; it is back, but its record can't be written again: ${messageOf(error)}`,
+			});
+		}
 		return;
 	}
-	const back = await git("worktree", "move", aside, tree.path);
-	if (back.code === 0) deps.memory.remember(forgotten);
-	outcome.refused.push({
-		path: tree.path,
-		why:
-			back.code === 0
-				? said(removed)
-				: `${said(removed)}; it is left at ${aside}: ${said(back)}`,
-	});
+	// Read-only module caches refuse a plain removal, as they refuse git's,
+	// which forgets the tree all the same: what is left stays aside, as
+	// git's remove left it, and the refusal says where.
+	const stays = await removeAside(moved);
+	if (stays !== undefined) {
+		outcome.refused.push({ path: tree.path, why: stays });
+		return;
+	}
+	const gone =
+		taken.branch !== undefined &&
+		(await dropMergedBranch(deps.exec, main, taken.branch));
+	outcome.taken.push(gone ? { ...taken, branchGone: true } : taken);
 }
 
 /**
@@ -868,11 +894,6 @@ async function trunkOf(exec: Exec, main: string): Promise<string> {
 		"refs/remotes/origin/main",
 	]);
 	return remote.code === 0 ? "origin/main" : "main";
-}
-
-/** What git said when it refused, in its own words. */
-function said(result: { stdout: string; stderr: string }): string {
-	return (result.stderr.trim() || result.stdout.trim()).replace(/^fatal: /, "");
 }
 
 function messageOf(error: unknown): string {
