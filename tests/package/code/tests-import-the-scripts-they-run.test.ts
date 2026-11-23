@@ -83,14 +83,17 @@ const HELD_SCRIPTS = [
  * Files under tests/ that node or pi loads with no loader: every `.mjs`
  * and `.mts` there, which only a node of its own runs, as the fixtures,
  * the soak runs, the parity probes and the keyring's calls are; each
- * child a test starts by its path, named `-child.ts`; and the engines
- * and providers a host loads by path. One loaded by vitest too is only
- * held to more.
+ * child a test starts by its path, named `-child.ts`; the engines and
+ * providers a host loads by path; and the extensions' loader a node of
+ * its own imports through jiti. One loaded by vitest too is only held
+ * to more. A test that hands another file of tests/ to node or jiti by
+ * its path adds it here.
  */
 const RUN_OUTSIDE_VITEST = [
 	/^tests\/.*\.m[jt]s$/,
 	/^tests\/.*-child\.ts$/,
 	/^tests\/host\/end-to-end\/support\/(?:fake-engine|pi-engine|scripted-provider|keyed-provider)\.ts$/,
+	/^tests\/support\/every-extension\.ts$/,
 ];
 
 /** Whether `file` is one node or pi loads with no loader. */
@@ -309,6 +312,7 @@ describe("shell scripts", () => {
 				"tests/core/work/support/custody-child.ts",
 				"tests/host/parity/hosted-rpc.mts",
 				"tests/host/end-to-end/support/fake-engine.ts",
+				"tests/support/every-extension.ts",
 			]),
 		);
 		expect(

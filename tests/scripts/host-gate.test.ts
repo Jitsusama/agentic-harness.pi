@@ -11,10 +11,10 @@
 import { execFile } from "node:child_process";
 import {
 	chmodSync,
-	existsSync,
 	mkdirSync,
 	readFileSync,
 	realpathSync,
+	statSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
@@ -35,6 +35,12 @@ import { git } from "../support/git-fixture.ts";
 // it runs changes alone; it runs them from their paths below.
 import "../../scripts/host-gate.sh";
 import "../../scripts/host-test-there.sh";
+// Imported only to be named too: what test:host's setup loads from
+// outside tests/setup/, whose own changes rerun everything, so a change
+// to one, or to what one comes to import, runs the case below that
+// holds the gate's list to it.
+import "../../lib/core/internal/keyring/secrets.ts";
+import "../support/memory-secret-store.ts";
 
 const run = promisify(execFile);
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -246,10 +252,56 @@ const IMPORT =
 	/(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew URL\(\s*)["'](\.{1,2}\/[^"']+)["']/g;
 
 /**
+ * A relative import vitest's own graph follows, static or dynamic: not
+ * a file named by `new URL`, which only a program spawned reads.
+ */
+const MODULE_IMPORT =
+	/(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}\/[^"']+)["']/g;
+
+/** What a file of code ends in. */
+const CODE = /\.(?:[cm]?[jt]s|tsx)$/;
+
+/**
+ * Every file of code that `from`, paths from the root, reach by the
+ * imports `imports` reads, `from` among them: never a folder, as
+ * `new URL("../..", import.meta.url)` names one.
+ */
+function reached(from: readonly string[], imports: RegExp): string[] {
+	const found = new Set<string>();
+	const next = from.map((file) => relative(ROOT, resolve(ROOT, file)));
+	for (let file = next.pop(); file !== undefined; file = next.pop()) {
+		const path = join(ROOT, file);
+		if (found.has(file) || !CODE.test(file)) continue;
+		if (!(statSync(path, { throwIfNoEntry: false })?.isFile() ?? false))
+			continue;
+		found.add(file);
+		for (const imported of readFileSync(path, "utf8").matchAll(imports))
+			next.push(
+				relative(ROOT, resolve(ROOT, dirname(file), imported[1] ?? "")),
+			);
+	}
+	return [...found].sort();
+}
+
+/** The reporters test:host names by path, from its script in package.json. */
+function hostTestReporters(): string[] {
+	const manifest: unknown = JSON.parse(
+		readFileSync(join(ROOT, "package.json"), "utf8"),
+	);
+	const scripts = isRecord(manifest) ? manifest.scripts : undefined;
+	const script = isRecord(scripts) ? Reflect.get(scripts, "test:host") : "";
+	if (typeof script !== "string" || script === "")
+		throw new Error("package.json has no test:host script");
+	return [...script.matchAll(/--reporter=(\.{1,2}\/\S+)/g)].map(
+		(found) => found[1] ?? "",
+	);
+}
+
+/**
  * What test:host loads before its first case, as paths from the root:
- * the config, the process lane's setup files and the global setup, with
- * every file each of those imports in turn, the scripts' loader among
- * them.
+ * the config, the process lane's setup files and global setup, the
+ * root's global setup and the reporters its script names, with every
+ * file each of those imports in turn, the scripts' loader among them.
  */
 function hostTestSetup(): string[] {
 	const lane = config.test?.projects?.find(
@@ -258,25 +310,18 @@ function hostTestSetup(): string[] {
 			"test" in project &&
 			project.test?.name === "process",
 	);
-	const setupFiles =
-		typeof lane === "object" && "test" in lane ? lane.test?.setupFiles : [];
-	const found = new Set<string>();
-	const next = [
-		"vitest.config.ts",
-		...[setupFiles ?? []].flat(),
-		...[config.test?.globalSetup ?? []].flat(),
-	].map((file) => relative(ROOT, resolve(ROOT, file)));
-	for (let file = next.pop(); file !== undefined; file = next.pop()) {
-		if (found.has(file) || !existsSync(join(ROOT, file))) continue;
-		found.add(file);
-		for (const imported of readFileSync(join(ROOT, file), "utf8").matchAll(
-			IMPORT,
-		))
-			next.push(
-				relative(ROOT, resolve(ROOT, dirname(file), imported[1] ?? "")),
-			);
-	}
-	return [...found].sort();
+	const its =
+		typeof lane === "object" && "test" in lane ? lane.test : undefined;
+	return reached(
+		[
+			"vitest.config.ts",
+			...[its?.setupFiles ?? []].flat(),
+			...[its?.globalSetup ?? []].flat(),
+			...[config.test?.globalSetup ?? []].flat(),
+			...hostTestReporters(),
+		],
+		IMPORT,
+	);
 }
 
 /** The paths the gate counts as hosted, as its own pattern says. */
@@ -397,6 +442,7 @@ describe("host-gate.sh", () => {
 				"tests/setup/temp-root.ts",
 				"tests/support/memory-secret-store.ts",
 				"lib/core/internal/keyring/secret-service-call.mjs",
+				"tests/host/end-to-end/support/every-case-ran.mts",
 			]),
 		);
 		const hosted = hostedPattern();
@@ -404,6 +450,35 @@ describe("host-gate.sh", () => {
 			setup.filter((file) => !hosted.test(file)),
 			"loaded by test:host, not counted",
 		).toEqual([]);
+	});
+
+	// `--changed` runs this file only when a change reaches its imports, or
+	// is under tests/setup/, so the case above holds the gate's list to
+	// each module the setup loads only while this file imports it. A
+	// program or reporter it loads by path is counted itself, and today
+	// imports nothing of the package's.
+	it("imports each module test:host's setup loads from outside tests/setup, so a change to one runs it", () => {
+		const own = new Set(
+			reached([relative(ROOT, import.meta.filename)], MODULE_IMPORT),
+		);
+		expect(
+			hostTestSetup().filter(
+				(file) =>
+					/\.ts$/.test(file) &&
+					!file.startsWith("tests/setup/") &&
+					!own.has(file),
+			),
+			"loaded by the setup, past this file's reach",
+		).toEqual([]);
+	});
+
+	// A setup file may name a folder as `new URL("../..", import.meta.url)`
+	// does, which the walk passes rather than reads.
+	it("walks past a folder an import names", () => {
+		expect(
+			reached(["tests/setup/scripts-as-text-changed.test.ts"], IMPORT),
+			"what that file reaches",
+		).toContain("lib/internal/record.ts");
 	});
 
 	// The pattern is read as the gate reads it, so each path is asked of

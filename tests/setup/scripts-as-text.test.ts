@@ -277,6 +277,87 @@ describe("scriptsAsText", () => {
 		]);
 	});
 
+	// The shell's own reading of a comment, since cutting code as one
+	// drops a follow without a word, and reading one as code fails the
+	// package rule over a name the shell never reads.
+	it("reads a comment where the shell does: a word opening with # outside quotes and expansions, quotes running on across lines", () => {
+		const path = script("");
+		const names = (lines: readonly string[]) =>
+			unfollowedNames(path, lines.join("\n")).map((said) =>
+				said.replace(/^.*: names (\S+) beside it.*$/, "$1"),
+			);
+		expect(
+			names([
+				'echo "a # b" "$(dirname "$0")/quoted.sh"',
+				`echo 'it''s # c' "$(dirname "$0")/reopened.sh"`,
+				`x=\${#arr[@]} "$(dirname "$0")/sized.sh"`,
+				`rest=\${line%% #*} "$(dirname "$0")/trimmed.sh"`,
+				'usage="the first line',
+				'  see #2: $(dirname "$0")/spanning.sh"',
+				'echo \\" # "$(dirname "$0")/escaped.sh"',
+				'run;# was "$(dirname "$0")/after-semicolon.sh"',
+				'run|# "$(dirname "$0")/after-pipe.sh"',
+				'(run)# "$(dirname "$0")/after-paren.sh"',
+				"cat <<EOF",
+				"it's a body",
+				"EOF",
+				'# past the body "$(dirname "$0")/past-body.sh"',
+				"bash -s <<-'SAID'",
+				'\trun #1 "$(dirname "$0")/fed.sh"',
+				'\techo "open',
+				"\tSAID",
+				'# past the fed body "$(dirname "$0")/past-fed.sh"',
+				'echo "$(dirname "$0")/last.sh"',
+			]),
+			"a heredoc's lines each read alone, as a script fed to a shell is",
+		).toEqual([
+			"quoted.sh",
+			"reopened.sh",
+			"sized.sh",
+			"trimmed.sh",
+			"spanning.sh",
+			"last.sh",
+		]);
+	});
+
+	it("reads each spelling of its own folder, and none of its parent's or a longer name", () => {
+		const path = script("");
+		expect(
+			unfollowedNames(
+				path,
+				[
+					'source "$(dirname "$(readlink -f "$0")")/linked.sh"',
+					`. "$(dirname "\${0}")/braced.sh"`,
+					`"$(CDPATH='' cd "$(dirname "$0")" > /dev/null 2>&1 && pwd)/quiet.sh"`,
+					'"$(CDPATH="" cd "$(dirname "$0")" && pwd)/emptied.sh"',
+					'source "$(dirname "$(dirname "$0")")/parent.sh"',
+					'"$(cd "$(dirname "$0")/.." && pwd)/up.sh"',
+					'"$(cd "$(dirname "$0")" && cd .. && pwd)/upped.sh"',
+					'cp "$(dirname "$0")/hook.sh.orig" .',
+					'cp "$(dirname "$0")/run.sh-v1" .',
+				].join("\n"),
+			).map((said) => said.replace(/^.*: names (\S+) beside it.*$/, "$1")),
+		).toEqual(["linked.sh", "braced.sh", "quiet.sh", "emptied.sh"]);
+	});
+
+	it("follows a script by its whole name, never a shorter one inside it", () => {
+		const path = script("cp words.sh.orig run.sh-v1 /tmp\n", [
+			"words.sh",
+			"run.sh",
+		]);
+		expect(importsOf(path)).toEqual([]);
+	});
+
+	// What `--changed` compares is the checkout's tracked files, so a name
+	// reaching past it has nothing there to follow.
+	it("follows no script outside the root it reads names from", () => {
+		const path = script("bash ../beyond.sh\n", ["../beyond.sh"]);
+		const code = scriptsAsText(dirname(path)).load(path) ?? "";
+		expect(code, "the module, importing nothing past its root").not.toMatch(
+			/^import /m,
+		);
+	});
+
 	// A folder can carry a script's ending; importing one would fail every
 	// test that imports the script naming it.
 	it("follows no folder whose name ends as a script's does", () => {
