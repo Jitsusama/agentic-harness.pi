@@ -1084,7 +1084,9 @@ describe("the work broker's records", () => {
 		await vi.advanceTimersByTimeAsync(61_000);
 		disk.go();
 
-		expect(await outcome).toEqual({ trees: expect.arrayContaining([one, two]) });
+		expect(await outcome).toEqual({
+			trees: expect.arrayContaining([one, two]),
+		});
 	});
 
 	it("read a folder that never holds still only for a while, keeping every record any reading found", async () => {

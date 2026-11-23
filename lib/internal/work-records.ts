@@ -127,8 +127,13 @@ const RACY_MS = 3_000;
  */
 const HUNG_AFTER_MS = 5 * 60_000;
 
-/** How long a caller that asks once waits for its reading by default. */
-const ASKED_ONCE_WITHIN_MS = 60_000;
+/**
+ * How long a caller that asks once waits for its reading by default: as
+ * long as a reading may run before it is let go. A carry asks once, and
+ * at load 85 one reading took 26 s and could be waited behind another,
+ * so a minute refused carries off a machine that most needed them.
+ */
+const ASKED_ONCE_WITHIN_MS = HUNG_AFTER_MS;
 
 // The records each folder held when it was last read, for the whole
 // process and every copy of this module: every session in a host asks

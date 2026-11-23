@@ -215,6 +215,16 @@ export interface TreeMemory {
 /** How many times a listing the directory changed under is read again. */
 const LISTING_TRIES = 8;
 
+/**
+ * How long a reading off the thread goes on listing a directory that
+ * moved under it before it keeps every record any listing found. On a
+ * machine at load 85 one listing of 3,870 records took 26 s, and with
+ * sessions writing the folder every few seconds all eight tries ran
+ * past the minute a carry waits; a listing that started within this
+ * long is the last.
+ */
+const LISTING_WITHIN_MS = 10_000;
+
 /** How many records a reading off the thread reads at once. */
 const READS_AT_ONCE = 16;
 
@@ -516,12 +526,21 @@ async function standsOff(path: string): Promise<boolean> {
  * is passed over but left on disk: removed here, holding no lock, after a
  * wait as long as a reading of thousands, it could be a record cut again
  * at the same key since, so removing is left to `recall` and the sweep.
+ * A directory that won't hold still is listed again only while
+ * `LISTING_WITHIN_MS` lasts, and then every record a listing found is
+ * kept: a record written since is seen by the next reading, since the
+ * listing is keyed by the stamp from before it.
  * A listing that fails rejects rather than answering none.
  */
 export async function recallOff(dir: string): Promise<HeldTree[]> {
 	const found = new Map<string, Found>();
+	const until = Date.now() + LISTING_WITHIN_MS;
 	let listed: Found[] | undefined;
-	for (let tries = 0; tries < LISTING_TRIES; tries += 1) {
+	for (
+		let tries = 0;
+		tries < LISTING_TRIES && (tries === 0 || Date.now() < until);
+		tries += 1
+	) {
 		const before = await stampOff(dir);
 		const reading = await listingOff(dir);
 		if (before !== undefined && before === (await stampOff(dir))) {
