@@ -97,7 +97,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 	it("shows a notice once, since pi gives both extensions one screen", async () => {
 		const runner = bothInOneSession();
 		const screen = piScreen();
-		runner.setUIContext(screen.ui, "interactive");
+		runner.setUIContext(screen.ui, "tui");
 		await runner.emit({ type: "session_start", reason: "startup" });
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect(screen.told).toEqual(["keyring locked"]);
@@ -107,9 +107,9 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		const runner = bothInOneSession();
 		const first = piScreen();
 		const second = piScreen();
-		runner.setUIContext(first.ui, "interactive");
+		runner.setUIContext(first.ui, "tui");
 		await runner.emit({ type: "session_start", reason: "startup" });
-		runner.setUIContext(second.ui, "interactive");
+		runner.setUIContext(second.ui, "tui");
 		sayKeyringNotice({ level: "warning", message: "keyring locked" });
 		expect([first.told, second.told]).toEqual([[], ["keyring locked"]]);
 	});
