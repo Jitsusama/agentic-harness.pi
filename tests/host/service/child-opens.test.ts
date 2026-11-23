@@ -232,9 +232,9 @@ describe("a new conversation", () => {
 		units.spent = 0;
 		const asked = Date.now();
 
-		const reply = await supervisor.begin(opening("open-11"));
-
-		expect(reply).toMatchObject({ ok: false });
+		await expect(supervisor.begin(opening("open-11"))).rejects.toThrow(
+			"did not listen within 300 ms",
+		);
 		expect(
 			Date.now() - asked,
 			"within its listen time, not a starved child's",
