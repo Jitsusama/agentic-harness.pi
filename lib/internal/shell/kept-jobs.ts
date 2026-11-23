@@ -29,7 +29,9 @@
  * 12 s under load. So the process keeps which records it wrote
  * (kept.ts), and a call it wrote none for asks nothing; one it wrote is
  * removed off the thread, set aside first, so a hand-off while it goes
- * can put it back. A call this pi stopped or timed out leaves its record
+ * can put it back, linked into place so it never replaces one its taker
+ * wrote first: a state folder on a disk with no hard links has each such
+ * put-back said refused. A call this pi stopped or timed out leaves its record
  * to its files' removal, waiting on nothing. Writing a record, and a
  * session's close taking back those it holds, stay on the thread: the
  * close must take them back before it stops their jobs, and only calls
@@ -102,6 +104,13 @@ const REMOVAL_WAIT_MS = 5_000;
  * so a fast removal is never said slow nor a slow one hidden.
  */
 const monotonicNow = (): number => performance.now();
+
+/**
+ * How a pass of a removal ended: its record removed from its name, left
+ * there by a disk refusing to set it aside, or settled otherwise, gone
+ * already or put back for a taker.
+ */
+type PassEnd = "removed" | "stays" | "settled";
 
 /** What the final removal of a call's own record may be told. */
 export interface ForgetOwnOptions {
@@ -295,12 +304,14 @@ async function removeOwn(
 	const file = `${keep}${JOB_SUFFIX}`;
 	const aside = `${file}.${process.pid}.gone`;
 	try {
+		let removed: string | undefined;
 		while (!removal.handed) {
 			const record = takeJobRecord(keep);
 			if (record === undefined) return;
 			const began = now();
+			let ended: PassEnd;
 			try {
-				await removeOnce(file, aside, record, removal);
+				ended = await removeOnce(file, aside, record, removal);
 			} finally {
 				// Timed whichever way the pass ended: a slow refusal is as telling.
 				const took = now() - began;
@@ -310,6 +321,21 @@ async function removeOwn(
 					);
 				}
 			}
+			if (ended === "stays") {
+				// Still at its name, so held as this process's again: the removal
+				// of its call's files, and an exit before that ends, count it.
+				if (!ownsJobRecord(keep)) ownJobRecord(keep, record);
+				return;
+			}
+			removed = ended === "removed" ? record : undefined;
+		}
+		// Handed on in the turn between the last pass's look and this one,
+		// after the pass removed it: put back as a hand-off after it would be.
+		if (removed !== undefined) {
+			const last = removed;
+			await putBack(file, removal, () =>
+				writeBack(file, removal.latest ?? last),
+			);
 		}
 	} finally {
 		// In the same turn as its last look for a record written again, so
@@ -325,22 +351,26 @@ async function removeOnce(
 	aside: string,
 	record: string,
 	removal: JobRecordRemoval,
-): Promise<void> {
+): Promise<PassEnd> {
 	try {
 		await rename(file, aside);
 	} catch (error) {
 		// Gone already, with the call's other files: nothing to remove.
-		if (isMissing(error)) return;
+		if (isMissing(error)) return "settled";
 		// A disk refusing it (read-only after an error, failing, or the
 		// file made immutable): the record stays, and `removeKept` just
 		// after stops at it. Said, since nothing else would show it.
 		sayStays(file, error);
-		return;
+		return "stays";
 	}
+	removal.aside = aside;
 	const handedFirst = removal.handed;
 	removal.setAside = !handedFirst;
 	const linkAside = () => link(aside, file);
-	if (handedFirst && !(await putBack(file, removal, linkAside, aside))) return;
+	if (handedFirst) {
+		const back = await putBack(file, removal, linkAside, aside);
+		if (!back) return "settled";
+	}
 	try {
 		await rm(aside, { force: true });
 	} catch (error) {
@@ -351,11 +381,12 @@ async function removeOnce(
 			`[shell] couldn't remove ${aside}: ${why}; no start reads it as a record, and the week's sweep takes it\n`,
 		);
 	}
-	if (removal.handed && !handedFirst)
-		await putBack(file, removal, () =>
-			writeBack(file, removal.latest ?? record),
-		);
 	removal.setAside = false;
+	removal.aside = undefined;
+	if (handedFirst) return "settled";
+	if (!removal.handed) return "removed";
+	await putBack(file, removal, () => writeBack(file, removal.latest ?? record));
+	return "settled";
 }
 
 /**

@@ -140,9 +140,10 @@ export function carryAway(
 	try {
 		append(CARRIED_ENTRY, carried);
 	} catch {
-		// Nobody will be told how they end: stop them, as a quit did. pi
-		// quits next, and one exiting before the disk gets to their files
-		// takes their marks back as it goes (kept.ts).
+		// Nobody will be told how they end: stop them, as a quit did. A
+		// plain pi quits next, and one exiting before the disk gets to their
+		// files takes their marks back as it goes (kept.ts); a host's process
+		// lives on, and their removal ends off the thread.
 		for (const job of carried.jobs) {
 			if (!isCarriedShell(job.work)) continue;
 			stopCarried(job.work);

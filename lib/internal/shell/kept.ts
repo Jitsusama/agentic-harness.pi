@@ -45,6 +45,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
+	linkSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
@@ -54,7 +55,7 @@ import {
 } from "node:fs";
 import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { count } from "../../ui/count.ts";
+import { count, noun } from "../../ui/count.ts";
 import { stateDir } from "../paths.ts";
 import { processGlobal } from "../process/process-global.ts";
 
@@ -363,6 +364,11 @@ export interface JobRecordRemoval {
 	gone: boolean;
 	/** Whether the record is off its name, set aside, and not yet put back. */
 	setAside: boolean;
+	/**
+	 * Where its record sits, renamed off its name, until the removal has
+	 * removed it there: a hand-off before then is put back from it.
+	 */
+	aside?: string;
 }
 
 // The kept paths whose job record (kept-jobs.ts) this process wrote and
@@ -496,27 +502,68 @@ function takeBackAtExit(): void {
  * its next start says the call's end again. Each waits on the disk that
  * left it, so how many names it asks after is said first, for a slow
  * exit to be read by: up to that many, since a mark may never have been
- * written.
+ * written. A call handed on mid-removal has its record put back for its
+ * taker from where it was set aside, the pool's own put-back going with
+ * the process; one the removal had removed already, its put-back yet to
+ * land, is said, since its call then has no record until its taker
+ * writes one, and a pi gone first leaves it to the week's strays.
  */
 function takeRecordsBack(): void {
-	const records = [...jobRecords.removing]
+	const removals = [...jobRecords.removing];
+	const records = removals
 		.filter(([, removal]) => !removal.handed || removal.gone)
 		.map(([path]) => `${path}${JOB_SUFFIX}`);
+	const handed = removals.filter(
+		([, removal]) => removal.handed && !removal.gone,
+	);
 	const marks = [...jobRecords.ending].flatMap(([path, ending]) =>
 		[...ending.marks].map((mark) => `${path}${mark}`),
 	);
 	const files = [...new Set([...records, ...marks])];
-	if (files.length === 0) return;
-	try {
-		process.stderr.write(
+	if (files.length > 0) {
+		sayAtExit(
 			`[shell] taking back up to ${count(files.length, "kept file")} the disk had yet to remove as pi exits\n`,
 		);
+	}
+	for (const file of files) unlinkNow(file);
+	const unrecorded = handed.filter(
+		([path, removal]) => !putBackNow(`${path}${JOB_SUFFIX}`, removal.aside),
+	).length;
+	if (unrecorded > 0) {
+		sayAtExit(
+			`[shell] ${count(unrecorded, "call")} handed on as pi exits ${noun(unrecorded, "has", "have")} no record put back, until ${noun(unrecorded, "its taker writes one", "their takers write theirs")}\n`,
+		);
+	}
+}
+jobRecords.takeBack = takeRecordsBack;
+
+/** Say `text` as the process exits, if anything still reads what it says. */
+function sayAtExit(text: string): void {
+	try {
+		process.stderr.write(text);
 	} catch {
 		// Its error output gone with whatever read it; the files still go.
 	}
-	for (const file of files) unlinkNow(file);
 }
-jobRecords.takeBack = takeRecordsBack;
+
+/**
+ * Put a handed call's record back at `file` from where it was set
+ * `aside`, on the thread as the process exits, answering whether a
+ * record stands there now: the taker's own, written first, stays.
+ */
+function putBackNow(file: string, aside: string | undefined): boolean {
+	if (aside !== undefined) {
+		try {
+			linkSync(aside, file);
+		} catch {
+			// Taken already, by the taker's own or the pool's put-back, or the
+			// disk refusing it: whether a record stands is read just below.
+		}
+	}
+	const stands = existsSync(file);
+	if (stands && aside !== undefined) unlinkNow(aside);
+	return stands;
+}
 
 /** Remove `file` on the thread, as a process exiting does. */
 function unlinkNow(file: string): void {
