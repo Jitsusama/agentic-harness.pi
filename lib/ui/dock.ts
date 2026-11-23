@@ -38,6 +38,7 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { isStaleContext } from "../internal/errors/stale.ts";
 import { DOCK_NAME } from "./gate/screen-gates.ts";
 import { repaintOnHeightChange } from "./panel/panel-height.ts";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
@@ -315,7 +316,14 @@ export function dock(
 			leave();
 			// Pi disposes the component here; `leave` has already run, so
 			// dispose finds nothing left to do.
-			ctx.ui.setWidget(key, undefined);
+			try {
+				ctx.ui.setWidget(key, undefined);
+			} catch (error) {
+				// A session that reloaded under the widget took its screen,
+				// and the widget with it, so there is nothing left to take
+				// down. Any other error is a real fault.
+				if (!isStaleContext(error)) throw error;
+			}
 			if (had && tui !== undefined) {
 				tui.setFocus(owner.editor ?? findEditor(tui));
 				tui.requestRender();

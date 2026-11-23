@@ -161,8 +161,9 @@ async function hiddenUnread(context: PreflightContext): Promise<Verdict> {
  */
 const CONNECT = [
 	'const s = require("node:net").connect(process.argv[1]);',
-	's.on("connect", () => { console.log("connected"); process.exit(0); });',
-	's.on("error", (e) => { console.log(e.code); process.exit(0); });',
+	'const say = (what) => process.stdout.write(what + "\\n", () => process.exit(0));',
+	's.on("connect", () => say("connected"));',
+	's.on("error", (e) => say(e.code));',
 ].join(" ");
 
 /**

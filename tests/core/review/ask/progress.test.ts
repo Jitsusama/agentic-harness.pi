@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type AskAnswer,
+	type AskProgress,
 	type Finding,
 	noAskProgress,
 	type Participant,
@@ -162,6 +163,81 @@ describe("tracking an ask round", () => {
 });
 
 describe("a round reporting as it goes", () => {
+	it("asks everyone when its reporter throws", async () => {
+		// On 22 November two councils opened, asked nobody and never
+		// settled: their session had reloaded while they waited for a
+		// start, and the board's first draw threw on the stale context.
+		// A board is a view of the round; it must never cost the round.
+		// pi's own words, which the reporter is made heedless of.
+		const stale = (): never => {
+			throw new Error(
+				"This extension ctx is stale after session replacement or reload.",
+			);
+		};
+		const throwing: AskProgress = {
+			start: stale,
+			started: stale,
+			activity: stale,
+			answered: stale,
+			failed: stale,
+			cancelled: stale,
+			recorded: stale,
+			finish: stale,
+		};
+		const asked: string[] = [];
+
+		const { run } = await round(
+			[alice, bob],
+			async (participant, _prompt, context): Promise<AskAnswer> => {
+				asked.push(participant.id);
+				// The beat a long round fires most, through its own path.
+				context.report?.("reading");
+				return {
+					text: JSON.stringify({
+						findings: [
+							{
+								location: { kind: "file", file: "lib/a.ts" },
+								label: "issue",
+								subject: "This leaks",
+								discussion: "The handle is never closed.",
+							},
+						],
+					}),
+				};
+			},
+			throwing,
+		);
+
+		expect(asked, "every reviewer is asked despite the board").toEqual([
+			"alice",
+			"bob",
+		]);
+		expect(
+			run.outcomes.map((one) => one.failure),
+			"each answer is kept, none failed by the board",
+		).toEqual([undefined, undefined]);
+		expect(
+			run.outcomes.map((one) => one.findingIds),
+			"and each finding is filed",
+		).toEqual([[1], [2]]);
+	});
+
+	it("still fails on a reporter fault that is not a reload", async () => {
+		// Passed over, a real fault in the board would hide itself behind
+		// a board that silently stopped drawing.
+		const broken: AskProgress = {
+			...noAskProgress,
+			start() {
+				throw new Error("the theme is broken");
+			},
+		};
+
+		await expect(
+			round([alice], async () => ({ text: "fine" }), broken),
+			"a real fault surfaces",
+		).rejects.toThrow("the theme is broken");
+	});
+
 	it("reports every participant running before any has settled", async () => {
 		// The claim that matters. Both are asked concurrently, so a
 		// reporter must be able to see two in flight at once; a
