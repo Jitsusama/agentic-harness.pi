@@ -21,6 +21,7 @@ import {
 	ended,
 	entry,
 	folder,
+	growing,
 	key,
 	LISTENS_AFTER_MS,
 	pause,
@@ -35,15 +36,6 @@ import {
 } from "./support/supervised-children.ts";
 
 superviseEachTest();
-
-/** CPU said from `from` and growing by `step` at each ask, as a starved child's does. */
-function growing(from: number, step: number): () => number {
-	let spent = from - step;
-	return () => {
-		spent += step;
-		return spent;
-	};
-}
 
 describe("a resumed conversation", () => {
 	it("tells a child woken from a park that it was, so it doesn't rest parked again", async () => {
@@ -433,7 +425,7 @@ describe("a resumed conversation", () => {
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a))).rejects.toThrow(
-			/did not listen within \d+ ms, with 1300 ms of CPU$/,
+			/did not listen within \d+ ms, with 1\d{3} ms of CPU$/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	}, 15_000);
@@ -527,11 +519,13 @@ describe("a resumed conversation", () => {
 		expect(routes.routeOf(a)?.socket).toBe(slotOf(folder, key, a).socket);
 		expect(units.stopped, "its child left running").toEqual([]);
 		const unit = slotOf(folder, key, a).unit;
+		// Its CPU counts from a second into the watch, and it is first judged
+		// at once then, past its 500 ms, so no time has passed to gain any.
 		expect(
 			said.filter((line) => line.includes("hasn't answered")),
 			"said once, as it waits on",
 		).toEqual([
-			`${unit} hasn't answered its watch in 500 ms, but has had only 20 ms of CPU since it was watched: it is starved rather than stuck, so it is waited on`,
+			`${unit} hasn't answered its watch in 500 ms, but has had only 0 ms of CPU since it was watched: it is starved rather than stuck, so it is waited on`,
 		]);
 		expect(
 			said.filter((line) => line.includes("answered its watch after")),
@@ -580,7 +574,7 @@ describe("a resumed conversation", () => {
 		const asked = Date.now();
 
 		await expect(supervisor.resume(entry(a), true)).rejects.toThrow(
-			/^The child gave its watch no answer within \d+ ms, with 1200 ms of CPU since it was watched$/,
+			/^The child gave its watch no answer within \d+ ms, with 1\d{3} ms of CPU since it was watched$/,
 		);
 		expect(Date.now() - asked, "well before the ceiling").toBeLessThan(5_000);
 	}, 15_000);

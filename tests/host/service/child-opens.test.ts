@@ -16,6 +16,7 @@ import {
 	ended,
 	entry,
 	folder,
+	growing,
 	key,
 	LISTENS_AFTER_MS,
 	line,
@@ -413,11 +414,7 @@ describe("a host starting again", () => {
 		await writeSlot(slot, entry(a));
 		units.next = { neverListens: true };
 		// Growing, as a starved child's CPU does, so only a bound gives it up.
-		let spent = 180;
-		units.spent = () => {
-			spent += 20;
-			return spent;
-		};
+		units.spent = growing(200, 20);
 		await units.start(slot.unit);
 		const asked = Date.now();
 

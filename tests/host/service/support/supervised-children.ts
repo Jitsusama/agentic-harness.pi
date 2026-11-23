@@ -496,6 +496,22 @@ export function deferred(): { promise: Promise<void>; settle: () => void } {
 	return { promise, settle };
 }
 
+/**
+ * CPU said from `from` at its first ask, growing `perSecond` ms a second
+ * of the clock the supervisor judges by (`Date.now`) from then, as a
+ * starved child's grows with time, not with how often systemd is asked:
+ * an ask a second late finds a second's more. The supervisor runs on the
+ * real clock, its children answering on real sockets, which fake timers
+ * can't drive, so this is the clock the fake follows.
+ */
+export function growing(from: number, perSecond: number): () => number {
+	let first: number | undefined;
+	return () => {
+		first ??= Date.now();
+		return from + Math.floor((perSecond * (Date.now() - first)) / 1_000);
+	};
+}
+
 /** A pause of `ms`, for a test to show something did not happen. */
 export function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
