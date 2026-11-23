@@ -613,7 +613,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 *
 	 * Resumed though messages wait to go: pi's compaction aborted the run
 	 * they were queued for, which leaves them queued, and only a run
-	 * delivers them.
+	 * delivers them. With no run owed, a landing (no `reason`) with
+	 * messages waiting starts one for them alone.
 	 */
 	function resumeOwed(ctx: ExtensionContext, reason?: string): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
@@ -622,6 +623,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			if (owesResume(branch, Date.now())) {
 				settleAsk(pi, true, "successor");
 				resumeRun(pi, RESUME_TEXT);
+				return;
+			}
+			if (reason === undefined && ctx.hasPendingMessages()) {
+				resumeRun(pi, WAITING_TEXT);
 				return;
 			}
 			if (reason !== "startup") return;
@@ -638,7 +643,8 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 * was gone, as its onError would have: a cancel was somebody stopping
 	 * it, so it resumes nothing; otherwise a run it cut is resumed. Read
 	 * from the log once pi is idle, so an ask another resumer answered
-	 * meanwhile is left alone.
+	 * meanwhile is left alone. With no run to resume, messages left
+	 * waiting get a run of their own, unless it was cancelled.
 	 */
 	function answerFailed(ctx: ExtensionContext, cancelled: boolean): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
@@ -649,6 +655,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			const resume = !cancelled && (ask.resume || cutSince(branch, ask.at));
 			settleAsk(pi, resume, "successor");
 			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
+			else if (!cancelled && ctx.hasPendingMessages()) {
+				resumeRun(pi, FAILED_WAITING_TEXT);
+			}
 		});
 	}
 

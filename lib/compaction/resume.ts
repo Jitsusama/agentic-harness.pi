@@ -26,8 +26,12 @@ export const RESUME_TEXT = automatedText(COMPACTED, CARRY_ON);
 /** Sent once a compaction fails, to carry on the run it stopped. */
 export const FAILED_RESUME_TEXT = automatedText(FAILED, CARRY_ON);
 
+/**
+ * pi gives a queued steer with this message and a queued follow-up just
+ * after the reply to it, so the reply to this alone stays short.
+ */
 const ANSWER_WAITING =
-	"Messages that waited while it ran follow; answer them as you would have.";
+	"Messages waited while it ran, and pi gives them to you with this or just after it; answer them as you would have, and say nothing to this one alone.";
 
 /**
  * Sent once a compaction ends with messages waiting and no run owed:
@@ -51,10 +55,16 @@ const OPENINGS = [
 	"Compacting the context failed, so it was left as it is.",
 ];
 
-/** Whether a user message's text is one the harness sent to resume a run. */
+/**
+ * Whether a user message's text is one the harness sent to resume a run:
+ * not one sent for messages that waited, which resumes nothing.
+ */
 export function isResumeText(text: string): boolean {
 	const opening = text.trimStart();
-	return OPENINGS.some((sentence) => opening.startsWith(sentence));
+	return (
+		OPENINGS.some((sentence) => opening.startsWith(sentence)) &&
+		!opening.includes(ANSWER_WAITING)
+	);
 }
 
 /**
