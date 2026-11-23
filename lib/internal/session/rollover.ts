@@ -923,6 +923,32 @@ function* linesOf(
 }
 
 /**
+ * A log's lines as text, for a reader that walks a whole log once, so
+ * it holds one chunk's lines of it rather than the whole file. Like
+ * the parents' scan, it reads only a regular file: a pipe or a device
+ * gives no lines.
+ */
+export function* logLines(path: string): Generator<string> {
+	const batch: string[] = [];
+	const scan = linesOf(path, (line) => {
+		batch.push(line.toString("utf8"));
+		return false;
+	});
+	try {
+		let step = scan.next();
+		while (!step.done) {
+			yield* batch.splice(0);
+			const { fd, buffer, length, position } = step.value;
+			step = scan.next(readSync(fd, buffer, 0, length, position));
+		}
+		yield* batch.splice(0);
+	} finally {
+		// Closes the log when its reader stops before the end.
+		scan.return(false);
+	}
+}
+
+/**
  * Write a fresh log into `dir` whole, under a temporary name first, so
  * no reader ever finds half of one. Returns its path.
  */

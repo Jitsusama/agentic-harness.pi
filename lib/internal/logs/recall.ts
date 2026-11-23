@@ -113,6 +113,43 @@ function isToolCall(part: unknown): part is ToolCallPart {
 	);
 }
 
+/** A tool call an entry makes, and whether it is recall's own. */
+export interface CallMade {
+	readonly id: string;
+	readonly recalls: boolean;
+}
+
+/** The tool calls an assistant entry makes, in order. */
+export function callsIn(entry: SessionEntry): CallMade[] {
+	if (entry.type !== "message") return [];
+	const message = entry.message as { role?: string; content?: unknown };
+	if (message.role !== "assistant" || !Array.isArray(message.content)) {
+		return [];
+	}
+	return message.content
+		.filter(isToolCall)
+		.map((part) => ({ id: part.id, recalls: part.name === RECALL_TOOL }));
+}
+
+/** What a tool result entry answers, and its text. */
+export interface ResultGiven {
+	readonly callId: string;
+	readonly text: string;
+}
+
+/** The call a tool result entry answers and what it said, if it is one. */
+export function resultOf(entry: SessionEntry): ResultGiven | undefined {
+	if (entry.type !== "message") return undefined;
+	const message = entry.message as {
+		role?: string;
+		content?: unknown;
+		toolCallId?: unknown;
+	};
+	if (message.role !== "toolResult") return undefined;
+	if (typeof message.toolCallId !== "string") return undefined;
+	return { callId: message.toolCallId, text: textOfParts(message.content) };
+}
+
 /**
  * The log as text, one item per entry that says something.
  *
@@ -123,35 +160,37 @@ function isToolCall(part: unknown): part is ToolCallPart {
  * earlier search's hits a second time.
  */
 export function entryTexts(entries: readonly SessionEntry[]): EntryText[] {
-	const results = new Map<string, string>();
-	const recallCalls = new Set<string>();
-	for (const entry of entries) {
-		if (entry.type !== "message") continue;
-		const message = entry.message as { role?: string; content?: unknown };
-		if (message.role === "assistant" && Array.isArray(message.content)) {
-			for (const part of message.content) {
-				if (isToolCall(part) && part.name === RECALL_TOOL) {
-					recallCalls.add(part.id);
-				}
-			}
-		}
-		if (message.role === "toolResult") {
-			const result = entry.message as { toolCallId?: unknown };
-			if (typeof result.toolCallId === "string") {
-				results.set(result.toolCallId, textOfParts(message.content));
-			}
-		}
-	}
-
+	const { results, recallCalls } = callsAcross(entries);
 	const texts: EntryText[] = [];
 	for (const entry of entries) {
-		const text = textOf(entry, results, recallCalls);
+		const text = entryText(entry, results, recallCalls);
 		if (text.trim() !== "") texts.push({ id: entry.id, text });
 	}
 	return texts;
 }
 
-function textOf(
+/** Every tool result `entries` hold, by call, and recall's own calls. */
+function callsAcross(entries: readonly SessionEntry[]): {
+	results: Map<string, string>;
+	recallCalls: Set<string>;
+} {
+	const results = new Map<string, string>();
+	const recallCalls = new Set<string>();
+	for (const entry of entries) {
+		for (const call of callsIn(entry)) {
+			if (call.recalls) recallCalls.add(call.id);
+		}
+		const given = resultOf(entry);
+		if (given) results.set(given.callId, given.text);
+	}
+	return { results, recallCalls };
+}
+
+/**
+ * One entry as text: its calls read with their `results`, recall's own
+ * calls left out, and an empty text for an entry that says nothing.
+ */
+export function entryText(
 	entry: SessionEntry,
 	results: ReadonlyMap<string, string>,
 	recallCalls: ReadonlySet<string>,
@@ -223,6 +262,96 @@ function wordsOf(query: string): string[] {
 }
 
 /**
+ * What one request looks for, worked out once so every entry, in memory
+ * or read from disk, is marked against the same thing.
+ */
+export interface Asked {
+	/** The query's distinct words, lowercased; none when reading by id. */
+	readonly words: readonly string[];
+	/** The id or reference asked to be read. */
+	readonly entryId?: string;
+	/** The hash prefix, when `entryId` is a paragraph reference. */
+	readonly prefix?: string;
+}
+
+/** What `request` looks for. */
+export function askedBy(request: RecallRequest): Asked {
+	const entryId = request.entryId?.trim();
+	if (entryId) {
+		const prefix = refHashPrefix(entryId);
+		return { words: [], entryId, ...(prefix ? { prefix } : {}) };
+	}
+	return { words: wordsOf(request.query?.trim() ?? "") };
+}
+
+/**
+ * One entry as a search needs it: what it holds of a request, and
+ * text only where the answer could show it, so a reader can mark a
+ * whole log and keep a few snippets rather than every entry's text.
+ */
+export interface Marked {
+	readonly id: string;
+	/** Whether it says anything, which is what a search ranks among. */
+	readonly said: boolean;
+	/** The indexes of the query's words it holds, in order. */
+	readonly holds: readonly number[];
+	/** Whether it says the paragraph a reference names. */
+	readonly named: boolean;
+	/** Its whole text, when it is the entry asked for by id or reference. */
+	readonly text?: string;
+	/** The window a hit shows, when it holds a word. */
+	readonly snippet?: string;
+}
+
+/** Whether `entry` says the paragraph the reference in `asked` names. */
+export function namedBy(entry: SessionEntry, asked: Asked): boolean {
+	const { prefix } = asked;
+	if (prefix === undefined) return false;
+	return unitsOf(entry).some((unit) => unit.hash.startsWith(prefix));
+}
+
+/** Mark one entry, given its text, against `asked`. */
+export function markOf(
+	id: string,
+	text: string,
+	asked: Asked,
+	named = false,
+): Marked {
+	const said = text.trim() !== "";
+	const lowered = said && asked.words.length > 0 ? text.toLowerCase() : "";
+	const holds: number[] = [];
+	asked.words.forEach((word, w) => {
+		if (said && lowered.includes(word)) holds.push(w);
+	});
+	return {
+		id,
+		said,
+		holds,
+		named,
+		...(said && (named || id === asked.entryId) ? { text } : {}),
+		...(holds.length > 0
+			? { snippet: snippetOf(text, lowered, asked.words) }
+			: {}),
+	};
+}
+
+/** Mark every entry of `entries`, their calls read with their results. */
+export function markEntries(
+	entries: readonly SessionEntry[],
+	asked: Asked,
+): Marked[] {
+	const { results, recallCalls } = callsAcross(entries);
+	return entries.map((entry) =>
+		markOf(
+			entry.id,
+			entryText(entry, results, recallCalls),
+			asked,
+			namedBy(entry, asked),
+		),
+	);
+}
+
+/**
  * Every entry that holds any of the query's words, best first.
  *
  * An entry scores the sum, over the words it holds, of how rare each
@@ -230,34 +359,38 @@ function wordsOf(query: string): string[] {
  * order.
  */
 export function search(texts: readonly EntryText[], query: string): Hit[] {
-	const words = wordsOf(query);
+	const asked = { words: wordsOf(query) };
+	return hitsOf(
+		texts.map((entry) => markOf(entry.id, entry.text, asked)),
+		asked.words,
+	);
+}
+
+function hitsOf(marked: readonly Marked[], words: readonly string[]): Hit[] {
 	if (words.length === 0) return [];
-	const lowered = texts.map((t) => t.text.toLowerCase());
-	const rarity = words.map((word) => {
-		const holding = lowered.filter((text) => text.includes(word)).length;
+	const texts = marked.filter((mark) => mark.said);
+	const rarity = words.map((_, w) => {
+		const holding = texts.filter((mark) => mark.holds.includes(w)).length;
 		return holding === 0 ? 0 : Math.log(1 + texts.length / holding);
 	});
 
 	const hits: Hit[] = [];
-	texts.forEach((entry, i) => {
-		const text = lowered[i] ?? "";
+	for (const mark of texts) {
 		let score = 0;
-		words.forEach((word, w) => {
-			if (text.includes(word)) score += rarity[w] ?? 0;
-		});
+		for (const w of mark.holds) score += rarity[w] ?? 0;
 		if (score > 0) {
-			hits.push({
-				id: entry.id,
-				score,
-				snippet: snippetOf(entry.text, text, words),
-			});
+			hits.push({ id: mark.id, score, snippet: mark.snippet ?? "" });
 		}
-	});
+	}
 	// Array.prototype.sort is stable, which is what keeps ties in order.
 	return hits.sort((a, b) => b.score - a.score);
 }
 
-function snippetOf(text: string, lowered: string, words: string[]): string {
+function snippetOf(
+	text: string,
+	lowered: string,
+	words: readonly string[],
+): string {
 	if (text.length <= SNIPPET_CHARS) return text;
 	const first = Math.min(
 		...words.map((word) => lowered.indexOf(word)).filter((at) => at >= 0),
@@ -303,12 +436,22 @@ export function recall(
 	entries: readonly SessionEntry[],
 	request: RecallRequest,
 ): Recalled {
-	const texts = entryTexts(entries);
-	const entryId = request.entryId?.trim();
-	if (entryId) {
-		const prefix = refHashPrefix(entryId);
-		if (prefix) return readByRef(entries, texts, entryId, prefix);
-		return readOne(texts, entryId);
+	const asked = askedBy(request);
+	return answer(markEntries(entries, asked), request, asked);
+}
+
+/**
+ * Answer one recall from entries already marked against it, in log
+ * order: what `recall` answers for the entries they were marked from.
+ */
+export function answer(
+	marked: readonly Marked[],
+	request: RecallRequest,
+	asked: Asked = askedBy(request),
+): Recalled {
+	if (asked.entryId) {
+		if (asked.prefix) return readByRef(marked, asked.entryId);
+		return readOne(marked, asked.entryId);
 	}
 
 	const query = request.query?.trim() ?? "";
@@ -320,7 +463,7 @@ export function recall(
 				"read one entry of it.",
 		};
 	}
-	const hits = search(texts, query);
+	const hits = hitsOf(marked, asked.words);
 	if (hits.length === 0) {
 		return {
 			kind: "none",
@@ -362,18 +505,10 @@ export function recall(
 }
 
 /** The latest entry saying the paragraph a reference names. */
-function readByRef(
-	entries: readonly SessionEntry[],
-	texts: readonly EntryText[],
-	ref: string,
-	prefix: string,
-): Recalled {
-	for (let at = entries.length - 1; at >= 0; at--) {
-		const entry = entries[at];
-		if (!entry) continue;
-		if (unitsOf(entry).some((unit) => unit.hash.startsWith(prefix))) {
-			return readOne(texts, entry.id, ref);
-		}
+function readByRef(marked: readonly Marked[], ref: string): Recalled {
+	for (let at = marked.length - 1; at >= 0; at--) {
+		const mark = marked[at];
+		if (mark?.named) return readOne(marked, mark.id, ref);
 	}
 	return {
 		kind: "none",
@@ -384,12 +519,15 @@ function readByRef(
 }
 
 function readOne(
-	texts: readonly EntryText[],
+	marked: readonly Marked[],
 	id: string,
 	ref?: string,
 ): Recalled {
+	const texts = marked.filter((mark) => mark.said);
 	const at = texts.findIndex((t) => t.id === id);
-	const entry = texts[at];
+	const found = texts[at];
+	const entry =
+		found?.text === undefined ? undefined : { id: found.id, text: found.text };
 	if (!entry) {
 		return {
 			kind: "none",
