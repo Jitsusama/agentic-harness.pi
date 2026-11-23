@@ -9,7 +9,7 @@
  * runs landrun itself, where it is on PATH.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	lstatSync,
@@ -138,6 +138,70 @@ describe("what a session asks for", () => {
 			mac.kind === "none" && mac.asked,
 			"its host would be told none, and the node could carry it back unfenced",
 		).toBe("strict");
+	});
+
+	it("holds a session's credentials back from a strict command on a Mac, keeping what it runs with and how it ended", () => {
+		// Without landrun to pass only the names it keeps, a Mac's strict
+		// command once read every token the session held (ISXEG8, 23 November).
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		expect(
+			wrap,
+			"a Mac's strict command ran with no wrap at all",
+		).toBeDefined();
+		const command = `printf '%s\\n' "it's \\"said\\""; env | cut -d= -f1 | sort | tr '\\n' ' '; exit 3`;
+		const ran = spawnSync("bash", ["-c", wrap?.(command) ?? ""], {
+			encoding: "utf8",
+			env: {
+				PATH: process.env.PATH,
+				HOME: homedir(),
+				LANG: "C",
+				TMPDIR: tmpdir(),
+				XDG_RUNTIME_DIR: "/run/user/1",
+				GH_TOKEN: "held",
+				SSH_AUTH_SOCK: "/held.sock",
+				VENDOR_LOGIN: "held",
+				CONFIG_PASSWORD_DIR: "held",
+			},
+		});
+		const ended = ran.status;
+		const [said, names = ""] = ran.stdout.split("\n");
+		expect(said, "the command's own quoting didn't survive").toBe(
+			`it's "said"`,
+		);
+		expect(ended, "the command's exit status was lost").toBe(3);
+		const seen = names.trim().split(" ");
+		for (const held of [
+			"GH_TOKEN",
+			"SSH_AUTH_SOCK",
+			"VENDOR_LOGIN",
+			"CONFIG_PASSWORD_DIR",
+			"PI_SANDBOXED_COMMAND",
+		]) {
+			expect(seen, `${held} reached the command`).not.toContain(held);
+		}
+		for (const kept of ["PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"]) {
+			expect(seen, `${kept} was taken from the command`).toContain(kept);
+		}
+	});
+
+	it("leaves what a queue runs after a Mac's strict command its environment", () => {
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const after = execFileSync(
+			"bash",
+			["-c", `${wrap?.("true") ?? ""}\nprintf %s "$GH_TOKEN"`],
+			{ encoding: "utf8", env: { PATH: process.env.PATH, GH_TOKEN: "kept" } },
+		);
+		expect(after, "the shell around the command lost its variables").toBe(
+			"kept",
+		);
 	});
 
 	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {

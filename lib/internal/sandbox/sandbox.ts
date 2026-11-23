@@ -292,6 +292,41 @@ export function sandboxedCommand(
 	].join("\n");
 }
 
+/**
+ * Variables a strict command keeps on a Mac beside `KEPT`, where pi's
+ * own sandbox, not landrun, decides what it reaches: none is a
+ * credential, and a Mac's programs write their scratch where `TMPDIR`
+ * says, which that sandbox may let them write when `/tmp` it may not.
+ */
+const KEPT_ON_A_MAC = [
+	"TMPDIR",
+	"NIX_REMOTE",
+	"XDG_CACHE_HOME",
+	"COMMAND_MODE",
+	"__CF_USER_TEXT_ENCODING",
+] as const;
+
+/**
+ * The shell text that runs `command` with only the variables a strict
+ * command keeps, where no landrun can pass them: on a Mac, inside the
+ * sandbox pi itself runs in. It unsets every exported variable whose
+ * name `NEVER` matches, or that neither `KEPT` nor `KEPT_ON_A_MAC`
+ * allows, so a session's tokens and agent socket stay out of what the
+ * command can read from its environment. Files it reaches are still the
+ * outer sandbox's to decide. It runs in a shell of its own, so what a
+ * queue runs after it keeps the session's environment. The command
+ * travels in a variable, as through landrun, and is unset before it runs.
+ */
+export function heldBackCommand(command: string): string {
+	const never = NEVER.join("|");
+	const kept = [...KEPT, ...KEPT_ON_A_MAC, SANDBOXED_COMMAND].join("|");
+	const inner = [
+		`for __pi_name in $(compgen -e); do case $__pi_name in ${never}) unset "$__pi_name" 2>/dev/null;; ${kept}) ;; *) unset "$__pi_name" 2>/dev/null;; esac; done; unset __pi_name`,
+		`eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`,
+	].join("\n");
+	return `${SANDBOXED_COMMAND}=${quoted(command)} bash -c ${quoted(inner)}`;
+}
+
 /** The shell text that refuses to run a command, saying why. */
 export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
@@ -566,7 +601,9 @@ function askedFor(
  * nothing does no work. pi can't run inside `pi-fence`, whose Mac
  * profile hides pi's own state, so that sandbox is another's, and
  * it may reach more than the one asked for (ISXEG8 [038ae722] took
- * that risk). The host
+ * that risk). A strict command still has the session's credentials held
+ * back from its environment (`heldBackCommand`), though not from the
+ * files that sandbox lets it read. The host
  * is still told the fence asked for, so the node, which reads the
  * sandbox pi runs in, judges where the session may go. Where pi finds
  * no sandbox around it, no command runs, so a stranger's text never
@@ -587,7 +624,7 @@ function offLinux(
 	return {
 		kind: "none",
 		asked: kind,
-		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.`,
+		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.${kind === "strict" ? " Each command still runs without the session's tokens and agent socket in its environment, though it may read whatever files that sandbox allows." : ""}`,
 	};
 }
 
@@ -637,7 +674,7 @@ export function wrapFor(
 	const share = makeShares(scratch);
 	switch (sandbox.kind) {
 		case "none":
-			return undefined;
+			return sandbox.asked === "strict" ? heldBackCommand : undefined;
 		case "refused":
 			return () => refused(sandbox.reason);
 		case "fence": {
