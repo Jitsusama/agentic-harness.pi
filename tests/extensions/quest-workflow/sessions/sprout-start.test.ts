@@ -1432,6 +1432,10 @@ describe("a sprouted session's start", () => {
 			// What GitHub keeps of one person's: an upload, a conversation.
 			"https://github.com/user-attachments/assets/0f0e-77aa",
 			"https://github.com/copilot/c/1234-abcd",
+			// A ref or a page that reads like a form is a ref or a page there.
+			"https://github.com/o/repo/blob/new/src/a.ts",
+			"https://github.com/o/repo/blame/_wip/src/a.ts",
+			"https://github.com/o/repo/wiki/new",
 		].entries()) {
 			const deep = await start(
 				{ link, id: `SW${n}` },
@@ -1459,6 +1463,10 @@ describe("a sprouted session's start", () => {
 			"https://github.com/o/repo/wiki/_pages",
 			"https://github.com/o/repo/security/code-scanning",
 			"https://github.com/o/repo/files/123",
+			"https://github.com/o/repo/releases/edit/v1",
+			"https://github.com/o/repo/blob/main",
+			// An alert list's own pages, which no alert's number names.
+			"https://github.com/o/repo/security/code-scanning/tools",
 		].entries()) {
 			const one = await start(
 				{ link, words: `deep list ${n}`, id: `SP${n}` },

@@ -542,34 +542,51 @@ function linkIsPlace(seed: SproutSeed): boolean {
  * its tab. A file, a commit, a comparison, a release, a wiki page or an
  * upload is one once its tab has as many parts below it as
  * GITHUB_WORK_TABS says. A pull request, an issue, a discussion, a
- * milestone, a project or a run is one by its number. One alert or
- * advisory under /security, and one run under /actions, is one too, but
- * never their lists. A form or an index (isPiece) is never one.
+ * milestone, a project or a run is one by its number. One advisory under
+ * /security is one by its id, and one alert there, or one run under
+ * /actions, by its number, but never their lists. A form or an index
+ * (isPiece) is never one.
  */
 function gitHubWork(path: readonly string[]): boolean {
 	const tab = path[GITHUB_TAB] ?? "";
 	const below = path.slice(GITHUB_TAB + 1);
 	const fewest = GITHUB_WORK_TABS.get(tab);
-	if (fewest !== undefined) return below.length >= fewest && isPiece(below[0]);
-	if (GITHUB_NUMBERED_TABS.has(tab)) return /^\d+$/u.test(below[0] ?? "");
-	const under = GITHUB_WORK_UNDER.get(tab);
-	return under?.has(below[0] ?? "") === true && isPiece(below[1]);
+	if (fewest !== undefined)
+		return below.length >= fewest && isPiece(tab, below[0]);
+	if (GITHUB_NUMBERED_TABS.has(tab)) return NUMBERED.test(below[0] ?? "");
+	const list = below[0] ?? "";
+	if (GITHUB_WORK_UNDER.get(tab)?.has(list) !== true) return false;
+	return list === GITHUB_ADVISORIES
+		? isPiece(list, below[1])
+		: NUMBERED.test(below[1] ?? "");
 }
 
 /**
- * Whether a part of a GitHub path names a piece rather than a form to
- * make or change one (/releases/new, /advisories/new) or an index of
- * them (/wiki/_pages), which GitHub starts with an underscore.
+ * Whether a part of a GitHub path under `tab` names a piece rather than
+ * a form to make or change one (/releases/new, /advisories/new) or a
+ * wiki's index (/wiki/_pages), which GitHub starts with an underscore.
+ * On any other tab the part is a ref or an id, which may read new.
  */
-function isPiece(part: string | undefined): boolean {
-	return part !== undefined && !GITHUB_FORMS.has(part) && !part.startsWith("_");
+function isPiece(tab: string, part: string | undefined): boolean {
+	if (part === undefined) return false;
+	if (tab === GITHUB_WIKI) return !part.startsWith("_");
+	return GITHUB_FORMS.get(tab)?.has(part) !== true;
 }
 
-/** GitHub's parts naming a form to make or change a piece of work. */
-const GITHUB_FORMS: ReadonlySet<string> = new Set(["new", "edit"]);
+/** A part GitHub numbers its pieces by. */
+const NUMBERED = /^\d+$/u;
 
 /** GitHub's advisories, each of which (/advisories/GHSA-...) is the work. */
 const GITHUB_ADVISORIES = "advisories";
+
+/** GitHub's wiki, whose own pages start with an underscore. */
+const GITHUB_WIKI = "wiki";
+
+/** GitHub's parts naming a form to make or change a piece, by tab. */
+const GITHUB_FORMS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+	["releases", new Set(["new", "edit"])],
+	[GITHUB_ADVISORIES, new Set(["new"])],
+]);
 
 /**
  * What GitHub keeps of one person's under its own first part, each the
