@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	heldWords,
+	holdsHere,
 	machineByDefault,
 	machineFor,
 	type PlaceOnNode,
@@ -93,6 +94,20 @@ describe("the machine a spawn starts on by default", () => {
 			).toBeUndefined();
 		}
 		expect(asked, "the node was never asked").toEqual([]);
+	});
+
+	it("is held here only by a live session to resume, never an idle one", () => {
+		const sessions = [
+			{ id: "live", liveness: "live" as const },
+			{ id: "idle", liveness: "idle" as const },
+		];
+		expect(holdsHere({ id: "live" }, sessions)).toBe(true);
+		expect(
+			holdsHere({ id: "idle" }, sessions),
+			"an idle session leaves the node to place the spawn",
+		).toBe(false);
+		expect(holdsHere({ ambiguous: [] }, sessions)).toBe(false);
+		expect(holdsHere(undefined, sessions)).toBe(false);
 	});
 
 	it("keeps the machine a call or the quest's needs already chose", async () => {

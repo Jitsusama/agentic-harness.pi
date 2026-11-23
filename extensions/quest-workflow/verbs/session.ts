@@ -77,6 +77,7 @@ import {
 import {
 	agentCommand,
 	askAgents,
+	holdsHere,
 	isThisMachine,
 	machineByDefault,
 	machineFor,
@@ -246,6 +247,7 @@ async function spawnNaming(
 	const resumable = pickResumeSession(
 		sessions.filter((s) => s.id !== currentId),
 	);
+	const resumesLive = holdsHere(resumable, sessions);
 	// The realm's agents, asked once before it is placed, since one that
 	// runs no pi may be where it lands: the claim told the node, and the
 	// command it starts, both follow the one answer.
@@ -253,7 +255,7 @@ async function spawnNaming(
 	const agentsHere = async () => realmAgents;
 	const placementClaim = placementFence(fence, {
 		command: params.command,
-		resumes: resumable !== undefined && "id" in resumable,
+		resumes: resumesLive,
 		swapped: swapsAgent(realmAgents),
 	});
 	const chosen = await machineFor(
@@ -266,9 +268,10 @@ async function spawnNaming(
 	);
 	if (!chosen.ok) return refuse(chosen.refusal);
 	const { needs } = chosen;
-	// Naming neither, it goes where the node places work, unless it resumes.
+	// Naming neither, it goes where the node places work, unless it
+	// resumes a live session.
 	const machine = await machineByDefault(chosen.machine, needs, {
-		resumes: Boolean(resumable && "id" in resumable),
+		resumes: resumesLive,
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
 		...(params.dryRun ? { dryRun: true } : {}),

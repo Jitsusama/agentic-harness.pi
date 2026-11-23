@@ -44,6 +44,7 @@ import {
 	FIRST_TEXT_VARIABLE,
 	FIRST_WORDS_VARIABLE,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
+import type { SessionView } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	agentsAt,
 	type NodeStart,
@@ -234,9 +235,28 @@ const shareByMycelium: ShareQuest = shareThrough(
 	spawnExec({ timeoutMs: SHARE_PATIENCE_MS }),
 );
 
+/**
+ * Whether the session a spawn would resume holds it on this machine:
+ * only a live one does. An idle one is yesterday's work, so the node is
+ * asked as for any fresh start, and one placed on another machine starts
+ * fresh there rather than reopening here. On 22 November nearly every
+ * quest had an idle session, so every spawn stayed on an optimus the
+ * node had already called over and named the Mac for (9T2BBY
+ * [1f965feb]).
+ */
+export function holdsHere(
+	resumable: { id: string } | { ambiguous: unknown } | undefined,
+	sessions: readonly Pick<SessionView, "id" | "liveness">[],
+): boolean {
+	if (resumable === undefined || !("id" in resumable)) return false;
+	return sessions.some(
+		(session) => session.id === resumable.id && session.liveness === "live",
+	);
+}
+
 /** What a spawn already asked for, which keeps it on this machine. */
 export interface StaysAsked {
-	/** A session of the quest's resumes here, with its history. */
+	/** A live session of the quest's resumes here, with its history. */
 	readonly resumes: boolean;
 	/** A host the call named, which is this machine's. */
 	readonly host?: string;
