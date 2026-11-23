@@ -10,6 +10,7 @@
 import { createConnection, type Socket } from "node:net";
 import type { ControlReply } from "./dispatch.ts";
 import { parseReply } from "./protocol.ts";
+import { OPEN_UNSETTLED, unsettledMessage } from "./unsettled-open.ts";
 
 /** The most an answer from a child may hold before its first line ends. */
 export const MAX_ANSWER_BYTES = 1024 * 1024;
@@ -52,10 +53,7 @@ export function unsettledReply(id: string, sessionId: string): ControlReply {
 		v: 1,
 		id,
 		ok: false,
-		error: {
-			code: "open_unsettled",
-			message: `The conversation's process gave no answer in time, but runs ${sessionId}: attach to it, or close it, rather than open another`,
-		},
+		error: { code: OPEN_UNSETTLED, message: unsettledMessage(sessionId) },
 	};
 	leftRunningBy.set(reply, sessionId);
 	return reply;

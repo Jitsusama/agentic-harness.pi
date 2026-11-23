@@ -198,9 +198,12 @@ export interface ChildSupervisor {
 	 * Rejects when its child can't be started, watched or held, the host
 	 * stops watching, or it adopts a file a conversation the host holds,
 	 * routes or begins on already runs from, so a caller is told an error
-	 * of the host's.
+	 * of the host's. Its time runs from `taken`, when the host took the
+	 * request (now, by default), so what the host did before, such as
+	 * the rollout gate's census, comes out of it rather than out of the
+	 * caller's wait.
 	 */
-	begin(request: Beginning): Promise<ControlReply>;
+	begin(request: Beginning, taken?: number): Promise<ControlReply>;
 	/**
 	 * Watch every child an earlier host left running, and clear each
 	 * slot whose unit has gone; settles with how many it took up. A
@@ -1361,8 +1364,8 @@ export function childSupervisor(options: {
 			starting.set(keyed(sessionId), start);
 			return start;
 		},
-		begin(request) {
-			const by = Date.now() + beginsWithinMs;
+		begin(request, taken = Date.now()) {
+			const by = taken + beginsWithinMs;
 			const slot = slotOf(options.folder, options.key, randomUUID());
 			// An adopt's file, too, must be one no host holds: one the roster
 			// holds is resumed in the slot its own id names, never begun beside,

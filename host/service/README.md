@@ -315,6 +315,10 @@ input pipeline or screen. No unit or running host is installed yet.
 - child-requests.ts: reaching a child's socket and reading the one
   answer a request gets; a child answering as another process, or not
   at all, is said as `child_unreachable`.
+- unsettled-open.ts: the `open_unsettled` refusal's words, naming the
+  conversation a child runs though it gave no answer in time, written
+  by the host and read by the spawn that asked, which attaches to it.
+  The error's shape is strict, so the id travels in its words.
 - child-units.ts: where each child runs: an instance of the template
   unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
   its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it

@@ -117,7 +117,7 @@ export function hostChildren(options: {
 			running: (sessionId) =>
 				routes.listed().find((held) => held.sessionId === sessionId),
 			resume: resumed,
-			begin: (request) => supervisor.begin(request),
+			begin: (request, taken) => supervisor.begin(request, taken),
 			ask,
 			left: (sessionId) => supervisor.left(sessionId),
 		},

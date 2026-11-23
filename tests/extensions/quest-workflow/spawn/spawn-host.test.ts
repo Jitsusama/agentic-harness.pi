@@ -15,6 +15,10 @@ import { hostSocketPath } from "../../../../host/service/address.ts";
 import { hostRefusal } from "../../../../host/service/dispatch.ts";
 import type { ControlRequest } from "../../../../host/service/protocol.ts";
 import { listenControl } from "../../../../host/service/server.ts";
+import {
+	OPEN_UNSETTLED,
+	unsettledMessage,
+} from "../../../../host/service/unsettled-open.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
 import { recordUnlisted } from "../../../../lib/internal/fence/fence-log.ts";
 import {
@@ -953,6 +957,75 @@ describe("spawn into a host", () => {
 		const [one, two, three] = sent.map((request) => request.id);
 		expect(two, "the retry repeats the lost one's id").toBe(one);
 		expect(three, "a spawn after a refusal is new").not.toBe(one);
+	});
+
+	// 23 November (ff6ecdd4): a host whose child loaded slowly said so as
+	// a refusal, and the spawn reported nothing opened while it ran.
+	describe("when the host's child answers its open late", () => {
+		const spawn = () => ({
+			kind: "background" as const,
+			questId: "QEST-1",
+			cwd: tmpRoot,
+			chosenBy: "the folder the call named",
+			env: { MYCELIUM_REALM: "home", XDG_RUNTIME_DIR: runtime },
+			pending: join(tmpRoot, "pending"),
+		});
+		/** A host that answers each request with this refusal. */
+		const refusing =
+			(code: string, message: string, sent: ControlRequest[] = []) =>
+			async (_socket: string, request: ControlRequest) => {
+				sent.push(request);
+				return {
+					v: 1 as const,
+					id: request.id,
+					ok: false as const,
+					error: { code, message },
+				};
+			};
+
+		it("attaches to the session its child runs, saying it still opens", async () => {
+			const running = randomUUID();
+
+			const result = await spawnInHost(
+				spawn(),
+				refusing(OPEN_UNSETTLED, unsettledMessage(running)),
+			);
+
+			expect(result).toMatchObject({
+				ok: true,
+				details: {
+					how: "host",
+					host: "home-background",
+					sessionId: running,
+					loading: true,
+				},
+			});
+			expect(said(result)).toContain(`still opening session ${running}`);
+		});
+
+		it("sends a new id for the next spawn, since the late one was answered", async () => {
+			const sent: ControlRequest[] = [];
+			const late = refusing(
+				OPEN_UNSETTLED,
+				unsettledMessage(randomUUID()),
+				sent,
+			);
+
+			await spawnInHost(spawn(), late);
+			await spawnInHost(spawn(), late);
+
+			const [one, two] = sent.map((request) => request.id);
+			expect(two).not.toBe(one);
+		});
+
+		it("still refuses an unsettled open that names no session", async () => {
+			const result = await spawnInHost(
+				spawn(),
+				refusing(OPEN_UNSETTLED, "The conversation's process gave no answer"),
+			);
+
+			expect(result).toMatchObject({ ok: false });
+		});
 	});
 
 	it("keeps the id of a yes it couldn't read, and says to check the list first", async () => {

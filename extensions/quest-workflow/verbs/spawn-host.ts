@@ -25,6 +25,7 @@ import type {
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import { REPEAT_WINDOW_MS } from "../../../host/service/repeat-key.ts";
+import { unsettledSession } from "../../../host/service/unsettled-open.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { DECLARED_VARIABLE } from "../../../lib/internal/fence/fence-lifted.ts";
 import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
@@ -392,6 +393,15 @@ export async function spawnInHost(
 		return refuse(unknownOutcome(key, messageOf(error), repeat));
 	}
 	const { reply, shed } = sent;
+	// The host's own child runs it, though it answered late: it is opened,
+	// so the spawn attaches rather than report a refusal and open another.
+	const late = reply.ok ? undefined : unsettledSession(reply.error);
+	if (late !== undefined) {
+		clearUnanswered(where, request, kept);
+		const adopting = request.op === "adopt";
+		const opening = stillOpening(spawn, key, late, adopting);
+		return shedSaid(opening, shed, spawn.questId);
+	}
 	if (!reply.ok) {
 		// A refusal is an answer, and a repeat would get the same one, so the
 		// next spawn sends a new id. What a failed start left held is named
@@ -447,6 +457,41 @@ export async function spawnInHost(
 		...(request.op === "adopt" ? { resumedSessionId: held.sessionId } : {}),
 	});
 	return shedSaid(opened, shed, spawn.questId);
+}
+
+/**
+ * The answer for a session the host's child runs but gave no answer for
+ * in time, as it loads under a busy machine: opened or adopted, its
+ * request in hand, with what it holds unread, so only its id is named.
+ */
+function stillOpening(
+	spawn: HostSpawn,
+	key: string,
+	sessionId: string,
+	adopting: boolean,
+): QuestResult {
+	const attach =
+		spawn.kind === "attended"
+			? attachWords(holdOf(key, true), sessionId)
+			: undefined;
+	const screen = attach
+		? `Its screen waits in the host until a viewer attaches: ${attach.join(" ")}`
+		: "It runs in the background, with no screen.";
+	const late =
+		"its process gave no answer in time, but runs it, so nothing else was";
+	const said = adopting
+		? `The ${key} host is still adopting session ${sessionId}: ${late} adopted. It isn't told anything, so it waits where its log stopped. ${screen}`
+		: `The ${key} host is still opening session ${sessionId} in ${spawn.cwd} (${spawn.chosenBy}), which loads ${spawn.questId}: ${late} opened. It ${spawn.untold ? "waits for its first words" : "is told to carry on"} once it has loaded. ${screen}`;
+	return ok(said, {
+		how: "host",
+		host: key,
+		sessionId,
+		loading: true,
+		attended: spawn.kind === "attended",
+		autoloadQuestId: spawn.questId,
+		...(attach ? { attach } : {}),
+		...(adopting ? { resumedSessionId: sessionId } : {}),
+	});
 }
 
 /** What /quest-resume in a hosted conversation needs to carry a session on. */

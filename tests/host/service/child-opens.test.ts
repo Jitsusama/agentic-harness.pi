@@ -226,6 +226,24 @@ describe("a new conversation", () => {
 		).toBeLessThan(3_000);
 	});
 
+	// 23 November (ff6ecdd4): its time ran from after the host's rollout
+	// census, so the caller's 120 s ran out before the begin's 100 s did.
+	it("counts a begin's time from when the host took its request", async () => {
+		superviseAgain({
+			clocks: { beginsWithinMs: 5_000, answersWithinMs: 10_000 },
+		});
+		units.next = { silent: true };
+		const took = Date.now() - 4_000;
+
+		const reply = await supervisor.begin(opening("open-17"), took);
+
+		expect(reply).toMatchObject({ ok: false });
+		expect(
+			Date.now() - took,
+			"within its time from when it was taken",
+		).toBeLessThan(7_000);
+	});
+
 	it("gives up on a starved child at its listen time, since its caller waits on it", async () => {
 		superviseAgain({ clocks: { listensWithinMs: 300 } });
 		units.next = { neverListens: true };

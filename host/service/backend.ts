@@ -165,8 +165,14 @@ export interface BackendChildren {
 		woken: boolean,
 		bounded?: boolean,
 	): Promise<SessionIdentity>;
-	/** Start a conversation in a child, settling with the child's answer. */
-	begin(request: OpenRequest | AdoptRequest): Promise<ControlReply>;
+	/**
+	 * Start a conversation in a child, settling with the child's answer,
+	 * within a begin's time of `taken`, when the host took the request.
+	 */
+	begin(
+		request: OpenRequest | AdoptRequest,
+		taken: number,
+	): Promise<ControlReply>;
 	/**
 	 * Ask the child running a conversation a request that reached the host
 	 * before its route did, answering as the child does or with its refusal.
@@ -500,12 +506,15 @@ export function hostBackend(options: {
 	async function beginOnce(
 		request: OpenRequest | AdoptRequest,
 	): Promise<unknown> {
+		// A begin's time runs from here, so the gate's census below comes
+		// out of it: the caller's wait began when it asked (BEGINS_WITHIN_MS).
+		const taken = Date.now();
 		const another = roster.entries().length + beginning > 0;
 		beginning += 1;
 		try {
 			if (another) await options.admitAnother?.();
 			heldElsewhere(request);
-			if (children?.opens()) return await inChild(children, request);
+			if (children?.opens()) return await inChild(children, request, taken);
 			return await started(request);
 		} finally {
 			beginning -= 1;
@@ -533,8 +542,9 @@ export function hostBackend(options: {
 	async function inChild(
 		moved: BackendChildren,
 		request: OpenRequest | AdoptRequest,
+		taken: number,
 	): Promise<unknown> {
-		const reply = await moved.begin(request);
+		const reply = await moved.begin(request, taken);
 		if (reply.ok) return reply.result;
 		const refusal = hostRefusal(reply.error.code, reply.error.message);
 		// The child runs a conversation all the same, so its repeat is told

@@ -448,8 +448,33 @@ describe("a conversation opened while children open", () => {
 		const opened = await backendWith(inHost, moved.fake).execute(open);
 
 		expect(opened).toEqual(shown(moved.opened));
-		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(open);
+		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(
+			open,
+			expect.any(Number),
+		);
 		expect(inHost.prepare).not.toHaveBeenCalled();
+	});
+
+	// 23 November (ff6ecdd4): a census slow beside many children took its
+	// time out of the caller's 120 s, not the begin's 100 s, so a spawn
+	// gave up on an open its host still ran.
+	it("counts its begin's time from when the host took it, before the rollout gate", async () => {
+		await roster.hold(entry());
+		const moved = children([], true);
+		const took = Date.parse("2026-11-23T05:00:00.000Z");
+		const censusTakes = 30_000;
+		vi.useFakeTimers({ toFake: ["Date"], now: took });
+		try {
+			const slowCensus = async () => {
+				vi.setSystemTime(took + censusTakes);
+			};
+
+			await backendWith(engine(), moved.fake, slowCensus).execute(open);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(open, took);
 	});
 
 	it("passes the rollout gate beside another", async () => {
@@ -475,7 +500,10 @@ describe("a conversation opened while children open", () => {
 
 		await backendWith(engine(), moved.fake).execute(adopt);
 
-		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(adopt);
+		expect(moved.fake.begin).toHaveBeenCalledExactlyOnceWith(
+			adopt,
+			expect.any(Number),
+		);
 	});
 
 	it("refuses to adopt a file the host already holds, starting no child", async () => {
