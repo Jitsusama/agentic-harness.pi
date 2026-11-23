@@ -68,6 +68,15 @@ export const WAITING_SAID_MS = 30_000;
 /** How often the handover folder is looked at while waiting. */
 const LOOK_MS = 1000;
 
+/**
+ * The most a gzipped session file is unzipped to: 2 GiB. Logs gzip
+ * about four to one, so the largest the share carries, 64 MiB gzipped,
+ * unzips to about 256 MiB, an eighth of it. A gzip of 64 MiB can unzip
+ * to a thousand times its size, which would fill the scratch's disk, so
+ * unzipping stops there.
+ */
+export const LARGEST_UNZIPPED = 2 * 1024 * 1024 * 1024;
+
 /** Time, as arriving reads and spends it; a test gives a fake one. */
 export interface Clock {
 	now(): number;
@@ -125,6 +134,8 @@ export interface Arriving {
 		quest: string,
 		notes: readonly CarriedNote[],
 	) => Promise<number>;
+	/** The most a gzipped session file unzips to; `LARGEST_UNZIPPED` unless a test names less. */
+	readonly largestUnzipped?: number;
 }
 
 /** Arrives with the session; answers whether everything came and stands. */
@@ -189,7 +200,8 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
  * `placeTakenOver` does, answering where. A file carried gzipped, as
  * one larger than the share takes is, is unzipped first into the
  * scratch's tmp/, which is never shared, under its own name, and that
- * copy is removed once placed.
+ * copy is removed once placed. One that unzips past
+ * `arriving.largestUnzipped` is refused, saying so, once it passes it.
  */
 async function placeSession(
 	id: string,
@@ -208,12 +220,40 @@ async function placeSession(
 		await pipeline(
 			createReadStream(file),
 			createGunzip(),
+			atMost(arriving.largestUnzipped ?? LARGEST_UNZIPPED),
 			createWriteStream(plain),
 		);
 		return placeTakenOver(id, plain, cwd, arriving.sessions);
 	} finally {
 		rmSync(unzipping, { recursive: true, force: true });
 	}
+}
+
+/**
+ * A step of a pipeline that passes on what it is given until that
+ * passes `largest` bytes, and then fails, saying so.
+ */
+function atMost(
+	largest: number,
+): (source: AsyncIterable<Buffer>) => AsyncGenerator<Buffer> {
+	return async function* (source) {
+		let passed = 0;
+		for await (const chunk of source) {
+			passed += chunk.length;
+			if (passed > largest) {
+				throw new Error(
+					`it unzips to more than ${mib(largest)} MiB, the most arriving unzips, so it wasn't unzipped further`,
+				);
+			}
+			yield chunk;
+		}
+	};
+}
+
+/** `bytes` in MiB, whole when it is whole. */
+function mib(bytes: number): string {
+	const inMib = bytes / (1024 * 1024);
+	return Number.isInteger(inMib) ? String(inMib) : inMib.toFixed(1);
 }
 
 /**

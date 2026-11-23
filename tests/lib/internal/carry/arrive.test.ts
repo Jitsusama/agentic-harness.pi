@@ -14,9 +14,11 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type ArrivalLine,
+	type Arriving,
 	arrive,
 	type Clock,
 } from "../../../../lib/internal/carry/arrive.ts";
@@ -120,6 +122,7 @@ async function arriveAt(
 	from: string,
 	clock: Clock = fakeClock(),
 	taken: CarriedNote[][] = [],
+	limits: Pick<Arriving, "largestUnzipped"> = {},
 ) {
 	const said: ArrivalLine[] = [];
 	const store = folder(made, "store");
@@ -137,6 +140,7 @@ async function arriveAt(
 		sessions: store,
 		clock,
 		say: (line) => said.push(line),
+		...limits,
 	});
 	return { whole, said, store };
 }
@@ -533,6 +537,50 @@ describe("arriving with a carried session", () => {
 		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
 		expect(readdirSync(store), "nothing placed").toEqual([]);
 		expect(readdirSync(join(scratchOf(from), "tmp"))).toEqual([]);
+	});
+
+	it("places nothing from a gzipped session file that unzips past the most arriving unzips, saying why", async () => {
+		const { from } = await carried(undefined, { largestFile: 1000 });
+		const header = JSON.stringify({ type: "session", id: SESSION, cwd: "/x" });
+		// 3 MiB of turns, which gzip to a few KiB, over a 1 MiB most.
+		writeFileSync(
+			join(from, `2026-11-07_${SESSION}.jsonl.gz`),
+			gzipSync(`${header}\n${'{"type":"message"}\n'.repeat(3 * 55_189)}`),
+		);
+		const home = folder(made, "arriving");
+
+		const { whole, said, store } = await arriveAt(home, from, fakeClock(), [], {
+			largestUnzipped: 1024 * 1024,
+		});
+
+		expect(whole, "a session not placed is not whole").toBe(false);
+		expect(said.find((line) => line.kind === "failed")).toEqual({
+			kind: "failed",
+			why: `2026-11-07_${SESSION}.jsonl.gz couldn't be placed: it unzips to more than 1 MiB, the most arriving unzips, so it wasn't unzipped further`,
+		});
+		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
+		expect(readdirSync(store), "nothing placed").toEqual([]);
+		expect(
+			readdirSync(join(scratchOf(from), "tmp")),
+			"no part of it is left unzipped",
+		).toEqual([]);
+	});
+
+	it("places a gzipped session file that unzips to just the most arriving unzips", async () => {
+		const { from } = await carried(undefined, { largestFile: 1000 });
+		const line = `${JSON.stringify({ type: "session", id: SESSION, cwd: "/x" })}\n`;
+		const text = `${line}${"m".repeat(1024 * 1024 - line.length - 1)}\n`;
+		writeFileSync(join(from, `2026-11-07_${SESSION}.jsonl.gz`), gzipSync(text));
+		const home = folder(made, "arriving");
+
+		const { said } = await arriveAt(home, from, fakeClock(), [], {
+			largestUnzipped: Buffer.byteLength(text),
+		});
+
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: join(home, "src", "app") }],
+		});
 	});
 
 	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {
