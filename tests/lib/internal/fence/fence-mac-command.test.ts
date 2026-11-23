@@ -17,6 +17,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -93,13 +94,14 @@ function ran(
 	command: string,
 	cwd: string = work,
 	env: NodeJS.ProcessEnv = {},
+	disk: Disk = withoutLenders,
 ) {
 	const offered = { PATH: process.env.PATH, HOME: home, LANG: "C", ...env };
 	const wrap = commandWrapFor(sandbox, { cwd, env: offered }, home, {
 		platform: "darwin",
 		treesRoot: join(home, "trees"),
 		heldTrees: [],
-		disk: withoutLenders,
+		disk,
 	});
 	const answer = spawnSync("bash", ["-c", wrap?.(command) ?? command], {
 		cwd: work,
@@ -142,6 +144,44 @@ describe("a Mac's command in the fence it lays itself", () => {
 			profile,
 			"strict's profile didn't grant writes to its folder",
 		).toContain(`(allow file-read* file-write* (subpath "${work}"))`);
+		ran(seatbelt("fence"), "true");
+		expect(
+			readFileSync(laidProfile, "utf8"),
+			"strict was laid the fence's looser profile",
+		).not.toBe(profile);
+	});
+
+	it("runs nothing when the profile can't be laid, rather than the command bare", () => {
+		const unreadable: Disk = {
+			...withoutLenders,
+			entries: () => {
+				throw new Error("the disk couldn't be read");
+			},
+		};
+		const answer = ran(seatbelt("fence"), "echo ran", work, {}, unreadable);
+		expect(answer.stdout, "the command ran with no profile laid").toBe("");
+		expect(answer.status, "the refusal's status wasn't the fence's").toBe(126);
+		expect(answer.stderr, "the refusal didn't say why").toMatch(
+			/the fence couldn't be laid/,
+		);
+	});
+
+	it("runs nothing once its folder resolves elsewhere than for its first command", () => {
+		const plain = join(home, "plain");
+		mkdirSync(plain);
+		expect(
+			ran(seatbelt("strict"), "echo ran", plain).stdout,
+			"its first command didn't run",
+		).toBe("ran\n");
+		// What a strict command could do to the folder it may write.
+		rmSync(plain, { recursive: true });
+		symlinkSync(join(home, "other"), plain);
+		const answer = ran(seatbelt("strict"), "echo ran", plain);
+		expect(answer.stdout, "a link's target was laid as the folder").toBe("");
+		expect(answer.status, "the refusal's status wasn't the fence's").toBe(126);
+		expect(answer.stderr, "the refusal didn't say why").toMatch(
+			/resolves to .*other now/,
+		);
 	});
 
 	it("leaves a fence command the session's environment, as the fence on Linux does", () => {

@@ -49,6 +49,15 @@ import {
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 
+/**
+ * Prints, on one line, the arguments the command's shell was started
+ * with: from /proc, or with ps on a Mac, which has none. ps cuts its last
+ * column to a terminal's width unless told twice not to, which would hide
+ * a token past it.
+ */
+const SHELL_ARGUMENTS =
+	'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -ww -o args= -p $$; fi';
+
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
 	const repository = join(base, "repo/.git");
@@ -685,7 +694,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, github: () => token },
 			[
 				'echo "gh:$GH_TOKEN"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				SHELL_ARGUMENTS,
 				"printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill",
 				"printf 'protocol=https\\nhost=example.com\\n\\n' | git credential fill",
 			].join("; "),
@@ -695,6 +704,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`gh:${token}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(answer).toContain(
 			`protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}`,
@@ -720,9 +730,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
 			[
 				'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
-				// A Mac has no /proc, so there the shell's arguments are read with ps,
-				// which ends its own line.
-				'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -o args= -p $$; fi',
+				SHELL_ARGUMENTS,
 				'ls -A "$CLOUDSDK_CONFIG"; echo listed',
 			].join("; "),
 			work,
@@ -733,6 +741,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`${token} a-lab-project ${settings}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(lines[2]).toBe("listed");
 		expect(statSync(settings).mode & 0o777).toBe(0o700);

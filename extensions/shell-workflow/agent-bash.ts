@@ -125,7 +125,13 @@ export function agentBash(
 			const plain = withoutInteraction(fromConversation(context, session));
 			const offered = {
 				...plain,
-				env: guardedEnvironment(plain.env, sshGuard(), sandbox.kind),
+				// A Mac's strict, laid per command, reads no stand-in in the
+				// home either, so it goes without them as strict does.
+				env: guardedEnvironment(
+					plain.env,
+					sshGuard(),
+					sandbox.kind === "seatbelt" ? sandbox.asked : sandbox.kind,
+				),
 			};
 			const wrap = commandWrapFor(sandbox, offered, homedir());
 			return offCommandLine({

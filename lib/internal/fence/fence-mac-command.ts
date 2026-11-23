@@ -18,6 +18,7 @@ import {
 	STRICT,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
+import { real } from "../sandbox/tree-git.ts";
 import { recordedInShell } from "./fence-log.ts";
 import { type FenceRunPlace, fenceRunText } from "./fence-run.ts";
 
@@ -37,7 +38,8 @@ export type SeatbeltMachine = Omit<
  * strict command starts without the session's credentials besides
  * (`heldBackCommand`). A command the fence won't run there, a home or
  * another session's tree, is refused, saying why, and leaves a line in
- * the system's log as every refusal does.
+ * the system's log; one whose profile sandbox-exec won't apply is refused
+ * by `seatbeltText`, on standard error alone.
  */
 export function commandWrapFor(
 	sandbox: Sandbox,
@@ -78,6 +80,24 @@ export function macFenceSaid(asked: "fence" | "strict"): string {
 		: `Commands run in the agent fence that sandbox-exec lays around each one: no SSH agent, keychain, clipboard, window server or Apple Events, the fence's hidden files and pi's own state out of reach, and Nix through its daemon. The work, the network and the environment are as they were. ${where} A refusal there is the fence, not a fault: do the work another way (commit and push with the work tool), or say what needs the person.`;
 }
 
+/**
+ * Where each folder commands started in resolved for the first of them
+ * this process laid. The profile is laid again for each command, from
+ * where its folder resolves then, so a strict command that turned its
+ * folder into a link elsewhere in the home would hand the next command
+ * that place to read and write (round 1's F26, 23 November): one whose
+ * folder resolves elsewhere than it first did lays nothing.
+ */
+const firstResolved = new Map<string, string>();
+
+/** Where `folder` resolves now, when that isn't where it first did. */
+function movedSince(folder: string): string | undefined {
+	const now = real(folder);
+	const first = firstResolved.get(folder);
+	if (first === undefined) firstResolved.set(folder, now);
+	return first === undefined || first === now ? undefined : now;
+}
+
 /** `command` in the fence `asked` names, or why it can't run there. */
 function laid(
 	asked: "fence" | "strict",
@@ -86,6 +106,12 @@ function laid(
 	machine: FenceRunPlace,
 ): { readonly text: string } | { readonly refused: string } {
 	try {
+		const moved = movedSince(place.cwd);
+		if (moved !== undefined) {
+			return {
+				refused: `${place.cwd} resolves to ${moved} now, not where its first command ran, as when a command turns it into a link, so the fence lays nothing there (a reload lays it afresh)`,
+			};
+		}
 		return fenceRunText(
 			{ kind: asked, folder: place.cwd, words: ["bash", "-c", command] },
 			machine,
