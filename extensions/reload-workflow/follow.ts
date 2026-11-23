@@ -38,7 +38,6 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import { linksMovedSince } from "../../lib/internal/reload/extension-links.ts";
-import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	cameIn,
 	dependenciesReady,
@@ -61,6 +60,7 @@ import {
 	sourceOf,
 } from "../../lib/internal/reload/settings.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
+import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	RESTART_ASK,
 	type RestartAsk,

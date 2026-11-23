@@ -23,11 +23,11 @@ import {
 	WAITING_ENTRY,
 } from "../../../extensions/reload-workflow/follow.ts";
 import type { PackageSettings } from "../../../lib/internal/reload/settings.ts";
+import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	holdForMove,
 	letMoveGo,
 } from "../../../lib/internal/session/move-waiting.ts";
-import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
 import {
 	isRestartAsk,
 	RESTART_ASK,
