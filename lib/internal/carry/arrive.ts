@@ -7,7 +7,9 @@
  * machine a quest goes to, so nothing may start half arrived. The share
  * may land after the start, so the done file, and every file it names,
  * is waited for, saying so every half minute. A tree is cloned from its
- * origin where it isn't, or fetched where it is, given what the bundle
+ * origin where it isn't, borrowing the objects of a repository beside it
+ * with the same origin ([`twin.ts`](twin.ts)), or fetched where it is,
+ * given what the bundle
  * left out from the remotes it names, then the bundle's commits, checked
  * out on its branch at its head, and given its changes. A folder already
  * there with another origin or work of its own is refused, never written
@@ -45,6 +47,8 @@ import {
 	underHome,
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
+import { standSparse } from "./sparse.ts";
+import { twinOf } from "./twin.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -343,7 +347,13 @@ async function arriveTree(
 		return { ...line, did: "refused", why: readied.why };
 	}
 	if (readied.kind === "already") return { ...line, did: "fetched" };
-	const why = await settleTree(git, tree, from);
+	// Only a tree cloned here takes the sparse checkout it left in; one
+	// already here keeps its own.
+	const unsparse =
+		readied.kind === "cloned" && tree.sparse !== undefined
+			? await standSparse(git.run, tree.sparse)
+			: undefined;
+	const why = unsparse ?? (await settleTree(git, tree, from));
 	if (why === undefined) return { ...line, did: readied.kind };
 	// A clone made here holds nothing of anyone's, so arriving again starts afresh.
 	if (readied.kind === "cloned") rmSync(path, { recursive: true, force: true });
@@ -363,6 +373,8 @@ async function readyTree(
 ): Promise<Readied> {
 	const no = (why: string): Readied => ({ kind: "refused", why });
 	if (!existsSync(path)) {
+		const twin = await twinOf(exec, path, tree.origin);
+		if (twin !== undefined) return await cloneTwin(exec, twin, tree, path);
 		const cloned = await exec("git", [
 			"clone",
 			"-q",
@@ -396,6 +408,53 @@ async function readyTree(
 	return (await git.ok("fetch", "-q", "origin"))
 		? { kind: "fetched" }
 		: no("git couldn't fetch its origin.");
+}
+
+/**
+ * The tree cloned from its twin here, borrowing the twin's objects and
+ * never writing to it, then pointed at its own origin, so the commits
+ * it needs come from there one branch at a time.
+ *
+ * Not a clone of the origin with the twin as a reference: that still
+ * asks the origin for every branch, and Delta refused one for World on
+ * 23 November, as asking for 519,886 objects at once past its bound of
+ * 200,000. A clone from the twin asks the network for nothing.
+ */
+async function cloneTwin(
+	exec: Exec,
+	twin: string,
+	tree: HandedTree,
+	path: string,
+): Promise<Readied> {
+	const cloned = await exec("git", [
+		"clone",
+		"-q",
+		"--no-checkout",
+		"--shared",
+		"--",
+		twin,
+		path,
+	]);
+	if (cloned.code !== 0) {
+		return {
+			kind: "refused",
+			why: `git couldn't clone ${twin}: ${cloned.stderr.trim()}`,
+		};
+	}
+	const pointed = await exec("git", [
+		"-C",
+		path,
+		"remote",
+		"set-url",
+		"origin",
+		tree.origin,
+	]);
+	if (pointed.code === 0) return { kind: "cloned" };
+	rmSync(path, { recursive: true, force: true });
+	return {
+		kind: "refused",
+		why: `git couldn't point it at ${tree.origin}: ${pointed.stderr.trim()}`,
+	};
 }
 
 /**

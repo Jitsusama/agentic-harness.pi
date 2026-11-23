@@ -23,6 +23,7 @@ import type { FenceKind } from "../../mesh/presence.ts";
 import { writeWhole } from "../write-whole.ts";
 import { isFenceKind } from "./fence.ts";
 import { type CarriedNote, isCarriedNote } from "./notes.ts";
+import { isSparse, type Sparse } from "./sparse.ts";
 
 /** The folder of a quest's scratch a handover is put in. */
 export const HANDOVER = "handover";
@@ -43,6 +44,8 @@ export interface HandedTree {
 	readonly needs: readonly Needed[];
 	/** Its uncommitted changes, untracked files included, beside the done file; absent when it was clean. */
 	readonly patch?: string;
+	/** The sparse checkout it stood in; absent when it had none, or an older harness carried it. */
+	readonly sparse?: Sparse;
 }
 
 /** A done file: a session's work, carried. */
@@ -157,6 +160,7 @@ function isHandedTree(value: unknown): value is HandedTree {
 		COMMIT.test(tree.head) &&
 		(tree.bundle === undefined || isPlain(tree.bundle)) &&
 		(tree.patch === undefined || isPlain(tree.patch)) &&
+		(tree.sparse === undefined || isSparse(tree.sparse)) &&
 		Array.isArray(tree.needs) &&
 		tree.needs.every(isNeeded)
 	);

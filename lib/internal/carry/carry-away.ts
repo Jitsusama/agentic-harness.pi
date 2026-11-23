@@ -31,6 +31,7 @@ import {
 	createWriteStream,
 	mkdirSync,
 	mkdtempSync,
+	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -49,6 +50,7 @@ import {
 	writeHandover,
 } from "./handover.ts";
 import type { CarriedNote } from "./notes.ts";
+import { sparseOf } from "./sparse.ts";
 
 /** What is carried, and where. */
 export interface Carrying {
@@ -155,7 +157,10 @@ export async function carryTrees(
 	return trees;
 }
 
-/** Whether `path` is there, gone, or can't be told, saying why. */
+/**
+ * Whether `path` is there, gone (nothing at it, or a file where a folder
+ * on its way should be), or can't be told, saying why.
+ */
 function standing(
 	path: string,
 ):
@@ -189,7 +194,7 @@ async function carryTreeAway(
 	};
 	const no = (why: string): TreeCarried => ({ kind: "refused", path, why });
 	// A record outlives a tree removed by hand: 16 of 18 refused at once.
-	// Only a path that isn't there is gone; one that can't be read is refused.
+	// Only a path that isn't there is gone; one that can't be told is refused.
 	const stood = standing(path);
 	if (stood.kind === "gone") {
 		return {
@@ -201,10 +206,22 @@ async function carryTreeAway(
 	if (stood.kind === "unread") {
 		return no(`It can't be read here: ${stood.why}`);
 	}
-	// symbolic-ref says 1 for a HEAD on no branch and more for a folder git
-	// can't read, which is refused rather than passed over as detached.
+	// git -C walks up, so a folder inside another tree would be read as
+	// that tree; and a git that never started answers nothing at all.
+	const top = await ask("rev-parse", "--show-toplevel");
+	if (top === undefined) {
+		return no("git couldn't read it as a tree.");
+	}
+	if (realpathSync(top) !== realpathSync(path)) {
+		return no(`It lies inside another tree, ${top}, not a tree of its own.`);
+	}
+	// symbolic-ref says 1 for a HEAD on no branch, but a spawn error or a
+	// signal reads as 1 too, so a detached HEAD is confirmed by its commit.
 	const branch = await exec("git", ["-C", path, "symbolic-ref", "-q", "HEAD"]);
-	if (branch.code === 1) {
+	if (
+		branch.code === 1 &&
+		(await ask("rev-parse", "--verify", "-q", "HEAD")) !== undefined
+	) {
 		return {
 			kind: "skipped",
 			path,
@@ -232,6 +249,7 @@ async function carryTreeAway(
 	if (head === undefined) return no("git couldn't say what HEAD is.");
 	const patched = await patchChanges(exec, path, into, name);
 	if (patched.kind === "refused") return no(patched.reason);
+	const sparse = await sparseOf(ask);
 	const tree: HandedTree = {
 		path: withinHome(path, home),
 		origin,
@@ -245,6 +263,7 @@ async function carryTreeAway(
 				? bundled.carried.needs
 				: [await neededFrom(exec, path, head)],
 		...(patched.kind === "patched" ? { patch: patched.patch } : {}),
+		...(sparse === undefined ? {} : { sparse }),
 	};
 	return { kind: "carried", path, tree };
 }

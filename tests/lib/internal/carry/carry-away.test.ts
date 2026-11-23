@@ -4,7 +4,9 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
+	mkdirSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
@@ -177,8 +179,8 @@ describe("carrying a session's work away", () => {
 		]);
 	});
 
-	// Only symbolic-ref's 1 says a HEAD is on no branch; any other failure
-	// is git unable to read the tree, which is refused, not passed over.
+	// A folder git can't read as a tree is refused, not passed over as
+	// one on no branch.
 	it("refuses a folder git can't read as a tree, rather than passing it over", async () => {
 		const { home, into } = await homeWithTree();
 		const plain = folder(made, "plain");
@@ -196,9 +198,62 @@ describe("carrying a session's work away", () => {
 			{
 				kind: "refused",
 				path: plain,
-				why: expect.stringContaining("git couldn't read its branch"),
+				why: expect.stringContaining("git couldn't read it as a tree"),
 			},
 		]);
+	});
+
+	// git -C walks up, so a folder in a tree would be carried as that tree.
+	it("refuses a folder inside another tree, rather than carrying that tree", async () => {
+		const { home, tree, into } = await homeWithTree();
+		const inside = join(tree, "zone");
+		mkdirSync(inside);
+
+		const carried = await carryAway({
+			exec,
+			into,
+			home,
+			quest: QUEST,
+			session: { id: "s-inside", cwd: home },
+			trees: [inside],
+		});
+
+		expect(carried.trees).toEqual([
+			{
+				kind: "refused",
+				path: inside,
+				why: expect.stringContaining("inside another tree"),
+			},
+		]);
+		expect(carried.handover.trees).toEqual([]);
+	});
+
+	// Only a path that isn't there is gone; one that can't be told is kept.
+	it("refuses a tree whose folder can't be looked into, rather than calling it gone", async () => {
+		const { origin, home, into } = await homeWithTree();
+		const shut = join(home, "shut");
+		const tree = await cloneAt(origin, join(shut, "app"));
+		chmodSync(shut, 0o000);
+		try {
+			const carried = await carryAway({
+				exec,
+				into,
+				home,
+				quest: QUEST,
+				session: { id: "s-shut", cwd: home },
+				trees: [tree],
+			});
+
+			expect(carried.trees).toEqual([
+				{
+					kind: "refused",
+					path: tree,
+					why: expect.stringContaining("can't be read here"),
+				},
+			]);
+		} finally {
+			chmodSync(shut, 0o755);
+		}
 	});
 
 	// Refusing these closed live sessions on 23 November: what was

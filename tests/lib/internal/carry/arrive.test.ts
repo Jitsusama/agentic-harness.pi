@@ -66,11 +66,13 @@ function fakeClock(at: (now: number) => void = () => {}): Clock {
 async function carried(
 	ranIn?: string,
 	moved: Pick<Carrying, "fence" | "notes" | "largestFile"> = {},
+	shaped: (tree: string) => Promise<void> = async () => {},
 ) {
 	const origin = await bareOrigin(made);
 	const leaving = folder(made, "leaving");
 	const tree = await cloneAt(origin, join(leaving, "src", "app"));
 	await git(tree, "checkout", "-q", "-b", "topic");
+	await shaped(tree);
 	const head = await commit(tree, "work.txt", "unpushed\n");
 	writeFileSync(join(tree, "README.md"), "changed, never committed\n");
 	writeFileSync(join(tree, "draft.txt"), "never added\n");
@@ -167,6 +169,79 @@ describe("arriving with a carried session", () => {
 		expect(
 			JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd,
 		).toBe(tree);
+	});
+
+	it("clones borrowing the objects of a repository beside it with the same origin", async () => {
+		const { origin, from, head } = await carried();
+		const home = folder(made, "arriving");
+		const twin = await cloneAt(origin, join(home, "src", "twin"));
+		const tree = join(home, "src", "app");
+
+		const { whole } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
+		expect(
+			readFileSync(join(tree, ".git", "objects", "info", "alternates"), "utf8"),
+			"its objects are borrowed from the twin, not taken again",
+		).toBe(`${join(twin, ".git", "objects")}\n`);
+		expect(
+			await git(twin, "status", "--porcelain"),
+			"and the twin is left as it was",
+		).toBe("");
+		expect(
+			await git(tree, "remote", "get-url", "origin"),
+			"its origin is the carried one, not the twin",
+		).toBe(origin);
+	});
+
+	it("takes from the origin a pushed commit its twin lacks", async () => {
+		const home = folder(made, "arriving");
+		const twinAt = join(home, "src", "twin");
+		const { from, head } = await carried(undefined, {}, async (tree) => {
+			const url = await git(tree, "remote", "get-url", "origin");
+			await cloneAt(url, twinAt);
+			await commit(tree, "pushed.txt", "pushed\n");
+			await git(tree, "push", "-q", "origin", "topic");
+		});
+		const tree = join(home, "src", "app");
+
+		const { whole } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(await git(tree, "rev-parse", "HEAD")).toBe(head);
+		expect(
+			readFileSync(join(tree, ".git", "objects", "info", "alternates"), "utf8"),
+			"cut from the twin",
+		).toBe(`${join(twinAt, ".git", "objects")}\n`);
+	});
+
+	it("stands a tree it clones in the sparse checkout it left in", async () => {
+		const { from } = await carried(undefined, {}, async (tree) => {
+			mkdirSync(join(tree, "zone"));
+			mkdirSync(join(tree, "elsewhere"));
+			await commit(tree, "zone/kept.txt", "kept\n");
+			await commit(tree, "elsewhere/left.txt", "left\n");
+			await git(tree, "sparse-checkout", "set", "--cone", "zone");
+		});
+		const home = folder(made, "arriving");
+		const tree = join(home, "src", "app");
+
+		const { whole } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(await git(tree, "sparse-checkout", "list")).toBe("zone");
+		expect(existsSync(join(tree, "zone", "kept.txt")), "its zone is here").toBe(
+			true,
+		);
+		expect(
+			existsSync(join(tree, "elsewhere")),
+			"what it never checked out isn't written here either",
+		).toBe(false);
+		expect(
+			await git(tree, "status", "--porcelain"),
+			"its changes came as they were left",
+		).toBe("M README.md\n?? draft.txt");
 	});
 
 	it("unzips a session file carried gzipped and places it, leaving nothing in the scratch's tmp", async () => {
