@@ -152,26 +152,45 @@ const darwinFolders = new Map<string, string>();
 const GETCONF_MS = 2000;
 
 /**
+ * How long a getconf that couldn't answer is let be before it is asked
+ * again: each ask can hold its caller for {@link GETCONF_MS}, and the
+ * runtime folder is read on every socket a session looks for.
+ */
+export const GETCONF_AGAIN_MS = 30_000;
+
+/** When getconf last couldn't name each folder, by its name. */
+const darwinMisses = new Map<string, number>();
+
+/**
  * A Mac account's folder getconf names, or nothing when it won't say.
  * Apple's own getconf, as the fence asks it, since a profile's earlier on
- * PATH may not know the name. Only an answer is kept: a getconf that
- * couldn't start once, under load, is asked again next time, rather than
- * leaving a long-lived session with no runtime folder until it restarts.
+ * PATH may not know the name. An answer is kept for good; a getconf that
+ * couldn't start, under load, is asked again once
+ * {@link GETCONF_AGAIN_MS} has passed, rather than leaving a long-lived
+ * session with no runtime folder until it restarts, or holding every
+ * caller in the meantime.
  */
 function darwinFolder(name: string): string | undefined {
 	const kept = darwinFolders.get(name);
 	if (kept !== undefined) return kept;
+	const missed = darwinMisses.get(name);
+	if (missed !== undefined && Date.now() - missed < GETCONF_AGAIN_MS) {
+		return undefined;
+	}
 	try {
 		const folder = execFileSync("/usr/bin/getconf", [name], {
 			encoding: "utf8",
 			timeout: GETCONF_MS,
 		}).trim();
-		if (folder) darwinFolders.set(name, folder);
-		return folder || undefined;
+		if (folder) {
+			darwinFolders.set(name, folder);
+			return folder;
+		}
 	} catch {
-		// The system won't say now, so there is no such folder to name.
-		return undefined;
+		// The system won't say now, so there is no such folder to name yet.
 	}
+	darwinMisses.set(name, Date.now());
+	return undefined;
 }
 
 /**

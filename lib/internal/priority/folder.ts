@@ -199,8 +199,17 @@ export function readQueue(
 export interface Processes {
 	isRunning(pid: number): boolean;
 	/**
-	 * When the machine last started, in epoch milliseconds, for setting
-	 * aside a job asked before it. A reader that can't say leaves it out.
+	 * The token the machine minted as it last started, which a job asked
+	 * in that boot carries, for setting aside a job asked before it. A
+	 * token rather than a time, since a stepped clock moves a boot worked
+	 * out from uptime past jobs still running. A reader that can't say
+	 * leaves it out, and its jobs are judged by their pids alone.
+	 */
+	bootToken?(): string | undefined;
+	/**
+	 * When the machine last started, in epoch milliseconds, as the end a
+	 * job the boot cut off is remembered with. Only a time to record, so a
+	 * clock that stepped can at worst misdate it.
 	 */
 	bootedAt?(): number;
 	cgroupOf(pid: number): string | undefined;
@@ -417,19 +426,24 @@ export function queueFolder(
 		writing.add(written);
 	};
 
-	/** When the boot came, if the job was asked before it, which ended it. */
-	const cutOffAt = (job: Job): number | undefined => {
-		const booted = processes.bootedAt?.();
-		return booted !== undefined && Date.parse(job.since) < booted
-			? booted
-			: undefined;
+	/**
+	 * When the boot came, if the job was asked in an earlier one, which
+	 * ended it: never before the job began, nor after now.
+	 */
+	const cutOffAt = (job: Job, now: number): number | undefined => {
+		const token = processes.bootToken?.();
+		if (job.boot === undefined || token === undefined || job.boot === token)
+			return undefined;
+		const began = Date.parse(job.started ?? job.since);
+		const booted = Math.min(processes.bootedAt?.() ?? now, now);
+		return Number.isNaN(began) ? booted : Math.max(began, booted);
 	};
 
 	const ended = (job: Job, now: number) => {
-		// Asked before the boot, it has ended, whatever its pid names now: a
-		// Mac's queue folder is its cache folder, which outlasts a reboot,
+		// Asked in an earlier boot, it has ended, whatever its pid names now:
+		// a Mac's queue folder is its cache folder, which outlasts a reboot,
 		// and a pid comes back as another process after one.
-		if (cutOffAt(job) !== undefined) return true;
+		if (cutOffAt(job, now) !== undefined) return true;
 		const shell = shellOf(job.id);
 		if (shell !== undefined) return !processes.isRunning(shell);
 		return (
@@ -609,7 +623,9 @@ export function queueFolder(
 
 		ask(job) {
 			ensure();
-			replace(path(job.id, "job"), `${JSON.stringify(job)}\n`);
+			const boot = processes.bootToken?.();
+			const asked = boot === undefined ? job : { ...job, boot };
+			replace(path(job.id, "job"), `${JSON.stringify(asked)}\n`);
 		},
 
 		hasTurn(id) {
@@ -675,7 +691,7 @@ export function queueFolder(
 						.filter((job) => {
 							if (!ended(job, now)) return true;
 							// A job the boot cut off ended then, not when it was seen.
-							remember(job, cutOffAt(job) ?? now);
+							remember(job, cutOffAt(job, now) ?? now);
 							drop(job.id);
 							return false;
 						})

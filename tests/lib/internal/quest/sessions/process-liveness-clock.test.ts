@@ -15,6 +15,14 @@ const MARGIN_MS = 2500;
 type Liveness =
 	typeof import("../../../../../lib/internal/quest/sessions/process-liveness.ts");
 
+type BootToken = typeof import("../../../../../lib/internal/boot-token.ts");
+
+/** A fresh copy of the boot token's reader, so it reads the boot again. */
+async function freshBoot(): Promise<BootToken> {
+	vi.resetModules();
+	return import("../../../../../lib/internal/boot-token.ts");
+}
+
 /** A fresh copy, so the memoized boot token is read again. */
 async function fresh(): Promise<Liveness> {
 	vi.resetModules();
@@ -154,10 +162,10 @@ describe("a process probe that never answers", () => {
 	it.skipIf(process.platform !== "darwin")(
 		"gives up on reading the boot at its clock",
 		async () => {
-			const liveness = await fresh();
+			const boot = await freshBoot();
 			hang("sysctl");
-			const { answer, took } = timed(() => liveness.currentBootToken());
-			expect(took).toBeLessThan(liveness.PROBE_TIMEOUT_MS + MARGIN_MS);
+			const { answer, took } = timed(() => boot.currentBootToken());
+			expect(took).toBeLessThan(boot.BOOT_TOKEN_TIMEOUT_MS + MARGIN_MS);
 			expect(answer).toBeUndefined();
 		},
 		40_000,

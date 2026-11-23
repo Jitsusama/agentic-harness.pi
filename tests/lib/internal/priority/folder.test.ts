@@ -464,18 +464,52 @@ describe("the machine's queue folder", () => {
 		).toBe(false);
 	});
 
-	it("gives up a job asked before the boot, though its pid names a running process", () => {
+	it("gives up a job asked in an earlier boot, though its pid names a running process", () => {
 		// A Mac's queue folder outlasts a reboot, and its pids come back.
+		let boot = "boot-1";
 		const queue = queueFolder(dir, {
 			...processes,
+			bootToken: () => boot,
 			bootedAt: () => NOW - 60_000,
 		});
 		queue.ask(job("before", { since: new Date(NOW - 120_000).toISOString() }));
 		shellSays("before", 100);
+		boot = "boot-2";
 		queue.ask(job("after", { since: new Date(NOW - 30_000).toISOString() }));
 		shellSays("after", 100);
 		queue.keep(TIGHT, NOW, () => undefined);
 		expect(record().jobs.map((one) => one.id)).toEqual(["after"]);
+	});
+
+	it("keeps a job asked in this boot, though its clock dates it before the boot", () => {
+		// A clock stepped forward moves a boot worked out from uptime past
+		// jobs still running, so the boot is told by its token, not a time.
+		const queue = queueFolder(dir, {
+			...processes,
+			bootToken: () => "boot-1",
+			bootedAt: () => NOW - 60_000,
+		});
+		queue.ask(job("stepped", { since: new Date(NOW - 120_000).toISOString() }));
+		shellSays("stepped", 100);
+		queue.keep(TIGHT, NOW, () => undefined);
+		expect(record().jobs.map((one) => one.id)).toEqual(["stepped"]);
+	});
+
+	it("judges a job asked with no boot token by its pid alone", () => {
+		// Asked by older code, or where the machine couldn't say its boot.
+		let boot: string | undefined;
+		const queue = queueFolder(dir, {
+			...processes,
+			bootToken: () => boot,
+			bootedAt: () => NOW - 60_000,
+		});
+		queue.ask(
+			job("unstamped", { since: new Date(NOW - 120_000).toISOString() }),
+		);
+		shellSays("unstamped", 100);
+		boot = "boot-2";
+		queue.keep(TIGHT, NOW, () => undefined);
+		expect(record().jobs.map((one) => one.id)).toEqual(["unstamped"]);
 	});
 
 	it("clears what a job left behind once its .job is gone", () => {

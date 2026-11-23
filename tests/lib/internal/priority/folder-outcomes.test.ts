@@ -39,9 +39,10 @@ describe("the machine's queue folder", () => {
 		// can come hours after the job's shell was ended by it.
 		const file = join(dir, "..", "state", "outcomes.jsonl");
 		const booted = NOW - 3_600_000;
+		let boot = "boot-1";
 		const queue = queueFolder(
 			dir,
-			{ ...processes, bootedAt: () => booted },
+			{ ...processes, bootToken: () => boot, bootedAt: () => booted },
 			undefined,
 			file,
 		);
@@ -53,6 +54,7 @@ describe("the machine's queue folder", () => {
 			}),
 		);
 		shellSays("cut", 100);
+		boot = "boot-2";
 		queue.keep(ROOMY, NOW, () => undefined);
 		await queue.outcomesKept();
 		const [kept] = readFileSync(file, "utf8")
@@ -63,6 +65,42 @@ describe("the machine's queue folder", () => {
 			id: "cut",
 			ended: new Date(booted).toISOString(),
 			ranS: 120,
+		});
+	});
+
+	it("never keeps a job the boot cut off as ended before it began", async () => {
+		// A clock that stepped can date the boot before the job began.
+		const file = join(dir, "..", "state", "outcomes.jsonl");
+		const started = NOW - 120_000;
+		let boot = "boot-1";
+		const queue = queueFolder(
+			dir,
+			{
+				...processes,
+				bootToken: () => boot,
+				bootedAt: () => started - 3_600_000,
+			},
+			undefined,
+			file,
+		);
+		queue.ask(
+			job("cut", {
+				since: new Date(started - 1000).toISOString(),
+				started: new Date(started).toISOString(),
+			}),
+		);
+		shellSays("cut", 100);
+		boot = "boot-2";
+		queue.keep(ROOMY, NOW, () => undefined);
+		await queue.outcomesKept();
+		const [kept] = readFileSync(file, "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(kept).toMatchObject({
+			id: "cut",
+			ended: new Date(started).toISOString(),
+			ranS: 0,
 		});
 	});
 

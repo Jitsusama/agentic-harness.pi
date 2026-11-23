@@ -104,6 +104,16 @@ function leftBehind(folder: string, realm: string): string {
 	return socket;
 }
 
+/** Pretend nodes serve `realm` in both folders, their sockets bound at one moment; answers the cache folder's. */
+function boundTogether(realm: string): string {
+	const cached = serving(folders.cache, realm);
+	const temporary = serving(folders.temporary, realm);
+	const at = new Date(Date.now() - 60_000);
+	utimesSync(cached, at, at);
+	utimesSync(temporary, at, at);
+	return cached;
+}
+
 describe("a Mac's runtime folder", () => {
 	it("is the folder AGENTS_RUNTIME_DIR names, before XDG_RUNTIME_DIR and the cache folder", () => {
 		expect(
@@ -137,14 +147,21 @@ describe("a Mac's runtime folder", () => {
 		).toBeUndefined();
 	});
 
-	it("is asked of getconf again after it once couldn't answer", async () => {
+	it("is asked of getconf again once a while has passed since it couldn't answer", async () => {
 		vi.resetModules();
 		const fresh = await import("../../../lib/internal/paths.ts");
 		folders.failing = 1;
 		folders.limits = [];
-
-		expect(fresh.runtimeDir(mac())).toBeUndefined();
-		expect(fresh.runtimeDir(mac())).toBe(folders.cache);
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			expect(fresh.runtimeDir(mac())).toBeUndefined();
+			vi.setSystemTime(Date.now() + fresh.GETCONF_AGAIN_MS - 1);
+			expect(fresh.runtimeDir(mac()), "too soon to ask again").toBeUndefined();
+			vi.setSystemTime(Date.now() + 1);
+			expect(fresh.runtimeDir(mac())).toBe(folders.cache);
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(folders.limits, "each ask is held to its time limit").toEqual([
 			2000, 2000,
 		]);
@@ -169,6 +186,12 @@ describe("a Mac's node socket while the runtime folder moves", () => {
 		const moved = serving(folders.cache, "both");
 
 		expect(nodeSocket(mac({ MYCELIUM_REALM: "both" }))).toBe(moved);
+	});
+
+	it("is the cache folder's when both were bound at one moment", () => {
+		const cached = boundTogether("tied");
+
+		expect(nodeSocket(mac({ MYCELIUM_REALM: "tied" }))).toBe(cached);
 	});
 
 	it("is the temporary folder's when a node bound there after one left the cache folder's behind", () => {
@@ -211,6 +234,17 @@ describe("a Mac's node socket while the runtime folder moves", () => {
 		expect(listed).toEqual(expect.arrayContaining([own, left]));
 		expect(listed.filter((socket) => socket.endsWith("moved.sock"))).toEqual([
 			own,
+		]);
+	});
+
+	it("lists another realm from the cache folder when both were bound at one moment", () => {
+		serving(folders.cache, "ours");
+		const cached = boundTogether("evenly");
+
+		const listed = nodeSockets(mac({ MYCELIUM_REALM: "ours" }));
+
+		expect(listed.filter((socket) => socket.endsWith("evenly.sock"))).toEqual([
+			cached,
 		]);
 	});
 
