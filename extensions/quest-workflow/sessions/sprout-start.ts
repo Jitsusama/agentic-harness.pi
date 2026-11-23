@@ -865,13 +865,16 @@ const ESC = String.fromCodePoint(ESCAPE_POINT);
 
 /**
  * A terminal's escape sequence, dropped whole so none of it reads as
- * text: a string (a title, a hyperlink's address) up to the bell or the
- * string's end, or the line's; a colour or a cursor move, 7-bit or
- * 8-bit; or an ESC and the character it takes.
+ * text: a string (a title, a hyperlink's address), opened 7-bit or
+ * 8-bit, up to the bell, the string's end (7-bit or 8-bit), the next
+ * escape, which a terminal takes as ending it too, or the line's end; a
+ * colour or a cursor move, 7-bit or 8-bit; or an ESC and the character
+ * it takes.
  */
 const ESCAPES = new RegExp(
 	[
-		`${ESC}[\\]P_^X][^\\u0007${ESC}]*(?:\\u0007|${ESC}\\\\|$)`,
+		`(?:${ESC}[\\]P_^X]|[\\u0090\\u0098\\u009D-\\u009F])[^\\u0007\\u009C${ESC}]*` +
+			`(?:\\u0007|\\u009C|${ESC}\\\\|(?=${ESC})|$)`,
 		`${ESC}\\[[0-?]*[ -/]*[@-~]`,
 		"\\u009B[0-?]*[ -/]*[@-~]",
 		`${ESC}[ -/]*[0-~]`,
