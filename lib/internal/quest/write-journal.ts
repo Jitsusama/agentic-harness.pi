@@ -227,7 +227,7 @@ function renamed(from: string, to: string): boolean {
 	}
 }
 
-/** Whether a stuck journal was said yet, so it is said once a load. */
+/** Whether a stuck journal was said yet, so it is said once a process. */
 let saidStuck = false;
 
 /** Say once that the journal at `file` could be neither moved nor removed. */
