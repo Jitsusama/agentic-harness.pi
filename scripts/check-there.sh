@@ -72,6 +72,8 @@ set -euo pipefail
 # reaches a check's work, and waits for all of it, without signalling
 # this shell or the one ssh started it from.
 set -m
+# What the stop acts on starts empty, whatever the host's shell exports.
+holder= node_link= ending= tenths_left= stop_wait_s=
 branch="$1"
 turn_wait_s="$2"
 # The check runs in a worktree of a bare clone, as the harness's own trees
@@ -100,36 +102,50 @@ trap let_go EXIT
 # `stop_wait_s` seconds. A command that leaves the group, as a detached
 # test does, is not reached; and a KILL to this shell runs no trap, so
 # its turn passes while its work runs on.
-# Whether the groups $2 onward have all ended within $1 seconds, asked
-# every tenth of one, since nothing says when a group's last member goes.
+# Whether the groups named have all ended before `tenths_left` runs out,
+# asked every tenth of a second, since nothing says when a group's last
+# member goes. What is left of the wait stays in `tenths_left`.
 gone_within() {
-  local tenths=$(( $1 * 10 )) group
-  shift
+  local group
   for group in "$@"; do
     while kill -0 -- "-$group" 2>/dev/null; do
-      [ "$tenths" -gt 0 ] || return 1
+      [ "$tenths_left" -gt 0 ] || return 1
       sleep 0.1
-      tenths=$(( tenths - 1 ))
+      tenths_left=$(( tenths_left - 1 ))
     done
   done
 }
 # Ends the groups named: a TERM, `stop_wait_s` seconds for them to go,
-# then a KILL to what is left, said so. Its return says 0 outright: in a
+# then a KILL to what is left, said so. A stop landing while alone ends
+# what its work left goes on with what is left of alone's wait, rather
+# than waiting the whole of it again. Its return says 0 outright: in a
 # trap, a bare one says what the command the trap landed in ended with.
 end_groups() {
   local group
   for group in "$@"; do kill -TERM -- "-$group" 2>/dev/null || true; done
-  gone_within "${stop_wait_s:-10}" "$@" && return 0
+  [ -n "${tenths_left:-}" ] || tenths_left=$(( ${stop_wait_s:-10} * 10 ))
+  if gone_within "$@"; then
+    tenths_left=
+    return 0
+  fi
   echo "check-there: what it ran outlived ${stop_wait_s:-10} s, so it was killed" >&2
   for group in "$@"; do kill -KILL -- "-$group" 2>/dev/null || true; done
-  gone_within 5 "$@" || true
+  tenths_left=50
+  gone_within "$@" || true
+  tenths_left=
 }
 # Stops the check as the signal its code `$1` names, said so its caller
-# can tell a stop from a failed check.
+# can tell a stop from a failed check, and a turn given up from one never
+# taken.
 stop_all() {
   trap '' TERM INT HUP
-  local groups
-  echo "check-there: stopped by $(kill -l $(( $1 - 128 ))); ending what it runs, then passing its turn" >&2
+  local groups why
+  why=$(kill -l $(( $1 - 128 )))
+  if [ -n "${holder:-}" ]; then
+    echo "check-there: stopped by $why; ending what it runs, then passing its turn" >&2
+  else
+    echo "check-there: stopped by $why before it took its turn; ending what it runs" >&2
+  fi
   # alone's job may be gone from the table while its group isn't.
   groups="$(jobs -p) ${ending:-}"
   # shellcheck disable=SC2086 # one word a group
@@ -147,13 +163,14 @@ trap 'stop_all 129' HUP
 # nothing in it can swallow the script. It is asked after every second
 # rather than waited on, since a signal landing just as `wait` begins
 # waits for the job's end; a trap runs as soon as the second's sleep
-# ends. Work that would have no group of its own, as with job control
-# off, is refused before it runs, since no stop could reach it. Its
+# ends. Work that would have no group of its own is refused before it
+# runs, since no stop could reach it: with job control off, or in a
+# subshell, which bash runs with it off whatever its `$-` says. Its
 # group is named for a stop as it starts, so a stop landing at any point
 # after reaches it, whatever bash's job table still holds.
 alone() {
-  case "$-" in
-    *m*) ;;
+  case "$-:${BASHPID:-$$}" in
+    *m*:"$$") ;;
     *)
       echo "check-there: $1 got no process group of its own, so no stop could reach it" >&2
       return 1
@@ -188,6 +205,7 @@ let_go_of_dead() {
 let_go_of_dead
 if ! command -v node >/dev/null 2>&1; then
   node_link=~/.cache/harness-check-node.$$
+  echo "check-there: no node on $(hostname), so it builds node 24 from nixpkgs" >&2
   if ! alone nix build --out-link "$node_link" nixpkgs#nodejs_24; then
     echo "check-there: no node on $(hostname), and nix gave none" >&2
     exit 1
