@@ -687,11 +687,21 @@ async function makeQuest(
 	return make({ ...base, title, note });
 }
 
-/** What ends a line in what mycelium writes, Unicode's own separators too. */
-const LINE_ENDS = /\r?\n|\r|\u2028|\u2029/u;
+/**
+ * What ends a line in what mycelium writes, Unicode's own ends too: the
+ * next line (U+0085) and the line and paragraph separators.
+ */
+const LINE_ENDS = /\r?\n|\r|\u0085|\u2028|\u2029/u;
 
-/** The marks that reorder the text after them: bidi embeddings and isolates. */
-const REORDERING = /[\u202A-\u202E\u2066-\u2069]/gu;
+/**
+ * What a line shows nobody but a model may still read: every format
+ * character (bidi marks, embeddings and isolates, zero-width ones, the
+ * tag characters that spell text unseen).
+ */
+const UNSEEN = /\p{Cf}/gu;
+
+/** The control characters, a tab among them, each read as a space. */
+const CONTROLS = /\p{Cc}/gu;
 
 /** Tie quest `id` to the cell it came from, saying how it went. */
 async function tie(
@@ -745,19 +755,25 @@ async function tie(
  * so a cut reason never reads as the whole of it, or "" where it wrote
  * none. What it relays may come from a node or a peer, so its backticks
  * become plain quotes, never reading as a command beside the one the
- * words ask to run, and the marks that reorder text or start a line
- * (U+202A to U+202E, U+2066 to U+2069) are dropped, so the line shows
- * in the order it was written.
+ * words ask to run, what no one sees (UNSEEN) is dropped and a control
+ * read as a space in each line before the last with anything left is
+ * taken, so the line reads
+ * as it shows, in the order it was written, and a line of only those
+ * never hides the reason above it.
  */
 function lastLine(stderr: string): string {
 	const line =
 		stderr
-			.trim()
 			.split(LINE_ENDS)
-			.pop()
-			?.replace(REORDERING, "")
-			.replaceAll("`", "'")
-			.trim() ?? "";
+			.map((one) =>
+				one
+					.replace(UNSEEN, "")
+					.replace(CONTROLS, " ")
+					.replaceAll("`", "'")
+					.trim(),
+			)
+			.filter((one) => one !== "")
+			.pop() ?? "";
 	const characters = Array.from(line);
 	return characters.length > MOST_QUOTED
 		? `${characters.slice(0, MOST_QUOTED).join("")}...`

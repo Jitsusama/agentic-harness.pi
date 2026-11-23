@@ -1569,6 +1569,38 @@ describe("a sprouted session's start", () => {
 		);
 	});
 
+	it("drops every mark no one sees from mycelium's last line, and ends it at every line end", async () => {
+		const cases: [stderr: string, said: string][] = [
+			// An embedding, an isolate and the weak marks, which still move
+			// what's neutral beside them.
+			["refused \u202Ahere\u202C\n", "refused here"],
+			["refused \u2066here\u2069\n", "refused here"],
+			["refused\u200E \u200F(here)\u061C\n", "refused (here)"],
+			// Zero-width ones, and tag characters spelling text unseen.
+			["re\u200Bfused\uFEFF \u{E0072}\u{E0075}\u{E006E}here\n", "refused here"],
+			// A control reads as a space.
+			["refused\there\u009B\n", "refused here"],
+			// The paragraph separator and the next line end a line too.
+			["asked the node\u2029refused\n", "refused"],
+			["asked the node\u0085refused\n", "refused"],
+			// A last line of marks alone never hides the reason above it.
+			["refused: no such cell\n\u202E\n", "refused: no such cell"],
+			["refused: no such cell\n\u2066\u2069", "refused: no such cell"],
+		];
+		for (const [n, [stderr, said]] of cases.entries()) {
+			const { words } = await start(
+				{ words: "tea", from: "TERN02" },
+				{
+					run: async () => ({ code: 1, stdout: "", stderr }),
+					sessionId: `sess-tie-unseen-${n}`,
+				},
+			);
+			expect(words, JSON.stringify(stderr)).toContain(
+				`(it last wrote ${JSON.stringify(said)})`,
+			);
+		}
+	});
+
 	it("says a tie ended by a signal nobody here sent may have landed", async () => {
 		const { words } = await start(
 			{ words: "tea", from: "TERN02" },
