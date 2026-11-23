@@ -45,11 +45,20 @@ describe.skipIf(bwrap === undefined)(
 		let runtimeDir = "";
 		let folder = "";
 		let socket = "";
+		let login = "";
+		let compileRoot = "";
 		let server: Server | undefined;
 
-		/** Whether `script` succeeds as a fenced command. */
+		/**
+		 * Whether `script` succeeds as a fenced command, with a login's
+		 * runtime folder of the test's own, never the developer's.
+		 */
 		function fenced(script: string): boolean {
-			const args = fenceArgs({ home, runtimeDir });
+			const args = fenceArgs({
+				home,
+				runtimeDir,
+				compileRoots: [compileRoot],
+			});
 			const ran = spawnSync(
 				bwrap ?? "bwrap",
 				["--unshare-user", ...args, "sh", "-c", script],
@@ -70,6 +79,9 @@ describe.skipIf(bwrap === undefined)(
 			folder = join(runtimeDir, "pi-agent");
 			mkdirSync(folder, { recursive: true, mode: 0o700 });
 			socket = join(folder, "agent.sock");
+			login = join(base, "login");
+			mkdirSync(login, { mode: 0o700 });
+			compileRoot = join(login, RUNTIME_COMPILE);
 			const listening = createServer((client) => client.end());
 			server = listening;
 			await new Promise<void>((settle) => listening.listen(socket, settle));
@@ -130,6 +142,20 @@ describe.skipIf(bwrap === undefined)(
 			expect(
 				existsSync(join(host, "entry")),
 				"a fenced command wrote into the compile folder outside",
+			).toBe(false);
+		});
+
+		it("lays a tmpfs of its own over the login's compile folder, outside the fenced runtime folder", () => {
+			const node = join(compileRoot, "node");
+			expect(
+				fenced(
+					`mkdir -p '${node}' && echo planted > '${node}/entry' && test -s '${node}/entry'`,
+				),
+				"the fenced command ran and wrote inside",
+			).toBe(true);
+			expect(
+				existsSync(join(node, "entry")),
+				"a fenced command wrote into the login's compile folder outside",
 			).toBe(false);
 		});
 	},

@@ -408,11 +408,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
-	// Whether or not it is there yet, or a command could make it and plant
-	// code a host runs; bubblewrap makes the folder for its mount.
-	for (const root of unfencedCompileRoots(place)) {
-		if (exists(dirname(root))) args.push("--perms", "0700", "--tmpfs", root);
-	}
+	args.push(...compileRootArgs(unfencedCompileRoots(place), place, disk));
 	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
@@ -761,6 +757,47 @@ function unfencedCompileRoots(place: FencePlace): readonly string[] {
 		(root) =>
 			!(runtime && (root === runtime || root.startsWith(`${runtime}/`))),
 	);
+}
+
+/**
+ * A tmpfs of the fence's own over each compile root, whether or not it
+ * is there yet, or a command could make it and plant code a host runs;
+ * bubblewrap makes the folder for its mount. Where the runtime folder it
+ * lies in isn't made yet, as before a login, the folder that runtime
+ * folder would be made in is hidden instead, so one mounted there later
+ * never shows inside. Nothing goes over a root that is no folder: no
+ * host compiles there, and bubblewrap can't mount over it.
+ */
+function compileRootArgs(
+	roots: readonly string[],
+	place: FencePlace,
+	disk: Disk,
+): string[] {
+	const args: string[] = [];
+	const runtime = place.runtimeDir;
+	const hidden = new Set<string>();
+	for (const root of roots) {
+		const runtimeFolder = dirname(root);
+		if (disk.kind(runtimeFolder) === undefined) {
+			const above = dirname(runtimeFolder);
+			const holdsRuntime =
+				runtime !== undefined &&
+				(runtime === above || runtime.startsWith(`${above}/`));
+			if (
+				disk.kind(above) === "folder" &&
+				!holdsRuntime &&
+				!hidden.has(above)
+			) {
+				hidden.add(above);
+				args.push("--tmpfs", above);
+			}
+			continue;
+		}
+		const kind = disk.kind(root);
+		if (kind === undefined || kind === "folder")
+			args.push("--perms", "0700", "--tmpfs", root);
+	}
+	return args;
 }
 
 /** The fence's door to Nix, for `NIX_REMOTE` inside. */

@@ -64,6 +64,16 @@ describe("where pi's compile cache is kept", () => {
 		},
 	);
 
+	it.runIf(onLinux)(
+		"takes the login's runtime folder however it is spelled",
+		() => {
+			const env = { XDG_RUNTIME_DIR: `${runtime}/` };
+			expect(compileFolderOf("node", env, "linux", runtime)).toBe(
+				join(runtime, RUNTIME_COMPILE, "node"),
+			);
+		},
+	);
+
 	it.runIf(onLinux)("keeps the host's beside node's, each its own", () => {
 		const env = { XDG_RUNTIME_DIR: runtime };
 		expect(compileFolderOf("host", env, "linux", runtime)).toBe(

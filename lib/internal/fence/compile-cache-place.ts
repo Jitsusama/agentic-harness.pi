@@ -28,7 +28,7 @@ import {
 	realpathSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { SessionEnvironment } from "../../core/session/host.ts";
 import { stateDir } from "../paths.ts";
 
@@ -122,13 +122,14 @@ export function compileFolderOf(
 	platform: NodeJS.Platform = process.platform,
 	login: string | null = loginRuntimeFolder(platform) ?? null,
 ): string {
-	const root = env.XDG_RUNTIME_DIR;
+	const named = env.XDG_RUNTIME_DIR;
+	// However it is spelled, as `/run/user/1000/` is the login's too.
+	const root = named && isAbsolute(named) ? resolve(named) : undefined;
 	if (
 		platform === "linux" &&
 		root &&
 		login !== null &&
-		root === login &&
-		isAbsolute(root) &&
+		root === resolve(login) &&
 		!insideHome(root, env.HOME || homedir())
 	) {
 		const shared = join(root, RUNTIME_COMPILE);

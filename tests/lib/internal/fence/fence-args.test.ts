@@ -95,6 +95,36 @@ describe("the fence's arguments", () => {
 		).not.toContain("/run/user/1000/pi-compile");
 	});
 
+	it("hides where the login's runtime folder would be made, when it has none yet, so one made later is out of reach", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		const beforeLogin: Disk = {
+			kind: (path) => (path.startsWith("/run/user/") ? undefined : "folder"),
+			entries: () => [],
+		};
+		const args = fenceArgs(
+			{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+			beforeLogin,
+		);
+		expect(args.join(" ")).toContain("--tmpfs /run/user ");
+	});
+
+	it("lays nothing over a compile root that is no folder, which no host compiles in", () => {
+		const roots = ["/run/user/1000/pi-compile"];
+		for (const kind of ["file", "link"] as const) {
+			const planted: Disk = {
+				kind: (path) => (path === roots[0] ? kind : "folder"),
+				entries: () => [],
+			};
+			expect(
+				fenceArgs(
+					{ home: place.home, runtimeDir: undefined, compileRoots: roots },
+					planted,
+				).join(" "),
+				`a ${kind} left there, which bubblewrap can't mount over`,
+			).not.toContain("--tmpfs /run/user/1000/pi-compile");
+		}
+	});
+
 	it("binds back only the Nix daemon's door for sandboxes, the SSH agent's proxy, its folder, the jobs broker, the clipboard door's folder and the sandboxed display's in the runtime folder, each read-only", () => {
 		expect(
 			pairs("--bind").filter((path) => path?.startsWith(place.runtimeDir)),
