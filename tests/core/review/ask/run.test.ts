@@ -530,25 +530,31 @@ describe("substituting one outcome", () => {
 
 	// Y2YBTS, 22 November: a round stopped after a reload and then retried
 	// stayed closed, so merge-net's gate passed over the answer.
-	it("reopens a round closed unfinished once a retry answers", () => {
-		const closed = run({
-			closed: true,
-			outcomes: [{ participantId: "hawk", findingIds: [1] }],
-		});
+	// A stopped round holds no outcomes, as stopRound writes it, so one
+	// retry of several must not stand as the council at its head.
+	it("counts a stopped round once retries have answered every reviewer", () => {
+		const closed = run({ closed: true, outcomes: [] });
 
-		const answered = substituteOutcome(
+		const one = substituteOutcome(
 			closed,
+			{ participantId: "hawk", findingIds: [1] },
+			{},
+		);
+		const both = substituteOutcome(
+			one,
 			{ participantId: "owl", findingIds: [4] },
 			{},
 		);
 		const failedAgain = substituteOutcome(
-			closed,
+			one,
 			{ participantId: "owl", findingIds: [], failure: "timed out" },
 			{},
 		);
 
-		expect(answered.closed, "a retry that answered").toBeUndefined();
-		expect(failedAgain.closed, "a retry that failed again").toBe(true);
+		expect(one.closed, "one reviewer of two answered").toBe(true);
+		expect(both.closed, "every reviewer answered").toBeUndefined();
+		expect(both.open, "and it is not left open").toBeUndefined();
+		expect(failedAgain.closed, "the last retry failed again").toBe(true);
 	});
 
 	it("refuses to invent a participant nobody asked", () => {

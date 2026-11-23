@@ -13,6 +13,17 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { watchRound } from "../../../../extensions/review-integration/progress.ts";
+import { DOCK_NAME } from "../../../../lib/ui/gate/screen-gates.ts";
+
+/** How many widgets the screen's dock still holds, as every load reads it. */
+function docked(): number {
+	const shared: unknown = Reflect.get(globalThis, Symbol.for(DOCK_NAME));
+	const entries: unknown =
+		typeof shared === "object" && shared !== null
+			? Reflect.get(shared, "entries")
+			: undefined;
+	return Array.isArray(entries) ? entries.length : 0;
+}
 
 /** What pi says when a captured context is used after a reload. */
 const STALE =
@@ -28,10 +39,16 @@ const tui = {
 
 /**
  * A terminal context that mounts widgets until `reload` is called, and
- * from then on throws on every field, as pi's does.
+ * from then on throws on every field, as pi's does. Pi's order on a
+ * reload is not read here, so `reload` may clear the widgets first, as
+ * the dock says pi does, or leave them.
  */
-function reloadable(): { ctx: ExtensionContext; reload(): void } {
+function reloadable(): {
+	ctx: ExtensionContext;
+	reload(options?: { disposing: boolean }): void;
+} {
 	let stale = false;
+	const mounted: { dispose?: () => void }[] = [];
 	const live = {
 		hasUI: true,
 		mode: "tui",
@@ -42,7 +59,7 @@ function reloadable(): { ctx: ExtensionContext; reload(): void } {
 				dim: (text: string) => text,
 			},
 			setWidget: (_key: string, factory: unknown) => {
-				if (typeof factory === "function") factory(tui, {});
+				if (typeof factory === "function") mounted.push(factory(tui, {}));
 			},
 			onTerminalInput: () => () => {},
 		},
@@ -55,7 +72,10 @@ function reloadable(): { ctx: ExtensionContext; reload(): void } {
 	}) as unknown as ExtensionContext;
 	return {
 		ctx,
-		reload: () => {
+		reload: (options) => {
+			if (options?.disposing === true) {
+				for (const widget of mounted) widget.dispose?.();
+			}
 			stale = true;
 		},
 	};
@@ -84,18 +104,23 @@ describe("a round's board after its session reloads", () => {
 		expect(() => watch.close(), "closing it does not throw").not.toThrow();
 	});
 
-	it("comes down quietly when the reload came mid-round", () => {
-		const { ctx, reload } = reloadable();
-		const watch = watchRound("council", ctx);
-		watch.progress.start(PARTICIPANTS);
-		reload();
+	for (const disposing of [false, true]) {
+		it(`comes down quietly when the reload came mid-round, ${disposing ? "clearing" : "leaving"} the widget`, () => {
+			const before = docked();
+			const { ctx, reload } = reloadable();
+			const watch = watchRound("council", ctx);
+			watch.progress.start(PARTICIPANTS);
+			expect(docked(), "the board is docked").toBe(before + 1);
+			reload({ disposing });
 
-		watch.progress.answered("correctness-and-tests");
-		expect(
-			() => watch.close(),
-			"taking a board down from a replaced session does not throw",
-		).not.toThrow();
-	});
+			watch.progress.answered("correctness-and-tests");
+			expect(
+				() => watch.close(),
+				"taking a board down from a replaced session does not throw",
+			).not.toThrow();
+			expect(docked(), "and the dock no longer holds it").toBe(before);
+		});
+	}
 
 	it("still throws a fault that is not a reload", () => {
 		const ctx = {

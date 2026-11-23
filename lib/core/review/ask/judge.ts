@@ -17,6 +17,7 @@ import { askOne, type CouncilDeps } from "./council.ts";
 import { alsoRecorded, harvestFindings } from "./harvest.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
 import { outcomeOf } from "./outcome.ts";
+import { reporterOf } from "./progress.ts";
 import {
 	type AskRun,
 	newRunId,
@@ -128,7 +129,7 @@ export async function runJudge(
 		// rule the roster rounds settle by: a finding that would not parse
 		// never became one, and saying otherwise on the way past would
 		// overcount the round in the only place anyone sees it live.
-		deps.progress?.recorded(request.judge.id, recorded.length);
+		reporterOf(deps.progress).recorded(request.judge.id, recorded.length);
 
 		// A judge can be stopped exactly as a reviewer can, and a round
 		// that does not record it reports the same lie the council round
@@ -143,7 +144,7 @@ export async function runJudge(
 
 	// The board is about to be replaced by the round's own answer, and a
 	// stale one outlives the thing it described.
-	deps.progress?.finish();
+	reporterOf(deps.progress).finish();
 
 	return {
 		run: {

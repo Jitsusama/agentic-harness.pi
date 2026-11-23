@@ -46,6 +46,7 @@ import {
 } from "../../lib/ui/board.ts";
 import { type Docked, dock, type HopPlace } from "../../lib/ui/dock.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
+import { settledHere } from "./settling.ts";
 import type { Answer } from "./tools/shared.ts";
 
 /**
@@ -596,6 +597,7 @@ export async function answerWatching(
 		return withBoards(await answer(watch), opened);
 	} finally {
 		for (const made of opened) {
+			settledHere(made);
 			made.progress.finish();
 			made.close();
 		}

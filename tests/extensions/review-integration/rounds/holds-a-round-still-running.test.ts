@@ -18,6 +18,10 @@ import {
 	heldByLiveSupervisor,
 	whyNotYet,
 } from "../../../../extensions/review-integration/reviewer.ts";
+import {
+	settledHere,
+	settlingHere,
+} from "../../../../extensions/review-integration/settling.ts";
 import type { ProcessFacts } from "../../../../lib/subagent/index.ts";
 import {
 	ReviewerArtifactsStore,
@@ -42,6 +46,34 @@ describe("whyNotYet", () => {
 		startedAt: async () => undefined,
 	};
 	const HELD = { id: RUN, participants: [{ id: "hawk" }] };
+
+	// PV3TE0's council on #2007: a round goes on in the load a reload
+	// replaced, and once its leases end a collect in the new load would
+	// file the findings the old one is filing.
+	it("holds a round this process is still settling, until its call answers", async () => {
+		const store = new ReviewerArtifactsStore(root);
+		const call = {};
+		const another = {};
+		settlingHere(RUN, call);
+
+		try {
+			expect(
+				await whyNotYet(store, HELD, NOBODY, Date.now()),
+				"held while settling, with no lease",
+			).toContain("still being settled in this pi process");
+			settledHere(another);
+			expect(
+				await whyNotYet(store, HELD, NOBODY, Date.now()),
+				"another call clears only its own",
+			).toContain("still being settled");
+		} finally {
+			settledHere(call);
+		}
+		expect(
+			await whyNotYet(store, HELD, NOBODY, Date.now()),
+			"free once its call has answered",
+		).toBeUndefined();
+	});
 
 	it("refuses while a reviewer is handed over and its supervisor has not begun", async () => {
 		// The moments after start, when each reviewer's directory is there

@@ -53,6 +53,7 @@ import {
 	RESUME_SUFFIX,
 	WRAP_UP_SUFFIX,
 } from "../../lib/subagent/subagent.ts";
+import { isSettlingHere } from "./settling.ts";
 
 /**
  * Which of our limits took the reviewer away.
@@ -272,6 +273,9 @@ export async function whyNotYet(
 	// writing its first lease between them read as starting in the
 	// first and running in the second, so neither held it: a watcher
 	// told the model to collect from under two live reviewers.
+	if (isSettlingHere(held.id)) {
+		return `${held.id} is still being settled in this pi process, perhaps by a load a reload replaced, which files its findings and writes the ledger itself. Collecting now would file them twice. Wait for it, or stop the round.`;
+	}
 	for (const participant of held.participants) {
 		for (const id of everyRunOf(participant.id)) {
 			const standing = await supervisorStanding(
