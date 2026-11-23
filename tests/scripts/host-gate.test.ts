@@ -147,14 +147,16 @@ function generation(
 
 type Harness = Awaited<ReturnType<typeof harness>>;
 
-/** Commits `file` on a branch of its own, answering the commit. */
-async function change(on: Harness, file: string): Promise<string> {
+/** Commits `files` on a branch of its own, answering the commit. */
+async function change(on: Harness, ...files: string[]): Promise<string> {
 	await git(on.checkout, "checkout", "-q", "-B", "work", "origin/main");
-	const path = join(on.checkout, file);
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${file}\n`);
-	await git(on.checkout, "add", file);
-	await git(on.checkout, "commit", "-q", "-m", `change ${file}`);
+	for (const file of files) {
+		const path = join(on.checkout, file);
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, `${file}\n`);
+	}
+	await git(on.checkout, "add", ...files);
+	await git(on.checkout, "commit", "-q", "-m", `change ${files.join(" ")}`);
 	return git(on.checkout, "rev-parse", "HEAD");
 }
 
@@ -278,6 +280,45 @@ describe("host-gate.sh", () => {
 			code: 0,
 			said: expect.stringContaining("touches nothing pi hosts run"),
 		});
+	});
+
+	it.each(["extensions/park-workflow/README.md", "host/README.md"])(
+		"lets a change to %s, a README nothing a host runs reads, merge without a run",
+		async (file) => {
+			const on = await harness();
+			const sha = await change(on, file);
+
+			const answered = await gate(on, sha);
+
+			expect(answered).toMatchObject({
+				code: 0,
+				said: expect.stringContaining("touches nothing pi hosts run"),
+			});
+		},
+	);
+
+	it("still refuses a README's change beside code the host cases drive", async () => {
+		const on = await harness();
+		const sha = await change(
+			on,
+			"extensions/park-workflow/README.md",
+			"extensions/park-workflow/watch.ts",
+		);
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("extensions/park-workflow/watch.ts");
+	});
+
+	it("still refuses other markdown under the host, which a host could read", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/prompt.md");
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`nothing ran test:host at ${sha}`);
 	});
 
 	it("lets a change to the host merge once the keeper kept test:host passing at it", async () => {
