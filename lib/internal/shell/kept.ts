@@ -409,11 +409,11 @@ export function handJobRecordOn(path: string): void {
 }
 
 /**
- * Let go of the job record of the call kept at `path` as its files go or
- * its session's close for good takes it back, marking a removal of it
- * still running as gone, so nothing puts it back after.
+ * Let go of the job record of the call kept at `path` as its files go,
+ * marking a removal of it still running as gone, so nothing puts it back
+ * beside its end.
  */
-export function letJobRecordGo(path: string): void {
+function letJobRecordGo(path: string): void {
 	jobRecords.own.delete(path);
 	const removal = jobRecords.removing.get(path);
 	if (removal !== undefined) removal.gone = true;

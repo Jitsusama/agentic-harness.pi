@@ -48,7 +48,6 @@ import {
 	JOB_SUFFIX,
 	type JobRecordRemoval,
 	keptFolder,
-	letJobRecordGo,
 	ownJobRecord,
 	ownsJobRecord,
 	processThere,
@@ -157,19 +156,25 @@ function clearStaged(staged: string): void {
  * Take back the record of the call kept at `keep`, leaving it unspared,
  * when this process holds one: a session's close takes back every call
  * it recorded, nearly all gone with their files since, and one handed
- * on is its taker's.
+ * on is its taker's. A move hands its calls on and closes the session
+ * in one turn, so a removal still running for a call it handed is left
+ * to put the record back for the taker.
+ *
+ * Whether this process holds the record is asked by path, not by which
+ * session wrote it: a taker in this process that wrote it again before
+ * the giver closed would lose it here. None can, since a call is taken
+ * up only at a later session's start, after the giver's close.
  */
 export function forgetKeptJob(keep: string): void {
-	const owned = ownsJobRecord(keep);
-	letJobRecordGo(keep);
-	if (!owned) return;
+	if (takeJobRecord(keep) === undefined) return;
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
 		// Only something other than a file holds the name (force answers a
-		// missing one), which nothing here writes. It runs in a call's
-		// finally, where a throw would stand in for the call's own outcome;
-		// left there, it reads as no record, so nothing takes the call up.
+		// missing one), which nothing here writes. It runs in a session's
+		// close, where a throw would skip closing its jobs, leaving them
+		// running; left there, it reads as no record, so nothing takes the
+		// call up.
 	}
 }
 

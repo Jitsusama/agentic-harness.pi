@@ -171,9 +171,15 @@ export function keepsOnDisk(
 					// stop meeting it then carries it, its end said where it lands,
 					// rather than finding a job neither carriable nor ended and
 					// stopping it. Not one this pi stopped or timed out: it is said
-					// stopped here, and a taker would call it lost.
-					if (stopping.signal.aborted && call.signal) calls.delete(call.signal);
-					if (!kept.handed) await forgetOwnKeptJob(path);
+					// stopped here, and a taker would call it lost. Nor does that one
+					// wait for the disk: its shell is gone with no end, so a record
+					// left reads as a call gone unsaid, which a start only removes.
+					const stopped = stopping.signal.aborted;
+					if (stopped && call.signal) calls.delete(call.signal);
+					if (!kept.handed) {
+						const going = forgetOwnKeptJob(path);
+						if (!stopped) await going;
+					}
 					// Handed on meanwhile, its files are the taker's. Otherwise ended
 					// here, so nothing may carry or hand it on while they go, which
 					// takes turns of the loop, and from here to its settle none
