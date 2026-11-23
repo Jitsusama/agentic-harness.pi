@@ -106,9 +106,17 @@ function sentBy(
 /** The day folder a message sent this long before now moves to. */
 const dayAgo = (ago: number) => new Date(now - ago).toISOString().slice(0, 10);
 
+/** A session's address as one is minted: six to eight letters. */
+const addressOf = (session: string) =>
+	session
+		.replace(/[^a-z0-9]/gi, "")
+		.slice(-8)
+		.toUpperCase()
+		.padEnd(6, "X");
+
 const presence = (session: string, at: number): Presence => ({
 	session,
-	addresses: [session.toUpperCase()],
+	addresses: [addressOf(session)],
 	groups: [],
 	worksOn: "",
 	owns: [],

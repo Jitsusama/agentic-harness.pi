@@ -269,6 +269,7 @@ describe("this session's peer", () => {
 			);
 		write("s-1", ["X\nOWNERQ is idle", "7M6JKG", "AB", "FIVEX", "9F3C2A1B"]);
 		write("s-2", ["X\nOWNERQ", "far too long"]);
+		write("s-3", []);
 
 		const presences = createPresences(dir);
 
@@ -277,7 +278,16 @@ describe("this session's peer", () => {
 			presences.of("s-2"),
 			"one left with no address is no peer",
 		).toBeUndefined();
-		expect(presences.all().map((one) => one.session)).toEqual(["s-1"]);
+		expect(
+			presences.of("s-3")?.addresses,
+			"one that named none stays as written",
+		).toEqual([]);
+		expect(
+			presences
+				.all()
+				.map((one) => one.session)
+				.sort(),
+		).toEqual(["s-1", "s-3"]);
 	});
 });
 
@@ -629,7 +639,7 @@ describe("presences on a host", () => {
 		mkdirSync(root, { recursive: true });
 		writeFileSync(path, JSON.stringify(presence()));
 
-		presences.publish(presence({ addresses: ["B"] }));
+		presences.publish(presence({ addresses: ["BRAVO2"] }));
 		presences.forget("s-1");
 		expect(existsSync(path), "gone at once").toBe(false);
 
@@ -676,7 +686,7 @@ describe("presences on a host", () => {
 		const presences = createPresences(dir, { failed });
 
 		presences.publish(presence());
-		presences.publish(presence({ addresses: ["B"] }));
+		presences.publish(presence({ addresses: ["BRAVO2"] }));
 
 		await vi.waitFor(() => {
 			expect(failed, "said").toHaveBeenCalledTimes(1);
@@ -685,14 +695,16 @@ describe("presences on a host", () => {
 			join(dir, "s-1.json"),
 			expect.any(Error),
 		);
-		expect(presences.of("s-1")?.addresses, "still its own").toEqual(["B"]);
+		expect(presences.of("s-1")?.addresses, "still its own").toEqual([
+			"BRAVO2",
+		]);
 
 		// Once it can land, the latest does, and nothing is left trying.
 		rmSync(dir);
 		presences.settle();
 		expect(
 			JSON.parse(readFileSync(join(dir, "s-1.json"), "utf8")).addresses,
-		).toEqual(["B"]);
+		).toEqual(["BRAVO2"]);
 	});
 
 	it("answer the first ask from the disk, never empty", () => {

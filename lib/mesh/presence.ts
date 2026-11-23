@@ -720,9 +720,11 @@ function presenceFrom(value: unknown): Presence | undefined {
 	}
 	// The one boundary every reader of a peer's addresses comes through:
 	// each prints a peer by its first as it stands, so one that isn't an
-	// address's shape goes here, and with none left there's no peer.
+	// address's shape goes here. One that named addresses and kept none
+	// is no peer; one that named none, as a paused presence may, prints
+	// nothing forged and stays as it was written.
 	const addresses = one.addresses.filter(isAddressShaped);
-	if (addresses.length === 0) return undefined;
+	if (one.addresses.length > 0 && addresses.length === 0) return undefined;
 	return {
 		session: one.session,
 		addresses,
