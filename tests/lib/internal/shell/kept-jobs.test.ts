@@ -9,6 +9,7 @@
  * a split would copy into every file.
  */
 
+import { getEventListeners } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -671,6 +672,30 @@ describe("a call's own record, taken back as the call ends", () => {
 		expect(labelsIn(where), "its record, for the taker").toEqual(["run j1"]);
 	});
 
+	// A quit while a call's own removal waits on the disk: the close stops
+	// the call's job next and its pi exits, so a record left to the removal
+	// would stand beside the call's end for the next start to say again.
+	it("is taken back at once by a session's close while its call's own removal waits on the disk", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		disk.hold(true);
+		const going = forgetOwnKeptJob(job.work.keep);
+		await vi.waitFor(() =>
+			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
+		);
+		forgetKeptJob(job.work.keep);
+		expect(
+			existsSync(`${job.work.keep}.job`),
+			"its record, taken back before the disk got to the removal",
+		).toBe(false);
+		disk.go();
+		await going;
+		expect(
+			listed(where).filter((name) => name.includes(".job")),
+			"no record, nor its aside",
+		).toEqual([]);
+	});
+
 	// A rollover's recorder can write the record again once the call's own
 	// removal has ended, where only the session's close takes it back.
 	it("leaves no record once a close took back one written after its removal ended", async () => {
@@ -1008,6 +1033,90 @@ describe("a call's own record, taken back as the call ends", () => {
 			).toEqual([]),
 		);
 	});
+
+	// A stopped call's files go just after its wait ends, record first,
+	// while the removal's rename may still wait for the disk's pool.
+	it("leaves nothing once a stopped call's files go before its removal's rename starts", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const stop = new AbortController();
+		disk.hold(true, "rename");
+		const going = forgetOwnKeptJob(job.work.keep, { signal: stop.signal });
+		await parkedByTheClock();
+		stop.abort();
+		await going;
+		await removeKept(job.work.keep);
+		disk.go();
+		await vi.waitFor(() =>
+			expect(
+				listed(where).filter((name) => name.includes(".job")),
+				"no record, nor its aside",
+			).toEqual([]),
+		);
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"nothing said of a record that went with its files",
+		).toEqual([]);
+	});
+
+	it("waits for nothing when its call was stopped before it began", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const stop = new AbortController();
+		stop.abort();
+		disk.hold(true, "rm", /\.gone$/);
+		const going = forgetOwnKeptJob(job.work.keep, {
+			signal: stop.signal,
+			waitMs: 60_000,
+		});
+		expect(
+			await Promise.race([
+				going.then(() => "ended"),
+				new Promise((done) => setTimeout(() => done("held"), SETTLES_IN_MS)),
+			]),
+			"its wait, ended by the stop that came first",
+		).toBe("ended");
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"nothing said",
+		).toEqual([]);
+		disk.go();
+	});
+
+	// A call's signal can be its whole run's, which outlives the call, so a
+	// listener left on it would hold each call's wait until the run ends.
+	it.each([
+		["its removal ends", false],
+		["its wait runs out", true],
+	])(
+		"takes its stop's listener off the call's signal once %s",
+		async (_, held) => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+			const run = new AbortController();
+			if (held) disk.hold(true, "rm", /\.gone$/);
+			await forgetOwnKeptJob(job.work.keep, {
+				signal: run.signal,
+				waitMs: held ? 50 : 60_000,
+			});
+			expect(
+				getEventListeners(run.signal, "abort"),
+				"listeners left on the run's signal",
+			).toEqual([]);
+			disk.go();
+		},
+	);
 
 	it("says a record written again stands at its name when its removal outlasts its wait", async () => {
 		const where = folder();
