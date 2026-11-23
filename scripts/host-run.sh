@@ -41,7 +41,7 @@ export PI_HOST_REQUIRED=1 PI_HOST_RUNTIME=$runtime MYCELIUM_BIN=$mycelium
 # since what it prints on stdout is the suite's and the report's alone.
 cores=$(nproc 2> /dev/null || echo 2)
 export PI_HOST_WORKERS=${PI_HOST_WORKERS:-$((cores / 2))}
-echo "host-run: up to $PI_HOST_WORKERS files at once on $cores cores" >&2
+echo "host-run: $PI_HOST_WORKERS files at once asked for on $cores cores, of at most 8" >&2
 if [[ $# -gt 0 ]]; then
   exec pnpm exec vitest run --project process --reporter verbose "$@"
 fi
