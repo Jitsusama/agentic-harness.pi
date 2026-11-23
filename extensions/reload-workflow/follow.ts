@@ -411,9 +411,13 @@ export async function follow(
 	let roots = installedRoots(settings);
 	let heldNoted = false;
 	const waitingNoted = new Set<string>();
+	// Each reason once, and one a host gave once for each thing it said,
+	// so a later failure waited out under a move is logged too.
 	const sayWhy = (reason: string, data: Record<string, unknown> = {}) => {
-		if (waitingNoted.has(reason)) return;
-		waitingNoted.add(reason);
+		const noted =
+			typeof data.why === "string" ? `${reason}: ${data.why}` : reason;
+		if (waitingNoted.has(noted)) return;
+		waitingNoted.add(noted);
 		try {
 			pi.appendEntry(WAITING_ENTRY, {
 				reason,
