@@ -119,7 +119,7 @@ it("lists co-hosted peers, detaches only the closing lease and keeps its sibling
 			id: a.questId ?? undefined,
 		}),
 	);
-	expect(succeeded(loaded).message).toContain("session a");
+	expect(succeeded(loaded).message).toContain('session "a"');
 	const sessions = () => {
 		const doc = parseQuestFrontMatter(
 			readFileSync(join(a.questDir ?? "", "README.md"), "utf8"),
