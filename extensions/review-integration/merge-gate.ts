@@ -168,7 +168,7 @@ function queuedOf(
 	}
 	const forge = repo.split(":")[0] ?? "";
 	if (QUEUED_FORGES.has(forge)) return { queued: true };
-	return `${at} is "queued", but ${forge || repo} merges a change when asked, onto the base its gate read, so that base must be read; only ${[...QUEUED_FORGES].join(", ")} lands through a queue.`;
+	return `${at} is "queued", but ${forge || repo} isn't known here to land every change through a queue onto its base's newest tip, so the base its gate read must be read; only ${[...QUEUED_FORGES].join(", ")} is.`;
 }
 
 /** How long a gate may run, in milliseconds. */
@@ -330,7 +330,8 @@ export async function gateRefusal(
 		if (gate.minutes >= MOST_GATE_MINUTES) {
 			return `${stopped} ${MOST_GATE_MINUTES} minutes is the most a gate may name, so the gate itself needs looking at.${tail}`;
 		}
-		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)} }.${tail}`;
+		const queued = gate.queued ? `, "base": "queued"` : "";
+		return `${stopped} If it needs longer, give it more time in review.merge.gates, as { "command": ${JSON.stringify(command)}, "minutes": ${Math.min(gate.minutes * 2, MOST_GATE_MINUTES)}${queued} }.${tail}`;
 	}
 	if (ran.aborted === true) {
 		return `The merge was stopped before its gate \`${command}\` answered at ${head.slice(0, 12)}. Not merged.${tail}`;

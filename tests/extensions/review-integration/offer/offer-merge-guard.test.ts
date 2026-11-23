@@ -424,6 +424,71 @@ describe("merging behind a head guard", () => {
 		registerReviewProvider(provider);
 		gateIs(`${moveMain} && test ${AT} =`, "delta", true);
 
+		try {
+			await offer({ action: "merge", change: "438", repo: checkout });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(merges, "the gated head goes to the queue").toEqual([
+			{ expectedHead: AT },
+		]);
+	});
+
+	it("never reads a queued base, merging where no origin can be read", async () => {
+		// A folder with no origin refuses an unqueued gate before it runs, as
+		// the case below shows, so a queued merge here read no base.
+		const root = mkdtempSync(join(tmpdir(), "gated-"));
+		const ran = join(root, "ran");
+		const { provider, merges } = mergingProvider(() => proposal, "delta");
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(ran)} && test ${AT} =`, "delta", true);
+
+		let gateRan = false;
+		try {
+			await offer({ action: "merge", change: "438", repo: root });
+			gateRan = existsSync(ran);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(gateRan, "the gate ran").toBe(true);
+		expect(merges, "and its head went to the queue").toEqual([
+			{ expectedHead: AT },
+		]);
+	});
+
+	it("merges past a base that moved while a queued merge was approved", async () => {
+		const { checkout, root, moveMain } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider(() => proposal, "delta");
+		registerReviewProvider(provider);
+		gateIs(`test ${AT} =`, "delta", true);
+		let asked = false;
+
+		try {
+			await offer(
+				{ action: "merge", change: "438", repo: checkout },
+				approvingAfter(() => {
+					asked = true;
+					execFileSync("bash", ["-c", moveMain]);
+				}),
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(asked, "the person was asked").toBe(true);
+		expect(merges, "the approved head goes to the queue").toEqual([
+			{ expectedHead: AT },
+		]);
+	});
+
+	it("refuses a head a queued gate refused", async () => {
+		const { checkout, root } = checkoutWithOrigin();
+		const { provider, merges } = mergingProvider(() => proposal, "delta");
+		registerReviewProvider(provider);
+		gateIs("echo not ready >&2; false", "delta", true);
+
 		let answer: unknown;
 		try {
 			answer = await offer({ action: "merge", change: "438", repo: checkout });
@@ -433,11 +498,35 @@ describe("merging behind a head guard", () => {
 
 		expect(
 			JSON.stringify(answer),
-			"no refusal names the base moving",
-		).not.toContain("moved on origin from");
-		expect(merges, "the gated head goes to the queue").toEqual([
-			{ expectedHead: AT },
-		]);
+			"the refusal carries what the gate said",
+		).toContain("not ready");
+		expect(merges, "nothing merges").toEqual([]);
+	});
+
+	it("refuses a queued change that names no base, before its gate runs", async () => {
+		const { checkout, root } = checkoutWithOrigin();
+		const ran = join(root, "ran");
+		const { provider, merges } = mergingProvider(
+			() => ({ ...proposal, base: "" }),
+			"delta",
+		);
+		registerReviewProvider(provider);
+		gateIs(`touch ${JSON.stringify(ran)} && test ${AT} =`, "delta", true);
+
+		let answer: unknown;
+		let gateRan = false;
+		try {
+			answer = await offer({ action: "merge", change: "438", repo: checkout });
+			gateRan = existsSync(ran);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(JSON.stringify(answer), "the refusal says why").toContain(
+			"names no base",
+		);
+		expect(gateRan, "the gate never ran").toBe(false);
+		expect(merges, "nothing merges").toEqual([]);
 	});
 
 	it("still refuses a head that moved while a queued gate ran", async () => {
@@ -469,13 +558,16 @@ describe("merging behind a head guard", () => {
 		// Not `github`, whose real provider activate() registers over a stub
 		// of that id; any forge but a queue's is refused alike.
 		const { checkout, root } = checkoutWithOrigin();
+		const ran = join(root, "ran");
 		const { provider, merges } = mergingProvider(() => proposal, "gitea");
 		registerReviewProvider(provider);
-		gateIs(`test ${AT} =`, "gitea", true);
+		gateIs(`touch ${JSON.stringify(ran)} && test ${AT} =`, "gitea", true);
 
 		let answer: unknown;
+		let gateRan = false;
 		try {
 			answer = await offer({ action: "merge", change: "438", repo: checkout });
+			gateRan = existsSync(ran);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
@@ -483,7 +575,8 @@ describe("merging behind a head guard", () => {
 		expect(
 			JSON.stringify(answer),
 			"the refusal says why its base must be read",
-		).toContain("gitea merges a change when asked");
+		).toContain("gitea isn't known here to land every change through a queue");
+		expect(gateRan, "the gate never ran").toBe(false);
 		expect(merges, "nothing merges").toEqual([]);
 	});
 
