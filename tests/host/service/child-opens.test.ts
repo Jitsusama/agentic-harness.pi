@@ -226,6 +226,22 @@ describe("a new conversation", () => {
 		).toBeLessThan(3_000);
 	});
 
+	it("gives up on a starved child at its listen time, since its caller waits on it", async () => {
+		superviseAgain({ clocks: { listensWithinMs: 300 } });
+		units.next = { neverListens: true };
+		units.spent = 0;
+		const asked = Date.now();
+
+		await expect(supervisor.begin(opening("open-16"))).rejects.toThrow(
+			/did not listen within 300 ms$/,
+		);
+		expect(
+			Date.now() - asked,
+			"within its listen time, not a starved child's",
+		).toBeLessThan(3_000);
+		expect(units.cpuAsks, "its refusal not held up by asking systemd").toBe(0);
+	});
+
 	it("ends a begin as soon as the host stops watching during its ask", async () => {
 		superviseAgain({ clocks: { answersWithinMs: 5_000 } });
 		units.next = { silent: true };
@@ -387,6 +403,42 @@ describe("a host starting again", () => {
 			`${slot.unit}: gave its watch no answer, try 1 of 3`,
 			`${slot.unit}: gave its watch no answer, try 2 of 3`,
 		]);
+	});
+
+	it("gives up a starved child it takes up at its listen time, so its start goes on", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, starvedWithinMs: 10_000 },
+		});
+		const slot = slotOf(folder, key, a);
+		await writeSlot(slot, entry(a));
+		units.next = { neverListens: true };
+		// Growing, as a starved child's CPU does, so only a bound gives it up.
+		let spent = 180;
+		units.spent = () => {
+			spent += 20;
+			return spent;
+		};
+		await units.start(slot.unit);
+		const asked = Date.now();
+
+		expect(await supervisor.adopt(), "none taken up").toBe(0);
+
+		expect(Date.now() - asked, "at its listen time").toBeLessThan(3_000);
+	});
+
+	it("gives a child it takes up its own time to answer, past its listen time", async () => {
+		superviseAgain({
+			clocks: { listensWithinMs: 300, answersWithinMs: 5_000 },
+		});
+		const slot = slotOf(folder, key, a);
+		await writeSlot(slot, entry(a));
+		units.next = { answersWatchAfterMs: 1_000 };
+		await units.start(slot.unit);
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(routes.routeOf(a)).toBeDefined();
+		expect(units.stopped).toEqual([]);
 	});
 
 	it("starts no child for a conversation still leaving a slot named by another id", async () => {

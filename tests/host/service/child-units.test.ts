@@ -119,6 +119,26 @@ describe("a child's unit, as systemd says", () => {
 		}
 	});
 
+	it("says the CPU a unit spent, in whole ms, as systemd accounts it", async () => {
+		const { asked, units } = saying("CPUUsageNSec=1234567890\n");
+
+		expect(await units.cpuSpentMs(unit)).toBe(1_234);
+		expect(asked).toEqual([["show", "--property=CPUUsageNSec", unit]]);
+	});
+
+	it("says no CPU when systemd keeps no account of it, or won't say", async () => {
+		for (const said of [
+			"CPUUsageNSec=[not set]\n",
+			"CPUUsageNSec=18446744073709551615\n",
+			"CPUUsageNSec=\n",
+			"",
+		]) {
+			const { units } = saying(said);
+			expect(await units.cpuSpentMs(unit), said).toBeUndefined();
+		}
+		expect(await saying("", 5).units.cpuSpentMs(unit)).toBeUndefined();
+	});
+
 	it("starts and stops without waiting on the job, and says when systemd won't", async () => {
 		const { asked, units } = saying("");
 		await units.start(unit);

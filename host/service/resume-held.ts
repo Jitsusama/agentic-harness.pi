@@ -194,8 +194,13 @@ export async function resumeHeld(options: {
 			}
 			if (resumed.length > 0) await options.admitAnother?.();
 			mark("gate");
+			// Bounded, since these go a few at a time: a starved child waited
+			// on here would hold the resumes behind it, and its wake brings it
+			// back once a message or a window asks. One a wake pulled forward
+			// is bounded too: given up, that wake finds it not running and
+			// resumes it itself, waiting while it starves.
 			if (options.children?.moves(sessionId))
-				await options.children.resume(entry, false);
+				await options.children.resume(entry, false, true);
 			else {
 				// A child an earlier host left, which the adopt couldn't take
 				// up, may run it still: never two processes on one file.

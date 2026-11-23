@@ -64,6 +64,7 @@ import {
 	reach,
 	unsettledReply,
 } from "./child-requests.ts";
+import { type Doing, type Starvation, starvation } from "./child-starvation.ts";
 import {
 	clearSlot,
 	forsakeSlot,
@@ -100,9 +101,30 @@ export type KeptRoster = Pick<
  */
 export const LISTENS_WITHIN_MS = 60_000;
 /**
+ * How much CPU a child may spend before it listens and still be waited
+ * on past its listen time, when nobody waits on it, and again from then
+ * until it answers its watch. One that took 142 s
+ * to resume on 22 November, at a load near 130, had spent about 1.3 s
+ * when it listened; across that day's 461 starts the wall clock to the
+ * host's first line was 17 s at the median and 57 s at p99, and two
+ * wakes that passed 60 s were lost. A child that spent this much without
+ * listening is stuck, not starved.
+ */
+export const LISTENS_WITHIN_CPU_MS = 20_000;
+/**
+ * How long a starved child is waited on in all, listening and then
+ * answering its watch, when nobody waits on it: a wake that lands late
+ * keeps its conversation, where one given up on leaves it parked with
+ * nothing watching its wake.
+ */
+export const STARVED_WITHIN_MS = 600_000;
+/**
  * How long a listening child may take to answer its first request: an
  * open builds its conversation before it answers, so as long as a
- * child may take to listen.
+ * child may take to listen. A starved one nobody waits on is judged
+ * past it, as it was past its listen time (child-starvation.ts): from
+ * 21 to 23 November, 33 resumes failed for a watch given no answer
+ * within it, against 11 for a child that didn't listen within its own.
  */
 export const ANSWERS_WITHIN_MS = 60_000;
 /**
@@ -159,9 +181,16 @@ export interface ChildSupervisor {
 	 * wake of its park asked for it. A host adopts what its last left
 	 * before it resumes anything, since a resume before the first adopt
 	 * waits on no slot of the last host's, and could start a second child
-	 * beside one running the conversation.
+	 * beside one running the conversation. `bounded` gives a child that
+	 * hasn't listened within the listen time up, starved or not, for a
+	 * caller that can't wait on it, as the host's start, which resumes one
+	 * at a time.
 	 */
-	resume(entry: RosterEntry, woken?: boolean): Promise<SessionIdentity>;
+	resume(
+		entry: RosterEntry,
+		woken?: boolean,
+		bounded?: boolean,
+	): Promise<SessionIdentity>;
 	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it, or with
@@ -209,6 +238,32 @@ function notListening(error: unknown): boolean {
 	return code === "ENOENT" || code === "ECONNREFUSED";
 }
 
+/** A child judged on listening, as `once` judges one past its listen time. */
+function listening(slot: Slot): Doing {
+	return {
+		hasnt: "hasn't listened",
+		did: "listened",
+		since: "",
+		failed: (within, why) =>
+			new Error(`${slot.unit} did not listen within ${within} ms${why}`),
+	};
+}
+
+/**
+ * A child judged on answering its watch once it listens, its CPU
+ * counted from a second into the watch; given up, it took its watch
+ * and gave no answer in time, as a busy one may.
+ */
+const ANSWERING: Doing = {
+	hasnt: "hasn't answered its watch",
+	did: "answered its watch",
+	since: " since it was watched",
+	failed: (within, why) =>
+		new Unanswered(
+			`The child gave its watch no answer within ${within} ms${why}`,
+		),
+};
+
 function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -253,6 +308,11 @@ interface Holding {
 	asked?: Vouched;
 	/** When the watch must have its answer by, as a time. */
 	by?: number;
+	/**
+	 * Whether its child is given up at its listen time, starved or not,
+	 * as a host's start does, though its answer still has its own time.
+	 */
+	bounded?: boolean;
 }
 
 /**
@@ -304,6 +364,8 @@ export function childSupervisor(options: {
 	exitsWithinMs?: number;
 	beginsWithinMs?: number;
 	unsettledWithinMs?: number;
+	listensWithinCpuMs?: number;
+	starvedWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	// Refused now rather than at each start, for a key too long to fit.
@@ -313,6 +375,9 @@ export function childSupervisor(options: {
 	const exitsWithinMs = options.exitsWithinMs ?? EXITS_WITHIN_MS;
 	const beginsWithinMs = options.beginsWithinMs ?? BEGINS_WITHIN_MS;
 	const unsettledWithinMs = options.unsettledWithinMs ?? UNSETTLED_WITHIN_MS;
+	const listensWithinCpuMs =
+		options.listensWithinCpuMs ?? LISTENS_WITHIN_CPU_MS;
+	const starvedWithinMs = options.starvedWithinMs ?? STARVED_WITHIN_MS;
 	const watches = new Set<ChildWatch>();
 	// Aborted as the host stops watching, ending each watch not yet answered.
 	const stopping = new AbortController();
@@ -478,27 +543,124 @@ export function childSupervisor(options: {
 			);
 	}
 
+	/** The CPU `unit` has spent, in ms, or undefined when systemd won't say. */
+	async function cpuSaid(unit: string): Promise<number | undefined> {
+		try {
+			return await units.cpuSpentMs(unit);
+		} catch {
+			// A systemd that fails to say has said nothing, as a loaded one may.
+			return undefined;
+		}
+	}
+
+	/**
+	 * Wait on `answer`, a listening child's answer to its watch, for the
+	 * child's answer time, or until `by` when that comes sooner. A bounded
+	 * one is given up then; one nobody waits on, a wake or a later resume,
+	 * builds its conversation before it answers, as slowly as a starved
+	 * child listens, so it is judged as `once` judges one that hasn't
+	 * listened, by the CPU it gains while watched, until `ceiling`.
+	 */
+	async function answered<T>(
+		slot: Slot,
+		{ by, bounded, ceiling }: { by: number; bounded: boolean; ceiling: number },
+		answer: (answerMs: number, signal: AbortSignal) => Promise<T>,
+	): Promise<T> {
+		const began = Date.now();
+		const ms = Math.max(1, Math.min(answersWithinMs, by - began));
+		if (bounded) return answer(ms, stopping.signal);
+		const until = Math.max(ceiling, began + ms);
+		const givenUp = new AbortController();
+		let settled = false;
+		let judge: Starvation | undefined;
+		// Judged only once its watch has waited a second, so the tries of a
+		// child not yet listening, ten a second, never ask systemd.
+		const judging = (async () => {
+			await pause(ASKED_EVERY_MS);
+			if (settled) return;
+			const from = await cpuSaid(slot.unit);
+			judge = starvation({
+				unit: slot.unit,
+				doing: ANSWERING,
+				began,
+				ms,
+				ceiling: until,
+				cpuMs: listensWithinCpuMs,
+				everyMs: ASKED_EVERY_MS,
+				spent: () => units.cpuSpentMs(slot.unit),
+				// Counted from none when systemd won't say where it began.
+				...(from !== undefined ? { from } : {}),
+				...(options.say ? { say: options.say } : {}),
+			});
+			while (!settled) {
+				const left = judge.until - Date.now();
+				if (left > 0) await pause(Math.min(ASKED_EVERY_MS, left));
+				else await judge.overdue();
+			}
+		})().catch((error: unknown) => givenUp.abort(error));
+		try {
+			// Its own time is a backstop past the judge's, which gives up first.
+			const result = await answer(
+				until - began + ASKED_EVERY_MS,
+				AbortSignal.any([stopping.signal, givenUp.signal]),
+			);
+			judge?.done();
+			return result;
+		} finally {
+			settled = true;
+			void judging;
+		}
+	}
+
 	/**
 	 * Try `attempt` until the child at its socket listens, the time runs
 	 * out, by `by` when that comes sooner, its unit is found to have gone,
-	 * asked once a second, or the host stops watching.
+	 * asked once a second, or the host stops watching. A `by` is a caller
+	 * that gives up then, a begin, so its child is given up then too, and
+	 * so is a `bounded` one, a host starting's, at its listen time. With
+	 * neither, a wake or a later resume, whoever waits says its own wait
+	 * (a window's attach journals each one) rather than giving up, so a
+	 * child past its time that has had little CPU is starved by a busy
+	 * machine rather than stuck, and waited on as `starvation` judges,
+	 * until STARVED_WITHIN_MS has passed, which `attempt` is given so its
+	 * answer shares it.
 	 */
 	async function once<T>(
 		slot: Slot,
-		attempt: () => Promise<T>,
+		attempt: (ceiling: number) => Promise<T>,
 		by = Number.POSITIVE_INFINITY,
+		bounded = by !== Number.POSITIVE_INFINITY,
 	): Promise<T> {
-		const ms = Math.max(0, Math.min(withinMs, by - Date.now()));
-		const until = Date.now() + ms;
+		const began = Date.now();
+		const ms = Math.max(0, Math.min(withinMs, by - began));
+		const ceiling = began + Math.max(ms, starvedWithinMs);
+		const judge = starvation({
+			unit: slot.unit,
+			doing: listening(slot),
+			began,
+			ms,
+			ceiling,
+			cpuMs: listensWithinCpuMs,
+			everyMs: ASKED_EVERY_MS,
+			spent: () => units.cpuSpentMs(slot.unit),
+			...(options.say ? { say: options.say } : {}),
+		});
 		let asked = Date.now();
 		for (;;) {
 			stillWatching();
 			try {
-				return await attempt();
+				const result = await attempt(ceiling);
+				judge.done();
+				return result;
 			} catch (error) {
 				if (!notListening(error)) throw error;
-				if (Date.now() >= until)
-					throw new Error(`${slot.unit} did not listen within ${ms} ms`);
+				if (Date.now() >= judge.until) {
+					// A begin's caller gives up at its bound, so asking systemd
+					// first would only make its refusal late.
+					if (bounded)
+						throw new Error(`${slot.unit} did not listen within ${ms} ms`);
+					await judge.overdue();
+				}
 			}
 			if (Date.now() - asked >= ASKED_EVERY_MS) {
 				asked = Date.now();
@@ -716,6 +878,8 @@ export function childSupervisor(options: {
 			fresh,
 			asked,
 			by = Number.POSITIVE_INFINITY,
+			// A caller's `by` bounds its child too, as `once` takes it.
+			bounded = by !== Number.POSITIVE_INFINITY,
 		} = holding;
 		let current: string | undefined;
 		let over = false;
@@ -786,139 +950,142 @@ export function childSupervisor(options: {
 		}
 		const watching = await once(
 			slot,
-			() =>
-				watchChild(
-					slot.socket,
-					Math.max(1, Math.min(answersWithinMs, by - Date.now())),
-					{
-						watched(answer) {
-							const { host, conversation, entry } = answer;
-							const why = refusing(answer);
-							if (why) {
-								refused = new Error(`${slot.unit} ${why}`);
-								// It runs what it answered until it is stopped, so a
-								// resume of that waits, and a later host stops it.
-								markRunning(conversation.sessionId);
-								return;
-							}
-							const { sessionId } = conversation;
-							current = sessionId;
-							const moved =
-								named === undefined || keyed(named) !== keyed(sessionId);
-							// What its file named runs here no longer.
-							if (moved && named !== undefined) runsNoLongerIn(named, slot);
-							runsIn(sessionId, slot);
-							routes.hold(conversation, {
-								socket: slot.socket,
-								identity: host,
-							});
-							first = kept.then(async () => {
-								// What the roster holds of where it came from: what its
-								// slot names, or what that became from, as a host ending
-								// between naming a became and replacing it leaves it.
-								const from = heldAs(named) ?? heldAs(becameFrom);
-								const holds = vouched(
-									entry,
-									from !== undefined ? heldEntry(from) : asked,
+			(ceiling) =>
+				answered(slot, { by, bounded, ceiling }, (answerMs, signal) =>
+					watchChild(
+						slot.socket,
+						answerMs,
+						{
+							watched(answer) {
+								const { host, conversation, entry } = answer;
+								const why = refusing(answer);
+								if (why) {
+									refused = new Error(`${slot.unit} ${why}`);
+									// It runs what it answered until it is stopped, so a
+									// resume of that waits, and a later host stops it.
+									markRunning(conversation.sessionId);
+									return;
+								}
+								const { sessionId } = conversation;
+								current = sessionId;
+								const moved =
+									named === undefined || keyed(named) !== keyed(sessionId);
+								// What its file named runs here no longer.
+								if (moved && named !== undefined) runsNoLongerIn(named, slot);
+								runsIn(sessionId, slot);
+								routes.hold(conversation, {
+									socket: slot.socket,
+									identity: host,
+								});
+								first = kept.then(async () => {
+									// What the roster holds of where it came from: what its
+									// slot names, or what that became from, as a host ending
+									// between naming a became and replacing it leaves it.
+									const from = heldAs(named) ?? heldAs(becameFrom);
+									const holds = vouched(
+										entry,
+										from !== undefined ? heldEntry(from) : asked,
+									);
+									// Named first, with what it was, so a host ending
+									// before the roster changes leaves the next one's adopt
+									// holding a start of it back and replacing what it was,
+									// rather than holding both.
+									if (moved) await writeSlot(slot, holds, false, named);
+									if (!held(sessionId)) {
+										if (from !== undefined) await roster.replace(from, holds);
+										else await roster.hold(holds);
+									}
+								});
+								// Its failure is the watch's, thrown below.
+								kept = first.catch(() => undefined);
+							},
+							state: (conversation) => {
+								if (conversation.sessionId === current)
+									routes.update(conversation);
+							},
+							became(previousId, conversation, entry) {
+								const next = conversation.sessionId;
+								// A child speaks for its own conversation alone, and
+								// can't become one the roster or another child has.
+								const its =
+									current !== undefined && keyed(previousId) === keyed(current);
+								const why = !its
+									? `said ${previousId} became another, but runs ${current}`
+									: keyed(entry.sessionId) !== keyed(next)
+										? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
+										: elsewhere(slot, next)
+											? `said ${previousId} became ${next}, which another child runs`
+											: keyed(next) !== keyed(previousId) && held(next)
+												? `said ${previousId} became ${next}, which the roster holds already`
+												: undefined;
+								if (forsaken) return;
+								if (why) {
+									options.report(new Error(`${slot.unit} ${why}`));
+									// Word on another conversation is passed over; one that
+									// left its own runs `next` all the same, wherever else.
+									if (its) forsake(next, why);
+									return;
+								}
+								// Its route and hold are under the spelling first answered.
+								const left = current ?? previousId;
+								const was = routes.routeOf(left);
+								dropOwn(left);
+								runsNoLongerIn(left, slot);
+								current = next;
+								runsIn(next, slot);
+								if (was) routes.hold(conversation, was);
+								keep(async () => {
+									try {
+										// It keeps what the host held of what it was.
+										const before = heldEntry(left);
+										const holds = vouched(entry, before);
+										// Named first, as a first answer's is, with what it
+										// was, so a host ending before the roster changes
+										// leaves the next one to replace it, not hold both.
+										await writeSlot(slot, holds, false, left);
+										if (before) await roster.replace(before.sessionId, holds);
+										else await roster.hold(holds);
+									} catch (error) {
+										// Unheld, so stopped: nothing runs a conversation no
+										// later host would resume.
+										if (current === next)
+											forsake(next, `became ${next}, which couldn't be held`);
+										throw error;
+									}
+								});
+							},
+							ended(why) {
+								over = true;
+								// A forsaken child is left already, and said nothing true.
+								if (forsaken) return;
+								if (current) dropOwn(current);
+								// One refused as it ended may run on: it is stopped.
+								const left = leave(
+									slot,
+									why === "failed" || refused !== undefined,
 								);
-								// Named first, with what it was, so a host ending
-								// before the roster changes leaves the next one's adopt
-								// holding a start of it back and replacing what it was,
-								// rather than holding both.
-								if (moved) await writeSlot(slot, holds, false, named);
-								if (!held(sessionId)) {
-									if (from !== undefined) await roster.replace(from, holds);
-									else await roster.hold(holds);
-								}
-							});
-							// Its failure is the watch's, thrown below.
-							kept = first.catch(() => undefined);
+								if (!current) return;
+								const gone = current;
+								leftBy.set(keyed(gone), left);
+								void left.then(() => {
+									if (leftBy.get(keyed(gone)) === left)
+										leftBy.delete(keyed(gone));
+								});
+								if (why === "closed" || why === "released")
+									keep(() => roster.drop(heldAs(gone) ?? gone));
+								options.say?.(
+									`${sessionAddress(current)} (${current}): its process ended, ${why}`,
+								);
+								options.ended?.(current, why);
+							},
+							misread: (error) =>
+								options.report(new Error(`${slot.unit} ${error.message}`)),
 						},
-						state: (conversation) => {
-							if (conversation.sessionId === current)
-								routes.update(conversation);
-						},
-						became(previousId, conversation, entry) {
-							const next = conversation.sessionId;
-							// A child speaks for its own conversation alone, and
-							// can't become one the roster or another child has.
-							const its =
-								current !== undefined && keyed(previousId) === keyed(current);
-							const why = !its
-								? `said ${previousId} became another, but runs ${current}`
-								: keyed(entry.sessionId) !== keyed(next)
-									? `said ${previousId} became ${next}, but holds ${entry.sessionId}`
-									: elsewhere(slot, next)
-										? `said ${previousId} became ${next}, which another child runs`
-										: keyed(next) !== keyed(previousId) && held(next)
-											? `said ${previousId} became ${next}, which the roster holds already`
-											: undefined;
-							if (forsaken) return;
-							if (why) {
-								options.report(new Error(`${slot.unit} ${why}`));
-								// Word on another conversation is passed over; one that
-								// left its own runs `next` all the same, wherever else.
-								if (its) forsake(next, why);
-								return;
-							}
-							// Its route and hold are under the spelling first answered.
-							const left = current ?? previousId;
-							const was = routes.routeOf(left);
-							dropOwn(left);
-							runsNoLongerIn(left, slot);
-							current = next;
-							runsIn(next, slot);
-							if (was) routes.hold(conversation, was);
-							keep(async () => {
-								try {
-									// It keeps what the host held of what it was.
-									const before = heldEntry(left);
-									const holds = vouched(entry, before);
-									// Named first, as a first answer's is, with what it
-									// was, so a host ending before the roster changes
-									// leaves the next one to replace it, not hold both.
-									await writeSlot(slot, holds, false, left);
-									if (before) await roster.replace(before.sessionId, holds);
-									else await roster.hold(holds);
-								} catch (error) {
-									// Unheld, so stopped: nothing runs a conversation no
-									// later host would resume.
-									if (current === next)
-										forsake(next, `became ${next}, which couldn't be held`);
-									throw error;
-								}
-							});
-						},
-						ended(why) {
-							over = true;
-							// A forsaken child is left already, and said nothing true.
-							if (forsaken) return;
-							if (current) dropOwn(current);
-							// One refused as it ended may run on: it is stopped.
-							const left = leave(
-								slot,
-								why === "failed" || refused !== undefined,
-							);
-							if (!current) return;
-							const gone = current;
-							leftBy.set(keyed(gone), left);
-							void left.then(() => {
-								if (leftBy.get(keyed(gone)) === left)
-									leftBy.delete(keyed(gone));
-							});
-							if (why === "closed" || why === "released")
-								keep(() => roster.drop(heldAs(gone) ?? gone));
-							options.say?.(
-								`${sessionAddress(current)} (${current}): its process ended, ${why}`,
-							);
-							options.ended?.(current, why);
-						},
-						misread: (error) =>
-							options.report(new Error(`${slot.unit} ${error.message}`)),
-					},
-					stopping.signal,
+						signal,
+					),
 				),
 			by,
+			bounded,
 		);
 		try {
 			if (refused) throw refused;
@@ -982,6 +1149,7 @@ export function childSupervisor(options: {
 	async function started(
 		entry: RosterEntry,
 		woken: boolean,
+		bounded: boolean,
 	): Promise<SessionIdentity> {
 		await listing;
 		const { sessionId } = entry;
@@ -1009,8 +1177,13 @@ export function childSupervisor(options: {
 			entry,
 			woken,
 			async () =>
-				(await watch(slot, { expected: sessionId, named: sessionId }))
-					.conversation,
+				(
+					await watch(slot, {
+						expected: sessionId,
+						named: sessionId,
+						bounded,
+					})
+				).conversation,
 		);
 	}
 
@@ -1043,7 +1216,9 @@ export function childSupervisor(options: {
 		}
 		for (let tries = 1; ; tries += 1) {
 			try {
-				await watch(slot, { named, was });
+				// Bounded, since the host's start awaits every take-up before it
+				// resumes anything.
+				await watch(slot, { named, was, bounded: true });
 				return true;
 			} catch (error) {
 				if (closing) throw error;
@@ -1176,11 +1351,11 @@ export function childSupervisor(options: {
 	}
 
 	return {
-		resume(entry, woken = false) {
+		resume(entry, woken = false, bounded = false) {
 			const { sessionId } = entry;
 			const already = starting.get(keyed(sessionId));
 			if (already) return already;
-			const start = started(entry, woken).finally(() =>
+			const start = started(entry, woken, bounded).finally(() =>
 				starting.delete(keyed(sessionId)),
 			);
 			starting.set(keyed(sessionId), start);
