@@ -86,7 +86,7 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		]);
 	});
 
-	it("keeps a notice said before any session has a screen, and shows it in each at the next turn", async () => {
+	it("keeps a notice said before a session has a screen for its first turn with one, though another session showed it", async () => {
 		const first = session();
 		const second = session();
 		await first.start();
@@ -95,13 +95,30 @@ describe("keepCredentialsInKeyring, under pi's own runner", () => {
 		const firstScreen = screen();
 		const secondScreen = screen();
 		first.runner.setUIContext(firstScreen.ui, "tui");
-		second.runner.setUIContext(secondScreen.ui, "tui");
 		await turn(first.runner);
+		expect([firstScreen.told, secondScreen.told]).toEqual([
+			["warning: keyring locked"],
+			[],
+		]);
+		second.runner.setUIContext(secondScreen.ui, "tui");
 		await turn(second.runner);
+		await turn(first.runner);
 		expect([firstScreen.told, secondScreen.told]).toEqual([
 			["warning: keyring locked"],
 			["warning: keyring locked"],
 		]);
+	});
+
+	it("shows the same words once in a session across a reload", async () => {
+		const one = session();
+		const shown = screen();
+		one.runner.setUIContext(shown.ui, "tui");
+		await one.start();
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		await one.runner.emit({ type: "session_start", reason: "reload" });
+		sayKeyringNotice({ level: "warning", message: "keyring locked" });
+		expect(shown.told).toEqual(["warning: keyring locked"]);
+		expect(one.errors).toEqual([]);
 	});
 
 	it("stops showing notices in a session that ended, keeping them for the next", async () => {

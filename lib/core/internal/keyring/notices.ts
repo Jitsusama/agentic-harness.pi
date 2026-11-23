@@ -15,8 +15,10 @@
  * A listener with nowhere to show a notice declines it, and one that
  * throws leaves it to the next listener on its screen; either way the
  * words aren't marked shown there, so they show when said again. A
- * notice no screen took waits: the next listener to come takes it, and
- * each retry offers it to every screen.
+ * notice waits until every screen listening has it: each retry, and each
+ * listener that comes, offers it again to the screens still without it.
+ * A screen that never shows it keeps it waiting, held once however
+ * often it is said.
  */
 
 /** One thing to tell the person. */
@@ -26,14 +28,15 @@ export interface KeyringNotice {
 }
 
 /**
- * Shows a notice. Answering false declines it, having nowhere to show
- * it; any other answer means it was shown.
+ * Shows a notice, at once rather than in a promise. Answering false
+ * declines it, having nowhere to show it; answering nothing or true
+ * means it was shown.
  */
-type Listener = (notice: KeyringNotice) => unknown;
+type Listener = (notice: KeyringNotice) => boolean | undefined;
 
 /** Each listener, beside the screen it shows notices on. */
 const listeners = new Map<Listener, object>();
-/** What no screen took yet, for the next listener. */
+/** What some screen listening, or the next to listen, hasn't shown yet. */
 const waiting: KeyringNotice[] = [];
 /** The words each screen has shown. */
 let shownOn = new WeakMap<object, Set<string>>();
@@ -63,18 +66,24 @@ function show(listener: Listener, screen: object, notice: KeyringNotice) {
 	return true;
 }
 
-/** Keep `notice` for the next listener, once. */
+/** Keep `notice` for a later offer, once, however often it is said. */
 function wait(notice: KeyringNotice): void {
 	if (!waiting.some((each) => each.message === notice.message))
 		waiting.push(notice);
 }
 
-/** Offer `notice` to each screen that hasn't shown it; answers whether one took it. */
+/**
+ * Offer `notice` to each screen that hasn't shown it. Answers whether
+ * every screen listening has it now, and false when none listens.
+ */
 function offer(notice: KeyringNotice): boolean {
-	let taken = false;
+	const lacking = new Set<object>();
+	const having = new Set<object>();
 	for (const [listener, screen] of listeners)
-		if (show(listener, screen, notice)) taken = true;
-	return taken;
+		if (show(listener, screen, notice)) having.add(screen);
+		else lacking.add(screen);
+	for (const screen of having) lacking.delete(screen);
+	return having.size > 0 && lacking.size === 0;
 }
 
 /** Tell each screen that hasn't heard it, or the next listener to come. */
@@ -88,17 +97,16 @@ export function retryKeyringNotices(): void {
 }
 
 /**
- * Hear every notice from now on, and those waiting for a listener, on
- * `screen`, which shows the same words once whichever of its listeners
- * hears them. Answers the function that stops listening.
+ * Hear every notice from now on, and those still waiting, on `screen`,
+ * which shows the same words once whichever of its listeners hears
+ * them. Answers the function that stops listening.
  */
 export function onKeyringNotice(
 	listener: Listener,
 	screen: object = listener,
 ): () => void {
 	listeners.set(listener, screen);
-	for (const notice of waiting.splice(0))
-		if (!show(listener, screen, notice)) wait(notice);
+	retryKeyringNotices();
 	return () => {
 		listeners.delete(listener);
 	};

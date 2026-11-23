@@ -53,7 +53,9 @@ describe("credentialsDocument", () => {
 		store = memorySecretStore();
 		resetKeyringNotices();
 		notices = [];
-		onKeyringNotice((notice) => notices.push(notice));
+		onKeyringNotice((notice) => {
+			notices.push(notice);
+		});
 	});
 
 	afterEach(() => {
@@ -156,7 +158,9 @@ describe("credentialsDocument", () => {
 		await document().read();
 
 		const heard: KeyringNotice[] = [];
-		onKeyringNotice((notice) => heard.push(notice));
+		onKeyringNotice((notice) => {
+			heard.push(notice);
+		});
 
 		expect(heard).toHaveLength(1);
 	});

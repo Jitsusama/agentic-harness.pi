@@ -10,6 +10,7 @@ import {
 function hearing(heard: string[], name: string) {
 	return (notice: { message: string }) => {
 		heard.push(`${name}: ${notice.message}`);
+		return true;
 	};
 }
 
@@ -117,20 +118,58 @@ describe("keyring notices", () => {
 		expect(heard).toEqual(["second: moved"]);
 	});
 
-	it("leaves a notice a listener declined unshown there, waiting for a retry", () => {
+	it("keeps a notice a listener declined waiting through each retry it declines, and shows it at the first it takes, once", () => {
 		const heard: string[] = [];
-		let bound = false;
-		onKeyringNotice((notice) => {
-			if (!bound) return false;
-			heard.push(notice.message);
-			return true;
+		const unbound = { bound: false };
+		onKeyringNotice(unboundUntil(unbound, heard, "late"), {});
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		retryKeyringNotices();
+		retryKeyringNotices();
+		expect(heard).toEqual([]);
+		unbound.bound = true;
+		retryKeyringNotices();
+		expect(heard).toEqual(["late: locked"]);
+		retryKeyringNotices();
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		expect(heard).toEqual(["late: locked"]);
+	});
+
+	it("keeps a notice for a screen that declined it while another took it", () => {
+		const heard: string[] = [];
+		const unbound = { bound: false };
+		onKeyringNotice(hearing(heard, "bound"), {});
+		onKeyringNotice(unboundUntil(unbound, heard, "late"), {});
+		sayKeyringNotice({ level: "warning", message: "locked" });
+		expect(heard).toEqual(["bound: locked"]);
+		unbound.bound = true;
+		retryKeyringNotices();
+		retryKeyringNotices();
+		expect(heard).toEqual(["bound: locked", "late: locked"]);
+	});
+
+	it("holds a notice said many times to a screen that keeps declining once, so each retry offers it once", () => {
+		let offered = 0;
+		onKeyringNotice(() => {
+			offered++;
+			return false;
 		}, {});
-		sayKeyringNotice({ level: "warning", message: "locked" });
+		for (let said = 0; said < 50; said++)
+			sayKeyringNotice({ level: "warning", message: "locked" });
+		const before = offered;
 		retryKeyringNotices();
-		bound = true;
-		retryKeyringNotices();
-		retryKeyringNotices();
-		sayKeyringNotice({ level: "warning", message: "locked" });
-		expect(heard).toEqual(["locked"]);
+		expect(offered - before).toBe(1);
 	});
 });
+
+/** A listener that declines until `unbound.bound`, then keeps what it hears in `heard`, under `name`. */
+function unboundUntil(
+	unbound: { bound: boolean },
+	heard: string[],
+	name: string,
+) {
+	return (notice: { message: string }) => {
+		if (!unbound.bound) return false;
+		heard.push(`${name}: ${notice.message}`);
+		return true;
+	};
+}
