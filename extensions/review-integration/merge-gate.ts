@@ -79,7 +79,7 @@ const GATE_KEYS = new Set(["command", "minutes", "base"]);
 const QUEUED_FORGES = new Set(["delta"]);
 
 /** How a gate is named, for a message saying it was named wrongly. */
-const GATE_FORMS = `a command, or { "command": ..., "minutes": ..., "base": "queued" } with minutes a whole number from 1 to ${MOST_GATE_MINUTES}`;
+const GATE_FORMS = `a command, or { "command": ..., "minutes": ..., "base": "queued" } with minutes a whole number from 1 to ${MOST_GATE_MINUTES} and base queued only on ${[...QUEUED_FORGES].join(", ")}`;
 
 /** The gate a repo names, or why the config can't be read for one. */
 export type GateFor =

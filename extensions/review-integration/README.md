@@ -251,9 +251,11 @@ any gate's is:
   { "command": "zone-gate ready", "base": "queued" } } } }
 ```
 
-Only a forge whose merges go through a queue may say it; on any
-other, such as `github`, the gate is refused as unreadable, since
-there the base its gate read is the one the change lands on.
+Only a forge known here to land every change through a queue may
+say it, and today that is `delta` alone. On any other the gate is
+refused as unreadable when a merge is asked, since the base its
+gate read may be the one the change lands on. A queued change that
+names no base is still refused.
 
 ### Councils Mirrored From Another Machine
 
