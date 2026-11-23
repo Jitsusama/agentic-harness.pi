@@ -982,8 +982,10 @@ function clockWait(): void {
 				// stood, so it starts just past one: then a wait two seconds
 				// long, and one more, ends near three seconds on, and one
 				// without that one near two, rather than anywhere between.
-				while (Date.now() % 1_000 > SECOND_STARTS_MS)
+				while (Date.now() % 1_000 > SECOND_STARTS_MS) {
+					// The clock itself is what's waited on, a few ms a look.
 					await new Promise((done) => setTimeout(done, 5));
+				}
 				const asked = Date.now();
 				const waiter = await ended(
 					check(
