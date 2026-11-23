@@ -116,7 +116,7 @@ export function recordKeptJob(job: KeptJob): void {
 			if (!isTaken(error)) throw error;
 			// One left by a write that died, or put there by whatever can write
 			// the folder: taken away, not written through.
-			rmSync(staged, { force: true });
+			clearStaged(staged);
 			try {
 				writeFileSync(staged, record, { mode: FILE_MODE, flag: NEW_ONLY });
 			} catch (again) {
@@ -127,8 +127,9 @@ export function recordKeptJob(job: KeptJob): void {
 		renameSync(staged, file);
 		ownJobRecord(job.work.keep, record);
 	} catch (error) {
-		rmSync(staged, { force: true });
-		// Its files went as it ended: nothing is left to take up or say.
+		clearStaged(staged);
+		// The kept folder is gone, which only a hand outside this code does:
+		// nothing is left to take up or say.
 		if (isMissing(error)) return;
 		const why = error instanceof Error ? error.message : String(error);
 		process.stderr.write(
@@ -137,9 +138,31 @@ export function recordKeptJob(job: KeptJob): void {
 	}
 }
 
-/** Take back the record of the call kept at `keep`, leaving it unspared. */
+/**
+ * Take away what a record's write left at `staged`, throwing nothing: a
+ * write that couldn't record its call says so, and a throw would leave
+ * its recorder unsaid.
+ */
+function clearStaged(staged: string): void {
+	try {
+		rmSync(staged, { force: true });
+	} catch {
+		// A folder at the name, or a disk refusing it: the write after it
+		// finds the name taken again, or the record is said unwritten, and
+		// the week's sweep tries the name again.
+	}
+}
+
+/**
+ * Take back the record of the call kept at `keep`, leaving it unspared,
+ * when this process holds one: a session's close takes back every call
+ * it recorded, nearly all gone with their files since, and one handed
+ * on is its taker's.
+ */
 export function forgetKeptJob(keep: string): void {
+	const owned = ownsJobRecord(keep);
 	letJobRecordGo(keep);
+	if (!owned) return;
 	try {
 		rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
 	} catch {
