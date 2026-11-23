@@ -12,11 +12,28 @@
  * carry, a snapshot of a commit a remote has, which the other machine
  * cuts again if it wants one; any other is refused and named, never a
  * reason to carry nothing, since the rest of the work still goes.
+ *
+ * A session file larger than the largest a mycelium share carries goes
+ * gzipped, named with `.gz`, which arriving unzips; any other goes as
+ * it is, so a machine whose harness can't unzip still takes it. One
+ * still larger once gzipped is refused, saying so, and no done file is
+ * written for it.
  */
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+	copyFileSync,
+	createReadStream,
+	createWriteStream,
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { constants, createGzip } from "node:zlib";
 import type { Exec } from "../../core/exec/index.ts";
 import { bundleTree, neededFrom } from "../../core/work/carry.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
@@ -51,7 +68,20 @@ export interface Carrying {
 	readonly fence?: FenceKind;
 	/** Its quest's remembered facts. */
 	readonly notes?: readonly CarriedNote[];
+	/** The largest session file that goes as it is; `SHARE_LARGEST_FILE` unless a test names one. */
+	readonly largestFile?: number;
 }
+
+/**
+ * The largest file mycelium's share takes from a folder named for
+ * sharing, as its `LARGEST_FILE` (src/share/exchange.rs) says: 64 MiB,
+ * since the machine it lands on holds each file whole. A long-lived
+ * session's log passes it.
+ */
+export const SHARE_LARGEST_FILE = 64 * 1024 * 1024;
+
+/** What a gzipped session file's name ends in. */
+export const ZIPPED = ".gz";
 
 /** What became of one tree. */
 export type TreeCarried =
@@ -76,9 +106,17 @@ export interface CarriedAway {
  */
 export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 	const { exec, into, home, session } = carrying;
-	const trees = await carryTrees(exec, carrying.trees, into, home);
+	// The file first, so one refused leaves no tree's bundle for the share.
+	mkdirSync(into, { recursive: true });
 	const sessionFile =
-		session.file === undefined ? undefined : copyBeside(session.file, into);
+		session.file === undefined
+			? undefined
+			: await copyBeside(
+					session.file,
+					into,
+					carrying.largestFile ?? SHARE_LARGEST_FILE,
+				);
+	const trees = await carryTrees(exec, carrying.trees, into, home);
 	const handover: Handover = {
 		session: session.id,
 		quest: carrying.quest,
@@ -192,9 +230,52 @@ function nameFor(path: string): string {
 	return `${readable || "tree"}-${hash}`;
 }
 
-/** Copies a session's file beside the done file, answering its name there. */
-function copyBeside(file: string, into: string): string {
+/**
+ * Copies a session's file beside the done file, answering its name
+ * there: gzipped when it is larger than `largest`, so the share takes it.
+ * The gzip is written in the quest scratch's tmp/, which the share never
+ * reads, and renamed in whole, so the share never sees half of it; a
+ * gzip still over `largest` is refused, since the share would refuse it
+ * too. Each name drops the other form an earlier carry left.
+ */
+async function copyBeside(
+	file: string,
+	into: string,
+	largest: number,
+): Promise<string> {
 	const name = basename(file);
-	copyFileSync(file, join(into, name));
-	return name;
+	const zipped = `${name}${ZIPPED}`;
+	const size = statSync(file).size;
+	if (size <= largest) {
+		rmSync(join(into, zipped), { force: true });
+		copyFileSync(file, join(into, name));
+		return name;
+	}
+	const tmp = join(dirname(dirname(into)), "tmp");
+	mkdirSync(tmp, { recursive: true });
+	const staging = mkdtempSync(join(tmp, "carrying-"));
+	try {
+		const staged = join(staging, zipped);
+		await pipeline(
+			createReadStream(file),
+			createGzip({ level: constants.Z_BEST_COMPRESSION }),
+			createWriteStream(staged),
+		);
+		const gzipped = statSync(staged).size;
+		if (gzipped > largest) {
+			throw new Error(
+				`its file ${name} is ${mib(size)} MiB, and ${mib(gzipped)} MiB gzipped, still over the ${mib(largest)} MiB the share carries, so it stays here until the share takes larger files`,
+			);
+		}
+		renameSync(staged, join(into, zipped));
+		rmSync(join(into, name), { force: true });
+		return zipped;
+	} finally {
+		rmSync(staging, { recursive: true, force: true });
+	}
+}
+
+/** `bytes` in MiB, to one place. */
+function mib(bytes: number): string {
+	return (bytes / (1024 * 1024)).toFixed(1);
 }

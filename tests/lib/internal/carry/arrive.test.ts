@@ -23,6 +23,10 @@ import {
 	type Carrying,
 	carryAway,
 } from "../../../../lib/internal/carry/carry-away.ts";
+import {
+	doneFileOf,
+	readHandover,
+} from "../../../../lib/internal/carry/handover.ts";
 import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
 import { sessionFolderOf } from "../../../../lib/internal/quest/reopening/carried.ts";
 import { git } from "../../../support/git-fixture.ts";
@@ -61,7 +65,7 @@ function fakeClock(at: (now: number) => void = () => {}): Clock {
  */
 async function carried(
 	ranIn?: string,
-	moved: Pick<Carrying, "fence" | "notes"> = {},
+	moved: Pick<Carrying, "fence" | "notes" | "largestFile"> = {},
 ) {
 	const origin = await bareOrigin(made);
 	const leaving = folder(made, "leaving");
@@ -78,7 +82,7 @@ async function carried(
 	);
 	writeFileSync(
 		sessionFile,
-		`${JSON.stringify({ type: "session", id: SESSION, cwd })}\n{"type":"message"}\n`,
+		`${JSON.stringify({ type: "session", id: SESSION, cwd })}\n${'{"type":"message"}\n'.repeat(500)}`,
 	);
 	const from = join(folder(made, "scratch"), QUEST, "handover", "aquifer");
 	await carryAway({
@@ -163,6 +167,47 @@ describe("arriving with a carried session", () => {
 		expect(
 			JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd,
 		).toBe(tree);
+	});
+
+	it("unzips a session file carried gzipped and places it, leaving nothing in the scratch's tmp", async () => {
+		const { from } = await carried(undefined, { largestFile: 1000 });
+		const home = folder(made, "arriving");
+		const tree = join(home, "src", "app");
+		expect(
+			readHandover(doneFileOf(from, SESSION))?.sessionFile,
+			"it was carried gzipped",
+		).toBe(`2026-11-07_${SESSION}.jsonl.gz`);
+
+		const { whole, said, store } = await arriveAt(home, from);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: tree }],
+		});
+		expect(placedCwd(store, tree), "its file opens in the tree").toBe(tree);
+		const tmp = join(scratchOf(from), "tmp");
+		expect(
+			existsSync(tmp) ? readdirSync(tmp) : [],
+			"the unzipped copy is gone",
+		).toEqual([]);
+	});
+
+	it("places nothing from a gzipped session file that won't unzip, saying why", async () => {
+		const { from } = await carried(undefined, { largestFile: 1000 });
+		writeFileSync(join(from, `2026-11-07_${SESSION}.jsonl.gz`), "not gzip\n");
+		const home = folder(made, "arriving");
+
+		const { whole, said, store } = await arriveAt(home, from);
+
+		expect(whole, "a session not placed is not whole").toBe(false);
+		const failed = said.find((line) => line.kind === "failed");
+		expect(failed?.kind === "failed" ? failed.why : "").toContain(
+			`2026-11-07_${SESSION}.jsonl.gz couldn't be placed: `,
+		);
+		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
+		expect(readdirSync(store), "nothing placed").toEqual([]);
+		expect(readdirSync(join(scratchOf(from), "tmp"))).toEqual([]);
 	});
 
 	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {
