@@ -274,6 +274,45 @@ describe("this session's peer", () => {
 			expect(peer.wants).toMatchObject({ kind: "approval" });
 		});
 
+		it("names the person's steward, kept through a rewrite, and keeps its questions for it", () => {
+			const said = readme(MISSION, "null").replace(
+				"---\n#",
+				"steward: true\n---\n#",
+			);
+			const parsed = parseQuestFrontMatter(said);
+			if (!parsed) throw new Error("the README should parse");
+			write(
+				[
+					[
+						MISSION,
+						`${serializeQuestFrontMatter(parsed.frontMatter)}\n${parsed.body}`,
+					],
+					[LOOP, readme(LOOP, MISSION)],
+				],
+				LOOP,
+			);
+			const at = surroundings();
+			const peer = localPeer(at);
+			const since = new Date(0).toISOString();
+
+			peer.want({
+				id: wantId("question", since),
+				kind: "question",
+				since,
+				said: "Shall I merge it?",
+			});
+
+			expect(parsed.frontMatter.steward).toBe(true);
+			expect([peer.stewardedBy, peer.orchestratedBy]).toEqual([
+				"WCJQSG",
+				undefined,
+			]);
+			expect(
+				createPresences(join(root, "presence")).of(session)?.stewardedBy,
+			).toBe("WCJQSG");
+			expect(peer.wants).toBeUndefined();
+		});
+
 		it("lists every want standing, saying the question is its orchestrator's", () => {
 			write(
 				[

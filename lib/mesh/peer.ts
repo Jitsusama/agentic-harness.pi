@@ -109,6 +109,11 @@ export interface Peer {
 	 */
 	readonly orchestrates: string | undefined;
 	/**
+	 * The address of the person's steward above its quest, when one is:
+	 * who carries what needs the person, never work questions.
+	 */
+	readonly stewardedBy?: string;
+	/**
 	 * The address of the orchestration its quest heads, whether this
 	 * session plays the role or another on the quest does; a hub from use
 	 * above it would be a second voice over that work.
@@ -336,12 +341,12 @@ function titled(title: string | undefined): { title?: string } {
  * with the orchestrating quest's address does. That is the session that
  * had the quest first, since a later one leaves the address to it (see
  * address.ts), so two sessions on one orchestrating quest never both
- * play the role.
+ * play the role. And the person's steward above it, apart from both.
  */
 export function orchestrationRoles(
 	orchestration: Orchestration,
 	signature: string | undefined,
-): { orchestratedBy?: string; orchestrates?: string } {
+): Roles {
 	const heads = orchestration.heads
 		? questAddress(orchestration.heads)
 		: undefined;
@@ -350,8 +355,18 @@ export function orchestrationRoles(
 			? { orchestratedBy: questAddress(orchestration.by) }
 			: {}),
 		...(heads && heads === signature ? { orchestrates: heads } : {}),
+		...(orchestration.steward
+			? { stewardedBy: questAddress(orchestration.steward) }
+			: {}),
 	};
 }
+
+/** What a peer's presence says of the orchestrations it is in. */
+type Roles = {
+	readonly orchestratedBy?: string;
+	readonly orchestrates?: string;
+	readonly stewardedBy?: string;
+};
 
 /**
  * Whether a presence names the process and host this peer runs in: the
@@ -422,7 +437,7 @@ export function localPeer(at: Surroundings): Peer {
 		]),
 	];
 	let receiver: Receiver = { addresses, worksOn: "", owns: [] };
-	let roles: { orchestratedBy?: string; orchestrates?: string } = {};
+	let roles: Roles = {};
 	// Kept beside the roles rather than in them, since the roles are said
 	// in the presence and this is for the peer's own sends.
 	let questHeads: string | undefined;
@@ -476,7 +491,7 @@ export function localPeer(at: Surroundings): Peer {
 	// Every want standing, the person's or not; presence says which.
 	const wanting = new Map<WantKind, Want>();
 	const forPerson = (want: Want) =>
-		wantsThePerson(want.kind, roles.orchestratedBy);
+		wantsThePerson(want.kind, roles.stewardedBy ?? roles.orchestratedBy);
 	const personal = () => [...wanting.values()].filter(forPerson);
 	let usage = carriedUsage(before?.usage, new Date(now()));
 	const groups = () => [...new Set([...scopes, ...joined])].sort();
@@ -661,6 +676,9 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get orchestrates() {
 			return roles.orchestrates;
+		},
+		get stewardedBy() {
+			return roles.stewardedBy;
 		},
 		get questHeads() {
 			return questHeads;

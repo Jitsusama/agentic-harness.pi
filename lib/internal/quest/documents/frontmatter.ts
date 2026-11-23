@@ -336,6 +336,7 @@ const KNOWN_QUEST_KEYS = new Set<string>([
 	"short",
 	"orchestrator",
 	"orchestratedBy",
+	"steward",
 	"hears",
 	"realm",
 	"kind",
@@ -463,6 +464,7 @@ export function parseQuestFrontMatter(
 	if (raw.orchestrator === true) frontMatter.orchestrator = true;
 	const orchestratedBy = asString(raw.orchestratedBy)?.trim();
 	if (orchestratedBy) frontMatter.orchestratedBy = orchestratedBy;
+	if (raw.steward === true) frontMatter.steward = true;
 	if (asString(raw.hears)?.trim() === "addressed") {
 		frontMatter.hears = "addressed";
 	}
@@ -731,6 +733,7 @@ export function serializeQuestFrontMatter(fm: QuestFrontMatter): string {
 	if (fm.short) payload.short = fm.short;
 	if (fm.orchestrator) payload.orchestrator = true;
 	if (fm.orchestratedBy) payload.orchestratedBy = fm.orchestratedBy;
+	if (fm.steward) payload.steward = true;
 	if (fm.hears) payload.hears = fm.hears;
 	if (fm.realm) payload.realm = fm.realm;
 	Object.assign(payload, {

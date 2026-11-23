@@ -23,6 +23,11 @@ export interface Orchestration {
 	readonly by?: string;
 	/** The quest itself, when it orchestrates. */
 	readonly heads?: string;
+	/**
+	 * The nearest quest above it that is the person's steward, when one
+	 * is: who carries what needs the person, apart from who orders work.
+	 */
+	readonly steward?: string;
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -34,6 +39,14 @@ const MOST_PARENTS = 8;
  */
 export function orchestrates(fm: QuestFrontMatter): boolean {
 	return fm.orchestrator === true || fm._extra?.orchestrator === true;
+}
+
+/**
+ * Whether a quest is the person's steward, read from `_extra` too, as
+ * `orchestrates` reads its mark.
+ */
+export function stewards(fm: QuestFrontMatter): boolean {
+	return fm.steward === true || fm._extra?.steward === true;
 }
 
 /** The quest a README names as its orchestrator, past the walk. */
@@ -55,10 +68,36 @@ export function orchestrationOf(
 	const own = read(quest);
 	if (!own) return {};
 	const by = orchestratorAbove(quest, own, read);
+	const steward = stewardAbove(quest, own, read);
 	return {
 		...(by ? { by } : {}),
 		...(orchestrates(own) ? { heads: quest } : {}),
+		...(steward ? { steward } : {}),
 	};
+}
+
+/**
+ * The nearest quest above this one, up `parent`, that is the person's
+ * steward. Never the quest itself: a steward's own session talks with
+ * the person rather than through anyone.
+ */
+function stewardAbove(
+	quest: string,
+	own: QuestFrontMatter,
+	read: (quest: string) => QuestFrontMatter | undefined,
+): string | undefined {
+	const seen = new Set([quest]);
+	let at = own;
+	while (seen.size <= MOST_PARENTS) {
+		const parent = at.parent;
+		if (!parent || seen.has(parent)) return undefined;
+		const above = read(parent);
+		if (!above) return undefined;
+		if (stewards(above)) return parent;
+		seen.add(parent);
+		at = above;
+	}
+	return undefined;
 }
 
 /**

@@ -66,13 +66,15 @@ export interface Want {
  * which batches it (P9R1KI, 2026-10-26: "nothing reaches Joel except
  * through me"), so the question it ends a run on is its orchestrator's
  * and stays out of the launcher. An approval still shows, since only the
- * person can answer a gate held open in its window.
+ * person can answer a gate held open in its window. A session with the
+ * person's steward above it sends him its questions there the same way,
+ * so `carriedBy` is its steward, else its orchestrator.
  */
 export function wantsThePerson(
 	kind: WantKind,
-	orchestratedBy: string | undefined,
+	carriedBy: string | undefined,
 ): boolean {
-	return kind !== "question" || orchestratedBy === undefined;
+	return kind !== "question" || carriedBy === undefined;
 }
 
 /** A want read from outside, or nothing when it is not one. */

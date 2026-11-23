@@ -18,6 +18,7 @@ import {
 	namesOrchestrator,
 	needNamed,
 	orchestratorNamed,
+	personNamed,
 } from "../../../lib/mesh/group.ts";
 import { lists, onQuestAbove } from "../../../lib/mesh/hub-from-use.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
@@ -462,8 +463,11 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// no mark finds its hub from use over the node. A send can wait for
 	// the node, so it finds the hub afresh rather than reading the one
 	// this peer keeps, which may be minutes old, unless the node gives it
-	// no answer in time.
-	const fresh = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	// no answer in time. `person` reaches the steward, or reads as
+	// `orchestrator` while no steward is set, so it is read first.
+	const steward = at.peer.stewardedBy;
+	const to = personNamed(needed.to, steward);
+	const fresh = namesOrchestrator(to) ? await findAbove(at) : undefined;
 	if (fresh?.settled === true) at.nodeAnswered?.();
 	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
 	const above = found?.above;
@@ -473,7 +477,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			: "address" in above
 				? above.address
 				: undefined;
-	const named = groupsNamed(orchestratorNamed(needed.to, orchestrator).to);
+	const named = groupsNamed(orchestratorNamed(to, orchestrator).to);
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const nobody =
 		above !== undefined && "none" in above ? above.none : undefined;
@@ -487,6 +491,9 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		);
 	}
 	const said = [
+		steward !== undefined && to !== needed.to
+			? `\`person\` was read as ${steward}, the person's steward, which carries only what needs the person`
+			: "",
 		nobody !== undefined
 			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
 			: "",
@@ -545,6 +552,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const forHisHands =
 		intent.intent === "question" &&
 		(toOrchestrator(named, orchestrator, everyone) ||
+			toOrchestrator(named, steward, everyone) ||
 			(await toHubByAddress(at, found, named, everyone)));
 	const hands = forHisHands ? handsRefusal(params.text) : undefined;
 	if (hands !== undefined) {

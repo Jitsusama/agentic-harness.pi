@@ -39,6 +39,52 @@ const SWARM = "QEST-20261026-SWARM1";
 const WORKER = "QEST-20261026-WORKR1";
 const KARST = "QEST-20260924-19AMVE";
 
+describe("the person's steward", () => {
+	it("is the nearest steward above, apart from the orchestrator", () => {
+		const read = store(
+			quest(MISSION, null, { orchestrator: true, steward: true }),
+			quest(SWARM, MISSION, { orchestrator: true }),
+			quest(WORKER, SWARM),
+		);
+
+		expect(orchestrationOf(WORKER, read)).toEqual({
+			by: SWARM,
+			steward: MISSION,
+		});
+	});
+
+	it("is never the quest itself", () => {
+		const read = store(quest(MISSION, null, { steward: true }));
+
+		expect(orchestrationOf(MISSION, read)).toEqual({});
+	});
+
+	it("is the nearer of two stewards", () => {
+		const read = store(
+			quest(MISSION, null, { steward: true }),
+			quest(SWARM, MISSION, { steward: true }),
+			quest(WORKER, SWARM),
+		);
+
+		expect(orchestrationOf(WORKER, read).steward).toBe(SWARM);
+	});
+
+	it("is read from a mark kept outside the known keys", () => {
+		const read = store(
+			quest(MISSION, null, { _extra: { steward: true } }),
+			quest(LOOP, MISSION),
+		);
+
+		expect(orchestrationOf(LOOP, read).steward).toBe(MISSION);
+	});
+
+	it("ends at a loop of parents rather than walking it forever", () => {
+		const read = store(quest(SWARM, WORKER), quest(WORKER, SWARM));
+
+		expect(orchestrationOf(WORKER, read).steward).toBeUndefined();
+	});
+});
+
 describe("a quest's orchestration", () => {
 	it("is the nearest marked quest above it, with nothing wired", () => {
 		const read = store(

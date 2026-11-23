@@ -200,6 +200,14 @@ export interface QuestFrontMatter {
 	 */
 	orchestratedBy?: string;
 	/**
+	 * Whether the quest is the person's steward: the live session that has
+	 * it loaded carries what needs the person from every quest below it,
+	 * up to the next quest below that is a steward too, and nothing else.
+	 * Kept apart from `orchestrator`, which says who orders work, so the
+	 * person's path never doubles as where work questions go.
+	 */
+	steward?: boolean;
+	/**
 	 * How its sessions hear the mesh. `addressed` hears in full only what
 	 * is put to them (their address, an answer, a hold, their
 	 * orchestrator's pivot) and glances at the rest, as Joel's router

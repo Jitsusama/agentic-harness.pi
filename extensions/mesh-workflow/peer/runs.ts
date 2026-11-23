@@ -74,6 +74,7 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 					messages,
 					carried,
 					keptAbove(m.peer?.orchestratedBy, m.hub),
+					m.peer?.stewardedBy,
 				),
 				display: true,
 				details: delivered(messages, carried, {
