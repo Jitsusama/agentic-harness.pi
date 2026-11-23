@@ -110,7 +110,7 @@ describe("reading a session's compaction history", () => {
 		expect(history.firstPromptTokens).toBe(40_000);
 	});
 
-	it("reads the first prompt from its own turns when a rollover carried none", () => {
+	it("reads the first prompt from its own turns when what a rollover carried is no count", () => {
 		const history = compactionHistory([
 			rolloverRecord({ [FIRST_PROMPT_CARRY]: { firstPromptTokens: "many" } }),
 			turn(130_000),

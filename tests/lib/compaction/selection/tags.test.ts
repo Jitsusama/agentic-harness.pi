@@ -109,6 +109,23 @@ describe("a session's branch as tagging reads it", () => {
 		expect([...quotable]).toEqual([rule]);
 	});
 
+	it("stops naming a message whose latest record found nothing worth quoting", () => {
+		const manager = SessionManager.inMemory("/tmp");
+		const rule = say(manager, "Always sign every commit.");
+		tag(manager, rule);
+		const entry = manager.getEntry(rule);
+		if (entry === undefined) throw new Error("no rule");
+		manager.appendCustomEntry(SELECTION_TAGS_ENTRY, {
+			entryId: rule,
+			units: unitsOf(entry).map((unit) => ({ hash: unit.hash, kinds: [] })),
+		});
+
+		const { quotable, entries } = readTags(manager.getBranch());
+
+		expect([...entries]).toEqual([rule]);
+		expect([...quotable]).toEqual([]);
+	});
+
 	it("reads nothing of an empty session", () => {
 		const { recorded, live } = taggedBranchAt(SessionManager.inMemory("/tmp"));
 		expect(live).toEqual([]);

@@ -476,24 +476,64 @@ describe("contributing excerpts", () => {
 		expect(recordOf(contributions)).toMatchObject({ refs: true });
 	});
 
+	/**
+	 * The record a held log starts its view with, naming a parent log in
+	 * `dir` that holds `entries`, as the history the view left on disk.
+	 */
+	function heldOver(dir: string, entries: readonly SessionEntry[]) {
+		const parent = join(dir, "parent.jsonl");
+		const header = { type: "session", id: "s1", timestamp: "", cwd: dir };
+		writeFileSync(
+			parent,
+			`${[header, ...entries].map((line) => JSON.stringify(line)).join("\n")}\n`,
+		);
+		return {
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "",
+			customType: ROLLOVER_RECORD,
+			data: {
+				parentSession: parent,
+				parentLeaf: entries.at(-1)?.id,
+				carried: {},
+			},
+		} as SessionEntry;
+	}
+
+	it("checks ahead a tagged paragraph whose message a held log left on disk", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
+		try {
+			const held = heldOver(dir, [rule]);
+			// Long enough that pi would keep it and what follows verbatim.
+			const long = assistant("a1", "y".repeat(100_000));
+			const branch = [held, tagged(rule, ["rule"]), long, kept];
+			const { ctx, store, appended, sent } = session(
+				branch,
+				answeringYesTo(".holds"),
+			);
+			const contributor = selectionContributor(() => ctx, { store });
+
+			contributor.listener(newContributions({}));
+			await contributor.idle();
+
+			// The rule is only on disk, so a check of the branch alone asks nothing.
+			expect(sent).toHaveLength(1);
+			const [type, data] = appended[0] ?? [];
+			expect(type).toBe(SELECTION_HOLDS_ENTRY);
+			expect(
+				Object.values((data as { holds: Record<string, number> }).holds),
+			).toEqual([0.9]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("quotes a tagged paragraph whose message a held log left on disk", () => {
 		const dir = mkdtempSync(join(tmpdir(), "selection-held-"));
 		try {
 			const older = user("u0", "An untagged message on disk.");
-			const parent = join(dir, "parent.jsonl");
-			const header = { type: "session", id: "s1", timestamp: "", cwd: dir };
-			writeFileSync(
-				parent,
-				`${[header, older, rule].map((line) => JSON.stringify(line)).join("\n")}\n`,
-			);
-			const held = {
-				type: "custom",
-				id: "r1",
-				parentId: null,
-				timestamp: "",
-				customType: ROLLOVER_RECORD,
-				data: { parentSession: parent, parentLeaf: "u1", carried: {} },
-			} as SessionEntry;
+			const held = heldOver(dir, [older, rule]);
 			const branch = [held, tagged(rule, ["rule"]), kept];
 			const { ctx, store } = session(branch, answeringYesTo());
 			const contributions = newContributions({ firstKeptEntryId: "u2" });

@@ -27,6 +27,7 @@ import {
 	type ExtensionContext,
 	findCutPoint,
 	type SessionEntry,
+	type SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
 import {
 	isSummaryContributions,
@@ -53,6 +54,7 @@ import {
 	unitsOf,
 	unitsOfBranch,
 } from "../../lib/compaction/selection/units.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import { messagesOnDisk } from "../../lib/internal/session/rollover.ts";
 import { type ClassifierStatus, classifierStatus } from "./classifier.ts";
 import type { SelectionStore } from "./store.ts";
@@ -82,9 +84,26 @@ function withQuotableOnDisk(
 	branch: readonly SessionEntry[],
 	quotable: ReadonlySet<string>,
 ): SessionEntry[] {
-	// Each line read back is one pi wrote as a message entry, by its type.
-	const onDisk = messagesOnDisk(branch, quotable) as unknown as SessionEntry[];
+	const onDisk: SessionEntry[] = [];
+	for (const entry of messagesOnDisk(branch, quotable)) {
+		if (isMessageEntry(entry)) onDisk.push(entry);
+	}
 	return [...onDisk, ...branch];
+}
+
+/**
+ * Whether a line read back from disk is a message entry as pi writes
+ * one: an id and a message with a role, so a malformed line is left out
+ * rather than quoted.
+ */
+function isMessageEntry(value: unknown): value is SessionMessageEntry {
+	return (
+		isRecord(value) &&
+		value.type === "message" &&
+		typeof value.id === "string" &&
+		isRecord(value.message) &&
+		typeof value.message.role === "string"
+	);
 }
 
 /** The excerpt budget the environment sets. */
