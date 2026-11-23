@@ -44,23 +44,39 @@ const NAMED = /(?<![\w.$-])((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b/g;
 /** The script's own path: `$0` or `$BASH_SOURCE`, braced, quoted or not. */
 const ITSELF = String.raw`"?(?:\$0|\$\{0\}|\$BASH_SOURCE|\$\{BASH_SOURCE(?:\[0\])?\})"?`;
 
+/** An optional `--` ending a command's options. */
+const OPTIONS_END = String.raw`(?:--\s+)?`;
+
+/** The script's own path, or its real path through realpath or readlink. */
+const ITS_PATH = String.raw`(?:${ITSELF}|"?\$\((?:realpath|readlink -f)\s+${OPTIONS_END}${ITSELF}\)"?)`;
+
+/** `$(dirname "$0")`, with `--` or of the script's real path. */
+const ITS_FOLDER = String.raw`\$\(dirname\s+${OPTIONS_END}${ITS_PATH}\)`;
+
+/** What a `cd` into the folder may send its words to. */
+const QUIET = String.raw`(?:\s*&>\s*\/dev\/null|\s*>\s*\/dev\/null(?:\s*2>&1)?)?`;
+
+/** `$(cd "$(dirname "$0")" && pwd)`, as CDPATH-safe or with `;`. */
+const CD_THERE = String.raw`\$\((?:CDPATH=(?:''|"")?\s+)?cd\s+${OPTIONS_END}"?${ITS_FOLDER}"?${QUIET}\s*(?:&&|;)\s*pwd\s*\)`;
+
+/** `${BASH_SOURCE%/*}` or `${0%/*}`: the path with its last part cut. */
+const CUT = String.raw`\$\{(?:0|BASH_SOURCE(?:\[0\])?)%\/\*\}`;
+
 /**
  * A script named from beside the naming one, in a way that can mean
  * nothing else: after the folder of the script's own path, as
- * `$(dirname "$0")/`, `$(cd "$(dirname "$0")" && pwd)/` or
- * `${BASH_SOURCE%/*}/`. The folder of any other path, as
- * `$(dirname "$config")`, is another folder.
+ * `$(dirname "$0")/`, `"$(dirname -- "$(realpath "$0")")"/`,
+ * `$(cd "$(dirname "$0")" && pwd)/`, `$(CDPATH= cd -- "$(dirname
+ * "$0")"; pwd)/`, `${0%/*}/` or `${BASH_SOURCE%/*}/`. The folder of any
+ * other path, as `$(dirname "$config")`, is another folder.
  */
 const BESIDE = new RegExp(
-	String.raw`(?:\$\(dirname ${ITSELF}\)|\$\(cd "?\$\(dirname ${ITSELF}\)"? && pwd\)|\$\{BASH_SOURCE(?:\[0\])?%\/\*\})\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b`,
+	String.raw`(?:${ITS_FOLDER}|${CD_THERE}|${CUT})"?\/((?:[\w.-]+\/)*[\w.-]+\.(?:sh|bash))\b`,
 	"g",
 );
 
 /** How much of a file is read for its shebang, a line far shorter. */
 const SHEBANG_BYTES = 256;
-
-/** A line that is only a comment. */
-const COMMENT = /^\s*#/;
 
 /** What a shell script's file name ends in. */
 const SCRIPT = new Set([".sh", ".bash"]);
@@ -71,12 +87,32 @@ const SCRIPT = new Set([".sh", ".bash"]);
  */
 const SHELL = /^#!\s*\S*\/(?:env\s+(?:-\S+\s+)*)?(?:ba|da|k|z)?sh\b/;
 
-/** `text` with its lines that are only comments left out. */
+/**
+ * `line` up to its comment: a `#` outside quotes that opens a word, as
+ * the shell reads one, so `$#` and `${#name}` stay code.
+ */
+function withoutComment(line: string): string {
+	let quote = "";
+	for (let at = 0; at < line.length; at++) {
+		const char = line[at];
+		if (quote === "'") {
+			if (char === "'") quote = "";
+		} else if (char === "\\") {
+			at++;
+		} else if (quote === '"') {
+			if (char === '"') quote = "";
+		} else if (char === "'" || char === '"') {
+			quote = char;
+		} else if (char === "#" && (at === 0 || /\s/.test(line[at - 1] ?? ""))) {
+			return line.slice(0, at);
+		}
+	}
+	return line;
+}
+
+/** `text` with its comments left out, whole lines and the ends of lines. */
 function codeOf(text: string): string {
-	return text
-		.split("\n")
-		.filter((line) => !COMMENT.test(line))
-		.join("\n");
+	return text.split("\n").map(withoutComment).join("\n");
 }
 
 /**

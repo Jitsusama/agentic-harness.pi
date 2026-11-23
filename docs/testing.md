@@ -106,20 +106,26 @@ doesn't follow, so it also imports each script it runs
 for a `.sh`, a `.bash` or a file with no ending whose shebang names a
 shell, and imports in turn each script its code names that is there,
 by a path from its own folder or from the root, and each shell script
-with no ending beside it that it names as a word; comment lines name
+with no ending beside it that it names as a word; comments name
 nothing. A package rule, `tests-import-the-scripts-they-run`, fails a
-test that names a script on its own in a string without importing it;
-a script beside the package's code, among the ssh guard's or under
-`tests/` that no test's imports reach; a script naming one beside it
+test that names a script on its own in a string without importing it
+itself, one reached through another script it imports not counting; a
+script beside the package's code, among the ssh guard's or under
+`tests/`, that no test's imports reach; a script naming one beside it
 that isn't there to follow, by its own folder as `$(dirname "$0")/`,
-`$(cd "$(dirname "$0")" && pwd)/` or `${BASH_SOURCE%/*}/` spells it,
-though a name through a variable, as `$here/`, is past it; and a file
-pi or node loads with no loader, or anything such a file imports in
-turn, that imports a script, since they would read it as JavaScript. A name built from parts is past the first, so such a
-test imports its scripts by hand, as `ssh-guard.test.ts` does the
-guard's wrappers, and the second holds it to them. The rule is a
-package test, so it runs under a whole `pnpm test` and `pnpm
-check:there`, and under `pnpm check` only when a change reaches it.
+`$(dirname -- "$(realpath "$0")")/`, `$(cd "$(dirname "$0")" &&
+pwd)/`, its CDPATH-safe form, `${0%/*}/` or `${BASH_SOURCE%/*}/`
+spells it, though a name through a variable, as `$here/`, is past it;
+and a file pi or node loads with no loader, or anything such a file
+imports in turn, that imports a script, since they would read it as
+JavaScript. A name built from parts is past the first, so such a test
+imports its scripts by hand, as `ssh-guard.test.ts` does the guard's
+wrappers, and the second holds it to them. The rule is a package
+test, so it runs under a whole `pnpm test` and `pnpm check:there`,
+and under `pnpm check` only when a change reaches it. So removing a
+script another only follows runs no test under `pnpm check`, since
+nothing imports it then; `pnpm check:there` names it gone, when it
+was named from beside.
 Vite's `?raw` won't do: vitest drops a dependency whose id, query
 included, names no file. A `.ts` script a test runs as its own process
 is still reached only by what it imports.
