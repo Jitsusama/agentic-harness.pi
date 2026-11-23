@@ -859,6 +859,13 @@ export function describeTurns(named: keyof typeof HOSTS): void {
 				expect(refused.err, "saying why").toMatch(
 					/no process group of its own/,
 				);
+				// The work is named, not what runs it.
+				const wrapped = await ended(
+					check(host, "set +m\ntake_turn\nalone with_errexit sleep 30"),
+				);
+				expect(wrapped.err, "naming the work").toMatch(
+					/^check-there: sleep got no process group/m,
+				);
 				// A job that ends at once is refused as surely, before it runs.
 				const quick = await ended(
 					check(host, 'set +m\ntake_turn\nalone touch "$HOME/ran"'),
@@ -1149,17 +1156,18 @@ function lookups(): void {
 			async () => {
 				const host = hostWith(EVERY_HOST);
 				const store = join(host, "store");
-				mkdirSync(join(store, "a1-pnpm-10.2.0", "bin"), { recursive: true });
-				mkdirSync(join(store, "b2-pnpm-10.2.1", "bin"), { recursive: true });
+				// The version named sorts second, so taking the first would show.
+				mkdirSync(join(store, "a1-pnpm-10.2.1", "bin"), { recursive: true });
+				mkdirSync(join(store, "b2-pnpm-10.2.0", "bin"), { recursive: true });
 				const found = await ended(
 					check(
 						host,
-						`pnpm_in 10.2.0 "${store}"\nnone=$(pnpm_in 9.9.9 "${store}")\necho "none:$none"`,
+						`pnpm_in "${store}" 10.2.0\nnone=$(pnpm_in "${store}" 9.9.9)\necho "none:$none"`,
 					),
 				);
 				expect(found.code, found.err).toBe(0);
 				expect(found.out, "the version named, then none").toBe(
-					`${join(store, "a1-pnpm-10.2.0", "bin")}\nnone:\n`,
+					`${join(store, "b2-pnpm-10.2.0", "bin")}\nnone:\n`,
 				);
 			},
 			TEST_MS,
@@ -1172,8 +1180,11 @@ function lookups(): void {
 				const host = hostWith(EVERY_HOST);
 				const store = join(host, "store");
 				const loader = "lib/ld-linux-x86-64.so.2";
-				const own = madeAt(join(store, "a1-glibc-2.40-66", loader));
-				madeAt(join(store, "b2-glibc-2.40-66-bin", loader));
+				// A -bin stub on either side, so neither the first match nor the
+				// last is glibc's own by luck.
+				madeAt(join(store, "a0-glibc-2.40-66-bin", loader));
+				const own = madeAt(join(store, "b1-glibc-2.40-66", loader));
+				madeAt(join(store, "c2-glibc-2.40-66-bin", loader));
 				const found = await ended(
 					check(
 						host,
@@ -1211,17 +1222,19 @@ function lookups(): void {
 			TEST_MS,
 		);
 
-		// The lookups' tests hold only what the check itself calls.
+		// The lookups' tests hold only what the check itself calls, and the
+		// wrapper runs biome by the whole path its lookup gives, quoted.
 		it("finds its pnpm, loader and biome by those lookups", () => {
-			const work = defined(there(), "run_check") ?? "";
+			const work = (defined(there(), "run_check") ?? "")
+				.split("\n")
+				.map((line) => line.trim());
 			for (const line of [
-				'bin=$(pnpm_in "$want" /nix/store)',
+				'bin=$(pnpm_in /nix/store "$want")',
 				"ld=$(loader_in /nix/store)",
 				'real=$(biome_in "$PWD")',
+				`printf '#!/bin/sh\\nexec %q %q "$@"\\n' "$ld" "$real" > ~/.cache/harness-check-bin/biome`,
 			])
-				expect(work.split("\n"), `${line}, in the check`).toContain(
-					`${line.startsWith("bin") ? "" : "  "}${line}`,
-				);
+				expect(work, `${line}, in the check`).toContain(line);
 		});
 	});
 }
@@ -1258,7 +1271,7 @@ function itsEnd(): void {
 				else
 					expect(run.err, "said why").toMatch(
 						new RegExp(
-							`^check-there: the check on .* exited ${work}, a code this script keeps for its own, so it ends 1$`,
+							`^the check on .* exited ${work}, a code check-there keeps for its own, so it ends 1$`,
 							"m",
 						),
 					);
@@ -1277,6 +1290,31 @@ function itsEnd(): void {
 				);
 				expect(run.code, run.err).toBe(1);
 				expect(run.out, "nothing past the failed step").not.toMatch(/past/);
+			},
+			TEST_MS,
+		);
+
+		// The turn's own 75 and 3 end the script under errexit, so errexit
+		// is off only once the turn is taken, and the work never runs.
+		it
+			.runIf(EVERY_HOST.every((tool) => onPath(tool) !== undefined))
+			.each([75, 3])(
+			"ends with the turn's own %i, running no work",
+			async (code) => {
+				const host = hostWith(EVERY_HOST);
+				const text = there();
+				const work = defined(text, "run_check") ?? "";
+				const fromTurn = text
+					.slice(text.lastIndexOf("\ntake_turn\n"))
+					.replace(work, "run_check() { echo ran; }");
+				const run = await ended(
+					check(host, `take_turn() { return ${code}; }${fromTurn}`),
+				);
+				expect(run.code, run.err).toBe(code);
+				expect(run.out, "no work run").not.toMatch(/ran/);
+				expect(run.err, "nothing said of the work's code").not.toMatch(
+					/exited/,
+				);
 			},
 			TEST_MS,
 		);
