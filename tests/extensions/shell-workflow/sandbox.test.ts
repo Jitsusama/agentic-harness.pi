@@ -152,7 +152,10 @@ describe("what a session asks for", () => {
 			wrap,
 			"a Mac's strict command ran with no wrap at all",
 		).toBeDefined();
-		const command = `printf '%s\\n' "it's \\"said\\""; env | cut -d= -f1 | sort | tr '\\n' ' '; exit 3`;
+		// The second line is what the command's own shell was started with,
+		// which a Mac lets a process of the same user read (`ps -E`), so a
+		// name unset after the start would still be read there.
+		const command = `printf '%s\\n' "it's \\"said\\""; env | cut -d= -f1 | sort | tr '\\n' ' '; echo; if [ -r /proc/$$/environ ]; then tr '\\0' '\\n' < /proc/$$/environ | cut -d= -f1 | tr '\\n' ' '; else printf unreadable; fi; echo; exit 3`;
 		const ran = spawnSync("bash", ["-c", wrap?.(command) ?? ""], {
 			encoding: "utf8",
 			env: {
@@ -165,10 +168,12 @@ describe("what a session asks for", () => {
 				SSH_AUTH_SOCK: "/held.sock",
 				VENDOR_LOGIN: "held",
 				CONFIG_PASSWORD_DIR: "held",
+				BASH_ENV: "/dev/null",
+				"BASH_FUNC_leaked%%": "() { :; }",
 			},
 		});
 		const ended = ran.status;
-		const [said, names = ""] = ran.stdout.split("\n");
+		const [said, names = "", started = ""] = ran.stdout.split("\n");
 		expect(said, "the command's own quoting didn't survive").toBe(
 			`it's "said"`,
 		);
@@ -180,8 +185,17 @@ describe("what a session asks for", () => {
 			"VENDOR_LOGIN",
 			"CONFIG_PASSWORD_DIR",
 			"PI_SANDBOXED_COMMAND",
+			"BASH_ENV",
+			"BASH_FUNC_leaked%%",
 		]) {
 			expect(seen, `${held} reached the command`).not.toContain(held);
+			// The command itself travels in at the start, as through landrun.
+			if (started !== "unreadable" && held !== "PI_SANDBOXED_COMMAND") {
+				expect(
+					started.trim().split(" "),
+					`${held} was in what the command's shell started with`,
+				).not.toContain(held);
+			}
 		}
 		for (const kept of ["PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"]) {
 			expect(seen, `${kept} was taken from the command`).toContain(kept);

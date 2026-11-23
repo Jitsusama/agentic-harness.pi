@@ -309,22 +309,29 @@ const KEPT_ON_A_MAC = [
 /**
  * The shell text that runs `command` with only the variables a strict
  * command keeps, where no landrun can pass them: on a Mac, inside the
- * sandbox pi itself runs in. It unsets every exported variable whose
- * name `NEVER` matches, or that neither `KEPT` nor `KEPT_ON_A_MAC`
- * allows, so a session's tokens and agent socket stay out of what the
- * command can read from its environment. Files it reaches are still the
- * outer sandbox's to decide. It runs in a shell of its own, so what a
- * queue runs after it keeps the session's environment. The command
- * travels in a variable, as through landrun, and is unset before it runs.
+ * sandbox pi itself runs in. A shell of its own is started with an
+ * empty environment and handed only the exported variables `KEPT` or
+ * `KEPT_ON_A_MAC` allow and `NEVER` doesn't match, so a session's
+ * tokens, agent socket, `BASH_ENV` and exported functions never reach
+ * the command's shell, not even where a Mac lets a process of the same
+ * user read another's environment as it was started (`ps -E`). pi's own
+ * environment can still be read that way, and files the command reaches
+ * are still the outer sandbox's to decide. The work happens in a
+ * subshell, so what a queue runs after it keeps the session's
+ * environment and its variables. The command travels in a variable, as
+ * through landrun, and is unset before it runs.
  */
 export function heldBackCommand(command: string): string {
 	const never = NEVER.join("|");
-	const kept = [...KEPT, ...KEPT_ON_A_MAC, SANDBOXED_COMMAND].join("|");
-	const inner = [
-		`for __pi_name in $(compgen -e); do case $__pi_name in ${never}) unset "$__pi_name" 2>/dev/null;; ${kept}) ;; *) unset "$__pi_name" 2>/dev/null;; esac; done; unset __pi_name`,
-		`eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`,
-	].join("\n");
-	return `${SANDBOXED_COMMAND}=${quoted(command)} bash -c ${quoted(inner)}`;
+	const kept = [...KEPT, ...KEPT_ON_A_MAC].join("|");
+	const inner = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	return [
+		"(",
+		"__pi_kept=();",
+		`for __pi_name in $(compgen -e); do case $__pi_name in ${never}) ;; ${kept}) __pi_kept+=("$__pi_name=\${!__pi_name}");; esac; done;`,
+		`exec env -i "\${__pi_kept[@]}" ${SANDBOXED_COMMAND}=${quoted(command)} "$BASH" -c ${quoted(inner)}`,
+		")",
+	].join(" ");
 }
 
 /** The shell text that refuses to run a command, saying why. */
@@ -603,7 +610,8 @@ function askedFor(
  * it may reach more than the one asked for (ISXEG8 [038ae722] took
  * that risk). A strict command still has the session's credentials held
  * back from its environment (`heldBackCommand`), though not from the
- * files that sandbox lets it read. The host
+ * files that sandbox lets it read, nor from a command that reads pi's
+ * own environment, as a Mac lets one of the same user do. The host
  * is still told the fence asked for, so the node, which reads the
  * sandbox pi runs in, judges where the session may go. Where pi finds
  * no sandbox around it, no command runs, so a stranger's text never
@@ -624,7 +632,7 @@ function offLinux(
 	return {
 		kind: "none",
 		asked: kind,
-		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.${kind === "strict" ? " Each command still runs without the session's tokens and agent socket in its environment, though it may read whatever files that sandbox allows." : ""}`,
+		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.${kind === "strict" ? " Each command still runs without the session's tokens and agent socket in its environment, though it may read whatever files that sandbox allows, and pi's own environment, which a Mac lets a process of the same user read." : ""}`,
 	};
 }
 
