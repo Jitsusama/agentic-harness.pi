@@ -18,7 +18,11 @@ import type {
 	ControlRequest,
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
-import { resumeHeld } from "../../../host/service/resume-held.ts";
+import {
+	type HeldOrder,
+	heldOrder,
+	resumeHeld,
+} from "../../../host/service/resume-held.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 
@@ -115,6 +119,7 @@ function backendWith(
 	fake: ConversationEngine,
 	moved: BackendChildren,
 	admitAnother?: () => Promise<void>,
+	held?: HeldOrder,
 ) {
 	return hostBackend({
 		identity: { key: host.key, owner: host.owner },
@@ -123,6 +128,7 @@ function backendWith(
 		engine: fake,
 		children: moved,
 		...(admitAnother ? { admitAnother } : {}),
+		...(held ? { held } : {}),
 	});
 }
 
@@ -413,6 +419,50 @@ describe("a start's resume of what the host held", () => {
 		expect(unresumed).toEqual([]);
 		expect(resumed, "nothing resumed it").toEqual([]);
 		expect(ends).toEqual(["gone"]);
+	});
+
+	it("resumes one a wake pulled forward in the wake itself, unbounded, once the start's bounded resume gave it up", async () => {
+		const first = entry();
+		const woken = entry();
+		for (const held of [first, woken]) await roster.hold(held);
+		const inHost = engine();
+		const moved = children([woken.sessionId]);
+		const starved = new Error("its unit did not listen within 60000 ms");
+		moved.fake.resume.mockRejectedValueOnce(starved);
+		const order = heldOrder(roster);
+		const backend = backendWith(inHost, moved.fake, undefined, order);
+
+		const waking = backend.wake(woken.sessionId);
+		const { unresumed } = await resumeHeld({
+			roster,
+			engine: inHost,
+			children: moved.fake,
+			order,
+		});
+		await waking;
+
+		expect(unresumed).toEqual([
+			{ sessionId: woken.sessionId, reason: starved },
+		]);
+		expect(
+			moved.fake.resume.mock.calls,
+			"the start's own first, bounded, then the wake's",
+		).toEqual([
+			[woken, false, true],
+			[woken, true],
+		]);
+		expect(moved.fake.running(woken.sessionId), "its child runs it").toEqual(
+			shown(woken),
+		);
+		expect(
+			moved.fake.resume.mock.invocationCallOrder[0] ?? 0,
+			"pulled ahead of the one held before it",
+		).toBeLessThan(vi.mocked(inHost.resume).mock.invocationCallOrder[0] ?? 0);
+		expect(inHost.resume, "the start went on to the next").toHaveBeenCalledWith(
+			first,
+			false,
+			expect.anything(),
+		);
 	});
 
 	it("leaves a moved one resting parked, for its wake to start its child", async () => {
