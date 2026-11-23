@@ -28,9 +28,14 @@ vi.mock("../../../lib/internal/config/loader.ts", async (original) => ({
 
 /** Whether a call is on, as a-call-is-on would say, which each test may set. */
 let callOn = false;
+/** Why a call can't be asked about, said on each ask, which a test may set. */
+let unasked: string | undefined;
 vi.mock("../../../lib/internal/cache/calls.ts", async (original) => ({
 	...(await original<object>()),
-	callIsOn: async () => callOn,
+	callIsOn: async (options: { cannotAsk?: (why: string) => void } = {}) => {
+		if (unasked !== undefined) options.cannotAsk?.(unasked);
+		return callOn;
+	},
 }));
 
 const { readTurns } = await import("../../../lib/ledger/index.ts");
@@ -227,6 +232,7 @@ beforeEach(() => {
 	vi.stubEnv("PI_COMPACTION_KEEP_REQUEST", "off");
 	sections = {};
 	callOn = false;
+	unasked = undefined;
 	completeSimple.mockReset();
 });
 
@@ -742,6 +748,21 @@ describe("warming while a call is on", () => {
 					reason: expect.stringMatching(/a call was on/),
 				}),
 			}),
+		]);
+	});
+
+	it("records why a call can't be asked about, and warms anyway", async () => {
+		const { sent, entries } = await idleSession();
+		unasked =
+			"a-call-is-on refused --here, so warms go whether or not a call is on";
+
+		await wait(WARM_EVERY);
+
+		expect(sent).toHaveLength(1);
+		expect(
+			entries.filter((e) => e.type === "compaction-cache-warm-calls-unseen"),
+		).toEqual([
+			{ type: "compaction-cache-warm-calls-unseen", data: { reason: unasked } },
 		]);
 	});
 });
