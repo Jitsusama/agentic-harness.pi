@@ -623,7 +623,8 @@ describe("the compaction trigger", () => {
 			await endTurn(fire, ranTools, ctx);
 			await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(2));
 			const oldLeafId = state.leaf;
-			state.branch = state.branch.filter((entry) => entry.id !== "a9");
+			// Back off the reply the move went on past, its last entry.
+			state.branch = state.branch.slice(0, -1);
 			state.leaf = firstPoint;
 			await fire("session_tree", { newLeafId: firstPoint, oldLeafId }, ctx);
 
