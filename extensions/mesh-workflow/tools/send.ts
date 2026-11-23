@@ -637,7 +637,12 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const barred = wanted.filter((group) => stoppedAt(group).length > 0);
 	const unbarred = wanted.filter((group) => !barred.includes(group));
 	const barredText = () =>
-		`${stopsText(stops.filter(({ stopper }) => barred.some((group) => stopper.addresses.map(homeOf).includes(group))))} Only it can lift that; until it does, leave it be.`;
+		stopsText(
+			stops.filter(({ stopper }) =>
+				barred.some((group) => stopper.addresses.map(homeOf).includes(group)),
+			),
+			" Only it can lift that; until it does, leave it be.",
+		);
 	if (unbarred.length === 0) {
 		return answer(`Not sent: ${barredText()}`, {
 			sent: false,

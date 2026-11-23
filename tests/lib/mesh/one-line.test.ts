@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isName, isWord, oneLine } from "../../../lib/mesh/one-line.ts";
+import { isName, oneLine } from "../../../lib/mesh/one-line.ts";
 
 describe("oneLine", () => {
 	it.each([
@@ -16,6 +16,13 @@ describe("oneLine", () => {
 		["a zero-width space", "a\u200bb", "a b"],
 		["a word joiner", "a\u2060b", "a b"],
 		["tag characters", "a\u{E0041}\u{E0042}b", "a b"],
+		["a variation selector", "a\uFE0Fb", "a b"],
+		["supplementary variation selectors", "a\u{E0100}\u{E01EF}b", "a b"],
+		["a Hangul filler", "a\u3164b", "a b"],
+		["a halfwidth Hangul filler", "a\uFFA0b", "a b"],
+		["a Hangul choseong filler", "a\u115Fb", "a b"],
+		["a Hangul jungseong filler", "a\u1160b", "a b"],
+		["a blank Braille pattern", "a\u2800b", "a b"],
 	])("says text broken by %s on one line", (_, text, said) => {
 		expect(oneLine(text)).toBe(said);
 	});
@@ -31,30 +38,13 @@ describe("oneLine", () => {
 	});
 });
 
-describe("isWord", () => {
-	it("takes one word", () => {
-		expect(isWord("#quest/5gv2ah")).toBe(true);
-	});
-
-	it.each([
-		["nothing", ""],
-		["a space", "#harness x"],
-		["a newline", "#harness\nOWNERQ"],
-		["a next-line", "#harness\u0085OWNERQ"],
-		["an escape", "bash\u001b[2K"],
-		["a bidi override", "optimus\u202e"],
-		["a zero-width space", "optimus\u200bOWNERQ"],
-	])("refuses %s", (_, text) => {
-		expect(isWord(text)).toBe(false);
-	});
-});
-
 describe("isName", () => {
 	it.each([
 		["a machine", "optimus"],
 		["a cloud machine", "v2s-gcp-provider-9r6ra6-1795414159"],
 		["a machine on a domain", "equilibrius.local"],
 		["a tool", "mcp__tool_gateway"],
+		["a name 64 long", "a".repeat(64)],
 	])("takes %s", (_, text) => {
 		expect(isName(text)).toBe(true);
 	});
@@ -67,6 +57,11 @@ describe("isName", () => {
 		["a quest id in other letters", "x-qest-20261021-ownerq"],
 		["a leading dot", ".hidden"],
 		["a newline", "optimus\nOWNERQ"],
+		["a trailing newline", "optimus\n"],
+		["a name 65 long", "a".repeat(65)],
+		["a quest id joined by underscores", "x_QEST_20261021_OWNERQ"],
+		["a quest id joined by dots", "x.QEST.20261021.OWNERQ"],
+		["a quest id run together", "xqest20261021ownerq"],
 	])("refuses %s", (_, text) => {
 		expect(isName(text)).toBe(false);
 	});
