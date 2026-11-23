@@ -160,6 +160,14 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		home,
 		arriving.scratch,
 	);
+	if (!isReadForm(handover.sessionFile)) {
+		say({
+			kind: "failed",
+			why: `${handover.sessionFile} is in a form this machine's harness can't read, so it wasn't placed: this harness is likely older than the carrying machine's, and arriving again once it is updated places it.`,
+		});
+		say({ kind: "sessions", sessions: [] });
+		return false;
+	}
 	mkdirSync(cwd, { recursive: true });
 	let placed: string | undefined;
 	try {
@@ -227,6 +235,19 @@ async function placeSession(
 	} finally {
 		rmSync(unzipping, { recursive: true, force: true });
 	}
+}
+
+/** What a session file pi wrote is named with. */
+const SESSION_LOG = ".jsonl";
+
+/**
+ * Whether a carried session file's name is one of the forms arriving
+ * here reads: a log as pi wrote it, or one gzipped. A harness older than
+ * a form a newer one carries in, as one before the gzip was for a
+ * `.jsonl.gz`, could only say the file held another session.
+ */
+function isReadForm(name: string): boolean {
+	return name.endsWith(SESSION_LOG) || name.endsWith(`${SESSION_LOG}${ZIPPED}`);
 }
 
 /**

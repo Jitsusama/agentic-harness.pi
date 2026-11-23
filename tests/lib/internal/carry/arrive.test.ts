@@ -29,6 +29,7 @@ import {
 import {
 	doneFileOf,
 	readHandover,
+	writeHandover,
 } from "../../../../lib/internal/carry/handover.ts";
 import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
 import { sessionFolderOf } from "../../../../lib/internal/quest/reopening/carried.ts";
@@ -581,6 +582,27 @@ describe("arriving with a carried session", () => {
 			kind: "sessions",
 			sessions: [{ id: SESSION, cwd: join(home, "src", "app") }],
 		});
+	});
+
+	it("places nothing from a session file in a form this harness can't read, saying it may be older", async () => {
+		const { from } = await carried();
+		const done = doneFileOf(from, SESSION);
+		const handover = readHandover(done);
+		if (handover?.sessionFile === undefined) throw new Error("none carried");
+		const newer = `${handover.sessionFile}.zst`;
+		renameSync(join(from, handover.sessionFile), join(from, newer));
+		writeHandover(from, { ...handover, sessionFile: newer });
+		const home = folder(made, "arriving");
+
+		const { whole, said, store } = await arriveAt(home, from);
+
+		expect(whole, "a session not placed is not whole").toBe(false);
+		expect(said.find((line) => line.kind === "failed")).toEqual({
+			kind: "failed",
+			why: `2026-11-07_${SESSION}.jsonl.zst is in a form this machine's harness can't read, so it wasn't placed: this harness is likely older than the carrying machine's, and arriving again once it is updated places it.`,
+		});
+		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
+		expect(readdirSync(store), "nothing placed").toEqual([]);
 	});
 
 	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {
