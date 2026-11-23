@@ -110,10 +110,12 @@ describe.skipIf(bwrap === undefined)(
 
 		it("sees no compiled code there, and what it writes there never reaches it", () => {
 			// node runs what it reads back from pi-compile outside the fence.
-			const host = compileFolderOf("host", {
-				XDG_RUNTIME_DIR: runtimeDir,
-				HOME: home,
-			});
+			const host = compileFolderOf(
+				"host",
+				{ XDG_RUNTIME_DIR: runtimeDir, HOME: home },
+				"linux",
+				runtimeDir,
+			);
 			expect(host).toBe(join(runtimeDir, RUNTIME_COMPILE, "host"));
 			expect(
 				fenced(`test -e '${join(runtimeDir, RUNTIME_COMPILE)}'`),

@@ -102,22 +102,26 @@ describe("a working folder the sandbox won't let commands write", () => {
 	});
 
 	it("is one holding or inside the code compiled into the runtime folder", () => {
-		vi.stubEnv("XDG_RUNTIME_DIR", "/run/user/1000");
+		// One of its own, since the runtime folder is hidden only where it
+		// is there, whatever the platform or the login's uid.
+		const runtime = mkdtempSync(join(tmpdir(), "unfenced-run-"));
+		vi.stubEnv("XDG_RUNTIME_DIR", runtime);
 		try {
 			for (const at of [
-				"/run/user/1000/pi-compile",
-				"/run/user/1000/pi-compile/host",
-				"/run/user/1000/pi-compile/node/v1",
+				join(runtime, "pi-compile"),
+				join(runtime, "pi-compile", "host"),
+				join(runtime, "pi-compile", "node", "v1"),
 			]) {
 				expect(unfencedFolder(at, home), at).toContain("compiled");
 			}
 			// Its neighbours are refused too, as the runtime folder the fence
 			// hides, and not as compiled code.
-			const beside = unfencedFolder("/run/user/1000/pi-fence", home);
+			const beside = unfencedFolder(join(runtime, "pi-fence"), home);
 			expect(beside).toContain("a path the fence hides");
 			expect(beside).not.toContain("compiled");
 		} finally {
 			vi.unstubAllEnvs();
+			rmSync(runtime, { recursive: true, force: true });
 		}
 	});
 

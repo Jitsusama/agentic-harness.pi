@@ -57,7 +57,7 @@ describe("where pi's compile cache is kept", () => {
 		() => {
 			vi.stubEnv("XDG_RUNTIME_DIR", runtime);
 			vi.stubEnv("TMPDIR", "/tmp/pi-quest-QEST-1");
-			const folder = compileCacheFolder();
+			const folder = compileFolderOf("node", process.env, "linux", runtime);
 			expect(folder).toBe(join(runtime, RUNTIME_COMPILE, "node"));
 			expect(statSync(folder).mode & 0o777).toBe(0o700);
 			expect(statSync(join(runtime, RUNTIME_COMPILE)).mode & 0o777).toBe(0o700);
@@ -66,7 +66,7 @@ describe("where pi's compile cache is kept", () => {
 
 	it.runIf(onLinux)("keeps the host's beside node's, each its own", () => {
 		const env = { XDG_RUNTIME_DIR: runtime };
-		expect(compileFolderOf("host", env)).toBe(
+		expect(compileFolderOf("host", env, "linux", runtime)).toBe(
 			join(runtime, RUNTIME_COMPILE, "host"),
 		);
 		expect(runtimeCompileFolders(env, null)).toEqual([
@@ -116,42 +116,61 @@ describe("where pi's compile cache is kept", () => {
 	it("passes over a runtime folder on any platform but Linux, whose fence alone empties it", () => {
 		for (const platform of ["darwin", "freebsd"] as const) {
 			expect(
-				compileFolderOf("node", { XDG_RUNTIME_DIR: runtime }, platform),
+				compileFolderOf(
+					"node",
+					{ XDG_RUNTIME_DIR: runtime },
+					platform,
+					runtime,
+				),
 				platform,
 			).toBe(join(IN_STATE, "node-compile-cache"));
 		}
-		expect(compileFolderOf("node", { XDG_RUNTIME_DIR: runtime }, "linux")).toBe(
-			join(runtime, RUNTIME_COMPILE, "node"),
-		);
+		expect(
+			compileFolderOf("node", { XDG_RUNTIME_DIR: runtime }, "linux", runtime),
+		).toBe(join(runtime, RUNTIME_COMPILE, "node"));
 	});
 
 	it.runIf(onLinux)(
 		"passes over a runtime folder in the home folder, whose binds the fence lays back over it",
 		() => {
 			expect(
-				compileFolderOf("node", { XDG_RUNTIME_DIR: runtime, HOME: dir }),
+				compileFolderOf(
+					"node",
+					{ XDG_RUNTIME_DIR: runtime, HOME: dir },
+					"linux",
+					runtime,
+				),
 			).toBe(join(IN_STATE, "node-compile-cache"));
 			expect(
-				compileFolderOf("host", { XDG_RUNTIME_DIR: runtime, HOME: runtime }),
+				compileFolderOf(
+					"host",
+					{ XDG_RUNTIME_DIR: runtime, HOME: runtime },
+					"linux",
+					runtime,
+				),
 			).toBe(join(IN_STATE, "host-compile"));
 			const linkedHome = join(dir, "..", `${basename(dir)}-home`);
 			symlinkSync(dir, linkedHome);
 			try {
 				expect(
-					compileFolderOf("node", {
-						XDG_RUNTIME_DIR: runtime,
-						HOME: linkedHome,
-					}),
+					compileFolderOf(
+						"node",
+						{ XDG_RUNTIME_DIR: runtime, HOME: linkedHome },
+						"linux",
+						runtime,
+					),
 					"a home reached through a link",
 				).toBe(join(IN_STATE, "node-compile-cache"));
 			} finally {
 				rmSync(linkedHome);
 			}
 			expect(
-				compileFolderOf("node", {
-					XDG_RUNTIME_DIR: runtime,
-					HOME: `${dir}-beside`,
-				}),
+				compileFolderOf(
+					"node",
+					{ XDG_RUNTIME_DIR: runtime, HOME: `${dir}-beside` },
+					"linux",
+					runtime,
+				),
 				"a home beside it, sharing only a prefix",
 			).toBe(join(runtime, RUNTIME_COMPILE, "node"));
 		},
@@ -163,7 +182,28 @@ describe("where pi's compile cache is kept", () => {
 			by,
 			{ XDG_RUNTIME_DIR: root, HOME: "/home/someone" },
 			"linux",
+			root,
 		);
+
+	it("passes over a private runtime folder other than the login's, which another pi's fence leaves open", () => {
+		expect(
+			compileFolderOf(
+				"node",
+				{ XDG_RUNTIME_DIR: runtime, HOME: "/home/someone" },
+				"linux",
+				"/run/user/4242",
+			),
+		).toBe(join(IN_STATE, "node-compile-cache"));
+		expect(
+			compileFolderOf(
+				"node",
+				{ XDG_RUNTIME_DIR: runtime, HOME: "/home/someone" },
+				"linux",
+				null,
+			),
+			"with no login runtime folder",
+		).toBe(join(IN_STATE, "node-compile-cache"));
+	});
 
 	it("passes over a runtime folder others may enter", () => {
 		expect(onLinuxIn("node", runtime), "while it is private").toBe(
@@ -186,13 +226,25 @@ describe("where pi's compile cache is kept", () => {
 		);
 	});
 
-	it("passes over its own folder when another made it open, or put a file there", () => {
+	it("closes its own empty folder left open, as a fence's mount point is made", () => {
 		const shared = join(runtime, RUNTIME_COMPILE);
 		mkdirSync(shared, { mode: 0o755 });
+		chmodSync(shared, 0o755);
+
+		expect(onLinuxIn("node", runtime)).toBe(join(shared, "node"));
+
+		expect(statSync(shared).mode & 0o777, "closed").toBe(0o700);
+	});
+
+	it("passes over its own folder when another made it open with something in it, or put a file there", () => {
+		const shared = join(runtime, RUNTIME_COMPILE);
+		mkdirSync(shared, { mode: 0o755 });
+		mkdirSync(join(shared, "node"), { mode: 0o700 });
 		chmodSync(shared, 0o755);
 		expect(onLinuxIn("node", runtime)).toBe(
 			join(IN_STATE, "node-compile-cache"),
 		);
+		expect(statSync(shared).mode & 0o777, "left as it was").toBe(0o755);
 		chmodSync(shared, 0o700);
 		expect(onLinuxIn("node", runtime), "once closed again").toBe(
 			join(shared, "node"),
@@ -260,9 +312,8 @@ describe("where pi's compile cache is kept", () => {
 					env[name] = value;
 				},
 			});
-			expect(env[COMPILE_CACHE_VARIABLE]).toBe(
-				join(runtime, RUNTIME_COMPILE, "node"),
-			);
+			expect(env[COMPILE_CACHE_VARIABLE]).toBe(compileCacheFolder());
+			expect(env[COMPILE_CACHE_VARIABLE]).not.toContain("/tmp/pi-quest-");
 		},
 	);
 });

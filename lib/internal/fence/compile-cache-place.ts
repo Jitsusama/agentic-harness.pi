@@ -20,9 +20,15 @@
  * folder's binds are laid back over it.
  */
 
-import { lstatSync, mkdirSync, realpathSync } from "node:fs";
+import {
+	chmodSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	realpathSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { SessionEnvironment } from "../../core/session/host.ts";
 import { stateDir } from "../paths.ts";
 
@@ -103,20 +109,25 @@ export function runtimeCompileFolders(
 
 /**
  * The folder `by`'s compile cache is kept in: its folder in the runtime
- * folder, made private, on Linux, outside the home folder, when each
- * level from the runtime folder down is a folder of this login's own,
- * open to nobody else and reached through no link; its folder in pi's
- * state otherwise.
+ * folder, made private, on Linux, outside the home folder, when that is
+ * the login's own (`login`) and each level from it down is a folder of
+ * this login's, open to nobody else and reached through no link; its
+ * folder in pi's state otherwise. Only the login's, since every pi's
+ * fence lays a tmpfs over that one, where another pi's fence leaves a
+ * runtime folder of a process's own open to its commands.
  */
 export function compileFolderOf(
 	by: CompiledBy,
 	env: NodeJS.ProcessEnv = process.env,
 	platform: NodeJS.Platform = process.platform,
+	login: string | null = loginRuntimeFolder(platform) ?? null,
 ): string {
 	const root = env.XDG_RUNTIME_DIR;
 	if (
 		platform === "linux" &&
 		root &&
+		login !== null &&
+		root === login &&
 		isAbsolute(root) &&
 		!insideHome(root, env.HOME || homedir())
 	) {
@@ -150,7 +161,11 @@ export function keepCompileCacheOutOfReach(
 function insideHome(folder: string, home: string): boolean {
 	const within = (inner: string, outer: string) => {
 		const path = relative(outer, inner);
-		return path === "" || !(path.startsWith("..") || isAbsolute(path));
+		// `..x` is a folder within, not a way out.
+		return (
+			path === "" ||
+			!(path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path))
+		);
 	};
 	return within(folder, home) || within(real(folder), real(home));
 }
@@ -165,14 +180,45 @@ function real(path: string): string {
 	}
 }
 
-/** Make `folder` private if it is missing, then whether it is private. */
+/**
+ * Make `folder` private if it is missing, or if it is an empty folder
+ * of this login's own left open, as bubblewrap makes a fence's mount
+ * point on the real runtime folder; then whether it is private. One
+ * open with something in it stays as it is and is passed over, since
+ * another may have put that there.
+ */
 function madePrivate(folder: string): boolean {
 	try {
 		mkdirSync(folder, { mode: PRIVATE_MODE });
 	} catch {
 		// Already there, or it can't be made: the look below decides.
 	}
+	if (!isPrivate(folder) && ownEmptyFolder(folder)) {
+		try {
+			chmodSync(folder, PRIVATE_MODE);
+		} catch {
+			// Not closed: the look below passes it over.
+		}
+		// Looked at again once closed, for anything put there before.
+		return isPrivate(folder) && ownEmptyFolder(folder);
+	}
 	return isPrivate(folder);
+}
+
+/** Whether `folder` is an empty folder of this login's, not a link. */
+function ownEmptyFolder(folder: string): boolean {
+	try {
+		const seen = lstatSync(folder);
+		const uid = process.getuid?.();
+		return (
+			seen.isDirectory() &&
+			(uid === undefined || seen.uid === uid) &&
+			readdirSync(folder).length === 0
+		);
+	} catch {
+		// Missing or unreadable: not one to close.
+		return false;
+	}
 }
 
 /** Whether `folder` is a folder, not a link, this login's own and closed to others. */

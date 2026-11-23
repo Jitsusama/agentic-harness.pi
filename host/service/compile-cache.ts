@@ -20,7 +20,10 @@ import {
 } from "node:fs";
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
-import { compileFolderOf } from "../../lib/internal/fence/compile-cache-place.ts";
+import {
+	compileFolderOf,
+	loginRuntimeFolder,
+} from "../../lib/internal/fence/compile-cache-place.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { CHILD_FLAG, hostKey, hostKeyParts, hostRealm } from "./address.ts";
 
@@ -48,6 +51,11 @@ export interface CompileCacheOptions {
 	 * here outside the fence, so no fenced command may write it.
 	 */
 	readonly root?: string;
+	/**
+	 * The login's runtime folder, the only one the cache may lie in; the
+	 * system's by default, null for none.
+	 */
+	readonly login?: string | null;
 	/** Enables node's cache in a folder; node's own by default. */
 	readonly enable?: (directory: string) => Enabled;
 }
@@ -113,7 +121,16 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 	try {
 		const key = keyOf(options);
 		if (!key) return { state: "unkeyed" };
-		const root = options.root ?? compileFolderOf("host", options.env);
+		const root =
+			options.root ??
+			compileFolderOf(
+				"host",
+				options.env,
+				process.platform,
+				options.login === undefined
+					? (loginRuntimeFolder() ?? null)
+					: options.login,
+			);
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
 		sweepEarlier(root, key.host, name);

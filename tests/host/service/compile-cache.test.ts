@@ -94,6 +94,7 @@ describe("a host's compile cache", () => {
 							HOME: join(dir, "home"),
 						},
 						harnessRoot: harness,
+						login: runtime,
 						enable,
 					}),
 				);
@@ -130,6 +131,32 @@ describe("a host's compile cache", () => {
 				folder.startsWith(`${join(state, "pi", "agentic-harness.pi")}/`),
 				`the cache folder ${folder} sits in pi's state`,
 			).toBe(true);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("keeps what it compiled in pi's state for the next start there, sweeping only earlier installs", () => {
+		vi.stubEnv("XDG_STATE_HOME", join(dir, "state"));
+		const inState = () =>
+			folderOf(
+				startCompileCache({
+					argv: ["attended"],
+					env: { MYCELIUM_REALM: "work", PI_PACKAGE_DIR: pi },
+					harnessRoot: harness,
+					login: null,
+					enable,
+				}),
+			);
+		try {
+			const folder = inState();
+			writeFileSync(join(folder, "compiled"), "code");
+
+			expect(inState(), "the same folder").toBe(folder);
+
+			expect(readdirSync(folder), "what it compiled kept").toEqual([
+				"compiled",
+			]);
 		} finally {
 			vi.unstubAllEnvs();
 		}
