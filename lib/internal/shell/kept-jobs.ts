@@ -52,10 +52,13 @@ import { link, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
+	asideOf,
 	beginJobRecordRemoval,
 	endJobRecordRemoval,
 	endOf,
 	handJobRecordOn,
+	isMissing,
+	isTaken,
 	JOB_SUFFIX,
 	type JobRecordRemoval,
 	keptFolder,
@@ -64,6 +67,7 @@ import {
 	processThere,
 	removeKept,
 	removingUnhanded,
+	stagedBackOf,
 	takeJobRecord,
 } from "./kept.ts";
 
@@ -106,11 +110,14 @@ const REMOVAL_WAIT_MS = 5_000;
 const monotonicNow = (): number => performance.now();
 
 /**
- * How a pass of a removal ended: its record removed from its name, left
- * there by a disk refusing to set it aside, or settled otherwise, gone
- * already or put back for a taker.
+ * How a pass of a removal ended: its record removed from its name, found
+ * gone from it already, left there by a disk refusing to set it aside,
+ * or settled, put back for a taker or left to it. A record found gone
+ * may be one an earlier pass's rename, landing late, moved after this
+ * process wrote it again, so a hand-off puts it back as it would one
+ * removed.
  */
-type PassEnd = "removed" | "stays" | "settled";
+type PassEnd = "removed" | "missing" | "stays" | "settled";
 
 /** What the final removal of a call's own record may be told. */
 export interface ForgetOwnOptions {
@@ -302,7 +309,7 @@ async function removeOwn(
 	now: () => number,
 ): Promise<void> {
 	const file = `${keep}${JOB_SUFFIX}`;
-	const aside = `${file}.${process.pid}.gone`;
+	const aside = asideOf(file);
 	try {
 		let removed: string | undefined;
 		while (!removal.handed) {
@@ -322,15 +329,19 @@ async function removeOwn(
 				}
 			}
 			if (ended === "stays") {
-				// Still at its name, so held as this process's again: the removal
-				// of its call's files, and an exit before that ends, count it.
-				if (!ownsJobRecord(keep)) ownJobRecord(keep, record);
+				// Still at its name, so held as this process's again, for the
+				// removal of its call's files and an exit before that to count;
+				// not once the call was handed on, when it is the taker's, nor
+				// once its files went, when nothing would take it back again.
+				const ours = !(removal.handed || removal.gone || ownsJobRecord(keep));
+				if (ours) ownJobRecord(keep, record);
 				return;
 			}
-			removed = ended === "removed" ? record : undefined;
+			removed = ended === "settled" ? undefined : record;
 		}
-		// Handed on in the turn between the last pass's look and this one,
-		// after the pass removed it: put back as a hand-off after it would be.
+		// Handed on once the last pass removed it or found it gone, as its
+		// rename waited or in the turn after: put back as a hand-off after
+		// it would be.
 		if (removed !== undefined) {
 			const last = removed;
 			await putBack(file, removal, () =>
@@ -359,8 +370,9 @@ async function removeOnce(
 		await rename(file, aside);
 	} catch (error) {
 		removal.aside = undefined;
-		// Gone already, with the call's other files: nothing to remove.
-		if (isMissing(error)) return "settled";
+		// Gone already, with the call's other files or by an earlier pass's
+		// rename landing late: nothing to remove.
+		if (isMissing(error)) return "missing";
 		// A disk refusing it (read-only after an error, failing, or the
 		// file made immutable): the record stays, and `removeKept` just
 		// after stops at it. Said, since nothing else would show it.
@@ -424,7 +436,7 @@ async function putBack(
  * place, rejecting as the link does.
  */
 async function writeBack(file: string, record: string): Promise<void> {
-	const staged = `${file}.${process.pid}.back`;
+	const staged = stagedBackOf(file);
 	try {
 		await writeStaged(staged, record);
 		await link(staged, file);
@@ -475,16 +487,6 @@ function sayStays(file: string, error: unknown): void {
 	process.stderr.write(
 		`[shell] couldn't remove ${file}: ${why}; it stays, so this pi's next start may say the call's end again\n`,
 	);
-}
-
-/** Whether `error` says the name it was asked about isn't there. */
-function isMissing(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-/** Whether `error` says the name it would make is taken already. */
-function isTaken(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
 /**

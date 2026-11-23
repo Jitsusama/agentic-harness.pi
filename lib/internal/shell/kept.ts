@@ -120,6 +120,32 @@ const MARKS: ReadonlySet<string> = new Set([".job", ".carried"]);
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
 
+/**
+ * The name a removal in this process sets the record at `file` aside
+ * under, off its name: this process's alone, which no start reads.
+ */
+export function asideOf(file: string): string {
+	return `${file}.${process.pid}.gone`;
+}
+
+/**
+ * The name a removal in this process stages a put-back of the record at
+ * `file` under: this process's alone, which no start reads.
+ */
+export function stagedBackOf(file: string): string {
+	return `${file}.${process.pid}.back`;
+}
+
+/** Whether `error` says the name it was asked about isn't there. */
+export function isMissing(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** Whether `error` says the name it would make is taken already. */
+export function isTaken(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 /** The suffix marking a call handed to another process. */
 const CARRIED = ".carried";
 
@@ -492,8 +518,8 @@ function takeBackAtExit(): void {
 
 /**
  * Take back, on the thread, what the disk had yet to remove as the
- * process exits, since its pool does nothing more once it has, and a
- * record or carried mark left would stand beside the call's end for its
+ * process exits, since no answer of its pool's is heard once it has, so
+ * nothing after one runs, and a record or carried mark left would stand beside the call's end for its
  * next start to say again: the record of each removal still running
  * for a call not handed on, or whose files went, as one put back for a
  * taker can land after they did, and the marks of each call
@@ -507,20 +533,29 @@ function takeBackAtExit(): void {
  * taker from where it was set aside, the pool's own put-back going with
  * the process; one the removal had removed already, its put-back yet to
  * land, is said, since its call then has no record until its taker
- * writes one, and a pi gone first leaves it to the week's strays.
+ * writes one, and a pi gone first leaves it to the week's strays. What
+ * the pool was asked before the exit it still does after, its answer
+ * never heard: a handed call whose files went has what its put-back
+ * links from taken first, so a link landing after finds nothing.
  */
 function takeRecordsBack(): void {
 	const removals = [...jobRecords.removing];
 	const records = removals
 		.filter(([, removal]) => !removal.handed || removal.gone)
 		.map(([path]) => `${path}${JOB_SUFFIX}`);
+	const sources = removals
+		.filter(([, removal]) => removal.handed && removal.gone)
+		.flatMap(([path]) => {
+			const file = `${path}${JOB_SUFFIX}`;
+			return [asideOf(file), stagedBackOf(file)];
+		});
 	const handed = removals.filter(
 		([, removal]) => removal.handed && !removal.gone,
 	);
 	const marks = [...jobRecords.ending].flatMap(([path, ending]) =>
 		[...ending.marks].map((mark) => `${path}${mark}`),
 	);
-	const files = [...new Set([...records, ...marks])];
+	const files = [...new Set([...sources, ...records, ...marks])];
 	if (files.length > 0) {
 		sayAtExit(
 			`[shell] taking back up to ${count(files.length, "kept file")} the disk had yet to remove as pi exits\n`,
@@ -548,22 +583,47 @@ function sayAtExit(text: string): void {
 }
 
 /**
+ * How often the exit tries to put a record back: twice, so a rename
+ * landing between its two links is found by the second.
+ */
+const PUT_BACK_TRIES = 2;
+
+/**
  * Put a handed call's record back at `file` from where it was set
  * `aside`, on the thread as the process exits, answering whether a
- * record stands there now: the taker's own, written first, stays.
+ * record stands there now: the taker's own, written first, stays. With
+ * nothing set aside, the rename may yet land, the pool finishing it
+ * after the exit, so a record still at its name is linked to the aside
+ * too: a rename from one name of a file to another of it does nothing,
+ * and the record stays where its taker reads it, a second name beside
+ * it for the week's sweep. A rename landing between the two links is
+ * found by the next try.
  */
 function putBackNow(file: string, aside: string | undefined): boolean {
-	if (aside !== undefined) {
+	if (aside === undefined) return existsSync(file);
+	for (let tries = 0; tries < PUT_BACK_TRIES; tries++) {
 		try {
 			linkSync(aside, file);
-		} catch {
-			// Taken already, by the taker's own or the pool's put-back, or the
-			// disk refusing it: whether a record stands is read just below.
+			unlinkNow(aside);
+			return true;
+		} catch (error) {
+			// Taken already, by the taker's own or the pool's put-back.
+			if (isTaken(error)) {
+				unlinkNow(aside);
+				return true;
+			}
+			if (!isMissing(error)) return existsSync(file);
+		}
+		// Nothing set aside: its rename has yet to land, or its removal has.
+		try {
+			linkSync(file, aside);
+			return true;
+		} catch (error) {
+			if (isMissing(error)) return false;
+			if (!isTaken(error)) return existsSync(file);
 		}
 	}
-	const stands = existsSync(file);
-	if (stands && aside !== undefined) unlinkNow(aside);
-	return stands;
+	return existsSync(file);
 }
 
 /** Remove `file` on the thread, as a process exiting does. */
