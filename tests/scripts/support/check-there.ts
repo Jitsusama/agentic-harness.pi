@@ -89,7 +89,10 @@ function turnTaking(): string {
 	const functions = text.match(/^\w+\(\) \{\n[\s\S]*?\n\}$/gm) ?? [];
 	if (functions.length === 0) throw new Error("check-there.sh defines nothing");
 	const lines = text.split("\n");
-	const settings = SETTINGS.filter((line) => lines.includes(line));
+	// In the script's own order, so a check here sets them as one there does.
+	const settings = SETTINGS.filter((line) => lines.includes(line)).sort(
+		(a, b) => lines.indexOf(a) - lines.indexOf(b),
+	);
 	return [...functions, ...settings].join("\n");
 }
 
@@ -979,27 +982,44 @@ function clockWait(): void {
 			async () => {
 				const host = hostWith(EVERY_HOST);
 				// The shell counts whole seconds from where the clock's second
-				// stood, so it starts just past one: then a wait two seconds
-				// long, and one more, ends near three seconds on, and one
-				// without that one near two, rather than anywhere between.
-				while (Date.now() % 1_000 > SECOND_STARTS_MS) {
-					// The clock itself is what's waited on, a few ms a look.
-					await new Promise((done) => setTimeout(done, 5));
+				// stood, so it starts just past one. A run counts only when its
+				// shell started and set its deadline in that same second, which
+				// its first timed try says: then a wait two seconds long, and
+				// one more, ends at least 2.95 s on, and one without that one by
+				// about 2.25 s. A run starved past that second is tried again.
+				const stub =
+					'said=\nlock() { if [ "$1" = -w ] && [ -z "$said" ]; then said=1; echo "first try $SECONDS $EPOCHSECONDS" >&2; fi; sleep 0.2; return 1; }';
+				let counted: { waited: number; waiter: Ended } | undefined;
+				const tries: string[] = [];
+				for (let attempt = 0; attempt < 3 && counted === undefined; attempt++) {
+					while (Date.now() % 1_000 > SECOND_STARTS_MS) {
+						// The clock itself is what's waited on, a few ms a look.
+						await new Promise((done) => setTimeout(done, 5));
+					}
+					const asked = Date.now();
+					const waiter = await ended(
+						check(host, `${stub}\nturn_wait_s=2\ntake_turn\necho took`),
+					);
+					const waited = Date.now() - asked;
+					const first = /first try (\d+) (\d+)/.exec(waiter.err);
+					tries.push(first?.[0] ?? "no first try said");
+					const sameSecond =
+						first?.[1] === "0" &&
+						Number(first[2]) === Math.floor(asked / 1_000);
+					if (sameSecond) counted = { waited, waiter };
 				}
-				const asked = Date.now();
-				const waiter = await ended(
-					check(
-						host,
-						"lock() { sleep 0.2; return 1; }\nturn_wait_s=2\ntake_turn\necho took",
-					),
-				);
+				expect(
+					counted,
+					`a run whose shell set its deadline in the second it was asked: ${tries.join("; ")}`,
+				).toBeDefined();
+				const { waited, waiter } = counted ?? { waited: 0, waiter: undefined };
 				// Two tries would end in about 0.4 s.
 				expect(
-					Date.now() - asked,
+					waited,
 					"it waited by the clock, never less than it says",
-				).toBeGreaterThanOrEqual(2_600);
+				).toBeGreaterThanOrEqual(2_900);
 				expect(waiter).toMatchObject({ code: 75, out: "" });
-				expect(waiter.err, "giving up as its limit passed").toMatch(
+				expect(waiter?.err, "giving up as its limit passed").toMatch(
 					/gave up after 2 s waiting/,
 				);
 			},
@@ -1284,7 +1304,7 @@ function localHalf(): void {
 				const sent = sendFrom(["feature", host], undefined, "a-session");
 				expect(sent.code, "refused").toBe(2);
 				expect(sent.err, "saying where it may go").toMatch(
-					/an agent's check goes only to penelope/,
+					/an agent's check goes only to the host named penelope/,
 				);
 				expect(sent.err, "and what it would do instead").toContain(
 					"pnpm check:there feature penelope",
@@ -1401,24 +1421,37 @@ function workThere(): void {
 			).toEqual(['  "$@" 9>&- </dev/null &']);
 		});
 
-		// The checks here run the settings in their own order, each after
-		// every function, so the script's own order is read: a call before
-		// what it reads is set, or before it is defined, would pass them.
-		// What it was sent, read before its turn, is held the same way.
-		it("runs its settings in order, each after what it calls, and reads what it was sent before its turn", () => {
+		// The checks here define every function before any setting, so the
+		// script's own order is read where it matters: a function a setting
+		// calls or a trap names is defined first, or a signal meanwhile runs
+		// nothing; the caller is known before it is asked after; and what
+		// a stop reads is cleared before a trap can run one. What it was
+		// sent, read before its turn, is held the same way.
+		it("defines what each setting calls first, knows its caller and clears what its stops read before they can run, and reads what it was sent before its turn", () => {
 			const top = topLevel(lines);
-			const at = SETTINGS.map((line) => top.indexOf(line));
-			expect(at, "in the order the checks here run them").toEqual(
-				[...at].sort((a, b) => a - b),
-			);
+			const at = (line: string): number => top.indexOf(line);
+			const traps = SETTINGS.filter((line) => line.startsWith("trap "));
 			for (const line of SETTINGS) {
-				const name = line.split(" ")[0] ?? "";
+				const name = line.startsWith("trap ")
+					? (/^trap '?(\w+)/.exec(line)?.[1] ?? "")
+					: (line.split(" ")[0] ?? "");
 				const definedAt = lines.indexOf(`${name}() {`);
 				if (definedAt === -1) continue;
-				expect(definedAt, `${name}, defined before it runs`).toBeLessThan(
-					top.indexOf(line),
+				expect(definedAt, `${name}, defined before ${line}`).toBeLessThan(
+					at(line),
 				);
 			}
+			expect(traps.length, "traps named").toBeGreaterThan(0);
+			for (const line of ["note_caller", "trap caller_gone PIPE"])
+				expect(
+					at("caller=$PPID"),
+					`its caller, known before ${line}`,
+				).toBeLessThan(at(line));
+			for (const line of traps)
+				expect(
+					at(CLEARED),
+					`what its stops read, cleared before ${line}`,
+				).toBeLessThan(at(line));
 			const turn = top.indexOf("take_turn");
 			expect(turn, "its turn, taken").toBeGreaterThan(-1);
 			for (const sent of ['branch="$1"', 'turn_wait_s="$2"']) {
