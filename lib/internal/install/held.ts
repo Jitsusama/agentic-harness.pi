@@ -231,8 +231,8 @@ export function faultsInto(log: string): (error: unknown) => void {
 				`${JSON.stringify({ at: new Date().toISOString(), why })}\n`,
 			);
 		} catch {
-			// Nowhere to keep it, or nothing to say of it: the note stays
-			// unsaid, and the next session tries.
+			// Nowhere to keep it, or nothing to say of it: the fault is lost,
+			// and the note is as the failing session left it.
 		}
 	};
 }
@@ -276,20 +276,24 @@ export async function sayHeldOnce(
 		screen.ui.notify(note, "warning");
 	} catch (error) {
 		if (claimed) once.said = false;
-		// A replaced session's is expected, and the next session says it.
-		if (!isStaleContext(error)) tellFault(saying.fault, error);
+		tellFault(saying.fault, error);
 	}
 }
 
-/** Tell `fault` of an error, never letting it throw out of a note. */
+/**
+ * Tell `fault` of an error other than a replaced session's, which is
+ * expected and leaves the note to the next session, never letting
+ * either the telling or the reading of the error throw out of a note.
+ */
 function tellFault(
 	fault: ((error: unknown) => void) | undefined,
 	error: unknown,
 ): void {
 	try {
-		fault?.(error);
+		if (!isStaleContext(error)) fault?.(error);
 	} catch {
-		// A fault that can't be told is lost; the note stays unsaid either way.
+		// A fault that can't be told is lost; whoever claimed the note has
+		// given its claim back already, so the next session may say it.
 	}
 }
 

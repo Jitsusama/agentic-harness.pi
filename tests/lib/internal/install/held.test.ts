@@ -261,6 +261,18 @@ describe("sayHeldOnce", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("never rejects for an error whose message can't be read", async () => {
+		const odd = new Error("odd");
+		Object.defineProperty(odd, "message", {
+			get() {
+				throw new Error("unreadable");
+			},
+		});
+		await expect(
+			sayHeldOnce(Promise.reject(odd), screen([]), { once: { said: false } }),
+		).resolves.toBeUndefined();
+	});
+
 	it("says nothing for a hold that missed nothing", async () => {
 		const told: string[] = [];
 		await sayHeldOnce(
