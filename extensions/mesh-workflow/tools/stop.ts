@@ -1,17 +1,35 @@
 /** mesh_stop: stopping a peer reaching this one, and saying who has. */
 
 import { groupNamed } from "../../../lib/mesh/group.ts";
+import { oneLine } from "../../../lib/mesh/one-line.ts";
+import { isAddress } from "../../../lib/mesh/steer-who.ts";
 import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
 
-/** The stops on this peer, said to it. */
-export function stopsText(stops: ReturnType<typeof stoppedBy>): string {
+/**
+ * The stops on this peer, said to it a line each, with `after` closing
+ * every line. A stopper gives its addresses and its reason as it likes,
+ * and a reader takes each line as one stopper's and each sentence as
+ * the tool's own. So each stop has a line of its own, opening on the
+ * first of its stopper's addresses that is one, or on "A peer" when
+ * none is, since a stop that bars a send is said either way; and its
+ * reason is folded to that line and quoted as a string, which it can't
+ * close to say a stop of another peer's after it.
+ */
+export function stopsText(
+	stops: ReturnType<typeof stoppedBy>,
+	after = "",
+): string {
 	return stops
-		.map(
-			({ stopper, stop }) =>
-				`${stopper.addresses[0]} stopped this peer reaching it${stop.why ? ` (${stop.why})` : ""}: it sees what this peer sends as one line only.`,
-		)
-		.join(" ");
+		.map(({ stopper, stop }) => {
+			const who = stopper.addresses.find(isAddress) ?? "A peer";
+			const why =
+				stop.why !== undefined && oneLine(stop.why) !== ""
+					? `, saying ${JSON.stringify(oneLine(stop.why))}`
+					: "";
+			return `${who} stopped this peer reaching it${why}: it sees what this peer sends as one line only.${after}`;
+		})
+		.join("\n");
 }
 
 export async function stop(

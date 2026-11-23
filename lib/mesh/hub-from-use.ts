@@ -100,18 +100,8 @@ export function hubFromUse(
 	const stoppers = new Set(
 		stoppedBy(self, live).map(({ stopper }) => stopper.session),
 	);
-	// Held by exactly one live presence, and by no ended one on another
-	// quest, so the cell it names is that one, in any case, since a send
-	// reads an address upper-cased.
-	const alone = (address: string) => {
-		const [holder, ...others] = live.filter((one) => lists(one, address));
-		if (holder === undefined || others.length > 0) return false;
-		const quest = ownQuestOf(holder);
-		return !ended.some(
-			(one) => lists(one, address) && ownQuestOf(one) !== quest,
-		);
-	};
-	const writable = (address: string) => isHub(address) && alone(address);
+	const writable = (address: string) =>
+		isHub(address) && heldAlone(address, live, ended) !== undefined;
 	const candidates = live.filter((one) => {
 		if (
 			one.session === self.session ||
@@ -200,19 +190,63 @@ export function questsAbove(
 }
 
 /**
- * Whether a hub found earlier still stands as `self` reads it now: its
- * address listed by exactly one of the `live` presences, and that one
- * on a quest above `self`'s, as the find required when it chose it.
+ * Whether a hub found earlier still stands as `self` reads it now, by
+ * the rules the find chose it by, bar its ties: its address listed by
+ * exactly one of the `live` presences and by no `ended` one on another
+ * quest, that one on a quest above `self`'s, and neither having
+ * stopped the other, each stop matched as the find matches it. A hub
+ * is kept while the node is quiet, so this is the only check it meets
+ * until a find settles.
  */
 export function stillAbove(
-	self: Pick<Presence, "groups" | "joined" | "quest">,
+	self: Pick<
+		Presence,
+		"session" | "addresses" | "stops" | "groups" | "joined" | "quest"
+	>,
 	live: readonly Presence[],
 	address: string,
+	ended: readonly Presence[] = [],
 ): boolean {
-	const [holder, ...others] = live.filter((one) => lists(one, address));
-	if (holder === undefined || others.length > 0) return false;
-	const own = ownQuestOf(holder);
+	const holder = heldAlone(address, live, ended);
+	if (holder === undefined || holder.session === self.session) return false;
+	if (stoppedHere(self, holder) || stoppedBy(self, [holder]).length > 0) {
+		return false;
+	}
+	return onQuestAbove(self, holder);
+}
+
+/**
+ * Whether `one` works on a quest above `self`'s own, the only place a
+ * hub from use is ever found, so an address held by no such cell can't
+ * be `self`'s hub.
+ */
+export function onQuestAbove(
+	self: Pick<Presence, "groups" | "joined" | "quest">,
+	one: Pick<Presence, "groups" | "joined" | "quest">,
+): boolean {
+	const own = ownQuestOf(one);
 	return own !== undefined && questsAbove(self).includes(own);
+}
+
+/**
+ * The one live presence holding `address`, in any case, since a send
+ * reads an address upper-cased, when no other live one holds it and no
+ * ended one on another quest does: a forged presence could take an
+ * ended peer's address to point the send at a peer that isn't above,
+ * since a send to it still reaches it once it is restored.
+ */
+function heldAlone(
+	address: string,
+	live: readonly Presence[],
+	ended: readonly Presence[],
+): Presence | undefined {
+	const [holder, ...others] = live.filter((one) => lists(one, address));
+	if (holder === undefined || others.length > 0) return undefined;
+	const quest = ownQuestOf(holder);
+	const taken = ended.some(
+		(one) => lists(one, address) && ownQuestOf(one) !== quest,
+	);
+	return taken ? undefined : holder;
 }
 
 /** The quest `one` works on, the last of its chain, if it has one. */

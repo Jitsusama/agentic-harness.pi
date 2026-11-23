@@ -148,6 +148,35 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		expect(sent()).toHaveLength(0);
 	});
 
+	// A group named is always upper case, and the find matches a hub's
+	// address in any letters, so the send does too.
+	it("counts the person's acts in a question to the hub by address when its presence lists it in lower case", async () => {
+		onQuest();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-q",
+			addresses: ["5gv2ah"],
+			groups: ["#quest/5gv2ah"],
+			joined: [],
+			quest: "QEST-20261021-5GV2AH",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { tools } = await startSession(env);
+
+		const refused = await send(
+			tools,
+			"5GV2AH",
+			"question",
+			"May Joel touch the key at 02:00?",
+		);
+
+		expect(refused).toContain("Not sent: this asks for the person's hands");
+		expect(sent()).toHaveLength(0);
+	});
+
 	// No answer can't say the address isn't the hub's, so the check is
 	// made rather than skipped.
 	it("counts the person's acts in a question to the hub by address when no node answers", async () => {
@@ -199,6 +228,33 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			busy: false,
 			at: new Date().toISOString(),
 		});
+
+		await send(tools, "OTHER1", "question", "May Joel touch the key at 02:00?");
+
+		expect(sent().at(-1)).toMatchObject({
+			to: ["@OTHER1"],
+			text: "May Joel touch the key at 02:00?",
+		});
+	});
+
+	// A hub is only ever found on a quest above, so an address no cell
+	// there holds is no hub's, and a question to a peer's owner, the
+	// common case, waits on no find while the node is quiet.
+	it("sends a question for his hands by address to a peer on no quest above when no node answers", async () => {
+		onQuest();
+		parentLive();
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-o",
+			addresses: ["OTHER1"],
+			groups: ["#quest/other1"],
+			joined: [],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const { tools } = await startSession(noNode());
 
 		await send(tools, "OTHER1", "question", "May Joel touch the key at 02:00?");
 

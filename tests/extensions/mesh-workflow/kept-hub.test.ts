@@ -1,9 +1,11 @@
 /**
  * The hub from use a peer keeps for what the mesh says by itself: found
  * at once, read without waiting, never sought under the mark or on a
- * quest heading an orchestration, and none rather than a stale one when
- * a find fails, a role is taken, the quest moves, the hub ends or its
- * address is shared, or the keeping stops.
+ * quest heading an orchestration, kept through a find that fails or gets
+ * no answer, and none once a find finishes finding none, a role is
+ * taken, the quest moves, the hub ends, either stops the other, its
+ * address is shared or taken on another quest after it ended, no find
+ * has come to it for its trust, or the keeping stops.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -176,16 +178,239 @@ describe("a kept hub", () => {
 		expect(keptAbove(undefined, hub)).toBeUndefined();
 	});
 
-	it("is none once a later find fails, rather than the one found before", async () => {
+	// The node going quiet says nothing about who is above, and dropping
+	// the hub then would send every unmarked session's questions to the
+	// person just as need stops finding owners too.
+	it("keeps the hub found before while later finds fail, unsaid", async () => {
+		let failing = false;
+		const { at, asked } = onMesh(async () => {
+			if (failing) throw new Error("node gone");
+			return [tie("ROOT01", 3)];
+		});
+		const found = vi.fn();
+		const hub = keep(at, { ...QUICK, found });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		failing = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 2),
+		);
+		const said = found.mock.calls.length;
+		const failedSince = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(failedSince + 2),
+		);
+
+		expect(hub.current()).toBe("ROOT01");
+		expect(found, "a failed find says no hub").toHaveBeenCalledTimes(said);
+	});
+
+	it("keeps the hub found before while the node gives no ties", async () => {
+		let quiet = false;
+		const { at, asked } = onMesh(async () =>
+			quiet ? undefined : [tie("ROOT01", 3)],
+		);
+		const found = vi.fn();
+		const hub = keep(at, { ...QUICK, found });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 2),
+		);
+		const said = found.mock.calls.length;
+		const quietSince = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(quietSince + 2),
+		);
+
+		expect(hub.current()).toBe("ROOT01");
+		expect(found, "an unanswered find says no hub").toHaveBeenCalledTimes(said);
+	});
+
+	// While the node is quiet the kept hub meets no find, so reading it
+	// holds to the stops the find would have refused it on.
+	for (const [who, stopper, stopped] of [
+		["this peer stops the hub", "session-s", "ROOT01"],
+		["the hub stops this peer", "session-r", "7M6JKG"],
+	] as const) {
+		it(`is none at once, the node quiet, when ${who}`, async () => {
+			let quiet = false;
+			const { at, asked } = onMesh(async () =>
+				quiet ? undefined : [tie("ROOT01", 3)],
+			);
+			const hub = keep(at, QUICK);
+			await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+			quiet = true;
+			const before = asked.mock.calls.length;
+			await vi.waitFor(() =>
+				expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
+			);
+
+			const one = at.presences.of(stopper);
+			if (one === undefined) throw new Error(`${stopper} is not on the mesh`);
+			at.presences.publish({
+				...one,
+				stops: [{ address: stopped, at: new Date().toISOString() }],
+			});
+
+			expect(hub.current()).toBeUndefined();
+		});
+	}
+
+	// A send to an ended peer's address still reaches it once restored,
+	// so a cell on another quest above taking it while the node is quiet
+	// would point the hub's tells at a peer the find never chose.
+	it("is none at once, the node quiet, when the hub ends and a cell on another quest above takes its address", async () => {
+		let quiet = false;
+		const { at, asked } = onMesh(async () =>
+			quiet ? undefined : [tie("ROOT01", 3)],
+		);
+		const self = at.presences.of("session-s");
+		if (self === undefined) throw new Error("7M6JKG is not on the mesh");
+		at.presences.publish({ ...self, groups: ["#quest/root01/mid001/7m6jkg"] });
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
+		);
+
+		const root = at.presences.of("session-r");
+		if (root === undefined) throw new Error("ROOT01 is not on the mesh");
+		at.presences.publish({ ...root, ended: new Date().toISOString() });
+		at.presences.publish({
+			...root,
+			session: "session-f",
+			groups: ["#quest/root01/mid001"],
+			quest: "QEST-20261021-MID001",
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	// A node quiet this long is down rather than slow, and the talk the
+	// hub was chosen from is going stale; the next find that comes to a
+	// hub trusts it again.
+	it("is none once no find has come to it for its trust, and back once one does", async () => {
+		let quiet = false;
+		const { at } = onMesh(async () => (quiet ? undefined : [tie("ROOT01", 3)]));
+		const hub = keep(at, { ...QUICK, trust: A_FEW_FINDS_MS });
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+
+		await vi.waitFor(() => expect(hub.current()).toBeUndefined());
+		quiet = false;
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	it("is none once finds have failed for its trust, and back once one comes to it", async () => {
 		let failing = false;
 		const { at } = onMesh(async () => {
 			if (failing) throw new Error("node gone");
 			return [tie("ROOT01", 3)];
 		});
-
-		const hub = keep(at, QUICK);
+		const hub = keep(at, { ...QUICK, trust: A_FEW_FINDS_MS });
 		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
 		failing = true;
+
+		await vi.waitFor(() => expect(hub.current()).toBeUndefined());
+		failing = false;
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+	});
+
+	// Trust runs on the clock the finds' own timers run on: a machine that
+	// slept asked no find, and a wall clock NTP stepped heard no silence.
+	it("stays the hub when the wall clock jumps past its trust", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		const hub = keep(at, {
+			every: NEVER_AGAIN_MS,
+			retry: NEVER_AGAIN_MS,
+			trust: 60_000,
+		});
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+
+		const woken = Date.now() + 10 * 60_000;
+		const clock = vi.spyOn(Date, "now").mockReturnValue(woken);
+		try {
+			expect(hub.current()).toBe("ROOT01");
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
+	// The find reads an ended session by the addresses it still answers
+	// to, so one that once worked on the hub's quest, and lists the hub's
+	// address behind a signature of its own, holds no claim on it; the read
+	// must agree, or it refuses on every read a hub each find comes to.
+	it("stays the hub when an ended session on another quest lists its address behind its own", async () => {
+		const { at } = onMesh(async () => [tie("ROOT01", 3)]);
+		at.presences.publish({
+			session: "session-e",
+			addresses: ["OTHER1", "ROOT01"],
+			groups: ["#quest/other1"],
+			joined: [],
+			quest: "QEST-20261021-OTHER1",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			ended: new Date().toISOString(),
+			at: new Date().toISOString(),
+		});
+		const found = vi.fn();
+
+		const hub = keep(at, { ...QUICK, found });
+
+		await vi.waitFor(() => expect(found).toHaveBeenCalledWith("ROOT01"));
+		expect(hub.current()).toBe("ROOT01");
+	});
+
+	// The read counts a session the last find judged gone as ended, as
+	// the find does, so one that turns up on another quest still listing
+	// the hub's address is refused as the next find would refuse it.
+	it("is none at once, the node quiet, when a session the find judged gone lists its address on another quest", async () => {
+		let quiet = false;
+		const { at, asked } = onMesh(async () =>
+			quiet ? undefined : [tie("ROOT01", 3)],
+		);
+		const dead = {
+			session: "session-d",
+			addresses: ["ROOT01"],
+			groups: ["#quest/root01"],
+			joined: [],
+			quest: "QEST-20261021-ROOT01",
+			worksOn: "",
+			owns: [],
+			busy: false,
+			// This process under another start, so the census reads it gone.
+			owner: { pid: process.pid, startedAt: 1 },
+			at: new Date().toISOString(),
+		};
+		at.presences.publish(dead);
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		quiet = true;
+		const before = asked.mock.calls.length;
+		await vi.waitFor(() =>
+			expect(asked.mock.calls.length).toBeGreaterThan(before + 1),
+		);
+
+		at.presences.publish({
+			...dead,
+			groups: ["#quest/other1"],
+			quest: "QEST-20261021-OTHER1",
+		});
+
+		expect(hub.current()).toBeUndefined();
+	});
+
+	it("is none once a later find finishes and finds none", async () => {
+		let tied = true;
+		const { at } = onMesh(async () => (tied ? [tie("ROOT01", 3)] : []));
+		const hub = keep(at, QUICK);
+		await vi.waitFor(() => expect(hub.current()).toBe("ROOT01"));
+		tied = false;
 
 		await vi.waitFor(() => expect(hub.current()).toBeUndefined());
 	});

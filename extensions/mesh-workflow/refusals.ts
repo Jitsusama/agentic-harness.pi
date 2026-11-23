@@ -13,14 +13,21 @@
 
 import type { RefusedWake } from "../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../lib/mesh/message.ts";
+import { oneLine } from "../../lib/mesh/one-line.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
+import { isAddress } from "../../lib/mesh/steer-who.ts";
 
 /** A parked peer's refused wake, when its host keeps one. */
 export type Refusal = (presence: Presence) => RefusedWake | undefined;
 
-/** A refusal's reason as one sentence, whether or not it ended in a stop. */
+/**
+ * A refusal's reason as one sentence on one line, whether or not it
+ * ended in a stop. The reason is read from beside the wake path the
+ * parked peer's own presence names, and a host may keep an error's
+ * message there, so it may come on any number of lines.
+ */
 function sentence(refused: RefusedWake): string {
-	const reason = refused.reason.trim();
+	const reason = oneLine(refused.reason);
 	return reason.endsWith(".") ? reason : `${reason}.`;
 }
 
@@ -31,7 +38,8 @@ export function refusedNotes(
 ): string[] {
 	return addressed.flatMap((one) => {
 		const refused = refusal(one);
-		const address = one.addresses[0];
+		// A presence says its addresses as it likes, and this opens the note.
+		const address = one.addresses.find(isAddress);
 		if (!refused || address === undefined) return [];
 		return [
 			`${address} is parked, and its host refused its last wake at ${clock(refused)}: ${sentence(refused)} If that still holds, it reads this at its next start.`,
