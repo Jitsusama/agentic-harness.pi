@@ -8,6 +8,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { FoundClassifier } from "../../../lib/classifier/jev.ts";
+import type { ConcludedEvent } from "../../../lib/internal/quest/fields/concluded.ts";
 import type { createReloadHold } from "../../../lib/internal/reload/hold.ts";
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
@@ -40,7 +41,7 @@ import type { createOrderedCarrying } from "../ordered-carry.ts";
 import type { createPausing } from "../pausing.ts";
 import type { Steering } from "../steer.ts";
 import type { createTalks } from "../talks.ts";
-import type { KeptHub } from "../tools/above.ts";
+import type { HubTiming, KeptHub } from "../tools/above.ts";
 import type { Waiting, watchSettling } from "../wait.ts";
 
 /**
@@ -173,6 +174,8 @@ export interface MeshState {
 	readonly settling: Settling;
 	readonly waitCheckMs: number;
 	readonly lookAgainMs: number;
+	// How often the hub from use is found again (tools/above.ts).
+	readonly hubTiming: HubTiming;
 	own: OwnLeases | undefined;
 	// The sessions last counted still there, so a quest's address is
 	// left only to a peer that is (see address.ts).
@@ -218,6 +221,13 @@ export interface MeshState {
 	// told once.
 	onNoModelUntold: NoModelEvent | undefined;
 	toldOnNoModel: boolean;
+	// Quests and documents that ended while nobody was above to hear it,
+	// the newest, each with the quest the session was on, told once a hub
+	// is kept if the session is on that quest still.
+	endingsUntold: readonly {
+		readonly event: ConcludedEvent;
+		readonly quest: string | undefined;
+	}[];
 	classifier: Promise<FoundClassifier> | undefined;
 	stopWatching: (() => void) | undefined;
 	// Where this peer's catch-up began: a message stamped at or before it

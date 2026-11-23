@@ -614,6 +614,44 @@ describe("asking the node whom a cell is tied to", () => {
 			},
 		]);
 	});
+
+	// JSON has no infinity, but a number past its range reads as one, and
+	// a tie of infinite strength would pass any floor and outrank the rest.
+	it("keeps no tie whose strength is past what a number holds", () => {
+		const record = (key: string, strength: string) =>
+			`{"key":"${key}","heard":0,"hour":[1,1],"today":[1,1],"intents":[],"strength":${strength}}`;
+		const line = `{"id":2,"records":[${record("tie:85PKB2~WCJQSG", "1e309")},${record("tie:85PKB2~KP0L6A", "2")}]}`;
+
+		expect(tiesFrom(line, ["85PKB2"], 0)?.map((tie) => tie.other)).toEqual([
+			"KP0L6A",
+		]);
+	});
+
+	it("keeps no tie whose counts are past what a number holds", () => {
+		const record = (key: string, today: string) =>
+			`{"key":"${key}","heard":0,"hour":[1,1],"today":${today},"intents":[],"strength":2}`;
+		const line = `{"id":2,"records":[${record("tie:85PKB2~WCJQSG", "[1e309,1]")},${record("tie:85PKB2~KP0L6A", "[1,1]")}]}`;
+
+		expect(tiesFrom(line, ["85PKB2"], 0)?.map((tie) => tie.other)).toEqual([
+			"KP0L6A",
+		]);
+	});
+
+	it("keeps no tie with a count below nothing, which would make a share more than the whole", () => {
+		const record = (key: string, today: string) =>
+			`{"key":"${key}","heard":0,"hour":[1,1],"today":${today},"intents":[],"strength":2}`;
+		const line = `{"id":2,"records":[${record("tie:85PKB2~WCJQSG", "[5,-4]")},${record("tie:85PKB2~KP0L6A", "[1,1]")}]}`;
+
+		expect(tiesFrom(line, ["85PKB2"], 0)?.map((tie) => tie.other)).toEqual([
+			"KP0L6A",
+		]);
+	});
+
+	it("fades a tie heard after now from now, rather than growing it", () => {
+		const line = `{"id":2,"records":[{"key":"tie:85PKB2~WCJQSG","heard":360000000,"hour":[1,1],"today":[1,1],"intents":[],"strength":2}]}`;
+
+		expect(tiesFrom(line, ["85PKB2"], 0)?.[0]?.strength).toBe(2);
+	});
 });
 
 describe("what starts an agent session on each machine", () => {

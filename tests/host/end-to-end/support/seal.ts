@@ -31,6 +31,16 @@ import { hostSocketPath } from "../../../../host/service/address.ts";
 /** The longest path a Unix socket takes, less its closing zero. */
 const SOCKET_PATH_LIMIT = 107;
 
+/**
+ * How often, and how far apart, a seal's removal tries again on a folder
+ * still being written. A subagent a killed host started can still be
+ * writing node's compile cache under the seal's state as it goes: E7
+ * failed in teardown with ENOTEMPTY on 23 November, its assertions
+ * passed (3PXQTB's aed7c132, ISXEG8's cac115dd).
+ */
+const REMOVE_RETRIES = 10;
+const REMOVE_RETRY_MS = 200;
+
 /** What a seal's link adds to the name of the folder it reaches, kept to one byte for the socket's sake. */
 const LINK_SUFFIX = "l";
 
@@ -67,7 +77,12 @@ export async function seal(): Promise<Seal> {
 	const root = `${real}${LINK_SUFFIX}`;
 	await symlink(real, root);
 	const dispose = async () => {
-		await rm(real, { recursive: true, force: true });
+		await rm(real, {
+			recursive: true,
+			force: true,
+			maxRetries: REMOVE_RETRIES,
+			retryDelay: REMOVE_RETRY_MS,
+		});
 		await rm(root, { force: true });
 	};
 	const realm = `sealed-${randomBytes(3).toString("hex")}`;

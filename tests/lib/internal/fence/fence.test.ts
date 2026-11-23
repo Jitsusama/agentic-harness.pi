@@ -108,7 +108,12 @@ describe("what a session asking for the fence is given", () => {
 		).toBe("refused");
 	});
 
-	const onMac = (env: NodeJS.ProcessEnv, inside: boolean) =>
+	// Never the machine's own sandbox-exec, which a Mac running these has.
+	const onMac = (
+		env: NodeJS.ProcessEnv,
+		inside: boolean,
+		sandboxExec?: string,
+	) =>
 		sandboxFor(
 			env,
 			"darwin",
@@ -117,6 +122,7 @@ describe("what a session asking for the fence is given", () => {
 			undefined,
 			undefined,
 			() => inside,
+			() => sandboxExec,
 		);
 
 	it("runs a Mac's commands as they are inside the sandbox pi runs in, and says so, rather than refusing every one", () => {
@@ -154,6 +160,15 @@ describe("what a session asking for the fence is given", () => {
 		const reason = mac.kind === "refused" ? mac.reason : undefined;
 		expect(reason, "the way back was lost").toContain("PI_SANDBOX=off");
 		expect(reason, "why nothing runs was lost").toContain("no sandbox");
+	});
+
+	it("lays a mistyped name's fence on a bare Mac with sandbox-exec, keeping its way back", () => {
+		const mac = onMac({ PI_SANDBOX: "loose" }, false, "/usr/bin/sandbox-exec");
+		expect(mac.kind, "a bare Mac with sandbox-exec laid no fence").toBe(
+			"seatbelt",
+		);
+		const note = mac.kind === "seatbelt" ? mac.note : undefined;
+		expect(note, "the way back was lost").toContain("PI_SANDBOX=off");
 	});
 
 	it("carries the system's logger for its refusals, refused or not", () => {

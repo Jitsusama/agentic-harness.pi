@@ -43,6 +43,7 @@ import {
 	type ReloadRequest,
 	reloadSlot,
 } from "../../lib/internal/reload/slot.ts";
+import { moveWaiting } from "../../lib/internal/session/move-waiting.ts";
 import {
 	RESTART_ASK,
 	type RestartAsk,
@@ -297,9 +298,23 @@ export async function performReload(
 	// was replaced without going stale, its job host still first on the
 	// bus, holding carried jobs and saying the landing every 30 seconds.
 	if (slot.performing) {
+		// One typed while the follower's waits for the run to be still takes
+		// its place, so a move that takes the follower's back leaves this
+		// one to go (5BACCAC3's F103 on #2029). The follower asks once, so
+		// a second ask while its own waits is never the follower's.
+		const joins = slot.request?.by === "self" && slot.reloading !== true;
+		if (joins && slot.request !== undefined) {
+			slot.request = {
+				...slot.request,
+				reason: "you asked with /harness reload",
+				by: "person",
+			};
+		}
 		try {
 			ctx.ui.notify(
-				"A reload is already under way, so this one did nothing.",
+				joins
+					? "A reload is already waiting for the session to be still; yours goes with it."
+					: "A reload is already under way, so this one did nothing.",
 				"info",
 			);
 		} catch {
@@ -399,6 +414,21 @@ async function reloadOnce(
 				`${said} Nothing was reloaded; ask again if this session is still here once the carry has ended.`,
 			);
 		}
+		return;
+	}
+	// The follower's own reload waits out a move taken during the wait,
+	// as it waits out one it saw (follow.ts): going now would stop the
+	// move unwritten. Taken back quietly, the follower asks again once the
+	// move lets go; a person's or the agent's goes, and the move carries
+	// over it.
+	if (
+		session !== undefined &&
+		slot.request.by === "self" &&
+		moveWaiting(session) !== undefined
+	) {
+		slot.request = undefined;
+		slot.dispatched = false;
+		slot.dispatchedAt = undefined;
 		return;
 	}
 	// Read after the wait: the session's own request says what came in,

@@ -644,12 +644,19 @@ export function tiesFrom(
 		const { strength, heard } = record;
 		if (at === undefined || !hour || !today) return [];
 		if (typeof strength !== "number" || typeof heard !== "number") return [];
+		// A tie heard after now, as a clock stepped back says, fades from
+		// now rather than growing, which would lift it over every other.
+		const age = Math.max(0, now - heard);
+		const faded = strength * 2 ** (-age / TIE_HALF_LIFE_MS);
+		// A strength no number can weigh, as JSON's 1e309 reads, is no tie,
+		// and nor is one below nothing.
+		if (!Number.isFinite(faded) || faded < 0) return [];
 		const ours = (counts: [number, number]): [number, number] =>
 			at === 0 ? counts : [counts[1], counts[0]];
 		return [
 			{
 				other: at === 0 ? second : first,
-				strength: strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS),
+				strength: faded,
 				hour: ours(hour),
 				today: ours(today),
 				intents: Array.isArray(record.intents)
@@ -770,8 +777,17 @@ function saidIn(record: Record<string, unknown>): Said | undefined {
 /** Two counts, as a tie says each end's, or nothing for anything else. */
 function pair(said: unknown): [number, number] | undefined {
 	if (!Array.isArray(said) || said.length !== 2) return undefined;
-	const [a, b] = said;
-	return typeof a === "number" && typeof b === "number" ? [a, b] : undefined;
+	const [a, b]: unknown[] = said;
+	return isCount(a) && isCount(b) ? [a, b] : undefined;
+}
+
+/**
+ * Whether `said` is a count: a finite number of none or more, since a
+ * count no number can hold, as JSON's 1e309 reads, counts nothing, and
+ * one below nothing would make one end's share more than the whole tie.
+ */
+function isCount(said: unknown): said is number {
+	return typeof said === "number" && Number.isFinite(said) && said >= 0;
 }
 
 /**

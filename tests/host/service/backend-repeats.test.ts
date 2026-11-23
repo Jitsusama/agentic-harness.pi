@@ -26,6 +26,7 @@ import {
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import { listenControl } from "../../../host/service/server.ts";
+import { unsettledSession } from "../../../host/service/unsettled-open.ts";
 
 const KEY = "work-background";
 const owner = { pid: process.pid, startedAt: 1 };
@@ -409,10 +410,57 @@ describe("a start asked again under its id", () => {
 			ok: false,
 			error: { code: "open_unsettled" },
 		});
+		expect(
+			first.ok ? undefined : unsettledSession(first.error),
+			"names the one its child runs",
+		).toBe(sessionId);
 		expect(again).toEqual(first);
 		expect(children.begin).toHaveBeenCalledOnce();
 		runs = false;
 		await dispatchControl({ ...open }, backend);
 		expect(children.begin).toHaveBeenCalledTimes(2);
+	});
+
+	// What a repeat attaches to is the conversation as it is called now: one
+	// its child left running may have become another (pi's new or fork).
+	it("names in a repeat of an unsettled open what its conversation became", async () => {
+		const { fake } = slowEngine();
+		const sessionId = randomUUID();
+		const next = randomUUID();
+		// The child runs the first one until it becomes the next.
+		let calledNow = sessionId;
+		const children: BackendChildren = {
+			moves: () => false,
+			opens: () => true,
+			running: (id) =>
+				id === calledNow
+					? {
+							sessionId: calledNow,
+							file: join(dir, `${calledNow}.jsonl`),
+							cwd: "/work",
+							state: "idle",
+							since: "2026-11-21T10:00:00.000Z",
+						}
+					: undefined,
+			resume: vi.fn(),
+			begin: vi.fn(async (request) => unsettledReply(request.id, sessionId)),
+			ask: vi.fn(),
+			left: vi.fn(async () => {}),
+		};
+		const backend = backendWith(fake, children);
+		await dispatchControl(open, backend);
+
+		calledNow = next;
+		backend.became(sessionId, next);
+		const again = await dispatchControl({ ...open }, backend);
+		const still = await dispatchControl({ ...open }, backend);
+
+		expect(again).toMatchObject({
+			ok: false,
+			error: { code: "open_unsettled" },
+		});
+		expect(again.ok ? undefined : unsettledSession(again.error)).toBe(next);
+		expect(still, "and again").toEqual(again);
+		expect(children.begin, "no second child").toHaveBeenCalledOnce();
 	});
 });

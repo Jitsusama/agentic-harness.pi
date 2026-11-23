@@ -13,12 +13,15 @@
  * E30, a reload with a move pending: a conversation told to move while
  * its run goes on, whose install moves under that run, so the run's end
  * both lets the move go and asks to reload it onto the new version, as
- * XUBK2E's did at 05:53. Which of the two goes first is the race's own:
- * XUBK2E's reload began a second before its move, while here the move
- * usually wins, since the follower asks git why before it reloads. The
- * note survives either way, so the case checks that, and is offered,
- * and opened from its file in plain pi it answers; move-notes.test.ts
- * pins the reload-first order, where a reload's start leaves the note.
+ * XUBK2E's did at 05:53. While the move waits it holds the install's
+ * reload of its session off (lib/internal/session/move-waiting.ts), so
+ * the follower waits and the move's next look, two seconds on, leaves
+ * its note first (mesh-move.test.ts). Until 23 November nothing held
+ * the reload, and under a full host run's load it began as the run
+ * settled and stopped the move: the move carries over a reload and
+ * looks again as the session restarts, but a slow reload outlasted the
+ * release's wait. The case checks the note is left, is offered, and
+ * opened from its file in plain pi it answers.
  *
  * E31, an untrusted folder: a conversation the background host ran in a
  * folder nobody trusted, which it left untrusted with nobody there to

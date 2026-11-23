@@ -33,6 +33,10 @@ import {
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
+import {
+	holdForMove,
+	letMoveGo,
+} from "../../../lib/internal/session/move-waiting.ts";
 import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
@@ -66,6 +70,7 @@ import {
 } from "../ordered-carry.ts";
 import { createPausing, RESUMED_TEXT } from "../pausing.ts";
 import { createTalks } from "../talks.ts";
+import type { HubTiming } from "../tools/above.ts";
 import { type Waiting, watchSettling } from "../wait.ts";
 import type { Left, MeshPaths, MeshState } from "./mesh.ts";
 import { createWaits } from "./waits.ts";
@@ -78,6 +83,7 @@ export function createState(
 	settling: Settling,
 	waitCheckMs: number,
 	lookAgainMs: number,
+	hubTiming: HubTiming = {},
 ): MeshState {
 	// Everything here reads a receptor's name as nothing, but delivery and
 	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
@@ -336,8 +342,22 @@ export function createState(
 		},
 		carryOn: (text) => pi.sendUserMessage(text),
 	});
+	// The session a move holds the reload of, kept so its stop lets go of
+	// the same one after its peer has gone.
+	let moveHeld: string | undefined;
 	// Move into a host or out of one, from outside the window (moving.ts).
 	const moving = createMoving({
+		holdReloads: (to) => {
+			const session = m.peer?.session;
+			if (session === undefined) return;
+			if (moveHeld !== undefined && moveHeld !== session) letMoveGo(moveHeld);
+			moveHeld = session;
+			holdForMove(session, to);
+		},
+		letReloadsGo: () => {
+			if (moveHeld !== undefined) letMoveGo(moveHeld);
+			moveHeld = undefined;
+		},
 		holds: () => holdsOf(m.ctx, pi.events, m.prompts),
 		hosted: () => m.hostKey !== undefined,
 		moving: () => m.peer?.moving,
@@ -405,6 +425,7 @@ export function createState(
 		settling,
 		waitCheckMs,
 		lookAgainMs,
+		hubTiming,
 		transport,
 		asWritten,
 		asWrittenOff,
@@ -457,6 +478,7 @@ export function createState(
 		settleClock: undefined,
 		onNoModelUntold: undefined,
 		toldOnNoModel: false,
+		endingsUntold: [],
 		classifier: undefined,
 		stopWatching: undefined,
 		caughtUpFrom: undefined,

@@ -80,23 +80,24 @@ const NEED_CALL = "need (mesh_send to: need, about: what it is about)";
  * is chosen by how much it talks, which any cell above can grow, so it
  * carries questions up but passes on no yes.
  *
- * `above` is the mark's orchestrator, or the hub from use of a quest
- * with no mark (tools/above.ts). The hub is named by its address rather
- * than as `orchestrator`, since a send finds the hub afresh and finds
- * none while the node is quiet, when the hub this session keeps still
- * holds.
+ * `above` is who `orchestrator` reaches: the mark's orchestrator, or
+ * the hub from use of a quest with no mark (tools/above.ts). The hub is
+ * named by what it is rather than its address, since the one kept can
+ * be minutes old and the send finds it afresh: an address here could
+ * name a cell the send no longer reaches. A send the node leaves
+ * unfinished still reaches the hub this session keeps (tools/send.ts).
  */
 export function advisory(above?: Reached): string {
 	const otherwise =
 		above === undefined
 			? "otherwise in your next reply, since no orchestrator is above your quest"
 			: above.by === "use"
-				? `otherwise to your hub from use, ${above.address}, as a question (mesh_send to: ${above.address})`
+				? "otherwise to your hub from use as a question (mesh_send to: orchestrator, which finds it as it sends)"
 				: `otherwise to your orchestrator, ${above.address}, as a question (mesh_send to: orchestrator)`;
 	const work =
 		above === undefined
 			? `Ask the person in your reply about work that is theirs. A question about other work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask the person in your reply who owns it.`
-			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${above.address} who owns it.`;
+			: `That path carries only what needs the person. A question about work goes to its owner by address, or to ${NEED_CALL}; only when neither finds an owner, ask ${above.by === "use" ? "your hub from use (mesh_send to: orchestrator)" : above.address} who owns it.`;
 	const person =
 		above?.by === "mark"
 			? `the person, said to you or passed on by ${above.address}`

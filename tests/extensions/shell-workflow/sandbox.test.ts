@@ -9,9 +9,10 @@
  * runs landrun itself, where it is on PATH.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -47,6 +48,15 @@ import {
 } from "../../../lib/internal/sandbox/strict-rules.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
+
+/**
+ * Prints, on one line, the arguments the command's shell was started
+ * with: from /proc, or with ps on a Mac, which has none. ps cuts its last
+ * column to a terminal's width unless told twice not to, which would hide
+ * a token past it.
+ */
+const SHELL_ARGUMENTS =
+	'if [ -r /proc/$$/cmdline ]; then tr "\\0" " " < /proc/$$/cmdline; echo; else ps -ww -o args= -p $$; fi';
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {
@@ -116,16 +126,23 @@ describe("what a session asks for", () => {
 		).toBe("refused");
 	});
 
-	const strictOnMac = (inside: boolean) =>
+	const onMac = (
+		asked: "strict" | "fence",
+		inside: boolean,
+		sandboxExec: string | undefined,
+		platform: NodeJS.Platform = "darwin",
+	) =>
 		sandboxFor(
-			{ PI_SANDBOX: "strict" },
-			"darwin",
+			{ PI_SANDBOX: asked },
+			platform,
 			found,
 			undefined,
 			undefined,
 			undefined,
 			() => inside,
+			() => sandboxExec,
 		);
+	const strictOnMac = (inside: boolean) => onMac("strict", inside, undefined);
 
 	it("runs a strict session's commands on a Mac as they are inside the sandbox pi runs in, saying so, since Landlock is Linux's", () => {
 		const mac = strictOnMac(true);
@@ -140,8 +157,169 @@ describe("what a session asks for", () => {
 		).toBe("strict");
 	});
 
-	it("runs none of a strict session's commands on a Mac where nothing fences pi, since a stranger's text would run as the person", () => {
+	it("holds a session's credentials back from a strict command on a Mac, keeping what it runs with and how it ended", () => {
+		// Without landrun to pass only the names it keeps, a Mac's strict
+		// command once read every token the session held (ISXEG8, 23 November).
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		expect(
+			wrap,
+			"a Mac's strict command ran with no wrap at all",
+		).toBeDefined();
+		// The third line is what the command's own shell was started with,
+		// which a Mac lets a process of the same user read (`ps -E`), so a
+		// name unset after the start would still be read there. Linux says
+		// it in /proc; a Mac only through ps, which prints the command and
+		// then its environment, so there each name is looked for with its
+		// `=`.
+		const command = `printf '%s\\n' "it's \\"said\\""; /usr/bin/env | cut -d= -f1 | sort | tr '\\n' ' '; echo; if [ -r /proc/$$/environ ]; then tr '\\0' '\\n' < /proc/$$/environ | cut -d= -f1 | tr '\\n' ' '; else ps -wwE -o command= -p $$ | tr '\\n' ' '; fi; echo; printf '%s\\n' "$XDG_RUNTIME_DIR"; exit 3`;
+		const lab = mkdtempSync(join(tmpdir(), "held-back-"));
+		const sourced = join(lab, "sourced");
+		const startup = join(lab, "startup.sh");
+		// The shell around the command reads it, as pi's own does; only the
+		// command's shell, started with the command in a variable, mustn't.
+		writeFileSync(
+			startup,
+			`[ -z "\${PI_SANDBOXED_COMMAND+set}" ] || echo sourced > '${sourced}'\n`,
+		);
+		// An env ahead on PATH that tells on itself: the hold-back must
+		// name the system's, or this one is handed every token.
+		const stray = join(lab, "bin");
+		mkdirSync(stray);
+		writeFileSync(
+			join(stray, "env"),
+			`#!/bin/sh\necho stray > '${join(lab, "stray")}'\nexit 99\n`,
+		);
+		chmodSync(join(stray, "env"), 0o755);
+		// No stdin: bash on a socket takes itself for a remote shell and
+		// reads the system's settings, which put PATH back without the stray.
+		const ran = spawnSync("bash", ["-c", wrap?.(command) ?? ""], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			env: {
+				PATH: `${stray}:${process.env.PATH ?? ""}`,
+				HOME: homedir(),
+				LANG: "C",
+				TMPDIR: tmpdir(),
+				XDG_RUNTIME_DIR: "/run/user/1 with a space",
+				GH_TOKEN: "held",
+				SSH_AUTH_SOCK: "/held.sock",
+				VENDOR_LOGIN: "held",
+				CONFIG_PASSWORD_DIR: "held",
+				BASH_ENV: startup,
+				"BASH_FUNC_leaked%%": "() { :; }",
+			},
+		});
+		const ended = ran.status;
+		const [said, names = "", started = "", spaced = ""] =
+			ran.stdout.split("\n");
+		expect(
+			existsSync(join(lab, "stray")),
+			"an env ahead on PATH was handed the session's environment",
+		).toBe(false);
+		expect(
+			existsSync(sourced),
+			"the session's BASH_ENV ran in the command's shell",
+		).toBe(false);
+		rmSync(lab, { recursive: true, force: true });
+		expect(said, "the command's own quoting didn't survive").toBe(
+			`it's "said"`,
+		);
+		expect(spaced, "a kept value lost its space").toBe(
+			"/run/user/1 with a space",
+		);
+		expect(ended, "the command's exit status was lost").toBe(3);
+		expect(
+			started.trim(),
+			"nothing said what the command's shell started with",
+		).not.toBe("");
+		const startedNames = started.includes("=")
+			? started
+			: started
+					.trim()
+					.split(" ")
+					.map((name) => `${name}=`)
+					.join(" ");
+		const seen = names.trim().split(" ");
+		for (const held of [
+			"GH_TOKEN",
+			"SSH_AUTH_SOCK",
+			"VENDOR_LOGIN",
+			"CONFIG_PASSWORD_DIR",
+			"PI_SANDBOXED_COMMAND",
+			"BASH_ENV",
+			"BASH_FUNC_leaked%%",
+		]) {
+			expect(seen, `${held} reached the command`).not.toContain(held);
+			// The command itself travels in at the start, as through landrun.
+			if (held !== "PI_SANDBOXED_COMMAND") {
+				expect(
+					startedNames,
+					`${held} was in what the command's shell started with`,
+				).not.toContain(`${held}=`);
+			}
+		}
+		for (const kept of ["PATH", "HOME", "LANG", "TMPDIR", "XDG_RUNTIME_DIR"]) {
+			expect(seen, `${kept} was taken from the command`).toContain(kept);
+		}
+	});
+
+	it("leaves what a queue runs after a Mac's strict command its environment", () => {
+		const wrap = wrapFor(
+			strictOnMac(true),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const after = execFileSync(
+			"bash",
+			["-c", `${wrap?.("printf 'ran '") ?? ""}\nprintf %s "$GH_TOKEN"`],
+			{ encoding: "utf8", env: { PATH: process.env.PATH, GH_TOKEN: "kept" } },
+		);
+		expect(
+			after,
+			"the command didn't run, or the shell around it lost its variables",
+		).toBe("ran kept");
+	});
+
+	it("runs none of a strict session's commands on a Mac where nothing fences pi and sandbox-exec is missing, since a stranger's text would run as the person", () => {
 		expect(strictOnMac(false).kind).toBe("refused");
+	});
+
+	it("lays the fence asked for around each command on a Mac where nothing fences pi, so a bare pi runs its commands fenced rather than none at all", () => {
+		for (const asked of ["strict", "fence"] as const) {
+			const mac = onMac(asked, false, "/usr/bin/sandbox-exec");
+			expect(mac, `a bare Mac pi's ${asked} session laid no fence`).toEqual({
+				kind: "seatbelt",
+				asked,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				logger: "/bin/landrun",
+			});
+		}
+		expect(
+			onMac("strict", true, "/usr/bin/sandbox-exec").kind,
+			"a pi inside a sandbox laid a second profile, which macOS refuses",
+		).toBe("none");
+		expect(
+			onMac("strict", false, "/usr/bin/sandbox-exec", "freebsd").kind,
+			"a system with no seatbelt was handed one",
+		).toBe("refused");
+	});
+
+	it("runs nothing when the one wrap asked of a Mac's own fence isn't the one that lays it", () => {
+		const wrap = wrapFor(
+			onMac("strict", false, "/usr/bin/sandbox-exec"),
+			{ cwd: tmpdir(), env: {} },
+			homedir(),
+		);
+		const ran = spawnSync("bash", ["-c", wrap?.("echo ran") ?? "echo ran"], {
+			encoding: "utf8",
+			env: { PATH: process.env.PATH },
+		});
+		expect(ran.stdout, "the command ran unfenced").not.toContain("ran");
+		expect(ran.status, "the refusal's status wasn't the fence's").toBe(126);
 	});
 
 	it("reads a name it doesn't know as the fence, saying so once", () => {
@@ -516,7 +694,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, github: () => token },
 			[
 				'echo "gh:$GH_TOKEN"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				SHELL_ARGUMENTS,
 				"printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill",
 				"printf 'protocol=https\\nhost=example.com\\n\\n' | git credential fill",
 			].join("; "),
@@ -526,6 +704,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`gh:${token}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(answer).toContain(
 			`protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}`,
@@ -551,7 +730,7 @@ describe("a command in the sandbox", () => {
 			{ ...sandbox, gcloud: () => ({ token, project: "a-lab-project" }) },
 			[
 				'echo "$CLOUDSDK_AUTH_ACCESS_TOKEN $CLOUDSDK_CORE_PROJECT $CLOUDSDK_CONFIG"',
-				'tr "\\0" " " < /proc/$$/cmdline; echo',
+				SHELL_ARGUMENTS,
 				'ls -A "$CLOUDSDK_CONFIG"; echo listed',
 			].join("; "),
 			work,
@@ -562,6 +741,7 @@ describe("a command in the sandbox", () => {
 		});
 		const lines = answer.split("\n");
 		expect(lines[0]).toBe(`${token} a-lab-project ${settings}`);
+		expect(lines[1], "the shell's arguments weren't read").toMatch(/bash/);
 		expect(lines[1]).not.toContain(token);
 		expect(lines[2]).toBe("listed");
 		expect(statSync(settings).mode & 0o777).toBe(0o700);

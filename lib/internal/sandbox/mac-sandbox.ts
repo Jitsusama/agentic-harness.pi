@@ -5,18 +5,21 @@
  * macOS lays no second profile inside a sandboxed process, so a trial
  * profile that sandbox-exec runs but can't apply says pi is fenced.
  * Which sandbox that is pi can't tell, though not `pi-fence`'s, whose
- * Mac profile hides pi's own state, so pi can't run in it. Anything else counts as no sandbox, so
- * a fenced command is refused rather than run where nothing may fence
- * it: sandbox-exec missing, or refused before it runs, since a tool that
- * vets programs refuses one with the same error a sandbox would. A trial
- * that couldn't tell for a reason that passes (a timeout, a kill, or a
- * busy machine's spawn error) is "unknown" rather than "outside", so
- * nothing acts on it for good: a declared fence is kept, and its
- * commands are refused until a later trial tells, which a lone pi,
- * drawing its shell's sandbox once at load, runs only on a reload.
+ * Mac profile hides pi's own state, so pi can't run in it. Anything else,
+ * "outside" or "unknown", counts as no sandbox, and a fenced session then
+ * has the fence laid around each command by sandbox-exec
+ * (`fence-mac-command.ts`); only where sandbox-exec is missing is every
+ * command refused. A tool that vets programs refuses the trial with the
+ * same error a sandbox would, so it reads "outside". A trial that
+ * couldn't tell for a reason that passes (a timeout, a kill, or a busy
+ * machine's spawn error) is "unknown" rather than "outside". Where pi was
+ * inside a sandbox after all, each command's own trial of the profile
+ * fails and runs nothing, saying a reload checks again, since a lone pi
+ * draws its shell's sandbox once at load.
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { SANDBOX_EXEC } from "../fence/fence-seatbelt.ts";
 
 /** How a trial's run turned out, as `spawnSync` reports it. */
@@ -125,4 +128,12 @@ export function macSandbox(run: () => Trial = keptTrial): MacSandbox {
 /** Whether this process is known to run inside a sandbox (`macSandbox`). */
 export function insideMacSandbox(run: () => Trial = keptTrial): boolean {
 	return macSandbox(run) === "inside";
+}
+
+/**
+ * sandbox-exec, where this Mac has it, to lay the fence's own profile
+ * around each command of a pi no sandbox holds; nothing where it isn't.
+ */
+export function macSandboxExec(): string | undefined {
+	return existsSync(SANDBOX_EXEC) ? SANDBOX_EXEC : undefined;
 }

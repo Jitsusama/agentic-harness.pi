@@ -118,7 +118,7 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
-import { insideMacSandbox } from "./mac-sandbox.ts";
+import { insideMacSandbox, macSandboxExec } from "./mac-sandbox.ts";
 import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
@@ -297,6 +297,51 @@ export function sandboxedCommand(
 	].join("\n");
 }
 
+/**
+ * Variables a strict command keeps on a Mac beside `KEPT`, where pi's
+ * own sandbox, not landrun, decides what it reaches: none is a
+ * credential, and a Mac's programs write their scratch where `TMPDIR`
+ * says, which that sandbox may let them write when `/tmp` it may not.
+ */
+const KEPT_ON_A_MAC = [
+	"TMPDIR",
+	"NIX_REMOTE",
+	"XDG_CACHE_HOME",
+	"COMMAND_MODE",
+	"__CF_USER_TEXT_ENCODING",
+] as const;
+
+/**
+ * The shell text that runs `command` with only the variables a strict
+ * command keeps, where no landrun can pass them: on a Mac, inside the
+ * sandbox pi itself runs in. A shell of its own is started with an
+ * empty environment and handed only the exported variables `KEPT` or
+ * `KEPT_ON_A_MAC` allow and `NEVER` doesn't match, so a session's
+ * tokens, agent socket, `BASH_ENV` and exported functions never reach
+ * the command's shell, not even where a Mac lets a process of the same
+ * user read another's environment as it was started (`ps -E`). pi's own
+ * environment can still be read that way, and files the command reaches
+ * are still the outer sandbox's to decide. The work happens in a
+ * subshell, so what a queue runs after it keeps the session's
+ * environment and its variables. The command travels in a variable, as
+ * through landrun, and is unset before it runs, so it sits only briefly
+ * in what `env` is started with. `env` is named by its path, so an
+ * `env` ahead on PATH is never handed the session's environment, and a
+ * shell with no `BASH` runs nothing rather than whatever `-c` finds.
+ */
+export function heldBackCommand(command: string): string {
+	const never = NEVER.join("|");
+	const kept = [...KEPT, ...KEPT_ON_A_MAC].join("|");
+	const inner = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	return [
+		"(",
+		"__pi_kept=();",
+		`for __pi_name in $(compgen -e); do case $__pi_name in ${never}) ;; ${kept}) __pi_kept+=("$__pi_name=\${!__pi_name}");; esac; done;`,
+		`exec /usr/bin/env -i "\${__pi_kept[@]}" ${SANDBOXED_COMMAND}=${quoted(command)} "\${BASH:?the strict hold-back needs bash}" -c ${quoted(inner)}`,
+		")",
+	].join(" ");
+}
+
 /** The shell text that refuses to run a command, saying why. */
 export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
@@ -362,6 +407,18 @@ export type Sandbox =
 			readonly note?: string;
 			/** Drawn for a language server, with nothing that acts as the person. */
 			readonly served?: boolean;
+	  })
+	| (Logged & {
+			readonly kind: "seatbelt";
+			/**
+			 * The fence asked for, which a Mac with no sandbox around pi lays
+			 * around each command as `pi-fence` would (`fence-mac-command.ts`).
+			 */
+			readonly asked: "fence" | "strict";
+			/** The sandbox-exec that lays it. */
+			readonly sandboxExec: string;
+			/** Said once in the session, when the fence wasn't what it asked. */
+			readonly note?: string;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -483,9 +540,16 @@ function fenceFor(
 	platform: NodeJS.Platform,
 	find: (program: string) => string | undefined,
 	inside: () => boolean,
+	seatbelt: () => string | undefined,
 ): Sandbox {
 	if (platform !== "linux") {
-		return offLinux("fence", "bubblewrap and Landlock", inside);
+		return offLinux(
+			"fence",
+			"bubblewrap and Landlock",
+			platform,
+			inside,
+			seatbelt,
+		);
 	}
 	const bwrap = find("bwrap");
 	const landrun = find("landrun");
@@ -529,17 +593,24 @@ export function sandboxFor(
 	gcloud: CloudGrantSource = sessionGrants,
 	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
 	inside: () => boolean = insideMacSandbox,
+	seatbelt: () => string | undefined = macSandboxExec,
 ): Sandbox {
 	// The stage's default and a stray value are worked out, never written
 	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
 	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
 	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const asked = askedFor(name, platform, find, github, gcloud, inside);
+	const asked = askedFor(name, platform, find, github, gcloud, {
+		inside,
+		seatbelt,
+	});
 	// A refusal carries the stray value's note too, the way back to a
 	// fence that runs.
 	const sandbox =
-		note && (asked.kind === "fence" || asked.kind === "none")
+		note &&
+		(asked.kind === "fence" ||
+			asked.kind === "none" ||
+			asked.kind === "seatbelt")
 			? { ...asked, note: asked.note ? `${note} ${asked.note}` : note }
 			: note && asked.kind === "refused"
 				? { ...asked, reason: `${note} ${asked.reason}` }
@@ -554,10 +625,17 @@ function askedFor(
 	find: (program: string) => string | undefined,
 	github: GitHubTokenSource,
 	gcloud: CloudGrantSource,
-	inside: () => boolean,
+	mac: {
+		readonly inside: () => boolean;
+		readonly seatbelt: () => string | undefined;
+	},
 ): Sandbox {
-	if (asked === FENCE) return fenceFor(platform, find, inside);
-	if (platform !== "linux") return offLinux("strict", "Landlock", inside);
+	if (asked === FENCE) {
+		return fenceFor(platform, find, mac.inside, mac.seatbelt);
+	}
+	if (platform !== "linux") {
+		return offLinux("strict", "Landlock", platform, mac.inside, mac.seatbelt);
+	}
 	const landrun = find("landrun");
 	if (!landrun) {
 		return {
@@ -575,28 +653,41 @@ function askedFor(
  * nothing does no work. pi can't run inside `pi-fence`, whose Mac
  * profile hides pi's own state, so that sandbox is another's, and
  * it may reach more than the one asked for (ISXEG8 [038ae722] took
- * that risk). The host
+ * that risk). A strict command still has the session's credentials held
+ * back from its environment (`heldBackCommand`), though not from the
+ * files that sandbox lets it read, nor from a command that reads pi's
+ * own environment, as a Mac lets one of the same user do. The host
  * is still told the fence asked for, so the node, which reads the
  * sandbox pi runs in, judges where the session may go. Where pi finds
- * no sandbox around it, no command runs, so a stranger's text never
- * runs as the person (`mac-sandbox.ts`).
+ * no sandbox around it, each command runs in the fence's own profile,
+ * laid by sandbox-exec as `pi-fence` lays it (`fence-mac-command.ts`), and
+ * where sandbox-exec is missing too, no command runs, so a stranger's
+ * text never runs as the person (`mac-sandbox.ts`).
  */
 function offLinux(
 	kind: "fence" | "strict",
 	needs: string,
+	platform: NodeJS.Platform,
 	inside: () => boolean,
+	seatbelt: () => string | undefined,
 ): Sandbox {
 	const asked = kind === "fence" ? "agent fence" : "strict fence";
 	if (!inside()) {
+		// macOS lays no profile inside another, so only a pi no sandbox
+		// holds lays its own around each command; one that couldn't tell
+		// lays it too, and a command whose profile doesn't apply is
+		// refused (`seatbeltText`).
+		const sandboxExec = platform === "darwin" ? seatbelt() : undefined;
+		if (sandboxExec) return { kind: "seatbelt", asked: kind, sandboxExec };
 		return {
 			kind: "refused",
-			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, or sandbox-exec couldn't tell, as a busy Mac may cause (a reload checks again), so no command runs unfenced.`,
+			reason: `The ${asked} needs ${needs}, which only Linux has, and pi found no sandbox of its own here to run commands inside instead, nor sandbox-exec to lay the fence's own profile around each command, so no command runs unfenced.`,
 		};
 	}
 	return {
 		kind: "none",
 		asked: kind,
-		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.`,
+		note: `The ${asked} needs ${needs}, which only Linux has, so commands run here as they are, inside the sandbox pi itself runs in. pi can't tell which sandbox that is, and it may reach more than the ${asked} would.${kind === "strict" ? " Each command still runs without the session's tokens and agent socket in its environment, though it may read whatever files that sandbox allows, and pi's own environment, which a Mac lets a process of the same user read." : ""}`,
 	};
 }
 
@@ -646,9 +737,16 @@ export function wrapFor(
 	const share = makeShares(scratch);
 	switch (sandbox.kind) {
 		case "none":
-			return undefined;
+			return sandbox.asked === "strict" ? heldBackCommand : undefined;
 		case "refused":
 			return () => refused(sandbox.reason);
+		// Laid per command by `commandWrapFor` (fence-mac-command.ts), which this
+		// module can't import; asked here, nothing runs rather than unfenced.
+		case "seatbelt":
+			return () =>
+				refused(
+					"this session's fence is laid around each command by its own profile, which this caller didn't lay, so nothing runs",
+				);
 		case "fence": {
 			const session = place.env.PI_SESSION_ID;
 			const stopped = plantStopped(session);

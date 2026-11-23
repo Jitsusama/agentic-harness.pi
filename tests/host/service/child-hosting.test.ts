@@ -8,18 +8,26 @@ import {
 	hostChildren,
 } from "../../../host/service/child-hosting.ts";
 import type { ChildPolicy } from "../../../host/service/child-policy.ts";
+import { BEGIN_TOO_LATE } from "../../../host/service/child-requests.ts";
 import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
-import { entryIn, type FakeUnits, fakeUnits } from "./support/fake-children.ts";
+import {
+	conversationIn,
+	entryIn,
+	type FakeUnits,
+	fakeUnits,
+} from "./support/fake-children.ts";
 
 const key = "work-background";
 const a = "a0000000-0000-4000-8000-000000000001";
+const b = "b0000000-0000-4000-8000-000000000002";
 
 let folder: string;
 let held: RosterEntry[];
 let units: FakeUnits;
 let reported: unknown[];
 let said: string[];
+let told: [string, string][];
 let rested: RosterEntry[];
 let resting: boolean;
 let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
@@ -48,6 +56,7 @@ beforeEach(async () => {
 	units = fakeUnits(folder, key, (error) => reported.push(error));
 	reported = [];
 	said = [];
+	told = [];
 	rested = [];
 	resting = true;
 	const moving = new Set<string>();
@@ -70,6 +79,7 @@ beforeEach(async () => {
 		},
 		report: (error) => reported.push(error),
 		say: (line) => said.push(line),
+		became: (previousId, nextId) => told.push([previousId, nextId]),
 		timings: {
 			listensWithinMs: 5_000,
 			answersWithinMs: 500,
@@ -231,6 +241,35 @@ describe("a host's children", () => {
 		await children.backend.left(a);
 		expect(units.forgotten, "its slot let go").toContain(unit);
 	}, 15_000);
+
+	it("tells on what a child's conversation became, once the roster holds it", async () => {
+		await children.backend.resume(held[0] as RosterEntry, false);
+
+		units.childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversationIn(folder, b),
+			entry: entryIn(folder, b),
+		});
+
+		await vi.waitFor(() => expect(told).toEqual([[a, b]]));
+		expect(
+			held.map(({ sessionId }) => sessionId),
+			"held in its place",
+		).toEqual([b]);
+	});
+
+	// 23 November (ff6ecdd4): the backend's census can use up a begin's
+	// time, which runs from when the host took the request.
+	it("counts a begin's time from when the backend took it", async () => {
+		const reply = await children.backend.begin(
+			{ v: 1, id: "open-1", op: "open", cwd: folder, attended: false },
+			Date.now() - 200_000,
+		);
+
+		expect(reply).toMatchObject({ ok: false, error: { code: BEGIN_TOO_LATE } });
+		expect(units.started, "no child started").toEqual([]);
+	});
 
 	it("refuses to ask a child of one no child runs", async () => {
 		await expect(

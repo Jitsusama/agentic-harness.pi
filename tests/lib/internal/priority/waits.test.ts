@@ -287,10 +287,103 @@ describe("why each job waits", () => {
 			expect(roomLeft([], shut, NOW)).toEqual({ vms: 0, builds: 0 });
 
 			const build = [older("build", 9_000)];
-			expect(waitsWithRoom(build, moving)).toBe(true);
-			expect(waitsWithRoom(build, shut)).toBe(false);
+			expect(waitsWithRoom(build, moving), "a wait in the open lane").toBe(
+				true,
+			);
+			expect(waitsWithRoom(build, shut), "a wait with the lane shut").toBe(
+				false,
+			);
 			const vm = [older("vm", 9_000, { kind: "vm-test" })];
 			expect(waitsWithRoom(vm, moving), "memory still holds a VM").toBe(false);
+		});
+
+		it("shuts the lane during a call, its one heavy job waiting on the call", () => {
+			const jobs = [older("build", 9_000)];
+			const calling = { ...moving, onCall: true };
+
+			expect(nextTurn(jobs, moving, NOW)?.id, "the lane, off the call").toBe(
+				"build",
+			);
+			expect(
+				nextTurn(jobs, calling, NOW),
+				"the lane, on a call",
+			).toBeUndefined();
+			expect(waitReasons(jobs, calling, NOW).get("build")).toBe("call");
+			expect(roomLeft([], calling, NOW)).toEqual({ vms: 0, builds: 0 });
+			expect(waitsWithRoom(jobs, calling), "a lane wait for the call").toBe(
+				false,
+			);
+		});
+	});
+
+	// 23 November: Joel's 09:39 call was choppy at a load of 119 to 127,
+	// and a test at a load of 70 at 09:35 was clean (1OGSE7).
+	describe("while the person is on a call", () => {
+		const onCall = { ...ROOMY, onCall: true };
+		const light = {
+			kind: "world-walk" as const,
+			walk: "push" as const,
+			what: "git push origin x",
+			needsGib: PUSH_GIB,
+			quick: true as const,
+		};
+
+		it("gives no heavy job a turn, saying call, with the machine roomy", () => {
+			const jobs = [
+				older("build", 9_000),
+				older("test", 8_500, { kind: "vm-test" }),
+				older("walk", 8_000, { kind: "world-walk", walk: "other" }),
+			];
+
+			expect(nextTurn(jobs, onCall, NOW)).toBeUndefined();
+			expect(Object.fromEntries(waitReasons(jobs, onCall, NOW))).toEqual({
+				build: "call",
+				test: "call",
+				walk: "call",
+			});
+			expect(nextTurn(jobs, ROOMY, NOW)?.id, "off the call").toBe("test");
+		});
+
+		it("still gives light quick work and a sent run their turns", () => {
+			const push = older("push", 8_000, light);
+			const sent = older("sent", 7_000, {
+				what: "elsewhere run harness-check -- pnpm exec vitest run tests/lib",
+				needsGib: 4,
+				sent: true,
+			});
+			const build = older("build", 9_000);
+
+			expect(nextTurn([build, push], onCall, NOW)?.id).toBe("push");
+			expect(nextTurn([build, sent], onCall, NOW)?.id).toBe("sent");
+			expect(
+				Object.fromEntries(waitReasons([build, sent], onCall, NOW)),
+			).toEqual({ build: "call", sent: "order" });
+		});
+
+		it("says call over memory and busy, which hold the job too", () => {
+			const jobs = [older("build", 9_000)];
+
+			for (const room of [
+				{ ...pressed, onCall: true },
+				{ ...onCall, floorsCpuPressure: MOST_FLOORS_CPU_PRESSURE + 1 },
+			]) {
+				expect(waitReasons(jobs, room, NOW).get("build")).toBe("call");
+			}
+		});
+
+		it("reports no room, and a wait for the call as no waste", () => {
+			expect(roomLeft([], onCall, NOW)).toEqual({ vms: 0, builds: 0 });
+			expect(roomLeft([], ROOMY, NOW).builds, "off the call").toBeGreaterThan(
+				0,
+			);
+			expect(
+				waitsWithRoom([older("build", 9_000)], onCall),
+				"a build waiting for the call",
+			).toBe(false);
+			expect(
+				waitsWithRoom([older("push", 8_000, light)], onCall),
+				"light work the call doesn't hold still wastes its wait",
+			).toBe(true);
 		});
 	});
 

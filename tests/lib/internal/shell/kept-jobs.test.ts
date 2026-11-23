@@ -432,6 +432,35 @@ describe("a recorded job", () => {
 		);
 	});
 
+	// A folder at the name fails for good, as no retry reads it: waiting
+	// on it would end no reap again, so it says nothing and the rest read.
+	// kept-faults.test.ts holds what a failure of the moment does.
+	it.each([
+		["a job's record", ".job"],
+		["a carried call's mark", ".carried"],
+	])(
+		"reads %s that will never read as saying nothing, and reads the rest",
+		async (_what, suffix) => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			if (suffix === ".carried") markCarried(job.work.keep, "call-1");
+			const other = await recorded(where, "s1", "j2", HERE);
+			rmSync(`${job.work.keep}${suffix}`);
+			mkdirSync(`${job.work.keep}${suffix}`);
+			const found = await carriedCalls(where, SOON);
+			expect(found.unread, "no reap waits on it").toBeUndefined();
+			expect(found.marks.has(other.work.mark), "the rest still read").toBe(
+				true,
+			);
+		},
+	);
+
+	it("says nothing went unread when every record read", async () => {
+		const where = folder();
+		await recorded(where, "s1", "j1", HERE);
+		expect((await carriedCalls(where, SOON)).unread).toBeUndefined();
+	});
+
 	it("spares nothing a day after its call started", async () => {
 		const where = folder();
 		await recorded(where, "s1", "j1", HERE);
@@ -2223,5 +2252,20 @@ describe("a stray recorded job", () => {
 
 	it("is none before there is a folder", async () => {
 		expect(await strayKeptJobs(folder())).toEqual([]);
+	});
+
+	// A folder at its end's name fails for good, as EIO would: one record
+	// that won't read must not keep the watch from every other stray.
+	// kept-faults.test.ts holds an end that fails for the moment.
+	it("is one whose end will never read, beside the rest", async () => {
+		const where = folder();
+		const unread = await recorded(where, "s1", "unread", 4242, { owner: 88 });
+		await recorded(where, "s1", "stray", 4242, { owner: 88 });
+		rmSync(`${unread.work.keep}.end`);
+		mkdirSync(`${unread.work.keep}.end`);
+		expect(
+			(await strayKeptJobs(where, () => false)).map((job) => job.id).sort(),
+			"an end not read is an end not said",
+		).toEqual(["stray", "unread"]);
 	});
 });

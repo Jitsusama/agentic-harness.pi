@@ -15,6 +15,10 @@ import { hostSocketPath } from "../../../../host/service/address.ts";
 import { hostRefusal } from "../../../../host/service/dispatch.ts";
 import type { ControlRequest } from "../../../../host/service/protocol.ts";
 import { listenControl } from "../../../../host/service/server.ts";
+import {
+	OPEN_UNSETTLED,
+	unsettledMessage,
+} from "../../../../host/service/unsettled-open.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
 import { recordUnlisted } from "../../../../lib/internal/fence/fence-log.ts";
 import {
@@ -953,6 +957,32 @@ describe("spawn into a host", () => {
 		const [one, two, three] = sent.map((request) => request.id);
 		expect(two, "the retry repeats the lost one's id").toBe(one);
 		expect(three, "a spawn after a refusal is new").not.toBe(one);
+	});
+
+	// 23 November (ff6ecdd4): a host whose child loaded slowly said so as
+	// a refusal, and the spawn reported nothing opened while it ran; its
+	// opens are in spawn-still-opening.test.ts, and its adopt through the
+	// quest's own session is here.
+	it("says it still adopts a session whose child answered late", async () => {
+		await serveHost("home", "background");
+		const resumed = randomUUID();
+		const { state, id } = await questWithSession(resumed, 60 * 60 * 1000);
+		answer = () => {
+			throw hostRefusal(OPEN_UNSETTLED, unsettledMessage(resumed));
+		};
+
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+
+		expect(received).toEqual([expect.objectContaining({ op: "adopt" })]);
+		expect(result).toMatchObject({
+			ok: true,
+			details: { how: "host", loading: true, resumedSessionId: resumed },
+		});
+		expect(said(result)).toContain(`still adopting session ${resumed}`);
 	});
 
 	it("keeps the id of a yes it couldn't read, and says to check the list first", async () => {

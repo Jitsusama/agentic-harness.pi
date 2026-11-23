@@ -21,12 +21,13 @@
  * A session rolled over into a fresh log (rollover-workflow), or a
  * hosted conversation holding only its kept history, left its history
  * on disk; recall reads it from there for each call, oldest first, so
- * the session's whole history stays one call away. The parsed copy is
- * dropped as the call answers, and each read says in the journal how
- * much it parsed and how long it took, since a large log costs seconds.
+ * the session's whole history stays one call away. Each log is read a
+ * line at a time, keeping only what the answer shows, so a search of a
+ * log of hundreds of megabytes never holds it whole; each read says in
+ * the journal how much it read and how long it took, since a large log
+ * costs seconds.
  */
 
-import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import type {
 	ExtensionAPI,
@@ -41,12 +42,15 @@ import { answerCompactionStatus } from "../../lib/compaction/status.ts";
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import {
+	answer,
+	askedBy,
+	markEntries,
 	PAGE_CHARS,
 	RECALL_TOOL,
 	type Recalled,
-	recall,
+	type RecallRequest,
 } from "../../lib/internal/logs/recall.ts";
-import { ancestry } from "../../lib/internal/session/rollover.ts";
+import { markedOnDisk } from "../../lib/internal/logs/recall-on-disk.ts";
 import { recallSection } from "./status.ts";
 
 /** What every summary says about the tool, appended after its text. */
@@ -70,31 +74,36 @@ interface RecallDetails {
 }
 
 /**
- * Recall over `branch` and the history it left on disk. The entries
- * read from disk live only in this call, so they are garbage once it
- * answers; a read of any is said in the journal, its size and time.
+ * Recall over `branch` and the history it left on disk. The logs on
+ * disk are read a line at a time and only what the answer shows is
+ * kept, so nothing of them outlives this call; a read of any is said
+ * in the journal, its size and time.
  */
 function recallWhole(
 	sessionId: string,
 	branch: readonly unknown[],
-	params: Parameters<typeof recall>[1],
+	params: RecallRequest,
 ): Recalled {
-	let bytes = 0;
-	let logs = 0;
+	const asked = askedBy(params);
 	const started = performance.now();
-	const older = ancestry(branch, (path) => {
-		const text = readFileSync(path, "utf8");
-		bytes += Buffer.byteLength(text);
-		logs++;
-		return text;
-	});
-	if (logs > 0) {
+	const disk = markedOnDisk(branch, asked);
+	if (disk.bytes > 0) {
 		const ms = Math.round(performance.now() - started);
+		const again =
+			disk.readAgain > 0 ? `, ${disk.readAgain} read a second time` : "";
 		process.stderr.write(
-			`session-recall-workflow: conversation ${sessionId} read ${(bytes / MIB).toFixed(1)} MiB from ${logs} log(s) on disk, ${older.length} entries, in ${ms} ms\n`,
+			`session-recall-workflow: conversation ${sessionId} read ${(disk.bytes / MIB).toFixed(1)} MiB from ${disk.logs} log(s) on disk, ${disk.entries} entries${again}, in ${ms} ms\n`,
 		);
 	}
-	return recall([...older, ...branch] as Parameters<typeof recall>[0], params);
+	// The path comes from the log, so it is quoted: a newline in it
+	// can't start a journal line of its own.
+	if (disk.unread)
+		process.stderr.write(
+			`session-recall-workflow: conversation ${sessionId} found no history in ${JSON.stringify(disk.unread.path)} (${disk.unread.reason}), so recall searched no history older than it\n`,
+		);
+	// The branch is pi's own entries, as the session manager holds them.
+	const own = markEntries(branch as Parameters<typeof markEntries>[0], asked);
+	return answer([...disk.marked, ...own], params, asked);
 }
 
 /** Bytes in a mebibyte, for the journal's read size. */

@@ -15,6 +15,10 @@ import {
 	newContributions,
 	SUMMARY_CONTRIBUTIONS,
 } from "../../../lib/compaction/index.ts";
+import {
+	paragraphRef,
+	unitsOf,
+} from "../../../lib/compaction/selection/units.ts";
 import { sessionResultDir } from "../../../lib/core/result/index.ts";
 import { PAGE_HITS } from "../../../lib/internal/logs/recall.ts";
 import { ROLLOVER_RECORD } from "../../../lib/internal/session/rollover.ts";
@@ -133,6 +137,154 @@ describe("the session recall tool", () => {
 					/^session-recall-workflow: conversation \S+ read [\d.]+ MiB from 1 log\(s\) on disk, 1 entries, in \d+ ms\n$/,
 				),
 			);
+		} finally {
+			write.mockRestore();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reads the history on disk as older than the branch", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "recall-"));
+		const parent = join(dir, "parent.jsonl");
+		const twice = "the paragraph said on both sides";
+		const header = {
+			type: "session",
+			id: "p",
+			timestamp: "2026-09-30T11:00:00.000Z",
+			cwd: dir,
+		};
+		writeFileSync(
+			parent,
+			`${[header, said("old1", twice)].map((line) => JSON.stringify(line)).join("\n")}\n`,
+		);
+		const record = {
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "2026-09-30T12:00:00.000Z",
+			customType: ROLLOVER_RECORD,
+			data: { parentSession: parent, parentLeaf: "old1", carried: {} },
+		};
+		const ref = paragraphRef(unitsOf(said("x", twice) as never)[0]?.hash ?? "");
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			const answer = await tool.execute(
+				"t1",
+				{ entryId: ref },
+				undefined,
+				undefined,
+				ctxWith([record, said("a1", twice), said("a2", "the newest")]),
+			);
+			// The newest entry saying it, with the older one before it.
+			expect(answer.content[0]?.text).toBe(
+				`[a1] (${ref}) ${twice}\n\nBefore it: old1. After it: a2.`,
+			);
+		} finally {
+			write.mockRestore();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("names in one journal line a parent it could not read", async () => {
+		const gone = join(tmpdir(), "recall-gone\nsession-recall-workflow: forged");
+		const record = {
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "2026-09-30T12:00:00.000Z",
+			customType: ROLLOVER_RECORD,
+			data: { parentSession: gone, parentLeaf: "old1", carried: {} },
+		};
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			await tool.execute(
+				"t1",
+				{ query: "flake" },
+				undefined,
+				undefined,
+				ctxWith([record, said("a1", "the flake")]),
+			);
+			const lines = write.mock.calls.map(([text]) => String(text));
+			expect(lines).toEqual([
+				expect.stringMatching(
+					/^session-recall-workflow: conversation \S+ found no history in ".*recall-gone\\nsession-recall-workflow: forged" \(ENOENT\), so recall searched no history older than it\n$/,
+				),
+			]);
+		} finally {
+			write.mockRestore();
+		}
+	});
+
+	it("says in the journal what it read of a parent it then refused, and what it read twice", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "recall-"));
+		const parent = join(dir, "parent.jsonl");
+		const call = (id: string, parentId: string | null) => ({
+			type: "message",
+			id,
+			parentId,
+			timestamp: "2026-09-30T11:00:00.000Z",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "same", name: "bash", arguments: {} },
+				],
+			},
+		});
+		writeFileSync(
+			parent,
+			`${[
+				{
+					type: "session",
+					id: "p",
+					timestamp: "2026-09-30T11:00:00.000Z",
+					cwd: dir,
+				},
+				call("c1", null),
+				call("c2", "c1"),
+			]
+				.map((line) => JSON.stringify(line))
+				.join("\n")}\n`,
+		);
+		const rolled = (leaf: string) => ({
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "2026-09-30T12:00:00.000Z",
+			customType: ROLLOVER_RECORD,
+			data: { parentSession: parent, parentLeaf: leaf, carried: {} },
+		});
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			for (const leaf of ["missing", "c2"]) {
+				await tool.execute(
+					"t1",
+					{ query: "flake" },
+					undefined,
+					undefined,
+					ctxWith([rolled(leaf), said("a1", "now")]),
+				);
+			}
+			const lines = write.mock.calls.map(([text]) => String(text));
+			expect(lines).toEqual([
+				expect.stringMatching(
+					/ read [\d.]+ MiB from 0 log\(s\) on disk, 0 entries, in \d+ ms\n$/,
+				),
+				expect.stringMatching(
+					/ found no history in ".*parent\.jsonl" \(it is not a regular file, or holds no readable entry with its record's leaf id\)/,
+				),
+				expect.stringMatching(
+					/ from 1 log\(s\) on disk, 2 entries, 2 read a second time, in \d+ ms\n$/,
+				),
+			]);
 		} finally {
 			write.mockRestore();
 			rmSync(dir, { recursive: true, force: true });

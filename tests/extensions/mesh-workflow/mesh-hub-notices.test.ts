@@ -7,6 +7,9 @@
  * one sent with the word, whether or not a hub was kept, and when no
  * node answers to say whether it is the hub, the word beside it or not;
  * one by address to a peer that isn't the hub goes as any question.
+ * Every delivery names the hub as where the person's asks go. A session
+ * that ends stops its search for the hub, and one that starts again
+ * without ending stops the last one's.
  */
 
 import { join } from "node:path";
@@ -17,12 +20,13 @@ import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
+	fromElsewhere,
 	noNode,
 	onQuest,
 	send,
 	startSession,
 } from "./support/mesh.ts";
-import { closeNodes, node } from "./support/node.ts";
+import { closeNodes, node, nodeAsked } from "./support/node.ts";
 
 afterEach(closeNodes);
 
@@ -64,22 +68,25 @@ function sent() {
 
 /**
  * Start the fixture's session, tied to the live parent cell, and wait
- * until the ending it is told proves the hub is kept: each try before
- * then sends nothing, as nobody is above yet.
+ * until the ending it is told reaches the hub, which proves the hub is
+ * kept: told before then, it waits until one is.
  */
-async function keptHub() {
+async function keptHub(
+	ctx: Record<string, unknown> = {},
+	settling?: { settleMs: number; spreadMs: number },
+) {
 	onQuest();
 	parentLive();
 	const env = await node([asker], [tieTo("5GV2AH", 4)]);
-	const started = await startSession(env);
-	await vi.waitFor(() => {
-		started.emit(QUEST_CONCLUDED, {
-			how: "concluded",
-			ids: ["PLAN-20261021-AAAAAA"],
-			said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
-		});
-		expect(sent().at(-1)).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" });
+	const started = await startSession(env, ctx, [], settling);
+	started.emit(QUEST_CONCLUDED, {
+		how: "concluded",
+		ids: ["PLAN-20261021-AAAAAA"],
+		said: "Now concluded on plan PLAN-20261021-AAAAAA (The Plan).",
 	});
+	await vi.waitFor(() =>
+		expect(sent().at(-1)).toMatchObject({ to: ["@5GV2AH"], intent: "fyi" }),
+	);
 	return started;
 }
 
@@ -288,6 +295,126 @@ describe("the mesh's own word, on a quest with no mark", () => {
 		});
 		expect(sent().filter((one) => one?.intent === "finding")).toHaveLength(0);
 	});
+
+	// The person's asks go where the note says, and a quest with no mark
+	// has its hub there, by either road a message reaches the model.
+	it("names the hub from use in a delivery handed over by itself", async () => {
+		const { sent: handed } = await keptHub();
+
+		fromElsewhere({ intent: "fyi", to: ["@7M6JKG"], text: "merged #950" });
+
+		await vi.waitFor(() =>
+			expect(
+				handed.find(({ message }) =>
+					String(message.content).includes("merged #950"),
+				)?.message.content,
+			).toContain("otherwise to your hub from use as a question"),
+		);
+		// Room for finding the hub first on a busy machine.
+	}, 15_000);
+
+	it("names the hub from use in a delivery a run something else starts takes", async () => {
+		// Settling long enough that the run comes first and takes it.
+		const { fire } = await keptHub(
+			{ isIdle: () => true },
+			{ settleMs: 10_000, spreadMs: 0 },
+		);
+
+		// Named in a message to everyone, so it waits to act rather than
+		// taking a turn of its own at once.
+		fromElsewhere({ intent: "question", text: "7M6JKG: why?" });
+
+		// Long enough for the question to be waiting, well short of its 10 s
+		// settle; a run started sooner would take nothing and hear it mid-run.
+		await new Promise((done) => setTimeout(done, 2_000));
+		const opened = (await fire("before_agent_start")) as
+			| { message?: { content?: unknown } }
+			| undefined;
+
+		const taken = String(opened?.message?.content ?? "");
+		expect(taken).toContain("why?");
+		expect(taken).toContain("otherwise to your hub from use as a question");
+		// Room for the pause above, and for finding the hub first on a busy machine.
+	}, 15_000);
+
+	// An ended session has no peer for a search left running to read, so
+	// such a search asks the node nothing; but it still wakes to look
+	// again, and each wait it sets draws on the spread, so counting those
+	// shows whether the ending stopped it.
+	it("stops its search for the hub when it ends", async () => {
+		const spread = vi.fn(() => 0);
+		onQuest();
+		parentLive();
+		const env = await node([asker], [tieTo("5GV2AH", 4)]);
+		const { fire } = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 20, retry: 20, spread },
+		);
+		await vi.waitFor(() =>
+			expect(spread.mock.calls.length).toBeGreaterThanOrEqual(2),
+		);
+
+		await fire("session_shutdown");
+		const ended = spread.mock.calls.length;
+		// Ten waits' worth, had the search gone on after the ending.
+		await new Promise((done) => setTimeout(done, 200));
+
+		expect(spread.mock.calls.length).toBe(ended);
+	}, 15_000);
+
+	// pi ends a session before every reload, switch and fork, so a start
+	// with no ending before it is one pi doesn't give; should a host give
+	// one, the last search still has a peer to read, and only the start's
+	// own guard stops it.
+	it("stops the last search for its hub when a session starts again without ending", async () => {
+		let out = 0;
+		let most = 0;
+		const answerLate = () => {
+			out += 1;
+			most = Math.max(most, out);
+			// Long enough that a second search's ask lands while one is out.
+			return new Promise<void>((answered) =>
+				setTimeout(() => {
+					out -= 1;
+					answered();
+				}, 60),
+			);
+		};
+		const tieAsks = () => nodeAsked.filter((kind) => kind === "tie").length;
+		onQuest();
+		parentLive();
+		const env = await node([asker], [tieTo("5GV2AH", 4)], answerLate);
+		const { restart } = await startSession(
+			env,
+			{},
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ every: 20, retry: 20, spread: () => 0 },
+		);
+		await vi.waitFor(() => expect(tieAsks()).toBeGreaterThanOrEqual(2));
+
+		await restart();
+		const restarted = tieAsks();
+		// As above: past the next search's second ask, only a search the
+		// start left running can have one out beside it.
+		await vi.waitFor(() =>
+			expect(tieAsks()).toBeGreaterThanOrEqual(restarted + 2),
+		);
+		most = out;
+		// Several of the next search's finds, each 60 ms out and 20 ms apart.
+		await new Promise((done) => setTimeout(done, 400));
+
+		expect(most).toBeLessThanOrEqual(1);
+	}, 15_000);
 
 	it("tells a session on no model to the hub once one is found, when it came first", async () => {
 		onQuest();

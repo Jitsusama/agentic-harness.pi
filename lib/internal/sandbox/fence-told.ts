@@ -7,9 +7,10 @@
  * names it only once the present runner's shell and file guard both have,
  * so on Linux the record never
  * reads tighter than the tools run (ISXEG8's condition 2, 19 November).
- * A Mac is the exception: where commands run as they are inside the
- * sandbox pi runs in, the record names the fence asked for, which may
- * read tighter than they run. That is safe only for carrying, since a
+ * A Mac that lays the fence's profile around each command names the
+ * fence asked for, which is what runs. The exception is a Mac whose
+ * commands run as they are inside the sandbox pi runs in: the record
+ * names the fence asked for, which may read tighter than they run. That is safe only for carrying, since a
  * carry starts the session there under the fence the record names, so
  * nothing may let a stranger's work in on the record's word alone.
  */
@@ -27,6 +28,9 @@ export function fenceOf(sandbox: Sandbox): FenceKind {
 	// A refused sandbox runs no command at all, as tight as any fence.
 	if (sandbox.kind === "refused" || sandbox.kind === "strict") return "strict";
 	if (sandbox.kind === "fence") return "fence";
+	// A Mac with no sandbox around pi lays the fence asked for around
+	// each command itself, so the record names what really runs.
+	if (sandbox.kind === "seatbelt") return sandbox.asked;
 	// A Mac's commands run as they are inside the sandbox pi runs in: the
 	// record names the fence asked for, so a carry starts the session no
 	// looser than it asked, though here it may run looser.

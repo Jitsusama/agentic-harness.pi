@@ -515,7 +515,7 @@ export function seatbeltText(
 		`${quoted(sandboxExec)} -p ${quoted(profile)} ${words}`;
 	return [
 		"unset SSH_AUTH_SOCK",
-		`${run("/usr/bin/true")} || { echo "pi-fence: sandbox-exec didn't apply the fence's profile, so nothing runs" >&2; exit ${REFUSED}; }`,
+		`${run("/usr/bin/true")} || { echo "pi-fence: sandbox-exec didn't apply the fence's profile, so nothing runs (pi may already run inside a sandbox, which a reload checks again)" >&2; exit ${REFUSED}; }`,
 		`exec ${run(`/bin/bash -c ${quoted(command)}`)}`,
 	].join("\n");
 }

@@ -210,6 +210,40 @@ async function toHubByAddress(
 	);
 }
 
+/**
+ * A fresh find the node left unfinished with nobody above, read instead
+ * as the hub this peer keeps, when it keeps one. That hub was found by a
+ * finished find within a keeping's wait, and is checked again as it is
+ * read against the presences now, by the rules the find used, with the
+ * fresh find's own census judging who is live, so what is for the hub
+ * still reaches it while the node has only just slowed. A find that
+ * ended before it asked the node, finding this peer absent from the
+ * census, says nothing of the node, so it falls back to nothing; the kept
+ * hub's read would refuse it for want of this peer among the live too,
+ * so this spares only the read. The keeping keeps that hub through a
+ * node that stays quiet, for up to its trust (tools/above.ts), so past
+ * that this refuses as before. A send to it gets the checks a send to the hub gets, since
+ * `orchestrator` then names its address; it stays unsettled only so it
+ * is never taken for a find the node answered. The kept hub is read
+ * only when it is needed, since reading it reads every presence.
+ */
+function orKept(
+	found: Found,
+	keptHub: ((gone: readonly string[]) => string | undefined) | undefined,
+): Found & { readonly kept?: true } {
+	if (
+		found.settled ||
+		found.unasked === true ||
+		!("none" in found.above) ||
+		keptHub === undefined
+	) {
+		return found;
+	}
+	const kept = keptHub(found.gone);
+	if (kept === undefined) return found;
+	return { ...found, above: { address: kept, by: "use" }, kept: true };
+}
+
 /** Whether the mesh's own routing, not the sender, picked the groups. */
 function routedWide(
 	routed: Route | undefined,
@@ -427,8 +461,11 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// Only a send naming the word asks who is above, since a quest with
 	// no mark finds its hub from use over the node. A send can wait for
 	// the node, so it finds the hub afresh rather than reading the one
-	// this peer keeps, which may be minutes old.
-	const found = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	// this peer keeps, which may be minutes old, unless the node gives it
+	// no answer in time.
+	const fresh = namesOrchestrator(needed.to) ? await findAbove(at) : undefined;
+	if (fresh?.settled === true) at.nodeAnswered?.();
+	const found = fresh === undefined ? undefined : orKept(fresh, at.keptHub);
 	const above = found?.above;
 	const orchestrator =
 		above === undefined
@@ -454,7 +491,9 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
 			: "",
 		above !== undefined && "by" in above && above.by === "use"
-			? `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, it talks with that one most, and as only an address it grants nothing an orchestrator's mark does`
+			? found?.kept === true
+				? `\`orchestrator\` was read as ${above.address}, the hub from use this peer last found: the node gave no answer it could use in time to find it afresh, and as only an address it grants nothing an orchestrator's mark does`
+				: `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, it talks with that one most, and as only an address it grants nothing an orchestrator's mark does`
 			: "",
 		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`

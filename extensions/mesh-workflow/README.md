@@ -78,12 +78,16 @@ and can answer a question or a gate left open on screen.
   tie counted for its own share of today's messages on it
   (`lib/mesh/hub-from-use.ts`). That is an address only, and
   grants nothing the mark does: it passes on no yes of the
-  person's, since any cell above can grow its ties. With no
-  such cell the send is refused, and so it is for any session
-  on a quest heading an orchestration, which is told the
-  head's address. A send finds the hub afresh, but what the
-  mesh says by itself, and the delivery note, read the hub
-  each session keeps, and the note names it by address. The
+  person's, since any cell above can grow its ties. The ties
+  it talks on adding up to less than one message six hours
+  old, from either side, make no hub, however the share
+  falls. With no such cell the send is refused, but for a
+  node too slow to answer it in time, when it reaches the hub
+  last found if that hub still checks out. A session on a
+  quest heading an orchestration is refused too, and told the
+  head's address. What the mesh says by itself, and the
+  delivery note, read the hub each session keeps, and the
+  note names it by role, since a send finds it afresh. The
   kept hub rides out a node that does not answer rather than
   reading as no hub, since the node going quiet says nothing
   about who is above and every unmarked session would
@@ -91,20 +95,23 @@ and can answer a question or a gate left open on screen.
   still goes once either it or the session stops the other,
   it ends, its address is listed by a second live cell or by
   an ended one on another quest, or it leaves the quests
-  above, and after 30 minutes with no find coming to it, since
-  a node quiet that long is down rather than slow. A question
-  by address to a peer no cell above holds waits on no find,
-  as no hub is found anywhere else. The tree is walked on the quest side; the mesh reads
-  only presence. Within a mission, an unaddressed message now
-  usually goes to the orchestration's group, since another
-  peer is nearly always in it: the same reach `#quest/<root>`
-  had. When a quest or document is concluded or retired, the
-  mesh tells the session's orchestrator itself, one fyi line
-  quoting what the quest tool answered, heard over pi's bus
-  (`lib/internal/quest/fields/concluded.ts`). A session left on no
+  above, and after 30 minutes with no find coming to it,
+  since a node quiet that long is down rather than slow. A
+  question by address to a peer no cell above holds waits on
+  no find, as no hub is found anywhere else. The tree is
+  walked on the quest side; the mesh reads only presence.
+  Within a mission, an unaddressed message now usually goes
+  to the orchestration's group, since another peer is nearly
+  always in it: the same reach `#quest/<root>` had. When a
+  quest or document is concluded or retired, the mesh tells
+  the session's orchestrator itself, one fyi line quoting
+  what the quest tool answered, heard over pi's bus
+  (`lib/internal/quest/fields/concluded.ts`). With nobody
+  above to tell yet, as while no hub is found, the newest
+  ten wait to be told once one is. A session left on no
   model, which answers nothing it is sent, has the mesh tell
-  its orchestrator once, as a finding naming the model and why
-  it can't be set back (`lib/internal/session/no-model.ts`).
+  its orchestrator once, as a finding naming the model and
+  why it can't be set back (`lib/internal/session/no-model.ts`).
 - **Joined:** the groups a peer chose, kept across a reload.
 - **Presence:** what a peer publishes about itself: its
   addresses, its groups, what it works on and what it owns,

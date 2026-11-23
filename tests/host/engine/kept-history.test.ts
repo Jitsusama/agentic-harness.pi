@@ -16,7 +16,12 @@ import {
 } from "../../../host/engine/kept-history.ts";
 import { compactionHistory } from "../../../lib/compaction/history.ts";
 import {
-	ancestry,
+	askedBy,
+	markEntries,
+	answer as recallAnswer,
+} from "../../../lib/internal/logs/recall.ts";
+import { markedOnDisk } from "../../../lib/internal/logs/recall-on-disk.ts";
+import {
 	carriedBy,
 	type Entry,
 	messagesOnDisk,
@@ -280,11 +285,32 @@ describe("a conversation held from a compacted log", () => {
 	});
 
 	it("lets session_recall read what it left on disk", () => {
-		const branch = hold(compactedLog()).getBranch();
-		const read = [...ancestry(branch), ...branch];
-		expect(texts(read)).toEqual(
-			expect.arrayContaining(["early one", "answer to early two", "after"]),
-		);
+		const file = compactedLog();
+		const branch = hold(file).getBranch();
+		const held = new Set(branch.map((entry) => entry.id));
+		const left = SessionManager.open(file)
+			.getBranch()
+			.filter((entry) => !held.has(entry.id))
+			.filter((entry) =>
+				texts([entry]).some(
+					(text) => text === "early one" || text === "answer to early two",
+				),
+			);
+		expect(left).toHaveLength(2);
+		for (const entry of left) {
+			const request = { entryId: entry.id };
+			const asked = askedBy(request);
+			const disk = markedOnDisk(branch, asked);
+			const found = recallAnswer(
+				[...disk.marked, ...markEntries(branch, asked)],
+				request,
+				asked,
+			);
+			expect(found.kind === "entry" && found.entry).toEqual({
+				id: entry.id,
+				text: texts([entry]).join("\n"),
+			});
+		}
 	});
 
 	it("shows the whole tree", () => {

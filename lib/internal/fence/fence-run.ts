@@ -55,6 +55,7 @@ import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { onDisk, unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
+import type { Disk } from "./fence-disk.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
@@ -220,6 +221,8 @@ export interface FenceRunPlace {
 	readonly heldTrees?: readonly string[];
 	/** Where the work broker records who holds each tree, its own unless given. */
 	readonly treeRecords?: string;
+	/** The disk a Mac's profile is read from, the machine's unless given. */
+	readonly disk?: Disk;
 }
 
 /** The Nix daemon's socket on a Mac, which a fenced command builds through. */
@@ -461,14 +464,17 @@ function macFenceText(
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;
 	// A broker's tree is laid from its root, whichever folder in it the
 	// run starts in, so its .git stays read-only as the fence keeps it.
-	const mounts = fenceArgs({
-		home,
-		runtimeDir: undefined,
-		...sessionWorktrees(tree ?? folder, undefined, treesRoot),
-		...(npmrc ? { npmrc } : {}),
-		docker: dockerHoldsCredentials(home),
-		tempCaches: caches,
-	});
+	const mounts = fenceArgs(
+		{
+			home,
+			runtimeDir: undefined,
+			...sessionWorktrees(tree ?? folder, undefined, treesRoot),
+			...(npmrc ? { npmrc } : {}),
+			docker: dockerHoldsCredentials(home),
+			tempCaches: caches,
+		},
+		place.disk,
+	);
 	// The copy sits in the person's temporary folder, which commands
 	// write: its folder is kept from writes, so none can change what the
 	// next run reads, or put a link there for the next copy to follow.

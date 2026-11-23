@@ -149,6 +149,28 @@ function memoryHolder(jobs: readonly Job[], room: Room): (job: Job) => boolean {
 }
 
 /**
+ * Which waiting jobs the person's call holds: none while no call is on
+ * here, and during one every job that wouldn't start while memory is
+ * short (see {@link startsPressed}), the lane's one heavy job too. What
+ * runs carries on: a frozen job keeps its pages and its locks, so only
+ * starts wait. On 23 November Joel's call at 09:39 was choppy at a load
+ * of 119 to 127, and a test call at a load of 70 was clean (1OGSE7).
+ */
+function callHolder(room: Room): (job: Job) => boolean {
+	return room.onCall === true ? (job) => !startsPressed(job) : () => false;
+}
+
+/**
+ * Which waiting jobs wait for the call or for memory, whichever holds
+ * them first.
+ */
+function holder(jobs: readonly Job[], room: Room): (job: Job) => boolean {
+	const call = callHolder(room);
+	const memory = memoryHolder(jobs, room);
+	return (job) => call(job) || memory(job);
+}
+
+/**
  * Whether one heavy job may start while memory pressure is past
  * {@link MOST_MEMORY_PRESSURE}: every task stalled on memory under
  * {@link MOST_MEMORY_STALL_FOR_ONE} of the last minute, the person's
@@ -345,9 +367,11 @@ function memoryWaitedMs(job: Job, now: number): number {
  * `MOST_MEMORY_STALL_FOR_ONE`, the person's programs are read and don't
  * wait on memory, and no heavy job, daemon build or VM runs here. 19: a
  * Mac's queue tells a job's boot by its token, keeps no run time for a
- * job a boot cut off, and dates its end within its run and now.
+ * job a boot cut off, and dates its end within its run and now. 20:
+ * while the person is on a call here, only the work that starts while
+ * memory is short starts, each job held waiting on `call`.
  */
-export const RULES_VERSION = 19;
+export const RULES_VERSION = 20;
 
 /**
  * The job to start now, if any: the first waiting in order that its
@@ -371,7 +395,7 @@ export function nextTurn(
 			.map((job) => Date.parse(job.started as string)),
 	);
 	if (now - last < SPREAD_MS) return undefined;
-	const held = memoryHolder(jobs, room);
+	const held = holder(jobs, room);
 	if (floorsBusy(room)) return undefined;
 	const { growing, vmsHere, vmsElsewhere, settling, builds, quick, walks } =
 		standing(jobs, room, now, rules);
@@ -467,9 +491,12 @@ export function waitReasons(
 		}
 	}
 	const waiting = waitingInOrder(jobs, awaited, first);
-	const heldPressed = memoryHolder(jobs, room);
+	const heldByCall = callHolder(room);
+	const heldByMemory = memoryHolder(jobs, room);
+	const heldPressed = (job: Job) => heldByCall(job) || heldByMemory(job);
 	for (const job of waiting) {
-		if (heldPressed(job)) reasons.set(job.id, "memory");
+		if (heldByCall(job)) reasons.set(job.id, "call");
+		else if (heldByMemory(job)) reasons.set(job.id, "memory");
 	}
 	if (floorsBusy(room)) {
 		for (const job of waiting) {
@@ -693,7 +720,11 @@ export function roomLeft(
 	rules: Rules = RULES,
 ): RoomLeft {
 	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
-	if ((pressed && !oneLaneOpen(jobs, room)) || floorsBusy(room)) {
+	if (
+		room.onCall === true ||
+		(pressed && !oneLaneOpen(jobs, room)) ||
+		floorsBusy(room)
+	) {
 		return { vms: 0, builds: 0 };
 	}
 	const left = unpressedRoomLeft(jobs, room, now, rules);
@@ -752,7 +783,7 @@ export function waitsWithRoom(jobs: readonly Job[], room: Room): boolean {
 	// Waiting while the machine is busy is the rule's aim, not a waste.
 	const pressed = room.memoryPressure >= MOST_MEMORY_PRESSURE;
 	if ((pressed && !oneLaneOpen(jobs, room)) || floorsBusy(room)) return false;
-	const held = memoryHolder(jobs, room);
+	const held = holder(jobs, room);
 	return (
 		!cpuHoldsBuilds(room) &&
 		waitingInOrder(jobs).some(

@@ -267,7 +267,14 @@ given, and the lines that wait for its turn run outside the sandbox. A
 session that asks for it on Linux without landrun on `PATH` runs no
 command at all rather than run one unfenced. On a Mac it runs them as
 the fence does there: inside the sandbox pi runs in, saying so once,
-and none where nothing fences pi.
+and none where nothing fences pi. Each still starts without the
+session's tokens or agent socket: its environment keeps only the names
+Linux's strict keeps, with `TMPDIR` and a few of the Mac's own, and its
+shell starts with no other. That holds back what a program reads by
+accident, not what a command looks for: a Mac lets a process read
+another of the same user's environment (`ps -E`), the session's shell
+and pi's among them. What files it reads, a token's file among them, is
+that sandbox's to say.
 The tool tells the agent it is sandboxed, so a refusal reads as the
 sandbox rather than a fault.
 
