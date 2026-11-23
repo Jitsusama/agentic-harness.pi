@@ -34,6 +34,22 @@ it("says a call is on only when the program says so", async () => {
 	]).toEqual([true, false, false]);
 });
 
+it("counts no call from a program that won't stop when asked, at its time", async () => {
+	const program = join(dir, "a-call-is-on-stuck");
+	// It ignores SIGTERM and would say a call is on at 10 s.
+	writeFileSync(program, "#!/bin/sh\ntrap '' TERM\nsleep 10\nexit 0\n");
+	chmodSync(program, 0o755);
+	const started = performance.now();
+
+	const on = await callIsOn({ program });
+
+	expect(on, "a program past its time says no call").toBe(false);
+	expect(
+		performance.now() - started,
+		"answered at its time, not the program's end",
+	).toBeLessThan(6_000);
+}, 12_000);
+
 it("counts no call on a machine without the program, saying so once", async () => {
 	const missing = vi.fn();
 	const program = join(dir, "missing");

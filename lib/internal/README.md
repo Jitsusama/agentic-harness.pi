@@ -15,6 +15,9 @@ may import from here, and any of it may change without notice.
   weighed at, and keeping an idle session's hour-long entry warm, with
   its record while no pi runs the session and whether a call is on
   that a warm would cut into.
+- **`calls/`**: asking `a-call-is-on` whether the person is on a
+  call, one way for the queue and a cache's warm, and saying once when
+  it can't be asked.
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover
