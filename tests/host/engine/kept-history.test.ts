@@ -297,8 +297,8 @@ describe("a conversation held from a compacted log", () => {
 				),
 			);
 		expect(left).toHaveLength(2);
-		for (const { id } of left) {
-			const request = { entryId: id };
+		for (const entry of left) {
+			const request = { entryId: entry.id };
 			const asked = askedBy(request);
 			const disk = markedOnDisk(branch, asked);
 			const found = recallAnswer(
@@ -306,7 +306,10 @@ describe("a conversation held from a compacted log", () => {
 				request,
 				asked,
 			);
-			expect(found.kind).toBe("entry");
+			expect(found.kind === "entry" && found.entry).toEqual({
+				id: entry.id,
+				text: texts([entry]).join("\n"),
+			});
 		}
 	});
 

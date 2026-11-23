@@ -27,7 +27,10 @@ import {
 	type RecallRequest,
 	recall,
 } from "../../../../lib/internal/logs/recall.ts";
-import { markedOnDisk } from "../../../../lib/internal/logs/recall-on-disk.ts";
+import {
+	markedOnDisk,
+	NO_BRANCH,
+} from "../../../../lib/internal/logs/recall-on-disk.ts";
 import {
 	type Entry,
 	ROLLOVER_RECORD,
@@ -219,6 +222,11 @@ function whole(branch: Line[], request: RecallRequest) {
 	return recall(entries, request);
 }
 
+/** The ids of the entries an answer's hits name, or none for another kind. */
+function hitIds(found: ReturnType<typeof streamed>): string[] {
+	return found.kind === "hits" ? found.hits.map((hit) => hit.id) : [];
+}
+
 /** What the line-at-a-time reader answers. */
 function streamed(branch: Line[], request: RecallRequest) {
 	const asked = askedBy(request);
@@ -356,6 +364,11 @@ describe("recall read a line at a time", () => {
 			(mark) => mark.text !== undefined || mark.snippet !== undefined,
 		);
 		expect(carrying.map((mark) => mark.id)).toEqual(["g7"]);
+
+		const byId = markedOnDisk(branch, askedBy({ entryId: "g2" })).marked;
+		expect(
+			byId.filter((mark) => mark.text !== undefined).map((mark) => mark.id),
+		).toEqual(["g2"]);
 	});
 
 	it("says how many logs and bytes it read, and how many entries", () => {
@@ -379,8 +392,46 @@ describe("recall read a line at a time", () => {
 			logs: 0,
 			bytes: 0,
 			entries: 0,
-			unread: { path: join(dir, "gone.jsonl"), code: "ENOENT" },
+			unread: { path: join(dir, "gone.jsonl"), reason: "ENOENT" },
 		});
+	});
+
+	it("names a parent that holds none of its record's branch, and reads no further", () => {
+		const older = log("older.jsonl", [
+			header("o"),
+			said("o1", null, "a flake past the parent"),
+		]);
+		const path = log("leafless.jsonl", [
+			header("x"),
+			record("x1", null, older, "o1"),
+			said("x2", "x1", "a flake, but not the leaf"),
+		]);
+		for (const parent of [path, dir]) {
+			const branch = [
+				record("r", null, parent, "missing"),
+				said("a", "r", "now"),
+			];
+			expect(markedOnDisk(branch, askedBy({ query: "flake" }))).toEqual({
+				marked: [],
+				logs: 0,
+				bytes: 0,
+				entries: 0,
+				unread: { path: parent, reason: NO_BRANCH },
+			});
+		}
+	});
+
+	it("throws Node's own fault, which carries a code but no system call", () => {
+		const branch = [record("r", null, join(dir, "any.jsonl"), "x")];
+		const failing = (): Iterable<string> => {
+			throw Object.assign(new Error("a bad argument"), {
+				code: "ERR_INVALID_ARG_TYPE",
+			});
+		};
+
+		expect(() =>
+			markedOnDisk(branch, askedBy({ query: "flake" }), failing),
+		).toThrow("a bad argument");
 	});
 
 	it("throws an error of its own rather than take it for a missing log", () => {
@@ -394,7 +445,7 @@ describe("recall read a line at a time", () => {
 		).toThrow("a fault in the reader");
 	});
 
-	it("reads on past a call whose id a later call took", () => {
+	it("reads two calls given one id, and what follows them, as a whole read does", () => {
 		const path = log("reused.jsonl", [
 			header("u"),
 			user("u1", null, "the flake before the reused id"),
@@ -405,14 +456,149 @@ describe("recall read a line at a time", () => {
 		]);
 		const branch = [record("r", null, path, "u5"), said("a", "r", "now")];
 
+		for (const request of [
+			{ query: "flake" },
+			{ query: "listing" },
+			{ entryId: "u2" },
+			{ entryId: "u3" },
+		]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		// A whole read gives both calls the one result.
+		expect(hitIds(streamed(branch, { query: "listing" }))).toEqual([
+			"u2",
+			"u3",
+		]);
 		const disk = markedOnDisk(branch, askedBy({ query: "flake" }));
-
 		expect(disk.marked.map((mark) => mark.id)).toEqual([
 			"u1",
 			"u2",
 			"u3",
 			"u4",
 			"u5",
+		]);
+	});
+
+	it("reads a call without the result that sits off its branch", () => {
+		const path = log("forked.jsonl", [
+			header("f"),
+			user("f1", null, "the flake before the fork"),
+			called("f2", "f1", "fc", "bash", { command: "ls" }),
+			result("f3", "f2", "fc", "an orphaned listing"),
+			said("f4", "f2", "a reply on another fork"),
+		]);
+		const branch = [record("r", null, path, "f4"), said("a", "r", "now")];
+
+		for (const request of [
+			{ query: "orphaned" },
+			{ query: "flake" },
+			{ entryId: "f2" },
+		]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(streamed(branch, { query: "orphaned" }).kind).toBe("none");
+	});
+
+	it("reads a result written before its call, and an id recall's own call shares, as a whole read does", () => {
+		const path = log("odd.jsonl", [
+			header("e"),
+			user("e1", null, "the flake before the odd calls"),
+			result("e2", "e1", "early", "an early listing"),
+			called("e3", "e2", "early", "bash", { command: "ls" }),
+			called("e4", "e3", "both", "session_recall", { query: "x" }),
+			result("e5", "e4", "both", "[x] a hit"),
+			called("e6", "e5", "both", "bash", { command: "cat secrets" }),
+			result("e7", "e6", "both", "the secrets file"),
+			said("e8", "e7", "done"),
+		]);
+		const branch = [record("r", null, path, "e8"), said("a", "r", "now")];
+
+		for (const request of [
+			{ query: "early listing" },
+			{ query: "secrets" },
+			{ entryId: "e3" },
+			{ entryId: "e6" },
+		]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(hitIds(streamed(branch, { query: "early listing" }))).toEqual([
+			"e3",
+		]);
+		expect(streamed(branch, { query: "secrets" }).kind).toBe("none");
+	});
+
+	it("reads a result rewritten as a plain message as a whole read does", () => {
+		const path = log("unresulted.jsonl", [
+			header("x"),
+			user("x1", null, "the flake before the call"),
+			called("x2", "x1", "xc", "bash", { command: "cat" }),
+			result("x3", "x2", "xc", "an old listing"),
+			said("x3", "x2", "no longer a result"),
+			said("x4", "x3", "after"),
+		]);
+		const branch = [record("r", null, path, "x4"), said("a", "r", "now")];
+
+		for (const request of [{ query: "listing" }, { entryId: "x2" }]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(streamed(branch, { query: "listing" }).kind).toBe("none");
+	});
+
+	it("reads a call rewritten after its result as a whole read does", () => {
+		const path = log("recalled.jsonl", [
+			header("w"),
+			user("w1", null, "the flake before the call"),
+			called("w2", "w1", "wc", "bash", { command: "ls" }),
+			result("w3", "w2", "wc", "the listing"),
+			called("w2", "w1", "wc", "bash", { command: "ls -l" }),
+			said("w4", "w3", "after"),
+		]);
+		const branch = [record("r", null, path, "w4"), said("a", "r", "now")];
+
+		for (const request of [{ query: "listing" }, { entryId: "w2" }]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(hitIds(streamed(branch, { query: "listing" }))).toEqual(["w2"]);
+	});
+
+	it("walks through lines pi never wrote, which say nothing", () => {
+		const path = log("odd-lines.jsonl", [
+			header("n"),
+			user("n1", null, "the flake before the odd lines"),
+			{ type: "message", id: "n2", parentId: "n1", timestamp: at },
+			{ id: "n3", parentId: "n2" },
+			{
+				type: "message",
+				id: "n4",
+				parentId: "n3",
+				timestamp: at,
+				message: {
+					role: "assistant",
+					content: [null, { type: "text", text: "a flake beside a null" }],
+				},
+			},
+			{ type: "compaction", id: "n5", parentId: "n4", summary: 7 },
+			{
+				type: "message",
+				id: "n6",
+				parentId: "n5",
+				message: { role: "user", content: [null] },
+			},
+			said("n7", "n6", "the flake after them"),
+		]);
+		const branch = [record("r", null, path, "n7"), said("a", "r", "now")];
+
+		for (const request of [
+			{ query: "flake" },
+			{ entryId: "n3" },
+			{ entryId: "p:ffffffffff" },
+		]) {
+			expect(streamed(branch, request)).toEqual(whole(branch, request));
+		}
+		expect(hitIds(streamed(branch, { query: "flake" })).sort()).toEqual([
+			"n1",
+			"n4",
+			"n7",
 		]);
 	});
 

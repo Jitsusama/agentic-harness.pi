@@ -14,6 +14,8 @@ import {
 	openSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 	writeSync,
@@ -768,18 +770,31 @@ describe("a log's lines, read a chunk at a time", () => {
 		expect([...logLines(path)]).toEqual(lines);
 	});
 
-	it("close the log when their reader stops before the end", () => {
-		const path = join(dir, "log.jsonl");
-		writeFileSync(path, "one\ntwo\nthree\n");
-		const open = (): number => readdirSync("/proc/self/fd").length;
-		const before = open();
-		const lines = logLines(path);
+	// Linux names each open descriptor's file under /proc/self/fd.
+	it.skipIf(process.platform !== "linux")(
+		"close the log when their reader stops before the end",
+		() => {
+			const path = join(dir, "log.jsonl");
+			writeFileSync(path, "one\ntwo\nthree\n");
+			// A descriptor's link names the file through no symlink.
+			const real = realpathSync(path);
+			const holding = (): number =>
+				readdirSync("/proc/self/fd").filter((fd) => {
+					try {
+						return readlinkSync(join("/proc/self/fd", fd)) === real;
+					} catch {
+						// The descriptor readdir itself held is closed by now.
+						return false;
+					}
+				}).length;
+			const lines = logLines(path);
 
-		expect(lines.next().value).toBe("one");
-		expect(open()).toBe(before + 1);
-		lines.return(undefined);
-		expect(open()).toBe(before);
-	});
+			expect(lines.next().value).toBe("one");
+			expect(holding()).toBe(1);
+			lines.return(undefined);
+			expect(holding()).toBe(0);
+		},
+	);
 
 	it("add what each read brought in to the tally, the whole file in all", () => {
 		const path = join(dir, "log.jsonl");

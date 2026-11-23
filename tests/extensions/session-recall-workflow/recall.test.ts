@@ -139,6 +139,39 @@ describe("the session recall tool", () => {
 		}
 	});
 
+	it("names in one journal line a parent it could not read", async () => {
+		const gone = join(tmpdir(), "recall-gone\nsession-recall-workflow: forged");
+		const record = {
+			type: "custom",
+			id: "r1",
+			parentId: null,
+			timestamp: "2026-09-30T12:00:00.000Z",
+			customType: ROLLOVER_RECORD,
+			data: { parentSession: gone, parentLeaf: "old1", carried: {} },
+		};
+		const write = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			const { tool } = activate();
+			await tool.execute(
+				"t1",
+				{ query: "flake" },
+				undefined,
+				undefined,
+				ctxWith([record, said("a1", "the flake")]),
+			);
+			const lines = write.mock.calls.map(([text]) => String(text));
+			expect(lines).toEqual([
+				expect.stringMatching(
+					/^session-recall-workflow: conversation \S+ could not read ".*recall-gone\\nsession-recall-workflow: forged" \(ENOENT\), so recall searched no history older than it\n$/,
+				),
+			]);
+		} finally {
+			write.mockRestore();
+		}
+	});
+
 	it("says nothing in the journal when nothing is on disk to read", async () => {
 		const write = vi
 			.spyOn(process.stderr, "write")

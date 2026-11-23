@@ -29,6 +29,7 @@
 
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { refHashPrefix, unitsOf } from "../../compaction/selection/units.ts";
+import { isRecord } from "../record.ts";
 
 /** The tool's name, which the summary's note and the tool share. */
 export const RECALL_TOOL = "session_recall";
@@ -84,18 +85,15 @@ export interface RecallRequest {
 	readonly page?: number;
 }
 
-interface TextPart {
-	readonly type: string;
-	readonly text?: string;
-}
-
 function textOfParts(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return (content as TextPart[])
-		.filter((part) => part.type === "text" && typeof part.text === "string")
-		.map((part) => part.text)
-		.join("\n");
+	const texts: string[] = [];
+	for (const part of content) {
+		if (isRecord(part) && part.type === "text" && typeof part.text === "string")
+			texts.push(part.text);
+	}
+	return texts.join("\n");
 }
 
 interface ToolCallPart {
@@ -106,11 +104,7 @@ interface ToolCallPart {
 }
 
 function isToolCall(part: unknown): part is ToolCallPart {
-	return (
-		typeof part === "object" &&
-		part !== null &&
-		(part as { type?: unknown }).type === "toolCall"
-	);
+	return isRecord(part) && part.type === "toolCall";
 }
 
 /** A tool call an entry makes, and whether it is recall's own. */
@@ -122,13 +116,15 @@ export interface CallMade {
 /** The tool calls an assistant entry makes, in order. */
 export function callsIn(entry: SessionEntry): CallMade[] {
 	if (entry.type !== "message") return [];
-	const message = entry.message as { role?: string; content?: unknown };
-	if (message.role !== "assistant" || !Array.isArray(message.content)) {
-		return [];
+	const message: unknown = entry.message;
+	if (!isRecord(message) || message.role !== "assistant") return [];
+	if (!Array.isArray(message.content)) return [];
+	const calls: CallMade[] = [];
+	for (const part of message.content) {
+		if (isToolCall(part) && typeof part.id === "string")
+			calls.push({ id: part.id, recalls: part.name === RECALL_TOOL });
 	}
-	return message.content
-		.filter(isToolCall)
-		.map((part) => ({ id: part.id, recalls: part.name === RECALL_TOOL }));
+	return calls;
 }
 
 /** What a tool result entry answers, and its text. */
@@ -140,12 +136,8 @@ export interface ResultGiven {
 /** The call a tool result entry answers and what it said, if it is one. */
 export function resultOf(entry: SessionEntry): ResultGiven | undefined {
 	if (entry.type !== "message") return undefined;
-	const message = entry.message as {
-		role?: string;
-		content?: unknown;
-		toolCallId?: unknown;
-	};
-	if (message.role !== "toolResult") return undefined;
+	const message: unknown = entry.message;
+	if (!isRecord(message) || message.role !== "toolResult") return undefined;
 	if (typeof message.toolCallId !== "string") return undefined;
 	return { callId: message.toolCallId, text: textOfParts(message.content) };
 }
@@ -200,7 +192,7 @@ export function entryText(
 			return messageText(entry.message, results, recallCalls);
 		case "compaction":
 		case "branch_summary":
-			return entry.summary;
+			return typeof entry.summary === "string" ? entry.summary : "";
 		case "custom_message":
 			return textOfParts(entry.content);
 		default:
@@ -213,23 +205,18 @@ function messageText(
 	results: ReadonlyMap<string, string>,
 	recallCalls: ReadonlySet<string>,
 ): string {
-	const m = message as {
-		role?: string;
-		content?: unknown;
-		command?: unknown;
-		output?: unknown;
-		toolCallId?: unknown;
-	};
+	if (!isRecord(message)) return "";
+	const m = message;
 	switch (m.role) {
 		case "user":
 			return textOfParts(m.content);
 		case "assistant": {
 			if (!Array.isArray(m.content)) return "";
 			const parts: string[] = [];
-			for (const part of m.content as unknown[]) {
-				const text = part as TextPart;
-				if (text.type === "text" && typeof text.text === "string") {
-					parts.push(text.text);
+			for (const part of m.content) {
+				if (!isRecord(part)) continue;
+				if (part.type === "text" && typeof part.text === "string") {
+					parts.push(part.text);
 				} else if (isToolCall(part) && !recallCalls.has(part.id)) {
 					parts.push(`${part.name} ${JSON.stringify(part.arguments)}`);
 					const result = results.get(part.id);
@@ -306,8 +293,23 @@ export interface Marked {
 /** Whether `entry` says the paragraph the reference in `asked` names. */
 export function namedBy(entry: SessionEntry, asked: Asked): boolean {
 	const { prefix } = asked;
-	if (prefix === undefined) return false;
+	if (prefix === undefined || !spokenShape(entry)) return false;
 	return unitsOf(entry).some((unit) => unit.hash.startsWith(prefix));
+}
+
+/**
+ * Whether `entry` has the shape `unitsOf` reads: a log can hold a line
+ * that parses but that pi never wrote, and such a line names no
+ * paragraph rather than failing the recall.
+ */
+function spokenShape(entry: SessionEntry): boolean {
+	if (entry.type !== "message") return true;
+	const message: unknown = entry.message;
+	if (!isRecord(message)) return false;
+	const { role, content } = message;
+	if (role !== "user" && role !== "assistant") return true;
+	if (role === "user" && typeof content === "string") return true;
+	return Array.isArray(content) && content.every(isRecord);
 }
 
 /** Mark one entry, given its text, against `asked`. */
