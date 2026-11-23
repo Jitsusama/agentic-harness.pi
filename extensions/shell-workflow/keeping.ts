@@ -196,7 +196,7 @@ export function keepsOnDisk(
 					// only the record it holds.
 					if (!kept.handed) {
 						if (call.signal) calls.delete(call.signal);
-						void removeKept(path, { ranHere: true });
+						void removeKept(path, { neverHanded: true });
 					}
 				}
 			},

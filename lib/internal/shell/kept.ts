@@ -545,15 +545,25 @@ export function endJobRecordRemoval(
  * As it begins, its record is no longer this process's, a removal of
  * the record still running is marked gone so nothing puts it back, and
  * a process exiting before it is past its marks takes them back: both,
- * but for a call that ran here and was never handed on, whose only mark
- * can be the record this process holds for it, so an exit on a slow
- * disk asks after no name its call never wrote.
+ * but for a call `neverHanded`, whose only mark can be the record this
+ * process holds for it, so an exit on a slow disk asks after no name
+ * its call never wrote.
  */
 export async function removeKept(
 	path: string,
-	{ ranHere = false }: { ranHere?: boolean } = {},
+	{
+		neverHanded = false,
+	}: {
+		/**
+		 * The call was started by this process and never handed on, so
+		 * nothing marked it carried. False for any call ever marked carried,
+		 * one taken up from another process included, since its exit would
+		 * then leave the mark beside the call's end.
+		 */
+		neverHanded?: boolean;
+	} = {},
 ): Promise<void> {
-	const mayHold = marksFound(path, ranHere);
+	const mayHold = marksFound(path, neverHanded);
 	letJobRecordGo(path);
 	takeBackAtExit();
 	if (!(await removeMarks(path, mayHold))) return;
@@ -570,11 +580,11 @@ export async function removeKept(
 
 /**
  * The marks a removal of the call kept at `path` may find: its record
- * alone when it is one this process holds for a call that ran here,
+ * alone when it is one this process holds for a call never handed on,
  * since only a hand-off marks one carried.
  */
-function marksFound(path: string, ranHere: boolean): readonly string[] {
-	if (!ranHere) return [...MARKS];
+function marksFound(path: string, neverHanded: boolean): readonly string[] {
+	if (!neverHanded) return [...MARKS];
 	return jobRecords.own.has(path) ? [JOB_SUFFIX] : [];
 }
 

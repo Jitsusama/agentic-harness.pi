@@ -97,11 +97,17 @@ const SLOW_REMOVAL_MS = 1_000;
  */
 const REMOVAL_WAIT_MS = 5_000;
 
+/**
+ * The clock a removal is timed by, which no step of the wall clock moves,
+ * so a fast removal is never said slow nor a slow one hidden.
+ */
+const monotonicNow = (): number => performance.now();
+
 /** What the final removal of a call's own record may be told. */
 export interface ForgetOwnOptions {
 	/** How long to wait for the disk before settling without it. */
 	readonly waitMs?: number;
-	/** The clock a removal's time is read from. */
+	/** The clock a removal's time is read from, in milliseconds. */
 	readonly now?: () => number;
 	/**
 	 * The call's stop: once it lands the wait ends, saying nothing, as the
@@ -215,7 +221,7 @@ export async function forgetOwnKeptJob(
 	const removal = beginJobRecordRemoval(keep);
 	if (removal === undefined) return;
 	const waitMs = options.waitMs ?? REMOVAL_WAIT_MS;
-	const going = removeOwn(keep, removal, options.now ?? Date.now);
+	const going = removeOwn(keep, removal, options.now ?? monotonicNow);
 	let timer: NodeJS.Timeout | undefined;
 	const waited = new Promise<"waited">((done) => {
 		timer = setTimeout(() => done("waited"), waitMs);
@@ -299,7 +305,9 @@ async function removeOwn(
 				// Timed whichever way the pass ended: a slow refusal is as telling.
 				const took = now() - began;
 				if (took > SLOW_REMOVAL_MS) {
-					process.stderr.write(`[shell] removing ${file} took ${took} ms\n`);
+					process.stderr.write(
+						`[shell] removing ${file} took ${Math.round(took)} ms\n`,
+					);
 				}
 			}
 		}
