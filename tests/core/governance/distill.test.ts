@@ -37,8 +37,12 @@ describe("condenseTranscript", () => {
 		];
 		const turns: Turn[] = Array.from({ length: 30 }, (_, at) => ({
 			role: at % 3 === 0 ? "assistant" : "user",
-			text: `${words[at % words.length]}${at % 4 === 1 ? "" : ` ${at}`}`,
+			text: `${words[at % words.length]}${at % 4 === 1 ? "" : ` ${at}`}${at % 5 === 0 ? " \n" : ""}`,
 		}));
+		expect(
+			turns.filter((t) => t.text.trim() && t.text.endsWith("\n")).length,
+			"turns a condense trims at their end",
+		).toBe(5);
 		const blank = turns.flatMap((t, at) => (t.text.trim() ? [] : [at]));
 		expect(blank, "the turns a condense leaves out").toEqual([
 			1, 9, 13, 21, 25,
@@ -46,12 +50,24 @@ describe("condenseTranscript", () => {
 		const whole = droppingOldest(turns, Number.POSITIVE_INFINITY).length;
 
 		for (let cap = 0; cap <= whole + 1; cap++) {
-			for (const from of [0, 7, 29]) {
-				const some = turns.slice(from);
+			// Ends on a turn kept, and on the blank turns 25 and 21, so a
+			// blank newest turn is held to the old way too.
+			for (const [from, to] of [
+				[0, 30],
+				[7, 30],
+				[29, 30],
+				[0, 26],
+				[7, 22],
+				[21, 22],
+			]) {
+				const some = turns.slice(from, to);
 				expect(condenseTranscript(some, cap)).toBe(droppingOldest(some, cap));
 			}
 		}
 		expect(condenseTranscript([], 10)).toBe("");
+		expect(droppingOldest(turns.slice(21, 22), 10), "an input all blank").toBe(
+			"",
+		);
 	});
 
 	it("reads only the turns it keeps and the one that would not fit", () => {
@@ -66,8 +82,9 @@ describe("condenseTranscript", () => {
 
 		const out = condenseTranscript(turns, 100);
 
-		const kept = out.split("\n\n").length;
-		expect(kept).toBe(3);
+		expect(out).toBe(
+			"USER: turn 997 of the session\n\nUSER: turn 998 of the session\n\nUSER: turn 999 of the session",
+		);
 		expect(read).toEqual([999, 998, 997, 996]);
 	});
 });
