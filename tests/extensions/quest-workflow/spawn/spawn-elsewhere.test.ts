@@ -16,10 +16,10 @@ import {
 	machineByDefault,
 	machineFor,
 	type PlaceOnNode,
-	reopening,
 	type ShareQuest,
 	type StartOnNode,
 	spawnHeld,
+	whatReopens,
 } from "../../../../extensions/quest-workflow/verbs/spawn-held.ts";
 import { placementFence } from "../../../../extensions/quest-workflow/verbs/spawn-stage.ts";
 import { launchHints } from "../../../../lib/core/session/index.ts";
@@ -104,54 +104,66 @@ describe("the machine a spawn starts on by default", () => {
 	describe("what a spawn reopens", () => {
 		const sessions = [
 			{ id: "live", liveness: "live" as const },
-			{ id: "idle", liveness: "idle" as const },
+			{ id: "idle", liveness: "idle" as const, cwd: "/home/j/src/x" },
 		];
 		const claims =
 			(declared: FenceDeclaration, command?: string) => (resumes: boolean) =>
 				placementFence(declared, { command, resumes });
 		const strict: FenceDeclaration = { kind: "strict", from: "quest" };
 		const none: FenceDeclaration = { kind: "none", from: "quest" };
+		const fenced: FenceDeclaration = { kind: "fence", from: "quest" };
 
 		it("is held here by a live session, which reopens with the claim a reopen gets", () => {
-			const live = reopening({ id: "live" }, sessions, claims(strict));
+			const live = whatReopens({ id: "live" }, sessions, claims(strict));
 			expect(live.holds).toBe(true);
 			expect(live.claim, "a reopen runs with no sandbox").toEqual(UNFENCED);
 			expect(live.reopens(true)).toEqual({ id: "live" });
 			expect(live.leaves(true)).toBeUndefined();
+			expect(
+				live.leaves(false),
+				"a live session named elsewhere isn't left idle",
+			).toBeUndefined();
 		});
 
 		// 22 November: nearly every quest had an idle session, and every spawn
 		// stayed on optimus after the node had named the Mac (9T2BBY).
 		it("leaves the node to place a quest whose session is only idle", () => {
-			const idle = reopening({ id: "idle" }, sessions, claims(none));
-			expect(idle.holds).toBe(false);
-			expect(idle.reopens(false), "placed elsewhere, it starts fresh").toBe(
-				undefined,
-			);
-			expect(idle.leaves(false), "and says the session it left").toBe("idle");
-			expect(idle.reopens(true), "placed here, it reopens").toEqual({
-				id: "idle",
-			});
-			expect(idle.leaves(true)).toBeUndefined();
+			for (const declared of [none, fenced]) {
+				const idle = whatReopens({ id: "idle" }, sessions, claims(declared));
+				expect(idle.holds, declared.kind).toBe(false);
+				expect(idle.claim.kind, "no tighter than a reopen here").toBe("none");
+				expect(idle.reopens(false), "placed elsewhere, it starts fresh").toBe(
+					undefined,
+				);
+				expect(
+					idle.leaves(false),
+					"and says where to find what it left",
+				).toEqual({ id: "idle", cwd: "/home/j/src/x" });
+				expect(idle.reopens(true), "placed here, it reopens").toEqual({
+					id: "idle",
+				});
+				expect(idle.leaves(true)).toBeUndefined();
+			}
 		});
 
-		it("never reopens an idle session looser than the fence it told the node", () => {
-			const idle = reopening({ id: "idle" }, sessions, claims(strict));
-			expect(idle.claim, "the node is told the fresh start's fence").toEqual(
-				strict,
-			);
-			expect(
-				idle.reopens(true),
-				"a reopen has no sandbox, so it starts fresh, strict",
-			).toBeUndefined();
-			expect(idle.leaves(true)).toBe("idle");
+		// A reopen has no sandbox, so a fresh start strict and a reopen claim
+		// different fences; the node is told the reopen's, as before this.
+		it("keeps a strict quest's idle session here, reopening it as before", () => {
+			const idle = whatReopens({ id: "idle" }, sessions, claims(strict));
+			expect(idle.holds).toBe(true);
+			expect(idle.claim).toEqual(UNFENCED);
+			expect(idle.reopens(true)).toEqual({ id: "idle" });
 		});
 
-		it("reopens what it has when nothing names one session", () => {
-			const none_ = reopening(undefined, sessions, claims(strict));
-			expect(none_.holds).toBe(false);
-			expect(none_.reopens(true)).toBeUndefined();
-			expect(none_.leaves(true)).toBeUndefined();
+		it("lets the node place a spawn when nothing names one session", () => {
+			const ambiguous = { ambiguous: ["live", "idle"] };
+			for (const resumable of [undefined, ambiguous]) {
+				const chosen = whatReopens(resumable, sessions, claims(strict));
+				expect(chosen.holds).toBe(false);
+				expect(chosen.claim, "a fresh start keeps its fence").toEqual(strict);
+				expect(chosen.reopens(true)).toBe(resumable);
+				expect(chosen.leaves(false)).toBeUndefined();
+			}
 		});
 	});
 

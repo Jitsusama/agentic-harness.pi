@@ -78,12 +78,13 @@ import {
 	agentCommand,
 	askAgents,
 	isThisMachine,
+	type LeftIdle,
 	machineByDefault,
 	machineFor,
-	reopening,
 	spawnHeld,
 	startsPi,
 	swapsAgent,
+	whatReopens,
 } from "./spawn-held.ts";
 import { hostTargetOf, reachedInHost, spawnByHost } from "./spawn-host.ts";
 import {
@@ -107,7 +108,9 @@ interface SpawnSaid {
 	fence?: FenceDeclaration;
 	handed?: DeclaredFence;
 	/** An idle session left unreopened, since the spawn starts fresh. */
-	leftIdle?: string;
+	leftIdle?: LeftIdle;
+	/** Whether it only planned, so what it left is said as what it would. */
+	planned?: boolean;
 }
 
 /**
@@ -128,6 +131,7 @@ export async function spawn(
 			said.handed,
 		),
 		said.leftIdle,
+		said.planned === true,
 	);
 	if (!said.budget) return result;
 	// Refused once it was named, the quest keeps it, and is told so.
@@ -181,13 +185,23 @@ function withFence(
  */
 function withLeftIdle(
 	result: QuestResult,
-	leftIdle: string | undefined,
+	leftIdle: LeftIdle | undefined,
+	planned: boolean,
 ): QuestResult {
 	if (!result.ok || leftIdle === undefined) return result;
+	const here = hostname().split(".")[0];
+	// Pi finds a session by id only among the logs of the folder it starts
+	// in, so the way back names the folder when the record has it.
+	const back = leftIdle.cwd
+		? `\`cd ${leftIdle.cwd} && pi --session ${leftIdle.id}\``
+		: `\`pi --session ${leftIdle.id}\`, from the folder it ran in,`;
+	const left = planned
+		? `It would start fresh there, leaving the quest's idle session ${leftIdle.id} unreopened on ${here}`
+		: `It started fresh there, leaving the quest's idle session ${leftIdle.id} unreopened on ${here}`;
 	return {
 		...result,
-		message: `${result.message} It started fresh, leaving the quest's idle session ${leftIdle} unreopened on ${hostname().split(".")[0]}; \`pi --session ${leftIdle}\` there reopens it.`,
-		details: { ...result.details, leftIdle },
+		message: `${result.message} ${left}; ${back} on ${here} reopens it.`,
+		details: { ...result.details, leftIdle: leftIdle.id },
 	};
 }
 
@@ -273,7 +287,7 @@ async function spawnNaming(
 	// command it starts, both follow the one answer.
 	const realmAgents = params.command?.trim() ? undefined : await askAgents();
 	const agentsHere = async () => realmAgents;
-	const reopen = reopening(resumable, sessions, (resumes) =>
+	const reopen = whatReopens(resumable, sessions, (resumes) =>
 		placementFence(fence, {
 			command: params.command,
 			resumes,
@@ -303,7 +317,11 @@ async function spawnNaming(
 	const landsHere = machine === undefined || isThisMachine(machine);
 	const resume = reopen.reopens(landsHere);
 	const leftIdle = reopen.leaves(landsHere);
-	if (leftIdle !== undefined) said.leftIdle = leftIdle;
+	// A command of the caller's own reopens nothing, so it leaves nothing.
+	if (leftIdle !== undefined && !params.command?.trim()) {
+		said.leftIdle = leftIdle;
+		if (params.dryRun) said.planned = true;
+	}
 	// A session a host holds is reached through that host, never opened
 	// again here or adopted by another, which would give its log a second
 	// writer. A command of the caller's own resumes nothing.

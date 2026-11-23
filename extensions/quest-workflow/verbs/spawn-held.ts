@@ -237,14 +237,20 @@ const shareByMycelium: ShareQuest = shareThrough(
 
 /** What a spawn may reopen, and what it tells the node because of it. */
 export interface Reopening<R> {
-	/** A live session resumes here, so the node is not asked. */
+	/** It resumes here, so the node is not asked. */
 	readonly holds: boolean;
 	/** The fence told the node, which covers whatever then starts. */
 	readonly claim: FenceDeclaration;
 	/** What reopens once it is known whether the spawn lands here. */
 	readonly reopens: (here: boolean) => R | undefined;
-	/** The idle session left as it is because the spawn starts fresh. */
-	readonly leaves: (here: boolean) => string | undefined;
+	/** The idle session left behind because the spawn starts elsewhere. */
+	readonly leaves: (here: boolean) => LeftIdle | undefined;
+}
+
+/** An idle session a spawn left behind, and where its log is found. */
+export interface LeftIdle {
+	readonly id: string;
+	readonly cwd?: string;
 }
 
 /**
@@ -257,15 +263,16 @@ export interface Reopening<R> {
  * so every spawn stayed on an optimus the node had already called over
  * and named the Mac for (9T2BBY [1f965feb]).
  *
- * The claim is the fresh start's (`claimFor(false)`), since the node is
- * asked about one. A reopen runs with no sandbox, so an idle session
- * reopens here only where a reopen claims no more than that: under a
- * strict fence it would run looser than the node was told, so the spawn
- * starts fresh under it instead and the idle session is left as it is.
+ * A reopen runs with no sandbox, so the claim covers it wherever one
+ * may happen. An idle session whose reopen would claim another fence
+ * than a fresh start, as under a strict fence, holds the spawn here
+ * just as a live one does: the node is told the reopen's claim, and the
+ * session reopens as it did before, rather than a fresh start losing
+ * its history to place a rare strict quest.
  */
-export function reopening<R extends object>(
+export function whatReopens<R extends object>(
 	resumable: R | undefined,
-	sessions: readonly Pick<SessionView, "id" | "liveness">[],
+	sessions: readonly Pick<SessionView, "id" | "liveness" | "cwd">[],
 	claimFor: (resumes: boolean) => FenceDeclaration,
 ): Reopening<R> {
 	const id =
@@ -274,26 +281,22 @@ export function reopening<R extends object>(
 		typeof resumable.id === "string"
 			? resumable.id
 			: undefined;
-	const holds =
-		id !== undefined &&
-		sessions.some(
-			(session) => session.id === id && session.liveness === "live",
-		);
+	const session = sessions.find((each) => each.id === id);
+	const live = session?.liveness === "live";
+	const reopenClaimsOther =
+		id !== undefined && claimFor(true).kind !== claimFor(false).kind;
+	const holds = id !== undefined && (live || reopenClaimsOther);
 	const claim = claimFor(holds);
-	const idleMayReopen = claimFor(true).kind === claim.kind;
-	const reopens = (here: boolean): R | undefined => {
-		if (!here) return undefined;
-		if (holds || id === undefined || idleMayReopen) return resumable;
-		return undefined;
-	};
+	const reopens = (here: boolean): R | undefined =>
+		here ? resumable : undefined;
 	return {
 		holds,
 		claim,
 		reopens,
 		leaves: (here) =>
-			id !== undefined && !holds && reopens(here) === undefined
-				? id
-				: undefined,
+			id === undefined || here || live
+				? undefined
+				: { id, ...(session?.cwd ? { cwd: session.cwd } : {}) },
 	};
 }
 
