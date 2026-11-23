@@ -22,15 +22,21 @@ function world(initial: Stop[] = []) {
 		notes: [] as string[],
 		wouldPark: [] as Parked[],
 		parked: [] as Parked[],
+		looked: 0,
+		repos: ["example/shop"],
+		quests: ["QEST-CHILD", "QEST-PARENT"],
 	};
 	const parking = createParking({
 		stops: () => seen.stops,
-		session: async () => ({
-			realm: "work",
-			quests: ["QEST-CHILD", "QEST-PARENT"],
-			repos: ["example/shop"],
-			dirs: ["/work/shop"],
-		}),
+		session: async () => {
+			seen.looked += 1;
+			return {
+				realm: "work",
+				quests: seen.quests,
+				repos: seen.repos,
+				dirs: ["/work/shop"],
+			};
+		},
 		idle: () => seen.idle,
 		abort: () => {
 			seen.aborts += 1;
@@ -120,6 +126,150 @@ describe("parking", () => {
 		await parking.tick();
 		expect(seen.carried).toEqual([RESUMED_TEXT]);
 		expect(RESUMED_TEXT).toContain("check what changed");
+	});
+
+	it("parks an idle session as it stands, and leaves it idle on the resume", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.tick();
+		expect(parking.parked, "the idle session parks as it stands").toBe(true);
+		expect(seen.parked.map((one) => one.stop.id)).toEqual(["q"]);
+		expect(seen).toMatchObject({ aborts: 0, carried: [] });
+		expect(seen.notes).toHaveLength(1);
+		seen.stops = [];
+		await parking.tick();
+		expect(parking.parked, "the resume lets it go").toBe(false);
+		expect(seen.carried).toEqual([]);
+	});
+
+	it("carries on a run started while it stood idle and parked", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.started();
+		expect(seen.aborts).toBe(1);
+		seen.stops = [];
+		await parking.tick();
+		expect(seen.carried).toEqual([RESUMED_TEXT]);
+	});
+
+	it("notes a later stop that reaches a session already parked", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		seen.stops = [quest, stop("all", ["everything"])];
+		await parking.tick();
+		expect(
+			seen.parked.map((one) => one.stop.id),
+			"stop all's count misses a session an earlier stop parked",
+		).toEqual(["q", "all"]);
+		expect(seen.notes, "the session is told once").toHaveLength(1);
+	});
+
+	it("asks where an idle session is at most once a minute, and afresh on new stops", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.tick();
+		await parking.tick();
+		expect(seen.looked, "each tick reran the lookups").toBe(1);
+		seen.stops = [quest, stop("all", ["everything"])];
+		await parking.tick();
+		expect(seen.looked, "a new stop is asked afresh").toBe(2);
+		await parking.started();
+		expect(seen.looked, "a parked session's run forgot it").toBe(2);
+	});
+
+	it("asks afresh where an unparked session is when it runs", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.tick();
+		expect(parking.parked, "the stop doesn't reach it").toBe(false);
+		await parking.started();
+		expect(seen.looked, "a run may move it").toBe(2);
+	});
+
+	it("asks again within a minute, so a lookup that missed the repository mends", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.tick();
+		expect(parking.parked, "a lookup that missed parked it").toBe(false);
+		seen.repos = ["example/shop"];
+		for (let tick = 0; tick < 6; tick += 1) await parking.tick();
+		expect(parking.parked, "six ticks on, it still wasn't asked again").toBe(
+			true,
+		);
+		expect(seen.looked, "asked once a minute, not each tick").toBe(2);
+	});
+
+	it("keeps a parked session parked when asking again misses a parent quest", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.started();
+		expect(parking.parked, "the quest stop parked it").toBe(true);
+		seen.quests = ["QEST-CHILD"];
+		for (let tick = 0; tick < 12; tick += 1) await parking.tick();
+		expect(seen.looked, "it was asked again").toBeGreaterThan(1);
+		expect(parking.parked, "a lookup that missed let it go").toBe(true);
+		expect(seen.carried, "and carried on under the stop").toEqual([]);
+	});
+
+	it("lets go where a parked session was once its stop is resumed", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		await parking.started();
+		expect(parking.parked, "the repository stop parked it").toBe(true);
+		seen.repos = ["example/other"];
+		seen.stops = [];
+		await parking.tick();
+		expect(parking.parked, "the resume let it go").toBe(false);
+		seen.stops = [stop("shop-again", ["repo:example/shop"])];
+		await parking.tick();
+		expect(parking.parked, "a stop where it was parked it").toBe(false);
+	});
+
+	it("keeps a parked session parked when a lookup after its own run misses its repository", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		await parking.started();
+		expect(parking.parked, "the repository stop parked it").toBe(true);
+		seen.repos = [];
+		await parking.turnEnded();
+		parking.heard(true);
+		await parking.started();
+		await parking.turnEnded();
+		for (let tick = 0; tick < 12; tick += 1) await parking.tick();
+		expect(parking.parked, "a lookup that missed let it go").toBe(true);
+		expect(seen.carried, "and carried on under the stop").toEqual([]);
+	});
+
+	it("keeps a parked session parked when asking again misses its repository", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		await parking.started();
+		await parking.tick();
+		expect(parking.parked, "the repository stop parked it").toBe(true);
+		seen.repos = [];
+		for (let tick = 0; tick < 12; tick += 1) await parking.tick();
+		expect(seen.looked, "it was asked again").toBeGreaterThan(1);
+		expect(parking.parked, "a lookup that missed let it go").toBe(true);
+		expect(seen.carried, "and carried on under the stop").toEqual([]);
+		seen.stops = [];
+		await parking.tick();
+		expect(seen.carried, "the resume still carries it on").toEqual([
+			RESUMED_TEXT,
+		]);
+	});
+
+	it("asks again at a turn's end, so a run that moved into a stopped repository parks", async () => {
+		const { seen, parking } = world([stop("shop", ["repo:example/shop"])]);
+		seen.repos = [];
+		await parking.started();
+		expect(seen.aborts, "a run outside the repository was ended").toBe(0);
+		seen.repos = ["example/shop"];
+		await parking.turnEnded();
+		expect(seen.aborts, "the run that moved into it went on").toBe(1);
+	});
+
+	it("leaves a busy session to park at its turn's end", async () => {
+		const { seen, parking } = world([quest]);
+		seen.idle = false;
+		await parking.tick();
+		expect(parking.parked, "the tick parked a busy session").toBe(false);
+		expect(seen.parked).toEqual([]);
 	});
 
 	it("says the resume as the harness, so it isn't taken for Joel typing", () => {

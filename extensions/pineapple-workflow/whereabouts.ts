@@ -5,8 +5,10 @@
  * Only a stop on a repository or a name asks, so a session pays for the
  * git lookups only while one stands.
  *
- * The work tool's records number in the thousands, and parking asks every
- * minute on the loop every hosted conversation shares. Reading them all
+ * The work tool's records number in the thousands, and parking asks on
+ * the clock's tick, on the loop every hosted conversation shares, though
+ * an idle session asks only once a minute, and at once when it runs or the
+ * stops change. Reading them all
  * there, synchronously, was the background host's second biggest disk
  * wait on 16 November, and a filesystem stall in calls like these held the
  * loop past the host's watchdog. So the records are read off the loop, one

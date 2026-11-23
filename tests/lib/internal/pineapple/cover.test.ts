@@ -47,6 +47,7 @@ const pushFix: Write = {
 };
 const pushOther: Write = { ...pushFix, branch: "other" };
 const switching: Write = { action: "switch-system", kind: "machine" };
+const spawning: Write = { action: "quest spawn", kind: "start" };
 
 describe("a stop on one pull request", () => {
 	it("holds writes to that change and pushes to its branch", async () => {
@@ -90,6 +91,8 @@ describe("wider stops", () => {
 		expect(await held(pushFix, "branch:example/shop@fix-it")).toBe("held");
 		expect(await held(merge12, "branch:example/shop@fix-it")).toBe("held");
 		expect(await held(pushOther, "branch:example/shop@fix-it")).toBe("goes");
+		expect(await held(spawning, "branch:example/shop@fix-it")).toBe("goes");
+		expect(await held(spawning, "pr:example/shop#12")).toBe("goes");
 	});
 
 	it("a repository holds every write to it, by full or bare name", async () => {
@@ -97,16 +100,22 @@ describe("wider stops", () => {
 		expect(await held(pushOther, "repo:shop")).toBe("held");
 		expect(await held(pushOther, "repo:example/other")).toBe("goes");
 		expect(await held(switching, "repo:example/shop")).toBe("goes");
+		expect(await held(spawning, "repo:example/shop")).toBe("goes");
+		expect(await held(spawning, "named:shop")).toBe("goes");
 	});
 
 	it("a quest holds the writes of a session in it or under it", async () => {
 		expect(await held(pushOther, "quest:QEST-PARENT")).toBe("held");
 		expect(await held(pushOther, "quest:QEST-ELSE")).toBe("goes");
+		expect(await held(spawning, "quest:QEST-PARENT")).toBe("held");
+		expect(await held(spawning, "quest:QEST-ELSE")).toBe("goes");
 	});
 
 	it("a realm holds the session's writes and switches, in its realm only", async () => {
 		expect(await held(switching, "realm:work")).toBe("held");
 		expect(await held(pushOther, "realm:personal")).toBe("goes");
+		expect(await held(spawning, "realm:work")).toBe("held");
+		expect(await held(spawning, "realm:personal")).toBe("goes");
 	});
 
 	it("a bare name holds a write whose repository, branch or folder carries it", async () => {
@@ -118,7 +127,7 @@ describe("wider stops", () => {
 	});
 
 	it("everything holds every write", async () => {
-		for (const write of [merge12, pushOther, switching]) {
+		for (const write of [merge12, pushOther, switching, spawning]) {
 			expect(await held(write, "everything")).toBe("held");
 		}
 	});
