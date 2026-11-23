@@ -762,6 +762,18 @@ const scenarios: Record<string, Scenario> = {
 			return { file: existsSync(readEntry().file) };
 		},
 	},
+	/** Open and answer a conversation in a tree's folder, then stop, as a host does to restart. */
+	"open-in-tree": {
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const tree = join(work, "tree", "deep");
+			mkdirSync(tree, { recursive: true });
+			const id = await open(engine, { first: "hi" }, { cwd: tree });
+			await idle(engine, id);
+			await host.stop(id);
+			return { sessionId: id };
+		},
+	},
 	/** A tool that notes it ran, leaves two commands running, and then kills the host. */
 	crash: {
 		responses: () => [
@@ -1500,6 +1512,10 @@ const scenarios: Record<string, Scenario> = {
 			const seen = {
 				...summary(engine, entry.sessionId),
 				env: envOf(host, entry.sessionId),
+				cwd: view?.runtime.cwd,
+				heldIn: host
+					.list()
+					.find((conversation) => conversation.id === entry.sessionId)?.cwd,
 			};
 			await host.close(entry.sessionId);
 			return seen;

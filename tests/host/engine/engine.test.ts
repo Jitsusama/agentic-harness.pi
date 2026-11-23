@@ -157,6 +157,9 @@ interface Seen {
 	readonly openedIn: readonly string[];
 	/** The work folder's own path, past any symlink. */
 	readonly work: string;
+	/** The folder a resumed conversation's pi runs in, and the one its host holds it in. */
+	readonly cwd?: string;
+	readonly heldIn?: string;
 	/** Each load of the extension the engine was given as pi's `-e` gives one. */
 	readonly flagged: readonly unknown[];
 	/** The process's listeners for each event, once pi loaded and once the step was done. */
@@ -1033,6 +1036,51 @@ describe("the host's engine", () => {
 			expect(seen.reported).toEqual([
 				expect.stringMatching(/No model selected/),
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	// On 23 November a cell's conversation was dropped at a host's restart:
+	// its tree had been released once its change merged, and pi refuses a
+	// log whose folder is gone (WCJQSG [400576ca]).
+	it(
+		"resumes a conversation whose folder was released in the nearest folder that stands, telling it once",
+		async () => {
+			const folder = hostFolder();
+			const opened = await step(folder, "open-in-tree");
+			const left = opened.openedIn[0] ?? "";
+			expect(left, "it opened in the tree").toBe(
+				join(opened.work, "tree", "deep"),
+			);
+			rmSync(join(opened.work, "tree"), { recursive: true });
+
+			const resumed = await step(folder, "resume");
+			const told = (seen: Seen) =>
+				(seen.transcript ?? []).filter((line) =>
+					line.includes("is gone, so it opened in"),
+				);
+
+			expect(resumed.sameId, "it resumes, not refused by pi").toBe(true);
+			expect(resumed.cwd, "in the nearest folder that stands").toBe(
+				opened.work,
+			);
+			expect(resumed.heldIn, "the host holds it there too").toBe(opened.work);
+			expect(told(resumed), resumed.transcript?.join("\n")).toEqual([
+				expect.stringContaining(
+					`was in, ${left}, is gone, so it opened in ${opened.work} instead`,
+				),
+			]);
+			expect(resumed.transcript?.slice(-2)).toEqual([
+				"user: are you there",
+				"assistant: after the restart",
+			]);
+			expect(resumed.reported).toContain(
+				`Conversation ${resumed.sessionId}'s folder ${left} is gone, so it opens in ${opened.work}`,
+			);
+
+			const again = await step(folder, "resume");
+			expect(again.cwd).toBe(opened.work);
+			expect(told(again), "told of the same move once").toHaveLength(1);
 		},
 		HOST_LIFE_MS,
 	);

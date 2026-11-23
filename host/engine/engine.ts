@@ -56,6 +56,7 @@ import type {
 } from "./contract.ts";
 import { conversationBuilds, type Live } from "./conversation-build.ts";
 import { restGivenUp } from "./given-up.ts";
+import { openStanding, type StandingOpen } from "./gone-folder.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessRequest,
@@ -237,6 +238,23 @@ export async function createEngine(
 				({ id, state }) => state === "busy" && tools.running(id) === 0,
 			).length;
 		return { tools: running, jobs, waiting };
+	}
+
+	/**
+	 * Open a conversation's log to hold its kept view, in the folder that
+	 * stands nearest the one it names when that one is gone, as a tree
+	 * released once its change merged is, rather than have pi refuse it.
+	 */
+	function openLog(file: string): StandingOpen {
+		const { manager, left } = openStanding(sessions.SessionManager, file);
+		if (left)
+			report(
+				`Conversation ${manager.getSessionId()}'s folder ${left} is gone, so it opens in ${manager.getCwd()}`,
+			);
+		return {
+			manager: holdKeptHistory(manager, report),
+			...(left ? { left } : {}),
+		};
 	}
 
 	function held(sessionId: string, file: string): boolean {
@@ -542,13 +560,10 @@ export async function createEngine(
 		},
 
 		async prepare(request) {
-			const manager =
+			const { manager, left }: StandingOpen =
 				request.op === "open"
-					? sessions.SessionManager.create(folder(request.cwd))
-					: holdKeptHistory(
-							sessions.SessionManager.open(adoptable(request.sessionFile)),
-							report,
-						);
+					? { manager: sessions.SessionManager.create(folder(request.cwd)) }
+					: openLog(adoptable(request.sessionFile));
 			const sessionId = manager.getSessionId();
 			const file = manager.getSessionFile();
 			if (!file) throw new Error("pi named no file for the conversation");
@@ -561,6 +576,7 @@ export async function createEngine(
 				cwd,
 				attended: request.attended,
 				...(request.quest ? { quest: request.quest } : {}),
+				...(left ? { left } : {}),
 			};
 			const launch = { ...options.conversationEnv?.(traits, request) };
 			prepared.set(sessionId, { manager, traits, launch });
@@ -604,18 +620,23 @@ export async function createEngine(
 				throw new Error(
 					`Conversation ${entry.sessionId} has lost its session file: ${entry.file}`,
 				);
-			const manager = holdKeptHistory(
-				sessions.SessionManager.open(entry.file),
-				report,
-			);
+			const { manager, left } = openLog(entry.file);
 			if (manager.getSessionId() !== entry.sessionId)
 				throw new Error(
 					`${entry.file} now holds conversation ${manager.getSessionId()}, not ${entry.sessionId}`,
 				);
 			mark?.("log");
-			const { sessionId, file, cwd, attended, quest, launch } = entry;
+			const { sessionId, file, attended, quest, launch } = entry;
+			const cwd = left ? manager.getCwd() : entry.cwd;
 			await begin(
-				{ sessionId, file, cwd, attended, ...(quest ? { quest } : {}) },
+				{
+					sessionId,
+					file,
+					cwd,
+					attended,
+					...(quest ? { quest } : {}),
+					...(left ? { left } : {}),
+				},
 				manager,
 				launch ?? {},
 				undefined,

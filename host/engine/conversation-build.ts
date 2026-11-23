@@ -29,6 +29,7 @@ import type {
 	EngineOptions,
 	HostedView,
 } from "./contract.ts";
+import { FOLDER_GONE_TYPE, folderGoneLine, toldOfMove } from "./gone-folder.ts";
 import type { HarnessRequest } from "./harness-settings.ts";
 import { bindHeadless } from "./headless.ts";
 import type { HeldLogs } from "./held-logs.ts";
@@ -492,6 +493,19 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		mark?.("screen");
 		const recovery = await agent.recover(turn);
 		mark?.("recovery");
+		// Once recovered, so a carried call is paired before it; mid-turn, pi
+		// appends it as the turn ends, so it never starts one.
+		const { left } = record.traits;
+		if (left && !toldOfMove(sessionManager.getEntries(), left, cwd))
+			await runtime.session.sendCustomMessage(
+				{
+					customType: FOLDER_GONE_TYPE,
+					content: folderGoneLine(left, cwd),
+					display: true,
+					details: { left, now: cwd },
+				},
+				{ triggerTurn: false },
+			);
 		if (first === undefined) {
 			recovery.settled.catch(report);
 			return;
