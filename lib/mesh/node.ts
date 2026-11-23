@@ -23,7 +23,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import type { FenceDeclaration } from "../internal/fence/fence-declaration.ts";
 import { isMachineName } from "../internal/machine/machine.ts";
 import { isRealmName } from "../internal/machine/realm.ts";
@@ -894,19 +894,32 @@ export function nodeSocket(
 export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
 	const own = nodeSocket(env);
 	if (own === undefined) return [];
-	// The other realms' nodes serve beside the own one's, in whichever
-	// folder that was found in.
-	const folder = dirname(own);
-	let others: string[] = [];
+	// A realm's node serves in the runtime folder, or on a Mac still in
+	// the one it moved from: each realm is read from the first holding it.
+	const base = runtimeDir(env);
+	const former = formerRuntimeDir(env);
+	const folders = [base, former].flatMap((dir) =>
+		dir ? [join(dir, "mycelium")] : [],
+	);
+	const byName = new Map<string, string>([[basename(own), own]]);
+	for (const folder of folders)
+		for (const name of socketsIn(folder))
+			if (!byName.has(name)) byName.set(name, join(folder, name));
+	const others = [...byName.entries()]
+		.filter(([name]) => name !== basename(own))
+		.sort(([a], [b]) => (a < b ? -1 : Number(a > b)))
+		.map(([, socket]) => socket);
+	return [own, ...others];
+}
+
+/** The sockets' names in a node folder, or none when no node served there. */
+function socketsIn(folder: string): string[] {
 	try {
-		others = readdirSync(folder)
-			.filter((name) => name.endsWith(".sock"))
-			.sort()
-			.map((name) => join(folder, name));
+		return readdirSync(folder).filter((name) => name.endsWith(".sock"));
 	} catch {
-		// No node has served a socket here yet: only the own realm's is known.
+		// No node has served a socket here yet, so there are none to list.
+		return [];
 	}
-	return [own, ...others.filter((socket) => socket !== own)];
 }
 
 /** What a socket nothing serves answers a connection with. */

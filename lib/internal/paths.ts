@@ -182,7 +182,8 @@ export function runtimeDir(
  * folder, the account's temporary folder, for a client to try for one
  * release while a daemon started on the old code still serves there.
  * Nothing off a Mac, where `XDG_RUNTIME_DIR` names it, or where it is the
- * same folder.
+ * same folder. It goes, with the node lookups that try it, once a Mac's
+ * node and hosts have each restarted on a release that has it.
  */
 export function formerRuntimeDir(
 	env: NodeJS.ProcessEnv = process.env,

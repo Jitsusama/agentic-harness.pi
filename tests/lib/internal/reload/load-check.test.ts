@@ -109,6 +109,7 @@ describe("reading pi's answer", () => {
 			XDG_DATA_HOME: "/tmp/box/data",
 			XDG_CACHE_HOME: "/tmp/box/cache",
 			XDG_RUNTIME_DIR: "/tmp/box/runtime",
+			AGENTS_RUNTIME_DIR: "/tmp/box/runtime",
 			PI_NOTIFY: "off",
 			PI_LAUNCHER: "off",
 			PI_SETTLE: "off",

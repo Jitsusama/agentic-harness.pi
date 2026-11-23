@@ -34,6 +34,7 @@ import {
 	type SessionIdentity,
 } from "../host/service/protocol.ts";
 import { isSessionId } from "../lib/core/session/roster.ts";
+import { runtimeDir as loginRuntimeDir } from "../lib/internal/paths.ts";
 
 /** One conversation a host listed, and whether it has a process of its own. */
 export interface WhereItRuns {
@@ -162,7 +163,7 @@ async function readHost(
 	kind: HostKind,
 	runtimeDir: string,
 ): Promise<string[]> {
-	const reply = await controlRequest(hostSocketPath(realm, kind), {
+	const reply = await controlRequest(hostSocketPath(realm, kind, runtimeDir), {
 		v: 1,
 		id: randomUUID(),
 		op: "list",
@@ -197,8 +198,12 @@ if (import.meta.main) {
 		kinds.push(kind);
 	}
 	const realm = hostRealm(process.env);
-	const runtimeDir = process.env.XDG_RUNTIME_DIR;
-	if (!runtimeDir) throw new Error("XDG_RUNTIME_DIR isn't set");
+	// The host's socket and its children's slots, from the one folder.
+	const runtimeDir = loginRuntimeDir();
+	if (!runtimeDir)
+		throw new Error(
+			"No runtime folder: neither AGENTS_RUNTIME_DIR nor XDG_RUNTIME_DIR is set",
+		);
 	let unread = false;
 	for (const kind of kinds) {
 		try {
