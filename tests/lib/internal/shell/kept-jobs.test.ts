@@ -777,34 +777,31 @@ describe("a call's own record, taken back as the call ends", () => {
 
 	// A call whose wait ran out has its files go at once, the removal still
 	// waiting on the disk: the likeliest way a pi exits mid-removal.
+	// keeping.ts removes it as a call never handed on, so its exit takes
+	// back the record alone, through the record's own removal.
 	it("is taken back as the process exits once its call's files began to go mid-removal", async () => {
 		const where = folder();
 		const job = await recorded(where, "s1", "j1", HERE);
-		writeFileSync(`${job.work.keep}.carried`, "carried\n");
 		disk.hold(true);
 		const going = forgetOwnKeptJob(job.work.keep);
 		await vi.waitFor(() =>
 			expect(disk.parked, "its rename, waiting on the disk").toBe(1),
 		);
-		const removing = removeKept(job.work.keep);
+		const removing = removeKept(job.work.keep, { neverHanded: true });
 		const said = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
 		exiting();
 		const lines = said.mock.calls.map(([text]) => String(text));
 		said.mockRestore();
-		expect(lines, "its record and carried mark, each counted once").toEqual([
+		expect(lines, "its record alone, counted once").toEqual([
 			expect.stringMatching(
-				/^\[shell\] taking back up to 2 kept files the disk .* exits\n$/,
+				/^\[shell\] taking back up to 1 kept file the disk .* exits\n$/,
 			),
 		]);
 		expect(
 			existsSync(`${job.work.keep}.job`),
-			"its record, taken back before the disk got to either",
-		).toBe(false);
-		expect(
-			existsSync(`${job.work.keep}.carried`),
-			"its carried mark, taken back with its files",
+			"its record, taken back before the disk got to it",
 		).toBe(false);
 		disk.go();
 		await Promise.all([going, removing]);
@@ -812,26 +809,34 @@ describe("a call's own record, taken back as the call ends", () => {
 
 	// Two removals of one call can run at once, as a close and a stop can
 	// each start one: the first past its marks leaves them to the other.
-	it("takes back a call's marks as the process exits while another of its removals runs", async () => {
-		const where = folder();
-		const job = await recorded(where, "s1", "j1", HERE);
-		const keep = job.work.keep;
-		disk.hold(true, "rm", /\.carried$/);
-		const first = removeKept(keep);
-		await vi.waitFor(() =>
-			expect(disk.parked, "the first removal, waiting on the disk").toBe(1),
-		);
-		disk.on = /never/;
-		await removeKept(keep);
-		writeFileSync(`${keep}.carried`, "carried\n");
-		exiting();
-		expect(
-			existsSync(`${keep}.carried`),
-			"its carried mark, which the running removal has yet to reach",
-		).toBe(false);
-		disk.go();
-		await first;
-	});
+	// Each removal adds the marks it may find, so whichever comes first,
+	// the exit takes back every mark either may have yet to reach.
+	it.each([
+		["one that may find any", "one never handed", {}, { neverHanded: true }],
+		["one never handed", "one that may find any", { neverHanded: true }, {}],
+	])(
+		"takes back a call's marks as the process exits while another of its removals runs: %s, then %s",
+		async (_first, _second, firstSays, secondSays) => {
+			const where = folder();
+			const job = await recorded(where, "s1", "j1", HERE);
+			const keep = job.work.keep;
+			disk.hold(true, "rm", /\.carried$/);
+			const first = removeKept(keep, firstSays);
+			await vi.waitFor(() =>
+				expect(disk.parked, "the first removal, waiting on the disk").toBe(1),
+			);
+			disk.on = /never/;
+			await removeKept(keep, secondSays);
+			writeFileSync(`${keep}.carried`, "carried\n");
+			exiting();
+			expect(
+				existsSync(`${keep}.carried`),
+				"its carried mark, which the running removal has yet to reach",
+			).toBe(false);
+			disk.go();
+			await first;
+		},
+	);
 
 	it("takes back no marks as the process exits for a removal already past them", async () => {
 		const where = folder();
@@ -865,7 +870,7 @@ describe("a call's own record, taken back as the call ends", () => {
 	it("asks after no mark as the process exits for a call that ran here and recorded none", async () => {
 		const keep = await makeKept(folder());
 		disk.hold(true, "rm", /\.job$/);
-		const removing = removeKept(keep, { ranHere: true });
+		const removing = removeKept(keep, { neverHanded: true });
 		await vi.waitFor(() =>
 			expect(disk.waiting, "the removal, on its record's name").toEqual([
 				`rm ${keep}.job`,
@@ -880,7 +885,7 @@ describe("a call's own record, taken back as the call ends", () => {
 		const job = await recorded(folder(), "s1", "j1", HERE);
 		const keep = job.work.keep;
 		disk.hold(true, "rm", /\.job$/);
-		const removing = removeKept(keep, { ranHere: true });
+		const removing = removeKept(keep, { neverHanded: true });
 		await vi.waitFor(() =>
 			expect(disk.waiting, "the removal, on its record").toEqual([
 				`rm ${keep}.job`,
@@ -1545,6 +1550,30 @@ describe("a call's own record, taken back as the call ends", () => {
 				.filter((text) => text.includes(job.work.keep)),
 			"one line, saying how long",
 		).toEqual([expect.stringMatching(/took 1500 ms/)]);
+	});
+
+	// An NTP step or a resumed VM moves the wall clock mid-removal.
+	it("says nothing of a fast removal across a step of the wall clock", async () => {
+		const where = folder();
+		const job = await recorded(where, "s1", "j1", HERE);
+		const said = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		const wall = [0, 3_600_000];
+		const stepped = vi
+			.spyOn(Date, "now")
+			.mockImplementation(() => wall.shift() ?? 3_600_000);
+		try {
+			await forgetOwnKeptJob(job.work.keep);
+		} finally {
+			stepped.mockRestore();
+		}
+		expect(
+			said.mock.calls
+				.map(([text]) => String(text))
+				.filter((text) => text.includes(job.work.keep)),
+			"no line: the removal took no time",
+		).toEqual([]);
 	});
 
 	// A slow refusal is the busy disk's own signature.

@@ -203,39 +203,53 @@ describe("carrying away", () => {
 		// Its group is what the stop kills; without a pid it would be ours.
 		const pid = shell.pid;
 		if (pid === undefined) throw new Error("its sleep never started");
-		const work = { ...(await shellWork()), pid, mark };
-		recordKeptJob({ session: "s1", id: "j1", kind: "shell", label: "x", work });
-		jobs.start({
-			kind: "shell",
-			label: "sleep 30",
-			carry: { what: () => work, handed: () => disownKeptJob(work.keep) },
-		});
-		writeFileSync(`${work.keep}.carried`, "");
-		const carried = carryAway(
-			jobs,
-			{ waiting: () => [] },
-			() => {
-				throw new Error("no space left on device");
-			},
-			5000,
-		);
-		// A pi quits straight after, and may exit before the disk gets to
-		// what it was left: its exit takes the marks back.
-		const hooks = process
-			.listeners("exit")
-			.filter((hook) => hook.name === "takeRecordsBackAtExit");
-		const said = vi
-			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true);
-		for (const hook of hooks) hook(0);
-		said.mockRestore();
-		const marks = [".job", ".carried"].filter((mark) =>
-			existsSync(`${work.keep}${mark}`),
-		);
 		try {
+			const work = { ...(await shellWork()), pid, mark };
+			recordKeptJob({
+				session: "s1",
+				id: "j1",
+				kind: "shell",
+				label: "x",
+				work,
+			});
+			jobs.start({
+				kind: "shell",
+				label: "sleep 30",
+				carry: { what: () => work, handed: () => disownKeptJob(work.keep) },
+			});
+			writeFileSync(`${work.keep}.carried`, "");
+			const carried = carryAway(
+				jobs,
+				{ waiting: () => [] },
+				() => {
+					throw new Error("no space left on device");
+				},
+				5000,
+			);
+			// A pi quits straight after, and may exit before the disk gets to
+			// what it was left: its exit takes the marks back.
+			const hooks = process
+				.listeners("exit")
+				.filter((hook) => hook.name === "takeRecordsBackAtExit");
+			const said = vi
+				.spyOn(process.stderr, "write")
+				.mockImplementation(() => true);
+			for (const hook of hooks) hook(0);
+			said.mockRestore();
 			expect(carried, "nothing carried").toBeUndefined();
 			expect(hooks, "one hook as the process exits").toHaveLength(1);
-			expect(marks, "its marks, taken back as pi exits").toEqual([]);
+			// The real disk may unlink the record on its own pool before the
+			// hook runs, so only the carried mark, which the removal reaches a
+			// turn after the record, tells an exit that took it back from one
+			// that didn't.
+			expect(
+				existsSync(`${work.keep}.carried`),
+				"its carried mark, taken back as pi exits",
+			).toBe(false);
+			expect(
+				existsSync(`${work.keep}.job`),
+				"its record, gone by the exit",
+			).toBe(false);
 			expect(
 				await Promise.race([
 					exited.then(() => "stopped"),
