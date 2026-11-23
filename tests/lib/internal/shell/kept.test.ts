@@ -7,15 +7,11 @@
 import {
 	chmodSync,
 	existsSync,
-	linkSync,
-	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
-	readFileSync,
 	rmSync,
 	statSync,
-	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -51,27 +47,6 @@ function folder(): string {
 	const dir = mkdtempSync(join(tmpdir(), "kept-"));
 	made.push(dir);
 	return join(dir, "kept");
-}
-
-/** What a file outside the kept folder holds until something writes it. */
-const UNTOUCHED = "untouched\n";
-
-/** A file of the person's outside the kept folder, holding `UNTOUCHED`. */
-function elsewhere(): string {
-	const dir = mkdtempSync(join(tmpdir(), "elsewhere-"));
-	made.push(dir);
-	const file = join(dir, "theirs");
-	writeFileSync(file, UNTOUCHED);
-	return file;
-}
-
-/** That `file` is a private file of its own, with one name, holding `text`. */
-function expectOwnFile(file: string, text: string): void {
-	const seen = lstatSync(file);
-	expect(seen.isFile(), `${file} a plain file, not a link`).toBe(true);
-	expect(seen.nlink, `${file} by no other name`).toBe(1);
-	expect(seen.mode & PERMISSIONS, `${file} the owner's alone`).toBe(PRIVATE);
-	expect(readFileSync(file, "utf8"), `what ${file} holds`).toBe(text);
 }
 
 /**
@@ -168,80 +143,6 @@ describe("a kept call", () => {
 		writeFileSync(`${path}.out`, "short\n");
 		rollIfFull(path, 100);
 		expect(outputOf(path)).toBe("short\n");
-	});
-
-	// The command learns its call's path from PI_BASH_KEEP, so whatever can
-	// write the kept folder can leave a link at the names pi writes next:
-	// the tail it rolls is the command's own output, and the mark a fixed
-	// file. Neither may land in a file the link names.
-	describe.each([
-		["a symbolic link", symlinkSync],
-		["a hard link", linkSync],
-	] as const)("with %s left at the name it writes", (_kind, plant) => {
-		it("rolls its tail into the link's place, not through it", async () => {
-			const path = await makeKept(folder());
-			const target = elsewhere();
-			plant(target, `${path}.old`);
-			writeFileSync(`${path}.out`, "aaaa\nbbbb\ncccc\n");
-			rollIfFull(path, 10);
-			expectOwnFile(`${path}.old`, "bbbb\ncccc\n");
-			expect(readFileSync(target, "utf8"), "the file it named").toBe(UNTOUCHED);
-			expect(outputOf(path)).toBe("bbbb\ncccc\n");
-		});
-
-		it("marks the call carried in the link's place, not through it", async () => {
-			const path = await makeKept(folder());
-			const target = elsewhere();
-			plant(target, `${path}.carried`);
-			markCarried(path, "call-1");
-			expectOwnFile(`${path}.carried`, "call-1");
-			expect(readFileSync(target, "utf8"), "the file it named").toBe(UNTOUCHED);
-		});
-
-		it("takes away one left at the name it stages under", async () => {
-			const where = folder();
-			const path = await makeKept(where);
-			const target = elsewhere();
-			plant(target, `${path}.old.${process.pid}.new`);
-			plant(target, `${path}.carried.${process.pid}.new`);
-			writeFileSync(`${path}.out`, "aaaa\nbbbb\ncccc\n");
-			rollIfFull(path, 10);
-			markCarried(path, "call-1");
-			expectOwnFile(`${path}.old`, "bbbb\ncccc\n");
-			expectOwnFile(`${path}.carried`, "call-1");
-			expect(readFileSync(target, "utf8"), "the file it named").toBe(UNTOUCHED);
-			expect(
-				readdirSync(where).filter((name) => name.endsWith(".new")),
-				"nothing left staged",
-			).toEqual([]);
-		});
-	});
-
-	it("rolls and marks again in place of what it wrote before, leaving nothing staged", async () => {
-		const where = folder();
-		const path = await makeKept(where);
-		writeFileSync(`${path}.out`, "aaaa\nbbbb\n");
-		rollIfFull(path, 5);
-		writeFileSync(`${path}.out`, "cccc\ndddd\n", { flag: "a" });
-		rollIfFull(path, 5);
-		markCarried(path, "call-1");
-		markCarried(path, "call-2");
-		expectOwnFile(`${path}.old`, "dddd\n");
-		expectOwnFile(`${path}.carried`, "call-2");
-		expect(
-			readdirSync(where).filter((name) => name.endsWith(".new")),
-			"nothing left staged",
-		).toEqual([]);
-	});
-
-	it("writes nothing once its folder is gone", async () => {
-		const where = folder();
-		const path = await makeKept(where);
-		writeFileSync(`${path}.out`, "aaaa\nbbbb\n");
-		rmSync(where, { recursive: true });
-		rollIfFull(path, 5);
-		markCarried(path, "call-1");
-		expect(existsSync(where), "no folder made again").toBe(false);
 	});
 
 	it("names the group of each call handed on, and only those", async () => {

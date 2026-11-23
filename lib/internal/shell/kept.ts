@@ -20,6 +20,12 @@
  * said; any left a week are swept as a session starts, at most once an
  * hour for a process.
  *
+ * pi writes and reads these names as they stand, following a link left
+ * at one, since nothing that could leave one gains by it: the agent
+ * fence holds pi's state read-only to the command (fence-home.ts, and
+ * fence-bwrap's test of this folder), and an unfenced command runs as
+ * the person, who can write whatever a link would lead pi to.
+ *
  * Making, removing and sweeping them go through libuv's pool rather than
  * pi's loop, which in a host every conversation shares: a busy disk held
  * it in these files' openat and unlink 24 times in 287 hold samples on
@@ -28,13 +34,6 @@
  * or a job's record asks after a running call, at its hand-off, and each
  * 64 KB of its output, none of which the samples caught. Removing them,
  * and the job records a removal takes back, is kept-removal.ts's.
- *
- * The command learns its call's path from `PI_BASH_KEEP`, so whatever
- * can write the kept folder can leave a link at a name pi writes next,
- * and the tail rolled to `.old` is the command's own output. So `.old`
- * and the carried mark are written under a name of this process's own
- * and renamed over theirs, which replaces a link, symbolic or hard,
- * rather than writing through it into a file the person owns elsewhere.
  *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
@@ -52,8 +51,6 @@ import {
 	existsSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
-	rmSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
@@ -109,9 +106,6 @@ export const KEPT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 /** Only the owner reads or writes them. */
 const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
-
-/** Open a staged name only to make it, never through what is there. */
-const NEW_ONLY = "wx";
 
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
@@ -186,7 +180,9 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
 	try {
 		if (statSync(out).size <= cap) return;
 		const bytes = readFileSync(out);
-		writeInPlace(`${path}.old`, bytes.subarray(bytes.length - cap));
+		writeFileSync(`${path}.old`, bytes.subarray(bytes.length - cap), {
+			mode: FILE_MODE,
+		});
 		truncateSync(out, 0);
 	} catch {
 		// Removed under it, as its call ended: nothing left to keep short.
@@ -199,42 +195,10 @@ export function rollIfFull(path: string, cap: number = KEPT_BYTES): void {
  */
 export function markCarried(path: string, mark = ""): void {
 	try {
-		writeInPlace(`${path}${CARRIED}`, mark);
+		writeFileSync(`${path}${CARRIED}`, mark, { mode: FILE_MODE });
 	} catch {
 		// Removed under it, as its call ended: nothing left to spare.
 	}
-}
-
-/**
- * Write `data` to `file` whole, in place of whatever is at the name and
- * never through it: staged under a name of this process's own and
- * renamed over. One left at the staged name, by a pi that died writing
- * or by whatever can write the folder, is taken away and the write made
- * once more. Throws what the disk says, the staged name taken away.
- */
-function writeInPlace(file: string, data: string | Uint8Array): void {
-	const staged = `${file}.${process.pid}.new`;
-	try {
-		try {
-			writeFileSync(staged, data, { mode: FILE_MODE, flag: NEW_ONLY });
-		} catch (error) {
-			if (!isTaken(error)) throw error;
-			rmSync(staged, { force: true });
-			writeFileSync(staged, data, { mode: FILE_MODE, flag: NEW_ONLY });
-		}
-		renameSync(staged, file);
-	} catch (error) {
-		rmSync(staged, { force: true });
-		throw error;
-	}
-}
-
-/**
- * Whether `error` says a name is taken already. kept-removal.ts has its
- * own, but imports this module, so this one keeps the check apart.
- */
-function isTaken(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
 /** Whether the call at `path` is still marked handed on: its end not yet said. */
