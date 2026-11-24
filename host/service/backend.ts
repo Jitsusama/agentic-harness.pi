@@ -25,7 +25,7 @@ import type { HostRoster } from "./roster.ts";
 import {
 	failedStartLine,
 	firstLine,
-	onOneLine,
+	namedConversation,
 	type PhaseEnd,
 	startLine,
 } from "./status.ts";
@@ -740,7 +740,7 @@ export function hostBackend(options: {
 	// failure is still the one its caller and the journal hear (F52). Each
 	// undo is named, so the journal says which one failed. An adopted
 	// conversation's id comes from a file the requester names, so it is
-	// escaped as the start's own line escapes it (F48).
+	// named as the start's own line names it (F48; F1 on #2128).
 	async function undoing(
 		prepared: Prepared,
 		step: string,
@@ -752,7 +752,7 @@ export function hostBackend(options: {
 			const why = firstLine(error);
 			try {
 				options.say?.(
-					`${onOneLine(prepared.sessionId)}: undoing its failed start failed too, ${step}${why ? `: ${why}` : ", with no reason given"}`,
+					`${namedConversation(prepared.sessionId)}: undoing its failed start failed too, ${step}${why ? `: ${why}` : ", with no reason given"}`,
 				);
 			} catch {
 				// A journal that can't take the line must not skip the next undo;

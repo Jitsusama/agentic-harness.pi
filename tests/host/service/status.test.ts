@@ -263,11 +263,12 @@ describe("startLine", () => {
 	});
 
 	// F25: an adopted conversation's id comes from a file the requester names.
-	// F47: its address, the id's last eight characters, is escaped too.
+	// F47: its address, the id's last eight characters, is escaped too, and
+	// quoted as the id is (F4 on #2128).
 	it("escapes a named conversation's id, and the address made from it", () => {
 		expect(
 			startLine("id\u001bx\nyz", { op: "open", cwd: "/w" }, 1_000, [], 1_500),
-		).toBe("ID\\u001bX\\nYZ (id\\u001bx\\nyz): its open took 0.5 s");
+		).toBe('"ID\\u001bX\\nYZ" ("id\\u001bx\\nyz"): its open took 0.5 s');
 	});
 
 	// F13 on #2107: backslashes are doubled before quotes are escaped, so a
@@ -316,6 +317,48 @@ describe("startLine", () => {
 			startLine("a".repeat(510), { op: "open", cwd: "/w" }, 1_000, [], 1_500),
 		).toBe(
 			`AAAAAAAA (${"a".repeat(500)}, cut after 500 of its 510 characters): its open took 0.5 s`,
+		);
+	});
+
+	// An adopted id comes from the requester's file, so one that isn't an
+	// id as pi makes one is quoted, and can't close the parentheses; nor
+	// can the address its last eight characters make (F2, F4 on #2128).
+	it("quotes an adopted id that isn't plain, and leaves a plain one bare", () => {
+		const forged = startLine(
+			'x): its adopt took 0.1 s, said "',
+			{ op: "adopt", sessionFile: "/w/s.jsonl" },
+			1_000,
+			[],
+			1_500,
+		);
+
+		expect(forged).toBe(
+			'", SAID \\"" ("x): its adopt took 0.1 s, said \\""): its adopt took 0.5 s',
+		);
+		expect(
+			startLine(
+				"0193-ab_c.d",
+				{ op: "adopt", sessionFile: "/w/s.jsonl" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe("93AB_C.D (0193-ab_c.d): its adopt took 0.5 s");
+	});
+
+	// F3 on #2128: a long one is cut before it is quoted, the cut said
+	// outside the quote.
+	it("cuts a long adopted id that isn't plain, then quotes what it keeps", () => {
+		expect(
+			startLine(
+				"x)".repeat(300),
+				{ op: "adopt", sessionFile: "/w/s.jsonl" },
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			`"X)X)X)X)" ("${"x)".repeat(250)}", cut after 500 of its 600 characters): its adopt took 0.5 s`,
 		);
 	});
 });

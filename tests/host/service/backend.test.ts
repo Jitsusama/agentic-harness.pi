@@ -260,8 +260,9 @@ describe("hostBackend", () => {
 	});
 
 	// F48: an adopted conversation's id comes from a file the requester
-	// names, so the undo's line escapes it as the start's line does.
-	it("escapes the conversation's id in the line saying its undo failed", async () => {
+	// names, so the undo's line names it as the start's line does, its
+	// address and id quoted when not plain (F1 on #2128).
+	it("names the conversation in the line saying its undo failed as its start line does", async () => {
 		const said: string[] = [];
 		const failing = engine({
 			prepare: vi.fn(async () => ({
@@ -290,7 +291,7 @@ describe("hostBackend", () => {
 		expect(failing.fake.start).not.toHaveBeenCalled();
 		expect(roster.entries()).toEqual([]);
 		expect(said.filter((line) => line.includes("undoing"))).toEqual([
-			"id\\npi-host: forged: undoing its failed start failed too, discarding what it prepared: its folder is gone",
+			'": FORGED" ("id\\npi-host: forged"): undoing its failed start failed too, discarding what it prepared: its folder is gone',
 		]);
 	});
 
