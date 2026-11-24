@@ -610,6 +610,34 @@ describe("a held conversation and its whole log", () => {
 		expect(Object.hasOwn(held, "getTree")).toBe(true);
 	});
 
+	it("stays held and guarded, and leaves the file alone, when its log is emptied", () => {
+		const file = compactedLog();
+		const held = hold(file);
+		const id = held.getSessionId();
+		writeFileSync(file, "");
+		expect(() => held.getTree()).toThrow(/is empty/);
+		expect(readFileSync(file, "utf8")).toBe("");
+		expect(held.getSessionId()).toBe(id);
+		expect(texts(held.getEntries())).toContain("after");
+		expect(Object.hasOwn(held, "getTree")).toBe(true);
+	});
+
+	it("stays guarded when its view fails to index again after a refused read-back", () => {
+		const file = compactedLog();
+		const report = vi.fn();
+		const held = hold(file, report);
+		const own = held as unknown as { _buildIndex(): void };
+		own._buildIndex = () => {
+			throw new Error("index broke");
+		};
+		expect(() => held.getTree()).toThrow(/index broke/);
+		expect(report.mock.calls.map(([said]) => String(said))).toEqual([
+			"Error: index broke",
+		]);
+		expect(Object.hasOwn(held, "getTree")).toBe(true);
+		expect(Object.hasOwn(held, "_rewriteFile")).toBe(true);
+	});
+
 	it("stays held, guarded and appending when its file now holds another conversation", () => {
 		const file = compactedLog();
 		const held = hold(file);

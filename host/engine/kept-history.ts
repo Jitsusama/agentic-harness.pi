@@ -43,7 +43,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { contentText } from "@earendil-works/pi-ai";
 import {
 	compactionHistory,
@@ -473,9 +473,10 @@ function restore(
 
 /**
  * Read `file` whole into `manager` through pi's `open` of it, refusing a
- * file that is gone or now holds another conversation, where pi's open
- * would start a new conversation or take on the other. A refused or
- * failed read leaves `manager` naming its own conversation and file.
+ * file that is gone, emptied or now holds another conversation, where
+ * pi's open would start a new conversation, write a new one's header
+ * into the file, or take on the other. A refused or failed read leaves
+ * `manager` naming its own conversation and file.
  */
 function readBack(
 	manager: HeldManager,
@@ -486,6 +487,8 @@ function readBack(
 	try {
 		if (!existsSync(file))
 			throw new Error(`${file} is gone, so its whole log can't be read back`);
+		if (statSync(file).size === 0)
+			throw new Error(`${file} is empty, so its whole log can't be read back`);
 		open(file);
 		const now = manager.getSessionId();
 		if (now !== sessionId)
@@ -554,7 +557,13 @@ function guard(
 			readBack(manager, file, (path) => pi.setSessionFile.call(manager, path));
 		} catch (error) {
 			manager.fileEntries = entries;
-			manager._buildIndex();
+			try {
+				manager._buildIndex();
+			} catch (again) {
+				// The guard goes back on regardless, so no rewrite puts the
+				// view over the log; what failed is said.
+				report(again);
+			}
 			manager.byId = new TakenIds(manager.byId, taken);
 			manager.leafId = leaf;
 			guard(manager, file, held, taken, report);

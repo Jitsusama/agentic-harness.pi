@@ -13,9 +13,9 @@
  * 628 user messages from disk took 0.7 to 2 s of the thread every
  * conversation in a host shares, where their full text measured 241 KB.
  *
- * Only the session instance is wrapped, never pi's class, and only while
- * its manager holds a view: once the whole log is read back, or the
- * session switches to another log, pi's own answers are whole again.
+ * Only the session instance is wrapped, never pi's class, and it adds
+ * only while its manager holds a view: once the whole log is read back,
+ * or the session switches to another log, it passes pi's own answers on.
  */
 
 import type { SessionStats } from "@earendil-works/pi-coding-agent";

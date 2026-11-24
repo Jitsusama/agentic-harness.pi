@@ -254,7 +254,10 @@ describe("a held session's /session counts", () => {
 		const file = compactedLog();
 		const whole = counts(wholeSession(file));
 		const session = heldSession(file);
-		copyFileSync(compactedLog(), file);
+		// Another conversation's log with more messages, so any of it counted shows.
+		const other = compactedLog({ aside: true });
+		expect(counts(wholeSession(other))).not.toEqual(whole);
+		copyFileSync(other, file);
 		expect(() => session.sessionManager.getTree()).toThrow(
 			/now holds conversation/,
 		);
@@ -314,13 +317,25 @@ describe("a held session's /fork list", () => {
 		expect(session.getUserMessagesForForking()).toEqual(
 			wholeSession(file).getUserMessagesForForking(),
 		);
+		// A branch into a new file leaves the abandoned message behind, which
+		// what the view took would still list.
+		const leaf = session.sessionManager.getLeafId();
+		if (!leaf) throw new Error("the log has no leaf");
+		const branched = session.sessionManager.createBranchedSession(leaf);
+		if (!branched) throw new Error("pi wrote no branched log");
+		const listed = session.getUserMessagesForForking();
+		expect(listed.map((point) => point.text)).not.toContain("abandoned");
+		expect(listed).toEqual(wholeSession(branched).getUserMessagesForForking());
 	});
 
 	it("lists every user message the log held after a read-back is refused", () => {
 		const file = compactedLog();
 		const whole = wholeSession(file).getUserMessagesForForking();
 		const session = heldSession(file);
-		copyFileSync(compactedLog(), file);
+		// Another conversation's log with more messages, so any of it listed shows.
+		const other = compactedLog({ aside: true });
+		expect(wholeSession(other).getUserMessagesForForking()).not.toEqual(whole);
+		copyFileSync(other, file);
 		expect(() => session.sessionManager.getTree()).toThrow(
 			/now holds conversation/,
 		);

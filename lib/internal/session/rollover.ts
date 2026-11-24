@@ -183,7 +183,8 @@ const POINTING: Record<string, string> = {
 
 /**
  * The id of the entry `entry` points at, for a type kept only beside
- * what it points at, such as a label; undefined for any other.
+ * what it points at, such as a label: "", which names no entry, when its
+ * target is missing; undefined for any other type.
  */
 export function pointedAt(entry: Entry): string | undefined {
 	const field = POINTING[entry.type];
