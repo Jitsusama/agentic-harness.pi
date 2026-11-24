@@ -88,10 +88,18 @@ export interface Host {
 	 * Whether this conversation rolls onto new host code: its host's own
 	 * code is stale and no window views it, so it parks as soon as its park
 	 * rule holds, idle time aside, and its next wake starts on current
-	 * code. Unlike a drain, a roll holds no wake. Asked at each look. A
-	 * host that never rolls leaves it out.
+	 * code: its wake is held here, as a drain's is, until its child ends.
+	 * Asked at each look. A host that never rolls leaves it out.
 	 */
 	rolling?(sessionId: string): boolean;
+	/**
+	 * Whether a wake of this conversation asked now would be held for its
+	 * next start, rather than wake it in this host at once: a run steps off
+	 * mid-way only where it does, or its host would wake it again here and
+	 * it would park and wake in a loop. A host that never holds a wake
+	 * leaves it out.
+	 */
+	wakeHeld?(sessionId: string): boolean;
 	/**
 	 * Whether a window views this conversation now, so the person may be
 	 * reading it and would pay its wake at their next key. Asked at each

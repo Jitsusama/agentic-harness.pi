@@ -441,6 +441,11 @@ export interface Wake {
 	 * drain, so a restart's wakes aren't counted against a rule.
 	 */
 	readonly afterMs?: number;
+	/**
+	 * It parked between turns of a run as its host drained or rolled, its
+	 * own wake written as it parked, so its rest is the host's and no rule's.
+	 */
+	readonly goesOn?: boolean;
 	/** When it started again, as an ISO time. */
 	readonly wokeAt: string;
 	/** How long it rested parked, in milliseconds. */
@@ -514,8 +519,10 @@ export interface ParkAsk {
 	readonly restart?: boolean;
 	/**
 	 * Asked for a park its wake follows at once, mid-run as its host drains
-	 * or rolls: it goes on in the next start within the minute, so what
-	 * only a long rest would lose doesn't refuse it, as for a restart.
+	 * or rolls: it goes on in its host's next start, so what only a long
+	 * rest would lose (its sessions' findings, a hold it sent) doesn't
+	 * refuse it, as for a restart. Standing at the launcher's top still
+	 * does, since that start would hold up the person's next line.
 	 */
 	readonly goesOn?: boolean;
 }
@@ -940,6 +947,7 @@ export function noteWake(
 		readonly parkedAt?: unknown;
 		readonly afterMs?: unknown;
 		readonly host?: string;
+		readonly goesOn?: unknown;
 	},
 	folder: string = parkFolder(),
 	now: () => number = Date.now,
@@ -951,6 +959,7 @@ export function noteWake(
 		parkedAt,
 		...(parked.host === undefined ? {} : { host: parked.host }),
 		...(typeof parked.afterMs === "number" ? { afterMs: parked.afterMs } : {}),
+		...(parked.goesOn === true ? { goesOn: true } : {}),
 		wokeAt: new Date(at).toISOString(),
 		restedMs: Number.isNaN(since) ? 0 : Math.max(0, at - since),
 	};

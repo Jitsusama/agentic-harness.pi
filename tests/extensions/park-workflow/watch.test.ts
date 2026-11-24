@@ -1347,14 +1347,16 @@ describe("why a session stays awake", () => {
 		host.host.park = (id) => asked.push(id);
 		host.host.draining = () => draining;
 		host.host.rolling = () => rolling;
+		host.host.wakeHeld = () => draining || rolling;
 		events.on(PARK_ASK, (data) => asks.push(data));
 		const wake = join(folder, "conversation.wake");
 		const run = session({ isIdle: () => false });
 		try {
 			const current = watching(run, { MYCELIUM_WAKE: wake });
-			expect(current.turnEnded(), "a host neither draining nor rolling").toBe(
-				"its host neither drains nor rolls",
-			);
+			expect(
+				current.turnEnded(true),
+				"a host neither draining nor rolling",
+			).toBe("its host neither drains nor rolls");
 			current.stop();
 
 			for (const name of ["draining", "rolling"] as const) {
@@ -1366,7 +1368,17 @@ describe("why a session stays awake", () => {
 				expect(watched.look(), `${name}, a look still waits on the run`).toBe(
 					RUN_UNDER_WAY,
 				);
-				expect(watched.turnEnded(), `${name}, it steps off`).toBeUndefined();
+				// The run's last turn, pi not yet idle: its next look parks it.
+				expect(watched.turnEnded(false), `${name}, the run's end`).toBe(
+					RUN_UNDER_WAY,
+				);
+				expect(existsSync(wake), `${name}, no wake at the run's end`).toBe(
+					false,
+				);
+				expect(
+					watched.turnEnded(true),
+					`${name}, it steps off`,
+				).toBeUndefined();
 				expect(asked, name).toEqual([SESSION]);
 				expect(JSON.parse(readFileSync(wake, "utf8")).session, name).toBe(
 					SESSION,
@@ -1382,19 +1394,55 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	it("keeps a run going where its wake can't be written, and takes back a wake it wrote once its park fails", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => true;
+		host.host.wakeHeld = () => true;
+		const run = session({ isIdle: () => false });
+		try {
+			// Its wake's folder a file, so nothing can be written in it.
+			const blocked = join(folder, "blocked");
+			writeFileSync(blocked, "");
+			const unwoken = watching(run, {
+				MYCELIUM_WAKE: join(blocked, "conversation.wake"),
+			});
+			expect(unwoken.turnEnded(true), "its run goes on here").toMatch(
+				/^its wake couldn't be written: /,
+			);
+			unwoken.stop();
+			expect(readParked(SESSION, folder), "no marker").toBeUndefined();
+
+			// Its markers' folder a file, so its marker can't be written.
+			rmSync(join(folder, "parked"), { recursive: true, force: true });
+			writeFileSync(join(folder, "parked"), "");
+			const wake = join(folder, "conversation.wake");
+			const unmarked = watching(run, { MYCELIUM_WAKE: wake });
+			expect(() => unmarked.turnEnded(true), "its marker unwritten").toThrow();
+			expect(existsSync(wake), "its wake taken back").toBe(false);
+			unmarked.stop();
+			expect(asked, "never parked").toEqual([]);
+		} finally {
+			rmSync(join(folder, "parked"), { force: true });
+			host.dispose();
+		}
+	});
+
 	it("keeps a run going at a turn's end while a window views it or something else holds it", () => {
 		const host = installTestHost();
 		const asked: string[] = [];
 		let viewed = true;
 		host.host.park = (id) => asked.push(id);
 		host.host.draining = () => true;
+		host.host.wakeHeld = () => true;
 		host.host.viewed = () => viewed;
 		const wake = join(folder, "conversation.wake");
 		try {
 			const seen = watching(session({ isIdle: () => false }), {
 				MYCELIUM_WAKE: wake,
 			});
-			expect(seen.turnEnded()).toBe("a window views its run");
+			expect(seen.turnEnded(true)).toBe("a window views its run");
 			seen.stop();
 
 			viewed = false;
@@ -1402,8 +1450,21 @@ describe("why a session stays awake", () => {
 				session({ isIdle: () => false, hasPendingMessages: () => true }),
 				{ MYCELIUM_WAKE: wake },
 			);
-			expect(waited.turnEnded(), "messages wait for it").not.toBe(undefined);
+			expect(waited.turnEnded(true), "messages wait for it").not.toBe(
+				undefined,
+			);
 			waited.stop();
+
+			// Past a drain's ceiling the host wakes it at once, so stepping
+			// off would park and wake it in a loop.
+			host.host.wakeHeld = () => false;
+			const through = watching(session({ isIdle: () => false }), {
+				MYCELIUM_WAKE: wake,
+			});
+			expect(through.turnEnded(true), "its wake let through").toBe(
+				"its host would wake it again here at once",
+			);
+			through.stop();
 
 			expect(asked).toEqual([]);
 			expect(existsSync(wake), "no wake written").toBe(false);

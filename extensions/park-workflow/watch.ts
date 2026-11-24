@@ -2,7 +2,7 @@
  * Watching a session for the still moment it may park, and parking it.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isHeavy } from "../../host/engine/heavy.ts";
 import { hosted } from "../../lib/core/session/index.ts";
@@ -227,9 +227,11 @@ export interface Watch {
 	 * its host drains or its code is stale and no window views it, a run
 	 * under way holds it no longer: it parks here, its wake written at once,
 	 * and durable carries the run on in the next start, on current code.
-	 * Answers why not.
+	 * `asksAgain`, its tools ran and pi asks the model again; a turn that
+	 * ended the run is only looked at, since pi may not yet read as idle
+	 * as it ends, and the next look parks it once it does. Answers why not.
 	 */
-	turnEnded(): string | undefined;
+	turnEnded(asksAgain: boolean): string | undefined;
 	/**
 	 * End now for its holder to start it again at once on `sessionFile`,
 	 * if nothing holds it; answers why not. A rollover asks it on the bus
@@ -358,6 +360,7 @@ export function watch(
 				{
 					parkedAt: marker.parkedAt,
 					afterMs: marker.afterMs,
+					goesOn: marker.goesOn,
 					...(host ? { host } : {}),
 				},
 				folder,
@@ -467,15 +470,19 @@ export function watch(
 	};
 	// Whether a run under way may step off at a turn's end: its host drains
 	// or its code is stale, so the start that wakes it runs current code,
-	// and no window views it, where the person would see the run stop.
-	// Answers why not.
+	// and no window views it, where the person would see the run stop; and
+	// its host would hold the wake it leaves, rather than wake it here at
+	// once, as past a drain's ceiling. Answers why not.
 	const keepsRunning = (): string | undefined => {
 		const host = hosted();
 		if (!(host && parkingHost())) return "no host parks it mid-run";
 		if (host.viewed?.(session) === true) return "a window views its run";
 		const moving =
 			host.draining?.(session) === true || host.rolling?.(session) === true;
-		return moving ? undefined : "its host neither drains nor rolls";
+		if (!moving) return "its host neither drains nor rolls";
+		return host.wakeHeld?.(session) === true
+			? undefined
+			: "its host would wake it again here at once";
 	};
 	const decide = (goesOn = false): string | undefined => {
 		if (parked) return "parking already";
@@ -529,6 +536,23 @@ export function watch(
 				return `its wake couldn't be written: ${whyWriting(wake, error)}`;
 			}
 		}
+		try {
+			mark(goesOn, afterMs, sessionFile, windows);
+		} catch (error) {
+			// Unparked, the wake it wrote would wake its next park at once.
+			if (goesOn) rmSync(wake, { force: true });
+			throw error;
+		}
+		end();
+		return undefined;
+	};
+	// Say it parks, to the mesh and in its marker, before its holder ends it.
+	const mark = (
+		goesOn: boolean,
+		afterMs: number | undefined,
+		sessionFile: string,
+		windows: readonly HeldWindow[],
+	): void => {
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		// A host watches its conversations' inboxes itself (host/engine).
@@ -554,8 +578,6 @@ export function watch(
 			const left = leftOf(leaveScreen(session, windows, desk()));
 			writeParked({ ...marker, windows: left }, folder);
 		}
-		end();
-		return undefined;
 	};
 	// Whether its person may be looking: the blank a restart leaves for
 	// a few seconds is a bump only where nobody sees it.
@@ -671,8 +693,8 @@ export function watch(
 		note(why);
 		return why;
 	};
-	const turnEnded = (): string | undefined => {
-		if (ctx.isIdle()) return look();
+	const turnEnded = (asksAgain: boolean): string | undefined => {
+		if (!asksAgain || ctx.isIdle()) return look();
 		// Not noted: a look between turns says why it waits, as before.
 		const running = keepsRunning();
 		if (running !== undefined) return running;

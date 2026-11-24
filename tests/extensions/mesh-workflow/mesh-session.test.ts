@@ -173,6 +173,16 @@ describe("parking", () => {
 			expect(ask.refusals).toEqual(["it stands at the launcher's top"]);
 		});
 
+		// Its next start would cost him the same wait for his next line.
+		it("keeps its run going at a turn's end as its host drains or rolls", async () => {
+			standing();
+			const { emit } = await startSession();
+			const ask = { session, refusals: [] as string[], goesOn: true };
+
+			emit(PARK_ASK, ask);
+			expect(ask.refusals).toEqual(["it stands at the launcher's top"]);
+		});
+
 		it("still starts again in place for a new install", async () => {
 			standing();
 			const { emit } = await startSession();

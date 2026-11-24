@@ -155,15 +155,19 @@ export function onBus(m: MeshState, f: Handing) {
 		// A restart comes back in seconds as the same peer, and what was
 		// sent meanwhile waits in files it reads as it starts; refused for
 		// its sessions at work, an orchestrator of thirty never took a new
-		// install (WCJQSG, 11 November 2026). A park woken as it parks goes
-		// on as soon, in its host's next start.
-		if (data.restart === true || data.goesOn === true) return;
+		// install (WCJQSG, 11 November 2026).
+		if (data.restart === true) return;
 		// The session at the launcher's top takes his lines, and a parked
 		// one took 11 s to wake for each; awake it costs memory, not
-		// requests (WCJQSG, 12 November 2026).
+		// requests (WCJQSG, 12 November 2026). A run stepping off mid-way
+		// would cost him that start too, so it stays.
 		if (m.presences.of(m.peer.session)?.standsAtTop) {
 			data.refusals.push("it stands at the launcher's top");
 		}
+		// A park woken as it parks goes on in its host's next start, as a
+		// restart comes back: the findings and the hold wait in files it
+		// reads as it starts.
+		if (data.goesOn === true) return;
 		// An orchestrator with sessions at work under it has their findings
 		// coming, and passing them on is its work.
 		const working = ledAtWork(m.peer);

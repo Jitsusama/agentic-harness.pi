@@ -54,8 +54,12 @@ export default function parkWorkflow(pi: ExtensionAPI) {
 		return undefined;
 	});
 	// Between turns, a run its draining or stale host holds may step off.
-	onTurnEnd(pi, () => {
-		watching?.turnEnded();
+	// Only a turn whose tools ran goes on to ask the model again; one
+	// handed on at the run's end finished it.
+	onTurnEnd(pi, (turn) => {
+		watching?.turnEnded(
+			turn.toolResults.length > 0 && turn.outcome === "completed",
+		);
 	});
 	pi.on("agent_start", async () => stirred());
 	pi.on("agent_end", async () => stirred());

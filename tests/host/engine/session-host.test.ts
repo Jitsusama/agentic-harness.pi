@@ -475,15 +475,33 @@ it("rolls each conversation no window views once its host code is stale", () => 
 
 // 23 November: a run that steps off as its child rolls writes its wake as
 // it parks; woken in the stale child, it would run the old code again.
-it("holds the wakes of those it parked while it drains and once its code is stale", () => {
-	const host = start();
-	expect(host.holdsWakes(), "current and undrained").toBe(false);
+// A window keeps a stale child running, so one it views wakes there.
+it("holds the wakes of those it parked while it drains, and once its code is stale of each no window views", () => {
+	const dir = mkdtempSync(join(tmpdir(), "engine-holds-"));
+	directories.push(dir);
+	const viewed = new Set(["b"]);
+	const host = new SessionHost({
+		key: "test-host",
+		owner,
+		registryDir: dir,
+		viewed: (id) => viewed.has(id),
+	});
+	hosts.push(host);
+	const holds = () => ({ a: host.holdsWakes("a"), b: host.holdsWakes("b") });
+	expect(holds(), "current and undrained").toEqual({ a: false, b: false });
 	host.drain(true);
-	expect(host.holdsWakes(), "draining").toBe(true);
+	expect(holds(), "draining, viewed or not").toEqual({ a: true, b: true });
 	host.drain(false);
-	expect(host.holdsWakes(), "the drain lifted").toBe(false);
+	expect(holds(), "the drain lifted").toEqual({ a: false, b: false });
 	host.roll();
-	expect(host.holdsWakes(), "stale").toBe(true);
+	expect(holds(), "stale, the viewed one woken here").toEqual({
+		a: true,
+		b: false,
+	});
+	expect(host.wakeHeld("a"), "as it holds, until told otherwise").toBe(true);
+	host.holdsWakesAs(() => false);
+	expect(host.wakeHeld("a"), "as its parking says").toBe(false);
+	expect(hosted()?.wakeHeld?.("a"), "as the park watch asks").toBe(false);
 });
 
 it("uninstalls a failed initial publication so another host can start", () => {

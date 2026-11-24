@@ -150,15 +150,21 @@ outlive its code; only `PI_PARK=off` keeps it awake.
 A drain or a roll doesn't wait for a run to end, either, where no
 window views it: on 23 November about 40 children ran host code a
 day old, each always running, so none ever had an idle look. At the
-end of a turn, between its answer and the next ask of the model, the
-run steps off: it parks with every other hold standing, its marker
-says `goesOn`, and it writes its own wake as it parks. The draining
-or stale host holds that wake until it ends, and the next start
-carries the run on where durable left it, on current code. The mesh
-asks such a park as it asks a restart (`ParkAsk.goesOn`), since it
-goes on within the minute. A stale child holds its wakes as a drain
-does (`Host.rolls`), so a woken one waits for a fresh child rather
-than waking on the old code.
+end of a turn whose tools ran, between its answer and the next ask
+of the model, the run steps off: it parks with every other hold
+standing, its marker says `goesOn`, and it writes its own wake as it
+parks. The draining or stale host holds that wake until it ends
+(`SessionHost.holdsWakes`), and the next start carries the run on
+where durable left it, on current code. It steps off only where its
+host would hold that wake (`Host.wakeHeld`): past a drain's ceiling
+the host wakes it at once, and it would park and wake in a loop. A
+turn that ends the run steps nothing off; the next look parks it once
+pi reads idle. The mesh asks such a park as it asks a restart
+(`ParkAsk.goesOn`), since it goes on in the next start, though one
+standing at the launcher's top still stays. If its marker can't be
+written, it takes its wake back, so a later park isn't woken at once.
+Its wake is noted with `goesOn`, so a count of the rule's wakes can
+leave it out.
 
 ## What Happens
 
