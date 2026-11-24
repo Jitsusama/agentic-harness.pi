@@ -217,7 +217,7 @@ describe("a carry staged before the handover", () => {
 
 		const next = await carry("s-s", [tree]);
 
-		expect(readdirSync(into).sort()).toEqual(
+		expect(Object.keys(filesIn(into)).sort()).toEqual(
 			[
 				...named(next),
 				...named(beside),
