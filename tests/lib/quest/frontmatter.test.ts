@@ -369,6 +369,61 @@ describe("document front-matter", () => {
 	});
 });
 
+// Each shape's fixture is `Required`, so a field added to the type has to
+// be set here, and the round-trip fails if one side drops it: the check the
+// file's "Long because" leans on.
+describe("every front-matter field", () => {
+	it("round-trips every field a quest can hold", () => {
+		const fm: Required<QuestFrontMatter> = {
+			...SAMPLE_QUEST_FM,
+			due: "2026-08-01",
+			eta: "2026-07-15",
+			short: "a-short-name",
+			orchestrator: true,
+			orchestratedBy: "QEST-20260601-PPP000",
+			steward: true,
+			hears: "addressed",
+			realm: "work",
+			trees: [
+				{
+					path: "/Users/joel/src/world/.worktrees/feature-x",
+					branch: "feature-x",
+					repoRoot: "/Users/joel/src/world",
+					providerId: "git-worktree",
+				},
+			],
+			pendingPrune: [
+				{
+					path: "/Users/joel/src/world/.worktrees/old",
+					reason: "dirty",
+					detectedAt: "2026-06-03T19:00:00Z",
+				},
+			],
+			scratchDir: "/Users/joel/.cache/quest/QEST-20260603-AAA111",
+			primaryPlanId: "PLAN-20260603-BBB222",
+			verify: "pnpm test lib/lsp",
+			_extra: { customField: "hello" },
+		};
+		const text = `${serializeQuestFrontMatter(fm)}\n# Title\n`;
+		expect(parseQuestFrontMatter(text)?.frontMatter).toEqual(fm);
+	});
+
+	it("round-trips every field a document can hold", () => {
+		const fm: Required<DocumentFrontMatter> = {
+			id: "PLAN-20260603-BBB222",
+			kind: "plan",
+			quest: "QEST-20260603-AAA111",
+			stage: "build",
+			updated: "2026-06-03",
+			rounds: 3,
+			subject: "pr-review",
+			_extra: { customField: "hello" },
+		};
+		const text = `${serializeDocumentFrontMatter(fm)}\n# Plan title\n`;
+		expect(parseDocumentFrontMatter(text)?.frontMatter).toEqual(fm);
+	});
+});
+
 describe("frontmatter parser failure branches", () => {
 	it("returns undefined when the YAML block is malformed", () => {
 		const text = [

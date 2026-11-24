@@ -543,7 +543,6 @@ export function explainDocumentFrontMatter(text: string): string[] {
 	return said;
 }
 
-/** Parse a quest document (plan/research/brief/report) front-matter. */
 /**
  * Why a document's front-matter will not parse, or undefined when it
  * will.
@@ -581,6 +580,7 @@ export function documentFrontMatterProblem(text: string): string | undefined {
 	return `its front-matter is missing or unreadable: ${detail.join(", ")}`;
 }
 
+/** Parse a quest document (plan/research/brief/report) front-matter. */
 export function parseDocumentFrontMatter(
 	text: string,
 ): { frontMatter: DocumentFrontMatter; body: string } | undefined {
