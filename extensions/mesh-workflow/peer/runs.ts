@@ -192,8 +192,6 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		// A reload keeps the conversation, so its close is still to come.
 		if (m.peer && !reloading(event)) closeLanded(m.peer.session);
 		m.moving.stop();
-		// The next load, a reload's or another session's, opens its own.
-		m.workerLink?.close();
 		m.unhearKeys?.();
 		m.unhearKeys = undefined;
 		// What still waits is not marked read, so the next start has it.
@@ -275,6 +273,9 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		// its presence marked ended and its leases released (85PKB2).
 		m.presences.settle();
 		m.board.settle();
+		// Last, so the ended presence above goes to the node before the link
+		// hangs up; the next load, a reload's or another session's, opens its own.
+		m.workerLink?.close();
 		m.peer = undefined;
 		m.hideWants?.();
 		m.hideWants = undefined;

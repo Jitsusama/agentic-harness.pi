@@ -10,6 +10,7 @@ import {
 	createWorkerLink,
 	eventFrom,
 	FIRST_RECENT,
+	isBareId,
 	keptIn,
 	presentedPresences,
 	type Refused,
@@ -19,7 +20,7 @@ import {
 	type WorkerLink,
 	workerSocket,
 } from "../../../lib/mesh/worker-link.ts";
-import { until } from "../../support/until.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 let dir: string;
 let path: string;
@@ -119,12 +120,18 @@ interface Session {
 }
 
 /** Opens a link to the stand-in node, as a worker's session would. */
-function linked(newest?: string): Session {
+function linked(
+	held: readonly string[] = [],
+	keep: (one: Message) => void = () => undefined,
+): Session {
 	const session: Session = { kept: [], refused: [] };
 	link = createWorkerLink({
 		socket: path,
-		keep: (one) => session.kept.push(one),
-		newest: () => newest,
+		keep: (one) => {
+			keep(one);
+			session.kept.push(one);
+		},
+		held: () => held,
 		refused: (one) => session.refused.push(one),
 		retryMs: 10,
 	});
@@ -260,10 +267,80 @@ describe("a worker's link to its node", () => {
 		link?.present(presence());
 		await until("the refusal is told", () => session.refused.length === 1);
 
+		await quietFor(10, 5);
+
 		expect(session.refused).toEqual([
 			{ what: "presence", why: "that session lives elsewhere" },
 		]);
 		expect(held.connections, "no watch opens").toHaveLength(1);
+	});
+
+	it("tells a refusal said again only once", async () => {
+		const held = await node(() => ['{"Err":"that session lives elsewhere"}']);
+		const session = linked();
+
+		link?.present(presence());
+		await until("the first is refused", () => session.refused.length === 1);
+		link?.present({ ...presence(), busy: true });
+		await until(
+			"both presences are answered",
+			() => (held.connections[0]?.said.length ?? 0) === 2,
+		);
+		await quietFor(10, 5);
+
+		expect(session.refused, "the second refusal is the first's").toHaveLength(
+			1,
+		);
+	});
+
+	it("tells a send never written as unsent when it closes", async () => {
+		await node(agreed());
+		const session = linked();
+
+		link?.relay(message("8-W0RK3R-42-aa"));
+		link?.close();
+
+		expect(session.refused).toEqual([
+			{
+				what: "unsent",
+				id: "8-W0RK3R-42-aa",
+				why: "the session's link to the node closed before it went",
+			},
+		]);
+	});
+
+	it("goes on keeping after one message it couldn't keep", async () => {
+		const held = await node(
+			agreed([message("1-KP0L6A-7-aa"), message("2-KP0L6A-7-bb")]),
+		);
+		const session = linked([], (one) => {
+			if (one.id === "1-KP0L6A-7-aa") throw new Error("disk full");
+		});
+
+		link?.present(presence());
+		await until("the second is kept", () => session.kept.length === 1);
+
+		expect(held.connections, "the watch stays open").toHaveLength(2);
+		expect(session.kept.map(({ id }) => id)).toEqual(["2-KP0L6A-7-bb"]);
+		expect(session.refused).toEqual([
+			{ what: "unkept", id: "1-KP0L6A-7-aa", why: "Error: disk full" },
+		]);
+	});
+
+	it("never takes up from its own sends or a stamp far ahead", async () => {
+		const held = await node(agreed());
+		const ahead = `${Date.now() + 60 * 60 * 1000}-KP0L6A-7-bb`;
+		linked(["5-KP0L6A-7-aa", "9-W0RK3R-42-zz", ahead]);
+
+		link?.present(presence());
+		await until(
+			"the watch asks",
+			() => (held.connections[1]?.said.length ?? 0) === 1,
+		);
+
+		expect(held.connections[1]?.said).toEqual([
+			{ Watch: { session: "sess-1", groups: null, since: "5-KP0L6A-7-aa" } },
+		]);
 	});
 
 	it("opens again after a drop, saying its presence and what went unanswered", async () => {
@@ -308,7 +385,7 @@ describe("a worker's link to its node", () => {
 
 	it("takes up from the newest message the session holds", async () => {
 		const held = await node(agreed());
-		linked("9-KP0L6A-7-zz");
+		linked(["9-KP0L6A-7-zz"]);
 
 		link?.present(presence());
 		await until(
@@ -332,6 +409,7 @@ describe("a worker's link to its node", () => {
 			held.connections.every(({ socket }) => socket.closed),
 		);
 		link?.relay(message("6-W0RK3R-42-ff"));
+		await quietFor(10, 5);
 
 		expect(held.connections, "nothing opens again").toHaveLength(2);
 	});
@@ -378,6 +456,26 @@ describe("what the link keeps and says", () => {
 		).toEqual([`${heard.id}.json`]);
 	});
 
+	it("names no file by an id that isn't a bare stamped id", () => {
+		const messages = join(dir, "messages");
+		const keep = keptIn(messages);
+
+		expect(() => keep(message("1-KP0L6A-7-../../escape"))).toThrow(
+			"no id to name a file by",
+		);
+		expect(
+			readdirSync(dir).filter((name) => name !== "messages"),
+			"nothing is written beside the folder",
+		).toEqual([]);
+	});
+
+	it("reads a bare stamped id as one, and a path or a stamp past time as none", () => {
+		expect(isBareId("1764000000000-KP0L6A-7-0a1b2c3d")).toBe(true);
+		expect(isBareId("1-KP0L6A-7-../x")).toBe(false);
+		expect(isBareId(".hidden")).toBe(false);
+		expect(isBareId("9999999999999999-KP0L6A-7-aa")).toBe(false);
+	});
+
 	it("says each presence it publishes to the node too", () => {
 		const said: Presence[] = [];
 		const presences = presentedPresences(
@@ -396,7 +494,7 @@ describe("what the link keeps and says", () => {
 		expect(
 			refusalText({ what: "send", id: "7-W0RK3R-42-aa", why: "no hold" }),
 		).toBe(
-			"The node refused message 7-W0RK3R-42-aa, which reached nobody past this machine: no hold",
+			"The node refused message 7-W0RK3R-42-aa, so peers past this machine may not have it: no hold",
 		);
 		expect(refusalText({ what: "presence", why: "no" })).toContain(
 			"peers elsewhere can't find it",
@@ -411,6 +509,10 @@ describe("reading the node's lines", () => {
 	it("reads an Ok as done and an Err as refused with its words", () => {
 		expect(replyFrom('{"Ok":"Present"}')).toEqual({ ok: true });
 		expect(replyFrom('{"Err":"no"}')).toEqual({ ok: false, why: "no" });
+		expect(
+			replyFrom('{"Refused":{"code":"not-yours","why":"no such quest"}}'),
+			"as a crossing refuses",
+		).toEqual({ ok: false, why: "no such quest" });
 		expect(replyFrom("garbled").ok).toBe(false);
 	});
 
@@ -423,7 +525,9 @@ describe("reading the node's lines", () => {
 		expect(
 			eventFrom(
 				JSON.stringify({
-					MessagesChanged: { messages: [one, { id: "torn" }] },
+					MessagesChanged: {
+						messages: [one, { id: "torn" }, message("1-KP0L6A-7-../x")],
+					},
 				}),
 			),
 		).toEqual({ kind: "messages", messages: [one] });

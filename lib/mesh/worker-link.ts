@@ -12,20 +12,26 @@
  * each into the local folder, where the session reads them as it reads
  * any. A send is stamped and kept here first, since a tool answers with
  * its id at once, and the node keeps that id; when the node refuses one,
- * the session is told, naming it. A connection that drops is opened
- * again, a little later each time, and the watch takes up from the last
- * message it kept.
+ * or the link closes before it went, the session is told, naming it. A
+ * connection that drops is opened again, a little later each time, and
+ * the watch takes up from the last message it heard from someone else.
  *
  * The node judges everything a worker says (who it may write to, as
- * whom, which intents), so nothing here decides what reaches it.
+ * whom, which intents), so nothing here decides what reaches it. What
+ * it hands over is judged here only as far as keeping it safely: an id
+ * that isn't a bare stamped id never becomes a file's name, and nothing
+ * heard can throw out of a socket's listener, where it would end pi.
  */
 
 import { connect, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 import { type Message, messageFrom } from "./message.ts";
+import { oneLine } from "./one-line.ts";
 import type { Presence, Presences } from "./presence.ts";
 import {
 	folderTransport,
+	senderOf,
+	stampedAt,
 	type Transport,
 	writeAtomically,
 } from "./transport.ts";
@@ -43,6 +49,33 @@ export const LONGEST_RETRY_MS = 30_000;
 export const FIRST_RECENT = 50;
 
 /**
+ * How far ahead of this machine's clock an id may be stamped and still
+ * move where a watch takes up from: one stamped further ahead, by a
+ * clock gone wrong or on purpose, would have every later watch ask for
+ * only what comes after it, and the session would hear nothing more.
+ */
+export const MOST_AHEAD_MS = 5 * 60 * 1000;
+
+/** The most of a node's why said to the session, as for an unreadable line. */
+const MOST_WHY = 200;
+
+/** The latest a Date can hold, past which an id's stamp is no time at all. */
+const LATEST_TIME_MS = 8.64e15;
+
+/** An id as `stampId` mints it: millis, sender, pid and tail, no path in it. */
+const BARE_ID = /^\d{1,16}-[A-Za-z0-9]+-\d+-[A-Za-z0-9]+$/;
+
+/**
+ * Whether an id heard over the socket is a bare stamped id, safe to name
+ * a file by and to date: anything else, a path or a stamp past what a
+ * Date holds, is dropped before it is kept.
+ */
+export function isBareId(id: string): boolean {
+	const at = stampedAt(id);
+	return BARE_ID.test(id) && at !== undefined && at <= LATEST_TIME_MS;
+}
+
+/**
  * The worker socket this machine names, or none: none where the variable
  * is unset, empty or not an absolute path, and the folder stands alone.
  */
@@ -53,11 +86,14 @@ export function workerSocket(
 	return named && isAbsolute(named) ? named : undefined;
 }
 
-/** What the node refused, and why it said. */
+/** What the node refused, or what never reached it, and why. */
 export interface Refused {
-	/** The presence, a message sent, or the watch. */
-	readonly what: "presence" | "send" | "watch";
-	/** The message refused, for a send. */
+	/**
+	 * The presence, a message sent, the watch, a message the link closed
+	 * before it went (`unsent`), or one heard that couldn't be kept.
+	 */
+	readonly what: "presence" | "send" | "watch" | "unsent" | "unkept";
+	/** The message, for a send, an unsent one or an unkept one. */
 	readonly id?: string;
 	readonly why: string;
 }
@@ -67,8 +103,10 @@ export interface WorkerLinkOptions {
 	readonly socket: string;
 	/** Keep a message the watch heard where the session reads messages. */
 	readonly keep: (message: Message) => void;
-	/** The newest message the session holds, which a watch takes up from. */
-	readonly newest: () => string | undefined;
+	/** The ids of the messages the session holds now, in any order. */
+	readonly held: () => readonly string[];
+	/** The last message the session read as one of `addresses`, if any. */
+	readonly lastRead?: (addresses: readonly string[]) => string | undefined;
 	/** Tell the session the node refused something. */
 	readonly refused: (refusal: Refused) => void;
 	/** How long a dropped connection first waits; tests shorten it. */
@@ -81,7 +119,10 @@ export interface WorkerLink {
 	present(presence: Presence): void;
 	/** Carry a message this session sent, once it is stamped and kept. */
 	relay(message: Message): void;
-	/** Hang up both connections, for good. */
+	/**
+	 * Hang up both connections, for good, once what was written to the
+	 * node has gone; each message never written is told as unsent.
+	 */
 	close(): void;
 }
 
@@ -94,6 +135,9 @@ type Awaited =
 export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 	const firstRetry = options.retryMs ?? FIRST_RETRY_MS;
 	let closed = false;
+	// Each refusal is told once until something the node takes, so a node
+	// that refuses on each reconnect or each presence fills no conversation.
+	const told = new Set<string>();
 	let presence: Presence | undefined;
 	// What waits for the presence connection: messages not yet written to
 	// it, and those written whose replies haven't come.
@@ -103,9 +147,38 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 	let holding = false;
 	let watching: Socket | undefined;
 	let newestKept: string | undefined;
-	let retry = firstRetry;
+	// Each connection backs off on its own, so a watch that drops often
+	// never slows the presence's next return, nor the other way about.
+	const retries = { hold: firstRetry, watch: firstRetry };
 	let again: ReturnType<typeof setTimeout> | undefined;
 	let watchAgain: ReturnType<typeof setTimeout> | undefined;
+
+	const refuse = (refusal: Refused) => {
+		const why = oneLine(refusal.why).slice(0, MOST_WHY);
+		const key = JSON.stringify([refusal.what, refusal.id, why]);
+		if (told.has(key)) return;
+		told.add(key);
+		try {
+			options.refused({ ...refusal, why });
+		} catch {
+			// The session can't be told now (its context gone in a shutdown);
+			// a socket's listener must never throw, or pi ends.
+		}
+	};
+
+	const taken = () => told.clear();
+
+	/** Whether `id` was stamped by someone else, at no time too far ahead. */
+	const movesTakeUp = (id: string, own: readonly string[]) => {
+		const from = senderOf(id);
+		const at = stampedAt(id);
+		return (
+			from !== undefined &&
+			!own.includes(from) &&
+			at !== undefined &&
+			at <= Date.now() + MOST_AHEAD_MS
+		);
+	};
 
 	const write = (socket: Socket, request: unknown) =>
 		socket.write(`${JSON.stringify(request)}\n`);
@@ -120,9 +193,12 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		write(socket, { Presence: { presence: said } });
 	};
 
-	const later = (open: () => void): ReturnType<typeof setTimeout> => {
-		const wait = retry;
-		retry = Math.min(retry * 2, LONGEST_RETRY_MS);
+	const later = (
+		which: keyof typeof retries,
+		open: () => void,
+	): ReturnType<typeof setTimeout> => {
+		const wait = retries[which];
+		retries[which] = Math.min(wait * 2, LONGEST_RETRY_MS);
 		return setTimeout(open, wait);
 	};
 
@@ -132,17 +208,17 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		if (asked === undefined) return;
 		if (asked.kind === "presence") {
 			if (reply.ok) {
-				retry = firstRetry;
+				retries.hold = firstRetry;
+				taken();
 				if (!holding) {
 					holding = true;
 					openWatch();
 				}
-			} else options.refused({ what: "presence", why: reply.why });
+			} else refuse({ what: "presence", why: reply.why });
 			return;
 		}
-		if (!reply.ok) {
-			options.refused({ what: "send", id: asked.message.id, why: reply.why });
-		}
+		if (reply.ok) taken();
+		else refuse({ what: "send", id: asked.message.id, why: reply.why });
 	};
 
 	const openHold = () => {
@@ -155,7 +231,7 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			if (presence !== undefined) presentOn(socket, presence);
 			for (const message of unsent.splice(0)) sendOn(socket, message);
 		});
-		socket.on("data", lines(replied));
+		socket.on("data", lines(replied, refuse));
 		// A drop takes the watch with it, since the node watches only for a
 		// session whose presence is held; what wasn't answered goes again.
 		socket.on("error", () => socket.destroy());
@@ -168,22 +244,56 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 				.splice(0)
 				.flatMap((one) => (one.kind === "send" ? [one.message] : []));
 			unsent.unshift(...unanswered);
-			if (!closed) again = later(openHold);
+			if (closed) tellUnsent();
+			else again = later("hold", openHold);
 		});
+	};
+
+	/** Tell the session of each message the link closed before it went. */
+	const tellUnsent = () => {
+		for (const message of unsent.splice(0)) {
+			refuse({
+				what: "unsent",
+				id: message.id,
+				why: "the session's link to the node closed before it went",
+			});
+		}
 	};
 
 	const heard = (line: string) => {
 		const said = eventFrom(line);
 		if (said.kind === "refused") {
-			options.refused({ what: "watch", why: said.why });
+			refuse({ what: "watch", why: said.why });
 			return;
 		}
+		retries.watch = firstRetry;
+		if (said.messages.length > 0) taken();
+		const own = presence?.addresses ?? [];
 		for (const message of said.messages) {
-			options.keep(message);
-			if (newestKept === undefined || message.id > newestKept) {
-				newestKept = message.id;
+			try {
+				options.keep(message);
+			} catch (error) {
+				refuse({ what: "unkept", id: message.id, why: String(error) });
+				continue;
 			}
+			const newer = newestKept === undefined || message.id > newestKept;
+			if (newer && movesTakeUp(message.id, own)) newestKept = message.id;
 		}
+	};
+
+	/**
+	 * Where a watch takes up: the newest message heard from someone else,
+	 * this link's or one the session holds, since its own sends are kept
+	 * here before they reach the node; else the last it read; else none.
+	 */
+	const takeUpFrom = (own: readonly string[]): string | undefined => {
+		if (newestKept !== undefined) return newestKept;
+		const heldFromElsewhere = options
+			.held()
+			.filter((id) => movesTakeUp(id, own))
+			.sort()
+			.at(-1);
+		return heldFromElsewhere ?? options.lastRead?.(own);
 	};
 
 	const openWatch = () => {
@@ -193,7 +303,7 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 		const socket = connect(options.socket);
 		watching = socket;
 		socket.setEncoding("utf8");
-		const since = newestKept ?? options.newest();
+		const since = takeUpFrom(presence.addresses);
 		socket.on("connect", () =>
 			write(socket, {
 				Watch: {
@@ -203,13 +313,13 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 				},
 			}),
 		);
-		socket.on("data", lines(heard));
+		socket.on("data", lines(heard, refuse));
 		socket.on("error", () => socket.destroy());
 		socket.on("close", () => {
 			if (watching !== socket) return;
 			watching = undefined;
 			// While the presence holds, the watch alone dropped: open it again.
-			if (!closed && holding) watchAgain = later(openWatch);
+			if (!closed && holding) watchAgain = later("watch", openWatch);
 		});
 	};
 
@@ -229,11 +339,20 @@ export function createWorkerLink(options: WorkerLinkOptions): WorkerLink {
 			}
 		},
 		close() {
+			if (closed) return;
 			closed = true;
 			clearTimeout(again);
 			clearTimeout(watchAgain);
-			held?.destroy();
 			watching?.destroy();
+			// What was written goes before the hang-up, the session's last
+			// presence among it; what never was is told as unsent.
+			if (held === undefined || held.connecting) {
+				held?.destroy();
+				tellUnsent();
+			} else {
+				held.end();
+				held.unref();
+			}
 		},
 	};
 }
@@ -281,6 +400,9 @@ export function presentedPresences(
 export function keptIn(dir: string): (message: Message) => void {
 	const folder = folderTransport(dir);
 	return (message) => {
+		if (!isBareId(message.id)) {
+			throw new Error(`${message.id.slice(0, 40)} is no id to name a file by`);
+		}
 		if (folder.read(message.id) !== undefined) return;
 		writeAtomically(dir, `${message.id}.json`, JSON.stringify(message));
 	};
@@ -290,7 +412,11 @@ export function keptIn(dir: string): (message: Message) => void {
 export function refusalText(refusal: Refused): string {
 	switch (refusal.what) {
 		case "send":
-			return `The node refused message ${refusal.id ?? "(no id)"}, which reached nobody past this machine: ${refusal.why}`;
+			return `The node refused message ${refusal.id ?? "(no id)"}, so peers past this machine may not have it: ${refusal.why}`;
+		case "unsent":
+			return `Message ${refusal.id ?? "(no id)"} never reached the node, so peers past this machine don't have it: ${refusal.why}`;
+		case "unkept":
+			return `A message from elsewhere (${refusal.id ?? "no id"}) couldn't be kept here, so this session can't read it: ${refusal.why}`;
 		case "presence":
 			return `The node refused this session's presence, so peers elsewhere can't find it: ${refusal.why}`;
 		case "watch":
@@ -300,8 +426,15 @@ export function refusalText(refusal: Refused): string {
 	}
 }
 
-/** Calls back with each whole line a socket's text holds, as it comes. */
-function lines(each: (line: string) => void): (chunk: string) => void {
+/**
+ * Calls back with each whole line a socket's text holds, as it comes.
+ * A line that throws is told through `refuse` and the next read: a throw
+ * out of a socket's listener is an uncaught exception, which ends pi.
+ */
+function lines(
+	each: (line: string) => void,
+	refuse: (refusal: Refused) => void,
+): (chunk: string) => void {
 	let said = "";
 	return (chunk) => {
 		said += chunk;
@@ -309,7 +442,16 @@ function lines(each: (line: string) => void): (chunk: string) => void {
 		while (end >= 0) {
 			const line = said.slice(0, end);
 			said = said.slice(end + 1);
-			if (line.trim() !== "") each(line);
+			if (line.trim() !== "") {
+				try {
+					each(line);
+				} catch (error) {
+					refuse({
+						what: "watch",
+						why: `a line it heard failed: ${String(error)}`,
+					});
+				}
+			}
 			end = said.indexOf("\n");
 		}
 	};
@@ -324,9 +466,8 @@ type Reply =
 export function replyFrom(line: string): Reply {
 	const read = parsed(line);
 	if (read !== undefined && "Ok" in read) return { ok: true };
-	if (read !== undefined && typeof read.Err === "string") {
-		return { ok: false, why: read.Err };
-	}
+	const why = read === undefined ? undefined : refusalIn(read);
+	if (why !== undefined) return { ok: false, why };
 	return {
 		ok: false,
 		why: `the node said what this harness can't read: ${line.slice(0, 200)}`,
@@ -345,7 +486,8 @@ type Heard =
 export function eventFrom(line: string): Heard {
 	const read = parsed(line);
 	if (read === undefined) return { kind: "messages", messages: [] };
-	if (typeof read.Err === "string") return { kind: "refused", why: read.Err };
+	const why = refusalIn(read);
+	if (why !== undefined) return { kind: "refused", why };
 	const many = record(read.MessagesChanged)?.messages;
 	const one = record(read.Message)?.message;
 	const bodies = Array.isArray(many) ? many : one !== undefined ? [one] : [];
@@ -353,8 +495,23 @@ export function eventFrom(line: string): Heard {
 		kind: "messages",
 		messages: bodies
 			.map(messageFrom)
-			.filter((message): message is Message => message !== undefined),
+			.filter(
+				(message): message is Message =>
+					message !== undefined && isBareId(message.id),
+			),
 	};
+}
+
+/**
+ * The why of a refusal, in either shape the node says one: `{Err}` as
+ * the worker socket does, or `{Refused: {code, why}}` as a crossing does
+ * (lib/mesh/flow.ts); nothing for a line that refuses nothing.
+ */
+function refusalIn(read: Record<string, unknown>): string | undefined {
+	if (typeof read.Err === "string") return read.Err;
+	const refused = record(read.Refused);
+	if (refused === undefined) return undefined;
+	return typeof refused.why === "string" ? refused.why : "it gave no why";
 }
 
 /** A line's JSON object, or nothing for any other line. */

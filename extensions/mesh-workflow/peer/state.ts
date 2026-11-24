@@ -53,7 +53,10 @@ import {
 } from "../../../lib/mesh/retention.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { toldIn } from "../../../lib/mesh/told.ts";
-import { folderTransport } from "../../../lib/mesh/transport.ts";
+import {
+	folderTransport,
+	type Transport,
+} from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
 import {
 	createWorkerLink,
@@ -97,9 +100,7 @@ export function createState(
 	const local = folderTransport(messages);
 	// On a machine that keeps no mesh of its own, the node behind its worker
 	// socket carries what is sent and heard (lib/mesh/worker-link.ts).
-	const workerLink = workerLinkFor(pi, env, messages, () =>
-		local.recentIds().at(-1),
-	);
+	const workerLink = workerLinkFor(pi, env, messages, local);
 	// Everything here reads a receptor's name as nothing, but delivery and
 	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
 	const { transport, asWritten, asWrittenOff } = heedingNoReceptor(
@@ -536,14 +537,17 @@ function workerLinkFor(
 	pi: ExtensionAPI,
 	env: NodeJS.ProcessEnv,
 	messages: string,
-	newest: () => string | undefined,
+	local: Transport,
 ): WorkerLink | undefined {
 	const socket = workerSocket(env);
 	if (socket === undefined) return undefined;
 	return createWorkerLink({
 		socket,
 		keep: keptIn(messages),
-		newest,
+		// The session's own sends are kept here before the node has them,
+		// so the link takes up from what it heard from others, or read.
+		held: () => local.recentIds(),
+		lastRead: (addresses) => local.lastRead(addresses),
 		refused: (refusal) =>
 			pi.sendMessage(
 				{
