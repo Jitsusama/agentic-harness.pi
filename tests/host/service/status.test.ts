@@ -185,6 +185,36 @@ describe("startLine", () => {
 		);
 	});
 
+	// F115: what reorders or hides the text around it, or ends a line
+	// outside the controls, is escaped as a control is.
+	it("escapes bidi marks, zero widths and line separators in a path", () => {
+		expect(
+			startLine(
+				undefined,
+				{
+					op: "open",
+					cwd: "/w/\u202egpj.exe\u200b\u2028x\u2029\u{e0041}",
+				},
+				1_000,
+				[],
+				1_500,
+			),
+		).toBe(
+			"A conversation not yet named, opening in /w/\\u202egpj.exe\\u200b\\u2028x\\u2029\\u{e0041}: its open took 0.5 s",
+		);
+	});
+
+	// F116: a backslash is doubled, so written text never reads as an escape.
+	it("tells a path holding a backslash and n from one holding a newline", () => {
+		const written = (cwd: string) =>
+			startLine(undefined, { op: "open", cwd }, 1_000, [], 1_500);
+
+		expect(written("/w\\n")).toBe(
+			"A conversation not yet named, opening in /w\\\\n: its open took 0.5 s",
+		);
+		expect(written("/w\\n")).not.toBe(written("/w\n"));
+	});
+
 	// F25: an adopted conversation's id comes from a file the requester names.
 	// F47: its address, the id's last eight characters, is escaped too.
 	it("escapes a named conversation's id, and the address made from it", () => {

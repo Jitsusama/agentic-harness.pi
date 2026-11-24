@@ -38,7 +38,8 @@ interface Armed {
 	readonly ids: readonly string[];
 	readonly fd: number;
 	readonly pid: number;
-	readonly began: number;
+	/** When it was armed, in ns on the process's monotonic clock. */
+	readonly began: bigint;
 }
 
 /**
@@ -65,18 +66,17 @@ parentPort.on("message", (told) => {
 // From when it was armed, since a starved machine may be slow to start it,
 // on the process's monotonic clock, which its threads share: a wall clock
 // stepped either way can neither hold the end past systemd's kill nor bring
-// it early.
-const sinceArmed = () => Number(process.hrtime.bigint() / 1000000n) - began;
+// it early. Counted in ns, so no rounding can read an early end as on time.
+const sinceArmed = () => process.hrtime.bigint() - began;
+const bound = BigInt(within) * 1000000n;
 function fire() {
-	// A timer may fire a millisecond early: never end it early. Both reads
-	// are whole ms rounded down, so only a count past within is sure to be
-	// within's whole time.
-	const short = within - sinceArmed();
-	if (short >= 0) {
-		setTimeout(fire, short + 1);
+	// A timer may fire a millisecond early: never end it early.
+	const short = bound - sinceArmed();
+	if (short >= 0n) {
+		setTimeout(fire, Number(short / 1000000n) + 1);
 		return;
 	}
-	const waited = sinceArmed();
+	const waited = Number(sinceArmed() / 1000000n);
 	const left = ids.length > 0 ? ": " + ids.join(", ") : "";
 	// The mark first, as a write to a journal that has stopped reading can block.
 	if (ids.length > 0)
@@ -93,16 +93,8 @@ function fire() {
 	}
 	process.kill(pid, "SIGKILL");
 }
-setTimeout(fire, Math.max(0, within - sinceArmed()));
+setTimeout(fire, Math.max(0, within - Number(sinceArmed() / 1000000n)));
 `;
-
-/** The process's monotonic clock, in whole ms, as the thread reads it. */
-function monotonicMs(): number {
-	return Number(process.hrtime.bigint() / NS_PER_MS);
-}
-
-/** Nanoseconds in a millisecond, as hrtime counts them. */
-const NS_PER_MS = 1_000_000n;
 
 /** A backstop that couldn't start, leaving the stop to its loop's timer. */
 const UNARMED: Backstop = { held() {}, done() {} };
@@ -121,7 +113,7 @@ export function backstopStop(options: BackstopOptions): Backstop {
 		ids: [...options.ids],
 		fd: options.fd ?? STDERR,
 		pid: process.pid,
-		began: monotonicMs(),
+		began: process.hrtime.bigint(),
 	};
 	const unarmed = (error: unknown) =>
 		sayUnarmed(
