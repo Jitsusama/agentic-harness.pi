@@ -217,6 +217,12 @@ export interface ChildSupervisor {
 		bounded?: boolean,
 	): Promise<SessionIdentity>;
 	/**
+	 * Someone waits on this conversation's start: one still waiting at the
+	 * start gate goes ahead of those nobody waits on. Nothing for one not
+	 * starting.
+	 */
+	hurry(sessionId: string): void;
+	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it, or with
 	 * `open_unsettled` naming one it built but gave no answer for.
@@ -1539,12 +1545,17 @@ export function childSupervisor(options: {
 		return count;
 	}
 
+	function hurry(sessionId: string): void {
+		hastening.get(keyed(sessionId))?.abort();
+	}
+
 	return {
+		hurry,
 		resume(entry, woken = false, bounded = false) {
 			const { sessionId } = entry;
 			const already = starting.get(keyed(sessionId));
 			if (already) {
-				if (woken) hastening.get(keyed(sessionId))?.abort();
+				if (woken) hurry(sessionId);
 				return already;
 			}
 			const start = started(entry, woken, bounded).finally(() =>

@@ -441,6 +441,51 @@ describe("a request that reached the host before the child's route did", () => {
 });
 
 describe("a start's resume of what the host held", () => {
+	// F23 on #2080: the wake waits on the start's own resume, so the hurry
+	// it gives as it resumes could never reach a start still at the gate.
+	it("hurries the start's own resume of one a wake asks for while it waits", async () => {
+		const waiting = entry();
+		await roster.hold(waiting);
+		const moved = children([waiting.sessionId]);
+		const hurry = vi.fn((_sessionId: string) => {});
+		let go = (): void => undefined;
+		const atTheGate = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		moved.fake.resume.mockImplementationOnce(async (held: RosterEntry) => {
+			await atTheGate;
+			moved.runs.set(held.sessionId, shown(held));
+			return shown(held);
+		});
+		const order = heldOrder(roster);
+		const backend = backendWith(
+			engine(),
+			{ ...moved.fake, hurry },
+			undefined,
+			order,
+		);
+		const started = resumeHeld({
+			roster,
+			engine: engine(),
+			children: moved.fake,
+			order,
+		});
+		await vi.waitFor(() => expect(moved.fake.resume).toHaveBeenCalledTimes(1));
+
+		const woke = backend.wake(waiting.sessionId);
+		await vi.waitFor(() =>
+			expect(hurry, "hurried while it waits").toHaveBeenCalledWith(
+				waiting.sessionId,
+			),
+		);
+		go();
+		await Promise.all([woke, started]);
+		expect(
+			moved.fake.resume,
+			"resumed once, by the start",
+		).toHaveBeenCalledTimes(1);
+	});
+
 	it("counts a moved one whose child doesn't start as not resumed", async () => {
 		const moving = entry();
 		await roster.hold(moving);

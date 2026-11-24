@@ -145,6 +145,7 @@ export function hostChildren(options: {
 			running: (sessionId) =>
 				routes.listed().find((held) => held.sessionId === sessionId),
 			resume: resumed,
+			hurry: (sessionId) => supervisor.hurry(sessionId),
 			giveUp: (sessionId) => supervisor.giveUp(sessionId),
 			begin: (request, taken) => supervisor.begin(request, taken),
 			ask,

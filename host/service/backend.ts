@@ -188,6 +188,11 @@ export interface BackendChildren {
 		bounded?: boolean,
 	): Promise<SessionIdentity>;
 	/**
+	 * Someone waits on this conversation's start, so one still waiting at
+	 * the start gate goes ahead; nothing for one not starting.
+	 */
+	hurry?(sessionId: string): void;
+	/**
 	 * Start a conversation in a child, settling with the child's answer,
 	 * within a begin's time of `taken`, when the host took the request.
 	 */
@@ -377,6 +382,10 @@ export function hostBackend(options: {
 	}
 
 	function wake(sessionId: string): Promise<void> {
+		// The host's start may be resuming it already, at the start gate
+		// behind others nobody waits on: this wake waits on that resume
+		// rather than starting its own, so it hurries it as it is asked.
+		children?.hurry?.(sessionId);
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
