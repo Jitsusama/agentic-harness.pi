@@ -13,27 +13,27 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type ArrivalLine,
-	type Arriving,
 	arrive,
-	type Clock,
 } from "../../../../lib/internal/carry/arrive.ts";
-import {
-	type Carrying,
-	carryAway,
-} from "../../../../lib/internal/carry/carry-away.ts";
 import {
 	doneFileOf,
 	readHandover,
-	writeHandover,
 } from "../../../../lib/internal/carry/handover.ts";
 import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
 import { sessionFolderOf } from "../../../../lib/internal/quest/reopening/carried.ts";
 import { git } from "../../../support/git-fixture.ts";
+import {
+	arrivals,
+	fakeClock,
+	placedCwd,
+	QUEST,
+	SESSION,
+	scratchOf,
+} from "./support/arriving.ts";
 import {
 	bareOrigin,
 	cloneAt,
@@ -46,105 +46,7 @@ import {
 const made: string[] = [];
 afterEach(() => removeAll(made));
 
-const QUEST = "QEST-20261107-CARRY1";
-const SESSION = "01a19111-arrive";
-
-/** A clock that moves only as it is slept on, calling `at` each time. */
-function fakeClock(at: (now: number) => void = () => {}): Clock {
-	let now = 0;
-	return {
-		now: () => now,
-		sleep: async (ms) => {
-			now += ms;
-			at(now);
-		},
-	};
-}
-
-/**
- * The leaving machine's session, carried: a tree at `~/src/app` on a
- * branch with a commit no remote has, a change, a file never added and a
- * session file, put in a handover folder. The session ran in the tree,
- * or in the folder `ranIn` names under the leaving home.
- */
-async function carried(
-	ranIn?: string,
-	moved: Pick<Carrying, "fence" | "notes" | "largestFile"> = {},
-	shaped: (tree: string) => Promise<void> = async () => {},
-) {
-	const origin = await bareOrigin(made);
-	const leaving = folder(made, "leaving");
-	const tree = await cloneAt(origin, join(leaving, "src", "app"));
-	await git(tree, "checkout", "-q", "-b", "topic");
-	await shaped(tree);
-	const head = await commit(tree, "work.txt", "unpushed\n");
-	writeFileSync(join(tree, "README.md"), "changed, never committed\n");
-	writeFileSync(join(tree, "draft.txt"), "never added\n");
-	const cwd = ranIn === undefined ? tree : join(leaving, ranIn);
-	mkdirSync(cwd, { recursive: true });
-	const sessionFile = join(
-		folder(made, "sessions"),
-		`2026-11-07_${SESSION}.jsonl`,
-	);
-	writeFileSync(
-		sessionFile,
-		`${JSON.stringify({ type: "session", id: SESSION, cwd })}\n${'{"type":"message"}\n'.repeat(500)}`,
-	);
-	const from = join(folder(made, "scratch"), QUEST, "handover", "aquifer");
-	await carryAway({
-		exec,
-		into: from,
-		home: leaving,
-		quest: QUEST,
-		session: { id: SESSION, cwd, file: sessionFile },
-		trees: [tree],
-		...moved,
-	});
-	return { origin, from, head };
-}
-
-/** The quest's scratch the handover folder `from` lies in. */
-function scratchOf(from: string): string {
-	return dirname(dirname(from));
-}
-
-/** The `cwd` the session file placed for `cwd` in `store` names. */
-function placedCwd(store: string, cwd: string): string {
-	const placed = join(
-		sessionFolderOf(store, cwd),
-		`2026-11-07_${SESSION}.jsonl`,
-	);
-	return JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd;
-}
-
-/** Arrives on a machine whose home is `home`, keeping every line said. */
-async function arriveAt(
-	home: string,
-	from: string,
-	clock: Clock = fakeClock(),
-	taken: CarriedNote[][] = [],
-	limits: Pick<Arriving, "largestUnzipped"> = {},
-) {
-	const said: ArrivalLine[] = [];
-	const store = folder(made, "store");
-	const whole = await arrive({
-		takeNotes: async (quest, notes) => {
-			expect(quest, "notes are taken up for the carried quest").toBe(QUEST);
-			taken.push([...notes]);
-			return notes.length;
-		},
-		exec,
-		from,
-		session: SESSION,
-		home,
-		scratch: scratchOf(from),
-		sessions: store,
-		clock,
-		say: (line) => said.push(line),
-		...limits,
-	});
-	return { whole, said, store };
-}
+const { carried, arriveAt } = arrivals(made);
 
 describe("arriving with a carried session", () => {
 	it("clones a tree that isn't here, with its commits and changes, and places its session", async () => {
@@ -538,71 +440,6 @@ describe("arriving with a carried session", () => {
 		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
 		expect(readdirSync(store), "nothing placed").toEqual([]);
 		expect(readdirSync(join(scratchOf(from), "tmp"))).toEqual([]);
-	});
-
-	it("places nothing from a gzipped session file that unzips past the most arriving unzips, saying why", async () => {
-		const { from } = await carried(undefined, { largestFile: 1000 });
-		const header = JSON.stringify({ type: "session", id: SESSION, cwd: "/x" });
-		// 3 MiB of turns, which gzip to a few KiB, over a 1 MiB most.
-		writeFileSync(
-			join(from, `2026-11-07_${SESSION}.jsonl.gz`),
-			gzipSync(`${header}\n${'{"type":"message"}\n'.repeat(3 * 55_189)}`),
-		);
-		const home = folder(made, "arriving");
-
-		const { whole, said, store } = await arriveAt(home, from, fakeClock(), [], {
-			largestUnzipped: 1024 * 1024,
-		});
-
-		expect(whole, "a session not placed is not whole").toBe(false);
-		expect(said.find((line) => line.kind === "failed")).toEqual({
-			kind: "failed",
-			why: `2026-11-07_${SESSION}.jsonl.gz couldn't be placed: it unzips to more than 1 MiB, the most arriving unzips, so it wasn't unzipped further`,
-		});
-		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
-		expect(readdirSync(store), "nothing placed").toEqual([]);
-		expect(
-			readdirSync(join(scratchOf(from), "tmp")),
-			"no part of it is left unzipped",
-		).toEqual([]);
-	});
-
-	it("places a gzipped session file that unzips to just the most arriving unzips", async () => {
-		const { from } = await carried(undefined, { largestFile: 1000 });
-		const line = `${JSON.stringify({ type: "session", id: SESSION, cwd: "/x" })}\n`;
-		const text = `${line}${"m".repeat(1024 * 1024 - line.length - 1)}\n`;
-		writeFileSync(join(from, `2026-11-07_${SESSION}.jsonl.gz`), gzipSync(text));
-		const home = folder(made, "arriving");
-
-		const { said } = await arriveAt(home, from, fakeClock(), [], {
-			largestUnzipped: Buffer.byteLength(text),
-		});
-
-		expect(said.at(-1)).toEqual({
-			kind: "sessions",
-			sessions: [{ id: SESSION, cwd: join(home, "src", "app") }],
-		});
-	});
-
-	it("places nothing from a session file in a form this harness can't read, saying it may be older", async () => {
-		const { from } = await carried();
-		const done = doneFileOf(from, SESSION);
-		const handover = readHandover(done);
-		if (handover?.sessionFile === undefined) throw new Error("none carried");
-		const newer = `${handover.sessionFile}.zst`;
-		renameSync(join(from, handover.sessionFile), join(from, newer));
-		writeHandover(from, { ...handover, sessionFile: newer });
-		const home = folder(made, "arriving");
-
-		const { whole, said, store } = await arriveAt(home, from);
-
-		expect(whole, "a session not placed is not whole").toBe(false);
-		expect(said.find((line) => line.kind === "failed")).toEqual({
-			kind: "failed",
-			why: `2026-11-07_${SESSION}.jsonl.zst is in a form this machine's harness can't read, so it wasn't placed: this harness is likely older than the carrying machine's, and arriving again once it is updated places it.`,
-		});
-		expect(said.at(-1)).toEqual({ kind: "sessions", sessions: [] });
-		expect(readdirSync(store), "nothing placed").toEqual([]);
 	});
 
 	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {
