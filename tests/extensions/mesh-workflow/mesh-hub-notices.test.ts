@@ -380,18 +380,21 @@ describe("the mesh's own word, on a quest with no mark", () => {
 	it("stops the last search for its hub when a session starts again without ending", async () => {
 		let out = 0;
 		let most = 0;
-		let holdNext = false;
-		let release: (() => void) | undefined;
+		let holding = false;
+		const held: (() => void)[] = [];
+		const release = () => {
+			holding = false;
+			for (const answer of held.splice(0)) answer();
+		};
 		const answerLate = () => {
 			out += 1;
 			most = Math.max(most, out);
-			if (holdNext) {
-				holdNext = false;
+			if (holding) {
 				return new Promise<void>((answered) => {
-					release = () => {
+					held.push(() => {
 						out -= 1;
 						answered();
-					};
+					});
 				});
 			}
 			// Long enough that a second search's ask lands while one is out.
@@ -423,14 +426,16 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			() => expect(tieAsks()).toBeGreaterThanOrEqual(2),
 			patiently,
 		);
-		holdNext = true;
-		// The last search waits on this ask, so asks nothing more until it
-		// is answered, by when the start has run.
-		await vi.waitFor(() => expect(release).toBeDefined(), patiently);
+		holding = true;
+		// Every ask is held until the start has run, so none the last search
+		// sends before it is answered after it. The search gives up on one
+		// past TIES_PATIENCE_MS and asks again, and that one is held too, so
+		// a start however slow leaves no ask of its loose across it.
+		await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
 
 		await restart();
 		const restarted = tieAsks();
-		release?.();
+		release();
 		// As above: past the next search's second ask, only a search the
 		// start left running can have one out beside it.
 		await vi.waitFor(
