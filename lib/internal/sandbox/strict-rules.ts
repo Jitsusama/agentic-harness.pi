@@ -46,6 +46,8 @@ export interface SandboxPlace {
 	 * them.
 	 */
 	readonly served?: boolean;
+	/** The node's worker socket, the one of its sockets a command may reach. */
+	readonly workerSocket?: string;
 }
 
 /** A rule landrun takes: what it is, and the path or value it is for. */
@@ -103,6 +105,7 @@ function strictPaths(place: SandboxPlace): StrictPaths {
 	const sockets = [
 		"/run/nscd/socket",
 		...(place.runtimeDir ? [join(place.runtimeDir, NIX_DOOR)] : []),
+		...(place.workerSocket ? [place.workerSocket] : []),
 	];
 	return { runnable, readable, writable, sockets };
 }

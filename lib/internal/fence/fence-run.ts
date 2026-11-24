@@ -78,6 +78,7 @@ import {
 	setAsidePlanted,
 	tempCodeCaches,
 } from "./fence-temp-caches.ts";
+import { fencedWorkerSocket } from "./fence-worker-socket.ts";
 
 /** The fences a caller may ask for, by the names pi's sessions use. */
 export const FENCE_RUN_KINDS = ["fence", STRICT] as const;
@@ -319,6 +320,8 @@ export function fenceRunText(
 		mkdirSync(own, { recursive: true, mode: 0o700 });
 	}
 	const runtimeDir = env.XDG_RUNTIME_DIR;
+	const workerSocket = fencedWorkerSocket(env);
+	const worker = workerSocket ? { workerSocket } : {};
 	const inner = sandboxedCommand(
 		command,
 		strictRules({
@@ -326,6 +329,7 @@ export function fenceRunText(
 			runtimeDir,
 			cwd: folder,
 			repository: worktreeRepository(folder, home),
+			...worker,
 		}),
 		sandbox.landrun,
 	);
@@ -335,6 +339,7 @@ export function fenceRunText(
 	const root = fenceArgs({
 		home,
 		runtimeDir,
+		...worker,
 		...sessionWorktrees(folder, undefined, treesRoot),
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),

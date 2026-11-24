@@ -281,6 +281,11 @@ export interface FencePlace extends Worktrees {
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
 	readonly githubDoor?: string;
 	/**
+	 * The node's worker socket, bound back read-only past the emptied
+	 * runtime folder and told to Landlock (`fence-worker-socket.ts`).
+	 */
+	readonly workerSocket?: string;
+	/**
 	 * The folders in the temporary folder that pi and node outside keep
 	 * compiled code in (`fence-temp-caches.ts`), `tempCodeCaches()` unless
 	 * a test names its own.
@@ -430,6 +435,10 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	// The system bus and X's sockets live outside the runtime folder.
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
+	}
+	// After every folder emptied above, which would hide it again.
+	if (place.workerSocket) {
+		args.push("--ro-bind", place.workerSocket, place.workerSocket);
 	}
 	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
 	args.push(...compileRootArgs(unfencedCompileRoots(place), place, disk));
@@ -734,6 +743,7 @@ export function fenceRules(place: FencePlace): string[] {
 			? letThrough(place).map((name) => join(place.runtimeDir as string, name))
 			: []),
 		...(place.githubDoor ? [place.githubDoor] : []),
+		...(place.workerSocket ? [place.workerSocket] : []),
 	];
 	return [
 		"--rwx",

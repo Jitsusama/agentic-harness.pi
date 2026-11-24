@@ -103,6 +103,7 @@ import { seedOwnHomes } from "../fence/fence-seed.ts";
 import { fenceSshConfig } from "../fence/fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
 import { plantedCache, setAsidePlanted } from "../fence/fence-temp-caches.ts";
+import { fencedWorkerSocket } from "../fence/fence-worker-socket.ts";
 import {
 	inStore,
 	type Offload,
@@ -250,6 +251,9 @@ const KEPT = [
 	"CARGO_BUILD_JOBS",
 	"PI_SANDBOX",
 	"PI_SSH_GUARD_*",
+	// Where the node's worker socket is, the one socket of the node's the
+	// fence lets through (`fence-worker-socket.ts`).
+	"MYCELIUM_WORKER_SOCKET",
 	"*_HOME",
 	"*PATH",
 	"*_DIR",
@@ -803,10 +807,12 @@ export function wrapFor(
 			// call, so the session writes copies of its own (fence-dev.ts).
 			const devCopies = fenceDevCopies(home, place.env, session);
 			const served = sandbox.served === true;
+			const workerSocket = fencedWorkerSocket(place.env);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				...(served ? { served } : {}),
+				...(workerSocket ? { workerSocket } : {}),
 				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
@@ -918,12 +924,14 @@ export function wrapFor(
 				mkdirSync(folder, { recursive: true, mode: 0o700 });
 			}
 			const served = sandbox.served === true;
+			const workerSocket = fencedWorkerSocket(place.env);
 			const rules = strictRules({
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				cwd: place.cwd,
 				repository: worktreeRepository(place.cwd, home),
 				...(served ? { served } : {}),
+				...(workerSocket ? { workerSocket } : {}),
 			});
 			// gh reads GH_TOKEN, and git asks its helper for it.
 			const token = sandbox.github?.();
