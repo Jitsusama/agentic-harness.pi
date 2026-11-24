@@ -373,8 +373,8 @@ describe("the mesh's own word, on a quest with no mark", () => {
 	// one, the last search still has a peer to read, and only the start's
 	// own guard stops it.
 	//
-	// The last search's own ask is held at the node across the start, so
-	// it can't land after it and pass for the next search's: under load
+	// The last search's asks are held at the node across the start, so
+	// none can land after it and pass for the next search's: under load
 	// one sent just before the start reached the node after, out beside
 	// the next search's first, with no search left running.
 	it("stops the last search for its hub when a session starts again without ending", async () => {
@@ -427,10 +427,14 @@ describe("the mesh's own word, on a quest with no mark", () => {
 			patiently,
 		);
 		holding = true;
-		// Every ask is held until the start has run, so none the last search
-		// sends before it is answered after it. The search gives up on one
-		// past TIES_PATIENCE_MS and asks again, and that one is held too, so
-		// a start however slow leaves no ask of its loose across it.
+		// From here the node answers nothing until the start has run, so the
+		// last search waits on a held ask through the start and has sent
+		// none that lands after it unheld. One it gives up on past
+		// TIES_PATIENCE_MS it asks again, and that one is held too. Not
+		// covered: an ask it began but had not yet written when the stop
+		// ran, which nothing in the ask checks for, could reach the node
+		// after release(). That needs the patience to run out within a few
+		// turns of the stop.
 		await vi.waitFor(() => expect(held.length).toBeGreaterThan(0), patiently);
 
 		await restart();
