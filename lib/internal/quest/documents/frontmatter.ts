@@ -397,6 +397,20 @@ function withUnreadHearing(
 	return { ...extras, hears };
 }
 
+/**
+ * A steward written by hand that the parser can't read, such as
+ * `steward: "yes"`, kept among the extras as an unread hearing is, so a
+ * rewrite doesn't erase the slip and the quest tool's config can name
+ * it. Only `true` makes a steward; `false` says plainly it isn't one.
+ */
+function withUnreadSteward(
+	extras: Record<string, unknown> | undefined,
+	steward: unknown,
+): Record<string, unknown> | undefined {
+	if (steward === undefined || typeof steward === "boolean") return extras;
+	return { ...extras, steward };
+}
+
 /** Parse the quest README front-matter from raw text. */
 export function parseQuestFrontMatter(
 	text: string,
@@ -474,9 +488,9 @@ export function parseQuestFrontMatter(
 	if (primaryPlanId) frontMatter.primaryPlanId = primaryPlanId;
 	const verify = asString(raw.verify);
 	if (verify) frontMatter.verify = verify;
-	const extras = withUnreadHearing(
-		captureExtras(raw, KNOWN_QUEST_KEYS),
-		raw.hears,
+	const extras = withUnreadSteward(
+		withUnreadHearing(captureExtras(raw, KNOWN_QUEST_KEYS), raw.hears),
+		raw.steward,
 	);
 	if (extras) frontMatter._extra = extras;
 

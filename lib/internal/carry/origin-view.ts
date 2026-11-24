@@ -320,23 +320,29 @@ function namesOf(names: readonly string[]): string {
 const STOPPED = "git was stopped after ";
 
 /**
- * What git said of why it failed, for an arrival line: its own `fatal:`
- * and `error:` lines and that it was stopped, never a server's
- * `remote:` lines or the hints after; all it said but those `remote:`
- * lines where it said none of its own; or how it exited where it said
- * nothing.
+ * What git said of why it failed, for an arrival line: that it was
+ * stopped, what its transport said first, such as ssh's "Could not
+ * resolve hostname", and its own `fatal:` and `error:` lines; never a
+ * server's `remote:` lines, `hint:` lines or the advice after git's
+ * own; all it said but `remote:` lines where it said none of its own;
+ * or how it exited where it said nothing.
  */
 export function saidOf(result: ExecResult): string {
 	const lines = result.stderr
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line !== "");
-	const own = lines.filter(
-		(line) => /^(fatal|error): /.test(line) || line.startsWith(STOPPED),
-	);
-	const kept =
-		own.length > 0 ? own : lines.filter((line) => !line.startsWith("remote:"));
-	return kept.join(" ") || `git exited ${result.code}`;
+	const isOwn = (line: string) =>
+		/^(fatal|error): /.test(line) || line.startsWith(STOPPED);
+	const first = lines.findIndex(isOwn);
+	if (first === -1) {
+		const kept = lines.filter((line) => !line.startsWith("remote:"));
+		return kept.join(" ") || `git exited ${result.code}`;
+	}
+	const before = lines
+		.slice(0, first)
+		.filter((line) => !/^(remote|hint):/.test(line));
+	return [...before, ...lines.filter(isOwn)].join(" ");
 }
 
 /**
@@ -462,7 +468,7 @@ export function gitIn(exec: Exec, path: string): ViewGit {
  * What `start` answers, its commands stopped once `seconds` pass, or
  * when its call's own signal fires, whichever is first.
  */
-async function timed(
+export async function timed(
 	seconds: number,
 	start: () => Promise<ExecResult>,
 ): Promise<ExecResult> {

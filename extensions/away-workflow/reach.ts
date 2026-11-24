@@ -18,8 +18,8 @@
  */
 
 import type { Notice } from "../../lib/internal/away/notify.ts";
+import { blockedLine } from "../../lib/internal/session/ending.ts";
 import { count } from "../../lib/ui/count.ts";
-import { endingOf } from "./keep-going.ts";
 
 /** What has already reached the person in this absence. */
 export interface ReachMemory {
@@ -79,20 +79,6 @@ export function heldWant(
 	if (!latest) return undefined;
 	if (held.length === 1) return `Holds a call for you: ${latest.title}`;
 	return `Holds ${count(held.length, "call")} for you, the latest: ${latest.title}`;
-}
-
-/** The `Blocked:` line a run ended with, without its label. */
-export function blockedLine(text: string): string | undefined {
-	if (endingOf(text) !== "blocked") return undefined;
-	const last = text
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0)
-		.at(-1);
-	return last
-		?.replace(/^(?:[-*>]\s+)*(?:\*\*|__)?blocked:\s*/i, "")
-		.replace(/(?:\*\*|__)$/, "")
-		.trim();
 }
 
 /**

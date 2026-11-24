@@ -26,6 +26,7 @@
  */
 
 import type { PlanProgress } from "../../lib/internal/away/state.ts";
+import { endingOf, lastLineOf } from "../../lib/internal/session/ending.ts";
 
 /** Idle runs in a row before the nudging stops. */
 export const MAX_IDLE_RUNS = 3;
@@ -79,25 +80,6 @@ export type Verdict =
 /** A nudger that has seen nothing yet. */
 export function freshMemory(): KeepGoingMemory {
 	return { idleRuns: 0, nudges: 0, stopped: false };
-}
-
-/** Markdown a model dresses a line in: a bullet, a quote, bold. */
-const DRESSING = /^(?:[-*>]\s+)*(?:\*\*|__)?/;
-
-/** A run's last non-empty line, trimmed, or empty when it said nothing. */
-function lastLineOf(text: string): string {
-	const lines = text.split("\n").map((line) => line.trim());
-	return lines.filter((line) => line.length > 0).at(-1) ?? "";
-}
-
-/** How the run said it ended, read from its last non-empty line. */
-export function endingOf(text: string): "done" | "blocked" | undefined {
-	const last = lastLineOf(text);
-	if (!last) return undefined;
-	const bare = last.replace(DRESSING, "");
-	if (/^done:/i.test(bare)) return "done";
-	if (/^blocked:/i.test(bare)) return "blocked";
-	return undefined;
 }
 
 function goalLine(absence: Absence): string {
