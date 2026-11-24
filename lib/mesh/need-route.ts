@@ -14,11 +14,12 @@
  * counted lost, so the measure sees it, and its asker is told to name
  * the peers it is for. Nor does it go to a cell sharing less of what
  * the asker lacks than an ended cell it would have gone to were that
- * cell back: that cell owned it, so the need is lost and its asker told
- * who ended and who fell short. Only a cell heard from along some tie
- * within `OWNER_TIE_AGE_MS` counts, so a record the node keeps after
- * its session crashed stops owning needs six hours after its last
- * message.
+ * cell alone back: that cell owned it, so the need is lost and its
+ * asker told who ended and who fell short. Only a cell that sent on a
+ * tie in the last day, which was heard along within `OWNER_TIE_AGE_MS`,
+ * counts, so a record the node keeps after its session crashed stops
+ * owning needs six hours after a tie's last message, and however much
+ * others send to it, a day after its own.
  *
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
@@ -77,7 +78,8 @@ export interface Hub {
 
 /**
  * Each cell's ties, strongest first, each with when a message last went
- * along it where the node says.
+ * along it, either way, and whether this cell sent one on it in the
+ * last day, where the node says.
  */
 export type TieGraph = ReadonlyMap<
 	string,
@@ -85,6 +87,7 @@ export type TieGraph = ReadonlyMap<
 		readonly other: string;
 		readonly strength: number;
 		readonly heard?: number;
+		readonly spoke?: boolean;
 	}[]
 >;
 
@@ -390,32 +393,41 @@ function wordsBeyond(
 /**
  * Every cell's ties in a node's list of its `tie` kind, joined at both
  * ends, each faded to `now` by 2^-((now - heard) / 2 h), strongest first.
- * A cell's own talk, `tie:<A>`, names no other end and is left out.
+ * A cell's own talk, `tie:<A>`, names no other end and is left out. Each
+ * end has spoken on it when its side of the tie's `today`, counted in
+ * the order its key names them, holds a message.
  */
 export function tieGraphFrom(line: string, now: number): TieGraph {
 	const graph = new Map<
 		string,
-		{ other: string; strength: number; heard: number }[]
+		{ other: string; strength: number; heard: number; spoke: boolean }[]
 	>();
 	const tieTo = (
 		one: string,
 		other: string,
 		strength: number,
 		heard: number,
+		spoke: boolean,
 	) => {
+		const tie = { other, strength, heard, spoke };
 		const ties = graph.get(one);
-		if (ties === undefined) graph.set(one, [{ other, strength, heard }]);
-		else ties.push({ other, strength, heard });
+		if (ties === undefined) graph.set(one, [tie]);
+		else ties.push(tie);
 	};
 	for (const record of recordsOf(line)) {
-		const { key, strength, heard } = record;
+		const { key, strength, heard, today } = record;
 		if (typeof key !== "string" || !key.startsWith("tie:")) continue;
 		if (typeof strength !== "number" || typeof heard !== "number") continue;
 		const [one, other, ...more] = key.slice("tie:".length).split("~");
 		if (one === undefined || other === undefined || more.length > 0) continue;
 		const faded = strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS);
-		tieTo(one, other, faded, heard);
-		tieTo(other, one, faded, heard);
+		// A side the node gave no count for never spoke, as far as is known.
+		const said = (side: 0 | 1) => {
+			const count: unknown = Array.isArray(today) ? today[side] : undefined;
+			return typeof count === "number" && count > 0;
+		};
+		tieTo(one, other, faded, heard, said(0));
+		tieTo(other, one, faded, heard, said(1));
 	}
 	for (const ties of graph.values()) {
 		ties.sort((a, b) => b.strength - a.strength);
@@ -464,43 +476,44 @@ function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
  * "checks" or "gate" sharing no other word.
  *
  * Lost, with no path, when none is within `MOST_HOPS`, or when it has
- * an owner that has ended: routed again with every ended cell heard
- * from within `OWNER_TIE_AGE_MS` counted as there, though never walked
- * through, it goes to one of them working on more of what the asker
- * lacks than the fit found. The fit is then named in `fellShort`. So an
+ * an owner that has ended: routed again with one ended cell heard from
+ * lately (`heardWithin`) counted as there, though never walked through,
+ * it goes to that cell, which works on more of what the asker lacks
+ * than the fit found. Each such cell is tried alone, and the one
+ * working on most owns it; the fit is then named in `fellShort`. So an
  * ended cell owns a need only where routing would send it there were it
- * back, by the same hubs and walks, and an ended cell never sends a
- * need anywhere routing wouldn't. Only a cell the node still lists
+ * alone back, by the same hubs and walks, and an ended cell never sends
+ * a need anywhere routing wouldn't. Only a cell the node still lists
  * counts, and the node drops a cell whose session ended cleanly, so an
  * owner gone that way is never seen. Coverage is counted as a fit is
  * found, so a leg-26 cell never counts the leg of a need for leg-27.
  *
  * A cell that works on it but has ended is never taken, and is named in
  * `ended`: for a found need, when passed over for the word its fit was
- * found by; for a lost one, every such cell, or the owner alone when an
+ * found by, or when heard from lately and working on a word no live cell
+ * does; for a lost one, every such cell, or the owner alone when an
  * owner made it lost. One that stopped the asker is named in `stopped`
  * when the need is lost. Only a cell `live` says is there is taken.
  */
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
-	return routeAs(said, reach, false);
+	return routeAs(said, reach, undefined);
 }
 
 /**
- * A need routed as `routeNeed` says, or, with `recentCount`, as if every
- * ended cell heard from within `OWNER_TIE_AGE_MS` were there to take it,
- * which is how its owner is found.
+ * A need routed as `routeNeed` says, or, given `back`, as if that one
+ * ended cell alone were there to take it, which is how its owner is
+ * found: as a resend would go were that cell alone back.
  */
 function routeAs(
 	said: NeedAsked,
 	reach: Reach,
-	recentCount: boolean,
+	back: string | undefined,
 ): NeedRecord {
 	const selves = new Set([said.asker, ...(said.selves ?? [])]);
 	const { live } = reach;
 	const stopper = reach.stopped ?? (() => false);
 	const stops = (address: string) => !selves.has(address) && stopper(address);
-	const present = (address: string) =>
-		live(address) || (recentCount && heardWithin(reach.ties, address, said.at));
+	const present = (address: string) => live(address) || address === back;
 	const takes = (address: string) =>
 		!selves.has(address) && present(address) && !stops(address);
 	const ended = (address: string) =>
@@ -673,18 +686,45 @@ function routeAs(
 		undefined,
 	);
 	if (found === undefined) return lost();
-	if (recentCount) return record(found.path, found.fit, new Set());
-	// Routed again as if each cell heard from lately were there: where
-	// that sends it to one of them working on more of what the asker
-	// lacks than the fit found, that cell owned it, and sending it to a
+	if (back !== undefined) return record(found.path, found.fit, new Set());
+	// Routed again as if each cell heard from lately that works on more of
+	// what the asker lacks than the fit found were back, one at a time,
+	// since one counted there may hide another from a walk or a hub.
+	// Where that sends it to that cell, it owned it, and sending it to a
 	// cell sharing less is a misroute. Being routing itself, it finds an
 	// owner only where a live cell there would be found, by the same hubs
-	// and walks, so the need reaches that owner once it is back.
-	const owner = routeAs(said, reach, true).fit;
-	if (owner !== null && !live(owner) && needed(owner) > needed(found.fit)) {
+	// and walks, so a resend once it is back reaches it, or a cell covering
+	// more that it leads to.
+	const owners = reach.foragers
+		.map(({ address }) => address)
+		.filter(
+			(address) =>
+				ended(address) &&
+				needed(address) > needed(found.fit) &&
+				heardWithin(reach.ties, address, said.at) &&
+				routeAs(said, reach, address).fit === address,
+		);
+	const owner = best(owners);
+	if (owner !== undefined) {
 		return { ...record([], null, new Set([owner])), fellShort: found.fit };
 	}
-	return record(found.path, found.fit, passed.get(found.word) ?? new Set());
+	// An ended cell heard from lately working on a word no live cell does
+	// is named too: else its asker hears nothing of that word, as a need
+	// about dates delivery going by delivery alone once did.
+	const unheld = rarest
+		.filter(({ count }) => count === 0)
+		.map(({ word }) => word);
+	const named = new Set(passed.get(found.word));
+	for (const { address } of reach.foragers) {
+		if (
+			ended(address) &&
+			heardWithin(reach.ties, address, said.at) &&
+			unheld.some((word) => holds(address, word))
+		) {
+			named.add(address);
+		}
+	}
+	return record(found.path, found.fit, named);
 
 	/**
 	 * The chain along ties, strongest first, from the asker to the
@@ -718,13 +758,21 @@ function routeAs(
 }
 
 /**
- * Whether a message went along any of a cell's ties within
- * `OWNER_TIE_AGE_MS` of `at`, by the node's word on when; a tie the
- * node gave no time for never counts.
+ * Whether a cell was heard from lately: a tie it sent on in the last
+ * day was heard along within `OWNER_TIE_AGE_MS` of `at`, by the node's
+ * word on when. Its own sending is asked, since others asking after a
+ * crashed cell may keep its ties fresh. A tie the node gave no time for
+ * never counts, nor one heard further ahead of `at` than that, as a
+ * clock stepped back says, nor at a time no number can weigh, so no bad
+ * stamp makes a record own needs for good.
  */
 function heardWithin(ties: TieGraph, address: string, at: number): boolean {
 	return (ties.get(address) ?? []).some(
-		({ heard }) => heard !== undefined && at - heard <= OWNER_TIE_AGE_MS,
+		({ heard, spoke }) =>
+			spoke === true &&
+			heard !== undefined &&
+			Number.isFinite(heard) &&
+			Math.abs(at - heard) <= OWNER_TIE_AGE_MS,
 	);
 }
 
@@ -984,7 +1032,7 @@ export async function needAt(
 ): Promise<NeedRecord | undefined> {
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
-		listAt(socket, "tie", ["strength", "heard"], LIST_PATIENCE_MS),
+		listAt(socket, "tie", ["strength", "heard", "today"], LIST_PATIENCE_MS),
 		listAt(socket, "hub", HUB_FIELDS, LIST_PATIENCE_MS),
 	]);
 	if (!lists(cells) || !lists(ties)) return undefined;

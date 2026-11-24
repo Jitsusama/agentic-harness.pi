@@ -87,12 +87,14 @@ describe("the words a need or a cell's work is matched by", () => {
 });
 
 describe("the ties a need walks", () => {
-	it("joins each tie at both ends, faded to now, strongest first, with when it was heard", () => {
+	it("joins each tie at both ends, faded to now, strongest first, with when it was heard and who spoke", () => {
+		const twoHours = AT - 2 * 60 * 60 * 1000;
 		const line = JSON.stringify({
 			id: 2,
 			records: [
-				{ key: "tie:A~B", strength: 4, heard: AT },
-				{ key: "tie:A~C", strength: 8, heard: AT - 2 * 60 * 60 * 1000 },
+				{ key: "tie:A~B", strength: 4, heard: AT, today: [0, 3] },
+				{ key: "tie:A~C", strength: 8, heard: twoHours, today: [2, 0] },
+				{ key: "tie:B~C", strength: 1, heard: AT, today: "none" },
 				{ key: "tie:A", strength: 9, heard: AT },
 			],
 		});
@@ -100,11 +102,16 @@ describe("the ties a need walks", () => {
 		const graph = tieGraphFrom(line, AT);
 
 		expect(graph.get("A")).toEqual([
-			{ other: "B", strength: 4, heard: AT },
-			{ other: "C", strength: 4, heard: AT - 2 * 60 * 60 * 1000 },
+			{ other: "B", strength: 4, heard: AT, spoke: false },
+			{ other: "C", strength: 4, heard: twoHours, spoke: true },
+		]);
+		expect(graph.get("B")).toEqual([
+			{ other: "A", strength: 4, heard: AT, spoke: true },
+			{ other: "C", strength: 1, heard: AT, spoke: false },
 		]);
 		expect(graph.get("C")).toEqual([
-			{ other: "A", strength: 4, heard: AT - 2 * 60 * 60 * 1000 },
+			{ other: "A", strength: 4, heard: twoHours, spoke: false },
+			{ other: "B", strength: 1, heard: AT, spoke: false },
 		]);
 	});
 });

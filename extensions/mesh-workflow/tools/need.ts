@@ -112,8 +112,9 @@ export async function needRead(
 	// dates. Only when MOST_WORDS were kept may a word some cell holds
 	// have been dropped, so then nothing is said of the rest; nor of a
 	// text's words, which may hold a token, nor of a word past
-	// LONGEST_WORD, which is a token, not a word of work. A joined id, mesh-workflow or pi-host, is held by
-	// none whose title says mesh workflow or pi host, yet its parts
+	// LONGEST_WORD, which is a token, not a word of work. A joined id,
+	// mesh-workflow or pi-host, is held by none whose title says mesh
+	// workflow or pi host, yet its parts
 	// routed it, so it goes unsaid when the words kept say it as routing
 	// reads them: every part long and rare enough to be a word, and a
 	// numbered id, leg-27, only whole.
@@ -157,20 +158,21 @@ export async function needRead(
 function unaskedText(unasked: readonly string[], about: string): string {
 	if (unasked.length === 0) return "";
 	const one = unasked.length === 1;
-	return ` No cell works on ${unasked.join(", ")}, so ${one ? "it" : "they"} found nobody and it was asked by ${about} alone.`;
+	return ` No cell works on ${unasked.join(", ")}, so ${one ? "it" : "they"} found nobody and it was routed by ${about} alone.`;
 }
 
 /**
  * Why a need whose owner has ended is lost though a live cell was found:
  * routing would have sent it to the one cell named in `ended`, were it
- * there, and that cell worked on more of it than `fit`. Said as not
- * present, since the node lists it with no presence here, which a link
- * down to its machine leaves too; routing it again finds that cell
- * once it is back.
+ * alone there, and that cell worked on more of it than `fit`. Said as
+ * not present, since the node lists it with no presence here, which a
+ * link down to its machine leaves too. Once it is back a resend reaches
+ * it, or a cell covering more that it leads to; unless it stopped this
+ * one, which is known only of a present cell.
  */
 function ownerText(found: NeedRecord, fit: string, about: string): string {
 	const owner = (found.ended ?? []).join(", ");
-	return `${owner} worked on more of ${about} than ${fit}, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it. Sending it again once ${owner} is present reaches it.`;
+	return `${owner} worked on more of ${about} than ${fit}, the live cell found, but isn't present now, so it was not sent to a cell sharing less of it. Sending it again once ${owner} is present reaches ${owner} or a cell covering more of it, unless ${owner} has stopped this one.`;
 }
 
 /** Who works on a lost need but stopped this peer, as a sentence, or nothing. */

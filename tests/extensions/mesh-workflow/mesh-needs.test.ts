@@ -196,7 +196,12 @@ describe("sending to a need", () => {
 			],
 			[
 				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
-				{ key: "tie:7M6JKG~J7XHQN", strength: 1, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
 			],
 		);
 		const { tools } = await startSession(env);
@@ -213,7 +218,7 @@ describe("sending to a need", () => {
 		);
 		expect(said).not.toContain("no live cell within three ties");
 		expect(said).toContain(
-			"Sending it again once J7XHQN is present reaches it.",
+			"Sending it again once J7XHQN is present reaches J7XHQN or a cell covering more of it, unless J7XHQN has stopped this one.",
 		);
 		expect(said).toContain("Name 5HJZ8Z or another peer it is for by address");
 		expect(said).toContain(ASK_WHO_OWNS_IT);
@@ -242,7 +247,12 @@ describe("sending to a need", () => {
 			],
 			[
 				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
-				{ key: "tie:7M6JKG~J7XHQN", strength: 1, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
 			],
 		);
 		const { tools } = await startSession(env);
@@ -256,7 +266,7 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("J7XHQN worked on more of dates delivery");
 		expect(said).toContain(
-			"No cell works on fonts, so it found nobody and it was asked by dates delivery alone.",
+			"No cell works on fonts, so it found nobody and it was routed by dates delivery alone.",
 		);
 	});
 
@@ -355,7 +365,7 @@ describe("sending to a need", () => {
 		expect(said).toContain("went to 5HJZ8Z");
 		expect(said).toContain("No cell works on fonts, glyphs, kerning,");
 		expect(said).toContain(
-			"margins, so they found nobody and it was asked by carry alone.",
+			"margins, so they found nobody and it was routed by carry alone.",
 		);
 	});
 
@@ -392,6 +402,7 @@ describe("sending to a need", () => {
 					key: "tie:7M6JKG~J7XHQN",
 					strength: 1,
 					heard: Date.now() - 7 * 60 * 60 * 1000,
+					today: [0, 1],
 				},
 			],
 		);
@@ -425,7 +436,40 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("went to 5HJZ8Z");
 		expect(said).toContain(
-			"No cell works on fonts, so it found nobody and it was asked by carry alone.",
+			"No cell works on fonts, so it found nobody and it was routed by carry alone.",
+		);
+	});
+
+	it("names an ended cell heard from lately that works on a word no live cell does", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:J7XHQN", title: "Dates" },
+				{ key: "cell:5HJZ8Z", title: "Delivery Lanes" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{
+					key: "tie:7M6JKG~J7XHQN",
+					strength: 1,
+					heard: Date.now(),
+					today: [0, 1],
+				},
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "When does the delivery land?",
+			about: "dates delivery",
+		});
+
+		expect(said).toContain("went to 5HJZ8Z");
+		expect(said, "its asker hears of dates").toContain(
+			"J7XHQN works on it but has ended, so it was passed over.",
 		);
 	});
 
