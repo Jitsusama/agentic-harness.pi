@@ -36,10 +36,15 @@
  * recorded call whose pi has gone and that no conversation here holds
  * is stopped on the same look, once its time limit or a day from its
  * start has passed.
+ *
+ * Every file it reads or writes, each call's `.end` and the kept list,
+ * goes through fs/promises, since the host's conversations share its
+ * thread. A call whose end can't be read for the moment is neither
+ * stopped nor let go, and the next look asks again.
  */
 
 import { readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
@@ -53,7 +58,7 @@ import {
 	stopCarried,
 } from "../../lib/internal/shell/carried.ts";
 import {
-	endOf,
+	endRead,
 	processThere,
 	RECORD_SPARED_FOR_MS,
 } from "../../lib/internal/shell/kept.ts";
@@ -63,7 +68,7 @@ import {
 } from "../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { spawnersScoped } from "../../lib/internal/shell/spawner-scope.ts";
-import { writeWhole } from "../../lib/internal/write-whole.ts";
+import { writeWholeOff } from "../../lib/internal/write-whole.ts";
 import { isJobsCarried, JOBS_CARRIED } from "../../lib/jobs/host.ts";
 import {
 	linuxProcessTable,
@@ -175,8 +180,11 @@ export interface CarriedShellsOptions {
 	readonly table?: ProcessTable;
 	/** Writes a pid into a cgroup.procs file. */
 	readonly move?: (procs: string, pid: number) => Promise<void>;
-	/** Whether a call's shell is there, as the call it was. */
-	readonly running?: (work: CarriedShell) => boolean;
+	/**
+	 * Whether a call's shell is there, as the call it was; rejecting when
+	 * that can't be read for the moment, which leaves the call as it is.
+	 */
+	readonly running?: (work: CarriedShell) => boolean | Promise<boolean>;
 	readonly stop?: (work: CarriedShell) => void;
 	readonly say: (line: string) => void;
 	readonly report: (error: unknown) => void;
@@ -185,9 +193,15 @@ export interface CarriedShellsOptions {
 	readonly every?: (ms: number, run: () => void | Promise<void>) => () => void;
 }
 
-/** Whether the shell of a carried call is still there, as itself. */
-function running(work: CarriedShell): boolean {
-	if (endOf(work.keep) !== undefined) return false;
+/**
+ * Whether the shell of a carried call is still there, as itself. Its
+ * end is read off the thread: a host looks on the loop its
+ * conversations share, once for each call recorded, and on 23 November
+ * the same read of `.end` in the parked calls' watch held that loop 5 s
+ * at a time (parked-calls.ts).
+ */
+async function running(work: CarriedShell): Promise<boolean> {
+	if ((await endRead(work.keep)) !== undefined) return false;
 	if (!processThere(work.pid)) return false;
 	return carriesMark(work.pid, work.mark);
 }
@@ -205,9 +219,9 @@ function isKeptCall(value: unknown): value is KeptCall {
 }
 
 /** What an earlier restart wrote down, or none when it wrote nothing readable. */
-function readKept(file: string): KeptCall[] {
+async function readKept(file: string): Promise<KeptCall[]> {
 	try {
-		const read: unknown = JSON.parse(readFileSync(file, "utf8"));
+		const read: unknown = JSON.parse(await readFile(file, "utf8"));
 		return Array.isArray(read) ? read.filter(isKeptCall) : [];
 	} catch {
 		// No file: no restart kept anything, or the last look let it all go.
@@ -236,11 +250,44 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	// Where no process table can say a pid is still the call it was, as on
 	// a Mac, a reused pid could lead anyone's group, so none is judged
 	// running and none is ever killed: each record is let go unread.
-	const isRunning =
+	const judge =
 		options.running ?? (readsProcesses(table) ? running : () => false);
+	// Whether a call runs, or nothing while that can't be read: such a
+	// call is neither stopped nor let go, and the next look asks again.
+	const runs = async (work: CarriedShell): Promise<boolean | undefined> => {
+		try {
+			return await judge(work);
+		} catch {
+			// Its end failed to read for the moment: not known either way.
+			return undefined;
+		}
+	};
+	// Each look and keep reads the kept file and writes it back off the
+	// thread, so one waits for the last to land, or a look's older list
+	// would write over what a restart's keep just added.
+	let keptFileTurn: Promise<unknown> = Promise.resolve();
+	const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
+		const turn = keptFileTurn.then(work, work);
+		keptFileTurn = turn.catch(() => {
+			// The turn's own caller hears its error; the next turn still runs.
+		});
+		return turn;
+	};
 	const stop = options.stop ?? stopCarried;
 	const recorded = options.recorded ?? (() => strayKeptJobs());
 	const carried: KeptCall[] = [];
+
+	/**
+	 * Drop from `carried` each call of `calls` that ended, keeping one not
+	 * known either way, as a restart keeps whatever may still run.
+	 */
+	async function forgetEnded(calls: readonly KeptCall[]): Promise<void> {
+		for (const call of calls) {
+			if ((await runs(call.work)) !== false) continue;
+			const at = carried.indexOf(call);
+			if (at >= 0) carried.splice(at, 1);
+		}
+	}
 
 	// One look over the table for every call, since the stop it runs in
 	// has a minute and a call each would read every pid's cgroup again.
@@ -269,9 +316,9 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		return moved;
 	}
 
-	function write(calls: readonly KeptCall[]): void {
+	async function write(calls: readonly KeptCall[]): Promise<void> {
 		try {
-			writeWhole(keptFile(), `${JSON.stringify(calls)}\n`);
+			await writeWholeOff(keptFile(), `${JSON.stringify(calls)}\n`);
 		} catch (error) {
 			options.report(error);
 		}
@@ -282,7 +329,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		holds: (session: string) => boolean,
 	): Promise<void> {
 		for (const job of await recorded()) {
-			if (!isRunning(job.work) || holds(job.session)) continue;
+			if ((await runs(job.work)) !== true || holds(job.session)) continue;
 			const due = Math.min(
 				job.work.deadline ?? Number.POSITIVE_INFINITY,
 				job.work.startedAt + RECORD_SPARED_FOR_MS,
@@ -301,15 +348,30 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 
 	async function look(holds: (session: string) => boolean): Promise<void> {
 		await lookRecorded(holds);
-		const kept = readKept(keptFile());
+		await inTurn(() => lookKept(holds));
+	}
+
+	/** Stop each call an earlier restart kept that is due and nobody holds. */
+	async function lookKept(holds: (session: string) => boolean): Promise<void> {
+		const kept = await readKept(keptFile());
 		if (kept.length === 0) return;
-		const left = kept.filter((call) => {
-			if (!isRunning(call.work) || holds(call.session)) return false;
+		const left: KeptCall[] = [];
+		for (const call of kept) {
+			const out = await runs(call.work);
+			// Not known yet: kept for the next look, never stopped unread.
+			if (out === undefined) {
+				left.push(call);
+				continue;
+			}
+			if (!out || holds(call.session)) continue;
 			const due = Math.min(
 				call.work.deadline ?? Number.POSITIVE_INFINITY,
 				call.at + STRAY_FOR_MS,
 			);
-			if (now() < due) return true;
+			if (now() < due) {
+				left.push(call);
+				continue;
+			}
 			stop(call.work);
 			const why =
 				call.work.deadline !== undefined && call.work.deadline <= due
@@ -318,9 +380,8 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			options.say(
 				`Stopped \`${call.label}\` (${call.job} of ${call.session}), carried through a restart: its conversation never came back and ${why}`,
 			);
-			return false;
-		});
-		if (left.length !== kept.length) write(left);
+		}
+		if (left.length !== kept.length) await write(left);
 	}
 
 	const scoped = () => options.scoped ?? spawnersScoped();
@@ -341,8 +402,9 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			// so the list holds no more than the calls still out.
 			const carrying = bus.on(JOBS_CARRIED, (data) => {
 				if (!restarting || !isJobsCarried(data)) return;
-				const out = carried.filter((call) => isRunning(call.work));
-				carried.splice(0, carried.length, ...out);
+				// Looked at off the thread, as the bus can't wait: a call that
+				// ended meanwhile is dropped by the keep's own look besides.
+				void forgetEnded([...carried]).catch(options.report);
 				for (const job of data.jobs)
 					if (isCarriedShell(job.work))
 						carried.push({
@@ -363,13 +425,14 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			carried.splice(0, carried.length, ...kept);
 		},
 		async keep() {
-			const out = carried.filter((call) => isRunning(call.work));
-			carried.splice(0, carried.length, ...out);
+			await forgetEnded([...carried]);
 			if (carried.length === 0) return [];
 			const moved: number[] = [];
 			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));
 			// What an earlier restart kept and nobody took up yet goes on too.
-			write([...readKept(keptFile()), ...carried]);
+			await inTurn(async () =>
+				write([...(await readKept(keptFile())), ...carried]),
+			);
 			return moved;
 		},
 		watch(holds) {
