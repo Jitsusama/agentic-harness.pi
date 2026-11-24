@@ -554,9 +554,11 @@ function routeAs(
 	const saying = new Set(said.words);
 	// A need naming one numbered id, leg 27, says nothing of another,
 	// leg-26, whose words it shares: a cell holding leg-26 takes it on
-	// the word leg only when the need says leg-26 as well.
+	// the word leg only when the need says leg-26 as well. A longer id
+	// holding the one said, leg-27-follow-up, is work on leg 27 itself.
+	const numberedSaid = said.words.filter(isNumbered);
 	const numberedParts = new Set(
-		said.words.filter(isNumbered).flatMap((id) => id.split(/[-_]/u)),
+		numberedSaid.flatMap((id) => id.split(/[-_]/u)),
 	);
 	const holdsOtherNumber = (address: string, word: string) =>
 		numberedParts.has(word) &&
@@ -564,8 +566,15 @@ function routeAs(
 			(held) =>
 				isNumbered(held) &&
 				held.split(/[-_]/u).includes(word) &&
-				!saysWord(held, saying),
+				!saysWord(held, saying) &&
+				!numberedSaid.some((id) => bounded(held).includes(bounded(id))),
 		);
+	// Whether a cell works on a word as the need reads it: the one test
+	// every finding, naming and ranking below reads a word by, the
+	// asker's own included, so none of them takes a leg-26 cell's leg for
+	// work on leg 27.
+	const worksOnWord = (address: string, word: string) =>
+		holds(address, word) && !holdsOtherNumber(address, word);
 	const asked = {
 		...said,
 		words: keptWords(said, reach.foragers, {
@@ -597,17 +606,17 @@ function routeAs(
 		...(refusing.size > 0 ? { stopped: [...refusing] } : {}),
 	});
 	const ownWord = (word: string) =>
-		[...selves].some((self) => holds(self, word));
+		[...selves].some((self) => worksOnWord(self, word));
 	if (asked.words.length > 0 && asked.words.every(ownWord)) {
 		return record([], asked.asker);
 	}
 	const holders = (word: string) =>
 		reach.foragers.filter(
-			(cell) => takes(cell.address) && holds(cell.address, word),
+			(cell) => takes(cell.address) && worksOnWord(cell.address, word),
 		);
 	/** Whether a cell would take it but has ended, noting it when so. */
 	const endedHolder = (address: string, word: string) => {
-		const gone = ended(address) && holds(address, word);
+		const gone = ended(address) && worksOnWord(address, word);
 		if (gone) passed.set(word, (passed.get(word) ?? new Set()).add(address));
 		return gone;
 	};
@@ -617,7 +626,7 @@ function routeAs(
 	const everyHolder = (word: string) =>
 		reach.foragers.filter(
 			({ address }) =>
-				(takes(address) || ended(address)) && holds(address, word),
+				(takes(address) || ended(address)) && worksOnWord(address, word),
 		).length;
 	const rarest = asked.words
 		.filter((word) => !ownWord(word))
@@ -635,7 +644,7 @@ function routeAs(
 		for (const { word } of rarest) {
 			for (const { address } of reach.foragers) {
 				endedHolder(address, word);
-				if (stops(address) && holds(address, word)) refusing.add(address);
+				if (stops(address) && worksOnWord(address, word)) refusing.add(address);
 			}
 		}
 		return record([], null);
@@ -645,20 +654,16 @@ function routeAs(
 	const lacking = rarest.map(({ word }) => word);
 
 	const fitsOn = (address: string, word: string) =>
-		takes(address) && holds(address, word) && !holdsOtherNumber(address, word);
+		takes(address) && worksOnWord(address, word);
 	// How much of the need a cell works on, read as fitsOn reads a word,
 	// so a leg-26 cell never counts the leg of a need for leg-27.
 	const most = (address: string) =>
-		asked.words.filter(
-			(word) => holds(address, word) && !holdsOtherNumber(address, word),
-		).length;
+		asked.words.filter((word) => worksOnWord(address, word)).length;
 	// How much of what the asker lacks a cell works on: the words its
 	// owner is judged by, since a word the asker holds routes nowhere and
 	// an ended sibling holding it owns nothing the live fit can't take.
 	const needed = (address: string) =>
-		lacking.filter(
-			(word) => holds(address, word) && !holdsOtherNumber(address, word),
-		).length;
+		lacking.filter((word) => worksOnWord(address, word)).length;
 	// A fit is weighed by what the asker lacks first, since a word it
 	// holds routes nowhere, then by the whole need, so of cells as useful
 	// the one nearer the asker's own work.
@@ -748,9 +753,7 @@ function routeAs(
 	// A word no cell works on as this need reads it, a leg-26 cell's leg
 	// for a need for leg-27, is no ended cell's either, so goes unsaid.
 	const worksOn = (address: string, word: string) =>
-		!selves.has(address) &&
-		holds(address, word) &&
-		!holdsOtherNumber(address, word);
+		!selves.has(address) && worksOnWord(address, word);
 	const unheld = lacking.filter((word) => {
 		const workers = reach.foragers.filter(({ address }) =>
 			worksOn(address, word),
@@ -774,9 +777,7 @@ function routeAs(
 		if (
 			ended(address) &&
 			heardWithin(reach.ties, address, said.at) &&
-			unheld.some(
-				(word) => holds(address, word) && !holdsOtherNumber(address, word),
-			)
+			unheld.some((word) => worksOnWord(address, word))
 		) {
 			named.add(address);
 		}
