@@ -167,7 +167,14 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		m.talks.settled(event.aborted);
 		// pi reads idle from here; a Park asked for mid-run parks it once
 		// this settle has been said, never from within it.
-		setImmediate(() => m.pausing.settled());
+		setImmediate(() => {
+			try {
+				m.pausing.settled();
+			} catch {
+				// A session replaced since its run settled is no longer this
+				// one's to park, and nothing is left here to say it to.
+			}
+		});
 	});
 	m.pi.on("agent_end", async () => {
 		f.lookAgain();

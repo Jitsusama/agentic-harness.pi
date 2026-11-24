@@ -509,7 +509,13 @@ export function watch(
 	// as parking is on at all.
 	const askedAfterMs = (): number | undefined =>
 		dueAfterMs() === undefined ? undefined : 0;
-	const decide = (goesOn = false, asked = false): string | undefined => {
+	// A check answers what would refuse a park once the run settles, and
+	// parks nothing, writing nothing its holder would read.
+	const decide = (
+		goesOn = false,
+		asked = false,
+		check = false,
+	): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
@@ -525,8 +531,9 @@ export function watch(
 		}
 		const why = whyNotPark({
 			...holding(),
-			// Between turns, the run holds nothing the next start loses.
-			...(goesOn ? { agentIdle: true } : {}),
+			// Between turns, the run holds nothing the next start loses; a
+			// check is asked of a run about to be stopped.
+			...(goesOn || check ? { agentIdle: true } : {}),
 			idleMs: now() - last,
 			afterMs,
 			refusals: ask.refusals,
@@ -535,6 +542,7 @@ export function watch(
 		const away = unheld();
 		if (away !== undefined) return away;
 		const sessionFile = ctx.sessionManager.getSessionFile() ?? "";
+		if (check) return undefined; // Naming its next start tells its holder.
 		// A host wakes it from its log as it resumes it; plain pi's holder
 		// has to be told how to start it again.
 		const unnamed = parkingHost()
@@ -697,9 +705,21 @@ export function watch(
 	};
 	const unparked = bus.on(PARK_NOW_ASK, (data) => {
 		if (!isParkNowAsk(data) || data.session !== session) return;
-		const why = parkNow();
-		if (why === undefined) data.parked = true;
-		else data.why = why;
+		// Answered whatever it meets, since unanswered reads as nothing wakes it.
+		try {
+			if (data.check === true) {
+				const why = decide(false, true, true);
+				if (why === undefined) data.ready = true;
+				else data.why = why;
+				return;
+			}
+			const why = parkNow();
+			if (why === undefined) data.parked = true;
+			else data.why = why;
+		} catch (error) {
+			const said = error instanceof Error ? error.message : String(error);
+			data.why = `its park failed: ${said || "with no reason given"}`;
+		}
 	});
 	const unasked = bus.on(RESTART_ASK, (data) => {
 		if (!isRestartAsk(data) || data.session !== session) return;

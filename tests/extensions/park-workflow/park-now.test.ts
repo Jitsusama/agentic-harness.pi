@@ -4,7 +4,7 @@
  * everything else that holds a park still does.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
@@ -86,8 +86,8 @@ const watching = (env: NodeJS.ProcessEnv = holder(), desk?: Desk) =>
 	});
 
 /** Ask on the bus, as the mesh's pausing does, answering what came back. */
-const ask = (session = SESSION): ParkNowAsk => {
-	const asked: ParkNowAsk = { session };
+const ask = (session = SESSION, check = false): ParkNowAsk => {
+	const asked: ParkNowAsk = { session, ...(check ? { check } : {}) };
 	events.emit(PARK_NOW_ASK, asked);
 	return asked;
 };
@@ -147,6 +147,51 @@ describe("parking now, as the person asked", () => {
 			session: "01a1af3c-0000-7b80-990f-000000000000",
 		});
 		expect(exits).toEqual([]);
+	});
+
+	// Asked mid-run, before the run is stopped for the park.
+	it("checks mid-run without parking, counting the run as settled", () => {
+		watching();
+		idle = false;
+
+		expect(ask(SESSION, true)).toEqual({
+			session: SESSION,
+			check: true,
+			ready: true,
+		});
+		expect(exits).toEqual([]);
+		expect(readParked(SESSION, folder)).toBeUndefined();
+		expect(
+			existsSync(join(folder, "held.again")),
+			"its holder told nothing",
+		).toBe(false);
+		expect(existsSync(join(folder, "held.wake")), "nothing woken").toBe(false);
+	});
+
+	it("checks mid-run what would still hold it once its run settles", () => {
+		watching();
+		idle = false;
+		typed = "half a thought";
+
+		expect(ask(SESSION, true).why).toBe("text is typed and unsent");
+		expect(exits).toEqual([]);
+	});
+
+	it("answers why its park failed, rather than leaving the ask unanswered", () => {
+		watch(session(), events, {
+			env: holder(),
+			args: [],
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => 1_000,
+			exitWith: () => {
+				throw new Error("its holder is gone");
+			},
+			clock: false,
+		});
+
+		expect(ask().why).toBe("its park failed: its holder is gone");
 	});
 
 	it("answers nothing once its watch has stopped", () => {

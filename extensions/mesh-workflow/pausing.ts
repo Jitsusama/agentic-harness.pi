@@ -15,8 +15,10 @@
  *   message, a key or a window wakes it, as a park after an idle hour
  *   does (park-workflow). It is refused, saying why, where anything else
  *   holds it, where parking is off, or where neither a holder nor a host
- *   keeps it to wake it, since parking that one would only end it. A
- *   talk, Resume, Stop, Close or Carry before it lands calls it off.
+ *   keeps it to wake it, since parking that one would only end it;
+ *   mid-run, that is asked before the turn is ended, so a refused Park
+ *   leaves the run going. A talk, Resume, Stop, Pause, Close or Carry
+ *   before it lands calls it off.
  * - Close ends the session for good, as /exit does: any run in progress
  *   is ended, then pi shuts down, so its record reads closed rather
  *   than lost and nothing offers it back unasked. Its quest, trees and
@@ -116,6 +118,11 @@ export interface PausingHost {
 	 * holds it; answers why not.
 	 */
 	readonly park: () => string | undefined;
+	/**
+	 * What would refuse a park once its run settles, parking nothing, so a
+	 * Park asked mid-run stops the run only where it will park.
+	 */
+	readonly parkable: () => string | undefined;
 }
 
 /** Pausing for one session. */
@@ -188,7 +195,12 @@ export function createPausing(host: PausingHost): Pausing {
 		at: string | undefined,
 		why: string,
 	) => {
-		const line = `${what} ${steeredBy(from)}, written at ${at ?? "no time"}, was dropped: it came before ${why}.`;
+		const line = `${what} ${steeredBy(from)}, written at ${at ?? "no time"}, was dropped: ${why}.`;
+		host.tell(line);
+		host.journal(line);
+	};
+	const refused = (from: string | undefined, why: string) => {
+		const line = `A Park ${steeredBy(from)}, was refused: ${why}.`;
 		host.tell(line);
 		host.journal(line);
 	};
@@ -198,9 +210,7 @@ export function createPausing(host: PausingHost): Pausing {
 			sayAnyway(() => host.journal(`Parked ${steeredBy(from)}.`));
 			return;
 		}
-		const line = `A Park ${steeredBy(from)}, was refused: ${why}.`;
-		host.tell(line);
-		host.journal(line);
+		refused(from, why);
 	};
 	// A Park waiting on its run, called off by what the person did since.
 	const callOffPark = (by: string) => {
@@ -214,24 +224,52 @@ export function createPausing(host: PausingHost): Pausing {
 		},
 		act(act, from, at) {
 			if (act === "stop" && !host.idle() && before(at, runBegan)) {
-				dropped("A Stop", from, at, "the run in progress began");
+				dropped("A Stop", from, at, "it came before the run in progress began");
 				return;
 			}
 			if (act === "pause" && before(at, talkedAt)) {
-				dropped("A Pause", from, at, "the person last talked to this session");
+				dropped(
+					"A Pause",
+					from,
+					at,
+					"it came before the person last talked to this session",
+				);
+				return;
+			}
+			// A Park wakes nothing, so one left for a parked session is read
+			// as it wakes: one that can't say when it was written may be that.
+			if (act === "park" && Number.isNaN(writtenAt(at))) {
+				dropped(
+					"A Park",
+					from,
+					at,
+					"it can't say when it was written, so it may be one left for this session before it woke",
+				);
 				return;
 			}
 			if (act === "park" && before(at, talkedAt)) {
-				dropped("A Park", from, at, "the person last talked to this session");
+				dropped(
+					"A Park",
+					from,
+					at,
+					"it came before the person last talked to this session",
+				);
 				return;
 			}
 			if (act === "park" && before(at, began)) {
-				dropped("A Park", from, at, "this session last started");
+				dropped("A Park", from, at, "it came before this session last started");
 				return;
 			}
 			if (act === "park") {
 				if (host.idle()) {
 					park(from);
+					return;
+				}
+				// Asked first, so a Park that would be refused never stops the
+				// person's run for nothing.
+				const why = host.parkable();
+				if (why !== undefined) {
+					refused(from, why);
 					return;
 				}
 				parking = { from };
