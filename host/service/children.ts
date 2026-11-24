@@ -198,11 +198,11 @@ export const hostProcReads: ProcReads = {
 };
 
 /**
- * How long a memory answer waits on a child's Pss: well within the 30 s
- * a client waits on the answer, and long past the milliseconds a read
- * takes when nothing holds it up.
+ * How long a memory answer waits on a Pss, the host's or a child's: well
+ * within the 30 s a client waits on the answer, and long past the
+ * milliseconds a read takes when nothing holds it up.
  */
-const PSS_WAIT_MS = 5_000;
+export const PSS_WAIT_MS = 5_000;
 
 /** How a memory answer reads a child's Pss, nothing where it can't be had. */
 export type ReadPss = (

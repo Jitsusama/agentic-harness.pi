@@ -14,6 +14,7 @@ import {
 	hostBackend,
 	type Prepared,
 } from "../../../host/service/backend.ts";
+import { PSS_WAIT_MS } from "../../../host/service/children.ts";
 import { controlRequest, drainHost } from "../../../host/service/client.ts";
 import { conversationEvents } from "../../../host/service/conversation-events.ts";
 import {
@@ -246,6 +247,32 @@ describe("hostBackend", () => {
 		if (process.platform === "linux")
 			expect(own.pss, "its Pss").toBeGreaterThan(1024 * 1024);
 		else expect(own, "no Pss off Linux").not.toHaveProperty("pss");
+	});
+
+	it("answers its own Pss as read in time, and its heap without it once the read is late", async () => {
+		const read = backendWith(engine().fake, undefined, {
+			ownPss: async () => 3000,
+		});
+		expect(
+			parseMemoryResult(await read.execute({ v: 1, id: "m", op: "memory" })).own
+				.pss,
+			"read in time",
+		).toBe(3000);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const stuck = backendWith(engine().fake, undefined, {
+				ownPss: () => new Promise<number | undefined>(() => {}),
+			});
+			const asked = stuck.execute({ v: 1, id: "m2", op: "memory" });
+			await vi.advanceTimersByTimeAsync(PSS_WAIT_MS);
+			const { own } = parseMemoryResult(await asked);
+
+			expect(own.heap?.used, "its heap still answered").toBeGreaterThan(0);
+			expect(own, "its Pss left out").not.toHaveProperty("pss");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("undoes a start that never registered, but keeps one that registered and failed", async () => {

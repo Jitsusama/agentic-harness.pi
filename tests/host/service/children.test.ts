@@ -922,6 +922,58 @@ describe("a host's memory with conversations in children", () => {
 			],
 		});
 	});
+	it("answers every child queued behind a stuck read within one wait, each unread", async () => {
+		const second = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 1 },
+		};
+		const third = {
+			...running,
+			owner: { ...running.owner, pid: running.owner.pid + 2 },
+		};
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		held.hold(conversation(b), { socket: childPath, identity: second });
+		held.hold(conversation(c), { socket: childPath, identity: third });
+		const queued = oneReadAtOnce((pid) =>
+			pid === running.owner.pid
+				? new Promise<number | undefined>(() => {})
+				: Promise.resolve(3000),
+		);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			let answer: unknown;
+			const asked = listingChildren(own, held, (owner) => queued(owner.pid), 50)
+				.execute({ v: 1, id: "m", op: "memory" })
+				.then((given) => {
+					answer = given;
+				});
+			await vi.advanceTimersByTimeAsync(50);
+
+			expect(answer, "answered once one wait has passed").toBeDefined();
+			expect(parseMemoryResult(answer).sessions).toStrictEqual([
+				{ sessionId: a, state: "idle" },
+				{ sessionId: b, state: "idle" },
+				{ sessionId: c, state: "idle" },
+			]);
+			await asked;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("reads each child's Pss through the host's own reads unless given another", async () => {
+		const held = heldChildren(() => new Date(at));
+		held.hold(conversation(a), { socket: childPath, identity: running });
+		const through = vi.spyOn(hostProcReads, "pss");
+		try {
+			await listingChildren(own, held).execute({ v: 1, id: "m", op: "memory" });
+
+			expect(through).toHaveBeenCalledWith(running.owner.pid);
+		} finally {
+			through.mockRestore();
+		}
+	});
 	it("gives a pid's read in progress to each caller of the host's own reads", async () => {
 		const first = hostProcReads.pss(running.owner.pid);
 		const again = hostProcReads.pss(running.owner.pid);
